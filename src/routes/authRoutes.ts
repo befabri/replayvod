@@ -1,10 +1,11 @@
 import express from "express";
 import passport from "passport";
+import querystring from "querystring";
 
 const router = express.Router();
 const REDIRECT_URL = "http://localhost:5173/vod";
 
-router.get("/twitch", passport.authenticate("twitch", { scope: "user_read" }));
+router.get("/twitch", passport.authenticate("twitch", { scope: ["user:read:email", "user:read:follows"] }));
 
 router.get(
   "/twitch/callback",
@@ -21,7 +22,8 @@ router.get("/check-session", (req, res) => {
 
 router.get("/user", (req, res) => {
   if (req.session?.passport?.user) {
-    res.json(req.session.passport.user);
+    const { accessToken, refreshToken, ...user } = req.session.passport.user;
+    res.json(user);
   } else {
     res.status(401).json({ error: "Unauthorized" });
   }

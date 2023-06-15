@@ -50,6 +50,7 @@ passport.use(
     (accessToken: string, refreshToken: string, profile: any, done: any) => {
       profile.accessToken = accessToken;
       profile.refreshToken = refreshToken;
+      profile.twitchId = profile.data[0].id; // Extracting Twitch ID from the profile object
 
       done(null, profile);
     }

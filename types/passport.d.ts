@@ -5,3 +5,9 @@ declare module "express-session" {
     passport: { [key: string]: any };
   }
 }
+
+declare module "express" {
+  export interface Request {
+    session: any;
+  }
+}

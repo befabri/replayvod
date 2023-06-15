@@ -5,8 +5,7 @@ import passport from "passport";
 import path from "path";
 import dotenv from "dotenv";
 import cors from "cors";
-
-import authRoutes from "./routes/auth";
+import routes from "./routes";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
@@ -40,9 +39,7 @@ app.use(
 app.use(express.static("public"));
 app.use(passport.initialize());
 app.use(passport.session());
-
-app.use("/api/auth", authRoutes);
-
+app.use("/api", routes);
 app.listen(3000, () => {
   console.log("Listening on port 3000!");
 });
