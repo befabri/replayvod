@@ -1,3 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.custom-font-color {
+    background-color: #EFEEF0; /* Specify your custom color using hex, RGB, or any other valid CSS color value */
+  }
+  
