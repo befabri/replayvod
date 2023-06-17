@@ -1,5 +1,5 @@
 import axios from "axios";
-import { connect, getDbInstance } from "../models/db";
+import { getDbInstance } from "../models/db";
 
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_SECRET = process.env.TWITCH_SECRET;

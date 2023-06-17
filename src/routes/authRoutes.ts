@@ -1,6 +1,5 @@
 import express from "express";
 import passport from "passport";
-import querystring from "querystring";
 
 const router = express.Router();
 const REDIRECT_URL = "http://localhost:5173/vod";

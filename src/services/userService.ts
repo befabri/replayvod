@@ -1,7 +1,5 @@
-// services/userService.ts
-import axios from "axios";
 import User from "../models/userModel";
-import { connect, getDbInstance } from "../models/db";
+import { getDbInstance } from "../models/db";
 import TwitchAPI from "../utils/twitchAPI";
 import { v4 as uuidv4 } from "uuid";
 import { FollowedChannel, FollowedStream } from "../models/userModel";
