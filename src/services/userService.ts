@@ -149,6 +149,36 @@ class UserService {
     });
     return profilePictures;
   };
+
+  updateUsers = async (userId: string) => {
+    const db = await getDbInstance();
+    const followedChannelsCollection = db.collection("followedChannels");
+    const userFollowedChannels = await followedChannelsCollection.findOne({ userId: userId });
+
+    if (!userFollowedChannels) {
+      throw new Error(`No document found for userId: ${userId}`);
+    }
+
+    const broadcasterIds = userFollowedChannels.channels.map((channel: FollowedChannel) => channel.broadcaster_id);
+    const existingUsers = await this.getMultipleUserDetailsDB(broadcasterIds);
+    const existingUserIds = existingUsers.map((user) => user.id);
+    const newUserIds = broadcasterIds.filter((broadcasterId: string) => !existingUserIds.includes(broadcasterId));
+
+    if (newUserIds.length > 0) {
+      await this.fetchAndStoreUserDetails(newUserIds);
+    }
+    return {
+      message: "Users update complete",
+      newUsers: `${newUserIds.length - existingUserIds.length} users added`,
+    };
+  };
+
+  getUserDetailDBbyName = async (loginName: string) => {
+    const db = await getDbInstance();
+    const followedChannelsCollection = db.collection("users");
+    const user = await followedChannelsCollection.findOne({ login: loginName });
+    return user;
+  };
 }
 
 export default UserService;

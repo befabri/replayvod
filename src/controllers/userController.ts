@@ -119,3 +119,23 @@ export const getUserFollowedChannels = async (req: Request, res: Response) => {
     res.status(500).send("Error fetching followed channels");
   }
 };
+
+export const updateUsers = async (req: Request, res: Response) => {
+  if (!req.session?.passport?.user) {
+    res.status(401).send("Unauthorized");
+    return;
+  }
+  const userId = req.session?.passport?.user?.data[0]?.id;
+  const accessToken = req.session?.passport?.user?.accessToken;
+  if (!userId || !accessToken || userId == undefined) {
+    res.status(500).send("Error fetching followed streams");
+    return;
+  }
+  try {
+    const result = await userService.updateUsers(userId);
+    res.status(200).send(result);
+  } catch (error) {
+    console.error("Error updating users:", error);
+    res.status(500).send("Error updating users");
+  }
+};

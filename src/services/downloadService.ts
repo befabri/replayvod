@@ -17,6 +17,21 @@ class downloadService {
     console.log(user);
     return "Successful registration planning";
   }
+
+  async saveVideoInfo(userRequesting: string, broadcasterId: string, displayName: string, videoName: string) {
+    const db = await getDbInstance();
+    const videoCollection = db.collection("videos");
+
+    const videoData = {
+      filename: videoName,
+      downloaded_at: new Date(),
+      requested_by: userRequesting,
+      broadcaster_id: broadcasterId,
+      display_name: displayName,
+    };
+
+    return videoCollection.insertOne(videoData);
+  }
 }
 
 export default downloadService;

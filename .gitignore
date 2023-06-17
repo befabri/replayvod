@@ -4,3 +4,7 @@ node_modules
 videos
 public
 TODO
+TODO.md
+cookies.txt
+*.txt
+videoInfo.json
