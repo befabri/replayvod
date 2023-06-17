@@ -4,10 +4,11 @@ import { userAuthenticated } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
-router.get("/follows", userAuthenticated, userController.followList);
-router.get("/users/:id", userAuthenticated, userController.getUserDetail);
-router.put("/users/:id", userAuthenticated, userController.updateUserDetail);
-router.get("/users", userAuthenticated, userController.getMultipleUserDetailsFromDB);
-router.post("/fetchAndStoreUsers", userAuthenticated, userController.fetchAndStoreUserDetails);
+router.get("/me/followedstreams", userAuthenticated, userController.getUserFollowedStreams);
+router.get("/:id", userAuthenticated, userController.getUserDetail);
+router.put("/:id", userAuthenticated, userController.updateUserDetail);
+router.get("/", userAuthenticated, userController.getMultipleUserDetailsFromDB);
+router.post("/", userAuthenticated, userController.fetchAndStoreUserDetails);
+router.get("/me/followedchannels", userAuthenticated, userController.getUserFollowedChannels);
 
 export default router;

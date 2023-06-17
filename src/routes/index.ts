@@ -7,7 +7,7 @@ import { CustomError } from "../types/types";
 const router: Router = express.Router();
 
 router.use("/auth", authRoutes);
-router.use("/user", userRoutes);
+router.use("/users", userRoutes);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   const error: CustomError = new Error("Not Found");
