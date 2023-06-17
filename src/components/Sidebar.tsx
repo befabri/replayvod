@@ -46,7 +46,7 @@ const Sidebar: React.FC = () => {
             </li>
             <li>
               <a
-                href="vod"
+                href="/vod"
                 className="flex items-center p-2 text-gray-900 rounded-lg dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <Icon icon="mdi:play" width="18" height="18" />
@@ -70,7 +70,7 @@ const Sidebar: React.FC = () => {
               <ul id="dropdown-example" className="py-2 space-y-2">
                 <li>
                   <a
-                    href="add"
+                    href="/add"
                     className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700"
                   >
                     Ajouter
@@ -78,7 +78,7 @@ const Sidebar: React.FC = () => {
                 </li>
                 <li>
                   <a
-                    href="follows"
+                    href="/following"
                     className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700"
                   >
                     Chaines suivies
@@ -89,7 +89,7 @@ const Sidebar: React.FC = () => {
             </li>
             <li>
               <a
-                href="settings"
+                href="/settings"
                 className="flex items-center p-2 text-gray-900 rounded-lg dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <Icon icon="mdi:cog" width="18" height="18" />

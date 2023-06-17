@@ -6,3 +6,6 @@
     background-color: #EFEEF0; /* Specify your custom color using hex, RGB, or any other valid CSS color value */
   }
   
+  body{
+    @apply dark:bg-gray-900
+  }

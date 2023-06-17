@@ -4,10 +4,11 @@ import Navbar from "./components/Navbar";
 import Sidebar from "./components/Sidebar";
 import Vod from "./pages/Vod";
 import Settings from "./pages/Settings.tsx";
-import Follows from "./pages/Follows.tsx";
+import Following from "./pages/Following.tsx";
 import AddChannel from "./pages/AddChannel.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
 import Login from "./pages/Login.tsx";
+import Channel from "./pages/Channel.tsx";
 
 export default function App() {
   return (
@@ -20,8 +21,9 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/add" element={<AddChannel />} />
-          <Route path="/follows" element={<Follows />} />
+          <Route path="/following" element={<Following />} />
           <Route path="/vod" element={<Vod />} />
+          <Route path="/channel/:id" element={<Channel />} />
         </Route>
       </Routes>
     </AuthProvider>
@@ -59,7 +61,6 @@ function RequireAuth() {
       </div>
     );
   }
-  console.log(auth);
   if (!auth.user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
