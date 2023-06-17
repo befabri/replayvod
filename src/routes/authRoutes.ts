@@ -1,31 +1,24 @@
 import express from "express";
 import passport from "passport";
+import * as authController from "../controllers/authController";
 
 const router = express.Router();
-const REDIRECT_URL = "http://localhost:5173/vod";
+const REDIRECT_URL = "http://localhost:5173/";
 
-router.get("/twitch", passport.authenticate("twitch", { scope: ["user:read:email", "user:read:follows"] }));
+router.get(
+  "/twitch",
+  passport.authenticate("twitch", { scope: ["user:read:email", "user:read:follows"] }),
+  authController.handleTwitchAuth
+);
 
 router.get(
   "/twitch/callback",
-  passport.authenticate("twitch", { successRedirect: REDIRECT_URL, failureRedirect: "/" })
+  passport.authenticate("twitch", { successRedirect: REDIRECT_URL, failureRedirect: "/" }),
+  authController.handleTwitchCallback
 );
 
-router.get("/check-session", (req, res) => {
-  if (req.session?.passport?.user) {
-    res.status(200).json({ status: "authenticated" });
-  } else {
-    res.status(200).json({ status: "not authenticated" });
-  }
-});
+router.get("/check-session", authController.checkSession);
 
-router.get("/user", (req, res) => {
-  if (req.session?.passport?.user) {
-    const { accessToken, refreshToken, ...user } = req.session.passport.user;
-    res.json(user);
-  } else {
-    res.status(401).json({ error: "Unauthorized" });
-  }
-});
+router.get("/user", authController.getUser);
 
 export default router;

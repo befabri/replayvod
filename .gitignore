@@ -1,3 +1,6 @@
 .env
 dist
 node_modules
+videos
+public
+TODO
