@@ -5,6 +5,7 @@ import path from "path";
 import dotenv from "dotenv";
 import cors from "cors";
 import routes from "./routes";
+import moment from "moment-timezone";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
@@ -13,6 +14,7 @@ import "./middlewares/passport";
 const app = express();
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
+moment.tz.setDefault("Europe/Paris");
 
 if (!SESSION_SECRET) {
   console.error("No session secret provided. Shutting down...");

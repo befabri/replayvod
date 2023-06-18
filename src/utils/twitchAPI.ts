@@ -1,13 +1,14 @@
 import axios from "axios";
 import { getAppAccessToken } from "../utils/twitchUtils";
-import { FollowedChannel, FollowedStream } from "../models/userModel";
 import { chunkArray } from "../utils/utils";
+import { Stream, User, FollowedChannel, FollowedStream } from "../models/twitchModel";
+
 import dotenv from "dotenv";
 dotenv.config();
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 
 class TwitchAPI {
-  async getUser(userId: string) {
+  async getUser(userId: string): Promise<User | null> {
     try {
       const response = await axios.get(`https://api.twitch.tv/helix/users?id=${userId}`, {
         headers: {
@@ -16,14 +17,14 @@ class TwitchAPI {
         },
       });
 
-      return response.data.data[0];
+      return response.data.data[0] || null;
     } catch (error) {
       console.error("Error fetching user details from Twitch API:", error);
       throw new Error("Failed to fetch user details from Twitch API");
     }
   }
 
-  async getUsers(userIds: string[]) {
+  async getUsers(userIds: string[]): Promise<User[]> {
     try {
       const accessToken = await getAppAccessToken();
       const userIdChunks = chunkArray(userIds, 100);
@@ -87,6 +88,45 @@ class TwitchAPI {
     const { data, pagination } = response.data;
     if (pagination && pagination.cursor) {
       const nextPageData = await this.getAllFollowedStreams(userId, accessToken, pagination.cursor);
+      return data.concat(nextPageData);
+    } else {
+      return data;
+    }
+  }
+
+  async getStreamByUserId(userId: string): Promise<Stream> {
+    try {
+      const accessToken = await getAppAccessToken();
+      const response = await axios.get(`https://api.twitch.tv/helix/streams?user_id=${userId}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Client-ID": TWITCH_CLIENT_ID,
+        },
+      });
+      return response.data.data[0] || null;
+    } catch (error) {
+      console.error("Error fetching stream details from Twitch API:", error);
+      throw new Error("Failed to fetch stream details from Twitch API");
+    }
+  }
+
+  async getAllGames(cursor?: string): Promise<any[]> {
+    const accessToken = await getAppAccessToken();
+    const response = await axios.get("https://api.twitch.tv/helix/games/top", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Client-ID": TWITCH_CLIENT_ID,
+      },
+      params: {
+        first: 100,
+        after: cursor,
+      },
+    });
+
+    const { data, pagination } = response.data;
+    if (pagination && pagination.cursor) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const nextPageData = await this.getAllGames(pagination.cursor);
       return data.concat(nextPageData);
     } else {
       return data;
