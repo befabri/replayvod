@@ -21,7 +21,6 @@ export interface FollowedChannel {
   broadcaster_login: string;
   broadcaster_name: string;
   followed_at: string;
-  
 }
 
 export interface FollowedStream {
