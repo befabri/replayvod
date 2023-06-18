@@ -25,18 +25,21 @@ class downloadService {
     displayName: string,
     videoName: string,
     startAt: Date,
-    status: string
+    status: string,
+    jobId: string
   ) {
     const db = await getDbInstance();
     const videoCollection = db.collection("videos");
 
     const videoData = {
       filename: videoName,
-      start_download_at: startAt,
       status: status,
-      requested_by: userRequesting,
-      broadcaster_id: broadcasterId,
       display_name: displayName,
+      broadcaster_id: broadcasterId,
+      requested_by: userRequesting,
+      start_download_at: startAt,
+      downloaded_at: "",
+      job_id: jobId,
     };
 
     return videoCollection.insertOne(videoData);
@@ -61,21 +64,44 @@ class downloadService {
     userRequesting: string,
     broadcasterId: string,
     displayName: string,
-    videoName: string,
-    cookiesFilePath: string
+    login: string,
+    videoPath: string,
+    cookiesFilePath: string,
+    jobId: string
   ) {
     const startAt = new Date();
-    await this.saveVideoInfo(userRequesting, broadcasterId, displayName, videoName, startAt, "Pending");
-    await youtubedl.exec(`https://www.twitch.tv/${broadcasterId}`, {
-      output: videoName,
+    await this.saveVideoInfo(userRequesting, broadcasterId, displayName, videoPath, startAt, "Pending", jobId);
+    await youtubedl.exec(`https://www.twitch.tv/${login}`, {
+      output: videoPath,
       cookies: cookiesFilePath,
     });
-    return videoName;
+    return videoPath;
   }
 
-  async finishDownload(videoName: string) {
+  async finishDownload(videoPath: string) {
     const endAt = new Date();
-    await this.updateVideoInfo(videoName, endAt, "Finished");
+    await this.updateVideoInfo(videoPath, endAt, "Finished");
+  }
+
+  async findPendingJob(broadcaster_id: string) {
+    const db = await getDbInstance();
+    const jobCollection = db.collection("videos");
+
+    return jobCollection.findOne({ broadcaster_id, status: "Pending" });
+  }
+
+  static async setVideoFailed(jobId: string) {
+    const db = await getDbInstance();
+    const videoCollection = db.collection("videos");
+
+    return videoCollection.updateOne(
+      { job_id: jobId },
+      {
+        $set: {
+          status: "Failed",
+        },
+      }
+    );
   }
 }
 

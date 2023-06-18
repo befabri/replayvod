@@ -41,24 +41,35 @@ export const downloadStream = async (req: Request, res: Response) => {
     return;
   }
   const userId = req.session.passport.user.data[0].id;
-  const displayName = user.display_name;
-  const finalFilePath = `public/videos/${displayName}.mp4`;
+  const finalFilePath = `public/videos/${user.display_name}.mp4`;
   const cookiesFilePath = `cookies.txt`;
-  const jobId = jobService.createJob(async () => {
+  const pendingJob = await downloadService.findPendingJob(broadcaster_id);
+  if (pendingJob) {
+    res
+      .status(400)
+      .json({ message: "There is already a job running for this broadcaster.", jobId: pendingJob.id });
+    return;
+  }
+
+  const jobId = jobService.createJobId();
+  jobService.createJob(jobId, async () => {
     try {
-      const videoName = await downloadService.startDownload(
+      const video = await downloadService.startDownload(
         userId,
         broadcaster_id,
-        displayName,
+        user.display_name,
+        user.login,
         finalFilePath,
-        cookiesFilePath
+        cookiesFilePath,
+        jobId
       );
-      await downloadService.finishDownload(videoName);
+      await downloadService.finishDownload(finalFilePath);
     } catch (error) {
       console.error("Error saving video info:", error);
       throw error;
     }
   });
+
   res.json({ jobId });
 };
 
