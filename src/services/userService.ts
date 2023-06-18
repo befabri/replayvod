@@ -1,8 +1,7 @@
-import User from "../models/userModel";
 import { getDbInstance } from "../models/db";
 import TwitchAPI from "../utils/twitchAPI";
 import { v4 as uuidv4 } from "uuid";
-import { FollowedChannel, FollowedStream } from "../models/userModel";
+import { Stream, User, FollowedChannel, FollowedStream } from "../models/twitchModel";
 
 class UserService {
   twitchAPI: TwitchAPI;

@@ -2,11 +2,14 @@ import { Request, Response } from "express";
 import DownloadService from "../services/downloadService";
 import UserService from "../services/userService";
 import JobService from "../services/jobService";
-import { User } from "../models/userModel";
+import { User } from "../models/twitchModel";
+import TwitchAPI from "../utils/twitchAPI";
+import moment from "moment-timezone";
 
 const jobService = new JobService();
 const userService = new UserService();
 const downloadService = new DownloadService();
+const twitchAPI = new TwitchAPI();
 
 export const scheduleUser = async (req: Request, res: Response) => {
   if (!req.session?.passport?.user) {
@@ -34,16 +37,24 @@ export const downloadStream = async (req: Request, res: Response) => {
     res.status(401).send("Unauthorized");
     return;
   }
-  const broadcaster_id = req.params.id;
-  const user = (await userService.getUserDetailDB(broadcaster_id)) as User;
+  const broadcasterId = req.params.id;
+  const user = (await userService.getUserDetailDB(broadcasterId)) as User;
   if (!user) {
     res.status(404).send("User not found");
     return;
   }
+
+  const stream = await twitchAPI.getStreamByUserId(broadcasterId);
+  if (stream === null) {
+    res.status(400).json({ message: "Stream is offline" });
+    return;
+  }
   const userId = req.session.passport.user.data[0].id;
-  const finalFilePath = `public/videos/${user.display_name}.mp4`;
+  const currentDate = moment().format("DDMMYYYY-HHmmss");
+  const filename = `${user.display_name.toLowerCase()}_${currentDate}.mp4`;
+  const finalFilePath = `public/videos/${filename}`;
   const cookiesFilePath = `cookies.txt`;
-  const pendingJob = await downloadService.findPendingJob(broadcaster_id);
+  const pendingJob = await downloadService.findPendingJob(broadcasterId);
   if (pendingJob) {
     res
       .status(400)
@@ -56,12 +67,13 @@ export const downloadStream = async (req: Request, res: Response) => {
     try {
       const video = await downloadService.startDownload(
         userId,
-        broadcaster_id,
+        broadcasterId,
         user.display_name,
         user.login,
         finalFilePath,
         cookiesFilePath,
-        jobId
+        jobId,
+        stream
       );
       await downloadService.finishDownload(finalFilePath);
     } catch (error) {

@@ -9,6 +9,10 @@ const videoService = new VideoService();
 
 export const playVideo = async (req: Request, res: Response) => {
   const videoId = req.params.id;
+  if (videoId === "undefined") {
+    res.status(400).send("Invalid video id");
+    return;
+  }
   const video = await videoService.getVideoById(videoId);
   if (!video) {
     res.status(404).send("Video not found in database");
