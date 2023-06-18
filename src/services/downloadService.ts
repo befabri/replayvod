@@ -57,7 +57,13 @@ class downloadService {
     );
   }
 
-  async startDownload(userRequesting: string, broadcasterId: string, displayName: string, videoName: string, cookiesFilePath: string) {
+  async startDownload(
+    userRequesting: string,
+    broadcasterId: string,
+    displayName: string,
+    videoName: string,
+    cookiesFilePath: string
+  ) {
     const startAt = new Date();
     await this.saveVideoInfo(userRequesting, broadcasterId, displayName, videoName, startAt, "Pending");
     await youtubedl.exec(`https://www.twitch.tv/${broadcasterId}`, {
@@ -66,12 +72,11 @@ class downloadService {
     });
     return videoName;
   }
-  
+
   async finishDownload(videoName: string) {
     const endAt = new Date();
     await this.updateVideoInfo(videoName, endAt, "Finished");
   }
-}
 }
 
 export default downloadService;
