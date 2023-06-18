@@ -38,7 +38,7 @@ class UserService {
         );
       }
       await fetchLogCollection.insertOne({ userId: userId, fetchedAt: new Date(), fetchId: fetchId });
-      return { data: followedStreams };
+      return followedStreams;
     } catch (error) {
       console.error("Error fetching followed streams:", error);
       throw new Error("Error fetching followed streams");

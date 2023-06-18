@@ -10,17 +10,36 @@ export const getUserFollowedStreams = async (req: Request, res: Response) => {
   }
   const userId = req.session?.passport?.user?.data[0]?.id;
   const accessToken = req.session?.passport?.user?.accessToken;
-
   if (!userId || !accessToken || userId == undefined) {
     res.status(500).send("Error fetching followed streams");
     return;
   }
   try {
-    const result = await userService.getUserFollowedStreams(userId, accessToken);
-    res.json(result);
+    const followedStreams = await userService.getUserFollowedStreams(userId, accessToken);
+    res.json(followedStreams);
   } catch (error) {
     console.error("Error fetching followed streams:", error);
     res.status(500).send("Error fetching followed streams");
+  }
+};
+
+export const getUserFollowedChannels = async (req: Request, res: Response) => {
+  if (!req.session?.passport?.user) {
+    res.status(401).send("Unauthorized");
+    return;
+  }
+  const userId = req.session?.passport?.user?.data[0]?.id;
+  const accessToken = req.session?.passport?.user?.accessToken;
+  if (!userId || !accessToken || userId == undefined) {
+    res.status(500).send("Error fetching followed streams");
+    return;
+  }
+  try {
+    const followedChannels = await userService.getUserFollowedChannels(userId, accessToken);
+    res.json(followedChannels);
+  } catch (error) {
+    console.error("Error fetching followed channels:", error);
+    res.status(500).send("Error fetching followed channels");
   }
 };
 
@@ -97,26 +116,6 @@ export const fetchAndStoreUserDetails = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error fetching and storing user details:", error);
     res.status(500).send("Error fetching and storing user details");
-  }
-};
-
-export const getUserFollowedChannels = async (req: Request, res: Response) => {
-  if (!req.session?.passport?.user) {
-    res.status(401).send("Unauthorized");
-    return;
-  }
-  const userId = req.session?.passport?.user?.data[0]?.id;
-  const accessToken = req.session?.passport?.user?.accessToken;
-  if (!userId || !accessToken || userId == undefined) {
-    res.status(500).send("Error fetching followed streams");
-    return;
-  }
-  try {
-    const followedChannels = await userService.getUserFollowedChannels(userId, accessToken);
-    res.json(followedChannels);
-  } catch (error) {
-    console.error("Error fetching followed channels:", error);
-    res.status(500).send("Error fetching followed channels");
   }
 };
 
