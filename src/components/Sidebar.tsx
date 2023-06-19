@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Icon } from "@iconify/react";
+import { useTranslation } from "react-i18next";
 
 const Sidebar: React.FC = () => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const toggle = () => {
     setIsOpen(!isOpen);
@@ -17,15 +19,14 @@ const Sidebar: React.FC = () => {
     };
 
     if (isOpen) {
-      window.addEventListener('click', pageClickEvent);
+      window.addEventListener("click", pageClickEvent);
     }
 
     return () => {
-      window.removeEventListener('click', pageClickEvent);
-    }
-
+      window.removeEventListener("click", pageClickEvent);
+    };
   }, [isOpen]);
-  
+
   return (
     <>
       <aside
@@ -41,7 +42,7 @@ const Sidebar: React.FC = () => {
                 className="flex items-center p-2 text-gray-900 rounded-lg dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <Icon icon="mdi:view-dashboard" width="18" height="18" />
-                <span className="ml-3">Tableau de bord</span>
+                <span className="ml-3">{t("Dashboard")}</span>
               </a>
             </li>
             <li>
@@ -50,7 +51,7 @@ const Sidebar: React.FC = () => {
                 className="flex items-center p-2 text-gray-900 rounded-lg dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <Icon icon="mdi:play" width="18" height="18" />
-                <span className="ml-3">VOD</span>
+                <span className="ml-3">{t("Videos")}</span>
               </a>
             </li>
             <li>
@@ -62,29 +63,29 @@ const Sidebar: React.FC = () => {
               >
                 <Icon icon="mdi:tray-arrow-down" width="18" height="18" />
                 <span className="flex-1 ml-3 text-left whitespace-nowrap" sidebar-toggle-item>
-                  Enregistrement
+                  {t("Recording")}
                 </span>
                 <Icon icon="mdi:chevron-down" width="18" height="18" />
               </button>
               {isOpen && (
-              <ul id="dropdown-example" className="py-2 space-y-2">
-                <li>
-                  <a
-                    href="/add"
-                    className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700"
-                  >
-                    Ajouter
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/following"
-                    className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700"
-                  >
-                    Chaines suivies
-                  </a>
-                </li>
-              </ul>
+                <ul id="dropdown-example" className="py-2 space-y-2">
+                  <li>
+                    <a
+                      href="/add"
+                      className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700"
+                    >
+                      {t("Schedule Videos")}
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="/following"
+                      className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700"
+                    >
+                      {t("Followed Channels")}
+                    </a>
+                  </li>
+                </ul>
               )}
             </li>
             <li>
@@ -93,7 +94,7 @@ const Sidebar: React.FC = () => {
                 className="flex items-center p-2 text-gray-900 rounded-lg dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <Icon icon="mdi:cog" width="18" height="18" />
-                <span className="flex-1 ml-3 whitespace-nowrap">Paramètres</span>
+                <span className="flex-1 ml-3 whitespace-nowrap">{t("Settings")}</span>
               </a>
             </li>
           </ul>
@@ -101,6 +102,6 @@ const Sidebar: React.FC = () => {
       </aside>
     </>
   );
-}
+};
 
 export default Sidebar;

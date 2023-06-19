@@ -1,4 +1,4 @@
-import React, { FC, ChangeEvent, FocusEventHandler } from "react";
+import { FC, ChangeEvent, FocusEventHandler } from "react";
 import classNames from "classnames";
 
 interface InputTextProps {

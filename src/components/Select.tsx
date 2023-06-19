@@ -1,4 +1,4 @@
-import React, { FC, ChangeEvent } from "react";
+import { FC, ChangeEvent } from "react";
 
 interface SelectProps {
   label: string;

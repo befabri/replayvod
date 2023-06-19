@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface Channel {
   broadcaster_id: string;
@@ -28,6 +29,7 @@ interface Stream {
 }
 
 const Follows: React.FC = () => {
+  const { t } = useTranslation();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -59,13 +61,13 @@ const Follows: React.FC = () => {
   }, []);
 
   if (isLoading) {
-    return <div>Chargement...</div>;
+    return <div>{t("Loading")}</div>;
   }
 
   return (
     <div className="p-4 sm:ml-64">
       <div className="p-4 mt-14">
-        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">Chaines Suivies</h1>
+        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Followed Channels")}</h1>
         <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-5">
           {channels.map((channel) => {
             const isLive = streams.some(

@@ -4,8 +4,10 @@ import Select from "../components/Select";
 import ToggleSwitch from "../components/ToggleSwitch";
 import InputNumber from "../components/InputNumber";
 import Button from "../components/Button";
+import { useTranslation } from "react-i18next";
 
 const AddChannel: React.FC = () => {
+  const { t } = useTranslation();
   const [source, setSource] = useState("Une chaine");
   const [channelName, setChannelName] = useState("");
   const [viewersCount, setViewersCount] = useState(0);
@@ -149,32 +151,32 @@ const AddChannel: React.FC = () => {
   };
 
   if (isLoading) {
-    return <p>Loading videos...</p>;
+    return <p>{t("Loading")}</p>;
   }
 
   return (
     <div className="p-4 sm:ml-64">
       <div className="p-4 mt-14">
-        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">Ajouter une chaine à enregistrer</h1>
+        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Schedule Videos")}</h1>
         <div>
           <Select
-            label="Selectionner la source"
+            label={t("Select Provider")}
             id={source}
             value={source}
             onChange={handleSourceChange}
-            options={["Une chaine", "Toutes les chaines suivies", "Toutes les chaines"]}
+            options={[t("A channel"), t("All channels followed"), t("All channels")]}
           />
         </div>
-        {source === "Une chaine" && (
+        {source === t("A channel") && (
           <div className="mt-5">
             <InputText
-              label="Choisir le nom de la chaine"
+              label={t("Channel Name")}
               id="channelName"
               onBlur={handleBlur}
               isValid={isValid}
               value={channelName.toLowerCase().replace(/ /g, "")}
               onChange={handleChannelNameChange}
-              placeholder="Nom de la chaine"
+              placeholder={t("Channel Name")}
               required={true}
               list="possible-matches"
             />
@@ -187,20 +189,20 @@ const AddChannel: React.FC = () => {
         )}
         <div className="mt-5">
           <Select
-            label="Choisir le trigger"
+            label={t("Select a trigger")}
             id={trigger}
             value={trigger}
             onChange={handleTriggerChange}
             options={[
-              "Chaque fois qu'elle lance un live",
-              "Si stream dans une certaine catégorie",
-              "Si utilise un certain tag",
-              "Si dépasse autant de viewer",
+              t("Every time the channel goes live"),
+              t("By category"),
+              t("By Tags"),
+              t("By minimum number of views"),
             ]}
           />
           {trigger === "trigger3" && (
             <Select
-              label="Choisir le tag"
+              label={t("Twitch tags")}
               id={tag}
               value={tag}
               onChange={handleTagChange}
@@ -209,17 +211,17 @@ const AddChannel: React.FC = () => {
           )}
           {trigger === "trigger2" && (
             <Select
-              label="Choisir la qualité du flux"
+              label={t("Live category")}
               id={category}
               value={category}
               onChange={handleCategoryChange}
-              options={["catégorie 1", "catégorie 2", "catégorie 3"]}
+              options={[t("Just Chatting"), "Diablo 4", "Elden Ring"]}
             />
           )}
           {trigger === "trigger4" && (
             <div className="mb-6">
               <InputNumber
-                label=" Nombre de spectateurs"
+                label={t("Minimum number of views")}
                 id="default-input"
                 value={viewersCount}
                 onChange={handleViewersCountChange}
@@ -228,7 +230,7 @@ const AddChannel: React.FC = () => {
           )}
           <div className="mt-5">
             <Select
-              label=" Choisir la qualité du flux"
+              label={t("Video quality")}
               id="quality"
               value={quality}
               onChange={handleQualityChange}
@@ -237,7 +239,7 @@ const AddChannel: React.FC = () => {
           </div>
           <div className="mt-5">
             <ToggleSwitch
-              label="Supprimer la vidéo si la reddifusion est conservée après le stream"
+              label={t("Deletion of the video if the VOD is kept after the stream")}
               id="toggleB"
               checked={isDeleteRediff}
               onChange={handleDeleteRediffChange}
@@ -246,7 +248,7 @@ const AddChannel: React.FC = () => {
             {isDeleteRediff === true && (
               <div className="mb-6">
                 <InputNumber
-                  label="Choisir la durée de fin de stream avant la supression"
+                  label={t("Set the stream end time in minutes before the VOD is suppressed")}
                   id="timeBeforeDelete"
                   value={timeBeforeDelete}
                   onChange={handleTimeBeforeDeleteChange}
@@ -254,7 +256,7 @@ const AddChannel: React.FC = () => {
               </div>
             )}
           </div>
-          <Button text="Confirmer" onClick={submit} />
+          <Button text={t("Submit")} onClick={submit} />
         </div>
       </div>
     </div>

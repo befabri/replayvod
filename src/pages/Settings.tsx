@@ -1,4 +1,5 @@
 import React, { useState, useEffect, ChangeEvent } from "react";
+import { useTranslation } from "react-i18next";
 import moment from "moment-timezone";
 import Button from "../components/Button";
 import Select from "../components/Select";
@@ -7,6 +8,7 @@ import InputNumber from "../components/InputNumber";
 import ToggleSwitch from "../components/ToggleSwitch";
 
 const Settings: React.FC = () => {
+  const { t } = useTranslation();
   const [isSSL, setIsSSL] = useState(false);
   const [port, setPort] = useState(0);
   const [maxVideos, setMaxVideos] = useState(0);
@@ -88,14 +90,14 @@ const Settings: React.FC = () => {
   return (
     <div className="p-4 sm:ml-64">
       <div className="p-4 mt-14">
-        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">Paramètres</h1>
+        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Settings")}</h1>
         <div className="mb-6">
-          <p className="dark:text-stone-100 mb-2">Supprimer toutes les vidéos</p>
-          <Button text="Supprimer" onClick={handleDeleteVideos} />
+          <p className="dark:text-stone-100 mb-2">{t("Delete all videos")}</p>
+          <Button text={t("Delete")} onClick={handleDeleteVideos} />
         </div>
         <div className="mb-6">
           <Select
-            label="Time Zone"
+            label={t("Time Zone")}
             id="timeZone"
             value={timeZone}
             onChange={handleTimeZoneChange}
@@ -104,7 +106,7 @@ const Settings: React.FC = () => {
         </div>
         <div className="mb-6">
           <Select
-            label="DateTime Format"
+            label={t("DateTime Format")}
             id="dateTimeFormat"
             value={dateTimeFormat}
             onChange={handleDateTimeFormatChange}
@@ -112,11 +114,11 @@ const Settings: React.FC = () => {
           />
         </div>
         <div className="mb-6">
-          <InputNumber label="Port" id="port" value={port} onChange={handlePortChange} required />
+          <InputNumber label={t("Port")} id="port" value={port} onChange={handlePortChange} required />
         </div>
         <div className="mb-6">
           <InputNumber
-            label="Maximum number of videos"
+            label={t("Maximum number of videos")}
             id="maxVideos"
             value={maxVideos}
             onChange={handleMaxVideosChange}
@@ -125,7 +127,7 @@ const Settings: React.FC = () => {
         </div>
         <div className="mb-6">
           <InputNumber
-            label="Maximum size per video"
+            label={t("Maximum size per video")}
             id="maxSizePerVideo"
             value={maxSizePerVideo}
             onChange={handleMaxSizePerVideoChange}
@@ -133,12 +135,12 @@ const Settings: React.FC = () => {
           />
         </div>
         <div className="mb-6">
-          <ToggleSwitch label="Enable SSL" id="ssl" checked={isSSL} onChange={handleSSLToggle} />
+          <ToggleSwitch label={t("Enable SSL")} id="ssl" checked={isSSL} onChange={handleSSLToggle} />
         </div>
         <div className="mb-6">
-          <FileInput label="Import settings" id="importSettings" onChange={importSettings} />
+          <FileInput label={t("Import settings")} id="importSettings" onChange={importSettings} />
         </div>
-        <Button text="Export settings" onClick={exportSettings} />
+        <Button text={t("Export settings")} onClick={exportSettings} />
       </div>
     </div>
   );

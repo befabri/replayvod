@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
 const Vod: React.FC = () => {
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const { t } = useTranslation();
+  // const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [videos, setVideos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -26,39 +28,39 @@ const Vod: React.FC = () => {
       });
   }, []);
 
-  const playVideo = (videoId: string) => {
-    setVideoSrc(`http://localhost:3000/api/videos/play/${videoId}`);
-  };
+  // const playVideo = (videoId: string) => {
+  //   setVideoSrc(`http://localhost:3000/api/videos/play/${videoId}`);
+  // };
 
   if (isLoading) {
-    return <p>Loading videos...</p>;
+    return <p>{t("Loading")}</p>;
   }
 
   return (
     <div className="p-4 sm:ml-64">
       <div className="p-4 mt-14">
-        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">Videos</h1>
+        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Videos")}</h1>
       </div>
       {videos.map((video) => (
         <div key={video.id} className="mb-4">
           <h2 className="text-1xl  dark:text-stone-100">{video.display_name}</h2>
-          <p className="text-medium  dark:text-stone-100">Taille: {video.size}</p>
-          <p className="text-medium  dark:text-stone-100">Téléchargé le: {video.downloaded_at}</p>
+          <p className="text-medium  dark:text-stone-100">{t("Size")}: {video.size}</p>
+          <p className="text-medium  dark:text-stone-100">{t("Downloaded at")}: {video.downloaded_at}</p>
           <video controls poster={video.thumbnail} className="w-full max-w-lg">
             <source src={`http://localhost:3000/api/videos/play/${video._id}`} type="video/mp4" />
-            Your browser does not support the video tag.
+            {t("Your browser does not support the video tag.")}
           </video>
         </div>
       ))}
 
-      {videoSrc && (
+      {/* {videoSrc && (
         <div>
           <video controls className="w-full max-w-lg">
             <source src={videoSrc} type="video/mp4" />
-            Your browser does not support the video tag.
+            {t("Your browser does not support the video tag.")}
           </video>
         </div>
-      )}
+      )} */}
     </div>
   );
 };

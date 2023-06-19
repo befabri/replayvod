@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 interface User {
   _id?: string;
@@ -35,6 +36,7 @@ interface Video {
 }
 
 const Channel: React.FC = () => {
+  const { t } = useTranslation();
   let { id } = useParams();
 
   const [user, setUser] = useState<User>();
@@ -91,7 +93,7 @@ const Channel: React.FC = () => {
   }, []);
 
   if (isLoading) {
-    return <div>Chargement...</div>;
+    return <div>{t("Loading")}</div>;
   }
 
   return (
@@ -111,7 +113,9 @@ const Channel: React.FC = () => {
           <span>{buttonText}</span>
         </button>
         <div>
-          <h2 className="text-lg font-bold mt-5">Videos from {user?.display_name}</h2>
+          <h2 className="text-lg font-bold mt-5">
+            {t("Videos from")} {user?.display_name}
+          </h2>
           {videos.map((video) => (
             <div key={video.id} className="flex mt-2">
               <div>
@@ -119,7 +123,7 @@ const Channel: React.FC = () => {
                 <p className="text-sm text-gray-500">{video.display_name}</p>
                 <video controls className="w-full max-w-lg">
                   <source src={`http://localhost:3000/api/videos/play/${video._id}`} type="video/mp4" />
-                  Your browser does not support the video tag.
+                  {t("Your browser does not support the video tag.")}
                 </video>
               </div>
             </div>
