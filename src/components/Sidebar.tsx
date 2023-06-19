@@ -2,36 +2,42 @@ import React, { useState, useEffect, useRef } from "react";
 import { Icon } from "@iconify/react";
 import { useTranslation } from "react-i18next";
 
-const Sidebar: React.FC = () => {
+interface SidebarProps {
+  isOpenSideBar: boolean;
+  onCloseSidebar: () => void; 
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
   const { t } = useTranslation();
-  const [isOpen, setIsOpen] = useState(false);
-  const toggle = () => {
-    setIsOpen(!isOpen);
-    console.log("Button toggled. Current state:", !isOpen ? "Open" : "Closed");
+  const [isDropdownOpen, setDropdownOpen] = useState(false);
+  const toggleDropdown = () => {
+    setDropdownOpen(!isDropdownOpen);
   };
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const pageClickEvent = (e: MouseEvent) => {
       if (dropdownRef.current !== null && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(!isOpen);
+        onCloseSidebar(); 
       }
     };
 
-    if (isOpen) {
+    if (isDropdownOpen) {
       window.addEventListener("click", pageClickEvent);
     }
 
     return () => {
       window.removeEventListener("click", pageClickEvent);
     };
-  }, [isOpen]);
+  }, [isDropdownOpen, onCloseSidebar]);
 
   return (
     <>
       <aside
         id="logo-sidebar"
-        className="fixed top-0 left-0 z-40 w-64 h-screen pt-20 transition-transform -translate-x-full bg-white border-r border-gray-200 sm:translate-x-0 dark:bg-gray-800 dark:border-gray-700"
+        className={`fixed top-0 left-0 z-40 w-64 h-screen pt-20 transition-transform ${
+          isOpenSideBar ? "-translate-x-0" : "-translate-x-full"
+        } bg-white border-r border-gray-200 sm:translate-x-0 dark:bg-gray-800 dark:border-gray-700`}
         aria-label="Sidebar"
       >
         <div className="h-full px-3 pb-4 overflow-y-auto bg-white dark:bg-gray-800">
@@ -56,7 +62,7 @@ const Sidebar: React.FC = () => {
             </li>
             <li>
               <button
-                onClick={toggle}
+                onClick={toggleDropdown}
                 className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg group hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700"
                 aria-controls="dropdown-example"
                 data-collapse-toggle="dropdown-example"
@@ -67,7 +73,7 @@ const Sidebar: React.FC = () => {
                 </span>
                 <Icon icon="mdi:chevron-down" width="18" height="18" />
               </button>
-              {isOpen && (
+              {isDropdownOpen && (
                 <ul id="dropdown-example" className="py-2 space-y-2">
                   <li>
                     <a

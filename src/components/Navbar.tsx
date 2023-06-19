@@ -1,6 +1,18 @@
+import React, { useState } from "react";
 import DarkModeToggle from "./DarkModeToggle";
+import Sidebar from "./Sidebar";
 
 const Navbar: React.FC = () => {
+  const [isSidebarOpen, setSidebarOpen] = useState(false);
+
+  const handleSidebarOpen = () => {
+    setSidebarOpen(!isSidebarOpen); // Toggle the sidebar open/close state
+  };
+
+  const handleSidebarClose = () => {
+    setSidebarOpen(false); // Close the sidebar
+  };
+
   return (
     <>
       <nav className="fixed top-0 z-50 w-full bg-white border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700">
@@ -8,9 +20,7 @@ const Navbar: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center justify-start">
               <button
-                data-drawer-target="logo-sidebar"
-                data-drawer-toggle="logo-sidebar"
-                aria-controls="logo-sidebar"
+                onClick={handleSidebarOpen}
                 type="button"
                 className="inline-flex items-center p-2 text-sm text-gray-500 rounded-lg sm:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600"
               >
@@ -30,7 +40,6 @@ const Navbar: React.FC = () => {
                 </svg>
               </button>
               <a href="/" className="flex ml-2 md:mr-24">
-                {/* <img src="https://flowbite.com/docs/images/logo.svg" className="h-8 mr-3" alt="FlowBite Logo" /> */}
                 <span className="self-center text-xl font-semibold sm:text-2xl whitespace-nowrap dark:text-white">
                   TwitchReplay
                 </span>
@@ -39,7 +48,7 @@ const Navbar: React.FC = () => {
             <div className="flex items-center">
               <div className="flex items-center ml-3">
                 <div>
-                <DarkModeToggle />
+                  <DarkModeToggle />
                   <button
                     type="button"
                     className="flex text-sm bg-gray-800 rounded-full focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600"
@@ -47,7 +56,6 @@ const Navbar: React.FC = () => {
                     data-dropdown-toggle="dropdown-user"
                   >
                     <span className="sr-only">Open user menu</span>
-                    
                     {/* <img className="w-8 h-8 rounded-full" src="https://flowbite.com/docs/images/people/profile-picture-5.jpg" alt="user photo"> */}
                   </button>
                 </div>
@@ -107,6 +115,7 @@ const Navbar: React.FC = () => {
           </div>
         </div>
       </nav>
+      {isSidebarOpen && <Sidebar isOpenSideBar={isSidebarOpen} onCloseSidebar={handleSidebarClose} />}
     </>
   );
 };
