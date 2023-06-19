@@ -10,6 +10,8 @@ import Dashboard from "./pages/Dashboard.tsx";
 import Login from "./pages/Login.tsx";
 import Channel from "./pages/Channel.tsx";
 import Manage from "./pages/Record/Manage.tsx";
+import HistoryPage from "./pages/Activity/History.tsx";
+import Queue from "./pages/Activity/Queue.tsx";
 
 export default function App() {
   return (
@@ -21,11 +23,13 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/add" element={<AddChannel />} />
-          <Route path="/following" element={<Following />} />
+          <Route path="/schedule/add" element={<AddChannel />} />
+          <Route path="/schedule/manage" element={<Manage />} />
+          <Route path="/schedule/following" element={<Following />} />
+          <Route path="/activity/queue" element={<Queue />} />
+          <Route path="/activity/history" element={<HistoryPage />} />
           <Route path="/vod" element={<Vod />} />
           <Route path="/channel/:id" element={<Channel />} />
-          <Route path="/manage" element={<Manage />} />
         </Route>
       </Routes>
     </AuthProvider>

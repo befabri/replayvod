@@ -43,5 +43,8 @@
   "All channels followed" : "All channels followed",
   "All channels" : "All channels",
   "Manage" : "Manage",
-  "Manage Videos" : "Manage Videos"
+  "Manage Videos" : "Manage Videos",
+  "Activity" : "Activity",
+  "Queue":"Queue",
+  "History":"History"
 }

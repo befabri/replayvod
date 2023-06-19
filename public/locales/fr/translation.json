@@ -43,5 +43,8 @@
   "All channels followed" : "Toutes les chaînes suivies",
   "All channels" : "Toutes les chaînes",
   "Manage" : "Gestion",
-  "Manage Videos" : "Gérer les vidéos"
+  "Manage Videos" : "Gérer les vidéos",
+  "Activity" : "Activité",
+  "Queue":"File d'attente",
+  "History":"Historique"
 }

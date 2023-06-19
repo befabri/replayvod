@@ -21,7 +21,7 @@ interface Video {
   isChecked?: boolean;
 }
 
-const Manage: React.FC = () => {
+const HistoryPage: React.FC = () => {
   const { t } = useTranslation();
   const [videos, setVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,15 +37,9 @@ const Manage: React.FC = () => {
         return response.json();
       })
       .then((data) => {
-        const convertedVideos = data.map((video: Video) => {
-          const startDownloadAtDate = new Date(video.start_download_at);
-          const downloadedAtDate = new Date(video.downloaded_at);
-          video.start_download_at = startDownloadAtDate.toLocaleString("fr-FR", { timeZone: "Europe/Paris" });
-          video.downloaded_at = downloadedAtDate.toLocaleString("fr-FR", { timeZone: "Europe/Paris" });
-          return video;
-        });
-
-        setVideos(convertedVideos);
+        const pendingVideos = data.filter((video: Video) => video.status === "History");
+        setVideos(pendingVideos);
+        console.log(pendingVideos);
         setIsLoading(false);
       })
       .catch((error) => {
@@ -56,11 +50,11 @@ const Manage: React.FC = () => {
   return (
     <div className="p-4 sm:ml-64">
       <div className="p-4 mt-14">
-        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Manage")}</h1>
+        <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("History")}</h1>
       </div>
       {isLoading ? <div>Loading...</div> : <Table items={videos} />}
     </div>
   );
 };
 
-export default Manage;
+export default HistoryPage;
