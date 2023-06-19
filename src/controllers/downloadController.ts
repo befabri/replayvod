@@ -2,14 +2,17 @@ import { Request, Response } from "express";
 import DownloadService from "../services/downloadService";
 import UserService from "../services/userService";
 import JobService from "../services/jobService";
+import ScheduleService from "../services/scheduleService";
 import { User } from "../models/twitchModel";
 import TwitchAPI from "../utils/twitchAPI";
+import { DownloadSchedule } from "../models/downloadModel";
 import moment from "moment-timezone";
 
 const jobService = new JobService();
 const userService = new UserService();
 const downloadService = new DownloadService();
 const twitchAPI = new TwitchAPI();
+const scheduleService = new ScheduleService();
 
 export const scheduleUser = async (req: Request, res: Response) => {
   if (!req.session?.passport?.user) {
@@ -29,6 +32,28 @@ export const scheduleUser = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error recording user:", error);
     res.status(500).send("Error recording user");
+  }
+};
+export const scheduleDownload = async (req: Request, res: Response) => {
+  if (!req.session?.passport?.user) {
+    res.status(401).send("Unauthorized");
+    return;
+  }
+
+  const data: DownloadSchedule = req.body;
+  console.log(data)
+  if (!data.source || !data.channelName || !data.trigger || !data.quality) {
+    res.status(400).send("Invalid request data");
+    return;
+  }
+
+  data.requested_by = req.session.passport.user.data[0].id;
+  try {
+    await scheduleService.insertIntoDb(data);
+    res.status(200).send("Schedule saved successfully.");
+  } catch (error) {
+    console.error("Error scheduling download:", error);
+    res.status(500).send("Error scheduling download.");
   }
 };
 

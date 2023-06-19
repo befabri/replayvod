@@ -6,6 +6,7 @@ const router: Router = express.Router();
 
 router.get("/user/:id", userAuthenticated, downloadController.scheduleUser);
 router.get("/stream/:id", userAuthenticated, downloadController.downloadStream);
+router.post("/channels", userAuthenticated, downloadController.scheduleDownload);
 router.get("/status/:id", userAuthenticated, downloadController.getJobStatus);
 // router.get("/video/:id", downloadController.downloadVideo);
 
