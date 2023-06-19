@@ -2,10 +2,12 @@ import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
 import VideoService from "../services/videoService";
+import UserService from "../services/userService";
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 
 const videoService = new VideoService();
+const userService = new UserService();
 
 export const playVideo = async (req: Request, res: Response) => {
   const videoId = req.params.id;
@@ -56,6 +58,27 @@ export const playVideo = async (req: Request, res: Response) => {
 
 export const getVideos = async (req: Request, res: Response) => {
   const userId = req.session.passport.user.data[0].id;
-  const videos = await videoService.getFinishedVideosByUser(userId);
+  const videos = await videoService.getVideosFromUser(userId);
+  res.json(videos);
+};
+
+export const getFinishedVideos = async (req: Request, res: Response) => {
+  const userId = req.session.passport.user.data[0].id;
+  const videos = await videoService.getFinishedVideosFromUser(userId);
+  res.json(videos);
+};
+
+export const getUserVideos = async (req: Request, res: Response) => {
+  const userId = req.params.id;
+  if (userId === "undefined") {
+    res.status(400).send("Invalid video id");
+    return;
+  }
+  const user = await userService.getUserDetailDB(userId);
+  if (!user) {
+    res.status(404).send("User not found");
+    return;
+  }
+  const videos = await videoService.getVideosByUser(userId);
   res.json(videos);
 };
