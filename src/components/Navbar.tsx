@@ -6,11 +6,11 @@ const Navbar: React.FC = () => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
   const handleSidebarOpen = () => {
-    setSidebarOpen(!isSidebarOpen); // Toggle the sidebar open/close state
+    setSidebarOpen(!isSidebarOpen);
   };
 
   const handleSidebarClose = () => {
-    setSidebarOpen(false); // Close the sidebar
+    setSidebarOpen(false);
   };
 
   return (
