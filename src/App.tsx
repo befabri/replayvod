@@ -9,6 +9,7 @@ import AddChannel from "./pages/AddChannel.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
 import Login from "./pages/Login.tsx";
 import Channel from "./pages/Channel.tsx";
+import Manage from "./pages/Manage.tsx";
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/following" element={<Following />} />
           <Route path="/vod" element={<Vod />} />
           <Route path="/channel/:id" element={<Channel />} />
+          <Route path="/manage" element={<Manage />} />
         </Route>
       </Routes>
     </AuthProvider>
