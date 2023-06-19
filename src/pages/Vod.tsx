@@ -8,7 +8,7 @@ const Vod: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetch("http://localhost:3000/api/videos/all", {
+    fetch("http://localhost:3000/api/videos/finished", {
       credentials: "include",
     })
       .then((response) => {

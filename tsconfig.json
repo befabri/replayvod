@@ -20,6 +20,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
+  "include": ["src", "Tables.tsx.old"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

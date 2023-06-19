@@ -44,11 +44,15 @@ function AuthStatus() {
       {auth.user && (
         <div>
           <Navbar />
-          <Sidebar />
+          <Sidebar isOpenSideBar={false} onCloseSidebar={handleSidebarClose} />
         </div>
       )}
     </>
   );
+}
+
+function handleSidebarClose(): void {
+  throw new Error("Function not implemented.");
 }
 
 function RequireAuth() {
@@ -59,7 +63,7 @@ function RequireAuth() {
     return (
       <div>
         <Navbar />
-        <Sidebar />
+        <Sidebar isOpenSideBar={false} onCloseSidebar={handleSidebarClose} />
       </div>
     );
   }
