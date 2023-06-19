@@ -36,7 +36,7 @@ app.use(
     cookie: { httpOnly: true },
   })
 );
-
+app.use(express.json());
 app.use(express.static("public"));
 app.use(passport.initialize());
 app.use(passport.session());
