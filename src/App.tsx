@@ -4,12 +4,12 @@ import Navbar from "./components/Navbar";
 import Sidebar from "./components/Sidebar";
 import Vod from "./pages/Vod";
 import Settings from "./pages/Settings.tsx";
-import Following from "./pages/Following.tsx";
-import AddChannel from "./pages/AddChannel.tsx";
+import Following from "./pages/Record/Following.tsx";
+import AddChannel from "./pages/Record/AddChannel.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
 import Login from "./pages/Login.tsx";
 import Channel from "./pages/Channel.tsx";
-import Manage from "./pages/Manage.tsx";
+import Manage from "./pages/Record/Manage.tsx";
 
 export default function App() {
   return (

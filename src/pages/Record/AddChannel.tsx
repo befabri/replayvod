@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import InputText from "../components/InputText";
-import Select from "../components/Select";
-import ToggleSwitch from "../components/ToggleSwitch";
-import InputNumber from "../components/InputNumber";
-import Button from "../components/Button";
+import InputText from "../../components/InputText";
+import Select from "../../components/Select";
+import ToggleSwitch from "../../components/ToggleSwitch";
+import InputNumber from "../../components/InputNumber";
+import Button from "../../components/Button";
 import { useTranslation } from "react-i18next";
 
 const AddChannel: React.FC = () => {
