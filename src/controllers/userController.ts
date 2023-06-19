@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import UserService from "../services/userService";
 
 const userService = new UserService();
+const userCacheNotFound = new Map();
+const userCache = new Map();
 
 export const getUserFollowedStreams = async (req: Request, res: Response) => {
   if (!req.session?.passport?.user) {
@@ -56,6 +58,35 @@ export const getUserDetail = async (req: Request, res: Response) => {
       res.status(404).send("User not found");
       return;
     }
+    res.json(user);
+  } catch (error) {
+    console.error("Error fetching user details:", error);
+    res.status(500).send("Error fetching user details");
+  }
+};
+
+export const getUserDetailByName = async (req: Request, res: Response) => {
+  const username = req.params.name;
+  if (!username || typeof username !== "string") {
+    res.status(400).send("Invalid user id");
+    return;
+  }
+  try {
+    if (userCacheNotFound.has(username)) {
+      res.status(404).send("User not found");
+      return;
+    }
+    if (userCache.has(username)) {
+      res.json(userCache.get(username));
+      return;
+    }
+    const user = await userService.getUserDetailByName(username);
+    if (!user) {
+      userCacheNotFound.set(username, true);
+      res.status(404).send("User not found");
+      return;
+    }
+    userCache.set(username, user);
     res.json(user);
   } catch (error) {
     console.error("Error fetching user details:", error);
