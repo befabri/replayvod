@@ -10,9 +10,27 @@ const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 class TwitchAPI {
   async getUser(userId: string): Promise<User | null> {
     try {
+      const accessToken = await getAppAccessToken();
       const response = await axios.get(`https://api.twitch.tv/helix/users?id=${userId}`, {
         headers: {
-          Authorization: "Bearer " + process.env.ACCESS_TOKEN,
+          Authorization: "Bearer " + accessToken,
+          "Client-ID": TWITCH_CLIENT_ID,
+        },
+      });
+
+      return response.data.data[0] || null;
+    } catch (error) {
+      console.error("Error fetching user details from Twitch API:", error);
+      throw new Error("Failed to fetch user details from Twitch API");
+    }
+  }
+
+  async getUserByLogin(login: string): Promise<User | null> {
+    try {
+      const accessToken = await getAppAccessToken();
+      const response = await axios.get(`https://api.twitch.tv/helix/users?login=${login}`, {
+        headers: {
+          Authorization: "Bearer " + accessToken,
           "Client-ID": TWITCH_CLIENT_ID,
         },
       });
