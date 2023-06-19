@@ -21,4 +21,6 @@ router.get("/check-session", authController.checkSession);
 
 router.get("/user", authController.getUser);
 
+router.get("/refresh", authController.refreshToken);
+
 export default router;
