@@ -32,6 +32,14 @@ class downloadService {
   ) {
     const db = await getDbInstance();
     const videoCollection = db.collection("videos");
+    const gamesCollection = db.collection("games");
+
+    const gameData = await gamesCollection.findOne({ id: stream.game_id });
+    let gameDetail = [{ id: stream.game_id, name: "" }];
+
+    if (gameData) {
+      gameDetail[0].name = gameData.name;
+    }
 
     const videoData: Video = {
       id: stream.id,
@@ -43,10 +51,10 @@ class downloadService {
       start_download_at: startAt,
       downloaded_at: "",
       job_id: jobId,
-      game_id: [stream.game_id],
+      category: gameDetail,
       title: [stream.title],
       tags: stream.tags,
-      viewer_count: [stream.viewer_count],
+      viewer_count: stream.viewer_count,
       language: stream.language,
     };
 
@@ -130,8 +138,8 @@ class downloadService {
     const videoData = await videoCollection.findOne({ broadcaster_id: user_id });
 
     if (videoData) {
-      if (!videoData.game_id.includes(stream.game_id)) {
-        videoData.game_id.push(stream.game_id);
+      if (!videoData.category.some((category: { id: string; name: string }) => category.id === stream.game_id)) {
+        videoData.category.push({ id: stream.game_id, name: stream.game_name });
       }
 
       if (!videoData.title.includes(stream.title)) {
@@ -142,8 +150,8 @@ class downloadService {
         videoData.tags.push(...stream.tags);
       }
 
-      if (!videoData.viewer_count.includes(stream.viewer_count)) {
-        videoData.viewer_count.push(stream.viewer_count);
+      if (stream.viewer_count > videoData.viewer_count) {
+        videoData.viewer_count = stream.viewer_count;
       }
 
       return videoCollection.updateOne({ broadcaster_id: user_id }, { $set: videoData });
