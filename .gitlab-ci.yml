@@ -14,7 +14,7 @@ cache:
 stages:
   - before_build
   # - test
-  # - build
+  - build
 
 before_build:
   stage: before_build
