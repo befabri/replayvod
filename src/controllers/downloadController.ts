@@ -41,7 +41,7 @@ export const scheduleDownload = async (req: Request, res: Response) => {
   }
 
   const data: DownloadSchedule = req.body;
-  console.log(data)
+  console.log(data);
   if (!data.source || !data.channelName || !data.trigger || !data.quality) {
     res.status(400).send("Invalid request data");
     return;
@@ -86,7 +86,7 @@ export const downloadStream = async (req: Request, res: Response) => {
       .json({ message: "There is already a job running for this broadcaster.", jobId: pendingJob.id });
     return;
   }
-  const quality = VideoQuality.MEDIUM; 
+  const quality = VideoQuality.MEDIUM;
   const jobId = jobService.createJobId();
   jobService.createJob(jobId, async () => {
     try {
@@ -99,7 +99,7 @@ export const downloadStream = async (req: Request, res: Response) => {
         cookiesFilePath,
         jobId,
         stream,
-        quality.
+        quality
       );
       await downloadService.finishDownload(finalFilePath);
     } catch (error) {
