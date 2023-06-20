@@ -15,7 +15,7 @@ export interface DownloadSchedule {
 }
 
 export enum VideoQuality {
-  LOW = "480p",
-  MEDIUM = "720p",
-  HIGH = "1080p",
+  LOW = "480",
+  MEDIUM = "720",
+  HIGH = "1080",
 }
