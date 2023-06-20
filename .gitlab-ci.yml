@@ -1,6 +1,24 @@
-image: node:16.5.0
-pages:
-  stage: deploy
+image:
+  name: gcr.io/kaniko-project/executor:debug
+  entrypoint: [""]
+
+variables:
+  DOCKER_IMAGE_TAG: "latest"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - node_modules/
+    - dist/
+
+stages:
+  - before_build
+  # - test
+  - build
+
+before_build:
+  stage: before_build
+   image: node:16.5.0
   cache:
     key:
       files:
@@ -14,5 +32,17 @@ pages:
   artifacts:
     paths:
       - dist
+  only:
+    - main
+
+build:
+  stage: build
+  script:
+    - /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
+      --cache=true
+      --cache-dir="/cache"
+      --destination "${CI_REGISTRY_IMAGE}:${DOCKER_IMAGE_TAG}"
   only:
     - main
