@@ -6,7 +6,7 @@ const Vod: React.FC = () => {
   // const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [videos, setVideos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const ROOT_URL = import.meta.env.VITE_APP_ROOTURL
+  const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
   useEffect(() => {
     fetch(`${ROOT_URL}/api/videos/finished`, {
