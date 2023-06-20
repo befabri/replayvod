@@ -22,6 +22,7 @@ const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
+const REACT_URL = process.env.REDIRECT_URL;
 moment.tz.setDefault("Europe/Paris");
 
 if (!SESSION_SECRET) {
@@ -35,7 +36,7 @@ if (process.env.NODE_ENV === "development") {
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: REACT_URL,
     credentials: true,
   })
 );
