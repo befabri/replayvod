@@ -90,7 +90,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
                       data-collapse-toggle="dropdown"
                     >
                       <Icon icon={link.icon} width="18" height="18" />
-                      <span className="flex-1 ml-3 text-left whitespace-nowrap" sidebar-toggle-item>
+                      <span className="flex-1 ml-3 text-left whitespace-nowrap" sidebar-toggle-item="true">
                         {link.text}
                       </span>
                       <Icon icon="mdi:chevron-down" width="18" height="18" />
