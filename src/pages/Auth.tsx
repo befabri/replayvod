@@ -31,7 +31,8 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const response = await fetch("http://localhost:3000/api/auth/check-session", { credentials: "include" });
         const data = await response.json();
         if (data.status === "authenticated") {
-          setUser(data.token);
+          console.log(data)
+          setUser("test");
           setIsAuthenticated(true);
         } else {
           setUser(null);
@@ -49,7 +50,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await fetch("http://localhost:3000/api/auth/refresh", { credentials: "include" });
       const data = await response.json();
-      setUser(data.token);
+      setUser("test");
       console.log("Token refreshed");
     } catch (error) {
       console.error("Failed to refresh token", error);
