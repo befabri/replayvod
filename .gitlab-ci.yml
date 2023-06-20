@@ -13,12 +13,11 @@ cache:
 
 stages:
   - before_build
-  # - test
   - build
 
 before_build:
   stage: before_build
-   image: node:16.5.0
+  image: node:16.5.0
   cache:
     key:
       files:
@@ -31,14 +30,15 @@ before_build:
     - npm run build
   artifacts:
     paths:
-      - dist
+      - dist/
   only:
     - main
 
 build:
   stage: build
   script:
-    - /kaniko/executor
+    - >
+      /kaniko/executor
       --context "${CI_PROJECT_DIR}"
       --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
       --cache=true
