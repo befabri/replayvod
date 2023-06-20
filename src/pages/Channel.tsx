@@ -44,13 +44,14 @@ const Channel: React.FC = () => {
   const [isFetching, setIsFetching] = useState<boolean>(false);
   const [buttonText, setButtonText] = useState<string>("Enregistrer");
   const [videos, setVideos] = useState<Video[]>([]);
+  const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
   const handleClick = () => {
     if (!isFetching) {
       setIsFetching(true);
       setButtonText("En cours");
 
-      fetch(`http://localhost:3000/api/dl/stream/${id}`, {
+      fetch(`${ROOT_URL}/api/dl/stream/${id}`, {
         credentials: "include",
       })
         .then((response) => response.json())
@@ -70,8 +71,8 @@ const Channel: React.FC = () => {
     const fetchData = async () => {
       try {
         const [userResponse, videosResponse] = await Promise.all([
-          fetch(`http://localhost:3000/api/users/${id}`, { credentials: "include" }),
-          fetch(`http://localhost:3000/api/videos/user/${id}`, { credentials: "include" }),
+          fetch(`${ROOT_URL}/api/users/${id}`, { credentials: "include" }),
+          fetch(`${ROOT_URL}/api/videos/user/${id}`, { credentials: "include" }),
         ]);
 
         const userData = await userResponse.json();
@@ -122,7 +123,7 @@ const Channel: React.FC = () => {
                 <h3 className="text-base font-medium">{video.title}</h3>
                 <p className="text-sm text-gray-500">{video.display_name}</p>
                 <video controls className="w-full max-w-lg">
-                  <source src={`http://localhost:3000/api/videos/play/${video._id}`} type="video/mp4" />
+                  <source src={`${ROOT_URL}/api/videos/play/${video._id}`} type="video/mp4" />
                   {t("Your browser does not support the video tag.")}
                 </video>
               </div>

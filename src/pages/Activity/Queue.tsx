@@ -7,10 +7,11 @@ const Queue: React.FC = () => {
   const { t } = useTranslation();
   const [videos, setVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
   useEffect(() => {
     const fetchData = async () => {
-      const response = await fetch("http://localhost:3000/api/videos/all", {
+      const response = await fetch(`${ROOT_URL}/api/videos/all`, {
         credentials: "include",
       });
       if (!response.ok) {

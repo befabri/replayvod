@@ -6,9 +6,10 @@ const Vod: React.FC = () => {
   // const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [videos, setVideos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const ROOT_URL = import.meta.env.VITE_APP_ROOTURL
 
   useEffect(() => {
-    fetch("http://localhost:3000/api/videos/finished", {
+    fetch(`${ROOT_URL}/api/videos/finished`, {
       credentials: "include",
     })
       .then((response) => {
@@ -29,7 +30,7 @@ const Vod: React.FC = () => {
   }, []);
 
   // const playVideo = (videoId: string) => {
-  //   setVideoSrc(`http://localhost:3000/api/videos/play/${videoId}`);
+  //   setVideoSrc(`${ROOT_URL}/api/videos/play/${videoId}`);
   // };
 
   if (isLoading) {
@@ -44,10 +45,14 @@ const Vod: React.FC = () => {
       {videos.map((video) => (
         <div key={video.id} className="mb-4">
           <h2 className="text-1xl  dark:text-stone-100">{video.display_name}</h2>
-          <p className="text-medium  dark:text-stone-100">{t("Size")}: {video.size}</p>
-          <p className="text-medium  dark:text-stone-100">{t("Downloaded at")}: {video.downloaded_at}</p>
+          <p className="text-medium  dark:text-stone-100">
+            {t("Size")}: {video.size}
+          </p>
+          <p className="text-medium  dark:text-stone-100">
+            {t("Downloaded at")}: {video.downloaded_at}
+          </p>
           <video controls poster={video.thumbnail} className="w-full max-w-lg">
-            <source src={`http://localhost:3000/api/videos/play/${video._id}`} type="video/mp4" />
+            <source src={`${ROOT_URL}/api/videos/play/${video._id}`} type="video/mp4" />
             {t("Your browser does not support the video tag.")}
           </video>
         </div>

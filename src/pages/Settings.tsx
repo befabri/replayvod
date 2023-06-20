@@ -15,12 +15,12 @@ const Settings: React.FC = () => {
   const [maxSizePerVideo, setMaxSizePerVideo] = useState(0);
   const [timeZone, setTimeZone] = useState("UTC");
   const [dateTimeFormat, setDateTimeFormat] = useState("YYYY/MM/DD HH:mm:ss");
-
+  const ROOT_URL = import.meta.env.VITE_ROOTURL;
   const dateTimeFormats = ["YYYY/MM/DD HH:mm:ss", "DD-MM-YYYY HH:mm:ss", "MM/DD/YYYY hh:mm:ss A"];
   const timeZones = moment.tz.names();
 
   const importSettings = async () => {
-    const response = await fetch("http://localhost:3000/api/manage/import");
+    const response = await fetch(`${ROOT_URL}/api/manage/import`);
     const settings = await response.json();
     setIsSSL(settings.isSSL);
     setPort(settings.port);
@@ -41,7 +41,7 @@ const Settings: React.FC = () => {
   const handleDeleteVideos = async () => {
     // TODO
     if (window.confirm("Are you sure?")) {
-      await fetch("http://localhost:3000/api/manage/delete/videos", {
+      await fetch(`${ROOT_URL}/api/manage/delete/videos`, {
         method: "DELETE",
       });
     }
@@ -57,7 +57,7 @@ const Settings: React.FC = () => {
       dateTimeFormat,
     };
 
-    await fetch("http://localhost:3000/api/manage/export", {
+    await fetch("${ROOT_URL}/api/manage/export", {
       // TODO
       method: "POST",
       headers: {

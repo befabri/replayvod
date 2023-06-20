@@ -7,9 +7,10 @@ const HistoryPage: React.FC = () => {
   const { t } = useTranslation();
   const [videos, setVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
   useEffect(() => {
-    fetch("http://localhost:3000/api/videos/all", {
+    fetch(`${ROOT_URL}/api/videos/all`, {
       credentials: "include",
     })
       .then((response) => {

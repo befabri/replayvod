@@ -21,12 +21,13 @@ const AddChannel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [possibleMatches, setPossibleMatches] = useState<string[]>([]);
   const [isValid, setIsValid] = useState(true);
-
+  const ROOT_URL = import.meta.env.VITE_ROOTURL;
+  
   const handleBlur = () => {
     if (channelName.length < 3) {
       return;
     }
-    fetch(`http://localhost:3000/api/users/name/${channelName}`, {
+    fetch(`${ROOT_URL}/api/users/name/${channelName}`, {
       credentials: "include",
     })
       .then((response) => {
@@ -49,7 +50,7 @@ const AddChannel: React.FC = () => {
   };
 
   useEffect(() => {
-    fetch("http://localhost:3000/api/users/me/followedchannels", {
+    fetch(`${ROOT_URL}/api/users/me/followedchannels`, {
       credentials: "include",
     })
       .then((response) => {
@@ -82,7 +83,7 @@ const AddChannel: React.FC = () => {
     };
 
     try {
-      const response = await fetch("http://localhost:3000/api/dl/channels", {
+      const response = await fetch(`${ROOT_URL}/api/dl/channels`, {
         method: "POST",
         credentials: "include",
         headers: {

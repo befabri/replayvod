@@ -33,13 +33,14 @@ const Follows: React.FC = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [followedChannelsResponse, followedStreamsResponse] = await Promise.all([
-          fetch("http://localhost:3000/api/users/me/followedchannels", { credentials: "include" }),
-          fetch("http://localhost:3000/api/users/me/followedstreams", { credentials: "include" }),
+          fetch(`${ROOT_URL}/api/users/me/followedchannels`, { credentials: "include" }),
+          fetch(`${ROOT_URL}/api/users/me/followedstreams`, { credentials: "include" }),
         ]);
 
         const followedChannelsData = await followedChannelsResponse.json();

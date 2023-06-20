@@ -18,6 +18,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = React.useState<any>(null);
   const [isLoading, setIsLoading] = React.useState<boolean>(true);
   const [isAuthenticated, setIsAuthenticated] = React.useState<boolean>(false);
+  const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
   React.useEffect(() => {
     checkSession();
@@ -28,10 +29,11 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setIsLoading(true);
     try {
       if (!isAuthenticated) {
-        const response = await fetch("http://localhost:3000/api/auth/check-session", { credentials: "include" });
+        const response = await fetch(`${ROOT_URL}/api/auth/check-session`, {
+          credentials: "include",
+        });
         const data = await response.json();
         if (data.status === "authenticated") {
-          console.log(data)
           setUser("test");
           setIsAuthenticated(true);
         } else {
@@ -48,10 +50,18 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   async function refreshToken() {
     try {
-      const response = await fetch("http://localhost:3000/api/auth/refresh", { credentials: "include" });
+      const response = await fetch(`${ROOT_URL}/api/auth/refresh`, {
+        credentials: "include",
+      });
       const data = await response.json();
-      setUser("test");
-      console.log("Token refreshed");
+      if (data.status === "authenticated") {
+        console.log("Token refreshed");
+        setUser("test");
+        setIsAuthenticated(true);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+      }
     } catch (error) {
       console.error("Failed to refresh token", error);
     }
@@ -63,7 +73,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }
 
   const signin = () => {
-    window.location.href = "http://localhost:3000/api/auth/twitch";
+    window.location.href = `${ROOT_URL}/api/auth/twitch`;
   };
 
   const signout = () => {
