@@ -21,6 +21,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   React.useEffect(() => {
     checkSession();
+    refreshTokenCycle();
   }, []);
 
   async function checkSession() {
@@ -30,7 +31,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const response = await fetch("http://localhost:3000/api/auth/check-session", { credentials: "include" });
         const data = await response.json();
         if (data.status === "authenticated") {
-          setUser("test");
+          setUser(data.token);
           setIsAuthenticated(true);
         } else {
           setUser(null);
@@ -42,6 +43,22 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function refreshToken() {
+    try {
+      const response = await fetch("http://localhost:3000/api/auth/refresh", { credentials: "include" });
+      const data = await response.json();
+      setUser(data.token);
+      console.log("Token refreshed");
+    } catch (error) {
+      console.error("Failed to refresh token", error);
+    }
+  }
+
+  function refreshTokenCycle() {
+    const refreshInterval = setInterval(refreshToken, 1000 * 60 * 60);
+    return () => clearInterval(refreshInterval);
   }
 
   const signin = () => {
