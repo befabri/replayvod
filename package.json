@@ -1,5 +1,5 @@
 {
-  "name": "twitch-replay-backend",
+  "name": "aaaa",
   "version": "1.0.0",
   "description": "",
   "main": "src/app.js",
@@ -7,7 +7,7 @@
     "prod": "node src/app.js",
     "start": "ts-node src/app.ts",
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-    "build": "tsc"
+    "build": "tsc --declaration"
   },
   "keywords": [],
   "author": "",

@@ -24,6 +24,7 @@ before_build:
     - python3 --version
     - pip3 --version
     - npm ci
+    - npm install --only=dev
     - npm run build
   artifacts:
     paths:
