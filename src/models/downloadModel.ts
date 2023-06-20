@@ -13,3 +13,9 @@ export interface DownloadSchedule {
   isDeleteRediff: boolean;
   requested_by: string;
 }
+
+export enum VideoQuality {
+  LOW = "480p",
+  MEDIUM = "720p",
+  HIGH = "1080p",
+}

@@ -4,6 +4,7 @@ import UserService from "./userService";
 import youtubedl from "youtube-dl-exec";
 import { Stream } from "../models/twitchModel";
 import { Video } from "../models/videoModel";
+import { VideoQuality } from "../models/downloadModel";
 const path = require("path");
 
 const userService = new UserService();
@@ -28,7 +29,8 @@ class downloadService {
     startAt: Date,
     status: string,
     jobId: string,
-    stream: Stream
+    stream: Stream,
+    videoQuality: VideoQuality
   ) {
     const db = await getDbInstance();
     const videoCollection = db.collection("videos");
@@ -56,6 +58,7 @@ class downloadService {
       tags: stream.tags,
       viewer_count: stream.viewer_count,
       language: stream.language,
+      quality: videoQuality,
     };
 
     return videoCollection.insertOne(videoData);
@@ -84,7 +87,8 @@ class downloadService {
     videoPath: string,
     cookiesFilePath: string,
     jobId: string,
-    stream: Stream
+    stream: Stream,
+    videoQuality: VideoQuality
   ) {
     const startAt = new Date();
     await this.saveVideoInfo(
@@ -95,10 +99,11 @@ class downloadService {
       startAt,
       "Pending",
       jobId,
-      stream
+      stream,
+      videoQuality
     );
     await youtubedl.exec(`https://www.twitch.tv/${login}`, {
-      format: "best[(height = 720)]",
+      format: `best[height=${videoQuality}]`,
       output: videoPath,
       cookies: cookiesFilePath,
     });

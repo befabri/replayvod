@@ -5,7 +5,7 @@ import JobService from "../services/jobService";
 import ScheduleService from "../services/scheduleService";
 import { User } from "../models/twitchModel";
 import TwitchAPI from "../utils/twitchAPI";
-import { DownloadSchedule } from "../models/downloadModel";
+import { DownloadSchedule, VideoQuality } from "../models/downloadModel";
 import moment from "moment-timezone";
 
 const jobService = new JobService();
@@ -86,7 +86,7 @@ export const downloadStream = async (req: Request, res: Response) => {
       .json({ message: "There is already a job running for this broadcaster.", jobId: pendingJob.id });
     return;
   }
-
+  const quality = VideoQuality.MEDIUM; 
   const jobId = jobService.createJobId();
   jobService.createJob(jobId, async () => {
     try {
@@ -98,7 +98,8 @@ export const downloadStream = async (req: Request, res: Response) => {
         finalFilePath,
         cookiesFilePath,
         jobId,
-        stream
+        stream,
+        quality.
       );
       await downloadService.finishDownload(finalFilePath);
     } catch (error) {
