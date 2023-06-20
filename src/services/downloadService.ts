@@ -98,6 +98,7 @@ class downloadService {
       stream
     );
     await youtubedl.exec(`https://www.twitch.tv/${login}`, {
+      format: "best[(height = 720)]",
       output: videoPath,
       cookies: cookiesFilePath,
     });
