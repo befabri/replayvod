@@ -1,25 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Table from "../../components/Tables";
-
-interface Video {
-  _id?: string;
-  id: string;
-  filename: string;
-  status: string;
-  display_name: string;
-  broadcaster_id: string;
-  requested_by: string;
-  start_download_at: string;
-  downloaded_at: string;
-  job_id: string;
-  game_id: string[];
-  title: string[];
-  tags: string[];
-  viewer_count: number[];
-  language: string;
-  isChecked?: boolean;
-}
+import { Video } from "../../type";
 
 const Queue: React.FC = () => {
   const { t } = useTranslation();
@@ -70,7 +52,7 @@ const Queue: React.FC = () => {
       <div className="p-4 mt-14">
         <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Queue")}</h1>
       </div>
-      {isLoading ? <div>Loading...</div> : <Table items={videos} />}
+      {isLoading ? <div>Loading...</div> : <Table items={videos} showEdit={false} showCheckbox={false} />}
     </div>
   );
 };
