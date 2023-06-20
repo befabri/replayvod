@@ -18,7 +18,7 @@ stages:
 
 before_build:
   stage: before_build
-  image: node:alpine
+  image: node:16-alpine
   script:
     - apk add --update python3 py3-pip
     - python3 --version
