@@ -3,7 +3,7 @@ import passport from "passport";
 import * as authController from "../controllers/authController";
 
 const router = express.Router();
-const REDIRECT_URL = "http://localhost:5173/";
+const REDIRECT_URL = process.env.REDIRECT_URL || "/";
 
 router.get(
   "/twitch",
@@ -13,7 +13,7 @@ router.get(
 
 router.get(
   "/twitch/callback",
-  passport.authenticate("twitch", { successRedirect: REDIRECT_URL, failureRedirect: "/" }),
+  passport.authenticate("twitch", { successRedirect: REDIRECT_URL, failureRedirect: "https://google.com" }),
   authController.handleTwitchCallback
 );
 

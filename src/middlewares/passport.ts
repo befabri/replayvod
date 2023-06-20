@@ -5,6 +5,7 @@ import axios from "axios";
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_SECRET = process.env.TWITCH_SECRET;
 const CALLBACK_URL = process.env.CALLBACK_URL;
+const WHITELISTED_USER_ID = process.env.WHITELISTED_USER_ID || "";
 
 OAuth2Strategy.prototype.userProfile = function (accessToken: string, done: Function) {
   axios({
@@ -50,9 +51,13 @@ passport.use(
     (accessToken: string, refreshToken: string, profile: any, done: any) => {
       profile.accessToken = accessToken;
       profile.refreshToken = refreshToken;
-      profile.twitchId = profile.data[0].id; // Extracting Twitch ID from the profile object
+      profile.twitchId = profile.data[0].id;
 
-      done(null, profile);
+      if (!WHITELISTED_USER_ID.includes(profile.twitchId)) {
+        done(null, null);
+      } else {
+        done(null, profile);
+      }
     }
   )
 );
