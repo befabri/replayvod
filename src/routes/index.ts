@@ -6,10 +6,12 @@ import videoRoutes from "./videoRoutes";
 import manageRoutes from "./manageRoutes";
 import errorHandler from "../middlewares/errorHandler";
 import { CustomError } from "../types/types";
+import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
 router.use("/auth", authRoutes);
+router.use(isUserWhitelisted, userAuthenticated);
 router.use("/users", userRoutes);
 router.use("/dl", downloadRoutes);
 router.use("/videos", videoRoutes);

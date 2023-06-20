@@ -1,7 +1,9 @@
 import express from "express";
 import passport from "passport";
 import * as authController from "../controllers/authController";
+import dotenv from "dotenv";
 
+dotenv.config();
 const router = express.Router();
 const REDIRECT_URL = process.env.REDIRECT_URL || "/";
 

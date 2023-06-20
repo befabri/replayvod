@@ -1,11 +1,14 @@
 import passport from "passport";
 import { Strategy as OAuth2Strategy } from "passport-oauth2";
 import axios from "axios";
+import dotenv from "dotenv";
 
+dotenv.config();
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_SECRET = process.env.TWITCH_SECRET;
 const CALLBACK_URL = process.env.CALLBACK_URL;
-const WHITELISTED_USER_ID = process.env.WHITELISTED_USER_ID || "";
+const WHITELISTED_USER_IDS: string[] = process.env.WHITELISTED_USER_IDS?.split(",") || [];
+const IS_WHITELIST_ENABLED: boolean = process.env.IS_WHITELIST_ENABLED?.toLowerCase() === "true";
 
 OAuth2Strategy.prototype.userProfile = function (accessToken: string, done: Function) {
   axios({
@@ -53,10 +56,10 @@ passport.use(
       profile.refreshToken = refreshToken;
       profile.twitchId = profile.data[0].id;
 
-      if (!WHITELISTED_USER_ID.includes(profile.twitchId)) {
-        done(null, null);
-      } else {
+      if (!IS_WHITELIST_ENABLED || WHITELISTED_USER_IDS.includes(profile.twitchId)) {
         done(null, profile);
+      } else {
+        done(null, null);
       }
     }
   )
