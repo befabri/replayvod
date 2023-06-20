@@ -61,7 +61,7 @@ const Table = ({ items: initialItems, showEdit = true, showCheckbox = true }: Ex
     setItems(sortedData);
   };
 
-  const fields: (keyof Video)[] = ["id", "filename", "status", "display_name", "start_download_at", "Category"];
+  const fields: (keyof Video)[] = ["id", "filename", "status", "display_name", "start_download_at", "category"];
 
   return (
     <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
