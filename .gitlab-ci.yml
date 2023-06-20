@@ -23,6 +23,7 @@ before_build:
     - apk add --update python3 py3-pip ffmpeg
     - python3 --version
     - pip3 --version
+    - ffmpeg -version
     - npm ci
     - npm install --only=dev
     - npm run build
