@@ -20,6 +20,9 @@ before_build:
   stage: before_build
   image: node:alpine
   script:
+    - apk add --update python3 py3-pip
+    - python3 --version
+    - pip3 --version
     - npm ci
     - npm run build
   artifacts:
