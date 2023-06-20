@@ -20,7 +20,7 @@ export const playVideo = async (req: Request, res: Response) => {
     res.status(404).send("Video not found in database");
     return;
   }
-  const videoPath = path.join(VIDEO_PATH, video.filename);
+  const videoPath = `public/videos/${video.filename}`;
   if (!fs.existsSync(videoPath)) {
     res.status(404).send("File not found on server");
     return;
