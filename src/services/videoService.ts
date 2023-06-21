@@ -2,6 +2,7 @@ import { getDbInstance } from "../models/db";
 import fs from "fs";
 import path from "path";
 import { Collection, Document, ObjectId, WithId } from "mongodb";
+const ffmpeg = require("fluent-ffmpeg");
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 
@@ -40,6 +41,33 @@ class VideoService {
       } else {
         resolve(undefined);
       }
+    });
+  }
+
+  getVideoSize(videoPath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      fs.stat(videoPath, (err, stats) => {
+        if (err) {
+          reject(err);
+        } else {
+          const sizeInMB = stats.size / (1024 * 1024);
+          resolve(sizeInMB);
+        }
+      });
+    });
+  }
+
+  generateThumbnail(videoPath: string, thumbnailPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      ffmpeg(videoPath)
+        .on("end", resolve)
+        .on("error", reject)
+        .screenshots({
+          timestamps: ["15%"],
+          filename: thumbnailPath,
+          folder: "public/thumbnail",
+          size: "320x240",
+        });
     });
   }
 

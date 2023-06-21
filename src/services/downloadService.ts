@@ -6,10 +6,12 @@ import { Stream } from "../models/twitchModel";
 import { Video } from "../models/videoModel";
 import { VideoQuality } from "../models/downloadModel";
 import { youtubedlLogger } from "../middlewares/loggerMiddleware";
+import VideoService from "./videoService";
 
 const path = require("path");
 
 const userService = new UserService();
+const videoService = new VideoService();
 
 class downloadService {
   twitchAPI: TwitchAPI;
@@ -118,7 +120,11 @@ class downloadService {
 
       subprocess.stderr.on("data", (chunk) => {
         const message = chunk.toString();
-        if (message.includes('error')  || message.includes('error') || !message.includes("Skip") && !message.includes("Opening")) {
+        if (
+          message.includes("error") ||
+          message.includes("error") ||
+          (!message.includes("Skip") && !message.includes("Opening"))
+        ) {
           youtubedlLogger.error(`STDERR: ${message}`);
         } else {
           youtubedlLogger.info(`STDERR: ${message}`);
@@ -129,16 +135,37 @@ class downloadService {
         if (code !== 0) {
           reject(`youtube-dl process exited with code ${code}`);
         } else {
-          await this.finishDownload(videoPath);
+          await this.finishDownload(videoPath, displayName);
           resolve(videoPath);
         }
       });
     });
   }
 
-  async finishDownload(videoPath: string) {
+  async finishDownload(videoPath: string, displayName: string) {
     const endAt = new Date();
-    await this.updateVideoInfo(path.basename(videoPath), endAt, "Finished");
+    const filename = path.basename(videoPath);
+    const thumbnailName = filename.replace(".mp4", ".jpg");
+    const thumbnailPath = videoPath.replace("videos", "thumbnail").replace(filename, thumbnailName); //`public/thumbnail/${displayName}/${thumbnailName}`;
+    try {
+      await videoService.generateThumbnail(videoPath, thumbnailPath);
+      const size = await videoService.getVideoSize(videoPath);
+      const db = await getDbInstance();
+      const videoCollection = db.collection("videos");
+      await videoCollection.updateOne(
+        { filename: filename },
+        {
+          $set: {
+            downloaded_at: endAt,
+            status: "Finished",
+            thumbnail: thumbnailPath,
+            size: size,
+          },
+        }
+      );
+    } catch (error) {
+      console.error("Error generating thumbnail or getting video size:", error);
+    }
   }
 
   async findPendingJob(broadcaster_id: string) {
