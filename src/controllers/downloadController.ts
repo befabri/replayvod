@@ -101,7 +101,7 @@ export const downloadStream = async (req: Request, res: Response) => {
         stream,
         quality
       );
-      await downloadService.finishDownload(finalFilePath);
+      // await downloadService.finishDownload(finalFilePath);
     } catch (error) {
       console.error("Error saving video info:", error);
       throw error;

@@ -105,21 +105,30 @@ class downloadService {
       videoQuality
     );
 
-    const subprocess = youtubedl.exec(`https://www.twitch.tv/${login}`, {
-      format: `best[height=${videoQuality}]`,
-      output: videoPath,
-      cookies: cookiesFilePath,
-    });
+    return new Promise<string>((resolve, reject) => {
+      const subprocess = youtubedl.exec(`https://www.twitch.tv/${login}`, {
+        format: `best[height=${videoQuality}]`,
+        output: videoPath,
+        cookies: cookiesFilePath,
+      });
 
-    subprocess.stdout.on("data", (chunk) => {
-      youtubedlLogger.info(`STDOUT: ${chunk.toString()}`);
-    });
+      subprocess.stdout.on("data", (chunk) => {
+        youtubedlLogger.info(`STDOUT: ${chunk.toString()}`);
+      });
 
-    subprocess.stderr.on("data", (chunk) => {
-      youtubedlLogger.error(`STDERR: ${chunk.toString()}`);
-    });
+      subprocess.stderr.on("data", (chunk) => {
+        youtubedlLogger.error(`STDERR: ${chunk.toString()}`);
+      });
 
-    return videoPath;
+      subprocess.on("close", async (code) => {
+        if (code !== 0) {
+          reject(`youtube-dl process exited with code ${code}`);
+        } else {
+          await this.finishDownload(videoPath);
+          resolve(videoPath);
+        }
+      });
+    });
   }
 
   async finishDownload(videoPath: string) {
