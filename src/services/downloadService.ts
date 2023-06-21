@@ -6,12 +6,10 @@ import { Stream } from "../models/twitchModel";
 import { Video } from "../models/videoModel";
 import { VideoQuality } from "../models/downloadModel";
 import { youtubedlLogger } from "../middlewares/loggerMiddleware";
-import VideoService from "./videoService";
 
 const path = require("path");
 
 const userService = new UserService();
-const videoService = new VideoService();
 
 class downloadService {
   twitchAPI: TwitchAPI;
@@ -117,6 +115,7 @@ class downloadService {
       subprocess.stdout.on("data", (chunk) => {
         youtubedlLogger.info(`STDOUT: ${chunk.toString()}`);
       });
+
       subprocess.stderr.on("data", (chunk) => {
         youtubedlLogger.error(`STDERR: ${chunk.toString()}`);
       });
@@ -125,37 +124,16 @@ class downloadService {
         if (code !== 0) {
           reject(`youtube-dl process exited with code ${code}`);
         } else {
-          await this.finishDownload(videoPath, displayName);
+          await this.finishDownload(videoPath);
           resolve(videoPath);
         }
       });
     });
   }
 
-  async finishDownload(videoPath: string, displayName: string) {
+  async finishDownload(videoPath: string) {
     const endAt = new Date();
-    const filename = path.basename(videoPath);
-    const thumbnailName = filename.replace(".mp4", ".jpg");
-    const thumbnailPath = videoPath.replace("videos", "thumbnail").replace(filename, thumbnailName); //`public/thumbnail/${displayName}/${thumbnailName}`;
-    try {
-      await videoService.generateThumbnail(videoPath, thumbnailPath);
-      const size = await videoService.getVideoSize(videoPath);
-      const db = await getDbInstance();
-      const videoCollection = db.collection("videos");
-      await videoCollection.updateOne(
-        { filename: filename },
-        {
-          $set: {
-            downloaded_at: endAt,
-            status: "Finished",
-            thumbnail: thumbnailPath,
-            size: size,
-          },
-        }
-      );
-    } catch (error) {
-      console.error("Error generating thumbnail or getting video size:", error);
-    }
+    await this.updateVideoInfo(path.basename(videoPath), endAt, "Finished");
   }
 
   async findPendingJob(broadcaster_id: string) {
