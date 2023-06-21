@@ -14,7 +14,7 @@ let youtubedl;
 if (os.platform() === "win32") {
   youtubedl = createYoutubeDl("bin/yt.exe");
 } else if (os.platform() === "linux") {
-  youtubedl = createYoutubeDl("bin/yt-dlp_linux");
+  youtubedl = createYoutubeDl("bin/yt-dlp");
 }
 const userService = new UserService();
 const videoService = new VideoService();
