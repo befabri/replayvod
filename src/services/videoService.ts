@@ -3,14 +3,15 @@ import fs from "fs";
 import path from "path";
 import { Collection, Document, ObjectId, WithId } from "mongodb";
 import ffmpeg from "fluent-ffmpeg";
+import { Video } from "../models/videoModel";
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 
 class VideoService {
-  async getVideoById(id: string) {
+  async getVideoById(id: string): Promise<Video | null> {
     const db = await getDbInstance();
-    const videoCollection = db.collection("videos");
-    return videoCollection.findOne({ _id: new ObjectId(id) });
+    const videoCollection: Collection<Video> = db.collection("videos");
+    return videoCollection.findOne({ id: id });
   }
 
   async getFinishedVideosFromUser(userId: string) {

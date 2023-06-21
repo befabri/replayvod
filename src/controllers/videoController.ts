@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import VideoService from "../services/videoService";
 import UserService from "../services/userService";
+import { Video } from "../models/videoModel";
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 
@@ -15,12 +16,12 @@ export const playVideo = async (req: Request, res: Response) => {
     res.status(400).send("Invalid video id");
     return;
   }
-  const video = await videoService.getVideoById(videoId);
+  const video: Video = await videoService.getVideoById(videoId);
   if (!video) {
     res.status(404).send("Video not found in database");
     return;
   }
-  const videoPath = `public/videos/${video.filename}`;
+  const videoPath = `public/videos/${video.display_name.toLowerCase()}/${video.filename}`;
   if (!fs.existsSync(videoPath)) {
     res.status(404).send("File not found on server");
     return;
