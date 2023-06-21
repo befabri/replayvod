@@ -1,5 +1,5 @@
 # Base Image
-FROM node:18-alpine AS base
+FROM node:16-alpine AS base
 
 ENV NODE_ENV=production \
     PORT=8080

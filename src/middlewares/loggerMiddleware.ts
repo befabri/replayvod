@@ -38,6 +38,10 @@ const logger = winston.createLogger({
       filename: "log/combined.log",
       format: winston.format.combine(label({ label: "Main" }), winston.format.timestamp(), combinedLogFormat),
     }),
+    new winston.transports.File({
+      filename: "log/youtubedl.log",
+      format: winston.format.combine(label({ label: "YoutubeDL" }), winston.format.timestamp(), combinedLogFormat),
+    }),
   ],
 });
 
@@ -67,6 +71,16 @@ const errorLogger = expressWinston.errorLogger({
     }),
     new winston.transports.File({
       filename: "log/error.log",
+      format: jsonFormat,
+    }),
+  ],
+});
+
+const youtubedlLogger = winston.createLogger({
+  level: "info",
+  transports: [
+    new winston.transports.File({
+      filename: "log/youtubedl.log",
       format: jsonFormat,
     }),
   ],

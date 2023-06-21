@@ -5,6 +5,8 @@ import youtubedl from "youtube-dl-exec";
 import { Stream } from "../models/twitchModel";
 import { Video } from "../models/videoModel";
 import { VideoQuality } from "../models/downloadModel";
+import { youtubedlLogger } from "../middlewares/loggerMiddleware";
+
 const path = require("path");
 
 const userService = new UserService();
@@ -102,11 +104,21 @@ class downloadService {
       stream,
       videoQuality
     );
-    await youtubedl.exec(`https://www.twitch.tv/${login}`, {
+
+    const subprocess = youtubedl.exec(`https://www.twitch.tv/${login}`, {
       format: `best[height=${videoQuality}]`,
       output: videoPath,
       cookies: cookiesFilePath,
     });
+
+    subprocess.stdout.on("data", (chunk) => {
+      youtubedlLogger.info(`STDOUT: ${chunk.toString()}`);
+    });
+
+    subprocess.stderr.on("data", (chunk) => {
+      youtubedlLogger.error(`STDERR: ${chunk.toString()}`);
+    });
+
     return videoPath;
   }
 
