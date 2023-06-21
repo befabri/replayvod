@@ -51,7 +51,7 @@ const Vod: React.FC = () => {
           <p className="text-medium  dark:text-stone-100">
             {t("Downloaded at")}: {video.downloaded_at}
           </p>
-          <video controls poster={video.thumbnail} className="w-full max-w-lg">
+          <video controls poster={video.thumbnail} preload="none" className="w-full max-w-lg">
             <source src={`${ROOT_URL}/api/videos/play/${video._id}`} type="video/mp4" />
             {t("Your browser does not support the video tag.")}
           </video>
