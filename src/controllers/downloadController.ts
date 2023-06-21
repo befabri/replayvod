@@ -7,6 +7,8 @@ import { User } from "../models/twitchModel";
 import TwitchAPI from "../utils/twitchAPI";
 import { DownloadSchedule, VideoQuality } from "../models/downloadModel";
 import moment from "moment-timezone";
+import fs from "fs";
+import path from "path";
 
 const jobService = new JobService();
 const userService = new UserService();
@@ -77,7 +79,11 @@ export const downloadStream = async (req: Request, res: Response) => {
   const userId = req.session.passport.user.data[0].id;
   const currentDate = moment().format("DDMMYYYY-HHmmss");
   const filename = `${user.display_name.toLowerCase()}_${currentDate}.mp4`;
-  const finalFilePath = `public/videos/${filename}`;
+  const directoryPath = path.join("public", "videos", user.display_name.toLowerCase());
+  if (!fs.existsSync(directoryPath)) {
+    fs.mkdirSync(directoryPath, { recursive: true });
+  }
+  const finalFilePath = path.join(directoryPath, filename);
   const cookiesFilePath = `data/cookies.txt`;
   const pendingJob = await downloadService.findPendingJob(broadcasterId);
   if (pendingJob) {

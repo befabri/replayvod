@@ -6,10 +6,12 @@ import { Stream } from "../models/twitchModel";
 import { Video } from "../models/videoModel";
 import { VideoQuality } from "../models/downloadModel";
 import { youtubedlLogger } from "../middlewares/loggerMiddleware";
-
-const path = require("path");
+import VideoService from "./videoService";
+import fs from "fs";
+import path from "path";
 
 const userService = new UserService();
+const videoService = new VideoService();
 
 class downloadService {
   twitchAPI: TwitchAPI;
@@ -142,7 +144,32 @@ class downloadService {
 
   async finishDownload(videoPath: string) {
     const endAt = new Date();
-    await this.updateVideoInfo(path.basename(videoPath), endAt, "Finished");
+    const filename = path.basename(videoPath);
+    const thumbnailName = filename.replace(".mp4", ".jpg");
+    const directoryPath = path.join("public", "thumbnail");
+    if (!fs.existsSync(directoryPath)) {
+      fs.mkdirSync(directoryPath, { recursive: true });
+    }
+    const thumbnailPath = videoPath.replace("videos", "thumbnail").replace(filename, thumbnailName);
+    try {
+      await videoService.generateThumbnail(videoPath, thumbnailPath);
+      const size = await videoService.getVideoSize(videoPath);
+      const db = await getDbInstance();
+      const videoCollection = db.collection("videos");
+      await videoCollection.updateOne(
+        { filename: filename },
+        {
+          $set: {
+            downloaded_at: endAt,
+            status: "Finished",
+            thumbnail: thumbnailPath,
+            size: size,
+          },
+        }
+      );
+    } catch (error) {
+      console.error("Error generating thumbnail or getting video size:", error);
+    }
   }
 
   async findPendingJob(broadcaster_id: string) {
