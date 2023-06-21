@@ -117,18 +117,8 @@ class downloadService {
       subprocess.stdout.on("data", (chunk) => {
         youtubedlLogger.info(`STDOUT: ${chunk.toString()}`);
       });
-
       subprocess.stderr.on("data", (chunk) => {
-        const message = chunk.toString();
-        if (
-          message.includes("error") ||
-          message.includes("error") ||
-          (!message.includes("Skip") && !message.includes("Opening"))
-        ) {
-          youtubedlLogger.error(`STDERR: ${message}`);
-        } else {
-          youtubedlLogger.info(`STDERR: ${message}`);
-        }
+        youtubedlLogger.error(`STDERR: ${chunk.toString()}`);
       });
 
       subprocess.on("close", async (code) => {
