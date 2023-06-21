@@ -1,8 +1,5 @@
 FROM node:16-alpine AS base
 
-ARG PUID=1000
-ARG PGID=1000
-
 ENV NODE_ENV=production \
     PORT=8080 \
     PUID=$PUID \
