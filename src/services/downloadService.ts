@@ -121,7 +121,7 @@ class downloadService {
         if (
           message.includes("error") ||
           message.includes("error") ||
-          (!message.includes("Skip") && !message.includes("Opening"))
+          (!message.includes("Skip") && !message.includes("Opening") && !message.includes("frame"))
         ) {
           youtubedlLogger.error(`STDERR: ${message}`);
         } else {
