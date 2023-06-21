@@ -23,9 +23,6 @@ fi
 chown -R $PUID:$PGID /app
 chmod +x bin/yt-dlp
 
-# Switch to the new user
-su - $APP_USER
-
 # Execute the command (CMD [ "node", "app.js" ])
 # Switch to the new user and execute the command
 su - $APP_USER -c "$(printf " %q" "$@")"
