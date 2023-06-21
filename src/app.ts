@@ -22,7 +22,7 @@ const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
-const REACT_URL = process.env.REDIRECT_URL;
+const REACT_URL = process.env.REACT_URL;
 moment.tz.setDefault("Europe/Paris");
 
 if (!SESSION_SECRET) {
@@ -60,7 +60,7 @@ app.use(errorLogger);
 app.use((err: CustomError, req: Request, res: Response, next: NextFunction) => {
   // console.error(err.stack);
   res.status(err.status || 500).json({
-    message: err.message || "An internal server error occurred.",
+    message: err.message + "lol" || "An internal server error occurred.",
   });
 });
 

@@ -9,6 +9,7 @@ import { DownloadSchedule, VideoQuality } from "../models/downloadModel";
 import moment from "moment-timezone";
 import fs from "fs";
 import path from "path";
+import { youtubedlLogger } from "../middlewares/loggerMiddleware";
 
 const jobService = new JobService();
 const userService = new UserService();
@@ -83,7 +84,12 @@ export const downloadStream = async (req: Request, res: Response) => {
   if (!fs.existsSync(directoryPath)) {
     fs.mkdirSync(directoryPath, { recursive: true });
   }
-  const finalFilePath = path.join(directoryPath, filename);
+  // const finalFilePath = path.join(directoryPath, filename);
+  const finalFilePath = `public/videos/${filename}`;
+
+  console.log(path.basename(finalFilePath));
+  console.log(`public/videos/${filename}`);
+  console.log(finalFilePath);
   const cookiesFilePath = `data/cookies.txt`;
   const pendingJob = await downloadService.findPendingJob(broadcasterId);
   if (pendingJob) {
@@ -109,7 +115,8 @@ export const downloadStream = async (req: Request, res: Response) => {
       );
       // await downloadService.finishDownload(finalFilePath);
     } catch (error) {
-      console.error("Error saving video info:", error);
+      console.error("Error when downloading:", error);
+      youtubedlLogger.error(error.message);
       throw error;
     }
   });

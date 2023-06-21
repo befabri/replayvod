@@ -1,7 +1,6 @@
 import { getDbInstance } from "../models/db";
 import TwitchAPI from "../utils/twitchAPI";
 import UserService from "./userService";
-import youtubedl from "youtube-dl-exec";
 import { Stream } from "../models/twitchModel";
 import { Video } from "../models/videoModel";
 import { VideoQuality } from "../models/downloadModel";
@@ -9,7 +8,14 @@ import { youtubedlLogger } from "../middlewares/loggerMiddleware";
 import VideoService from "./videoService";
 import fs from "fs";
 import path from "path";
-
+const os = require("os");
+const { create: createYoutubeDl } = require("youtube-dl-exec");
+let youtubedl;
+if (os.platform() === "win32") {
+  youtubedl = createYoutubeDl("bin/yt.exe");
+} else if (os.platform() === "linux") {
+  youtubedl = createYoutubeDl("bin/yt-dlp_linux");
+}
 const userService = new UserService();
 const videoService = new VideoService();
 
@@ -108,10 +114,17 @@ class downloadService {
     );
 
     return new Promise<string>((resolve, reject) => {
+      youtubedlLogger.info(
+        `Download: ${JSON.stringify({
+          download: `https://www.twitch.tv/${login}`,
+          format: `best[height=${videoQuality}]`,
+          output: videoPath,
+          cookies: cookiesFilePath,
+        })} `
+      );
       const subprocess = youtubedl.exec(`https://www.twitch.tv/${login}`, {
         format: `best[height=${videoQuality}]`,
         output: videoPath,
-        cookies: cookiesFilePath,
       });
 
       subprocess.stdout.on("data", (chunk) => {
@@ -127,13 +140,13 @@ class downloadService {
         ) {
           youtubedlLogger.error(`STDERR: ${message}`);
         } else {
-          youtubedlLogger.info(`STDERR: ${message}`);
+          youtubedlLogger.info(`STDOUT: ${message}`);
         }
       });
 
       subprocess.on("close", async (code) => {
         if (code !== 0) {
-          reject(`youtube-dl process exited with code ${code}`);
+          reject(new Error(`youtube-dl process exited with code ${code}`));
         } else {
           await this.finishDownload(videoPath);
           resolve(videoPath);
