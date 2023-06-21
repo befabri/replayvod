@@ -16,10 +16,11 @@ if (os.platform() === "win32") {
 } else if (os.platform() === "linux") {
   youtubedl = createYoutubeDl("bin/yt-dlp");
 }
-const userService = new UserService();
-const videoService = new VideoService();
 
 class downloadService {
+  private userService = new UserService();
+  private videoService = new VideoService();
+
   twitchAPI: TwitchAPI;
 
   constructor() {
@@ -27,7 +28,7 @@ class downloadService {
   }
 
   async planningRecord(userId: string) {
-    const user = await userService.getUserDetailDB(userId);
+    const user = await this.userService.getUserDetailDB(userId);
     return "Successful registration planning";
   }
 
@@ -158,6 +159,16 @@ class downloadService {
   async finishDownload(videoPath: string) {
     const endAt = new Date();
     const filename = path.basename(videoPath);
+    const thumbnailPath = await this.generateThumbnail(videoPath, filename);
+    try {
+      const size = await this.videoService.getVideoSize(videoPath);
+      await this.updateVideoData(filename, endAt, thumbnailPath, size);
+    } catch (error) {
+      console.error("Error updating video data or getting video size:", error);
+    }
+  }
+
+  async generateThumbnail(videoPath: string, filename: string) {
     const thumbnailName = filename.replace(".mp4", ".jpg");
     const directoryPath = path.join("public", "thumbnail");
 
@@ -166,40 +177,35 @@ class downloadService {
     }
 
     const thumbnailPath = videoPath.replace("videos", "thumbnail").replace(filename, thumbnailName);
-    let thumbnail;
 
     try {
       while (!fs.existsSync(videoPath)) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 20000));
       }
-
-      await videoService.generateThumbnail(videoPath, thumbnailPath);
-      thumbnail = thumbnailPath;
+      await this.videoService.generateThumbnail(videoPath, thumbnailPath);
+      return thumbnailPath;
     } catch (error) {
       console.error("Error generating thumbnail:", error);
       youtubedlLogger.error(`Thumbnail ${videoPath}: ${error}`);
-      thumbnail = null;
+      return null;
     }
+  }
 
-    try {
-      const size = await videoService.getVideoSize(videoPath);
-      const db = await getDbInstance();
-      const videoCollection = db.collection("videos");
+  async updateVideoData(filename: string, endAt: Date, thumbnail: string, size: number) {
+    const db = await getDbInstance();
+    const videoCollection = db.collection("videos");
 
-      await videoCollection.updateOne(
-        { filename: filename },
-        {
-          $set: {
-            downloaded_at: endAt,
-            status: "Finished",
-            thumbnail: thumbnail,
-            size: size,
-          },
-        }
-      );
-    } catch (error) {
-      console.error("Error updating video data or getting video size:", error);
-    }
+    return videoCollection.updateOne(
+      { filename: filename },
+      {
+        $set: {
+          downloaded_at: endAt,
+          status: "Finished",
+          thumbnail: thumbnail,
+          size: size,
+        },
+      }
+    );
   }
 
   async findPendingJob(broadcaster_id: string) {
@@ -212,11 +218,12 @@ class downloadService {
   static async setVideoFailed(jobId: string) {
     const db = await getDbInstance();
     const videoCollection = db.collection("videos");
-
+    const endAt = new Date();
     return videoCollection.updateOne(
       { job_id: jobId },
       {
         $set: {
+          downloaded_at: endAt,
           status: "Failed",
         },
       }

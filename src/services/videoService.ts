@@ -51,7 +51,7 @@ class VideoService {
         if (err) {
           reject(err);
         } else {
-          const sizeInMB = stats.size / (1024 * 1024);
+          const sizeInMB = parseFloat((stats.size / (1024 * 1024)).toFixed(2));
           resolve(sizeInMB);
         }
       });
