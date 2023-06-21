@@ -14,7 +14,7 @@ else
 fi
 
 # Change the ownership of the volume directories
-chown -R $PUID:$PGID /app/log /app/public
+chown -R $PUID:$PGID /app/log /app/public /app/data
 
 # Switch to the new user
 su - $(getent passwd $PUID | cut -d: -f1)

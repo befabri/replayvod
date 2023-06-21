@@ -78,7 +78,7 @@ export const downloadStream = async (req: Request, res: Response) => {
   const currentDate = moment().format("DDMMYYYY-HHmmss");
   const filename = `${user.display_name.toLowerCase()}_${currentDate}.mp4`;
   const finalFilePath = `public/videos/${user.display_name.toLowerCase()}/${filename}`;
-  const cookiesFilePath = `cookies.txt`;
+  const cookiesFilePath = `data/cookies.txt`;
   const pendingJob = await downloadService.findPendingJob(broadcasterId);
   if (pendingJob) {
     res
