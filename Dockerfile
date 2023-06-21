@@ -26,7 +26,7 @@ COPY ./entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh
 
-VOLUME ["/app/log", "/app/public", "/app/data"]
+VOLUME ["/app/log", "/app/public", "/app/data", "/app/bin"]
 
 EXPOSE $PORT
 
