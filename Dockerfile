@@ -21,6 +21,7 @@ RUN npm ci --only=production
 RUN apk add --update ffmpeg
 
 COPY ./dist ./
+COPY ./bin ./bin
 COPY ./entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh
