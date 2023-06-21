@@ -86,4 +86,4 @@ const youtubedlLogger = winston.createLogger({
   ],
 });
 
-export { logger, requestLogger, errorLogger };
+export { logger, requestLogger, errorLogger, youtubedlLogger };
