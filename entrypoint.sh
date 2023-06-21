@@ -1,30 +1,17 @@
 #!/bin/sh
 # entrypoint.sh
 
-APP_USER="appuser"
-APP_GROUP="appgroup"
-
-# Check if the group exists and create it if it doesn't
-if ! getent group $PGID > /dev/null; then
-    addgroup -g $PGID $APP_GROUP
-else
-    APP_GROUP=$(getent group $PGID | cut -d: -f1)
+# Update user 'node' to have the specified UID and GID
+if getent passwd $PUID > /dev/null; then
+    usermod -u $PUID node
 fi
-
-# Check if the user exists and create it if it doesn't
-if ! getent passwd $PUID > /dev/null; then
-    adduser -D -u $PUID -s /bin/sh -G $APP_GROUP $APP_USER
-else
-    APP_USER=$(getent passwd $PUID | cut -d: -f1)
-    addgroup $APP_USER $APP_GROUP
+if getent group $PGID > /dev/null; then
+    groupmod -g $PGID node
 fi
 
 # Change the ownership of the volume directories
-chown -R $PUID:$PGID /app
+chown -R $PUID:$PGID /app/log /app/public /app/data
 chmod +x bin/yt-dlp
 
 # Execute the command (CMD [ "node", "app.js" ])
-# Switch to the new user and execute the command
-su - $APP_USER -c "$(printf " %q" "$@")"
-
-
+exec "$@"
