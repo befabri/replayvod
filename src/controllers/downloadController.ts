@@ -84,12 +84,7 @@ export const downloadStream = async (req: Request, res: Response) => {
   if (!fs.existsSync(directoryPath)) {
     fs.mkdirSync(directoryPath, { recursive: true });
   }
-  // const finalFilePath = path.join(directoryPath, filename);
-  const finalFilePath = `public/videos/${filename}`;
-
-  console.log(path.basename(finalFilePath));
-  console.log(`public/videos/${filename}`);
-  console.log(finalFilePath);
+  const finalFilePath = path.join(directoryPath, filename);
   const cookiesFilePath = `data/cookies.txt`;
   const pendingJob = await downloadService.findPendingJob(broadcasterId);
   if (pendingJob) {
