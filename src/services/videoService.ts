@@ -59,59 +59,89 @@ class VideoService {
     });
   }
 
-  generateThumbnail(videoPath: string, thumbnailPath: string): Promise<void> {
+  generateThumbnail(videoPath: string, thumbnailPath: string, timestamps: string): Promise<void> {
     return new Promise((resolve, reject) => {
       ffmpeg(videoPath)
         .on("end", resolve)
         .on("error", reject)
         .screenshots({
-          timestamps: ["00:00:15"],
+          timestamps: [timestamps],
           filename: path.basename(thumbnailPath),
           folder: path.dirname(thumbnailPath),
-          size: "512x256",
+          size: "1920x1080",
         });
     });
   }
 
   async generateSingleThumbnail(videoPath: string, videoName: string, login: string) {
+    const duration = await this.getVideoDuration(videoPath);
     const thumbnailName = videoName.replace(".mp4", ".jpg");
     const directoryPath = path.join("public", "thumbnail", login);
     if (!fs.existsSync(directoryPath)) {
       fs.mkdirSync(directoryPath, { recursive: true });
     }
     const thumbnailPath = videoPath.replace("videos", "thumbnail").replace(videoName, thumbnailName);
-    try {
-      await this.generateThumbnail(videoPath, thumbnailPath);
-      return thumbnailPath;
-    } catch (error) {
-      console.error("Error generating thumbnail:", error);
-      return null;
+
+    let timestamp = 300;
+    for (let tries = 0; tries < 5; tries++) {
+      try {
+        await this.generateThumbnail(videoPath, thumbnailPath, this.secondsToTimestamp(timestamp));
+        return thumbnailPath;
+      } catch (error) {
+        if (error.message === "Image is a single color") {
+          timestamp += 60;
+          if (timestamp >= duration) {
+            timestamp -= duration - 3;
+          }
+        } else {
+          console.error("Error generating thumbnail:", error);
+          return null;
+        }
+      }
     }
+
+    return null;
   }
 
   async generateMissingThumbnailsAndUpdate() {
     try {
       const db = await getDbInstance();
       const videoCollection = db.collection("videos");
-      const videos = await videoCollection.find({ thumbnail: null }).toArray();
+      const videos = await videoCollection.find({ thumbnail: null, status: "Finished" }).toArray();
       const promises = videos.map(async (video) => {
-        if (!video.thumbnail) {
-          const thumbnailDirectoryPath = path.join("public", "thumbnail", video.display_name.toLowerCase());
-          if (!fs.existsSync(thumbnailDirectoryPath)) {
-            fs.mkdirSync(thumbnailDirectoryPath, { recursive: true });
-          }
-
+        const thumbnailPath = path.join(
+          "public",
+          "thumbnail",
+          video.display_name.toLowerCase(),
+          video.filename.replace(".mp4", ".jpg")
+        );
+        const videoPath = path.join("public", "videos", video.display_name.toLowerCase(), video.filename);
+        const duration = await this.getVideoDuration(videoPath);
+        if (!fs.existsSync(path.dirname(thumbnailPath))) {
+          fs.mkdirSync(path.dirname(thumbnailPath), { recursive: true });
+        }
+        let timestamp = 300;
+        if (timestamp >= duration) {
+          timestamp = 30;
+        }
+        console.log(timestamp);
+        for (let tries = 0; tries < 5; tries++) {
           try {
-            await this.generateThumbnail(
-              `public/videos/${video.display_name.toLowerCase()}/${video.filename}`,
-              `public/thumbnail/${video.display_name.toLowerCase()}/${video.filename.replace(".mp4", ".jpg")}`
-            );
+            await this.generateThumbnail(videoPath, thumbnailPath, this.secondsToTimestamp(timestamp));
             await videoCollection.updateOne(
               { _id: video._id },
-              { $set: { thumbnail: video.filename.replace(".mp4", ".jpg") } }
+              { $set: { thumbnail: this.getRelativePath(thumbnailPath) } }
             );
+            break;
           } catch (error) {
-            console.error("Error generating thumbnail or updating collection:", error);
+            if (error.message === "Image is a single color") {
+              timestamp += 60;
+              if (timestamp >= duration) {
+                timestamp -= duration - 3;
+              }
+            } else {
+              console.error("Error generating thumbnail or updating collection:", error);
+            }
           }
         }
       });
@@ -121,6 +151,19 @@ class VideoService {
       console.error("Error generating missing thumbnails and updating collection:", error);
       return [];
     }
+  }
+
+  getRelativePath(fullPath: string): string {
+    let pathParts = fullPath.split(path.sep);
+    let relativePath = pathParts.slice(2).join("/");
+    return relativePath;
+  }
+
+  secondsToTimestamp(seconds: number) {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds - hrs * 3600) / 60);
+    const secs = seconds - hrs * 3600 - mins * 60;
+    return `${hrs}:${mins}:${secs}`;
   }
 
   getVideoDuration(videoPath: string): Promise<number> {

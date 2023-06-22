@@ -8,16 +8,16 @@ import errorHandler from "../middlewares/errorHandler";
 import { CustomError } from "../types/types";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 import scheduleRoutes from "./scheduleRoutes";
+import path from "path";
 
 const router: Router = express.Router();
-
 router.use("/auth", authRoutes);
-router.use(isUserWhitelisted, userAuthenticated);
 router.use("/users", userRoutes);
 router.use("/dl", downloadRoutes);
 router.use("/videos", videoRoutes);
 router.use("/twitch", manageRoutes);
 router.use("/schedule", scheduleRoutes);
+router.use(isUserWhitelisted, userAuthenticated);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   const error: CustomError = new Error("Not Found");

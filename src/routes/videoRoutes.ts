@@ -8,5 +8,6 @@ router.get("/all", videoController.getVideos);
 router.get("/finished", videoController.getFinishedVideos);
 router.get("/user/:id", videoController.getUserVideos);
 router.get("/update/missing", videoController.generateMissingThumbnail);
+router.get("/thumbnail/:login/:filename", videoController.getThumbnail);
 
 export default router;

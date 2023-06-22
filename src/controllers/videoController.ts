@@ -92,3 +92,30 @@ export const generateMissingThumbnail = async (req: Request, res: Response) => {
     res.status(500).send("Internal server error");
   }
 };
+
+export const getThumbnail = async (req: Request, res: Response) => {
+  // TODO Verify permission / verify into mongo
+  const { login, filename } = req.params;
+  if (!login || !filename) {
+    return res.status(400).send("Invalid parameters: Both login and filename are required");
+  }
+  const imagePath = path.resolve(__dirname, "..", "..", "public", "thumbnail", login, filename);
+  fs.stat(imagePath, (err, stat) => {
+    if (err) {
+      if (err.code === "ENOENT") {
+        return res.status(404).send("File not found");
+      } else {
+        return res.status(500).send("Error accessing the file");
+      }
+    }
+    const stream = fs.createReadStream(imagePath);
+    stream.on("open", () => {
+      res.set("Content-Type", "image/jpeg");
+      res.set("Content-Length", String(stat.size));
+      stream.pipe(res);
+    });
+    stream.on("error", (streamErr) => {
+      return res.status(500).send(`Error streaming the image: ${streamErr.message}`);
+    });
+  });
+};

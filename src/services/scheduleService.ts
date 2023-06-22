@@ -30,26 +30,43 @@ class ScheduleService {
     return taskCollection.find().toArray();
   }
 
-  private taskRunners: { [taskType: string]: (...args: any[]) => Promise<any> } = {
-    generateMissingThumbnail: this.videoService.generateMissingThumbnailsAndUpdate,
+  private taskRunners: { [taskType: string]: (taskMetadata?: any) => Promise<any> } = {
+    generateMissingThumbnail: (taskMetadata?: any) => this.videoService.generateMissingThumbnailsAndUpdate(),
   };
 
   async runTask(id: string) {
     const db = await getDbInstance();
     const taskCollection = db.collection("task");
     const task = await taskCollection.findOne({ id: id });
-
     if (!task) {
       throw new Error(`Task not found: ${id}`);
     }
-
     const taskRunner = this.taskRunners[task.taskType];
-
     if (!taskRunner) {
       throw new Error(`Unrecognized task type: ${task.taskType}`);
     }
+    const startTime = Date.now();
+    await taskRunner(task.metadata);
+    const endTime = Date.now();
+    const executionDuration = endTime - startTime;
+    const updatedTask = await this.updateTaskExecution(id, startTime, executionDuration, task.interval);
+    return updatedTask;
+  }
 
-    return await taskRunner(task.metadata);
+  async updateTaskExecution(id: string, startTime: number, executionDuration: number, interval: number) {
+    const db = await getDbInstance();
+    const taskCollection = db.collection("task");
+    await taskCollection.updateOne(
+      { id: id },
+      {
+        $set: {
+          lastExecution: new Date(startTime),
+          lastDuration: executionDuration,
+          nextExecution: new Date(startTime + interval),
+        },
+      }
+    );
+    return taskCollection.findOne({ id: id });
   }
 }
 

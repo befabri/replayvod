@@ -51,7 +51,7 @@ app.use(
 );
 app.use(express.json());
 app.use(dbMiddleware);
-app.use(express.static("public"));
+// app.use(express.static("public"));
 app.use(passport.initialize());
 app.use(passport.session());
 app.use(requestLogger);
