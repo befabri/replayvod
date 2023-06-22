@@ -8,6 +8,12 @@ const Vod: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
+  const fetchImage = async (url) => {
+    const response = await fetch(url, { credentials: "include" });
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  };
+
   useEffect(() => {
     fetch(`${ROOT_URL}/api/videos/finished`, {
       credentials: "include",
@@ -18,10 +24,14 @@ const Vod: React.FC = () => {
         }
         return response.json();
       })
-      .then((data) => {
-        setVideos(data);
-        console.log(data);
-        console.log(videos);
+      .then(async (data) => {
+        const promises = data.map(async (video) => {
+          const imageUrl = await fetchImage(`${ROOT_URL}/api/videos/thumbnail/${video.thumbnail}`);
+          return { ...video, thumbnail: imageUrl };
+        });
+
+        const videosWithBlobUrls = await Promise.all(promises);
+        setVideos(videosWithBlobUrls);
         setIsLoading(false);
       })
       .catch((error) => {
