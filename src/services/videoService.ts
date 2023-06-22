@@ -61,12 +61,76 @@ class VideoService {
 
   generateThumbnail(videoPath: string, thumbnailPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const command = `ffmpeg -i "${videoPath}" -ss 00:00:15 -vframes 1 -s 320x240 "${thumbnailPath}"`;
-      exec(command, (error, stdout, stderr) => {
-        if (error) {
-          reject(error);
+      ffmpeg(videoPath)
+        .on("end", resolve)
+        .on("error", reject)
+        .screenshots({
+          timestamps: ["00:00:15"],
+          filename: path.basename(thumbnailPath),
+          folder: path.dirname(thumbnailPath),
+          size: "512x256",
+        });
+    });
+  }
+
+  async generateSingleThumbnail(videoPath: string, videoName: string, login: string) {
+    const thumbnailName = videoName.replace(".mp4", ".jpg");
+    const directoryPath = path.join("public", "thumbnail", login);
+    if (!fs.existsSync(directoryPath)) {
+      fs.mkdirSync(directoryPath, { recursive: true });
+    }
+    const thumbnailPath = videoPath.replace("videos", "thumbnail").replace(videoName, thumbnailName);
+    try {
+      await this.generateThumbnail(videoPath, thumbnailPath);
+      return thumbnailPath;
+    } catch (error) {
+      console.error("Error generating thumbnail:", error);
+      return null;
+    }
+  }
+
+  async generateMissingThumbnailsAndUpdate() {
+    try {
+      const db = await getDbInstance();
+      const videoCollection = db.collection("videos");
+      const videos = await videoCollection.find({ thumbnail: null }).toArray();
+      const promises = videos.map(async (video) => {
+        if (!video.thumbnail) {
+          const thumbnailDirectoryPath = path.join("public", "thumbnail", video.display_name.toLowerCase());
+          if (!fs.existsSync(thumbnailDirectoryPath)) {
+            fs.mkdirSync(thumbnailDirectoryPath, { recursive: true });
+          }
+
+          try {
+            await this.generateThumbnail(
+              `public/videos/${video.display_name.toLowerCase()}/${video.filename}`,
+              `public/thumbnail/${video.display_name.toLowerCase()}/${video.filename.replace(".mp4", ".jpg")}`
+            );
+            await videoCollection.updateOne(
+              { _id: video._id },
+              { $set: { thumbnail: video.filename.replace(".mp4", ".jpg") } }
+            );
+          } catch (error) {
+            console.error("Error generating thumbnail or updating collection:", error);
+          }
+        }
+      });
+      await Promise.all(promises);
+      return videoCollection.find({ thumbnail: { $ne: null } }).toArray();
+    } catch (error) {
+      console.error("Error generating missing thumbnails and updating collection:", error);
+      return [];
+    }
+  }
+
+  getVideoDuration(videoPath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (err) {
+          reject(err);
         } else {
-          resolve();
+          const durationInSeconds = metadata.format.duration;
+          resolve(durationInSeconds);
         }
       });
     });
@@ -83,6 +147,24 @@ class VideoService {
     });
     await Promise.all(updatePromises);
     return videos;
+  }
+
+  async updateVideoData(filename: string, endAt: Date, thumbnail: string, size: number, duration: number) {
+    const db = await getDbInstance();
+    const videoCollection = db.collection("videos");
+
+    return videoCollection.updateOne(
+      { filename: filename },
+      {
+        $set: {
+          downloaded_at: endAt,
+          status: "Finished",
+          thumbnail: thumbnail,
+          size: size,
+          duration: duration,
+        },
+      }
+    );
   }
 
   async getVideosByUser(userId: string) {

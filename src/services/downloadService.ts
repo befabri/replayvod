@@ -8,6 +8,7 @@ import { youtubedlLogger } from "../middlewares/loggerMiddleware";
 import VideoService from "./videoService";
 import fs from "fs";
 import path from "path";
+import { duration } from "moment-timezone";
 const os = require("os");
 const { create: createYoutubeDl } = require("youtube-dl-exec");
 let youtubedl;
@@ -102,11 +103,12 @@ class downloadService {
     videoQuality: VideoQuality
   ) {
     const startAt = new Date();
+    const filename = path.basename(videoPath);
     await this.saveVideoInfo(
       userRequesting,
       broadcasterId,
       displayName,
-      path.basename(videoPath),
+      filename,
       startAt,
       "Pending",
       jobId,
@@ -149,63 +151,40 @@ class downloadService {
         if (code !== 0) {
           reject(new Error(`youtube-dl process exited with code ${code}`));
         } else {
-          await this.finishDownload(videoPath);
+          await this.finishDownload(videoPath, filename, login);
           resolve(videoPath);
         }
       });
     });
   }
 
-  async finishDownload(videoPath: string) {
+  async finishDownload(videoPath: string, filename: string, login: string) {
     const endAt = new Date();
-    const filename = path.basename(videoPath);
-    const thumbnailPath = await this.generateThumbnail(videoPath, filename);
+    let duration, thumbnailPath, size;
+
     try {
-      const size = await this.videoService.getVideoSize(videoPath);
-      await this.updateVideoData(filename, endAt, thumbnailPath, size);
+      duration = await this.videoService.getVideoDuration(videoPath);
     } catch (error) {
-      console.error("Error updating video data or getting video size:", error);
+      console.error("Error getting video duration:", error);
     }
-  }
-
-  async generateThumbnail(videoPath: string, filename: string) {
-    const thumbnailName = filename.replace(".mp4", ".jpg");
-    const directoryPath = path.join("public", "thumbnail");
-
-    if (!fs.existsSync(directoryPath)) {
-      fs.mkdirSync(directoryPath, { recursive: true });
-    }
-
-    const thumbnailPath = videoPath.replace("videos", "thumbnail").replace(filename, thumbnailName);
 
     try {
-      while (!fs.existsSync(videoPath)) {
-        await new Promise((resolve) => setTimeout(resolve, 20000));
-      }
-      await this.videoService.generateThumbnail(videoPath, thumbnailPath);
-      return thumbnailPath;
+      thumbnailPath = await this.videoService.generateSingleThumbnail(videoPath, filename, login);
     } catch (error) {
       console.error("Error generating thumbnail:", error);
-      youtubedlLogger.error(`Thumbnail ${videoPath} ${thumbnailPath}: ${error}`);
-      return null;
     }
-  }
 
-  async updateVideoData(filename: string, endAt: Date, thumbnail: string, size: number) {
-    const db = await getDbInstance();
-    const videoCollection = db.collection("videos");
+    try {
+      size = await this.videoService.getVideoSize(videoPath);
+    } catch (error) {
+      console.error("Error getting video size:", error);
+    }
 
-    return videoCollection.updateOne(
-      { filename: filename },
-      {
-        $set: {
-          downloaded_at: endAt,
-          status: "Finished",
-          thumbnail: thumbnail,
-          size: size,
-        },
-      }
-    );
+    try {
+      await this.videoService.updateVideoData(filename, endAt, thumbnailPath, size, duration);
+    } catch (error) {
+      console.error("Error updating video data:", error);
+    }
   }
 
   async findPendingJob(broadcaster_id: string) {

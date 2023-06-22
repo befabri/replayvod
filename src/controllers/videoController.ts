@@ -83,3 +83,12 @@ export const getUserVideos = async (req: Request, res: Response) => {
   const videos = await videoService.getVideosByUser(userId);
   res.json(videos);
 };
+
+export const generateMissingThumbnail = async (req: Request, res: Response) => {
+  try {
+    const result = await videoService.generateMissingThumbnailsAndUpdate();
+    res.json(result);
+  } catch (error) {
+    res.status(500).send("Internal server error");
+  }
+};
