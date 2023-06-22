@@ -7,6 +7,7 @@ import manageRoutes from "./manageRoutes";
 import errorHandler from "../middlewares/errorHandler";
 import { CustomError } from "../types/types";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
+import scheduleRoutes from "./scheduleRoutes";
 
 const router: Router = express.Router();
 
@@ -16,6 +17,7 @@ router.use("/users", userRoutes);
 router.use("/dl", downloadRoutes);
 router.use("/videos", videoRoutes);
 router.use("/twitch", manageRoutes);
+router.use("/schedule", scheduleRoutes);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   const error: CustomError = new Error("Not Found");
