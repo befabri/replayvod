@@ -186,7 +186,7 @@ class downloadService {
       return thumbnailPath;
     } catch (error) {
       console.error("Error generating thumbnail:", error);
-      youtubedlLogger.error(`Thumbnail ${videoPath}: ${error}`);
+      youtubedlLogger.error(`Thumbnail ${videoPath} ${thumbnailPath}: ${error}`);
       return null;
     }
   }

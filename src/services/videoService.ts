@@ -4,6 +4,7 @@ import path from "path";
 import { Collection, Document, ObjectId, WithId } from "mongodb";
 import ffmpeg from "fluent-ffmpeg";
 import { Video } from "../models/videoModel";
+import { exec } from "child_process";
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 
@@ -60,15 +61,14 @@ class VideoService {
 
   generateThumbnail(videoPath: string, thumbnailPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      ffmpeg(videoPath)
-        .on("end", resolve)
-        .on("error", reject)
-        .screenshots({
-          timestamps: ["15%"],
-          filename: thumbnailPath,
-          folder: "public/thumbnail",
-          size: "320x240",
-        });
+      const command = `ffmpeg -i "${videoPath}" -ss 00:00:15 -vframes 1 -s 320x240 "${thumbnailPath}"`;
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
     });
   }
 
