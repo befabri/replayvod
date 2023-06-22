@@ -14,6 +14,8 @@ export interface Video {
   tags: string[];
   viewer_count: number[];
   language: string;
+  size?: number;
+  thumbnail?: string;
   isChecked?: boolean;
 }
 

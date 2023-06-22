@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { Video } from "../type";
 
 const Vod: React.FC = () => {
   const { t } = useTranslation();
@@ -8,7 +9,7 @@ const Vod: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
-  const fetchImage = async (url) => {
+  const fetchImage = async (url: RequestInfo | URL) => {
     const response = await fetch(url, { credentials: "include" });
     const blob = await response.blob();
     return URL.createObjectURL(blob);
@@ -25,7 +26,7 @@ const Vod: React.FC = () => {
         return response.json();
       })
       .then(async (data) => {
-        const promises = data.map(async (video) => {
+        const promises = data.map(async (video: Video) => {
           const imageUrl = await fetchImage(`${ROOT_URL}/api/videos/thumbnail/${video.thumbnail}`);
           return { ...video, thumbnail: imageUrl };
         });
