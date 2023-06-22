@@ -20,3 +20,18 @@ export interface Video {
 export interface TableProps {
   items: Video[];
 }
+
+export interface Task {
+  _id: string;
+  id: string;
+  name: string;
+  description: string;
+  taskType: string;
+  metadata?: {
+    [key: string]: string;
+  };
+  interval: number;
+  lastExecution: Date;
+  lastDuration: number;
+  nextExecution: Date;
+}

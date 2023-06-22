@@ -58,6 +58,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
       icon: "mdi:cog",
       text: t("Settings"),
     },
+    {
+      icon: "mdi:laptop",
+      text: t("System"),
+      dropdown: true,
+      items: [
+        { href: "/system/status", text: t("Status") },
+        { href: "/system/tasks", text: t("Tasks") },
+        { href: "/system/logs", text: t("Log Files") },
+      ],
+    },
   ]);
 
   const toggleDropdown = (index: number) => {

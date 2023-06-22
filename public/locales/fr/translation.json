@@ -46,5 +46,11 @@
   "Manage Videos" : "Gérer les vidéos",
   "Activity" : "Activité",
   "Queue":"File d'attente",
-  "History":"Historique"
+  "History":"Historique",
+  "System":"Système",
+  "Status":"Statut",
+  "Tasks":"Tâches",
+  "Log Files":"Fichiers Logs",
+  "Scheduled": "Planifié",
+  "null":"null"
 }

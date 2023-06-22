@@ -12,6 +12,9 @@ import Channel from "./pages/Channel.tsx";
 import Manage from "./pages/Record/Manage.tsx";
 import HistoryPage from "./pages/Activity/History.tsx";
 import Queue from "./pages/Activity/Queue.tsx";
+import Tasks from "./pages/System/Tasks.tsx";
+import Status from "./pages/System/Status.tsx";
+import Logs from "./pages/System/Logs.tsx";
 
 export default function App() {
   return (
@@ -30,6 +33,9 @@ export default function App() {
           <Route path="/activity/history" element={<HistoryPage />} />
           <Route path="/vod" element={<Vod />} />
           <Route path="/channel/:id" element={<Channel />} />
+          <Route path="/system/status" element={<Status />} />
+          <Route path="/system/tasks" element={<Tasks />} />
+          <Route path="/system/logs" element={<Logs />} />
         </Route>
       </Routes>
     </AuthProvider>
