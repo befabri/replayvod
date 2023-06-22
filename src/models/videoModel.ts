@@ -18,4 +18,6 @@ export interface Video {
   viewer_count: number;
   language: string;
   quality: VideoQuality;
+  size?: number;
+  thumbnail?: string;
 }

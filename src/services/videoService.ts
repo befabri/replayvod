@@ -7,7 +7,8 @@ import { Video } from "../models/videoModel";
 import { exec } from "child_process";
 import { fixvideosLogger } from "../middlewares/loggerMiddleware";
 
-const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
+// const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
+const VIDEO_PATH = "public/videos";
 
 class VideoService {
   async getVideoById(id: string): Promise<Video | null> {
