@@ -5,6 +5,7 @@ import { Collection, Document, ObjectId, WithId } from "mongodb";
 import ffmpeg from "fluent-ffmpeg";
 import { Video } from "../models/videoModel";
 import { exec } from "child_process";
+import { fixvideosLogger } from "../middlewares/loggerMiddleware";
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 
@@ -104,6 +105,7 @@ class VideoService {
   }
 
   async generateMissingThumbnailsAndUpdate() {
+    // TODO verify the true duration before
     try {
       const db = await getDbInstance();
       const videoCollection = db.collection("videos");
@@ -151,6 +153,93 @@ class VideoService {
       console.error("Error generating missing thumbnails and updating collection:", error);
       return [];
     }
+  }
+
+  isVideoCorrupt(metadata) {
+    const videoStream = metadata.streams.find((s) => s.codec_type === "video");
+    const audioStream = metadata.streams.find((s) => s.codec_type === "audio");
+    const duration = metadata.format.duration;
+    if (!videoStream || !audioStream) {
+      throw new Error("Missing video or audio stream");
+    }
+    const videoDuration = parseFloat(duration);
+    const streamDuration = parseFloat(videoStream.duration);
+    const discrepancy = Math.abs(videoDuration - streamDuration);
+    console.log(discrepancy, discrepancy > 50);
+    return discrepancy > 50;
+  }
+
+  async fixMalformedVideos() {
+    const db = await getDbInstance();
+    const videoCollection = db.collection("videos");
+    const videos = await videoCollection.find().toArray();
+    for (const video of videos) {
+      const videoPath = path.join(VIDEO_PATH, video.display_name.toLowerCase(), video.filename);
+      if (fs.existsSync(videoPath)) {
+        try {
+          fixvideosLogger.info(`Processing video: ${videoPath}`);
+          let metadata = await this.getMetadata(videoPath);
+          if (this.isVideoCorrupt(metadata)) {
+            fixvideosLogger.info(`Video might be corrupt. Attempting to fix...`);
+            const fixedVideoPath = videoPath.replace(".mp4", "FIX.mp4");
+            await this.fixVideo(videoPath, fixedVideoPath);
+            metadata = await this.getMetadata(fixedVideoPath);
+            if (this.isVideoCorrupt(metadata)) {
+              fixvideosLogger.error(`Video is still corrupt after fixing.`);
+            } else {
+              fixvideosLogger.info(`Video has been successfully fixed.`);
+              const tempOriginalPath = videoPath.replace(".mp4", "TEMP.mp4");
+              fs.renameSync(videoPath, tempOriginalPath);
+              fs.renameSync(fixedVideoPath, videoPath);
+              fs.unlinkSync(tempOriginalPath);
+              fixvideosLogger.info(`Successfully replaced the corrupt video with the fixed one.`);
+            }
+          } else {
+            fixvideosLogger.info(`Video seems fine, no actions taken.`);
+          }
+        } catch (error) {
+          fixvideosLogger.error(`Error processing video at path ${videoPath}: ${error.message}`);
+        }
+      } else {
+        fixvideosLogger.warn(`Video does not exist at path: ${videoPath}`);
+      }
+    }
+  }
+
+  getMaxFrames(videoPath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (err) {
+          reject(err);
+        } else {
+          const frameCount = metadata.streams[0]?.nb_frames;
+          resolve(frameCount);
+        }
+      });
+    });
+  }
+
+  getMetadata(videoPath) {
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(metadata);
+        }
+      });
+    });
+  }
+
+  fixVideo(inputVideoPath: string, outputVideoPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      ffmpeg(inputVideoPath)
+        .outputOptions("-vcodec copy")
+        .outputOptions("-acodec copy")
+        .save(outputVideoPath)
+        .on("end", resolve)
+        .on("error", reject);
+    });
   }
 
   getRelativePath(fullPath: string): string {

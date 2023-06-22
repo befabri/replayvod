@@ -32,6 +32,7 @@ class ScheduleService {
 
   private taskRunners: { [taskType: string]: (taskMetadata?: any) => Promise<any> } = {
     generateMissingThumbnail: (taskMetadata?: any) => this.videoService.generateMissingThumbnailsAndUpdate(),
+    fixMalformedVideos: (taskMetadata?: any) => this.videoService.fixMalformedVideos(),
   };
 
   async runTask(id: string) {
