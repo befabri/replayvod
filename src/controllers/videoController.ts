@@ -99,7 +99,8 @@ export const getThumbnail = async (req: Request, res: Response) => {
   if (!login || !filename) {
     return res.status(400).send("Invalid parameters: Both login and filename are required");
   }
-  const imagePath = path.resolve(__dirname, "..", "..", "public", "thumbnail", login, filename);
+  // const imagePath = path.resolve(__dirname, "..", "..", "public", "thumbnail", login, filename);
+  const imagePath = `public/thumbnail/${login}/${filename}`;
   fs.stat(imagePath, (err, stat) => {
     if (err) {
       if (err.code === "ENOENT") {
