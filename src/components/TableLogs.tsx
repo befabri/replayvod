@@ -1,10 +1,9 @@
-import { Icon } from "@iconify/react";
 import { Key } from "react";
 import { useTranslation } from "react-i18next";
 import { Log } from "../type";
 
 const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
   const fields: (keyof Log)[] = ["filename", "type", "lastWriteTime"];
