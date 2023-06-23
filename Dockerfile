@@ -2,7 +2,10 @@
 FROM node:16-alpine AS base
 
 ENV NODE_ENV=production \
-    PORT=8080 
+    PORT=8080 \
+    LOG_DIR=/app/log \
+    PUBLIC_DIR=/app/public \ 
+    DATA_DIR=/app/data
 
 WORKDIR /app
 

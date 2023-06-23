@@ -80,12 +80,12 @@ export const downloadStream = async (req: Request, res: Response) => {
   const userId = req.session.passport.user.data[0].id;
   const currentDate = moment().format("DDMMYYYY-HHmmss");
   const filename = `${user.display_name.toLowerCase()}_${currentDate}.mp4`;
-  const directoryPath = path.join("public", "videos", user.display_name.toLowerCase());
+  const directoryPath = path.resolve(process.env.PUBLIC_DIR, "videos", user.display_name.toLowerCase());
   if (!fs.existsSync(directoryPath)) {
     fs.mkdirSync(directoryPath, { recursive: true });
   }
   const finalFilePath = path.join(directoryPath, filename);
-  const cookiesFilePath = `data/cookies.txt`;
+  const cookiesFilePath = path.resolve(process.env.DATA_DIR, "cookies.txt");
   const pendingJob = await downloadService.findPendingJob(broadcasterId);
   if (pendingJob) {
     res
@@ -108,7 +108,6 @@ export const downloadStream = async (req: Request, res: Response) => {
         stream,
         quality
       );
-      // await downloadService.finishDownload(finalFilePath);
     } catch (error) {
       console.error("Error when downloading:", error);
       youtubedlLogger.error(error.message);

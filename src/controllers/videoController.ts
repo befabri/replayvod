@@ -21,7 +21,12 @@ export const playVideo = async (req: Request, res: Response) => {
     res.status(404).send("Video not found in database");
     return;
   }
-  const videoPath = `public/videos/${video.display_name.toLowerCase()}/${video.filename}`;
+  const videoPath = path.resolve(
+    process.env.PUBLIC_DIR,
+    "videos",
+    video.display_name.toLowerCase(),
+    video.filename
+  );
   if (!fs.existsSync(videoPath)) {
     res.status(404).send("File not found on server");
     return;
@@ -99,8 +104,7 @@ export const getThumbnail = async (req: Request, res: Response) => {
   if (!login || !filename) {
     return res.status(400).send("Invalid parameters: Both login and filename are required");
   }
-  // const imagePath = path.resolve(__dirname, "..", "..", "public", "thumbnail", login, filename);
-  const imagePath = `public/thumbnail/${login}/${filename}`;
+  const imagePath = path.resolve(process.env.PUBLIC_DIR, "thumbnail", login, filename);
   fs.stat(imagePath, (err, stat) => {
     if (err) {
       if (err.code === "ENOENT") {

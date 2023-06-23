@@ -32,7 +32,12 @@ class VideoService {
 
   updateVideoSize(video: WithId<Document>, videoCollection: Collection<Document>) {
     return new Promise((resolve, reject) => {
-      const filePath = path.join(VIDEO_PATH, video.filename);
+      const filePath = path.resolve(
+        process.env.PUBLIC_DIR,
+        "videos",
+        video.display_name.toLowerCase(),
+        video.filename
+      );
       if (fs.existsSync(filePath)) {
         const stat = fs.statSync(filePath);
         const fileSizeInBytes = stat.size;
@@ -78,7 +83,7 @@ class VideoService {
   async generateSingleThumbnail(videoPath: string, videoName: string, login: string) {
     const duration = await this.getVideoDuration(videoPath);
     const thumbnailName = videoName.replace(".mp4", ".jpg");
-    const directoryPath = path.join("public", "thumbnail", login);
+    const directoryPath = path.resolve(process.env.PUBLIC_DIR, "thumbnail", login);
     if (!fs.existsSync(directoryPath)) {
       fs.mkdirSync(directoryPath, { recursive: true });
     }
@@ -112,13 +117,18 @@ class VideoService {
       const videoCollection = db.collection("videos");
       const videos = await videoCollection.find({ thumbnail: null, status: "Finished" }).toArray();
       const promises = videos.map(async (video) => {
-        const thumbnailPath = path.join(
-          "public",
+        const thumbnailPath = path.resolve(
+          process.env.PUBLIC_DIR,
           "thumbnail",
           video.display_name.toLowerCase(),
           video.filename.replace(".mp4", ".jpg")
         );
-        const videoPath = path.join("public", "videos", video.display_name.toLowerCase(), video.filename);
+        const videoPath = path.resolve(
+          process.env.PUBLIC_DIR,
+          "videos",
+          video.display_name.toLowerCase(),
+          video.filename
+        );
         const duration = await this.getVideoDuration(videoPath);
         if (!fs.existsSync(path.dirname(thumbnailPath))) {
           fs.mkdirSync(path.dirname(thumbnailPath), { recursive: true });
@@ -175,7 +185,12 @@ class VideoService {
     const videoCollection = db.collection("videos");
     const videos = await videoCollection.find().toArray();
     for (const video of videos) {
-      const videoPath = path.join(VIDEO_PATH, video.display_name.toLowerCase(), video.filename);
+      const videoPath = path.resolve(
+        process.env.PUBLIC_DIR,
+        "videos",
+        video.display_name.toLowerCase(),
+        video.filename
+      );
       if (fs.existsSync(videoPath)) {
         try {
           fixvideosLogger.info(`Processing video: ${videoPath}`);

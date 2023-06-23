@@ -9,6 +9,7 @@ import { CustomError } from "../types/types";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 import scheduleRoutes from "./scheduleRoutes";
 import path from "path";
+import logRoutes from "./logRoutes";
 
 const router: Router = express.Router();
 router.use("/auth", authRoutes);
@@ -17,6 +18,7 @@ router.use("/dl", downloadRoutes);
 router.use("/videos", videoRoutes);
 router.use("/twitch", manageRoutes);
 router.use("/schedule", scheduleRoutes);
+router.use("/log", logRoutes);
 router.use(isUserWhitelisted, userAuthenticated);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
