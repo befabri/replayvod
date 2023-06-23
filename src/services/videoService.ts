@@ -93,7 +93,7 @@ class VideoService {
     for (let tries = 0; tries < 5; tries++) {
       try {
         await this.generateThumbnail(videoPath, thumbnailPath, this.secondsToTimestamp(timestamp));
-        return thumbnailPath;
+        return this.getRelativePath(thumbnailPath);
       } catch (error) {
         if (error.message === "Image is a single color") {
           timestamp += 60;
@@ -260,7 +260,7 @@ class VideoService {
 
   getRelativePath(fullPath: string): string {
     let pathParts = fullPath.split(path.sep);
-    let relativePath = pathParts.slice(2).join("/");
+    let relativePath = pathParts.slice(-2).join("/");
     return relativePath;
   }
 
