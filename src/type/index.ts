@@ -37,3 +37,12 @@ export interface Task {
   lastDuration: number;
   nextExecution: Date;
 }
+
+export interface Log {
+  _id?: string;
+  id: number;
+  filename: string;
+  downloadUrl: string;
+  lastWriteTime: string;
+  type: "YoutubeDl" | "FixVideos" | "Request" | "Error" | "Combined" | "Info" | "Connection";
+}
