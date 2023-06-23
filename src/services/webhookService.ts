@@ -3,7 +3,7 @@ import { getDbInstance } from "../models/db";
 import { Webhook } from "../models/webhookModel";
 import EventProcessingService from "./eventProcessingService";
 import { createHmac, timingSafeEqual } from "crypto";
-import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../const/twitchConstants";
+import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../constants/twitchConstants";
 
 class WebhookService {
   private eventProcessingService: EventProcessingService;

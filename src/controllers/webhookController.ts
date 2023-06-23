@@ -8,7 +8,7 @@ import {
   MESSAGE_TYPE_REVOCATION,
   MESSAGE_TYPE_VERIFICATION,
   TWITCH_MESSAGE_SIGNATURE,
-} from "../const/twitchConstants";
+} from "../constants/twitchConstants";
 
 const webhookService = new WebhookService();
 
