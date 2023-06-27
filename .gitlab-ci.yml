@@ -4,6 +4,7 @@ image:
 
 variables:
   DOCKER_IMAGE_TAG: "latest"
+  DOCKER_IMAGE_TAG: $CI_COMMIT_REF_SLUG
 
 cache:
   key: "$CI_COMMIT_REF_SLUG"
@@ -32,6 +33,7 @@ before_build:
       - dist/
   only:
     - main
+    - twitch-event-sub
 
 # test:
 #   stage: test
@@ -52,3 +54,4 @@ build:
       --destination "${CI_REGISTRY_IMAGE}:${DOCKER_IMAGE_TAG}"
   only:
     - main
+    - twitch-event-sub
