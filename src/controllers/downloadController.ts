@@ -61,7 +61,7 @@ export const scheduleDownload = async (req: Request, res: Response) => {
     const resp = await twitchAPI.createEventSub(
       "stream.online",
       "1",
-      { user_id: user.id },
+      { broadcaster_user_id: user.id },
       { method: "webhook", callback: CALLBACK_URL_WEBHOOK, secret: webhookService.getSecret() }
     );
     console.log(resp);
