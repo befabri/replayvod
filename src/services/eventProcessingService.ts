@@ -1,4 +1,5 @@
 import axios from "axios";
+import { webhookEventLogger } from "../middlewares/loggerMiddleware";
 
 class EventProcessingService {
   logEvent(eventType: string, event: any) {
