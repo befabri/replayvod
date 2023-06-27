@@ -4,6 +4,7 @@ import { Webhook } from "../models/webhookModel";
 import EventProcessingService from "./eventProcessingService";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../constants/twitchConstants";
+import { webhookEventLogger } from "../middlewares/loggerMiddleware";
 
 class WebhookService {
   private eventProcessingService: EventProcessingService;
@@ -60,8 +61,8 @@ class WebhookService {
   }
 
   handleChannelUpdate(notification: any): { status: number; body: null } {
-    console.log("Channel updated");
-    console.log(JSON.stringify(notification.event, null, 4));
+    webhookEventLogger.info("Channel updated");
+    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
     this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
     return {
       status: 204,
@@ -70,8 +71,8 @@ class WebhookService {
   }
 
   handleStreamOnline(notification: any): { status: number; body: null } {
-    console.log("Stream went online");
-    console.log(JSON.stringify(notification.event, null, 4));
+    webhookEventLogger.info("Stream went online");
+    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
     this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
     return {
       status: 204,
@@ -80,8 +81,8 @@ class WebhookService {
   }
 
   handleStreamOffline(notification: any): { status: number; body: null } {
-    console.log("Stream went offline");
-    console.log(JSON.stringify(notification.event, null, 4));
+    webhookEventLogger.info("Stream went offline");
+    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
     this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
     return {
       status: 204,
@@ -91,8 +92,8 @@ class WebhookService {
 
   handleNotification(notification: any): { status: number; body: null } {
     this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-    console.log(`Event type: ${notification.subscription.type}`);
-    console.log(JSON.stringify(notification.event, null, 4));
+    webhookEventLogger.info(`Event type: ${notification.subscription.type}`);
+    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
     return {
       status: 204,
       body: null,

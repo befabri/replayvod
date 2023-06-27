@@ -12,6 +12,7 @@ import {
   STREAM_ONLINE,
   TWITCH_MESSAGE_SIGNATURE,
 } from "../constants/twitchConstants";
+import { webhookEventLogger } from "../middlewares/loggerMiddleware";
 
 const webhookService = new WebhookService();
 
@@ -50,12 +51,12 @@ export const callbackWebhook = async (req: Request, res: Response, next: NextFun
   }
 
   if (true === webhookService.verifyMessage(hmac, signature)) {
-    console.log("signatures match");
+    webhookEventLogger.info("signatures match");
 
     let notification = req.body;
     let messageType = req.headers[MESSAGE_TYPE];
     let response;
-
+    webhookEventLogger.info(messageType);
     if (MESSAGE_TYPE_NOTIFICATION === messageType) {
       if (notification.subscription.type === CHANNEL_UPDATE) {
         response = webhookService.handleChannelUpdate(notification);
