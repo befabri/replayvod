@@ -6,3 +6,6 @@ export const MESSAGE_TYPE_NOTIFICATION = "notification";
 export const MESSAGE_TYPE_VERIFICATION = "webhook_callback_verification";
 export const MESSAGE_TYPE_REVOCATION = "revocation";
 export const HMAC_PREFIX = "sha256=";
+export const CHANNEL_UPDATE = "channel.update";
+export const STREAM_ONLINE = "stream.online";
+export const STREAM_OFFLINE = "stream.offline";

@@ -2,11 +2,14 @@ import { Request, Response, NextFunction } from "express";
 import WebhookService from "../services/webhookService";
 import { Webhook } from "../models/webhookModel";
 import {
+  CHANNEL_UPDATE,
   HMAC_PREFIX,
   MESSAGE_TYPE,
   MESSAGE_TYPE_NOTIFICATION,
   MESSAGE_TYPE_REVOCATION,
   MESSAGE_TYPE_VERIFICATION,
+  STREAM_OFFLINE,
+  STREAM_ONLINE,
   TWITCH_MESSAGE_SIGNATURE,
 } from "../constants/twitchConstants";
 
@@ -54,7 +57,15 @@ export const callbackWebhook = async (req: Request, res: Response, next: NextFun
     let response;
 
     if (MESSAGE_TYPE_NOTIFICATION === messageType) {
-      response = webhookService.handleNotification(notification);
+      if (notification.subscription.type === CHANNEL_UPDATE) {
+        response = webhookService.handleChannelUpdate(notification);
+      } else if (notification.subscription.type === STREAM_ONLINE) {
+        response = webhookService.handleStreamOnline(notification);
+      } else if (notification.subscription.type === STREAM_OFFLINE) {
+        response = webhookService.handleStreamOffline(notification);
+      } else {
+        response = webhookService.handleNotification(notification);
+      }
     } else if (MESSAGE_TYPE_VERIFICATION === messageType) {
       response = webhookService.handleVerification(notification);
     } else if (MESSAGE_TYPE_REVOCATION === messageType) {

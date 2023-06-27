@@ -150,5 +150,62 @@ class TwitchAPI {
       return data;
     }
   }
+
+  async createEventSub(type: string, version: string, condition: any, transport: any) {
+    const accessToken = await getAppAccessToken();
+    try {
+      const response = await axios.post(
+        "https://api.twitch.tv/helix/eventsub/subscriptions",
+        {
+          type,
+          version,
+          condition,
+          transport,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Client-ID": TWITCH_CLIENT_ID,
+          },
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async deleteEventSub(id: string) {
+    const accessToken = await getAppAccessToken();
+    try {
+      const response = await axios.delete(`https://api.twitch.tv/helix/eventsub/subscriptions?id=${id}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Client-ID": TWITCH_CLIENT_ID,
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getEventSub() {
+    const accessToken = await getAppAccessToken();
+    try {
+      const response = await axios.get("https://api.twitch.tv/helix/eventsub/subscriptions", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Client-ID": TWITCH_CLIENT_ID,
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 export default TwitchAPI;

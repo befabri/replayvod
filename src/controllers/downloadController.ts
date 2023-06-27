@@ -9,13 +9,16 @@ import { DownloadSchedule, VideoQuality } from "../models/downloadModel";
 import moment from "moment-timezone";
 import fs from "fs";
 import path from "path";
-import { youtubedlLogger } from "../middlewares/loggerMiddleware";
+import { webhookEventLogger, youtubedlLogger } from "../middlewares/loggerMiddleware";
+import WebhookService from "../services/webhookService";
 
+const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 const jobService = new JobService();
 const userService = new UserService();
 const downloadService = new DownloadService();
 const twitchAPI = new TwitchAPI();
 const scheduleService = new ScheduleService();
+const webhookService = new WebhookService();
 
 export const scheduleUser = async (req: Request, res: Response) => {
   if (!req.session?.passport?.user) {
@@ -42,16 +45,27 @@ export const scheduleDownload = async (req: Request, res: Response) => {
     res.status(401).send("Unauthorized");
     return;
   }
-
   const data: DownloadSchedule = req.body;
   console.log(data);
   if (!data.source || !data.channelName || !data.trigger || !data.quality) {
     res.status(400).send("Invalid request data");
     return;
   }
-
   data.requested_by = req.session.passport.user.data[0].id;
+  const user = await userService.getUserDetailByName(data.channelName);
+  if (!user) {
+    res.status(400).send("Invalid request data");
+    return;
+  }
   try {
+    const resp = await twitchAPI.createEventSub(
+      "stream.online",
+      "1",
+      { user_id: user.id },
+      { method: "webhook", callback: CALLBACK_URL_WEBHOOK, secret: webhookService.getSecret() }
+    );
+    console.log(resp);
+    webhookEventLogger.info(resp);
     await scheduleService.insertIntoDb(data);
     res.status(200).send("Schedule saved successfully.");
   } catch (error) {

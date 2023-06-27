@@ -10,6 +10,7 @@ import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddlew
 import scheduleRoutes from "./scheduleRoutes";
 import path from "path";
 import logRoutes from "./logRoutes";
+import webhookRoutes from "./webhookRoutes";
 
 const router: Router = express.Router();
 router.use("/auth", authRoutes);
@@ -19,6 +20,7 @@ router.use("/videos", videoRoutes);
 router.use("/twitch", manageRoutes);
 router.use("/schedule", scheduleRoutes);
 router.use("/log", logRoutes);
+router.use("/webhook", webhookRoutes);
 router.use(isUserWhitelisted, userAuthenticated);
 
 router.use((req: Request, res: Response, next: NextFunction) => {

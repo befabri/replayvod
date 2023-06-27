@@ -46,6 +46,14 @@ const logger = winston.createLogger({
       filename: "log/fixvideos.log",
       format: winston.format.combine(label({ label: "FixVideos" }), winston.format.timestamp(), combinedLogFormat),
     }),
+    new winston.transports.File({
+      filename: "log/webhookevent.log",
+      format: winston.format.combine(
+        label({ label: "WebhookEvent" }),
+        winston.format.timestamp(),
+        combinedLogFormat
+      ),
+    }),
   ],
 });
 
@@ -100,4 +108,14 @@ const fixvideosLogger = winston.createLogger({
   ],
 });
 
-export { logger, requestLogger, errorLogger, youtubedlLogger, fixvideosLogger };
+const webhookEventLogger = winston.createLogger({
+  level: "info",
+  transports: [
+    new winston.transports.File({
+      filename: "log/webhookevent.log",
+      format: jsonFormat,
+    }),
+  ],
+});
+
+export { logger, requestLogger, errorLogger, youtubedlLogger, fixvideosLogger, webhookEventLogger };

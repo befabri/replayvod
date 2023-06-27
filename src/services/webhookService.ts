@@ -42,7 +42,7 @@ class WebhookService {
   }
 
   getSecret() {
-    return process.env.TWITCH_SECRET;
+    return process.env.SECRET;
   }
 
   getHmacMessage(request) {
@@ -57,6 +57,36 @@ class WebhookService {
 
   verifyMessage(hmac: string, verifySignature: string): boolean {
     return timingSafeEqual(Buffer.from(hmac), Buffer.from(verifySignature));
+  }
+
+  handleChannelUpdate(notification: any): { status: number; body: null } {
+    console.log("Channel updated");
+    console.log(JSON.stringify(notification.event, null, 4));
+    this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    return {
+      status: 204,
+      body: null,
+    };
+  }
+
+  handleStreamOnline(notification: any): { status: number; body: null } {
+    console.log("Stream went online");
+    console.log(JSON.stringify(notification.event, null, 4));
+    this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    return {
+      status: 204,
+      body: null,
+    };
+  }
+
+  handleStreamOffline(notification: any): { status: number; body: null } {
+    console.log("Stream went offline");
+    console.log(JSON.stringify(notification.event, null, 4));
+    this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    return {
+      status: 204,
+      body: null,
+    };
   }
 
   handleNotification(notification: any): { status: number; body: null } {

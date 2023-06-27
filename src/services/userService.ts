@@ -96,7 +96,6 @@ class UserService {
 
   async getUserDetailByName(username: string) {
     const login = username.toLowerCase();
-    const db = await getDbInstance();
     const user = await this.twitchAPI.getUserByLogin(login);
     return user;
   }
