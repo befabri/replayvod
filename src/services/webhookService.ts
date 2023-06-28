@@ -5,115 +5,139 @@ import EventProcessingService from "./eventProcessingService";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../constants/twitchConstants";
 import { webhookEventLogger } from "../middlewares/loggerMiddleware";
+import TwitchAPI from "../utils/twitchAPI";
+const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 
 class WebhookService {
-  private eventProcessingService: EventProcessingService;
+    private eventProcessingService: EventProcessingService;
+    twitchAPI: TwitchAPI;
 
-  constructor() {
-    this.eventProcessingService = new EventProcessingService();
-  }
-
-  async addWebhook(webhook: Webhook) {
-    const db = await getDbInstance();
-    const webhookCollection = db.collection("webhooks");
-    await webhookCollection.insertOne(webhook);
-    return webhook;
-  }
-
-  async removeWebhook(id: string) {
-    const db = await getDbInstance();
-    const webhookCollection = db.collection("webhooks");
-    const webhook = await this.getWebhook(id);
-    if (webhook) {
-      await webhookCollection.deleteOne({ _id: new ObjectId(webhook._id) });
+    constructor() {
+        this.eventProcessingService = new EventProcessingService();
+        this.twitchAPI = new TwitchAPI();
     }
-    return webhook;
-  }
 
-  async getWebhook(id: string) {
-    const db = await getDbInstance();
-    const webhookCollection = db.collection("webhooks");
-    return webhookCollection.findOne({ id: id });
-  }
+    async addWebhook(webhook: Webhook) {
+        const db = await getDbInstance();
+        const webhookCollection = db.collection("webhooks");
+        await webhookCollection.insertOne(webhook);
+        return webhook;
+    }
 
-  async getAllWebhooks() {
-    const db = await getDbInstance();
-    const webhookCollection = db.collection("webhooks");
-    return webhookCollection.find().toArray();
-  }
+    async removeWebhook(id: string) {
+        const db = await getDbInstance();
+        const webhookCollection = db.collection("webhooks");
+        const webhook = await this.getWebhook(id);
+        if (webhook) {
+            await webhookCollection.deleteOne({ _id: new ObjectId(webhook._id) });
+        }
+        return webhook;
+    }
 
-  getSecret() {
-    return process.env.SECRET;
-  }
+    async getWebhook(id: string) {
+        const db = await getDbInstance();
+        const webhookCollection = db.collection("webhooks");
+        return webhookCollection.findOne({ id: id });
+    }
 
-  getHmacMessage(request) {
-    return (
-      request.headers[TWITCH_MESSAGE_ID] + request.headers[TWITCH_MESSAGE_TIMESTAMP] + JSON.stringify(request.body)
-    );
-  }
+    async getAllWebhooks() {
+        const db = await getDbInstance();
+        const webhookCollection = db.collection("webhooks");
+        return webhookCollection.find().toArray();
+    }
 
-  getHmac(secret: string, message: string): string {
-    return createHmac("sha256", secret).update(message).digest("hex");
-  }
+    getSecret() {
+        return process.env.SECRET;
+    }
 
-  verifyMessage(hmac: string, verifySignature: string): boolean {
-    return timingSafeEqual(Buffer.from(hmac), Buffer.from(verifySignature));
-  }
+    getHmacMessage(request) {
+        return (
+            request.headers[TWITCH_MESSAGE_ID] +
+            request.headers[TWITCH_MESSAGE_TIMESTAMP] +
+            JSON.stringify(request.body)
+        );
+    }
 
-  handleChannelUpdate(notification: any): { status: number; body: null } {
-    webhookEventLogger.info("Channel updated");
-    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
-    this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-    return {
-      status: 204,
-      body: null,
-    };
-  }
+    getHmac(secret: string, message: string): string {
+        return createHmac("sha256", secret).update(message).digest("hex");
+    }
 
-  handleStreamOnline(notification: any): { status: number; body: null } {
-    webhookEventLogger.info("Stream went online");
-    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
-    this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-    return {
-      status: 204,
-      body: null,
-    };
-  }
+    verifyMessage(hmac: string, verifySignature: string): boolean {
+        return timingSafeEqual(Buffer.from(hmac), Buffer.from(verifySignature));
+    }
 
-  handleStreamOffline(notification: any): { status: number; body: null } {
-    webhookEventLogger.info("Stream went offline");
-    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
-    this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-    return {
-      status: 204,
-      body: null,
-    };
-  }
+    handleChannelUpdate(notification: any): { status: number; body: null } {
+        webhookEventLogger.info("Channel updated");
+        webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+        this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
+        return {
+            status: 204,
+            body: null,
+        };
+    }
 
-  handleNotification(notification: any): { status: number; body: null } {
-    this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-    webhookEventLogger.info(`Event type: ${notification.subscription.type}`);
-    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
-    return {
-      status: 204,
-      body: null,
-    };
-  }
+    handleStreamOnline(notification: any): { status: number; body: null } {
+        webhookEventLogger.info("Stream went online");
+        webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+        this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
+        return {
+            status: 204,
+            body: null,
+        };
+    }
 
-  handleVerification(notification: any): { status: number; body: string } {
-    return {
-      status: 200,
-      body: notification.challenge,
-    };
-  }
+    handleStreamOffline(notification: any): { status: number; body: null } {
+        webhookEventLogger.info("Stream went offline");
+        webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+        this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
+        return {
+            status: 204,
+            body: null,
+        };
+    }
 
-  handleRevocation(notification: any): { status: number; body: null } {
-    this.eventProcessingService.handleRevocation(notification);
-    return {
-      status: 204,
-      body: null,
-    };
-  }
+    handleNotification(notification: any): { status: number; body: null } {
+        this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
+        webhookEventLogger.info(`Event type: ${notification.subscription.type}`);
+        webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+        return {
+            status: 204,
+            body: null,
+        };
+    }
+
+    handleVerification(notification: any): { status: number; body: string } {
+        return {
+            status: 200,
+            body: notification.challenge,
+        };
+    }
+
+    handleRevocation(notification: any): { status: number; body: null } {
+        this.eventProcessingService.handleRevocation(notification);
+        return {
+            status: 204,
+            body: null,
+        };
+    }
+
+    async subscribeToStreamOnline(userId: string) {
+        return await this.twitchAPI.createEventSub(
+            "stream.online",
+            "1",
+            { broadcaster_user_id: userId },
+            { method: "webhook", callback: CALLBACK_URL_WEBHOOK, secret: this.getSecret() }
+        );
+    }
+
+    async subscribeToStreamOffline(userId: string) {
+        return await this.twitchAPI.createEventSub(
+            "stream.offline",
+            "1",
+            { broadcaster_user_id: userId },
+            { method: "webhook", callback: CALLBACK_URL_WEBHOOK, secret: this.getSecret() }
+        );
+    }
 }
 
 export default WebhookService;
