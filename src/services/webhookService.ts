@@ -5,16 +5,14 @@ import EventProcessingService from "./eventProcessingService";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../constants/twitchConstants";
 import { webhookEventLogger } from "../middlewares/loggerMiddleware";
-import TwitchAPI from "../utils/twitchAPI";
+
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 
 class WebhookService {
     private eventProcessingService: EventProcessingService;
-    twitchAPI: TwitchAPI;
 
     constructor() {
         this.eventProcessingService = new EventProcessingService();
-        this.twitchAPI = new TwitchAPI();
     }
 
     async addWebhook(webhook: Webhook) {
@@ -60,6 +58,10 @@ class WebhookService {
 
     getHmac(secret: string, message: string): string {
         return createHmac("sha256", secret).update(message).digest("hex");
+    }
+
+    getCallbackUrlWebhook(): string {
+        return CALLBACK_URL_WEBHOOK;
     }
 
     verifyMessage(hmac: string, verifySignature: string): boolean {
@@ -119,24 +121,6 @@ class WebhookService {
             status: 204,
             body: null,
         };
-    }
-
-    async subscribeToStreamOnline(userId: string) {
-        return await this.twitchAPI.createEventSub(
-            "stream.online",
-            "1",
-            { broadcaster_user_id: userId },
-            { method: "webhook", callback: CALLBACK_URL_WEBHOOK, secret: this.getSecret() }
-        );
-    }
-
-    async subscribeToStreamOffline(userId: string) {
-        return await this.twitchAPI.createEventSub(
-            "stream.offline",
-            "1",
-            { broadcaster_user_id: userId },
-            { method: "webhook", callback: CALLBACK_URL_WEBHOOK, secret: this.getSecret() }
-        );
     }
 }
 

@@ -10,7 +10,7 @@ import moment from "moment-timezone";
 import fs from "fs";
 import path from "path";
 import { webhookEventLogger, youtubedlLogger } from "../middlewares/loggerMiddleware";
-import WebhookService from "../services/webhookService";
+import EventSubService from "../services/eventSubService";
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 const jobService = new JobService();
@@ -18,7 +18,7 @@ const userService = new UserService();
 const downloadService = new DownloadService();
 const twitchAPI = new TwitchAPI();
 const scheduleService = new ScheduleService();
-const webhookService = new WebhookService();
+const eventSubService = new EventSubService();
 
 export const scheduleUser = async (req: Request, res: Response) => {
     if (!req.session?.passport?.user) {
@@ -61,8 +61,8 @@ export const scheduleDownload = async (req: Request, res: Response) => {
         return;
     }
     try {
-        const respOnline = await webhookService.subscribeToStreamOnline(user.id);
-        const respOffline = await webhookService.subscribeToStreamOffline(user.id);
+        const respOnline = await eventSubService.subscribeToStreamOnline(user.id);
+        const respOffline = await eventSubService.subscribeToStreamOffline(user.id);
         console.log(respOnline, respOffline);
         webhookEventLogger.info(respOnline);
         webhookEventLogger.info(respOffline);
