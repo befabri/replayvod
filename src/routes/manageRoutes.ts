@@ -5,5 +5,6 @@ import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddlew
 const router: Router = express.Router();
 
 router.get("/update/games", isUserWhitelisted, userAuthenticated, twitchAPIController.fetchAndSaveGames);
+router.get("/eventsub/subscriptions", isUserWhitelisted, userAuthenticated, twitchAPIController.getSubscriptions);
 
 export default router;
