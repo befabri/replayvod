@@ -11,7 +11,7 @@ const Tasks: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            const response = await fetch(`${ROOT_URL}/api/manage/eventsub/subscriptions`, {
+            const response = await fetch(`${ROOT_URL}/api/twitch/eventsub/subscriptions`, {
                 credentials: "include",
             });
             if (!response.ok) {
