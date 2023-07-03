@@ -46,11 +46,10 @@ const TableSchedule = ({ items: initialItems }: any) => {
     };
 
     const fields: (keyof EventSub)[] = [
-        "id",
-        "status",
-        "type",
         "broadcaster_user_id",
         "broadcaster_login",
+        "type",
+        "status",
         "created_at",
         "cost",
     ];
