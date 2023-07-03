@@ -14,13 +14,20 @@ class eventSubService {
     constructor() {
         this.twitchAPI = new TwitchAPI();
     }
+
     async subToAllStreamEventFollowed() {
         const followedChannels = await this.userService.getUserFollowedChannelsDb();
+        console.log(followedChannels);
+        let responses = [];
         for (const channel of followedChannels) {
             const respOnline = await this.subscribeToStreamOnline(channel.broadcaster.id);
             const respOffline = await this.subscribeToStreamOffline(channel.broadcaster.id);
-            webhookEventLogger.info(respOnline);
-            webhookEventLogger.info(respOffline);
+            responses.push({ channel: channel.broadcaster.id, online: respOnline, offline: respOffline });
+        }
+        for (const resp of responses) {
+            webhookEventLogger.info(
+                `Channel ${resp.channel} - Online Response: ${resp.online}, Offline Response: ${resp.offline}`
+            );
         }
     }
 

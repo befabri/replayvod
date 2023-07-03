@@ -1,9 +1,9 @@
 import { getDbInstance } from "../models/db";
-import TwitchAPI from "../utils/twitchAPI";
 import { DownloadSchedule } from "../models/downloadModel";
 import { Task } from "../models/Task";
 import VideoService from "./videoService";
 import EventSubService from "./eventSubService";
+import { logger } from "../middlewares/loggerMiddleware";
 
 class ScheduleService {
     private videoService = new VideoService();
@@ -38,10 +38,12 @@ class ScheduleService {
         const taskCollection = db.collection("task");
         const task = await taskCollection.findOne({ id: id });
         if (!task) {
+            logger.error(`Task not found: ${id}`);
             throw new Error(`Task not found: ${id}`);
         }
         const taskRunner = this.taskRunners[task.taskType];
         if (!taskRunner) {
+            logger.error(`Unrecognized task type: ${task.taskType}`);
             throw new Error(`Unrecognized task type: ${task.taskType}`);
         }
         const startTime = Date.now();

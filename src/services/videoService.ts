@@ -1,10 +1,10 @@
 import { getDbInstance } from "../models/db";
 import fs from "fs";
 import path from "path";
-import { Collection, Document, ObjectId, WithId } from "mongodb";
+import { Collection, Document, WithId } from "mongodb";
 import ffmpeg from "fluent-ffmpeg";
 import { Video } from "../models/videoModel";
-import { fixvideosLogger, webhookEventLogger } from "../middlewares/loggerMiddleware";
+import { fixvideosLogger, logger } from "../middlewares/loggerMiddleware";
 
 class VideoService {
     async getVideoById(id: string): Promise<Video | null> {
@@ -97,7 +97,7 @@ class VideoService {
                         timestamp -= duration - 3;
                     }
                 } else {
-                    console.error("Error generating thumbnail:", error);
+                    logger.error(`Error generating thumbnail: ${error}`);
                     return null;
                 }
             }
@@ -133,7 +133,6 @@ class VideoService {
                 if (timestamp >= duration) {
                     timestamp = 30;
                 }
-                console.log(timestamp);
                 for (let tries = 0; tries < 5; tries++) {
                     try {
                         await this.generateThumbnail(videoPath, thumbnailPath, this.secondsToTimestamp(timestamp));
@@ -149,7 +148,7 @@ class VideoService {
                                 timestamp -= duration - 3;
                             }
                         } else {
-                            console.error("Error generating thumbnail or updating collection:", error);
+                            logger.error("Error generating thumbnail or updating collection:", error);
                         }
                     }
                 }
@@ -157,7 +156,7 @@ class VideoService {
             await Promise.all(promises);
             return videoCollection.find({ thumbnail: { $ne: null } }).toArray();
         } catch (error) {
-            console.error("Error generating missing thumbnails and updating collection:", error);
+            logger.error("Error generating missing thumbnails and updating collection:", error);
             return [];
         }
     }
@@ -167,12 +166,13 @@ class VideoService {
         const audioStream = metadata.streams.find((s) => s.codec_type === "audio");
         const duration = metadata.format.duration;
         if (!videoStream || !audioStream) {
+            logger.error("Missing video or audio stream");
             throw new Error("Missing video or audio stream");
         }
         const videoDuration = parseFloat(duration);
         const streamDuration = parseFloat(videoStream.duration);
         const discrepancy = Math.abs(videoDuration - streamDuration);
-        console.log(discrepancy, discrepancy > 50);
+        logger.info(`Discrepancy: ${discrepancy}, is it greater than 50? ${discrepancy > 50}`);
         return discrepancy > 50;
     }
 
