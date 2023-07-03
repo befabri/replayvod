@@ -60,6 +60,9 @@ class eventSubService {
         );
         if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - 5 * 60 * 1000)) {
             const recentData = await collection.findOne({ userId: userId });
+            if (!recentData) {
+                return { data: [], message: "There is no EventSub subscription" };
+            }
             return recentData.data;
         }
         const fetchId = uuidv4();
