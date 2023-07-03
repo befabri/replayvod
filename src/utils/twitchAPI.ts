@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getAppAccessToken } from "../utils/twitchUtils";
 import { chunkArray } from "../utils/utils";
-import { Stream, User, FollowedChannel, FollowedStream } from "../models/twitchModel";
+import { Stream, User, FollowedChannel, FollowedStream, EventSubResponse } from "../models/twitchModel";
 
 import dotenv from "dotenv";
 dotenv.config();
@@ -196,7 +196,7 @@ class TwitchAPI {
         }
     }
 
-    async getEventSub() {
+    async getEventSub(): Promise<EventSubResponse> {
         const accessToken = await getAppAccessToken();
         try {
             const response = await axios.get("https://api.twitch.tv/helix/eventsub/subscriptions", {

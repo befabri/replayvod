@@ -1,7 +1,7 @@
 import { getDbInstance } from "../models/db";
 import TwitchAPI from "../utils/twitchAPI";
 import { v4 as uuidv4 } from "uuid";
-import { Stream, User, FollowedChannel, FollowedStream } from "../models/twitchModel";
+import { User, FollowedChannel, FollowedStream } from "../models/twitchModel";
 
 class UserService {
     twitchAPI: TwitchAPI;
@@ -15,7 +15,10 @@ class UserService {
             const db = await getDbInstance();
             const collection = db.collection("followedStreams");
             const fetchLogCollection = db.collection("fetchLog");
-            const fetchLog = await fetchLogCollection.findOne({ userId: userId }, { sort: { fetchedAt: -1 } });
+            const fetchLog = await fetchLogCollection.findOne(
+                { userId: userId, type: "followedStreams" },
+                { sort: { fetchedAt: -1 } }
+            );
             if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - 5 * 60 * 1000)) {
                 const streams = await collection.find({ fetchId: fetchLog.fetchId }).toArray();
                 return streams;
@@ -37,7 +40,12 @@ class UserService {
                     { upsert: true, returnDocument: "after" }
                 );
             }
-            await fetchLogCollection.insertOne({ userId: userId, fetchedAt: new Date(), fetchId: fetchId });
+            await fetchLogCollection.insertOne({
+                userId: userId,
+                fetchedAt: new Date(),
+                fetchId: fetchId,
+                type: "followedStreams",
+            });
             return followedStreams;
         } catch (error) {
             console.error("Error fetching followed streams:", error);
