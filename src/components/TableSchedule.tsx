@@ -45,7 +45,7 @@ const TableSchedule = ({ items: initialItems }: any) => {
         setItems(sortedData);
     };
 
-    const fields: (keyof EventSub)[] = ["broadcaster_login", "type", "status", "created_at", "cost"];
+    const fields: (keyof EventSub)[] = ["user_id", "type", "status", "created_at", "cost"];
 
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
