@@ -69,5 +69,15 @@
   "minutes ago":"minutes ago",
   "a few seconds ago":"a few seconds ago",
   "in": "in",
+  "Finished": "Finished",
+  "Title": "Title",
+  "Filename": "Filename",
+  "Display name": "Streamer",
+  "Start download at": "Start download",
+  "Category": "Category",
+  "View": "View",
+  "Table": "Table",
+  "Grid": "Grid",
+  "View Logfile":"View Logfile",
   "null":"null"
 }

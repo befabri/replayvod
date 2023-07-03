@@ -20,6 +20,7 @@ const HistoryPage: React.FC = () => {
                 return response.json();
             })
             .then((data) => {
+                console.log(data);
                 setVideos(data);
 
                 setIsLoading(false);
@@ -37,7 +38,7 @@ const HistoryPage: React.FC = () => {
             {isLoading ? (
                 <div>{t("Loading")}</div>
             ) : (
-                <Table items={videos} showEdit={false} showCheckbox={false} />
+                <Table items={videos} showEdit={false} showCheckbox={false} showId={false} />
             )}
         </div>
     );

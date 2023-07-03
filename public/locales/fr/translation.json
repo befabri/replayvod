@@ -69,5 +69,15 @@
   "minutes ago":"quelques minutes",
   "a few seconds ago":"il y a quelques secondes",
   "in": "dans",
+  "Finished": "Terminé",
+  "Title": "Titre",
+  "Filename": "Nom de fichier",
+  "Display name": "Streameur",
+  "Start download at": "Date de début",
+  "Category": "Catégorie",
+  "View": "Vue",
+  "Table": "Table",
+  "Grid": "Grille",
+  "View Logfile":"Lire les logs",
   "null":"null"
 }
