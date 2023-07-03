@@ -63,8 +63,7 @@ class eventSubService {
             if (!recentData) {
                 return { data: [], message: "There is no EventSub subscription" };
             }
-            console.log(recentData);
-            return recentData.data;
+            return recentData;
         }
         const fetchId = uuidv4();
         const response = await this.twitchAPI.getEventSub();
