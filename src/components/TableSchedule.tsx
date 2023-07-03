@@ -45,14 +45,7 @@ const TableSchedule = ({ items: initialItems }: any) => {
         setItems(sortedData);
     };
 
-    const fields: (keyof EventSub)[] = [
-        "broadcaster_user_id",
-        "broadcaster_login",
-        "type",
-        "status",
-        "created_at",
-        "cost",
-    ];
+    const fields: (keyof EventSub)[] = ["broadcaster_login", "type", "status", "created_at", "cost"];
 
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
@@ -74,11 +67,8 @@ const TableSchedule = ({ items: initialItems }: any) => {
                         <tr
                             key={idx}
                             className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                            <td className="px-6 py-4" title={eventSub.broadcaster_user_id}>
-                                {eventSub.broadcaster_user_id}
-                            </td>
-                            <td className="px-6 py-4" title={eventSub.broadcaster_login}>
-                                {eventSub.broadcaster_login}
+                            <td className="px-6 py-4" title={eventSub.user_login}>
+                                {eventSub.user_login}
                             </td>
                             <td className="px-6 py-4" title={eventSub.type}>
                                 {eventSub.type}

@@ -52,8 +52,8 @@ export interface EventSub {
     id: string;
     status: string;
     type: string;
-    broadcaster_user_id: string;
-    broadcaster_login?: string;
+    user_id: string;
+    user_login?: string;
     created_at: Date;
     cost: number;
 }
