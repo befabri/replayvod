@@ -40,18 +40,23 @@ class ScheduleService {
         const task = await taskCollection.findOne({ id: id });
         console.log("task is: ", task);
         if (!task) {
+            console.log("Task not found");
             logger.error(`Task not found: ${id}`);
             throw new Error(`Task not found: ${id}`);
         }
+        console.log("task taskRunner");
         const taskRunner = this.taskRunners[task.taskType];
         if (!taskRunner) {
+            console.log("no taskrunner");
             logger.error(`Unrecognized task type: ${task.taskType}`);
             throw new Error(`Unrecognized task type: ${task.taskType}`);
         }
+        console.log("starting task");
         const startTime = Date.now();
         await taskRunner(task.metadata);
         const endTime = Date.now();
         const executionDuration = endTime - startTime;
+        console.log("Updating task");
         const updatedTask = await this.updateTaskExecution(id, startTime, executionDuration, task.interval);
         return updatedTask;
     }
