@@ -55,6 +55,7 @@ class UserService {
 
     async getUserFollowedChannelsDb() {
         try {
+            console.log("get user followed channels");
             const db = await getDbInstance();
             const followedChannelsCollection = db.collection("followedChannels");
             const channels = followedChannelsCollection
@@ -62,6 +63,7 @@ class UserService {
                 .toArray();
             return channels;
         } catch (error) {
+            console.log("error get user followed channels");
             console.error("Error getting followed channels from Db:", error);
             throw new Error("Error getting followed channels from Db");
         }

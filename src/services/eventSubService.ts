@@ -16,6 +16,7 @@ class eventSubService {
     }
 
     async subToAllStreamEventFollowed() {
+        console.log("getting followed channels");
         const followedChannels = await this.userService.getUserFollowedChannelsDb();
         console.log(followedChannels);
         let responses = [];
