@@ -1,8 +1,8 @@
 import { useState } from "react";
 import Icon from "./IconSort";
-import { TableProps, EventSub } from "../type";
+import { EventSub } from "../type";
 import { useTranslation } from "react-i18next";
-import { capitalizeFirstLetter, formatDate, truncateString } from "../utils/utils";
+import { capitalizeFirstLetter, formatDate } from "../utils/utils";
 
 const TableSchedule = ({ items: initialItems }: any) => {
     console.log("===> ", initialItems);

@@ -19,17 +19,7 @@ const Queue: React.FC = () => {
             }
             const data = await response.json();
 
-            const pendingVideos = data.filter((video: Video) => video.status === "Pending");
-
-            const convertedVideos = pendingVideos.map((video: Video) => {
-                const startDownloadAtDate = new Date(video.start_download_at);
-                const downloadedAtDate = new Date(video.downloaded_at);
-                video.start_download_at = startDownloadAtDate.toLocaleString("fr-FR", {
-                    timeZone: "Europe/Paris",
-                });
-                video.downloaded_at = downloadedAtDate.toLocaleString("fr-FR", { timeZone: "Europe/Paris" });
-                return video;
-            });
+            const convertedVideos = data.filter((video: Video) => video.status === "Pending");
 
             setVideos((prevVideos) => {
                 const updatedVideos = prevVideos.map((video) => {

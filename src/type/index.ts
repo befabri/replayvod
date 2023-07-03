@@ -6,8 +6,8 @@ export interface Video {
     display_name: string;
     broadcaster_id: string;
     requested_by: string;
-    start_download_at: string;
-    downloaded_at: string;
+    start_download_at: Date;
+    downloaded_at: Date;
     job_id: string;
     category: { id: string; name: string }[];
     title: string[];

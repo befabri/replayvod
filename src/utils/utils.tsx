@@ -9,7 +9,7 @@ export function truncateString(str: string, num: number): string {
     return str.slice(0, num) + "...";
 }
 
-export const formatDate = (dateString: string, timeZone: string): string => {
+export const formatDate = (dateString: Date, timeZone: string): string => {
     const options: Intl.DateTimeFormatOptions = {
         year: "numeric",
         month: "2-digit",

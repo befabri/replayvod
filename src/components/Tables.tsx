@@ -54,8 +54,8 @@ const Table = ({
 
             // If the field is "category", we'll sort by the name of the first category.
             if (field === "category" && Array.isArray(aField) && Array.isArray(bField)) {
-                aField = aField[0]?.name;
-                bField = bField[0]?.name;
+                aField = (aField[0] as { id: string; name: string })?.name;
+                bField = (bField[0] as { id: string; name: string })?.name;
             }
 
             if (aField === undefined || bField === undefined) return 0;
