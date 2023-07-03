@@ -17,13 +17,15 @@ class eventSubService {
 
     async subToAllStreamEventFollowed() {
         console.log("getting followed channels");
-        const followedChannels = await this.userService.getUserFollowedChannelsDb();
-        console.log(followedChannels);
+        const followedChannelsArr = await this.userService.getUserFollowedChannelsDb();
+        console.log(followedChannelsArr);
         let responses = [];
-        for (const channel of followedChannels) {
-            const respOnline = await this.subscribeToStreamOnline(channel.broadcaster.id);
-            const respOffline = await this.subscribeToStreamOffline(channel.broadcaster.id);
-            responses.push({ channel: channel.broadcaster.id, online: respOnline, offline: respOffline });
+        for (const followedChannels of followedChannelsArr) {
+            for (const channel of followedChannels.channels) {
+                const respOnline = await this.subscribeToStreamOnline(channel.broadcaster_id);
+                const respOffline = await this.subscribeToStreamOffline(channel.broadcaster_id);
+                responses.push({ channel: channel.broadcaster_id, online: respOnline, offline: respOffline });
+            }
         }
         for (const resp of responses) {
             webhookEventLogger.info(

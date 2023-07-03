@@ -58,9 +58,8 @@ class UserService {
             console.log("get user followed channels");
             const db = await getDbInstance();
             const followedChannelsCollection = db.collection("followedChannels");
-            const channels = followedChannelsCollection
-                .find({}, { projection: { channels: 1, _id: 0, fetchedAt: 0, userId: 0 } })
-                .toArray();
+            const channels = followedChannelsCollection.find().toArray();
+            console.log(channels);
             return channels;
         } catch (error) {
             console.log("error get user followed channels");
