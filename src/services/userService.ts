@@ -112,10 +112,14 @@ class UserService {
         return user;
     }
 
-    async getUserDetailDB(userId: string) {
+    async getUserDetailDB(userId: string): Promise<User | null> {
         const db = await getDbInstance();
-        const userCollection = db.collection("users");
-        const user = await userCollection.findOne({ id: userId });
+        const userCollection = db.collection<User>("users");
+        let user = null;
+        user = await userCollection.findOne({ id: userId });
+        if (!user) {
+            user = await this.updateUserDetail(userId);
+        }
         return user;
     }
 
