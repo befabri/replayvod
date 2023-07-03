@@ -16,12 +16,10 @@ class eventSubService {
     }
 
     async subToAllStreamEventFollowed() {
-        console.log("getting followed channels");
         const followedChannelsArr = await this.userService.getUserFollowedChannelsDb();
         let responses = [];
         for (const followedChannels of followedChannelsArr) {
             for (const channel of followedChannels.channels) {
-                console.log(channel);
                 try {
                     const respOnline = await this.subscribeToStreamOnline(channel.broadcaster_id);
                     const respOffline = await this.subscribeToStreamOffline(channel.broadcaster_id);

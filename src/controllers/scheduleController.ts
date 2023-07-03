@@ -25,11 +25,9 @@ export const getTask = async (req: Request, res: Response) => {
 export const runTask = async (req: Request, res: Response) => {
     try {
         const taskId = req.params.id;
-        console.log("-> ", taskId);
         const taskResult = await scheduleService.runTask(taskId);
         res.json(taskResult);
     } catch (error) {
-        console.log("Errorr task ");
         res.status(500).send("Internal server error");
     }
 };

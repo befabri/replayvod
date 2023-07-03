@@ -63,9 +63,15 @@ export const scheduleDownload = async (req: Request, res: Response) => {
     try {
         const respOnline = await eventSubService.subscribeToStreamOnline(user.id);
         const respOffline = await eventSubService.subscribeToStreamOffline(user.id);
-        console.log(respOnline, respOffline);
-        webhookEventLogger.info(respOnline);
-        webhookEventLogger.info(respOffline);
+        if (respOnline.error || respOffline.error) {
+            webhookEventLogger.error(
+                `Channel ${user.id} - Online Error: ${respOnline.error}, Offline Error: ${respOffline.error}`
+            );
+        } else {
+            webhookEventLogger.info(
+                `Channel ${user.id} - Online Response: ${respOnline}, Offline Response: ${respOffline}`
+            );
+        }
         await scheduleService.insertIntoDb(data);
         res.status(200).send("Schedule saved successfully.");
     } catch (error) {
