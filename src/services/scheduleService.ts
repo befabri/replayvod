@@ -34,9 +34,11 @@ class ScheduleService {
     };
 
     async runTask(id: string) {
+        console.log("Run task");
         const db = await getDbInstance();
         const taskCollection = db.collection("task");
         const task = await taskCollection.findOne({ id: id });
+        console.log("task is: ", task);
         if (!task) {
             logger.error(`Task not found: ${id}`);
             throw new Error(`Task not found: ${id}`);
