@@ -22,15 +22,23 @@ class eventSubService {
         for (const followedChannels of followedChannelsArr) {
             for (const channel of followedChannels.channels) {
                 console.log(channel);
-                const respOnline = await this.subscribeToStreamOnline(channel.broadcaster_id);
-                const respOffline = await this.subscribeToStreamOffline(channel.broadcaster_id);
-                responses.push({ channel: channel.broadcaster_id, online: respOnline, offline: respOffline });
+                try {
+                    const respOnline = await this.subscribeToStreamOnline(channel.broadcaster_id);
+                    const respOffline = await this.subscribeToStreamOffline(channel.broadcaster_id);
+                    responses.push({ channel: channel.broadcaster_id, online: respOnline, offline: respOffline });
+                } catch (error) {
+                    responses.push({ channel: channel.broadcaster_id, error: error.message });
+                }
             }
         }
         for (const resp of responses) {
-            webhookEventLogger.info(
-                `Channel ${resp.channel} - Online Response: ${resp.online}, Offline Response: ${resp.offline}`
-            );
+            if (resp.error) {
+                webhookEventLogger.error(`Channel ${resp.channel} - Error: ${resp.error}`);
+            } else {
+                webhookEventLogger.info(
+                    `Channel ${resp.channel} - Online Response: ${resp.online}, Offline Response: ${resp.offline}`
+                );
+            }
         }
     }
 
@@ -41,7 +49,7 @@ class eventSubService {
             { broadcaster_user_id: userId },
             {
                 method: "webhook",
-                callback: this.webhookService.getCallbackUrlWebhook,
+                callback: this.webhookService.getCallbackUrlWebhook(),
                 secret: this.webhookService.getSecret(),
             }
         );
@@ -54,7 +62,7 @@ class eventSubService {
             { broadcaster_user_id: userId },
             {
                 method: "webhook",
-                callback: this.webhookService.getCallbackUrlWebhook,
+                callback: this.webhookService.getCallbackUrlWebhook(),
                 secret: this.webhookService.getSecret(),
             }
         );
