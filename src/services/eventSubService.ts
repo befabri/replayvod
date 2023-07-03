@@ -63,6 +63,7 @@ class eventSubService {
             if (!recentData) {
                 return { data: [], message: "There is no EventSub subscription" };
             }
+            console.log(recentData);
             return recentData.data;
         }
         const fetchId = uuidv4();

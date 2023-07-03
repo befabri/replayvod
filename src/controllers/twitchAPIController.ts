@@ -25,6 +25,7 @@ export const getListEventSub = async (req: Request, res: Response) => {
     }
     try {
         const eventSub = await eventSubService.getEventSub(userId);
+        console.log(eventSub);
         res.json({ data: eventSub.data, message: eventSub.message });
     } catch (err) {
         console.error(err);
