@@ -17,7 +17,7 @@ let url = `mongodb+srv://${USERNAME}:${PASSWORD}@${DBIP}/${DBNAME}?tls=true&auth
 
 if (ENVIRONMENT === "production") {
     // url = `mongodb+srv://${USERNAME}:${PASSWORD}@${DBIP_PROD}/${DBNAME}?tls=true&authSource=admin&retryWrites=true&w=majority`;
-    url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}/${DBNAME}?authSource=admin&retryWrites=true&w=majority`;
+    url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:27017/${DBNAME}?authSource=admin&retryWrites=true&w=majority`;
 }
 
 let client: MongoClient | null = null;
