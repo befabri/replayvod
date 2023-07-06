@@ -4,7 +4,7 @@ dotenv.config();
 
 const {
     MONGO_USERNAME: USERNAME,
-    MONGO_PASSWORD: PASSWORD,
+    MONGO_PASSWORD: rawPASSWORD,
     MONGO_IP: DBIP,
     MONGO_IP_PROD: DBIP_PROD,
     MONGO_PORT: DBPORT,
@@ -13,11 +13,14 @@ const {
     NODE_ENV: ENVIRONMENT = "development",
 } = process.env;
 
-let url = `mongodb+srv://${USERNAME}:${PASSWORD}@${DBIP}/${DBNAME}?tls=true&authSource=admin&retryWrites=true&w=majority`;
+const PASSWORD = encodeURIComponent(rawPASSWORD);
+
+let url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP}:${DBPORT}/${DBNAME}?retryWrites=true&w=majority&tls=true&authMechanism=DEFAULT&authSource=vod&tlsInsecure=true`;
 
 if (ENVIRONMENT === "production") {
     // url = `mongodb+srv://${USERNAME}:${PASSWORD}@${DBIP_PROD}/${DBNAME}?tls=true&authSource=admin&retryWrites=true&w=majority`;
-    url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:27017/${DBNAME}?authSource=admin&retryWrites=true&w=majority`;
+    // url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:27017/${DBNAME}?authSource=admin&retryWrites=true&w=majority`;
+    url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:${DBPORT}/${DBNAME}?authSource=vod&retryWrites=true&w=majority&tls=true&tlsInsecure=true`;
 }
 
 let client: MongoClient | null = null;
