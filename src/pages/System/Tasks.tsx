@@ -11,7 +11,7 @@ const Tasks: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            const response = await fetch(`${ROOT_URL}/api/schedule/tasks`, {
+            const response = await fetch(`${ROOT_URL}/api/task/tasks`, {
                 credentials: "include",
             });
             if (!response.ok) {
@@ -31,7 +31,7 @@ const Tasks: React.FC = () => {
     return (
         <div className="p-4 sm:ml-64">
             <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Scheduled")}</h1>
+                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Tasks Scheduled")}</h1>
             </div>
             {isLoading ? <div>{t("Loading")}</div> : <TableTasks items={tasks} />}
         </div>
