@@ -5,7 +5,7 @@ import VideoService from "./videoService";
 import EventSubService from "./eventSubService";
 import { logger } from "../middlewares/loggerMiddleware";
 
-class ScheduleService {
+class TaskService {
     private videoService = new VideoService();
     private eventSubService = new EventSubService();
 
@@ -71,4 +71,4 @@ class ScheduleService {
     }
 }
 
-export default ScheduleService;
+export default TaskService;

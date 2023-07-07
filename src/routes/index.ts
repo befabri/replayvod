@@ -6,7 +6,7 @@ import videoRoutes from "./videoRoutes";
 import manageRoutes from "./manageRoutes";
 import errorHandler from "../middlewares/errorHandler";
 import { CustomError } from "../types/types";
-import scheduleRoutes from "./scheduleRoutes";
+import taskRoutes from "./taskRoutes";
 import logRoutes from "./logRoutes";
 import webhookRoutes from "./webhookRoutes";
 
@@ -16,14 +16,14 @@ router.use("/users", userRoutes);
 router.use("/dl", downloadRoutes);
 router.use("/videos", videoRoutes);
 router.use("/twitch", manageRoutes);
-router.use("/schedule", scheduleRoutes);
+router.use("/task", taskRoutes);
 router.use("/log", logRoutes);
 router.use("/webhook", webhookRoutes);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
-  const error: CustomError = new Error("Not Found");
-  error.status = 404;
-  next(error);
+    const error: CustomError = new Error("Not Found");
+    error.status = 404;
+    next(error);
 });
 
 router.use(errorHandler);

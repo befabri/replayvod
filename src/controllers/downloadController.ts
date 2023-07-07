@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import DownloadService from "../services/downloadService";
 import UserService from "../services/userService";
 import JobService from "../services/jobService";
-import ScheduleService from "../services/scheduleService";
+import TaskService from "../services/taskService";
 import { User } from "../models/twitchModel";
 import TwitchAPI from "../utils/twitchAPI";
 import { DownloadSchedule, VideoQuality } from "../models/downloadModel";
@@ -17,7 +17,7 @@ const jobService = new JobService();
 const userService = new UserService();
 const downloadService = new DownloadService();
 const twitchAPI = new TwitchAPI();
-const scheduleService = new ScheduleService();
+const taskService = new TaskService();
 const eventSubService = new EventSubService();
 
 export const scheduleUser = async (req: Request, res: Response) => {
@@ -40,6 +40,7 @@ export const scheduleUser = async (req: Request, res: Response) => {
         res.status(500).send("Error recording user");
     }
 };
+
 export const scheduleDownload = async (req: Request, res: Response) => {
     if (!req.session?.passport?.user) {
         res.status(401).send("Unauthorized");
@@ -72,7 +73,7 @@ export const scheduleDownload = async (req: Request, res: Response) => {
                 `Channel ${user.id} - Online Response: ${respOnline}, Offline Response: ${respOffline}`
             );
         }
-        await scheduleService.insertIntoDb(data);
+        await taskService.insertIntoDb(data);
         res.status(200).send("Schedule saved successfully.");
     } catch (error) {
         console.error("Error scheduling download:", error);
