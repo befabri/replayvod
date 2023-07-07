@@ -20,7 +20,7 @@ let url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP}:${DBPORT}/${DBNAME}?retryWr
 if (ENVIRONMENT === "production") {
     // url = `mongodb+srv://${USERNAME}:${PASSWORD}@${DBIP_PROD}/${DBNAME}?tls=true&authSource=admin&retryWrites=true&w=majority`;
     // url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:27017/${DBNAME}?authSource=admin&retryWrites=true&w=majority`;
-    url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:${DBPORT}/${DBNAME}?authSource=vod&retryWrites=true&w=majority&tls=true&tlsInsecure=true`;
+    url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:${DBPORT}/${DBNAME}?retryWrites=true&w=majority&tls=true&authMechanism=DEFAULT&authSource=vod&tlsInsecure=true`;
 }
 
 let client: MongoClient | null = null;
