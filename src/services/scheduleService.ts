@@ -17,13 +17,13 @@ class ScheduleService {
 
     async getTask(id: string) {
         const db = await getDbInstance();
-        const taskCollection = db.collection("task");
+        const taskCollection = db.collection("tasks");
         return taskCollection.findOne({ id: id });
     }
 
     async getAllTasks() {
         const db = await getDbInstance();
-        const taskCollection = db.collection("task");
+        const taskCollection = db.collection("tasks");
         return taskCollection.find().toArray();
     }
 
@@ -35,7 +35,7 @@ class ScheduleService {
 
     async runTask(id: string) {
         const db = await getDbInstance();
-        const taskCollection = db.collection("task");
+        const taskCollection = db.collection("tasks");
         const task = await taskCollection.findOne({ id: id });
         if (!task) {
             logger.error(`Task not found: ${id}`);
@@ -56,7 +56,7 @@ class ScheduleService {
 
     async updateTaskExecution(id: string, startTime: number, executionDuration: number, interval: number) {
         const db = await getDbInstance();
-        const taskCollection = db.collection("task");
+        const taskCollection = db.collection("tasks");
         await taskCollection.updateOne(
             { id: id },
             {
