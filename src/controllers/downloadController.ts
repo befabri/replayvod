@@ -46,14 +46,11 @@ export const scheduleDownload = async (req: Request, res: Response) => {
         res.status(401).send("Unauthorized");
         return;
     }
-
     const data: DownloadSchedule = req.body;
-
     if (!data.source || !data.channelName || !data.trigger || !data.quality) {
         res.status(400).send("Invalid request data");
         return;
     }
-
     data.requested_by = req.session.passport.user.data[0].id;
     const user = await userService.getUserDetailByName(data.channelName);
 
@@ -62,18 +59,7 @@ export const scheduleDownload = async (req: Request, res: Response) => {
         return;
     }
     try {
-        const respOnline = await eventSubService.subscribeToStreamOnline(user.id);
-        const respOffline = await eventSubService.subscribeToStreamOffline(user.id);
-        if (respOnline.error || respOffline.error) {
-            webhookEventLogger.error(
-                `Channel ${user.id} - Online Error: ${respOnline.error}, Offline Error: ${respOffline.error}`
-            );
-        } else {
-            webhookEventLogger.info(
-                `Channel ${user.id} - Online Response: ${respOnline}, Offline Response: ${respOffline}`
-            );
-        }
-        await taskService.insertIntoDb(data);
+        await downloadService.insertSchedule(data);
         res.status(200).send("Schedule saved successfully.");
     } catch (error) {
         console.error("Error scheduling download:", error);
@@ -92,21 +78,12 @@ export const downloadStream = async (req: Request, res: Response) => {
         res.status(404).send("User not found");
         return;
     }
-
     const stream = await twitchAPI.getStreamByUserId(broadcasterId);
     if (stream === null) {
         res.status(400).json({ message: "Stream is offline" });
         return;
     }
-    const userId = req.session.passport.user.data[0].id;
-    const currentDate = moment().format("DDMMYYYY-HHmmss");
-    const filename = `${user.display_name.toLowerCase()}_${currentDate}.mp4`;
-    const directoryPath = path.resolve(process.env.PUBLIC_DIR, "videos", user.display_name.toLowerCase());
-    if (!fs.existsSync(directoryPath)) {
-        fs.mkdirSync(directoryPath, { recursive: true });
-    }
-    const finalFilePath = path.join(directoryPath, filename);
-    const cookiesFilePath = path.resolve(process.env.DATA_DIR, "cookies.txt");
+    const loginId = req.session.passport.user.data[0].id;
     const pendingJob = await downloadService.findPendingJob(broadcasterId);
     if (pendingJob) {
         res.status(400).json({
@@ -119,24 +96,13 @@ export const downloadStream = async (req: Request, res: Response) => {
     const jobId = jobService.createJobId();
     jobService.createJob(jobId, async () => {
         try {
-            const video = await downloadService.startDownload(
-                userId,
-                broadcasterId,
-                user.display_name,
-                user.login,
-                finalFilePath,
-                cookiesFilePath,
-                jobId,
-                stream,
-                quality
-            );
+            const video = await downloadService.startDownload(loginId, user, jobId, stream, quality);
         } catch (error) {
             console.error("Error when downloading:", error);
             youtubedlLogger.error(error.message);
             throw error;
         }
     });
-
     res.json({ jobId });
 };
 

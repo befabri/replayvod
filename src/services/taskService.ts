@@ -1,5 +1,4 @@
 import { getDbInstance } from "../models/db";
-import { DownloadSchedule } from "../models/downloadModel";
 import { Task } from "../models/Task";
 import VideoService from "./videoService";
 import EventSubService from "./eventSubService";
@@ -8,12 +7,6 @@ import { logger } from "../middlewares/loggerMiddleware";
 class TaskService {
     private videoService = new VideoService();
     private eventSubService = new EventSubService();
-
-    async insertIntoDb(data: DownloadSchedule) {
-        const db = await getDbInstance();
-        const scheduleCollection = db.collection("schedule");
-        await scheduleCollection.insertOne(data);
-    }
 
     async getTask(id: string) {
         const db = await getDbInstance();
