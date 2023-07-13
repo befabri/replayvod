@@ -1,24 +1,12 @@
 import { Request, Response } from "express";
-import DownloadService from "../services/downloadService";
-import UserService from "../services/userService";
-import JobService from "../services/jobService";
-import TaskService from "../services/taskService";
+import { userService, downloadService, jobService } from "../services";
 import { User } from "../models/twitchModel";
 import TwitchAPI from "../utils/twitchAPI";
 import { DownloadSchedule, VideoQuality } from "../models/downloadModel";
-import moment from "moment-timezone";
-import fs from "fs";
-import path from "path";
-import { webhookEventLogger, youtubedlLogger } from "../middlewares/loggerMiddleware";
-import EventSubService from "../services/eventSubService";
+import { youtubedlLogger } from "../middlewares/loggerMiddleware";
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
-const jobService = new JobService();
-const userService = new UserService();
-const downloadService = new DownloadService();
 const twitchAPI = new TwitchAPI();
-const taskService = new TaskService();
-const eventSubService = new EventSubService();
 
 export const scheduleUser = async (req: Request, res: Response) => {
     if (!req.session?.passport?.user) {

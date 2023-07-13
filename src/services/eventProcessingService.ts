@@ -1,14 +1,12 @@
-import axios from "axios";
 import { webhookEventLogger } from "../middlewares/loggerMiddleware";
 
-class EventProcessingService {
-  logEvent(eventType: string, event: any) {
+export const logEvent = (eventType: string, event: any) => {
     // Implementation for logging event
     webhookEventLogger.info(`Received event: ${eventType}`);
     webhookEventLogger.info(JSON.stringify(event, null, 2));
-  }
+};
 
-  handleRevocation(notification: any) {
+export const handleRevocation = (notification: any) => {
     // Implementation for handling revocation
     webhookEventLogger.info("Received a revocation:");
     webhookEventLogger.info(JSON.stringify(notification, null, 2));
@@ -17,7 +15,9 @@ class EventProcessingService {
     webhookEventLogger.info(`Condition: ${JSON.stringify(notification.subscription.condition, null, 4)}`);
     // TODO: Add any additional logic needed to handle revocation, such as
     // updating your application's internal state or notifying other services.
-  }
-}
+};
 
-export default EventProcessingService;
+export default {
+    logEvent,
+    handleRevocation,
+};

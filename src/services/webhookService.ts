@@ -1,127 +1,135 @@
 import { Document, ObjectId } from "mongodb";
 import { getDbInstance } from "../models/db";
 import { Webhook } from "../models/webhookModel";
-import EventProcessingService from "./eventProcessingService";
+import { eventProcessingService } from "../services";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../constants/twitchConstants";
 import { webhookEventLogger } from "../middlewares/loggerMiddleware";
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 
-class WebhookService {
-    private eventProcessingService: EventProcessingService;
+export const addWebhook = async (webhook: Webhook) => {
+    const db = await getDbInstance();
+    const webhookCollection = db.collection("webhooks");
+    await webhookCollection.insertOne(webhook);
+    return webhook;
+};
 
-    constructor() {
-        this.eventProcessingService = new EventProcessingService();
+export const removeWebhook = async (id: string) => {
+    const db = await getDbInstance();
+    const webhookCollection = db.collection("webhooks");
+    const webhook = await getWebhook(id);
+    if (webhook) {
+        await webhookCollection.deleteOne({ _id: new ObjectId(webhook._id) });
     }
+    return webhook;
+};
 
-    async addWebhook(webhook: Webhook) {
-        const db = await getDbInstance();
-        const webhookCollection = db.collection("webhooks");
-        await webhookCollection.insertOne(webhook);
-        return webhook;
-    }
+export const getWebhook = async (id: string) => {
+    const db = await getDbInstance();
+    const webhookCollection = db.collection("webhooks");
+    return webhookCollection.findOne({ id: id });
+};
 
-    async removeWebhook(id: string) {
-        const db = await getDbInstance();
-        const webhookCollection = db.collection("webhooks");
-        const webhook = await this.getWebhook(id);
-        if (webhook) {
-            await webhookCollection.deleteOne({ _id: new ObjectId(webhook._id) });
-        }
-        return webhook;
-    }
+export const getAllWebhooks = async () => {
+    const db = await getDbInstance();
+    const webhookCollection = db.collection("webhooks");
+    return webhookCollection.find().toArray();
+};
 
-    async getWebhook(id: string) {
-        const db = await getDbInstance();
-        const webhookCollection = db.collection("webhooks");
-        return webhookCollection.findOne({ id: id });
-    }
+export const getSecret = () => {
+    return process.env.SECRET;
+};
 
-    async getAllWebhooks() {
-        const db = await getDbInstance();
-        const webhookCollection = db.collection("webhooks");
-        return webhookCollection.find().toArray();
-    }
+export const getHmacMessage = (request) => {
+    return (
+        request.headers[TWITCH_MESSAGE_ID] +
+        request.headers[TWITCH_MESSAGE_TIMESTAMP] +
+        JSON.stringify(request.body)
+    );
+};
 
-    getSecret() {
-        return process.env.SECRET;
-    }
+export const getHmac = (secret: string, message: string): string => {
+    return createHmac("sha256", secret).update(message).digest("hex");
+};
 
-    getHmacMessage(request) {
-        return (
-            request.headers[TWITCH_MESSAGE_ID] +
-            request.headers[TWITCH_MESSAGE_TIMESTAMP] +
-            JSON.stringify(request.body)
-        );
-    }
+export const getCallbackUrlWebhook = (): string => {
+    return CALLBACK_URL_WEBHOOK;
+};
 
-    getHmac(secret: string, message: string): string {
-        return createHmac("sha256", secret).update(message).digest("hex");
-    }
+export const verifyMessage = (hmac: string, verifySignature: string): boolean => {
+    return timingSafeEqual(Buffer.from(hmac), Buffer.from(verifySignature));
+};
 
-    getCallbackUrlWebhook(): string {
-        return CALLBACK_URL_WEBHOOK;
-    }
+export const handleChannelUpdate = (notification: any): { status: number; body: null } => {
+    webhookEventLogger.info("Channel updated");
+    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+    eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    return {
+        status: 204,
+        body: null,
+    };
+};
 
-    verifyMessage(hmac: string, verifySignature: string): boolean {
-        return timingSafeEqual(Buffer.from(hmac), Buffer.from(verifySignature));
-    }
+export const handleStreamOnline = (notification: any): { status: number; body: null } => {
+    webhookEventLogger.info("Stream went online");
+    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+    eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    return {
+        status: 204,
+        body: null,
+    };
+};
 
-    handleChannelUpdate(notification: any): { status: number; body: null } {
-        webhookEventLogger.info("Channel updated");
-        webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
-        this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-        return {
-            status: 204,
-            body: null,
-        };
-    }
+export const handleStreamOffline = (notification: any): { status: number; body: null } => {
+    webhookEventLogger.info("Stream went offline");
+    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+    eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    return {
+        status: 204,
+        body: null,
+    };
+};
 
-    handleStreamOnline(notification: any): { status: number; body: null } {
-        webhookEventLogger.info("Stream went online");
-        webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
-        this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-        return {
-            status: 204,
-            body: null,
-        };
-    }
+export const handleNotification = (notification: any): { status: number; body: null } => {
+    eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    webhookEventLogger.info(`Event type: ${notification.subscription.type}`);
+    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+    return {
+        status: 204,
+        body: null,
+    };
+};
 
-    handleStreamOffline(notification: any): { status: number; body: null } {
-        webhookEventLogger.info("Stream went offline");
-        webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
-        this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-        return {
-            status: 204,
-            body: null,
-        };
-    }
+export const handleVerification = (notification: any): { status: number; body: string } => {
+    return {
+        status: 200,
+        body: notification.challenge,
+    };
+};
 
-    handleNotification(notification: any): { status: number; body: null } {
-        this.eventProcessingService.logEvent(notification.subscription.type, notification.event);
-        webhookEventLogger.info(`Event type: ${notification.subscription.type}`);
-        webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
-        return {
-            status: 204,
-            body: null,
-        };
-    }
+export const handleRevocation = (notification: any): { status: number; body: null } => {
+    eventProcessingService.handleRevocation(notification);
+    return {
+        status: 204,
+        body: null,
+    };
+};
 
-    handleVerification(notification: any): { status: number; body: string } {
-        return {
-            status: 200,
-            body: notification.challenge,
-        };
-    }
-
-    handleRevocation(notification: any): { status: number; body: null } {
-        this.eventProcessingService.handleRevocation(notification);
-        return {
-            status: 204,
-            body: null,
-        };
-    }
-}
-
-export default WebhookService;
+export default {
+    addWebhook,
+    removeWebhook,
+    getWebhook,
+    getAllWebhooks,
+    getSecret,
+    getHmacMessage,
+    getHmac,
+    getCallbackUrlWebhook,
+    verifyMessage,
+    handleChannelUpdate,
+    handleStreamOnline,
+    handleStreamOffline,
+    handleNotification,
+    handleVerification,
+    handleRevocation,
+};

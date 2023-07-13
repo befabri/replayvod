@@ -1,15 +1,13 @@
 import { Request, Response, NextFunction } from "express";
-import GameService from "../services/gameService";
 import TwitchAPI from "../utils/twitchAPI";
-import EventSubService from "../services/eventSubService";
+import { eventSubService, gameService } from "../services";
 
 const twitchAPI = new TwitchAPI();
-const eventSubService = new EventSubService();
 
 export const fetchAndSaveGames = async (req: Request, res: Response) => {
     try {
         const games = await twitchAPI.getAllGames();
-        await GameService.saveGamesToDb(games);
+        await gameService.saveGamesToDb(games);
         res.json({ message: "Games fetched and saved successfully." });
     } catch (err) {
         console.error(err);
