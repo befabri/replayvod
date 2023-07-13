@@ -1,4 +1,5 @@
 import { MongoClient, Db } from "mongodb";
+import { errorLogger } from "../middlewares/loggerMiddleware";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -27,16 +28,21 @@ let client: MongoClient | null = null;
 let connection: Promise<Db> | undefined;
 
 async function connect(): Promise<Db> {
-    if (!connection) {
-        console.log("Establishing initial connection...");
-        client = new MongoClient(url);
-        await client.connect();
-        connection = Promise.resolve(client.db(DBNAME));
+    try {
+        if (!connection) {
+            console.log("Establishing initial connection...");
+            client = new MongoClient(url);
+            await client.connect();
+            connection = Promise.resolve(client.db(DBNAME));
+        }
+        if (client !== null) {
+            return connection;
+        }
+        throw new Error("Database connection failed: MongoClient returned null.");
+    } catch (err) {
+        console.error(`Error encountered while trying to establish a connection to the database: ${err.message}`);
+        throw err;
     }
-    if (client !== null) {
-        return connection;
-    }
-    throw new Error("Failed to establish database connection.");
 }
 
 async function getDbInstance() {
