@@ -3,11 +3,19 @@
 
 # Update user 'node' to have the specified UID and GID
 if getent passwd $PUID > /dev/null; then
-    usermod -u $PUID node
+    deluser node
+    adduser -u $PUID -D node
+else
+    adduser -u $PUID -D node
 fi
+
 if getent group $PGID > /dev/null; then
-    groupmod -g $PGID node
+    delgroup node
+    addgroup -g $PGID node
+else
+    addgroup -g $PGID node
 fi
+
 
 # Change the ownership of the volume directories
 chown -R $PUID:$PGID /app/log /app/public /app/data /app/bin
