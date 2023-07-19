@@ -21,6 +21,8 @@ const AddChannel: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [possibleMatches, setPossibleMatches] = useState<string[]>([]);
     const [isValid, setIsValid] = useState(true);
+    const [broadcasterId, setBroadcasterId] = useState("");
+
     const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     const handleBlur = () => {
@@ -73,6 +75,7 @@ const AddChannel: React.FC = () => {
         const data = {
             source,
             channelName,
+            broadcasterId,
             viewersCount,
             timeBeforeDelete,
             trigger,
@@ -107,19 +110,19 @@ const AddChannel: React.FC = () => {
     };
 
     const handleChannelNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setChannelName(event.target.value);
-        if (event.target.value.length > 0) {
+        const newChannelName = event.target.value;
+        setChannelName(newChannelName);
+        if (newChannelName.length > 0) {
             const matches = users
-                .filter((user) => user.broadcaster_name.toLowerCase().startsWith(event.target.value.toLowerCase()))
+                .filter((user) => user.broadcaster_name.toLowerCase().startsWith(newChannelName.toLowerCase()))
                 .map((user) => user.broadcaster_name);
             setPossibleMatches(matches);
-            console.log(
-                users
-                    .filter((user) =>
-                        user.broadcaster_name.toLowerCase().startsWith(event.target.value.toLowerCase())
-                    )
-                    .map((user) => user.broadcaster_name)
+            const selectedUser = users.find(
+                (user) => user.broadcaster_name.toLowerCase() === newChannelName.toLowerCase()
             );
+            if (selectedUser) {
+                setBroadcasterId(selectedUser.broadcasterId);
+            }
         } else {
             setPossibleMatches([]);
         }
