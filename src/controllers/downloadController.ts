@@ -61,6 +61,7 @@ export const downloadStream = async (req: Request, res: Response) => {
         return;
     }
     const broadcasterId = req.params.id;
+    const quality = VideoQuality[req.params.quality as keyof typeof VideoQuality] || VideoQuality.MEDIUM;
     const user = (await userService.getUserDetailDB(broadcasterId)) as User;
     if (!user) {
         res.status(404).send("User not found");
@@ -72,7 +73,7 @@ export const downloadStream = async (req: Request, res: Response) => {
         return;
     }
     const loginId = req.session.passport.user.data[0].id;
-    const pendingJob = await downloadService.findPendingJob(broadcasterId);
+    const pendingJob = await jobService.findPendingJob(broadcasterId);
     if (pendingJob) {
         res.status(400).json({
             message: "There is already a job running for this broadcaster.",
@@ -80,17 +81,8 @@ export const downloadStream = async (req: Request, res: Response) => {
         });
         return;
     }
-    const quality = VideoQuality.MEDIUM;
     const jobId = jobService.createJobId();
-    jobService.createJob(jobId, async () => {
-        try {
-            const video = await downloadService.startDownload(loginId, user, jobId, stream, quality);
-        } catch (error) {
-            console.error("Error when downloading:", error);
-            youtubedlLogger.error(error.message);
-            throw error;
-        }
-    });
+    await downloadService.handleDownload({ loginId, user, jobId, quality }, broadcasterId);
     res.json({ jobId });
 };
 

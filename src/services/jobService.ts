@@ -43,8 +43,15 @@ export const getJobStatus = (id: string): string | undefined => {
     return jobs.get(id)?.status;
 };
 
+export const findPendingJob = async (broadcaster_id: string) => {
+    const db = await getDbInstance();
+    const jobCollection = db.collection("videos");
+    return jobCollection.findOne({ broadcaster_id, status: "Pending" });
+};
+
 export default {
     createJobId,
     createJob,
     getJobStatus,
+    findPendingJob,
 };

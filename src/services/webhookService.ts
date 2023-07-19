@@ -4,7 +4,6 @@ import { Webhook } from "../models/webhookModel";
 import { eventProcessingService } from "../services";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../constants/twitchConstants";
-import { webhookEventLogger } from "../middlewares/loggerMiddleware";
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 
@@ -62,8 +61,6 @@ export const verifyMessage = (hmac: string, verifySignature: string): boolean =>
 };
 
 export const handleChannelUpdate = (notification: any): { status: number; body: null } => {
-    webhookEventLogger.info("Channel updated");
-    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
     return {
         status: 204,
@@ -72,8 +69,6 @@ export const handleChannelUpdate = (notification: any): { status: number; body: 
 };
 
 export const handleStreamOnline = (notification: any): { status: number; body: null } => {
-    webhookEventLogger.info("Stream went online");
-    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
     return {
         status: 204,
@@ -82,8 +77,6 @@ export const handleStreamOnline = (notification: any): { status: number; body: n
 };
 
 export const handleStreamOffline = (notification: any): { status: number; body: null } => {
-    webhookEventLogger.info("Stream went offline");
-    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
     return {
         status: 204,
@@ -93,8 +86,7 @@ export const handleStreamOffline = (notification: any): { status: number; body: 
 
 export const handleNotification = (notification: any): { status: number; body: null } => {
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
-    webhookEventLogger.info(`Event type: ${notification.subscription.type}`);
-    webhookEventLogger.info(JSON.stringify(notification.event, null, 4));
+    eventProcessingService.handleDownload(notification.event);
     return {
         status: 204,
         body: null,

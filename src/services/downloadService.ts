@@ -4,7 +4,7 @@ import { Stream, User } from "../models/twitchModel";
 import { Video } from "../models/videoModel";
 import { DownloadSchedule, VideoQuality } from "../models/downloadModel";
 import { youtubedlLogger } from "../middlewares/loggerMiddleware";
-import { userService, videoService } from "../services";
+import { userService, videoService, jobService } from "../services";
 import fs from "fs";
 import path from "path";
 import moment from "moment";
@@ -186,13 +186,6 @@ export const finishDownload = async (videoPath: string, filename: string, login:
     }
 };
 
-export const findPendingJob = async (broadcaster_id: string) => {
-    const db = await getDbInstance();
-    const jobCollection = db.collection("videos");
-
-    return jobCollection.findOne({ broadcaster_id, status: "Pending" });
-};
-
 export const setVideoFailed = async (jobId: string) => {
     const db = await getDbInstance();
     const videoCollection = db.collection("videos");
@@ -244,6 +237,59 @@ export const insertSchedule = async (data: DownloadSchedule) => {
     await scheduleCollection.insertOne(data);
 };
 
+export const handleDownload = async (jobDetails: any, broadcaster_id: string) => {
+    const pendingJob = await jobService.findPendingJob(broadcaster_id);
+    if (pendingJob) {
+        return;
+    }
+    const stream = await twitchAPI.getStreamByUserId(broadcaster_id);
+    if (stream === null) {
+        return;
+    }
+
+    jobService.createJob(jobDetails.jobId, async () => {
+        try {
+            const video = await startDownload(
+                jobDetails.loginId,
+                jobDetails.user,
+                jobDetails.jobId,
+                stream,
+                jobDetails.quality
+            );
+        } catch (error) {
+            console.error("Error when downloading:", error);
+            youtubedlLogger.error(error.message);
+            throw error;
+        }
+    });
+};
+
+const getScheduleDetail = async (schedule: DownloadSchedule, broadcaster_id: string) => {
+    const loginId = schedule.requested_by;
+    const user = (await userService.getUserDetailDB(broadcaster_id)) as User;
+    const jobId = jobService.createJobId();
+    const quality = VideoQuality[schedule.quality as keyof typeof VideoQuality] || VideoQuality.MEDIUM;
+    return { loginId, user, jobId, quality };
+};
+
+export const downloadSchedule = async (broadcaster_id: string) => {
+    const db = await getDbInstance();
+    const scheduleCollection = db.collection("schedule");
+    const followedChannelsCollection = db.collection("followedChannels");
+
+    let schedule = (await scheduleCollection.findOne({ source: "Toute les chaines suivies" })) as DownloadSchedule;
+    if (schedule && (await followedChannelsCollection.findOne({ userId: schedule.requested_by }))) {
+        const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
+        await handleDownload(jobDetails, broadcaster_id);
+    } else {
+        schedule = (await scheduleCollection.findOne({ broadcaster_id: broadcaster_id })) as DownloadSchedule;
+        if (schedule) {
+            const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
+            await handleDownload(jobDetails, broadcaster_id);
+        }
+    }
+};
+
 export default {
     planningRecord,
     saveVideoInfo,
@@ -251,8 +297,8 @@ export default {
     getVideoFilePath,
     startDownload,
     finishDownload,
-    findPendingJob,
     setVideoFailed,
     updateVideoCollection,
     insertSchedule,
+    handleDownload,
 };

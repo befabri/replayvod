@@ -1,4 +1,5 @@
 import { webhookEventLogger } from "../middlewares/loggerMiddleware";
+import { downloadSchedule } from "../services/downloadService";
 
 export const logEvent = (eventType: string, event: any) => {
     // Implementation for logging event
@@ -17,7 +18,13 @@ export const handleRevocation = (notification: any) => {
     // updating your application's internal state or notifying other services.
 };
 
+export const handleDownload = (event: any) => {
+    const broadcaster_id = event.broadcaster_user_id;
+    downloadSchedule(broadcaster_id).catch((error) => console.error("Error in downloadSchedule:", error));
+};
+
 export default {
     logEvent,
     handleRevocation,
+    handleDownload,
 };
