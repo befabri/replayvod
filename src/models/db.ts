@@ -19,9 +19,9 @@ const PASSWORD = encodeURIComponent(rawPASSWORD);
 let url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP}:${DBPORT}/${DBNAME}?retryWrites=true&w=majority&tls=true&authMechanism=DEFAULT&authSource=vod&tlsInsecure=true`;
 
 if (ENVIRONMENT === "production") {
-    // url = `mongodb+srv://${USERNAME}:${PASSWORD}@${DBIP_PROD}/${DBNAME}?tls=true&authSource=admin&retryWrites=true&w=majority`;
+    url = `mongodb+srv://${USERNAME}:${PASSWORD}@${DBIP_PROD}/${DBNAME}?tls=true&retryWrites=true&w=majority`;
     // url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:27017/${DBNAME}?authSource=admin&retryWrites=true&w=majority`;
-    url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:${DBPORT}/${DBNAME}?retryWrites=true&w=majority&tls=true&authMechanism=DEFAULT&authSource=vod&tlsInsecure=true`;
+    // url = `mongodb://${USERNAME}:${PASSWORD}@${DBIP_PROD}:${DBPORT}/${DBNAME}?retryWrites=true&w=majority&tls=true&authMechanism=DEFAULT&authSource=vod&tlsInsecure=true`;
 }
 
 let client: MongoClient | null = null;
