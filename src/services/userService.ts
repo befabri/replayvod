@@ -1,224 +1,190 @@
 import { getDbInstance } from "../models/db";
 import TwitchAPI from "../utils/twitchAPI";
 import { v4 as uuidv4 } from "uuid";
-import { User, FollowedChannel, FollowedStream } from "../models/twitchModel";
+import { Stream, User, FollowedChannel, FollowedStream } from "../models/twitchModel";
 
-const twitchAPI = new TwitchAPI();
+class UserService {
+  twitchAPI: TwitchAPI;
 
-export const getUserFollowedStreams = async (userId: string, accessToken: string) => {
+  constructor() {
+    this.twitchAPI = new TwitchAPI();
+  }
+
+  async getUserFollowedStreams(userId: string, accessToken: string) {
     try {
-        const db = await getDbInstance();
-        const collection = db.collection("followedStreams");
-        const fetchLogCollection = db.collection("fetchLog");
-        const fetchLog = await fetchLogCollection.findOne(
-            { userId: userId, type: "followedStreams" },
-            { sort: { fetchedAt: -1 } }
+      const db = await getDbInstance();
+      const collection = db.collection("followedStreams");
+      const fetchLogCollection = db.collection("fetchLog");
+      const fetchLog = await fetchLogCollection.findOne({ userId: userId }, { sort: { fetchedAt: -1 } });
+      if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - 5 * 60 * 1000)) {
+        const streams = await collection.find({ fetchId: fetchLog.fetchId }).toArray();
+        return streams;
+      }
+      const fetchId = uuidv4();
+      const followedStreams = await this.twitchAPI.getAllFollowedStreams(userId, accessToken);
+      const streamUserIds = followedStreams.map((stream: FollowedStream) => stream.user_id);
+      const users = await this.twitchAPI.getUsers(streamUserIds);
+      await this.storeUserDetails(users);
+      for (const stream of followedStreams) {
+        const data = {
+          ...stream,
+          fetchedAt: new Date(),
+          fetchId,
+        };
+        await collection.findOneAndUpdate(
+          { id: stream.id },
+          { $set: data },
+          { upsert: true, returnDocument: "after" }
         );
-        if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - 5 * 60 * 1000)) {
-            const streams = await collection.find({ fetchId: fetchLog.fetchId }).toArray();
-            return streams;
-        }
-        const fetchId = uuidv4();
-        const followedStreams = await twitchAPI.getAllFollowedStreams(userId, accessToken);
-        const streamUserIds = followedStreams.map((stream: FollowedStream) => stream.user_id);
-        const users = await twitchAPI.getUsers(streamUserIds);
-        await storeUserDetails(users);
-        for (const stream of followedStreams) {
-            const data = {
-                ...stream,
-                fetchedAt: new Date(),
-                fetchId,
-            };
-            await collection.findOneAndUpdate(
-                { id: stream.id },
-                { $set: data },
-                { upsert: true, returnDocument: "after" }
-            );
-        }
-        await fetchLogCollection.insertOne({
-            userId: userId,
+      }
+      await fetchLogCollection.insertOne({ userId: userId, fetchedAt: new Date(), fetchId: fetchId });
+      return followedStreams;
+    } catch (error) {
+      console.error("Error fetching followed streams:", error);
+      throw new Error("Error fetching followed streams");
+    }
+  }
+
+  async getUserFollowedChannels(userId: string, accessToken: string) {
+    try {
+      const db = await getDbInstance();
+      const followedChannelsCollection = db.collection("followedChannels");
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const existingData = await followedChannelsCollection.findOne({ userId, fetchedAt: { $gte: oneDayAgo } });
+      if (existingData) {
+        return existingData.channels;
+      }
+      const followedChannels = await this.twitchAPI.getAllFollowedChannels(userId, accessToken);
+      const channelsUserIds = followedChannels.map((channel: FollowedChannel) => channel.broadcaster_id);
+      const users = await this.twitchAPI.getUsers(channelsUserIds);
+      await this.storeUserDetails(users);
+      const profilePictures = await this.getUserProfilePicture(channelsUserIds);
+      const followedChannelsWithProfilePictures = followedChannels.map((channel) => ({
+        ...channel,
+        profile_picture: profilePictures[channel.broadcaster_id],
+      }));
+
+      await followedChannelsCollection.updateOne(
+        { userId },
+        {
+          $set: {
+            channels: followedChannelsWithProfilePictures,
             fetchedAt: new Date(),
-            fetchId: fetchId,
-            type: "followedStreams",
-        });
-        return followedStreams;
-    } catch (error) {
-        console.error("Error fetching followed streams:", error);
-        throw new Error("Error fetching followed streams");
-    }
-};
-
-export const getUserFollowedChannelsDb = async () => {
-    try {
-        const db = await getDbInstance();
-        const followedChannelsCollection = db.collection("followedChannels");
-        const channels = await followedChannelsCollection.find({}, { projection: { channels: 1 } }).toArray();
-        return channels;
-    } catch (error) {
-        console.error("Error getting followed channels from Db:", error);
-        throw new Error("Error getting followed channels from Db");
-    }
-};
-
-export const getUserFollowedChannels = async (userId: string, accessToken: string) => {
-    try {
-        const db = await getDbInstance();
-        const followedChannelsCollection = db.collection("followedChannels");
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const existingData = await followedChannelsCollection.findOne({
             userId,
-            fetchedAt: { $gte: oneDayAgo },
-        });
-        if (existingData) {
-            return existingData.channels;
-        }
-        const followedChannels = await twitchAPI.getAllFollowedChannels(userId, accessToken);
-        const channelsUserIds = followedChannels.map((channel: FollowedChannel) => channel.broadcaster_id);
-        const users = await twitchAPI.getUsers(channelsUserIds);
-        await storeUserDetails(users);
-        const profilePictures = await getUserProfilePicture(channelsUserIds);
-        const followedChannelsWithProfilePictures = followedChannels.map((channel) => ({
-            ...channel,
-            profile_picture: profilePictures[channel.broadcaster_id],
-        }));
-
-        await followedChannelsCollection.updateOne(
-            { userId },
-            {
-                $set: {
-                    channels: followedChannelsWithProfilePictures,
-                    fetchedAt: new Date(),
-                    userId,
-                },
-            },
-            { upsert: true }
-        );
-        return followedChannelsWithProfilePictures;
+          },
+        },
+        { upsert: true }
+      );
+      return followedChannelsWithProfilePictures;
     } catch (error) {
-        console.error("Error fetching followed channels from Twitch API:", error);
-        throw new Error("Error fetching followed channels from Twitch API");
+      console.error("Error fetching followed channels from Twitch API:", error);
+      throw new Error("Error fetching followed channels from Twitch API");
     }
-};
+  }
 
-export const getUserDetail = async (userId: string) => {
-    const user = await twitchAPI.getUser(userId);
+  async getUserDetail(userId: string) {
+    const user = await this.twitchAPI.getUser(userId);
     return user;
-};
+  }
 
-export const getUserDetailDB = async (userId: string): Promise<User | null> => {
+  async getUserDetailDB(userId: string) {
     const db = await getDbInstance();
-    const userCollection = db.collection<User>("users");
-    let user = null;
-    user = await userCollection.findOne({ id: userId });
-    if (!user) {
-        user = await updateUserDetail(userId);
-    }
+    const userCollection = db.collection("users");
+    const user = await userCollection.findOne({ id: userId });
     return user;
-};
+  }
 
-export const getUserDetailByName = async (username: string) => {
+  async getUserDetailByName(username: string) {
     const login = username.toLowerCase();
-    const user = await twitchAPI.getUserByLogin(login);
+    const db = await getDbInstance();
+    const user = await this.twitchAPI.getUserByLogin(login);
     return user;
-};
+  }
 
-export const getMultipleUserDetailsDB = async (userIds: string[]) => {
+  async getMultipleUserDetailsDB(userIds: string[]) {
     const db = await getDbInstance();
     const userCollection = db.collection("users");
     const users = [];
     for (const id of userIds) {
-        if (typeof id === "string") {
-            const user = await userCollection.findOne({ id });
-            if (user) {
-                users.push(user);
-            }
+      if (typeof id === "string") {
+        const user = await userCollection.findOne({ id });
+        if (user) {
+          users.push(user);
         }
+      }
     }
     return users;
-};
+  }
 
-export const updateUserDetail = async (userId: string) => {
-    const user = await twitchAPI.getUser(userId);
+  async updateUserDetail(userId: string) {
+    const user = await this.twitchAPI.getUser(userId);
     if (user) {
-        const db = await getDbInstance();
-        const userCollection = db.collection("users");
-        await userCollection.updateOne({ id: userId }, { $set: user }, { upsert: true });
+      const db = await getDbInstance();
+      const userCollection = db.collection("users");
+      await userCollection.updateOne({ id: userId }, { $set: user }, { upsert: true });
     }
     return user;
-};
+  }
 
-export const fetchAndStoreUserDetails = async (userIds: string[]) => {
-    const users = await twitchAPI.getUsers(userIds);
-    await storeUserDetails(users);
+  async fetchAndStoreUserDetails(userIds: string[]) {
+    const users = await this.twitchAPI.getUsers(userIds);
+    await this.storeUserDetails(users);
     return "Users fetched and stored successfully.";
-};
+  }
 
-export const storeUserDetails = async (users: any[]) => {
+  async storeUserDetails(users: any[]) {
     const db = await getDbInstance();
     const userCollection = db.collection("users");
     const bulkOps = users.map((user) => ({
-        updateOne: {
-            filter: { id: user.id },
-            update: { $set: user },
-            upsert: true,
-        },
+      updateOne: {
+        filter: { id: user.id },
+        update: { $set: user },
+        upsert: true,
+      },
     }));
     await userCollection.bulkWrite(bulkOps);
-};
+  }
 
-export const getUserProfilePicture = async (userIds: string[]) => {
+  getUserProfilePicture = async (userIds: string[]) => {
     const db = await getDbInstance();
     const userCollection = db.collection<User>("users");
     const users = await userCollection.find({ id: { $in: userIds } }).toArray();
     const profilePictures: Record<string, string> = {};
     users.forEach((user) => {
-        profilePictures[user.id] = user.profile_image_url;
+      profilePictures[user.id] = user.profile_image_url;
     });
     return profilePictures;
-};
+  };
 
-export const updateUsers = async (userId: string) => {
+  updateUsers = async (userId: string) => {
     const db = await getDbInstance();
     const followedChannelsCollection = db.collection("followedChannels");
     const userFollowedChannels = await followedChannelsCollection.findOne({ userId: userId });
 
     if (!userFollowedChannels) {
-        throw new Error(`No document found for userId: ${userId}`);
+      throw new Error(`No document found for userId: ${userId}`);
     }
 
     const broadcasterIds = userFollowedChannels.channels.map((channel: FollowedChannel) => channel.broadcaster_id);
-    const existingUsers = await getMultipleUserDetailsDB(broadcasterIds);
+    const existingUsers = await this.getMultipleUserDetailsDB(broadcasterIds);
     const existingUserIds = existingUsers.map((user) => user.id);
     const newUserIds = broadcasterIds.filter((broadcasterId: string) => !existingUserIds.includes(broadcasterId));
 
     if (newUserIds.length > 0) {
-        await fetchAndStoreUserDetails(newUserIds);
+      await this.fetchAndStoreUserDetails(newUserIds);
     }
     return {
-        message: "Users update complete",
-        newUsers: `${newUserIds.length - existingUserIds.length} users added`,
+      message: "Users update complete",
+      newUsers: `${newUserIds.length - existingUserIds.length} users added`,
     };
-};
+  };
 
-export const getUserDetailDBbyName = async (loginName: string) => {
+  getUserDetailDBbyName = async (loginName: string) => {
     const db = await getDbInstance();
     const followedChannelsCollection = db.collection("users");
     const user = await followedChannelsCollection.findOne({ login: loginName });
     return user;
-};
+  };
+}
 
-export default {
-    getUserFollowedStreams,
-    getUserFollowedChannelsDb,
-    getUserFollowedChannels,
-    getUserDetail,
-    getUserDetailDB,
-    getUserDetailByName,
-    getMultipleUserDetailsDB,
-    updateUserDetail,
-    fetchAndStoreUserDetails,
-    storeUserDetails,
-    getUserProfilePicture,
-    updateUsers,
-    getUserDetailDBbyName,
-};
+export default UserService;

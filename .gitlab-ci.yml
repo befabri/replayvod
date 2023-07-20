@@ -3,7 +3,7 @@ image:
   entrypoint: [""]
 
 variables:
-  DOCKER_IMAGE_TAG: $CI_COMMIT_REF_SLUG
+  DOCKER_IMAGE_TAG: "latest"
 
 cache:
   key: "$CI_COMMIT_REF_SLUG"

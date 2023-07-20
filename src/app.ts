@@ -26,28 +26,28 @@ const REACT_URL = process.env.REACT_URL;
 moment.tz.setDefault("Europe/Paris");
 
 if (!SESSION_SECRET) {
-    console.error("No session secret provided. Shutting down...");
-    process.exit(1);
+  console.error("No session secret provided. Shutting down...");
+  process.exit(1);
 }
 
 if (process.env.NODE_ENV === "development") {
-    app.use(morgan("dev"));
+  app.use(morgan("dev"));
 }
 
 app.use(
-    cors({
-        origin: REACT_URL,
-        credentials: true,
-    })
+  cors({
+    origin: REACT_URL,
+    credentials: true,
+  })
 );
 
 app.use(
-    session({
-        secret: SESSION_SECRET,
-        resave: false,
-        saveUninitialized: true,
-        cookie: { httpOnly: true },
-    })
+  session({
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: true,
+    cookie: { httpOnly: true },
+  })
 );
 app.use(express.json());
 app.use(dbMiddleware);
@@ -58,15 +58,15 @@ app.use(requestLogger);
 app.use("/api", routes);
 app.use(errorLogger);
 app.use((err: CustomError, req: Request, res: Response, next: NextFunction) => {
-    // console.error(err.stack);
-    res.status(err.status || 500).json({
-        message: err.message || "An internal server error occurred.",
-    });
+  // console.error(err.stack);
+  res.status(err.status || 500).json({
+    message: err.message + "lol" || "An internal server error occurred.",
+  });
 });
 
 app.use(errorHandler);
 app.listen(PORT, () => {
-    logger.info(`Running on Port: ${PORT}`);
+  logger.info(`Running on Port: ${PORT}`);
 });
 
 export default app;
