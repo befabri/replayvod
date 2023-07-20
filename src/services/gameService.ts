@@ -1,36 +1,35 @@
-import { MongoClient, Collection } from "mongodb";
 import { getDbInstance } from "../models/db";
 import { Game } from "../models/twitchModel";
 
-class GameService {
-  private gameCollection!: Collection<Game>;
-
-  constructor() {
-    this.getDbCollection();
-  }
-
-  private async getDbCollection() {
+export const saveGamesToDb = async (games: Game[]) => {
     const db = await getDbInstance();
-    this.gameCollection = db.collection("games");
-  }
-
-  async saveGamesToDb(games: Game[]) {
+    const gameCollection = db.collection("games");
     for (const game of games) {
-      await this.gameCollection.updateOne({ id: game.id }, { $set: game }, { upsert: true });
+        await gameCollection.updateOne({ id: game.id }, { $set: game }, { upsert: true });
     }
-  }
+};
 
-  async getAllGames() {
-    return await this.gameCollection.find().toArray();
-  }
+export const getAllGames = async () => {
+    const db = await getDbInstance();
+    const gameCollection = db.collection("games");
+    return await gameCollection.find().toArray();
+};
 
-  async getGameById(id: string) {
-    return await this.gameCollection.findOne({ id: id });
-  }
+export const getGameById = async (id: string) => {
+    const db = await getDbInstance();
+    const gameCollection = db.collection("games");
+    return await gameCollection.findOne({ id: id });
+};
 
-  async getGameByName(name: string) {
-    return await this.gameCollection.findOne({ name: name });
-  }
-}
+export const getGameByName = async (name: string) => {
+    const db = await getDbInstance();
+    const gameCollection = db.collection("games");
+    return await gameCollection.findOne({ name: name });
+};
 
-export default new GameService();
+export default {
+    saveGamesToDb,
+    getAllGames,
+    getGameById,
+    getGameByName,
+};
