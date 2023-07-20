@@ -1,14 +1,13 @@
 import express, { Router } from "express";
 import * as videoController from "../controllers/videoController";
-import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
-router.get("/play/:id", isUserWhitelisted, userAuthenticated, videoController.playVideo);
-router.get("/all", isUserWhitelisted, userAuthenticated, videoController.getVideos);
-router.get("/finished", isUserWhitelisted, userAuthenticated, videoController.getFinishedVideos);
-router.get("/user/:id", isUserWhitelisted, userAuthenticated, videoController.getUserVideos);
-router.get("/update/missing", isUserWhitelisted, userAuthenticated, videoController.generateMissingThumbnail);
-router.get("/thumbnail/:login/:filename", isUserWhitelisted, userAuthenticated, videoController.getThumbnail);
+router.get("/play/:id", videoController.playVideo);
+router.get("/all", videoController.getVideos);
+router.get("/finished", videoController.getFinishedVideos);
+router.get("/user/:id", videoController.getUserVideos);
+router.get("/update/missing", videoController.generateMissingThumbnail);
+router.get("/thumbnail/:login/:filename", videoController.getThumbnail);
 
 export default router;
