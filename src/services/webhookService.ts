@@ -70,6 +70,7 @@ export const handleChannelUpdate = (notification: any): { status: number; body: 
 
 export const handleStreamOnline = (notification: any): { status: number; body: null } => {
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    eventProcessingService.handleDownload(notification.event);
     return {
         status: 204,
         body: null,
@@ -86,7 +87,6 @@ export const handleStreamOffline = (notification: any): { status: number; body: 
 
 export const handleNotification = (notification: any): { status: number; body: null } => {
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
-    eventProcessingService.handleDownload(notification.event);
     return {
         status: 204,
         body: null,

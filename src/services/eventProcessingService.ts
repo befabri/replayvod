@@ -19,8 +19,13 @@ export const handleRevocation = (notification: any) => {
 };
 
 export const handleDownload = (event: any) => {
+    console.log(event, event.broadcaster_user_id);
+    webhookEventLogger.info(event, event.broadcaster_user_id);
     const broadcaster_id = event.broadcaster_user_id;
-    downloadSchedule(broadcaster_id).catch((error) => console.error("Error in downloadSchedule:", error));
+    downloadSchedule(broadcaster_id).catch((error) => {
+        console.error("Error in downloadSchedule:", error);
+        webhookEventLogger.error("Error in downloadSchedule:", error);
+    });
 };
 
 export default {
