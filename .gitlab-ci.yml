@@ -20,7 +20,7 @@ before_build:
     stage: before_build
     image: node:18
     script:
-        - apk add --update python3 py3-pip ffmpeg
+        - apt-get update -y && apt-get install -y python3 pip3 ffmpeg
         - python3 --version
         - pip3 --version
         - ffmpeg -version
