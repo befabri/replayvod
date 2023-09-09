@@ -1,28 +1,44 @@
-import express from "express";
-import passport from "passport";
-import * as authController from "../controllers/authController";
+import { FastifyInstance, FastifyPluginAsync } from "fastify";
+import {
+    handleTwitchAuth,
+    handleTwitchCallback,
+    checkSession,
+    getUser,
+    refreshToken,
+} from "../controllers/authController";
 import dotenv from "dotenv";
+import fastifyPassport from "@fastify/passport";
 
 dotenv.config();
-const router = express.Router();
+
 const REDIRECT_URL = process.env.REDIRECT_URL || "/";
 
-router.get(
-  "/twitch",
-  passport.authenticate("twitch", { scope: ["user:read:email", "user:read:follows"] }),
-  authController.handleTwitchAuth
-);
+export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.get(
+        "/twitch",
+        {
+            preHandler: fastifyPassport.authenticate("twitch", {
+                scope: ["user:read:email", "user:read:follows"],
+            }),
+        },
+        handleTwitchAuth
+    );
 
-router.get(
-  "/twitch/callback",
-  passport.authenticate("twitch", { successRedirect: REDIRECT_URL, failureRedirect: "https://google.com" }),
-  authController.handleTwitchCallback
-);
+    fastify.get(
+        "/twitch/callback",
+        {
+            preHandler: fastifyPassport.authenticate("twitch", {
+                successRedirect: REDIRECT_URL,
+                failureRedirect: "https://google.com",
+            }),
+        },
+        handleTwitchCallback
+    );
 
-router.get("/check-session", authController.checkSession);
+    fastify.get("/check-session", checkSession);
 
-router.get("/user", authController.getUser);
+    fastify.get("/user", getUser);
 
-router.get("/refresh", authController.refreshToken);
-
-export default router;
+    fastify.get("/refresh", refreshToken);
+    done();
+}

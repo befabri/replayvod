@@ -1,14 +1,72 @@
-import express, { Router } from "express";
+import { FastifyInstance, FastifyPluginAsync } from "fastify";
 import * as videoController from "../controllers/videoController";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 
-const router: Router = express.Router();
+export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.get(
+        "/play/:id",
+        {
+            preHandler: [isUserWhitelisted, userAuthenticated],
+            schema: {
+                params: {
+                    type: "object",
+                    properties: {
+                        id: { type: "string" },
+                    },
+                    required: ["id"],
+                },
+            },
+        },
+        this.videoController.playVideo
+    );
 
-router.get("/play/:id", isUserWhitelisted, userAuthenticated, videoController.playVideo);
-router.get("/all", isUserWhitelisted, userAuthenticated, videoController.getVideos);
-router.get("/finished", isUserWhitelisted, userAuthenticated, videoController.getFinishedVideos);
-router.get("/user/:id", isUserWhitelisted, userAuthenticated, videoController.getUserVideos);
-router.get("/update/missing", isUserWhitelisted, userAuthenticated, videoController.generateMissingThumbnail);
-router.get("/thumbnail/:login/:filename", isUserWhitelisted, userAuthenticated, videoController.getThumbnail);
+    fastify.get("/all", { preHandler: [isUserWhitelisted, userAuthenticated] }, this.videoController.getVideos);
 
-export default router;
+    fastify.get(
+        "/finished",
+        { preHandler: [isUserWhitelisted, userAuthenticated] },
+        this.videoController.getFinishedVideos
+    );
+
+    fastify.get(
+        "/user/:id",
+        {
+            preHandler: [isUserWhitelisted, userAuthenticated],
+            schema: {
+                params: {
+                    type: "object",
+                    properties: {
+                        id: { type: "string" },
+                    },
+                    required: ["id"],
+                },
+            },
+        },
+        this.videoController.getUserVideos
+    );
+
+    fastify.get(
+        "/update/missing",
+        { preHandler: [isUserWhitelisted, userAuthenticated] },
+        this.videoController.generateMissingThumbnail
+    );
+
+    fastify.get(
+        "/thumbnail/:login/:filename",
+        {
+            preHandler: [isUserWhitelisted, userAuthenticated],
+            schema: {
+                params: {
+                    type: "object",
+                    properties: {
+                        login: { type: "string" },
+                        filename: { type: "string" },
+                    },
+                    required: ["login", "filename"],
+                },
+            },
+        },
+        this.videoController.getThumbnail
+    );
+    done();
+}

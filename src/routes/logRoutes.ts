@@ -1,10 +1,26 @@
-import express, { Router } from "express";
-import * as logController from "../controllers/logController";
+import { FastifyInstance } from "fastify";
+import { getLog, getLogs } from "../controllers/logController";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 
-const router: Router = express.Router();
+export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.get("/files/:id", {
+        schema: {
+            params: {
+                type: "object",
+                properties: {
+                    id: { type: "integer" },
+                },
+                required: ["id"],
+            },
+        },
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: getLog,
+    });
 
-router.get("/files/:id", isUserWhitelisted, userAuthenticated, logController.getLog);
-router.get("/files", isUserWhitelisted, userAuthenticated, logController.getLogs);
+    fastify.get("/files", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: getLogs,
+    });
 
-export default router;
+    done();
+}

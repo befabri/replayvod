@@ -1,13 +1,83 @@
-import express, { Router } from "express";
+import { FastifyInstance } from "fastify";
 import * as downloadController from "../controllers/downloadController";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 
-const router: Router = express.Router();
+export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.get("/user/:id", {
+        schema: {
+            params: {
+                type: "object",
+                properties: {
+                    id: { type: "string" },
+                },
+                required: ["id"],
+            },
+        },
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: downloadController.scheduleUser,
+    });
 
-router.get("/user/:id", isUserWhitelisted, userAuthenticated, downloadController.scheduleUser);
-router.get("/stream/:id", isUserWhitelisted, userAuthenticated, downloadController.downloadStream);
-router.post("/schedule", isUserWhitelisted, userAuthenticated, downloadController.scheduleDownload);
-router.get("/status/:id", isUserWhitelisted, userAuthenticated, downloadController.getJobStatus);
-// router.get("/video/:id", downloadController.downloadVideo);
+    fastify.get("/stream/:id", {
+        schema: {
+            params: {
+                type: "object",
+                properties: {
+                    id: { type: "string" },
+                },
+                required: ["id"],
+            },
+        },
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: downloadController.downloadStream,
+    });
 
-export default router;
+    fastify.post("/schedule", {
+        schema: {
+            body: {
+                type: "object",
+                properties: {
+                    source: { type: "string" },
+                    channelName: { type: "string" },
+                    viewersCount: { type: "number" },
+                    timeBeforeDelete: { type: "number" },
+                    trigger: { type: "string" },
+                    tag: { type: "string" },
+                    category: { type: "string" },
+                    quality: { type: "string" },
+                    isDeleteRediff: { type: "boolean" },
+                    requested_by: { type: "string" },
+                },
+                required: [
+                    "source",
+                    "channelName",
+                    "viewersCount",
+                    "timeBeforeDelete",
+                    "trigger",
+                    "tag",
+                    "category",
+                    "quality",
+                    "isDeleteRediff",
+                    "requested_by",
+                ],
+            },
+        },
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: downloadController.scheduleDownload,
+    });
+
+    fastify.get("/status/:id", {
+        schema: {
+            params: {
+                type: "object",
+                properties: {
+                    id: { type: "string" },
+                },
+                required: ["id"],
+            },
+        },
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: downloadController.getJobStatus,
+    });
+
+    done();
+}
