@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from "express";
+import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
 import { webhookService } from "../services";
 import { Webhook } from "../models/webhookModel";
 import {
@@ -11,76 +11,86 @@ import {
     STREAM_OFFLINE,
     STREAM_ONLINE,
     TWITCH_MESSAGE_SIGNATURE,
+    TwitchHeaders,
 } from "../constants/twitchConstants";
-import { webhookEventLogger } from "../middlewares/loggerMiddleware";
+import { logger } from "../app";
+import { NotificationBody, SubscriptionType } from "../models/notificationTwitch";
 
-export const addWebhook = async (req: Request, res: Response, next: NextFunction) => {
+interface WebhookRequest extends RouteGenericInterface {
+    Body: Webhook;
+    Headers: TwitchHeaders;
+}
+
+export const addWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
     try {
         const webhook: Webhook = { id: req.body.id, url: req.body.url } as Webhook;
         const addedWebhook = await webhookService.addWebhook(webhook);
-        res.status(200).json({ data: addedWebhook });
+        reply.status(200).send({ data: addedWebhook });
     } catch (error) {
-        next(error);
+        reply.status(500).send({ error: "Internal Server Error" });
     }
 };
 
-export const removeWebhook = async (req: Request, res: Response, next: NextFunction) => {
+export const removeWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
     try {
         const removedWebhook = await webhookService.removeWebhook(req.body.id);
         if (removedWebhook) {
-            res.status(200).json({ data: removedWebhook });
+            reply.status(200).send({ data: removedWebhook });
         } else {
-            res.status(404).json({ error: "Webhook not found" });
+            reply.status(404).send({ error: "Webhook not found" });
         }
     } catch (error) {
-        next(error);
+        reply.status(500).send({ error: "Internal Server Error" });
     }
 };
 
-export const callbackWebhook = async (req: Request, res: Response, next: NextFunction) => {
+export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
     let secret = webhookService.getSecret();
     let message = webhookService.getHmacMessage(req);
     let hmac = HMAC_PREFIX + webhookService.getHmac(secret, message);
 
     let signature = req.headers[TWITCH_MESSAGE_SIGNATURE];
     if (typeof signature !== "string") {
-        res.sendStatus(400);
+        reply.status(400).send();
         return;
     }
 
     if (true === webhookService.verifyMessage(hmac, signature)) {
-        webhookEventLogger.info("signatures match");
-
-        let notification = req.body;
+        logger.info("[webhookEventLogger] signatures match");
+        let notification: NotificationBody = req.body;
         let messageType = req.headers[MESSAGE_TYPE];
         let response;
-        webhookEventLogger.info(messageType);
+        logger.info("messageType");
         if (MESSAGE_TYPE_NOTIFICATION === messageType) {
-            if (notification.subscription.type === CHANNEL_UPDATE) {
-                response = webhookService.handleChannelUpdate(notification);
-            } else if (notification.subscription.type === STREAM_ONLINE) {
-                response = webhookService.handleStreamOnline(notification);
-            } else if (notification.subscription.type === STREAM_OFFLINE) {
-                response = webhookService.handleStreamOffline(notification);
-            } else {
-                response = webhookService.handleNotification(notification);
+            switch (notification.subscription.type) {
+                case SubscriptionType.CHANNEL_UPDATE:
+                    response = webhookService.handleChannelUpdate(notification);
+                    break;
+                case SubscriptionType.STREAM_ONLINE:
+                    response = webhookService.handleStreamOnline(notification);
+                    break;
+                case SubscriptionType.STREAM_OFFLINE:
+                    response = webhookService.handleStreamOffline(notification);
+                    break;
+                default:
+                    response = webhookService.handleNotification(notification);
+                    break;
             }
         } else if (MESSAGE_TYPE_VERIFICATION === messageType) {
             response = webhookService.handleVerification(notification);
         } else if (MESSAGE_TYPE_REVOCATION === messageType) {
             response = webhookService.handleRevocation(notification);
         } else {
-            res.sendStatus(400);
+            reply.status(400).send();
             return;
         }
-
-        res.status(response.status);
+        reply.status(response.status);
         if (response.body) {
-            res.send(response.body);
+            reply.send(response.body);
         } else {
-            res.end();
+            reply.send();
         }
     } else {
-        res.sendStatus(403);
+        reply.status(403).send();
     }
 };

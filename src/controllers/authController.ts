@@ -1,28 +1,28 @@
-import { Request, Response } from "express";
+import { FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
 
-export function handleTwitchAuth(req: Request, res: Response) {}
+export async function handleTwitchAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {}
 
-export function handleTwitchCallback(req: Request, res: Response) {}
+export async function handleTwitchCallback(req: FastifyRequest, reply: FastifyReply): Promise<void> {}
 
-export function checkSession(req: Request, res: Response) {
+export async function checkSession(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (req.session?.passport?.user) {
-        res.status(200).json({ status: "authenticated" });
+        reply.status(200).send({ status: "authenticated" });
     } else {
-        res.status(200).json({ status: "not authenticated" });
+        reply.status(200).send({ status: "not authenticated" });
     }
 }
 
-export function getUser(req: Request, res: Response) {
+export async function getUser(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (req.session?.passport?.user) {
         const { accessToken, refreshToken, ...user } = req.session.passport.user;
-        res.json(user);
+        reply.send(user);
     } else {
-        res.status(401).json({ error: "Unauthorized" });
+        reply.status(401).send({ error: "Unauthorized" });
     }
 }
 
-export async function refreshToken(req: Request, res: Response) {
+export async function refreshToken(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (req.session?.passport?.user?.refreshToken) {
         const refreshToken = req.session.passport.user.refreshToken;
         const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
@@ -44,15 +44,15 @@ export async function refreshToken(req: Request, res: Response) {
                 req.session.passport.user.accessToken = response.data.access_token;
                 req.session.passport.user.refreshToken = response.data.refresh_token;
 
-                res.status(200).json({ status: "Token refreshed" });
+                reply.status(200).send({ status: "Token refreshed" });
             } else {
-                res.status(500).json({ error: "Failed to refresh token" });
+                reply.status(500).send({ error: "Failed to refresh token" });
             }
         } catch (error) {
             console.error(`Failed to refresh token: ${error}`);
-            res.status(500).json({ error: "Failed to refresh token" });
+            reply.status(500).send({ error: "Failed to refresh token" });
         }
     } else {
-        res.status(401).json({ error: "Unauthorized" });
+        reply.status(401).send({ error: "Unauthorized" });
     }
 }

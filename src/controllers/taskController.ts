@@ -1,31 +1,37 @@
-import { Request, Response } from "express";
+import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
 import { taskService } from "../services";
 
-export const getTasks = async (req: Request, res: Response) => {
-    try {
-        const tasks = await taskService.getAllTasks();
-        res.json(tasks);
-    } catch (error) {
-        res.status(500).send("Internal server error");
-    }
-};
+interface Params extends RouteGenericInterface {
+    Params: {
+        id: string;
+    };
+}
 
-export const getTask = async (req: Request, res: Response) => {
+export const getTask = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     try {
         const taskId = req.params.id;
         const task = await taskService.getTask(taskId);
-        res.json(task);
+        reply.send(task);
     } catch (error) {
-        res.status(500).send("Internal server error");
+        reply.status(500).send("Internal server error");
     }
 };
 
-export const runTask = async (req: Request, res: Response) => {
+export const getTasks = async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+        const tasks = await taskService.getAllTasks();
+        reply.send(tasks);
+    } catch (error) {
+        reply.status(500).send("Internal server error");
+    }
+};
+
+export const runTask = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     try {
         const taskId = req.params.id;
         const taskResult = await taskService.runTask(taskId);
-        res.json(taskResult);
+        reply.send(taskResult);
     } catch (error) {
-        res.status(500).send("Internal server error");
+        reply.status(500).send("Internal server error");
     }
 };

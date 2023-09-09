@@ -1,7 +1,4 @@
-import { Document, ObjectId } from "mongodb";
-
 export interface Stream {
-    _id?: ObjectId;
     id: string;
     user_id: string;
     user_login: string;
@@ -20,7 +17,6 @@ export interface Stream {
 }
 
 export interface Game {
-    _id?: ObjectId;
     id: string;
     name: string;
     box_art_url: string;
@@ -28,7 +24,6 @@ export interface Game {
 }
 
 export interface User {
-    _id?: ObjectId;
     id: string;
     login: string;
     display_name: string;
@@ -43,7 +38,6 @@ export interface User {
 }
 
 export interface FollowedChannel {
-    _id?: ObjectId;
     broadcaster_id: string;
     broadcaster_login: string;
     broadcaster_name: string;
@@ -51,7 +45,6 @@ export interface FollowedChannel {
 }
 
 export interface FollowedStream {
-    _id?: ObjectId;
     id: string;
     user_id: string;
     user_login: string;

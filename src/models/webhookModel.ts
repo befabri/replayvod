@@ -1,7 +1,5 @@
-import { Document, ObjectId } from "mongodb";
-
-export interface Webhook extends Document {
-    _id?: ObjectId;
+export interface Webhook {
+    subscription: any;
     id: string;
     url?: string;
     status: string;
@@ -27,7 +25,6 @@ export interface Webhook extends Document {
 }
 
 export interface EventSub {
-    _id?: string;
     id: string;
     status: string;
     type: string;
