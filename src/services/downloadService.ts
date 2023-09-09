@@ -70,7 +70,8 @@ export const saveVideoInfo = async (
     return videoCollection.insertOne(videoData);
 };
 
-export const updateVideoInfo = async (videoName: string, endAt: Date, status: string) => {
+// TODO: pourquoi mettre une date de fin ? -> Si fin autant mettre DONE directement
+export const updateVideoInfo = async (videoName: string, endAt: Date, status: Status) => {
     return prisma.video.update({
         where: {
             filename: videoName,
@@ -296,7 +297,7 @@ export const addSchedule = async (scheduleData) => {
 
 export const handleDownload = async (jobDetails: any, broadcaster_id: string) => {
     // TODO: A modifier
-    const pendingJob = await jobService.findPendingJob(broadcaster_id);
+    const pendingJob = await jobService.findPendingJobByBroadcasterId(broadcaster_id);
     if (pendingJob) {
         return;
     }
