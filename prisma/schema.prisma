@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model AppAccessToken {
+  id          Int      @id @default(autoincrement())
+  accessToken String   @unique
+  expiresAt   DateTime
+}
+
+/// Represents logs when data is fetched.
+model FetchLog {
+  fetchId   String     @id
+  userId    String
+  fetchedAt DateTime
+  fetchType String
+  user      User       @relation(fields: [userId], references: [userId])
+  EventSub  EventSub[]
+}
+
+model EventSub {
+  id            Int                    @id @default(autoincrement())
+  userId        String
+  fetchId       String
+  user          User                   @relation(fields: [userId], references: [userId])
+  fetch         FetchLog               @relation(fields: [fetchId], references: [fetchId])
+  subscriptions SubscriptionEventSub[]
+}
+
+model Subscription {
+  id               String                 @id
+  status           String
+  subscriptionType String
+  broadcasterId    String
+  createdAt        DateTime
+  cost             Int
+  eventSubs        SubscriptionEventSub[]
+  channel          Channel                @relation(fields: [broadcasterId], references: [broadcasterId])
+  Event            Event[]
+}
+
+model SubscriptionEventSub {
+  eventSubId     Int
+  subscriptionId String
+  eventSub       EventSub     @relation(fields: [eventSubId], references: [id])
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@id([eventSubId, subscriptionId])
+}
+
+/// Webhook
+model Event {
+  id              Int          @id @default(autoincrement())
+  externalEventId String?
+  broadcasterId   String
+  eventType       String
+  startedAt       DateTime
+  endAt           DateTime?
+  subscriptionId  String
+  channel         Channel      @relation(fields: [broadcasterId], references: [broadcasterId])
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id])
+}
+
+model User {
+  userId           String                 @id
+  fetchedAt        DateTime
+  followedChannels UserFollowedChannels[]
+  EventSub         EventSub[]
+  FetchLog         FetchLog[]
+  DownloadSchedule DownloadSchedule[]
+  VideoRequest     VideoRequest[]
+}
+
+model Channel {
+  broadcasterId    String                 @id
+  broadcasterLogin String                 @unique
+  broadcasterName  String
+  displayName      String
+  broadcasterType  String
+  createdAt        DateTime
+  description      String
+  offlineImageUrl  String
+  profileImageUrl  String
+  profilePicture   String
+  type             String?
+  viewCount        Int                    @default(0)
+  usersFollowing   UserFollowedChannels[]
+  Video            Video[]
+  Stream           Stream[]
+  Subscription     Subscription[]
+  Event            Event[]
+  DownloadSchedule DownloadSchedule[]
+}
+
+model UserFollowedChannels {
+  id            Int      @id @default(autoincrement())
+  userId        String
+  broadcasterId String
+  followedAt    DateTime
+  user          User     @relation(fields: [userId], references: [userId])
+  channel       Channel  @relation(fields: [broadcasterId], references: [broadcasterId])
+}
+
+model Job {
+  id     String  @id
+  status Status
+  Video  Video[]
+}
+
+enum Status {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+model Log {
+  id            Int      @id @default(autoincrement())
+  downloadUrl   String
+  filename      String
+  lastWriteTime DateTime
+  type          String
+}
+
+model Task {
+  id            String   @id
+  name          String
+  description   String
+  taskType      String
+  interval      Int      @default(0)
+  lastDuration  Int      @default(0)
+  lastExecution DateTime
+  nextExecution DateTime
+  metadata      String?
+}
+
+model Video {
+  id              String          @id
+  filename        String          @unique
+  status          Status
+  displayName     String
+  broadcasterId   String
+  startDownloadAt DateTime
+  downloadedAt    DateTime
+  jobId           String          @unique
+  viewerCount     Int             @default(0)
+  language        String
+  quality         Quality
+  duration        Float
+  size            Float
+  thumbnail       String
+  channel         Channel         @relation(fields: [broadcasterId], references: [broadcasterId])
+  job             Job             @relation(fields: [jobId], references: [id])
+  stream          Stream          @relation(fields: [id], references: [id])
+  tags            VideoTag[]
+  titles          VideoTitle[]
+  VideoCategory   VideoCategory[]
+  VideoRequest    VideoRequest[]
+}
+
+model VideoRequest {
+  videoId String
+  userId  String
+  video   Video  @relation(fields: [videoId], references: [id])
+  user    User   @relation(fields: [userId], references: [userId])
+
+  @@id([videoId, userId])
+}
+
+enum Quality {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Category {
+  id                       String                     @id
+  boxArtUrl                String
+  igdbId                   String?                    @unique
+  name                     String                     @unique
+  VideoCategory            VideoCategory[]
+  StreamCategory           StreamCategory[]
+  DownloadScheduleCategory DownloadScheduleCategory[]
+}
+
+model VideoCategory {
+  videoId    String
+  categoryId String
+  video      Video    @relation(fields: [videoId], references: [id])
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@id([videoId, categoryId])
+}
+
+model StreamCategory {
+  streamId   String
+  categoryId String
+  stream     Stream   @relation(fields: [streamId], references: [id])
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@id([streamId, categoryId])
+}
+
+model DownloadScheduleCategory {
+  downloadScheduleId Int
+  categoryId         String
+  downloadSchedule   DownloadSchedule @relation(fields: [downloadScheduleId], references: [id])
+  category           Category         @relation(fields: [categoryId], references: [id])
+
+  @@id([downloadScheduleId, categoryId])
+}
+
+model Tag {
+  name                String                @id
+  VideoTag            VideoTag[]
+  StreamTag           StreamTag[]
+  DownloadScheduleTag DownloadScheduleTag[]
+}
+
+model VideoTag {
+  videoId String
+  tagId   String
+  video   Video  @relation(fields: [videoId], references: [id])
+  tag     Tag    @relation(fields: [tagId], references: [name])
+
+  @@id([videoId, tagId])
+}
+
+model StreamTag {
+  streamId String
+  tagId    String
+  stream   Stream @relation(fields: [streamId], references: [id])
+  tag      Tag    @relation(fields: [tagId], references: [name])
+
+  @@id([streamId, tagId])
+}
+
+model DownloadScheduleTag {
+  downloadScheduleId Int
+  tagId              String
+  downloadSchedule   DownloadSchedule @relation(fields: [downloadScheduleId], references: [id])
+  tag                Tag              @relation(fields: [tagId], references: [name])
+
+  @@id([downloadScheduleId, tagId])
+}
+
+model Stream {
+  id             String           @id
+  fetchId        String
+  fetchedAt      DateTime
+  isMature       Boolean
+  language       String
+  startedAt      DateTime
+  thumbnailUrl   String
+  title          String
+  type           String
+  broadcasterId  String
+  viewerCount    Int              @default(0)
+  channel        Channel          @relation(fields: [broadcasterId], references: [broadcasterId])
+  tags           StreamTag[]
+  videos         Video[]
+  StreamCategory StreamCategory[]
+}
+
+model Title {
+  id         Int          @id @default(autoincrement())
+  name       String
+  VideoTitle VideoTitle[]
+}
+
+model VideoTitle {
+  videoId String
+  titleId Int
+  video   Video  @relation(fields: [videoId], references: [id])
+  title   Title  @relation(fields: [titleId], references: [id])
+
+  @@id([videoId, titleId])
+}
+
+model DownloadSchedule {
+  id                       Int                        @id @default(autoincrement())
+  provider                 Provider
+  broadcasterId            String?
+  viewersCount             Int?
+  timeBeforeDelete         DateTime?
+  trigger                  Trigger
+  quality                  Quality
+  isDeleteRediff           Boolean
+  requestedBy              String
+  channel                  Channel?                   @relation(fields: [broadcasterId], references: [broadcasterId])
+  user                     User                       @relation(fields: [requestedBy], references: [userId])
+  DownloadScheduleTag      DownloadScheduleTag[]
+  DownloadScheduleCategory DownloadScheduleCategory[]
+}
+
+enum Provider {
+  SINGLE_CHANNEL
+  FOLLOWED_CHANNEL
+}
+
+enum Trigger {
+  CATEGORY
+  TAG
+  MINIMUM_VIEW
+  ONLINE
+}
