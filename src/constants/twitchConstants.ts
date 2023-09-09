@@ -9,3 +9,13 @@ export const HMAC_PREFIX = "sha256=";
 export const CHANNEL_UPDATE = "channel.update";
 export const STREAM_ONLINE = "stream.online";
 export const STREAM_OFFLINE = "stream.offline";
+export interface TwitchHeaders {
+    "twitch-eventsub-message-id": string;
+    "twitch-eventsub-message-retry"?: string;
+    "twitch-eventsub-message-type": "notification" | "webhook_callback_verification" | "revocation";
+    "twitch-eventsub-message-signature": string;
+    "twitch-eventsub-message-timestamp": string;
+    "twitch-eventsub-subscription-type": string;
+    "twitch-eventsub-subscription-version": string;
+    [key: string]: string | undefined;
+}

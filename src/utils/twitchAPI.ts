@@ -2,6 +2,8 @@ import axios from "axios";
 import { getAppAccessToken } from "../utils/twitchUtils";
 import { chunkArray } from "../utils/utils";
 import { Stream, User, FollowedChannel, FollowedStream, EventSubResponse } from "../models/twitchModel";
+import { logger as rootLogger } from "../app";
+const logger = rootLogger.child({ service: "twitchApi" });
 
 import dotenv from "dotenv";
 dotenv.config();
@@ -20,7 +22,7 @@ class TwitchAPI {
 
             return response.data.data[0] || null;
         } catch (error) {
-            console.error("Error fetching user details from Twitch API:", error);
+            logger.error("Error fetching user details from Twitch API:", error);
             throw new Error("Failed to fetch user details from Twitch API");
         }
     }
@@ -37,7 +39,7 @@ class TwitchAPI {
 
             return response.data.data[0] || null;
         } catch (error) {
-            console.error("Error fetching user details from Twitch API:", error);
+            logger.error("Error fetching user details from Twitch API:", error);
             throw new Error("Failed to fetch user details from Twitch API");
         }
     }
@@ -59,7 +61,7 @@ class TwitchAPI {
             );
             return responses.flatMap((response) => response.data.data);
         } catch (error) {
-            console.error("Error fetching users details from Twitch API:", error);
+            logger.error("Error fetching users details from Twitch API:", error);
             throw new Error("Failed to fetch users details from Twitch API");
         }
     }
@@ -127,7 +129,7 @@ class TwitchAPI {
             });
             return response.data.data[0] || null;
         } catch (error) {
-            console.error("Error fetching stream details from Twitch API:", error);
+            logger.error("Error fetching stream details from Twitch API:", error);
             throw new Error("Failed to fetch stream details from Twitch API");
         }
     }
