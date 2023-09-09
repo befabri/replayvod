@@ -1,51 +1,55 @@
-import { getDbInstance } from "../models/db";
 import fs from "fs";
 import path from "path";
-import { Collection, Document, WithId } from "mongodb";
 import ffmpeg from "fluent-ffmpeg";
-import { Video } from "../models/videoModel";
-import { fixvideosLogger, logger } from "../middlewares/loggerMiddleware";
+import { Status, Video } from "@prisma/client";
+import { logger as rootLogger } from "../app";
+import { prisma } from "../server";
+const logger = rootLogger.child({ service: "videoService" });
 
 export const getVideoById = async (id: string): Promise<Video | null> => {
-    const db = await getDbInstance();
-    const videoCollection: Collection<Video> = db.collection("videos");
-    return videoCollection.findOne({ id: id });
+    return prisma.video.findUnique({
+        where: { id: id },
+    });
 };
 
-export const getFinishedVideosFromUser = async (userId: string) => {
-    const db = await getDbInstance();
-    const videoCollection = db.collection("videos");
-    const videos = await videoCollection.find({ requested_by: userId, status: "Finished" }).toArray();
-    const updatePromises = videos.map((video) => {
-        if (!video.size) {
-            return updateVideoSize(video, videoCollection);
-        }
+export const getVideosFromUser = async (userId: string, status?: Status) => {
+    const videoRequests = await prisma.videoRequest.findMany({
+        where: { userId },
+        select: { videoId: true },
     });
-    await Promise.all(updatePromises);
+
+    const videoIds = videoRequests.map((request) => request.videoId);
+
+    const videos = await prisma.video.findMany({
+        where: {
+            id: { in: videoIds },
+            ...(status && { status }),
+        },
+    });
+
+    const videosWithoutSize = videos.filter((video) => !video.size);
+    await Promise.all(videosWithoutSize.map(updateVideoSize));
+
     return videos;
 };
 
-export const updateVideoSize = (video: WithId<Document>, videoCollection: Collection<Document>) => {
-    return new Promise((resolve, reject) => {
-        const filePath = path.resolve(
-            process.env.PUBLIC_DIR,
-            "videos",
-            video.display_name.toLowerCase(),
-            video.filename
-        );
-        if (fs.existsSync(filePath)) {
-            const stat = fs.statSync(filePath);
-            const fileSizeInBytes = stat.size;
-            const fileSizeInMegabytes = fileSizeInBytes / (1024 * 1024);
-            video.size = `${fileSizeInMegabytes.toFixed(2)} MB`;
-            videoCollection
-                .updateOne({ _id: video._id }, { $set: { size: video.size } })
-                .then(() => resolve(undefined))
-                .catch((err) => reject(err));
-        } else {
-            resolve(undefined);
-        }
-    });
+export const updateVideoSize = async (video: Video) => {
+    const filePath = path.resolve(
+        process.env.PUBLIC_DIR,
+        "videos",
+        video.displayName.toLowerCase(),
+        video.filename
+    );
+    if (fs.existsSync(filePath)) {
+        const stat = fs.statSync(filePath);
+        const fileSizeInBytes = stat.size;
+        const fileSizeInMegabytes = fileSizeInBytes / (1024 * 1024);
+        video.size = fileSizeInMegabytes;
+        await prisma.video.update({
+            where: { id: video.id },
+            data: { size: video.size },
+        });
+    }
 };
 
 export const getVideoSize = (videoPath: string): Promise<number> => {
@@ -108,20 +112,20 @@ export const generateSingleThumbnail = async (videoPath: string, videoName: stri
 export const generateMissingThumbnailsAndUpdate = async () => {
     // TODO verify the true duration before
     try {
-        const db = await getDbInstance();
-        const videoCollection = db.collection("videos");
-        const videos = await videoCollection.find({ thumbnail: null, status: "Finished" }).toArray();
+        const videos = await prisma.video.findMany({
+            where: { thumbnail: null, status: Status.DONE },
+        });
         const promises = videos.map(async (video) => {
             const thumbnailPath = path.resolve(
                 process.env.PUBLIC_DIR,
                 "thumbnail",
-                video.display_name.toLowerCase(),
+                video.displayName.toLowerCase(),
                 video.filename.replace(".mp4", ".jpg")
             );
             const videoPath = path.resolve(
                 process.env.PUBLIC_DIR,
                 "videos",
-                video.display_name.toLowerCase(),
+                video.displayName.toLowerCase(),
                 video.filename
             );
             const duration = await getVideoDuration(videoPath);
@@ -135,10 +139,15 @@ export const generateMissingThumbnailsAndUpdate = async () => {
             for (let tries = 0; tries < 5; tries++) {
                 try {
                     await generateThumbnail(videoPath, thumbnailPath, secondsToTimestamp(timestamp));
-                    await videoCollection.updateOne(
-                        { _id: video._id },
-                        { $set: { thumbnail: getRelativePath(thumbnailPath) } }
-                    );
+                    const updatedVideo = await prisma.video.update({
+                        where: {
+                            id: video.id,
+                        },
+                        data: {
+                            thumbnail: getRelativePath(thumbnailPath),
+                        },
+                    });
+
                     break;
                 } catch (error) {
                     if (error.message === "Image is a single color") {
@@ -153,7 +162,15 @@ export const generateMissingThumbnailsAndUpdate = async () => {
             }
         });
         await Promise.all(promises);
-        return videoCollection.find({ thumbnail: { $ne: null } }).toArray();
+        return prisma.video.findMany({
+            where: {
+                thumbnail: {
+                    not: {
+                        equals: null,
+                    },
+                },
+            },
+        });
     } catch (error) {
         logger.error("Error generating missing thumbnails and updating collection:", error);
         return [];
@@ -176,43 +193,41 @@ export const isVideoCorrupt = (metadata) => {
 };
 
 export const fixMalformedVideos = async () => {
-    const db = await getDbInstance();
-    const videoCollection = db.collection("videos");
-    const videos = await videoCollection.find().toArray();
+    const videos = await prisma.video.findMany();
     for (const video of videos) {
         const videoPath = path.resolve(
             process.env.PUBLIC_DIR,
             "videos",
-            video.display_name.toLowerCase(),
+            video.displayName.toLowerCase(),
             video.filename
         );
         if (fs.existsSync(videoPath)) {
             try {
-                fixvideosLogger.info(`Processing video: ${videoPath}`);
+                logger.info(`Processing video: ${videoPath}`);
                 let metadata = await getMetadata(videoPath);
                 if (isVideoCorrupt(metadata)) {
-                    fixvideosLogger.info(`Video might be corrupt. Attempting to fix...`);
+                    logger.info(`Video might be corrupt. Attempting to fix...`);
                     const fixedVideoPath = videoPath.replace(".mp4", "FIX.mp4");
                     await fixVideo(videoPath, fixedVideoPath);
                     metadata = await getMetadata(fixedVideoPath);
                     if (isVideoCorrupt(metadata)) {
-                        fixvideosLogger.error(`Video is still corrupt after fixing.`);
+                        logger.error(`Video is still corrupt after fixing.`);
                     } else {
-                        fixvideosLogger.info(`Video has been successfully fixed.`);
+                        logger.info(`Video has been successfully fixed.`);
                         const tempOriginalPath = videoPath.replace(".mp4", "TEMP.mp4");
                         fs.renameSync(videoPath, tempOriginalPath);
                         fs.renameSync(fixedVideoPath, videoPath);
                         fs.unlinkSync(tempOriginalPath);
-                        fixvideosLogger.info(`Successfully replaced the corrupt video with the fixed one.`);
+                        logger.info(`Successfully replaced the corrupt video with the fixed one.`);
                     }
                 } else {
-                    fixvideosLogger.info(`Video seems fine, no actions taken.`);
+                    logger.info(`Video seems fine, no actions taken.`);
                 }
             } catch (error) {
-                fixvideosLogger.error(`Error processing video at path ${videoPath}: ${error.message}`);
+                logger.error(`Error processing video at path ${videoPath}: ${error.message}`);
             }
         } else {
-            fixvideosLogger.warn(`Video does not exist at path: ${videoPath}`);
+            logger.warn(`Video does not exist at path: ${videoPath}`);
         }
     }
 };
@@ -279,19 +294,6 @@ export const getVideoDuration = (videoPath: string): Promise<number> => {
     });
 };
 
-export const getVideosFromUser = async (userId: string) => {
-    const db = await getDbInstance();
-    const videoCollection = db.collection("videos");
-    const videos = await videoCollection.find({ requested_by: userId }).toArray();
-    const updatePromises = videos.map((video) => {
-        if (!video.size) {
-            return updateVideoSize(video, videoCollection);
-        }
-    });
-    await Promise.all(updatePromises);
-    return videos;
-};
-
 export const updateVideoData = async (
     filename: string,
     endAt: Date,
@@ -299,33 +301,31 @@ export const updateVideoData = async (
     size: number,
     duration: number
 ) => {
-    const db = await getDbInstance();
-    const videoCollection = db.collection("videos");
-
-    return videoCollection.updateOne(
-        { filename: filename },
-        {
-            $set: {
-                downloaded_at: endAt,
-                status: "Finished",
-                thumbnail: thumbnail,
-                size: size,
-                duration: duration,
-            },
-        }
-    );
+    return prisma.video.updateMany({
+        where: {
+            filename: filename,
+        },
+        data: {
+            downloadedAt: endAt,
+            status: Status.DONE,
+            thumbnail: thumbnail,
+            size: size,
+            duration: duration,
+        },
+    });
 };
 
-export const getVideosByUser = async (userId: string) => {
-    const db = await getDbInstance();
-    const videoCollection = db.collection("videos");
-    const videos = videoCollection.find({ broadcaster_id: userId, status: "Finished" }).toArray();
-    return videos;
+export const getVideosByChannel = async (broadcaster_id: string) => {
+    return prisma.video.findMany({
+        where: {
+            broadcasterId: broadcaster_id,
+            status: Status.DONE,
+        },
+    });
 };
 
 export default {
     getVideoById,
-    getFinishedVideosFromUser,
     updateVideoSize,
     getVideoSize,
     generateThumbnail,
@@ -341,5 +341,5 @@ export default {
     getVideoDuration,
     getVideosFromUser,
     updateVideoData,
-    getVideosByUser,
+    getVideosByChannel,
 };

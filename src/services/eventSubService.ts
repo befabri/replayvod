@@ -1,13 +1,14 @@
-import { webhookEventLogger } from "../middlewares/loggerMiddleware";
 import { userService, webhookService } from "../services";
 import TwitchAPI from "../utils/twitchAPI";
 import { EventSub } from "../models/webhookModel";
-import { getDbInstance } from "../models/db";
 import { v4 as uuidv4 } from "uuid";
+import { logger as rootLogger } from "../app";
+import { prisma } from "../server";
+const logger = rootLogger.child({ service: "eventService" });
 
 const twitchAPI = new TwitchAPI();
 
-export const subToAllStreamEventFollowed = async () => {
+export const subToAllChannelFollowed = async () => {
     const followedChannelsArr = await userService.getUserFollowedChannelsDb();
     let responses = [];
     for (const followedChannels of followedChannelsArr) {
@@ -23,9 +24,9 @@ export const subToAllStreamEventFollowed = async () => {
     }
     for (const resp of responses) {
         if (resp.error) {
-            webhookEventLogger.error(`Channel ${resp.channel} - Error: ${resp.error}`);
+            logger.error(`Channel ${resp.channel} - Error: ${resp.error}`);
         } else {
-            webhookEventLogger.info(
+            logger.info(
                 `Channel ${resp.channel} - Online Response: ${resp.online}, Offline Response: ${resp.offline}`
             );
         }

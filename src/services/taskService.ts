@@ -1,18 +1,15 @@
-import { getDbInstance } from "../models/db";
 import { Task } from "../models/Task";
 import { videoService, eventSubService } from "../services";
-import { logger } from "../middlewares/loggerMiddleware";
+import { logger as rootLogger } from "../app";
+import { prisma } from "../server";
+const logger = rootLogger.child({ service: "taskService" });
 
 export const getTask = async (id: string) => {
-    const db = await getDbInstance();
-    const taskCollection = db.collection("tasks");
-    return taskCollection.findOne({ id: id });
+    return prisma.task.findUnique({ where: { id: id } });
 };
 
 export const getAllTasks = async () => {
-    const db = await getDbInstance();
-    const taskCollection = db.collection("tasks");
-    return taskCollection.find().toArray();
+    return prisma.task.findMany();
 };
 
 const taskRunners: { [taskType: string]: (taskMetadata?: any) => Promise<any> } = {
@@ -22,11 +19,9 @@ const taskRunners: { [taskType: string]: (taskMetadata?: any) => Promise<any> } 
 };
 
 export const runTask = async (id: string) => {
-    const db = await getDbInstance();
-    const taskCollection = db.collection("tasks");
-    const task = await taskCollection.findOne({ id: id });
+    const task = await prisma.task.findUnique({ where: { id: id } });
     if (!task) {
-        logger.error(`Task not found: ${id}`);
+        logger.error({ taskId: id }, "Task not found");
         throw new Error(`Task not found: ${id}`);
     }
     const taskRunner = taskRunners[task.taskType];
@@ -48,19 +43,15 @@ export const updateTaskExecution = async (
     executionDuration: number,
     interval: number
 ) => {
-    const db = await getDbInstance();
-    const taskCollection = db.collection("tasks");
-    await taskCollection.updateOne(
-        { id: id },
-        {
-            $set: {
-                lastExecution: new Date(startTime),
-                lastDuration: executionDuration,
-                nextExecution: new Date(startTime + interval),
-            },
-        }
-    );
-    return taskCollection.findOne({ id: id });
+    await prisma.task.update({
+        where: { id: id },
+        data: {
+            lastExecution: new Date(startTime),
+            lastDuration: executionDuration,
+            nextExecution: new Date(startTime + interval),
+        },
+    });
+    return prisma.task.findUnique({ where: { id: id } });
 };
 
 export default {
