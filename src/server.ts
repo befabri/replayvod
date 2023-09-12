@@ -8,6 +8,7 @@ import fastifySecureSession from "@fastify/secure-session";
 import fastifyCookie from "@fastify/cookie";
 import routes from "./routes";
 import moment from "moment-timezone";
+const fs = require("fs");
 import "./middlewares/passport";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -18,10 +19,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 const REACT_URL = process.env.REACT_URL;
 moment.tz.setDefault("Europe/Paris");
 
-if (!SESSION_SECRET) {
-    console.error("No session secret provided. Shutting down...");
-    process.exit(1);
-}
+logger.info("Starting...");
 
 export const prisma = new PrismaClient();
 
@@ -33,7 +31,7 @@ server.register(cors, {
 server.register(fastifyCookie);
 
 server.register(fastifySecureSession, {
-    key: Buffer.from(SESSION_SECRET), // key: fs.readFileSync(path.join(__dirname, '../secret-key')),
+    key: fs.readFileSync(path.join(__dirname, "../secret-key")),
     cookie: { httpOnly: true },
 });
 
@@ -43,8 +41,9 @@ server.register(fastifyPassport.secureSession());
 server.register(routes, { prefix: "/api" });
 
 const start = async () => {
+    logger.info("Starting Fastify server...");
     try {
-        await server.listen(PORT, HOST);
+        await server.listen({ port: PORT, host: HOST });
         const address = server.server.address();
         const port = typeof address === "string" ? address : address?.port;
     } catch (err) {
