@@ -30,3 +30,7 @@ experimental/**/*.db
 .nuxt
 dev.db
 *.env*
+*.md
+.md
+secret-key
+prisma/migrations
