@@ -157,7 +157,12 @@ class TwitchAPI {
         }
     }
 
-    async createEventSub(type: string, version: string, condition: any, transport: any) {
+    async createEventSub(
+        type: string,
+        version: string,
+        condition: any,
+        transport: any
+    ): Promise<EventSubResponse | null> {
         const accessToken = await getAppAccessToken();
         try {
             const response = await axios.post(
@@ -191,9 +196,26 @@ class TwitchAPI {
                 },
             });
 
-            return response.data;
+            if (response.status === 204) {
+                return "Subscription successfully deleted.";
+            } else {
+                return response.data;
+            }
         } catch (error) {
-            throw error;
+            if (error.response) {
+                switch (error.response.status) {
+                    case 400:
+                        throw new Error("The id query parameter is required.");
+                    case 401:
+                        throw new Error("Authorization error. Please check the access token and Client-ID.");
+                    case 404:
+                        throw new Error("The subscription was not found.");
+                    default:
+                        throw new Error("An unknown error occurred.");
+                }
+            } else {
+                throw error;
+            }
         }
     }
 
