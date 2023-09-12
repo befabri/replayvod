@@ -6,7 +6,7 @@ import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
 const logger = rootLogger.child({ service: "videoService" });
 
-export const getVideoById = async (id: string): Promise<Video | null> => {
+export const getVideoById = async (id: number): Promise<Video | null> => {
     return prisma.video.findUnique({
         where: { id: id },
     });

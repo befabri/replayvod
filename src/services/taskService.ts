@@ -1,4 +1,3 @@
-import { Task } from "../models/Task";
 import { videoService, eventSubService } from "../services";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
@@ -15,7 +14,7 @@ export const getAllTasks = async () => {
 const taskRunners: { [taskType: string]: (taskMetadata?: any) => Promise<any> } = {
     generateMissingThumbnail: (taskMetadata?: any) => videoService.generateMissingThumbnailsAndUpdate(),
     fixMalformedVideos: (taskMetadata?: any) => videoService.fixMalformedVideos(),
-    subToAllStreamEventFollowed: (taskMetadata?: any) => eventSubService.subToAllStreamEventFollowed(),
+    subToAllStreamEventFollowed: (taskMetadata?: any) => eventSubService.subToAllChannelFollowed(),
 };
 
 export const runTask = async (id: string) => {

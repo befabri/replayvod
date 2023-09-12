@@ -8,3 +8,5 @@ export { default as taskService } from "./taskService";
 export { default as channelService } from "./channelService";
 export { default as videoService } from "./videoService";
 export { default as webhookService } from "./webhookService";
+export { default as tagService } from "./tagService";
+export { default as twitchService } from "./twitchService";

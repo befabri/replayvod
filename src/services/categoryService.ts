@@ -44,6 +44,7 @@ export const getCategoryByName = async (name: string) => {
 
 export default {
     addCategory,
+    addAllCategories,
     getAllCategories,
     getCategoryById,
     getCategoryByName,

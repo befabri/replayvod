@@ -1,13 +1,10 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import TwitchAPI from "../utils/twitchAPI";
-import { eventSubService, gameService } from "../services";
-
-const twitchAPI = new TwitchAPI();
+import { eventSubService, categoryService, twitchService } from "../services";
 
 export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
-        const games = await twitchAPI.getAllGames();
-        await gameService.saveGamesToDb(games);
+        const categories = await twitchService.getAllGames();
+        await categoryService.addAllCategories(categories);
         reply.send({ message: "Games fetched and saved successfully." });
     } catch (err) {
         console.error(err);
@@ -23,7 +20,11 @@ export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) 
     }
     try {
         const eventSub = await eventSubService.getEventSub(userId);
-        reply.send({ data: eventSub.data, message: eventSub.message });
+        if ("data" in eventSub && "message" in eventSub) {
+            reply.send({ data: eventSub.data, message: eventSub.message });
+        } else {
+            reply.send(eventSub);
+        }
     } catch (err) {
         console.error(err);
         reply.status(500).send({ error: "An error occurred while fetching EventSub subscriptions." });

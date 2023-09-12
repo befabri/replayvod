@@ -1,48 +1,21 @@
-import TwitchAPI from "../utils/twitchAPI";
 import { v4 as uuidv4 } from "uuid";
-import { User, FollowedChannel, FollowedStream } from "../models/twitchModel";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
-import { Channel, FetchLog, Prisma } from "@prisma/client";
+import { Channel } from "@prisma/client";
+import { twitchService } from "../services";
 const logger = rootLogger.child({ service: "channelService" });
-
-const twitchAPI = new TwitchAPI();
-
-const mapTwitchStreamToPrismaStream = (
-    twitchStream: FollowedStream,
-    fetchId: string
-): Prisma.StreamCreateInput => {
-    return {
-        id: twitchStream.id,
-        fetchId: fetchId,
-        fetchedAt: new Date(),
-        categoryId: twitchStream.game_id,
-        categoryName: twitchStream.game_name,
-        isMature: false,
-        language: twitchStream.language,
-        startedAt: new Date(twitchStream.started_at),
-        thumbnailUrl: twitchStream.thumbnail_url,
-        title: twitchStream.title,
-        type: twitchStream.type,
-        broadcasterId: twitchStream.user_id,
-        broadcasterLogin: twitchStream.user_login,
-        broadcasterName: twitchStream.user_name,
-        viewerCount: twitchStream.viewer_count,
-    };
-};
 
 export const getUserFollowedStreams = async (userId: string, accessToken: string) => {
     try {
         const fetchLog = await prisma.fetchLog.findFirst({
             where: {
                 userId: userId,
-                type: "followedStreams",
+                fetchType: "followedStreams",
             },
             orderBy: {
                 fetchedAt: "desc",
             },
         });
-
         if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - 5 * 60 * 1000)) {
             return prisma.stream.findMany({
                 where: {
@@ -51,46 +24,29 @@ export const getUserFollowedStreams = async (userId: string, accessToken: string
             });
         }
         const fetchId = uuidv4();
-        const followedStreams = await twitchAPI.getAllFollowedStreams(userId, accessToken);
-        const streamUserIds = followedStreams.map((stream: FollowedStream) => stream.user_id);
-        const users = await twitchAPI.getUsers(streamUserIds);
-        await storeUserDetails(users);
-        for (const stream of followedStreams) {
-            const prismaStreamData = mapTwitchStreamToPrismaStream(stream, fetchId);
-            await prisma.stream.upsert({
-                where: { id: stream.id },
-                create: prismaStreamData,
-                update: {
-                    ...prismaStreamData,
-                    tags: undefined,
-                    videos: undefined,
-                },
-            });
-
-            // Ensure tags exist
-            for (const tag of stream.tag_ids) {
-                await ensureTagExists(tag);
-            }
-
-            // Associate tags with the stream
-            await associateTagsWithStream(stream.id, stream.tag_ids);
-        }
+        const followedStreams = await twitchService.getAllFollowedStreams(userId, accessToken);
         await prisma.fetchLog.create({
             data: {
                 userId: userId,
                 fetchedAt: new Date(),
                 fetchId: fetchId,
-                type: "followedStreams",
+                fetchType: "followedStreams",
             },
         });
-
+        await prisma.stream.createMany({
+            data: followedStreams.map((stream) => ({
+                ...stream,
+                fetchId: fetchId,
+                fetchedAt: new Date(),
+            })),
+        });
         return followedStreams;
     } catch (error) {
-        console.error("Error fetching followed streams:", error);
+        logger.error(`Error fetching followed streams: ${error}`);
         throw new Error("Error fetching followed streams");
     }
 };
-//This helper function checks if a tag exists and if not, creates it.
+
 const ensureTagExists = async (tagId: string): Promise<void> => {
     await prisma.tag.upsert({
         where: { name: tagId },
@@ -124,7 +80,7 @@ export const getUserFollowedChannelsDb = async (userId: string) => {
         });
         return followedChannelsRelations.map((relation) => relation.channel);
     } catch (error) {
-        console.error("Error getting user followed channels from Db:", error);
+        logger.error("Error getting user followed channels from Db:", error);
         throw new Error("Error getting user followed channels from Db");
     }
 };
@@ -138,7 +94,7 @@ export const getUsersFollowedChannelsDb = async () => {
         });
         return followedChannelsRelations.map((relation) => relation.channel);
     } catch (error) {
-        console.error("Error getting followed channels from Db:", error);
+        logger.error("Error getting followed channels from Db:", error);
         throw new Error("Error getting followed channels from Db");
     }
 };
@@ -148,7 +104,7 @@ export const isFetchedFollowedStreamsIn = async (userId: string, dateTimeLimit: 
         const fetchLog = await prisma.fetchLog.findFirst({
             where: {
                 userId: userId,
-                type: "followedStreams",
+                fetchType: "followedStreams",
                 fetchedAt: {
                     gte: dateTimeLimit,
                 },
@@ -157,55 +113,71 @@ export const isFetchedFollowedStreamsIn = async (userId: string, dateTimeLimit: 
 
         return !!fetchLog;
     } catch (error) {
-        console.error("Error checking fetch log:", error);
+        logger.error("Error checking fetch log:", error);
         throw new Error("Error checking fetch log");
     }
 };
 
+// removed profile picture from it
 export const getUserFollowedChannels = async (userId: string, accessToken: string) => {
     try {
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
         if (await isFetchedFollowedStreamsIn(userId, oneDayAgo)) {
             return getUserFollowedChannelsDb(userId);
         }
-        const followedChannels = await twitchAPI.getAllFollowedChannels(userId, accessToken);
-        const channelsUserIds = followedChannels.map((channel: FollowedChannel) => channel.broadcaster_id);
-        const users = await twitchAPI.getUsers(channelsUserIds);
-        await storeUserDetails(users);
-        const profilePictures = await getUserProfilePicture(channelsUserIds);
-        const followedChannelsWithProfilePictures = followedChannels.map((channel) => ({
-            ...channel,
-            profile_picture: profilePictures[channel.broadcaster_id],
-        }));
-
-        await followedChannelsCollection.updateOne(
-            { userId },
-            {
-                $set: {
-                    channels: followedChannelsWithProfilePictures,
-                    fetchedAt: new Date(),
-                    userId,
-                },
+        const followedChannels = await twitchService.getAllFollowedChannels(userId, accessToken);
+        await prisma.userFollowedChannels.updateMany({
+            where: {
+                userId: userId,
             },
-            { upsert: true }
-        );
-        return followedChannelsWithProfilePictures;
+            data: {
+                followed: false,
+            },
+        });
+        for (const channel of followedChannels) {
+            await prisma.userFollowedChannels.upsert({
+                where: {
+                    broadcasterId_userId: {
+                        broadcasterId: channel.broadcasterId,
+                        userId: userId,
+                    },
+                },
+                update: {
+                    followed: true,
+                    ...channel,
+                },
+                create: {
+                    followed: true,
+                    ...channel,
+                },
+            });
+        }
+        return followedChannels;
     } catch (error) {
-        console.error("Error fetching followed channels from Twitch API:", error);
+        logger.error("Error fetching followed channels from Twitch API:", error);
         throw new Error("Error fetching followed channels from Twitch API");
     }
 };
 
 export const getChannelDetail = async (userId: string) => {
-    return await twitchAPI.getUser(userId);
+    return await twitchService.getUser(userId);
 };
 
 export const getChannelDetailDB = async (broadcasterId: string): Promise<Channel | null> => {
     let channel = await prisma.channel.findUnique({ where: { broadcasterId: broadcasterId } });
     if (!channel) {
-        channel = await updateUserDetail(broadcasterId);
+        channel = await updateChannelDetail(broadcasterId);
     }
     return channel;
+};
+
+export const channelExists = async (broadcasterId: string): Promise<boolean> => {
+    const channel = await prisma.channel.findUnique({
+        where: {
+            broadcasterId: broadcasterId,
+        },
+    });
+    return !!channel;
 };
 
 export const getChannelDetailByNameDB = async (loginName: string) => {
@@ -227,51 +199,50 @@ export const getChannelBroadcasterIdByName = async (loginName: string) => {
 
 export const getChannelDetailByName = async (username: string) => {
     const login = username.toLowerCase();
-    return await twitchAPI.getUserByLogin(login);
+    return await twitchService.getUserByLogin(login);
 };
 
 export const getMultipleChannelDetailsDB = async (userIds: string[]) => {
-    const db = await getDbInstance();
-    const userCollection = db.collection("users");
-    const users = [];
-    for (const id of userIds) {
-        if (typeof id === "string") {
-            const user = await userCollection.findOne({ id });
-            if (user) {
-                users.push(user);
-            }
-        }
-    }
-    return users;
+    const channels = await prisma.channel.findMany({
+        where: {
+            broadcasterId: {
+                in: userIds,
+            },
+        },
+    });
+    return channels;
 };
 
-export const updateUserDetail = async (userId: string) => {
-    const user = await twitchAPI.getUser(userId);
-    if (user) {
-        const db = await getDbInstance();
-        const userCollection = db.collection("users");
-        await userCollection.updateOne({ id: userId }, { $set: user }, { upsert: true });
+// Transform twitch to db
+export const updateChannelDetail = async (userId: string) => {
+    const channel = await twitchService.getUser(userId);
+    if (channel) {
+        await prisma.channel.upsert({
+            where: { broadcasterId: userId },
+            update: channel,
+            create: channel,
+        });
     }
-    return user;
+    return channel;
 };
 
+// Transform twitch to db
 export const fetchAndStoreChannelDetails = async (userIds: string[]) => {
-    const users = await twitchAPI.getUsers(userIds);
+    const users = await twitchService.getUsers(userIds);
     await storeUserDetails(users);
     return "Users fetched and stored successfully.";
 };
 
-export const storeUserDetails = async (users: any[]) => {
-    const db = await getDbInstance();
-    const userCollection = db.collection("users");
-    const bulkOps = users.map((user) => ({
-        updateOne: {
-            filter: { id: user.id },
-            update: { $set: user },
-            upsert: true,
-        },
-    }));
-    await userCollection.bulkWrite(bulkOps);
+export const storeUserDetails = async (channels: Channel[]) => {
+    const upsertPromises = channels.map((channel) => {
+        return prisma.channel.upsert({
+            where: { broadcasterId: channel.broadcasterId },
+            update: channel,
+            create: channel,
+        });
+    });
+
+    await Promise.all(upsertPromises);
 };
 
 export const isChannelFollowed = async (broadcasterId: string): Promise<boolean> => {
@@ -318,28 +289,34 @@ export const getChannelsProfilePicture = async (
     return profilePictures;
 };
 
-export const updateUsers = async (userId: string) => {
-    const db = await getDbInstance();
-    const followedChannelsCollection = db.collection("followedChannels");
-    const userFollowedChannels = await followedChannelsCollection.findOne({ userId: userId });
+// From mongo: update all followed channels based on broadcasterId but now is SQL so its already linked to a channel
+// export const updateUsers = async (userId: string) => {
+//     const db = await getDbInstance();
+//     const followedChannelsCollection = db.collection("followedChannels");
+//     const userFollowedChannels = await followedChannelsCollection.findOne({ userId: userId });
 
-    if (!userFollowedChannels) {
-        throw new Error(`No document found for userId: ${userId}`);
-    }
+//     if (!userFollowedChannels) {
+//         throw new Error(`No document found for userId: ${userId}`);
+//     }
 
-    const broadcasterIds = userFollowedChannels.channels.map((channel: FollowedChannel) => channel.broadcaster_id);
-    const existingUsers = await getMultipleUserDetailsDB(broadcasterIds);
-    const existingUserIds = existingUsers.map((user) => user.id);
-    const newUserIds = broadcasterIds.filter((broadcasterId: string) => !existingUserIds.includes(broadcasterId));
+//     const broadcasterIds = userFollowedChannels.channels.map((channel: FollowedChannel) => channel.broadcaster_id);
+//     const existingUsers = await getMultipleChannelDetailsDB(broadcasterIds);
+//     const existingUserIds = existingUsers.map((user) => user.id);
+//     const newUserIds = broadcasterIds.filter((broadcasterId: string) => !existingUserIds.includes(broadcasterId));
 
-    if (newUserIds.length > 0) {
-        await fetchAndStoreUserDetails(newUserIds);
-    }
-    return {
-        message: "Users update complete",
-        newUsers: `${newUserIds.length - existingUserIds.length} users added`,
-    };
-};
+//     if (newUserIds.length > 0) {
+//         await fetchAndStoreChannelDetails(newUserIds);
+//     }
+//     return {
+//         message: "Users update complete",
+//         newUsers: `${newUserIds.length - existingUserIds.length} users added`,
+//     };
+// };
+
+async function getBroadcasterIds(): Promise<string[]> {
+    const channels = await getUsersFollowedChannelsDb();
+    return channels.map((channel) => channel.broadcasterId);
+}
 
 export default {
     getUserFollowedStreams,
@@ -349,11 +326,13 @@ export default {
     getChannelDetailDB,
     getChannelDetailByName,
     getMultipleChannelDetailsDB,
-    updateUserDetail,
+    updateChannelDetail,
     fetchAndStoreChannelDetails,
     storeUserDetails,
     getChannelProfilePicture,
-    updateUsers,
     getChannelDetailByNameDB,
     getChannelBroadcasterIdByName,
+    channelExists,
+    getUsersFollowedChannelsDb,
+    getBroadcasterIds,
 };

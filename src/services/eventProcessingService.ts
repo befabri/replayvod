@@ -1,6 +1,5 @@
 import { downloadSchedule } from "../services/downloadService";
 import { logger as rootLogger } from "../app";
-import { prisma } from "../server";
 const logger = rootLogger.child({ service: "eventProcessingService" });
 
 export const logEvent = (eventType: string, event: any) => {

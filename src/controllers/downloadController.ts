@@ -1,8 +1,8 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
-import { userService, downloadService, jobService } from "../services";
+import { channelService, downloadService, jobService } from "../services";
 import { User } from "../models/twitchModel";
 import TwitchAPI from "../utils/twitchAPI";
-import { DownloadSchedule, VideoQuality } from "../models/downloadModel";
+import { VideoQuality } from "../models/downloadModel";
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 const twitchAPI = new TwitchAPI();
@@ -16,6 +16,19 @@ interface Params extends RouteGenericInterface {
 
 interface DownloadRequestBody extends RouteGenericInterface {
     Body: DownloadSchedule;
+}
+
+export interface DownloadSchedule {
+    source: string;
+    channelName: string;
+    viewersCount: number;
+    timeBeforeDelete: number;
+    trigger: string;
+    tag: string;
+    category: string;
+    quality: string;
+    isDeleteRediff: boolean;
+    requested_by: string;
 }
 
 export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
@@ -50,14 +63,14 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
         return;
     }
     data.requested_by = req.session.passport.user.data[0].id;
-    const user = await userService.getUserDetailByName(data.channelName);
+    const user = await channelService.getChannelDetailByName(data.channelName);
 
     if (!user) {
         reply.status(400).send("Invalid request data");
         return;
     }
     try {
-        await downloadService.insertSchedule(data);
+        await downloadService.addSchedule(data);
         reply.status(200).send("Schedule saved successfully.");
     } catch (error) {
         console.error("Error scheduling download:", error);
@@ -76,8 +89,8 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         reply.status(400).send("Invalid broadcaster id");
         return;
     }
-    const user = (await userService.getUserDetailDB(broadcasterId)) as User;
-    if (!user) {
+    const channel = await channelService.getChannelDetailDB(broadcasterId);
+    if (!channel) {
         reply.status(404).send("User not found");
         return;
     }
@@ -87,7 +100,7 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         return;
     }
     const loginId = req.session.passport.user.data[0].id;
-    const pendingJob = await jobService.findPendingJob(broadcasterId);
+    const pendingJob = await jobService.findPendingJobByBroadcasterId(broadcasterId);
     if (pendingJob) {
         reply.status(400).send({
             message: "There is already a job running for this broadcaster.",
@@ -96,7 +109,7 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         return;
     }
     const jobId = jobService.createJobId();
-    await downloadService.handleDownload({ loginId, user, jobId, quality }, broadcasterId);
+    await downloadService.handleDownload({ loginId, channel, jobId, quality }, broadcasterId);
     reply.send({ jobId });
 };
 

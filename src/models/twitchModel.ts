@@ -16,6 +16,23 @@ export interface Stream {
     is_mature: boolean;
 }
 
+export interface FollowedStream {
+    id: string;
+    user_id: string;
+    user_login: string;
+    user_name: string;
+    game_id: string;
+    game_name: string;
+    type: string;
+    title: string;
+    viewer_count: number;
+    started_at: string;
+    language: string;
+    thumbnail_url: string;
+    tag_ids: string[];
+    tags: string[];
+}
+
 export interface Game {
     id: string;
     name: string;
@@ -44,42 +61,34 @@ export interface FollowedChannel {
     followed_at: string;
 }
 
-export interface FollowedStream {
+export interface EventSubData {
     id: string;
-    user_id: string;
-    user_login: string;
-    user_name: string;
-    game_id: string;
-    game_name: string;
+    status: string;
     type: string;
-    title: string;
-    viewer_count: number;
-    started_at: string;
-    language: string;
-    thumbnail_url: string;
-    tag_ids: string[];
-    tags: string[];
+    version: string;
+    condition: {
+        broadcaster_user_id?: string;
+        user_id?: string;
+    };
+    created_at: string;
+    transport: {
+        method: string;
+        callback: string;
+    };
+    cost: number;
 }
 
 export interface EventSubResponse {
+    data: EventSubData[];
     total: number;
-    data: {
-        id: string;
-        status: string;
-        type: string;
-        version: string;
-        condition: {
-            broadcaster_user_id?: string;
-            user_id?: string;
-        };
-        created_at: string;
-        transport: {
-            method: string;
-            callback: string;
-        };
-        cost: number;
-    }[];
     total_cost: number;
     max_total_cost: number;
     pagination: any;
+}
+
+// Custom not directly from twitch. Link to EventSubResponse
+export interface EventSubMeta {
+    total: number;
+    total_cost: number;
+    max_total_cost: number;
 }

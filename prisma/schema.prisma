@@ -20,9 +20,10 @@ model FetchLog {
   fetchedAt DateTime
   fetchType String
   user      User       @relation(fields: [userId], references: [userId])
-  EventSub  EventSub[]
+  eventSub  EventSub[]
 }
 
+// utilisateur sur le site qui fait la demande ? Date de demande, le fetch, et lié à la reposne pour savoir qui que quoi
 model EventSub {
   id            Int                    @id @default(autoincrement())
   userId        String
@@ -32,6 +33,7 @@ model EventSub {
   subscriptions SubscriptionEventSub[]
 }
 
+// Reponse après demande de webhook à twitch -> Soda / Enable / cout 1 ...
 model Subscription {
   id               String                 @id
   status           String
@@ -41,7 +43,7 @@ model Subscription {
   cost             Int
   eventSubs        SubscriptionEventSub[]
   channel          Channel                @relation(fields: [broadcasterId], references: [broadcasterId])
-  Event            Event[]
+  event            Event[]
 }
 
 model SubscriptionEventSub {
@@ -53,7 +55,7 @@ model SubscriptionEventSub {
   @@id([eventSubId, subscriptionId])
 }
 
-/// Webhook
+/// Webhook recu -> xxx est entrain de streamer à 12h jusque 15h (début/fin)
 model Event {
   id              Int          @id @default(autoincrement())
   externalEventId String?
@@ -70,10 +72,11 @@ model User {
   userId           String                 @id
   fetchedAt        DateTime
   followedChannels UserFollowedChannels[]
-  EventSub         EventSub[]
-  FetchLog         FetchLog[]
-  DownloadSchedule DownloadSchedule[]
-  VideoRequest     VideoRequest[]
+  eventSub         EventSub[]
+  fetchLog         FetchLog[]
+  downloadSchedule DownloadSchedule[]
+
+  VideoRequest VideoRequest[]
 }
 
 model Channel {
@@ -90,20 +93,22 @@ model Channel {
   type             String?
   viewCount        Int                    @default(0)
   usersFollowing   UserFollowedChannels[]
-  Video            Video[]
-  Stream           Stream[]
-  Subscription     Subscription[]
-  Event            Event[]
-  DownloadSchedule DownloadSchedule[]
+  video            Video[]
+  stream           Stream[]
+  subscription     Subscription[]
+  event            Event[]
+  downloadSchedule DownloadSchedule[]
 }
 
 model UserFollowedChannels {
-  id            Int      @id @default(autoincrement())
   userId        String
   broadcasterId String
   followedAt    DateTime
+  followed      Boolean
   user          User     @relation(fields: [userId], references: [userId])
   channel       Channel  @relation(fields: [broadcasterId], references: [broadcasterId])
+
+  @@id([broadcasterId, userId])
 }
 
 model Job {
@@ -140,31 +145,32 @@ model Task {
 }
 
 model Video {
-  id              String          @id
+  id              Int             @id @default(autoincrement())
   filename        String          @unique
   status          Status
   displayName     String
-  broadcasterId   String
-  startDownloadAt DateTime
-  downloadedAt    DateTime
-  jobId           String          @unique
+  startDownloadAt DateTime        @default(now())
+  downloadedAt    DateTime?
   viewerCount     Int             @default(0)
   language        String
   quality         Quality
-  duration        Float
-  size            Float
-  thumbnail       String
+  duration        Float?
+  size            Float?
+  thumbnail       String?
   channel         Channel         @relation(fields: [broadcasterId], references: [broadcasterId])
+  broadcasterId   String
   job             Job             @relation(fields: [jobId], references: [id])
-  stream          Stream          @relation(fields: [id], references: [id])
+  jobId           String          @unique
+  stream          Stream          @relation(fields: [streamId], references: [id])
+  streamId        String
   tags            VideoTag[]
   titles          VideoTitle[]
-  VideoCategory   VideoCategory[]
+  videoCategory   VideoCategory[]
   VideoRequest    VideoRequest[]
 }
 
 model VideoRequest {
-  videoId String
+  videoId Int
   userId  String
   video   Video  @relation(fields: [videoId], references: [id])
   user    User   @relation(fields: [userId], references: [userId])
@@ -183,13 +189,13 @@ model Category {
   boxArtUrl                String
   igdbId                   String?                    @unique
   name                     String                     @unique
-  VideoCategory            VideoCategory[]
-  StreamCategory           StreamCategory[]
-  DownloadScheduleCategory DownloadScheduleCategory[]
+  videoCategory            VideoCategory[]
+  streamCategory           StreamCategory[]
+  downloadScheduleCategory DownloadScheduleCategory[]
 }
 
 model VideoCategory {
-  videoId    String
+  videoId    Int
   categoryId String
   video      Video    @relation(fields: [videoId], references: [id])
   category   Category @relation(fields: [categoryId], references: [id])
@@ -217,13 +223,13 @@ model DownloadScheduleCategory {
 
 model Tag {
   name                String                @id
-  VideoTag            VideoTag[]
-  StreamTag           StreamTag[]
-  DownloadScheduleTag DownloadScheduleTag[]
+  videoTag            VideoTag[]
+  streamTag           StreamTag[]
+  downloadScheduleTag DownloadScheduleTag[]
 }
 
 model VideoTag {
-  videoId String
+  videoId Int
   tagId   String
   video   Video  @relation(fields: [videoId], references: [id])
   tag     Tag    @relation(fields: [tagId], references: [name])
@@ -250,36 +256,47 @@ model DownloadScheduleTag {
 }
 
 model Stream {
-  id             String           @id
-  fetchId        String
-  fetchedAt      DateTime
-  isMature       Boolean
-  language       String
-  startedAt      DateTime
-  thumbnailUrl   String
-  title          String
-  type           String
-  broadcasterId  String
-  viewerCount    Int              @default(0)
-  channel        Channel          @relation(fields: [broadcasterId], references: [broadcasterId])
-  tags           StreamTag[]
-  videos         Video[]
-  StreamCategory StreamCategory[]
+  id            String           @id
+  fetchId       String
+  fetchedAt     DateTime
+  isMature      Boolean
+  language      String
+  startedAt     DateTime
+  thumbnailUrl  String
+  title         String
+  type          String
+  broadcasterId String
+  viewerCount   Int              @default(0)
+  channel       Channel          @relation(fields: [broadcasterId], references: [broadcasterId])
+  tags          StreamTag[]
+  videos        Video[]
+  categories    StreamCategory[]
+  titles        StreamTitle[]
 }
 
 model Title {
-  id         Int          @id @default(autoincrement())
-  name       String
-  VideoTitle VideoTitle[]
+  id          Int           @id @default(autoincrement())
+  name        String
+  VideoTitle  VideoTitle[]
+  StreamTitle StreamTitle[]
 }
 
 model VideoTitle {
-  videoId String
+  videoId Int
   titleId Int
-  video   Video  @relation(fields: [videoId], references: [id])
-  title   Title  @relation(fields: [titleId], references: [id])
+  video   Video @relation(fields: [videoId], references: [id])
+  title   Title @relation(fields: [titleId], references: [id])
 
   @@id([videoId, titleId])
+}
+
+model StreamTitle {
+  streamId String
+  titleId  Int
+  stream   Stream @relation(fields: [streamId], references: [id])
+  title    Title  @relation(fields: [titleId], references: [id])
+
+  @@id([streamId, titleId])
 }
 
 model DownloadSchedule {
@@ -294,8 +311,8 @@ model DownloadSchedule {
   requestedBy              String
   channel                  Channel?                   @relation(fields: [broadcasterId], references: [broadcasterId])
   user                     User                       @relation(fields: [requestedBy], references: [userId])
-  DownloadScheduleTag      DownloadScheduleTag[]
-  DownloadScheduleCategory DownloadScheduleCategory[]
+  downloadScheduleTag      DownloadScheduleTag[]
+  downloadScheduleCategory DownloadScheduleCategory[]
 }
 
 enum Provider {

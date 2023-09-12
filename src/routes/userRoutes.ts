@@ -81,7 +81,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
             },
         },
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: userController.getUserDetailByName,
+        handler: userController.getChannelDetailByName,
     });
 
     done();

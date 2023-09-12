@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
-import { userService } from "../services";
+import { channelService } from "../services";
 
 const userCacheNotFound = new Map();
 const userCache = new Map();
@@ -35,7 +35,7 @@ export const getUserFollowedStreams = async (req: FastifyRequest, reply: Fastify
         return;
     }
     try {
-        const followedStreams = await userService.getUserFollowedStreams(userId, accessToken);
+        const followedStreams = await channelService.getUserFollowedStreams(userId, accessToken);
         reply.send(followedStreams);
     } catch (error) {
         console.error("Error fetching followed streams:", error);
@@ -55,7 +55,7 @@ export const getUserFollowedChannels = async (req: FastifyRequest, reply: Fastif
         return;
     }
     try {
-        const followedChannels = await userService.getUserFollowedChannels(userId, accessToken);
+        const followedChannels = await channelService.getUserFollowedChannels(userId, accessToken);
         reply.send(followedChannels);
     } catch (error) {
         console.error("Error fetching followed channels:", error);
@@ -71,7 +71,7 @@ export const getUserDetail = async (req: FastifyRequest<Params>, reply: FastifyR
         return;
     }
     try {
-        const user = await userService.getUserDetailDB(userId);
+        const user = await channelService.getChannelDetailDB(userId);
         if (!user) {
             reply.status(404).send("User not found");
             return;
@@ -83,7 +83,7 @@ export const getUserDetail = async (req: FastifyRequest<Params>, reply: FastifyR
     }
 };
 
-export const getUserDetailByName = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
+export const getChannelDetailByName = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const username = req.params.name;
     if (!username || typeof username !== "string") {
         reply.status(400).send("Invalid user id");
@@ -98,7 +98,7 @@ export const getUserDetailByName = async (req: FastifyRequest<Params>, reply: Fa
             reply.send(userCache.get(username));
             return;
         }
-        const user = await userService.getUserDetailByName(username);
+        const user = await channelService.getChannelDetailByName(username);
         if (!user) {
             userCacheNotFound.set(username, true);
             reply.status(404).send("User not found");
@@ -129,7 +129,7 @@ export const getMultipleUserDetailsFromDB = async (req: FastifyRequest<Query>, r
         return;
     }
     try {
-        const users = await userService.getMultipleUserDetailsDB(userIds);
+        const users = await channelService.getMultipleChannelDetailsDB(userIds);
         reply.send(users);
     } catch (error) {
         console.error("Error fetching user details from database:", error);
@@ -145,7 +145,7 @@ export const updateUserDetail = async (req: FastifyRequest<Params>, reply: Fasti
         return;
     }
     try {
-        const user = await userService.updateUserDetail(userId);
+        const user = await channelService.updateChannelDetail(userId);
         reply.send(user);
     } catch (error) {
         console.error("Error updating user details:", error);
@@ -160,7 +160,7 @@ export const fetchAndStoreUserDetails = async (req: FastifyRequest<Body>, reply:
         return;
     }
     try {
-        const message = await userService.fetchAndStoreUserDetails(userIds);
+        const message = await channelService.fetchAndStoreChannelDetails(userIds);
         reply.status(200).send(message);
     } catch (error) {
         console.error("Error fetching and storing user details:", error);
@@ -168,6 +168,7 @@ export const fetchAndStoreUserDetails = async (req: FastifyRequest<Body>, reply:
     }
 };
 
+// TODO
 export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.session?.passport?.user) {
         reply.status(401).send("Unauthorized");
@@ -180,8 +181,9 @@ export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
         return;
     }
     try {
-        const result = await userService.updateUsers(userId);
-        reply.status(200).send(result);
+        // const result = await channelService.updateUsers(userId);
+        // reply.status(200).send(result);
+        reply.status(200).send(null);
     } catch (error) {
         console.error("Error updating users:", error);
         reply.status(500).send("Error updating users");

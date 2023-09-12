@@ -55,7 +55,7 @@ export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply
         return;
     }
 
-    if (true === webhookService.verifyMessage(hmac, signature)) {
+    if (webhookService.verifyMessage(hmac, signature) === true) {
         logger.info("[webhookEventLogger] signatures match");
         let notification: NotificationBody = req.body;
         let messageType = req.headers[MESSAGE_TYPE];
