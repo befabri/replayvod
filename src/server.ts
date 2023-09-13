@@ -3,20 +3,22 @@ import path from "path";
 import cors from "@fastify/cors";
 import server, { logger } from "./app";
 import { Prisma, PrismaClient } from "@prisma/client";
-import fastifyPassport from "@fastify/passport";
 import fastifySecureSession from "@fastify/secure-session";
 import fastifyCookie from "@fastify/cookie";
 import routes from "./routes";
 import moment from "moment-timezone";
+const oauthPlugin = require("@fastify/oauth2");
 const fs = require("fs");
-import "./middlewares/passport";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
-const SESSION_SECRET = process.env.SESSION_SECRET;
+// const SESSION_SECRET = process.env.SESSION_SECRET;
 const REACT_URL = process.env.REACT_URL;
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
+const TWITCH_SECRET = process.env.TWITCH_SECRET;
+const CALLBACK_URL = process.env.CALLBACK_URL;
 moment.tz.setDefault("Europe/Paris");
 
 logger.info("Starting...");
@@ -32,11 +34,31 @@ server.register(fastifyCookie);
 
 server.register(fastifySecureSession, {
     key: fs.readFileSync(path.join(__dirname, "../secret-key")),
-    cookie: { httpOnly: true },
+    cookieName: "session",
+    cookie: {
+        path: "/",
+        httpOnly: true,
+        secure: false,
+    },
 });
 
-server.register(fastifyPassport.initialize());
-server.register(fastifyPassport.secureSession());
+server.register(oauthPlugin, {
+    name: "twitchOauth2",
+    credentials: {
+        client: {
+            id: TWITCH_CLIENT_ID,
+            secret: TWITCH_SECRET,
+        },
+        auth: oauthPlugin.TWITCH_CONFIGURATION,
+    },
+    tokenRequestParams: {
+        client_id: TWITCH_CLIENT_ID,
+        client_secret: TWITCH_SECRET,
+    },
+    startRedirectPath: "/api/auth/twitch",
+    callbackUri: CALLBACK_URL,
+    scope: ["user:read:email", "user:read:follows"],
+});
 
 server.register(routes, { prefix: "/api" });
 
