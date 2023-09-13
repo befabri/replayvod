@@ -24,12 +24,12 @@ interface Body extends RouteGenericInterface {
 }
 
 export const getUserFollowedStreams = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.session?.passport?.user) {
+    if (!req.session?.user) {
         reply.status(401).send("Unauthorized");
         return;
     }
-    const userId = req.session?.passport?.user?.data[0]?.id;
-    const accessToken = req.session?.passport?.user?.accessToken;
+    const userId = req.session?.user?.data[0]?.id;
+    const accessToken = req.session?.user?.accessToken;
     if (!userId || !accessToken || userId == undefined) {
         reply.status(500).send("Error fetching followed streams");
         return;
@@ -44,12 +44,12 @@ export const getUserFollowedStreams = async (req: FastifyRequest, reply: Fastify
 };
 
 export const getUserFollowedChannels = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.session?.passport?.user) {
+    if (!req.session?.user) {
         reply.status(401).send("Unauthorized");
         return;
     }
-    const userId = req.session?.passport?.user?.data[0]?.id;
-    const accessToken = req.session?.passport?.user?.accessToken;
+    const userId = req.session?.user?.data[0]?.id;
+    const accessToken = req.session?.user?.accessToken;
     if (!userId || !accessToken || userId == undefined) {
         reply.status(500).send("Error fetching followed channels");
         return;
@@ -170,12 +170,12 @@ export const fetchAndStoreUserDetails = async (req: FastifyRequest<Body>, reply:
 
 // TODO
 export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.session?.passport?.user) {
+    if (!req.session?.user) {
         reply.status(401).send("Unauthorized");
         return;
     }
-    const userId = req.session?.passport?.user?.data[0]?.id;
-    const accessToken = req.session?.passport?.user?.accessToken;
+    const userId = req.session?.user?.data[0]?.id;
+    const accessToken = req.session?.user?.accessToken;
     if (!userId || !accessToken || userId == undefined) {
         reply.status(500).send("Error fetching followed streams");
         return;

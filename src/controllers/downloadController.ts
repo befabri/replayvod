@@ -32,7 +32,7 @@ export interface DownloadSchedule {
 }
 
 export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    if (!req.session?.passport?.user) {
+    if (!req.session?.user) {
         reply.status(401).send("Unauthorized");
         return;
     }
@@ -53,7 +53,7 @@ export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyRe
 };
 
 export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>, reply: FastifyReply) => {
-    if (!req.session?.passport?.user) {
+    if (!req.session?.user) {
         reply.status(401).send("Unauthorized");
         return;
     }
@@ -62,7 +62,7 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
         reply.status(400).send("Invalid request data");
         return;
     }
-    data.requested_by = req.session.passport.user.data[0].id;
+    data.requested_by = req.session.user.data[0].id;
     const user = await channelService.getChannelDetailByName(data.channelName);
 
     if (!user) {
@@ -79,7 +79,7 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
 };
 
 export const downloadStream = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    if (!req.session?.passport?.user) {
+    if (!req.session?.user) {
         reply.status(401).send("Unauthorized");
         return;
     }
@@ -99,7 +99,7 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         reply.status(400).send({ message: "Stream is offline" });
         return;
     }
-    const loginId = req.session.passport.user.data[0].id;
+    const loginId = req.session.user.data[0].id;
     const pendingJob = await jobService.findPendingJobByBroadcasterId(broadcasterId);
     if (pendingJob) {
         reply.status(400).send({

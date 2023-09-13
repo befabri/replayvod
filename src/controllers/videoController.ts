@@ -72,13 +72,13 @@ export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply
 };
 
 export const getVideos = async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = req.session.passport.user.data[0].id;
+    const userId = req.session.user.data[0].id;
     const videos = await videoService.getVideosFromUser(userId);
     reply.send(videos);
 };
 
 export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = req.session.passport.user.data[0].id;
+    const userId = req.session.user.data[0].id;
     const videos = await videoService.getVideosFromUser(userId, Status.DONE);
     reply.send(videos);
 };

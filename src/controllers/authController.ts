@@ -61,7 +61,7 @@ export async function checkSession(req: FastifyRequest, reply: FastifyReply): Pr
 
 export async function getUser(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (req.session?.user) {
-        const { accessToken, refreshToken, ...user } = req.session.passport.user;
+        const { accessToken, refreshToken, ...user } = req.session.user;
         logger.info(`user`);
         reply.send(user);
     } else {
@@ -73,7 +73,7 @@ export async function getUser(req: FastifyRequest, reply: FastifyReply): Promise
 export async function refreshToken(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     logger.info(`Refreshing token...`);
     if (req.session?.user?.refreshToken) {
-        const refreshToken = req.session.passport.user.refreshToken;
+        const refreshToken = req.session.user.refreshToken;
         const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
         const TWITCH_SECRET = process.env.TWITCH_SECRET;
 
@@ -90,8 +90,8 @@ export async function refreshToken(req: FastifyRequest, reply: FastifyReply): Pr
             });
 
             if (response.status === 200) {
-                req.session.passport.user.accessToken = response.data.access_token;
-                req.session.passport.user.refreshToken = response.data.refresh_token;
+                req.session.user.accessToken = response.data.access_token;
+                req.session.user.refreshToken = response.data.refresh_token;
 
                 reply.status(200).send({ status: "Token refreshed" });
             } else {

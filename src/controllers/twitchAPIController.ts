@@ -13,7 +13,7 @@ export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply
 };
 
 export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = req.session?.passport?.user?.data[0]?.id;
+    const userId = req.session?.user?.data[0]?.id;
     if (!userId || userId == undefined) {
         reply.status(500).send("Error no user authenticated");
         return;
