@@ -35,12 +35,12 @@ export const isValidUser = (data: any): data is User => {
         typeof data.login === "string" &&
         typeof data.display_name === "string" &&
         typeof data.type === "string" &&
-        typeof data.broadcaster_type === "string" &&
+        (typeof data.broadcaster_type === "string" || data.broadcaster_type === undefined) &&
         typeof data.description === "string" &&
         typeof data.profile_image_url === "string" &&
         typeof data.offline_image_url === "string" &&
         typeof data.view_count === "number" &&
-        typeof data.email === "string" &&
+        (typeof data.email === "string" || data.email === undefined) &&
         typeof data.created_at === "string"
     );
 };

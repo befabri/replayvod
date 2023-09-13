@@ -1,7 +1,6 @@
-import { Category, Channel, UserFollowedChannels, Stream, Subscription } from "@prisma/client";
+import { Category, Channel, UserFollowedChannels, Stream, Subscription, User, Tag } from "@prisma/client";
 import {
     FollowedChannel as TwitchFollowedChannel,
-    FollowedStream as TwitchFollowedStream,
     Game as TwitchGame,
     User as TwitchUser,
     Stream as TwitchStream,
@@ -11,6 +10,7 @@ import {
 } from "../models/twitchModel";
 import { categoryService, channelService, tagService } from "../services";
 import { logger as rootLogger } from "../app";
+import { SessionUser } from "../models/userModel";
 
 const logger = rootLogger.child({ service: "channelService" });
 
@@ -20,7 +20,7 @@ export const transformTwitchUser = (user: TwitchUser): Channel => {
         broadcasterLogin: user.login,
         broadcasterName: user.display_name,
         displayName: user.display_name,
-        broadcasterType: user.broadcaster_type,
+        broadcasterType: user.broadcaster_type || "",
         createdAt: new Date(user.created_at),
         description: user.description,
         offlineImageUrl: user.offline_image_url,
@@ -52,12 +52,14 @@ export const transformFollowedChannel = async (
     return transformedChannel;
 };
 
-export const transformFollowedStream = async (stream: TwitchFollowedStream): Promise<Stream> => {
+export const transformStream = async (
+    stream: TwitchStream
+): Promise<{ stream: Stream; tags: Tag[]; category: any }> => {
     const transformedStream = {
         id: stream.id,
         fetchId: "",
         fetchedAt: new Date(),
-        isMature: false,
+        isMature: stream.is_mature || false,
         language: stream.language,
         startedAt: new Date(stream.started_at),
         thumbnailUrl: stream.thumbnail_url,
@@ -65,65 +67,14 @@ export const transformFollowedStream = async (stream: TwitchFollowedStream): Pro
         type: stream.type,
         broadcasterId: stream.user_id,
         viewerCount: stream.viewer_count,
-        tags: [],
-        categories: [],
     };
-    try {
-        if (stream.tags && stream.tags.length > 0) {
-            await tagService.addAllTags(stream.tags.map((tagName) => ({ name: tagName })));
-            transformedStream.tags = stream.tags.map((tagName) => ({
-                tagId: tagName,
-                streamId: stream.id,
-            }));
-        }
-        if (stream.game_id) {
-            const category = {
-                id: stream.game_id,
-                name: stream.game_name,
-                boxArtUrl: "",
-                igdbId: "",
-            };
-            await categoryService.addCategory(category);
-            transformedStream.categories = [
-                {
-                    categoryId: stream.game_id,
-                    streamId: stream.id,
-                },
-            ];
-        }
-        if (!(await channelService.channelExists(stream.user_id))) {
-            await channelService.updateChannelDetail(stream.user_id);
-        }
-    } catch (error) {
-        logger.error(`Error transforming followed stream: ${error.message}`);
-        throw error;
-    }
-    return transformedStream;
-};
+    const tagsToReturn: Tag[] = [];
+    let categoryToReturn: Category = null;
 
-export const transformStream = async (stream: TwitchStream): Promise<Stream> => {
-    const transformedStream = {
-        id: stream.id,
-        fetchId: "",
-        fetchedAt: new Date(),
-        isMature: stream.is_mature,
-        language: stream.language,
-        startedAt: new Date(stream.started_at),
-        thumbnailUrl: stream.thumbnail_url,
-        title: stream.title,
-        type: stream.type,
-        broadcasterId: stream.user_id,
-        viewerCount: stream.viewer_count,
-        tags: [],
-        categories: [],
-    };
     try {
         if (stream.tags && stream.tags.length > 0) {
-            await tagService.addAllTags(stream.tags.map((tagName) => ({ name: tagName })));
-            transformedStream.tags = stream.tags.map((tagName) => ({
-                tagId: tagName,
-                streamId: stream.id,
-            }));
+            const addedTags = await tagService.addAllTags(stream.tags.map((tagName) => ({ name: tagName })));
+            tagsToReturn.push(...addedTags);
         }
         if (stream.game_id) {
             const category = {
@@ -133,12 +84,7 @@ export const transformStream = async (stream: TwitchStream): Promise<Stream> => 
                 igdbId: "",
             };
             await categoryService.addCategory(category);
-            transformedStream.categories = [
-                {
-                    categoryId: stream.game_id,
-                    streamId: stream.id,
-                },
-            ];
+            categoryToReturn = category;
         }
         if (!(await channelService.channelExists(stream.user_id))) {
             await channelService.updateChannelDetail(stream.user_id);
@@ -147,17 +93,22 @@ export const transformStream = async (stream: TwitchStream): Promise<Stream> => 
         logger.error(`Error transforming stream: ${error.message}`);
         throw error;
     }
-    return transformedStream;
+
+    return {
+        stream: transformedStream,
+        tags: tagsToReturn,
+        category: categoryToReturn,
+    };
 };
 
-    export const transformCategory = (game: TwitchGame): Category => {
-        return {
-            id: game.id,
-            boxArtUrl: game.box_art_url,
-            igdbId: game.igdb_id || null,
-            name: game.name,
-        };
+export const transformCategory = (game: TwitchGame): Category => {
+    return {
+        id: game.id,
+        boxArtUrl: game.box_art_url,
+        igdbId: game.igdb_id || null,
+        name: game.name,
     };
+};
 
 export const transformEventSub = (eventSub: TwitchEventSubData): Subscription => {
     const userId = eventSub.condition.broadcaster_user_id || eventSub.condition.user_id || "";
@@ -177,5 +128,16 @@ export const transformEventSubMeta = (eventSubResponse: TwitchEventSubResponse):
         total: eventSubResponse.total,
         total_cost: eventSubResponse.total_cost,
         max_total_cost: eventSubResponse.max_total_cost,
+    };
+};
+
+export const transformSessionUser = (user: SessionUser): User => {
+    return {
+        userId: user.id,
+        userLogin: user.login,
+        displayName: user.display_name,
+        email: user.email,
+        profileImageUrl: user.profile_image_url,
+        createdAt: new Date(user.created_at),
     };
 };

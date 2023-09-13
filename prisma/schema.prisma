@@ -70,13 +70,16 @@ model Event {
 
 model User {
   userId           String                 @id
-  fetchedAt        DateTime
+  userLogin        String                 @unique
+  displayName      String
+  email            String
+  profileImageUrl  String
+  createdAt        DateTime
   followedChannels UserFollowedChannels[]
   eventSub         EventSub[]
   fetchLog         FetchLog[]
   downloadSchedule DownloadSchedule[]
-
-  VideoRequest VideoRequest[]
+  VideoRequest     VideoRequest[]
 }
 
 model Channel {
@@ -86,7 +89,7 @@ model Channel {
   displayName      String
   broadcasterType  String
   createdAt        DateTime
-  description      String
+  description      String                 @db.VarChar(500)
   offlineImageUrl  String
   profileImageUrl  String
   profilePicture   String
@@ -187,7 +190,7 @@ enum Quality {
 model Category {
   id                       String                     @id
   boxArtUrl                String
-  igdbId                   String?                    @unique
+  igdbId                   String?
   name                     String                     @unique
   videoCategory            VideoCategory[]
   streamCategory           StreamCategory[]

@@ -7,7 +7,6 @@ const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_SECRET = process.env.TWITCH_SECRET;
 
 export const getAppAccessToken = async () => {
-    logger.info("Access token...");
     const latestToken = await prisma.appAccessToken.findFirst({
         orderBy: {
             expiresAt: "desc",

@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
 import { Channel } from "@prisma/client";
-import { twitchService } from "../services";
+import { categoryService, tagService, twitchService } from "../services";
 const logger = rootLogger.child({ service: "channelService" });
 
 export const getUserFollowedStreams = async (userId: string, accessToken: string) => {
@@ -34,12 +34,23 @@ export const getUserFollowedStreams = async (userId: string, accessToken: string
             },
         });
         await prisma.stream.createMany({
-            data: followedStreams.map((stream) => ({
+            data: followedStreams.map(({ stream }) => ({
                 ...stream,
                 fetchId: fetchId,
                 fetchedAt: new Date(),
             })),
         });
+        for (let { stream, tags, category } of followedStreams) {
+            if (tags.length > 0) {
+                await tagService.addAllStreamTags(
+                    tags.map((tag) => ({ tagId: tag.name })),
+                    stream.id
+                );
+            }
+            if (category) {
+                await categoryService.addStreamCategory(stream.id, category.id);
+            }
+        }
         return followedStreams;
     } catch (error) {
         logger.error(`Error fetching followed streams: ${error}`);
@@ -126,35 +137,39 @@ export const getUserFollowedChannels = async (userId: string, accessToken: strin
             return getUserFollowedChannelsDb(userId);
         }
         const followedChannels = await twitchService.getAllFollowedChannels(userId, accessToken);
-        await prisma.userFollowedChannels.updateMany({
-            where: {
-                userId: userId,
-            },
-            data: {
-                followed: false,
-            },
-        });
-        for (const channel of followedChannels) {
-            await prisma.userFollowedChannels.upsert({
+        try {
+            await prisma.userFollowedChannels.updateMany({
                 where: {
-                    broadcasterId_userId: {
-                        broadcasterId: channel.broadcasterId,
-                        userId: userId,
-                    },
+                    userId: userId,
                 },
-                update: {
-                    followed: true,
-                    ...channel,
-                },
-                create: {
-                    followed: true,
-                    ...channel,
+                data: {
+                    followed: false,
                 },
             });
+            for (const channel of followedChannels) {
+                await prisma.userFollowedChannels.upsert({
+                    where: {
+                        broadcasterId_userId: {
+                            broadcasterId: channel.broadcasterId,
+                            userId: userId,
+                        },
+                    },
+                    update: {
+                        followed: true,
+                        ...channel,
+                    },
+                    create: {
+                        followed: true,
+                        ...channel,
+                    },
+                });
+            }
+        } catch (error) {
+            logger.error("Error updating channel user followed: %s", error);
         }
         return followedChannels;
     } catch (error) {
-        logger.error("Error fetching followed channels from Twitch API:", error);
+        logger.error("Error fetching followed channels from Twitch API: %s", error);
         throw new Error("Error fetching followed channels from Twitch API");
     }
 };
@@ -213,15 +228,18 @@ export const getMultipleChannelDetailsDB = async (userIds: string[]) => {
     return channels;
 };
 
-// Transform twitch to db
-export const updateChannelDetail = async (userId: string) => {
-    const channel = await twitchService.getUser(userId);
+export const updateChannelDetail = async (broadcaster_id: string) => {
+    const channel = await twitchService.getUser(broadcaster_id);
     if (channel) {
-        await prisma.channel.upsert({
-            where: { broadcasterId: userId },
-            update: channel,
-            create: channel,
-        });
+        try {
+            await prisma.channel.upsert({
+                where: { broadcasterId: channel.broadcasterId },
+                update: channel,
+                create: channel,
+            });
+        } catch (error) {
+            logger.error("Error updating channel details: %s", error);
+        }
     }
     return channel;
 };

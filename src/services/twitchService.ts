@@ -1,6 +1,6 @@
 import TwitchAPI from "../utils/twitchAPI";
 import { logger as rootLogger } from "../app";
-import { Category, Channel, Stream, Subscription, UserFollowedChannels } from "@prisma/client";
+import { Category, Channel, Stream, Subscription, Tag, UserFollowedChannels } from "@prisma/client";
 import {
     isValidEventSubResponse,
     isValidFollowedChannel,
@@ -14,7 +14,6 @@ import {
     transformEventSub,
     transformEventSubMeta,
     transformFollowedChannel,
-    transformFollowedStream,
     transformStream,
     transformTwitchUser,
 } from "../utils/transformation";
@@ -88,31 +87,36 @@ export const getAllFollowedStreams = async (
     userId: string,
     accessToken: string,
     cursor?: string
-): Promise<Stream[] | null> => {
+): Promise<{ stream: Stream; tags: Tag[]; category: any }[] | null> => {
     try {
         const followedStreams = await twitchAPI.getAllFollowedStreams(userId, accessToken, cursor);
+
         if (!followedStreams || followedStreams.some((stream) => !isValidFollowedStream(stream))) {
             logger.error("Received invalid stream data from Twitch API:", followedStreams);
             return null;
         }
-        const transformedStreams = await Promise.all(
-            followedStreams.map((stream) => transformFollowedStream(stream))
-        );
-        return transformedStreams;
+
+        const transformationResults = await Promise.all(followedStreams.map((stream) => transformStream(stream)));
+
+        return transformationResults;
     } catch (error) {
         logger.error("Error fetching followed streams:", error);
         throw error;
     }
 };
 
-export const getStreamByUserId = async (userId: string): Promise<Stream | null> => {
+export const getStreamByUserId = async (
+    userId: string
+): Promise<{ stream: Stream; tags: Tag[]; category: Category } | null> => {
     try {
         const fetchedStream = await twitchAPI.getStreamByUserId(userId);
         if (!fetchedStream || !isValidStream(fetchedStream)) {
             logger.error("Received invalid stream data from Twitch API:", fetchedStream);
             return null;
         }
-        return transformStream(fetchedStream);
+
+        const transformedStreams = transformStream(fetchedStream);
+        return transformedStreams;
     } catch (error) {
         logger.error("Error fetching stream by user ID:", error);
         throw error;
