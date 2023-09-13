@@ -15,7 +15,7 @@ export const addCategory = async (category: Category) => {
             create: category,
         });
     } catch (error) {
-        logger.error("Error adding/updating category:", error);
+        logger.error("Error adding/updating category: %s", error);
         throw error;
     }
 };
@@ -25,7 +25,7 @@ export const addAllCategories = async (categories: Category[]) => {
         const promises = categories.map((category) => addCategory(category));
         return Promise.all(promises);
     } catch (error) {
-        logger.error("Error adding/updating multiple categories:", error);
+        logger.error("Error adding/updating multiple categories");
         throw error;
     }
 };
@@ -42,10 +42,40 @@ export const getCategoryByName = async (name: string) => {
     return prisma.category.findUnique({ where: { name: name } });
 };
 
+const addVideoCategory = async (videoId, categoryId) => {
+    try {
+        return await prisma.videoCategory.create({
+            data: {
+                videoId: videoId,
+                categoryId: categoryId,
+            },
+        });
+    } catch (error) {
+        logger.error("Error adding/updating videoCategory: %s", error);
+        throw error;
+    }
+};
+
+const addStreamCategory = async (streamId, categoryId) => {
+    try {
+        return await prisma.streamCategory.create({
+            data: {
+                streamId: streamId,
+                categoryId: categoryId,
+            },
+        });
+    } catch (error) {
+        logger.error("Error adding/updating streamCategory: %s", error);
+        throw error;
+    }
+};
+
 export default {
     addCategory,
     addAllCategories,
     getAllCategories,
     getCategoryById,
     getCategoryByName,
+    addVideoCategory,
+    addStreamCategory,
 };

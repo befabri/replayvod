@@ -34,9 +34,51 @@ export const getTag = async (id: string) => {
     return prisma.tag.findUnique({ where: { name: id } });
 };
 
+export const addVideoTag = async (videoId: number, tagId: string) => {
+    return await prisma.videoTag.create({
+        data: {
+            videoId: videoId,
+            tagId: tagId,
+        },
+    });
+};
+
+export const addStreamTag = async (streamId: string, tagId: string) => {
+    return await prisma.streamTag.create({
+        data: {
+            streamId: streamId,
+            tagId: tagId,
+        },
+    });
+};
+
+export const addAllVideoTags = async (tags: { tagId: string }[], videoId: number) => {
+    try {
+        const promises = tags.map((tag) => addVideoTag(videoId, tag.tagId));
+        return Promise.all(promises);
+    } catch (error) {
+        logger.error("Error adding/updating multiple tags:", error);
+        throw error;
+    }
+};
+
+export const addAllStreamTags = async (tags: { tagId: string }[], streamId: string) => {
+    try {
+        const promises = tags.map((tag) => addStreamTag(streamId, tag.tagId));
+        return Promise.all(promises);
+    } catch (error) {
+        logger.error("Error adding/updating multiple tags:", error);
+        throw error;
+    }
+};
+
 export default {
     addTag,
     addAllTags,
     getAllTags,
     getTag,
+    addVideoTag,
+    addStreamTag,
+    addAllVideoTags,
+    addAllStreamTags,
 };
