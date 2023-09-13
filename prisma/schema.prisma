@@ -266,7 +266,6 @@ model Stream {
   language      String
   startedAt     DateTime
   thumbnailUrl  String
-  title         String
   type          String
   broadcasterId String
   viewerCount   Int              @default(0)
@@ -279,7 +278,7 @@ model Stream {
 
 model Title {
   id          Int           @id @default(autoincrement())
-  name        String
+  name        String        @unique
   VideoTitle  VideoTitle[]
   StreamTitle StreamTitle[]
 }
