@@ -25,13 +25,9 @@ interface Body extends RouteGenericInterface {
 
 export const getUserFollowedStreams = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userService.getUserIdFromSession(req);
-    if (!userId) {
+    const accessToken = userService.getUserAccessTokenFromSession(req);
+    if (!userId || !accessToken) {
         reply.status(401).send("Unauthorized");
-        return;
-    }
-    const accessToken = req.session?.user?.accessToken;
-    if (!userId || !accessToken || userId == undefined) {
-        reply.status(500).send("Error fetching followed streams");
         return;
     }
     try {
@@ -45,13 +41,9 @@ export const getUserFollowedStreams = async (req: FastifyRequest, reply: Fastify
 
 export const getUserFollowedChannels = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userService.getUserIdFromSession(req);
-    if (!userId) {
+    const accessToken = userService.getUserAccessTokenFromSession(req);
+    if (!userId || !accessToken) {
         reply.status(401).send("Unauthorized");
-        return;
-    }
-    const accessToken = req.session?.user?.accessToken;
-    if (!userId || !accessToken || userId == undefined) {
-        reply.status(500).send("Error fetching followed channels");
         return;
     }
     try {
@@ -171,13 +163,9 @@ export const fetchAndStoreUserDetails = async (req: FastifyRequest<Body>, reply:
 // TODO
 export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userService.getUserIdFromSession(req);
-    if (!userId) {
+    const accessToken = userService.getUserAccessTokenFromSession(req);
+    if (!userId || !accessToken) {
         reply.status(401).send("Unauthorized");
-        return;
-    }
-    const accessToken = req.session?.user?.accessToken;
-    if (!userId || !accessToken || userId == undefined) {
-        reply.status(500).send("Error fetching followed streams");
         return;
     }
     try {

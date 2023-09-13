@@ -4,6 +4,7 @@ import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
 const logger = rootLogger.child({ service: "authController" });
 import dotenv from "dotenv";
+import { userService } from "../services";
 dotenv.config();
 const REDIRECT_URL = process.env.REDIRECT_URL || "/";
 
@@ -39,6 +40,7 @@ export async function handleTwitchCallback(
             twitchUserData: userData,
         });
         const res = await saveAppAccessToken(token);
+        const resUser = await userService.updateUserDetail(userData);
         reply.redirect(REDIRECT_URL);
     } catch (err) {
         reply.code(500).send({ error: "Failed to authenticate with Twitch." });

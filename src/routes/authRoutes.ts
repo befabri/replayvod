@@ -1,11 +1,5 @@
 import { FastifyInstance, FastifyPluginAsync } from "fastify";
-import {
-    handleTwitchAuth,
-    handleTwitchCallback,
-    checkSession,
-    getUser,
-    refreshToken,
-} from "../controllers/authController";
+import { handleTwitchCallback, checkSession, getUser, refreshToken } from "../controllers/authController";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     // fastify.get("/twitch", {

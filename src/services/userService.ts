@@ -1,5 +1,8 @@
 import { FastifyRequest } from "fastify";
 import { logger as rootLogger } from "../app";
+import { prisma } from "../server";
+import { SessionUser } from "../models/userModel";
+import { transformSessionUser } from "../utils/transformation";
 const logger = rootLogger.child({ service: "userService" });
 
 export const getUserIdFromSession = (req: FastifyRequest): string | null => {
@@ -9,6 +12,31 @@ export const getUserIdFromSession = (req: FastifyRequest): string | null => {
     return null;
 };
 
+export const getUserAccessTokenFromSession = (req: FastifyRequest): string | null => {
+    if (req.session?.user && req.session.user.access_token) {
+        return req.session.user.access_token;
+    }
+    return null;
+};
+
+export const updateUserDetail = async (userData: SessionUser) => {
+    const user = await transformSessionUser(userData);
+    if (user) {
+        try {
+            await prisma.user.upsert({
+                where: { userId: user.userId },
+                update: user,
+                create: user,
+            });
+        } catch (error) {
+            logger.error("Error updating/inserting user: %s", error);
+        }
+    }
+    return user;
+};
+
 export default {
     getUserIdFromSession,
+    updateUserDetail,
+    getUserAccessTokenFromSession,
 };
