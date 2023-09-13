@@ -1,41 +1,42 @@
-import { Request, Response, NextFunction } from "express";
-import TwitchAPI from "../utils/twitchAPI";
-import { eventSubService, gameService } from "../services";
+import { FastifyReply, FastifyRequest } from "fastify";
+import { eventSubService, categoryService, twitchService } from "../services";
 
-const twitchAPI = new TwitchAPI();
-
-export const fetchAndSaveGames = async (req: Request, res: Response) => {
+export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
-        const games = await twitchAPI.getAllGames();
-        await gameService.saveGamesToDb(games);
-        res.json({ message: "Games fetched and saved successfully." });
+        const categories = await twitchService.getAllGames();
+        await categoryService.addAllCategories(categories);
+        reply.send({ message: "Games fetched and saved successfully." });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: "An error occurred while fetching and saving games." });
+        reply.status(500).send({ error: "An error occurred while fetching and saving games." });
     }
 };
 
-export const getListEventSub = async (req: Request, res: Response) => {
-    const userId = req.session?.passport?.user?.data[0]?.id;
+export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) => {
+    const userId = req.session?.user?.data[0]?.id;
     if (!userId || userId == undefined) {
-        res.status(500).send("Error no user authenticated");
+        reply.status(500).send("Error no user authenticated");
         return;
     }
     try {
         const eventSub = await eventSubService.getEventSub(userId);
-        res.json({ data: eventSub.data, message: eventSub.message });
+        if ("data" in eventSub && "message" in eventSub) {
+            reply.send({ data: eventSub.data, message: eventSub.message });
+        } else {
+            reply.send(eventSub);
+        }
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: "An error occurred while fetching EventSub subscriptions." });
+        reply.status(500).send({ error: "An error occurred while fetching EventSub subscriptions." });
     }
 };
 
-export const getTotalCost = async (req: Request, res: Response) => {
+export const getTotalCost = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
         const eventSub = await eventSubService.getTotalCost();
-        res.json({ data: eventSub.data, message: eventSub.message });
+        reply.send({ data: eventSub.data, message: eventSub.message });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: "An error occurred while fetching total cost." });
+        reply.status(500).send({ error: "An error occurred while fetching total cost." });
     }
 };

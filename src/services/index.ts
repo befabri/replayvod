@@ -1,10 +1,12 @@
 export { default as downloadService } from "./downloadService";
 export { default as eventProcessingService } from "./eventProcessingService";
 export { default as eventSubService } from "./eventSubService";
-export { default as gameService } from "./gameService";
+export { default as categoryService } from "./categoryService";
 export { default as jobService } from "./jobService";
 export { default as logService } from "./logService";
 export { default as taskService } from "./taskService";
-export { default as userService } from "./userService";
+export { default as channelService } from "./channelService";
 export { default as videoService } from "./videoService";
 export { default as webhookService } from "./webhookService";
+export { default as tagService } from "./tagService";
+export { default as twitchService } from "./twitchService";

@@ -1,43 +1,42 @@
-import { Document, ObjectId } from "mongodb";
-import { getDbInstance } from "../models/db";
 import { Webhook } from "../models/webhookModel";
 import { eventProcessingService } from "../services";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../constants/twitchConstants";
+import { logger as rootLogger } from "../app";
+import { prisma } from "../server";
+const logger = rootLogger.child({ service: "webhookService" });
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 
 export const addWebhook = async (webhook: Webhook) => {
-    const db = await getDbInstance();
-    const webhookCollection = db.collection("webhooks");
-    await webhookCollection.insertOne(webhook);
-    return webhook;
+    console.log(webhook);
+    console.log(JSON.stringify(webhook));
 };
 
 export const removeWebhook = async (id: string) => {
-    const db = await getDbInstance();
-    const webhookCollection = db.collection("webhooks");
-    const webhook = await getWebhook(id);
-    if (webhook) {
-        await webhookCollection.deleteOne({ _id: new ObjectId(webhook._id) });
-    }
-    return webhook;
+    // const db = await getDbInstance();
+    // const webhookCollection = db.collection("webhooks");
+    // const webhook = await getWebhook(id);
+    // if (webhook) {
+    //     await webhookCollection.deleteOne({ _id: new ObjectId(webhook._id) });
+    // }
+    // return webhook;
+    return id;
 };
 
 export const getWebhook = async (id: string) => {
-    const db = await getDbInstance();
-    const webhookCollection = db.collection("webhooks");
-    return webhookCollection.findOne({ id: id });
+    // return prisma.event.findUnique({
+    //     where: { id: id },
+    // });
+    return id;
 };
 
 export const getAllWebhooks = async () => {
-    const db = await getDbInstance();
-    const webhookCollection = db.collection("webhooks");
-    return webhookCollection.find().toArray();
+    return prisma.event.findMany();
 };
 
 export const getSecret = () => {
-    return process.env.SECRET;
+    return process.env.SECRET!;
 };
 
 export const getHmacMessage = (request) => {

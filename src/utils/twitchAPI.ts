@@ -2,6 +2,8 @@ import axios from "axios";
 import { getAppAccessToken } from "../utils/twitchUtils";
 import { chunkArray } from "../utils/utils";
 import { Stream, User, FollowedChannel, FollowedStream, EventSubResponse } from "../models/twitchModel";
+import { logger as rootLogger } from "../app";
+const logger = rootLogger.child({ service: "twitchApi" });
 
 import dotenv from "dotenv";
 dotenv.config();
@@ -20,7 +22,7 @@ class TwitchAPI {
 
             return response.data.data[0] || null;
         } catch (error) {
-            console.error("Error fetching user details from Twitch API:", error);
+            logger.error("Error fetching user details from Twitch API:", error);
             throw new Error("Failed to fetch user details from Twitch API");
         }
     }
@@ -37,7 +39,7 @@ class TwitchAPI {
 
             return response.data.data[0] || null;
         } catch (error) {
-            console.error("Error fetching user details from Twitch API:", error);
+            logger.error("Error fetching user details from Twitch API:", error);
             throw new Error("Failed to fetch user details from Twitch API");
         }
     }
@@ -59,7 +61,7 @@ class TwitchAPI {
             );
             return responses.flatMap((response) => response.data.data);
         } catch (error) {
-            console.error("Error fetching users details from Twitch API:", error);
+            logger.error("Error fetching users details from Twitch API:", error);
             throw new Error("Failed to fetch users details from Twitch API");
         }
     }
@@ -127,7 +129,7 @@ class TwitchAPI {
             });
             return response.data.data[0] || null;
         } catch (error) {
-            console.error("Error fetching stream details from Twitch API:", error);
+            logger.error("Error fetching stream details from Twitch API:", error);
             throw new Error("Failed to fetch stream details from Twitch API");
         }
     }
@@ -155,7 +157,12 @@ class TwitchAPI {
         }
     }
 
-    async createEventSub(type: string, version: string, condition: any, transport: any) {
+    async createEventSub(
+        type: string,
+        version: string,
+        condition: any,
+        transport: any
+    ): Promise<EventSubResponse | null> {
         const accessToken = await getAppAccessToken();
         try {
             const response = await axios.post(
@@ -189,9 +196,26 @@ class TwitchAPI {
                 },
             });
 
-            return response.data;
+            if (response.status === 204) {
+                return "Subscription successfully deleted.";
+            } else {
+                return response.data;
+            }
         } catch (error) {
-            throw error;
+            if (error.response) {
+                switch (error.response.status) {
+                    case 400:
+                        throw new Error("The id query parameter is required.");
+                    case 401:
+                        throw new Error("Authorization error. Please check the access token and Client-ID.");
+                    case 404:
+                        throw new Error("The subscription was not found.");
+                    default:
+                        throw new Error("An unknown error occurred.");
+                }
+            } else {
+                throw error;
+            }
         }
     }
 

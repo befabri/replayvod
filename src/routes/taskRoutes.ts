@@ -1,11 +1,38 @@
-import express, { Router } from "express";
+// routes/taskRoutes.ts
+import { FastifyInstance } from "fastify";
 import * as taskController from "../controllers/taskController";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 
-const router: Router = express.Router();
+export default function (fastify: FastifyInstance, opts: any, done: any) {
+    const taskSchema = {
+        params: {
+            type: "object",
+            properties: {
+                id: { type: "string" },
+            },
+            required: ["id"],
+        },
+    };
 
-router.get("/tasks", isUserWhitelisted, userAuthenticated, taskController.getTasks);
-router.get("/tasks/run/:id", isUserWhitelisted, userAuthenticated, taskController.runTask);
-router.get("/tasks/:id", isUserWhitelisted, userAuthenticated, taskController.getTask);
+    fastify.get("/tasks", { preHandler: [isUserWhitelisted, userAuthenticated] }, taskController.getTasks);
 
-export default router;
+    fastify.get(
+        "/tasks/:id",
+        {
+            preHandler: [isUserWhitelisted, userAuthenticated],
+            schema: taskSchema,
+        },
+        taskController.getTask
+    );
+
+    fastify.get(
+        "/tasks/run/:id",
+        {
+            preHandler: [isUserWhitelisted, userAuthenticated],
+            schema: taskSchema,
+        },
+        taskController.runTask
+    );
+
+    done();
+}

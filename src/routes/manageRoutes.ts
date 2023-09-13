@@ -1,11 +1,22 @@
-import express, { Router } from "express";
+import { FastifyInstance } from "fastify";
 import * as twitchAPIController from "../controllers/twitchAPIController";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 
-const router: Router = express.Router();
+export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.get("/update/games", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: twitchAPIController.fetchAndSaveGames,
+    });
 
-router.get("/update/games", isUserWhitelisted, userAuthenticated, twitchAPIController.fetchAndSaveGames);
-router.get("/eventsub/subscriptions", isUserWhitelisted, userAuthenticated, twitchAPIController.getListEventSub);
-router.get("/eventsub/costs", isUserWhitelisted, userAuthenticated, twitchAPIController.getTotalCost);
+    fastify.get("/eventsub/subscriptions", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: twitchAPIController.getListEventSub,
+    });
 
-export default router;
+    fastify.get("/eventsub/costs", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: twitchAPIController.getTotalCost,
+    });
+
+    done();
+}

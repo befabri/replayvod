@@ -1,16 +1,13 @@
-import { Document, ObjectId } from "mongodb";
-
-  export interface Task {
-    _id?: ObjectId;
+export interface Task {
     id: string;
     name: string;
     description: string;
     taskType: string;
     metadata?: {
-      [key: string]: string;
+        [key: string]: string;
     };
     interval: number;
     lastExecution: Date;
     lastDuration: number;
     nextExecution: Date;
-  }
+}
