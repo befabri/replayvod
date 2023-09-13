@@ -1,5 +1,5 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { eventSubService, categoryService, twitchService } from "../services";
+import { eventSubService, categoryService, twitchService, userService } from "../services";
 
 export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -13,7 +13,7 @@ export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply
 };
 
 export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = req.session?.user?.data[0]?.id;
+    const userId = userService.getUserIdFromSession(req);
     if (!userId || userId == undefined) {
         reply.status(500).send("Error no user authenticated");
         return;

@@ -7,8 +7,22 @@ import dotenv from "dotenv";
 dotenv.config();
 const REDIRECT_URL = process.env.REDIRECT_URL || "/";
 
-export async function handleTwitchAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    logger.info("---------------------handleTwitchAuth-------------------------");
+async function fetchTwitchUserData(accessToken: string) {
+    const headers = {
+        "Client-ID": process.env.TWITCH_CLIENT_ID,
+        Authorization: `Bearer ${accessToken}`,
+    };
+    try {
+        const response = await axios.get("https://api.twitch.tv/helix/users", { headers });
+        if (response.data && response.data.data && response.data.data.length > 0) {
+            return response.data.data[0]; // Twitch returns an array with a single user object
+        } else {
+            throw new Error("Twitch user data not found.");
+        }
+    } catch (error) {
+        logger.error("Error fetching Twitch user data:", error);
+        throw error;
+    }
 }
 
 export async function handleTwitchCallback(
@@ -16,10 +30,14 @@ export async function handleTwitchCallback(
     req: FastifyRequest,
     reply: FastifyReply
 ): Promise<void> {
-    logger.info("---------------------handleTwitchCallback-------------------------");
     try {
         const { token } = await fastify.twitchOauth2.getAccessTokenFromAuthorizationCodeFlow(req);
-        req.session.set("user", token);
+        const userData = await fetchTwitchUserData(token.access_token);
+        req.session.set("user", {
+            ...token,
+            twitchUserID: userData.id,
+            twitchUserData: userData,
+        });
         const res = await saveAppAccessToken(token);
         reply.redirect(REDIRECT_URL);
     } catch (err) {
@@ -47,23 +65,28 @@ export const saveAppAccessToken = async (accessToken) => {
     }
 };
 
-//TODO
 export async function checkSession(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const data = req.session.get("user");
-    if (req.session?.user) {
-        reply.status(200).send({ status: "authenticated" });
-        logger.info(`authenticated`);
-    } else {
-        logger.error(`not authenticated`);
-        reply.status(200).send({ status: "not authenticated" });
+    try {
+        if (req.session?.user) {
+            logger.info(`User authenticated: ${req.session.user.twitchUserID}`);
+            reply.status(200).send({
+                status: "authenticated",
+                user: { id: req.session.user.twitchUserID },
+            });
+        } else {
+            logger.error(`User not authenticated`);
+            reply.status(401).send({ status: "not authenticated" });
+        }
+    } catch (error) {
+        logger.error(`Error in checkSession: ${error.message}`);
+        reply.status(500).send({ status: "error", message: "Internal Server Error" });
     }
 }
 
 export async function getUser(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (req.session?.user) {
-        const { accessToken, refreshToken, ...user } = req.session.user;
-        logger.info(`user`);
-        reply.send(user);
+        const { accessToken, refreshToken, twitchUserData } = req.session.user;
+        reply.send(twitchUserData);
     } else {
         logger.error(`Unauthorized`);
         reply.status(401).send({ error: "Unauthorized" });

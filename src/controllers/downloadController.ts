@@ -1,6 +1,5 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
-import { channelService, downloadService, jobService } from "../services";
-import { User } from "../models/twitchModel";
+import { channelService, downloadService, jobService, userService } from "../services";
 import TwitchAPI from "../utils/twitchAPI";
 import { VideoQuality } from "../models/downloadModel";
 
@@ -32,10 +31,6 @@ export interface DownloadSchedule {
 }
 
 export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    if (!req.session?.user) {
-        reply.status(401).send("Unauthorized");
-        return;
-    }
     const userId = req.params.id;
 
     if (!userId || typeof userId !== "string") {
@@ -53,7 +48,8 @@ export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyRe
 };
 
 export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>, reply: FastifyReply) => {
-    if (!req.session?.user) {
+    const userId = userService.getUserIdFromSession(req);
+    if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
     }
@@ -62,7 +58,7 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
         reply.status(400).send("Invalid request data");
         return;
     }
-    data.requested_by = req.session.user.data[0].id;
+    data.requested_by = userId;
     const user = await channelService.getChannelDetailByName(data.channelName);
 
     if (!user) {
@@ -79,7 +75,8 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
 };
 
 export const downloadStream = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    if (!req.session?.user) {
+    const userId = userService.getUserIdFromSession(req);
+    if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
     }
@@ -99,7 +96,6 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         reply.status(400).send({ message: "Stream is offline" });
         return;
     }
-    const loginId = req.session.user.data[0].id;
     const pendingJob = await jobService.findPendingJobByBroadcasterId(broadcasterId);
     if (pendingJob) {
         reply.status(400).send({
@@ -109,7 +105,7 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         return;
     }
     const jobId = jobService.createJobId();
-    await downloadService.handleDownload({ loginId, channel, jobId, quality }, broadcasterId);
+    await downloadService.handleDownload({ userId, channel, jobId, quality }, broadcasterId);
     reply.send({ jobId });
 };
 

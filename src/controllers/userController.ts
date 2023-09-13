@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
-import { channelService } from "../services";
+import { channelService, userService } from "../services";
 
 const userCacheNotFound = new Map();
 const userCache = new Map();
@@ -24,11 +24,11 @@ interface Body extends RouteGenericInterface {
 }
 
 export const getUserFollowedStreams = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.session?.user) {
+    const userId = userService.getUserIdFromSession(req);
+    if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
     }
-    const userId = req.session?.user?.data[0]?.id;
     const accessToken = req.session?.user?.accessToken;
     if (!userId || !accessToken || userId == undefined) {
         reply.status(500).send("Error fetching followed streams");
@@ -44,11 +44,11 @@ export const getUserFollowedStreams = async (req: FastifyRequest, reply: Fastify
 };
 
 export const getUserFollowedChannels = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.session?.user) {
+    const userId = userService.getUserIdFromSession(req);
+    if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
     }
-    const userId = req.session?.user?.data[0]?.id;
     const accessToken = req.session?.user?.accessToken;
     if (!userId || !accessToken || userId == undefined) {
         reply.status(500).send("Error fetching followed channels");
@@ -170,11 +170,11 @@ export const fetchAndStoreUserDetails = async (req: FastifyRequest<Body>, reply:
 
 // TODO
 export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.session?.user) {
+    const userId = userService.getUserIdFromSession(req);
+    if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
     }
-    const userId = req.session?.user?.data[0]?.id;
     const accessToken = req.session?.user?.accessToken;
     if (!userId || !accessToken || userId == undefined) {
         reply.status(500).send("Error fetching followed streams");
