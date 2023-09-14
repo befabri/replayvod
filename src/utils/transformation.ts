@@ -1,4 +1,4 @@
-import { Category, Channel, UserFollowedChannels, Stream, Subscription, User, Tag } from "@prisma/client";
+import { Category, Channel, UserFollowedChannels, Stream, Subscription, User, Tag, Title } from "@prisma/client";
 import {
     FollowedChannel as TwitchFollowedChannel,
     Game as TwitchGame,
@@ -8,7 +8,7 @@ import {
     EventSubResponse as TwitchEventSubResponse,
     EventSubMeta,
 } from "../models/twitchModel";
-import { categoryService, channelService, tagService } from "../services";
+import { categoryService, channelService, tagService, titleService } from "../services";
 import { logger as rootLogger } from "../app";
 import { SessionUser } from "../models/userModel";
 
@@ -54,23 +54,21 @@ export const transformFollowedChannel = async (
 
 export const transformStream = async (
     stream: TwitchStream
-): Promise<{ stream: Stream; tags: Tag[]; category: any }> => {
+): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Title }> => {
     const transformedStream = {
         id: stream.id,
         fetchId: "",
-        fetchedAt: new Date(),
         isMature: stream.is_mature || false,
         language: stream.language,
         startedAt: new Date(stream.started_at),
         thumbnailUrl: stream.thumbnail_url,
-        title: stream.title,
         type: stream.type,
         broadcasterId: stream.user_id,
         viewerCount: stream.viewer_count,
     };
     const tagsToReturn: Tag[] = [];
     let categoryToReturn: Category = null;
-
+    let titleToReturn = null;
     try {
         if (stream.tags && stream.tags.length > 0) {
             const addedTags = await tagService.addAllTags(stream.tags.map((tagName) => ({ name: tagName })));
@@ -83,8 +81,13 @@ export const transformStream = async (
                 boxArtUrl: "",
                 igdbId: "",
             };
-            await categoryService.addCategory(category);
-            categoryToReturn = category;
+            categoryToReturn = await categoryService.addCategory(category);
+        }
+        if (stream.title) {
+            const title = {
+                name: stream.title,
+            };
+            titleToReturn = await titleService.addTitle(title);
         }
         if (!(await channelService.channelExists(stream.user_id))) {
             await channelService.updateChannelDetail(stream.user_id);
@@ -98,6 +101,7 @@ export const transformStream = async (
         stream: transformedStream,
         tags: tagsToReturn,
         category: categoryToReturn,
+        title: titleToReturn,
     };
 };
 
