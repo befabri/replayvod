@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
 import { Channel } from "@prisma/client";
-import { categoryService, tagService, twitchService } from "../services";
+import { categoryService, tagService, titleService, twitchService } from "../services";
 const logger = rootLogger.child({ service: "channelService" });
 
 export const getUserFollowedStreams = async (userId: string, accessToken: string) => {
@@ -33,14 +33,18 @@ export const getUserFollowedStreams = async (userId: string, accessToken: string
                 fetchType: "followedStreams",
             },
         });
-        await prisma.stream.createMany({
-            data: followedStreams.map(({ stream }) => ({
-                ...stream,
-                fetchId: fetchId,
-                fetchedAt: new Date(),
-            })),
-        });
-        for (let { stream, tags, category } of followedStreams) {
+        for (let { stream, tags, category, title } of followedStreams) {
+            await prisma.stream.upsert({
+                where: { id: stream.id },
+                update: {
+                    ...stream,
+                    fetchId: fetchId,
+                },
+                create: {
+                    ...stream,
+                    fetchId: fetchId,
+                },
+            });
             if (tags.length > 0) {
                 await tagService.addAllStreamTags(
                     tags.map((tag) => ({ tagId: tag.name })),
@@ -49,6 +53,9 @@ export const getUserFollowedStreams = async (userId: string, accessToken: string
             }
             if (category) {
                 await categoryService.addStreamCategory(stream.id, category.id);
+            }
+            if (title) {
+                await titleService.addStreamTitle(stream.id, title.name);
             }
         }
         return followedStreams;

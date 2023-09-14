@@ -21,6 +21,7 @@ model FetchLog {
   fetchType String
   user      User       @relation(fields: [userId], references: [userId])
   eventSub  EventSub[]
+  Stream    Stream[]
 }
 
 // utilisateur sur le site qui fait la demande ? Date de demande, le fetch, et lié à la reposne pour savoir qui que quoi
@@ -191,7 +192,7 @@ model Category {
   id                       String                     @id
   boxArtUrl                String
   igdbId                   String?
-  name                     String                     @unique
+  name                     String
   videoCategory            VideoCategory[]
   streamCategory           StreamCategory[]
   downloadScheduleCategory DownloadScheduleCategory[]
@@ -260,9 +261,7 @@ model DownloadScheduleTag {
 
 model Stream {
   id            String           @id
-  fetchId       String
-  fetchedAt     DateTime
-  isMature      Boolean
+  isMature      Boolean?
   language      String
   startedAt     DateTime
   thumbnailUrl  String
@@ -270,6 +269,8 @@ model Stream {
   broadcasterId String
   viewerCount   Int              @default(0)
   channel       Channel          @relation(fields: [broadcasterId], references: [broadcasterId])
+  fetchLog      FetchLog         @relation(fields: [fetchId], references: [fetchId])
+  fetchId       String
   tags          StreamTag[]
   videos        Video[]
   categories    StreamCategory[]
@@ -285,18 +286,18 @@ model Title {
 
 model VideoTitle {
   videoId Int
-  titleId Int
-  video   Video @relation(fields: [videoId], references: [id])
-  title   Title @relation(fields: [titleId], references: [id])
+  titleId String
+  video   Video  @relation(fields: [videoId], references: [id])
+  title   Title  @relation(fields: [titleId], references: [name])
 
   @@id([videoId, titleId])
 }
 
 model StreamTitle {
   streamId String
-  titleId  Int
+  titleId  String
   stream   Stream @relation(fields: [streamId], references: [id])
-  title    Title  @relation(fields: [titleId], references: [id])
+  title    Title  @relation(fields: [titleId], references: [name])
 
   @@id([streamId, titleId])
 }

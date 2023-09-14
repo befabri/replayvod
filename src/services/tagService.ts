@@ -3,6 +3,9 @@ import { prisma } from "../server";
 const logger = rootLogger.child({ service: "tagService" });
 import { Tag } from "@prisma/client";
 
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
+
 export const addTag = async (tag: Tag) => {
     try {
         return prisma.tag.upsert({
@@ -11,18 +14,39 @@ export const addTag = async (tag: Tag) => {
             create: tag,
         });
     } catch (error) {
-        logger.error("Error adding/updating tag:", error);
+        logger.error("Tag data causing error: %s", tag.name);
+        error.failedTagName = tag.name;
         throw error;
     }
 };
 
 export const addAllTags = async (tags: Tag[]) => {
-    try {
-        const promises = tags.map((tag) => addTag(tag));
-        return Promise.all(promises);
-    } catch (error) {
-        logger.error("Error adding/updating multiple tags:", error);
-        throw error;
+    let attempts = 0;
+    const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
+
+    while (attempts < MAX_RETRIES) {
+        try {
+            await prisma.tag.createMany({
+                data: sortedTags,
+                skipDuplicates: true,
+            });
+            return sortedTags;
+        } catch (error) {
+            if (error.message && error.message.includes("deadlock")) {
+                logger.error(`Deadlock encountered while adding/updating tags (Attempt ${attempts + 1})`, {
+                    error,
+                });
+
+                if (attempts === MAX_RETRIES - 1) {
+                    throw error;
+                }
+
+                await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+                attempts++;
+            } else {
+                throw error;
+            }
+        }
     }
 };
 
@@ -54,21 +78,35 @@ export const addStreamTag = async (streamId: string, tagId: string) => {
 
 export const addAllVideoTags = async (tags: { tagId: string }[], videoId: number) => {
     try {
-        const promises = tags.map((tag) => addVideoTag(videoId, tag.tagId));
-        return Promise.all(promises);
+        const data = tags.map((tag) => ({
+            videoId: videoId,
+            tagId: tag.tagId,
+        }));
+
+        await prisma.videoTag.createMany({
+            data: data,
+            skipDuplicates: true,
+        });
+        return data;
     } catch (error) {
-        logger.error("Error adding/updating multiple tags:", error);
-        throw error;
+        logger.error("Error adding/updating multiple videoTags", { error });
     }
 };
 
 export const addAllStreamTags = async (tags: { tagId: string }[], streamId: string) => {
     try {
-        const promises = tags.map((tag) => addStreamTag(streamId, tag.tagId));
-        return Promise.all(promises);
+        const data = tags.map((tag) => ({
+            streamId: streamId,
+            tagId: tag.tagId,
+        }));
+
+        await prisma.streamTag.createMany({
+            data: data,
+            skipDuplicates: true,
+        });
+        return data;
     } catch (error) {
-        logger.error("Error adding/updating multiple tags:", error);
-        throw error;
+        logger.error("Error adding/updating multiple streamTags", { error });
     }
 };
 
