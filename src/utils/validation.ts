@@ -1,4 +1,4 @@
-import { EventSubResponse, Game, User, Stream, FollowedChannel, FollowedStream } from "../models/twitchModel";
+import { EventSubResponse, Game, User, Stream, FollowedChannel } from "../models/twitchModel";
 
 export const isValidStream = (data: any): data is Stream => {
     return (
@@ -16,7 +16,7 @@ export const isValidStream = (data: any): data is Stream => {
         typeof data.language === "string" &&
         typeof data.thumbnail_url === "string" &&
         Array.isArray(data.tag_ids) &&
-        typeof data.is_mature === "boolean"
+        (typeof data.is_mature === "boolean" || data.is_mature === undefined)
     );
 };
 
@@ -51,25 +51,6 @@ export const isValidFollowedChannel = (data: any): data is FollowedChannel => {
         typeof data.broadcaster_login === "string" &&
         typeof data.broadcaster_name === "string" &&
         typeof data.followed_at === "string"
-    );
-};
-
-export const isValidFollowedStream = (data: any): data is FollowedStream => {
-    return (
-        typeof data.id === "string" &&
-        typeof data.user_id === "string" &&
-        typeof data.user_login === "string" &&
-        typeof data.user_name === "string" &&
-        typeof data.game_id === "string" &&
-        typeof data.game_name === "string" &&
-        typeof data.type === "string" &&
-        typeof data.title === "string" &&
-        typeof data.viewer_count === "number" &&
-        typeof data.started_at === "string" &&
-        typeof data.language === "string" &&
-        typeof data.thumbnail_url === "string" &&
-        Array.isArray(data.tag_ids) &&
-        Array.isArray(data.tags)
     );
 };
 

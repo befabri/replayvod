@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getAppAccessToken } from "../utils/twitchUtils";
 import { chunkArray } from "../utils/utils";
-import { Stream, User, FollowedChannel, FollowedStream, EventSubResponse } from "../models/twitchModel";
+import { Stream, User, FollowedChannel, EventSubResponse } from "../models/twitchModel";
 import { logger as rootLogger } from "../app";
 const logger = rootLogger.child({ service: "twitchApi" });
 
@@ -94,7 +94,7 @@ class TwitchAPI {
         }
     }
 
-    async getAllFollowedStreams(userId: string, accessToken: string, cursor?: string): Promise<FollowedStream[]> {
+    async getAllFollowedStreams(userId: string, accessToken: string, cursor?: string): Promise<Stream[]> {
         const response = await axios({
             method: "get",
             url: `https://api.twitch.tv/helix/streams/followed`,
