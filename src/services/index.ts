@@ -11,3 +11,4 @@ export { default as webhookService } from "./webhookService";
 export { default as tagService } from "./tagService";
 export { default as twitchService } from "./twitchService";
 export { default as userService } from "./userService";
+export { default as titleService } from "./titleService";

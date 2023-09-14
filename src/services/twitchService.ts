@@ -1,10 +1,9 @@
 import TwitchAPI from "../utils/twitchAPI";
 import { logger as rootLogger } from "../app";
-import { Category, Channel, Stream, Subscription, Tag, UserFollowedChannels } from "@prisma/client";
+import { Category, Channel, Stream, Subscription, Tag, Title, UserFollowedChannels } from "@prisma/client";
 import {
     isValidEventSubResponse,
     isValidFollowedChannel,
-    isValidFollowedStream,
     isValidGame,
     isValidStream,
     isValidUser,
@@ -87,11 +86,11 @@ export const getAllFollowedStreams = async (
     userId: string,
     accessToken: string,
     cursor?: string
-): Promise<{ stream: Stream; tags: Tag[]; category: any }[] | null> => {
+): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Title }[] | null> => {
     try {
         const followedStreams = await twitchAPI.getAllFollowedStreams(userId, accessToken, cursor);
 
-        if (!followedStreams || followedStreams.some((stream) => !isValidFollowedStream(stream))) {
+        if (!followedStreams || followedStreams.some((stream) => !isValidStream(stream))) {
             logger.error("Received invalid stream data from Twitch API:", followedStreams);
             return null;
         }
@@ -107,7 +106,7 @@ export const getAllFollowedStreams = async (
 
 export const getStreamByUserId = async (
     userId: string
-): Promise<{ stream: Stream; tags: Tag[]; category: Category } | null> => {
+): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Title } | null> => {
     try {
         const fetchedStream = await twitchAPI.getStreamByUserId(userId);
         if (!fetchedStream || !isValidStream(fetchedStream)) {
