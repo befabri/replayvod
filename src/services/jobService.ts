@@ -13,7 +13,8 @@ export const createJobId = (): string => {
 
 export const createJob = async (id: string, func: () => Promise<void>) => {
     if (isJobExists(id)) {
-        throw new Error("Job already exist");
+        logger.error("Job already exist");
+        return;
     }
     const job: Job = { id, status: Status.PENDING };
     jobs.set(id, job);
