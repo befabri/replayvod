@@ -8,7 +8,7 @@ import Following from "./pages/Record/Following.tsx";
 import AddChannel from "./pages/Record/AddChannel.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
 import Login from "./pages/Login.tsx";
-import Channel from "./pages/Channel.tsx";
+import ChannelPage from "./pages/ChannelPage.tsx";
 import Manage from "./pages/Record/Manage.tsx";
 import HistoryPage from "./pages/Activity/History.tsx";
 import Queue from "./pages/Activity/Queue.tsx";
@@ -17,73 +17,73 @@ import Status from "./pages/System/Status.tsx";
 import Logs from "./pages/System/Logs.tsx";
 
 export default function App() {
-  return (
-    <AuthProvider>
-      <AuthStatus />
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route element={<RequireAuth />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/schedule/add" element={<AddChannel />} />
-          <Route path="/schedule/manage" element={<Manage />} />
-          <Route path="/schedule/following" element={<Following />} />
-          <Route path="/activity/queue" element={<Queue />} />
-          <Route path="/activity/history" element={<HistoryPage />} />
-          <Route path="/vod" element={<Vod />} />
-          <Route path="/channel/:id" element={<Channel />} />
-          <Route path="/system/status" element={<Status />} />
-          <Route path="/system/tasks" element={<Tasks />} />
-          <Route path="/system/logs" element={<Logs />} />
-        </Route>
-      </Routes>
-    </AuthProvider>
-  );
+    return (
+        <AuthProvider>
+            <AuthStatus />
+            <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route element={<RequireAuth />}>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/schedule/add" element={<AddChannel />} />
+                    <Route path="/schedule/manage" element={<Manage />} />
+                    <Route path="/schedule/following" element={<Following />} />
+                    <Route path="/activity/queue" element={<Queue />} />
+                    <Route path="/activity/history" element={<HistoryPage />} />
+                    <Route path="/vod" element={<Vod />} />
+                    <Route path="/channel/:id" element={<ChannelPage />} />
+                    <Route path="/system/status" element={<Status />} />
+                    <Route path="/system/tasks" element={<Tasks />} />
+                    <Route path="/system/logs" element={<Logs />} />
+                </Route>
+            </Routes>
+        </AuthProvider>
+    );
 }
 
 function AuthStatus() {
-  let auth = useAuth();
+    let auth = useAuth();
 
-  if (!auth.user) {
-    return null;
-  }
+    if (!auth.user) {
+        return null;
+    }
 
-  return (
-    <>
-      {auth.user && (
-        <div>
-          <Navbar />
-          <Sidebar isOpenSideBar={false} onCloseSidebar={handleSidebarClose} />
-        </div>
-      )}
-    </>
-  );
+    return (
+        <>
+            {auth.user && (
+                <div>
+                    <Navbar />
+                    <Sidebar isOpenSideBar={false} onCloseSidebar={handleSidebarClose} />
+                </div>
+            )}
+        </>
+    );
 }
 
 function handleSidebarClose(): void {
-  throw new Error("Function not implemented.");
+    throw new Error("Function not implemented.");
 }
 
 function RequireAuth() {
-  let auth = useAuth();
-  let location = useLocation();
+    let auth = useAuth();
+    let location = useLocation();
 
-  if (auth.isLoading) {
+    if (auth.isLoading) {
+        return (
+            <div>
+                <Navbar />
+                <Sidebar isOpenSideBar={false} onCloseSidebar={handleSidebarClose} />
+            </div>
+        );
+    }
+    if (!auth.user) {
+        return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
     return (
-      <div>
-        <Navbar />
-        <Sidebar isOpenSideBar={false} onCloseSidebar={handleSidebarClose} />
-      </div>
+        <div>
+            <Outlet />
+        </div>
     );
-  }
-  if (!auth.user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  return (
-    <div>
-      <Outlet />
-    </div>
-  );
 }
