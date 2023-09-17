@@ -63,3 +63,30 @@ export interface EventSubCost {
     total_cost: number;
     max_total_cost: number;
 }
+
+export interface Stream {
+    id: string;
+    isMature: true;
+    language: string;
+    startedAt: string;
+    thumbnailUrl: string;
+    type: string;
+    broadcasterId: string;
+    viewerCount: number;
+    fetchId: string;
+}
+
+export interface Channel {
+    broadcasterId: string;
+    broadcasterLogin: string;
+    broadcasterName: string;
+    displayName: string;
+    broadcasterType: string;
+    createdAt: string;
+    description: string;
+    offlineImageUrl: string;
+    profileImageUrl: string;
+    profilePicture: string;
+    type: string;
+    viewCount: number;
+}
