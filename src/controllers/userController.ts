@@ -1,5 +1,7 @@
 import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
 import { channelService, userService } from "../services";
+import { logger as rootLogger } from "../app";
+const logger = rootLogger.child({ service: "userController" });
 
 const userCacheNotFound = new Map();
 const userCache = new Map();
@@ -75,32 +77,33 @@ export const getUserDetail = async (req: FastifyRequest<Params>, reply: FastifyR
     }
 };
 
+//Backend
 export const getChannelDetailByName = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const username = req.params.name;
     if (!username || typeof username !== "string") {
-        reply.status(400).send("Invalid user id");
+        reply.status(400).send({ error: "Invalid user name" });
         return;
     }
     try {
         if (userCacheNotFound.has(username)) {
-            reply.status(404).send("User not found");
+            reply.send({ exists: false });
             return;
         }
         if (userCache.has(username)) {
-            reply.send(userCache.get(username));
+            reply.send({ exists: true, user: userCache.get(username) });
             return;
         }
         const user = await channelService.getChannelDetailByName(username);
         if (!user) {
             userCacheNotFound.set(username, true);
-            reply.status(404).send("User not found");
+            reply.send({ exists: false });
             return;
         }
         userCache.set(username, user);
-        reply.send(user);
+        reply.send({ exists: true, user });
     } catch (error) {
-        console.error("Error fetching user details:", error);
-        reply.status(500).send("Error fetching user details");
+        logger.error("Error fetching user details: %s", error);
+        reply.status(500).send({ error: "Error fetching user details" });
     }
 };
 
