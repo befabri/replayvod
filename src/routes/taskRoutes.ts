@@ -14,10 +14,10 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         },
     };
 
-    fastify.get("/tasks", { preHandler: [isUserWhitelisted, userAuthenticated] }, taskController.getTasks);
+    fastify.get("/", { preHandler: [isUserWhitelisted, userAuthenticated] }, taskController.getTasks);
 
     fastify.get(
-        "/tasks/:id",
+        "/:id",
         {
             preHandler: [isUserWhitelisted, userAuthenticated],
             schema: taskSchema,
@@ -26,7 +26,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
     );
 
     fastify.get(
-        "/tasks/run/:id",
+        "/run/:id",
         {
             preHandler: [isUserWhitelisted, userAuthenticated],
             schema: taskSchema,
