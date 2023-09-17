@@ -12,7 +12,7 @@ const TableTasks: React.FC<{ items: Task[] }> = ({ items: initialItems }) => {
 
     const fetchTaskData = async (id: string) => {
         setLoadingTasks((prev) => [...prev, id]);
-        const response = await fetch(`${ROOT_URL}/api/schedule/tasks/run/${id}`, {
+        const response = await fetch(`${ROOT_URL}/api/task/run/${id}`, {
             credentials: "include",
         });
         const data = await response.json();

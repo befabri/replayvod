@@ -11,7 +11,7 @@ const Tasks: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            const response = await fetch(`${ROOT_URL}/api/task/tasks`, {
+            const response = await fetch(`${ROOT_URL}/api/task`, {
                 credentials: "include",
             });
             if (!response.ok) {
