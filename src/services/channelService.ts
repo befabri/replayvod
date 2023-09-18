@@ -1,8 +1,9 @@
 import { v4 as uuidv4 } from "uuid";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
-import { Channel } from "@prisma/client";
+import { Channel, Stream } from "@prisma/client";
 import { categoryService, tagService, titleService, twitchService } from "../services";
+import { StreamWithRelations } from "../types/sharedTypes";
 const logger = rootLogger.child({ service: "channelService" });
 
 export const getUserFollowedStreams = async (userId: string, accessToken: string) => {
@@ -34,29 +35,143 @@ export const getUserFollowedStreams = async (userId: string, accessToken: string
             },
         });
         for (let { stream, tags, category, title } of followedStreams) {
-            await prisma.stream.upsert({
-                where: { id: stream.id },
-                update: {
-                    ...stream,
-                    fetchId: fetchId,
+            await createStreamEntry(stream, tags, category, title, fetchId);
+        }
+        return followedStreams;
+    } catch (error) {
+        logger.error(`Error fetching followed streams: ${error}`);
+        throw new Error("Error fetching followed streams");
+    }
+};
+
+export const getStream = async (
+    broadcasterId: string,
+    userId: string
+): Promise<StreamWithRelations | undefined> => {
+    try {
+        const fetchLog = await prisma.fetchLog.findFirst({
+            where: {
+                userId: userId,
+                fetchType: "stream",
+                broadcasterId: broadcasterId,
+            },
+            orderBy: {
+                fetchedAt: "desc",
+            },
+        });
+        // Assuming that there is only one fetch id on all stream
+        if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - 5 * 60 * 1000)) {
+            return prisma.stream.findFirst({
+                where: {
+                    fetchId: fetchLog.fetchId,
                 },
-                create: {
-                    ...stream,
-                    fetchId: fetchId,
+                include: {
+                    channel: true,
+                    fetchLog: true,
+                    tags: true,
+                    videos: true,
+                    categories: true,
+                    titles: true,
                 },
             });
-            if (tags.length > 0) {
-                await tagService.addAllStreamTags(
-                    tags.map((tag) => ({ tagId: tag.name })),
-                    stream.id
-                );
-            }
-            if (category) {
-                await categoryService.addStreamCategory(stream.id, category.id);
-            }
-            if (title) {
-                await titleService.addStreamTitle(stream.id, title.name);
-            }
+        }
+        const fetchId = uuidv4();
+        const stream = await twitchService.getStreamByUserId(broadcasterId);
+        if (stream === "offline") {
+            return;
+        }
+        await prisma.fetchLog.create({
+            data: {
+                userId: userId,
+                fetchedAt: new Date(),
+                fetchId: fetchId,
+                fetchType: "stream",
+                broadcasterId: broadcasterId,
+            },
+        });
+
+        await createStreamEntry(stream.stream, stream.tags, stream.category, stream.title, fetchId);
+
+        return await prisma.stream.findFirst({
+            where: {
+                fetchId: fetchId,
+            },
+            include: {
+                channel: true,
+                fetchLog: true,
+                tags: true,
+                videos: true,
+                categories: true,
+                titles: true,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error fetching stream: ${error}`);
+        throw new Error("Error fetching stream");
+    }
+};
+
+export const createStreamEntry = async (stream, tags, category, title, fetchId: string) => {
+    try {
+        await prisma.stream.upsert({
+            where: { id: stream.id },
+            update: {
+                ...stream,
+                fetchId: fetchId,
+            },
+            create: {
+                ...stream,
+                fetchId: fetchId,
+            },
+        });
+        if (tags.length > 0) {
+            await tagService.addAllStreamTags(
+                tags.map((tag) => ({ tagId: tag.name })),
+                stream.id
+            );
+        }
+        if (category) {
+            await categoryService.addStreamCategory(stream.id, category.id);
+        }
+        if (title) {
+            await titleService.addStreamTitle(stream.id, title.name);
+        }
+    } catch (error) {
+        logger.error(`Error creating stream entry: ${error}`);
+        throw new Error("Error creating stream entry");
+    }
+};
+
+export const getChannelStream = async (broadcasterId: string, userId: string, accessToken: string) => {
+    try {
+        const fetchLog = await prisma.fetchLog.findFirst({
+            where: {
+                userId: userId,
+                fetchType: "stream",
+            },
+            orderBy: {
+                fetchedAt: "desc",
+            },
+        });
+        if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - 5 * 60 * 1000)) {
+            return prisma.stream.findMany({
+                where: {
+                    fetchId: fetchLog.fetchId,
+                },
+            });
+        }
+        const fetchId = uuidv4();
+        const followedStreams = await twitchService.getAllFollowedStreams(userId, accessToken);
+        await prisma.fetchLog.create({
+            data: {
+                userId: userId,
+                fetchedAt: new Date(),
+                fetchId: fetchId,
+                fetchType: "followedStreams",
+            },
+        });
+        for (let { stream, tags, category, title } of followedStreams) {
+            await createStreamEntry(stream, tags, category, title, fetchId);
         }
         return followedStreams;
     } catch (error) {
@@ -360,4 +475,5 @@ export default {
     channelExists,
     getUsersFollowedChannelsDb,
     getBroadcasterIds,
+    getStream,
 };

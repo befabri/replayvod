@@ -1,7 +1,16 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
-import { channelService, downloadService, jobService, userService } from "../services";
+import {
+    channelService,
+    downloadService,
+    jobService,
+    twitchService,
+    userService,
+    videoService,
+} from "../services";
 import TwitchAPI from "../utils/twitchAPI";
 import { VideoQuality } from "../models/downloadModel";
+import { Quality } from "@prisma/client";
+import { JobDetail } from "../types/sharedTypes";
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 const twitchAPI = new TwitchAPI();
@@ -81,7 +90,7 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         return;
     }
     const broadcasterId = req.params.id;
-    const quality = VideoQuality[req.params.quality as keyof typeof VideoQuality] || VideoQuality.MEDIUM;
+    const quality: Quality = videoService.mapVideoQualityToQuality(req.params.quality);
     if (!broadcasterId) {
         reply.status(400).send("Invalid broadcaster id");
         return;
@@ -91,8 +100,8 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         reply.status(404).send("User not found");
         return;
     }
-    const stream = await twitchAPI.getStreamByUserId(broadcasterId);
-    if (stream === null) {
+    const stream = await channelService.getStream(broadcasterId, userId);
+    if (!stream) {
         reply.status(400).send({ message: "Stream is offline" });
         return;
     }
@@ -105,7 +114,8 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         return;
     }
     const jobId = jobService.createJobId();
-    await downloadService.handleDownload({ userId, channel, jobId, quality }, broadcasterId);
+    const jobDetails: JobDetail = { stream, userId, channel, jobId, quality };
+    await downloadService.handleDownload(jobDetails, broadcasterId);
     reply.send({ jobId });
 };
 

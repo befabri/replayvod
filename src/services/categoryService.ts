@@ -65,7 +65,7 @@ export const getCategoryByName = async (name: string) => {
     return prisma.category.findFirst({ where: { name: name } });
 };
 
-const addVideoCategory = async (videoId, categoryId) => {
+const addVideoCategory = async (videoId: number, categoryId: string) => {
     try {
         const existingEntry = await prisma.videoCategory.findUnique({
             where: { videoId_categoryId: { videoId: videoId, categoryId: categoryId } },
@@ -87,7 +87,7 @@ const addVideoCategory = async (videoId, categoryId) => {
     }
 };
 
-const addStreamCategory = async (streamId, categoryId) => {
+const addStreamCategory = async (streamId: string, categoryId: string) => {
     try {
         const existingEntry = await prisma.streamCategory.findUnique({
             where: { streamId_categoryId: { streamId: streamId, categoryId: categoryId } },

@@ -12,7 +12,7 @@ export const createJobId = (): string => {
 };
 
 export const createJob = async (id: string, func: () => Promise<void>) => {
-    if (isJobExists(id)) {
+    if (await isJobExists(id)) {
         logger.error("Job already exist");
         return;
     }

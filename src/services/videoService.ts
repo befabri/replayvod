@@ -1,9 +1,13 @@
 import fs from "fs";
 import path from "path";
 import ffmpeg from "fluent-ffmpeg";
-import { Status, Video } from "@prisma/client";
+import { Channel, Quality, Status, Stream, Video } from "@prisma/client";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
+import { VideoQuality } from "../models/downloadModel";
+import { categoryService, tagService, titleService } from "../services";
+import moment from "moment";
+import { StreamWithRelations } from "../types/sharedTypes";
 const logger = rootLogger.child({ service: "videoService" });
 
 export const getVideoById = async (id: number): Promise<Video | null> => {
@@ -31,6 +35,32 @@ export const getVideosFromUser = async (userId: string, status?: Status) => {
     await Promise.all(videosWithoutSize.map(updateVideoSize));
 
     return videos;
+};
+
+export const mapVideoQualityToQuality = (input: string): Quality => {
+    switch (input) {
+        case VideoQuality.LOW:
+            return Quality.LOW;
+        case VideoQuality.MEDIUM:
+            return Quality.MEDIUM;
+        case VideoQuality.HIGH:
+            return Quality.HIGH;
+        default:
+            return Quality.MEDIUM;
+    }
+};
+
+export const mapQualityToVideoQuality = (quality: Quality): string => {
+    switch (quality) {
+        case Quality.LOW:
+            return VideoQuality.LOW;
+        case Quality.MEDIUM:
+            return VideoQuality.MEDIUM;
+        case Quality.HIGH:
+            return VideoQuality.HIGH;
+        default:
+            return VideoQuality.MEDIUM;
+    }
 };
 
 export const updateVideoSize = async (video: Video) => {
@@ -324,6 +354,230 @@ export const getVideosByChannel = async (broadcaster_id: string) => {
     });
 };
 
+export const saveVideoInfo = async ({
+    userRequesting,
+    channel,
+    videoName,
+    startAt,
+    status,
+    jobId,
+    stream,
+    videoQuality,
+}: {
+    userRequesting: string;
+    channel: Channel;
+    videoName: string;
+    startAt: Date;
+    status: Status;
+    jobId: string;
+    stream: StreamWithRelations;
+    videoQuality: Quality;
+}) => {
+    try {
+        const video = await prisma.video.create({
+            data: {
+                filename: videoName,
+                status: status,
+                displayName: channel.displayName,
+                startDownloadAt: startAt,
+                viewerCount: stream.viewerCount,
+                language: stream.language,
+                quality: videoQuality,
+                channel: {
+                    connect: {
+                        broadcasterId: channel.broadcasterId,
+                    },
+                },
+                job: {
+                    connect: {
+                        id: jobId,
+                    },
+                },
+                stream: {
+                    connect: {
+                        id: stream.id,
+                    },
+                },
+            },
+        });
+        await prisma.videoRequest.create({
+            data: {
+                video: {
+                    connect: {
+                        id: video.id,
+                    },
+                },
+                user: {
+                    connect: {
+                        userId: userRequesting,
+                    },
+                },
+            },
+        });
+        for (let title of stream.titles) {
+            await titleService.addVideoTitle(video.id, title.titleId);
+        }
+        for (let category of stream.categories) {
+            await categoryService.addVideoCategory(video.id, category.categoryId);
+        }
+        for (let tag of stream.tags) {
+            await tagService.addVideoTag(video.id, tag.tagId);
+        }
+    } catch (error) {
+        throw new Error("Error saving video: %s", error);
+    }
+};
+
+const updateVideoTitle = async (videoId, titles) => {
+    // const promises = titles.map((titleData) =>
+    //     prisma.videoTitle.upsert({
+    //         where: {
+    //             videoId_titleId: {
+    //                 videoId: videoId,
+    //                 titleId: titleData.id,
+    //             },
+    //         },
+    //         update: {},
+    //         create: {
+    //             video: {
+    //                 connect: {
+    //                     id: videoId,
+    //                 },
+    //             },
+    //             title: {
+    //                 connect: {
+    //                     id: titleData.id,
+    //                 },
+    //             },
+    //         },
+    //     })
+    // );
+    // try {
+    //     return await Promise.all(promises);
+    // } catch (error) {
+    //     console.error("Error updating video titles:", error);
+    //     throw error;
+    // }
+};
+
+export const createStreamEntry = async (stream, tags, category, title, fetchId: string) => {
+    try {
+        await prisma.stream.upsert({
+            where: { id: stream.id },
+            update: {
+                ...stream,
+                fetchId: fetchId,
+            },
+            create: {
+                ...stream,
+                fetchId: fetchId,
+            },
+        });
+        if (tags.length > 0) {
+            await tagService.addAllStreamTags(
+                tags.map((tag) => ({ tagId: tag.name })),
+                stream.id
+            );
+        }
+        if (category) {
+            await categoryService.addStreamCategory(stream.id, category.id);
+        }
+        if (title) {
+            await titleService.addStreamTitle(stream.id, title.name);
+        }
+    } catch (error) {
+        logger.error(`Error creating stream entry: ${error}`);
+        throw new Error("Error creating stream entry");
+    }
+};
+
+const updateVideoCategory = async (videoId, categories) => {
+    const promises = categories.map((categoryData) =>
+        prisma.videoCategory.upsert({
+            where: {
+                videoId_categoryId: {
+                    videoId: videoId,
+                    categoryId: categoryData.id,
+                },
+            },
+            update: {},
+            create: {
+                video: {
+                    connect: {
+                        id: videoId,
+                    },
+                },
+                category: {
+                    connect: {
+                        id: categoryData.id,
+                    },
+                },
+            },
+        })
+    );
+    try {
+        return await Promise.all(promises);
+    } catch (error) {
+        console.error("Error updating video categories:", error);
+        throw error;
+    }
+};
+
+const updateVideoTag = async (videoId: number, tags: any) => {
+    const promises = tags.map((tagData) =>
+        prisma.videoTag.upsert({
+            where: {
+                videoId_tagId: {
+                    videoId: videoId,
+                    tagId: tagData.name,
+                },
+            },
+            update: {},
+            create: {
+                video: {
+                    connect: {
+                        id: videoId,
+                    },
+                },
+                tag: {
+                    connect: {
+                        name: tagData.name,
+                    },
+                },
+            },
+        })
+    );
+    try {
+        return await Promise.all(promises);
+    } catch (error) {
+        console.error("Error updating video tags:", error);
+        throw error;
+    }
+};
+
+// TODO: pourquoi mettre une date de fin ? -> Si fin autant mettre DONE directement
+export const updateVideoInfo = async (videoName: string, endAt: Date, status: Status) => {
+    return prisma.video.update({
+        where: {
+            filename: videoName,
+        },
+        data: {
+            downloadedAt: endAt,
+            status: status,
+        },
+    });
+};
+
+export const getVideoFilePath = (login: string) => {
+    const currentDate = moment().format("DDMMYYYY-HHmmss");
+    const filename = `${login}_${currentDate}.mp4`;
+    const directoryPath = path.resolve(process.env.PUBLIC_DIR, "videos", login);
+    if (!fs.existsSync(directoryPath)) {
+        fs.mkdirSync(directoryPath, { recursive: true });
+    }
+    return path.join(directoryPath, filename);
+};
+
 export default {
     getVideoById,
     updateVideoSize,
@@ -342,4 +596,9 @@ export default {
     getVideosFromUser,
     updateVideoData,
     getVideosByChannel,
+    mapVideoQualityToQuality,
+    saveVideoInfo,
+    getVideoFilePath,
+    updateVideoInfo,
+    mapQualityToVideoQuality,
 };

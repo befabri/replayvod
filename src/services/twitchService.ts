@@ -106,14 +106,16 @@ export const getAllFollowedStreams = async (
 
 export const getStreamByUserId = async (
     userId: string
-): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Title } | null> => {
+): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Title } | "offline" | null> => {
     try {
         const fetchedStream = await twitchAPI.getStreamByUserId(userId);
-        if (!fetchedStream || !isValidStream(fetchedStream)) {
+        if (!fetchedStream) {
+            return "offline";
+        }
+        if (!isValidStream(fetchedStream)) {
             logger.error("Received invalid stream data from Twitch API:", fetchedStream);
             return null;
         }
-
         const transformedStreams = transformStream(fetchedStream);
         return transformedStreams;
     } catch (error) {

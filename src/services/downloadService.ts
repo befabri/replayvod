@@ -1,22 +1,11 @@
 import { VideoQuality } from "../models/downloadModel";
-import { channelService, videoService, jobService, categoryService, twitchService } from "../services";
+import { channelService, videoService, jobService } from "../services";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
 const logger = rootLogger.child({ service: "downloadService" });
-import fs from "fs";
 import path from "path";
-import moment from "moment";
-import {
-    Channel,
-    DownloadSchedule,
-    Provider,
-    Quality,
-    Status,
-    Trigger,
-    Stream,
-    Video,
-    Prisma,
-} from "@prisma/client";
+import { DownloadSchedule, Provider, Quality, Status, Trigger } from "@prisma/client";
+import { DownloadParams, JobDetail } from "../types/sharedTypes";
 const os = require("os");
 const { create: createYoutubeDl } = require("youtube-dl-exec");
 
@@ -34,78 +23,7 @@ export const planningRecord = async (userId: string) => {
     return "Successful registration planning";
 };
 
-export const saveVideoInfo = async ({
-    userRequesting,
-    channel,
-    videoName,
-    startAt,
-    status,
-    jobId,
-    stream,
-    videoQuality,
-}: {
-    userRequesting: string;
-    channel: Channel;
-    videoName: string;
-    startAt: Date;
-    status: Status;
-    jobId: string;
-    stream: Stream;
-    videoQuality: Quality;
-}) => {
-    const video = await prisma.video.create({
-        data: {
-            filename: videoName,
-            status: status,
-            displayName: channel.displayName,
-            startDownloadAt: startAt,
-            viewerCount: stream.viewerCount,
-            language: stream.language,
-            quality: videoQuality,
-            channel: {
-                connect: {
-                    broadcasterId: channel.broadcasterId,
-                },
-            },
-            job: {
-                connect: {
-                    id: jobId,
-                },
-            },
-            stream: {
-                connect: {
-                    id: stream.id,
-                },
-            },
-        },
-    });
-    await prisma.videoRequest.create({
-        data: {
-            video: {
-                connect: {
-                    id: video.id,
-                },
-            },
-            user: {
-                connect: {
-                    userId: userRequesting,
-                },
-            },
-        },
-    });
-    await updatingVideoFromStream(video.id, stream.id);
-};
-
-const updatingVideoFromStream = async (videoId, streamId) => {
-    const titles = await getAllTitlesFromStream(streamId);
-    await updateVideoTitle(videoId, titles);
-    const categories = await getAllCategoriesFromStream(streamId);
-    await updateVideoCategory(videoId, categories);
-    const tags = await getAllTagsFromStream(streamId);
-    await updateVideoTag(videoId, tags);
-};
-
-const getAllTagsFromStream = async (streamId) => {
+export const getAllTagsFromStream = async (streamId) => {
     const streamTags = await prisma.streamTag.findMany({
         where: {
             streamId: streamId,
@@ -118,7 +36,7 @@ const getAllTagsFromStream = async (streamId) => {
     return streamTags.map((st) => st.tag.name);
 };
 
-const getAllCategoriesFromStream = async (streamId) => {
+export const getAllCategoriesFromStream = async (streamId) => {
     const streamCategories = await prisma.streamCategory.findMany({
         where: {
             streamId: streamId,
@@ -131,7 +49,7 @@ const getAllCategoriesFromStream = async (streamId) => {
     return streamCategories.map((sc) => sc.category.name);
 };
 
-const getAllTitlesFromStream = async (streamId) => {
+export const getAllTitlesFromStream = async (streamId) => {
     const streamTitles = await prisma.streamTitle.findMany({
         where: {
             streamId: streamId,
@@ -144,157 +62,38 @@ const getAllTitlesFromStream = async (streamId) => {
     return streamTitles.map((st) => st.title.name);
 };
 
-const updateVideoTitle = async (videoId, titles) => {
-    const promises = titles.map((titleData) =>
-        prisma.videoTitle.upsert({
-            where: {
-                videoId_titleId: {
-                    videoId: videoId,
-                    titleId: titleData.id,
-                },
-            },
-            update: {},
-            create: {
-                video: {
-                    connect: {
-                        id: videoId,
-                    },
-                },
-                title: {
-                    connect: {
-                        id: titleData.id,
-                    },
-                },
-            },
-        })
-    );
-    try {
-        return await Promise.all(promises);
-    } catch (error) {
-        console.error("Error updating video titles:", error);
-        throw error;
-    }
-};
-
-const updateVideoCategory = async (videoId, categories) => {
-    const promises = categories.map((categoryData) =>
-        prisma.videoCategory.upsert({
-            where: {
-                videoId_categoryId: {
-                    videoId: videoId,
-                    categoryId: categoryData.id,
-                },
-            },
-            update: {},
-            create: {
-                video: {
-                    connect: {
-                        id: videoId,
-                    },
-                },
-                category: {
-                    connect: {
-                        id: categoryData.id,
-                    },
-                },
-            },
-        })
-    );
-    try {
-        return await Promise.all(promises);
-    } catch (error) {
-        console.error("Error updating video categories:", error);
-        throw error;
-    }
-};
-
-const updateVideoTag = async (videoId: number, tags: any) => {
-    const promises = tags.map((tagData) =>
-        prisma.videoTag.upsert({
-            where: {
-                videoId_tagId: {
-                    videoId: videoId,
-                    tagId: tagData.name,
-                },
-            },
-            update: {},
-            create: {
-                video: {
-                    connect: {
-                        id: videoId,
-                    },
-                },
-                tag: {
-                    connect: {
-                        name: tagData.name,
-                    },
-                },
-            },
-        })
-    );
-    try {
-        return await Promise.all(promises);
-    } catch (error) {
-        console.error("Error updating video tags:", error);
-        throw error;
-    }
-};
-
-// TODO: pourquoi mettre une date de fin ? -> Si fin autant mettre DONE directement
-export const updateVideoInfo = async (videoName: string, endAt: Date, status: Status) => {
-    return prisma.video.update({
-        where: {
-            filename: videoName,
-        },
-        data: {
-            downloadedAt: endAt,
-            status: status,
-        },
-    });
-};
-
-export const getVideoFilePath = (login: string) => {
-    const currentDate = moment().format("DDMMYYYY-HHmmss");
-    const filename = `${login}_${currentDate}.mp4`;
-    const directoryPath = path.resolve(process.env.PUBLIC_DIR, "videos", login);
-    if (!fs.existsSync(directoryPath)) {
-        fs.mkdirSync(directoryPath, { recursive: true });
-    }
-    return path.join(directoryPath, filename);
-};
-
-export const startDownload = async (
-    requestingUserId: string,
-    channel: Channel,
-    jobId: string,
-    stream: Stream,
-    videoQuality: Quality
-) => {
-    const videoFilePath = getVideoFilePath(channel.broadcasterLogin);
+export const startDownload = async ({
+    requestingUserId,
+    channel,
+    jobId,
+    stream,
+    videoQuality,
+}: DownloadParams) => {
+    const videoFilePath = videoService.getVideoFilePath(channel.broadcasterLogin);
     const cookiesFilePath = path.resolve(process.env.DATA_DIR, "cookies.txt");
-    const startAt = new Date();
     const filename = path.basename(videoFilePath);
-    await saveVideoInfo({
+    await videoService.saveVideoInfo({
         userRequesting: requestingUserId,
         channel: channel,
         videoName: filename,
-        startAt: startAt,
+        startAt: new Date(),
         status: Status.PENDING,
         jobId: jobId,
         stream: stream,
         videoQuality: videoQuality,
     });
+    const resolution: string = videoService.mapQualityToVideoQuality(videoQuality);
     return new Promise<string>((resolve, reject) => {
         logger.info(
             `Download: ${JSON.stringify({
                 download: `https://www.twitch.tv/${channel.broadcasterLogin}`,
-                format: `best[height=${videoQuality}]`,
+                format: `best[height=${resolution}]`,
                 output: videoFilePath,
                 cookies: cookiesFilePath,
             })} `
         );
         const subprocess = youtubedl.exec(`https://www.twitch.tv/${channel.broadcasterLogin}`, {
-            format: `best[height=${videoQuality}]`,
+            format: `best[height=${resolution}]`,
             output: videoFilePath,
         });
 
@@ -463,31 +262,33 @@ export const addSchedule = async (scheduleData) => {
     });
 };
 
-export const handleDownload = async (jobDetails: any, broadcaster_id: string) => {
-    // TODO: A modifier
-    const pendingJob = await jobService.findPendingJobByBroadcasterId(broadcaster_id);
+export const handleDownload = async (
+    { stream, userId, channel, jobId, quality }: JobDetail,
+    broadcasterId: string
+) => {
+    const pendingJob = await jobService.findPendingJobByBroadcasterId(broadcasterId);
     if (pendingJob) {
         return;
     }
-    const stream = await twitchService.getStreamByUserId(broadcaster_id);
-    if (stream === null) {
-        return;
+    try {
+        jobService.createJob(jobId, async () => {
+            try {
+                await startDownload({
+                    requestingUserId: userId,
+                    channel: channel,
+                    jobId: jobId,
+                    stream: stream,
+                    videoQuality: quality,
+                });
+            } catch (error) {
+                logger.error("Error when downloading: %s", error);
+                throw error;
+            }
+        });
+    } catch (error) {
+        logger.error("Failed to create job: %s", error);
+        throw error;
     }
-
-    jobService.createJob(jobDetails.jobId, async () => {
-        try {
-            const video = await startDownload(
-                jobDetails.loginId,
-                jobDetails.user,
-                jobDetails.jobId,
-                stream,
-                jobDetails.quality
-            );
-        } catch (error) {
-            logger.error("Error when downloading:", error);
-            throw error;
-        }
-    });
 };
 
 const getScheduleDetail = async (schedule, broadcaster_id: string) => {
@@ -539,13 +340,13 @@ const getAllScheduleByChannel = async (broadcasterId: string): Promise<DownloadS
 
 export default {
     planningRecord,
-    saveVideoInfo,
-    updateVideoInfo,
-    getVideoFilePath,
     startDownload,
     finishDownload,
     setVideoFailed,
     updateVideoCollection,
     addSchedule,
     handleDownload,
+    getAllTitlesFromStream,
+    getAllCategoriesFromStream,
+    getAllTagsFromStream,
 };

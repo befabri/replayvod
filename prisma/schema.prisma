@@ -13,15 +13,18 @@ model AppAccessToken {
   expiresAt   DateTime
 }
 
-/// Represents logs when data is fetched.
+// Represents logs when data is fetched.
+// BroadcasterId MUST BE NULL IF fetchType is not equal to Stream
 model FetchLog {
-  fetchId   String     @id
-  userId    String
-  fetchedAt DateTime
-  fetchType String
-  user      User       @relation(fields: [userId], references: [userId])
-  eventSub  EventSub[]
-  Stream    Stream[]
+  fetchId       String     @id
+  userId        String
+  fetchedAt     DateTime
+  fetchType     String
+  user          User       @relation(fields: [userId], references: [userId])
+  channel       Channel?   @relation(fields: [broadcasterId], references: [broadcasterId])
+  broadcasterId String?
+  eventSub      EventSub[]
+  Stream        Stream[]
 }
 
 // utilisateur sur le site qui fait la demande ? Date de demande, le fetch, et lié à la reposne pour savoir qui que quoi
@@ -102,6 +105,7 @@ model Channel {
   subscription     Subscription[]
   event            Event[]
   downloadSchedule DownloadSchedule[]
+  FetchLog         FetchLog[]
 }
 
 model UserFollowedChannels {
