@@ -18,18 +18,16 @@ const Queue: React.FC = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-
-            const convertedVideos = data.filter((video: Video) => video.status === "Pending");
-
+            const convertedVideos = data.filter((video: Video) => video.status === "PENDING");
             setVideos((prevVideos) => {
                 const updatedVideos = prevVideos.map((video) => {
-                    const newVideo = convertedVideos.find((v: { id: string }) => v.id === video.id);
+                    const newVideo = convertedVideos.find((v: { id: number }) => v.id === video.id);
                     return newVideo || video;
                 });
                 return [
                     ...updatedVideos,
                     ...convertedVideos.filter(
-                        (v: { id: string }) => !prevVideos.find((video) => v.id === video.id)
+                        (v: { id: number }) => !prevVideos.find((video) => v.id === video.id)
                     ),
                 ];
             });

@@ -1,21 +1,37 @@
 export interface Video {
-    _id?: string;
-    id: string;
+    id: number;
     filename: string;
-    status: string;
-    display_name: string;
-    broadcaster_id: string;
-    requested_by: string;
-    start_download_at: Date;
-    downloaded_at: Date;
-    job_id: string;
-    category: { id: string; name: string }[];
-    title: string[];
-    tags: string[];
-    viewer_count: number[];
+    status: "PENDING" | "COMPLETED" | "FAILED";
+    displayName: string;
+    startDownloadAt: Date;
+    downloadedAt: Date | null;
+    viewerCount: number;
     language: string;
-    size?: number;
-    thumbnail?: string;
+    quality: "LOW" | "MEDIUM" | "HIGH";
+    duration: number | null;
+    size: number | null;
+    thumbnail: string | null;
+    broadcasterId: string;
+    jobId: string;
+    streamId: string;
+    tags: {
+        tag: {
+            name: string;
+        };
+    }[];
+    titles: {
+        title: {
+            name: string;
+        };
+    }[];
+    videoCategory: {
+        videoId: number;
+        categoryId: string;
+        category: {
+            name: string;
+        };
+    }[];
+
     isChecked?: boolean;
 }
 

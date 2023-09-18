@@ -85,7 +85,7 @@ const Table = ({
         "start_download_at",
         "category",
     ];
-
+    
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
             <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
@@ -139,9 +139,10 @@ const Table = ({
                                     {video.id}
                                 </th>
                             )}
-                            <td className="px-6 py-4" title={video.title[0]}>
-                                {truncateString(video.title[0], 40)}
+                            <td className="px-6 py-4" title={video.titles[0].title.name}>
+                                {truncateString(video.titles[0].title.name, 40)}
                             </td>
+
                             <td className="px-6 py-4" title={video.filename}>
                                 {video.filename}
                             </td>
@@ -150,17 +151,18 @@ const Table = ({
                                     {t(video.status)}
                                 </td>
                             )}
-                            <td className="px-6 py-4" title={video.display_name}>
-                                {video.display_name}
+                            <td className="px-6 py-4" title={video.displayName}>
+                                {video.displayName}
                             </td>
-                            <td className="px-6 py-4" title={formatDate(video.start_download_at, "Europe/Paris")}>
-                                {formatDate(video.start_download_at, "Europe/Paris")}
+                            <td className="px-6 py-4" title={formatDate(video.startDownloadAt, "Europe/Paris")}>
+                                {formatDate(video.startDownloadAt, "Europe/Paris")}
                             </td>
-                            <td className="px-6 py-4" title={video.category[0].name}>
-                                {video.category.map((cat) => (
-                                    <span key={cat.id}>{cat.name}</span>
+                            <td className="px-6 py-4" title={video.videoCategory[0].category.name}>
+                                {video.videoCategory.map((cat) => (
+                                    <span key={cat.categoryId}>{cat.category.name}</span>
                                 ))}
                             </td>
+
                             {showEdit && (
                                 <td className="px-6 py-4">
                                     <a
