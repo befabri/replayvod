@@ -8,7 +8,7 @@ import fastifyCookie from "@fastify/cookie";
 import routes from "./routes";
 import moment from "moment-timezone";
 import fastifyStatic from "@fastify/static";
-import { isUserWhitelistedStatic, userAuthenticatedStatic } from "./middlewares/authMiddleware";
+import { isUserWhitelisted, userAuthenticated } from "./middlewares/authMiddleware";
 const oauthPlugin = require("@fastify/oauth2");
 const fs = require("fs");
 
@@ -39,8 +39,8 @@ server.register(async (instance, opts) => {
         serve: true,
     });
 
-    instance.addHook("preHandler", isUserWhitelistedStatic);
-    instance.addHook("preHandler", userAuthenticatedStatic);
+    instance.addHook("preHandler", isUserWhitelisted);
+    instance.addHook("preHandler", userAuthenticated);
 });
 server.register(fastifyCookie);
 

@@ -375,12 +375,46 @@ export const updateVideoData = async (
 };
 
 export const getVideosByChannel = async (broadcaster_id: string) => {
-    return prisma.video.findMany({
+    const videos = await prisma.video.findMany({
         where: {
             broadcasterId: broadcaster_id,
             status: Status.DONE,
         },
+        include: {
+            tags: {
+                select: {
+                    tag: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+            titles: {
+                select: {
+                    title: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+            videoCategory: {
+                include: {
+                    category: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+        },
     });
+
+    const videosWithoutSize = videos.filter((video) => !video.size);
+    await Promise.all(videosWithoutSize.map(updateVideoSize));
+
+    return videos;
 };
 
 export const saveVideoInfo = async ({

@@ -153,6 +153,7 @@ export const finishDownload = async (videoPath: string, filename: string, login:
         logger.error("Error updating video data:", error);
     }
 };
+
 export const setVideoFailed = async (jobId: string) => {
     const endAt = new Date();
     return await prisma.video.update({

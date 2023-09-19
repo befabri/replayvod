@@ -9,6 +9,7 @@ const logger = rootLogger.child({ service: "videoController" });
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 const PUBLIC_DIR = process.env.PUBLIC_DIR || VIDEO_PATH;
+const RANGE_LIMIT = 500 * 1024;
 
 interface Params extends RouteGenericInterface {
     Params: {
@@ -40,34 +41,32 @@ export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply
         reply.status(404).send("File not found on server");
         return;
     }
-    logger.info("Reading video");
-    const stat = fs.statSync(videoPath);
-    const fileSize = stat.size;
-    const range = req.headers.range;
-
-    if (range) {
-        const parts = range.replace(/bytes=/, "").split("-");
+    const videoStats = fs.statSync(videoPath);
+    const videoRange = req.headers.range;
+    if (videoRange) {
+        const videoSize = fs.statSync(videoPath).size;
+        const parts = videoRange.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-        const chunksize = end - start + 1;
+        const end = parts[1]
+            ? parseInt(parts[1], 10)
+            : start + RANGE_LIMIT < videoSize - 1
+            ? start + RANGE_LIMIT
+            : videoSize - 1;
+        const chunkSize = end - start + 1;
         const file = fs.createReadStream(videoPath, { start, end });
-        const head = {
-            "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-            "Accept-Ranges": "bytes",
-            "Content-Length": chunksize,
-            "Content-Type": "video/mp4",
-        };
 
-        reply.code(206).headers(head);
-        file.pipe(reply.raw);
+        await reply
+            .code(206)
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Range", `bytes ${start}-${end}/${videoSize}`)
+            .header("Accept-Ranges", "bytes")
+            .header("Content-Length", chunkSize)
+            .send(file);
     } else {
-        const head = {
-            "Content-Length": fileSize,
+        reply.headers({
+            "Content-Length": videoStats.size,
             "Content-Type": "video/mp4",
-        };
-
-        reply.code(200).headers(head);
+        });
         fs.createReadStream(videoPath).pipe(reply.raw);
     }
 };
@@ -161,4 +160,72 @@ export const generateMissingThumbnail = async (req: FastifyRequest, reply: Fasti
 //     });
 
 //     return stream;
+// };
+
+// export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
+//     const videoId = req.params.id;
+
+//     if (videoId === "undefined") {
+//         reply.status(400).send("Invalid video id");
+//         return;
+//     }
+//     const videoIdRequest = parseInt(videoId, 10);
+//     if (isNaN(videoIdRequest)) {
+//         reply.status(400).send("Invalid video id");
+//         return;
+//     }
+//     const video = await videoService.getVideoById(videoIdRequest);
+//     if (!video) {
+//         reply.status(404).send("Video not found in database");
+//         return;
+//     }
+//     const videoPath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
+//     if (!fs.existsSync(videoPath)) {
+//         reply.status(404).send("File not found on server");
+//         return;
+//     }
+//     logger.info("Reading video");
+//     const videoStats = fs.statSync(videoPath);
+
+//     const videoRange = req.headers.range;
+//     console.log(videoRange);
+//     if (videoRange) {
+//         let [startString, endString] = videoRange.replace(/bytes=/, "").split("-");
+//         let start = parseInt(startString, 10);
+//         let end = endString ? parseInt(endString, 10) : videoStats.size - 1;
+//         console.log(start, end);
+//         if (!isNaN(start) && isNaN(end)) {
+//             end = videoStats.size - 1;
+//         }
+//         if (isNaN(start) && !isNaN(end)) {
+//             start = videoStats.size - end;
+//             end = videoStats.size - 1;
+//         }
+
+//         if (start >= videoStats.size || end >= videoStats.size) {
+//             reply
+//                 .status(416)
+//                 .headers({
+//                     "Content-Range": `bytes */${videoStats.size}`,
+//                 })
+//                 .send();
+//             return;
+//         }
+//         console.log("Sending headers with chunk:", end - start + 1);
+//         reply.status(206).headers({
+//             "Content-Range": `bytes ${start}-${end}/${videoStats.size}`,
+//             "Accept-Ranges": "bytes",
+//             "Content-Length": end - start + 1,
+//             "Content-Type": "video/mp4",
+//         });
+
+//         const videoStream = fs.createReadStream(videoPath, { start, end });
+//         videoStream.pipe(reply.raw);
+//     } else {
+//         reply.headers({
+//             "Content-Length": videoStats.size,
+//             "Content-Type": "video/mp4",
+//         });
+//         fs.createReadStream(videoPath).pipe(reply.raw);
+//     }
 // };
