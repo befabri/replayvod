@@ -7,6 +7,8 @@ import fastifySecureSession from "@fastify/secure-session";
 import fastifyCookie from "@fastify/cookie";
 import routes from "./routes";
 import moment from "moment-timezone";
+import fastifyStatic from "@fastify/static";
+import { isUserWhitelistedStatic, userAuthenticatedStatic } from "./middlewares/authMiddleware";
 const oauthPlugin = require("@fastify/oauth2");
 const fs = require("fs");
 
@@ -30,6 +32,16 @@ server.register(cors, {
     credentials: true,
 });
 
+server.register(async (instance, opts) => {
+    instance.register(fastifyStatic, {
+        root: path.join(__dirname, "../public", "thumbnail"),
+        prefix: "/api/videos/thumbnail/",
+        serve: true,
+    });
+
+    instance.addHook("preHandler", isUserWhitelistedStatic);
+    instance.addHook("preHandler", userAuthenticatedStatic);
+});
 server.register(fastifyCookie);
 
 server.register(fastifySecureSession, {

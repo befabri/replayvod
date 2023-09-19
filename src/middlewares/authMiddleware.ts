@@ -34,3 +34,20 @@ export const userAuthenticated = async (
         reply.status(401).send({ error: "Unauthorized" });
     }
 };
+
+export const isUserWhitelistedStatic = async (req, reply) => {
+    const userID = req.session?.user?.twitchId;
+    if (IS_WHITELIST_ENABLED && (!userID || !WHITELISTED_USER_IDS.includes(userID))) {
+        logger.error(`Forbidden, you're not on the whitelist.`);
+        reply.status(403).send({ error: "Forbidden, you're not on the whitelist." });
+        throw new Error("Not on the whitelist");
+    }
+};
+
+export const userAuthenticatedStatic = async (req, reply) => {
+    if (!req.session?.user) {
+        logger.error(`Unauthorized not connected`);
+        reply.status(401).send({ error: "Unauthorized" });
+        throw new Error("Unauthorized");
+    }
+};

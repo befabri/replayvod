@@ -29,6 +29,35 @@ export const getVideosFromUser = async (userId: string, status?: Status) => {
             id: { in: videoIds },
             ...(status && { status }),
         },
+        include: {
+            tags: {
+                select: {
+                    tag: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+            titles: {
+                select: {
+                    title: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+            videoCategory: {
+                include: {
+                    category: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+        },
     });
 
     const videosWithoutSize = videos.filter((video) => !video.size);

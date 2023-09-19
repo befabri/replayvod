@@ -1,9 +1,10 @@
-import { FastifyInstance, FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
+import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
 import { logger as rootLogger } from "../app";
 import fs from "fs";
 import path from "path";
 import { channelService, videoService, userService } from "../services";
 import { Status } from "@prisma/client";
+
 const logger = rootLogger.child({ service: "videoController" });
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
@@ -115,29 +116,49 @@ export const generateMissingThumbnail = async (req: FastifyRequest, reply: Fasti
     }
 };
 
-export const getThumbnail = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    // TODO Verify permission / verify into mongo
-    const { login, filename } = req.params;
-    if (!login || !filename) {
-        return reply.status(400).send("Invalid parameters: Both login and filename are required");
-    }
-    const imagePath = path.resolve(PUBLIC_DIR, "thumbnail", login, filename);
-    fs.stat(imagePath, (err, stat) => {
-        if (err) {
-            if (err.code === "ENOENT") {
-                return reply.status(404).send("File not found");
-            } else {
-                return reply.status(500).send("Error accessing the file");
-            }
-        }
-        const stream = fs.createReadStream(imagePath);
-        stream.on("open", () => {
-            reply.header("Content-Type", "image/jpeg");
-            reply.header("Content-Length", String(stat.size));
-            stream.pipe(reply.raw);
-        });
-        stream.on("error", (streamErr) => {
-            return reply.status(500).send(`Error streaming the image: ${streamErr.message}`);
-        });
-    });
-};
+// export const getThumbnail = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
+//     const { login, filename } = req.params;
+//     if (!login || !filename) {
+//         return reply.status(400).send("Invalid parameters: Both login and filename are required");
+//     }
+
+//     const imagePath = path.resolve(PUBLIC_DIR, "thumbnail", login, filename);
+//     try {
+//         const stat = await fsPromises.stat(imagePath);
+
+//         const oneDayInSeconds = 86400;
+//         reply.header("Cache-Control", `public, max-age=${oneDayInSeconds}`);
+//         reply.header("Last-Modified", stat.mtime.toUTCString());
+
+//         const ifModifiedSince = req.headers["if-modified-since"];
+//         if (ifModifiedSince && new Date(ifModifiedSince).getTime() >= stat.mtime.getTime()) {
+//             return reply.status(304).send();
+//         }
+
+//         const mimeType = mime.getType(imagePath) || "application/octet-stream";
+//         reply.header("Content-Type", mimeType);
+//         reply.header("Content-Length", String(stat.size));
+//         const stream = createReadStreamWithHandlers(imagePath);
+//         return reply.send(stream);
+//     } catch (err) {
+//         console.error(`Error accessing the file: ${err.message}`);
+//         if (err.code === "ENOENT") {
+//             return reply.status(404).send("File not found");
+//         } else {
+//             return reply.status(500).send("Error accessing the file");
+//         }
+//     }
+// };
+
+// const createReadStreamWithHandlers = (imagePath: string) => {
+//     const stream = fs.createReadStream(imagePath);
+//     stream.on("error", (error) => {
+//         console.error(`Error reading the stream: ${error.message}`);
+//     });
+
+//     stream.on("close", () => {
+//         console.log("ReadStream closed");
+//     });
+
+//     return stream;
+// };

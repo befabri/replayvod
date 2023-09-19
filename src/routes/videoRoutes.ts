@@ -46,19 +46,19 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         handler: videoController.generateMissingThumbnail,
     });
 
-    fastify.get("/thumbnail/:login/:filename", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
-        schema: {
-            params: {
-                type: "object",
-                properties: {
-                    login: { type: "string" },
-                    filename: { type: "string" },
-                },
-                required: ["login", "filename"],
-            },
-        },
-        handler: videoController.getThumbnail,
-    });
+    // fastify.get("/thumbnail/:login/:filename", {
+    //     preHandler: [isUserWhitelisted, userAuthenticated],
+    //     schema: {
+    //         params: {
+    //             type: "object",
+    //             properties: {
+    //                 login: { type: "string" },
+    //                 filename: { type: "string" },
+    //             },
+    //             required: ["login", "filename"],
+    //         },
+    //     },
+    //     handler: videoController.getThumbnail,
+    // });
     done();
 }
