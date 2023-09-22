@@ -19,6 +19,12 @@ interface Params extends RouteGenericInterface {
     };
 }
 
+interface ParamsVideo extends RouteGenericInterface {
+    Params: {
+        id: number;
+    };
+}
+
 export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const videoId = req.params.id;
 
@@ -79,6 +85,16 @@ export const getVideos = async (req: FastifyRequest, reply: FastifyReply) => {
     }
     const videos = await videoService.getVideosFromUser(userId);
     reply.send(videos);
+};
+
+export const getVideo = async (req: FastifyRequest<ParamsVideo>, reply: FastifyReply) => {
+    const videoId = req.params.id;
+    if (!videoId) {
+        reply.status(400).send("Invalid video id");
+        return;
+    }
+    const video = await videoService.getVideoById(videoId);
+    reply.send(video);
 };
 
 export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply) => {

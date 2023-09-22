@@ -17,6 +17,20 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         handler: videoController.playVideo,
     });
 
+    fastify.get("/:id", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        schema: {
+            params: {
+                type: "object",
+                properties: {
+                    id: { type: "integer" },
+                },
+                required: ["id"],
+            },
+        },
+        handler: videoController.getVideo,
+    });
+
     fastify.get("/all", {
         preHandler: [isUserWhitelisted, userAuthenticated],
         handler: videoController.getVideos,
