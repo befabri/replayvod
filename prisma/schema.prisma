@@ -137,7 +137,11 @@ model Log {
   downloadUrl   String
   filename      String
   lastWriteTime DateTime
-  type          String
+}
+
+model EventLog {
+  id     Int    @id @default(autoincrement())
+  domain String @unique
 }
 
 model Task {

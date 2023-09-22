@@ -1,6 +1,6 @@
 import { downloadSchedule } from "../services/downloadService";
 import { logger as rootLogger } from "../app";
-const logger = rootLogger.child({ service: "eventProcessingService" });
+const logger = rootLogger.child({ domain: "webhook", service: "eventProcessingService" });
 
 export const logEvent = (eventType: string, event: any) => {
     // Implementation for logging event

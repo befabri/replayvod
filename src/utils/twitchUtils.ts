@@ -1,7 +1,7 @@
 import axios from "axios";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
-const logger = rootLogger.child({ service: "accessToken" });
+const logger = rootLogger.child({ domain: "auth", service: "accessToken" });
 
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_SECRET = process.env.TWITCH_SECRET;

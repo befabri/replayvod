@@ -5,7 +5,7 @@ import path from "path";
 import { channelService, videoService, userService } from "../services";
 import { Status } from "@prisma/client";
 
-const logger = rootLogger.child({ service: "videoController" });
+const logger = rootLogger.child({ domain: "video", service: "videoController" });
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 const PUBLIC_DIR = process.env.PUBLIC_DIR || VIDEO_PATH;

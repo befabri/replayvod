@@ -3,7 +3,7 @@ import { getAppAccessToken } from "../utils/twitchUtils";
 import { chunkArray } from "../utils/utils";
 import { Stream, User, FollowedChannel, EventSubResponse } from "../models/twitchModel";
 import { logger as rootLogger } from "../app";
-const logger = rootLogger.child({ service: "twitchApi" });
+const logger = rootLogger.child({ domain: "twitch", service: "twitchApi" });
 
 import dotenv from "dotenv";
 dotenv.config();

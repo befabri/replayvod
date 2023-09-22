@@ -4,7 +4,7 @@ import { prisma } from "../server";
 import { Channel, Stream } from "@prisma/client";
 import { categoryService, tagService, titleService, twitchService } from "../services";
 import { StreamWithRelations } from "../types/sharedTypes";
-const logger = rootLogger.child({ service: "channelService" });
+const logger = rootLogger.child({ domain: "channel", service: "channelService" });
 
 export const getUserFollowedStreams = async (userId: string, accessToken: string) => {
     try {

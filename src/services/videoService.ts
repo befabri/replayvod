@@ -8,12 +8,45 @@ import { VideoQuality } from "../models/downloadModel";
 import { categoryService, tagService, titleService } from "../services";
 import moment from "moment";
 import { StreamWithRelations } from "../types/sharedTypes";
-const logger = rootLogger.child({ service: "videoService" });
+const logger = rootLogger.child({ domain: "video", service: "videoService" });
 
 export const getVideoById = async (id: number): Promise<Video | null> => {
-    return prisma.video.findUnique({
+    const video = await prisma.video.findUnique({
         where: { id: id },
+        include: {
+            tags: {
+                select: {
+                    tag: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+            titles: {
+                select: {
+                    title: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+            videoCategory: {
+                include: {
+                    category: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+        },
     });
+    if (video && !video.size) {
+        await updateVideoSize(video);
+    }
+    return video;
 };
 
 export const getVideosFromUser = async (userId: string, status?: Status) => {

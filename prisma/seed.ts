@@ -5,49 +5,35 @@ const prisma = new PrismaClient();
 // @ts-ignore
 const logData: Prisma.LogCreateInput[] = [
     {
-        downloadUrl: "log/combined.log",
-        filename: "combined.log",
-        type: "Combined",
-        lastWriteTime: new Date("1900-01-01T00:00:00Z"),
-    },
-    {
-        downloadUrl: "log/youtubedl.log",
-        filename: "youtubedl.log",
-        type: "YoutubeDl",
-        lastWriteTime: new Date("1900-01-01T00:00:00Z"),
-    },
-    {
-        downloadUrl: "log/fixvideos.log",
-        filename: "fixvideos.log",
-        type: "FixVideos",
-        lastWriteTime: new Date("1900-01-01T00:00:00Z"),
-    },
-    {
-        downloadUrl: "log/requests.log",
-        filename: "requests.log",
-        type: "Requests",
-        lastWriteTime: new Date("1900-01-01T00:00:00Z"),
-    },
-    {
-        downloadUrl: "log/errors.log",
-        filename: "errors.log",
-        type: "Errors",
-        lastWriteTime: new Date("1900-01-01T00:00:00Z"),
-    },
-    {
-        downloadUrl: "log/infos.log",
-        filename: "infos.log",
-        type: "Infos",
-        lastWriteTime: new Date("1900-01-01T00:00:00Z"),
-    },
-    {
-        downloadUrl: "log/webhookevents.log",
-        filename: "webhookevents.log",
-        type: "WebhookEvents",
+        downloadUrl: "log/replay.log",
+        filename: "replay.log",
         lastWriteTime: new Date("1900-01-01T00:00:00Z"),
     },
 ];
 
+const eventLogData: Prisma.EventLogCreateInput[] = [
+    {
+        domain: "auth",
+    },
+    {
+        domain: "channel",
+    },
+    {
+        domain: "video",
+    },
+    {
+        domain: "download",
+    },
+    {
+        domain: "webhook",
+    },
+    {
+        domain: "task",
+    },
+    {
+        domain: "twitch",
+    },
+];
 // @ts-ignore
 const taskData: Prisma.TaskCreateInput[] = [
     {
@@ -89,6 +75,12 @@ async function main() {
             data: u,
         });
         console.log(`Created log with id: ${log.id}`);
+    }
+    for (const u of eventLogData) {
+        const domain = await prisma.eventLog.create({
+            data: u,
+        });
+        console.log(`Created task with id: ${domain.id}`);
     }
     for (const u of taskData) {
         const task = await prisma.task.create({

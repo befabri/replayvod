@@ -12,7 +12,7 @@ import { categoryService, channelService, tagService, titleService } from "../se
 import { logger as rootLogger } from "../app";
 import { SessionUser } from "../models/userModel";
 
-const logger = rootLogger.child({ service: "channelService" });
+const logger = rootLogger.child({ domain: "twitch", service: "transformUtils" });
 
 export const transformTwitchUser = (user: TwitchUser): Channel => {
     return {

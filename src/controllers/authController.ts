@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
-const logger = rootLogger.child({ service: "authController" });
+const logger = rootLogger.child({ domain: "auth", service: "authController" });
 import dotenv from "dotenv";
 import { userService } from "../services";
 dotenv.config();

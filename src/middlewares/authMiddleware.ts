@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import dotenv from "dotenv";
 import { logger as rootLogger } from "../app";
-const logger = rootLogger.child({ service: "authMiddleware" });
+const logger = rootLogger.child({ domain: "auth", service: "authMiddleware" });
 
 dotenv.config();
 

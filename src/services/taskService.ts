@@ -1,7 +1,7 @@
 import { videoService, eventSubService } from "../services";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
-const logger = rootLogger.child({ service: "taskService" });
+const logger = rootLogger.child({ domain: "task", service: "taskService" });
 
 export const getTask = async (id: string) => {
     return prisma.task.findUnique({ where: { id: id } });

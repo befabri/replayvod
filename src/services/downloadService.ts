@@ -2,7 +2,7 @@ import { VideoQuality } from "../models/downloadModel";
 import { channelService, videoService, jobService } from "../services";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
-const logger = rootLogger.child({ service: "downloadService" });
+const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 import path from "path";
 import { DownloadSchedule, Provider, Quality, Status, Trigger } from "@prisma/client";
 import { DownloadParams, JobDetail } from "../types/sharedTypes";
@@ -97,9 +97,9 @@ export const startDownload = async ({
             output: videoFilePath,
         });
 
-        subprocess.stdout.on("data", (chunk) => {
-            logger.info(`STDOUT: ${chunk.toString()}`);
-        });
+        // subprocess.stdout.on("data", (chunk) => {
+        //     logger.info(`STDOUT: ${chunk.toString()}`);
+        // });
 
         subprocess.stderr.on("data", (chunk) => {
             const message = chunk.toString();
@@ -109,9 +109,10 @@ export const startDownload = async ({
                 (!message.includes("Skip") && !message.includes("Opening") && !message.includes("frame"))
             ) {
                 logger.error(`STDERR: ${message}`);
-            } else {
-                logger.info(`STDOUT: ${message}`);
             }
+            // else {
+            //     logger.info(`STDOUT: ${message}`);
+            // }
         });
 
         subprocess.on("close", async (code) => {
@@ -304,16 +305,16 @@ const getScheduleDetail = async (schedule, broadcaster_id: string) => {
 export const downloadSchedule = async (broadcaster_id: string) => {
     // Todo: A savoir que plusieurs utilisateurs peuvent avoir la même video demandé
     // et donc il faut modifié jobDetail + handleDownload
-    let schedule;
-    schedule = await getScheduleByFollowedChannel(broadcaster_id);
-    if (schedule) {
-        const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
-        await handleDownload(jobDetails, broadcaster_id);
-    } else {
-        schedule = getAllScheduleByChannel;
-        // const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
-        // await handleDownload(jobDetails, broadcaster_id);
-    }
+    // let schedule;
+    // schedule = await getScheduleByFollowedChannel(broadcaster_id);
+    // if (schedule) {
+    //     const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
+    //     await handleDownload(jobDetails, broadcaster_id);
+    // } else {
+    //     schedule = getAllScheduleByChannel;
+    //     // const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
+    //     // await handleDownload(jobDetails, broadcaster_id);
+    // }
 };
 
 const getScheduleByFollowedChannel = async (broadcaster_id: string): Promise<DownloadSchedule | null> => {

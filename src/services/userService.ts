@@ -3,7 +3,7 @@ import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
 import { SessionUser } from "../models/userModel";
 import { transformSessionUser } from "../utils/transformation";
-const logger = rootLogger.child({ service: "userService" });
+const logger = rootLogger.child({ domain: "auth", service: "userService" });
 
 export const getUserIdFromSession = (req: FastifyRequest): string | null => {
     if (req.session?.user?.twitchUserData && req.session.user.twitchUserData.id) {

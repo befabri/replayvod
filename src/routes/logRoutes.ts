@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { getLog, getLogs } from "../controllers/logController";
+import { getLog, getLogs, getDomain, getDomains } from "../controllers/logController";
 import { isUserWhitelisted, userAuthenticated } from "../middlewares/authMiddleware";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
@@ -20,6 +20,24 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.get("/files", {
         preHandler: [isUserWhitelisted, userAuthenticated],
         handler: getLogs,
+    });
+
+    fastify.get("/domains/:id", {
+        schema: {
+            params: {
+                type: "object",
+                properties: {
+                    id: { type: "integer" },
+                },
+                required: ["id"],
+            },
+        },
+        handler: getDomain,
+    });
+
+    fastify.get("/domains", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: getDomains,
     });
 
     done();

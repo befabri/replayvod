@@ -1,6 +1,6 @@
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
-const logger = rootLogger.child({ service: "titleService" });
+const logger = rootLogger.child({ domain: "channel", service: "titleService" });
 import { Title } from "@prisma/client";
 
 const MAX_RETRIES = 3;

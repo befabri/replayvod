@@ -18,7 +18,7 @@ import {
 } from "../utils/transformation";
 import { EventSubMeta } from "../models/twitchModel";
 
-const logger = rootLogger.child({ service: "twitchService" });
+const logger = rootLogger.child({ domain: "twitch", service: "twitchService" });
 const twitchAPI = new TwitchAPI();
 
 export const getUser = async (userId: string): Promise<Channel | null> => {

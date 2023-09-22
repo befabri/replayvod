@@ -2,7 +2,7 @@ import { channelService, webhookService, twitchService } from "../services";
 import { v4 as uuidv4 } from "uuid";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
-const logger = rootLogger.child({ service: "eventService" });
+const logger = rootLogger.child({ domain: "webhook", service: "eventSubService" });
 
 export const subToAllChannelFollowed = async () => {
     const broadcasterIds = await channelService.getBroadcasterIds();
