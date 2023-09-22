@@ -34,3 +34,5 @@ dev.db
 .md
 secret-key
 prisma/migrations
+logs
+.log
