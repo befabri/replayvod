@@ -2,12 +2,17 @@
   "name": "twitch-replay-backend",
   "version": "1.0.0",
   "description": "",
-  "main": "src/app.js",
+  "main": "src/server.js",
   "scripts": {
-    "prod": "node src/app.js",
-    "start": "ts-node src/app.ts",
-    "dev": "npm run build; npm run prod",
-    "build": "tsc -p tsconfig.json"
+    "prod": "node src/server.js",
+    "start": "ts-node src/server.ts",
+    "dev": "tsx watch src/server.ts | pino-pretty --colorize",
+    "build": "tsc -p tsconfig.json",
+    "preview": "node dist/server.js",
+    "db:gen": "npm run prisma generate",
+    "db:studio": "npm run prisma studio",
+    "db:migrate": "npm run prisma migrate dev",
+    "db:push": "npm run prisma db push"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
