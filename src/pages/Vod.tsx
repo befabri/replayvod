@@ -10,6 +10,7 @@ const Vod: React.FC = () => {
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [view, setView] = useState("Grille");
+    const [order, setOrder] = useState("Recently Added");
     const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     const fetchImage = async (url: RequestInfo | URL) => {
@@ -35,6 +36,7 @@ const Vod: React.FC = () => {
                 });
 
                 const videosWithBlobUrls = await Promise.all(promises);
+                console.log(videos);
                 setVideos(videosWithBlobUrls);
                 setIsLoading(false);
             })
@@ -43,8 +45,30 @@ const Vod: React.FC = () => {
             });
     }, []);
 
-    const handleOptionSelected = (value: any) => {
+    useEffect(() => {
+        if (order === t("Channel (ascending)")) {
+            const sortedVideos = [...videos].sort((a, b) =>
+                a.channel.broadcasterName.localeCompare(b.channel.broadcasterName)
+            );
+            setVideos(sortedVideos);
+        } else if (order === t("Channel (descending)")) {
+            const sortedVideos = [...videos].sort((b, a) =>
+                a.channel.broadcasterName.localeCompare(b.channel.broadcasterName)
+            );
+            setVideos(sortedVideos);
+        } else {
+            const sortedVideos = [...videos].sort(
+                (a, b) => new Date(b.downloadedAt).getTime() - new Date(a.downloadedAt).getTime()
+            );
+            setVideos(sortedVideos);
+        }
+    }, [order]);
+
+    const handleViewSelected = (value: any) => {
         setView(value);
+    };
+    const handleOrderSelected = (value: any) => {
+        setOrder(value);
     };
 
     if (isLoading) {
@@ -56,12 +80,23 @@ const Vod: React.FC = () => {
             <div className="p-4 mt-14">
                 <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Videos")}</h1>
             </div>
-            <div className="flex mb-4 justify-end">
-                <DropdownButton
-                    label={t("View")}
-                    options={[t("Grid"), t("Table")]}
-                    onOptionSelected={handleOptionSelected}
-                />
+            <div className="flex mb-4 items-center justify-end space-x-5">
+                {view === t("Grid") && (
+                    <div className="space-x-2">
+                        <DropdownButton
+                            label={t(order)}
+                            options={[t("Recently Added"), t("Channel (ascending)"), t("Channel (descending)")]}
+                            onOptionSelected={handleOrderSelected}
+                        />
+                    </div>
+                )}
+                <div className="space-x-2">
+                    <DropdownButton
+                        label={t(view)}
+                        options={[t("Grid"), t("Table")]}
+                        onOptionSelected={handleViewSelected}
+                    />
+                </div>
             </div>
             {view === t("Grid") ? (
                 <VideoComponent videos={videos} disablePicture={true} />
