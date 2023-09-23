@@ -37,6 +37,7 @@ export default function App() {
                     <Route path="/channel/:id" element={<ChannelPage />} />
                     <Route path="/system/status" element={<Status />} />
                     <Route path="/system/tasks" element={<Tasks />} />
+                    <Route path="/system/events" element={<Events />} />
                     <Route path="/system/logs" element={<Logs />} />
                     <Route path="/watch/:id" element={<Watch />} />
                 </Route>
