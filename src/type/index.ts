@@ -1,7 +1,7 @@
 export interface Video {
     id: number;
     filename: string;
-    status: "PENDING" | "COMPLETED" | "FAILED";
+    status: "PENDING" | "DONE" | "FAILED";
     displayName: string;
     startDownloadAt: Date;
     downloadedAt: Date | null;
@@ -35,6 +35,20 @@ export interface Video {
     isChecked?: boolean;
 }
 
+type WithNotNull<T, K extends keyof T> = {
+    [P in keyof T]: P extends K ? Exclude<T[P], null> : T[P];
+};
+
+type CompletedVideoConstraints = {
+    status: "DONE";
+    downloadedAt: Date;
+    size: number;
+    thumbnail: string;
+    channel: Channel;
+};
+
+export type CompletedVideo = WithNotNull<Video, "downloadedAt" | "size" | "thumbnail"> & CompletedVideoConstraints;
+
 export interface TableProps {
     items: Video[];
 }
@@ -55,12 +69,15 @@ export interface Task {
 }
 
 export interface Log {
-    _id?: string;
     id: number;
     filename: string;
     downloadUrl: string;
     lastWriteTime: string;
-    type: "YoutubeDl" | "FixVideos" | "Request" | "Error" | "Combined" | "Info" | "Connection";
+}
+
+export interface EventLog {
+    id: number;
+    domain: string;
 }
 
 export interface EventSub {

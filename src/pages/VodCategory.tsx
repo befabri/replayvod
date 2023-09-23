@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CompletedVideo } from "../type";
-import DropdownButton from "../components/ButtonDropdown";
-import Table from "../components/Tables";
 import VideoComponent from "../components/Video";
+import { toKebabCase, toTitleCase } from "../utils/utils";
 
-const Vod: React.FC = () => {
+const VodCategory: React.FC = () => {
     const { t } = useTranslation();
+    const { id } = useParams();
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [view, setView] = useState("Grille");
     const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     const fetchImage = async (url: RequestInfo | URL) => {
@@ -35,7 +35,12 @@ const Vod: React.FC = () => {
                 });
 
                 const videosWithBlobUrls = await Promise.all(promises);
-                setVideos(videosWithBlobUrls);
+                const filteredVideos = videosWithBlobUrls.filter((video) =>
+                    video.videoCategory.some(
+                        (cat: { category: { name: string } }) => toKebabCase(cat.category.name) === id
+                    )
+                );
+                setVideos(filteredVideos);
                 setIsLoading(false);
             })
             .catch((error) => {
@@ -43,41 +48,17 @@ const Vod: React.FC = () => {
             });
     }, []);
 
-    const handleOptionSelected = (value: any) => {
-        setView(value);
-    };
-
     if (isLoading) {
         return;
     }
-
     return (
         <div className="p-4 ">
             <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Videos")}</h1>
+                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{toTitleCase(id)}</h1>
             </div>
-            <div className="flex mb-4 justify-end">
-                <DropdownButton
-                    label={t("View")}
-                    options={[t("Grid"), t("Table")]}
-                    onOptionSelected={handleOptionSelected}
-                />
-            </div>
-            {view === t("Grid") ? (
-                <VideoComponent videos={videos} disablePicture={true} />
-            ) : (
-                <div className="mt-4">
-                    <Table
-                        items={videos}
-                        showEdit={false}
-                        showCheckbox={false}
-                        showId={false}
-                        showStatus={false}
-                    />
-                </div>
-            )}
+            <VideoComponent videos={videos} disablePicture={true} />
         </div>
     );
 };
 
-export default Vod;
+export default VodCategory;

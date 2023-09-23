@@ -22,3 +22,15 @@ export const formatDate = (dateString: Date, timeZone: string): string => {
     let date = new Intl.DateTimeFormat("en-GB", options).format(new Date(dateString));
     return date.replace(/\//g, "-").replace(",", "");
 };
+
+export const toKebabCase = (str: string): string => {
+    return str.toLowerCase().replace(/\s+/g, "-");
+};
+
+export const toTitleCase = (str?: string): string => {
+    if (!str) return "";
+    return str
+        .split("-")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+};

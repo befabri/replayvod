@@ -6,7 +6,6 @@ import Vod from "./pages/Vod";
 import Settings from "./pages/Settings.tsx";
 import Following from "./pages/Record/Following.tsx";
 import AddChannel from "./pages/Record/AddChannel.tsx";
-import Dashboard from "./pages/Dashboard.tsx";
 import Login from "./pages/Login.tsx";
 import ChannelPage from "./pages/ChannelPage.tsx";
 import Manage from "./pages/Record/Manage.tsx";
@@ -15,6 +14,9 @@ import Queue from "./pages/Activity/Queue.tsx";
 import Tasks from "./pages/System/Tasks.tsx";
 import Status from "./pages/System/Status.tsx";
 import Logs from "./pages/System/Logs.tsx";
+import Events from "./pages/System/Events.tsx";
+import Watch from "./pages/Watch.tsx";
+import VodCategory from "./pages/VodCategory.tsx";
 
 export default function App() {
     return (
@@ -23,8 +25,7 @@ export default function App() {
             <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route element={<RequireAuth />}>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/" element={<Vod />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/schedule/add" element={<AddChannel />} />
                     <Route path="/schedule/manage" element={<Manage />} />
@@ -32,10 +33,12 @@ export default function App() {
                     <Route path="/activity/queue" element={<Queue />} />
                     <Route path="/activity/history" element={<HistoryPage />} />
                     <Route path="/vod" element={<Vod />} />
+                    <Route path="/vod/:id" element={<VodCategory />} />
                     <Route path="/channel/:id" element={<ChannelPage />} />
                     <Route path="/system/status" element={<Status />} />
                     <Route path="/system/tasks" element={<Tasks />} />
                     <Route path="/system/logs" element={<Logs />} />
+                    <Route path="/watch/:id" element={<Watch />} />
                 </Route>
             </Routes>
         </AuthProvider>
@@ -82,8 +85,8 @@ function RequireAuth() {
     }
 
     return (
-        <div>
+        <main className="md:ml-56">
             <Outlet />
-        </div>
+        </main>
     );
 }
