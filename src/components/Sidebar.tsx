@@ -1,15 +1,18 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, forwardRef, Ref } from "react";
 import { Icon } from "@iconify/react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router-dom";
 
-interface SidebarProps {
+interface SidebarProps extends React.RefAttributes<HTMLDivElement> {
     isOpenSideBar: boolean;
     onCloseSidebar: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
+const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Ref<HTMLDivElement>) => {
+    const { isOpenSideBar, onCloseSidebar } = props;
     const { t } = useTranslation();
     const dropdownRef = useRef<HTMLDivElement | null>(null);
+    const location = useLocation();
 
     useEffect(() => {
         const pageClickEvent = (e: MouseEvent) => {
@@ -25,11 +28,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
 
     const [navLinks, setNavLinks] = useState([
         {
-            href: "/",
-            icon: "mdi:view-dashboard",
-            text: t("Dashboard"),
-        },
-        {
             href: "/vod",
             icon: "mdi:play",
             text: t("Videos"),
@@ -37,9 +35,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
         {
             icon: "mdi:tray-arrow-down",
             text: t("Recording"),
-            dropdown: true,
+            dropdown: false,
             items: [
-                { href: "/schedule/add", text: t("Schedule Videos") },
+                { href: "/schedule/add", text: t("Schedule") },
                 { href: "/schedule/manage", text: t("Manage schedule") },
                 { href: "/schedule/following", text: t("Followed Channels") },
             ],
@@ -47,7 +45,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
         {
             icon: "fluent:shifts-activity-24-filled",
             text: t("Activity"),
-            dropdown: true,
+            dropdown: false,
             items: [
                 { href: "/activity/queue", text: t("Queue") },
                 { href: "/activity/history", text: t("History") },
@@ -61,7 +59,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
         {
             icon: "mdi:laptop",
             text: t("System"),
-            dropdown: true,
+            dropdown: false,
             items: [
                 { href: "/system/status", text: t("Status") },
                 { href: "/system/tasks", text: t("Tasks") },
@@ -69,6 +67,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
             ],
         },
     ]);
+
+    useEffect(() => {
+        setNavLinks((prevLinks) =>
+            prevLinks.map((link) => {
+                if (link.items) {
+                    return { ...link, dropdown: link.items.some((item) => item.href === location.pathname) };
+                }
+                return link;
+            })
+        );
+    }, [location.pathname]);
 
     const toggleDropdown = (index: number) => {
         let updatedLinks = [...navLinks];
@@ -81,10 +90,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
     return (
         <>
             <aside
+                ref={ref}
                 id="logo-sidebar"
-                className={`fixed top-0 left-0 z-40 w-64 h-screen pt-20 transition-transform ${
+                className={`fixed top-0 left-0 z-40 w-56 h-screen pt-20 transition-transform ${
                     isOpenSideBar ? "-translate-x-0" : "-translate-x-full"
-                } bg-white border-r border-gray-200 sm:translate-x-0 dark:bg-gray-800 dark:border-gray-700`}
+                } bg-white border-r border-gray-200 md:translate-x-0 dark:bg-gray-800 dark:border-gray-700`}
                 aria-label="Sidebar">
                 <div className="h-full px-3 pb-4 overflow-y-auto bg-white dark:bg-gray-800">
                     <ul className="space-y-2 font-normal">
@@ -111,6 +121,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
                                                     <li key={i}>
                                                         <a
                                                             href={item.href}
+                                                            onClick={(e) => e.stopPropagation()} // Stop propagation here
                                                             className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700">
                                                             {item.text}
                                                         </a>
@@ -134,6 +145,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpenSideBar, onCloseSidebar }) => {
             </aside>
         </>
     );
-};
+});
 
 export default Sidebar;
