@@ -29,7 +29,7 @@ const Logs: React.FC = () => {
         return () => clearInterval(intervalId);
     }, []);
     return (
-        <div className="p-4 sm:ml-64">
+        <div className="p-4">
             <div className="p-4 mt-14">
                 <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Log Files")}</h1>
             </div>

@@ -1,6 +1,7 @@
 import React, { SetStateAction, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Channel, Stream } from "../../type";
+import { Pathnames } from "../../type/routes";
 
 const Follows: React.FC = () => {
     const { t } = useTranslation();
@@ -40,7 +41,7 @@ const Follows: React.FC = () => {
     }
 
     return (
-        <div className="p-4 sm:ml-64">
+        <div className="p-4">
             <div className="p-4 mt-14">
                 <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Followed Channels")}</h1>
                 <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-5">
@@ -54,7 +55,7 @@ const Follows: React.FC = () => {
                                 className={`bg-zinc-100 dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 ${
                                     isLive ? "relative" : ""
                                 }`}
-                                href={`/channel/${channel.broadcasterId}`}
+                                href={`${Pathnames.Channel}${channel.broadcasterId}`}
                                 key={channel.broadcasterId}>
                                 <div className="flex">
                                     <img

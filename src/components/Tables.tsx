@@ -3,7 +3,8 @@ import Icon from "./IconSort";
 import Checkbox from "./checkboxProps";
 import { Video, TableProps } from "../type";
 import { useTranslation } from "react-i18next";
-import { capitalizeFirstLetter, formatDate, truncateString } from "../utils/utils";
+import { capitalizeFirstLetter, toKebabCase, formatDate, truncateString } from "../utils/utils";
+import { Pathnames } from "../type/routes";
 
 type ExtendedTableProps = {
     showEdit?: boolean;
@@ -52,14 +53,36 @@ const Table = ({
             let aField = a[field];
             let bField = b[field];
 
-            // If the field is "category", we'll sort by the name of the first category.
-            if (field === "category" && Array.isArray(aField) && Array.isArray(bField)) {
-                aField = (aField[0] as { id: string; name: string })?.name;
-                bField = (bField[0] as { id: string; name: string })?.name;
+            if (field === "videoCategory" && Array.isArray(aField) && Array.isArray(bField)) {
+                if (aField[0] && "category" in aField[0]) {
+                    aField = aField[0].category.name || "";
+                } else {
+                    aField = "";
+                }
+
+                if (bField[0] && "category" in bField[0]) {
+                    bField = bField[0].category.name || "";
+                } else {
+                    bField = "";
+                }
+            }
+
+            if (field === "titles" && Array.isArray(aField) && Array.isArray(bField)) {
+                if (aField[0] && "title" in aField[0]) {
+                    aField = aField[0].title.name || "";
+                } else {
+                    aField = "";
+                }
+
+                if (bField[0] && "title" in bField[0]) {
+                    bField = bField[0].title.name || "";
+                } else {
+                    bField = "";
+                }
             }
 
             if (aField === undefined || bField === undefined) return 0;
-
+            if (aField === null || bField === null) return 0;
             if (typeof aField === "string" && typeof bField === "string") {
                 const lowerAField = aField.toLowerCase();
                 const lowerBField = bField.toLowerCase();
@@ -78,14 +101,14 @@ const Table = ({
     };
 
     const fields: (keyof Video)[] = [
-        "title",
+        "titles",
         "filename",
         ...(showStatus ? (["status"] as (keyof Video)[]) : []),
-        "display_name",
-        "start_download_at",
-        "category",
+        "displayName",
+        "startDownloadAt",
+        "videoCategory",
     ];
-    
+
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
             <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
@@ -140,7 +163,13 @@ const Table = ({
                                 </th>
                             )}
                             <td className="px-6 py-4" title={video.titles[0].title.name}>
-                                {truncateString(video.titles[0].title.name, 40)}
+                                {video.status !== "DONE" ? (
+                                    truncateString(video.titles[0].title.name, 40)
+                                ) : (
+                                    <a href={`${Pathnames.Watch}${video.id}`}>
+                                        {truncateString(video.titles[0].title.name, 40)}
+                                    </a>
+                                )}
                             </td>
 
                             <td className="px-6 py-4" title={video.filename}>
@@ -152,14 +181,16 @@ const Table = ({
                                 </td>
                             )}
                             <td className="px-6 py-4" title={video.displayName}>
-                                {video.displayName}
+                                <a href={`${Pathnames.Channel}${video?.broadcasterId}`}> {video.displayName}</a>
                             </td>
                             <td className="px-6 py-4" title={formatDate(video.startDownloadAt, "Europe/Paris")}>
                                 {formatDate(video.startDownloadAt, "Europe/Paris")}
                             </td>
                             <td className="px-6 py-4" title={video.videoCategory[0].category.name}>
                                 {video.videoCategory.map((cat) => (
-                                    <span key={cat.categoryId}>{cat.category.name}</span>
+                                    <a href={`${Pathnames.Vod}/${toKebabCase(cat.category.name)}`}>
+                                        <span key={cat.categoryId}>{cat.category.name}</span>
+                                    </a>
                                 ))}
                             </td>
 
