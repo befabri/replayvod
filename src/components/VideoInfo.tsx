@@ -1,7 +1,7 @@
 import { FC, useState, useEffect, useRef } from "react";
 import { CompletedVideo } from "../type";
 import { Pathnames } from "../type/routes";
-import { toKebabCase } from "../utils/utils";
+import { toKebabCase, truncateString } from "../utils/utils";
 
 type VideoInfoProps = {
     video: CompletedVideo | undefined;
@@ -56,7 +56,7 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
                     <span
                         className="bg-gray-100 text-gray-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300"
                         key={item.tag.name}>
-                        {item.tag.name}
+                        {truncateString(item.tag.name, 18, false)}
                     </span>
                 ))}
             </div>

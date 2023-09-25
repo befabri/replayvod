@@ -2,11 +2,15 @@ export function capitalizeFirstLetter(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
 
-export function truncateString(str: string, num: number): string {
+export function truncateString(str: string, num: number, etc = true): string {
     if (str.length <= num) {
         return str;
     }
-    return str.slice(0, num) + "...";
+    let newStr = str.slice(0, num);
+    if (etc) {
+        newStr += "...";
+    }
+    return newStr;
 }
 
 export const formatDate = (dateString: Date, timeZone: string): string => {
