@@ -210,6 +210,11 @@ export const getUserFollowedChannelsDb = async (userId: string) => {
             include: {
                 channel: true,
             },
+            orderBy: {
+                channel: {
+                    broadcasterName: "asc",
+                },
+            },
         });
         return followedChannelsRelations.map((relation) => relation.channel);
     } catch (error) {
@@ -223,6 +228,11 @@ export const getUsersFollowedChannelsDb = async () => {
         const followedChannelsRelations = await prisma.userFollowedChannels.findMany({
             include: {
                 channel: true,
+            },
+            orderBy: {
+                channel: {
+                    broadcasterName: "asc",
+                },
             },
         });
         return followedChannelsRelations.map((relation) => relation.channel);

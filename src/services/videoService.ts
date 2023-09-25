@@ -41,6 +41,7 @@ export const getVideoById = async (id: number): Promise<Video | null> => {
                     },
                 },
             },
+            channel: true,
         },
     });
     if (video && !video.size) {
@@ -62,6 +63,7 @@ export const getVideosFromUser = async (userId: string, status?: Status) => {
             id: { in: videoIds },
             ...(status && { status }),
         },
+        orderBy: { downloadedAt: "desc" },
         include: {
             tags: {
                 select: {
@@ -90,6 +92,7 @@ export const getVideosFromUser = async (userId: string, status?: Status) => {
                     },
                 },
             },
+            channel: true,
         },
     });
 
@@ -407,12 +410,13 @@ export const updateVideoData = async (
     });
 };
 
-export const getVideosByChannel = async (broadcaster_id: string) => {
+export const getVideosByChannel = async (broadcaster_id: string): Promise<Video[] | null> => {
     const videos = await prisma.video.findMany({
         where: {
             broadcasterId: broadcaster_id,
             status: Status.DONE,
         },
+        orderBy: { downloadedAt: "desc" },
         include: {
             tags: {
                 select: {
@@ -441,6 +445,7 @@ export const getVideosByChannel = async (broadcaster_id: string) => {
                     },
                 },
             },
+            channel: true,
         },
     });
 
