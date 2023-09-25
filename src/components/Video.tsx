@@ -19,10 +19,10 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
                 <div className="w-full " key={video.id} ref={divRef}>
                     <a href={`${Pathnames.Watch}${video.id}`} className="relative">
                         <img src={`${video.thumbnail}`} alt={`${video.displayName}`} />
-                        <div className="absolute top-2 left-3 bg-black bg-opacity-50 text-white">{`${formatDuration(
+                        <div className="absolute top-2 left-3 bg-black bg-opacity-50 text-stone-100">{`${formatDuration(
                             video.duration
                         )}`}</div>
-                        <div className="absolute bottom-2 right-3 bg-black bg-opacity-50 text-white">{`${formatDate(
+                        <div className="absolute bottom-2 right-3 bg-black bg-opacity-50 text-stone-100">{`${formatDate(
                             video.downloadedAt,
                             "Europe/Paris",
                             false
