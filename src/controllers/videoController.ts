@@ -110,12 +110,12 @@ export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply
 export const getChannelVideos = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const broadcasterId = req.params.id;
     if (broadcasterId === "undefined") {
-        reply.status(400).send("Invalid video id");
+        reply.status(400).send("Invalid broadcaster id");
         return;
     }
     const channel = await channelService.getChannelDetailDB(broadcasterId);
     if (!channel) {
-        reply.status(404).send("User not found");
+        reply.status(404).send("Channel not found");
         return;
     }
     const videos = await videoService.getVideosByChannel(broadcasterId);
