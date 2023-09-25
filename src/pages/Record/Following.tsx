@@ -2,11 +2,13 @@ import React, { SetStateAction, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Channel, Stream } from "../../type";
 import { Pathnames } from "../../type/routes";
+import DropdownButton from "../../components/ButtonDropdown";
 
 const Follows: React.FC = () => {
     const { t } = useTranslation();
     const [channels, setChannels] = useState<Channel[]>([]);
     const [streams, setStreams] = useState<Stream[]>([]);
+    const [order, setOrder] = useState("Channel (ascending)");
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
@@ -36,6 +38,29 @@ const Follows: React.FC = () => {
         fetchData();
     }, []);
 
+    useEffect(() => {
+        if (order === t("Channel (ascending)")) {
+            const sortedChannels = [...channels].sort((a, b) =>
+                a.broadcasterName.localeCompare(b.broadcasterName)
+            );
+            setChannels(sortedChannels);
+        } else if (order === t("Channel (descending)")) {
+            const sortedChannels = [...channels].sort((b, a) =>
+                a.broadcasterName.localeCompare(b.broadcasterName)
+            );
+            setChannels(sortedChannels);
+        } else {
+            const sortedChannels = [...channels].sort((a, b) =>
+                a.broadcasterName.localeCompare(b.broadcasterName)
+            );
+            setChannels(sortedChannels);
+        }
+    }, [order]);
+
+    const handleOrderSelected = (value: any) => {
+        setOrder(value);
+    };
+
     if (isLoading) {
         return <div>{t("Loading")}</div>;
     }
@@ -44,6 +69,15 @@ const Follows: React.FC = () => {
         <div className="p-4">
             <div className="p-4 mt-14">
                 <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Followed Channels")}</h1>
+                <div className="flex mb-4 items-center justify-end space-x-5">
+                    <div className="space-x-2">
+                        <DropdownButton
+                            label={t(order)}
+                            options={[t("Channel (ascending)"), t("Channel (descending)")]}
+                            onOptionSelected={handleOrderSelected}
+                        />
+                    </div>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-5">
                     {channels.map((channel) => {
                         const isLive = streams.some(
