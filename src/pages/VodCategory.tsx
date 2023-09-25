@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { useTranslation } from "react-i18next";
 import { CompletedVideo } from "../type";
 import VideoComponent from "../components/Video";
 import { toKebabCase, toTitleCase } from "../utils/utils";
 
 const VodCategory: React.FC = () => {
-    const { t } = useTranslation();
     const { id } = useParams();
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
     const [isLoading, setIsLoading] = useState(true);

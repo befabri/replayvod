@@ -1,4 +1,4 @@
-import { FC, useState, useEffect, useRef } from "react";
+import { FC, useRef } from "react";
 import { CompletedVideo } from "../type";
 import { Pathnames } from "../type/routes";
 import VideoInfoComponent from "./VideoInfo";
