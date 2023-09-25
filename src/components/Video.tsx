@@ -2,6 +2,7 @@ import { FC, useRef } from "react";
 import { CompletedVideo } from "../type";
 import { Pathnames } from "../type/routes";
 import VideoInfoComponent from "./VideoInfo";
+import { formatDate, formatDuration } from "../utils/utils";
 
 type VideoProps = {
     videos: CompletedVideo[] | undefined;
@@ -16,8 +17,16 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
         <div className="mb-4 grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-5">
             {videos?.map((video) => (
                 <div className="w-full " key={video.id} ref={divRef}>
-                    <a href={`${Pathnames.Watch}${video.id}`}>
+                    <a href={`${Pathnames.Watch}${video.id}`} className="relative">
                         <img src={`${video.thumbnail}`} alt={`${video.displayName}`} />
+                        <div className="absolute top-2 left-3 bg-black bg-opacity-50 text-white">{`${formatDuration(
+                            video.duration
+                        )}`}</div>
+                        <div className="absolute bottom-2 right-3 bg-black bg-opacity-50 text-white">{`${formatDate(
+                            video.downloadedAt,
+                            "Europe/Paris",
+                            false
+                        )}`}</div>
                     </a>
                     <div className="flex justify-between">
                         <VideoInfoComponent video={video} disablePicture={disablePicture} />
