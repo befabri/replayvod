@@ -7,7 +7,7 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
     const { t } = useTranslation();
     const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
-    const fields: (keyof Log)[] = ["filename", "type", "lastWriteTime"];
+    const fields: (keyof Log)[] = ["filename", "lastWriteTime"];
 
     const formatTime = (dateString: string) => {
         let date = new Date(dateString);
@@ -51,7 +51,6 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
                     {items.map((item: Log, index: Key | null | undefined) => (
                         <tr key={index}>
                             <td className="px-6 py-4 whitespace-nowrap">{item.filename}</td>
-                            <td className="px-6 py-4 whitespace-nowrap">{t(item.type)}</td>
                             <td className="px-6 py-4 whitespace-nowrap">{formatTime(item.lastWriteTime)}</td>
                             <td className="px-6 py-4 whitespace-nowrap">
                                 <button onClick={() => fetchAndShowLog(String(item.id))} className="text-blue-500">
