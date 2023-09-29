@@ -36,3 +36,4 @@ secret-key
 prisma/migrations
 logs
 .log
+docker-compose.yaml
