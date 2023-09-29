@@ -17,32 +17,35 @@ import Logs from "./pages/System/Logs.tsx";
 import Events from "./pages/System/Events.tsx";
 import Watch from "./pages/Watch.tsx";
 import VodCategory from "./pages/VodCategory.tsx";
+import { DarkModeProvider } from "./context/DarkModeContext.tsx";
 
 export default function App() {
     return (
-        <AuthProvider>
-            <AuthStatus />
-            <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route element={<RequireAuth />}>
-                    <Route path="/" element={<Vod />} />
-                    <Route path="/settings" element={<Settings />} />
-                    <Route path="/schedule/add" element={<AddChannel />} />
-                    <Route path="/schedule/manage" element={<Manage />} />
-                    <Route path="/schedule/following" element={<Following />} />
-                    <Route path="/activity/queue" element={<Queue />} />
-                    <Route path="/activity/history" element={<HistoryPage />} />
-                    <Route path="/vod" element={<Vod />} />
-                    <Route path="/vod/:id" element={<VodCategory />} />
-                    <Route path="/channel/:id" element={<ChannelPage />} />
-                    <Route path="/system/status" element={<Status />} />
-                    <Route path="/system/tasks" element={<Tasks />} />
-                    <Route path="/system/events" element={<Events />} />
-                    <Route path="/system/logs" element={<Logs />} />
-                    <Route path="/watch/:id" element={<Watch />} />
-                </Route>
-            </Routes>
-        </AuthProvider>
+        <DarkModeProvider>
+            <AuthProvider>
+                <AuthStatus />
+                <Routes>
+                    <Route path="/login" element={<Login />} />
+                    <Route element={<RequireAuth />}>
+                        <Route path="/" element={<Vod />} />
+                        <Route path="/settings" element={<Settings />} />
+                        <Route path="/schedule/add" element={<AddChannel />} />
+                        <Route path="/schedule/manage" element={<Manage />} />
+                        <Route path="/schedule/following" element={<Following />} />
+                        <Route path="/activity/queue" element={<Queue />} />
+                        <Route path="/activity/history" element={<HistoryPage />} />
+                        <Route path="/vod" element={<Vod />} />
+                        <Route path="/vod/:id" element={<VodCategory />} />
+                        <Route path="/channel/:id" element={<ChannelPage />} />
+                        <Route path="/system/status" element={<Status />} />
+                        <Route path="/system/tasks" element={<Tasks />} />
+                        <Route path="/system/events" element={<Events />} />
+                        <Route path="/system/logs" element={<Logs />} />
+                        <Route path="/watch/:id" element={<Watch />} />
+                    </Route>
+                </Routes>
+            </AuthProvider>
+        </DarkModeProvider>
     );
 }
 

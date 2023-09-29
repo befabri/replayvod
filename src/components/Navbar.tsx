@@ -1,18 +1,64 @@
 import React, { useState, useEffect, useRef } from "react";
 import DarkModeToggle from "./DarkModeToggle";
 import Sidebar from "./Sidebar";
+import { Icon } from "@iconify/react";
+import { useAuth } from "../pages/Auth";
+import i18n from "i18next";
 
 const Navbar: React.FC = () => {
     const [isSidebarOpen, setSidebarOpen] = useState(false);
+    const [isProfilOpen, setProfileOpen] = useState(false);
+    const [isLanguageOpen, setLanguageOpen] = useState(false);
     const navbarRef = useRef<HTMLDivElement | null>(null);
     const sidebarRef = useRef<HTMLDivElement | null>(null);
+    const { user, signOut } = useAuth();
+
+    const languages = ["English", "Français"];
+
+    const languageMap = {
+        English: "en",
+        Français: "fr",
+    };
 
     const handleSidebarOpen = () => {
+        if (isProfilOpen) {
+            setProfileOpen(false);
+        }
+        if (isLanguageOpen) {
+            setLanguageOpen(false);
+        }
         setSidebarOpen(!isSidebarOpen);
     };
 
     const handleSidebarClose = () => {
         setSidebarOpen(false);
+    };
+
+    const handleProfileToggle = () => {
+        if (isLanguageOpen) {
+            setLanguageOpen(false);
+        }
+        setProfileOpen(!isProfilOpen);
+    };
+
+    const handleSelect = (event: React.MouseEvent, option: string) => {
+        event.preventDefault();
+        if (option === "Sign Out") {
+            signOut();
+        }
+        if (option === "Language") {
+            setProfileOpen(false);
+            setLanguageOpen(true);
+        }
+    };
+
+    const handleLanguage = (event: React.MouseEvent, language: string) => {
+        event.preventDefault();
+        const langCode = languageMap[language as keyof typeof languageMap];
+        if (langCode) {
+            i18n.changeLanguage(langCode);
+            setLanguageOpen(false);
+        }
     };
 
     useEffect(() => {
@@ -28,6 +74,24 @@ const Navbar: React.FC = () => {
             document.removeEventListener("mouseup", handleOutsideClick);
         };
     }, []);
+
+    useEffect(() => {
+        const closeDropdowns = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (
+                (isProfilOpen && !document.getElementById("dropdown-user")?.contains(target)) ||
+                (isLanguageOpen && !document.getElementById("dropdown-language")?.contains(target))
+            ) {
+                setProfileOpen(false);
+                setLanguageOpen(false);
+            }
+        };
+
+        document.addEventListener("mouseup", closeDropdowns);
+        return () => {
+            document.removeEventListener("mouseup", closeDropdowns);
+        };
+    }, [isProfilOpen, isLanguageOpen]);
 
     return (
         <>
@@ -60,56 +124,73 @@ const Navbar: React.FC = () => {
                         <div className="flex items-center">
                             <div className="flex items-center ml-3">
                                 <div>
-                                    <DarkModeToggle />
                                     <button
+                                        onClick={handleProfileToggle}
                                         type="button"
                                         className="flex text-sm bg-gray-800 rounded-full focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600"
                                         aria-expanded="false"
                                         data-dropdown-toggle="dropdown-user">
                                         <span className="sr-only">Open user menu</span>
-                                        {/* <img className="w-8 h-8 rounded-full" src="https://flowbite.com/docs/images/people/profile-picture-5.jpg" alt="user photo"> */}
+                                        <img
+                                            className="w-8 h-8 rounded-full"
+                                            src={user ? user.profile_image : "/images/placeholder_picture.png"}
+                                            alt="user photo"
+                                        />
                                     </button>
                                 </div>
-                                <div
-                                    className="z-50 hidden my-4 text-base list-none bg-white divide-y divide-gray-100 rounded shadow dark:bg-gray-700 dark:divide-gray-600"
-                                    id="dropdown-user">
-                                    <div className="px-4 py-3" role="none">
-                                        <p className="text-sm text-gray-900 dark:text-white" role="none">
-                                            Neil Sims
-                                        </p>
-                                        <p
-                                            className="text-sm font-medium text-gray-900 truncate dark:text-gray-300"
-                                            role="none">
-                                            neil.sims@flowbite.com
-                                        </p>
+                                {isProfilOpen && (
+                                    <div
+                                        className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-700 dark:ring-gray-600 divide-y divide-gray-100 dark:divide-gray-600"
+                                        id="dropdown-user">
+                                        <div>
+                                            <a
+                                                href="#"
+                                                className="flex gap-9 items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
+                                                role="menuitem"
+                                                onClick={(e: React.MouseEvent) => handleSelect(e, "Language")}>
+                                                <span>Language</span>
+                                                <Icon icon="mdi:chevron-right" width="18" height="18" />
+                                            </a>
+                                            <DarkModeToggle className="h-9 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600" />
+                                        </div>
+                                        <a
+                                            href="#"
+                                            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
+                                            role="menuitem"
+                                            onClick={(e: React.MouseEvent) => handleSelect(e, "Sign Out")}>
+                                            Sign Out
+                                        </a>
                                     </div>
-                                    <ul className="py-1" role="none">
-                                        <li>
-                                            <a
-                                                href="#"
-                                                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-white"
-                                                role="menuitem">
-                                                Settings
-                                            </a>
-                                        </li>
-                                        <li>
-                                            <a
-                                                href="#"
-                                                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-white"
-                                                role="menuitem">
-                                                Earnings
-                                            </a>
-                                        </li>
-                                        <li>
-                                            <a
-                                                href="#"
-                                                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-white"
-                                                role="menuitem">
-                                                Sign out
-                                            </a>
-                                        </li>
-                                    </ul>
-                                </div>
+                                )}
+                                {isLanguageOpen && (
+                                    <div
+                                        id="dropdown-language"
+                                        className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-700 dark:ring-gray-600 divide-y divide-gray-100 dark:divide-gray-600">
+                                        <div
+                                            className="cursor-pointer flex items-center justify-between w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
+                                            onClick={() => {
+                                                setLanguageOpen(false);
+                                                setProfileOpen(true);
+                                            }}>
+                                            <Icon icon="mdi:chevron-left" width="18" height="18" />
+                                            <span>Languages</span>
+                                            <div></div>
+                                        </div>
+
+                                        <div className="divide-y divide-gray-100 dark:divide-gray-600">
+                                            {languages.map((lang) => (
+                                                <a
+                                                    key={lang}
+                                                    href="#"
+                                                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
+                                                    role="menuitem"
+                                                    onClick={(e: React.MouseEvent) => handleLanguage(e, lang)}>
+                                                    {lang}
+                                                </a>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

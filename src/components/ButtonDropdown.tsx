@@ -18,7 +18,7 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptio
         setIsOpen(false);
     };
     return (
-        <div className="relative inline-block text-left z-50 dark:bg-gray-800">
+        <div className="relative inline-block text-left z-40 dark:bg-gray-800">
             <div>
                 <button
                     type="button"

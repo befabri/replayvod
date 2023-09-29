@@ -2,8 +2,8 @@ import * as React from "react";
 
 interface AuthContextType {
     user: any;
-    signin: () => void;
-    signout: () => void;
+    signIn: () => void;
+    signOut: () => void;
     isLoading: boolean;
     isAuthenticated: boolean;
 }
@@ -55,7 +55,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const data = await response.json();
             if (data.status === "authenticated") {
                 console.log("Token refreshed");
-                setUser("test");
+                setUser(data.user);
                 setIsAuthenticated(true);
             } else {
                 setUser(null);
@@ -71,17 +71,25 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return () => clearInterval(refreshInterval);
     }
 
-    const signin = () => {
+    const signIn = () => {
         window.location.href = `${ROOT_URL}/api/auth/twitch`;
     };
 
-    const signout = () => {
+    const signOut = async () => {
+        try {
+            await fetch(`${ROOT_URL}/api/auth/signout`, {
+                method: "POST",
+                credentials: "include",
+            });
+        } catch (error) {
+            console.error("Failed to sign out", error);
+        }
         setUser(null);
         setIsAuthenticated(false);
     };
 
     return (
-        <AuthContext.Provider value={{ user, signin, signout, isLoading, isAuthenticated }}>
+        <AuthContext.Provider value={{ user, signIn, signOut, isLoading, isAuthenticated }}>
             {children}
         </AuthContext.Provider>
     );
