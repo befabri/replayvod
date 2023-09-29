@@ -23,9 +23,16 @@ const TWITCH_SECRET = process.env.TWITCH_SECRET;
 const CALLBACK_URL = process.env.CALLBACK_URL;
 moment.tz.setDefault("Europe/Paris");
 
-logger.info("Starting...");
+logger.info("Launching Fastify in %s environment", process.env.NODE_ENV);
 
 export const prisma = new PrismaClient();
+
+let ROOT_DIR = "";
+if (process.env.NODE_ENV === "production") {
+    ROOT_DIR = __dirname;
+} else {
+    ROOT_DIR = path.join(__dirname, "..");
+}
 
 server.register(cors, {
     origin: REACT_URL,
@@ -34,7 +41,7 @@ server.register(cors, {
 
 server.register(async (instance, opts) => {
     instance.register(fastifyStatic, {
-        root: path.join(__dirname, "../public", "thumbnail"),
+        root: path.join(ROOT_DIR, "public", "thumbnail"),
         prefix: "/api/videos/thumbnail/",
         serve: true,
     });
@@ -42,10 +49,11 @@ server.register(async (instance, opts) => {
     instance.addHook("preHandler", isUserWhitelisted);
     instance.addHook("preHandler", userAuthenticated);
 });
+
 server.register(fastifyCookie);
 
 server.register(fastifySecureSession, {
-    key: fs.readFileSync(path.join(__dirname, "../secret-key")),
+    key: fs.readFileSync(path.join(ROOT_DIR, "secret", "secret-key")),
     cookieName: "session",
     cookie: {
         path: "/",
