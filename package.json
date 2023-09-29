@@ -17,8 +17,10 @@
     "moment-timezone": "^0.5.43",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-hook-form": "^7.46.2",
     "react-i18next": "^13.0.0",
-    "react-router-dom": "^6.12.1"
+    "react-router-dom": "^6.12.1",
+    "zod": "^3.22.2"
   },
   "devDependencies": {
     "@iconify/react": "^4.1.0",
