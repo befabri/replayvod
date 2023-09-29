@@ -23,9 +23,6 @@ const Follows: React.FC = () => {
                 const followedChannelsData: SetStateAction<Channel[]> = await followedChannelsResponse.json();
                 const followedStreamsData: SetStateAction<Stream[]> = await followedStreamsResponse.json();
 
-                console.log("Followed Channels:", followedChannelsData);
-                console.log("Followed Streams:", followedStreamsData);
-
                 setChannels(followedChannelsData);
                 setStreams(followedStreamsData);
                 setIsLoading(false);

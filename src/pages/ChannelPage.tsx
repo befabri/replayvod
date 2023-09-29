@@ -24,7 +24,6 @@ const ChannelPage: React.FC = () => {
             })
                 .then((response) => response.json())
                 .then((data) => {
-                    console.log(data);
                     setIsFetching(false);
                     setButtonText("est enregistrer");
                 })

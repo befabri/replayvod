@@ -18,8 +18,6 @@ const Watch: React.FC = () => {
                 const videoResponse = await fetch(`${ROOT_URL}/api/videos/${id}`, { credentials: "include" });
                 const videoData = await videoResponse.json();
 
-                console.log("Video:", videoData);
-
                 const thumbnailBlob = await fetch(`${ROOT_URL}/api/videos/thumbnail/${videoData.thumbnail}`, {
                     credentials: "include",
                 }).then((res) => res.blob());

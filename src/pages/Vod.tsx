@@ -36,7 +36,6 @@ const Vod: React.FC = () => {
                 });
 
                 const videosWithBlobUrls = await Promise.all(promises);
-                console.log(videos);
                 setVideos(videosWithBlobUrls);
                 setIsLoading(false);
             })

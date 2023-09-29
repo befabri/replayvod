@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { capitalizeFirstLetter, formatDate } from "../utils/utils";
 
 const TableSchedule = ({ items: initialItems }: any) => {
-    console.log("===> ", initialItems);
     const { t } = useTranslation();
     const [sortField, setSortField] = useState<keyof EventSub | null>(null);
     const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");

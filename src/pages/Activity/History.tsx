@@ -20,7 +20,6 @@ const HistoryPage: React.FC = () => {
                 return response.json();
             })
             .then((data) => {
-                console.log(data);
                 setVideos(data);
 
                 setIsLoading(false);

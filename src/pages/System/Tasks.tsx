@@ -18,7 +18,6 @@ const Tasks: React.FC = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            console.log(data);
             setTasks(data);
             setIsLoading(false);
         };
