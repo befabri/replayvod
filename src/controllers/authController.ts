@@ -73,7 +73,12 @@ export async function checkSession(req: FastifyRequest, reply: FastifyReply): Pr
             logger.info(`User authenticated: ${req.session.user.twitchUserID}`);
             reply.status(200).send({
                 status: "authenticated",
-                user: { id: req.session.user.twitchUserID },
+                user: {
+                    id: req.session.user.twitchUserID,
+                    login: req.session.user.twitchUserData.login,
+                    display_name: req.session.user.twitchUserData.display_name,
+                    profile_image: req.session.user.twitchUserData.profile_image_url,
+                },
             });
         } else {
             logger.error(`User not authenticated`);
@@ -82,6 +87,15 @@ export async function checkSession(req: FastifyRequest, reply: FastifyReply): Pr
     } catch (error) {
         logger.error(`Error in checkSession: ${error.message}`);
         reply.status(500).send({ status: "error", message: "Internal Server Error" });
+    }
+}
+
+export async function signOut(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    if (req.session) {
+        req.session.delete();
+        reply.status(200).send({ status: "Successfully signed out" });
+    } else {
+        reply.status(401).send({ status: "Not authenticated" });
     }
 }
 
