@@ -128,8 +128,8 @@ const Table = ({
                                 {t("ID")}
                             </th>
                         )}
-                        {fields.map((field, index) => (
-                            <th key={index} scope="col" className="px-6 py-3">
+                        {fields.map((field) => (
+                            <th key={field} scope="col" className="px-6 py-3">
                                 <div className="flex items-center">
                                     {t(capitalizeFirstLetter(field).replaceAll("_", " "))}
                                     <Icon onClick={() => handleSort(field)} />
@@ -146,7 +146,7 @@ const Table = ({
                 <tbody>
                     {items.map((video, idx) => (
                         <tr
-                            key={idx}
+                            key={video.id}
                             className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
                             {showCheckbox && (
                                 <Checkbox
@@ -188,7 +188,9 @@ const Table = ({
                             </td>
                             <td className="px-6 py-4" title={video.videoCategory[0].category.name}>
                                 {video.videoCategory.map((cat) => (
-                                    <a href={`${Pathnames.Vod}/${toKebabCase(cat.category.name)}`}>
+                                    <a
+                                        key={cat.categoryId}
+                                        href={`${Pathnames.Vod}/${toKebabCase(cat.category.name)}`}>
                                         <span key={cat.categoryId}>{cat.category.name}</span>
                                     </a>
                                 ))}
