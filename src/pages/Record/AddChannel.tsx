@@ -139,19 +139,12 @@ const AddChannel: React.FC = () => {
     };
 
     const handleChange = async (fieldName: keyof ScheduleForm, value: string) => {
-        console.log("fieldName: %s", fieldName);
-        console.log(`${fieldName}: ${value}`);
         if (fieldName === "channelName") {
             if (value.length > 0) {
                 const matches = channels
                     .filter((channel) => channel.broadcasterName.toLowerCase().startsWith(value.toLowerCase()))
                     .map((channel) => channel.broadcasterName);
                 setPossibleMatches(matches);
-                console.log(
-                    channels
-                        .filter((channel) => channel.broadcasterName.toLowerCase().startsWith(value.toLowerCase()))
-                        .map((channel) => channel.broadcasterName)
-                );
             } else {
                 setPossibleMatches([]);
             }
