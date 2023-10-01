@@ -7,6 +7,7 @@ import manageRoutes from "./manageRoutes";
 import taskRoutes from "./taskRoutes";
 import logRoutes from "./logRoutes";
 import webhookRoutes from "./webhookRoutes";
+import categoryRoutes from "./categoryRoutes";
 
 const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(authRoutes, { prefix: "/auth" });
@@ -17,6 +18,7 @@ const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(taskRoutes, { prefix: "/task" });
     server.register(logRoutes, { prefix: "/log" });
     server.register(webhookRoutes, { prefix: "/webhook" });
+    server.register(categoryRoutes, { prefix: "/category" });
 };
 
 export default routes;
