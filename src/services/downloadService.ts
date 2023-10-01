@@ -232,36 +232,29 @@ export const updateVideoCollection = async (user_id: string) => {
     return;
 };
 
-const isValidProvider = (provider: string): provider is Provider => {
-    return Object.values(Provider).includes(provider as Provider);
-};
-
-const isValidTrigger = (trigger: string): trigger is Trigger => {
-    return Object.values(Trigger).includes(trigger as Trigger);
-};
-
+// Todo add categories/tags
 export const addSchedule = async (scheduleData) => {
-    if (!isValidProvider(scheduleData.provider) || !isValidTrigger(scheduleData.trigger)) {
-        throw new Error("Invalid provider or trigger value");
-    }
-    const timeBeforeDeleteDate = new Date();
-    timeBeforeDeleteDate.setMinutes(timeBeforeDeleteDate.getMinutes() + scheduleData.timeBeforeDelete);
     const broadcasterId = await channelService.getChannelBroadcasterIdByName(scheduleData.channelName);
     if (!broadcasterId) {
-        throw new Error("ChannelName dont exist");
+        throw new Error("ChannelName doesn't exist");
     }
-    return await prisma.downloadSchedule.create({
-        data: {
-            provider: scheduleData.provider as Provider,
-            broadcasterId: broadcasterId,
-            viewersCount: scheduleData.viewersCount,
-            timeBeforeDelete: timeBeforeDeleteDate,
-            trigger: scheduleData.trigger as Trigger,
-            quality: scheduleData.quality as Quality,
-            isDeleteRediff: scheduleData.isDeleteRediff,
-            requestedBy: scheduleData.requested_by,
-        },
-    });
+    try {
+        return await prisma.downloadSchedule.create({
+            data: {
+                broadcasterId: broadcasterId,
+                quality: scheduleData.quality as Quality,
+                viewersCount: scheduleData.viewersCount,
+                isDeleteRediff: scheduleData.isDeleteRediff,
+                timeBeforeDelete: scheduleData.timeBeforeDelete,
+                requestedBy: scheduleData.requestedBy,
+            },
+        });
+    } catch (error) {
+        if (error.code === "P2002") {
+            throw new Error("User is already assigned to this broadcaster ID");
+        }
+        throw error;
+    }
 };
 
 export const handleDownload = async (

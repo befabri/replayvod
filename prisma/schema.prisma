@@ -312,28 +312,16 @@ model StreamTitle {
 
 model DownloadSchedule {
   id                       Int                        @id @default(autoincrement())
-  provider                 Provider
-  broadcasterId            String?
-  viewersCount             Int?
-  timeBeforeDelete         DateTime?
-  trigger                  Trigger
+  broadcasterId            String
   quality                  Quality
+  viewersCount             Int?
   isDeleteRediff           Boolean
+  timeBeforeDelete         Int?
   requestedBy              String
-  channel                  Channel?                   @relation(fields: [broadcasterId], references: [broadcasterId])
+  channel                  Channel                    @relation(fields: [broadcasterId], references: [broadcasterId])
   user                     User                       @relation(fields: [requestedBy], references: [userId])
   downloadScheduleTag      DownloadScheduleTag[]
   downloadScheduleCategory DownloadScheduleCategory[]
-}
 
-enum Provider {
-  SINGLE_CHANNEL
-  FOLLOWED_CHANNEL
-}
-
-enum Trigger {
-  CATEGORY
-  TAG
-  MINIMUM_VIEW
-  ONLINE
+  @@unique([broadcasterId, requestedBy])
 }

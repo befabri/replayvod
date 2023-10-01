@@ -23,20 +23,21 @@ interface Params extends RouteGenericInterface {
 }
 
 interface DownloadRequestBody extends RouteGenericInterface {
-    Body: DownloadSchedule;
+    Body: DownloadScheduleDTO;
 }
 
-export interface DownloadSchedule {
-    source: string;
+interface DownloadScheduleDTO {
     channelName: string;
-    viewersCount: number;
-    timeBeforeDelete: number;
-    trigger: string;
-    tag: string;
+    quality: Quality;
+    hasTags: boolean;
+    tags?: string;
+    hasMinView: boolean;
+    viewersCount?: number | null;
+    hasCategory: boolean;
     category: string;
-    quality: string;
+    timeBeforeDelete?: number | null;
     isDeleteRediff: boolean;
-    requested_by: string;
+    requestedBy?: string;
 }
 
 export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
@@ -62,19 +63,20 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
         reply.status(401).send("Unauthorized");
         return;
     }
-    const data: DownloadSchedule = req.body;
-    if (!data.source || !data.channelName || !data.trigger || !data.quality) {
-        reply.status(400).send("Invalid request data");
-        return;
-    }
-    data.requested_by = userId;
-    const user = await channelService.getChannelDetailByName(data.channelName);
-
-    if (!user) {
+    const data = req.body;
+    data.quality = videoService.mapVideoQualityToQuality(data.quality);
+    // if (!data.source || !data.channelName || !data.trigger || !data.quality) {
+    //     reply.status(400).send("Invalid request data");
+    //     return;
+    // }
+    data.requestedBy = userId;
+    const channel = await channelService.getChannelDetailByName(data.channelName);
+    if (!channel) {
         reply.status(400).send("Invalid request data");
         return;
     }
     try {
+        // Todo before check tags/categories and format tags
         await downloadService.addSchedule(data);
         reply.status(200).send("Schedule saved successfully.");
     } catch (error) {
