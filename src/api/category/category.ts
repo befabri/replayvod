@@ -108,3 +108,27 @@ export const addStreamCategory = async (streamId: string, categoryId: string) =>
         throw error;
     }
 };
+
+export const addDownloadScheduleCategory = async (downloadScheduleId: number, categoryId: string) => {
+    try {
+        const existingEntry = await prisma.downloadScheduleCategory.findUnique({
+            where: {
+                downloadScheduleId_categoryId: { downloadScheduleId: downloadScheduleId, categoryId: categoryId },
+            },
+        });
+
+        if (!existingEntry) {
+            return await prisma.downloadScheduleCategory.create({
+                data: {
+                    downloadScheduleId: downloadScheduleId,
+                    categoryId: categoryId,
+                },
+            });
+        } else {
+            return existingEntry;
+        }
+    } catch (error) {
+        logger.error("Error adding/updating downloadScheduleCategory: %s", error);
+        throw error;
+    }
+};

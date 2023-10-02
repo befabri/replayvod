@@ -76,6 +76,15 @@ export const addStreamTag = async (streamId: string, tagId: string) => {
     });
 };
 
+export const addDownloadScheduleTag = async (downloadScheduleId: number, tagId: string) => {
+    return await prisma.downloadScheduleTag.create({
+        data: {
+            downloadScheduleId: downloadScheduleId,
+            tagId: tagId,
+        },
+    });
+};
+
 export const addAllVideoTags = async (tags: { tagId: string }[], videoId: number) => {
     try {
         const data = tags.map((tag) => ({
@@ -110,6 +119,23 @@ export const addAllStreamTags = async (tags: { tagId: string }[], streamId: stri
     }
 };
 
+export const addAllDownloadScheduleTags = async (tags: { tagId: string }[], downloadScheduleId: number) => {
+    try {
+        const data = tags.map((tag) => ({
+            downloadScheduleId: downloadScheduleId,
+            tagId: tag.tagId,
+        }));
+
+        await prisma.downloadScheduleTag.createMany({
+            data: data,
+            skipDuplicates: true,
+        });
+        return data;
+    } catch (error) {
+        logger.error("Error adding/updating multiple downloadScheduleTags", { error });
+    }
+};
+
 export default {
     addTag,
     addAllTags,
@@ -119,4 +145,6 @@ export default {
     addStreamTag,
     addAllVideoTags,
     addAllStreamTags,
+    addDownloadScheduleTag,
+    addAllDownloadScheduleTags,
 };
