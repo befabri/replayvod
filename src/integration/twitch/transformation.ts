@@ -8,7 +8,6 @@ import {
     EventSubResponse as TwitchEventSubResponse,
     EventSubMeta,
 } from "../../models/twitchModel";
-import { SessionUser } from "../../models/userModel";
 import { tagService, titleService } from "../../services";
 import * as categoryService from "../../api/category";
 import * as channelService from "../../api/channel";
@@ -134,16 +133,5 @@ export const transformEventSubMeta = (eventSubResponse: TwitchEventSubResponse):
         total: eventSubResponse.total,
         total_cost: eventSubResponse.total_cost,
         max_total_cost: eventSubResponse.max_total_cost,
-    };
-};
-
-export const transformSessionUser = (user: SessionUser): User => {
-    return {
-        userId: user.id,
-        userLogin: user.login,
-        displayName: user.display_name,
-        email: user.email,
-        profileImageUrl: user.profile_image_url,
-        createdAt: new Date(user.created_at),
     };
 };

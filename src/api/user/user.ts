@@ -2,7 +2,7 @@ import { FastifyRequest } from "fastify";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { SessionUser } from "../../models/userModel";
-import { transformSessionUser } from "../../integration/twitch/transformation";
+import { transformSessionUser } from "./user.requestDTO";
 const logger = rootLogger.child({ domain: "auth", service: "userService" });
 
 export const getUserIdFromSession = (req: FastifyRequest): string | null => {
