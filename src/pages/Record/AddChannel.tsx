@@ -1,36 +1,28 @@
 import React, { useState, useEffect } from "react";
-import InputText from "../../components/InputText";
-import Select from "../../components/Select";
-import ToggleSwitch from "../../components/ToggleSwitch";
-import InputNumber from "../../components/InputNumber";
-import Button from "../../components/Button";
+import { SubmitHandler, useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { ScheduleSchema } from "../../models/Schedule";
+import type { ScheduleForm } from "../../models/Schedule";
+import InputText from "../../components/Form/InputText";
 import { useTranslation } from "react-i18next";
-import { Channel } from "../../type";
-
-// Todo remove source -> provider et enlever toutes les chaines
+import Select from "../../components/Form/Select";
+import InputNumber from "../../components/Form/InputNumber";
+import { Category, Channel, Quality } from "../../type";
+import Checkbox from "../../components/Form/CheckBox";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 const AddChannel: React.FC = () => {
     const { t } = useTranslation();
-    const [source, setSource] = useState("Une chaine");
-    const [channelName, setChannelName] = useState("");
-    const [viewersCount, setViewersCount] = useState(0);
-    const [timeBeforeDelete, setTimeBeforeDelete] = useState(0);
-    const [trigger, setTrigger] = useState("trigger1");
-    const [tag, setTag] = useState("tag1");
-    const [category, setCategory] = useState("cat1");
-    const [quality, setQuality] = useState("quality1");
-    const [isDeleteRediff, setIsDeleteRediff] = useState(false);
-    const [users, setUsers] = useState<Channel[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [categories, setCategories] = useState<Category[]>([]);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [channels, setChannels] = useState<Channel[]>([]);
     const [possibleMatches, setPossibleMatches] = useState<string[]>([]);
-    const [isValid, setIsValid] = useState(true);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
-    const MIN_CHANNEL_LENGTH = 3;
-    const CHECK_NAME_URL = `${ROOT_URL}/api/users/name/`;
-    const GET_FOLLOWED_CHANNELS_URL = `${ROOT_URL}/api/users/me/followedchannels`;
+    const minTimeBeforeDelete = 10;
+    const minViewersCount = 0;
 
     const checkChannelNameValidity = async (channelName: string) => {
         try {
-            const response = await fetch(`${CHECK_NAME_URL}${channelName}`, {
+            let url = getApiRoute(ApiRoutes.GET_CHANNEL_NAME_NAME, "name", channelName);
+            const response = await fetch(url, {
                 credentials: "include",
             });
 
@@ -47,19 +39,29 @@ const AddChannel: React.FC = () => {
         }
     };
 
-    const handleBlur = async () => {
-        if (channelName.length < MIN_CHANNEL_LENGTH) {
-            return;
-        }
+    useEffect(() => {
+        const fetchData = async () => {
+            let url = getApiRoute(ApiRoutes.GET_CATEGORY);
+            const response = await fetch(url, {
+                credentials: "include",
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            setCategories(data);
+            setIsLoading(false);
+            setValue("category", data.length ? data[0].name : "");
+        };
 
-        const exists = await checkChannelNameValidity(channelName);
-        setIsValid(exists);
-    };
+        fetchData();
+    }, []);
 
     useEffect(() => {
         const fetchFollowedChannels = async () => {
             try {
-                const response = await fetch(`${GET_FOLLOWED_CHANNELS_URL}`, {
+                let url = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
+                const response = await fetch(url, {
                     credentials: "include",
                 });
 
@@ -68,7 +70,7 @@ const AddChannel: React.FC = () => {
                 }
 
                 const data = await response.json();
-                setUsers(data);
+                setChannels(data);
                 setIsLoading(false);
             } catch (error) {
                 console.error(`Error fetching data: ${error}`);
@@ -78,21 +80,40 @@ const AddChannel: React.FC = () => {
         fetchFollowedChannels();
     }, []);
 
-    const submit = async () => {
-        const data = {
-            source,
-            channelName,
-            viewersCount,
-            timeBeforeDelete,
-            trigger,
-            tag,
-            category,
-            quality,
-            isDeleteRediff,
-        };
+    const {
+        register,
+        handleSubmit,
+        setError,
+        clearErrors,
+        trigger,
+        // formState: { errors, isValid },
+        formState: { errors },
+        watch,
+        setValue,
+    } = useForm<ScheduleForm>({
+        resolver: zodResolver(ScheduleSchema),
+        defaultValues: {
+            isDeleteRediff: false,
+            hasTags: false,
+            hasMinView: false,
+            hasCategory: false,
+            quality: Quality.LOW,
+            category: categories.length ? categories[0].name : "",
+            timeBeforeDelete: minTimeBeforeDelete,
+            viewersCount: minViewersCount,
+        },
+    });
 
+    const channelName = watch("channelName");
+    const isDeleteRediff = watch("isDeleteRediff");
+    const hasTags = watch("hasTags");
+    const hasMinView = watch("hasMinView");
+    const hasCategory = watch("hasCategory");
+
+    const postData = async (data: ScheduleForm) => {
         try {
-            const response = await fetch(`${ROOT_URL}/api/dl/channels`, {
+            let url = getApiRoute(ApiRoutes.POST_DOWNLOAD_SCHEDULE);
+            const response = await fetch(url, {
                 method: "POST",
                 credentials: "include",
                 headers: {
@@ -105,171 +126,172 @@ const AddChannel: React.FC = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            // TODO
+            console.log(response);
         } catch (error) {
             console.error(`Error posting data: ${error}`);
         }
     };
 
-    const handleSourceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-        setSource(event.target.value);
-    };
-
-    const handleChannelNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setChannelName(event.target.value);
-        if (event.target.value.length > 0) {
-            const matches = users
-                .filter((user) => user.broadcasterName.toLowerCase().startsWith(event.target.value.toLowerCase()))
-                .map((user) => user.broadcasterName);
-            setPossibleMatches(matches);
-            console.log(
-                users
-                    .filter((user) =>
-                        user.broadcasterName.toLowerCase().startsWith(event.target.value.toLowerCase())
-                    )
-                    .map((user) => user.broadcasterName)
-            );
-        } else {
-            setPossibleMatches([]);
+    const onSubmit: SubmitHandler<ScheduleForm> = async (data) => {
+        const exists = await checkChannelNameValidity(data.channelName);
+        if (!exists) {
+            setError("channelName", {
+                type: "manual",
+                message: "Channel name doesn't exist",
+            });
+            return;
         }
-    };
-
-    const handleViewersCountChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setViewersCount(Number(event.target.value));
-    };
-
-    const handleTimeBeforeDeleteChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setTimeBeforeDelete(Number(event.target.value));
-    };
-
-    const handleTriggerChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-        setTrigger(event.target.value);
-    };
-
-    const handleTagChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-        setTag(event.target.value);
-    };
-
-    const handleCategoryChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-        setCategory(event.target.value);
-    };
-
-    const handleQualityChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-        setQuality(event.target.value);
-    };
-
-    const handleDeleteRediffChange = () => {
-        setIsDeleteRediff(!isDeleteRediff);
+        postData(data);
     };
 
     if (isLoading) {
-        return <p>{t("Loading")}</p>;
+        return <div>{t("Loading")}</div>;
     }
+
+    // const allValues = watch();
+    // console.log(allValues);
+    // console.log("Est valide: %s", isValid);
+
+    const handleBlur = async (fieldName: keyof ScheduleForm) => {
+        const isValid = await trigger(fieldName);
+        if (!isValid) return;
+        if (fieldName === "channelName") {
+            const exists = await checkChannelNameValidity(channelName);
+            if (!exists) {
+                setError("channelName", {
+                    type: "manual",
+                    message: "Channel name dont exist",
+                });
+            } else {
+                clearErrors("channelName");
+            }
+        }
+    };
+
+    const handleChange = async (fieldName: keyof ScheduleForm, value: string) => {
+        if (fieldName === "channelName") {
+            if (value.length > 0) {
+                const matches = channels
+                    .filter((channel) => channel?.broadcasterName?.toLowerCase().startsWith(value.toLowerCase()))
+                    .map((channel) => channel.broadcasterName);
+                setPossibleMatches(matches);
+            } else {
+                setPossibleMatches([]);
+            }
+        }
+    };
 
     return (
         <div className="p-4">
             <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Schedule Videos")}</h1>
-                <div>
-                    <Select
-                        label={t("Select Provider")}
-                        id={source}
-                        value={source}
-                        onChange={handleSourceChange}
-                        options={[t("A channel"), t("All channels followed"), t("All channels")]}
-                    />
-                </div>
-                {source === t("A channel") && (
+                <form onSubmit={handleSubmit(onSubmit)}>
+                    <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Schedule")}</h1>
                     <div className="mt-5">
                         <InputText
                             label={t("Channel Name")}
                             id="channelName"
-                            onBlur={handleBlur}
-                            isValid={isValid}
-                            value={channelName.toLowerCase().replace(/ /g, "")}
-                            onChange={handleChannelNameChange}
                             placeholder={t("Channel Name")}
                             required={true}
                             list="possible-matches"
+                            register={register("channelName")}
+                            error={errors.channelName}
+                            onBlur={() => handleBlur("channelName")}
+                            onChange={(e: { target: { value: string } }) =>
+                                handleChange("channelName", e.target.value)
+                            }
                         />
                         <datalist id="possible-matches">
                             {possibleMatches.map((match, index) => (
                                 <option key={index} value={match} />
                             ))}
                         </datalist>
-                    </div>
-                )}
-                <div className="mt-5">
-                    <Select
-                        label={t("Select a trigger")}
-                        id={trigger}
-                        value={trigger}
-                        onChange={handleTriggerChange}
-                        options={[
-                            t("Every time the channel goes live"),
-                            t("By category"),
-                            t("By Tags"),
-                            t("By minimum number of views"),
-                        ]}
-                    />
-                    {trigger === "trigger3" && (
-                        <Select
-                            label={t("Twitch tags")}
-                            id={tag}
-                            value={tag}
-                            onChange={handleTagChange}
-                            options={["tag 1", "tag 2", "tag 3"]}
-                        />
-                    )}
-                    {trigger === "trigger2" && (
-                        <Select
-                            label={t("Live category")}
-                            id={category}
-                            value={category}
-                            onChange={handleCategoryChange}
-                            options={[t("Just Chatting"), "Diablo 4", "Elden Ring"]}
-                        />
-                    )}
-                    {trigger === "trigger4" && (
-                        <div className="mb-6">
-                            <InputNumber
-                                label={t("Minimum number of views")}
-                                id="default-input"
-                                value={viewersCount}
-                                onChange={handleViewersCountChange}
+
+                        <div className="mt-5">
+                            <Select
+                                label={t("Video quality")}
+                                id="quality"
+                                register={register("quality", { required: true })}
+                                required={true}
+                                error={errors.quality}
+                                options={[Quality.LOW, Quality.MEDIUM, Quality.HIGH]}
                             />
                         </div>
-                    )}
-                    <div className="mt-5">
-                        <Select
-                            label={t("Video quality")}
-                            id="quality"
-                            value={quality}
-                            onChange={handleQualityChange}
-                            options={["1080p", "720p", "480p"]}
-                        />
-                    </div>
-                    <div className="mt-5">
-                        <ToggleSwitch
-                            label={t("Deletion of the video if the VOD is kept after the stream")}
-                            id="toggleB"
-                            checked={isDeleteRediff}
-                            onChange={handleDeleteRediffChange}
-                        />
+                        <div className="mt-5">
+                            <Checkbox
+                                label={t("Deletion of the video if the VOD is kept after the stream")}
+                                helperText={t("Set the stream end time in minutes before the VOD is suppressed")}
+                                id="isDeleteRediff"
+                                error={errors.isDeleteRediff}
+                                register={register("isDeleteRediff")}
+                            />
+                            <InputNumber
+                                id="timeBeforeDelete"
+                                register={register("timeBeforeDelete")}
+                                error={errors.timeBeforeDelete}
+                                required={false}
+                                disabled={!isDeleteRediff}
+                                minValue={minTimeBeforeDelete}
+                            />
+                        </div>
 
-                        {isDeleteRediff === true && (
-                            <div className="mb-6">
-                                <InputNumber
-                                    label={t("Set the stream end time in minutes before the VOD is suppressed")}
-                                    id="timeBeforeDelete"
-                                    value={timeBeforeDelete}
-                                    onChange={handleTimeBeforeDeleteChange}
-                                />
-                            </div>
-                        )}
+                        <div className="mt-5">
+                            <Checkbox
+                                label={t("Minimum number of views")}
+                                id="hasMinView"
+                                error={errors.hasMinView}
+                                register={register("hasMinView")}
+                            />
+                            <InputNumber
+                                id="viewersCount"
+                                register={register("viewersCount")}
+                                error={errors.viewersCount}
+                                required={false}
+                                disabled={!hasMinView}
+                                minValue={minViewersCount}
+                            />
+                        </div>
+                        <div className="mt-5">
+                            <Checkbox
+                                label={t("Game category")}
+                                id="hasCategory"
+                                error={errors.hasCategory}
+                                register={register("hasCategory")}
+                            />
+                            <Select
+                                id="category"
+                                register={register("category", { required: true })}
+                                required={false}
+                                error={errors.category}
+                                options={categories.map((category) => category.name)}
+                                disabled={!hasCategory}
+                            />
+                        </div>
+                        <div className="mt-5">
+                            <Checkbox
+                                label={t("Twitch tags")}
+                                id="hasTags"
+                                error={errors.hasTags}
+                                register={register("hasTags")}
+                            />
+                            <InputText
+                                id="tag"
+                                placeholder={t("Twitch tags separate by ,")}
+                                required={false}
+                                list=""
+                                register={register("tag")}
+                                error={errors.tag}
+                                onBlur={() => handleBlur("tag")}
+                                disabled={!hasTags}
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={Object.keys(errors).length > 0}
+                            className="mt-10 text-3xl bg-gray-300 p-2 rounded-md max-w-[10rem]">
+                            Submit
+                        </button>
                     </div>
-                    <Button text={t("Submit")} onClick={submit} />
-                </div>
+                </form>
             </div>
         </div>
     );

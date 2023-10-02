@@ -1,18 +1,19 @@
 // components/TableTasks.tsx
 import { useState } from "react";
-import { Task } from "../type";
+import { Task } from "../../type";
 import { Icon } from "@iconify/react";
 import { useTranslation } from "react-i18next";
+import { getApiRoute, ApiRoutes } from "../../type/routes";
 
 const TableTasks: React.FC<{ items: Task[] }> = ({ items: initialItems }) => {
     const { t, i18n } = useTranslation();
     const [items, setItems] = useState<Task[]>(initialItems);
     const [loadingTasks, setLoadingTasks] = useState<string[]>([]);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     const fetchTaskData = async (id: string) => {
         setLoadingTasks((prev) => [...prev, id]);
-        const response = await fetch(`${ROOT_URL}/api/task/run/${id}`, {
+        let url = getApiRoute(ApiRoutes.GET_TASK_RUN_ID, "id", id);
+        const response = await fetch(url, {
             credentials: "include",
         });
         const data = await response.json();

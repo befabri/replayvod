@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { CompletedVideo } from "../type";
-import DropdownButton from "../components/ButtonDropdown";
-import Table from "../components/Tables";
-import VideoComponent from "../components/Video";
+import DropdownButton from "../components/UI/Button/ButtonDropdown";
+import Table from "../components/Table/Tables";
+import VideoComponent from "../components/Media/Video";
+import { ApiRoutes, getApiRoute } from "../type/routes";
 
 const Vod: React.FC = () => {
     const { t } = useTranslation();
@@ -11,7 +12,6 @@ const Vod: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [view, setView] = useState("Grille");
     const [order, setOrder] = useState("Recently Added");
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     const fetchImage = async (url: RequestInfo | URL) => {
         const response = await fetch(url, { credentials: "include" });
@@ -20,7 +20,8 @@ const Vod: React.FC = () => {
     };
 
     useEffect(() => {
-        fetch(`${ROOT_URL}/api/videos/finished`, {
+        let url = getApiRoute(ApiRoutes.GET_VIDEO_FINISHED);
+        fetch(url, {
             credentials: "include",
         })
             .then((response) => {
@@ -31,7 +32,8 @@ const Vod: React.FC = () => {
             })
             .then(async (data) => {
                 const promises = data.map(async (video: CompletedVideo) => {
-                    const imageUrl = await fetchImage(`${ROOT_URL}/api/videos/thumbnail/${video.thumbnail}`);
+                    url = getApiRoute(ApiRoutes.GET_VIDEO_THUMBNAIL_ID, "id", video.thumbnail);
+                    const imageUrl = await fetchImage(url);
                     return { ...video, thumbnail: imageUrl };
                 });
 

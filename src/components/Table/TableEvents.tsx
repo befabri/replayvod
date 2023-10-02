@@ -1,16 +1,16 @@
 import { Key } from "react";
 import { useTranslation } from "react-i18next";
-import { EventLog } from "../type";
-import { capitalizeFirstLetter } from "../utils/utils";
+import { EventLog } from "../../type";
+import { capitalizeFirstLetter } from "../../utils/utils";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 
 const TableEvents: React.FC<{ items: EventLog[] }> = ({ items }) => {
     const { t } = useTranslation();
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
-
     const fields: (keyof EventLog)[] = ["domain"];
 
     const fetchAndShowLog = async (id: string) => {
-        const response = await fetch(`${ROOT_URL}/api/log/domains/${id}`, {
+        let url = getApiRoute(ApiRoutes.GET_LOG_DOMAINS_ID, "id", id);
+        const response = await fetch(url, {
             credentials: "include",
         });
 
@@ -21,9 +21,9 @@ const TableEvents: React.FC<{ items: EventLog[] }> = ({ items }) => {
         const text = await response.text();
 
         const blob = new Blob([text], { type: "text/plain;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
+        const urlBlob = URL.createObjectURL(blob);
 
-        window.open(url);
+        window.open(urlBlob);
     };
 
     return (

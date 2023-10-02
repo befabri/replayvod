@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import Table from "../../components/Tables";
+import Table from "../../components/Table/Tables";
 import { Video } from "../../type";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 
 const Queue: React.FC = () => {
     const { t } = useTranslation();
     const [videos, setVideos] = useState<Video[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     useEffect(() => {
         const fetchData = async () => {
-            const response = await fetch(`${ROOT_URL}/api/videos/all`, {
+            let url = getApiRoute(ApiRoutes.GET_VIDEO_ALL);
+            const response = await fetch(url, {
                 credentials: "include",
             });
             if (!response.ok) {

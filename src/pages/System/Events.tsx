@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableEvents from "../../components/TableEvents";
+import TableEvents from "../../components/Table/TableEvents";
 import { EventLog } from "../../type";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 
 const Events: React.FC = () => {
     const { t } = useTranslation();
     const [logs, setLogs] = useState<EventLog[]>([]);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
-            const response = await fetch(`${ROOT_URL}/api/log/domains`, {
+            let url = getApiRoute(ApiRoutes.GET_LOG_DOMAINS);
+            const response = await fetch(url, {
                 credentials: "include",
             });
             if (!response.ok) {

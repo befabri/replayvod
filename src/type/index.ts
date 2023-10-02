@@ -123,3 +123,16 @@ export interface Channel {
     type: string;
     viewCount: number;
 }
+
+export enum Quality {
+    LOW = "480",
+    MEDIUM = "720",
+    HIGH = "1080",
+}
+
+export interface Category {
+    id: string;
+    boxArtUrl?: string;
+    igdbId?: string;
+    name: string;
+}

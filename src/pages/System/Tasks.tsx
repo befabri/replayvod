@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableTasks from "../../components/TableTasks";
+import TableTasks from "../../components/Table/TableTasks";
 import { Task } from "../../type";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 
 const Tasks: React.FC = () => {
     const { t } = useTranslation();
     const [tasks, setTasks] = useState<Task[]>([]);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
-            const response = await fetch(`${ROOT_URL}/api/task`, {
+            let url = getApiRoute(ApiRoutes.GET_TASK);
+            const response = await fetch(url, {
                 credentials: "include",
             });
             if (!response.ok) {

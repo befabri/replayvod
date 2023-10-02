@@ -1,7 +1,7 @@
 import { FC, useState, useEffect, useRef } from "react";
-import { CompletedVideo } from "../type";
-import { Pathnames } from "../type/routes";
-import { toKebabCase, truncateString } from "../utils/utils";
+import { CompletedVideo } from "../../type";
+import { Pathnames } from "../../type/routes";
+import { toKebabCase, truncateString } from "../../utils/utils";
 
 type VideoInfoProps = {
     video: CompletedVideo | undefined;

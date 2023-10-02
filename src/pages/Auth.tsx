@@ -1,4 +1,5 @@
 import * as React from "react";
+import { ApiRoutes, getApiRoute } from "../type/routes";
 
 interface AuthContextType {
     user: any;
@@ -28,7 +29,8 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     async function checkSession() {
         setIsLoading(true);
         try {
-            const response = await fetch(`${ROOT_URL}/api/auth/check-session`, {
+            let url = getApiRoute(ApiRoutes.GET_AUTH_CHECK_SESSION);
+            const response = await fetch(url, {
                 credentials: "include",
             });
 
@@ -49,7 +51,8 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     async function refreshToken() {
         try {
-            const response = await fetch(`${ROOT_URL}/api/auth/refresh`, {
+            let url = getApiRoute(ApiRoutes.GET_AUTH_REFRESH);
+            const response = await fetch(url, {
                 credentials: "include",
             });
             const data = await response.json();
@@ -77,7 +80,8 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const signOut = async () => {
         try {
-            await fetch(`${ROOT_URL}/api/auth/signout`, {
+            let url = getApiRoute(ApiRoutes.POST_AUTH_SIGNOUT);
+            await fetch(url, {
                 method: "POST",
                 credentials: "include",
             });

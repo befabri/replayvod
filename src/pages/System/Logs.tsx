@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableLogs from "../../components/TableLogs";
+import TableLogs from "../../components/Table/TableLogs";
 import { Log } from "../../type";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 
 const Logs: React.FC = () => {
     const { t } = useTranslation();
     const [logs, setLogs] = useState<Log[]>([]);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
-            const response = await fetch(`${ROOT_URL}/api/log/files`, {
+            let url = getApiRoute(ApiRoutes.GET_LOG_FILES);
+            const response = await fetch(url, {
                 credentials: "include",
             });
             if (!response.ok) {

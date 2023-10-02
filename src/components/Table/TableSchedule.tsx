@@ -1,8 +1,8 @@
 import { useState } from "react";
-import Icon from "./IconSort";
-import { EventSub } from "../type";
+import Icon from "../UI/Icon/IconSort";
+import { EventSub } from "../../type";
 import { useTranslation } from "react-i18next";
-import { capitalizeFirstLetter, formatDate } from "../utils/utils";
+import { capitalizeFirstLetter, formatDate } from "../../utils/utils";
 
 const TableSchedule = ({ items: initialItems }: any) => {
     const { t } = useTranslation();

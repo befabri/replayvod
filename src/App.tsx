@@ -1,7 +1,7 @@
 import { Routes, Route, useLocation, Navigate, Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "./pages/Auth";
-import Navbar from "./components/Navbar";
-import Sidebar from "./components/Sidebar";
+import Navbar from "./components/Layout/Navbar";
+import Sidebar from "./components/Layout/Sidebar";
 import Vod from "./pages/Vod";
 import Settings from "./pages/Settings.tsx";
 import Following from "./pages/Record/Following.tsx";

@@ -1,8 +1,8 @@
 import { FC, useRef } from "react";
-import { CompletedVideo } from "../type";
-import { Pathnames } from "../type/routes";
+import { CompletedVideo } from "../../type";
+import { Pathnames } from "../../type/routes";
 import VideoInfoComponent from "./VideoInfo";
-import { formatDate, formatDuration } from "../utils/utils";
+import { formatDate, formatDuration } from "../../utils/utils";
 
 type VideoProps = {
     videos: CompletedVideo[] | undefined;
@@ -52,4 +52,3 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
 };
 
 export default VideoComponent;
-    

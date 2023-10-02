@@ -1,8 +1,8 @@
 import React, { SetStateAction, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Channel, Stream } from "../../type";
-import { Pathnames } from "../../type/routes";
-import DropdownButton from "../../components/ButtonDropdown";
+import { ApiRoutes, Pathnames, getApiRoute } from "../../type/routes";
+import DropdownButton from "../../components/UI/Button/ButtonDropdown";
 
 const Follows: React.FC = () => {
     const { t } = useTranslation();
@@ -10,14 +10,15 @@ const Follows: React.FC = () => {
     const [streams, setStreams] = useState<Stream[]>([]);
     const [order, setOrder] = useState("Channel (ascending)");
     const [isLoading, setIsLoading] = useState<boolean>(true);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     useEffect(() => {
         const fetchData = async () => {
             try {
+                let urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
+                let urlFollowedStreams = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_STREAMS);
                 const [followedChannelsResponse, followedStreamsResponse] = await Promise.all([
-                    fetch(`${ROOT_URL}/api/users/me/followedchannels`, { credentials: "include" }),
-                    fetch(`${ROOT_URL}/api/users/me/followedstreams`, { credentials: "include" }),
+                    fetch(urlFollowedChannels, { credentials: "include" }),
+                    fetch(urlFollowedStreams, { credentials: "include" }),
                 ]);
 
                 const followedChannelsData: SetStateAction<Channel[]> = await followedChannelsResponse.json();
