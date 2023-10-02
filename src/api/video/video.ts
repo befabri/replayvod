@@ -557,7 +557,7 @@ const updateVideoTitle = async (videoId, titles) => {
     // try {
     //     return await Promise.all(promises);
     // } catch (error) {
-    //     console.error("Error updating video titles:", error);
+    //     logger.error("Error updating video titles:", error);
     //     throw error;
     // }
 };
@@ -620,7 +620,7 @@ const updateVideoCategory = async (videoId, categories) => {
     try {
         return await Promise.all(promises);
     } catch (error) {
-        console.error("Error updating video categories:", error);
+        logger.error("Error updating video categories:", error);
         throw error;
     }
 };
@@ -652,7 +652,7 @@ const updateVideoTag = async (videoId: number, tags: any) => {
     try {
         return await Promise.all(promises);
     } catch (error) {
-        console.error("Error updating video tags:", error);
+        logger.error("Error updating video tags:", error);
         throw error;
     }
 };

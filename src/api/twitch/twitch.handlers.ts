@@ -3,6 +3,8 @@ import * as categoryService from "../category";
 import * as twitchService from "./twitch";
 import * as userService from "../user";
 import * as eventSubService from "../webhook/eventSubService";
+import { logger as rootLogger } from "../../app";
+const logger = rootLogger.child({ domain: "twitch", service: "twitchHandler" });
 
 export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -10,7 +12,7 @@ export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply
         await categoryService.addAllCategories(categories);
         reply.send({ message: "Games fetched and saved successfully." });
     } catch (err) {
-        console.error(err);
+        logger.error(err);
         reply.status(500).send({ error: "An error occurred while fetching and saving games." });
     }
 };
@@ -29,7 +31,7 @@ export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) 
             reply.send(eventSub);
         }
     } catch (err) {
-        console.error(err);
+        logger.error(err);
         reply.status(500).send({ error: "An error occurred while fetching EventSub subscriptions." });
     }
 };
@@ -39,7 +41,7 @@ export const getTotalCost = async (req: FastifyRequest, reply: FastifyReply) => 
         const eventSub = await eventSubService.getTotalCost();
         reply.send({ data: eventSub.data, message: eventSub.message });
     } catch (err) {
-        console.error(err);
+        logger.error(err);
         reply.status(500).send({ error: "An error occurred while fetching total cost." });
     }
 };

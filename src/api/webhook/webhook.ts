@@ -9,8 +9,8 @@ const logger = rootLogger.child({ domain: "webhook", service: "webhookService" }
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 
 export const addWebhook = async (webhook: Webhook) => {
-    console.log(webhook);
-    console.log(JSON.stringify(webhook));
+    logger.log(webhook);
+    logger.log(JSON.stringify(webhook));
 };
 
 export const removeWebhook = async (id: string) => {

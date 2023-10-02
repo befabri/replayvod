@@ -15,7 +15,7 @@ export const getUserFollowedStreams = async (req: FastifyRequest, reply: Fastify
         const followedStreams = await channelService.getUserFollowedStreams(userId, accessToken);
         reply.send(followedStreams);
     } catch (error) {
-        console.error("Error fetching followed streams:", error);
+        logger.error("Error fetching followed streams:", error);
         reply.status(500).send("Error fetching followed streams");
     }
 };
@@ -31,7 +31,7 @@ export const getUserFollowedChannels = async (req: FastifyRequest, reply: Fastif
         const followedChannels = await channelService.getUserFollowedChannels(userId, accessToken);
         reply.send(followedChannels);
     } catch (error) {
-        console.error("Error fetching followed channels:", error);
+        logger.error("Error fetching followed channels:", error);
         reply.status(500).send("Error fetching followed channels");
     }
 };
@@ -49,7 +49,7 @@ export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
         // reply.status(200).send(result);
         reply.status(200).send(null);
     } catch (error) {
-        console.error("Error updating users:", error);
+        logger.error("Error updating users:", error);
         reply.status(500).send("Error updating users");
     }
 };

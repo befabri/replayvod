@@ -158,7 +158,7 @@ export const generateMissingThumbnail = async (req: FastifyRequest, reply: Fasti
 //         const stream = createReadStreamWithHandlers(imagePath);
 //         return reply.send(stream);
 //     } catch (err) {
-//         console.error(`Error accessing the file: ${err.message}`);
+//         logger.error(`Error accessing the file: ${err.message}`);
 //         if (err.code === "ENOENT") {
 //             return reply.status(404).send("File not found");
 //         } else {
@@ -170,11 +170,11 @@ export const generateMissingThumbnail = async (req: FastifyRequest, reply: Fasti
 // const createReadStreamWithHandlers = (imagePath: string) => {
 //     const stream = fs.createReadStream(imagePath);
 //     stream.on("error", (error) => {
-//         console.error(`Error reading the stream: ${error.message}`);
+//         logger.error(`Error reading the stream: ${error.message}`);
 //     });
 
 //     stream.on("close", () => {
-//         console.log("ReadStream closed");
+//         logger.log("ReadStream closed");
 //     });
 
 //     return stream;
@@ -206,12 +206,12 @@ export const generateMissingThumbnail = async (req: FastifyRequest, reply: Fasti
 //     const videoStats = fs.statSync(videoPath);
 
 //     const videoRange = req.headers.range;
-//     console.log(videoRange);
+//     logger.log(videoRange);
 //     if (videoRange) {
 //         let [startString, endString] = videoRange.replace(/bytes=/, "").split("-");
 //         let start = parseInt(startString, 10);
 //         let end = endString ? parseInt(endString, 10) : videoStats.size - 1;
-//         console.log(start, end);
+//         logger.log(start, end);
 //         if (!isNaN(start) && isNaN(end)) {
 //             end = videoStats.size - 1;
 //         }
@@ -229,7 +229,7 @@ export const generateMissingThumbnail = async (req: FastifyRequest, reply: Fasti
 //                 .send();
 //             return;
 //         }
-//         console.log("Sending headers with chunk:", end - start + 1);
+//         logger.log("Sending headers with chunk:", end - start + 1);
 //         reply.status(206).headers({
 //             "Content-Range": `bytes ${start}-${end}/${videoStats.size}`,
 //             "Accept-Ranges": "bytes",
