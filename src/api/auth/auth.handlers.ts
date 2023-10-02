@@ -4,7 +4,7 @@ import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "auth", service: "authHandler" });
 import dotenv from "dotenv";
-import * as userService from "../user";
+import { userService } from "../user";
 
 dotenv.config();
 const REDIRECT_URL = process.env.REDIRECT_URL || "/";

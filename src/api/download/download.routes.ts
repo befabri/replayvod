@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
-import * as downloadHandler from "./download.handlers";
 import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
+import { downloadHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.get("/user/:id", {

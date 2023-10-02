@@ -2,10 +2,10 @@ import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
 import { logger as rootLogger } from "../../app";
 import fs from "fs";
 import path from "path";
-import * as channelService from "../channel";
-import * as videoService from "./video";
-import * as userService from "../user";
 import { Status } from "@prisma/client";
+import { videoService } from ".";
+import { channelService } from "../channel";
+import { userService } from "../user";
 
 const logger = rootLogger.child({ domain: "video", service: "videoHandler" });
 

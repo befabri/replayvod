@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import * as webhookHandler from "./webhook.handlers";
+import { webhookHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.post("/webhooks", webhookHandler.addWebhook);

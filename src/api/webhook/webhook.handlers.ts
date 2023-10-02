@@ -1,5 +1,4 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
-import * as webhookService from "./webhook";
 import { Webhook } from "../../models/webhookModel";
 import {
     CHANNEL_UPDATE,
@@ -15,6 +14,7 @@ import {
 } from "../../constants/twitchConstants";
 import { logger } from "../../app";
 import { NotificationBody, SubscriptionType } from "../../models/notificationTwitch";
+import { webhookService } from ".";
 
 interface WebhookRequest extends RouteGenericInterface {
     Body: Webhook;

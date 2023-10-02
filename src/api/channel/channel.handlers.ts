@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
-import * as channelService from "./channel";
 import { logger as rootLogger } from "../../app";
+import { channelService } from ".";
 const logger = rootLogger.child({ domain: "channel", service: "channelHandler" });
 
 const channelCacheNotFound = new Map();

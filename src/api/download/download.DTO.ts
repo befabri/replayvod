@@ -1,10 +1,9 @@
 import { Quality, Category, Tag } from ".prisma/client";
-import * as channelService from "../../api/channel";
-import * as videoService from "../../api/video";
-import * as categoryService from "../../api/category";
 import { tagService } from "../../services";
-
 import { logger as rootLogger } from "../../app";
+import { categoryService } from "../category";
+import { channelService } from "../channel";
+import { videoService } from "../video";
 
 const logger = rootLogger.child({ domain: "download", service: "transformUtils" });
 
@@ -57,8 +56,11 @@ export const transformDownloadSchedule = async (
             ...(schedule.isDeleteRediff ? { timeBeforeDelete: schedule.timeBeforeDelete } : {}),
             ...(schedule.hasMinView ? { viewersCount: schedule.viewersCount } : {}),
         };
-        const tags = schedule.tag ? await getTags(schedule.tag) : [];
-        const category = schedule.category ? await categoryService.getCategoryByName(schedule.category) : null;
+        const tags = schedule.hasTags && schedule.tag ? await getTags(schedule.tag) : [];
+        const category =
+            schedule.hasCategory && schedule.category
+                ? await categoryService.getCategoryByName(schedule.category)
+                : null;
         return {
             downloadSchedule: transformedDownloadSchedule,
             tags,

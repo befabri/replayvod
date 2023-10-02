@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
-import * as twitchHandler from "./twitch.handlers";
 import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
+import { twitchHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.get("/update/games", {

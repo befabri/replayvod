@@ -1,8 +1,8 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
-import * as logService from "./log";
 import fs from "fs";
 import path from "path";
 import { EventLog } from "@prisma/client";
+import { logService } from ".";
 
 let logCache;
 

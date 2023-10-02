@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
-import * as taskHandler from "./task.handlers";
 import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
+import { taskHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     const taskSchema = {

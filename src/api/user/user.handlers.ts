@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import * as channelService from "../channel";
-import * as userService from "./user";
 import { logger as rootLogger } from "../../app";
+import { channelService } from "../channel";
+import { userService } from ".";
 const logger = rootLogger.child({ domain: "user", service: "userHandler" });
 
 export const getUserFollowedStreams = async (req: FastifyRequest, reply: FastifyReply) => {
@@ -28,6 +28,8 @@ export const getUserFollowedChannels = async (req: FastifyRequest, reply: Fastif
         return;
     }
     try {
+        logger.info(userId);
+        logger.info(accessToken);
         const followedChannels = await channelService.getUserFollowedChannels(userId, accessToken);
         reply.send(followedChannels);
     } catch (error) {

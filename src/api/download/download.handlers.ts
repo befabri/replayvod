@@ -1,14 +1,14 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
 import { jobService } from "../../services";
-import * as channelService from "../channel";
-import * as downloadService from "./download";
-import * as userService from "../user";
-import * as videoService from "../video";
 import TwitchAPI from "../../integration/twitch/twitchAPI";
 import { Quality } from "@prisma/client";
 import { JobDetail } from "../../types/sharedTypes";
 import { logger as rootLogger } from "../../app";
 import { DownloadScheduleDTO } from "./download.DTO";
+import { downloadService } from ".";
+import { channelService } from "../channel";
+import { userService } from "../user";
+import { videoService } from "../video";
 const logger = rootLogger.child({ domain: "download", service: "downloadHandler" });
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
@@ -66,7 +66,7 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
         await downloadService.addSchedule(data, userId);
         reply.status(200).send("Schedule saved successfully.");
     } catch (error) {
-        logger.error("Error scheduling download:", error);
+        logger.error("Error scheduling download: %s", error);
         reply.status(500).send("Error scheduling download.");
     }
 };

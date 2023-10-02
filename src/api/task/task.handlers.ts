@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
-import * as taskService from "./task";
+import { taskService } from ".";
 
 interface Params extends RouteGenericInterface {
     Params: {

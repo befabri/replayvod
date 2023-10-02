@@ -1,9 +1,9 @@
 import { Webhook } from "../../models/webhookModel";
-import * as eventProcessingService from "./eventProcessingService";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../../constants/twitchConstants";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
+import { eventProcessingService } from ".";
 const logger = rootLogger.child({ domain: "webhook", service: "webhookService" });
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;

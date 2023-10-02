@@ -9,9 +9,9 @@ import {
     EventSubMeta,
 } from "../../models/twitchModel";
 import { tagService, titleService } from "../../services";
-import * as categoryService from "../../api/category";
-import * as channelService from "../../api/channel";
 import { logger as rootLogger } from "../../app";
+import { categoryService } from "../../api/category";
+import { channelService } from "../../api/channel";
 
 const logger = rootLogger.child({ domain: "twitch", service: "transformUtils" });
 

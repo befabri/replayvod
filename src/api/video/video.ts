@@ -5,10 +5,10 @@ import { Channel, Quality, Status, Video } from "@prisma/client";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { VideoQuality } from "../../models/downloadModel";
-import * as categoryService from "../category";
 import { tagService, titleService } from "../../services";
 import moment from "moment";
 import { StreamWithRelations } from "../../types/sharedTypes";
+import { categoryService } from "../category";
 const logger = rootLogger.child({ domain: "video", service: "videoService" });
 
 export const getVideoById = async (id: number): Promise<Video | null> => {

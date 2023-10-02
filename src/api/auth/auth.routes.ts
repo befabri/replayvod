@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import * as authHandler from "./auth.handlers";
+import { authHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     // fastify.get("/twitch", {
