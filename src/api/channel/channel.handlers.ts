@@ -3,8 +3,8 @@ import * as channelService from "./channel";
 import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "channel", service: "channelHandler" });
 
-const userCacheNotFound = new Map();
-const userCache = new Map();
+const channelCacheNotFound = new Map();
+const channelCache = new Map();
 
 interface Params extends RouteGenericInterface {
     Params: {
@@ -26,107 +26,107 @@ interface Body extends RouteGenericInterface {
 }
 
 export const getChannelDetail = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    const userId = req.params.id;
+    const broadcasterId = req.params.id;
 
-    if (!userId || typeof userId !== "string") {
-        reply.status(400).send("Invalid user id");
+    if (!broadcasterId || typeof broadcasterId !== "string") {
+        reply.status(400).send("Invalid broadcasterId");
         return;
     }
     try {
-        const user = await channelService.getChannelDetailDB(userId);
-        if (!user) {
-            reply.status(404).send("User not found");
+        const channel = await channelService.getChannelDetailDB(broadcasterId);
+        if (!channel) {
+            reply.status(404).send("Channel not found");
             return;
         }
-        reply.send(user);
+        reply.send(channel);
     } catch (error) {
-        console.error("Error fetching user details:", error);
-        reply.status(500).send("Error fetching user details");
+        logger.error("Error fetching channel details: %s", error);
+        reply.status(500).send("Error fetching channel details");
     }
 };
 
 //Backend
 export const getChannelDetailByName = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    const username = req.params.name;
-    if (!username || typeof username !== "string") {
-        reply.status(400).send({ error: "Invalid user name" });
+    const broadcasterName = req.params.name;
+    if (!broadcasterName || typeof broadcasterName !== "string") {
+        reply.status(400).send({ error: "Invalid broadcaster name" });
         return;
     }
     try {
-        if (userCacheNotFound.has(username)) {
+        if (channelCacheNotFound.has(broadcasterName)) {
             reply.send({ exists: false });
             return;
         }
-        if (userCache.has(username)) {
-            reply.send({ exists: true, user: userCache.get(username) });
+        if (channelCache.has(broadcasterName)) {
+            reply.send({ exists: true, user: channelCache.get(broadcasterName) });
             return;
         }
-        const user = await channelService.getChannelDetailByName(username);
+        const user = await channelService.getChannelDetailByName(broadcasterName);
         if (!user) {
-            userCacheNotFound.set(username, true);
+            channelCacheNotFound.set(broadcasterName, true);
             reply.send({ exists: false });
             return;
         }
-        userCache.set(username, user);
+        channelCache.set(broadcasterName, user);
         reply.send({ exists: true, user });
     } catch (error) {
-        logger.error("Error fetching user details: %s", error);
-        reply.status(500).send({ error: "Error fetching user details" });
+        logger.error("Error fetching channel details: %s", error);
+        reply.status(500).send({ error: "Error fetching channel details" });
     }
 };
 
 export const getMultipleUserDetailsFromDB = async (req: FastifyRequest<Query>, reply: FastifyReply) => {
-    const queryUserIds = req.query.userIds;
+    const queryBroadcasterIds = req.query.userIds;
 
-    if (!queryUserIds) {
-        reply.status(400).send("Invalid 'userIds' field");
+    if (!queryBroadcasterIds) {
+        reply.status(400).send("Invalid 'broadcasterIds' field");
         return;
     }
-    let userIds: string[];
-    if (typeof queryUserIds === "string") {
-        userIds = [queryUserIds];
-    } else if (Array.isArray(queryUserIds) && typeof queryUserIds[0] === "string") {
-        userIds = queryUserIds as string[];
+    let broadcasterIds: string[];
+    if (typeof queryBroadcasterIds === "string") {
+        broadcasterIds = [queryBroadcasterIds];
+    } else if (Array.isArray(queryBroadcasterIds) && typeof queryBroadcasterIds[0] === "string") {
+        broadcasterIds = queryBroadcasterIds as string[];
     } else {
-        reply.status(400).send("Invalid 'userIds' field");
+        reply.status(400).send("Invalid 'broadcasterIds' field");
         return;
     }
     try {
-        const users = await channelService.getMultipleChannelDetailsDB(userIds);
-        reply.send(users);
+        const channels = await channelService.getMultipleChannelDetailsDB(broadcasterIds);
+        reply.send(channels);
     } catch (error) {
-        console.error("Error fetching user details from database:", error);
-        reply.status(500).send("Error fetching user details from database");
+        logger.error("Error fetching channel details from database: %s", error);
+        reply.status(500).send("Error fetching channel details from database");
     }
 };
 
-export const updateUserDetail = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    const userId = req.params.id;
+export const updateChannelDetail = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
+    const broadcasterId = req.params.id;
 
-    if (!userId || typeof userId !== "string") {
-        reply.status(400).send("Invalid user id");
+    if (!broadcasterId || typeof broadcasterId !== "string") {
+        reply.status(400).send("Invalid broadcasterId");
         return;
     }
     try {
-        const user = await channelService.updateChannelDetail(userId);
-        reply.send(user);
+        const channel = await channelService.updateChannelDetail(broadcasterId);
+        reply.send(channel);
     } catch (error) {
-        console.error("Error updating user details:", error);
-        reply.status(500).send("Error updating user details");
+        logger.error("Error updating channel details: %s", error);
+        reply.status(500).send("Error updating channel details");
     }
 };
 
-export const fetchAndStoreUserDetails = async (req: FastifyRequest<Body>, reply: FastifyReply) => {
-    const userIds = req.body.userIds;
-    if (!Array.isArray(userIds) || !userIds.every((id) => typeof id === "string")) {
-        reply.status(400).send("Invalid 'userIds' field");
+export const fetchAndStoreChannelDetails = async (req: FastifyRequest<Body>, reply: FastifyReply) => {
+    const broadcasterIds = req.body.userIds;
+    if (!Array.isArray(broadcasterIds) || !broadcasterIds.every((id) => typeof id === "string")) {
+        reply.status(400).send("Invalid 'broadcasterIds' field");
         return;
     }
     try {
-        const message = await channelService.fetchAndStoreChannelDetails(userIds);
+        const message = await channelService.fetchAndStoreChannelDetails(broadcasterIds);
         reply.status(200).send(message);
     } catch (error) {
-        console.error("Error fetching and storing user details:", error);
-        reply.status(500).send("Error fetching and storing user details");
+        logger.error("Error fetching and storing channel details: %s", error);
+        reply.status(500).send("Error fetching and storing channel details");
     }
 };

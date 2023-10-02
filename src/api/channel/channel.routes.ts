@@ -28,7 +28,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
             },
         },
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: channelHandler.updateUserDetail,
+        handler: channelHandler.updateChannelDetail,
     });
 
     fastify.get("/", {
@@ -52,7 +52,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
             },
         },
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: channelHandler.fetchAndStoreUserDetails,
+        handler: channelHandler.fetchAndStoreChannelDetails,
     });
 
     fastify.get("/name/:name", {
