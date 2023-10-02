@@ -1,3 +1,5 @@
+import { Quality } from "../type";
+
 export function capitalizeFirstLetter(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
@@ -55,4 +57,13 @@ export const toTitleCase = (str?: string): string => {
         .split("-")
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(" ");
+};
+
+export const mapQuality = (value: string): Quality => {
+    const mapping: { [key: string]: Quality } = {
+        "480": Quality.LOW,
+        "720": Quality.MEDIUM,
+        "1080": Quality.HIGH,
+    };
+    return mapping[value] || Quality.MEDIUM; // default to MEDIUM
 };
