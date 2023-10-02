@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CompletedVideo } from "../type";
 import VideoComponent from "../components/Video";
+import { ApiRoutes, getApiRoute } from "../type/routes";
 
 const ChannelPage: React.FC = () => {
     const { t } = useTranslation();
@@ -12,14 +13,13 @@ const ChannelPage: React.FC = () => {
     const [isFetching, setIsFetching] = useState<boolean>(false);
     const [buttonText, setButtonText] = useState<string>("Enregistrer");
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     const handleClick = () => {
         if (!isFetching) {
             setIsFetching(true);
             setButtonText("En cours");
-
-            fetch(`${ROOT_URL}/api/dl/stream/${id}`, {
+            let url = getApiRoute(ApiRoutes.GET_DOWNLOAD_STREAM_ID, "id", id);
+            fetch(url, {
                 credentials: "include",
             })
                 .then((response) => response.json())
@@ -38,15 +38,17 @@ const ChannelPage: React.FC = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const videoResponse = await fetch(`${ROOT_URL}/api/videos/user/${id}`, { credentials: "include" });
+                let url = getApiRoute(ApiRoutes.GET_VIDEO_USER_ID, "id", id);
+                const videoResponse = await fetch(url, { credentials: "include" });
                 const videosData = await videoResponse.json();
 
                 const thumbnails = await Promise.all(
-                    videosData.map((video: CompletedVideo) =>
-                        fetch(`${ROOT_URL}/api/videos/thumbnail/${video.thumbnail}`, {
+                    videosData.map((video: CompletedVideo) => {
+                        url = getApiRoute(ApiRoutes.GET_VIDEO_THUMBNAIL_ID, "id", video.thumbnail);
+                        return fetch(url, {
                             credentials: "include",
-                        }).then((res) => res.blob())
-                    )
+                        }).then((res) => res.blob());
+                    })
                 );
 
                 const updatedVideos = videosData.map((video: CompletedVideo, index: number) => ({

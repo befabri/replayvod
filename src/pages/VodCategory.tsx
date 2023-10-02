@@ -3,12 +3,12 @@ import { useParams } from "react-router-dom";
 import { CompletedVideo } from "../type";
 import VideoComponent from "../components/Video";
 import { toKebabCase, toTitleCase } from "../utils/utils";
+import { ApiRoutes, getApiRoute } from "../type/routes";
 
 const VodCategory: React.FC = () => {
     const { id } = useParams();
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
     const fetchImage = async (url: RequestInfo | URL) => {
         const response = await fetch(url, { credentials: "include" });
@@ -17,7 +17,8 @@ const VodCategory: React.FC = () => {
     };
 
     useEffect(() => {
-        fetch(`${ROOT_URL}/api/videos/finished`, {
+        let url = getApiRoute(ApiRoutes.GET_VIDEO_FINISHED);
+        fetch(url, {
             credentials: "include",
         })
             .then((response) => {
@@ -28,7 +29,8 @@ const VodCategory: React.FC = () => {
             })
             .then(async (data) => {
                 const promises = data.map(async (video: CompletedVideo) => {
-                    const imageUrl = await fetchImage(`${ROOT_URL}/api/videos/thumbnail/${video.thumbnail}`);
+                    url = getApiRoute(ApiRoutes.GET_VIDEO_THUMBNAIL_ID, "id", video.thumbnail);
+                    const imageUrl = await fetchImage(url);
                     return { ...video, thumbnail: imageUrl };
                 });
 

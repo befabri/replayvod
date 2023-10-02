@@ -2,11 +2,10 @@ import { Key } from "react";
 import { useTranslation } from "react-i18next";
 import { Log } from "../type";
 import { capitalizeFirstLetter } from "../utils/utils";
+import { getApiRoute, ApiRoutes } from "../type/routes";
 
 const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
     const { t } = useTranslation();
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
-
     const fields: (keyof Log)[] = ["filename", "lastWriteTime"];
 
     const formatTime = (dateString: string) => {
@@ -18,10 +17,10 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
     };
 
     const fetchAndShowLog = async (id: string) => {
-        const response = await fetch(`${ROOT_URL}/api/log/files/${id}`, {
+        let url = getApiRoute(ApiRoutes.GET_LOG_FILES_ID, "id", id);
+        const response = await fetch(url, {
             credentials: "include",
         });
-
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -29,9 +28,9 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
         const text = await response.text();
 
         const blob = new Blob([text], { type: "text/plain;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
+        const urlBlob = URL.createObjectURL(blob);
 
-        window.open(url);
+        window.open(urlBlob);
     };
 
     return (

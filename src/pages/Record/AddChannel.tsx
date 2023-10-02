@@ -9,11 +9,9 @@ import Select from "../../components/Select";
 import InputNumber from "../../components/InputNumber";
 import { Category, Channel, Quality } from "../../type";
 import Checkbox from "../../components/CheckBox";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 const AddChannel: React.FC = () => {
     const { t } = useTranslation();
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
-    const CHECK_NAME_URL = `${ROOT_URL}/api/users/name/`;
-    const GET_FOLLOWED_CHANNELS_URL = `${ROOT_URL}/api/users/me/followedchannels`;
     const [categories, setCategories] = useState<Category[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [channels, setChannels] = useState<Channel[]>([]);
@@ -23,7 +21,8 @@ const AddChannel: React.FC = () => {
 
     const checkChannelNameValidity = async (channelName: string) => {
         try {
-            const response = await fetch(`${CHECK_NAME_URL}${channelName}`, {
+            let url = getApiRoute(ApiRoutes.GET_CHANNEL_NAME_NAME, "name", channelName);
+            const response = await fetch(url, {
                 credentials: "include",
             });
 
@@ -42,7 +41,8 @@ const AddChannel: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            const response = await fetch(`${ROOT_URL}/api/category`, {
+            let url = getApiRoute(ApiRoutes.GET_CATEGORY);
+            const response = await fetch(url, {
                 credentials: "include",
             });
             if (!response.ok) {
@@ -60,7 +60,8 @@ const AddChannel: React.FC = () => {
     useEffect(() => {
         const fetchFollowedChannels = async () => {
             try {
-                const response = await fetch(`${GET_FOLLOWED_CHANNELS_URL}`, {
+                let url = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
+                const response = await fetch(url, {
                     credentials: "include",
                 });
 
@@ -109,9 +110,30 @@ const AddChannel: React.FC = () => {
     const hasMinView = watch("hasMinView");
     const hasCategory = watch("hasCategory");
 
+    const postData = async (data: ScheduleForm) => {
+        try {
+            let url = getApiRoute(ApiRoutes.POST_DOWNLOAD_SCHEDULE);
+            const response = await fetch(url, {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(data),
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            console.log(response);
+        } catch (error) {
+            console.error(`Error posting data: ${error}`);
+        }
+    };
+
     const onSubmit: SubmitHandler<ScheduleForm> = (data) => {
-        console.log("SUBMIT FORM");
-        console.log(data);
+        postData(data);
     };
 
     if (isLoading) {
@@ -142,7 +164,7 @@ const AddChannel: React.FC = () => {
         if (fieldName === "channelName") {
             if (value.length > 0) {
                 const matches = channels
-                    .filter((channel) => channel.broadcasterName.toLowerCase().startsWith(value.toLowerCase()))
+                    .filter((channel) => channel?.broadcasterName?.toLowerCase().startsWith(value.toLowerCase()))
                     .map((channel) => channel.broadcasterName);
                 setPossibleMatches(matches);
             } else {
