@@ -13,20 +13,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node16",
-    "baseUrl": "./",
-    "paths": {
-      "@api/*": ["src/api/*"],
-      "@middlewares/*": ["src/middlewares/*"],
-      "@server": ["src/server.ts"],
-      "@app": ["src/app.ts"],
-      "@sharedTypes": ["src/types/sharedTypes.ts"],
-      "@services": ["src/services"],
-      "@models/*": ["src/models/*"],
-      "@integration/*": ["src/integration/*"],
-      "@utils": ["src/utils/utils.ts"],
-      "@constants/*": ["src/constants/*"]
-    }
+    "moduleResolution": "node16"
   },
   "include": ["src/**/*",  "src/types.d.ts"],
   "exclude": ["node_modules"]

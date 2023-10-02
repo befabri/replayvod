@@ -1,7 +1,7 @@
-import * as eventSubService from "@api/webhook/eventSubService";
-import * as videoService from "@api/video";
-import { logger as rootLogger } from "@app";
-import { prisma } from "@server";
+import * as eventSubService from "../webhook/eventSubService";
+import * as videoService from "../video";
+import { logger as rootLogger } from "../../app";
+import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "task", service: "taskService" });
 
 export const getTask = async (id: string) => {

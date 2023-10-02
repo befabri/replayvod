@@ -1,13 +1,13 @@
-import { VideoQuality } from "@models/downloadModel";
-import { jobService } from "@services";
-import * as videoService from "@api/video";
-import * as channelService from "@api/channel";
-import { logger as rootLogger } from "@app";
-import { prisma } from "@server";
+import { VideoQuality } from "../../models/downloadModel";
+import { jobService } from "../../services";
+import * as videoService from "../video";
+import * as channelService from "../channel";
+import { logger as rootLogger } from "../../app";
+import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 import path from "path";
 import { DownloadSchedule, Quality, Status } from "@prisma/client";
-import { DownloadParams, JobDetail } from "@sharedTypes";
+import { DownloadParams, JobDetail } from "../../types/sharedTypes";
 const os = require("os");
 const { create: createYoutubeDl } = require("youtube-dl-exec");
 

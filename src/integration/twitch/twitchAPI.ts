@@ -1,8 +1,8 @@
 import axios from "axios";
 import { getAppAccessToken } from "./twitchUtils";
-import { chunkArray } from "@utils";
-import { Stream, User, FollowedChannel, EventSubResponse } from "@models/twitchModel";
-import { logger as rootLogger } from "@app";
+import { chunkArray } from "../../utils/utils";
+import { Stream, User, FollowedChannel, EventSubResponse } from "../../models/twitchModel";
+import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchApi" });
 
 import dotenv from "dotenv";

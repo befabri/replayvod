@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import * as channelHandler from "./channel.handlers";
-import { isUserWhitelisted, userAuthenticated } from "@middlewares/authMiddleware";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.get("/:id", {

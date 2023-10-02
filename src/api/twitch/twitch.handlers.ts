@@ -1,8 +1,8 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import * as categoryService from "@api/category";
+import * as categoryService from "../category";
 import * as twitchService from "./twitch";
-import * as userService from "@api/user";
-import * as eventSubService from "@api/webhook/eventSubService";
+import * as userService from "../user";
+import * as eventSubService from "../webhook/eventSubService";
 
 export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply) => {
     try {

@@ -1,5 +1,5 @@
-import { logger as rootLogger } from "@app";
-import { prisma } from "@server";
+import { logger as rootLogger } from "../app";
+import { prisma } from "../server";
 const logger = rootLogger.child({ domain: "channel", service: "titleService" });
 import { Title } from "@prisma/client";
 

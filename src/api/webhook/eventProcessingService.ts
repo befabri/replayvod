@@ -1,5 +1,5 @@
-import { downloadSchedule } from "@api/download";
-import { logger as rootLogger } from "@app";
+import { downloadSchedule } from "../download";
+import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "webhook", service: "eventProcessingService" });
 
 export const logEvent = (eventType: string, event: any) => {

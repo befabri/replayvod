@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import * as videoHandler from "./video.handlers";
-import { isUserWhitelisted, userAuthenticated } from "@middlewares/authMiddleware";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.get("/play/:id", {

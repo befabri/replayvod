@@ -1,5 +1,5 @@
-import TwitchAPI from "@integration/twitch/twitchAPI";
-import { logger as rootLogger } from "@app";
+import TwitchAPI from "../../integration/twitch/twitchAPI";
+import { logger as rootLogger } from "../../app";
 import { Category, Channel, Stream, Subscription, Tag, Title, UserFollowedChannels } from "@prisma/client";
 import {
     isValidEventSubResponse,
@@ -7,7 +7,7 @@ import {
     isValidGame,
     isValidStream,
     isValidUser,
-} from "@integration/twitch/validation";
+} from "../../integration/twitch/validation";
 import {
     transformCategory,
     transformEventSub,
@@ -15,8 +15,8 @@ import {
     transformFollowedChannel,
     transformStream,
     transformTwitchUser,
-} from "@integration/twitch/transformation";
-import { EventSubMeta } from "@models/twitchModel";
+} from "../../integration/twitch/transformation";
+import { EventSubMeta } from "../../models/twitchModel";
 
 const logger = rootLogger.child({ domain: "twitch", service: "twitchService" });
 const twitchAPI = new TwitchAPI();

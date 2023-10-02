@@ -7,12 +7,12 @@ import {
     EventSubData as TwitchEventSubData,
     EventSubResponse as TwitchEventSubResponse,
     EventSubMeta,
-} from "@models/twitchModel";
-import { SessionUser } from "@models/userModel";
-import { tagService, titleService } from "@services";
-import * as categoryService from "@api/category";
-import * as channelService from "@api/channel";
-import { logger as rootLogger } from "@app";
+} from "../../models/twitchModel";
+import { SessionUser } from "../../models/userModel";
+import { tagService, titleService } from "../../services";
+import * as categoryService from "../../api/category";
+import * as channelService from "../../api/channel";
+import { logger as rootLogger } from "../../app";
 
 const logger = rootLogger.child({ domain: "twitch", service: "transformUtils" });
 

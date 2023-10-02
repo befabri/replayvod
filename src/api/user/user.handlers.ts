@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import * as channelService from "@api/channel";
+import * as channelService from "../channel";
 import * as userService from "./user";
-import { logger as rootLogger } from "@app";
+import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "user", service: "userHandler" });
 
 export const getUserFollowedStreams = async (req: FastifyRequest, reply: FastifyReply) => {

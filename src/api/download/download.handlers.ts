@@ -1,12 +1,12 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
-import { jobService } from "@services";
-import * as channelService from "@api/channel";
+import { jobService } from "../../services";
+import * as channelService from "../channel";
 import * as downloadService from "./download";
-import * as userService from "@api/user";
-import * as videoService from "@api/video";
-import TwitchAPI from "@integration/twitch/twitchAPI";
+import * as userService from "../user";
+import * as videoService from "../video";
+import TwitchAPI from "../../integration/twitch/twitchAPI";
 import { Quality } from "@prisma/client";
-import { JobDetail } from "@sharedTypes";
+import { JobDetail } from "../../types/sharedTypes";
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 const twitchAPI = new TwitchAPI();
@@ -65,6 +65,10 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
     //     reply.status(400).send("Invalid request data");
     //     return;
     // }
+    // if (isDeleteRediff && !timeBeforeDelete) {
+    //     throw new Error("timeBeforeDelete is required if isDeleteRediff is true");
+    // }
+
     data.requestedBy = userId;
     const channel = await channelService.getChannelDetailByName(data.channelName);
     if (!channel) {

@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import * as logHandler from "./log.handlers";
-import { isUserWhitelisted, userAuthenticated } from "@middlewares/authMiddleware";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.get("/files/:id", {

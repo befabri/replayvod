@@ -1,4 +1,4 @@
-import { EventSubResponse, Game, User, Stream, FollowedChannel } from "@models/twitchModel";
+import { EventSubResponse, Game, User, Stream, FollowedChannel } from "../../models/twitchModel";
 
 export const isValidStream = (data: any): data is Stream => {
     return (

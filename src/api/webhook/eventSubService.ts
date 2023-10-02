@@ -1,9 +1,9 @@
-import * as channelService from "@api/channel";
-import * as webhookService from "@api/webhook";
-import * as twitchService from "@api/twitch";
+import * as channelService from "../channel";
+import * as webhookService from "./webhook";
+import * as twitchService from "../twitch";
 import { v4 as uuidv4 } from "uuid";
-import { logger as rootLogger } from "@app";
-import { prisma } from "@server";
+import { logger as rootLogger } from "../../app";
+import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "webhook", service: "eventSubService" });
 
 export const subToAllChannelFollowed = async () => {

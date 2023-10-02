@@ -2,13 +2,13 @@ import fs from "fs";
 import path from "path";
 import ffmpeg from "fluent-ffmpeg";
 import { Channel, Quality, Status, Video } from "@prisma/client";
-import { logger as rootLogger } from "@app";
-import { prisma } from "@server";
-import { VideoQuality } from "@models/downloadModel";
-import * as categoryService from "@api/category";
-import { tagService, titleService } from "@services";
+import { logger as rootLogger } from "../../app";
+import { prisma } from "../../server";
+import { VideoQuality } from "../../models/downloadModel";
+import * as categoryService from "../category";
+import { tagService, titleService } from "../../services";
 import moment from "moment";
-import { StreamWithRelations } from "@sharedTypes";
+import { StreamWithRelations } from "../../types/sharedTypes";
 const logger = rootLogger.child({ domain: "video", service: "videoService" });
 
 export const getVideoById = async (id: number): Promise<Video | null> => {
