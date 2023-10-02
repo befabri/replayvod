@@ -7,6 +7,9 @@ import * as videoService from "../video";
 import TwitchAPI from "../../integration/twitch/twitchAPI";
 import { Quality } from "@prisma/client";
 import { JobDetail } from "../../types/sharedTypes";
+import { logger as rootLogger } from "../../app";
+import { DownloadScheduleDTO } from "./download.DTO";
+const logger = rootLogger.child({ domain: "download", service: "downloadHandler" });
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 const twitchAPI = new TwitchAPI();
@@ -22,20 +25,6 @@ interface DownloadRequestBody extends RouteGenericInterface {
     Body: DownloadScheduleDTO;
 }
 
-interface DownloadScheduleDTO {
-    channelName: string;
-    quality: Quality;
-    hasTags: boolean;
-    tags?: string;
-    hasMinView: boolean;
-    viewersCount?: number | null;
-    hasCategory: boolean;
-    category: string;
-    timeBeforeDelete?: number | null;
-    isDeleteRediff: boolean;
-    requestedBy?: string;
-}
-
 export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const userId = req.params.id;
 
@@ -48,7 +37,7 @@ export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyRe
         const result = await downloadService.planningRecord(userId);
         reply.send(result);
     } catch (error) {
-        console.error("Error recording user:", error);
+        logger.error("Error recording user:", error);
         reply.status(500).send("Error recording user");
     }
 };
@@ -60,27 +49,24 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
         return;
     }
     const data = req.body;
-    data.quality = videoService.mapVideoQualityToQuality(data.quality);
-    // if (!data.source || !data.channelName || !data.trigger || !data.quality) {
-    //     reply.status(400).send("Invalid request data");
-    //     return;
-    // }
-    // if (isDeleteRediff && !timeBeforeDelete) {
-    //     throw new Error("timeBeforeDelete is required if isDeleteRediff is true");
-    // }
-
-    data.requestedBy = userId;
+    if (
+        (data.hasMinView && !data.viewersCount) ||
+        (data.hasTags && !data.tag) ||
+        (data.hasCategory && !data.category)
+    ) {
+        reply.status(400).send("Invalid request data");
+        return;
+    }
     const channel = await channelService.getChannelDetailByName(data.channelName);
     if (!channel) {
         reply.status(400).send("Invalid request data");
         return;
     }
     try {
-        // Todo before check tags/categories and format tags
-        await downloadService.addSchedule(data);
+        await downloadService.addSchedule(data, userId);
         reply.status(200).send("Schedule saved successfully.");
     } catch (error) {
-        console.error("Error scheduling download:", error);
+        logger.error("Error scheduling download:", error);
         reply.status(500).send("Error scheduling download.");
     }
 };

@@ -1,13 +1,15 @@
 import { VideoQuality } from "../../models/downloadModel";
-import { jobService } from "../../services";
+import { jobService, tagService } from "../../services";
 import * as videoService from "../video";
 import * as channelService from "../channel";
+import * as categoryService from "../category";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 import path from "path";
 import { DownloadSchedule, Quality, Status } from "@prisma/client";
 import { DownloadParams, JobDetail } from "../../types/sharedTypes";
+import { transformDownloadSchedule } from "./download.DTO";
 const os = require("os");
 const { create: createYoutubeDl } = require("youtube-dl-exec");
 
@@ -234,23 +236,26 @@ export const updateVideoCollection = async (user_id: string) => {
     return;
 };
 
-// Todo add categories/tags
-export const addSchedule = async (scheduleData) => {
-    const broadcasterId = await channelService.getChannelBroadcasterIdByName(scheduleData.channelName);
-    if (!broadcasterId) {
-        throw new Error("ChannelName doesn't exist");
-    }
+export const addSchedule = async (newSchedule, userId) => {
     try {
-        return await prisma.downloadSchedule.create({
-            data: {
-                broadcasterId: broadcasterId,
-                quality: scheduleData.quality as Quality,
-                viewersCount: scheduleData.viewersCount,
-                isDeleteRediff: scheduleData.isDeleteRediff,
-                timeBeforeDelete: scheduleData.timeBeforeDelete,
-                requestedBy: scheduleData.requestedBy,
-            },
+        const transformedScheduleData = await transformDownloadSchedule(newSchedule, userId);
+        const createdDownloadSchedule = await prisma.downloadSchedule.create({
+            data: transformedScheduleData.downloadSchedule,
         });
+
+        if (transformedScheduleData.tags.length > 0) {
+            await tagService.addAllDownloadScheduleTags(
+                transformedScheduleData.tags.map((tag) => ({ tagId: tag.name })),
+                createdDownloadSchedule.id
+            );
+        }
+
+        if (transformedScheduleData.category) {
+            await categoryService.addDownloadScheduleCategory(
+                createdDownloadSchedule.id,
+                transformedScheduleData.category.id
+            );
+        }
     } catch (error) {
         if (error.code === "P2002") {
             throw new Error("User is already assigned to this broadcaster ID");
