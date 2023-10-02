@@ -1,10 +1,10 @@
 import { useState } from "react";
-import Icon from "./IconSort";
+import Icon from "../UI/Icon/IconSort";
 import Checkbox from "./CheckBoxTable";
-import { Video, TableProps } from "../type";
+import { Video, TableProps } from "../../type";
 import { useTranslation } from "react-i18next";
-import { capitalizeFirstLetter, toKebabCase, formatDate, truncateString } from "../utils/utils";
-import { Pathnames } from "../type/routes";
+import { capitalizeFirstLetter, toKebabCase, formatDate, truncateString } from "../../utils/utils";
+import { Pathnames } from "../../type/routes";
 
 type ExtendedTableProps = {
     showEdit?: boolean;

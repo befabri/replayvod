@@ -1,8 +1,8 @@
 import { Key } from "react";
 import { useTranslation } from "react-i18next";
-import { Log } from "../type";
-import { capitalizeFirstLetter } from "../utils/utils";
-import { getApiRoute, ApiRoutes } from "../type/routes";
+import { Log } from "../../type";
+import { capitalizeFirstLetter } from "../../utils/utils";
+import { getApiRoute, ApiRoutes } from "../../type/routes";
 
 const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
     const { t } = useTranslation();

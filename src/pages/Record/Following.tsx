@@ -2,7 +2,7 @@ import React, { SetStateAction, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Channel, Stream } from "../../type";
 import { ApiRoutes, Pathnames, getApiRoute } from "../../type/routes";
-import DropdownButton from "../../components/ButtonDropdown";
+import DropdownButton from "../../components/UI/Button/ButtonDropdown";
 
 const Follows: React.FC = () => {
     const { t } = useTranslation();

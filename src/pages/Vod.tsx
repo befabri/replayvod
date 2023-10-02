@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { CompletedVideo } from "../type";
-import DropdownButton from "../components/ButtonDropdown";
-import Table from "../components/Tables";
-import VideoComponent from "../components/Video";
+import DropdownButton from "../components/UI/Button/ButtonDropdown";
+import Table from "../components/Table/Tables";
+import VideoComponent from "../components/Media/Video";
 import { ApiRoutes, getApiRoute } from "../type/routes";
 
 const Vod: React.FC = () => {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableEvents from "../../components/TableEvents";
+import TableEvents from "../../components/Table/TableEvents";
 import { EventLog } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 

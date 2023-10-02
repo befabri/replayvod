@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CompletedVideo } from "../type";
-import VideoComponent from "../components/Video";
+import VideoComponent from "../components/Media/Video";
 import { ApiRoutes, getApiRoute } from "../type/routes";
 
 const ChannelPage: React.FC = () => {

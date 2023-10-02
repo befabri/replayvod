@@ -3,12 +3,12 @@ import { SubmitHandler, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ScheduleSchema } from "../../models/Schedule";
 import type { ScheduleForm } from "../../models/Schedule";
-import InputText from "../../components/InputText";
+import InputText from "../../components/Form/InputText";
 import { useTranslation } from "react-i18next";
-import Select from "../../components/Select";
-import InputNumber from "../../components/InputNumber";
+import Select from "../../components/Form/Select";
+import InputNumber from "../../components/Form/InputNumber";
 import { Category, Channel, Quality } from "../../type";
-import Checkbox from "../../components/CheckBox";
+import Checkbox from "../../components/Form/CheckBox";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 const AddChannel: React.FC = () => {
     const { t } = useTranslation();

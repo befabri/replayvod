@@ -1,11 +1,11 @@
 import React, { useState, useEffect, ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 import moment from "moment-timezone";
-import Button from "../components/Button";
-import Select from "../components/Select";
-import FileInput from "../components/FileInput";
-import InputNumber from "../components/InputNumber";
-import ToggleSwitch from "../components/ToggleSwitch";
+import Button from "../components/UI/Button/Button";
+import Select from "../components/Form/Select";
+import FileInput from "../components/Form/FileInput";
+import InputNumber from "../components/Form/InputNumber";
+import ToggleSwitch from "../components/Form/ToggleSwitch";
 
 const Settings: React.FC = () => {
     const { t } = useTranslation();

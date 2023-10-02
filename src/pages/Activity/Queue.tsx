@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import Table from "../../components/Tables";
+import Table from "../../components/Table/Tables";
 import { Video } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 

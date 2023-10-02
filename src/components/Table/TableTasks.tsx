@@ -1,9 +1,9 @@
 // components/TableTasks.tsx
 import { useState } from "react";
-import { Task } from "../type";
+import { Task } from "../../type";
 import { Icon } from "@iconify/react";
 import { useTranslation } from "react-i18next";
-import { getApiRoute, ApiRoutes } from "../type/routes";
+import { getApiRoute, ApiRoutes } from "../../type/routes";
 
 const TableTasks: React.FC<{ items: Task[] }> = ({ items: initialItems }) => {
     const { t, i18n } = useTranslation();

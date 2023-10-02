@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableLogs from "../../components/TableLogs";
+import TableLogs from "../../components/Table/TableLogs";
 import { Log } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableTasks from "../../components/TableTasks";
+import TableTasks from "../../components/Table/TableTasks";
 import { Task } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 

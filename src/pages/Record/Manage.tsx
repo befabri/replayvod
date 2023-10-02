@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableSchedule from "../../components/TableSchedule";
+import TableSchedule from "../../components/Table/TableSchedule";
 import { EventSub } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 
