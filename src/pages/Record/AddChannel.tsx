@@ -132,7 +132,15 @@ const AddChannel: React.FC = () => {
         }
     };
 
-    const onSubmit: SubmitHandler<ScheduleForm> = (data) => {
+    const onSubmit: SubmitHandler<ScheduleForm> = async (data) => {
+        const exists = await checkChannelNameValidity(data.channelName);
+        if (!exists) {
+            setError("channelName", {
+                type: "manual",
+                message: "Channel name doesn't exist",
+            });
+            return;
+        }
         postData(data);
     };
 
@@ -276,7 +284,10 @@ const AddChannel: React.FC = () => {
                                 disabled={!hasTags}
                             />
                         </div>
-                        <button type="submit" className="mt-10 text-3xl bg-gray-300 p-2 rounded-md max-w-[10rem]">
+                        <button
+                            type="submit"
+                            disabled={Object.keys(errors).length > 0}
+                            className="mt-10 text-3xl bg-gray-300 p-2 rounded-md max-w-[10rem]">
                             Submit
                         </button>
                     </div>
