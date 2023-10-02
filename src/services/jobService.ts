@@ -1,7 +1,7 @@
-import { downloadService } from "../services";
+import * as downloadService from "@api/download";
 import { v4 as uuidv4 } from "uuid";
-import { logger as rootLogger } from "../app";
-import { prisma } from "../server";
+import { logger as rootLogger } from "@app";
+import { prisma } from "@server";
 import { Job, Status } from "@prisma/client";
 const logger = rootLogger.child({ domain: "download", service: "jobService" });
 
