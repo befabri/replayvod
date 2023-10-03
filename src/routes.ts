@@ -14,8 +14,8 @@ const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(authRoutes, { prefix: "/auth" });
     server.register(userRoutes, { prefix: "/user" });
     server.register(channelRoutes, { prefix: "/channel" });
-    server.register(downloadRoutes, { prefix: "/dl" });
-    server.register(videoRoutes, { prefix: "/videos" });
+    server.register(downloadRoutes, { prefix: "/download" });
+    server.register(videoRoutes, { prefix: "/video" });
     server.register(twitchRoutes, { prefix: "/twitch" });
     server.register(taskRoutes, { prefix: "/task" });
     server.register(logRoutes, { prefix: "/log" });

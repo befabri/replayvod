@@ -42,7 +42,7 @@ server.register(cors, {
 server.register(async (instance, opts) => {
     instance.register(fastifyStatic, {
         root: path.join(ROOT_DIR, "public", "thumbnail"),
-        prefix: "/api/videos/thumbnail/",
+        prefix: "/api/video/thumbnail/",
         serve: true,
     });
 

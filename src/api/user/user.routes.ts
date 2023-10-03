@@ -3,20 +3,19 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { userHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
-    fastify.get("/me/followedstreams", {
+    fastify.get("/followedstreams", {
         preHandler: [isUserWhitelisted, userAuthenticated],
         handler: userHandler.getUserFollowedStreams,
     });
 
-    fastify.get("/me/followedchannels", {
+    fastify.get("/followedchannels", {
         preHandler: [isUserWhitelisted, userAuthenticated],
         handler: userHandler.getUserFollowedChannels,
     });
 
-    fastify.get("/update/users", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: userHandler.updateUsers,
-    });
-
+    // fastify.get("/update/users", {
+    //     preHandler: [isUserWhitelisted, userAuthenticated],
+    //     handler: userHandler.updateUsers,
+    // });
     done();
 }
