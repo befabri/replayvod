@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ApiRoutes, getApiRoute } from "../type/routes";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 
 interface AuthContextType {
     user: any;

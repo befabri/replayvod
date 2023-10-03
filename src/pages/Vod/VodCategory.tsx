@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { CompletedVideo } from "../type";
-import VideoComponent from "../components/Media/Video";
-import { toKebabCase, toTitleCase } from "../utils/utils";
-import { ApiRoutes, getApiRoute } from "../type/routes";
+import { CompletedVideo } from "../../type";
+import VideoComponent from "../../components/Media/Video";
+import { toKebabCase, toTitleCase } from "../../utils/utils";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 
 const VodCategory: React.FC = () => {
     const { id } = useParams();

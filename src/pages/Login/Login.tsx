@@ -1,5 +1,5 @@
 import React from "react";
-import { useAuth } from "./Auth";
+import { useAuth } from "../../context/Auth/Auth";
 import { useTranslation } from "react-i18next";
 
 const Landing: React.FC = () => {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import DarkModeToggle from "../UI/Toggle/DarkModeToggle";
 import Sidebar from "./Sidebar";
 import { Icon } from "@iconify/react";
-import { useAuth } from "../../pages/Auth";
+import { useAuth } from "../../context/Auth/Auth";
 import i18n from "i18next";
 
 const Navbar: React.FC = () => {

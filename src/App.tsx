@@ -1,23 +1,23 @@
 import { Routes, Route, useLocation, Navigate, Outlet } from "react-router-dom";
-import { AuthProvider, useAuth } from "./pages/Auth";
+import { AuthProvider, useAuth } from "./context/Auth/Auth";
 import Navbar from "./components/Layout/Navbar";
 import Sidebar from "./components/Layout/Sidebar";
-import Vod from "./pages/Vod";
-import Settings from "./pages/Settings.tsx";
-import Following from "./pages/Record/Following.tsx";
-import AddChannel from "./pages/Record/AddChannel.tsx";
-import Login from "./pages/Login.tsx";
-import ChannelPage from "./pages/ChannelPage.tsx";
-import Manage from "./pages/Record/Manage.tsx";
-import HistoryPage from "./pages/Activity/History.tsx";
-import Queue from "./pages/Activity/Queue.tsx";
-import Tasks from "./pages/System/Tasks.tsx";
-import Status from "./pages/System/Status.tsx";
-import Logs from "./pages/System/Logs.tsx";
-import Events from "./pages/System/Events.tsx";
-import Watch from "./pages/Watch.tsx";
-import VodCategory from "./pages/VodCategory.tsx";
-import { DarkModeProvider } from "./context/DarkModeContext.tsx";
+import Vod from "./pages/Vod/Vod";
+import Settings from "./pages/Settings/Settings";
+import Following from "./pages/Record/Following";
+import AddChannel from "./pages/Record/AddChannel";
+import Login from "./pages/Login/Login";
+import ChannelPage from "./pages/Channel/Channel";
+import Manage from "./pages/Record/Manage";
+import HistoryPage from "./pages/Activity/History";
+import Queue from "./pages/Activity/Queue";
+import Tasks from "./pages/System/Tasks";
+import Status from "./pages/System/Status";
+import Logs from "./pages/System/Logs";
+import Events from "./pages/System/Events";
+import Watch from "./pages/Watch/Watch";
+import VodCategory from "./pages/Vod/VodCategory";
+import { DarkModeProvider } from "./context/Themes/DarkModeContext";
 
 export default function App() {
     return (

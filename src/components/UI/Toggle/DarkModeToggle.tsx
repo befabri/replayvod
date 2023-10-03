@@ -1,4 +1,4 @@
-import { useDarkMode } from "../../../context/DarkModeContext";
+import { useDarkMode } from "../../../context/Themes/DarkModeContext";
 
 const DarkModeToggle = ({ className }: { className?: string }) => {
     const { isDarkMode, toggleDarkMode } = useDarkMode();
