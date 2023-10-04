@@ -20,15 +20,16 @@ const Watch: React.FC = () => {
                 let url = getApiRoute(ApiRoutes.GET_VIDEO_ID, "id", id);
                 const videoResponse = await fetch(url, { credentials: "include" });
                 const videoData = await videoResponse.json();
+
                 url = getApiRoute(ApiRoutes.GET_VIDEO_THUMBNAIL_ID, "id", videoData.thumbnail);
-                const thumbnailBlob = await fetch(url, {
-                    credentials: "include",
-                }).then((res) => res.blob());
+                const thumbnailResponse = await fetch(url, { credentials: "include" });
+                const thumbnailBlob = await thumbnailResponse.blob();
 
                 setVideo({
                     ...videoData,
                     thumbnail: URL.createObjectURL(thumbnailBlob),
                 });
+
                 url = getApiRoute(ApiRoutes.GET_VIDEO_PLAY_ID, "id", videoData.id);
                 setPlayVideo(url);
                 setIsLoading(false);

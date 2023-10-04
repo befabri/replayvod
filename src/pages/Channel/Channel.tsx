@@ -14,24 +14,20 @@ const Channel: React.FC = () => {
     const [buttonText, setButtonText] = useState<string>("Enregistrer");
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
 
-    const handleClick = () => {
+    const handleClick = async () => {
         if (!isFetching) {
             setIsFetching(true);
             setButtonText("En cours");
             let url = getApiRoute(ApiRoutes.GET_DOWNLOAD_STREAM_ID, "id", id);
-            fetch(url, {
-                credentials: "include",
-            })
-                .then((response) => response.json())
-                .then((data) => {
-                    console.log(data);
-                    setIsFetching(false);
-                    setButtonText("est enregistrer");
-                })
-                .catch((error) => {
-                    console.error("Error:", error);
-                    setIsFetching(false);
-                });
+            try {
+                const response = await fetch(url, { credentials: "include" });
+                await response.json();
+                setButtonText("est enregistrer");
+            } catch (error) {
+                console.error("Error:", error);
+            } finally {
+                setIsFetching(false);
+            }
         }
     };
 

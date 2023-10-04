@@ -1,4 +1,4 @@
-import React, { SetStateAction, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Channel, Stream } from "../../type";
 import { ApiRoutes, Pathnames, getApiRoute } from "../../type/routes";
@@ -13,16 +13,22 @@ const Follows: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
+            const urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
+            const urlFollowedStreams = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_STREAMS);
             try {
-                let urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
-                let urlFollowedStreams = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_STREAMS);
                 const [followedChannelsResponse, followedStreamsResponse] = await Promise.all([
                     fetch(urlFollowedChannels, { credentials: "include" }),
                     fetch(urlFollowedStreams, { credentials: "include" }),
                 ]);
 
-                const followedChannelsData: SetStateAction<Channel[]> = await followedChannelsResponse.json();
-                const followedStreamsData: SetStateAction<Stream[]> = await followedStreamsResponse.json();
+                if (!followedChannelsResponse.ok || !followedStreamsResponse.ok) {
+                    throw new Error("HTTP error");
+                }
+
+                const [followedChannelsData, followedStreamsData] = await Promise.all([
+                    followedChannelsResponse.json(),
+                    followedStreamsResponse.json(),
+                ]);
 
                 setChannels(followedChannelsData);
                 setStreams(followedStreamsData);

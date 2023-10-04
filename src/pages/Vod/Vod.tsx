@@ -20,17 +20,16 @@ const Vod: React.FC = () => {
     };
 
     useEffect(() => {
-        let url = getApiRoute(ApiRoutes.GET_VIDEO_FINISHED);
-        fetch(url, {
-            credentials: "include",
-        })
-            .then((response) => {
+        const fetchData = async () => {
+            try {
+                let url = getApiRoute(ApiRoutes.GET_VIDEO_FINISHED);
+                const response = await fetch(url, { credentials: "include" });
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                return response.json();
-            })
-            .then(async (data) => {
+
+                const data = await response.json();
                 const promises = data.map(async (video: CompletedVideo) => {
                     url = getApiRoute(ApiRoutes.GET_VIDEO_THUMBNAIL_ID, "id", video.thumbnail);
                     const imageUrl = await fetchImage(url);
@@ -40,10 +39,12 @@ const Vod: React.FC = () => {
                 const videosWithBlobUrls = await Promise.all(promises);
                 setVideos(videosWithBlobUrls);
                 setIsLoading(false);
-            })
-            .catch((error) => {
+            } catch (error) {
                 console.error(`Error fetching data: ${error}`);
-            });
+            }
+        };
+
+        fetchData();
     }, []);
 
     useEffect(() => {

@@ -10,25 +10,29 @@ const HistoryPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        let url = getApiRoute(ApiRoutes.GET_VIDEO_ALL);
-        fetch(url, {
-            credentials: "include",
-        })
-            .then((response) => {
+        const fetchData = async () => {
+            try {
+                const url = getApiRoute(ApiRoutes.GET_VIDEO_ALL);
+                const response = await fetch(url, { credentials: "include" });
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                return response.json();
-            })
-            .then((data) => {
-                setVideos(data);
 
+                const data = await response.json();
+                setVideos(data);
                 setIsLoading(false);
-            })
-            .catch((error) => {
+            } catch (error) {
                 console.error(`Error fetching data: ${error}`);
-            });
+            }
+        };
+
+        fetchData();
     }, []);
+
+    if (isLoading) {
+        return <div>{t("Loading")}</div>;
+    }
 
     return (
         <div className="p-4">

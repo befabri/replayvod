@@ -19,6 +19,61 @@ const AddChannel: React.FC = () => {
     const minTimeBeforeDelete = 10;
     const minViewersCount = 0;
 
+    useEffect(() => {
+        const fetchData = async () => {
+            const urlCategory = getApiRoute(ApiRoutes.GET_CATEGORY);
+            const urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
+
+            try {
+                const [categoryResponse, followedChannelsResponse] = await Promise.all([
+                    fetch(urlCategory, { credentials: "include" }),
+                    fetch(urlFollowedChannels, { credentials: "include" }),
+                ]);
+
+                if (!categoryResponse.ok || !followedChannelsResponse.ok) {
+                    throw new Error("HTTP error");
+                }
+
+                const [categoryData, followedChannelsData] = await Promise.all([
+                    categoryResponse.json(),
+                    followedChannelsResponse.json(),
+                ]);
+
+                setCategories(categoryData);
+                setValue("category", categoryData.length ? categoryData[0].name : "");
+                setChannels(followedChannelsData);
+            } catch (error) {
+                console.error(`Error fetching data: ${error}`);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchData();
+    }, []);
+
+    const postData = async (data: ScheduleForm) => {
+        try {
+            let url = getApiRoute(ApiRoutes.POST_DOWNLOAD_SCHEDULE);
+            const response = await fetch(url, {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(data),
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            console.log(response);
+        } catch (error) {
+            console.error(`Error posting data: ${error}`);
+        }
+    };
+
     const checkChannelNameValidity = async (channelName: string) => {
         try {
             let url = getApiRoute(ApiRoutes.GET_CHANNEL_NAME_NAME, "name", channelName);
@@ -38,47 +93,6 @@ const AddChannel: React.FC = () => {
             return false;
         }
     };
-
-    useEffect(() => {
-        const fetchData = async () => {
-            let url = getApiRoute(ApiRoutes.GET_CATEGORY);
-            const response = await fetch(url, {
-                credentials: "include",
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            setCategories(data);
-            setIsLoading(false);
-            setValue("category", data.length ? data[0].name : "");
-        };
-
-        fetchData();
-    }, []);
-
-    useEffect(() => {
-        const fetchFollowedChannels = async () => {
-            try {
-                let url = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
-                const response = await fetch(url, {
-                    credentials: "include",
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-                setChannels(data);
-                setIsLoading(false);
-            } catch (error) {
-                console.error(`Error fetching data: ${error}`);
-            }
-        };
-
-        fetchFollowedChannels();
-    }, []);
 
     const {
         register,
@@ -110,28 +124,6 @@ const AddChannel: React.FC = () => {
     const hasMinView = watch("hasMinView");
     const hasCategory = watch("hasCategory");
 
-    const postData = async (data: ScheduleForm) => {
-        try {
-            let url = getApiRoute(ApiRoutes.POST_DOWNLOAD_SCHEDULE);
-            const response = await fetch(url, {
-                method: "POST",
-                credentials: "include",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(data),
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            console.log(response);
-        } catch (error) {
-            console.error(`Error posting data: ${error}`);
-        }
-    };
-
     const onSubmit: SubmitHandler<ScheduleForm> = async (data) => {
         const exists = await checkChannelNameValidity(data.channelName);
         if (!exists) {
@@ -143,10 +135,6 @@ const AddChannel: React.FC = () => {
         }
         postData(data);
     };
-
-    if (isLoading) {
-        return <div>{t("Loading")}</div>;
-    }
 
     // const allValues = watch();
     // console.log(allValues);
@@ -180,6 +168,10 @@ const AddChannel: React.FC = () => {
             }
         }
     };
+
+    if (isLoading) {
+        return <div>{t("Loading")}</div>;
+    }
 
     return (
         <div className="p-4">
