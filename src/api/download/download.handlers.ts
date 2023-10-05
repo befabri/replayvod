@@ -77,14 +77,13 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         return;
     }
     const broadcasterId = req.params.id;
-    const quality: Quality = videoService.mapVideoQualityToQuality(req.params.quality);
     if (!broadcasterId) {
         reply.status(400).send("Invalid broadcaster id");
         return;
     }
     const channel = await channelService.getChannelDetailDB(broadcasterId);
     if (!channel) {
-        reply.status(404).send("User not found");
+        reply.status(404).send("Channel not found");
         return;
     }
     const stream = await channelService.getStream(broadcasterId, userId);
@@ -101,6 +100,7 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         return;
     }
     const jobId = jobService.createJobId();
+    const quality: Quality = videoService.mapVideoQualityToQuality(req.params.quality);
     const jobDetails: JobDetail = { stream, userId, channel, jobId, quality };
     await downloadService.handleDownload(jobDetails, broadcasterId);
     reply.send({ jobId });
