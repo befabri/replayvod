@@ -40,6 +40,8 @@ const Follows: React.FC = () => {
         };
 
         fetchData();
+        const intervalId = setInterval(fetchData, 3000);
+        return () => clearInterval(intervalId);
     }, []);
 
     useEffect(() => {
