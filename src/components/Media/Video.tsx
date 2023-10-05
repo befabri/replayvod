@@ -37,14 +37,14 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
             {hasOneOrTwoVideos && (
                 <div className="w-full opacity-0">
                     <a href="#">
-                        <img src="path-to-transparent-image.png" alt="dummy" />
+                        <img alt="dummy" />
                     </a>
                 </div>
             )}
             {videos?.length === 1 && (
                 <div className="w-full opacity-0">
                     <a href="#">
-                        <img src="path-to-transparent-image.png" alt="dummy" />
+                        <img alt="dummy" />
                     </a>
                 </div>
             )}
