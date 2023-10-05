@@ -41,15 +41,15 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         handler: videoHandler.getFinishedVideos,
     });
 
-    fastify.get("/user/:id", {
+    fastify.get("/channel/:broadcasterLogin", {
         preHandler: [isUserWhitelisted, userAuthenticated],
         schema: {
             params: {
                 type: "object",
                 properties: {
-                    id: { type: "string" },
+                    broadcasterLogin: { type: "string" },
                 },
-                required: ["id"],
+                required: ["broadcasterLogin"],
             },
         },
         handler: videoHandler.getChannelVideos,

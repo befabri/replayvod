@@ -330,9 +330,11 @@ export const channelExists = async (broadcasterId: string): Promise<boolean> => 
 };
 
 export const getChannelDetailByNameDB = async (loginName: string) => {
-    return prisma.channel.findUnique({
-        where: { broadcasterLogin: loginName },
-    });
+    let channel = await prisma.channel.findUnique({ where: { broadcasterLogin: loginName } });
+    if (!channel) {
+        channel = await updateChannelDetailByName(loginName);
+    }
+    return channel;
 };
 
 export const getChannelBroadcasterIdByName = async (loginName: string) => {
@@ -360,6 +362,22 @@ export const getMultipleChannelDetailsDB = async (userIds: string[]) => {
         },
     });
     return channels;
+};
+
+export const updateChannelDetailByName = async (loginName: string) => {
+    const channel = await twitchService.getUserByLogin(loginName);
+    if (channel) {
+        try {
+            await prisma.channel.upsert({
+                where: { broadcasterId: channel.broadcasterId },
+                update: channel,
+                create: channel,
+            });
+        } catch (error) {
+            logger.error("Error updating channel details: %s", error);
+        }
+    }
+    return channel;
 };
 
 export const updateChannelDetail = async (broadcaster_id: string) => {

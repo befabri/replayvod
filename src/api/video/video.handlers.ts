@@ -18,6 +18,7 @@ interface Params extends RouteGenericInterface {
         id: string;
         login?: string;
         filename?: string;
+        broadcasterLogin?: string;
     };
 }
 
@@ -110,18 +111,22 @@ export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply
 };
 
 export const getChannelVideos = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    const broadcasterId = req.params.id;
-    if (broadcasterId === "undefined") {
-        reply.status(400).send("Invalid broadcaster id");
+    const loginName = req.params.broadcasterLogin;
+    if (loginName === "undefined") {
+        reply.status(400).send({ message: "Invalid broadcaster login" });
         return;
     }
-    const channel = await channelService.getChannelDetailDB(broadcasterId);
+    const channel = await channelService.getChannelDetailByNameDB(loginName);
     if (!channel) {
-        reply.status(404).send("Channel not found");
+        reply.status(404).send({ message: "Channel not found" });
         return;
     }
-    const videos = await videoService.getVideosByChannel(broadcasterId);
-    reply.send(videos);
+    const videos = await videoService.getVideosByChannel(channel.broadcasterId);
+    if (!videos || videos.length === 0) {
+        reply.send({ channel: channel, hasVideos: false });
+        return;
+    }
+    reply.send({ videos: videos, hasVideos: true });
 };
 
 export const generateMissingThumbnail = async (req: FastifyRequest, reply: FastifyReply) => {
