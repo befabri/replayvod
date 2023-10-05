@@ -10,6 +10,7 @@ import InputNumber from "../../components/Form/InputNumber";
 import { Category, Channel, Quality } from "../../type";
 import Checkbox from "../../components/Form/CheckBox";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
+import Button from "../../components/Form/Button";
 const AddChannel: React.FC = () => {
     const { t } = useTranslation();
     const [categories, setCategories] = useState<Category[]>([]);
@@ -276,12 +277,13 @@ const AddChannel: React.FC = () => {
                                 disabled={!hasTags}
                             />
                         </div>
-                        <button
-                            type="submit"
-                            disabled={Object.keys(errors).length > 0}
-                            className="mt-10 text-3xl bg-gray-300 p-2 rounded-md max-w-[10rem]">
-                            Submit
-                        </button>
+                        <div className="mt-5">
+                            <Button
+                                text={t("Add Schedule")}
+                                typeButton="submit"
+                                disabled={Object.keys(errors).length > 0}
+                            />
+                        </div>
                     </div>
                 </form>
             </div>
