@@ -26,6 +26,8 @@ const Table = ({
     const [items, setItems] = useState<Video[]>(initialItems);
     const [selectAll, setSelectAll] = useState<boolean>(false);
 
+    const storedTimeZone = localStorage.getItem("timeZone") || "Europe/London";
+
     const handleCheckboxChange = (idx: number, isChecked: boolean) => {
         const newItems = [...items];
         newItems[idx].isChecked = isChecked;
@@ -183,8 +185,8 @@ const Table = ({
                             <td className="px-6 py-4" title={video.displayName}>
                                 <a href={`${Pathnames.Channel}${video?.broadcasterId}`}> {video.displayName}</a>
                             </td>
-                            <td className="px-6 py-4" title={formatDate(video.startDownloadAt, "Europe/Paris")}>
-                                {formatDate(video.startDownloadAt, "Europe/Paris")}
+                            <td className="px-6 py-4" title={formatDate(video.startDownloadAt, storedTimeZone)}>
+                                {formatDate(video.startDownloadAt, storedTimeZone)}
                             </td>
                             <td className="px-6 py-4" title={video.videoCategory[0].category.name}>
                                 {video.videoCategory.map((cat) => (

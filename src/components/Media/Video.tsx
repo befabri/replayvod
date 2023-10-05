@@ -12,6 +12,7 @@ type VideoProps = {
 const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
     const divRef = useRef<HTMLDivElement>(null);
     const hasOneOrTwoVideos = videos?.length === 1 || videos?.length === 2;
+    const storedTimeZone = localStorage.getItem("timeZone") || "Europe/London";
 
     return (
         <div className="mb-4 grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-5">
@@ -24,7 +25,7 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
                         )}`}</div>
                         <div className="absolute bottom-2 right-3 bg-black bg-opacity-50 text-stone-100">{`${formatDate(
                             video.downloadedAt,
-                            "Europe/Paris",
+                            storedTimeZone,
                             false
                         )}`}</div>
                     </a>

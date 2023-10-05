@@ -10,6 +10,8 @@ const TableSchedule = ({ items: initialItems }: any) => {
     const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
     const [items, setItems] = useState<EventSub[]>(initialItems);
 
+    const storedTimeZone = localStorage.getItem("timeZone") || "Europe/London";
+
     const handleSort = (field: keyof EventSub) => {
         let direction: "asc" | "desc" = "asc";
         if (field === sortField) {
@@ -71,13 +73,13 @@ const TableSchedule = ({ items: initialItems }: any) => {
                             </td>
                             <td className="px-6 py-4" title={eventSub.type}>
                                 {eventSub.type}
-                            </td>{" "}
+                            </td>
                             <td className="px-6 py-4" title={eventSub.status}>
                                 {eventSub.status}
                             </td>
-                            <td className="px-6 py-4" title={formatDate(eventSub.created_at, "Europe/Paris")}>
-                                {formatDate(eventSub.created_at, "Europe/Paris")}
-                            </td>{" "}
+                            <td className="px-6 py-4" title={formatDate(eventSub.created_at, storedTimeZone)}>
+                                {formatDate(eventSub.created_at, storedTimeZone)}
+                            </td>
                             <td className="px-6 py-4" title={eventSub.cost.toString()}>
                                 {eventSub.cost}
                             </td>
