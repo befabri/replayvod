@@ -9,6 +9,7 @@ import taskRoutes from "./api/task/task.routes";
 import logRoutes from "./api/log/log.routes";
 import webhookRoutes from "./api/webhook/webhook.routes";
 import categoryRoutes from "./api/category/category.routes";
+import settingsRoutes from "./api/settings/settings.routes";
 
 const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(authRoutes, { prefix: "/auth" });
@@ -21,6 +22,7 @@ const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(logRoutes, { prefix: "/log" });
     server.register(webhookRoutes, { prefix: "/webhook" });
     server.register(categoryRoutes, { prefix: "/category" });
+    server.register(settingsRoutes, { prefix: "/settings" });
 };
 
 export default routes;

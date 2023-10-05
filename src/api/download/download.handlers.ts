@@ -66,8 +66,7 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
         await downloadService.addSchedule(data, userId);
         reply.status(200).send("Schedule saved successfully.");
     } catch (error) {
-        logger.error("Error scheduling download: %s", error);
-        reply.status(500).send("Error scheduling download.");
+        reply.status(500).send("Internal server error");
     }
 };
 

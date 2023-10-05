@@ -325,3 +325,10 @@ model DownloadSchedule {
 
   @@unique([broadcasterId, requestedBy])
 }
+
+// TODO: Add fk but there is a unknow bug currently
+model Settings {
+  userId         String @id
+  timeZone       String
+  dateTimeFormat String
+}
