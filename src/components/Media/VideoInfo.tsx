@@ -33,7 +33,7 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
     return (
         <div className="flex flex-row items-center gap-3 mt-2" ref={divRef}>
             {!disablePicture && (
-                <a href={`${Pathnames.Channel}${video?.broadcasterId}`}>
+                <a href={`${Pathnames.Channel}${video?.displayName.toLowerCase()}`}>
                     <img
                         className="w-12 h-12 min-w-[10px] min-h-[10px] rounded-full ml-2"
                         src={video?.channel.profilePicture}
@@ -42,10 +42,10 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
                 </a>
             )}
             <div>
-                <a href={`${Pathnames.Channel}${video?.broadcasterId}`}>
-                    <h3 className="text-lg font-semibold dark:text-stone-100">{video?.channel.broadcasterName}</h3>
-                </a>
                 <h3 className="text-base font-medium dark:text-stone-100">{video?.titles[0].title.name}</h3>
+                <a href={`${Pathnames.Channel}${video?.displayName.toLowerCase()}`}>
+                    <h3 className="text-base  dark:text-stone-100">{video?.channel.broadcasterName}</h3>
+                </a>
 
                 {video?.videoCategory.map((item) => (
                     <a href={`${Pathnames.Vod}/${toKebabCase(item.category.name)}`} key={item.categoryId}>

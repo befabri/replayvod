@@ -183,7 +183,9 @@ const Table = ({
                                 </td>
                             )}
                             <td className="px-6 py-4" title={video.displayName}>
-                                <a href={`${Pathnames.Channel}${video?.broadcasterId}`}> {video.displayName}</a>
+                                <a href={`${Pathnames.Channel}${video?.displayName.toLowerCase()}`}>
+                                    {video.displayName}
+                                </a>
                             </td>
                             <td className="px-6 py-4" title={formatDate(video.startDownloadAt, storedTimeZone)}>
                                 {formatDate(video.startDownloadAt, storedTimeZone)}

@@ -95,7 +95,7 @@ const Follows: React.FC = () => {
                                 className={`bg-zinc-100 dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 ${
                                     isLive ? "relative" : ""
                                 }`}
-                                href={`${Pathnames.Channel}${channel.broadcasterId}`}
+                                href={`${Pathnames.Channel}${channel.broadcasterLogin}`}
                                 key={channel.broadcasterId}>
                                 <div className="flex">
                                     <img

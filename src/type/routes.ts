@@ -52,7 +52,7 @@ export enum ApiRoutes {
     GET_VIDEO_ID = "/api/video/:id",
     GET_VIDEO_ALL = "/api/video/all",
     GET_VIDEO_FINISHED = "/api/video/finished",
-    GET_VIDEO_USER_ID = "/api/video/user/:id",
+    GET_VIDEO_CHANNEL_BROADCASTERLOGIN = "/api/video/channel/:broadcasterLogin",
     GET_VIDEO_UPDATE_MISSING = "/api/video/update/missing",
     GET_VIDEO_THUMBNAIL_ID = "/api/video/thumbnail/:id",
     GET_TWITCH_UPDATE_GAMES = "/api/twitch/update/games",
