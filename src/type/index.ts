@@ -136,3 +136,19 @@ export interface Category {
     igdbId?: string;
     name: string;
 }
+
+export interface Settings {
+    userId?: string;
+    timeZone: string;
+    dateTimeFormat: string;
+}
+export const DateTimeFormats = [
+    "2023/10/05 18:00:00",
+    "05-10-2023 18:00:00",
+    "10/05/2023 18:00:00",
+    "05/10/2023 18:00:00",
+    "2023-10-05T18:00:00Z",
+    "10-05-2023 18:00:00",
+    "2023.10.05 18:00:00",
+    "18:00:00 05/10/2023",
+];

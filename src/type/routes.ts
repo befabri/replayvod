@@ -68,4 +68,6 @@ export enum ApiRoutes {
     POST_WEBHOOK_WEBHOOKS = "/api/webhook/webhooks",
     DELETE_WEBHOOK_WEBHOOKS = "/api/webhook/webhooks",
     POST_WEBHOOK_WEBHOOKS_CALLBACK = "/api/webhook/webhooks/callback",
+    GET_SETTINGS = "/api/settings/",
+    POST_SETTINGS = "/api/settings/",
 }
