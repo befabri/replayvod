@@ -317,19 +317,19 @@ export const downloadSchedule = async (broadcaster_id: string) => {
     // }
 };
 
-const getScheduleByFollowedChannel = async (broadcaster_id: string): Promise<DownloadSchedule | null> => {
-    return prisma.downloadSchedule.findFirst({
-        where: {
-            provider: Provider.FOLLOWED_CHANNEL,
-            channel: {
-                usersFollowing: {
-                    some: {
-                        broadcasterId: broadcaster_id,
-                    },
-                },
-            },
-        },
-    });
+const getScheduleByFollowedChannel = async (broadcaster_id: string) => {
+    // return prisma.downloadSchedule.findFirst({
+    //     where: {
+    //         provider: Provider.FOLLOWED_CHANNEL,
+    //         channel: {
+    //             usersFollowing: {
+    //                 some: {
+    //                     broadcasterId: broadcaster_id,
+    //                 },
+    //             },
+    //         },
+    //     },
+    // });
 };
 
 const getAllScheduleByChannel = async (broadcasterId: string): Promise<DownloadSchedule[]> => {

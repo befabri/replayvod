@@ -2,7 +2,7 @@ FROM node:20.7.0-alpine as base
 
 ENV NODE_ENV=production \
     PORT=8080 \
-    LOG_DIR=/app/log \
+    LOG_DIR=/app/logs \
     PUBLIC_DIR=/app/public \ 
     DATA_DIR=/app/data \
     SECRET-DIR=/app/secret
@@ -26,15 +26,11 @@ RUN apk add --update ffmpeg
 COPY ./dist ./
 COPY ./bin ./bin
 COPY ./prisma ./prisma
-COPY ./entrypoint.sh /entrypoint.sh
 
 RUN npx prisma generate
-RUN chmod +x /entrypoint.sh
 
-VOLUME ["/app/log", "/app/public", "/app/data", "/app/bin", "/app/secret"]
+VOLUME ["/app/logs", "/app/public", "/app/data", "/app/bin", "/app/secret"]
 
 EXPOSE $PORT
-
-ENTRYPOINT ["/entrypoint.sh"]
 
 CMD [ "node", "server.js" ]
