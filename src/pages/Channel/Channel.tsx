@@ -102,7 +102,7 @@ const Channel: React.FC = () => {
                 </Button>
             </div>
             <div className="mt-5">
-                <h2 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Videos")}</h2>
+                <h2 className="text-2xl font-bold pb-5 dark:text-stone-100">{t("Videos")}</h2>
                 {hasVideos && <VideoComponent videos={videos} disablePicture={true} />}
             </div>
         </div>
