@@ -9,7 +9,7 @@
     "prod": "node src/server.js",
     "start": "ts-node src/server.ts",
     "dev": "tsx watch src/server.ts | pino-pretty --colorize",
-    "prebuild": "shx rm -rf dist || rmdir /s /q dist",
+    "devprebuild": "shx rm -rf dist || rmdir /s /q dist",
     "build": "tsc -p tsconfig.json",
     "preview": "node dist/server.js",
     "db:gen": "npm run prisma generate",
