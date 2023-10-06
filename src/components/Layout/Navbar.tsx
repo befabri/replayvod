@@ -4,6 +4,7 @@ import Sidebar from "./Sidebar";
 import { Icon } from "@iconify/react";
 import { useAuth } from "../../context/Auth/Auth";
 import i18n from "i18next";
+import { useTranslation } from "react-i18next";
 
 const Navbar: React.FC = () => {
     const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -12,6 +13,7 @@ const Navbar: React.FC = () => {
     const navbarRef = useRef<HTMLDivElement | null>(null);
     const sidebarRef = useRef<HTMLDivElement | null>(null);
     const { user, signOut } = useAuth();
+    const { t } = useTranslation();
 
     const languages = ["English", "Français"];
 
@@ -130,7 +132,7 @@ const Navbar: React.FC = () => {
                                         className="flex text-sm bg-gray-800 rounded-full focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600"
                                         aria-expanded="false"
                                         data-dropdown-toggle="dropdown-user">
-                                        <span className="sr-only">Open user menu</span>
+                                        <span className="sr-only">{t("Open user menu")}</span>
                                         <img
                                             className="w-8 h-8 rounded-full"
                                             src={user ? user.profile_image : "/images/placeholder_picture.png"}
@@ -140,25 +142,28 @@ const Navbar: React.FC = () => {
                                 </div>
                                 {isProfilOpen && (
                                     <div
-                                        className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-700 dark:ring-gray-600 divide-y divide-gray-100 dark:divide-gray-600"
+                                        className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-700 dark:ring-gray-600 divide-y divide-gray-100 dark:divide-gray-600"
                                         id="dropdown-user">
                                         <div>
                                             <a
                                                 href="#"
-                                                className="flex gap-9 items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
+                                                className="flex justify-between items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
                                                 role="menuitem"
                                                 onClick={(e: React.MouseEvent) => handleSelect(e, "Language")}>
-                                                <span>Language</span>
+                                                <span> {t("Language")}</span>
                                                 <Icon icon="mdi:chevron-right" width="18" height="18" />
                                             </a>
-                                            <DarkModeToggle className="h-9 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600" />
+                                            <DarkModeToggle
+                                                text={t("Dark Theme")}
+                                                className="h-9 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
+                                            />
                                         </div>
                                         <a
                                             href="#"
                                             className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
                                             role="menuitem"
                                             onClick={(e: React.MouseEvent) => handleSelect(e, "Sign Out")}>
-                                            Sign Out
+                                            {t("Sign Out")}
                                         </a>
                                     </div>
                                 )}
@@ -173,7 +178,7 @@ const Navbar: React.FC = () => {
                                                 setProfileOpen(true);
                                             }}>
                                             <Icon icon="mdi:chevron-left" width="18" height="18" />
-                                            <span>Languages</span>
+                                            <span> {t("Language")}</span>
                                             <div></div>
                                         </div>
 

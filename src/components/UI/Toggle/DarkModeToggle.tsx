@@ -1,11 +1,11 @@
 import { useDarkMode } from "../../../context/Themes/DarkModeContext";
 
-const DarkModeToggle = ({ className }: { className?: string }) => {
+const DarkModeToggle = ({ className, text }: { className?: string; text: string }) => {
     const { isDarkMode, toggleDarkMode } = useDarkMode();
 
     return (
         <div className={`flex justify-between items-center ${className}`} onClick={toggleDarkMode}>
-            <span className="h-6 mr-2 cursor-pointer">Dark Theme</span>
+            <span className="h-6 mr-2 cursor-pointer">{text}</span>
             <button className="flex items-center justify-end focus:outline-none cursor-pointer">
                 <div className="transform scale-75">
                     <label className="relative inline-flex items-center cursor-pointer">

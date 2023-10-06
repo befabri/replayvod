@@ -72,7 +72,7 @@
   "Finished": "Terminé",
   "Title": "Titre",
   "Filename": "Nom de fichier",
-  "Display name": "Streameur",
+  "Display name": "Streamer",
   "Start download at": "Date de début",
   "Category": "Catégorie",
   "View": "Vue",
@@ -80,5 +80,15 @@
   "Grid": "Grille",
   "View Logfile":"Lire les logs",
   "Tasks Scheduled": "Tâches planifiées",
+  "Recently Added": "Ajouté récemment",
+  "Channel (ascending)": "Chaîne (croissant)",
+  "Channel (descending)": "Chaîne (décroissant)",
+  "Game category": "Catégorie",
+  "Schedule": "Planification",
+  "Sign Out":"Se déconnecter",
+  "Open user menu":"Ouvrir le menu d'utilisateur",
+  "Language":"Langage",
+  "Dark Theme":"Thème sombre",
+  
   "null":"null"
 }

@@ -10,8 +10,8 @@ const Vod: React.FC = () => {
     const { t } = useTranslation();
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [view, setView] = useState("Grille");
-    const [order, setOrder] = useState("Recently Added");
+    const [view, setView] = useState(t("Grid"));
+    const [order, setOrder] = useState(t("Recently Added"));
 
     const fetchImage = async (url: RequestInfo | URL) => {
         const response = await fetch(url, { credentials: "include" });
