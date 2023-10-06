@@ -5,6 +5,7 @@
   "_version": "20.7.0",
 
   "compilerOptions": {
+    "types": ["node"],
     "lib": ["es2023"],
     "module": "Node16",
     "target": "es2022",

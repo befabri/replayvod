@@ -18,7 +18,7 @@ stages:
 
 before_build:
     stage: before_build
-    image: node:18
+    image: node:20.7.0
     script:
         - apt-get update -y && apt-get install -y python3 python3-pip ffmpeg
         - python3 --version
