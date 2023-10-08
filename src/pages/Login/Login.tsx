@@ -12,7 +12,7 @@ const Landing: React.FC = () => {
 
     return (
         <div className="flex min-h-screen">
-            <div className="flex flex-col items-center justify-center w-full md:w-1/2 bg-gray-100 mb-10">
+            <div className="flex flex-col items-center justify-center w-full md:w-1/2 bg-gray-100">
                 <h1 className="text-2xl font-medium mb-4">{t("Sign in to Replay")}</h1>
                 <button
                     onClick={handleClick}
