@@ -8,62 +8,53 @@ const Follows: React.FC = () => {
     const { t } = useTranslation();
     const [channels, setChannels] = useState<Channel[]>([]);
     const [streams, setStreams] = useState<Stream[]>([]);
-    const [order, setOrder] = useState("Channel (ascending)");
+    const [order, setOrder] = useState(t("Channel (ascending)"));
     const [isLoading, setIsLoading] = useState<boolean>(true);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
-            const urlFollowedStreams = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_STREAMS);
-            try {
-                const [followedChannelsResponse, followedStreamsResponse] = await Promise.all([
-                    fetch(urlFollowedChannels, { credentials: "include" }),
-                    fetch(urlFollowedStreams, { credentials: "include" }),
-                ]);
+    const fetchData = async () => {
+        const urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
+        const urlFollowedStreams = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_STREAMS);
+        try {
+            const [followedChannelsResponse, followedStreamsResponse] = await Promise.all([
+                fetch(urlFollowedChannels, { credentials: "include" }),
+                fetch(urlFollowedStreams, { credentials: "include" }),
+            ]);
 
-                if (!followedChannelsResponse.ok || !followedStreamsResponse.ok) {
-                    throw new Error("HTTP error");
-                }
-
-                const [followedChannelsData, followedStreamsData] = await Promise.all([
-                    followedChannelsResponse.json(),
-                    followedStreamsResponse.json(),
-                ]);
-
-                setChannels(followedChannelsData);
-                setStreams(followedStreamsData);
-                setIsLoading(false);
-            } catch (error) {
-                console.error("Error:", error);
-                setIsLoading(false);
+            if (!followedChannelsResponse.ok || !followedStreamsResponse.ok) {
+                throw new Error("HTTP error");
             }
-        };
 
+            const [followedChannelsData, followedStreamsData] = await Promise.all([
+                followedChannelsResponse.json(),
+                followedStreamsResponse.json(),
+            ]);
+
+            const sortedChannels = sortChannels(followedChannelsData, order);
+            setChannels(sortedChannels);
+            setStreams(followedStreamsData);
+            setIsLoading(false);
+        } catch (error) {
+            console.error("Error:", error);
+            setIsLoading(false);
+        }
+    };
+
+    const sortChannels = (channels: Channel[], order: string) => {
+        console.log(order);
+        if (order === t("Channel (descending)")) {
+            return [...channels].sort((b, a) => a.broadcasterName.localeCompare(b.broadcasterName));
+        } else {
+            return [...channels].sort((a, b) => a.broadcasterName.localeCompare(b.broadcasterName));
+        }
+    };
+
+    useEffect(() => {
         fetchData();
         const intervalId = setInterval(fetchData, 3000);
         return () => clearInterval(intervalId);
-    }, []);
-
-    useEffect(() => {
-        if (order === t("Channel (ascending)")) {
-            const sortedChannels = [...channels].sort((a, b) =>
-                a.broadcasterName.localeCompare(b.broadcasterName)
-            );
-            setChannels(sortedChannels);
-        } else if (order === t("Channel (descending)")) {
-            const sortedChannels = [...channels].sort((b, a) =>
-                a.broadcasterName.localeCompare(b.broadcasterName)
-            );
-            setChannels(sortedChannels);
-        } else {
-            const sortedChannels = [...channels].sort((a, b) =>
-                a.broadcasterName.localeCompare(b.broadcasterName)
-            );
-            setChannels(sortedChannels);
-        }
     }, [order]);
 
-    const handleOrderSelected = (value: any) => {
+    const handleOrderSelected = (value: string) => {
         setOrder(value);
     };
 
