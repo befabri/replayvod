@@ -1,5 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { authHandler } from ".";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     // fastify.get("/twitch", {
@@ -12,10 +13,20 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
 
     fastify.get("/check-session", authHandler.checkSession);
 
-    fastify.get("/user", authHandler.getUser);
+    fastify.get("/user", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: authHandler.getUser,
+    });
 
-    fastify.get("/refresh", authHandler.refreshToken);
+    fastify.get("/refresh", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: authHandler.refreshToken,
+    });
 
-    fastify.post("/signout", authHandler.signOut);
+    fastify.get("/signout", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        handler: authHandler.signOut,
+    });
+
     done();
 }
