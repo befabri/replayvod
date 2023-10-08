@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CompletedVideo } from "../../type";
 import VideoComponent from "../../components/Media/Video";
-import { ApiRoutes, Pathnames, getApiRoute } from "../../type/routes";
+import { ApiRoutes, getApiRoute } from "../../type/routes";
 import Button from "../../components/UI/Button/Button";
 
 const Channel: React.FC = () => {
@@ -84,14 +84,12 @@ const Channel: React.FC = () => {
 
     return (
         <div className="p-4">
-            <div className="mt-14 flex flex-row items-center gap-3">
-                <a href={`${Pathnames.Channel}${videos[0]?.channel.displayName.toLowerCase()}`}>
-                    <img
-                        className="w-12 h-12 min-w-[10px] min-h-[10px] rounded-full ml-2"
-                        src={videos[0]?.channel.profilePicture}
-                        alt="Profile Picture"
-                    />
-                </a>
+            <div className="p-4 mt-14 flex flex-row items-center gap-3">
+                <img
+                    className="w-12 h-12 min-w-[10px] min-h-[10px] rounded-full"
+                    src={videos[0]?.channel.profilePicture}
+                    alt="Profile Picture"
+                />
                 <h1 className="text-3xl font-bold dark:text-stone-100 mr-1">
                     {videos[0]?.channel.broadcasterName}
                 </h1>
