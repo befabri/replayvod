@@ -93,7 +93,7 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
             <aside
                 ref={ref}
                 id="logo-sidebar"
-                className={`fixed top-0 left-0 z-40 w-56 h-screen pt-20 transition-transform ${
+                className={`fixed top-0 left-0 z-20 w-56 h-screen pt-20 transition-transform ${
                     isOpenSideBar ? "-translate-x-0" : "-translate-x-full"
                 } bg-white border-r border-gray-200 md:translate-x-0 dark:bg-gray-800 dark:border-gray-700`}
                 aria-label="Sidebar">
