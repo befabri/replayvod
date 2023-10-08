@@ -112,7 +112,7 @@ export const mapVideoQualityToQuality = (input: string): Quality => {
         case VideoQuality.HIGH:
             return Quality.HIGH;
         default:
-            return Quality.MEDIUM;
+            return Quality.HIGH;
     }
 };
 
@@ -678,4 +678,19 @@ export const getVideoFilePath = (login: string) => {
         fs.mkdirSync(directoryPath, { recursive: true });
     }
     return path.join(directoryPath, filename);
+};
+
+export const setVideoFailed = async () => {
+    try {
+        const updateResponse = await prisma.video.updateMany({
+            where: {
+                status: "PENDING",
+            },
+            data: {
+                status: "FAILED",
+            },
+        });
+    } catch (error) {
+        console.error("Failed to update videos: %s", error);
+    }
 };
