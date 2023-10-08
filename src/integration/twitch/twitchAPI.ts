@@ -177,12 +177,18 @@ class TwitchAPI {
                     headers: {
                         Authorization: `Bearer ${accessToken}`,
                         "Client-ID": TWITCH_CLIENT_ID,
+                        "Content-Type": "application/json",
                     },
                 }
             );
             return response.data;
         } catch (error) {
-            throw error;
+            if (error.response) {
+                logger.error(error.response.data.message);
+                throw error;
+            } else {
+                throw error;
+            }
         }
     }
 

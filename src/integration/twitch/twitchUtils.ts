@@ -36,7 +36,7 @@ export const getAppAccessToken = async () => {
         });
         return newToken;
     } catch (error) {
-        logger.error("Error getting app access token:", error);
+        logger.error("Error getting app access token: %s", error);
         throw error;
     }
 };
