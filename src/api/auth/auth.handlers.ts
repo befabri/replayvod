@@ -8,6 +8,8 @@ import { userService } from "../user";
 
 dotenv.config();
 const REDIRECT_URL = process.env.REDIRECT_URL || "/";
+const WHITELISTED_USER_IDS: string[] = process.env.WHITELISTED_USER_IDS?.split(",") || [];
+const IS_WHITELIST_ENABLED: boolean = process.env.IS_WHITELIST_ENABLED?.toLowerCase() === "true";
 
 async function fetchTwitchUserData(accessToken: string) {
     const headers = {
@@ -22,7 +24,7 @@ async function fetchTwitchUserData(accessToken: string) {
             throw new Error("Twitch user data not found.");
         }
     } catch (error) {
-        logger.error("Error fetching Twitch user data:", error);
+        logger.error("Error fetching Twitch user data: %s", error);
         throw error;
     }
 }
@@ -35,6 +37,10 @@ export async function handleTwitchCallback(
     try {
         const { token } = await fastify.twitchOauth2.getAccessTokenFromAuthorizationCodeFlow(req);
         const userData = await fetchTwitchUserData(token.access_token);
+        if (IS_WHITELIST_ENABLED && (!userData.id || !WHITELISTED_USER_IDS.includes(userData.id))) {
+            logger.error(`User try to connect but are not whitelisted: %s`, userData.id);
+            reply.redirect(REDIRECT_URL);
+        }
         req.session.set("user", {
             ...token,
             twitchUserID: userData.id,
@@ -63,7 +69,7 @@ export const saveAppAccessToken = async (accessToken) => {
         });
         return newToken;
     } catch (error) {
-        logger.error("Error saving app access token:", error);
+        logger.error("Error saving app access token: %s", error);
         throw error;
     }
 };
