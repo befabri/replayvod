@@ -17,18 +17,20 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
     return (
         <div className="mb-4 grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-5">
             {videos?.map((video) => (
-                <div className="w-full " key={video.id} ref={divRef}>
-                    <a href={`${Pathnames.Watch}${video.id}`} className="relative">
-                        <img src={`${video.thumbnail}`} alt={`${video.displayName}`} />
-                        <div className="absolute top-2 left-3 bg-black bg-opacity-50 text-stone-100">{`${formatDuration(
-                            video.duration
-                        )}`}</div>
-                        <div className="absolute bottom-2 right-3 bg-black bg-opacity-50 text-stone-100">{`${formatDate(
-                            video.downloadedAt,
-                            storedTimeZone,
-                            false
-                        )}`}</div>
-                    </a>
+                <div className="w-full" key={video.id} ref={divRef}>
+                    <div className="relative">
+                        <a href={`${Pathnames.Watch}${video.id}`}>
+                            <img src={`${video.thumbnail}`} alt={`${video.displayName}`} />
+                            <div className="absolute top-2 left-3 bg-black bg-opacity-50 text-stone-100">{`${formatDuration(
+                                video.duration
+                            )}`}</div>
+                            <div className="absolute bottom-2 right-3 bg-black bg-opacity-50 text-stone-100">{`${formatDate(
+                                video.downloadedAt,
+                                storedTimeZone,
+                                false
+                            )}`}</div>
+                        </a>
+                    </div>
                     <div className="flex justify-between">
                         <VideoInfoComponent video={video} disablePicture={disablePicture} />
                     </div>
