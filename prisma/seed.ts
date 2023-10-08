@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 // @ts-ignore
 const logData: Prisma.LogCreateInput[] = [
     {
-        downloadUrl: "log/replay.log",
+        downloadUrl: "logs/replay.log",
         filename: "replay.log",
         lastWriteTime: new Date("1900-01-01T00:00:00Z"),
     },
