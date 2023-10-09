@@ -28,9 +28,7 @@ experimental/**/*.db
 .vscode/
 .nuxt
 dev.db
-*.env*
-*.md
-.md
+*.env
 secret-key
 prisma/migrations
 logs
