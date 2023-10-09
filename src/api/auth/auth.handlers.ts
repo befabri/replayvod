@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 import { userService } from "../user";
 
 dotenv.config();
-const REDIRECT_URL = process.env.REDIRECT_URL || "/";
+const REACT_URL = process.env.REACT_URL || "/";
 const WHITELISTED_USER_IDS: string[] = process.env.WHITELISTED_USER_IDS?.split(",") || [];
 const IS_WHITELIST_ENABLED: boolean = process.env.IS_WHITELIST_ENABLED?.toLowerCase() === "true";
 
@@ -39,7 +39,7 @@ export async function handleTwitchCallback(
         const userData = await fetchTwitchUserData(token.access_token);
         if (IS_WHITELIST_ENABLED && (!userData.id || !WHITELISTED_USER_IDS.includes(userData.id))) {
             logger.error(`User try to connect but are not whitelisted: %s`, userData.id);
-            reply.redirect(REDIRECT_URL);
+            reply.redirect(REACT_URL);
         }
         req.session.set("user", {
             ...token,
@@ -48,7 +48,7 @@ export async function handleTwitchCallback(
         });
         const res = await saveAppAccessToken(token);
         const resUser = await userService.updateUserDetail(userData);
-        reply.redirect(REDIRECT_URL);
+        reply.redirect(REACT_URL);
     } catch (err) {
         reply.code(500).send({ error: "Failed to authenticate with Twitch." });
     }
