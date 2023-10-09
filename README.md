@@ -74,4 +74,4 @@ Follow the steps below to set up the Twitch integration:
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. - see the [LICENSE.md](https://gitlab.com/befabri/replay-vod-api/-/blob/main/LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0. - see the [LICENSE.md](https://gitlab.com/befabri/replay-vod-api/-/blob/main/README.md) file for details.
