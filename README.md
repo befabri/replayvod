@@ -46,4 +46,4 @@ This repository contains the frontend codebase for ReplayVod. It is built using 
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. - see the [LICENSE.md](https://gitlab.com/befabri/replay-vod-api/-/blob/main/LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0. - see the [LICENSE.md](https://gitlab.com/befabri/replay-vod-web/-/blob/main/README.md) file for details.
