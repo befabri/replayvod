@@ -6,6 +6,7 @@ This repository contains the backend codebase for ReplayVod. It is built using F
 
 -   [Prerequisites](#prerequisites)
 -   [Development Setup](#development-setup)
+-   [Secure Session Secret](#secure-session-secret)
 -   [Twitch Integration Setup](#twitch-integration-setup)
 -   [License](#license)
 
@@ -41,6 +42,48 @@ This repository contains the backend codebase for ReplayVod. It is built using F
     ```
 
     This will start the Fastify server in development mode, watching for any changes.
+
+## Secure Session Secret
+
+To secure your sessions, you'll need a `secret-key`. Follow the steps below to generate and place this key in the appropriate directory:
+
+1. **Generate the Secret Key**:
+
+    - For most platforms:
+
+        ```sh
+        npx @fastify/secure-session > secret-key
+        ```
+
+    - If running in Windows Powershell:
+
+        ```sh
+        npx @fastify/secure-session | Out-File -Encoding default -NoNewline -FilePath secret-key
+        ```
+
+    If you haven't previously used this module with npx, you might be prompted to install it. Note that with the output redirect, this can cause the command to wait indefinitely for input.
+
+    Alternatively, if you don't want to use `npx`, you can generate the `secret-key` by first installing the `@fastify/secure-session` library with your preferred package manager, and then:
+
+    ```sh
+    ./node_modules/@fastify/secure-session/genkey.js > secret-key
+    ```
+
+2. **Place the Secret Key in the 'secret' Folder**:
+
+    After generating the `secret-key`, move it to the `secret` directory in your project:
+
+    ```sh
+    mv secret-key secret/secret-key
+    ```
+
+    If you're on Windows, you can use:
+
+    ```sh
+    move secret-key secret\secret-key
+    ```
+
+Make sure the `secret` directory exists in your project, or create it before moving the `secret-key`.
 
 ## Twitch Integration Setup
 
