@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getAppAccessToken } from "./twitchUtils";
 import { chunkArray } from "../../utils/utils";
-import { Stream, User, FollowedChannel, EventSubResponse } from "../../models/twitchModel";
+import { Stream, User, FollowedChannel, EventSubResponse, EventSubData } from "../../models/twitchModel";
 import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchApi" });
 
@@ -22,7 +22,7 @@ class TwitchAPI {
 
             return response.data.data[0] || null;
         } catch (error) {
-            logger.error("Error fetching user details from Twitch API:", error);
+            logger.error("Error fetching user details from Twitch API: %s", error);
             throw new Error("Failed to fetch user details from Twitch API");
         }
     }
@@ -39,7 +39,7 @@ class TwitchAPI {
 
             return response.data.data[0] || null;
         } catch (error) {
-            logger.error("Error fetching user details from Twitch API:", error);
+            logger.error("Error fetching user details from Twitch API: %s", error);
             throw new Error("Failed to fetch user details from Twitch API");
         }
     }
@@ -61,7 +61,7 @@ class TwitchAPI {
             );
             return responses.flatMap((response) => response.data.data);
         } catch (error) {
-            logger.error("Error fetching users details from Twitch API:", error);
+            logger.error("Error fetching users details from Twitch API: %s", error);
             throw new Error("Failed to fetch users details from Twitch API");
         }
     }
@@ -87,6 +87,7 @@ class TwitchAPI {
 
         const { data, pagination } = response.data;
         if (pagination && pagination.cursor) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
             const nextPageData = await this.getAllFollowedChannels(userId, accessToken, pagination.cursor);
             return data.concat(nextPageData);
         } else {
@@ -111,6 +112,7 @@ class TwitchAPI {
 
         const { data, pagination } = response.data;
         if (pagination && pagination.cursor) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
             const nextPageData = await this.getAllFollowedStreams(userId, accessToken, pagination.cursor);
             return data.concat(nextPageData);
         } else {
@@ -129,7 +131,7 @@ class TwitchAPI {
             });
             return response.data.data[0] || null;
         } catch (error) {
-            logger.error("Error fetching stream details from Twitch API:", error);
+            logger.error("Error fetching stream details from Twitch API: %s", error);
             throw new Error("Failed to fetch stream details from Twitch API");
         }
     }
@@ -225,7 +227,7 @@ class TwitchAPI {
         }
     }
 
-    async getEventSub(): Promise<EventSubResponse> {
+    async getEventSub(cursor?: string): Promise<EventSubResponse> {
         const accessToken = await getAppAccessToken();
         try {
             const response = await axios.get("https://api.twitch.tv/helix/eventsub/subscriptions", {
@@ -233,9 +235,33 @@ class TwitchAPI {
                     Authorization: `Bearer ${accessToken}`,
                     "Client-ID": TWITCH_CLIENT_ID,
                 },
+                params: {
+                    first: 100,
+                    after: cursor,
+                },
             });
+            const { data, pagination, total, total_cost, max_total_cost } = response.data;
 
-            return response.data;
+            if (pagination && pagination.cursor) {
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+                const nextPageData = await this.getEventSub(pagination.cursor);
+
+                return {
+                    total: total + nextPageData.total,
+                    data: data.concat(nextPageData.data),
+                    total_cost: total_cost + nextPageData.total_cost,
+                    max_total_cost: Math.max(max_total_cost, nextPageData.max_total_cost),
+                    pagination: nextPageData.pagination,
+                };
+            } else {
+                return {
+                    total,
+                    data,
+                    total_cost,
+                    max_total_cost,
+                    pagination,
+                };
+            }
         } catch (error) {
             throw error;
         }

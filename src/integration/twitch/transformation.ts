@@ -116,8 +116,7 @@ export const transformCategory = (game: TwitchGame): Category => {
 };
 
 export const transformEventSub = (eventSub: TwitchEventSubData): Subscription => {
-    const userId = eventSub.condition.broadcaster_user_id || eventSub.condition.user_id || "";
-
+    const userId = eventSub.condition.broadcaster_user_id || eventSub.condition.user_id;
     return {
         id: eventSub.id,
         status: eventSub.status,

@@ -160,12 +160,10 @@ export const createEventSub = async (
 export const getEventSub = async (): Promise<{ subscriptions: Subscription[]; meta: EventSubMeta } | null> => {
     try {
         const fetchedEventSub = await twitchAPI.getEventSub();
-        logger.info(fetchedEventSub);
         if (!fetchedEventSub || !isValidEventSubResponse(fetchedEventSub)) {
             logger.error("Received invalid eventSub data from Twitch API: %s", fetchedEventSub);
             return null;
         }
-
         const subscriptions = fetchedEventSub.data.map((eventSub) => transformEventSub(eventSub));
         const meta = transformEventSubMeta(fetchedEventSub);
 
