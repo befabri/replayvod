@@ -1,4 +1,4 @@
-import { VideoQuality } from "../../models/downloadModel";
+import { FallbackResolutions, Resolution, VideoQuality } from "../../models/downloadModel";
 import { jobService, tagService } from "../../services";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
@@ -12,6 +12,8 @@ import { channelService } from "../channel";
 import { videoService } from "../video";
 const os = require("os");
 const { create: createYoutubeDl } = require("youtube-dl-exec");
+const { spawn } = require("child_process");
+import fs from "fs/promises";
 
 let youtubedl;
 
@@ -20,6 +22,16 @@ if (os.platform() === "win32") {
 } else if (os.platform() === "linux") {
     youtubedl = createYoutubeDl("bin/yt-dlp");
 }
+
+const getYoutubeDlBinary = () => {
+    if (os.platform() === "win32") {
+        return "bin/yt.exe";
+    } else if (os.platform() === "linux") {
+        return "bin/yt-dlp";
+    } else {
+        throw new Error("Unsupported OS platform.");
+    }
+};
 
 // TODO
 export const planningRecord = async (userId: string) => {
@@ -66,6 +78,155 @@ export const getAllTitlesFromStream = async (streamId) => {
     return streamTitles.map((st) => st.title.name);
 };
 
+const getAvailableResolutions = (url: string): Promise<Resolution[]> => {
+    return new Promise((resolve, reject) => {
+        const formatsData: string[] = [];
+        const binaryPath = getYoutubeDlBinary();
+        const ytProcess = spawn(binaryPath, ["--list-formats", url]);
+
+        ytProcess.stdout.on("data", (data) => {
+            formatsData.push(data.toString());
+        });
+
+        ytProcess.stderr.on("data", (data) => {
+            logger.error(data);
+        });
+
+        ytProcess.on("close", (code) => {
+            if (code !== 0) {
+                reject(new Error(`Failed to list formats with youtube-dl, exited with code ${code}`));
+            } else {
+                const allMatches = formatsData.join("").matchAll(/(\d{3,4})p/g);
+                const uniqueResolutions: Resolution[] = [
+                    ...new Set(Array.from(allMatches, (m) => m[1] as Resolution)),
+                ];
+                resolve(uniqueResolutions);
+            }
+        });
+    });
+};
+
+const selectBestResolution = async (preferredResolution: Resolution, url: string): Promise<Resolution> => {
+    const availableResolutions = await getAvailableResolutions(url);
+    if (availableResolutions.includes(preferredResolution)) {
+        return preferredResolution;
+    }
+    const resolutionPreferences: FallbackResolutions = {
+        "1080": ["720", "480"],
+        "720": ["480", "360"],
+        "480": ["360", "160"],
+        "360": [],
+        "160": [],
+    };
+    for (let fallbackResolution of resolutionPreferences[preferredResolution]) {
+        if (availableResolutions.includes(fallbackResolution)) {
+            return fallbackResolution;
+        }
+    }
+    throw new Error("No suitable resolution found.");
+};
+
+async function deleteFile(filePath: string): Promise<void> {
+    try {
+        await fs.access(filePath);
+        await fs.unlink(filePath);
+    } catch (error) {
+        if (error.code === "ENOENT") {
+            throw new Error(`File not found at ${filePath}`);
+        } else {
+            throw new Error(`Error deleting file at ${filePath}: ${error.message}`);
+        }
+    }
+}
+
+async function runYoutubeDL(
+    broadcasterLogin: string,
+    resolution: Resolution,
+    tmpVideoFilePath: string
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const subprocess = youtubedl.exec(`https://www.twitch.tv/${broadcasterLogin}`, {
+            format: `best[height=${resolution}]`,
+            output: tmpVideoFilePath,
+            fixup: "never",
+        });
+
+        subprocess.stderr.on("data", (chunk) => {
+            const message = chunk.toString();
+            if (message.includes("frame") && message.includes("fps")) {
+                logger.info(message);
+            }
+            if (message.includes("ERROR") || message.includes("error") || message.includes("Error")) {
+                logger.error(message);
+            }
+        });
+
+        subprocess.on("close", (code) => {
+            if (code !== 0) {
+                reject(
+                    new Error(
+                        `youtube-dl process (for broadcasterLogin: ${broadcasterLogin}) exited with code ${code}`
+                    )
+                );
+            } else {
+                resolve();
+            }
+        });
+    });
+}
+
+async function runFFMPEG(tmpVideoFilePath: string, videoFilePath: string, aRate: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const ffmpegArgs = ["-i", tmpVideoFilePath, "-c:v", "copy", "-af", `asetrate=${aRate}`, videoFilePath];
+        const ffmpegProcess = spawn("ffmpeg", ffmpegArgs);
+
+        ffmpegProcess.stderr.on("data", (data) => {
+            logger.error(`FFMPEG: ${data}`);
+        });
+
+        ffmpegProcess.on("close", (code) => {
+            if (code !== 0) {
+                reject(new Error(`ffmpeg process (for video: ${tmpVideoFilePath}) exited with code ${code}`));
+            } else {
+                resolve();
+            }
+        });
+    });
+}
+
+const proceedWithDownload = async (
+    broadcasterLogin: string,
+    filename: string,
+    resolution: Resolution,
+    tmpVideoFilePath: string,
+    videoFilePath: string,
+    aRate: number
+) => {
+    logger.info(
+        `Download: ${JSON.stringify({
+            download: `https://www.twitch.tv/${broadcasterLogin}`,
+            format: `best[height=${resolution}]`,
+            output: videoFilePath,
+            // cookies: cookiesFilePath,
+        })} `
+    );
+    try {
+        await runYoutubeDL(broadcasterLogin, resolution, tmpVideoFilePath);
+        await runFFMPEG(tmpVideoFilePath, videoFilePath, aRate);
+        await deleteFile(tmpVideoFilePath);
+        await completeVideoProcessing(videoFilePath, filename, broadcasterLogin);
+        return videoFilePath;
+    } catch (error) {
+        await deleteFile(tmpVideoFilePath);
+        if (
+            error.message !== `youtube-dl process (for broadcasterLogin: ${broadcasterLogin}) exited with code 0`
+        ) {
+            await deleteFile(videoFilePath);
+        }
+        throw error;
+    }
+};
+
 export const startDownload = async ({
     requestingUserId,
     channel,
@@ -86,76 +247,54 @@ export const startDownload = async ({
         stream: stream,
         videoQuality: videoQuality,
     });
-    const resolution: string = videoService.mapQualityToVideoQuality(videoQuality);
-    return new Promise<string>((resolve, reject) => {
-        logger.info(
-            `Download: ${JSON.stringify({
-                download: `https://www.twitch.tv/${channel.broadcasterLogin}`,
-                format: `best[height=${resolution}]`,
-                output: videoFilePath,
-                cookies: cookiesFilePath,
-            })} `
+    const resolution = videoService.mapQualityToVideoQuality(videoQuality);
+    const aRate = 48000;
+    const tmpVideoFilePath = videoFilePath.replace(".mp4", "_tmp.mp4");
+    try {
+        const resolutionToUse = await selectBestResolution(
+            resolution,
+            `https://www.twitch.tv/${channel.broadcasterLogin}`
         );
-        const subprocess = youtubedl.exec(`https://www.twitch.tv/${channel.broadcasterLogin}`, {
-            format: `best[height=${resolution}]`,
-            output: videoFilePath,
-        });
-
-        // subprocess.stdout.on("data", (chunk) => {
-        //     logger.info(`STDOUT: ${chunk.toString()}`);
-        // });
-
-        subprocess.stderr.on("data", (chunk) => {
-            const message = chunk.toString();
-            if (
-                message.includes("error") ||
-                message.includes("error") ||
-                (!message.includes("Skip") && !message.includes("Opening") && !message.includes("frame"))
-            ) {
-                logger.error(`STDERR: ${message}`);
-            }
-            // else {
-            //     logger.info(`STDOUT: ${message}`);
-            // }
-        });
-
-        subprocess.on("close", async (code) => {
-            if (code !== 0) {
-                reject(new Error(`youtube-dl process exited with code ${code}`));
-            } else {
-                await finishDownload(videoFilePath, filename, channel.broadcasterLogin);
-                resolve(videoFilePath);
-            }
-        });
-    });
+        const result = await proceedWithDownload(
+            channel.broadcasterLogin,
+            filename,
+            resolutionToUse,
+            tmpVideoFilePath,
+            videoFilePath,
+            aRate
+        );
+        return result;
+    } catch (error) {
+        logger.error(error);
+        throw error;
+    }
 };
 
-export const finishDownload = async (videoPath: string, filename: string, login: string) => {
+export const completeVideoProcessing = async (videoPath: string, filename: string, login: string) => {
     const endAt = new Date();
     let duration, thumbnailPath, size;
-
     try {
         duration = await videoService.getVideoDuration(videoPath);
     } catch (error) {
-        logger.error("Error getting video duration:", error);
+        logger.error("Error getting video duration: %s", error);
     }
 
     try {
         thumbnailPath = await videoService.generateSingleThumbnail(videoPath, filename, login);
     } catch (error) {
-        logger.error("Error generating thumbnail:", error);
+        logger.error("Error generating thumbnail: %s", error);
     }
 
     try {
         size = await videoService.getVideoSize(videoPath);
     } catch (error) {
-        logger.error("Error getting video size:", error);
+        logger.error("Error getting video size: %s", error);
     }
 
     try {
         await videoService.updateVideoData(filename, endAt, thumbnailPath, size, duration);
     } catch (error) {
-        logger.error("Error updating video data:", error);
+        logger.error("Error updating video data: %s", error);
     }
 };
 

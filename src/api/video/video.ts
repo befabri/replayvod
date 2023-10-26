@@ -4,7 +4,7 @@ import ffmpeg from "fluent-ffmpeg";
 import { Channel, Quality, Status, Video } from "@prisma/client";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
-import { VideoQuality } from "../../models/downloadModel";
+import { Resolution, VideoQuality } from "../../models/downloadModel";
 import { tagService, titleService } from "../../services";
 import moment from "moment";
 import { StreamWithRelations } from "../../types/sharedTypes";
@@ -116,7 +116,7 @@ export const mapVideoQualityToQuality = (input: string): Quality => {
     }
 };
 
-export const mapQualityToVideoQuality = (quality: Quality): string => {
+export const mapQualityToVideoQuality = (quality: Quality): Resolution => {
     switch (quality) {
         case Quality.LOW:
             return VideoQuality.LOW;
@@ -682,7 +682,7 @@ export const getVideoFilePath = (login: string) => {
 
 export const setVideoFailed = async () => {
     try {
-        const updateResponse = await prisma.video.updateMany({
+        await prisma.video.updateMany({
             where: {
                 status: "PENDING",
             },
@@ -691,6 +691,6 @@ export const setVideoFailed = async () => {
             },
         });
     } catch (error) {
-        console.error("Failed to update videos: %s", error);
+        logger.error("Failed to update videos: %s", error);
     }
 };
