@@ -3,7 +3,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../../constants/twitchConstants";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
-import { eventProcessingService } from ".";
+import { eventProcessingService, eventSubService } from ".";
+import { transformWebhookEvent } from "./webhook.DTO";
 const logger = rootLogger.child({ domain: "webhook", service: "webhookService" });
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
@@ -32,7 +33,7 @@ export const getWebhook = async (id: string) => {
 };
 
 export const getAllWebhooks = async () => {
-    return prisma.event.findMany();
+    return prisma.webhookEvent.findMany();
 };
 
 export const getSecret = () => {
@@ -59,7 +60,7 @@ export const verifyMessage = (hmac: string, verifySignature: string): boolean =>
     return timingSafeEqual(Buffer.from(hmac), Buffer.from(verifySignature));
 };
 
-export const handleChannelUpdate = (notification: any): { status: number; body: null } => {
+export const handleChannelUpdate = async (notification: any): Promise<{ status: number; body: null }> => {
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
     return {
         status: 204,
@@ -67,8 +68,9 @@ export const handleChannelUpdate = (notification: any): { status: number; body: 
     };
 };
 
-export const handleStreamOnline = (notification: any): { status: number; body: null } => {
+export const handleStreamOnline = async (notification: any): Promise<{ status: number; body: null }> => {
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    eventProcessingService.handleWebhookEvent(notification.subscription.type, notification.event);
     eventProcessingService.handleDownload(notification.event);
     return {
         status: 204,
@@ -76,7 +78,16 @@ export const handleStreamOnline = (notification: any): { status: number; body: n
     };
 };
 
-export const handleStreamOffline = (notification: any): { status: number; body: null } => {
+export const handleStreamOffline = async (notification: any): Promise<{ status: number; body: null }> => {
+    eventProcessingService.logEvent(notification.subscription.type, notification.event);
+    eventProcessingService.handleWebhookEvent(notification.subscription.type, notification.event);
+    return {
+        status: 204,
+        body: null,
+    };
+};
+
+export const handleNotification = async (notification: any): Promise<{ status: number; body: null }> => {
     eventProcessingService.logEvent(notification.subscription.type, notification.event);
     return {
         status: 204,
@@ -84,22 +95,14 @@ export const handleStreamOffline = (notification: any): { status: number; body: 
     };
 };
 
-export const handleNotification = (notification: any): { status: number; body: null } => {
-    eventProcessingService.logEvent(notification.subscription.type, notification.event);
-    return {
-        status: 204,
-        body: null,
-    };
-};
-
-export const handleVerification = (notification: any): { status: number; body: string } => {
+export const handleVerification = async (notification: any): Promise<{ status: number; body: string }> => {
     return {
         status: 200,
         body: notification.challenge,
     };
 };
 
-export const handleRevocation = (notification: any): { status: number; body: null } => {
+export const handleRevocation = async (notification: any): Promise<{ status: number; body: null }> => {
     eventProcessingService.handleRevocation(notification);
     return {
         status: 204,

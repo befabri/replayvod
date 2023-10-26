@@ -4,6 +4,7 @@ import { prisma } from "../../server";
 import { webhookService } from ".";
 import { channelService } from "../channel";
 import { twitchService } from "../twitch";
+import { WebhookEvent } from "@prisma/client";
 const logger = rootLogger.child({ domain: "webhook", service: "eventSubService" });
 
 export const subToAllChannelFollowed = async () => {
@@ -56,6 +57,8 @@ export const subscribeToStreamOffline = async (userId: string) => {
 };
 
 export const getEventSub = async (userId: string) => {
+    const FIVE_MINUTES = 5 * 60 * 1000;
+
     const fetchLog = await prisma.fetchLog.findFirst({
         where: {
             userId: userId,
@@ -65,13 +68,15 @@ export const getEventSub = async (userId: string) => {
             fetchedAt: "desc",
         },
     });
-    if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - 5 * 60 * 1000)) {
+
+    if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - FIVE_MINUTES)) {
         return prisma.eventSub.findMany({
             where: {
                 fetchId: fetchLog.fetchId,
             },
         });
     }
+
     const fetchId = uuidv4();
     const { subscriptions } = await twitchService.getEventSub();
 
@@ -91,23 +96,49 @@ export const getEventSub = async (userId: string) => {
         },
     });
 
-    for (const sub of subscriptions) {
-        const createdSubscription = await prisma.subscription.create({
-            data: {
-                id: sub.id,
-                status: sub.status,
-                subscriptionType: sub.subscriptionType,
-                broadcasterId: sub.broadcasterId,
-                createdAt: sub.createdAt,
-                cost: sub.cost,
-            },
-        });
-        await prisma.subscriptionEventSub.create({
-            data: {
-                eventSubId: createdEventSub.id,
-                subscriptionId: createdSubscription.id,
-            },
-        });
+    const processPromises = subscriptions.map(async (sub) => {
+        const broadcasterExists = await channelService.channelExists(sub.broadcasterId);
+        if (!broadcasterExists) {
+            logger.error(`Broadcaster with ID ${sub.broadcasterId} does not exist in the database.`);
+            await channelService.updateChannelDetail(sub.broadcasterId);
+        }
+
+        await prisma.$transaction([
+            prisma.subscription.upsert({
+                where: {
+                    broadcasterId_subscriptionType: {
+                        broadcasterId: sub.broadcasterId,
+                        subscriptionType: sub.subscriptionType,
+                    },
+                },
+                update: {
+                    status: sub.status,
+                    cost: sub.cost,
+                },
+                create: {
+                    id: sub.id,
+                    status: sub.status,
+                    subscriptionType: sub.subscriptionType,
+                    broadcasterId: sub.broadcasterId,
+                    createdAt: sub.createdAt,
+                    cost: sub.cost,
+                },
+            }),
+            prisma.subscriptionEventSub.create({
+                data: {
+                    eventSubId: createdEventSub.id,
+                    subscriptionId: sub.id,
+                },
+            }),
+        ]);
+    });
+
+    for (const promise of processPromises) {
+        try {
+            await promise;
+        } catch (error) {
+            logger.error(`Error processing subscription: %s`, error);
+        }
     }
 
     return { data: subscriptions, message: "EventSub subscriptions stored successfully." };
@@ -126,4 +157,19 @@ export const getTotalCost = async () => {
         },
         message: "Total cost retrieved successfully",
     };
+};
+
+export const addWebhookEvent = async (event: Omit<WebhookEvent, "id">) => {
+    try {
+        await prisma.webhookEvent.create({
+            data: {
+                broadcasterId: event.broadcasterId,
+                eventType: event.eventType,
+                startedAt: event.startedAt,
+                endAt: event.endAt,
+            },
+        });
+    } catch (error) {
+        throw error;
+    }
 };

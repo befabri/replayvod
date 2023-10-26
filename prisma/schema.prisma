@@ -47,7 +47,8 @@ model Subscription {
   cost             Int
   eventSubs        SubscriptionEventSub[]
   channel          Channel                @relation(fields: [broadcasterId], references: [broadcasterId])
-  event            Event[]
+
+  @@unique([broadcasterId, subscriptionType])
 }
 
 model SubscriptionEventSub {
@@ -57,19 +58,6 @@ model SubscriptionEventSub {
   subscription   Subscription @relation(fields: [subscriptionId], references: [id])
 
   @@id([eventSubId, subscriptionId])
-}
-
-/// Webhook recu -> xxx est entrain de streamer à 12h jusque 15h (début/fin)
-model Event {
-  id              Int          @id @default(autoincrement())
-  externalEventId String?
-  broadcasterId   String
-  eventType       String
-  startedAt       DateTime
-  endAt           DateTime?
-  subscriptionId  String
-  channel         Channel      @relation(fields: [broadcasterId], references: [broadcasterId])
-  subscription    Subscription @relation(fields: [subscriptionId], references: [id])
 }
 
 model User {
@@ -84,6 +72,7 @@ model User {
   fetchLog         FetchLog[]
   downloadSchedule DownloadSchedule[]
   VideoRequest     VideoRequest[]
+  Settings         Settings[]
 }
 
 model Channel {
@@ -103,9 +92,9 @@ model Channel {
   video            Video[]
   stream           Stream[]
   subscription     Subscription[]
-  event            Event[]
   downloadSchedule DownloadSchedule[]
   FetchLog         FetchLog[]
+  WebhookEvent     WebhookEvent[]
 }
 
 model UserFollowedChannels {
@@ -326,9 +315,20 @@ model DownloadSchedule {
   @@unique([broadcasterId, requestedBy])
 }
 
-// TODO: Add fk but there is a unknow bug currently
 model Settings {
   userId         String @id
   timeZone       String
   dateTimeFormat String
+  user           User   @relation(fields: [userId], references: [userId])
+}
+
+/// Webhook recu -> xxx est entrain de streamer à 12h jusque 15h (début/fin)
+model WebhookEvent {
+  id              Int       @id @default(autoincrement())
+  externalEventId String?
+  broadcasterId   String
+  eventType       String
+  startedAt       DateTime?
+  endAt           DateTime?
+  channel         Channel   @relation(fields: [broadcasterId], references: [broadcasterId])
 }

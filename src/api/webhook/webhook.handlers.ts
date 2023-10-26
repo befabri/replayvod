@@ -56,30 +56,28 @@ export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply
     }
 
     if (webhookService.verifyMessage(hmac, signature) === true) {
-        logger.info("[webhookEventLogger] signatures match");
         let notification: NotificationBody = req.body;
         let messageType = req.headers[MESSAGE_TYPE];
         let response;
-        logger.info("messageType");
         if (MESSAGE_TYPE_NOTIFICATION === messageType) {
             switch (notification.subscription.type) {
                 case SubscriptionType.CHANNEL_UPDATE:
-                    response = webhookService.handleChannelUpdate(notification);
+                    response = await webhookService.handleChannelUpdate(notification);
                     break;
                 case SubscriptionType.STREAM_ONLINE:
-                    response = webhookService.handleStreamOnline(notification);
+                    response = await webhookService.handleStreamOnline(notification);
                     break;
                 case SubscriptionType.STREAM_OFFLINE:
-                    response = webhookService.handleStreamOffline(notification);
+                    response = await webhookService.handleStreamOffline(notification);
                     break;
                 default:
-                    response = webhookService.handleNotification(notification);
+                    response = await webhookService.handleNotification(notification);
                     break;
             }
         } else if (MESSAGE_TYPE_VERIFICATION === messageType) {
-            response = webhookService.handleVerification(notification);
+            response = await webhookService.handleVerification(notification);
         } else if (MESSAGE_TYPE_REVOCATION === messageType) {
-            response = webhookService.handleRevocation(notification);
+            response = await webhookService.handleRevocation(notification);
         } else {
             reply.status(400).send();
             return;
@@ -94,3 +92,18 @@ export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply
         reply.status(403).send();
     }
 };
+
+// export const test = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
+//     const notification = {
+//         subscription: {
+//             type: "stream.offline",
+//         },
+//         event: {
+//             broadcaster_user_id: "24253306",
+//             broadcaster_user_login: "packam",
+//             broadcaster_user_name: "Packam",
+//         },
+//     };
+//     const response = await webhookService.handleStreamOffline(notification);
+//     console.log(response);
+// };

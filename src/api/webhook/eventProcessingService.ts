@@ -1,5 +1,7 @@
+import { eventSubService } from ".";
 import { logger as rootLogger } from "../../app";
 import { downloadSchedule } from "../download/download";
+import { transformWebhookEvent } from "./webhook.DTO";
 const logger = rootLogger.child({ domain: "webhook", service: "eventProcessingService" });
 
 export const logEvent = (eventType: string, event: any) => {
@@ -25,4 +27,18 @@ export const handleDownload = (event: any) => {
     downloadSchedule(broadcaster_id).catch((error) => {
         logger.error("Error in downloadSchedule:", error);
     });
+};
+
+export const handleWebhookEvent = async (eventType: string, event: any) => {
+    try {
+        const webhookEvent = transformWebhookEvent(eventType, event.broadcaster_user_id);
+        await eventSubService.addWebhookEvent(webhookEvent);
+    } catch (error) {
+        logger.error(
+            "Error in handleWebhookEvent with eventType: %s and broadcasterId: %s - %s",
+            eventType,
+            event.broadcaster_user_id,
+            error
+        );
+    }
 };
