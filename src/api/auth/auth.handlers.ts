@@ -1,7 +1,6 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
 import { logger as rootLogger } from "../../app";
-import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "auth", service: "authHandler" });
 import dotenv from "dotenv";
 import { userService } from "../user";
@@ -46,33 +45,12 @@ export async function handleTwitchCallback(
             twitchUserID: userData.id,
             twitchUserData: userData,
         });
-        const res = await saveAppAccessToken(token);
-        const resUser = await userService.updateUserDetail(userData);
+        await userService.updateUserDetail(userData);
         reply.redirect(REACT_URL);
     } catch (err) {
         reply.code(500).send({ error: "Failed to authenticate with Twitch." });
     }
 }
-
-export const saveAppAccessToken = async (accessToken) => {
-    logger.info("Saving access token...");
-    try {
-        const newToken = accessToken.access_token;
-        const tokenLifetime = accessToken.expires_in * 1000;
-        const currentTimestamp = new Date();
-        const expiresAt = new Date(currentTimestamp.getTime() + tokenLifetime);
-        await prisma.appAccessToken.create({
-            data: {
-                accessToken: newToken,
-                expiresAt: expiresAt,
-            },
-        });
-        return newToken;
-    } catch (error) {
-        logger.error("Error saving app access token: %s", error);
-        throw error;
-    }
-};
 
 export async function checkSession(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
@@ -111,7 +89,7 @@ export async function getUser(req: FastifyRequest, reply: FastifyReply): Promise
         const { accessToken, refreshToken, twitchUserData } = req.session.user;
         reply.send(twitchUserData);
     } else {
-        logger.error(`Unauthorized`);
+        logger.error(`User unauthorized`);
         reply.status(401).send({ error: "Unauthorized" });
     }
 }
