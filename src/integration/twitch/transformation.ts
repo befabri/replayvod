@@ -79,7 +79,7 @@ export const transformStream = async (
             const category = {
                 id: stream.game_id,
                 name: stream.game_name,
-                boxArtUrl: "",
+                boxArtUrl: `https://static-cdn.jtvnw.net/ttv-boxart/${stream.game_id}-{width}x{height}.jpg`,
                 igdbId: "",
             };
             categoryToReturn = await categoryService.addCategory(category);

@@ -1,5 +1,6 @@
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
+import { categoryService } from "../category";
 import { videoService } from "../video";
 import { eventSubService } from "../webhook";
 const logger = rootLogger.child({ domain: "task", service: "taskService" });
@@ -16,9 +17,11 @@ const taskRunners: { [taskType: string]: (taskMetadata?: any) => Promise<any> } 
     generateMissingThumbnail: (taskMetadata?: any) => videoService.generateMissingThumbnailsAndUpdate(),
     fixMalformedVideos: (taskMetadata?: any) => videoService.fixMalformedVideos(),
     subToAllStreamEventFollowed: (taskMetadata?: any) => eventSubService.subToAllChannelFollowed(),
+    updateMissingBoxArtUrls: (taskMetadata?: any) => categoryService.updateMissingBoxArtUrls(),
 };
 
 export const runTask = async (id: string) => {
+    logger.info("Running task...");
     const task = await prisma.task.findUnique({ where: { id: id } });
     if (!task) {
         logger.error({ taskId: id }, "Task not found");

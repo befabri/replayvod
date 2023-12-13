@@ -89,6 +89,7 @@ export const getVideosFromUser = async (userId: string, status?: Status) => {
                     category: {
                         select: {
                             name: true,
+                            boxArtUrl: true,
                         },
                     },
                 },
@@ -206,7 +207,9 @@ export const generateSingleThumbnail = async (videoPath: string, videoName: stri
 };
 
 export const generateMissingThumbnailsAndUpdate = async () => {
+    logger.info("Generate missing thumbnails...");
     // TODO verify the true duration before
+    // TODO verify if the thumbnail in video exist, if not generate it
     try {
         const videos = await prisma.video.findMany({
             where: { thumbnail: null, status: Status.DONE },
@@ -289,7 +292,9 @@ export const isVideoCorrupt = (metadata) => {
 };
 
 export const fixMalformedVideos = async () => {
-    const videos = await prisma.video.findMany();
+    const videos = await prisma.video.findMany({
+        where: { status: Status.DONE },
+    });
     for (const video of videos) {
         const videoPath = path.resolve(
             process.env.PUBLIC_DIR,

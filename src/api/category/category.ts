@@ -65,6 +65,16 @@ export const getCategoryByName = async (name: string) => {
     return prisma.category.findFirst({ where: { name: name } });
 };
 
+export const getAllVideosCategories = async () => {
+    return await prisma.category.findMany({
+        where: {
+            videoCategory: {
+                some: {},
+            },
+        },
+    });
+};
+
 export const addVideoCategory = async (videoId: number, categoryId: string) => {
     try {
         const existingEntry = await prisma.videoCategory.findUnique({
@@ -129,6 +139,26 @@ export const addDownloadScheduleCategory = async (downloadScheduleId: number, ca
         }
     } catch (error) {
         logger.error("Error adding/updating downloadScheduleCategory: %s", error);
+        throw error;
+    }
+};
+
+// TODO when is empty
+export const updateMissingBoxArtUrls = async () => {
+    try {
+        logger.info("updateing missing box");
+        const categoriesWithMissingBoxArt = await prisma.category.findMany();
+        logger.info(categoriesWithMissingBoxArt);
+        for (const category of categoriesWithMissingBoxArt) {
+            const boxArtUrl = `https://static-cdn.jtvnw.net/ttv-boxart/${category.id}-{width}x{height}.jpg`;
+            await prisma.category.update({
+                where: { id: category.id },
+                data: { boxArtUrl: boxArtUrl },
+            });
+        }
+        logger.info("Box Art URLs updated successfully");
+    } catch (error) {
+        logger.error("Error updating categories with box art URLs: %s", error);
         throw error;
     }
 };

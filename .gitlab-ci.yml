@@ -26,6 +26,7 @@ before_build:
         - ffmpeg -version
         - npm ci
         - npm install -g typescript
+        - npm install -g shx
         - npm run build
     artifacts:
         paths:

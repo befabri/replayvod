@@ -4,6 +4,10 @@ import { categoryHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.get("/", { preHandler: [isUserWhitelisted, userAuthenticated] }, categoryHandler.getCategories);
-
+    fastify.get(
+        "/videos",
+        { preHandler: [isUserWhitelisted, userAuthenticated] },
+        categoryHandler.getVideosCategories
+    );
     done();
 }
