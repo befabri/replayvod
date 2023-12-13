@@ -3,6 +3,7 @@ import { CompletedVideo } from "../../type";
 import { Pathnames } from "../../type/routes";
 import VideoInfoComponent from "./VideoInfo";
 import { formatDate, formatDuration } from "../../utils/utils";
+import { Link } from "react-router-dom";
 
 type VideoProps = {
     videos: CompletedVideo[] | undefined;
@@ -19,17 +20,17 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
             {videos?.map((video) => (
                 <div className="w-full" key={video.id} ref={divRef}>
                     <div className="relative">
-                        <a href={`${Pathnames.Watch}${video.id}`}>
+                        <Link to={`${Pathnames.Watch}${video.id}`}>
                             <img src={`${video.thumbnail}`} alt={`${video.displayName}`} />
                             <div className="absolute top-2 left-3 bg-black bg-opacity-50 text-stone-100">{`${formatDuration(
                                 video.duration
                             )}`}</div>
-                            <div className="absolute bottom-2 right-3 bg-black bg-opacity-50 text-stone-100">{`${formatDate(
+                            <div className="absolute bottom-2 right-3 bg-black bg-opacity-60 text-stone-100">{`${formatDate(
                                 video.downloadedAt,
                                 storedTimeZone,
                                 false
                             )}`}</div>
-                        </a>
+                        </Link>
                     </div>
                     <div className="flex justify-between">
                         <VideoInfoComponent video={video} disablePicture={disablePicture} />

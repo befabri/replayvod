@@ -9,7 +9,7 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
     const fields: (keyof Log)[] = ["filename", "lastWriteTime"];
 
     const formatTime = (dateString: string) => {
-        let date = new Date(dateString);
+        const date = new Date(dateString);
         return `${date.getHours().toString().padStart(2, "0")}:${date
             .getMinutes()
             .toString()
@@ -17,7 +17,7 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
     };
 
     const fetchAndShowLog = async (id: string) => {
-        let url = getApiRoute(ApiRoutes.GET_LOG_FILES_ID, "id", id);
+        const url = getApiRoute(ApiRoutes.GET_LOG_FILES_ID, "id", id);
         const response = await fetch(url, {
             credentials: "include",
         });

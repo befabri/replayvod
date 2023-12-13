@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableLogs from "../../components/Table/TableLogs";
-import { Log } from "../../type";
+import TableSchedule from "../../components/Table/TableSchedule";
+import { EventSub } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 
-const Logs: React.FC = () => {
+const ManagePage: React.FC = () => {
     const { t } = useTranslation();
-    const [logs, setLogs] = useState<Log[]>([]);
+    const [eventSubs, setEventSubs] = useState<EventSub[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
-            let url = getApiRoute(ApiRoutes.GET_LOG_FILES);
+            const url = getApiRoute(ApiRoutes.GET_TWITCH_EVENTSUB_SUBSCRIPTIONS);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -19,7 +19,7 @@ const Logs: React.FC = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            setLogs(data);
+            setEventSubs(data.data || []);
             setIsLoading(false);
         };
 
@@ -28,14 +28,15 @@ const Logs: React.FC = () => {
 
         return () => clearInterval(intervalId);
     }, []);
+
     return (
         <div className="p-4">
             <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Log Files")}</h1>
+                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("EventSub subscriptions")}</h1>
             </div>
-            {isLoading ? <div>{t("Loading")}</div> : <TableLogs items={logs} />}
+            {isLoading ? <div>{t("Loading")}</div> : <TableSchedule items={eventSubs} />}
         </div>
     );
 };
 
-export default Logs;
+export default ManagePage;

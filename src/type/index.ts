@@ -152,3 +152,15 @@ export const DateTimeFormats = [
     "2023.10.05 18:00:00",
     "18:00:00 05/10/2023",
 ];
+
+interface NavLinkItem {
+    href: string;
+    text: string;
+}
+
+export interface NavLinkBar {
+    href: string;
+    icon: string;
+    text: string;
+    items?: NavLinkItem[];
+}

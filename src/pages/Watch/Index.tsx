@@ -5,7 +5,7 @@ import { CompletedVideo } from "../../type";
 import VideoInfoComponent from "../../components/Media/VideoInfo";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 
-const Watch: React.FC = () => {
+const WatchPage: React.FC = () => {
     const { t } = useTranslation();
     const { id } = useParams();
 
@@ -67,4 +67,4 @@ const Watch: React.FC = () => {
     );
 };
 
-export default Watch;
+export default WatchPage;

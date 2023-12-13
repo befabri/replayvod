@@ -2,6 +2,7 @@ const ROOT_URL = import.meta.env.VITE_ROOTURL;
 
 export const Pathnames = {
     Home: "/" as const,
+    Login: "/login" as const,
     Settings: "/settings" as const,
     Schedule: {
         Add: "/schedule/add" as const,
@@ -12,8 +13,13 @@ export const Pathnames = {
         Queue: "/activity/queue" as const,
         History: "/activity/history" as const,
     },
-    Vod: "/vod" as const,
-    Channel: "/channel/" as const,
+    Video: {
+        Video: "/videos" as const,
+        Category: "/videos/category" as const,
+        CategoryDetail: "/videos/category/:id" as const,
+        Channel: "/videos/channel" as const,
+        ChannelDetail: "/videos/channel/:id" as const,
+    },
     System: {
         Status: "/system/status" as const,
         Tasks: "/system/tasks" as const,
@@ -21,6 +27,7 @@ export const Pathnames = {
         Logs: "/system/logs" as const,
     },
     Watch: "/watch/" as const,
+    WatchDetail: "/watch/:id" as const,
 };
 
 export const getApiRoute = (route: string, placeholder?: string, value?: string | number) => {
@@ -52,6 +59,7 @@ export enum ApiRoutes {
     GET_VIDEO_ID = "/api/video/:id",
     GET_VIDEO_ALL = "/api/video/all",
     GET_VIDEO_FINISHED = "/api/video/finished",
+    GET_VIDEO_CATEGORY_ALL = "/api/category/videos",
     GET_VIDEO_CHANNEL_BROADCASTERLOGIN = "/api/video/channel/:broadcasterLogin",
     GET_VIDEO_UPDATE_MISSING = "/api/video/update/missing",
     GET_VIDEO_THUMBNAIL_ID = "/api/video/thumbnail/:id",

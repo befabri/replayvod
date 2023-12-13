@@ -11,7 +11,8 @@ import { Category, Channel, Quality } from "../../type";
 import Checkbox from "../../components/Form/CheckBox";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 import Button from "../../components/Form/Button";
-const AddChannel: React.FC = () => {
+
+const AddChannelPage: React.FC = () => {
     const { t } = useTranslation();
     const [categories, setCategories] = useState<Category[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -55,7 +56,7 @@ const AddChannel: React.FC = () => {
 
     const postData = async (data: ScheduleForm) => {
         try {
-            let url = getApiRoute(ApiRoutes.POST_DOWNLOAD_SCHEDULE);
+            const url = getApiRoute(ApiRoutes.POST_DOWNLOAD_SCHEDULE);
             const response = await fetch(url, {
                 method: "POST",
                 credentials: "include",
@@ -77,7 +78,7 @@ const AddChannel: React.FC = () => {
 
     const checkChannelNameValidity = async (channelName: string) => {
         try {
-            let url = getApiRoute(ApiRoutes.GET_CHANNEL_NAME_NAME, "name", channelName);
+            const url = getApiRoute(ApiRoutes.GET_CHANNEL_NAME_NAME, "name", channelName);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -291,4 +292,4 @@ const AddChannel: React.FC = () => {
     );
 };
 
-export default AddChannel;
+export default AddChannelPage;

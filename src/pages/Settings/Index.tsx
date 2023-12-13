@@ -48,7 +48,7 @@ const SettingsPage: React.FC = () => {
 
     const postData = async (data: SettingsForm) => {
         try {
-            let url = getApiRoute(ApiRoutes.POST_SETTINGS);
+            const url = getApiRoute(ApiRoutes.POST_SETTINGS);
             const response = await fetch(url, {
                 method: "POST",
                 credentials: "include",
@@ -86,6 +86,10 @@ const SettingsPage: React.FC = () => {
     const onSubmit: SubmitHandler<SettingsForm> = async (data) => {
         postData(data);
     };
+
+    if (isLoading) {
+        return <div>{t("Loading")}</div>;
+    }
 
     return (
         <div className="p-4">

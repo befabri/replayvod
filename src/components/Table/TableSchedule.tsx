@@ -24,8 +24,8 @@ const TableSchedule = ({ items: initialItems }: any) => {
 
     const sortData = (data: EventSub[], field: keyof EventSub, direction: "asc" | "desc") => {
         const sortedData = [...data].sort((a, b) => {
-            let aField = a[field];
-            let bField = b[field];
+            const aField = a[field];
+            const bField = b[field];
 
             if (aField === undefined || bField === undefined) return 0;
 

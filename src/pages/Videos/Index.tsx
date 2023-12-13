@@ -6,7 +6,7 @@ import Table from "../../components/Table/Tables";
 import VideoComponent from "../../components/Media/Video";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 
-const Vod: React.FC = () => {
+const VideosPage: React.FC = () => {
     const { t } = useTranslation();
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -117,4 +117,4 @@ const Vod: React.FC = () => {
     );
 };
 
-export default Vod;
+export default VideosPage;

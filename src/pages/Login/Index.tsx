@@ -2,9 +2,9 @@ import React from "react";
 import { useAuth } from "../../context/Auth/Auth";
 import { useTranslation } from "react-i18next";
 
-const Landing: React.FC = () => {
+const LoginPage: React.FC = () => {
     const { t } = useTranslation();
-    let auth = useAuth();
+    const auth = useAuth();
     const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         auth.signIn();
@@ -25,4 +25,4 @@ const Landing: React.FC = () => {
     );
 };
 
-export default Landing;
+export default LoginPage;

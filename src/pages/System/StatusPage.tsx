@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { EventSubCost } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 
-const Tasks: React.FC = () => {
+const StatusPage: React.FC = () => {
     const { t } = useTranslation();
     const [status, setStatus] = useState<EventSubCost | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -27,6 +27,7 @@ const Tasks: React.FC = () => {
 
         return () => clearInterval(intervalId);
     }, []);
+    
     return (
         <div className="p-4">
             <div className="p-4 mt-14">
@@ -48,4 +49,4 @@ const Tasks: React.FC = () => {
     );
 };
 
-export default Tasks;
+export default StatusPage;

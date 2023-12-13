@@ -5,6 +5,7 @@ import { Video, TableProps } from "../../type";
 import { useTranslation } from "react-i18next";
 import { capitalizeFirstLetter, toKebabCase, formatDate, truncateString } from "../../utils/utils";
 import { Pathnames } from "../../type/routes";
+import { Link } from "react-router-dom";
 
 type ExtendedTableProps = {
     showEdit?: boolean;
@@ -168,12 +169,11 @@ const Table = ({
                                 {video.status !== "DONE" ? (
                                     truncateString(video.titles[0].title.name, 40)
                                 ) : (
-                                    <a href={`${Pathnames.Watch}${video.id}`}>
+                                    <Link to={`${Pathnames.Watch}${video.id}`}>
                                         {truncateString(video.titles[0].title.name, 40)}
-                                    </a>
+                                    </Link>
                                 )}
                             </td>
-
                             <td className="px-6 py-4" title={video.filename}>
                                 {video.filename}
                             </td>
@@ -183,23 +183,22 @@ const Table = ({
                                 </td>
                             )}
                             <td className="px-6 py-4" title={video.displayName}>
-                                <a href={`${Pathnames.Channel}${video?.displayName.toLowerCase()}`}>
+                                <Link to={`${Pathnames.Video.Channel}${video?.displayName.toLowerCase()}`}>
                                     {video.displayName}
-                                </a>
+                                </Link>
                             </td>
                             <td className="px-6 py-4" title={formatDate(video.startDownloadAt, storedTimeZone)}>
                                 {formatDate(video.startDownloadAt, storedTimeZone)}
                             </td>
                             <td className="px-6 py-4" title={video.videoCategory[0].category.name}>
                                 {video.videoCategory.map((cat) => (
-                                    <a
-                                        key={cat.categoryId}
-                                        href={`${Pathnames.Vod}/${toKebabCase(cat.category.name)}`}>
+                                    <Link
+                                        to={`${Pathnames.Video.Category}/${toKebabCase(cat.category.name)}`}
+                                        key={cat.categoryId}>
                                         <span key={cat.categoryId}>{cat.category.name}</span>
-                                    </a>
+                                    </Link>
                                 ))}
                             </td>
-
                             {showEdit && (
                                 <td className="px-6 py-4">
                                     <a

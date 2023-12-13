@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import TableSchedule from "../../components/Table/TableSchedule";
-import { EventSub } from "../../type";
+import TableEvents from "../../components/Table/TableEvents";
+import { EventLog } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 
-const Manage: React.FC = () => {
+const EventsPage: React.FC = () => {
     const { t } = useTranslation();
-    const [eventSubs, setEventSubs] = useState<EventSub[]>([]);
+    const [logs, setLogs] = useState<EventLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
-            let url = getApiRoute(ApiRoutes.GET_TWITCH_EVENTSUB_SUBSCRIPTIONS);
+            let url = getApiRoute(ApiRoutes.GET_LOG_DOMAINS);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -19,7 +19,7 @@ const Manage: React.FC = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            setEventSubs(data.data || []);
+            setLogs(data);
             setIsLoading(false);
         };
 
@@ -31,11 +31,11 @@ const Manage: React.FC = () => {
     return (
         <div className="p-4">
             <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("EventSub subscriptions")}</h1>
+                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Log Files")}</h1>
             </div>
-            {isLoading ? <div>{t("Loading")}</div> : <TableSchedule items={eventSubs} />}
+            {isLoading ? <div>{t("Loading")}</div> : <TableEvents items={logs} />}
         </div>
     );
 };
 
-export default Manage;
+export default EventsPage;

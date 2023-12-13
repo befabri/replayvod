@@ -9,7 +9,7 @@ const TableEvents: React.FC<{ items: EventLog[] }> = ({ items }) => {
     const fields: (keyof EventLog)[] = ["domain"];
 
     const fetchAndShowLog = async (id: string) => {
-        let url = getApiRoute(ApiRoutes.GET_LOG_DOMAINS_ID, "id", id);
+        const url = getApiRoute(ApiRoutes.GET_LOG_DOMAINS_ID, "id", id);
         const response = await fetch(url, {
             credentials: "include",
         });

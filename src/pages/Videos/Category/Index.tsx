@@ -1,17 +1,17 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
+import { Category } from "../../../type";
+import { ApiRoutes, getApiRoute } from "../../../type/routes";
+import CategoryComponent from "../../../components/Media/Category";
 import { useTranslation } from "react-i18next";
-import TableTasks from "../../components/Table/TableTasks";
-import { Task } from "../../type";
-import { ApiRoutes, getApiRoute } from "../../type/routes";
 
-const Tasks: React.FC = () => {
+const CategoryPage: React.FC = () => {
     const { t } = useTranslation();
-    const [tasks, setTasks] = useState<Task[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
-            let url = getApiRoute(ApiRoutes.GET_TASK);
+            const url = getApiRoute(ApiRoutes.GET_VIDEO_CATEGORY_ALL);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -19,7 +19,7 @@ const Tasks: React.FC = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            setTasks(data);
+            setCategories(data);
             setIsLoading(false);
         };
 
@@ -28,14 +28,15 @@ const Tasks: React.FC = () => {
 
         return () => clearInterval(intervalId);
     }, []);
+
     return (
-        <div className="p-4">
+        <div className="p-4 ">
             <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Tasks Scheduled")}</h1>
+                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Categories")}</h1>
             </div>
-            {isLoading ? <div>{t("Loading")}</div> : <TableTasks items={tasks} />}
+            {isLoading ? <div>{t("Loading")}</div> : <CategoryComponent categories={categories} />}
         </div>
     );
 };
 
-export default Tasks;
+export default CategoryPage;

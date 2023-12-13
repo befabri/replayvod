@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Channel, Stream } from "../../type";
-import { ApiRoutes, Pathnames, getApiRoute } from "../../type/routes";
-import DropdownButton from "../../components/UI/Button/ButtonDropdown";
+import { ApiRoutes, Pathnames, getApiRoute } from "../../../type/routes";
+import { Link } from "react-router-dom";
+import { Channel, Stream } from "../../../type";
+import DropdownButton from "../../../components/UI/Button/ButtonDropdown";
 
-const Follows: React.FC = () => {
+const ChannelPage: React.FC = () => {
     const { t } = useTranslation();
     const [channels, setChannels] = useState<Channel[]>([]);
     const [streams, setStreams] = useState<Stream[]>([]);
@@ -65,7 +66,7 @@ const Follows: React.FC = () => {
     return (
         <div className="p-4">
             <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Followed Channels")}</h1>
+                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Channels")}</h1>
                 <div className="flex mb-4 items-center justify-end space-x-5">
                     <div className="space-x-2">
                         <DropdownButton
@@ -82,11 +83,11 @@ const Follows: React.FC = () => {
                         );
 
                         return (
-                            <a
+                            <Link
+                                to={`${Pathnames.Video.Channel}/${channel.broadcasterLogin}`}
                                 className={`bg-zinc-100 dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 ${
                                     isLive ? "relative" : ""
                                 }`}
-                                href={`${Pathnames.Channel}${channel.broadcasterLogin}`}
                                 key={channel.broadcasterId}>
                                 <div className="flex">
                                     <img
@@ -101,7 +102,7 @@ const Follows: React.FC = () => {
                                         <div className="m-auto ml-0 w-4 h-4 bg-red-500 rounded-full align-center"></div>
                                     )}
                                 </div>
-                            </a>
+                            </Link>
                         );
                     })}
                 </div>
@@ -109,4 +110,4 @@ const Follows: React.FC = () => {
         </div>
     );
 };
-export default Follows;
+export default ChannelPage;

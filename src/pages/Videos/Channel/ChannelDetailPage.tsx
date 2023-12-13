@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { CompletedVideo } from "../../type";
-import VideoComponent from "../../components/Media/Video";
-import { ApiRoutes, getApiRoute } from "../../type/routes";
-import Button from "../../components/UI/Button/Button";
+import { CompletedVideo } from "../../../type";
+import VideoComponent from "../../../components/Media/Video";
+import { ApiRoutes, getApiRoute } from "../../../type/routes";
+import Button from "../../../components/UI/Button/Button";
 
-const Channel: React.FC = () => {
+const ChannelDetailPage: React.FC = () => {
     const { t } = useTranslation();
     let { id } = useParams();
 
@@ -107,4 +107,4 @@ const Channel: React.FC = () => {
     );
 };
 
-export default Channel;
+export default ChannelDetailPage;

@@ -4,10 +4,20 @@ export default {
     darkMode: "class",
     theme: {
         extend: {
+            colors: {
+                custom_green: "#AAA95A",
+                custom_violet: "#2F195F",
+                custom_black: "#0E0D19",
+                custom_blue: "#151425",
+                custom_lightblue: "#1C1A31",
+                custom_lime: "#CEFF1A",
+                custom_cream: "#F1DAC4",
+                custom_twitch: "#8390FA",
+                custom_yellow: "#FAC748",
+            },
             typography: (theme) => ({
                 DEFAULT: {
                     css: {
-                        // ...
                         ".truncate-multiline": {
                             display: "-webkit-box",
                             "-webkit-line-clamp": "2",

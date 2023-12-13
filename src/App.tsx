@@ -2,22 +2,25 @@ import { Routes, Route, useLocation, Navigate, Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/Auth/Auth";
 import Navbar from "./components/Layout/Navbar";
 import Sidebar from "./components/Layout/Sidebar";
-import Vod from "./pages/Vod/Vod";
-import Settings from "./pages/Settings/Settings";
-import Following from "./pages/Record/Following";
-import AddChannel from "./pages/Record/AddChannel";
-import Login from "./pages/Login/Login";
-import ChannelPage from "./pages/Channel/Channel";
-import Manage from "./pages/Record/Manage";
-import HistoryPage from "./pages/Activity/History";
-import Queue from "./pages/Activity/Queue";
-import Tasks from "./pages/System/Tasks";
-import Status from "./pages/System/Status";
-import Logs from "./pages/System/Logs";
-import Events from "./pages/System/Events";
-import Watch from "./pages/Watch/Watch";
-import VodCategory from "./pages/Vod/VodCategory";
 import { DarkModeProvider } from "./context/Themes/DarkModeContext";
+import { Pathnames } from "./type/routes";
+import VideosPage from "./pages/Videos/Index";
+import SettingsPage from "./pages/Settings/Index";
+import AddChannelPage from "./pages/Record/AddChannelPage";
+import ManagePage from "./pages/Record/ManagePage";
+import FollowsPage from "./pages/Record/FollowingPage";
+import HistoryPage from "./pages/Activity/HistoryPage";
+import CategoryPage from "./pages/Videos/Category/Index";
+import CategoryDetailPage from "./pages/Videos/Category/CategoryDetailPage";
+import ChannelDetailPage from "./pages/Videos/Channel/ChannelDetailPage";
+import ChannelPage from "./pages/Videos/Channel/Index";
+import StatusPage from "./pages/System/StatusPage";
+import TasksPage from "./pages/System/TasksPage";
+import EventsPage from "./pages/System/EventsPage";
+import LogsPage from "./pages/System/LogsPage";
+import WatchPage from "./pages/Watch/Index";
+import LoginPage from "./pages/Login/Index";
+import QueuePage from "./pages/Activity/QueuePage";
 
 export default function App() {
     return (
@@ -25,23 +28,25 @@ export default function App() {
             <AuthProvider>
                 <AuthStatus />
                 <Routes>
-                    <Route path="/login" element={<Login />} />
+                    <Route path={Pathnames.Login} element={<LoginPage />} />
                     <Route element={<RequireAuth />}>
-                        <Route path="/" element={<Vod />} />
-                        <Route path="/settings" element={<Settings />} />
-                        <Route path="/schedule/add" element={<AddChannel />} />
-                        <Route path="/schedule/manage" element={<Manage />} />
-                        <Route path="/schedule/following" element={<Following />} />
-                        <Route path="/activity/queue" element={<Queue />} />
-                        <Route path="/activity/history" element={<HistoryPage />} />
-                        <Route path="/vod" element={<Vod />} />
-                        <Route path="/vod/:id" element={<VodCategory />} />
-                        <Route path="/channel/:id" element={<ChannelPage />} />
-                        <Route path="/system/status" element={<Status />} />
-                        <Route path="/system/tasks" element={<Tasks />} />
-                        <Route path="/system/events" element={<Events />} />
-                        <Route path="/system/logs" element={<Logs />} />
-                        <Route path="/watch/:id" element={<Watch />} />
+                        <Route path={Pathnames.Home} element={<VideosPage />} />
+                        <Route path={Pathnames.Settings} element={<SettingsPage />} />
+                        <Route path={Pathnames.Schedule.Add} element={<AddChannelPage />} />
+                        <Route path={Pathnames.Schedule.Manage} element={<ManagePage />} />
+                        <Route path={Pathnames.Schedule.Following} element={<FollowsPage />} />
+                        <Route path={Pathnames.Activity.Queue} element={<QueuePage />} />
+                        <Route path={Pathnames.Activity.History} element={<HistoryPage />} />
+                        <Route path={Pathnames.Video.Video} element={<VideosPage />} />
+                        <Route path={Pathnames.Video.Category} element={<CategoryPage />} />
+                        <Route path={Pathnames.Video.CategoryDetail} element={<CategoryDetailPage />} />
+                        <Route path={Pathnames.Video.Channel} element={<ChannelPage />} />
+                        <Route path={Pathnames.Video.ChannelDetail} element={<ChannelDetailPage />} />
+                        <Route path={Pathnames.System.Status} element={<StatusPage />} />
+                        <Route path={Pathnames.System.Tasks} element={<TasksPage />} />
+                        <Route path={Pathnames.System.Events} element={<EventsPage />} />
+                        <Route path={Pathnames.System.Logs} element={<LogsPage />} />
+                        <Route path={Pathnames.WatchDetail} element={<WatchPage />} />
                     </Route>
                 </Routes>
             </AuthProvider>
@@ -50,7 +55,7 @@ export default function App() {
 }
 
 function AuthStatus() {
-    let auth = useAuth();
+    const auth = useAuth();
 
     if (!auth.user) {
         return null;
@@ -73,8 +78,8 @@ function handleSidebarClose(): void {
 }
 
 function RequireAuth() {
-    let auth = useAuth();
-    let location = useLocation();
+    const auth = useAuth();
+    const location = useLocation();
 
     if (auth.isLoading) {
         return (

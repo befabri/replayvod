@@ -4,14 +4,14 @@ import Table from "../../components/Table/Tables";
 import { Video } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 
-const Queue: React.FC = () => {
+const QueuePage: React.FC = () => {
     const { t } = useTranslation();
     const [videos, setVideos] = useState<Video[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
-            let url = getApiRoute(ApiRoutes.GET_VIDEO_ALL);
+            const url = getApiRoute(ApiRoutes.GET_VIDEO_ALL);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -37,7 +37,6 @@ const Queue: React.FC = () => {
 
         fetchData();
         const intervalId = setInterval(fetchData, 10000);
-
         return () => clearInterval(intervalId);
     }, []);
 
@@ -55,4 +54,4 @@ const Queue: React.FC = () => {
     );
 };
 
-export default Queue;
+export default QueuePage;
