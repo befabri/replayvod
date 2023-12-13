@@ -11,7 +11,7 @@ const LogsPage: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            let url = getApiRoute(ApiRoutes.GET_LOG_FILES);
+            const url = getApiRoute(ApiRoutes.GET_LOG_FILES);
             const response = await fetch(url, {
                 credentials: "include",
             });

@@ -31,7 +31,7 @@ export const formatDate = (dateString: Date, timeZone: string, includeTime = tru
         options.second = "2-digit";
     }
 
-    let date = new Intl.DateTimeFormat("en-GB", options).format(new Date(dateString));
+    const date = new Intl.DateTimeFormat("en-GB", options).format(new Date(dateString));
     return date.replace(/\//g, "-").replace(",", "");
 };
 

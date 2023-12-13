@@ -8,7 +8,7 @@ import Button from "../../../components/UI/Button/Button";
 
 const ChannelDetailPage: React.FC = () => {
     const { t } = useTranslation();
-    let { id } = useParams();
+    const { id } = useParams();
 
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [isFetching, setIsFetching] = useState<boolean>(false);
@@ -23,7 +23,7 @@ const ChannelDetailPage: React.FC = () => {
             }
             setIsFetching(true);
             // setButtonText("En cours");
-            let url = getApiRoute(ApiRoutes.GET_DOWNLOAD_STREAM_ID, "id", videos[0].channel.broadcasterId);
+            const url = getApiRoute(ApiRoutes.GET_DOWNLOAD_STREAM_ID, "id", videos[0].channel.broadcasterId);
             try {
                 const response = await fetch(url, { credentials: "include" });
                 await response.json();

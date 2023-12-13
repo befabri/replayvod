@@ -29,7 +29,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     async function checkSession() {
         setIsLoading(true);
         try {
-            let url = getApiRoute(ApiRoutes.GET_AUTH_CHECK_SESSION);
+            const url = getApiRoute(ApiRoutes.GET_AUTH_CHECK_SESSION);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -51,7 +51,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     async function refreshToken() {
         try {
-            let url = getApiRoute(ApiRoutes.GET_AUTH_REFRESH);
+            const url = getApiRoute(ApiRoutes.GET_AUTH_REFRESH);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -80,7 +80,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const signOut = async () => {
         try {
-            let url = getApiRoute(ApiRoutes.POST_AUTH_SIGNOUT);
+            const url = getApiRoute(ApiRoutes.POST_AUTH_SIGNOUT);
             await fetch(url, {
                 method: "POST",
                 credentials: "include",

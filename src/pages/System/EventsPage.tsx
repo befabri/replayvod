@@ -11,7 +11,7 @@ const EventsPage: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            let url = getApiRoute(ApiRoutes.GET_LOG_DOMAINS);
+            const url = getApiRoute(ApiRoutes.GET_LOG_DOMAINS);
             const response = await fetch(url, {
                 credentials: "include",
             });

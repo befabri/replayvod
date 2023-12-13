@@ -5,7 +5,9 @@ const DarkModeContext = createContext<{
     toggleDarkMode: () => void;
 }>({
     isDarkMode: false,
-    toggleDarkMode: () => {},
+    toggleDarkMode: () => {
+        throw new Error("toggleDarkMode function cannot be used outside of a DarkModeProvider");
+    },
 });
 
 export const DarkModeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

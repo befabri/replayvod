@@ -10,7 +10,7 @@ const StatusPage: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            let url = getApiRoute(ApiRoutes.GET_TWITCH_EVENTSUB_COSTS);
+            const url = getApiRoute(ApiRoutes.GET_TWITCH_EVENTSUB_COSTS);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -27,7 +27,7 @@ const StatusPage: React.FC = () => {
 
         return () => clearInterval(intervalId);
     }, []);
-    
+
     return (
         <div className="p-4">
             <div className="p-4 mt-14">
