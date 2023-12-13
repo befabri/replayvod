@@ -27,6 +27,7 @@ before_build:
         - npm ci
         - npm install -g typescript
         - npm install -g shx
+        - npm i
         - npm run build
     artifacts:
         paths:
