@@ -1,4 +1,3 @@
-import dotenv from "dotenv";
 import path from "path";
 import cors from "@fastify/cors";
 import server, { logger } from "./app";
@@ -13,22 +12,20 @@ import { videoService } from "./api/video";
 const oauthPlugin = require("@fastify/oauth2");
 const fs = require("fs");
 
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
-
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
 const REACT_URL = process.env.REACT_URL;
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_SECRET = process.env.TWITCH_SECRET;
 const CALLBACK_URL = process.env.CALLBACK_URL;
+const ENVIRONMENT = process.env.NODE_ENV;
 moment.tz.setDefault("Europe/Paris");
 
-logger.info("Launching Fastify in %s environment", process.env.NODE_ENV);
-
+logger.info("Launching Fastify in %s environment", ENVIRONMENT);
 export const prisma = new PrismaClient();
 
 let ROOT_DIR = "";
-if (process.env.NODE_ENV === "production") {
+if (ENVIRONMENT === "production") {
     ROOT_DIR = __dirname;
 } else {
     ROOT_DIR = path.join(__dirname, "..");

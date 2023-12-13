@@ -2,10 +2,8 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
 import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "auth", service: "authHandler" });
-import dotenv from "dotenv";
 import { userService } from "../user";
 
-dotenv.config();
 const REACT_URL = process.env.REACT_URL || "/";
 const WHITELISTED_USER_IDS: string[] = process.env.WHITELISTED_USER_IDS?.split(",") || [];
 const IS_WHITELIST_ENABLED: boolean = process.env.IS_WHITELIST_ENABLED?.toLowerCase() === "true";

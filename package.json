@@ -1,5 +1,5 @@
 {
-  "name": "twitch-replay-backend",
+  "name": "replay-vod-backend",
   "version": "1.0.0",
   "description": "",
   "keywords": [],
@@ -8,10 +8,10 @@
   "scripts": {
     "prod": "node src/server.js",
     "start": "ts-node src/server.ts",
-    "dev": "tsx watch src/server.ts | pino-pretty --colorize",
-    "devprebuild": "shx rm -rf dist || rmdir /s /q dist",
+    "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-pretty --colorize\"",
+    "prebuild": "shx rm -rf dist || rmdir /s /q dist",
     "build": "tsc -p tsconfig.json",
-    "preview": "node dist/server.js",
+    "preview": "node --env-file=.env dist/server.js",
     "db:gen": "npm run prisma generate",
     "db:studio": "npm run prisma studio",
     "db:migrate": "npm run prisma migrate dev",
@@ -28,7 +28,6 @@
     "@fastify/static": "^6.11.2",
     "@prisma/client": "^5.3.0",
     "axios": "^1.4.0",
-    "dotenv": "^16.3.1",
     "fastify": "^4.20.0",
     "fluent-ffmpeg": "^2.1.2",
     "moment-timezone": "^0.5.43",
@@ -42,9 +41,10 @@
     "prisma": "^5.3.0",
     "shx": "^0.3.4",
     "ts-node": "^10.9.1",
+    "tsup": "^8.0.1",
     "typescript": "^5.2.2"
   },
   "engines": {
-    "node": "20.7.0"
+    "node": "21.3.0"
   }
 }

@@ -1,10 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import dotenv from "dotenv";
 import { logger as rootLogger } from "../app";
 import { userService } from "../api/user";
 const logger = rootLogger.child({ domain: "auth", service: "authMiddleware" });
-
-dotenv.config();
 
 const WHITELISTED_USER_IDS: string[] = process.env.WHITELISTED_USER_IDS?.split(",") || [];
 const IS_WHITELIST_ENABLED: boolean = process.env.IS_WHITELIST_ENABLED?.toLowerCase() === "true";

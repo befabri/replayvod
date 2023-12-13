@@ -35,3 +35,4 @@ logs
 .log
 docker-compose.yaml
 md/
+docker

@@ -5,8 +5,6 @@ import { Stream, User, FollowedChannel, EventSubResponse, EventSubData } from ".
 import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchApi" });
 
-import dotenv from "dotenv";
-dotenv.config();
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 
 class TwitchAPI {

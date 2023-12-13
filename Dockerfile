@@ -1,4 +1,4 @@
-FROM node:20.7.0-alpine as base
+FROM node:21.3.0-alpine as base
 
 ENV NODE_ENV=production \
     PORT=8080 \

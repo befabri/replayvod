@@ -1,8 +1,6 @@
 import fastify from "fastify";
 import path from "path";
-import dotenv from "dotenv";
-
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
+import moment from "moment-timezone";
 
 let app;
 let ROOT_DIR;
@@ -17,14 +15,14 @@ if (process.env.NODE_ENV === "dev") {
     app = fastify({
         logger: {
             level: "info",
-            timestamp: () => `,"time":"${new Date().toISOString()}"`,
+            timestamp: () => `,"time":"${moment().tz("Europe/Paris").format()}"`,
         },
     });
 } else if (process.env.NODE_ENV === "production") {
     app = fastify({
         logger: {
             level: "info",
-            timestamp: () => `,"time":"${new Date().toISOString()}"`,
+            timestamp: () => `,"time":"${moment().tz("Europe/Paris").format()}"`,
             transport: {
                 target: "pino/file",
                 options: {
