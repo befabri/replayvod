@@ -10,6 +10,10 @@ interface SettingsRequestBody extends RouteGenericInterface {
 }
 export const getSettings = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userService.getUserIdFromSession(req);
+    if (!userId) {
+        reply.status(401).send("Unauthorized");
+        return;
+    }
     try {
         const settings = await settingsService.getSettings(userId);
         reply.send(settings);

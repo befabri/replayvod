@@ -9,6 +9,10 @@ const logger = rootLogger.child({ domain: "twitch", service: "twitchHandler" });
 export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
         const categories = await twitchService.getAllGames();
+        if (!categories || categories == undefined) {
+            reply.status(500).send("Error getting all games");
+            return;
+        }
         await categoryService.addAllCategories(categories);
         reply.send({ message: "Games fetched and saved successfully." });
     } catch (err) {
@@ -19,8 +23,8 @@ export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply
 
 export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userService.getUserIdFromSession(req);
-    if (!userId || userId == undefined) {
-        reply.status(500).send("Error no user authenticated");
+    if (!userId) {
+        reply.status(401).send("Unauthorized");
         return;
     }
     try {

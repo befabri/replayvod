@@ -39,7 +39,7 @@ export const createJob = async (id: string, func: () => Promise<void>) => {
         });
 };
 
-export const createNewJob = async (id: string, status) => {
+export const createNewJob = async (id: string, status: Status) => {
     try {
         const job = await prisma.job.create({
             data: {

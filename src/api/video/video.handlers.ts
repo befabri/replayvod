@@ -112,7 +112,7 @@ export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply
 
 export const getChannelVideos = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const loginName = req.params.broadcasterLogin;
-    if (loginName === "undefined") {
+    if (!loginName || loginName === "undefined") {
         reply.status(400).send({ message: "Invalid broadcaster login" });
         return;
     }

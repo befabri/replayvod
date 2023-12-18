@@ -2,7 +2,6 @@ import { FallbackResolutions, Resolution, VideoQuality } from "../../models/down
 import { jobService, tagService } from "../../services";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
-const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 import path from "path";
 import { DownloadSchedule, Status } from "@prisma/client";
 import { DownloadParams, JobDetail } from "../../types/sharedTypes";
@@ -10,23 +9,26 @@ import { transformDownloadSchedule } from "./download.DTO";
 import { categoryService } from "../category";
 import { channelService } from "../channel";
 import { videoService } from "../video";
-const os = require("os");
-const { create: createYoutubeDl } = require("youtube-dl-exec");
-const { spawn } = require("child_process");
+import { spawn } from "child_process";
+import { platform } from "os";
 import fs from "fs/promises";
+import { YtdlExecFunction, create as createYoutubeDl } from "youtube-dl-exec";
+const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
-let youtubedl;
+let youtubedl: {
+    exec: YtdlExecFunction;
+};
 
-if (os.platform() === "win32") {
+if (platform() === "win32") {
     youtubedl = createYoutubeDl("bin/yt.exe");
-} else if (os.platform() === "linux") {
+} else if (platform() === "linux") {
     youtubedl = createYoutubeDl("bin/yt-dlp");
 }
 
 const getYoutubeDlBinary = () => {
-    if (os.platform() === "win32") {
+    if (platform() === "win32") {
         return "bin/yt.exe";
-    } else if (os.platform() === "linux") {
+    } else if (platform() === "linux") {
         return "bin/yt-dlp";
     } else {
         throw new Error("Unsupported OS platform.");
@@ -39,7 +41,7 @@ export const planningRecord = async (userId: string) => {
     return "Successful registration planning";
 };
 
-export const getAllTagsFromStream = async (streamId) => {
+export const getAllTagsFromStream = async (streamId: string) => {
     const streamTags = await prisma.streamTag.findMany({
         where: {
             streamId: streamId,
@@ -52,7 +54,7 @@ export const getAllTagsFromStream = async (streamId) => {
     return streamTags.map((st) => st.tag.name);
 };
 
-export const getAllCategoriesFromStream = async (streamId) => {
+export const getAllCategoriesFromStream = async (streamId: string) => {
     const streamCategories = await prisma.streamCategory.findMany({
         where: {
             streamId: streamId,
@@ -65,7 +67,7 @@ export const getAllCategoriesFromStream = async (streamId) => {
     return streamCategories.map((sc) => sc.category.name);
 };
 
-export const getAllTitlesFromStream = async (streamId) => {
+export const getAllTitlesFromStream = async (streamId: string) => {
     const streamTitles = await prisma.streamTitle.findMany({
         where: {
             streamId: streamId,

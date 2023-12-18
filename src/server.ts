@@ -1,6 +1,6 @@
 import path from "path";
 import cors from "@fastify/cors";
-import server, { logger } from "./app";
+import app, { logger } from "./app";
 import { Prisma, PrismaClient } from "@prisma/client";
 import fastifySecureSession from "@fastify/secure-session";
 import fastifyCookie from "@fastify/cookie";
@@ -19,6 +19,7 @@ const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_SECRET = process.env.TWITCH_SECRET;
 const CALLBACK_URL = process.env.CALLBACK_URL;
 const ENVIRONMENT = process.env.NODE_ENV;
+const server = app;
 moment.tz.setDefault("Europe/Paris");
 
 logger.info("Launching Fastify in %s environment", ENVIRONMENT);

@@ -1,9 +1,9 @@
-import fastify from "fastify";
+import fastify, { FastifyInstance } from "fastify";
 import path from "path";
 import moment from "moment-timezone";
 
-let app;
-let ROOT_DIR;
+let app: FastifyInstance;
+let ROOT_DIR: string;
 
 if (process.env.NODE_ENV === "production") {
     ROOT_DIR = __dirname;

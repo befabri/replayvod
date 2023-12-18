@@ -48,7 +48,7 @@ export const fetchAppAccessToken = async () => {
     }
 };
 
-export const saveAppAccessToken = async (accessToken, expiresIn) => {
+export const saveAppAccessToken = async (accessToken: string, expiresIn: number) => {
     logger.info("Saving access token...");
     try {
         const tokenLifetime = expiresIn * 1000;
