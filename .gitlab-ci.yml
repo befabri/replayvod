@@ -13,12 +13,11 @@ cache:
 
 stages:
     - before_build
-    # - test
     - build
 
 before_build:
     stage: before_build
-    image: node:20.7.0
+    image: node:21.3.0
     script:
         - apt-get update -y && apt-get install -y python3 python3-pip ffmpeg
         - python3 --version
@@ -27,7 +26,6 @@ before_build:
         - npm ci
         - npm install -g typescript
         - npm install -g shx
-        - npm i
         - npm run build
     artifacts:
         paths:
