@@ -124,6 +124,20 @@ export const getStreamByUserId = async (
     }
 };
 
+export const getGameDetail = async (gameId: string): Promise<Category | null> => {
+    try {
+        const fetchedGame = await twitchAPI.getGameDetail(gameId);
+        if (!fetchedGame || !isValidGame(fetchedGame)) {
+            logger.error("Received invalid game detail data from Twitch API: %s", fetchedGame);
+            return null;
+        }
+        return transformCategory(fetchedGame);
+    } catch (error) {
+        logger.error("Error fetching game detail: %s", error);
+        throw error;
+    }
+};
+
 export const getAllGames = async (cursor?: string): Promise<Category[] | null> => {
     try {
         const fetchedGames = await twitchAPI.getAllGames(cursor);

@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getAppAccessToken } from "./twitchUtils";
 import { chunkArray } from "../../utils/utils";
-import { Stream, User, FollowedChannel, EventSubResponse, EventSubData } from "../../models/twitchModel";
+import { Stream, User, FollowedChannel, EventSubResponse, EventSubData, Game } from "../../models/twitchModel";
 import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchApi" });
 
@@ -154,6 +154,22 @@ class TwitchAPI {
             return data.concat(nextPageData);
         } else {
             return data;
+        }
+    }
+
+    async getGameDetail(gameId: string): Promise<Game | null> {
+        try {
+            const accessToken = await getAppAccessToken();
+            const response = await axios.get(`https://api.twitch.tv/helix/games?id=${gameId}`, {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Client-ID": TWITCH_CLIENT_ID,
+                },
+            });
+            return response.data.data[0] || null;
+        } catch (error) {
+            logger.error("Error fetching game details from Twitch API: %s", error);
+            throw new Error("Failed to fetch game details from Twitch API");
         }
     }
 

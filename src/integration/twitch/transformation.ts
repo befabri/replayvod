@@ -75,14 +75,14 @@ export const transformStream = async (
             const addedTags = await tagService.addAllTags(stream.tags.map((tagName) => ({ name: tagName })));
             tagsToReturn.push(...addedTags);
         }
-        if (stream.game_id) {
+        if (stream.game_id && !(await categoryService.categoryExist(stream.game_id))) {
             const category = {
                 id: stream.game_id,
                 name: stream.game_name,
-                boxArtUrl: `https://static-cdn.jtvnw.net/ttv-boxart/${stream.game_id}-{width}x{height}.jpg`,
+                boxArtUrl: "",
                 igdbId: "",
             };
-            categoryToReturn = await categoryService.addCategory(category);
+            categoryToReturn = await categoryService.createCategory(category);
         }
         if (stream.title) {
             const title = {

@@ -2,11 +2,31 @@ import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "channel", service: "categoryService" });
 import { Category } from "@prisma/client";
+import { twitchService } from "../twitch";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-export const addCategory = async (category: Category) => {
+export const createCategory = async (category: Category) => {
+    try {
+        const existingCategory = await prisma.category.findUnique({
+            where: { id: category.id },
+        });
+        if (!existingCategory) {
+            return await prisma.category.create({
+                data: category,
+            });
+        } else {
+            logger.info("Category already exists: %s", category.name);
+            return existingCategory;
+        }
+    } catch (error) {
+        logger.error("Error creating category: %s", error);
+        throw error;
+    }
+};
+
+export const updateCategory = async (category: Category) => {
     try {
         return prisma.category.upsert({
             where: { id: category.id },
@@ -18,7 +38,7 @@ export const addCategory = async (category: Category) => {
             create: category,
         });
     } catch (error) {
-        logger.error("Error adding/updating category: %s", error);
+        logger.error("Error updating category: %s", error);
         throw error;
     }
 };
@@ -35,7 +55,7 @@ export const addAllCategories = async (categories: Category[]) => {
             });
             return sortedCategories;
         } catch (error) {
-            if (error.message && error.message.includes("deadlock")) {
+            if (error instanceof Error && error.message.includes("deadlock")) {
                 logger.error(`Deadlock encountered while adding/updating categories (Attempt ${attempts + 1})`, {
                     error,
                 });
@@ -51,6 +71,13 @@ export const addAllCategories = async (categories: Category[]) => {
             }
         }
     }
+};
+
+export const categoryExist = async (id: string) => {
+    const category = await prisma.category.findUnique({
+        where: { id: id },
+    });
+    return !!category;
 };
 
 export const getAllCategories = async () => {
@@ -143,17 +170,19 @@ export const addDownloadScheduleCategory = async (downloadScheduleId: number, ca
     }
 };
 
-// TODO when is empty
 export const updateMissingBoxArtUrls = async () => {
     try {
-        logger.info("updateing missing box");
-        const categoriesWithMissingBoxArt = await prisma.category.findMany();
-        logger.info(categoriesWithMissingBoxArt);
+        logger.info("Updating missing box art");
+        const categoriesWithMissingBoxArt = await prisma.category.findMany({
+            where: {
+                boxArtUrl: "",
+            },
+        });
         for (const category of categoriesWithMissingBoxArt) {
-            const boxArtUrl = `https://static-cdn.jtvnw.net/ttv-boxart/${category.id}-{width}x{height}.jpg`;
+            const fetchedGame = await twitchService.getGameDetail(category.id);
             await prisma.category.update({
                 where: { id: category.id },
-                data: { boxArtUrl: boxArtUrl },
+                data: { boxArtUrl: fetchedGame?.boxArtUrl, igdbId: fetchedGame?.igdbId },
             });
         }
         logger.info("Box Art URLs updated successfully");
