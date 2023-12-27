@@ -9,13 +9,15 @@ export default {
                 custom_violet: "#2F195F",
                 custom_black: "#0E0D19",
                 custom_blue: "#151425",
+                custom_space_cadet: "#262444",
                 custom_lightblue: "#1C1A31",
                 custom_lime: "#CEFF1A",
                 custom_cream: "#F1DAC4",
-                custom_twitch: "#8390FA",
+                custom_vista_blue: "#8390FA",
                 custom_yellow: "#FAC748",
             },
-            typography: (theme) => ({
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            typography: (_theme) => ({
                 DEFAULT: {
                     css: {
                         ".truncate-multiline": {
@@ -30,5 +32,6 @@ export default {
             }),
         },
     },
-    plugins: [require("@tailwindcss/forms"), require("@tailwindcss/typography")],
+    // eslint-disable-next-line no-undef
+    plugins: [require("@tailwindcss/forms"), require("@tailwindcss/typography"), require("tailwind-scrollbar")],
 };
