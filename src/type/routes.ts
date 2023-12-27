@@ -7,7 +7,6 @@ export const Pathnames = {
     Schedule: {
         Add: "/schedule/add" as const,
         Manage: "/schedule/manage" as const,
-        Following: "/schedule/following" as const,
     },
     Activity: {
         Queue: "/activity/queue" as const,
@@ -49,7 +48,6 @@ export enum ApiRoutes {
     GET_CHANNEL_ID = "/api/channel/:id",
     PUT_CHANNEL_ID = "/api/channel/:id",
     GET_CHANNEL = "/api/channel/",
-    POST_CHANNEL = "/api/channel/",
     GET_CHANNEL_NAME_NAME = "/api/channel/name/:name",
     GET_DOWNLOAD_USER_ID = "/api/download/user/:id",
     GET_DOWNLOAD_STREAM_ID = "/api/download/stream/:id",
@@ -60,6 +58,7 @@ export enum ApiRoutes {
     GET_VIDEO_ALL = "/api/video/all",
     GET_VIDEO_FINISHED = "/api/video/finished",
     GET_VIDEO_CATEGORY_ALL = "/api/category/videos",
+    GET_VIDEO_CATEGORY_ALL_DONE = "/api/category/videos/done",
     GET_VIDEO_CHANNEL_BROADCASTERLOGIN = "/api/video/channel/:broadcasterLogin",
     GET_VIDEO_UPDATE_MISSING = "/api/video/update/missing",
     GET_VIDEO_THUMBNAIL_ID = "/api/video/thumbnail/:id",
