@@ -13,6 +13,7 @@ const Navbar: React.FC = () => {
     const [isLanguageOpen, setLanguageOpen] = useState(false);
     const navbarRef = useRef<HTMLDivElement | null>(null);
     const sidebarRef = useRef<HTMLDivElement | null>(null);
+    const profileRef = useRef<HTMLDivElement | null>(null);
     const { user, signOut } = useAuth();
     const { t } = useTranslation();
 
@@ -37,7 +38,8 @@ const Navbar: React.FC = () => {
         setSidebarOpen(false);
     };
 
-    const handleProfileToggle = () => {
+    const handleProfileToggle = (event: React.MouseEvent) => {
+        event.preventDefault();
         if (isLanguageOpen) {
             setLanguageOpen(false);
         }
@@ -66,41 +68,30 @@ const Navbar: React.FC = () => {
 
     useEffect(() => {
         const handleOutsideClick = (event: MouseEvent) => {
-            if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            if (sidebarRef.current && !sidebarRef.current.contains(target)) {
                 setSidebarOpen(false);
             }
-        };
-
-        document.addEventListener("mouseup", handleOutsideClick);
-
-        return () => {
-            document.removeEventListener("mouseup", handleOutsideClick);
-        };
-    }, []);
-
-    useEffect(() => {
-        const closeDropdowns = (event: MouseEvent) => {
-            const target = event.target as Node;
             if (
-                (isProfilOpen && !document.getElementById("dropdown-user")?.contains(target)) ||
-                (isLanguageOpen && !document.getElementById("dropdown-language")?.contains(target))
+                profileRef.current &&
+                !profileRef.current.contains(target) &&
+                !document.getElementById("profile")?.contains(target)
             ) {
                 setProfileOpen(false);
                 setLanguageOpen(false);
             }
         };
-
-        document.addEventListener("mouseup", closeDropdowns);
+        document.addEventListener("mouseup", handleOutsideClick);
         return () => {
-            document.removeEventListener("mouseup", closeDropdowns);
+            document.removeEventListener("mouseup", handleOutsideClick);
         };
-    }, [isProfilOpen, isLanguageOpen]);
+    }, []);
 
     return (
         <>
             <nav
                 ref={navbarRef}
-                className="fixed top-0 z-50 w-full bg-white border-b border-gray-200 dark:bg-custom_blue dark:border-custom_blue">
+                className="fixed top-0 z-50 w-full bg-white border-b border-gray-200 dark:bg-custom_blue dark:border-custom_blue shadow-sm dark:shadow-sm">
                 <div className="px-3 py-3 lg:px-5 lg:pl-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center justify-start">
@@ -120,84 +111,80 @@ const Navbar: React.FC = () => {
                             </button>
                             <Link to="/" className="flex ml-2 md:mr-24">
                                 <span className="self-center text-xl font-semibold md:text-2xl whitespace-nowrap dark:text-white">
-                                    Rediff
+                                    ReplayVod
                                 </span>
                             </Link>
                         </div>
-                        <div className="flex items-center">
-                            <div className="flex items-center ml-3">
-                                <div>
+                        <div className="flex items-center ml-3">
+                            <button
+                                onClick={handleProfileToggle}
+                                type="button"
+                                className="flex text-sm bg-gray-800 rounded-full focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600"
+                                id="profile"
+                                aria-expanded="false"
+                                data-dropdown-toggle="dropdown-user">
+                                <span className="sr-only">{t("Open user menu")}</span>
+                                <img
+                                    className="w-8 h-8 rounded-full"
+                                    src={user ? user.profile_image : "/images/placeholder_picture.png"}
+                                    alt="user photo"
+                                />
+                            </button>
+                            {isProfilOpen && (
+                                <div
+                                    className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet"
+                                    id="dropdown-user"
+                                    ref={profileRef}>
                                     <button
-                                        onClick={handleProfileToggle}
                                         type="button"
-                                        className="flex text-sm bg-gray-800 rounded-full focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600"
-                                        aria-expanded="false"
-                                        data-dropdown-toggle="dropdown-user">
-                                        <span className="sr-only">{t("Open user menu")}</span>
-                                        <img
-                                            className="w-8 h-8 rounded-full"
-                                            src={user ? user.profile_image : "/images/placeholder_picture.png"}
-                                            alt="user photo"
-                                        />
+                                        onClick={(e: React.MouseEvent) => handleSelect(e, "Language")}
+                                        disabled={false}
+                                        className="w-full text-left flex justify-between items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
+                                        <span> {t("Language")}</span>
+                                        <Icon icon="mdi:chevron-right" width="18" height="18" />
+                                    </button>
+                                    <DarkModeToggle
+                                        text={t("Dark Theme")}
+                                        className="h-9 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue"
+                                    />
+                                    <div className="border-b-2 pb-2 dark:border-custom_vista_blue dark:border-opacity-50"></div>
+                                    <button
+                                        type="button"
+                                        onClick={(e: React.MouseEvent) => handleSelect(e, "Sign Out")}
+                                        disabled={false}
+                                        className="mt-2 w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
+                                        {t("Sign Out")}
                                     </button>
                                 </div>
-                                {isProfilOpen && (
+                            )}
+                            {isLanguageOpen && (
+                                <div
+                                    id="dropdown-language"
+                                    className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet">
                                     <div
-                                        className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-700 dark:ring-gray-600 divide-y divide-gray-100 dark:divide-gray-600"
-                                        id="dropdown-user">
-                                        <div>
-                                            <a
-                                                href="#"
-                                                className="flex justify-between items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
-                                                role="menuitem"
-                                                onClick={(e: React.MouseEvent) => handleSelect(e, "Language")}>
-                                                <span> {t("Language")}</span>
-                                                <Icon icon="mdi:chevron-right" width="18" height="18" />
-                                            </a>
-                                            <DarkModeToggle
-                                                text={t("Dark Theme")}
-                                                className="h-9 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
-                                            />
-                                        </div>
-                                        <a
-                                            href="#"
-                                            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
-                                            role="menuitem"
-                                            onClick={(e: React.MouseEvent) => handleSelect(e, "Sign Out")}>
-                                            {t("Sign Out")}
-                                        </a>
+                                        className="cursor-pointer w-full text-left flex gap-10 items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue"
+                                        onClick={() => {
+                                            setLanguageOpen(false);
+                                            setProfileOpen(true);
+                                        }}>
+                                        <Icon icon="mdi:chevron-left" width="18" height="18" />
+                                        <span> {t("Language")}</span>
                                     </div>
-                                )}
-                                {isLanguageOpen && (
-                                    <div
-                                        id="dropdown-language"
-                                        className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-700 dark:ring-gray-600 divide-y divide-gray-100 dark:divide-gray-600">
-                                        <div
-                                            className="cursor-pointer flex items-center justify-between w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
-                                            onClick={() => {
-                                                setLanguageOpen(false);
-                                                setProfileOpen(true);
-                                            }}>
-                                            <Icon icon="mdi:chevron-left" width="18" height="18" />
-                                            <span> {t("Language")}</span>
-                                            <div></div>
-                                        </div>
-
-                                        <div className="divide-y divide-gray-100 dark:divide-gray-600">
-                                            {languages.map((lang) => (
-                                                <a
-                                                    key={lang}
-                                                    href="#"
-                                                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-600"
-                                                    role="menuitem"
-                                                    onClick={(e: React.MouseEvent) => handleLanguage(e, lang)}>
-                                                    {lang}
-                                                </a>
-                                            ))}
-                                        </div>
+                                    <div className="border-b-2 dark:border-custom_vista_blue dark:border-opacity-50"></div>
+                                    <div className="mt-2">
+                                        {languages.map((lang) => (
+                                            <button
+                                                key={lang}
+                                                type="button"
+                                                onClick={(e: React.MouseEvent) => handleLanguage(e, lang)}
+                                                disabled={false}
+                                                className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
+                                                {lang}
+                                            </button>
+                                        ))}
                                     </div>
-                                )}
-                            </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
