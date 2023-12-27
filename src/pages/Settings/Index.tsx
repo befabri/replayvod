@@ -6,13 +6,12 @@ import type { SettingsForm } from "../../models/Settings";
 import { useTranslation } from "react-i18next";
 import Select from "../../components/Form/Select";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
-import moment from "moment-timezone";
 import { DateTimeFormats, Settings } from "../../type";
 import Button from "../../components/Form/Button";
+import { timeZones } from "../../utils/timezones";
 
 const SettingsPage: React.FC = () => {
     const { t } = useTranslation();
-    const timeZones = moment.tz.names();
     const [isLoading, setIsLoading] = useState<boolean>(true);
 
     const fetchData = async () => {
