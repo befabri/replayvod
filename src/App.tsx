@@ -8,7 +8,6 @@ import VideosPage from "./pages/Videos/Index";
 import SettingsPage from "./pages/Settings/Index";
 import AddChannelPage from "./pages/Record/AddChannelPage";
 import ManagePage from "./pages/Record/ManagePage";
-import FollowsPage from "./pages/Record/FollowingPage";
 import HistoryPage from "./pages/Activity/HistoryPage";
 import CategoryPage from "./pages/Videos/Category/Index";
 import CategoryDetailPage from "./pages/Videos/Category/CategoryDetailPage";
@@ -21,6 +20,7 @@ import LogsPage from "./pages/System/LogsPage";
 import WatchPage from "./pages/Watch/Index";
 import LoginPage from "./pages/Login/Index";
 import QueuePage from "./pages/Activity/QueuePage";
+import DashboardPage from "./pages/Dashboard/Index";
 
 export default function App() {
     return (
@@ -30,11 +30,10 @@ export default function App() {
                 <Routes>
                     <Route path={Pathnames.Login} element={<LoginPage />} />
                     <Route element={<RequireAuth />}>
-                        <Route path={Pathnames.Home} element={<VideosPage />} />
+                        <Route path={Pathnames.Home} element={<DashboardPage />} />
                         <Route path={Pathnames.Settings} element={<SettingsPage />} />
                         <Route path={Pathnames.Schedule.Add} element={<AddChannelPage />} />
                         <Route path={Pathnames.Schedule.Manage} element={<ManagePage />} />
-                        <Route path={Pathnames.Schedule.Following} element={<FollowsPage />} />
                         <Route path={Pathnames.Activity.Queue} element={<QueuePage />} />
                         <Route path={Pathnames.Activity.History} element={<HistoryPage />} />
                         <Route path={Pathnames.Video.Video} element={<VideosPage />} />
