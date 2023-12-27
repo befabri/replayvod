@@ -28,7 +28,7 @@ const TableTasks: React.FC<{ items: Task[] }> = ({ items: initialItems }) => {
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
             <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-custom_lightblue dark:text-gray-400">
                     <tr>
                         {fields.map((field, index) => (
                             <th key={index} scope="col" className="px-6 py-3">
@@ -40,7 +40,7 @@ const TableTasks: React.FC<{ items: Task[] }> = ({ items: initialItems }) => {
                         </th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                <tbody className="divide-y-2 divide-gray-200 dark:divide-custom_lightblue">
                     {items.map((item, index) => (
                         <tr key={index}>
                             <td className="px-6 py-4 whitespace-nowrap" title={item.name}>

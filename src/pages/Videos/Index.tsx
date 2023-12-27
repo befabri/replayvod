@@ -5,13 +5,16 @@ import DropdownButton from "../../components/UI/Button/ButtonDropdown";
 import Table from "../../components/Table/Tables";
 import VideoComponent from "../../components/Media/Video";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
+import { useLocation, useNavigate } from "react-router-dom";
 
 const VideosPage: React.FC = () => {
     const { t } = useTranslation();
+    const location = useLocation();
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [view, setView] = useState(t("Grid"));
-    const [order, setOrder] = useState(t("Recently Added"));
+    const [view, setView] = useState({ value: "grid", label: "Grid" });
+    const [selectedOrder, setSelectedOrder] = useState({ value: "recently", label: t("Recently Added") });
+    const navigate = useNavigate();
 
     const fetchImage = async (url: RequestInfo | URL) => {
         const response = await fetch(url, { credentials: "include" });
@@ -37,7 +40,14 @@ const VideosPage: React.FC = () => {
                 });
 
                 const videosWithBlobUrls = await Promise.all(promises);
-                setVideos(videosWithBlobUrls);
+                const params = new URLSearchParams(location.search);
+                const sortParam = params.get("sort");
+                const newOrder = orderOptions.find((option) => option.value === sortParam) || {
+                    value: "recently",
+                    label: t("Recently Added"),
+                };
+                setSelectedOrder(newOrder);
+                sortVideos(videosWithBlobUrls, newOrder.value);
                 setIsLoading(false);
             } catch (error) {
                 console.error(`Error fetching data: ${error}`);
@@ -47,30 +57,43 @@ const VideosPage: React.FC = () => {
         fetchData();
     }, []);
 
-    useEffect(() => {
-        if (order === t("Channel (ascending)")) {
-            const sortedVideos = [...videos].sort((a, b) =>
-                a.channel.broadcasterName.localeCompare(b.channel.broadcasterName)
-            );
-            setVideos(sortedVideos);
-        } else if (order === t("Channel (descending)")) {
-            const sortedVideos = [...videos].sort((b, a) =>
-                a.channel.broadcasterName.localeCompare(b.channel.broadcasterName)
-            );
-            setVideos(sortedVideos);
-        } else {
-            const sortedVideos = [...videos].sort(
-                (a, b) => new Date(b.downloadedAt).getTime() - new Date(a.downloadedAt).getTime()
-            );
-            setVideos(sortedVideos);
-        }
-    }, [order]);
+    const orderOptions = [
+        { value: "recently", label: t("Recently Added") },
+        { value: "channel_asc", label: t("Channel (A-Z)") },
+        { value: "channel_desc", label: t("Channel (Z-A)") },
+    ];
 
-    const handleViewSelected = (value: any) => {
-        setView(value);
+    const viewOptions = [
+        { value: "grid", label: t("Grid") },
+        { value: "table", label: t("Table") },
+    ];
+
+    const sortVideos = (videos: CompletedVideo[], sortOrder: string) => {
+        const sortedVideos = [...videos];
+        if (sortOrder === "channel_asc") {
+            sortedVideos.sort((a, b) => a.channel.broadcasterName.localeCompare(b.channel.broadcasterName));
+        } else if (sortOrder === "channel_desc") {
+            sortedVideos.sort((b, a) => a.channel.broadcasterName.localeCompare(b.channel.broadcasterName));
+        } else {
+            sortedVideos.sort((a, b) => new Date(b.downloadedAt).getTime() - new Date(a.downloadedAt).getTime());
+        }
+        setVideos(sortedVideos);
     };
-    const handleOrderSelected = (value: any) => {
-        setOrder(value);
+
+    const handleOrderSelected = (value: string) => {
+        const selectedOption = orderOptions.find((option) => option.value === value);
+        if (selectedOption) {
+            setSelectedOrder(selectedOption);
+            sortVideos(videos, selectedOption.value);
+            navigate(`${location.pathname}?sort=${value}`);
+        }
+    };
+
+    const handleViewSelected = (value: string) => {
+        const selectedOption = viewOptions.find((option) => option.value === value);
+        if (selectedOption) {
+            setView(selectedOption);
+        }
     };
 
     if (isLoading) {
@@ -83,25 +106,25 @@ const VideosPage: React.FC = () => {
                 <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Videos")}</h1>
             </div>
             <div className="flex mb-4 items-center justify-end space-x-5">
-                {view === t("Grid") && (
+                {view.value === "grid" && (
                     <div className="space-x-2">
                         <DropdownButton
-                            label={t(order)}
-                            options={[t("Recently Added"), t("Channel (ascending)"), t("Channel (descending)")]}
+                            label={selectedOrder.label}
+                            options={orderOptions}
                             onOptionSelected={handleOrderSelected}
                         />
                     </div>
                 )}
                 <div className="space-x-2">
                     <DropdownButton
-                        label={t(view)}
-                        options={[t("Grid"), t("Table")]}
+                        label={view.label}
+                        options={viewOptions}
                         onOptionSelected={handleViewSelected}
                     />
                 </div>
             </div>
-            {view === t("Grid") ? (
-                <VideoComponent videos={videos} disablePicture={true} />
+            {view.value === "grid" ? (
+                <VideoComponent videos={videos} disablePicture={false} />
             ) : (
                 <div className="mt-4">
                     <Table

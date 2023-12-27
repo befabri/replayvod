@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiRoutes, Pathnames, getApiRoute } from "../../../type/routes";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Channel, Stream } from "../../../type";
 import DropdownButton from "../../../components/UI/Button/ButtonDropdown";
 
@@ -9,8 +9,14 @@ const ChannelPage: React.FC = () => {
     const { t } = useTranslation();
     const [channels, setChannels] = useState<Channel[]>([]);
     const [streams, setStreams] = useState<Stream[]>([]);
-    const [order, setOrder] = useState(t("Channel (ascending)"));
+    const [order, setOrder] = useState({ value: "channel_asc", label: t("Channel (A-Z)") });
     const [isLoading, setIsLoading] = useState<boolean>(true);
+    const navigate = useNavigate();
+
+    const orderOptions = [
+        { value: "channel_asc", label: t("Channel (A-Z)") },
+        { value: "channel_desc", label: t("Channel (Z-A)") },
+    ];
 
     const fetchData = async () => {
         const urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
@@ -30,10 +36,16 @@ const ChannelPage: React.FC = () => {
                 followedStreamsResponse.json(),
             ]);
 
-            const sortedChannels = sortChannels(followedChannelsData, order);
-            setChannels(sortedChannels);
-            setStreams(followedStreamsData);
+            const params = new URLSearchParams(location.search);
+            const sortParam = params.get("sort");
+            const newOrder = orderOptions.find((option) => option.value === sortParam) || {
+                value: "channel_asc",
+                label: t("Channel (A-Z)"),
+            };
+            setOrder(newOrder);
+            sortChannels(followedChannelsData, newOrder.value);
             setIsLoading(false);
+            setStreams(followedStreamsData);
         } catch (error) {
             console.error("Error:", error);
             setIsLoading(false);
@@ -41,22 +53,28 @@ const ChannelPage: React.FC = () => {
     };
 
     const sortChannels = (channels: Channel[], order: string) => {
-        console.log(order);
-        if (order === t("Channel (descending)")) {
-            return [...channels].sort((b, a) => a.broadcasterName.localeCompare(b.broadcasterName));
+        const sortedVideos = [...channels];
+        if (order === "channel_desc") {
+            sortedVideos.sort((b, a) => a.broadcasterName.localeCompare(b.broadcasterName));
         } else {
-            return [...channels].sort((a, b) => a.broadcasterName.localeCompare(b.broadcasterName));
+            sortedVideos.sort((a, b) => a.broadcasterName.localeCompare(b.broadcasterName));
         }
+        setChannels(sortedVideos);
     };
 
     useEffect(() => {
         fetchData();
-        const intervalId = setInterval(fetchData, 3000);
+        const intervalId = setInterval(fetchData, 120000);
         return () => clearInterval(intervalId);
-    }, [order]);
+    }, []);
 
     const handleOrderSelected = (value: string) => {
-        setOrder(value);
+        const selectedOption = orderOptions.find((option) => option.value === value);
+        if (selectedOption) {
+            setOrder(selectedOption);
+            sortChannels(channels, selectedOption.value);
+            navigate(`${location.pathname}?sort=${value}`);
+        }
     };
 
     if (isLoading) {
@@ -70,13 +88,13 @@ const ChannelPage: React.FC = () => {
                 <div className="flex mb-4 items-center justify-end space-x-5">
                     <div className="space-x-2">
                         <DropdownButton
-                            label={t(order)}
-                            options={[t("Channel (ascending)"), t("Channel (descending)")]}
+                            label={t(order.label)}
+                            options={orderOptions}
                             onOptionSelected={handleOrderSelected}
                         />
                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
                     {channels.map((channel) => {
                         const isLive = streams.some(
                             (stream) => stream.broadcasterId === channel.broadcasterId && stream.type === "live"
@@ -85,7 +103,7 @@ const ChannelPage: React.FC = () => {
                         return (
                             <Link
                                 to={`${Pathnames.Video.Channel}/${channel.broadcasterLogin}`}
-                                className={`bg-zinc-100 dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                                className={`bg-zinc-100 dark:bg-custom_lightblue p-3 hover:bg-gray-100 dark:hover:bg-custom_vista_blue ${
                                     isLive ? "relative" : ""
                                 }`}
                                 key={channel.broadcasterId}>

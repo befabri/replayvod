@@ -58,7 +58,7 @@ const CategoryDetailPage: React.FC = () => {
             <div className="p-4 mt-14">
                 <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{toTitleCase(id)}</h1>
             </div>
-            <VideoComponent videos={videos} disablePicture={true} />
+            <VideoComponent videos={videos} disablePicture={false} />
         </div>
     );
 };

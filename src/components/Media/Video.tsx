@@ -16,10 +16,10 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
     const storedTimeZone = localStorage.getItem("timeZone") || "Europe/London";
 
     return (
-        <div className="mb-4 grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-5">
+        <div className="mb-4 grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-3">
             {videos?.map((video) => (
                 <div className="w-full" key={video.id} ref={divRef}>
-                    <div className="relative">
+                    <div className="relative border-4 border-custom_black hover:border-custom_vista_blue">
                         <Link to={`${Pathnames.Watch}${video.id}`}>
                             <img src={`${video.thumbnail}`} alt={`${video.displayName}`} />
                             <div className="absolute top-2 left-3 bg-black bg-opacity-50 text-stone-100">{`${formatDuration(

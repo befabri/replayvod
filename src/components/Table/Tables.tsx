@@ -5,7 +5,7 @@ import { Video, TableProps } from "../../type";
 import { useTranslation } from "react-i18next";
 import { capitalizeFirstLetter, toKebabCase, formatDate, truncateString } from "../../utils/utils";
 import { Pathnames } from "../../type/routes";
-import { Link } from "react-router-dom";
+import HrefLink from "../UI/Navigation/HrefLink";
 
 type ExtendedTableProps = {
     showEdit?: boolean;
@@ -104,18 +104,18 @@ const Table = ({
     };
 
     const fields: (keyof Video)[] = [
+        "displayName",
+        "videoCategory",
         "titles",
         "filename",
         ...(showStatus ? (["status"] as (keyof Video)[]) : []),
-        "displayName",
         "startDownloadAt",
-        "videoCategory",
     ];
 
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
             <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-custom_lightblue dark:text-gray-400">
                     <tr>
                         {showCheckbox && (
                             <th scope="col" className="p-0">
@@ -150,7 +150,7 @@ const Table = ({
                     {items.map((video, idx) => (
                         <tr
                             key={video.id}
-                            className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                            className="bg-white border-b dark:bg-custom_blue dark:border-custom_lightblue hover:bg-gray-50 dark:hover:bg-custom_lightblue">
                             {showCheckbox && (
                                 <Checkbox
                                     id={`checkbox-table-search-${idx}`}
@@ -165,15 +165,30 @@ const Table = ({
                                     {video.id}
                                 </th>
                             )}
+                            <td className="px-6 py-4" title={video.displayName}>
+                                <HrefLink to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
+                                    {video.displayName}
+                                </HrefLink>
+                            </td>
+                            <td className="px-6 py-4" title={video.videoCategory[0].category.name}>
+                                {video.videoCategory.map((cat) => (
+                                    <HrefLink
+                                        to={`${Pathnames.Video.Category}/${toKebabCase(cat.category.name)}`}
+                                        key={cat.categoryId}>
+                                        <span key={cat.categoryId}>{cat.category.name}</span>
+                                    </HrefLink>
+                                ))}
+                            </td>
                             <td className="px-6 py-4" title={video.titles[0].title.name}>
                                 {video.status !== "DONE" ? (
                                     truncateString(video.titles[0].title.name, 40)
                                 ) : (
-                                    <Link to={`${Pathnames.Watch}${video.id}`}>
+                                    <HrefLink to={`${Pathnames.Watch}${video.id}`}>
                                         {truncateString(video.titles[0].title.name, 40)}
-                                    </Link>
+                                    </HrefLink>
                                 )}
                             </td>
+
                             <td className="px-6 py-4" title={video.filename}>
                                 {video.filename}
                             </td>
@@ -182,22 +197,9 @@ const Table = ({
                                     {t(video.status)}
                                 </td>
                             )}
-                            <td className="px-6 py-4" title={video.displayName}>
-                                <Link to={`${Pathnames.Video.Channel}${video?.displayName.toLowerCase()}`}>
-                                    {video.displayName}
-                                </Link>
-                            </td>
+
                             <td className="px-6 py-4" title={formatDate(video.startDownloadAt, storedTimeZone)}>
                                 {formatDate(video.startDownloadAt, storedTimeZone)}
-                            </td>
-                            <td className="px-6 py-4" title={video.videoCategory[0].category.name}>
-                                {video.videoCategory.map((cat) => (
-                                    <Link
-                                        to={`${Pathnames.Video.Category}/${toKebabCase(cat.category.name)}`}
-                                        key={cat.categoryId}>
-                                        <span key={cat.categoryId}>{cat.category.name}</span>
-                                    </Link>
-                                ))}
                             </td>
                             {showEdit && (
                                 <td className="px-6 py-4">

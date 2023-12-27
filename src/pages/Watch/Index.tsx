@@ -59,7 +59,7 @@ const WatchPage: React.FC = () => {
                     {t("Your browser does not support the video tag.")}
                 </video>
 
-                <div className="self-start w-full mb-4">
+                <div className="self-start mb-4 ml-4">
                     <VideoInfoComponent video={video} />
                 </div>
             </div>

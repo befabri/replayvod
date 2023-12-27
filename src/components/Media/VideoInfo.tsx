@@ -3,6 +3,7 @@ import { CompletedVideo } from "../../type";
 import { Pathnames } from "../../type/routes";
 import { toKebabCase, truncateString } from "../../utils/utils";
 import { Link } from "react-router-dom";
+import HrefLink from "../UI/Navigation/HrefLink";
 
 type VideoInfoProps = {
     video: CompletedVideo | undefined;
@@ -13,7 +14,7 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
     const [divWidth, setDivWidth] = useState<number>(0);
     const divRef = useRef<HTMLDivElement>(null);
 
-    const numberOfTagsToRender = Math.max(Math.floor(divWidth / 100), 2);
+    const numberOfTagsToRender = Math.max(Math.floor(divWidth / 100 - 1), 2);
 
     useEffect(() => {
         const handleResize = () => {
@@ -32,44 +33,47 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
     }, []);
 
     return (
-        <div className="flex flex-row items-center gap-5 mt-2" ref={divRef}>
+        <div className="flex flex-row gap-3 mt-2" ref={divRef}>
             {!disablePicture && (
-                <Link to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
+                <Link
+                    to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}
+                    className="min-w-[40px]">
                     <img
-                        className="w-12 h-12 min-w-[40px] rounded-full ml-2"
+                        className="w-10 h-10 rounded-full mt-1"
                         src={video?.channel.profilePicture}
                         alt="Profile Picture"
                     />
                 </Link>
             )}
             <div>
-                <Link to={`${Pathnames.Watch}${video?.id}`}>
-                    <h3 className="text-base font-semibold dark:text-stone-100 hover:text-custom_twitch dark:hover:text-custom_twitch">
+                <div>
+                    <HrefLink to={`${Pathnames.Watch}${video?.id}`} style="title">
                         {video?.titles[0].title.name}
-                    </h3>
-                </Link>
-                <Link to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
-                    <h2 className="text-sm dark:text-stone-100 hover:text-custom_twitch dark:hover:text-custom_twitch">
+                    </HrefLink>
+                </div>
+                <div>
+                    <HrefLink to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
                         {video?.channel.broadcasterName}
-                    </h2>
-                </Link>
-
-                {video?.videoCategory.map((item) => (
-                    <Link
-                        to={`${Pathnames.Video.Category}/${toKebabCase(item.category.name)}`}
-                        key={item.categoryId}>
-                        <p className="text-sm dark:text-white hover:text-custom_twitch dark:hover:text-custom_twitch">
+                    </HrefLink>
+                </div>
+                <div>
+                    {video?.videoCategory.map((item) => (
+                        <HrefLink
+                            to={`${Pathnames.Video.Category}/${toKebabCase(item.category.name)}`}   
+                            key={item.categoryId}>
                             {item.category.name}
-                        </p>
-                    </Link>
-                ))}
-                {video?.tags.slice(0, numberOfTagsToRender).map((item) => (
-                    <span
-                        className="bg-gray-100 text-gray-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full dark:bg-gray-700 dark:text-gray-300"
-                        key={item.tag.name}>
-                        {truncateString(item.tag.name, 18, false)}
-                    </span>
-                ))}
+                        </HrefLink>
+                    ))}
+                </div>
+                <div>
+                    {video?.tags.slice(0, numberOfTagsToRender).map((item) => (
+                        <span
+                            className="bg-gray-100 text-gray-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full dark:bg-custom_space_cadet dark:text-gray-400"
+                            key={item.tag.name}>
+                            {truncateString(item.tag.name, 18, false)}
+                        </span>
+                    ))}
+                </div>
             </div>
         </div>
     );

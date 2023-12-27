@@ -24,8 +24,8 @@ const Select: FC<SelectProps> = ({ label, id, register, error, options, required
                 id={id}
                 required={required}
                 disabled={disabled}
-                className={`bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5  dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500
-                ${disabled ? "dark:bg-gray-800" : "dark:bg-gray-700"}`}>
+                className={`bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-custom_vista_blue focus:border-custom_vista_blue block w-full p-2.5  dark:border-custom_lightblue dark:placeholder-gray-400 dark:text-white dark:focus:ring-custom_vista_blue dark:focus:border-custom_vista_blue dark:hover:border-custom_vista_blue
+                ${disabled ? "dark:bg-custom_black" : "dark:bg-custom_lightblue"}`}>
                 {options.map((option) => (
                     <option key={option} value={option}>
                         {option}

@@ -48,7 +48,7 @@ const QueuePage: React.FC = () => {
             {isLoading ? (
                 <div>{t("Loading")}</div>
             ) : (
-                <Table items={videos} showEdit={false} showCheckbox={false} />
+                <Table items={videos} showEdit={false} showCheckbox={false} showId={false} />
             )}
         </div>
     );

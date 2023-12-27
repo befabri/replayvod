@@ -8,14 +8,6 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
     const { t } = useTranslation();
     const fields: (keyof Log)[] = ["filename", "lastWriteTime"];
 
-    const formatTime = (dateString: string) => {
-        const date = new Date(dateString);
-        return `${date.getHours().toString().padStart(2, "0")}:${date
-            .getMinutes()
-            .toString()
-            .padStart(2, "0")}:${date.getSeconds().toString().padStart(2, "0")}`;
-    };
-
     const fetchAndShowLog = async (id: string) => {
         const url = getApiRoute(ApiRoutes.GET_LOG_FILES_ID, "id", id);
         const response = await fetch(url, {
@@ -36,7 +28,7 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
             <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-custom_lightblue dark:text-gray-400">
                     <tr>
                         {fields.map((field, index) => (
                             <th key={index} scope="col" className="px-6 py-3">
@@ -46,11 +38,10 @@ const TableLogs: React.FC<{ items: Log[] }> = ({ items }) => {
                         <th scope="col" className="px-6 py-3"></th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                <tbody className="divide-y-2 divide-gray-200 dark:divide-custom_lightblue">
                     {items.map((item: Log, index: Key | null | undefined) => (
                         <tr key={index}>
                             <td className="px-6 py-4 whitespace-nowrap">{item.filename}</td>
-                            <td className="px-6 py-4 whitespace-nowrap">{formatTime(item.lastWriteTime)}</td>
                             <td className="px-6 py-4 whitespace-nowrap">
                                 <button onClick={() => fetchAndShowLog(String(item.id))} className="text-blue-500">
                                     {t("View Logfile")}

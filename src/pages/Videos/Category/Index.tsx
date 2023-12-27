@@ -11,7 +11,7 @@ const CategoryPage: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_VIDEO_CATEGORY_ALL);
+            const url = getApiRoute(ApiRoutes.GET_VIDEO_CATEGORY_ALL_DONE);
             const response = await fetch(url, {
                 credentials: "include",
             });

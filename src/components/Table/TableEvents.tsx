@@ -29,7 +29,7 @@ const TableEvents: React.FC<{ items: EventLog[] }> = ({ items }) => {
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
             <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-custom_lightblue dark:text-gray-400">
                     <tr>
                         {fields.map((field, index) => (
                             <th key={index} scope="col" className="px-6 py-3">
@@ -39,7 +39,7 @@ const TableEvents: React.FC<{ items: EventLog[] }> = ({ items }) => {
                         <th scope="col" className="px-6 py-3"></th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                <tbody className="divide-y-2 divide-gray-200 dark:divide-custom_lightblue">
                     {items.map((item: EventLog, index: Key | null | undefined) => (
                         <tr key={index}>
                             <td className="px-6 py-4 whitespace-nowrap">{item.domain}</td>
