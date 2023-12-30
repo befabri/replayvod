@@ -9,5 +9,10 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         { preHandler: [isUserWhitelisted, userAuthenticated] },
         categoryHandler.getVideosCategories
     );
+    fastify.get(
+        "/videos/done",
+        { preHandler: [isUserWhitelisted, userAuthenticated] },
+        categoryHandler.getVideosCategoriesDone
+    );
     done();
 }

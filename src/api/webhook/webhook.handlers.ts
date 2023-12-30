@@ -14,7 +14,7 @@ import {
 } from "../../constants/twitchConstants";
 import { logger } from "../../app";
 import { NotificationBody, SubscriptionType } from "../../models/notificationTwitch";
-import { webhookService } from ".";
+import { webhookFeature } from ".";
 
 interface WebhookRequest extends RouteGenericInterface {
     Body: Webhook;
@@ -24,7 +24,7 @@ interface WebhookRequest extends RouteGenericInterface {
 export const addWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
     try {
         const webhook: Webhook = { id: req.body.id, url: req.body.url } as Webhook;
-        const addedWebhook = await webhookService.addWebhook(webhook);
+        const addedWebhook = await webhookFeature.addWebhook(webhook);
         reply.status(200).send({ data: addedWebhook });
     } catch (error) {
         reply.status(500).send({ error: "Internal Server Error" });
@@ -33,7 +33,7 @@ export const addWebhook = async (req: FastifyRequest<WebhookRequest>, reply: Fas
 
 export const removeWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
     try {
-        const removedWebhook = await webhookService.removeWebhook(req.body.id);
+        const removedWebhook = await webhookFeature.removeWebhook(req.body.id);
         if (removedWebhook) {
             reply.status(200).send({ data: removedWebhook });
         } else {
@@ -45,9 +45,9 @@ export const removeWebhook = async (req: FastifyRequest<WebhookRequest>, reply: 
 };
 
 export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
-    let secret = webhookService.getSecret();
-    let message = webhookService.getHmacMessage(req);
-    let hmac = HMAC_PREFIX + webhookService.getHmac(secret, message);
+    let secret = webhookFeature.getSecret();
+    let message = webhookFeature.getHmacMessage(req);
+    let hmac = HMAC_PREFIX + webhookFeature.getHmac(secret, message);
 
     let signature = req.headers[TWITCH_MESSAGE_SIGNATURE];
     if (typeof signature !== "string") {
@@ -55,29 +55,29 @@ export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply
         return;
     }
 
-    if (webhookService.verifyMessage(hmac, signature) === true) {
+    if (webhookFeature.verifyMessage(hmac, signature) === true) {
         let notification: NotificationBody = req.body;
         let messageType = req.headers[MESSAGE_TYPE];
         let response;
         if (MESSAGE_TYPE_NOTIFICATION === messageType) {
             switch (notification.subscription.type) {
                 case SubscriptionType.CHANNEL_UPDATE:
-                    response = await webhookService.handleChannelUpdate(notification);
+                    response = await webhookFeature.handleChannelUpdate(notification);
                     break;
                 case SubscriptionType.STREAM_ONLINE:
-                    response = await webhookService.handleStreamOnline(notification);
+                    response = await webhookFeature.handleStreamOnline(notification);
                     break;
                 case SubscriptionType.STREAM_OFFLINE:
-                    response = await webhookService.handleStreamOffline(notification);
+                    response = await webhookFeature.handleStreamOffline(notification);
                     break;
                 default:
-                    response = await webhookService.handleNotification(notification);
+                    response = await webhookFeature.handleNotification(notification);
                     break;
             }
         } else if (MESSAGE_TYPE_VERIFICATION === messageType) {
-            response = await webhookService.handleVerification(notification);
+            response = await webhookFeature.handleVerification(notification);
         } else if (MESSAGE_TYPE_REVOCATION === messageType) {
-            response = await webhookService.handleRevocation(notification);
+            response = await webhookFeature.handleRevocation(notification);
         } else {
             reply.status(400).send();
             return;
@@ -104,6 +104,6 @@ export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply
 //             broadcaster_user_name: "Packam",
 //         },
 //     };
-//     const response = await webhookService.handleStreamOffline(notification);
+//     const response = await webhookFeature.handleStreamOffline(notification);
 //     console.log(response);
 // };

@@ -1,4 +1,4 @@
-import { eventSubService } from ".";
+import { eventSubFeature } from ".";
 import { logger as rootLogger } from "../../app";
 import { downloadSchedule } from "../download/download";
 import { transformWebhookEvent } from "./webhook.DTO";
@@ -32,7 +32,10 @@ export const handleDownload = (event: any) => {
 export const handleWebhookEvent = async (eventType: string, event: any) => {
     try {
         const webhookEvent = transformWebhookEvent(eventType, event.broadcaster_user_id);
-        await eventSubService.addWebhookEvent(webhookEvent);
+        if (!webhookEvent) {
+            return;
+        }
+        await eventSubFeature.addWebhookEvent(webhookEvent);
     } catch (error) {
         logger.error(
             "Error in handleWebhookEvent with eventType: %s and broadcasterId: %s - %s",

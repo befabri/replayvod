@@ -3,9 +3,9 @@ import { logger as rootLogger } from "../../app";
 import fs from "fs";
 import path from "path";
 import { Status } from "@prisma/client";
-import { videoService } from ".";
-import { channelService } from "../channel";
-import { userService } from "../user";
+import { videoFeature } from ".";
+import { userFeature } from "../user";
+import { channelFeature } from "../channel";
 
 const logger = rootLogger.child({ domain: "video", service: "videoHandler" });
 
@@ -40,7 +40,7 @@ export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply
         reply.status(400).send("Invalid video id");
         return;
     }
-    const video = await videoService.getVideoById(videoIdRequest);
+    const video = await videoFeature.getVideoById(videoIdRequest);
     if (!video) {
         reply.status(404).send("Video not found in database");
         return;
@@ -81,12 +81,12 @@ export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply
 };
 
 export const getVideos = async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = userService.getUserIdFromSession(req);
+    const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
     }
-    const videos = await videoService.getVideosFromUser(userId);
+    const videos = await videoFeature.getVideosFromUser(userId);
     reply.send(videos);
 };
 
@@ -96,17 +96,17 @@ export const getVideo = async (req: FastifyRequest<ParamsVideo>, reply: FastifyR
         reply.status(400).send("Invalid video id");
         return;
     }
-    const video = await videoService.getVideoById(videoId);
+    const video = await videoFeature.getVideoById(videoId);
     reply.send(video);
 };
 
 export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = userService.getUserIdFromSession(req);
+    const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
     }
-    const videos = await videoService.getVideosFromUser(userId, Status.DONE);
+    const videos = await videoFeature.getVideosFromUser(userId, Status.DONE);
     reply.send(videos);
 };
 
@@ -116,12 +116,12 @@ export const getChannelVideos = async (req: FastifyRequest<Params>, reply: Fasti
         reply.status(400).send({ message: "Invalid broadcaster login" });
         return;
     }
-    const channel = await channelService.getChannelDetailByNameDB(loginName);
+    const channel = await channelFeature.getChannelByName(loginName);
     if (!channel) {
         reply.status(404).send({ message: "Channel not found" });
         return;
     }
-    const videos = await videoService.getVideosByChannel(channel.broadcasterId);
+    const videos = await videoFeature.getVideosByChannel(channel.broadcasterId);
     if (!videos || videos.length === 0) {
         reply.send({ channel: channel, hasVideos: false });
         return;
@@ -131,7 +131,7 @@ export const getChannelVideos = async (req: FastifyRequest<Params>, reply: Fasti
 
 export const generateMissingThumbnail = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
-        const thumb = await videoService.generateMissingThumbnailsAndUpdate();
+        const thumb = await videoFeature.generateMissingThumbnailsAndUpdate();
         reply.send(thumb);
     } catch (error) {
         reply.status(500).send("Internal server error");

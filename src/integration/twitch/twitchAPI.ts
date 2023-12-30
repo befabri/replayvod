@@ -1,11 +1,27 @@
 import axios from "axios";
 import { getAppAccessToken } from "./twitchUtils";
 import { chunkArray } from "../../utils/utils";
-import { Stream, User, FollowedChannel, EventSubResponse, EventSubData, Game } from "../../models/twitchModel";
+import { Stream, User, FollowedChannel, EventSubResponse, Game } from "../../models/twitchModel";
 import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchApi" });
 
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
+
+function handleAxiosError(error: unknown) {
+    if (axios.isAxiosError(error)) {
+        if (error.response) {
+            logger.error(`Server responded with error: ${error.response.status} - ${error.response.data.message}`);
+        } else if (error.request) {
+            logger.error("The request was made but no response was received");
+        } else {
+            logger.error(`Error in setting up the request: ${error.message}`);
+        }
+    } else if (error instanceof Error) {
+        logger.error(`Non-Axios error: ${error.message}`);
+    } else {
+        logger.error("An unknown error occurred");
+    }
+}
 
 class TwitchAPI {
     async getUser(userId: string): Promise<User | null> {
@@ -59,7 +75,7 @@ class TwitchAPI {
             );
             return responses.flatMap((response) => response.data.data);
         } catch (error) {
-            logger.error("Error fetching users details from Twitch API: %s", error);
+            handleAxiosError(error);
             throw new Error("Failed to fetch users details from Twitch API");
         }
     }
@@ -134,7 +150,7 @@ class TwitchAPI {
         }
     }
 
-    async getAllGames(cursor?: string): Promise<any[]> {
+    async getAllGames(cursor?: string): Promise<Game[]> {
         const accessToken = await getAppAccessToken();
         const response = await axios.get("https://api.twitch.tv/helix/games/top", {
             headers: {
@@ -199,12 +215,8 @@ class TwitchAPI {
             );
             return response.data;
         } catch (error) {
-            if (error.response) {
-                logger.error(error.response.data.message);
-                throw error;
-            } else {
-                throw error;
-            }
+            handleAxiosError(error);
+            throw error;
         }
     }
 
@@ -224,20 +236,25 @@ class TwitchAPI {
                 return response.data;
             }
         } catch (error) {
-            if (error.response) {
-                switch (error.response.status) {
-                    case 400:
-                        throw new Error("The id query parameter is required.");
-                    case 401:
-                        throw new Error("Authorization error. Please check the access token and Client-ID.");
-                    case 404:
-                        throw new Error("The subscription was not found.");
-                    default:
-                        throw new Error("An unknown error occurred.");
+            if (axios.isAxiosError(error)) {
+                if (error.response) {
+                    switch (error.response.status) {
+                        case 400:
+                            throw new Error("The id query parameter is required.");
+                        case 401:
+                            throw new Error("Authorization error. Please check the access token and Client-ID.");
+                        case 404:
+                            throw new Error("The subscription was not found.");
+                        default:
+                            throw new Error("An unknown error occurred.");
+                    }
                 }
+            } else if (error instanceof Error) {
+                logger.error(`Non-Axios error: ${error.message}`);
             } else {
-                throw error;
+                logger.error("An unknown error occurred");
             }
+            throw error;
         }
     }
 
@@ -277,6 +294,15 @@ class TwitchAPI {
                 };
             }
         } catch (error) {
+            if (axios.isAxiosError(error)) {
+                if (error.response) {
+                    logger.error(error.response.data.message);
+                }
+            } else if (error instanceof Error) {
+                logger.error(`Non-Axios error: ${error.message}`);
+            } else {
+                logger.error("An unknown error occurred");
+            }
             throw error;
         }
     }

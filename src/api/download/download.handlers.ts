@@ -1,18 +1,16 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
 import { jobService } from "../../services";
-import TwitchAPI from "../../integration/twitch/twitchAPI";
 import { Quality } from "@prisma/client";
 import { JobDetail } from "../../types/sharedTypes";
 import { logger as rootLogger } from "../../app";
 import { DownloadScheduleDTO } from "./download.DTO";
-import { downloadService } from ".";
-import { channelService } from "../channel";
-import { userService } from "../user";
-import { videoService } from "../video";
+import { userFeature } from "../user";
+import { channelFeature } from "../channel";
+import { videoFeature } from "../video";
+import { downloadFeature } from ".";
 const logger = rootLogger.child({ domain: "download", service: "downloadHandler" });
 
 const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
-const twitchAPI = new TwitchAPI();
 
 interface Params extends RouteGenericInterface {
     Params: {
@@ -25,25 +23,8 @@ interface DownloadRequestBody extends RouteGenericInterface {
     Body: DownloadScheduleDTO;
 }
 
-export const scheduleUser = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    const userId = req.params.id;
-
-    if (!userId || typeof userId !== "string") {
-        reply.status(400).send("Invalid user id");
-        return;
-    }
-
-    try {
-        const result = await downloadService.planningRecord(userId);
-        reply.send(result);
-    } catch (error) {
-        logger.error("Error recording user:", error);
-        reply.status(500).send("Error recording user");
-    }
-};
-
 export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>, reply: FastifyReply) => {
-    const userId = userService.getUserIdFromSession(req);
+    const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
@@ -57,13 +38,13 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
         reply.status(400).send("Invalid request data");
         return;
     }
-    const channel = await channelService.getChannelDetailByName(data.channelName);
+    const channel = await channelFeature.getChannelByName(data.channelName);
     if (!channel) {
         reply.status(400).send("Invalid request data");
         return;
     }
     try {
-        await downloadService.addSchedule(data, userId);
+        await downloadFeature.addSchedule(data, userId);
         reply.status(200).send("Schedule saved successfully.");
     } catch (error) {
         reply.status(500).send("Internal server error");
@@ -71,7 +52,7 @@ export const scheduleDownload = async (req: FastifyRequest<DownloadRequestBody>,
 };
 
 export const downloadStream = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    const userId = userService.getUserIdFromSession(req);
+    const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
         reply.status(401).send("Unauthorized");
         return;
@@ -81,12 +62,12 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         reply.status(400).send("Invalid broadcaster id");
         return;
     }
-    const channel = await channelService.getChannelDetailDB(broadcasterId);
+    const channel = await channelFeature.getChannel(broadcasterId);
     if (!channel) {
         reply.status(404).send("Channel not found");
         return;
     }
-    const stream = await channelService.getStream(broadcasterId, userId);
+    const stream = await channelFeature.getChannelStream(broadcasterId, userId);
     if (!stream) {
         reply.status(400).send({ message: "Stream is offline" });
         return;
@@ -100,9 +81,9 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         return;
     }
     const jobId = jobService.createJobId();
-    const quality: Quality = videoService.mapVideoQualityToQuality(req.params.quality);
+    const quality: Quality = videoFeature.mapVideoQualityToQuality(req.params.quality || "");
     const jobDetails: JobDetail = { stream, userId, channel, jobId, quality };
-    await downloadService.handleDownload(jobDetails, broadcasterId);
+    await downloadFeature.handleDownload(jobDetails, broadcasterId);
     reply.send({ jobId });
 };
 

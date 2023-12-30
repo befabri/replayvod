@@ -16,7 +16,7 @@ model AppAccessToken {
 // Represents logs when data is fetched.
 // BroadcasterId MUST BE NULL IF fetchType is not equal to Stream
 model FetchLog {
-  fetchId       String     @id
+  id            String     @id
   userId        String
   fetchedAt     DateTime
   fetchType     String
@@ -33,7 +33,7 @@ model EventSub {
   userId        String
   fetchId       String
   user          User                   @relation(fields: [userId], references: [userId])
-  fetch         FetchLog               @relation(fields: [fetchId], references: [fetchId])
+  fetch         FetchLog               @relation(fields: [fetchId], references: [id])
   subscriptions SubscriptionEventSub[]
 }
 
@@ -266,7 +266,7 @@ model Stream {
   broadcasterId String
   viewerCount   Int              @default(0)
   channel       Channel          @relation(fields: [broadcasterId], references: [broadcasterId])
-  fetchLog      FetchLog         @relation(fields: [fetchId], references: [fetchId])
+  fetchLog      FetchLog         @relation(fields: [fetchId], references: [id])
   fetchId       String
   tags          StreamTag[]
   videos        Video[]

@@ -22,7 +22,11 @@ export const transformSettings = async (
             settings: transformedSettings,
         };
     } catch (error) {
-        logger.error(`Error transforming settings: ${error.message}`);
+        if (error instanceof Error) {
+            logger.error(`Error transforming settings: ${error.message}`);
+        } else {
+            logger.error(`An unknown error occurred while transforming settings`);
+        }
         throw error;
     }
 };

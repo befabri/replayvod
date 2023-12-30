@@ -3,20 +3,6 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { downloadHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
-    fastify.get("/user/:id", {
-        schema: {
-            params: {
-                type: "object",
-                properties: {
-                    id: { type: "string" },
-                },
-                required: ["id"],
-            },
-        },
-        preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: downloadHandler.scheduleUser,
-    });
-
     fastify.get("/stream/:id", {
         schema: {
             params: {

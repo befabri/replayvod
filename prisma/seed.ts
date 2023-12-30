@@ -66,6 +66,16 @@ const taskData: Prisma.TaskCreateInput[] = [
         lastExecution: new Date("1900-01-01T00:00:00Z"),
         nextExecution: new Date("1900-01-01T00:00:00Z"),
     },
+    {
+        id: "updateMissingBoxArtUrls",
+        name: "Update All Missing Box Art Urls",
+        description: "Sub to All Stream Event Followed",
+        taskType: "updateMissingBoxArtUrls",
+        interval: 300000,
+        lastDuration: 0,
+        lastExecution: new Date("1900-01-01T00:00:00Z"),
+        nextExecution: new Date("1900-01-01T00:00:00Z"),
+    },
 ];
 
 async function main() {

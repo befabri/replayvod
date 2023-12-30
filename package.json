@@ -12,13 +12,11 @@
     "prebuild": "shx rm -rf dist",
     "build": "tsc -p tsconfig.json",
     "preview": "node --env-file=.env dist/server.js",
-    "db:gen": "npm run prisma generate",
-    "db:studio": "npm run prisma studio",
-    "db:migrate": "npm run prisma migrate dev",
-    "db:push": "npm run prisma db push"
-  },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "db:gen": "npx prisma generate",
+    "db:studio": "npx prisma studio",
+    "db:migrate": "npx  prisma migrate dev",
+    "db:push": "npx run prisma db push",
+    "db:seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^8.3.0",
@@ -35,6 +33,7 @@
     "youtube-dl-exec": "^2.4.5"
   },
   "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.24",
     "@types/node": "^20.10.4",
     "@types/uuid": "^9.0.7",
     "pino-pretty": "^10.2.0",

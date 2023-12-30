@@ -1,4 +1,4 @@
-import { Channel, Prisma, Quality, Stream } from "@prisma/client";
+import { Category, Channel, Prisma, PrismaClient, Quality, Stream, Tag, Title } from "@prisma/client";
 
 export interface DownloadParams {
     requestingUserId: string;
@@ -26,3 +26,16 @@ export type StreamWithRelations = Prisma.StreamGetPayload<{
         titles: true;
     };
 }>;
+
+export interface CreateStreamEntry {
+    fetchId: string;
+    stream: Stream;
+    tags: Tag[];
+    category: Category;
+    title: Omit<Title, "id">;
+}
+
+export type TransactionalPrismaClient = Omit<
+    PrismaClient,
+    "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extend"
+>;

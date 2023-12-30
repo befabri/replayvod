@@ -5,14 +5,15 @@ import { prisma } from "../../server";
 import path from "path";
 import { DownloadSchedule, Status } from "@prisma/client";
 import { DownloadParams, JobDetail } from "../../types/sharedTypes";
-import { transformDownloadSchedule } from "./download.DTO";
-import { categoryService } from "../category";
-import { channelService } from "../channel";
-import { videoService } from "../video";
+import { DownloadScheduleDTO, transformDownloadSchedule } from "./download.DTO";
 import { spawn } from "child_process";
 import { platform } from "os";
 import fs from "fs/promises";
 import { YtdlExecFunction, create as createYoutubeDl } from "youtube-dl-exec";
+import { channelFeature } from "../channel";
+import { videoFeature } from "../video";
+import { categoryFeature } from "../category";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 let youtubedl: {
@@ -33,12 +34,6 @@ const getYoutubeDlBinary = () => {
     } else {
         throw new Error("Unsupported OS platform.");
     }
-};
-
-// TODO
-export const planningRecord = async (userId: string) => {
-    const channel = await channelService.getChannelDetailDB(userId);
-    return "Successful registration planning";
 };
 
 export const getAllTagsFromStream = async (streamId: string) => {
@@ -130,13 +125,13 @@ const selectBestResolution = async (preferredResolution: Resolution, url: string
 
 async function deleteFile(filePath: string): Promise<void> {
     try {
-        await fs.access(filePath);
         await fs.unlink(filePath);
     } catch (error) {
-        if (error.code === "ENOENT") {
+        const e = error as NodeJS.ErrnoException;
+        if (e.code === "ENOENT") {
             throw new Error(`File not found at ${filePath}`);
         } else {
-            throw new Error(`Error deleting file at ${filePath}: ${error.message}`);
+            throw new Error(`Error deleting file at ${filePath}: ${e.message}`);
         }
     }
 }
@@ -153,7 +148,7 @@ async function runYoutubeDL(
             fixup: "never",
         });
 
-        subprocess.stderr.on("data", (chunk) => {
+        subprocess.stderr?.on("data", (chunk) => {
             const message = chunk.toString();
             if (message.includes("frame") && message.includes("fps")) {
                 logger.info(message);
@@ -221,6 +216,7 @@ const proceedWithDownload = async (
     } catch (error) {
         await deleteFile(tmpVideoFilePath);
         if (
+            error instanceof Error &&
             error.message !== `youtube-dl process (for broadcasterLogin: ${broadcasterLogin}) exited with code 0`
         ) {
             await deleteFile(videoFilePath);
@@ -236,10 +232,10 @@ export const startDownload = async ({
     stream,
     videoQuality,
 }: DownloadParams) => {
-    const videoFilePath = videoService.getVideoFilePath(channel.broadcasterLogin);
-    const cookiesFilePath = path.resolve(process.env.DATA_DIR, "cookies.txt");
+    const videoFilePath = videoFeature.getVideoFilePath(channel.broadcasterLogin);
+    // const cookiesFilePath = path.resolve(process.env.DATA_DIR, "cookies.txt");
     const filename = path.basename(videoFilePath);
-    await videoService.saveVideoInfo({
+    await videoFeature.saveVideoInfo({
         userRequesting: requestingUserId,
         channel: channel,
         videoName: filename,
@@ -249,7 +245,7 @@ export const startDownload = async ({
         stream: stream,
         videoQuality: videoQuality,
     });
-    const resolution = videoService.mapQualityToVideoQuality(videoQuality);
+    const resolution = videoFeature.mapQualityToVideoQuality(videoQuality);
     const aRate = 48000;
     const tmpVideoFilePath = videoFilePath.replace(".mp4", "_tmp.mp4");
     try {
@@ -272,29 +268,39 @@ export const startDownload = async ({
     }
 };
 
+// TODO: make it better
 export const completeVideoProcessing = async (videoPath: string, filename: string, login: string) => {
     const endAt = new Date();
     let duration, thumbnailPath, size;
     try {
-        duration = await videoService.getVideoDuration(videoPath);
+        duration = await videoFeature.getVideoDuration(videoPath);
     } catch (error) {
         logger.error("Error getting video duration: %s", error);
     }
 
     try {
-        thumbnailPath = await videoService.generateSingleThumbnail(videoPath, filename, login);
+        thumbnailPath = await videoFeature.generateSingleThumbnail(videoPath, filename, login);
     } catch (error) {
         logger.error("Error generating thumbnail: %s", error);
     }
 
     try {
-        size = await videoService.getVideoSize(videoPath);
+        size = await videoFeature.getVideoSize(videoPath);
     } catch (error) {
         logger.error("Error getting video size: %s", error);
     }
 
     try {
-        await videoService.updateVideoData(filename, endAt, thumbnailPath, size, duration);
+        if (!thumbnailPath || thumbnailPath === undefined) {
+            thumbnailPath = "";
+        }
+        if (!size || size === undefined) {
+            size = 0;
+        }
+        if (!duration || duration === undefined) {
+            duration = 0;
+        }
+        await videoFeature.updateVideoData(filename, endAt, thumbnailPath, size, duration);
     } catch (error) {
         logger.error("Error updating video data: %s", error);
     }
@@ -377,7 +383,7 @@ export const updateVideoCollection = async (user_id: string) => {
     return;
 };
 
-export const addSchedule = async (newSchedule, userId) => {
+export const addSchedule = async (newSchedule: DownloadScheduleDTO, userId: string) => {
     try {
         const transformedScheduleData = await transformDownloadSchedule(newSchedule, userId);
         const createdDownloadSchedule = await prisma.downloadSchedule.create({
@@ -385,21 +391,23 @@ export const addSchedule = async (newSchedule, userId) => {
         });
 
         if (transformedScheduleData.tags.length > 0) {
-            await tagService.addAllDownloadScheduleTags(
+            await tagService.createAllDownloadScheduleTags(
                 transformedScheduleData.tags.map((tag) => ({ tagId: tag.name })),
                 createdDownloadSchedule.id
             );
         }
 
         if (transformedScheduleData.category) {
-            await categoryService.addDownloadScheduleCategory(
+            await categoryFeature.createDownloadScheduleCategory(
                 createdDownloadSchedule.id,
                 transformedScheduleData.category.id
             );
         }
     } catch (error) {
-        if (error.code === "P2002") {
-            throw new Error("User is already assigned to this broadcaster ID");
+        if (error instanceof PrismaClientKnownRequestError) {
+            if (error.code === "P2002") {
+                throw new Error("User is already assigned to this broadcaster ID");
+            }
         }
         throw error;
     }
@@ -434,10 +442,10 @@ export const handleDownload = async (
     }
 };
 
-const getScheduleDetail = async (schedule, broadcaster_id: string) => {
+const getScheduleDetail = async (schedule: any, broadcaster_id: string) => {
     // TODO: A modifier
     const loginId = schedule.requested_by;
-    const user = await channelService.getChannelDetailDB(broadcaster_id);
+    const user = await channelFeature.getChannel(broadcaster_id);
     const jobId = jobService.createJobId();
     const quality = VideoQuality[schedule.quality as keyof typeof VideoQuality] || VideoQuality.MEDIUM;
     return { loginId, user, jobId, quality };

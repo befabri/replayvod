@@ -1,14 +1,16 @@
-import { v4 as uuidv4 } from "uuid";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
-import { webhookService } from ".";
-import { channelService } from "../channel";
-import { twitchService } from "../twitch";
 import { WebhookEvent } from "@prisma/client";
+import { webhookFeature } from ".";
+import { twitchFeature } from "../twitch";
+import { channelFeature } from "../channel";
+import { cacheService } from "../../services";
+import { STREAM_OFFLINE, STREAM_ONLINE } from "../../constants/twitchConstants";
+import { userFeature } from "../user";
 const logger = rootLogger.child({ domain: "webhook", service: "eventSubService" });
 
 export const subToAllChannelFollowed = async () => {
-    const broadcasterIds = await channelService.getBroadcasterIds();
+    const broadcasterIds = await userFeature.getFollowedChannelBroadcasterIds();
     let responses = [];
     for (const broadcasterId of broadcasterIds) {
         try {
@@ -16,7 +18,11 @@ export const subToAllChannelFollowed = async () => {
             const respOffline = await subscribeToStreamOffline(broadcasterId);
             responses.push({ channel: broadcasterId, online: respOnline, offline: respOffline });
         } catch (error) {
-            responses.push({ channel: broadcasterId, error: error.message });
+            if (error instanceof Error) {
+                responses.push({ channel: broadcasterId, error: error.message });
+            } else {
+                responses.push({ channel: broadcasterId, error: error });
+            }
         }
     }
     for (const resp of responses) {
@@ -31,76 +37,73 @@ export const subToAllChannelFollowed = async () => {
 };
 
 export const subscribeToStreamOnline = async (userId: string) => {
-    return await twitchService.createEventSub(
-        "stream.online",
+    return await twitchFeature.createEventSub(
+        STREAM_ONLINE,
         "1",
         { broadcaster_user_id: userId },
         {
             method: "webhook",
-            callback: webhookService.getCallbackUrlWebhook(),
-            secret: webhookService.getSecret(),
+            callback: webhookFeature.getCallbackUrlWebhook(),
+            secret: webhookFeature.getSecret(),
         }
     );
 };
 
 export const subscribeToStreamOffline = async (userId: string) => {
-    return await twitchService.createEventSub(
-        "stream.offline",
+    return await twitchFeature.createEventSub(
+        STREAM_OFFLINE,
         "1",
         { broadcaster_user_id: userId },
         {
             method: "webhook",
-            callback: webhookService.getCallbackUrlWebhook(),
-            secret: webhookService.getSecret(),
+            callback: webhookFeature.getCallbackUrlWebhook(),
+            secret: webhookFeature.getSecret(),
         }
     );
 };
 
-export const getEventSub = async (userId: string) => {
-    const FIVE_MINUTES = 5 * 60 * 1000;
-
-    const fetchLog = await prisma.fetchLog.findFirst({
-        where: {
-            userId: userId,
-            fetchType: "eventSub",
-        },
-        orderBy: {
-            fetchedAt: "desc",
-        },
+export const getEventSubLastFetch = async (userId: string) => {
+    const fetchLog = await cacheService.getLastFetch({
+        fetchType: cacheService.cacheType.EVENT_SUB,
+        userId: userId,
     });
 
-    if (fetchLog && fetchLog.fetchedAt > new Date(Date.now() - FIVE_MINUTES)) {
+    if (fetchLog && cacheService.isCacheExpire(fetchLog.fetchedAt)) {
         return prisma.eventSub.findMany({
             where: {
-                fetchId: fetchLog.fetchId,
+                fetchId: fetchLog.id,
             },
         });
     }
+    return null;
+};
 
-    const fetchId = uuidv4();
-    const { subscriptions } = await twitchService.getEventSub();
+export const getEventSub = async (userId: string) => {
+    const lastEventSubFetch = await getEventSubLastFetch(userId);
+    if (lastEventSubFetch) {
+        return lastEventSubFetch;
+    }
+    const eventSub = await twitchFeature.getEventSub();
 
-    await prisma.fetchLog.create({
-        data: {
-            userId: userId,
-            fetchedAt: new Date(),
-            fetchId: fetchId,
-            fetchType: "eventSub",
-        },
+    // TODO: VERIFY parent
+    if (!eventSub) {
+        return { data: null, message: "Failed to get EventSub from Twitch" };
+    }
+    const newFetchLog = await cacheService.createFetch({
+        fetchType: cacheService.cacheType.EVENT_SUB,
+        userId: userId,
     });
-
     const createdEventSub = await prisma.eventSub.create({
         data: {
             userId: userId,
-            fetchId: fetchId,
+            fetchId: newFetchLog.id,
         },
     });
-
-    const processPromises = subscriptions.map(async (sub) => {
-        const broadcasterExists = await channelService.channelExists(sub.broadcasterId);
+    const processPromises = eventSub.subscriptions.map(async (sub) => {
+        const broadcasterExists = await channelFeature.channelExists(sub.broadcasterId);
         if (!broadcasterExists) {
             logger.error(`Broadcaster with ID ${sub.broadcasterId} does not exist in the database.`);
-            await channelService.updateChannelDetail(sub.broadcasterId);
+            await channelFeature.updateChannel(sub.broadcasterId);
         }
 
         await prisma.$transaction([
@@ -141,22 +144,26 @@ export const getEventSub = async (userId: string) => {
         }
     }
 
-    return { data: subscriptions, message: "EventSub subscriptions stored successfully." };
+    return { data: eventSub.subscriptions, message: "EventSub subscriptions stored successfully." };
 };
 
 export const getTotalCost = async () => {
-    const { meta } = await twitchService.getEventSub();
-    if (meta && meta.total === 0) {
-        return { data: null, message: "There is no EventSub subscription" };
+    const eventSubResult = await twitchFeature.getEventSub();
+    if (eventSubResult && "meta" in eventSubResult) {
+        const { meta } = eventSubResult;
+        if (meta.total === 0) {
+            return { data: null, message: "There is no EventSub subscription" };
+        }
+        return {
+            data: {
+                total: meta.total,
+                total_cost: meta.total_cost,
+                max_total_cost: meta.max_total_cost,
+            },
+            message: "Total cost retrieved successfully",
+        };
     }
-    return {
-        data: {
-            total: meta.total,
-            total_cost: meta.total_cost,
-            max_total_cost: meta.max_total_cost,
-        },
-        message: "Total cost retrieved successfully",
-    };
+    return { data: null, message: "Failed to retrieve EventSub information" };
 };
 
 export const addWebhookEvent = async (event: Omit<WebhookEvent, "id">) => {

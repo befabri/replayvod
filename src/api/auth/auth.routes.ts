@@ -3,10 +3,6 @@ import { authHandler } from ".";
 import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
-    // fastify.get("/twitch", {
-    //     handler: handleTwitchAuth,
-    // });
-
     fastify.get("/twitch/callback", {
         handler: (req, reply) => authHandler.handleTwitchCallback(fastify, req, reply),
     });
@@ -23,7 +19,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         handler: authHandler.refreshToken,
     });
 
-    fastify.get("/signout", {
+    fastify.post("/signout", {
         preHandler: [isUserWhitelisted, userAuthenticated],
         handler: authHandler.signOut,
     });

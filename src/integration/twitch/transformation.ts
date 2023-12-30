@@ -8,10 +8,7 @@ import {
     EventSubResponse as TwitchEventSubResponse,
     EventSubMeta,
 } from "../../models/twitchModel";
-import { tagService, titleService } from "../../services";
 import { logger as rootLogger } from "../../app";
-import { categoryService } from "../../api/category";
-import { channelService } from "../../api/channel";
 
 const logger = rootLogger.child({ domain: "twitch", service: "transformUtils" });
 
@@ -42,20 +39,12 @@ export const transformFollowedChannel = async (
         followed: true,
         followedAt: new Date(channel.followed_at),
     };
-    try {
-        if (!(await channelService.channelExists(channel.broadcaster_id))) {
-            await channelService.updateChannelDetail(channel.broadcaster_id);
-        }
-    } catch (error) {
-        logger.error(`Error transforming followed channel: ${error.message}`);
-        throw error;
-    }
     return transformedChannel;
 };
 
 export const transformStream = async (
     stream: TwitchStream
-): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Title }> => {
+): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> }> => {
     const transformedStream = {
         id: stream.id,
         fetchId: "",
@@ -67,42 +56,16 @@ export const transformStream = async (
         broadcasterId: stream.user_id,
         viewerCount: stream.viewer_count,
     };
-    const tagsToReturn: Tag[] = [];
-    let categoryToReturn: Category = null;
-    let titleToReturn = null;
-    try {
-        if (stream.tags && stream.tags.length > 0) {
-            const addedTags = await tagService.addAllTags(stream.tags.map((tagName) => ({ name: tagName })));
-            tagsToReturn.push(...addedTags);
-        }
-        if (stream.game_id && !(await categoryService.categoryExist(stream.game_id))) {
-            const category = {
-                id: stream.game_id,
-                name: stream.game_name,
-                boxArtUrl: "",
-                igdbId: "",
-            };
-            categoryToReturn = await categoryService.createCategory(category);
-        }
-        if (stream.title) {
-            const title = {
-                name: stream.title,
-            };
-            titleToReturn = await titleService.addTitle(title);
-        }
-        if (!(await channelService.channelExists(stream.user_id))) {
-            await channelService.updateChannelDetail(stream.user_id);
-        }
-    } catch (error) {
-        logger.error(`Error transforming stream: ${error.message}`);
-        throw error;
-    }
-
+    const transformedCategory = { id: stream.game_id, name: stream.game_name, boxArtUrl: "", igdbId: "" };
+    const transformedTitle = {
+        name: stream.title,
+    };
+    const transformedTags = stream.tags.map((tagName) => ({ name: tagName }));
     return {
         stream: transformedStream,
-        tags: tagsToReturn,
-        category: categoryToReturn,
-        title: titleToReturn,
+        tags: transformedTags,
+        category: transformedCategory,
+        title: transformedTitle,
     };
 };
 
@@ -121,7 +84,7 @@ export const transformEventSub = (eventSub: TwitchEventSubData): Subscription =>
         id: eventSub.id,
         status: eventSub.status,
         subscriptionType: eventSub.type,
-        broadcasterId: userId,
+        broadcasterId: userId || "",
         createdAt: new Date(eventSub.created_at),
         cost: eventSub.cost,
     };

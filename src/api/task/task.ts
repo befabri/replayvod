@@ -1,8 +1,8 @@
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
-import { categoryService } from "../category";
-import { videoService } from "../video";
-import { eventSubService } from "../webhook";
+import { categoryFeature } from "../category";
+import { videoFeature } from "../video";
+import { eventSubFeature } from "../webhook";
 const logger = rootLogger.child({ domain: "task", service: "taskService" });
 
 export const getTask = async (id: string) => {
@@ -14,10 +14,10 @@ export const getAllTasks = async () => {
 };
 
 const taskRunners: { [taskType: string]: (taskMetadata?: any) => Promise<any> } = {
-    generateMissingThumbnail: (taskMetadata?: any) => videoService.generateMissingThumbnailsAndUpdate(),
-    fixMalformedVideos: (taskMetadata?: any) => videoService.fixMalformedVideos(),
-    subToAllStreamEventFollowed: (taskMetadata?: any) => eventSubService.subToAllChannelFollowed(),
-    updateMissingBoxArtUrls: (taskMetadata?: any) => categoryService.updateMissingBoxArtUrls(),
+    generateMissingThumbnail: (taskMetadata?: any) => videoFeature.generateMissingThumbnailsAndUpdate(),
+    fixMalformedVideos: (taskMetadata?: any) => videoFeature.fixMalformedVideos(),
+    subToAllStreamEventFollowed: (taskMetadata?: any) => eventSubFeature.subToAllChannelFollowed(),
+    updateMissingBoxArtUrls: (taskMetadata?: any) => categoryFeature.updateMissingBoxArtUrls(),
 };
 
 export const runTask = async (id: string) => {

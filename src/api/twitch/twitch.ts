@@ -17,6 +17,7 @@ import {
     transformTwitchUser,
 } from "../../integration/twitch/transformation";
 import { EventSubMeta } from "../../models/twitchModel";
+import { StreamStatus } from "../../models/streamMode";
 
 const logger = rootLogger.child({ domain: "twitch", service: "twitchService" });
 const twitchAPI = new TwitchAPI();
@@ -36,7 +37,7 @@ export const getUser = async (userId: string): Promise<Channel | null> => {
 
 export const getUserByLogin = async (login: string): Promise<Channel | null> => {
     try {
-        const fetchedUser = await twitchAPI.getUserByLogin(login);
+        const fetchedUser = await twitchAPI.getUserByLogin(login.toLowerCase());
         if (!fetchedUser || !isValidUser(fetchedUser)) {
             logger.error("Received invalid user data from Twitch API: %s", fetchedUser);
             return null;
@@ -86,17 +87,14 @@ export const getAllFollowedStreams = async (
     userId: string,
     accessToken: string,
     cursor?: string
-): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Title }[] | null> => {
+): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> }[] | null> => {
     try {
         const followedStreams = await twitchAPI.getAllFollowedStreams(userId, accessToken, cursor);
-
         if (!followedStreams || followedStreams.some((stream) => !isValidStream(stream))) {
             logger.error("Received invalid stream data from Twitch API: %s", followedStreams);
             return null;
         }
-
         const transformationResults = await Promise.all(followedStreams.map((stream) => transformStream(stream)));
-
         return transformationResults;
     } catch (error) {
         logger.error("Error fetching followed streams: %s", error);
@@ -106,18 +104,19 @@ export const getAllFollowedStreams = async (
 
 export const getStreamByUserId = async (
     userId: string
-): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Title } | "offline" | null> => {
+): Promise<
+    { stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> } | StreamStatus.OFFLINE | null
+> => {
     try {
         const fetchedStream = await twitchAPI.getStreamByUserId(userId);
         if (!fetchedStream) {
-            return "offline";
+            return StreamStatus.OFFLINE;
         }
         if (!isValidStream(fetchedStream)) {
             logger.error("Received invalid stream data from Twitch API: %s", fetchedStream);
             return null;
         }
-        const transformedStreams = transformStream(fetchedStream);
-        return transformedStreams;
+        return transformStream(fetchedStream);
     } catch (error) {
         logger.error("Error fetching stream by user ID: %s", error);
         throw error;

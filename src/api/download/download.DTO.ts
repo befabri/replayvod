@@ -1,9 +1,9 @@
 import { Quality, Category, Tag } from ".prisma/client";
 import { tagService } from "../../services";
 import { logger as rootLogger } from "../../app";
-import { categoryService } from "../category";
-import { channelService } from "../channel";
-import { videoService } from "../video";
+import { channelFeature } from "../channel";
+import { videoFeature } from "../video";
+import { categoryFeature } from "../category";
 
 const logger = rootLogger.child({ domain: "download", service: "transformUtils" });
 
@@ -24,7 +24,7 @@ export interface DownloadScheduleDTO {
 type DownloadScheduleWithoutID = {
     broadcasterId: string;
     quality: Quality;
-    viewersCount?: number;
+    viewersCount?: number | null;
     isDeleteRediff: boolean;
     timeBeforeDelete?: number;
     requestedBy: string;
@@ -36,38 +36,50 @@ const splitByTag = (str: string): string[] => {
 
 const getTags = async (tagsStr: string): Promise<Tag[]> => {
     const tags = splitByTag(tagsStr);
-    return await tagService.addAllTags(tags.map((tag) => ({ name: tag })));
+    return await tagService.createMultipleTags(tags.map((tag) => ({ name: tag })));
 };
 
+// TODO verify
 export const transformDownloadSchedule = async (
     schedule: DownloadScheduleDTO,
     userId: string
 ): Promise<{ downloadSchedule: DownloadScheduleWithoutID; tags: Tag[]; category: Category }> => {
     try {
-        const broadcasterId = await channelService.getChannelBroadcasterIdByName(schedule.channelName);
-        if (!broadcasterId) {
+        const channel = await channelFeature.getChannelByName(schedule.channelName);
+        if (!channel) {
             throw new Error("ChannelName doesn't exist");
         }
         const transformedDownloadSchedule = {
-            broadcasterId,
-            quality: videoService.mapVideoQualityToQuality(schedule.quality),
+            broadcasterId: channel.broadcasterId,
+            quality: videoFeature.mapVideoQualityToQuality(schedule.quality),
             isDeleteRediff: schedule.isDeleteRediff,
             requestedBy: userId,
-            ...(schedule.isDeleteRediff ? { timeBeforeDelete: schedule.timeBeforeDelete } : {}),
-            ...(schedule.hasMinView ? { viewersCount: schedule.viewersCount } : {}),
+            ...(schedule.isDeleteRediff && schedule.timeBeforeDelete != null
+                ? { timeBeforeDelete: schedule.timeBeforeDelete }
+                : {}),
+            ...(schedule.hasMinView ? { viewersCount: schedule.viewersCount ?? undefined } : {}),
         };
         const tags = schedule.hasTags && schedule.tag ? await getTags(schedule.tag) : [];
-        const category =
-            schedule.hasCategory && schedule.category
-                ? await categoryService.getCategoryByName(schedule.category)
-                : null;
+        let category;
+        if (schedule.hasCategory && schedule.category) {
+            category = await categoryFeature.getCategoryByName(schedule.category);
+            if (!category) {
+                throw new Error("Category doesn't exist");
+            }
+        } else {
+            throw new Error("Category information is missing or incomplete");
+        }
         return {
             downloadSchedule: transformedDownloadSchedule,
             tags,
             category,
         };
     } catch (error) {
-        logger.error(`Error transforming downloadSchedule: ${error.message}`);
+        if (error instanceof Error) {
+            logger.error(`Error transforming downloadSchedule: ${error.message}`);
+        } else {
+            logger.error(`Error transforming downloadSchedule`);
+        }
         throw error;
     }
 };

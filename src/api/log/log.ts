@@ -1,4 +1,3 @@
-import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 
 export const getLog = async (id: number) => {

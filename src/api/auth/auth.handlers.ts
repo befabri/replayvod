@@ -1,14 +1,17 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
 import { logger as rootLogger } from "../../app";
+import { userFeature } from "../user";
+import { TwitchTokenResponse, TwitchUserData, UserSession } from "../../models/userModel";
 const logger = rootLogger.child({ domain: "auth", service: "authHandler" });
-import { userService } from "../user";
 
 const REACT_URL = process.env.REACT_URL || "/";
 const WHITELISTED_USER_IDS: string[] = process.env.WHITELISTED_USER_IDS?.split(",") || [];
 const IS_WHITELIST_ENABLED: boolean = process.env.IS_WHITELIST_ENABLED?.toLowerCase() === "true";
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || "1"; // TODO
+const TWITCH_SECRET = process.env.TWITCH_SECRET || "1"; // TODO
 
-async function fetchTwitchUserData(accessToken: string) {
+async function fetchTwitchUserData(accessToken: string): Promise<TwitchUserData> {
     const headers = {
         "Client-ID": process.env.TWITCH_CLIENT_ID,
         Authorization: `Bearer ${accessToken}`,
@@ -37,30 +40,67 @@ export async function handleTwitchCallback(
         if (IS_WHITELIST_ENABLED && (!userData.id || !WHITELISTED_USER_IDS.includes(userData.id))) {
             logger.error(`User try to connect but are not whitelisted: %s`, userData.id);
             reply.redirect(REACT_URL);
+            return;
         }
-        req.session.set("user", {
-            ...token,
+        const userSessionData: UserSession = {
+            twitchToken: {
+                access_token: token.access_token,
+                expires_in: token.expires_in,
+                refresh_token: token.refresh_token,
+                token_type: token.token_type,
+                expires_at: token.expires_at,
+            },
             twitchUserID: userData.id,
             twitchUserData: userData,
-        });
-        await userService.updateUserDetail(userData);
+        };
+        req.session.set("user", userSessionData);
+        await userFeature.updateUserDetail(userData);
         reply.redirect(REACT_URL);
+        await initUser(userData.id, token.access_token);
     } catch (err) {
         reply.code(500).send({ error: "Failed to authenticate with Twitch." });
     }
 }
 
+async function initUser(userId: string, accessToken: string) {
+    try {
+        await userFeature.getUserFollowedChannels(userId, accessToken);
+        await userFeature.getUserFollowedStreams(userId, accessToken);
+    } catch (err) {
+        logger.error(`Error in initUser`);
+    }
+}
+
+function isExpiredToken(expiresAtString: Date): boolean {
+    const expiresAt = new Date(expiresAtString);
+    const margin = 20 * 60 * 1000;
+    const expirationWithMargin = new Date(expiresAt.getTime() - margin);
+    const now = new Date();
+    return expirationWithMargin <= now;
+}
+
 export async function checkSession(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
-        if (req.session?.user) {
+        const userSession = req.session?.user as UserSession | undefined;
+        if (userSession && userSession.twitchToken.refresh_token) {
             logger.info(`User authenticated: ${req.session.user.twitchUserID}`);
+            if (isExpiredToken(userSession.twitchToken.expires_at)) {
+                const refreshToken = userSession.twitchToken.refresh_token;
+                const result = await fetchRefreshToken(refreshToken, TWITCH_CLIENT_ID, TWITCH_SECRET);
+                if (!result) {
+                    logger.error("Failed to refresh token");
+                } else {
+                    req.session.user.twitchToken = { ...req.session.user.twitchToken, ...result };
+                    logger.info("Token refreshed");
+                }
+            }
             reply.status(200).send({
                 status: "authenticated",
                 user: {
-                    id: req.session.user.twitchUserID,
-                    login: req.session.user.twitchUserData.login,
-                    display_name: req.session.user.twitchUserData.display_name,
-                    profile_image: req.session.user.twitchUserData.profile_image_url,
+                    id: userSession.twitchUserID,
+                    login: userSession.twitchUserData.login,
+                    display_name: userSession.twitchUserData.display_name,
+                    profile_image: userSession.twitchUserData.profile_image_url,
                 },
             });
         } else {
@@ -68,7 +108,7 @@ export async function checkSession(req: FastifyRequest, reply: FastifyReply): Pr
             reply.status(401).send({ status: "not authenticated" });
         }
     } catch (error) {
-        logger.error(`Error in checkSession: ${error.message}`);
+        logger.error(`Error in checkSession %s`, error);
         reply.status(500).send({ status: "error", message: "Internal Server Error" });
     }
 }
@@ -94,36 +134,49 @@ export async function getUser(req: FastifyRequest, reply: FastifyReply): Promise
 
 export async function refreshToken(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     logger.info(`Refreshing token...`);
-    if (req.session?.user?.refreshToken) {
-        const refreshToken = req.session.user.refreshToken;
-        const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
-        const TWITCH_SECRET = process.env.TWITCH_SECRET;
-
-        try {
-            const response = await axios({
-                method: "post",
-                url: "https://id.twitch.tv/oauth2/token",
-                params: {
-                    grant_type: "refresh_token",
-                    refresh_token: refreshToken,
-                    client_id: TWITCH_CLIENT_ID,
-                    client_secret: TWITCH_SECRET,
-                },
-            });
-
-            if (response.status === 200) {
-                req.session.user.accessToken = response.data.access_token;
-                req.session.user.refreshToken = response.data.refresh_token;
-
-                reply.status(200).send({ status: "Token refreshed" });
-            } else {
-                reply.status(500).send({ error: "Failed to refresh token" });
-            }
-        } catch (error) {
-            logger.error(`Failed to refresh token: ${error}`);
+    const userSession = req.session?.user as UserSession | undefined;
+    if (userSession && userSession.twitchToken.refresh_token) {
+        const refreshToken = userSession.twitchToken.refresh_token;
+        const result = await fetchRefreshToken(refreshToken, TWITCH_CLIENT_ID, TWITCH_SECRET);
+        if (!result) {
             reply.status(500).send({ error: "Failed to refresh token" });
+            return;
         }
+        req.session.user.twitchToken = { ...req.session.user.twitchToken, ...result };
+        reply.status(200).send({ status: "Token refreshed" });
+        return;
     } else {
         reply.status(401).send({ error: "Unauthorized" });
+    }
+}
+
+export async function fetchRefreshToken(
+    refreshToken: string,
+    clientId: string,
+    twitchSecret: string
+): Promise<TwitchTokenResponse | null> {
+    try {
+        const response = await axios({
+            method: "post",
+            url: "https://id.twitch.tv/oauth2/token",
+            params: {
+                grant_type: "refresh_token",
+                refresh_token: refreshToken,
+                client_id: clientId,
+                client_secret: twitchSecret,
+            },
+        });
+
+        if (response.status === 200) {
+            console.log(response.data);
+            console.log(response.data.data);
+            return response.data;
+        } else {
+            logger.error(`Failed to refresh token, response from Twitch API not 200`);
+            return null;
+        }
+    } catch (error) {
+        logger.error(`Failed to refresh token: ${error}`);
+        return null;
     }
 }

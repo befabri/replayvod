@@ -14,7 +14,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
             },
         },
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: channelHandler.getChannelDetail,
+        handler: channelHandler.getChannel,
     });
 
     fastify.put("/:id", {
@@ -28,7 +28,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
             },
         },
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: channelHandler.updateChannelDetail,
+        handler: channelHandler.updateChannel,
     });
 
     fastify.get("/", {
@@ -38,21 +38,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
             },
         },
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: channelHandler.getMultipleUserDetailsFromDB,
-    });
-
-    fastify.post("/", {
-        schema: {
-            body: {
-                type: "object",
-                properties: {
-                    userIds: { type: "array", items: { type: "string" } },
-                },
-                required: ["userIds"],
-            },
-        },
-        preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: channelHandler.fetchAndStoreChannelDetails,
+        handler: channelHandler.getMultipleChannelDB,
     });
 
     fastify.get("/name/:name", {
@@ -66,7 +52,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
             },
         },
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: channelHandler.getChannelDetailByName,
+        handler: channelHandler.getChannelByName,
     });
 
     done();

@@ -1,15 +1,18 @@
 import fs from "fs";
 import path from "path";
-import ffmpeg from "fluent-ffmpeg";
-import { Channel, Quality, Status, Video } from "@prisma/client";
+import ffmpeg, { FfprobeFormat } from "fluent-ffmpeg";
+import { Category, Channel, Quality, Status, Stream, Tag, Title, Video } from "@prisma/client";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { Resolution, VideoQuality } from "../../models/downloadModel";
 import { tagService, titleService } from "../../services";
 import moment from "moment";
 import { StreamWithRelations } from "../../types/sharedTypes";
-import { categoryService } from "../category";
+import { categoryFeature } from "../category";
 const logger = rootLogger.child({ domain: "video", service: "videoService" });
+
+const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
+const PUBLIC_DIR = process.env.PUBLIC_DIR || VIDEO_PATH;
 
 export const getVideoById = async (id: number): Promise<Video | null> => {
     const video = await prisma.video.findUnique({
@@ -131,12 +134,7 @@ export const mapQualityToVideoQuality = (quality: Quality): Resolution => {
 };
 
 export const updateVideoSize = async (video: Video) => {
-    const filePath = path.resolve(
-        process.env.PUBLIC_DIR,
-        "videos",
-        video.displayName.toLowerCase(),
-        video.filename
-    );
+    const filePath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
     if (fs.existsSync(filePath)) {
         const stat = fs.statSync(filePath);
         const fileSizeInBytes = stat.size;
@@ -177,9 +175,9 @@ export const generateThumbnail = (videoPath: string, thumbnailPath: string, time
 };
 
 export const generateSingleThumbnail = async (videoPath: string, videoName: string, login: string) => {
-    const duration = await getVideoDuration(videoPath);
+    const duration = await getVideoDuration(videoPath); // TODO when is 0
     const thumbnailName = videoName.replace(".mp4", ".jpg");
-    const directoryPath = path.resolve(process.env.PUBLIC_DIR, "thumbnail", login);
+    const directoryPath = path.resolve(PUBLIC_DIR, "thumbnail", login);
     if (!fs.existsSync(directoryPath)) {
         fs.mkdirSync(directoryPath, { recursive: true });
     }
@@ -191,10 +189,12 @@ export const generateSingleThumbnail = async (videoPath: string, videoName: stri
             await generateThumbnail(videoPath, thumbnailPath, secondsToTimestamp(timestamp));
             return getRelativePath(thumbnailPath);
         } catch (error) {
-            if (error.message === "Image is a single color") {
-                timestamp += 60;
-                if (timestamp >= duration) {
-                    timestamp -= duration - 3;
+            if (error instanceof Error) {
+                if (error.message === "Image is a single color") {
+                    timestamp += 60;
+                    if (timestamp >= duration) {
+                        timestamp -= duration - 3;
+                    }
                 }
             } else {
                 logger.error(`Error generating thumbnail: ${error}`);
@@ -202,7 +202,6 @@ export const generateSingleThumbnail = async (videoPath: string, videoName: stri
             }
         }
     }
-
     return null;
 };
 
@@ -216,17 +215,12 @@ export const generateMissingThumbnailsAndUpdate = async () => {
         });
         const promises = videos.map(async (video) => {
             const thumbnailPath = path.resolve(
-                process.env.PUBLIC_DIR,
+                PUBLIC_DIR,
                 "thumbnail",
                 video.displayName.toLowerCase(),
                 video.filename.replace(".mp4", ".jpg")
             );
-            const videoPath = path.resolve(
-                process.env.PUBLIC_DIR,
-                "videos",
-                video.displayName.toLowerCase(),
-                video.filename
-            );
+            const videoPath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
             const duration = await getVideoDuration(videoPath);
             if (!fs.existsSync(path.dirname(thumbnailPath))) {
                 fs.mkdirSync(path.dirname(thumbnailPath), { recursive: true });
@@ -249,13 +243,15 @@ export const generateMissingThumbnailsAndUpdate = async () => {
 
                     break;
                 } catch (error) {
-                    if (error.message === "Image is a single color") {
-                        timestamp += 60;
-                        if (timestamp >= duration) {
-                            timestamp -= duration - 3;
+                    if (error instanceof Error) {
+                        if (error.message === "Image is a single color") {
+                            timestamp += 60;
+                            if (timestamp >= duration) {
+                                timestamp -= duration - 3;
+                            }
                         }
                     } else {
-                        logger.error("Error generating thumbnail or updating collection:", error);
+                        logger.error(`Error generating thumbnail or updating collection: ${error}`);
                     }
                 }
             }
@@ -271,14 +267,14 @@ export const generateMissingThumbnailsAndUpdate = async () => {
             },
         });
     } catch (error) {
-        logger.error("Error generating missing thumbnails and updating collection:", error);
+        logger.error(`Error generating missing thumbnails and updating collection: ${error}`);
         return [];
     }
 };
 
-export const isVideoCorrupt = (metadata) => {
-    const videoStream = metadata.streams.find((s) => s.codec_type === "video");
-    const audioStream = metadata.streams.find((s) => s.codec_type === "audio");
+export const isVideoCorrupt = (metadata: ffmpeg.FfprobeFormat) => {
+    const videoStream = metadata.streams.find((s: { codec_type: string }) => s.codec_type === "video");
+    const audioStream = metadata.streams.find((s: { codec_type: string }) => s.codec_type === "audio");
     const duration = metadata.format.duration;
     if (!videoStream || !audioStream) {
         logger.error("Missing video or audio stream");
@@ -296,12 +292,7 @@ export const fixMalformedVideos = async () => {
         where: { status: Status.DONE },
     });
     for (const video of videos) {
-        const videoPath = path.resolve(
-            process.env.PUBLIC_DIR,
-            "videos",
-            video.displayName.toLowerCase(),
-            video.filename
-        );
+        const videoPath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
         if (fs.existsSync(videoPath)) {
             try {
                 logger.info(`Processing video: ${videoPath}`);
@@ -325,7 +316,11 @@ export const fixMalformedVideos = async () => {
                     logger.info(`Video seems fine, no actions taken.`);
                 }
             } catch (error) {
-                logger.error(`Error processing video at path ${videoPath}: ${error.message}`);
+                if (error instanceof Error) {
+                    logger.error(`Error processing video at path ${videoPath}: ${error.message}`);
+                } else {
+                    logger.error(`Error processing video at path ${videoPath}`);
+                }
             }
         } else {
             logger.warn(`Video does not exist at path: ${videoPath}`);
@@ -333,7 +328,7 @@ export const fixMalformedVideos = async () => {
     }
 };
 
-export const getMaxFrames = (videoPath: string): Promise<number> => {
+export const getMaxFrames = (videoPath: string) => {
     return new Promise((resolve, reject) => {
         ffmpeg.ffprobe(videoPath, (err, metadata) => {
             if (err) {
@@ -346,13 +341,13 @@ export const getMaxFrames = (videoPath: string): Promise<number> => {
     });
 };
 
-export const getMetadata = (videoPath) => {
+export const getMetadata = (videoPath: string): Promise<FfprobeFormat> => {
     return new Promise((resolve, reject) => {
         ffmpeg.ffprobe(videoPath, (err, metadata) => {
             if (err) {
                 reject(err);
             } else {
-                resolve(metadata);
+                resolve(metadata as FfprobeFormat);
             }
         });
     });
@@ -389,7 +384,7 @@ export const getVideoDuration = (videoPath: string): Promise<number> => {
                 reject(err);
             } else {
                 const durationInSeconds = metadata.format.duration;
-                resolve(durationInSeconds);
+                resolve(durationInSeconds || 0);
             }
         });
     });
@@ -522,84 +517,53 @@ export const saveVideoInfo = async ({
             },
         });
         for (let title of stream.titles) {
-            await titleService.addVideoTitle(video.id, title.titleId);
+            await titleService.createVideoTitle(video.id, title.titleId);
         }
         for (let category of stream.categories) {
-            await categoryService.addVideoCategory(video.id, category.categoryId);
+            await categoryFeature.createVideoCategory(video.id, category.categoryId);
         }
         for (let tag of stream.tags) {
             await tagService.addVideoTag(video.id, tag.tagId);
         }
     } catch (error) {
-        throw new Error("Error saving video: %s", error);
+        throw new Error(`Error saving video: ${error}`);
     }
 };
 
-const updateVideoTitle = async (videoId, titles) => {
-    // const promises = titles.map((titleData) =>
-    //     prisma.videoTitle.upsert({
-    //         where: {
-    //             videoId_titleId: {
-    //                 videoId: videoId,
-    //                 titleId: titleData.id,
-    //             },
-    //         },
-    //         update: {},
-    //         create: {
-    //             video: {
-    //                 connect: {
-    //                     id: videoId,
-    //                 },
-    //             },
-    //             title: {
-    //                 connect: {
-    //                     id: titleData.id,
-    //                 },
-    //             },
-    //         },
-    //     })
-    // );
-    // try {
-    //     return await Promise.all(promises);
-    // } catch (error) {
-    //     logger.error("Error updating video titles:", error);
-    //     throw error;
-    // }
-};
+// const updateVideoTitle = async (videoId, titles) => {
+//     const promises = titles.map((titleData) =>
+//         prisma.videoTitle.upsert({
+//             where: {
+//                 videoId_titleId: {
+//                     videoId: videoId,
+//                     titleId: titleData.id,
+//                 },
+//             },
+//             update: {},
+//             create: {
+//                 video: {
+//                     connect: {
+//                         id: videoId,
+//                     },
+//                 },
+//                 title: {
+//                     connect: {
+//                         id: titleData.id,
+//                     },
+//                 },
+//             },
+//         })
+//     );
+//     try {
+//         return await Promise.all(promises);
+//     } catch (error) {
+//         logger.error("Error updating video titles:", error);
+//         throw error;
+//     }
+// };
 
-export const createStreamEntry = async (stream, tags, category, title, fetchId: string) => {
-    try {
-        await prisma.stream.upsert({
-            where: { id: stream.id },
-            update: {
-                ...stream,
-                fetchId: fetchId,
-            },
-            create: {
-                ...stream,
-                fetchId: fetchId,
-            },
-        });
-        if (tags.length > 0) {
-            await tagService.addAllStreamTags(
-                tags.map((tag) => ({ tagId: tag.name })),
-                stream.id
-            );
-        }
-        if (category) {
-            await categoryService.addStreamCategory(stream.id, category.id);
-        }
-        if (title) {
-            await titleService.addStreamTitle(stream.id, title.name);
-        }
-    } catch (error) {
-        logger.error(`Error creating stream entry: ${error}`);
-        throw new Error("Error creating stream entry");
-    }
-};
-
-const updateVideoCategory = async (videoId, categories) => {
-    const promises = categories.map((categoryData) =>
+const updateVideoCategory = async (videoId: number, categories: any) => {
+    const promises = categories.map((categoryData: { id: string }) =>
         prisma.videoCategory.upsert({
             where: {
                 videoId_categoryId: {
@@ -631,7 +595,7 @@ const updateVideoCategory = async (videoId, categories) => {
 };
 
 const updateVideoTag = async (videoId: number, tags: any) => {
-    const promises = tags.map((tagData) =>
+    const promises = tags.map((tagData: { name: string }) =>
         prisma.videoTag.upsert({
             where: {
                 videoId_tagId: {
@@ -678,7 +642,7 @@ export const updateVideoInfo = async (videoName: string, endAt: Date, status: St
 export const getVideoFilePath = (login: string) => {
     const currentDate = moment().format("DDMMYYYY-HHmmss");
     const filename = `${login}_${currentDate}.mp4`;
-    const directoryPath = path.resolve(process.env.PUBLIC_DIR, "videos", login);
+    const directoryPath = path.resolve(PUBLIC_DIR, "videos", login);
     if (!fs.existsSync(directoryPath)) {
         fs.mkdirSync(directoryPath, { recursive: true });
     }

@@ -1,8 +1,8 @@
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "channel", service: "categoryService" });
-import { Category } from "@prisma/client";
-import { twitchService } from "../twitch";
+import { Category, PrismaClient, Status } from "@prisma/client";
+import { twitchFeature } from "../twitch";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
@@ -102,7 +102,21 @@ export const getAllVideosCategories = async () => {
     });
 };
 
-export const addVideoCategory = async (videoId: number, categoryId: string) => {
+export const getAllVideosCategoriesByStatus = async (status: Status) => {
+    return await prisma.category.findMany({
+        where: {
+            videoCategory: {
+                some: {
+                    video: {
+                        status: status,
+                    },
+                },
+            },
+        },
+    });
+};
+
+export const createVideoCategory = async (videoId: number, categoryId: string) => {
     try {
         const existingEntry = await prisma.videoCategory.findUnique({
             where: { videoId_categoryId: { videoId: videoId, categoryId: categoryId } },
@@ -124,14 +138,39 @@ export const addVideoCategory = async (videoId: number, categoryId: string) => {
     }
 };
 
-export const addStreamCategory = async (streamId: string, categoryId: string) => {
+export const updateMissingBoxArtUrls = async () => {
     try {
-        const existingEntry = await prisma.streamCategory.findUnique({
+        logger.info("Updating missing box art");
+        const categoriesWithMissingBoxArt = await prisma.category.findMany({
+            where: {
+                boxArtUrl: "",
+            },
+        });
+        for (const category of categoriesWithMissingBoxArt) {
+            const fetchedGame = await twitchFeature.getGameDetail(category.id);
+            await prisma.category.update({
+                where: { id: category.id },
+                data: { boxArtUrl: fetchedGame?.boxArtUrl, igdbId: fetchedGame?.igdbId },
+            });
+        }
+        logger.info("Box Art URLs updated successfully");
+    } catch (error) {
+        logger.error("Error updating categories with box art URLs: %s", error);
+        throw error;
+    }
+};
+
+export const createStreamCategory = async (
+    streamId: string,
+    categoryId: string,
+    prismaInstance: PrismaClient = prisma
+) => {
+    try {
+        const existingEntry = await prismaInstance.streamCategory.findUnique({
             where: { streamId_categoryId: { streamId: streamId, categoryId: categoryId } },
         });
-
         if (!existingEntry) {
-            return await prisma.streamCategory.create({
+            return await prismaInstance.streamCategory.create({
                 data: {
                     streamId: streamId,
                     categoryId: categoryId,
@@ -146,14 +185,13 @@ export const addStreamCategory = async (streamId: string, categoryId: string) =>
     }
 };
 
-export const addDownloadScheduleCategory = async (downloadScheduleId: number, categoryId: string) => {
+export const createDownloadScheduleCategory = async (downloadScheduleId: number, categoryId: string) => {
     try {
         const existingEntry = await prisma.downloadScheduleCategory.findUnique({
             where: {
                 downloadScheduleId_categoryId: { downloadScheduleId: downloadScheduleId, categoryId: categoryId },
             },
         });
-
         if (!existingEntry) {
             return await prisma.downloadScheduleCategory.create({
                 data: {
@@ -165,29 +203,7 @@ export const addDownloadScheduleCategory = async (downloadScheduleId: number, ca
             return existingEntry;
         }
     } catch (error) {
-        logger.error("Error adding/updating downloadScheduleCategory: %s", error);
-        throw error;
-    }
-};
-
-export const updateMissingBoxArtUrls = async () => {
-    try {
-        logger.info("Updating missing box art");
-        const categoriesWithMissingBoxArt = await prisma.category.findMany({
-            where: {
-                boxArtUrl: "",
-            },
-        });
-        for (const category of categoriesWithMissingBoxArt) {
-            const fetchedGame = await twitchService.getGameDetail(category.id);
-            await prisma.category.update({
-                where: { id: category.id },
-                data: { boxArtUrl: fetchedGame?.boxArtUrl, igdbId: fetchedGame?.igdbId },
-            });
-        }
-        logger.info("Box Art URLs updated successfully");
-    } catch (error) {
-        logger.error("Error updating categories with box art URLs: %s", error);
+        logger.error("Error adding downloadScheduleCategory: %s", error);
         throw error;
     }
 };

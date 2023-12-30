@@ -1,4 +1,4 @@
-export * as webhookService from "./webhook";
-export * as eventProcessingService from "./eventProcessingService";
-export * as eventSubService from "./eventSubService";
+export * as webhookFeature from "./webhook";
+export * as eventSubProcessingFeature from "./eventSubProcessing";
+export * as eventSubFeature from "./eventSub";
 export * as webhookHandler from "./webhook.handlers";

@@ -59,7 +59,15 @@ export const isValidEventSubResponse = (data: any): data is EventSubResponse => 
         typeof data.total === "number" &&
         Array.isArray(data.data) &&
         data.data.every(
-            (subData) =>
+            (subData: {
+                id: any;
+                status: any;
+                type: any;
+                version: any;
+                created_at: any;
+                transport: { method: any; callback: any };
+                cost: any;
+            }) =>
                 typeof subData.id === "string" &&
                 typeof subData.status === "string" &&
                 typeof subData.type === "string" &&

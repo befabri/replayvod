@@ -1,8 +1,7 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
 import fs from "fs";
 import path from "path";
-import { EventLog } from "@prisma/client";
-import { logService } from ".";
+import { logFeature } from ".";
 
 let logCache;
 
@@ -12,12 +11,19 @@ interface Params extends RouteGenericInterface {
     };
 }
 
-const logLevels = {
+interface LogEntry {
+    level: number;
+    time: number;
+    domain: string;
+    service: string;
+    msg: string;
+}
+
+const logLevels: { [key: number]: string } = {
     30: "Info",
     50: "Error",
 };
-
-const formatLog = (log) => {
+const formatLog = (log: LogEntry): string => {
     const date = new Date(log.time);
     const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
         date.getDate()
@@ -26,7 +32,7 @@ const formatLog = (log) => {
         "0"
     )}:${String(date.getSeconds()).padStart(2, "0")}.${String(date.getMilliseconds()).charAt(0)}`;
 
-    const levelStr = logLevels[log.level] || "";
+    const levelStr = logLevels[log.level] || "Info";
 
     return `${formattedDate}|${levelStr}|${log.domain}:${log.service}|${log.msg}`;
 };
@@ -49,7 +55,7 @@ export const getLog = async (req: FastifyRequest<Params>, reply: FastifyReply) =
 
 export const getLogs = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
-        const logs = await logService.getAllLogs();
+        const logs = await logFeature.getAllLogs();
         reply.send(logs);
     } catch (error) {
         reply.code(500).send("Internal server error");
@@ -64,7 +70,7 @@ export const getDomain = async (req: FastifyRequest<Params>, reply: FastifyReply
             return reply.code(404).send({ message: `'${req.params.id}' not found` });
         }
 
-        const logDomain: EventLog = await logService.getDomain(logId);
+        const logDomain = await logFeature.getDomain(logId);
 
         if (!logDomain) {
             return reply.code(404).send({ message: `'${req.params.id}' not found` });
@@ -91,7 +97,7 @@ export const getDomain = async (req: FastifyRequest<Params>, reply: FastifyReply
 
 export const getDomains = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
-        const logs = await logService.getAllDomains();
+        const logs = await logFeature.getAllDomains();
         reply.send(logs);
     } catch (error) {
         reply.code(500).send("Internal server error");

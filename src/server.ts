@@ -8,7 +8,7 @@ import routes from "./routes";
 import moment from "moment-timezone";
 import fastifyStatic from "@fastify/static";
 import { isUserWhitelisted, userAuthenticated } from "./middlewares/authMiddleware";
-import { videoService } from "./api/video";
+import { videoFeature } from "./api/video";
 const oauthPlugin = require("@fastify/oauth2");
 const fs = require("fs");
 
@@ -83,7 +83,7 @@ server.register(routes, { prefix: "/api" });
 const start = async () => {
     logger.info("Starting Fastify server...");
     try {
-        await videoService.setVideoFailed();
+        await videoFeature.setVideoFailed();
         await server.listen({ port: PORT, host: HOST });
         const address = server.server.address();
         const port = typeof address === "string" ? address : address?.port;

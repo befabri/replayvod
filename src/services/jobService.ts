@@ -2,16 +2,16 @@ import { v4 as uuidv4 } from "uuid";
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
 import { Job, Status } from "@prisma/client";
-import { downloadService } from "../api/download";
+import { downloadFeature } from "../api/download";
 const logger = rootLogger.child({ domain: "download", service: "jobService" });
 
 const jobs: Map<string, Job> = new Map<string, Job>();
 
-export const createJobId = (): string => {
+const createJobId = (): string => {
     return uuidv4();
 };
 
-export const createJob = async (id: string, func: () => Promise<void>) => {
+const createJob = async (id: string, func: () => Promise<void>) => {
     if (await isJobExists(id)) {
         logger.error("Job already exist");
         return;
@@ -35,11 +35,11 @@ export const createJob = async (id: string, func: () => Promise<void>) => {
             logger.error("Job failed:", error);
             job.status = Status.FAILED;
             await updateJobStatus(id, Status.FAILED);
-            await downloadService.setVideoFailed(id);
+            await downloadFeature.setVideoFailed(id);
         });
 };
 
-export const createNewJob = async (id: string, status: Status) => {
+const createNewJob = async (id: string, status: Status) => {
     try {
         const job = await prisma.job.create({
             data: {
@@ -66,11 +66,11 @@ const updateJobStatus = async (jobId: string, newStatus: Status) => {
     }
 };
 
-export const getJobStatus = (id: string): string | undefined => {
+const getJobStatus = (id: string): string | undefined => {
     return jobs.get(id)?.status;
 };
 
-export const isJobExists = async (id: string): Promise<boolean> => {
+const isJobExists = async (id: string): Promise<boolean> => {
     const job = await prisma.job.findUnique({
         where: {
             id: id,
@@ -79,7 +79,7 @@ export const isJobExists = async (id: string): Promise<boolean> => {
     return !!job;
 };
 
-export const findPendingJobByBroadcasterId = async (broadcasterId: string) => {
+const findPendingJobByBroadcasterId = async (broadcasterId: string) => {
     return prisma.video.findFirst({
         where: {
             broadcasterId: broadcasterId,

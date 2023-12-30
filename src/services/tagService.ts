@@ -1,64 +1,47 @@
 import { logger as rootLogger } from "../app";
 import { prisma } from "../server";
 const logger = rootLogger.child({ domain: "channel", service: "tagService" });
-import { Tag } from "@prisma/client";
+import { PrismaClient, Tag } from "@prisma/client";
 
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000;
-
-export const addTag = async (tag: Tag) => {
+const createTag = async (tag: Tag) => {
     try {
-        return prisma.tag.upsert({
+        const existingTag = await prisma.tag.findUnique({
             where: { name: tag.name },
-            update: {},
-            create: tag,
         });
+        if (!existingTag) {
+            return await prisma.tag.create({
+                data: tag,
+            });
+        } else {
+            logger.info("Tag already exists: %s", tag.name);
+            return existingTag;
+        }
     } catch (error) {
-        logger.error("Tag data causing error: %s", tag.name);
-        error.failedTagName = tag.name;
+        logger.error("Error creating tag: %s", error);
         throw error;
     }
 };
 
-export const addAllTags = async (tags: Tag[]) => {
-    let attempts = 0;
-    const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
-
-    while (attempts < MAX_RETRIES) {
-        try {
-            await prisma.tag.createMany({
-                data: sortedTags,
-                skipDuplicates: true,
-            });
-            return sortedTags;
-        } catch (error) {
-            if (error.message && error.message.includes("deadlock")) {
-                logger.error(`Deadlock encountered while adding/updating tags (Attempt ${attempts + 1})`, {
-                    error,
-                });
-
-                if (attempts === MAX_RETRIES - 1) {
-                    throw error;
-                }
-
-                await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-                attempts++;
-            } else {
-                throw error;
-            }
-        }
+const createMultipleTags = async (tags: Tag[]) => {
+    try {
+        const createTagPromises = tags.map((tag) => createTag(tag));
+        const results = await Promise.all(createTagPromises);
+        return results;
+    } catch (error) {
+        logger.error("Error creating multiple tags: %s", error);
+        throw error;
     }
 };
 
-export const getAllTags = async () => {
+const getAllTags = async () => {
     return prisma.tag.findMany();
 };
 
-export const getTag = async (id: string) => {
+const getTag = async (id: string) => {
     return prisma.tag.findUnique({ where: { name: id } });
 };
 
-export const addVideoTag = async (videoId: number, tagId: string) => {
+const addVideoTag = async (videoId: number, tagId: string) => {
     return await prisma.videoTag.create({
         data: {
             videoId: videoId,
@@ -67,7 +50,7 @@ export const addVideoTag = async (videoId: number, tagId: string) => {
     });
 };
 
-export const addStreamTag = async (streamId: string, tagId: string) => {
+const addStreamTag = async (streamId: string, tagId: string) => {
     return await prisma.streamTag.create({
         data: {
             streamId: streamId,
@@ -76,7 +59,7 @@ export const addStreamTag = async (streamId: string, tagId: string) => {
     });
 };
 
-export const addDownloadScheduleTag = async (downloadScheduleId: number, tagId: string) => {
+const addDownloadScheduleTag = async (downloadScheduleId: number, tagId: string) => {
     return await prisma.downloadScheduleTag.create({
         data: {
             downloadScheduleId: downloadScheduleId,
@@ -85,7 +68,7 @@ export const addDownloadScheduleTag = async (downloadScheduleId: number, tagId: 
     });
 };
 
-export const addAllVideoTags = async (tags: { tagId: string }[], videoId: number) => {
+const addAllVideoTags = async (tags: { tagId: string }[], videoId: number) => {
     try {
         const data = tags.map((tag) => ({
             videoId: videoId,
@@ -98,28 +81,11 @@ export const addAllVideoTags = async (tags: { tagId: string }[], videoId: number
         });
         return data;
     } catch (error) {
-        logger.error("Error adding/updating multiple videoTags", { error });
+        logger.error("Error adding/updating multiple videoTags %s", error);
     }
 };
 
-export const addAllStreamTags = async (tags: { tagId: string }[], streamId: string) => {
-    try {
-        const data = tags.map((tag) => ({
-            streamId: streamId,
-            tagId: tag.tagId,
-        }));
-
-        await prisma.streamTag.createMany({
-            data: data,
-            skipDuplicates: true,
-        });
-        return data;
-    } catch (error) {
-        logger.error("Error adding/updating multiple streamTags", { error });
-    }
-};
-
-export const addAllDownloadScheduleTags = async (tags: { tagId: string }[], downloadScheduleId: number) => {
+const createAllDownloadScheduleTags = async (tags: { tagId: string }[], downloadScheduleId: number) => {
     try {
         const data = tags.map((tag) => ({
             downloadScheduleId: downloadScheduleId,
@@ -132,19 +98,55 @@ export const addAllDownloadScheduleTags = async (tags: { tagId: string }[], down
         });
         return data;
     } catch (error) {
-        logger.error("Error adding/updating multiple downloadScheduleTags", { error });
+        logger.error("Error adding/updating multiple downloadScheduleTags %s", error);
+    }
+};
+
+const associateTagsWithStream = async (streamId: string, tags: string[]): Promise<void> => {
+    for (const tag of tags) {
+        await prisma.streamTag.upsert({
+            where: { streamId_tagId: { streamId, tagId: tag } },
+            create: {
+                streamId,
+                tagId: tag,
+            },
+            update: {},
+        });
+    }
+};
+
+export const createMultipleStreamTags = async (
+    tags: { tagId: string }[],
+    streamId: string,
+    prismaInstance: PrismaClient = prisma
+) => {
+    try {
+        const data = tags.map((tag) => ({
+            streamId: streamId,
+            tagId: tag.tagId,
+        }));
+
+        await prismaInstance.streamTag.createMany({
+            data: data,
+            skipDuplicates: true,
+        });
+        return data;
+    } catch (error) {
+        logger.error("Error adding/updating multiple streamTags %s", error);
+        throw error;
     }
 };
 
 export default {
-    addTag,
-    addAllTags,
+    createTag,
+    createMultipleTags,
     getAllTags,
     getTag,
     addVideoTag,
     addStreamTag,
     addAllVideoTags,
-    addAllStreamTags,
     addDownloadScheduleTag,
-    addAllDownloadScheduleTags,
+    createAllDownloadScheduleTags,
+    associateTagsWithStream,
+    createMultipleStreamTags,
 };
