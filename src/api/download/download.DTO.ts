@@ -43,7 +43,7 @@ const getTags = async (tagsStr: string): Promise<Tag[]> => {
 export const transformDownloadSchedule = async (
     schedule: DownloadScheduleDTO,
     userId: string
-): Promise<{ downloadSchedule: DownloadScheduleWithoutID; tags: Tag[]; category: Category }> => {
+): Promise<{ downloadSchedule: DownloadScheduleWithoutID; tags: Tag[]; category: Category | null }> => {
     try {
         const channel = await channelFeature.getChannelByName(schedule.channelName);
         if (!channel) {
@@ -60,14 +60,16 @@ export const transformDownloadSchedule = async (
             ...(schedule.hasMinView ? { viewersCount: schedule.viewersCount ?? undefined } : {}),
         };
         const tags = schedule.hasTags && schedule.tag ? await getTags(schedule.tag) : [];
-        let category;
-        if (schedule.hasCategory && schedule.category) {
-            category = await categoryFeature.getCategoryByName(schedule.category);
-            if (!category) {
-                throw new Error("Category doesn't exist");
+        let category = null;
+        if (schedule.hasCategory) {
+            if (schedule.category) {
+                category = await categoryFeature.getCategoryByName(schedule.category);
+                if (!category) {
+                    throw new Error("Category doesn't exist");
+                }
+            } else {
+                throw new Error("Category information is missing or incomplete");
             }
-        } else {
-            throw new Error("Category information is missing or incomplete");
         }
         return {
             downloadSchedule: transformedDownloadSchedule,
