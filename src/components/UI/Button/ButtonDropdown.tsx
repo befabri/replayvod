@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
 
 interface DropdownOption {
@@ -11,8 +11,23 @@ interface DropdownButtonProps {
     options: DropdownOption[];
     onOptionSelected: (value: string) => void;
 }
+
 const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptionSelected }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (dropdownRef.current && !dropdownRef.current.contains(target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [dropdownRef]);
 
     const handleToggle = () => {
         setIsOpen(!isOpen);
@@ -23,20 +38,17 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptio
         setIsOpen(false);
     };
     return (
-        <div className="relative inline-block text-left z-10 dark:bg-custom_lightblue">
-            <div>
-                <button
-                    type="button"
-                    className="inline-flex justify-center w-full rounded-md border border-gray-300 shadow-sm px-2 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none dark:bg-custom_lightblue dark:text-gray-200 dark:hover:bg-custom_vista_blue dark:border-custom_lightblue"
-                    id="options-menu"
-                    aria-expanded="true"
-                    aria-haspopup="true"
-                    onClick={handleToggle}>
-                    {label}
-                    <Icon icon="mdi:chevron-down" width="18" height="18" className="ml-2" />
-                </button>
-            </div>
-
+        <div ref={dropdownRef} className="relative inline-block text-left z-10 dark:bg-custom_lightblue">
+            <button
+                type="button"
+                className="inline-flex justify-center w-full rounded-md border border-gray-300 shadow-sm px-2 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none dark:bg-custom_lightblue dark:text-gray-200 dark:hover:bg-custom_vista_blue dark:border-custom_lightblue"
+                id="options-menu"
+                aria-expanded="true"
+                aria-haspopup="true"
+                onClick={handleToggle}>
+                {label}
+                <Icon icon="mdi:chevron-down" width="18" height="18" className="ml-2" />
+            </button>
             {isOpen && (
                 <div
                     className="origin-top-right absolute right-0 mt-2 w-36 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet"

@@ -72,11 +72,7 @@ const Navbar: React.FC = () => {
             if (sidebarRef.current && !sidebarRef.current.contains(target)) {
                 setSidebarOpen(false);
             }
-            if (
-                profileRef.current &&
-                !profileRef.current.contains(target) &&
-                !document.getElementById("profile")?.contains(target)
-            ) {
+            if (profileRef.current && !profileRef.current.contains(target)) {
                 setProfileOpen(false);
                 setLanguageOpen(false);
             }
@@ -115,7 +111,7 @@ const Navbar: React.FC = () => {
                                 </span>
                             </Link>
                         </div>
-                        <div className="flex items-center ml-3">
+                        <div ref={profileRef} className="flex items-center ml-3">
                             <button
                                 onClick={handleProfileToggle}
                                 type="button"
@@ -133,8 +129,7 @@ const Navbar: React.FC = () => {
                             {isProfilOpen && (
                                 <div
                                     className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet"
-                                    id="dropdown-user"
-                                    ref={profileRef}>
+                                    id="dropdown-user">
                                     <button
                                         type="button"
                                         onClick={(e: React.MouseEvent) => handleSelect(e, "Language")}
