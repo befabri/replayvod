@@ -142,6 +142,7 @@ export interface Settings {
     timeZone: string;
     dateTimeFormat: string;
 }
+
 export const DateTimeFormats = [
     "2023/10/05 18:00:00",
     "05-10-2023 18:00:00",
@@ -163,4 +164,15 @@ export interface NavLinkBar {
     icon: string;
     text: string;
     items?: NavLinkItem[];
+}
+
+export interface ManageSchedule {
+    id: number;
+    broadcasterId: string;
+    quality: "LOW" | "MEDIUM" | "HIGH";
+    viewersCount: number;
+    isDeleteRediff: boolean;
+    timeBeforeDelete?: string;
+    requestedBy: string;
+    channel: Channel;
 }

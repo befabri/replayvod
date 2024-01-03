@@ -40,6 +40,7 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
             text: t("Recording"),
             items: [
                 { href: Pathnames.Schedule.Add, text: t("Schedule") },
+                { href: Pathnames.Schedule.EventSub, text: t("Event sub") },
                 { href: Pathnames.Schedule.Manage, text: t("Manage schedule") },
             ],
         },
@@ -83,8 +84,8 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
     }, [onCloseSidebar]);
 
     useEffect(() => {
-        const findActiveDropdownIndex = navLinks.findIndex((link) =>
-            link.items?.some((item) => location.pathname.includes(item.href))
+        const findActiveDropdownIndex = navLinks.findIndex(
+            (link) => link.items?.some((item) => location.pathname.includes(item.href))
         );
         setActiveDropdownIndex(findActiveDropdownIndex >= 0 ? findActiveDropdownIndex : null);
     }, [location.pathname, navLinks]);
@@ -98,11 +99,11 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
             <aside
                 ref={ref}
                 id="logo-sidebar"
-                className={`fixed top-0 left-0 z-20 w-56 h-screen pt-20 transition-transform ${
+                className={`fixed left-0 top-0 z-20 h-screen w-56 pt-20 transition-transform ${
                     isOpenSideBar ? "-translate-x-0" : "-translate-x-full"
-                } bg-white border-r border-gray-200 md:translate-x-0 dark:bg-custom_lightblue dark:border-custom_lightblue`}
+                } border-r border-gray-200 bg-white dark:border-custom_lightblue dark:bg-custom_lightblue md:translate-x-0`}
                 aria-label="Sidebar">
-                <div className="h-full px-3 pb-4 overflow-y-auto bg-white dark:bg-custom_lightblue">
+                <div className="h-full overflow-y-auto bg-white px-3 pb-4 dark:bg-custom_lightblue">
                     <ul className="space-y-2 font-normal">
                         {navLinks.map((link, index) => (
                             <li key={index}>
@@ -110,19 +111,19 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
                                     <>
                                         <button
                                             onClick={() => toggleDropdown(index)}
-                                            className="flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg group hover:bg-gray-100 dark:text-white dark:hover:bg-custom_vista_blue"
+                                            className="group flex w-full items-center rounded-lg p-2 text-gray-900 transition duration-75 hover:bg-gray-100 dark:text-white dark:hover:bg-custom_vista_blue"
                                             aria-controls="dropdown"
                                             data-collapse-toggle="dropdown">
                                             <Icon icon={link.icon} width="18" height="18" />
                                             <span
-                                                className="flex-1 ml-3 text-left whitespace-nowrap"
+                                                className="ml-3 flex-1 whitespace-nowrap text-left"
                                                 sidebar-toggle-item="true">
                                                 {link.text}
                                             </span>
                                             <Icon icon="mdi:chevron-down" width="18" height="18" />
                                         </button>
                                         {activeDropdownIndex === index && (
-                                            <ul id="dropdown" className="py-2 space-y-2">
+                                            <ul id="dropdown" className="space-y-2 py-2">
                                                 {link.items.map((item, i) => (
                                                     <li key={i}>
                                                         <NavLink
@@ -132,12 +133,12 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
                                                                 : {})}
                                                             onClick={(e) => e.stopPropagation()}
                                                             className={({ isActive, isPending }) =>
-                                                                `flex items-center w-full p-2 text-gray-900 transition duration-75 rounded-lg pl-11 group hover:bg-gray-100 dark:text-white dark:hover:bg-custom_vista_blue ${
+                                                                `group flex w-full items-center rounded-lg p-2 pl-11 text-gray-900 transition duration-75 hover:bg-gray-100 dark:text-white dark:hover:bg-custom_vista_blue ${
                                                                     isPending
                                                                         ? "pending"
                                                                         : isActive
-                                                                        ? "dark:bg-custom_vista_blue"
-                                                                        : ""
+                                                                          ? "dark:bg-custom_vista_blue"
+                                                                          : ""
                                                                 }`
                                                             }>
                                                             {item.text}
@@ -151,7 +152,7 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
                                     <NavLink
                                         to={link.href}
                                         className={({ isActive, isPending }) =>
-                                            `flex items-center p-2 text-gray-900 rounded-lg dark:text-white hover:bg-custom_vista_blue dark:hover:bg-custom_vista_blue ${
+                                            `flex items-center rounded-lg p-2 text-gray-900 hover:bg-custom_vista_blue dark:text-white dark:hover:bg-custom_vista_blue ${
                                                 isPending ? "pending" : isActive ? "dark:bg-custom_vista_blue" : ""
                                             }`
                                         }>

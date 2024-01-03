@@ -6,6 +6,7 @@ export const Pathnames = {
     Settings: "/settings" as const,
     Schedule: {
         Add: "/schedule/add" as const,
+        EventSub: "/schedule/event-sub" as const,
         Manage: "/schedule/manage" as const,
     },
     Activity: {
@@ -52,6 +53,7 @@ export enum ApiRoutes {
     GET_DOWNLOAD_USER_ID = "/api/download/user/:id",
     GET_DOWNLOAD_STREAM_ID = "/api/download/stream/:id",
     POST_DOWNLOAD_SCHEDULE = "/api/download/schedule",
+    GET_DOWNLOAD_SCHEDULE = "/api/download/schedule",
     GET_DOWNLOAD_STATUS_ID = "/api/download/status/:id",
     GET_VIDEO_PLAY_ID = "/api/video/play/:id",
     GET_VIDEO_ID = "/api/video/:id",

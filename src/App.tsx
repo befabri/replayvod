@@ -21,6 +21,7 @@ import WatchPage from "./pages/Watch/Index";
 import LoginPage from "./pages/Login/Index";
 import QueuePage from "./pages/Activity/QueuePage";
 import DashboardPage from "./pages/Dashboard/Index";
+import EventSubPage from "./pages/Record/EventSub";
 
 export default function App() {
     return (
@@ -33,6 +34,7 @@ export default function App() {
                         <Route path={Pathnames.Home} element={<DashboardPage />} />
                         <Route path={Pathnames.Settings} element={<SettingsPage />} />
                         <Route path={Pathnames.Schedule.Add} element={<AddChannelPage />} />
+                        <Route path={Pathnames.Schedule.EventSub} element={<EventSubPage />} />
                         <Route path={Pathnames.Schedule.Manage} element={<ManagePage />} />
                         <Route path={Pathnames.Activity.Queue} element={<QueuePage />} />
                         <Route path={Pathnames.Activity.History} element={<HistoryPage />} />

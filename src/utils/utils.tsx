@@ -70,6 +70,10 @@ export const mapQuality = (value: string): Quality => {
     return mapping[value] || Quality.MEDIUM; // default to MEDIUM
 };
 
+export const qualityLabelToResolution = (qualityLabel: string): Quality => {
+    return Quality[qualityLabel as keyof typeof Quality];
+};
+
 export function convertMillisecondsToTimeUnits(milliseconds: number) {
     const totalSeconds = Math.floor(milliseconds / 1000);
     const totalMinutes = Math.floor(totalSeconds / 60);

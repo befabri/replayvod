@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ManageSchedule } from "../../type";
+import TableSchedule from "../../components/Table/TableSchedule";
+import { EventSub } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
-import QueueCards from "../../components/Table/QueueCards";
 
-const ManagePage: React.FC = () => {
+const EventSubPage: React.FC = () => {
     const { t } = useTranslation();
-    const [schedule, setSchedule] = useState<ManageSchedule[]>([]);
+    const [eventSubs, setEventSubs] = useState<EventSub[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_DOWNLOAD_SCHEDULE);
+            const url = getApiRoute(ApiRoutes.GET_TWITCH_EVENTSUB_SUBSCRIPTIONS);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -19,20 +19,23 @@ const ManagePage: React.FC = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            setSchedule(data || []);
+            setEventSubs(data.data || []);
             setIsLoading(false);
         };
 
         fetchData();
+        const intervalId = setInterval(fetchData, 120 * 1000);
+        return () => clearInterval(intervalId);
     }, []);
+
     return (
         <div className="p-4">
-            <div className="mt-14 p-4">
-                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Manage Schedule")}</h1>
+            <div className="p-4 mt-14">
+                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("EventSub subscriptions")}</h1>
             </div>
-            {isLoading ? <div>{t("Loading")}</div> : <QueueCards items={schedule} />}
+            {isLoading ? <div>{t("Loading")}</div> : <TableSchedule items={eventSubs} />}
         </div>
     );
 };
 
-export default ManagePage;
+export default EventSubPage;
