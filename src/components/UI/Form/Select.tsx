@@ -14,7 +14,7 @@ const Select: FC<SelectProps> = ({ label, id, register, error, options, required
     return (
         <>
             {label && (
-                <label className="block mb-2 text-sm font-medium text-gray-900 dark:text-white" htmlFor={id}>
+                <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white" htmlFor={id}>
                     {label}
                 </label>
             )}
@@ -24,8 +24,7 @@ const Select: FC<SelectProps> = ({ label, id, register, error, options, required
                 id={id}
                 required={required}
                 disabled={disabled}
-                className={`bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-custom_vista_blue focus:border-custom_vista_blue block w-full p-2.5  dark:border-custom_lightblue dark:placeholder-gray-400 dark:text-white dark:focus:ring-custom_vista_blue dark:focus:border-custom_vista_blue dark:hover:border-custom_vista_blue
-                ${disabled ? "dark:bg-custom_black" : "dark:bg-custom_lightblue"}`}>
+                className={`block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 opacity-100 focus:border-custom_vista_blue focus:ring-custom_vista_blue dark:border-custom_lightblue dark:bg-custom_lightblue  dark:text-white dark:placeholder-gray-400 dark:hover:border-custom_vista_blue dark:focus:border-custom_vista_blue dark:focus:ring-custom_vista_blue disabled:dark:bg-custom_blue`}>
                 {options.map((option) => (
                     <option key={option} value={option}>
                         {option}
@@ -33,7 +32,7 @@ const Select: FC<SelectProps> = ({ label, id, register, error, options, required
                 ))}
             </select>
             {error && (
-                <span className=" text-red-500 italic px-2 py-1 rounded-md self-start">{error.message}</span>
+                <span className=" self-start rounded-md px-2 py-1 italic text-red-500">{error.message}</span>
             )}
         </>
     );

@@ -28,7 +28,7 @@ const InputText: FC<InputTextProps> = ({
 }) => (
     <>
         {label && (
-            <label className="block mb-2 text-sm font-medium text-gray-900 dark:text-white" htmlFor={id}>
+            <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white" htmlFor={id}>
                 {label}
             </label>
         )}
@@ -47,16 +47,14 @@ const InputText: FC<InputTextProps> = ({
             list={list}
             disabled={disabled}
             className={classNames(
-                `${
-                    disabled ? "dark:bg-custom_black" : "dark:bg-custom_lightblue"
-                } bg-gray-50 border text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:placeholder-gray-400 dark:text-white dark:focus:ring-custom_vista_blue dark:focus:border-custom_lightblue`,
+                ` block w-full rounded-lg border bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:bg-custom_lightblue dark:text-white dark:placeholder-gray-400 dark:focus:border-custom_lightblue dark:focus:ring-custom_vista_blue disabled:dark:bg-custom_blue`,
                 {
-                    "dark:border-red-600 border-red-600": error,
+                    "border-red-600 dark:border-red-600": error,
                     "dark:border-custom_lightblue": !error,
                 }
             )}
         />
-        {error && <p className=" text-red-500 italic px-2 py-1 rounded-md self-start">{error?.message}</p>}
+        {error && <p className=" self-start rounded-md px-2 py-1 italic text-red-500">{error?.message}</p>}
     </>
 );
 
