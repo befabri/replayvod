@@ -31,9 +31,9 @@ const CategoryComponent: FC<CategoryProps> = ({ categories }) => {
     };
 
     return (
-        <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-5">
+        <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(180px,10%))] gap-3">
             {categories?.map((category) => (
-                <div className="" key={category.id} ref={divRef}>
+                <div className="max-w-sm" key={category.id} ref={divRef}>
                     <div>
                         <Link to={`${Pathnames.Video.Category}/${toKebabCase(category.name)}`}>
                             <CategoryImage category={category} width="182" height="252" />
@@ -48,11 +48,13 @@ const CategoryComponent: FC<CategoryProps> = ({ categories }) => {
             ))}
             {hasOneOrTwoCategories && <></>}
             {categories?.length === 1 && (
-                <div className="w-full opacity-0">
-                    <a href="#">
-                        <img alt="dummy" />
-                    </a>
-                </div>
+                <>
+                    <div className="w-full opacity-0">
+                        <a href="#">
+                            <img alt="dummy" />
+                        </a>
+                    </div>
+                </>
             )}
         </div>
     );
