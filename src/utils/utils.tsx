@@ -6,7 +6,10 @@ export function capitalizeFirstLetter(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
 
-export function truncateString(str: string, num: number, etc = true): string {
+export function truncateString(str: string | undefined, num: number, etc = true): string {
+    if (!str) {
+        return "";
+    }
     if (str.length <= num) {
         return str;
     }
