@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EventSubCost } from "../../type";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
+import NotFound from "../../components/Others/NotFound";
 
 const StatusPage: React.FC = () => {
     const { t } = useTranslation();
@@ -30,8 +31,8 @@ const StatusPage: React.FC = () => {
 
     return (
         <div className="p-4">
-            <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Status")}</h1>
+            <div className="mt-14 p-4">
+                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Status")}</h1>
             </div>
             {isLoading ? (
                 <div>{t("Loading")}</div>
@@ -43,7 +44,7 @@ const StatusPage: React.FC = () => {
                     {status.total_cost}/{status.max_total_cost}
                 </span>
             ) : (
-                <div className="pb-5 dark:text-stone-100">{t("There is no EventSub subscription")}</div>
+                <NotFound text={t("There is no EventSub subscription")} />
             )}
         </div>
     );

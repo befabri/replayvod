@@ -5,6 +5,7 @@ import { CompletedVideo } from "../../../type";
 import VideoComponent from "../../../components/Media/Video";
 import { ApiRoutes, getApiRoute } from "../../../type/routes";
 import Button from "../../../components/UI/Button/Button";
+import NotFound from "../../../components/Others/NotFound";
 
 const ChannelDetailPage: React.FC = () => {
     const { t } = useTranslation();
@@ -12,7 +13,6 @@ const ChannelDetailPage: React.FC = () => {
 
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [isFetching, setIsFetching] = useState<boolean>(false);
-    // const [buttonText, setButtonText] = useState<string>("Enregistrer");
     const [videos, setVideos] = useState<CompletedVideo[]>([]);
     const [hasVideos, setHasVideos] = useState<boolean>(true);
 
@@ -22,12 +22,10 @@ const ChannelDetailPage: React.FC = () => {
                 return;
             }
             setIsFetching(true);
-            // setButtonText("En cours");
             const url = getApiRoute(ApiRoutes.GET_DOWNLOAD_STREAM_ID, "id", videos[0].channel.broadcasterId);
             try {
                 const response = await fetch(url, { credentials: "include" });
                 await response.json();
-                // setButtonText("est enregistrer");
             } catch (error) {
                 console.error("Error:", error);
             } finally {
@@ -84,24 +82,25 @@ const ChannelDetailPage: React.FC = () => {
 
     return (
         <div className="p-4">
-            <div className="p-4 mt-14 flex flex-row items-center gap-3">
+            <div className="mt-14 flex flex-row items-center gap-3 p-4">
                 <img
-                    className="w-12 h-12 min-w-[10px] min-h-[10px] rounded-full"
+                    className="h-12 min-h-[10px] w-12 min-w-[10px] rounded-full"
                     src={videos[0]?.channel.profilePicture}
                     alt="Profile Picture"
                 />
-                <h1 className="text-3xl font-bold dark:text-stone-100 mr-1">
+                <h1 className="mr-1 text-3xl font-bold dark:text-stone-100">
                     {videos[0]?.channel.broadcasterName}
                 </h1>
                 <Button onClick={handleClick} disabled={isFetching} style={"svg"}>
-                    <svg className="fill-current w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                    <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
                         <path d="M13 8V2H7v6H2l8 8 8-8h-5zM0 18h20v2H0v-2z" />
                     </svg>
                 </Button>
             </div>
             <div className="mt-5">
-                <h2 className="text-2xl font-bold pb-5 dark:text-stone-100">{t("Videos")}</h2>
+                <h2 className="pb-5 text-2xl font-bold dark:text-stone-100">{t("Videos")}</h2>
                 {hasVideos && <VideoComponent videos={videos} disablePicture={true} />}
+                {!hasVideos && <NotFound text={t("No video found.")} />}
             </div>
         </div>
     );
