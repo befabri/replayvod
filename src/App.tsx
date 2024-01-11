@@ -22,6 +22,7 @@ import LoginPage from "./pages/Login/Index";
 import QueuePage from "./pages/Activity/QueuePage";
 import DashboardPage from "./pages/Dashboard/Index";
 import EventSubPage from "./pages/Record/EventSub";
+import NotFoundPage from "./pages/NotFoundPage";
 
 export default function App() {
     return (
@@ -48,6 +49,7 @@ export default function App() {
                         <Route path={Pathnames.System.Events} element={<EventsPage />} />
                         <Route path={Pathnames.System.Logs} element={<LogsPage />} />
                         <Route path={Pathnames.WatchDetail} element={<WatchPage />} />
+                        <Route path="*" element={<NotFoundPage />} />
                     </Route>
                 </Routes>
             </AuthProvider>
