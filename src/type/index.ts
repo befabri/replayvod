@@ -166,13 +166,40 @@ export interface NavLinkBar {
     items?: NavLinkItem[];
 }
 
+export interface Category {
+    id: string;
+    boxArtUrl?: string;
+    igdbId?: string;
+    name: string;
+}
+
+interface DownloadScheduleCategory {
+    category: Category;
+    categoryId: string;
+    downloadScheduleId: number;
+}
+
+interface Tag {
+    tagId?: string;
+    name: string;
+}
+
+interface DownloadScheduleTag {
+    tag: Tag;
+    tagId: string;
+    downloadScheduleId: number;
+}
+
 export interface ManageSchedule {
     id: number;
     broadcasterId: string;
     quality: "LOW" | "MEDIUM" | "HIGH";
-    viewersCount: number;
+    viewersCount: number | null;
     isDeleteRediff: boolean;
-    timeBeforeDelete?: string;
+    timeBeforeDelete: number | null;
     requestedBy: string;
     channel: Channel;
+    isDisabled: boolean;
+    downloadScheduleCategory: DownloadScheduleCategory[];
+    downloadScheduleTag: DownloadScheduleTag[];
 }
