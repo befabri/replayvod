@@ -20,7 +20,7 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
     const [navLinks] = useState<NavLinkBar[]>([
         {
             href: Pathnames.Home,
-            icon: "mdi:cog",
+            icon: "mdi:home",
             text: t("Dashboard"),
         },
         {
@@ -46,7 +46,7 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
         },
         {
             href: "/activity",
-            icon: "fluent:shifts-activity-24-filled",
+            icon: "mdi:list-box-outline",
             text: t("Activity"),
             items: [
                 { href: Pathnames.Activity.Queue, text: t("Queue") },
@@ -111,16 +111,16 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
                                     <>
                                         <button
                                             onClick={() => toggleDropdown(index)}
-                                            className="group flex w-full items-center rounded-lg p-2 text-gray-900 transition duration-75 hover:bg-gray-100 dark:text-white dark:hover:bg-custom_vista_blue"
+                                            className="group flex w-full items-center rounded p-2 text-base text-gray-900 transition duration-75 hover:bg-gray-100 dark:text-white dark:hover:bg-custom_space_cadet_bis"
                                             aria-controls="dropdown"
                                             data-collapse-toggle="dropdown">
-                                            <Icon icon={link.icon} width="18" height="18" />
+                                            <Icon icon={link.icon} width="20" height="20" />
                                             <span
                                                 className="ml-3 flex-1 whitespace-nowrap text-left"
                                                 sidebar-toggle-item="true">
                                                 {link.text}
                                             </span>
-                                            <Icon icon="mdi:chevron-down" width="18" height="18" />
+                                            <Icon icon="mdi:chevron-down" width="20" height="20" />
                                         </button>
                                         {activeDropdownIndex === index && (
                                             <ul id="dropdown" className="space-y-2 py-2">
@@ -133,11 +133,11 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
                                                                 : {})}
                                                             onClick={(e) => e.stopPropagation()}
                                                             className={({ isActive, isPending }) =>
-                                                                `group flex w-full items-center rounded-lg p-2 pl-11 text-gray-900 transition duration-75 hover:bg-gray-100 dark:text-white dark:hover:bg-custom_vista_blue ${
+                                                                `group flex w-full items-center rounded p-2 pl-11 text-base text-gray-900 transition duration-75 hover:bg-gray-100 dark:text-white dark:hover:bg-custom_space_cadet_bis ${
                                                                     isPending
                                                                         ? "pending"
                                                                         : isActive
-                                                                          ? "dark:bg-custom_vista_blue"
+                                                                          ? "dark:bg-custom_space_cadet_bis"
                                                                           : ""
                                                                 }`
                                                             }>
@@ -152,11 +152,15 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
                                     <NavLink
                                         to={link.href}
                                         className={({ isActive, isPending }) =>
-                                            `flex items-center rounded-lg p-2 text-gray-900 hover:bg-custom_vista_blue dark:text-white dark:hover:bg-custom_vista_blue ${
-                                                isPending ? "pending" : isActive ? "dark:bg-custom_vista_blue" : ""
+                                            `flex items-center rounded p-2 text-base text-gray-900 hover:bg-custom_space_cadet_bis dark:text-white dark:hover:bg-custom_space_cadet_bis ${
+                                                isPending
+                                                    ? "pending"
+                                                    : isActive
+                                                      ? "dark:bg-custom_space_cadet_bis"
+                                                      : ""
                                             }`
                                         }>
-                                        <Icon icon={link.icon} width="18" height="18" />
+                                        <Icon icon={link.icon} width="20" height="20" />
                                         <span className="ml-3">{link.text}</span>
                                     </NavLink>
                                 )}

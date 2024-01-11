@@ -33,22 +33,22 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
     }, []);
 
     return (
-        <div className="flex flex-row gap-3 mt-2" ref={divRef}>
+        <div className="mt-2 flex flex-row gap-3" ref={divRef}>
             {!disablePicture && (
                 <Link
                     to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}
                     className="min-w-[40px]">
                     <img
-                        className="w-10 h-10 rounded-full mt-1"
+                        className="mt-1 h-10 w-10 rounded-full"
                         src={video?.channel.profilePicture}
                         alt="Profile Picture"
                     />
                 </Link>
             )}
             <div>
-                <div>
+                <div title={video?.titles[0].title.name}>
                     <HrefLink to={`${Pathnames.Watch}${video?.id}`} style="title">
-                        {video?.titles[0].title.name}
+                        {truncateString(video?.titles[0].title.name, 125, true)}
                     </HrefLink>
                 </div>
                 <div>
@@ -59,7 +59,7 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
                 <div>
                     {video?.videoCategory.map((item) => (
                         <HrefLink
-                            to={`${Pathnames.Video.Category}/${toKebabCase(item.category.name)}`}   
+                            to={`${Pathnames.Video.Category}/${toKebabCase(item.category.name)}`}
                             key={item.categoryId}>
                             {item.category.name}
                         </HrefLink>
@@ -68,7 +68,7 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
                 <div>
                     {video?.tags.slice(0, numberOfTagsToRender).map((item) => (
                         <span
-                            className="bg-gray-100 text-gray-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full dark:bg-custom_space_cadet dark:text-gray-400"
+                            className="mr-2 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 dark:bg-custom_space_cadet dark:text-gray-400"
                             key={item.tag.name}>
                             {truncateString(item.tag.name, 18, false)}
                         </span>

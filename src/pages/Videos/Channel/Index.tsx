@@ -83,9 +83,9 @@ const ChannelPage: React.FC = () => {
 
     return (
         <div className="p-4">
-            <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Channels")}</h1>
-                <div className="flex mb-4 items-center justify-end space-x-5">
+            <div className="mt-14 p-4">
+                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Channels")}</h1>
+                <div className="mb-4 flex items-center justify-end space-x-5">
                     <div className="space-x-2">
                         <DropdownButton
                             label={t(order.label)}
@@ -94,7 +94,7 @@ const ChannelPage: React.FC = () => {
                         />
                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
                     {channels.map((channel) => {
                         const isLive = streams.some(
                             (stream) => stream.broadcasterId === channel.broadcasterId && stream.type === "live"
@@ -103,21 +103,21 @@ const ChannelPage: React.FC = () => {
                         return (
                             <Link
                                 to={`${Pathnames.Video.Channel}/${channel.broadcasterLogin}`}
-                                className={`bg-zinc-100 dark:bg-custom_lightblue p-3 hover:bg-gray-100 dark:hover:bg-custom_vista_blue ${
+                                className={`bg-zinc-100 p-3 hover:bg-gray-100 dark:bg-custom_lightblue dark:hover:bg-custom_vista_blue ${
                                     isLive ? "relative" : ""
                                 }`}
                                 key={channel.broadcasterId}>
                                 <div className="flex">
                                     <img
-                                        className="w-10 h-10 rounded-full"
+                                        className="h-10 w-10 rounded-full"
                                         src={channel.profilePicture}
                                         alt="Profile Picture"
                                     />
-                                    <h2 className="flex dark:text-stone-100 items-center px-3">
+                                    <span className="flex items-center px-3 dark:text-white">
                                         {channel.broadcasterName}
-                                    </h2>
+                                    </span>
                                     {isLive && (
-                                        <div className="m-auto ml-0 w-4 h-4 bg-red-500 rounded-full align-center"></div>
+                                        <div className="align-center m-auto ml-0 h-4 w-4 rounded-full bg-red-500"></div>
                                     )}
                                 </div>
                             </Link>
