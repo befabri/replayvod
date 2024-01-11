@@ -13,8 +13,12 @@ export default {
                 custom_lightblue: "#1C1A31",
                 custom_lime: "#CEFF1A",
                 custom_cream: "#F1DAC4",
+                custom_space_cadet_bis: "#33305E",
                 custom_vista_blue: "#8390FA",
                 custom_yellow: "#FAC748",
+                custom_aquamarine: "#38fcbb",
+                custom_delft_blue: "#3C3869",
+                custom_azure: "#EDF7F6",
             },
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             typography: (_theme) => ({
