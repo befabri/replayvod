@@ -54,6 +54,42 @@ export const getVideoById = async (id: number): Promise<Video | null> => {
     return video;
 };
 
+export const getVideoStatistics = async (userId: string) => {
+    const videoRequests = await prisma.videoRequest.findMany({
+        where: { userId },
+        select: { videoId: true },
+    });
+
+    const videoIds = videoRequests.map((request) => request.videoId);
+
+    const totalDoneVideos = await prisma.video.count({
+        where: {
+            id: { in: videoIds },
+            status: Status.DONE,
+        },
+    });
+
+    const totalDownloadingVideos = await prisma.video.count({
+        where: {
+            id: { in: videoIds },
+            status: Status.PENDING,
+        },
+    });
+
+    const totalFailedVideos = await prisma.video.count({
+        where: {
+            id: { in: videoIds },
+            status: Status.FAILED,
+        },
+    });
+
+    return {
+        totalDoneVideos,
+        totalDownloadingVideos,
+        totalFailedVideos,
+    };
+};
+
 export const getVideosFromUser = async (userId: string, status?: Status) => {
     const videoRequests = await prisma.videoRequest.findMany({
         where: { userId },

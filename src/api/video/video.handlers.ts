@@ -6,6 +6,7 @@ import { Status } from "@prisma/client";
 import { videoFeature } from ".";
 import { userFeature } from "../user";
 import { channelFeature } from "../channel";
+import { categoryFeature } from "../category";
 
 const logger = rootLogger.child({ domain: "video", service: "videoHandler" });
 
@@ -18,6 +19,7 @@ interface Params extends RouteGenericInterface {
         id: string;
         login?: string;
         filename?: string;
+        name?: string;
         broadcasterLogin?: string;
     };
 }
@@ -107,6 +109,16 @@ export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply
         return;
     }
     const videos = await videoFeature.getVideosFromUser(userId, Status.DONE);
+    reply.send(videos);
+};
+
+export const getVideoStatistics = async (req: FastifyRequest, reply: FastifyReply) => {
+    const userId = userFeature.getUserIdFromSession(req);
+    if (!userId) {
+        reply.status(401).send("Unauthorized");
+        return;
+    }
+    const videos = await videoFeature.getVideoStatistics(userId);
     reply.send(videos);
 };
 
