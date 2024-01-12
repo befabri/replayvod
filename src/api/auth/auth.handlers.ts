@@ -71,27 +71,26 @@ async function initUser(userId: string, accessToken: string) {
     }
 }
 
-function isExpiredToken(expiresAtString: Date): boolean {
-    const expiresAt = new Date(expiresAtString);
-    const margin = 20 * 60 * 1000;
-    const expirationWithMargin = new Date(expiresAt.getTime() - margin);
-    const now = new Date();
-    return expirationWithMargin <= now;
+function isExpiredToken(expires_in: number): boolean {
+    const margin = 20 * 60;
+    return expires_in <= margin;
 }
 
 export async function checkSession(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
         const userSession = req.session?.user as UserSession | undefined;
         if (userSession && userSession.twitchToken.refresh_token) {
-            logger.info(`User authenticated: ${req.session.user.twitchUserID}`);
-            if (isExpiredToken(userSession.twitchToken.expires_at)) {
+            if (isExpiredToken(userSession.twitchToken.expires_in)) {
                 const refreshToken = userSession.twitchToken.refresh_token;
                 const result = await fetchRefreshToken(refreshToken, TWITCH_CLIENT_ID, TWITCH_SECRET);
                 if (!result) {
                     logger.error("Failed to refresh token");
+                    reply.status(401).send({ status: "not authenticated" });
+                    return;
                 } else {
                     req.session.user.twitchToken = { ...req.session.user.twitchToken, ...result };
                     logger.info("Token refreshed");
+                    logger.info(req.session.user.twitchToken);
                 }
             }
             reply.status(200).send({
@@ -168,8 +167,6 @@ export async function fetchRefreshToken(
         });
 
         if (response.status === 200) {
-            console.log(response.data);
-            console.log(response.data.data);
             return response.data;
         } else {
             logger.error(`Failed to refresh token, response from Twitch API not 200`);

@@ -10,8 +10,8 @@ const logger = rootLogger.child({ domain: "auth", service: "userService" });
 
 export const getUserIdFromSession = (req: FastifyRequest): string | null => {
     const userSession = req.session?.user as UserSession | undefined;
-    if (userSession && userSession.twitchUserData && userSession.twitchUserData.id) {
-        return userSession.twitchUserData.id;
+    if (userSession && userSession.twitchUserID && userSession.twitchUserID) {
+        return userSession.twitchUserID;
     }
     return null;
 };
