@@ -3,13 +3,17 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { settingsHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.addHook("preHandler", async (request, reply) => {
+        await isUserWhitelisted(request, reply);
+        await userAuthenticated(request, reply);
+    });
+
     fastify.get("/", {
         schema: {
             querystring: {
                 userIds: { type: "array", items: { type: "string" } },
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: settingsHandler.getSettings,
     });
 
@@ -24,7 +28,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["timeZone", "dateTimeFormat"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: settingsHandler.upsertSettings,
     });
 

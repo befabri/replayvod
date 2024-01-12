@@ -3,6 +3,11 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { logHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.addHook("preHandler", async (request, reply) => {
+        await isUserWhitelisted(request, reply);
+        await userAuthenticated(request, reply);
+    });
+
     fastify.get("/files/:id", {
         schema: {
             params: {
@@ -13,12 +18,10 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["id"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: logHandler.getLog,
     });
 
     fastify.get("/files", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: logHandler.getLogs,
     });
 
@@ -36,7 +39,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
     });
 
     fastify.get("/domains", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: logHandler.getDomains,
     });
 

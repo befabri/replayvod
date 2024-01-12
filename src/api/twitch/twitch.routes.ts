@@ -3,18 +3,20 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { twitchHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.addHook("preHandler", async (request, reply) => {
+        await isUserWhitelisted(request, reply);
+        await userAuthenticated(request, reply);
+    });
+
     fastify.get("/update/games", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: twitchHandler.fetchAndSaveGames,
     });
 
     fastify.get("/eventsub/subscriptions", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: twitchHandler.getListEventSub,
     });
 
     fastify.get("/eventsub/costs", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: twitchHandler.getTotalCost,
     });
 

@@ -3,8 +3,12 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { videoHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.addHook("preHandler", async (request, reply) => {
+        await isUserWhitelisted(request, reply);
+        await userAuthenticated(request, reply);
+    });
+
     fastify.get("/play/:id", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         schema: {
             params: {
                 type: "object",
@@ -18,7 +22,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
     });
 
     fastify.get("/:id", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         schema: {
             params: {
                 type: "object",
@@ -32,7 +35,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
     });
 
     fastify.get("/category/:name", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         schema: {
             params: {
                 type: "object",
@@ -46,22 +48,18 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
     });
 
     fastify.get("/all", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: videoHandler.getVideos,
     });
 
     fastify.get("/finished", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: videoHandler.getFinishedVideos,
     });
 
     fastify.get("/statistics", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: videoHandler.getVideoStatistics,
     });
 
     fastify.get("/channel/:broadcasterLogin", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         schema: {
             params: {
                 type: "object",
@@ -75,7 +73,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
     });
 
     fastify.get("/update/missing", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: videoHandler.generateMissingThumbnail,
     });
 

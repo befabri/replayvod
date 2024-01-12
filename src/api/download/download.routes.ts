@@ -3,6 +3,11 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { downloadHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.addHook("preHandler", async (request, reply) => {
+        await isUserWhitelisted(request, reply);
+        await userAuthenticated(request, reply);
+    });
+
     fastify.get("/stream/:id", {
         schema: {
             params: {
@@ -13,7 +18,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["id"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: downloadHandler.downloadStream,
     });
 
@@ -50,7 +54,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 ],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: downloadHandler.scheduleDownload,
     });
 
@@ -94,7 +97,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 ],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: downloadHandler.scheduleDownloadEdit,
     });
 
@@ -108,7 +110,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["scheduleId"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: downloadHandler.scheduleRemoved,
     });
 
@@ -129,12 +130,10 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["enable"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: downloadHandler.scheduleToggle,
     });
 
     fastify.get("/schedule", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: downloadHandler.getCurrentSchedule,
     });
 
@@ -148,7 +147,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["id"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: downloadHandler.getJobStatus,
     });
 

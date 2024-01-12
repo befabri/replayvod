@@ -3,20 +3,15 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { categoryHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
-    fastify.get("/", { preHandler: [isUserWhitelisted, userAuthenticated] }, categoryHandler.getCategories);
-    fastify.get(
-        "/videos",
-        { preHandler: [isUserWhitelisted, userAuthenticated] },
-        categoryHandler.getVideosCategories
-    );
-    fastify.get(
-        "/videos/done",
-        { preHandler: [isUserWhitelisted, userAuthenticated] },
-        categoryHandler.getVideosCategoriesDone
-    );
+    fastify.addHook("preHandler", async (request, reply) => {
+        await isUserWhitelisted(request, reply);
+        await userAuthenticated(request, reply);
+    });
 
+    fastify.get("/", categoryHandler.getCategories);
+    fastify.get("/videos", categoryHandler.getVideosCategories);
+    fastify.get("/videos/done", categoryHandler.getVideosCategoriesDone);
     fastify.get("/detail/:name", {
-        preHandler: [isUserWhitelisted, userAuthenticated],
         schema: {
             params: {
                 type: "object",

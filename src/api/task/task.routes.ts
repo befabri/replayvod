@@ -3,7 +3,12 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { taskHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
-    fastify.get("/", { preHandler: [isUserWhitelisted, userAuthenticated] }, taskHandler.getTasks);
+    fastify.addHook("preHandler", async (request, reply) => {
+        await isUserWhitelisted(request, reply);
+        await userAuthenticated(request, reply);
+    });
+
+    fastify.get("/", taskHandler.getTasks);
 
     fastify.get("/:id", {
         schema: {
@@ -15,7 +20,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["id"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: taskHandler.getTask,
     });
 
@@ -29,7 +33,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["id"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: taskHandler.runTask,
     });
 

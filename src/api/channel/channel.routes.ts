@@ -3,6 +3,11 @@ import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMidd
 import { channelHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
+    fastify.addHook("preHandler", async (request, reply) => {
+        await isUserWhitelisted(request, reply);
+        await userAuthenticated(request, reply);
+    });
+
     fastify.get("/:id", {
         schema: {
             params: {
@@ -13,7 +18,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["id"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: channelHandler.getChannel,
     });
 
@@ -27,7 +31,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["id"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: channelHandler.updateChannel,
     });
 
@@ -37,7 +40,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 userIds: { type: "array", items: { type: "string" } },
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: channelHandler.getMultipleChannelDB,
     });
 
@@ -51,7 +53,6 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 required: ["name"],
             },
         },
-        preHandler: [isUserWhitelisted, userAuthenticated],
         handler: channelHandler.getChannelByName,
     });
 
