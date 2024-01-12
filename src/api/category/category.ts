@@ -89,26 +89,40 @@ export const getCategoryById = async (id: string) => {
 };
 
 export const getCategoryByName = async (name: string) => {
-    return prisma.category.findFirst({ where: { name: name } });
+    const categories = await prisma.category.findMany();
+    return categories.find((category) => category.name.toLowerCase() === name.toLowerCase());
 };
 
-export const getAllVideosCategories = async () => {
+export const getAllVideosCategories = async (userId: string) => {
     return await prisma.category.findMany({
         where: {
             videoCategory: {
-                some: {},
+                some: {
+                    video: {
+                        VideoRequest: {
+                            some: {
+                                userId: userId,
+                            },
+                        },
+                    },
+                },
             },
         },
     });
 };
 
-export const getAllVideosCategoriesByStatus = async (status: Status) => {
+export const getAllVideosCategoriesByStatus = async (status: Status, userId: string) => {
     return await prisma.category.findMany({
         where: {
             videoCategory: {
                 some: {
                     video: {
                         status: status,
+                        VideoRequest: {
+                            some: {
+                                userId: userId,
+                            },
+                        },
                     },
                 },
             },

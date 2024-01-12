@@ -54,6 +54,62 @@ export const getVideoById = async (id: number): Promise<Video | null> => {
     return video;
 };
 
+export const getVideosByCategory = async (categoryId: string, userId: string): Promise<Video[] | null> => {
+    const videos = await prisma.video.findMany({
+        where: {
+            AND: [
+                {
+                    videoCategory: {
+                        some: {
+                            categoryId: categoryId,
+                        },
+                    },
+                },
+                {
+                    VideoRequest: {
+                        some: {
+                            userId: userId,
+                        },
+                    },
+                },
+                {
+                    status: Status.DONE,
+                },
+            ],
+        },
+        include: {
+            tags: {
+                select: {
+                    tag: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+            titles: {
+                select: {
+                    title: {
+                        select: {
+                            name: true,
+                        },
+                    },
+                },
+            },
+            videoCategory: {
+                include: {
+                    category: {},
+                },
+            },
+            channel: true,
+        },
+    });
+
+    const videosWithoutSize = videos.filter((video) => !video.size);
+    await Promise.all(videosWithoutSize.map(updateVideoSize));
+    return videos;
+};
+
 export const getVideoStatistics = async (userId: string) => {
     const videoRequests = await prisma.videoRequest.findMany({
         where: { userId },

@@ -112,6 +112,27 @@ export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply
     reply.send(videos);
 };
 
+export const getVideosByCategory = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
+    const userId = userFeature.getUserIdFromSession(req);
+    if (!userId) {
+        reply.status(401).send("Unauthorized");
+        return;
+    }
+    const categoryName = req.params.name;
+    if (!categoryName) {
+        reply.status(400).send("Invalid category name");
+        return;
+    }
+    const category = await categoryFeature.getCategoryByName(categoryName);
+    if (!category) {
+        reply.status(401).send(null);
+        return;
+    }
+    const videos = await videoFeature.getVideosByCategory(category.id, userId);
+    logger.info(videos)
+    reply.send(videos);
+};
+
 export const getVideoStatistics = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {

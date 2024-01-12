@@ -31,6 +31,20 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         handler: videoHandler.getVideo,
     });
 
+    fastify.get("/category/:name", {
+        preHandler: [isUserWhitelisted, userAuthenticated],
+        schema: {
+            params: {
+                type: "object",
+                properties: {
+                    name: { type: "string" },
+                },
+                required: ["name"],
+            },
+        },
+        handler: videoHandler.getVideosByCategory,
+    });
+
     fastify.get("/all", {
         preHandler: [isUserWhitelisted, userAuthenticated],
         handler: videoHandler.getVideos,
