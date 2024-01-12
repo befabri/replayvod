@@ -216,7 +216,7 @@ model StreamCategory {
 model DownloadScheduleCategory {
   downloadScheduleId Int
   categoryId         String
-  downloadSchedule   DownloadSchedule @relation(fields: [downloadScheduleId], references: [id])
+  downloadSchedule   DownloadSchedule @relation(fields: [downloadScheduleId], references: [id], onDelete: Cascade)
   category           Category         @relation(fields: [categoryId], references: [id])
 
   @@id([downloadScheduleId, categoryId])
@@ -250,7 +250,7 @@ model StreamTag {
 model DownloadScheduleTag {
   downloadScheduleId Int
   tagId              String
-  downloadSchedule   DownloadSchedule @relation(fields: [downloadScheduleId], references: [id])
+  downloadSchedule   DownloadSchedule @relation(fields: [downloadScheduleId], references: [id], onDelete: Cascade)
   tag                Tag              @relation(fields: [tagId], references: [name])
 
   @@id([downloadScheduleId, tagId])
@@ -307,6 +307,7 @@ model DownloadSchedule {
   isDeleteRediff           Boolean
   timeBeforeDelete         Int?
   requestedBy              String
+  isDisabled               Boolean                    @default(false)
   channel                  Channel                    @relation(fields: [broadcasterId], references: [broadcasterId])
   user                     User                       @relation(fields: [requestedBy], references: [userId])
   downloadScheduleTag      DownloadScheduleTag[]

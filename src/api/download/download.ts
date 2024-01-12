@@ -5,7 +5,7 @@ import { prisma } from "../../server";
 import path from "path";
 import { DownloadSchedule, Status } from "@prisma/client";
 import { DownloadParams, JobDetail } from "../../types/sharedTypes";
-import { DownloadScheduleDTO, transformDownloadSchedule } from "./download.DTO";
+import { DownloadScheduleDTO, transformDownloadSchedule, transformDownloadScheduleEdit } from "./download.DTO";
 import { spawn } from "child_process";
 import { platform } from "os";
 import fs from "fs/promises";
@@ -383,10 +383,98 @@ export const updateVideoCollection = async (user_id: string) => {
     return;
 };
 
+export const getCurrentScheduleByUser = async (userId: string) => {
+    return prisma.downloadSchedule.findMany({
+        where: {
+            requestedBy: userId,
+        },
+        include: {
+            channel: true,
+            downloadScheduleTag: {
+                include: {
+                    tag: true,
+                },
+            },
+            downloadScheduleCategory: {
+                include: {
+                    category: true,
+                },
+            },
+        },
+    });
+};
+
+export const getSchedule = async (scheduleId: number, userId: string) => {
+    return prisma.downloadSchedule.findUnique({
+        where: {
+            id: scheduleId,
+            requestedBy: userId,
+        },
+    });
+};
+
+export const removeSchedule = async (scheduleId: number) => {
+    try {
+        return await prisma.downloadSchedule.delete({
+            where: {
+                id: scheduleId,
+            },
+        });
+    } catch (error) {
+        logger.error("Failed to removed scheduleId %s : %s", scheduleId, error);
+        return;
+    }
+};
+
+export const toggleDownloadSchedule = async (scheduleId: number, enable: boolean) => {
+    return await prisma.downloadSchedule.update({
+        where: {
+            id: scheduleId,
+        },
+        data: {
+            isDisabled: enable,
+        },
+    });
+};
+
 export const addSchedule = async (newSchedule: DownloadScheduleDTO, userId: string) => {
     try {
         const transformedScheduleData = await transformDownloadSchedule(newSchedule, userId);
         const createdDownloadSchedule = await prisma.downloadSchedule.create({
+            data: transformedScheduleData.downloadSchedule,
+        });
+
+        if (transformedScheduleData.tags.length > 0) {
+            await tagService.createAllDownloadScheduleTags(
+                transformedScheduleData.tags.map((tag) => ({ tagId: tag.name })),
+                createdDownloadSchedule.id
+            );
+        }
+
+        if (transformedScheduleData.category) {
+            await categoryFeature.createDownloadScheduleCategory(
+                createdDownloadSchedule.id,
+                transformedScheduleData.category.id
+            );
+        }
+    } catch (error) {
+        if (error instanceof PrismaClientKnownRequestError) {
+            if (error.code === "P2002") {
+                throw new Error("User is already assigned to this broadcaster ID");
+            }
+        }
+        throw error;
+    }
+};
+
+export const editSchedule = async (scheduleId: number, schedule: DownloadScheduleDTO) => {
+    try {
+        const transformedScheduleData = await transformDownloadScheduleEdit(schedule);
+
+        const createdDownloadSchedule = await prisma.downloadSchedule.update({
+            where: {
+                id: scheduleId,
+            },
             data: transformedScheduleData.downloadSchedule,
         });
 
