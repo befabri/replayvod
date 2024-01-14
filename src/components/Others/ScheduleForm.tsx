@@ -7,7 +7,7 @@ import InputText from "../UI/Form/InputText";
 import { useTranslation } from "react-i18next";
 import Select from "../UI/Form/Select";
 import InputNumber from "../UI/Form/InputNumber";
-import { Category, Channel, Quality } from "../../type";
+import { Category, Channel, Quality, Tag } from "../../type";
 import Checkbox from "../UI/Form/CheckBox";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 import Button from "../UI/Button/Button";
@@ -23,9 +23,10 @@ interface DefaultValue {
     hasMinView: boolean;
     hasCategory: boolean;
     quality: Quality;
-    category: string;
+    category: Category[];
     timeBeforeDelete: number;
     viewersCount: number;
+    tags: Tag[];
 }
 
 interface ModalProps {
@@ -36,6 +37,7 @@ interface ModalProps {
 interface ScheduleFormProps {
     defaultValue?: DefaultValue;
     modal?: ModalProps;
+    scheduleId?: number;
 }
 
 const ScheduleForm: React.FC<ScheduleFormProps> = ({
@@ -48,10 +50,12 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         hasMinView: false,
         hasCategory: false,
         quality: Quality.LOW,
-        category: "",
+        category: [],
         timeBeforeDelete: minTimeBeforeDelete,
         viewersCount: minViewersCount,
+        tags: [],
     },
+    scheduleId,
 }) => {
     const { t } = useTranslation();
     const isModal = !!modal;
@@ -62,7 +66,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
     useEffect(() => {
         const fetchData = async () => {
-            const urlCategory = getApiRoute(ApiRoutes.GET_CATEGORY);
+            const urlCategory = getApiRoute(ApiRoutes.GET_CATEGORY_ALL);
             const urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
 
             try {
@@ -81,7 +85,10 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                 ]);
 
                 setCategories(categoryData);
-                setValue("category", defaultValue.category !== "" ? defaultValue.category : categoryData[0]?.name);
+                setValue(
+                    "category",
+                    defaultValue.category.length > 0 ? defaultValue.category[0]?.name : categoryData[0]?.name
+                );
                 setChannels(followedChannelsData);
             } catch (error) {
                 console.error(`Error fetching data: ${error}`);
@@ -99,7 +106,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             let method = "";
 
             if (isModal) {
-                url = getApiRoute(ApiRoutes.PUT_DOWNLOAD_SCHEDULE_EDIT);
+                url = getApiRoute(ApiRoutes.PUT_DOWNLOAD_SCHEDULE_EDIT, "id", scheduleId);
                 method = "PUT";
             } else {
                 url = getApiRoute(ApiRoutes.POST_DOWNLOAD_SCHEDULE);
@@ -168,9 +175,13 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             hasMinView: defaultValue.hasMinView,
             hasCategory: defaultValue.hasCategory,
             quality: defaultValue.quality,
-            category: defaultValue.category !== "" ? defaultValue.category : categories[0]?.name,
+            category: defaultValue.category.length > 0 ? defaultValue.category[0]?.name : categories[0]?.name,
             timeBeforeDelete: defaultValue.timeBeforeDelete,
             viewersCount: defaultValue.viewersCount,
+            tag:
+                defaultValue.tags && defaultValue.tags.length > 0
+                    ? defaultValue.tags.map((tag) => tag.name).join(",")
+                    : undefined,
         },
     });
 
@@ -350,7 +361,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         <Button
                             text={t("Save")}
                             typeButton="submit"
-                            style="cta"
+                            style="submit"
                             disabled={Object.keys(errors).length > 0}
                         />
                     </div>

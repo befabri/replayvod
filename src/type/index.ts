@@ -14,11 +14,7 @@ export interface Video {
     broadcasterId: string;
     jobId: string;
     streamId: string;
-    tags: {
-        tag: {
-            name: string;
-        };
-    }[];
+    tags: Tag[];
     titles: {
         title: {
             name: string;
@@ -27,9 +23,7 @@ export interface Video {
     videoCategory: {
         videoId: number;
         categoryId: string;
-        category: {
-            name: string;
-        };
+        category: Category;
     }[];
 
     isChecked?: boolean;
@@ -173,21 +167,10 @@ export interface Category {
     name: string;
 }
 
-interface DownloadScheduleCategory {
-    category: Category;
-    categoryId: string;
-    downloadScheduleId: number;
-}
-
-interface Tag {
+export interface Tag {
+    tag: any;
     tagId?: string;
     name: string;
-}
-
-interface DownloadScheduleTag {
-    tag: Tag;
-    tagId: string;
-    downloadScheduleId: number;
 }
 
 export interface ManageSchedule {
@@ -202,4 +185,12 @@ export interface ManageSchedule {
     isDisabled: boolean;
     downloadScheduleCategory: DownloadScheduleCategory[];
     downloadScheduleTag: DownloadScheduleTag[];
+}
+
+interface DownloadScheduleTag {
+    tag: Tag;
+}
+
+interface DownloadScheduleCategory {
+    category: Category;
 }

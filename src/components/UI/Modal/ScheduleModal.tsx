@@ -18,7 +18,6 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, onClose, onSchedu
     const modalRef = useRef<HTMLDivElement>(null);
 
     const [modalData, setModalData] = useState<ManageSchedule | null>(null);
-
     useEffect(() => {
         if (data) {
             setModalData(data);
@@ -79,7 +78,7 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, onClose, onSchedu
                 <div className="relative rounded-sm bg-white shadow dark:bg-custom_space_cadet">
                     <div className="flex items-center justify-between rounded-t border-b-2 p-4 dark:border-custom_delft_blue md:p-5">
                         <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                            {t("Edit Schedule")}
+                            {t("Edit Schedule")} - {modalData.channel.displayName}
                         </h3>
                         <button
                             onClick={onClose}
@@ -96,16 +95,21 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, onClose, onSchedu
                             }}
                             defaultValue={{
                                 isChannelNameDisabled: true,
-                                channelName: modalData.channel?.broadcasterLogin || "",
+                                channelName: modalData.channel.broadcasterLogin || "",
                                 timeBeforeDelete: modalData.timeBeforeDelete || 10,
                                 viewersCount: modalData.viewersCount || 0,
-                                category: modalData?.downloadScheduleCategory?.[0]?.category.name,
+                                category:
+                                    modalData.downloadScheduleCategory?.map(
+                                        (categoryObj) => categoryObj.category
+                                    ) || [],
                                 quality: qualityLabelToResolution(modalData.quality),
                                 isDeleteRediff: modalData.isDeleteRediff,
-                                hasTags: false,
+                                hasTags: modalData.downloadScheduleTag && modalData.downloadScheduleTag.length > 0,
+                                tags: modalData.downloadScheduleTag?.map((tagObj) => tagObj.tag) || [],
                                 hasMinView: (modalData.viewersCount ?? 0) > 0 || false,
-                                hasCategory: !!modalData?.downloadScheduleCategory?.[0]?.category.name,
+                                hasCategory: !!modalData.downloadScheduleCategory?.[0]?.category,
                             }}
+                            scheduleId={modalData.id}
                         />
                     </div>
                 </div>
