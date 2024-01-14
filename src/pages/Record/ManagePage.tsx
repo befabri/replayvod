@@ -36,7 +36,7 @@ const ManagePage: React.FC = () => {
 
     const postData = async ({ id, enable }: { id: number; enable: boolean }) => {
         try {
-            const url = getApiRoute(ApiRoutes.POST_TOGGLE_DOWNLOAD_SCHEDULE, "scheduleId", id);
+            const url = getApiRoute(ApiRoutes.POST_TOGGLE_DOWNLOAD_SCHEDULE, "id", id);
             const response = await fetch(url, {
                 method: "POST",
                 credentials: "include",
