@@ -16,6 +16,7 @@ RUN apk add --update python3 py3-pip && \
 RUN python3 --version && pip3 --version
 
 COPY package*.json ./
+COPY ./prisma ./prisma
 
 RUN npm install && npm cache clean --force
 
@@ -25,12 +26,9 @@ RUN apk add --update ffmpeg
 
 COPY ./dist ./
 COPY ./bin ./bin
-COPY ./prisma ./prisma
-
-RUN npx prisma generate
-
-VOLUME ["/app/logs", "/app/public", "/app/data", "/app/bin", "/app/secret"]
 
 EXPOSE $PORT
+
+VOLUME ["/app/logs", "/app/public", "/app/data", "/app/bin", "/app/secret"]
 
 CMD [ "node", "server.js" ]
