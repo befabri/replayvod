@@ -3,7 +3,7 @@ image:
     entrypoint: [""]
 
 variables:
-    DOCKER_IMAGE_TAG: $CI_COMMIT_REF_SLUG
+    DOCKER_IMAGE_TAG: "latest"
 
 cache:
     key: "$CI_COMMIT_REF_SLUG"
@@ -24,7 +24,6 @@ before_build:
         - pip3 --version
         - ffmpeg -version
         - npm ci
-        - npm install -g typescript
         - npm install -g shx
         - npm run build
     artifacts:
