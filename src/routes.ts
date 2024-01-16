@@ -10,12 +10,14 @@ import logRoutes from "./api/log/log.routes";
 import webhookRoutes from "./api/webhook/webhook.routes";
 import categoryRoutes from "./api/category/category.routes";
 import settingsRoutes from "./api/settings/settings.routes";
+import scheduleRoutes from "./api/schedule/schedule.routes";
 
 const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(authRoutes, { prefix: "/auth" });
     server.register(userRoutes, { prefix: "/user" });
     server.register(channelRoutes, { prefix: "/channel" });
     server.register(downloadRoutes, { prefix: "/download" });
+    server.register(scheduleRoutes, { prefix: "/schedule" });
     server.register(videoRoutes, { prefix: "/video" });
     server.register(twitchRoutes, { prefix: "/twitch" });
     server.register(taskRoutes, { prefix: "/task" });

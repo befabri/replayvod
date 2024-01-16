@@ -7,7 +7,7 @@ import { categoryFeature } from "../category";
 
 const logger = rootLogger.child({ domain: "download", service: "transformUtils" });
 
-export interface DownloadScheduleDTO {
+export interface CreateScheduleDTO {
     channelName: string;
     quality: Quality;
     hasTags: boolean;
@@ -21,7 +21,7 @@ export interface DownloadScheduleDTO {
     requestedBy?: string;
 }
 
-export interface ScheduleToggleDTO {
+export interface ToggleScheduleStatusDTO {
     enable: boolean;
 }
 
@@ -34,7 +34,7 @@ type DownloadScheduleWithoutID = {
     requestedBy: string;
 };
 
-type DownloadScheduleEdit = {
+type EditScheduleDTO = {
     quality: Quality;
     viewersCount?: number | null;
     isDeleteRediff: boolean;
@@ -52,7 +52,7 @@ const getTags = async (tagsStr: string): Promise<Tag[]> => {
 
 // TODO verify
 export const transformDownloadSchedule = async (
-    schedule: DownloadScheduleDTO,
+    schedule: CreateScheduleDTO,
     userId: string
 ): Promise<{ downloadSchedule: DownloadScheduleWithoutID; tags: Tag[]; category: Category | null }> => {
     try {
@@ -98,8 +98,8 @@ export const transformDownloadSchedule = async (
 };
 
 export const transformDownloadScheduleEdit = async (
-    schedule: DownloadScheduleDTO
-): Promise<{ downloadSchedule: DownloadScheduleEdit; tags: Tag[]; category: Category | null }> => {
+    schedule: CreateScheduleDTO
+): Promise<{ downloadSchedule: EditScheduleDTO; tags: Tag[]; category: Category | null }> => {
     try {
         const channel = await channelFeature.getChannelByName(schedule.channelName);
         if (!channel) {

@@ -1,19 +1,15 @@
-import { FallbackResolutions, Resolution, VideoQuality } from "../../models/downloadModel";
-import { jobService, tagService } from "../../services";
+import { FallbackResolutions, Resolution } from "../../models/downloadModel";
+import { jobService } from "../../services";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import path from "path";
-import { DownloadSchedule, Status } from "@prisma/client";
+import { Status } from "@prisma/client";
 import { DownloadParams, JobDetail } from "../../types/sharedTypes";
-import { DownloadScheduleDTO, transformDownloadSchedule, transformDownloadScheduleEdit } from "./download.DTO";
 import { spawn } from "child_process";
 import { platform } from "os";
 import fs from "fs/promises";
 import { YtdlExecFunction, create as createYoutubeDl } from "youtube-dl-exec";
-import { channelFeature } from "../channel";
 import { videoFeature } from "../video";
-import { categoryFeature } from "../category";
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 let youtubedl: {
@@ -383,124 +379,6 @@ export const updateVideoCollection = async (user_id: string) => {
     return;
 };
 
-export const getCurrentScheduleByUser = async (userId: string) => {
-    return prisma.downloadSchedule.findMany({
-        where: {
-            requestedBy: userId,
-        },
-        include: {
-            channel: true,
-            downloadScheduleTag: {
-                include: {
-                    tag: true,
-                },
-            },
-            downloadScheduleCategory: {
-                include: {
-                    category: true,
-                },
-            },
-        },
-    });
-};
-
-export const getSchedule = async (scheduleId: number, userId: string) => {
-    return prisma.downloadSchedule.findUnique({
-        where: {
-            id: scheduleId,
-            requestedBy: userId,
-        },
-    });
-};
-
-export const removeSchedule = async (scheduleId: number) => {
-    try {
-        return await prisma.downloadSchedule.delete({
-            where: {
-                id: scheduleId,
-            },
-        });
-    } catch (error) {
-        logger.error("Failed to removed scheduleId %s : %s", scheduleId, error);
-        return;
-    }
-};
-
-export const toggleDownloadSchedule = async (scheduleId: number, enable: boolean) => {
-    return await prisma.downloadSchedule.update({
-        where: {
-            id: scheduleId,
-        },
-        data: {
-            isDisabled: enable,
-        },
-    });
-};
-
-export const addSchedule = async (newSchedule: DownloadScheduleDTO, userId: string) => {
-    try {
-        const transformedScheduleData = await transformDownloadSchedule(newSchedule, userId);
-        const createdDownloadSchedule = await prisma.downloadSchedule.create({
-            data: transformedScheduleData.downloadSchedule,
-        });
-
-        if (transformedScheduleData.tags.length > 0) {
-            await tagService.createAllDownloadScheduleTags(
-                transformedScheduleData.tags.map((tag) => ({ tagId: tag.name })),
-                createdDownloadSchedule.id
-            );
-        }
-
-        if (transformedScheduleData.category) {
-            await categoryFeature.createDownloadScheduleCategory(
-                createdDownloadSchedule.id,
-                transformedScheduleData.category.id
-            );
-        }
-    } catch (error) {
-        if (error instanceof PrismaClientKnownRequestError) {
-            if (error.code === "P2002") {
-                throw new Error("User is already assigned to this broadcaster ID");
-            }
-        }
-        throw error;
-    }
-};
-
-export const editSchedule = async (scheduleId: number, schedule: DownloadScheduleDTO) => {
-    try {
-        const transformedScheduleData = await transformDownloadScheduleEdit(schedule);
-
-        const createdDownloadSchedule = await prisma.downloadSchedule.update({
-            where: {
-                id: scheduleId,
-            },
-            data: transformedScheduleData.downloadSchedule,
-        });
-
-        if (transformedScheduleData.tags.length > 0) {
-            await tagService.createAllDownloadScheduleTags(
-                transformedScheduleData.tags.map((tag) => ({ tagId: tag.name })),
-                createdDownloadSchedule.id
-            );
-        }
-
-        if (transformedScheduleData.category) {
-            await categoryFeature.createDownloadScheduleCategory(
-                createdDownloadSchedule.id,
-                transformedScheduleData.category.id
-            );
-        }
-    } catch (error) {
-        if (error instanceof PrismaClientKnownRequestError) {
-            if (error.code === "P2002") {
-                throw new Error("User is already assigned to this broadcaster ID");
-            }
-        }
-        throw error;
-    }
-};
-
 export const handleDownload = async (
     { stream, userId, channel, jobId, quality }: JobDetail,
     broadcasterId: string
@@ -530,15 +408,6 @@ export const handleDownload = async (
     }
 };
 
-const getScheduleDetail = async (schedule: any, broadcaster_id: string) => {
-    // TODO: A modifier
-    const loginId = schedule.requested_by;
-    const user = await channelFeature.getChannel(broadcaster_id);
-    const jobId = jobService.createJobId();
-    const quality = VideoQuality[schedule.quality as keyof typeof VideoQuality] || VideoQuality.MEDIUM;
-    return { loginId, user, jobId, quality };
-};
-
 export const downloadSchedule = async (broadcaster_id: string) => {
     // Todo: A savoir que plusieurs utilisateurs peuvent avoir la même video demandé
     // et donc il faut modifié jobDetail + handleDownload
@@ -552,27 +421,4 @@ export const downloadSchedule = async (broadcaster_id: string) => {
     //     // const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
     //     // await handleDownload(jobDetails, broadcaster_id);
     // }
-};
-
-const getScheduleByFollowedChannel = async (broadcaster_id: string) => {
-    // return prisma.downloadSchedule.findFirst({
-    //     where: {
-    //         provider: Provider.FOLLOWED_CHANNEL,
-    //         channel: {
-    //             usersFollowing: {
-    //                 some: {
-    //                     broadcasterId: broadcaster_id,
-    //                 },
-    //             },
-    //         },
-    //     },
-    // });
-};
-
-const getAllScheduleByChannel = async (broadcasterId: string): Promise<DownloadSchedule[]> => {
-    return await prisma.downloadSchedule.findMany({
-        where: {
-            broadcasterId: broadcasterId,
-        },
-    });
 };
