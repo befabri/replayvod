@@ -221,7 +221,7 @@ export const mapQualityToVideoQuality = (quality: Quality): Resolution => {
         case Quality.HIGH:
             return VideoQuality.HIGH;
         default:
-            return VideoQuality.MEDIUM;
+            return VideoQuality.HIGH;
     }
 };
 
