@@ -16,6 +16,7 @@ RUN apk add --update python3 py3-pip && \
 RUN python3 --version && pip3 --version
 
 COPY package*.json ./
+
 COPY ./prisma ./prisma
 
 RUN npm install && npm cache clean --force

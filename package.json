@@ -9,7 +9,6 @@
     "prod": "node src/server.js",
     "start": "ts-node src/server.ts",
     "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-pretty --colorize\"",
-    "prebuild": "shx rm -rf dist",
     "build": "tsc -p tsconfig.json",
     "preview": "node --env-file=.env dist/server.js",
     "db:gen": "npx prisma generate",
