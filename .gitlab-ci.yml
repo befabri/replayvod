@@ -19,6 +19,13 @@ before_build:
     stage: before_build
     image: node:20.7.0-alpine
     script:
+        - apk add --update python3 py3-pip
+        - python3 -m ensurepip
+        - pip3 install --upgrade pip setuptools
+        - python3 --version
+        - pip3 --version
+        - apk add --update ffmpeg
+        - ffmpeg -version
         - npm ci
         - npm run build
     artifacts:
@@ -30,11 +37,11 @@ before_build:
 build:
     stage: build
     script:
-        - /kaniko/executor
-          --context "${CI_PROJECT_DIR}"
-          --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
-          --cache=true
-          --cache-dir="/cache"
+        - /kaniko/executor \
+          --context "${CI_PROJECT_DIR}" \
+          --dockerfile "${CI_PROJECT_DIR}/Dockerfile" \
+          --cache=true \
+          --cache-dir="/cache" \
           --destination "${CI_REGISTRY_IMAGE}:${DOCKER_IMAGE_TAG}"
     only:
         - main
