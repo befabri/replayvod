@@ -17,7 +17,7 @@ stages:
 
 before_build:
     stage: before_build
-    image: node:21.3.0
+    image: node:20.7.0-alpine
     script:
         - npm ci
         - npm run build

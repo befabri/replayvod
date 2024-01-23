@@ -1,49 +1,49 @@
 {
-  "name": "replay-vod-backend",
-  "version": "1.0.0",
-  "description": "",
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "scripts": {
-    "prod": "node src/server.js",
-    "start": "ts-node src/server.ts",
-    "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-pretty --colorize\"",
-    "build": "tsc -p tsconfig.json",
-    "preview": "node --env-file=.env dist/server.js",
-    "db:gen": "npx prisma generate",
-    "db:studio": "npx prisma studio",
-    "db:migrate": "npx  prisma migrate dev",
-    "db:push": "npx run prisma db push",
-    "db:seed": "ts-node prisma/seed.ts"
-  },
-  "dependencies": {
-    "@fastify/cookie": "^9.3.1",
-    "@fastify/cors": "^8.5.0",
-    "@fastify/oauth2": "^7.8.0",
-    "@fastify/secure-session": "^7.1.0",
-    "@fastify/static": "^6.12.0",
-    "@prisma/client": "^5.8.1",
-    "axios": "^1.6.5",
-    "fastify": "^4.25.2",
-    "fluent-ffmpeg": "^2.1.2",
-    "moment-timezone": "^0.5.43",
-    "uuid": "^9.0.0",
-    "youtube-dl-exec": "^2.4.5",
-    "typescript": "^5.3.3"
-
-  },
-  "devDependencies": {
-    "@types/fluent-ffmpeg": "^2.1.24",
-    "@types/node": "^20.11.5",
-    "@types/uuid": "^9.0.7",
-    "pino-pretty": "^10.2.0",
-    "prisma": "^5.8.1",
-    "shx": "^0.3.4",
-    "ts-node": "^10.9.2",
-    "tsup": "^8.0.1"
-  },
-  "engines": {
-    "node": "21.3.0"
-  }
+    "name": "replay-vod-backend",
+    "version": "1.0.0",
+    "description": "",
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "scripts": {
+        "prod": "node src/server.js",
+        "start": "ts-node src/server.ts",
+        "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-pretty --colorize\"",
+        "prebuild": "shx rm -rf dist || rmdir /s /q dist",
+        "build": "tsc -p tsconfig.json",
+        "preview": "node --env-file=.env dist/server.js",
+        "db:gen": "npx prisma generate",
+        "db:studio": "npx prisma studio",
+        "db:migrate": "npx  prisma migrate dev",
+        "db:push": "npx run prisma db push",
+        "db:seed": "ts-node prisma/seed.ts"
+    },
+    "dependencies": {
+        "@fastify/cookie": "^9.3.1",
+        "@fastify/cors": "^8.5.0",
+        "@fastify/oauth2": "^7.8.0",
+        "@fastify/secure-session": "^7.1.0",
+        "@fastify/static": "^6.12.0",
+        "@prisma/client": "^5.8.1",
+        "axios": "^1.6.5",
+        "fastify": "^4.25.2",
+        "fluent-ffmpeg": "^2.1.2",
+        "moment-timezone": "^0.5.43",
+        "uuid": "^9.0.0",
+        "youtube-dl-exec": "^2.5.6"
+    },
+    "devDependencies": {
+        "@types/fluent-ffmpeg": "^2.1.24",
+        "@types/node": "^20.11.5",
+        "@types/uuid": "^9.0.7",
+        "pino-pretty": "^10.2.0",
+        "prisma": "^5.8.1",
+        "shx": "^0.3.4",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.3.3",
+        "tsup": "^8.0.1"
+    },
+    "engines": {
+        "node": "20.7.0"
+    }
 }

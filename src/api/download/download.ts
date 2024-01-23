@@ -8,12 +8,12 @@ import { DownloadParams, JobDetail } from "../../types/sharedTypes";
 import { spawn } from "child_process";
 import { platform } from "os";
 import fs from "fs/promises";
-import { YtdlExecFunction, create as createYoutubeDl } from "youtube-dl-exec";
+import { create as createYoutubeDl } from "youtube-dl-exec";
 import { videoFeature } from "../video";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 let youtubedl: {
-    exec: YtdlExecFunction;
+    exec: any;
 };
 
 if (platform() === "win32") {
@@ -144,7 +144,7 @@ async function runYoutubeDL(
             fixup: "never",
         });
 
-        subprocess.stderr?.on("data", (chunk) => {
+        subprocess.stderr?.on("data", (chunk: { toString: () => any }) => {
             const message = chunk.toString();
             if (message.includes("frame") && message.includes("fps")) {
                 logger.info(message);
@@ -154,7 +154,7 @@ async function runYoutubeDL(
             }
         });
 
-        subprocess.on("close", (code) => {
+        subprocess.on("close", (code: number) => {
             if (code !== 0) {
                 reject(
                     new Error(
