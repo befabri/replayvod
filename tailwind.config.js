@@ -37,5 +37,5 @@ export default {
         },
     },
     // eslint-disable-next-line no-undef
-    plugins: [require("@tailwindcss/forms"), require("@tailwindcss/typography"), require("tailwind-scrollbar")],
+    plugins: [require("@tailwindcss/forms"), require("@tailwindcss/typography")],
 };
