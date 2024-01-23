@@ -19,12 +19,7 @@ before_build:
     stage: before_build
     image: node:21.3.0
     script:
-        - apt-get update -y && apt-get install -y python3 python3-pip ffmpeg
-        - python3 --version
-        - pip3 --version
-        - ffmpeg -version
         - npm ci
-        - npm install -g shx
         - npm run build
     artifacts:
         paths:
