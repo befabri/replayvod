@@ -29,7 +29,9 @@
     "fluent-ffmpeg": "^2.1.2",
     "moment-timezone": "^0.5.43",
     "uuid": "^9.0.0",
-    "youtube-dl-exec": "^2.4.5"
+    "youtube-dl-exec": "^2.4.5",
+    "typescript": "^5.3.3"
+
   },
   "devDependencies": {
     "@types/fluent-ffmpeg": "^2.1.24",
@@ -39,8 +41,7 @@
     "prisma": "^5.8.1",
     "shx": "^0.3.4",
     "ts-node": "^10.9.2",
-    "tsup": "^8.0.1",
-    "typescript": "^5.3.3"
+    "tsup": "^8.0.1"
   },
   "engines": {
     "node": "21.3.0"
