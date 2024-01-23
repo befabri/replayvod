@@ -1,47 +1,47 @@
 image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
+  name: gcr.io/kaniko-project/executor:debug
+  entrypoint: [""]
 
 variables:
-    DOCKER_IMAGE_TAG: "latest"
+  DOCKER_IMAGE_TAG: "latest"
 
 cache:
-    key: "$CI_COMMIT_REF_SLUG"
-    paths:
-        - node_modules/
-        - dist/
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - node_modules/
+    - dist/
 
 stages:
-    - before_build
-    - build
+  - before_build
+  - build
 
 before_build:
-    stage: before_build
-    image: node:20.7.0-alpine
-    script:
-        - apk add --update python3 py3-pip
-        - python3 -m ensurepip
-        - pip3 install --upgrade pip setuptools
-        - python3 --version
-        - pip3 --version
-        - apk add --update ffmpeg
-        - ffmpeg -version
-        - npm ci
-        - npm run build
-    artifacts:
-        paths:
-            - dist/
-    only:
-        - main
+  stage: before_build
+  image: node:20.7.0-alpine
+  script:
+    - apk add --update python3 py3-pip
+    - python3 -m ensurepip
+    - pip3 install --upgrade pip setuptools
+    - apk add --update ffmpeg
+    - python3 --version
+    - pip3 --version
+    - ffmpeg -version
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+  only:
+    - main
 
 build:
-    stage: build
-    script:
-        - /kaniko/executor \
-          --context "${CI_PROJECT_DIR}" \
-          --dockerfile "${CI_PROJECT_DIR}/Dockerfile" \
-          --cache=true \
-          --cache-dir="/cache" \
-          --destination "${CI_REGISTRY_IMAGE}:${DOCKER_IMAGE_TAG}"
-    only:
-        - main
+  stage: build
+  script:
+    - /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
+      --cache=true
+      --cache-dir="/cache"
+      --destination "${CI_REGISTRY_IMAGE}:${DOCKER_IMAGE_TAG}"
+  only:
+    - main
