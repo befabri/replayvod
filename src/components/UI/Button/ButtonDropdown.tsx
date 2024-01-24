@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
+import useOutsideClick from "../../../hooks/useOutsideClick";
 
 interface DropdownOption {
     value: string;
@@ -16,18 +17,7 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptio
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            const target = event.target as Node;
-            if (dropdownRef.current && !dropdownRef.current.contains(target)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, [dropdownRef]);
+    useOutsideClick(dropdownRef, () => setIsOpen(false));
 
     const handleToggle = () => {
         setIsOpen(!isOpen);
@@ -38,10 +28,10 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptio
         setIsOpen(false);
     };
     return (
-        <div ref={dropdownRef} className="relative inline-block text-left z-10 dark:bg-custom_lightblue">
+        <div ref={dropdownRef} className="relative z-10 inline-block text-left dark:bg-custom_lightblue">
             <button
                 type="button"
-                className="inline-flex justify-center w-full rounded-md border border-gray-300 shadow-sm px-2 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none dark:bg-custom_lightblue dark:text-gray-200 dark:hover:bg-custom_vista_blue dark:border-custom_lightblue"
+                className="inline-flex w-full justify-center rounded-md border border-gray-300 bg-white px-2 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none dark:border-custom_lightblue dark:bg-custom_lightblue dark:text-gray-200 dark:hover:bg-custom_vista_blue"
                 id="options-menu"
                 aria-expanded="true"
                 aria-haspopup="true"
@@ -51,7 +41,7 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptio
             </button>
             {isOpen && (
                 <div
-                    className="origin-top-right absolute right-0 mt-2 w-36 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet"
+                    className="absolute right-0 mt-2 w-36 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet"
                     role="menu"
                     aria-orientation="vertical"
                     aria-labelledby="options-menu">
@@ -59,7 +49,7 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptio
                         {options.map((option, index) => (
                             <button
                                 key={index}
-                                className="text-left w-full block px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue"
+                                className="block w-full px-2 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue"
                                 role="menuitem"
                                 onClick={() => handleSelect(option)}>
                                 {option.label}

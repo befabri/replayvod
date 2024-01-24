@@ -6,6 +6,7 @@ import { useAuth } from "../../context/Auth/Auth";
 import i18n from "i18next";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
+import useOutsideClick from "../../hooks/useOutsideClick";
 
 const Navbar: React.FC = () => {
     const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -18,6 +19,13 @@ const Navbar: React.FC = () => {
     const { t } = useTranslation();
 
     const languages = ["English", "Français"];
+    useOutsideClick(sidebarRef, () => setSidebarOpen(false));
+    useOutsideClick(profileRef, () => handleOutsideClickProfil());
+
+    const handleOutsideClickProfil = () => {
+        setProfileOpen(false);
+        setLanguageOpen(false);
+    };
 
     const languageMap = {
         English: "en",
@@ -66,38 +74,21 @@ const Navbar: React.FC = () => {
         }
     };
 
-    useEffect(() => {
-        const handleOutsideClick = (event: MouseEvent) => {
-            const target = event.target as Node;
-            if (sidebarRef.current && !sidebarRef.current.contains(target)) {
-                setSidebarOpen(false);
-            }
-            if (profileRef.current && !profileRef.current.contains(target)) {
-                setProfileOpen(false);
-                setLanguageOpen(false);
-            }
-        };
-        document.addEventListener("mouseup", handleOutsideClick);
-        return () => {
-            document.removeEventListener("mouseup", handleOutsideClick);
-        };
-    }, []);
-
     return (
         <>
             <nav
                 ref={navbarRef}
-                className="fixed top-0 z-50 w-full bg-white border-b border-gray-200 dark:bg-custom_blue dark:border-custom_blue shadow-sm dark:shadow-sm">
+                className="fixed top-0 z-50 w-full border-b border-gray-200 bg-white shadow-sm dark:border-custom_blue dark:bg-custom_blue dark:shadow-sm">
                 <div className="px-3 py-3 lg:px-5 lg:pl-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center justify-start">
                             <button
                                 onClick={handleSidebarOpen}
                                 type="button"
-                                className="inline-flex items-center p-2 text-sm text-gray-500 rounded-lg md:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600">
+                                className="inline-flex items-center rounded-lg p-2 text-sm text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600 md:hidden">
                                 <span className="sr-only">Open sidebar</span>
                                 <svg
-                                    className="w-6 h-6"
+                                    className="h-6 w-6"
                                     aria-hidden="true"
                                     fill="currentColor"
                                     viewBox="0 0 20 20"
@@ -105,49 +96,49 @@ const Navbar: React.FC = () => {
                                     <path d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z"></path>
                                 </svg>
                             </button>
-                            <Link to="/" className="flex ml-2 md:mr-24">
-                                <span className="self-center text-xl font-semibold md:text-2xl whitespace-nowrap dark:text-white">
+                            <Link to="/" className="ml-2 flex md:mr-24">
+                                <span className="self-center whitespace-nowrap text-xl font-semibold dark:text-white md:text-2xl">
                                     ReplayVod
                                 </span>
                             </Link>
                         </div>
-                        <div ref={profileRef} className="flex items-center ml-3">
+                        <div ref={profileRef} className="ml-3 flex items-center">
                             <button
                                 onClick={handleProfileToggle}
                                 type="button"
-                                className="flex text-sm bg-gray-800 rounded-full focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600"
+                                className="flex rounded-full bg-gray-800 text-sm focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600"
                                 id="profile"
                                 aria-expanded="false"
                                 data-dropdown-toggle="dropdown-user">
                                 <span className="sr-only">{t("Open user menu")}</span>
                                 <img
-                                    className="w-8 h-8 rounded-full"
+                                    className="h-8 w-8 rounded-full"
                                     src={user ? user.profile_image : "/images/placeholder_picture.png"}
                                     alt="user photo"
                                 />
                             </button>
                             {isProfilOpen && (
                                 <div
-                                    className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet"
+                                    className="z-60 absolute right-5 top-11 mt-2 w-48 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet"
                                     id="dropdown-user">
                                     <button
                                         type="button"
                                         onClick={(e: React.MouseEvent) => handleSelect(e, "Language")}
                                         disabled={false}
-                                        className="w-full text-left flex justify-between items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
+                                        className="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
                                         <span> {t("Language")}</span>
                                         <Icon icon="mdi:chevron-right" width="18" height="18" />
                                     </button>
                                     <DarkModeToggle
                                         text={t("Dark Theme")}
-                                        className="h-9 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue"
+                                        className="block h-9 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue"
                                     />
                                     <div className="border-b-2 pb-2 dark:border-custom_vista_blue dark:border-opacity-50"></div>
                                     <button
                                         type="button"
                                         onClick={(e: React.MouseEvent) => handleSelect(e, "Sign Out")}
                                         disabled={false}
-                                        className="mt-2 w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
+                                        className="mt-2 block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
                                         {t("Sign Out")}
                                     </button>
                                 </div>
@@ -155,9 +146,9 @@ const Navbar: React.FC = () => {
                             {isLanguageOpen && (
                                 <div
                                     id="dropdown-language"
-                                    className="origin-top-right absolute right-5 top-11 z-60 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet">
+                                    className="z-60 absolute right-5 top-11 mt-2 w-48 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-custom_space_cadet dark:ring-custom_space_cadet">
                                     <div
-                                        className="cursor-pointer w-full text-left flex gap-10 items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue"
+                                        className="flex w-full cursor-pointer items-center gap-10 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue"
                                         onClick={() => {
                                             setLanguageOpen(false);
                                             setProfileOpen(true);
@@ -173,7 +164,7 @@ const Navbar: React.FC = () => {
                                                 type="button"
                                                 onClick={(e: React.MouseEvent) => handleLanguage(e, lang)}
                                                 disabled={false}
-                                                className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
+                                                className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-custom_vista_blue">
                                                 {lang}
                                             </button>
                                         ))}

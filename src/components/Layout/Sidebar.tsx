@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { NavLink, useLocation } from "react-router-dom";
 import { Pathnames } from "../../type/routes";
 import { NavLinkBar } from "../../type";
+import useOutsideClick from "../../hooks/useOutsideClick";
 
 interface SidebarProps extends React.RefAttributes<HTMLDivElement> {
     isOpenSideBar: boolean;
@@ -16,6 +17,8 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
     const dropdownRef = useRef<HTMLDivElement | null>(null);
     const location = useLocation();
     const [activeDropdownIndex, setActiveDropdownIndex] = useState<number | null>(null);
+
+    useOutsideClick(dropdownRef, () => onCloseSidebar());
 
     const [navLinks] = useState<NavLinkBar[]>([
         {
@@ -70,18 +73,6 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
             ],
         },
     ]);
-
-    useEffect(() => {
-        const pageClickEvent = (e: MouseEvent) => {
-            if (dropdownRef.current !== null && !dropdownRef.current.contains(e.target as Node)) {
-                onCloseSidebar();
-            }
-        };
-        window.addEventListener("click", pageClickEvent);
-        return () => {
-            window.removeEventListener("click", pageClickEvent);
-        };
-    }, [onCloseSidebar]);
 
     useEffect(() => {
         const findActiveDropdownIndex = navLinks.findIndex(
