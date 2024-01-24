@@ -21,6 +21,7 @@ const styles = {
 const getButtonStyle = (styleType: "primary" | "inverted" | "submit" | "svg") => {
     return styles[styleType] || styles.primary;
 };
+
 const Button: FC<ButtonProps> = ({
     text = "",
     onClick,
