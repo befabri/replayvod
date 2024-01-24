@@ -85,13 +85,14 @@ const addAllVideoTags = async (tags: { tagId: string }[], videoId: number) => {
     }
 };
 
-const createAllDownloadScheduleTags = async (tags: { tagId: string }[], downloadScheduleId: number) => {
+const createAllDownloadScheduleTags = async (tags: Tag[], downloadScheduleId: number) => {
     try {
+        const createTagPromises = tags.map((tag) => createTag(tag));
+        await Promise.all(createTagPromises);
         const data = tags.map((tag) => ({
             downloadScheduleId: downloadScheduleId,
-            tagId: tag.tagId,
+            tagId: tag.name,
         }));
-
         await prisma.downloadScheduleTag.createMany({
             data: data,
             skipDuplicates: true,

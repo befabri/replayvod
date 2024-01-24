@@ -222,6 +222,15 @@ model DownloadScheduleCategory {
   @@id([downloadScheduleId, categoryId])
 }
 
+model DownloadScheduleTag {
+  downloadScheduleId Int
+  tagId              String
+  downloadSchedule   DownloadSchedule @relation(fields: [downloadScheduleId], references: [id], onDelete: Cascade)
+  tag                Tag              @relation(fields: [tagId], references: [name])
+
+  @@id([downloadScheduleId, tagId])
+}
+
 model Tag {
   name                String                @id
   videoTag            VideoTag[]
@@ -245,15 +254,6 @@ model StreamTag {
   tag      Tag    @relation(fields: [tagId], references: [name])
 
   @@id([streamId, tagId])
-}
-
-model DownloadScheduleTag {
-  downloadScheduleId Int
-  tagId              String
-  downloadSchedule   DownloadSchedule @relation(fields: [downloadScheduleId], references: [id], onDelete: Cascade)
-  tag                Tag              @relation(fields: [tagId], references: [name])
-
-  @@id([downloadScheduleId, tagId])
 }
 
 model Stream {
@@ -303,6 +303,9 @@ model DownloadSchedule {
   id                       Int                        @id @default(autoincrement())
   broadcasterId            String
   quality                  Quality
+  hasMinView               Boolean
+  hasCategory              Boolean
+  hasTags                  Boolean
   viewersCount             Int?
   isDeleteRediff           Boolean
   timeBeforeDelete         Int?

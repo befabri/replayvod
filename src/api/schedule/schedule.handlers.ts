@@ -29,7 +29,7 @@ const isValidData = (data: CreateScheduleDTO) => {
     return !(
         (data.hasMinView && !data.viewersCount) ||
         (data.hasTags && !data.tag) ||
-        (data.hasCategory && !data.category)
+        (data.hasCategory && !data.categories)
     );
 };
 

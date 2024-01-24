@@ -22,8 +22,14 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                         type: ["number", "null"],
                         minimum: 0,
                     },
-                    category: { type: "string", minLength: 2 },
-                    tag: { type: "string", pattern: "^[a-zA-Z]{2,}(,[a-zA-Z]{2,})*$" },
+                    categories: {
+                        type: "array",
+                        items: { type: "string" },
+                    },
+                    tag: {
+                        type: "array",
+                        items: { type: "string" },
+                    },
                     quality: { enum: ["480", "720", "1080"] },
                     isDeleteRediff: { type: "boolean", default: false },
                     hasTags: { type: "boolean", default: false },
@@ -32,7 +38,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 },
                 required: [
                     "channelName",
-                    "category",
+                    "categories",
                     "quality",
                     "hasTags",
                     "hasMinView",
@@ -65,8 +71,14 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                         type: ["number", "null"],
                         minimum: 0,
                     },
-                    category: { type: "string", minLength: 2 },
-                    tag: { type: "string", pattern: "^[a-zA-Z]{2,}(,[a-zA-Z]{2,})*$" },
+                    categories: {
+                        type: "array",
+                        items: { type: "string" },
+                    },
+                    tag: {
+                        type: "array",
+                        items: { type: "string" },
+                    },
                     quality: { enum: ["480", "720", "1080"] },
                     isDeleteRediff: { type: "boolean", default: false },
                     hasTags: { type: "boolean", default: false },
@@ -75,7 +87,7 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
                 },
                 required: [
                     "channelName",
-                    "category",
+                    "categories",
                     "quality",
                     "hasTags",
                     "hasMinView",

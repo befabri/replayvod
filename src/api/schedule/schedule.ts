@@ -8,7 +8,7 @@ import { DownloadSchedule } from "@prisma/client";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 export const getCurrentSchedulesByUser = async (userId: string) => {
-    return prisma.downloadSchedule.findMany({
+    const schedules = await prisma.downloadSchedule.findMany({
         where: {
             requestedBy: userId,
         },
@@ -30,6 +30,12 @@ export const getCurrentSchedulesByUser = async (userId: string) => {
             },
         },
     });
+    return schedules.map(({ downloadScheduleCategory, downloadScheduleTag, ...schedule }) => ({
+        ...schedule,
+        channelName: schedule.channel.broadcasterLogin,
+        category: downloadScheduleCategory.map((c) => c.category.name),
+        tags: downloadScheduleTag.map((t) => t.tag.name),
+    }));
 };
 
 export const getSchedule = async (scheduleId: number, userId: string) => {
@@ -68,23 +74,52 @@ export const toggleSchedule = async (scheduleId: number, enable: boolean) => {
 export const createSchedule = async (newSchedule: CreateScheduleDTO, userId: string) => {
     try {
         const transformedScheduleData = await transformDownloadSchedule(newSchedule, userId);
-        const createdDownloadSchedule = await prisma.downloadSchedule.create({
-            data: transformedScheduleData.downloadSchedule,
+
+        await prisma.$transaction(async (prisma) => {
+            const createdDownloadSchedule = await prisma.downloadSchedule.create({
+                data: transformedScheduleData.downloadSchedule,
+            });
+
+            if (transformedScheduleData.tags.length > 0) {
+                const existingTags = await prisma.downloadScheduleTag.findMany({
+                    where: { downloadScheduleId: createdDownloadSchedule.id },
+                    select: { tagId: true },
+                });
+                const existingTagIds = existingTags.map((tag) => tag.tagId);
+                const newTagNames = transformedScheduleData.tags.map((tag) => tag.name);
+                const tagsToAdd = newTagNames.filter((tagName) => !existingTagIds.includes(tagName));
+                for (const tagName of tagsToAdd) {
+                    let existingTag = await prisma.tag.findUnique({
+                        where: { name: tagName },
+                    });
+                    if (!existingTag) {
+                        existingTag = await prisma.tag.create({
+                            data: { name: tagName },
+                        });
+                    }
+                    await prisma.downloadScheduleTag.create({
+                        data: { downloadScheduleId: createdDownloadSchedule.id, tagId: existingTag.name },
+                    });
+                }
+            }
+
+            if (transformedScheduleData.categories.length > 0) {
+                const existingCategories = await prisma.downloadScheduleCategory.findMany({
+                    where: { downloadScheduleId: createdDownloadSchedule.id },
+                    select: { categoryId: true },
+                });
+                const existingCategoriesIds = existingCategories.map((category) => category.categoryId);
+                const newCategoriesIds = transformedScheduleData.categories.map((category) => category.id);
+                const categoriesToAdd = newCategoriesIds.filter(
+                    (categoryId) => !existingCategoriesIds.includes(categoryId)
+                );
+                for (const categoryId of categoriesToAdd) {
+                    await prisma.downloadScheduleCategory.create({
+                        data: { downloadScheduleId: createdDownloadSchedule.id, categoryId: categoryId },
+                    });
+                }
+            }
         });
-
-        if (transformedScheduleData.tags.length > 0) {
-            await tagService.createAllDownloadScheduleTags(
-                transformedScheduleData.tags.map((tag) => ({ tagId: tag.name })),
-                createdDownloadSchedule.id
-            );
-        }
-
-        if (transformedScheduleData.category) {
-            await categoryFeature.createDownloadScheduleCategory(
-                createdDownloadSchedule.id,
-                transformedScheduleData.category.id
-            );
-        }
     } catch (error) {
         if (error instanceof PrismaClientKnownRequestError) {
             if (error.code === "P2002") {
@@ -98,27 +133,66 @@ export const createSchedule = async (newSchedule: CreateScheduleDTO, userId: str
 export const editSchedule = async (scheduleId: number, schedule: CreateScheduleDTO) => {
     try {
         const transformedScheduleData = await transformDownloadScheduleEdit(schedule);
+        await prisma.$transaction(async (prisma) => {
+            await prisma.downloadSchedule.update({
+                where: { id: scheduleId },
+                data: transformedScheduleData.downloadSchedule,
+            });
 
-        const createdDownloadSchedule = await prisma.downloadSchedule.update({
-            where: {
-                id: scheduleId,
-            },
-            data: transformedScheduleData.downloadSchedule,
+            if (transformedScheduleData.tags.length > 0) {
+                const existingTags = await prisma.downloadScheduleTag.findMany({
+                    where: { downloadScheduleId: scheduleId },
+                    select: { tagId: true },
+                });
+                const existingTagIds = existingTags.map((tag) => tag.tagId);
+                const newTagNames = transformedScheduleData.tags.map((tag) => tag.name);
+                const tagsToAdd = newTagNames.filter((tagName) => !existingTagIds.includes(tagName));
+                const tagsToRemove = existingTagIds.filter((tagId) => !newTagNames.includes(tagId));
+                for (const tagName of tagsToAdd) {
+                    let existingTag = await prisma.tag.findUnique({
+                        where: { name: tagName },
+                    });
+                    if (!existingTag) {
+                        existingTag = await prisma.tag.create({
+                            data: { name: tagName },
+                        });
+                    }
+                    await prisma.downloadScheduleTag.create({
+                        data: { downloadScheduleId: scheduleId, tagId: existingTag.name },
+                    });
+                }
+                for (const tagId of tagsToRemove) {
+                    await prisma.downloadScheduleTag.deleteMany({
+                        where: { downloadScheduleId: scheduleId, tagId },
+                    });
+                }
+            }
+
+            if (transformedScheduleData.categories.length > 0) {
+                const existingCategories = await prisma.downloadScheduleCategory.findMany({
+                    where: { downloadScheduleId: scheduleId },
+                    select: { categoryId: true },
+                });
+                const existingCategoriesIds = existingCategories.map((category) => category.categoryId);
+                const newCategoriesIds = transformedScheduleData.categories.map((category) => category.id);
+                const categoriesToAdd = newCategoriesIds.filter(
+                    (categoryId) => !existingCategoriesIds.includes(categoryId)
+                );
+                const categoriesToRemove = existingCategoriesIds.filter(
+                    (categoryId) => !newCategoriesIds.includes(categoryId)
+                );
+                for (const categoryId of categoriesToAdd) {
+                    await prisma.downloadScheduleCategory.create({
+                        data: { downloadScheduleId: scheduleId, categoryId: categoryId },
+                    });
+                }
+                for (const categoryId of categoriesToRemove) {
+                    await prisma.downloadScheduleCategory.deleteMany({
+                        where: { downloadScheduleId: scheduleId, categoryId },
+                    });
+                }
+            }
         });
-
-        if (transformedScheduleData.tags.length > 0) {
-            await tagService.createAllDownloadScheduleTags(
-                transformedScheduleData.tags.map((tag) => ({ tagId: tag.name })),
-                createdDownloadSchedule.id
-            );
-        }
-
-        if (transformedScheduleData.category) {
-            await categoryFeature.createDownloadScheduleCategory(
-                createdDownloadSchedule.id,
-                transformedScheduleData.category.id
-            );
-        }
     } catch (error) {
         if (error instanceof PrismaClientKnownRequestError) {
             if (error.code === "P2002") {
