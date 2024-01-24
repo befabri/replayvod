@@ -183,14 +183,24 @@ export interface ManageSchedule {
     requestedBy: string;
     channel: Channel;
     isDisabled: boolean;
-    downloadScheduleCategory: DownloadScheduleCategory[];
-    downloadScheduleTag: DownloadScheduleTag[];
+    categories: string[];
+    tags: string[];
+    hasMinView: boolean;
+    hasCategory: boolean;
+    hasTags: boolean;
+    channelName: string;
 }
 
-interface DownloadScheduleTag {
-    tag: Tag;
-}
-
-interface DownloadScheduleCategory {
-    category: Category;
+export interface ManageScheduleDTO {
+    isChannelNameDisabled: boolean;
+    channelName: string;
+    timeBeforeDelete: number | null;
+    viewersCount: number | null;
+    categories: string[];
+    quality: Quality;
+    isDeleteRediff: boolean;
+    hasTags: boolean;
+    hasMinView: boolean;
+    hasCategory: boolean;
+    tags: string[];
 }
