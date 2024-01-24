@@ -12,7 +12,7 @@ const LastLive: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_DOWNLOAD_SCHEDULE);
+            const url = getApiRoute(ApiRoutes.GET_SCHEDULE);
             const response = await fetch(url, {
                 credentials: "include",
             });
