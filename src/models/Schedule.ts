@@ -17,12 +17,10 @@ export const ScheduleSchema = z.object({
             message: "Must be an integer and positive or equal to 0",
         })
         .optional(),
-    category: z.string().trim().min(2, { message: "Must be 2 or more characters long" }),
-    tag: z
-        .string()
-        .regex(/^[a-zA-Z]{2,}(,[a-zA-Z]{2,})*$/, { message: "Invalid tag format" })
-        .or(z.literal(""))
+    categories: z
+        .array(z.string().trim().min(2, { message: "Categories must be at least 2 characters long" }))
         .optional(),
+    tag: z.array(z.string().trim().min(2, { message: "Tag must be at least 2 characters long" })).optional(),
     quality: z.enum([Quality.LOW, Quality.MEDIUM, Quality.HIGH]),
     isDeleteRediff: z.boolean().default(false),
     hasTags: z.boolean().default(false),

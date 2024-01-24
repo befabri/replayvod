@@ -1,45 +1,55 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ManageSchedule } from "../../../type";
+import { ManageSchedule, ManageScheduleDTO } from "../../../type";
 import { Icon } from "@iconify/react/dist/iconify.js";
 import ScheduleForm from "../../Others/ScheduleForm";
 import { ApiRoutes, getApiRoute } from "../../../type/routes";
 import { qualityLabelToResolution } from "../../../utils/utils";
+import useOutsideClick from "../../../hooks/useOutsideClick";
 
 interface ScheduleModalProps {
     isOpen: boolean;
     onClose: () => void;
     data: ManageSchedule;
     onScheduleDelete: (scheduleId: number) => void;
+    onDataChange: any;
 }
 
-const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, onClose, onScheduleDelete, data }) => {
+const transformDataToForm = (modalData: ManageSchedule | null): ManageScheduleDTO | null => {
+    if (!modalData) {
+        return null;
+    }
+    const defaultValue = {
+        ...modalData,
+        isChannelNameDisabled: true,
+        quality: qualityLabelToResolution(modalData.quality),
+    };
+    console.log("transformed: ", defaultValue)
+    return defaultValue;
+};
+
+const ScheduleModal: React.FC<ScheduleModalProps> = ({
+    isOpen,
+    onClose,
+    onScheduleDelete,
+    data,
+    onDataChange,
+}) => {
     const { t } = useTranslation();
     const modalRef = useRef<HTMLDivElement>(null);
-
     const [modalData, setModalData] = useState<ManageSchedule | null>(null);
+
     useEffect(() => {
         if (data) {
             setModalData(data);
         }
     }, [data]);
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            const target = event.target as Node;
-            if (modalRef.current && !modalRef.current.contains(target)) {
-                onClose();
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, [modalRef, onClose]);
+    useOutsideClick(modalRef, () => onClose());
 
-    const removeSchedule = async (scheduleId: number) => {
+    const removeSchedule = async (id: number) => {
         try {
-            const url = getApiRoute(ApiRoutes.DELETE_DOWNLOAD_SCHEDULE, "id", scheduleId);
+            const url = getApiRoute(ApiRoutes.DELETE_SCHEDULE, "id", id);
             const response = await fetch(url, {
                 method: "DELETE",
                 credentials: "include",
@@ -74,7 +84,7 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, onClose, onSchedu
 
     return (
         <div className="fixed inset-0 z-50 flex w-full items-center justify-center overflow-y-auto overflow-x-hidden">
-            <div ref={modalRef} className="relative max-h-full w-full max-w-xl p-4">
+            <div ref={modalRef} className="relative max-h-full w-full max-w-3xl p-4">
                 <div className="relative rounded-sm bg-white shadow dark:bg-custom_space_cadet">
                     <div className="flex items-center justify-between rounded-t border-b-2 p-4 dark:border-custom_delft_blue md:p-5">
                         <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -93,23 +103,9 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, onClose, onSchedu
                                 onClose,
                                 onDelete,
                             }}
-                            defaultValue={{
-                                isChannelNameDisabled: true,
-                                channelName: modalData.channel.broadcasterLogin || "",
-                                timeBeforeDelete: modalData.timeBeforeDelete || 10,
-                                viewersCount: modalData.viewersCount || 0,
-                                category:
-                                    modalData.downloadScheduleCategory?.map(
-                                        (categoryObj) => categoryObj.category
-                                    ) || [],
-                                quality: qualityLabelToResolution(modalData.quality),
-                                isDeleteRediff: modalData.isDeleteRediff,
-                                hasTags: modalData.downloadScheduleTag && modalData.downloadScheduleTag.length > 0,
-                                tags: modalData.downloadScheduleTag?.map((tagObj) => tagObj.tag) || [],
-                                hasMinView: (modalData.viewersCount ?? 0) > 0 || false,
-                                hasCategory: !!modalData.downloadScheduleCategory?.[0]?.category,
-                            }}
+                            defaultValue={transformDataToForm(modalData) || undefined}
                             scheduleId={modalData.id}
+                            onDataChange={onDataChange}
                         />
                     </div>
                 </div>

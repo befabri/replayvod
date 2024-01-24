@@ -11,15 +11,15 @@ interface CheckBoxProps {
 const CheckBox: React.FC<CheckBoxProps> = ({ label, register, id, error, helperText }) => {
     return (
         <div className="flex">
-            <div className="flex items-center h-5">
+            <div className="flex h-5 items-center">
                 <input
                     id={id}
                     type="checkbox"
                     {...register}
-                    className="w-4 h-4 text-blue-600 dark:hover:bg-custom_lightblue dark:hover:border-custom_vista_blue bg-gray-100 border-gray-300 rounded focus:ring-custom_lightblue dark:focus:bg-custom_lightblue dark:ring-offset-custom_lightblue focus:ring-0 dark:focus:ring-0 dark:bg-custom_lightblue dark:border-custom_lightblue "
+                    className="h-4 w-4 rounded border-gray-300 bg-gray-100 text-blue-600 focus:ring-0 focus:ring-custom_lightblue dark:border-custom_lightblue dark:bg-custom_lightblue dark:ring-offset-custom_lightblue dark:hover:border-custom_vista_blue dark:hover:bg-custom_lightblue dark:focus:bg-custom_lightblue dark:focus:ring-0 "
                 />
             </div>
-            <div className="ml-2 text-sm  mb-2">
+            <div className="mb-2 ml-2 text-sm">
                 <label htmlFor={id} className="font-medium text-gray-900 dark:text-gray-300">
                     {label}
                 </label>

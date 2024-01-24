@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { SubmitHandler, useForm } from "react-hook-form";
+import { Controller, SubmitHandler, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ScheduleSchema } from "../../models/Schedule";
 import type { ScheduleForm } from "../../models/Schedule";
@@ -7,27 +7,15 @@ import InputText from "../UI/Form/InputText";
 import { useTranslation } from "react-i18next";
 import Select from "../UI/Form/Select";
 import InputNumber from "../UI/Form/InputNumber";
-import { Category, Channel, Quality, Tag } from "../../type";
+import { Category, Channel, ManageScheduleDTO, Quality } from "../../type";
 import Checkbox from "../UI/Form/CheckBox";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 import Button from "../UI/Button/Button";
+import InputTag from "../UI/Form/InputTag";
+import MultipleSelect from "../UI/Form/MultipleSelect";
 
-const minTimeBeforeDelete = 10;
-const minViewersCount = 0;
-
-interface DefaultValue {
-    isChannelNameDisabled: boolean;
-    channelName: string;
-    isDeleteRediff: boolean;
-    hasTags: boolean;
-    hasMinView: boolean;
-    hasCategory: boolean;
-    quality: Quality;
-    category: Category[];
-    timeBeforeDelete: number;
-    viewersCount: number;
-    tags: Tag[];
-}
+const MIN_TIME_BEFORE_DELETE = 10;
+const MIN_VIEWERS_COUNT = 0;
 
 interface ModalProps {
     onClose: any;
@@ -35,9 +23,10 @@ interface ModalProps {
 }
 
 interface ScheduleFormProps {
-    defaultValue?: DefaultValue;
+    defaultValue?: ManageScheduleDTO;
     modal?: ModalProps;
     scheduleId?: number;
+    onDataChange?: (data: ScheduleForm) => void;
 }
 
 const ScheduleForm: React.FC<ScheduleFormProps> = ({
@@ -50,12 +39,13 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         hasMinView: false,
         hasCategory: false,
         quality: Quality.LOW,
-        category: [],
-        timeBeforeDelete: minTimeBeforeDelete,
-        viewersCount: minViewersCount,
+        timeBeforeDelete: MIN_TIME_BEFORE_DELETE,
+        viewersCount: MIN_VIEWERS_COUNT,
+        categories: [],
         tags: [],
     },
     scheduleId,
+    onDataChange,
 }) => {
     const { t } = useTranslation();
     const isModal = !!modal;
@@ -85,10 +75,6 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                 ]);
 
                 setCategories(categoryData);
-                setValue(
-                    "category",
-                    defaultValue.category.length > 0 ? defaultValue.category[0]?.name : categoryData[0]?.name
-                );
                 setChannels(followedChannelsData);
             } catch (error) {
                 console.error(`Error fetching data: ${error}`);
@@ -106,10 +92,10 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             let method = "";
 
             if (isModal) {
-                url = getApiRoute(ApiRoutes.PUT_DOWNLOAD_SCHEDULE_EDIT, "id", scheduleId);
+                url = getApiRoute(ApiRoutes.PUT_SCHEDULE_EDIT, "id", scheduleId);
                 method = "PUT";
             } else {
-                url = getApiRoute(ApiRoutes.POST_DOWNLOAD_SCHEDULE);
+                url = getApiRoute(ApiRoutes.POST_SCHEDULE);
                 method = "POST";
             }
 
@@ -150,18 +136,13 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         }
     };
 
-    // category: defaultValue.category.length
-    //     ? defaultValue.category[0].name
-    //     : categories.length
-    //       ? categories[0].name
-    //       : "",
-
     const {
         register,
         handleSubmit,
         setError,
         clearErrors,
         trigger,
+        control,
         // formState: { errors, isValid },
         formState: { errors },
         watch,
@@ -175,16 +156,14 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             hasMinView: defaultValue.hasMinView,
             hasCategory: defaultValue.hasCategory,
             quality: defaultValue.quality,
-            category: defaultValue.category.length > 0 ? defaultValue.category[0]?.name : categories[0]?.name,
-            timeBeforeDelete: defaultValue.timeBeforeDelete,
-            viewersCount: defaultValue.viewersCount,
-            tag:
-                defaultValue.tags && defaultValue.tags.length > 0
-                    ? defaultValue.tags.map((tag) => tag.name).join(",")
-                    : undefined,
+            timeBeforeDelete: defaultValue.timeBeforeDelete
+                ? defaultValue.timeBeforeDelete
+                : MIN_TIME_BEFORE_DELETE,
+            viewersCount: defaultValue.viewersCount ? defaultValue.viewersCount : MIN_VIEWERS_COUNT,
+            categories: defaultValue.categories,
+            tag: defaultValue.tags,
         },
     });
-
     const channelName = watch("channelName");
     const isDeleteRediff = watch("isDeleteRediff");
     const hasTags = watch("hasTags");
@@ -200,6 +179,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             });
             return;
         }
+        console.log(data);
         postData(data);
     };
 
@@ -234,6 +214,12 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                 setPossibleMatches([]);
             }
         }
+    };
+
+    //TODO
+    const handleTagsChange = (updatedTags: string[]) => {
+        console.log(updatedTags);
+        setValue("tag", updatedTags); // Update form state
     };
 
     if (isLoading) {
@@ -285,7 +271,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         error={errors.timeBeforeDelete}
                         required={false}
                         disabled={!isDeleteRediff}
-                        minValue={minTimeBeforeDelete}
+                        minValue={MIN_TIME_BEFORE_DELETE}
                     />
                 </div>
 
@@ -302,7 +288,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         error={errors.viewersCount}
                         required={false}
                         disabled={!hasMinView}
-                        minValue={minViewersCount}
+                        minValue={MIN_VIEWERS_COUNT}
                     />
                 </div>
                 <div className="mt-5">
@@ -312,13 +298,19 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         error={errors.hasCategory}
                         register={register("hasCategory")}
                     />
-                    <Select
-                        id="category"
-                        register={register("category", { required: true })}
-                        required={false}
-                        error={errors.category}
-                        options={categories.map((category) => category.name)}
-                        disabled={!hasCategory}
+                    <Controller
+                        name="categories"
+                        control={control}
+                        render={({ field }) => (
+                            <MultipleSelect
+                                id="categories"
+                                error={errors.categories}
+                                options={categories.map((category) => category.name)}
+                                disabled={!hasCategory}
+                                onCategoriesChange={field.onChange}
+                                value={field.value}
+                            />
+                        )}
                     />
                 </div>
                 <div className="mt-5">
@@ -328,15 +320,19 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         error={errors.hasTags}
                         register={register("hasTags")}
                     />
-                    <InputText
-                        id="tag"
-                        placeholder={t("Twitch tags separate by ,")}
-                        required={false}
-                        list=""
-                        register={register("tag")}
-                        error={errors.tag}
-                        onBlur={() => handleBlur("tag")}
-                        disabled={!hasTags}
+
+                    <Controller
+                        name="tag"
+                        control={control}
+                        render={({ field }) => (
+                            <InputTag
+                                id="tag"
+                                error={errors.tag}
+                                disabled={!hasTags}
+                                onTagsChange={field.onChange}
+                                value={field.value}
+                            />
+                        )}
                     />
                 </div>
             </div>

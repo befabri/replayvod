@@ -18,7 +18,7 @@ const ManagePage: React.FC = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_DOWNLOAD_SCHEDULE);
+            const url = getApiRoute(ApiRoutes.GET_SCHEDULE);
             const response = await fetch(url, {
                 credentials: "include",
             });
@@ -36,7 +36,7 @@ const ManagePage: React.FC = () => {
 
     const postData = async ({ id, enable }: { id: number; enable: boolean }) => {
         try {
-            const url = getApiRoute(ApiRoutes.POST_TOGGLE_DOWNLOAD_SCHEDULE, "id", id);
+            const url = getApiRoute(ApiRoutes.POST_TOGGLE_SCHEDULE, "id", id);
             const response = await fetch(url, {
                 method: "POST",
                 credentials: "include",
@@ -82,6 +82,12 @@ const ManagePage: React.FC = () => {
     if (isLoading) {
         return <div>{t("Loading")}</div>;
     }
+
+    //TODO
+    const handleDataChange = (newData: any) => {
+        console.log("newData: ", newData);
+        console.log("schedules: ", schedules);
+    };
 
     const hasNoSchedules = schedules.length === 0;
 
@@ -148,6 +154,7 @@ const ManagePage: React.FC = () => {
                         }}
                         onScheduleDelete={handleScheduleDelete}
                         data={selectedSchedule}
+                        onDataChange={handleDataChange}
                     />
                 )}
             </div>
