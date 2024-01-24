@@ -33,7 +33,7 @@ export const getCurrentSchedulesByUser = async (userId: string) => {
     return schedules.map(({ downloadScheduleCategory, downloadScheduleTag, ...schedule }) => ({
         ...schedule,
         channelName: schedule.channel.broadcasterLogin,
-        category: downloadScheduleCategory.map((c) => c.category.name),
+        categories: downloadScheduleCategory.map((c) => c.category.name),
         tags: downloadScheduleTag.map((t) => t.tag.name),
     }));
 };
@@ -176,10 +176,10 @@ export const editSchedule = async (scheduleId: number, schedule: CreateScheduleD
                 const existingCategoriesIds = existingCategories.map((category) => category.categoryId);
                 const newCategoriesIds = transformedScheduleData.categories.map((category) => category.id);
                 const categoriesToAdd = newCategoriesIds.filter(
-                    (categoryId) => !existingCategoriesIds.includes(categoryId)
+                    (category) => !existingCategoriesIds.includes(category)
                 );
                 const categoriesToRemove = existingCategoriesIds.filter(
-                    (categoryId) => !newCategoriesIds.includes(categoryId)
+                    (category) => !newCategoriesIds.includes(category)
                 );
                 for (const categoryId of categoriesToAdd) {
                     await prisma.downloadScheduleCategory.create({

@@ -52,7 +52,6 @@ const transformCommonSchedule = async (schedule: CreateScheduleDTO) => {
         throw new Error("ChannelName doesn't exist");
     }
     let categories: Category[] = [];
-    logger.info(schedule.categories.length)
     if (schedule.hasCategory && schedule.categories.length > 0) {
         const categoriesFetch = schedule.categories.map((categoryName) =>
             categoryFeature.getCategoryByName(categoryName)
