@@ -261,6 +261,7 @@ model Stream {
   isMature      Boolean?
   language      String
   startedAt     DateTime
+  endedAt       DateTime?
   thumbnailUrl  String
   type          String
   broadcasterId String
