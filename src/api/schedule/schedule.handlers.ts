@@ -128,6 +128,6 @@ export const getCurrentSchedules = async (req: FastifyRequest, reply: FastifyRep
     if (!userId) {
         return reply.status(401).send({ message: "Unauthorized" });
     }
-    const schedule = await downloadFeature.getCurrentSchedulesByUser(userId);
-    reply.send(schedule);
+    const schedules = await downloadFeature.getCurrentSchedulesByUser(userId);
+    reply.status(200).send(schedules);
 };
