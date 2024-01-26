@@ -201,3 +201,20 @@ export const getStreamLastFetch = async (userId: string, broadcasterId: string) 
     }
     return null;
 };
+
+export const getLastLive = async () => {
+    return prisma.stream.findMany({
+        where: {
+            endedAt: {
+                not: null,
+            },
+        },
+        orderBy: {
+            endedAt: "desc",
+        },
+        take: 10,
+        include: {
+            channel: true,
+        },
+    });
+};

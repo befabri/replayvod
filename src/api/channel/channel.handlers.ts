@@ -105,3 +105,13 @@ export const updateChannel = async (req: FastifyRequest<Params>, reply: FastifyR
         reply.status(500).send({ message: "Error updating channel details" });
     }
 };
+
+export const getLastLive = async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+        const channels = await channelFeature.getLastLive();
+        reply.send(channels);
+    } catch (error) {
+        logger.error("Error updating channel details: %s", error);
+        reply.status(500).send({ message: "Error updating channel details" });
+    }
+};

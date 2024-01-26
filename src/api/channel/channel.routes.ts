@@ -56,5 +56,10 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         handler: channelHandler.getChannelByName,
     });
 
+    fastify.get("/stream/lastlive", {
+        schema: {},
+        handler: channelHandler.getLastLive,
+    });
+
     done();
 }
