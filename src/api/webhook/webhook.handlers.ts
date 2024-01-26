@@ -27,7 +27,7 @@ export const addWebhook = async (req: FastifyRequest<WebhookRequest>, reply: Fas
         const addedWebhook = await webhookFeature.addWebhook(webhook);
         reply.status(200).send({ data: addedWebhook });
     } catch (error) {
-        reply.status(500).send({ error: "Internal Server Error" });
+        reply.status(500).send({ message: "Internal Server Error" });
     }
 };
 
@@ -37,10 +37,10 @@ export const removeWebhook = async (req: FastifyRequest<WebhookRequest>, reply: 
         if (removedWebhook) {
             reply.status(200).send({ data: removedWebhook });
         } else {
-            reply.status(404).send({ error: "Webhook not found" });
+            reply.status(404).send({ message: "Webhook not found" });
         }
     } catch (error) {
-        reply.status(500).send({ error: "Internal Server Error" });
+        reply.status(500).send({ message: "Internal Server Error" });
     }
 };
 

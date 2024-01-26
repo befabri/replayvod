@@ -41,15 +41,14 @@ export const getLog = async (req: FastifyRequest<Params>, reply: FastifyReply) =
     try {
         const logId = req.params.id;
         if (isNaN(logId)) {
-            reply.code(404).send({ message: `'${req.params.id}' not found` });
-            return;
+            return reply.code(404).send({ message: `'${req.params.id}' not found` });
         }
         const logDir = process.env.LOG_DIR || "."; // TODO
         const logFilePath = path.resolve(logDir, "replay.log");
         logCache = await fs.promises.readFile(logFilePath, "utf-8");
         reply.send(logCache);
     } catch (error) {
-        reply.code(500).send("Internal server error");
+        reply.code(500).send({ message: "Internal server error" });
     }
 };
 
@@ -58,7 +57,7 @@ export const getLogs = async (req: FastifyRequest, reply: FastifyReply) => {
         const logs = await logFeature.getAllLogs();
         reply.send(logs);
     } catch (error) {
-        reply.code(500).send("Internal server error");
+        reply.code(500).send({ message: "Internal server error" });
     }
 };
 
@@ -91,7 +90,7 @@ export const getDomain = async (req: FastifyRequest<Params>, reply: FastifyReply
         const formattedFilteredLogs = filteredLogs.map(formatLog).join("\n");
         reply.send(formattedFilteredLogs);
     } catch (error) {
-        return reply.code(500).send("Internal server error");
+        reply.code(500).send({ message: "Internal server error" });
     }
 };
 
@@ -100,6 +99,6 @@ export const getDomains = async (req: FastifyRequest, reply: FastifyReply) => {
         const logs = await logFeature.getAllDomains();
         reply.send(logs);
     } catch (error) {
-        reply.code(500).send("Internal server error");
+        reply.code(500).send({ message: "Internal server error" });
     }
 };

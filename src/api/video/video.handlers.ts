@@ -34,23 +34,19 @@ export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply
     const videoId = req.params.id;
 
     if (videoId === "undefined") {
-        reply.status(400).send("Invalid video id");
-        return;
+        return reply.status(400).send({ message: "Invalid video id" });
     }
     const videoIdRequest = parseInt(videoId, 10);
     if (isNaN(videoIdRequest)) {
-        reply.status(400).send("Invalid video id");
-        return;
+        return reply.status(400).send({ message: "Invalid video id" });
     }
     const video = await videoFeature.getVideoById(videoIdRequest);
     if (!video) {
-        reply.status(404).send("Video not found in database");
-        return;
+        return reply.status(404).send({ message: "Video not found in database" });
     }
     const videoPath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
     if (!fs.existsSync(videoPath)) {
-        reply.status(404).send("File not found on server");
-        return;
+        return reply.status(404).send({ message: "File not found on server" });
     }
     const videoStats = fs.statSync(videoPath);
     const videoRange = req.headers.range;
@@ -85,8 +81,7 @@ export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply
 export const getVideos = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
-        reply.status(401).send("Unauthorized");
-        return;
+        return reply.status(401).send({ message: "Unauthorized" });
     }
     const videos = await videoFeature.getVideosFromUser(userId);
     reply.send(videos);
@@ -95,8 +90,7 @@ export const getVideos = async (req: FastifyRequest, reply: FastifyReply) => {
 export const getVideo = async (req: FastifyRequest<ParamsVideo>, reply: FastifyReply) => {
     const videoId = req.params.id;
     if (!videoId) {
-        reply.status(400).send("Invalid video id");
-        return;
+        return reply.status(400).send({ message: "Invalid video id" });
     }
     const video = await videoFeature.getVideoById(videoId);
     reply.send(video);
@@ -105,8 +99,7 @@ export const getVideo = async (req: FastifyRequest<ParamsVideo>, reply: FastifyR
 export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
-        reply.status(401).send("Unauthorized");
-        return;
+        return reply.status(401).send({ message: "Unauthorized" });
     }
     const videos = await videoFeature.getVideosFromUser(userId, Status.DONE);
     reply.send(videos);
@@ -115,29 +108,24 @@ export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply
 export const getVideosByCategory = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
-        reply.status(401).send("Unauthorized");
-        return;
+        return reply.status(401).send({ message: "Unauthorized" });
     }
     const categoryName = req.params.name;
     if (!categoryName) {
-        reply.status(400).send("Invalid category name");
-        return;
+        return reply.status(400).send({ message: "Invalid category name" });
     }
     const category = await categoryFeature.getCategoryByName(categoryName);
     if (!category) {
-        reply.status(401).send(null);
-        return;
+        return reply.status(401).send(null);
     }
     const videos = await videoFeature.getVideosByCategory(category.id, userId);
-    logger.info(videos)
     reply.send(videos);
 };
 
 export const getVideoStatistics = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
-        reply.status(401).send("Unauthorized");
-        return;
+        return reply.status(401).send({ message: "Unauthorized" });
     }
     const videos = await videoFeature.getVideoStatistics(userId);
     reply.send(videos);
@@ -146,18 +134,15 @@ export const getVideoStatistics = async (req: FastifyRequest, reply: FastifyRepl
 export const getChannelVideos = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const loginName = req.params.broadcasterLogin;
     if (!loginName || loginName === "undefined") {
-        reply.status(400).send({ message: "Invalid broadcaster login" });
-        return;
+        return reply.status(400).send({ message: "Invalid broadcaster login" });
     }
     const channel = await channelFeature.getChannelByName(loginName);
     if (!channel) {
-        reply.status(404).send({ message: "Channel not found" });
-        return;
+        return reply.status(404).send({ message: "Channel not found" });
     }
     const videos = await videoFeature.getVideosByChannel(channel.broadcasterId);
     if (!videos || videos.length === 0) {
-        reply.send({ channel: channel, hasVideos: false });
-        return;
+        return reply.send({ channel: channel, hasVideos: false });
     }
     reply.send({ videos: videos, hasVideos: true });
 };
@@ -167,7 +152,7 @@ export const generateMissingThumbnail = async (req: FastifyRequest, reply: Fasti
         const thumb = await videoFeature.generateMissingThumbnailsAndUpdate();
         reply.send(thumb);
     } catch (error) {
-        reply.status(500).send("Internal server error");
+        reply.status(500).send({ message: "Internal server error" });
     }
 };
 

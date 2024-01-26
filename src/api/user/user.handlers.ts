@@ -7,15 +7,14 @@ export const getUserFollowedStreams = async (req: FastifyRequest, reply: Fastify
     const userId = userFeature.getUserIdFromSession(req);
     const accessToken = userFeature.getUserAccessTokenFromSession(req);
     if (!userId || !accessToken) {
-        reply.status(401).send("Unauthorized");
-        return;
+        return reply.status(401).send({ message: "Unauthorized" });
     }
     try {
         const followedStreams = await userFeature.getUserFollowedStreams(userId, accessToken);
         reply.send(followedStreams);
     } catch (error) {
         logger.error("Error fetching followed streams:", error);
-        reply.status(500).send("Error fetching followed streams");
+        reply.status(500).send({ message: "Error fetching followed streams" });
     }
 };
 
@@ -23,15 +22,14 @@ export const getUserFollowedChannels = async (req: FastifyRequest, reply: Fastif
     const userId = userFeature.getUserIdFromSession(req);
     const accessToken = userFeature.getUserAccessTokenFromSession(req);
     if (!userId || !accessToken) {
-        reply.status(401).send("Unauthorized");
-        return;
+        return reply.status(401).send({ message: "Unauthorized" });
     }
     try {
         const followedChannels = await userFeature.getUserFollowedChannels(userId, accessToken);
         reply.send(followedChannels);
     } catch (error) {
         logger.error("Error fetching followed channels:", error);
-        reply.status(500).send("Error fetching followed channels");
+        reply.status(500).send({ message: "Error fetching followed channels" });
     }
 };
 
@@ -40,8 +38,7 @@ export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userFeature.getUserIdFromSession(req);
     const accessToken = userFeature.getUserAccessTokenFromSession(req);
     if (!userId || !accessToken) {
-        reply.status(401).send("Unauthorized");
-        return;
+        return reply.status(401).send({ message: "Unauthorized" });
     }
     try {
         // const result = await channelService.updateUsers(userId);
@@ -49,6 +46,6 @@ export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
         reply.status(200).send(null);
     } catch (error) {
         logger.error("Error updating users:", error);
-        reply.status(500).send("Error updating users");
+        reply.status(500).send({ message: "Error updating users" });
     }
 };

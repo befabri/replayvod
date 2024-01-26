@@ -51,6 +51,7 @@ export const transformStream = async (
         isMature: stream.is_mature || false,
         language: stream.language,
         startedAt: new Date(stream.started_at),
+        endedAt: null,
         thumbnailUrl: stream.thumbnail_url,
         type: stream.type,
         broadcasterId: stream.user_id,
