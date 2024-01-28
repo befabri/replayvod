@@ -9,52 +9,28 @@ import { tagService, titleService } from "../../services";
 import moment from "moment";
 import { StreamWithRelations } from "../../types/sharedTypes";
 import { categoryFeature } from "../category";
+import { transformVideo, videoDTO } from "./video.DTO";
 const logger = rootLogger.child({ domain: "video", service: "videoService" });
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
 const PUBLIC_DIR = process.env.PUBLIC_DIR || VIDEO_PATH;
 
-export const getVideoById = async (id: number): Promise<Video | null> => {
+export const getVideoById = async (id: number): Promise<videoDTO | null> => {
     const video = await prisma.video.findUnique({
         where: { id: id },
-        include: {
-            tags: {
-                select: {
-                    tag: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            titles: {
-                select: {
-                    title: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            videoCategory: {
-                include: {
-                    category: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            channel: true,
-        },
+        select: videoSelectConfig,
     });
-    if (video && !video.size) {
+    if (!video) {
+        return null;
+    }
+    if (!video.size) {
         await updateVideoSize(video);
     }
-    return video;
+    const transformed = transformVideo([video]);
+    return transformed[0];
 };
 
-export const getVideosByCategory = async (categoryId: string, userId: string): Promise<Video[] | null> => {
+export const getVideosByCategory = async (categoryId: string, userId: string): Promise<videoDTO[]> => {
     const videos = await prisma.video.findMany({
         where: {
             AND: [
@@ -77,37 +53,13 @@ export const getVideosByCategory = async (categoryId: string, userId: string): P
                 },
             ],
         },
-        include: {
-            tags: {
-                select: {
-                    tag: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            titles: {
-                select: {
-                    title: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            videoCategory: {
-                include: {
-                    category: {},
-                },
-            },
-            channel: true,
-        },
+        select: videoSelectConfig,
     });
 
     const videosWithoutSize = videos.filter((video) => !video.size);
     await Promise.all(videosWithoutSize.map(updateVideoSize));
-    return videos;
+    const transformed = transformVideo(videos);
+    return transformed;
 };
 
 export const getVideoStatistics = async (userId: string) => {
@@ -146,57 +98,24 @@ export const getVideoStatistics = async (userId: string) => {
     };
 };
 
-export const getVideosFromUser = async (userId: string, status?: Status) => {
+export const getVideosFromUser = async (userId: string, status?: Status): Promise<videoDTO[]> => {
     const videoRequests = await prisma.videoRequest.findMany({
         where: { userId },
         select: { videoId: true },
     });
-
     const videoIds = videoRequests.map((request) => request.videoId);
-
     const videos = await prisma.video.findMany({
         where: {
             id: { in: videoIds },
             ...(status && { status }),
         },
         orderBy: { downloadedAt: "desc" },
-        include: {
-            tags: {
-                select: {
-                    tag: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            titles: {
-                select: {
-                    title: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            videoCategory: {
-                include: {
-                    category: {
-                        select: {
-                            name: true,
-                            boxArtUrl: true,
-                        },
-                    },
-                },
-            },
-            channel: true,
-        },
+        select: videoSelectConfig,
     });
-
     const videosWithoutSize = videos.filter((video) => !video.size);
     await Promise.all(videosWithoutSize.map(updateVideoSize));
-
-    return videos;
+    const transformed = transformVideo(videos);
+    return transformed;
 };
 
 export const mapVideoQualityToQuality = (input: string): Quality => {
@@ -503,49 +422,19 @@ export const updateVideoData = async (
     });
 };
 
-export const getVideosByChannel = async (broadcaster_id: string): Promise<Video[] | null> => {
+export const getVideosByChannel = async (broadcaster_id: string): Promise<videoDTO[]> => {
     const videos = await prisma.video.findMany({
         where: {
             broadcasterId: broadcaster_id,
             status: Status.DONE,
         },
         orderBy: { downloadedAt: "desc" },
-        include: {
-            tags: {
-                select: {
-                    tag: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            titles: {
-                select: {
-                    title: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            videoCategory: {
-                include: {
-                    category: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-            channel: true,
-        },
+        select: videoSelectConfig,
     });
-
     const videosWithoutSize = videos.filter((video) => !video.size);
     await Promise.all(videosWithoutSize.map(updateVideoSize));
-
-    return videos;
+    const transformed = transformVideo(videos);
+    return transformed;
 };
 
 export const saveVideoInfo = async ({
@@ -754,4 +643,61 @@ export const setVideoFailed = async () => {
     } catch (error) {
         logger.error("Failed to update videos: %s", error);
     }
+};
+
+const videoSelectConfig = {
+    id: true,
+    filename: true,
+    status: true,
+    displayName: true,
+    startDownloadAt: true,
+    downloadedAt: true,
+    viewerCount: true,
+    language: true,
+    quality: true,
+    duration: true,
+    size: true,
+    thumbnail: true,
+    broadcasterId: true,
+    jobId: true,
+    streamId: true,
+    tags: {
+        select: {
+            tag: {
+                select: {
+                    name: true,
+                },
+            },
+        },
+    },
+    titles: {
+        select: {
+            title: {
+                select: {
+                    name: true,
+                },
+            },
+        },
+    },
+    videoCategory: {
+        select: {
+            category: {},
+        },
+    },
+    channel: {
+        select: {
+            broadcasterId: true,
+            broadcasterLogin: true,
+            broadcasterName: true,
+            displayName: true,
+            broadcasterType: true,
+            createdAt: true,
+            description: true,
+            offlineImageUrl: true,
+            profileImageUrl: true,
+            profilePicture: true,
+            type: true,
+            viewCount: true,
+        },
+    },
 };

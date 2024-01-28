@@ -119,7 +119,7 @@ export const getVideosByCategory = async (req: FastifyRequest<Params>, reply: Fa
         return reply.status(401).send(null);
     }
     const videos = await videoFeature.getVideosByCategory(category.id, userId);
-    reply.send(videos);
+    reply.send({ videos: videos, category: category });
 };
 
 export const getVideoStatistics = async (req: FastifyRequest, reply: FastifyReply) => {
@@ -141,10 +141,7 @@ export const getChannelVideos = async (req: FastifyRequest<Params>, reply: Fasti
         return reply.status(404).send({ message: "Channel not found" });
     }
     const videos = await videoFeature.getVideosByChannel(channel.broadcasterId);
-    if (!videos || videos.length === 0) {
-        return reply.send({ channel: channel, hasVideos: false });
-    }
-    reply.send({ videos: videos, hasVideos: true });
+    reply.send({ videos: videos, channel: channel });
 };
 
 export const generateMissingThumbnail = async (req: FastifyRequest, reply: FastifyReply) => {
