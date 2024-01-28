@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.1",
+    "@tanstack/react-query": "^5.17.19",
+    "@tanstack/react-query-devtools": "^5.17.21",
     "classnames": "^2.3.2",
     "i18next": "^23.1.0",
     "i18next-browser-languagedetector": "^7.0.2",
@@ -27,10 +29,10 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "moment-timezone": "^0.5.43",
     "@iconify/react": "^4.1.0",
     "@tailwindcss/forms": "^0.5.3",
     "@tailwindcss/typography": "^0.5.9",
+    "@tanstack/eslint-plugin-query": "^5.17.20",
     "@types/luxon": "^3.3.7",
     "@types/node": "^20.3.1",
     "@types/react": "^18.0.37",
@@ -42,6 +44,7 @@
     "eslint": "^8.38.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.3.4",
+    "moment-timezone": "^0.5.43",
     "postcss": "^8.4.32",
     "prettier": "^3.1.1",
     "prettier-plugin-tailwindcss": "^0.5.10",

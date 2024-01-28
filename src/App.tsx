@@ -1,4 +1,6 @@
 import { Routes, Route, useLocation, Navigate, Outlet } from "react-router-dom";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./context/Auth/Auth";
 import Navbar from "./components/Layout/Navbar";
 import Sidebar from "./components/Layout/Sidebar";
@@ -24,36 +26,40 @@ import DashboardPage from "./pages/Dashboard/Index";
 import EventSubPage from "./pages/Record/EventSub";
 import NotFoundPage from "./pages/NotFoundPage";
 
+const queryClient = new QueryClient();
+
 export default function App() {
     return (
-        <DarkModeProvider>
-            <AuthProvider>
-                <AuthStatus />
-                <Routes>
-                    <Route path={Pathnames.Login} element={<LoginPage />} />
-                    <Route element={<RequireAuth />}>
-                        <Route path={Pathnames.Home} element={<DashboardPage />} />
-                        <Route path={Pathnames.Settings} element={<SettingsPage />} />
-                        <Route path={Pathnames.Schedule.Add} element={<AddChannelPage />} />
-                        <Route path={Pathnames.Schedule.EventSub} element={<EventSubPage />} />
-                        <Route path={Pathnames.Schedule.Manage} element={<ManagePage />} />
-                        <Route path={Pathnames.Activity.Queue} element={<QueuePage />} />
-                        <Route path={Pathnames.Activity.History} element={<HistoryPage />} />
-                        <Route path={Pathnames.Video.Video} element={<VideosPage />} />
-                        <Route path={Pathnames.Video.Category} element={<CategoryPage />} />
-                        <Route path={Pathnames.Video.CategoryDetail} element={<CategoryDetailPage />} />
-                        <Route path={Pathnames.Video.Channel} element={<ChannelPage />} />
-                        <Route path={Pathnames.Video.ChannelDetail} element={<ChannelDetailPage />} />
-                        <Route path={Pathnames.System.Status} element={<StatusPage />} />
-                        <Route path={Pathnames.System.Tasks} element={<TasksPage />} />
-                        <Route path={Pathnames.System.Events} element={<EventsPage />} />
-                        <Route path={Pathnames.System.Logs} element={<LogsPage />} />
-                        <Route path={Pathnames.WatchDetail} element={<WatchPage />} />
-                        <Route path="*" element={<NotFoundPage />} />
-                    </Route>
-                </Routes>
-            </AuthProvider>
-        </DarkModeProvider>
+        <QueryClientProvider client={queryClient}>
+            <DarkModeProvider>
+                <AuthProvider>
+                    <AuthStatus />
+                    <Routes>
+                        <Route path={Pathnames.Login} element={<LoginPage />} />
+                        <Route element={<RequireAuth />}>
+                            <Route path={Pathnames.Home} element={<DashboardPage />} />
+                            <Route path={Pathnames.Settings} element={<SettingsPage />} />
+                            <Route path={Pathnames.Schedule.Add} element={<AddChannelPage />} />
+                            <Route path={Pathnames.Schedule.EventSub} element={<EventSubPage />} />
+                            <Route path={Pathnames.Schedule.Manage} element={<ManagePage />} />
+                            <Route path={Pathnames.Activity.Queue} element={<QueuePage />} />
+                            <Route path={Pathnames.Activity.History} element={<HistoryPage />} />
+                            <Route path={Pathnames.Video.Video} element={<VideosPage />} />
+                            <Route path={Pathnames.Video.Category} element={<CategoryPage />} />
+                            <Route path={Pathnames.Video.CategoryDetail} element={<CategoryDetailPage />} />
+                            <Route path={Pathnames.Video.Channel} element={<ChannelPage />} />
+                            <Route path={Pathnames.Video.ChannelDetail} element={<ChannelDetailPage />} />
+                            <Route path={Pathnames.System.Status} element={<StatusPage />} />
+                            <Route path={Pathnames.System.Tasks} element={<TasksPage />} />
+                            <Route path={Pathnames.System.Events} element={<EventsPage />} />
+                            <Route path={Pathnames.System.Logs} element={<LogsPage />} />
+                            <Route path={Pathnames.WatchDetail} element={<WatchPage />} />
+                            <Route path="*" element={<NotFoundPage />} />
+                        </Route>
+                    </Routes>
+                </AuthProvider>
+            </DarkModeProvider>
+        </QueryClientProvider>
     );
 }
 
@@ -70,6 +76,7 @@ function AuthStatus() {
                 <div>
                     <Navbar />
                     <Sidebar isOpenSideBar={false} onCloseSidebar={handleSidebarClose} />
+                    <ReactQueryDevtools initialIsOpen />
                 </div>
             )}
         </>
