@@ -1,10 +1,7 @@
-import { tagService } from "../../services";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { CreateScheduleDTO, transformDownloadSchedule, transformDownloadScheduleEdit } from "./schedule.DTO";
-import { categoryFeature } from "../category";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
-import { DownloadSchedule } from "@prisma/client";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 export const getCurrentSchedulesByUser = async (userId: string) => {
@@ -203,25 +200,25 @@ export const editSchedule = async (scheduleId: number, schedule: CreateScheduleD
     }
 };
 
-const getScheduleByFollowedChannel = async (broadcaster_id: string) => {
-    // return prisma.downloadSchedule.findFirst({
-    //     where: {
-    //         provider: Provider.FOLLOWED_CHANNEL,
-    //         channel: {
-    //             usersFollowing: {
-    //                 some: {
-    //                     broadcasterId: broadcaster_id,
-    //                 },
-    //             },
-    //         },
-    //     },
-    // });
-};
+// const getScheduleByFollowedChannel = async (broadcaster_id: string) => {
+// return prisma.downloadSchedule.findFirst({
+//     where: {
+//         provider: Provider.FOLLOWED_CHANNEL,
+//         channel: {
+//             usersFollowing: {
+//                 some: {
+//                     broadcasterId: broadcaster_id,
+//                 },
+//             },
+//         },
+//     },
+// });
+// };
 
-const getAllScheduleByChannel = async (broadcasterId: string): Promise<DownloadSchedule[]> => {
-    return await prisma.downloadSchedule.findMany({
-        where: {
-            broadcasterId: broadcasterId,
-        },
-    });
-};
+// const getAllScheduleByChannel = async (broadcasterId: string): Promise<DownloadSchedule[]> => {
+//     return await prisma.downloadSchedule.findMany({
+//         where: {
+//             broadcasterId: broadcasterId,
+//         },
+//     });
+// };

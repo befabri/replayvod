@@ -1,6 +1,5 @@
 import { eventSubFeature } from ".";
 import { logger as rootLogger } from "../../app";
-import { downloadSchedule } from "../download/download";
 import { transformWebhookEvent } from "./webhook.DTO";
 const logger = rootLogger.child({ domain: "webhook", service: "eventProcessingService" });
 
@@ -23,10 +22,10 @@ export const handleRevocation = (notification: any) => {
 
 export const handleDownload = (event: any) => {
     logger.info(event, event.broadcaster_user_id);
-    const broadcaster_id = event.broadcaster_user_id;
-    downloadSchedule(broadcaster_id).catch((error) => {
-        logger.error("Error in downloadSchedule:", error);
-    });
+    // const broadcaster_id = event.broadcaster_user_id;
+    // downloadSchedule(broadcaster_id).catch((error) => {
+    //     logger.error("Error in downloadSchedule:", error);
+    // });
 };
 
 export const handleWebhookEvent = async (eventType: string, event: any) => {

@@ -89,7 +89,8 @@ export async function signOut(req: FastifyRequest, reply: FastifyReply): Promise
 
 export async function getUser(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (req.session?.user) {
-        const { accessToken, refreshToken, twitchUserData } = req.session.user;
+        // const { accessToken, refreshToken, twitchUserData } = req.session.user;
+        const { twitchUserData } = req.session.user;
         reply.send(twitchUserData);
     } else {
         logger.error(`User unauthorized`);

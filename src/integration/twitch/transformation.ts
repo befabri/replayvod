@@ -1,4 +1,4 @@
-import { Category, Channel, UserFollowedChannels, Stream, Subscription, User, Tag, Title } from "@prisma/client";
+import { Category, Channel, UserFollowedChannels, Stream, Subscription, Tag, Title } from "@prisma/client";
 import {
     FollowedChannel as TwitchFollowedChannel,
     Game as TwitchGame,
@@ -8,9 +8,6 @@ import {
     EventSubResponse as TwitchEventSubResponse,
     EventSubMeta,
 } from "../../models/twitchModel";
-import { logger as rootLogger } from "../../app";
-
-const logger = rootLogger.child({ domain: "twitch", service: "transformUtils" });
 
 export const transformTwitchUser = (user: TwitchUser): Channel => {
     return {

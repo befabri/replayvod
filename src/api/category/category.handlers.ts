@@ -9,7 +9,7 @@ interface Params extends RouteGenericInterface {
     };
 }
 
-export const getCategories = async (req: FastifyRequest, reply: FastifyReply) => {
+export const getCategories = async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
         const categories = await categoryFeature.getAllCategories();
         reply.send(categories);

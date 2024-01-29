@@ -9,8 +9,8 @@ import fastifyStatic from "@fastify/static";
 import { isUserWhitelisted, userAuthenticated } from "./middlewares/authMiddleware";
 import { videoFeature } from "./api/video";
 import { TWITCH_ENDPOINT } from "./constants/twitchConstants";
-const oauthPlugin = require("@fastify/oauth2");
-const fs = require("fs");
+import oauthPlugin from "@fastify/oauth2";
+import { readFileSync } from "fs";
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
@@ -31,7 +31,7 @@ server.register(cors, {
     credentials: true,
 });
 
-server.register(async (instance, opts) => {
+server.register(async (instance, _opts) => {
     instance.register(fastifyStatic, {
         root: path.join(ROOT_DIR, "public", "thumbnail"),
         prefix: "/api/video/thumbnail/",
@@ -45,7 +45,7 @@ server.register(async (instance, opts) => {
 server.register(fastifyCookie);
 
 server.register(fastifySecureSession, {
-    key: fs.readFileSync(path.join(ROOT_DIR, "secret", "secret-key")),
+    key: readFileSync(path.join(ROOT_DIR, "secret", "secret-key")),
     cookieName: "session",
     cookie: {
         path: "/",
@@ -73,14 +73,11 @@ server.register(oauthPlugin, {
 });
 
 server.register(routes, { prefix: "/api" });
-
 const start = async () => {
     logger.info("Starting Fastify server...");
     try {
         await videoFeature.setVideoFailed();
         await server.listen({ port: PORT, host: HOST });
-        const address = server.server.address();
-        const port = typeof address === "string" ? address : address?.port;
     } catch (err) {
         logger.error(err);
         process.exit(1);

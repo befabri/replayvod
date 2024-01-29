@@ -53,7 +53,7 @@ export const getLog = async (req: FastifyRequest<Params>, reply: FastifyReply) =
     }
 };
 
-export const getLogs = async (req: FastifyRequest, reply: FastifyReply) => {
+export const getLogs = async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
         const logs = await logFeature.getAllLogs();
         reply.send(logs);
@@ -95,7 +95,7 @@ export const getDomain = async (req: FastifyRequest<Params>, reply: FastifyReply
     }
 };
 
-export const getDomains = async (req: FastifyRequest, reply: FastifyReply) => {
+export const getDomains = async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
         const logs = await logFeature.getAllDomains();
         reply.send(logs);

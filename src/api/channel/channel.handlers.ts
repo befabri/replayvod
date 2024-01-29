@@ -19,12 +19,6 @@ interface Query extends RouteGenericInterface {
     };
 }
 
-interface Body extends RouteGenericInterface {
-    Body: {
-        userIds: string[];
-    };
-}
-
 export const getChannel = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const broadcasterId = req.params.id;
 
@@ -106,7 +100,7 @@ export const updateChannel = async (req: FastifyRequest<Params>, reply: FastifyR
     }
 };
 
-export const getLastLive = async (req: FastifyRequest, reply: FastifyReply) => {
+export const getLastLive = async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
         const channels = await channelFeature.getLastLive();
         reply.send(channels);

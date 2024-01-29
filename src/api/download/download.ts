@@ -313,7 +313,7 @@ export const setVideoFailed = async (jobId: string) => {
     });
 };
 
-export const updateVideoCollection = async (user_id: string) => {
+export const updateVideoCollection = async (_user_id: string) => {
     // TODO: Implémenter cette fonction en sachant que elle est fausse puisque il faut pouvoir identifier
     // la vidéo au stream actuelle et non update toutes les vidéos basé sur un broadcasterId
     //
@@ -408,17 +408,17 @@ export const handleDownload = async (
     }
 };
 
-export const downloadSchedule = async (broadcaster_id: string) => {
-    // Todo: A savoir que plusieurs utilisateurs peuvent avoir la même video demandé
-    // et donc il faut modifié jobDetail + handleDownload
-    // let schedule;
-    // schedule = await getScheduleByFollowedChannel(broadcaster_id);
-    // if (schedule) {
-    //     const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
-    //     await handleDownload(jobDetails, broadcaster_id);
-    // } else {
-    //     schedule = getAllScheduleByChannel;
-    //     // const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
-    //     // await handleDownload(jobDetails, broadcaster_id);
-    // }
-};
+// export const downloadSchedule = async (broadcaster_id: string) => {
+// Todo: A savoir que plusieurs utilisateurs peuvent avoir la même video demandé
+// et donc il faut modifié jobDetail + handleDownload
+// let schedule;
+// schedule = await getScheduleByFollowedChannel(broadcaster_id);
+// if (schedule) {
+//     const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
+//     await handleDownload(jobDetails, broadcaster_id);
+// } else {
+//     schedule = getAllScheduleByChannel;
+//     // const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
+//     // await handleDownload(jobDetails, broadcaster_id);
+// }
+// };

@@ -1,7 +1,6 @@
-import { env, logger as rootLogger } from "../../app";
+import { env } from "../../app";
 import { prisma } from "../../server";
 import { eventSubProcessingFeature } from ".";
-const logger = rootLogger.child({ domain: "webhook", service: "webhookService" });
 
 export const getWebhook = async (id: string) => {
     // return prisma.event.findUnique({

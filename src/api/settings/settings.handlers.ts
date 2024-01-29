@@ -1,9 +1,7 @@
 import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
-import { logger as rootLogger } from "../../app";
 import { SettingsDTO, transformSettings } from "./settings.DTO";
 import { settingFeature } from ".";
 import { userFeature } from "../user";
-const logger = rootLogger.child({ domain: "settings", service: "settingsHandler" });
 
 interface SettingsRequestBody extends RouteGenericInterface {
     Body: SettingsDTO;

@@ -2,7 +2,7 @@ import { FastifyInstance } from "fastify";
 import { webhookHandler } from ".";
 import { verifyHmacMiddleware } from "../../middlewares/twitchHmacMiddleware";
 
-export default function (fastify: FastifyInstance, opts: any, done: any) {
+export default function (fastify: FastifyInstance, _opts: any, done: any) {
     fastify.addHook("preHandler", async (request, reply) => {
         await verifyHmacMiddleware(request, reply);
     });

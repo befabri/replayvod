@@ -1,5 +1,4 @@
 import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
-import { logger as rootLogger } from "../../app";
 import fs from "fs";
 import path from "path";
 import { Status } from "@prisma/client";
@@ -8,8 +7,6 @@ import { userFeature } from "../user";
 import { channelFeature } from "../channel";
 import { categoryFeature } from "../category";
 import { PUBLIC_DIR } from "../../constants/folderConstants";
-
-const logger = rootLogger.child({ domain: "video", service: "videoHandler" });
 
 const RANGE_LIMIT = 500 * 1024;
 
@@ -143,7 +140,7 @@ export const getChannelVideos = async (req: FastifyRequest<Params>, reply: Fasti
     reply.send({ videos: videos, channel: channel });
 };
 
-export const generateMissingThumbnail = async (req: FastifyRequest, reply: FastifyReply) => {
+export const generateMissingThumbnail = async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
         const thumb = await videoFeature.generateMissingThumbnailsAndUpdate();
         reply.send(thumb);

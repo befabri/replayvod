@@ -1,16 +1,16 @@
 import fs from "fs";
 import path from "path";
 import ffmpeg, { FfprobeFormat } from "fluent-ffmpeg";
-import { Category, Channel, Quality, Status, Stream, Tag, Title, Video } from "@prisma/client";
+import { Channel, Quality, Status, Video } from "@prisma/client";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { Resolution, VideoQuality } from "../../models/downloadModel";
 import { tagService, titleService } from "../../services";
-import moment from "moment";
 import { StreamWithRelations } from "../../types/sharedTypes";
 import { categoryFeature } from "../category";
 import { transformVideo, videoDTO } from "./video.DTO";
 import { PUBLIC_DIR } from "../../constants/folderConstants";
+import { DateTime } from "luxon";
 const logger = rootLogger.child({ domain: "video", service: "videoService" });
 
 export const getVideoById = async (id: number): Promise<videoDTO | null> => {
@@ -241,7 +241,7 @@ export const generateMissingThumbnailsAndUpdate = async () => {
             for (let tries = 0; tries < 5; tries++) {
                 try {
                     await generateThumbnail(videoPath, thumbnailPath, secondsToTimestamp(timestamp));
-                    const updatedVideo = await prisma.video.update({
+                    await prisma.video.update({
                         where: {
                             id: video.id,
                         },
@@ -541,69 +541,69 @@ export const saveVideoInfo = async ({
 //     }
 // };
 
-const updateVideoCategory = async (videoId: number, categories: any) => {
-    const promises = categories.map((categoryData: { id: string }) =>
-        prisma.videoCategory.upsert({
-            where: {
-                videoId_categoryId: {
-                    videoId: videoId,
-                    categoryId: categoryData.id,
-                },
-            },
-            update: {},
-            create: {
-                video: {
-                    connect: {
-                        id: videoId,
-                    },
-                },
-                category: {
-                    connect: {
-                        id: categoryData.id,
-                    },
-                },
-            },
-        })
-    );
-    try {
-        return await Promise.all(promises);
-    } catch (error) {
-        logger.error("Error updating video categories:", error);
-        throw error;
-    }
-};
+// const updateVideoCategory = async (videoId: number, categories: any) => {
+//     const promises = categories.map((categoryData: { id: string }) =>
+//         prisma.videoCategory.upsert({
+//             where: {
+//                 videoId_categoryId: {
+//                     videoId: videoId,
+//                     categoryId: categoryData.id,
+//                 },
+//             },
+//             update: {},
+//             create: {
+//                 video: {
+//                     connect: {
+//                         id: videoId,
+//                     },
+//                 },
+//                 category: {
+//                     connect: {
+//                         id: categoryData.id,
+//                     },
+//                 },
+//             },
+//         })
+//     );
+//     try {
+//         return await Promise.all(promises);
+//     } catch (error) {
+//         logger.error("Error updating video categories:", error);
+//         throw error;
+//     }
+// };
 
-const updateVideoTag = async (videoId: number, tags: any) => {
-    const promises = tags.map((tagData: { name: string }) =>
-        prisma.videoTag.upsert({
-            where: {
-                videoId_tagId: {
-                    videoId: videoId,
-                    tagId: tagData.name,
-                },
-            },
-            update: {},
-            create: {
-                video: {
-                    connect: {
-                        id: videoId,
-                    },
-                },
-                tag: {
-                    connect: {
-                        name: tagData.name,
-                    },
-                },
-            },
-        })
-    );
-    try {
-        return await Promise.all(promises);
-    } catch (error) {
-        logger.error("Error updating video tags:", error);
-        throw error;
-    }
-};
+// const updateVideoTag = async (videoId: number, tags: any) => {
+//     const promises = tags.map((tagData: { name: string }) =>
+//         prisma.videoTag.upsert({
+//             where: {
+//                 videoId_tagId: {
+//                     videoId: videoId,
+//                     tagId: tagData.name,
+//                 },
+//             },
+//             update: {},
+//             create: {
+//                 video: {
+//                     connect: {
+//                         id: videoId,
+//                     },
+//                 },
+//                 tag: {
+//                     connect: {
+//                         name: tagData.name,
+//                     },
+//                 },
+//             },
+//         })
+//     );
+//     try {
+//         return await Promise.all(promises);
+//     } catch (error) {
+//         logger.error("Error updating video tags:", error);
+//         throw error;
+//     }
+// };
 
 // TODO: pourquoi mettre une date de fin ? -> Si fin autant mettre DONE directement
 export const updateVideoInfo = async (videoName: string, endAt: Date, status: Status) => {
@@ -619,7 +619,7 @@ export const updateVideoInfo = async (videoName: string, endAt: Date, status: St
 };
 
 export const getVideoFilePath = (login: string) => {
-    const currentDate = moment().format("DDMMYYYY-HHmmss");
+    const currentDate = DateTime.now().toFormat("ddMMyyyy-HHmmss");
     const filename = `${login}_${currentDate}.mp4`;
     const directoryPath = path.resolve(PUBLIC_DIR, "videos", login);
     if (!fs.existsSync(directoryPath)) {

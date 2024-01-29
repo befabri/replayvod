@@ -14,10 +14,10 @@ export const getAllTasks = async () => {
 };
 
 const taskRunners: { [taskType: string]: (taskMetadata?: any) => Promise<any> } = {
-    generateMissingThumbnail: (taskMetadata?: any) => videoFeature.generateMissingThumbnailsAndUpdate(),
-    fixMalformedVideos: (taskMetadata?: any) => videoFeature.fixMalformedVideos(),
-    subToAllStreamEventFollowed: (taskMetadata?: any) => eventSubFeature.subToAllChannelFollowed(),
-    updateMissingBoxArtUrls: (taskMetadata?: any) => categoryFeature.updateMissingBoxArtUrls(),
+    generateMissingThumbnail: (_taskMetadata?: any) => videoFeature.generateMissingThumbnailsAndUpdate(),
+    fixMalformedVideos: (_taskMetadata?: any) => videoFeature.fixMalformedVideos(),
+    subToAllStreamEventFollowed: (_taskMetadata?: any) => eventSubFeature.subToAllChannelFollowed(),
+    updateMissingBoxArtUrls: (_taskMetadata?: any) => categoryFeature.updateMissingBoxArtUrls(),
 };
 
 export const runTask = async (id: string) => {

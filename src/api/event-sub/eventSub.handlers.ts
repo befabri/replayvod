@@ -6,7 +6,7 @@ import { eventSubFeature } from "../webhook";
 import { twitchService } from "../../services";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchHandler" });
 
-export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply) => {
+export const fetchAndSaveGames = async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
         const categories = await twitchService.getAllGames();
         if (!categories || categories == undefined) {
@@ -37,7 +37,7 @@ export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) 
     }
 };
 
-export const getTotalCost = async (req: FastifyRequest, reply: FastifyReply) => {
+export const getTotalCost = async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
         const eventSub = await eventSubFeature.getTotalCost();
         reply.send({ data: eventSub.data, message: eventSub.message });

@@ -17,7 +17,7 @@ export const getTask = async (req: FastifyRequest<Params>, reply: FastifyReply) 
     }
 };
 
-export const getTasks = async (req: FastifyRequest, reply: FastifyReply) => {
+export const getTasks = async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
         const tasks = await taskFeature.getAllTasks();
         reply.send(tasks);
