@@ -3,9 +3,8 @@ import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { TwitchUserData, UserSession } from "../../models/userModel";
 import { transformSessionUser } from "./user.DTO";
-import { twitchFeature } from "../twitch";
 import { channelFeature } from "../channel";
-import { cacheService } from "../../services";
+import { cacheService, twitchService } from "../../services";
 const logger = rootLogger.child({ domain: "auth", service: "userService" });
 
 export const getUserIdFromSession = (req: FastifyRequest): string | null => {
@@ -62,7 +61,7 @@ export const getUserFollowedStreams = async (userId: string, accessToken: string
         if (lastUserFollowedStreamsFetch) {
             return lastUserFollowedStreamsFetch;
         }
-        const followedStreams = await twitchFeature.getAllFollowedStreams(userId, accessToken);
+        const followedStreams = await twitchService.getAllFollowedStreams(userId, accessToken);
         if (!followedStreams) {
             return null;
         }
@@ -166,7 +165,7 @@ export const getUserFollowedChannels = async (userId: string, accessToken: strin
             fetchType: cacheService.cacheType.FOLLOWED_CHANNELS,
             userId: userId,
         });
-        const followedChannels = await twitchFeature.getAllFollowedChannels(userId, accessToken);
+        const followedChannels = await twitchService.getAllFollowedChannels(userId, accessToken);
         if (!followedChannels) {
             return null;
         }

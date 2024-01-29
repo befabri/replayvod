@@ -20,3 +20,5 @@ export interface TwitchHeaders {
     [key: string]: string | undefined;
 }
 export const TWITCH_ENDPOINT = "/api/auth/twitch";
+export const FETCH_MAX_RETRIES = 3;
+export const FETCH_RETRY_DELAY = 1000;

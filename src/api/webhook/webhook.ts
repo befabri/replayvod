@@ -1,28 +1,7 @@
-import { Webhook } from "../../models/webhookModel";
-import { createHmac, timingSafeEqual } from "crypto";
-import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../../constants/twitchConstants";
 import { env, logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
-import { transformWebhookEvent } from "./webhook.DTO";
 import { eventSubProcessingFeature } from ".";
-import { FastifyRequest } from "fastify";
 const logger = rootLogger.child({ domain: "webhook", service: "webhookService" });
-
-export const addWebhook = async (webhook: Webhook) => {
-    logger.info(webhook);
-    logger.info(JSON.stringify(webhook));
-};
-
-export const removeWebhook = async (id: string) => {
-    // const db = await getDbInstance();
-    // const webhookCollection = db.collection("webhooks");
-    // const webhook = await getWebhook(id);
-    // if (webhook) {
-    //     await webhookCollection.deleteOne({ _id: new ObjectId(webhook._id) });
-    // }
-    // return webhook;
-    return id;
-};
 
 export const getWebhook = async (id: string) => {
     // return prisma.event.findUnique({
@@ -39,25 +18,8 @@ export const getSecret = () => {
     return env.secret;
 };
 
-export const getHmacMessage = (req: FastifyRequest): string => {
-    const messageId = req.headers[TWITCH_MESSAGE_ID];
-    const messageTimestamp = req.headers[TWITCH_MESSAGE_TIMESTAMP];
-    if (typeof messageId !== "string" || typeof messageTimestamp !== "string") {
-        throw new Error("Invalid message ID or timestamp in headers");
-    }
-    return messageId + messageTimestamp + JSON.stringify(req.body);
-};
-
-export const getHmac = (secret: string, message: string): string => {
-    return createHmac("sha256", secret).update(message).digest("hex");
-};
-
 export const getCallbackUrlWebhook = (): string => {
     return env.callbackUrlWebhook;
-};
-
-export const verifyMessage = (hmac: string, verifySignature: string): boolean => {
-    return timingSafeEqual(Buffer.from(hmac), Buffer.from(verifySignature));
 };
 
 export const handleChannelUpdate = async (notification: any): Promise<{ status: number; body: null }> => {

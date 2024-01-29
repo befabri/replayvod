@@ -4,13 +4,13 @@ import userRoutes from "./api/user/user.routes";
 import channelRoutes from "./api/channel/channel.routes";
 import downloadRoutes from "./api/download/download.routes";
 import videoRoutes from "./api/video/video.routes";
-import twitchRoutes from "./api/twitch/twitch.routes";
 import taskRoutes from "./api/task/task.routes";
 import logRoutes from "./api/log/log.routes";
 import webhookRoutes from "./api/webhook/webhook.routes";
 import categoryRoutes from "./api/category/category.routes";
 import settingsRoutes from "./api/settings/settings.routes";
 import scheduleRoutes from "./api/schedule/schedule.routes";
+import eventSubRoutes from "./api/event-sub/eventSub.routes";
 
 const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(authRoutes, { prefix: "/auth" });
@@ -19,7 +19,7 @@ const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(downloadRoutes, { prefix: "/download" });
     server.register(scheduleRoutes, { prefix: "/schedule" });
     server.register(videoRoutes, { prefix: "/video" });
-    server.register(twitchRoutes, { prefix: "/twitch" });
+    server.register(eventSubRoutes, { prefix: "/event-sub" });
     server.register(taskRoutes, { prefix: "/task" });
     server.register(logRoutes, { prefix: "/log" });
     server.register(webhookRoutes, { prefix: "/webhook" });

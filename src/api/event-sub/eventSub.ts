@@ -1,10 +1,9 @@
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { WebhookEvent } from "@prisma/client";
-import { webhookFeature } from ".";
-import { twitchFeature } from "../twitch";
+import { webhookFeature } from "../webhook";
 import { channelFeature } from "../channel";
-import { cacheService } from "../../services";
+import { cacheService, twitchService } from "../../services";
 import { STREAM_OFFLINE, STREAM_ONLINE } from "../../constants/twitchConstants";
 import { userFeature } from "../user";
 const logger = rootLogger.child({ domain: "webhook", service: "eventSubService" });
@@ -37,7 +36,7 @@ export const subToAllChannelFollowed = async () => {
 };
 
 export const subscribeToStreamOnline = async (userId: string) => {
-    return await twitchFeature.createEventSub(
+    return await twitchService.createEventSub(
         STREAM_ONLINE,
         "1",
         { broadcaster_user_id: userId },
@@ -50,7 +49,7 @@ export const subscribeToStreamOnline = async (userId: string) => {
 };
 
 export const subscribeToStreamOffline = async (userId: string) => {
-    return await twitchFeature.createEventSub(
+    return await twitchService.createEventSub(
         STREAM_OFFLINE,
         "1",
         { broadcaster_user_id: userId },
@@ -83,7 +82,7 @@ export const getEventSub = async (userId: string) => {
     if (lastEventSubFetch) {
         return lastEventSubFetch;
     }
-    const eventSub = await twitchFeature.getEventSub();
+    const eventSub = await twitchService.getEventSub();
 
     // TODO: VERIFY parent
     if (!eventSub) {
@@ -148,7 +147,7 @@ export const getEventSub = async (userId: string) => {
 };
 
 export const getTotalCost = async () => {
-    const eventSubResult = await twitchFeature.getEventSub();
+    const eventSubResult = await twitchService.getEventSub();
     if (eventSubResult && "meta" in eventSubResult) {
         const { meta } = eventSubResult;
         if (meta.total === 0) {

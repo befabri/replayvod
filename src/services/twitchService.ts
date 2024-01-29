@@ -1,5 +1,5 @@
-import TwitchAPI from "../../integration/twitch/twitchAPI";
-import { logger as rootLogger } from "../../app";
+import TwitchAPI from "../integration/twitch/twitchAPI";
+import { logger as rootLogger } from "../app";
 import { Category, Channel, Stream, Subscription, Tag, Title, UserFollowedChannels } from "@prisma/client";
 import {
     isValidEventSubResponse,
@@ -7,7 +7,7 @@ import {
     isValidGame,
     isValidStream,
     isValidUser,
-} from "../../integration/twitch/validation";
+} from "../integration/twitch/validation";
 import {
     transformCategory,
     transformEventSub,
@@ -15,14 +15,14 @@ import {
     transformFollowedChannel,
     transformStream,
     transformTwitchUser,
-} from "../../integration/twitch/transformation";
-import { EventSubMeta } from "../../models/twitchModel";
-import { StreamStatus } from "../../models/streamMode";
+} from "../integration/twitch/transformation";
+import { EventSubMeta } from "../models/twitchModel";
+import { StreamStatus } from "../models/streamMode";
 
 const logger = rootLogger.child({ domain: "twitch", service: "twitchService" });
 const twitchAPI = new TwitchAPI();
 
-export const getUser = async (userId: string): Promise<Channel | null> => {
+const getUser = async (userId: string): Promise<Channel | null> => {
     try {
         const fetchedUser = await twitchAPI.getUser(userId);
         if (!fetchedUser || !isValidUser(fetchedUser)) {
@@ -35,7 +35,7 @@ export const getUser = async (userId: string): Promise<Channel | null> => {
     }
 };
 
-export const getUserByLogin = async (login: string): Promise<Channel | null> => {
+const getUserByLogin = async (login: string): Promise<Channel | null> => {
     try {
         const fetchedUser = await twitchAPI.getUserByLogin(login.toLowerCase());
         if (!fetchedUser || !isValidUser(fetchedUser)) {
@@ -48,7 +48,7 @@ export const getUserByLogin = async (login: string): Promise<Channel | null> => 
     }
 };
 
-export const getUsers = async (userIds: string[]): Promise<Channel[] | null> => {
+const getUsers = async (userIds: string[]): Promise<Channel[] | null> => {
     try {
         const fetchedUsers = await twitchAPI.getUsers(userIds);
         if (!fetchedUsers || fetchedUsers.some((user) => !isValidUser(user))) {
@@ -61,8 +61,7 @@ export const getUsers = async (userIds: string[]): Promise<Channel[] | null> => 
     }
 };
 
-//
-export const getAllFollowedChannels = async (
+const getAllFollowedChannels = async (
     userId: string,
     accessToken: string,
     cursor?: string
@@ -83,7 +82,7 @@ export const getAllFollowedChannels = async (
     }
 };
 
-export const getAllFollowedStreams = async (
+const getAllFollowedStreams = async (
     userId: string,
     accessToken: string,
     cursor?: string
@@ -102,7 +101,7 @@ export const getAllFollowedStreams = async (
     }
 };
 
-export const getStreamByUserId = async (
+const getStreamByUserId = async (
     userId: string
 ): Promise<
     { stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> } | StreamStatus.OFFLINE | null
@@ -123,7 +122,7 @@ export const getStreamByUserId = async (
     }
 };
 
-export const getGameDetail = async (gameId: string): Promise<Category | null> => {
+const getGameDetail = async (gameId: string): Promise<Category | null> => {
     try {
         const fetchedGame = await twitchAPI.getGameDetail(gameId);
         if (!fetchedGame || !isValidGame(fetchedGame)) {
@@ -137,7 +136,7 @@ export const getGameDetail = async (gameId: string): Promise<Category | null> =>
     }
 };
 
-export const getAllGames = async (cursor?: string): Promise<Category[] | null> => {
+const getAllGames = async (cursor?: string): Promise<Category[] | null> => {
     try {
         const fetchedGames = await twitchAPI.getAllGames(cursor);
         if (!fetchedGames || fetchedGames.some((game) => !isValidGame(game))) {
@@ -151,7 +150,7 @@ export const getAllGames = async (cursor?: string): Promise<Category[] | null> =
     }
 };
 
-export const createEventSub = async (
+const createEventSub = async (
     type: string,
     version: string,
     condition: any,
@@ -170,7 +169,7 @@ export const createEventSub = async (
     }
 };
 
-export const getEventSub = async (): Promise<{ subscriptions: Subscription[]; meta: EventSubMeta } | null> => {
+const getEventSub = async (): Promise<{ subscriptions: Subscription[]; meta: EventSubMeta } | null> => {
     try {
         const fetchedEventSub = await twitchAPI.getEventSub();
         if (!fetchedEventSub || !isValidEventSubResponse(fetchedEventSub)) {
@@ -189,11 +188,25 @@ export const getEventSub = async (): Promise<{ subscriptions: Subscription[]; me
     }
 };
 
-export const deleteEventSub = async (id: string) => {
+const deleteEventSub = async (id: string) => {
     try {
         const fetchedEventSub = await twitchAPI.deleteEventSub(id);
         return fetchedEventSub;
     } catch (error) {
         throw error;
     }
+};
+
+export default {
+    getUser,
+    getUserByLogin,
+    getUsers,
+    getAllFollowedChannels,
+    getAllFollowedStreams,
+    getStreamByUserId,
+    getGameDetail,
+    getAllGames,
+    createEventSub,
+    getEventSub,
+    deleteEventSub,
 };

@@ -1,14 +1,14 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { logger as rootLogger } from "../../app";
-import { twitchFeature } from ".";
 import { userFeature } from "../user";
 import { categoryFeature } from "../category";
 import { eventSubFeature } from "../webhook";
+import { twitchService } from "../../services";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchHandler" });
 
 export const fetchAndSaveGames = async (req: FastifyRequest, reply: FastifyReply) => {
     try {
-        const categories = await twitchFeature.getAllGames();
+        const categories = await twitchService.getAllGames();
         if (!categories || categories == undefined) {
             return reply.status(500).send("Error getting all games");
         }

@@ -1,12 +1,11 @@
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { Channel, PrismaClient } from "@prisma/client";
-import { cacheService, tagService, titleService } from "../../services";
+import { cacheService, tagService, titleService, twitchService } from "../../services";
 import { CreateStreamEntry, StreamWithRelations } from "../../types/sharedTypes";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import { StreamStatus } from "../../models/streamMode";
 import { categoryFeature } from "../category";
-import { twitchFeature } from "../twitch";
 const logger = rootLogger.child({ domain: "channel", service: "channelService" });
 
 export const getChannelDb = async (broadcasterId: string): Promise<Channel | null> => {
@@ -63,7 +62,7 @@ export const getChannel = async (broadcasterId: string): Promise<Channel | null>
 
 export const updateChannel = async (broadcasterId: string): Promise<Channel | null> => {
     try {
-        const channelData = await twitchFeature.getUser(broadcasterId);
+        const channelData = await twitchService.getUser(broadcasterId);
         if (!channelData) {
             return null;
         }
@@ -79,7 +78,7 @@ export const getChannelByName = async (login: string): Promise<Channel | null> =
     try {
         let channel = await getChannelDbByName(login);
         if (!channel) {
-            const channelData = await twitchFeature.getUserByLogin(login);
+            const channelData = await twitchService.getUserByLogin(login);
             if (!channelData) {
                 return null;
             }
@@ -109,7 +108,7 @@ export const getChannelStream = async (
         if (lastStreamFetch) {
             return lastStreamFetch;
         }
-        const stream = await twitchFeature.getStreamByUserId(broadcasterId);
+        const stream = await twitchService.getStreamByUserId(broadcasterId);
         if (!stream || stream === StreamStatus.OFFLINE) {
             return null;
         }

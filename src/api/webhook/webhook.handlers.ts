@@ -15,29 +15,6 @@ interface WebhookRequest extends RouteGenericInterface {
     Headers: TwitchHeaders;
 }
 
-export const addWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
-    try {
-        const webhook: Webhook = { id: req.body.id, url: req.body.url } as Webhook;
-        const addedWebhook = await webhookFeature.addWebhook(webhook);
-        reply.status(200).send({ data: addedWebhook });
-    } catch (error) {
-        reply.status(500).send({ message: "Internal Server Error" });
-    }
-};
-
-export const removeWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
-    try {
-        const removedWebhook = await webhookFeature.removeWebhook(req.body.id);
-        if (removedWebhook) {
-            reply.status(200).send({ data: removedWebhook });
-        } else {
-            reply.status(404).send({ message: "Webhook not found" });
-        }
-    } catch (error) {
-        reply.status(500).send({ message: "Internal Server Error" });
-    }
-};
-
 export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
     let notification: NotificationBody = req.body;
     let messageType = req.headers[MESSAGE_TYPE];

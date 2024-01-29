@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
-import { twitchHandler } from ".";
+import { eventSubHandler } from ".";
 
 export default function (fastify: FastifyInstance, opts: any, done: any) {
     fastify.addHook("preHandler", async (request, reply) => {
@@ -8,17 +8,13 @@ export default function (fastify: FastifyInstance, opts: any, done: any) {
         await userAuthenticated(request, reply);
     });
 
-    fastify.get("/update/games", {
-        handler: twitchHandler.fetchAndSaveGames,
+    fastify.get("/subscriptions", {
+        handler: eventSubHandler.getListEventSub,
     });
 
-    fastify.get("/eventsub/subscriptions", {
-        handler: twitchHandler.getListEventSub,
+    fastify.get("/costs", {
+        handler: eventSubHandler.getTotalCost,
     });
-
-    fastify.get("/eventsub/costs", {
-        handler: twitchHandler.getTotalCost,
-    });
-
+    
     done();
 }

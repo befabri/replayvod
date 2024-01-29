@@ -2,10 +2,8 @@ import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "channel", service: "categoryService" });
 import { Category, PrismaClient, Status } from "@prisma/client";
-import { twitchFeature } from "../twitch";
-
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000;
+import { twitchService } from "../../services";
+import { FETCH_MAX_RETRIES, FETCH_RETRY_DELAY } from "../../constants/twitchConstants";
 
 export const createCategory = async (category: Category) => {
     try {
@@ -47,7 +45,7 @@ export const addAllCategories = async (categories: Category[]) => {
     let attempts = 0;
     const sortedCategories = categories.sort((a, b) => a.id.localeCompare(b.id));
 
-    while (attempts < MAX_RETRIES) {
+    while (attempts < FETCH_MAX_RETRIES) {
         try {
             await prisma.category.createMany({
                 data: sortedCategories,
@@ -60,11 +58,11 @@ export const addAllCategories = async (categories: Category[]) => {
                     error,
                 });
 
-                if (attempts === MAX_RETRIES - 1) {
+                if (attempts === FETCH_MAX_RETRIES - 1) {
                     throw error;
                 }
 
-                await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+                await new Promise((resolve) => setTimeout(resolve, FETCH_RETRY_DELAY));
                 attempts++;
             } else {
                 throw error;
@@ -161,7 +159,7 @@ export const updateMissingBoxArtUrls = async () => {
             },
         });
         for (const category of categoriesWithMissingBoxArt) {
-            const fetchedGame = await twitchFeature.getGameDetail(category.id);
+            const fetchedGame = await twitchService.getGameDetail(category.id);
             await prisma.category.update({
                 where: { id: category.id },
                 data: { boxArtUrl: fetchedGame?.boxArtUrl, igdbId: fetchedGame?.igdbId },
