@@ -1,39 +1,33 @@
 import path from "path";
 import cors from "@fastify/cors";
-import app, { logger } from "./app";
-import { Prisma, PrismaClient } from "@prisma/client";
+import app, { env, logger } from "./app";
+import { PrismaClient } from "@prisma/client";
 import fastifySecureSession from "@fastify/secure-session";
 import fastifyCookie from "@fastify/cookie";
 import routes from "./routes";
-import moment from "moment-timezone";
 import fastifyStatic from "@fastify/static";
 import { isUserWhitelisted, userAuthenticated } from "./middlewares/authMiddleware";
 import { videoFeature } from "./api/video";
+import { TWITCH_ENDPOINT } from "./constants/twitchConstants";
 const oauthPlugin = require("@fastify/oauth2");
 const fs = require("fs");
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
-const REACT_URL = process.env.REACT_URL;
-const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
-const TWITCH_SECRET = process.env.TWITCH_SECRET;
-const CALLBACK_URL = process.env.CALLBACK_URL;
-const ENVIRONMENT = process.env.NODE_ENV;
 const server = app;
-moment.tz.setDefault("Europe/Paris");
 
-logger.info("Launching Fastify in %s environment", ENVIRONMENT);
+logger.info("Launching Fastify in %s environment", env.nodeEnv);
 export const prisma = new PrismaClient();
 
 let ROOT_DIR = "";
-if (ENVIRONMENT === "production") {
+if (env.nodeEnv === "production") {
     ROOT_DIR = __dirname;
 } else {
     ROOT_DIR = path.join(__dirname, "..");
 }
 
 server.register(cors, {
-    origin: REACT_URL,
+    origin: env.reactUrl,
     credentials: true,
 });
 
@@ -64,17 +58,17 @@ server.register(oauthPlugin, {
     name: "twitchOauth2",
     credentials: {
         client: {
-            id: TWITCH_CLIENT_ID,
-            secret: TWITCH_SECRET,
+            id: env.twitchClientId,
+            secret: env.twitchSecret,
         },
         auth: oauthPlugin.TWITCH_CONFIGURATION,
     },
     tokenRequestParams: {
-        client_id: TWITCH_CLIENT_ID,
-        client_secret: TWITCH_SECRET,
+        client_id: env.twitchClientId,
+        client_secret: env.twitchSecret,
     },
-    startRedirectPath: "/api/auth/twitch",
-    callbackUri: CALLBACK_URL,
+    startRedirectPath: TWITCH_ENDPOINT,
+    callbackUri: env.callbackUrl,
     scope: ["user:read:email", "user:read:follows"],
 });
 

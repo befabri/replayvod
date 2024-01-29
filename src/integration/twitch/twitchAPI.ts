@@ -1,11 +1,9 @@
 import axios from "axios";
-import { getAppAccessToken } from "./twitchUtils";
 import { chunkArray } from "../../utils/utils";
 import { Stream, User, FollowedChannel, EventSubResponse, Game } from "../../models/twitchModel";
-import { logger as rootLogger } from "../../app";
+import { env, logger as rootLogger } from "../../app";
+import { getAppAccessToken } from "./twitchUtils";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchApi" });
-
-const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 
 function handleAxiosError(error: unknown) {
     if (axios.isAxiosError(error)) {
@@ -30,7 +28,7 @@ class TwitchAPI {
             const response = await axios.get(`https://api.twitch.tv/helix/users?id=${userId}`, {
                 headers: {
                     Authorization: "Bearer " + accessToken,
-                    "Client-ID": TWITCH_CLIENT_ID,
+                    "Client-ID": env.twitchClientId,
                 },
             });
 
@@ -47,7 +45,7 @@ class TwitchAPI {
             const response = await axios.get(`https://api.twitch.tv/helix/users?login=${login}`, {
                 headers: {
                     Authorization: "Bearer " + accessToken,
-                    "Client-ID": TWITCH_CLIENT_ID,
+                    "Client-ID": env.twitchClientId,
                 },
             });
 
@@ -68,7 +66,7 @@ class TwitchAPI {
                     return axios.get(`https://api.twitch.tv/helix/users?${params}`, {
                         headers: {
                             Authorization: "Bearer " + accessToken,
-                            "Client-ID": TWITCH_CLIENT_ID,
+                            "Client-ID": env.twitchClientId,
                         },
                     });
                 })
@@ -95,7 +93,7 @@ class TwitchAPI {
             },
             headers: {
                 Authorization: `Bearer ${accessToken}`,
-                "Client-Id": TWITCH_CLIENT_ID,
+                "Client-Id": env.twitchClientId,
             },
         });
 
@@ -120,7 +118,7 @@ class TwitchAPI {
             },
             headers: {
                 Authorization: `Bearer ${accessToken}`,
-                "Client-Id": TWITCH_CLIENT_ID,
+                "Client-Id": env.twitchClientId,
             },
         });
 
@@ -140,7 +138,7 @@ class TwitchAPI {
             const response = await axios.get(`https://api.twitch.tv/helix/streams?user_id=${userId}`, {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
-                    "Client-ID": TWITCH_CLIENT_ID,
+                    "Client-ID": env.twitchClientId,
                 },
             });
             return response.data.data[0] || null;
@@ -155,7 +153,7 @@ class TwitchAPI {
         const response = await axios.get("https://api.twitch.tv/helix/games/top", {
             headers: {
                 Authorization: `Bearer ${accessToken}`,
-                "Client-ID": TWITCH_CLIENT_ID,
+                "Client-ID": env.twitchClientId,
             },
             params: {
                 first: 100,
@@ -179,7 +177,7 @@ class TwitchAPI {
             const response = await axios.get(`https://api.twitch.tv/helix/games?id=${gameId}`, {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
-                    "Client-ID": TWITCH_CLIENT_ID,
+                    "Client-ID": env.twitchClientId,
                 },
             });
             return response.data.data[0] || null;
@@ -208,7 +206,7 @@ class TwitchAPI {
                 {
                     headers: {
                         Authorization: `Bearer ${accessToken}`,
-                        "Client-ID": TWITCH_CLIENT_ID,
+                        "Client-ID": env.twitchClientId,
                         "Content-Type": "application/json",
                     },
                 }
@@ -226,7 +224,7 @@ class TwitchAPI {
             const response = await axios.delete(`https://api.twitch.tv/helix/eventsub/subscriptions?id=${id}`, {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
-                    "Client-ID": TWITCH_CLIENT_ID,
+                    "Client-ID": env.twitchClientId,
                 },
             });
 
@@ -264,7 +262,7 @@ class TwitchAPI {
             const response = await axios.get("https://api.twitch.tv/helix/eventsub/subscriptions", {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
-                    "Client-ID": TWITCH_CLIENT_ID,
+                    "Client-ID": env.twitchClientId,
                 },
                 params: {
                     first: 100,

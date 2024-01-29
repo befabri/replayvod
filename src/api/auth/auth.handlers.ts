@@ -1,19 +1,13 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import axios from "axios";
-import { logger as rootLogger } from "../../app";
+import { env, logger as rootLogger } from "../../app";
 import { userFeature } from "../user";
 import { TwitchTokenResponse, TwitchUserData, UserSession } from "../../models/userModel";
 const logger = rootLogger.child({ domain: "auth", service: "authHandler" });
 
-const REACT_URL = process.env.REACT_URL || "/";
-const WHITELISTED_USER_IDS: string[] = process.env.WHITELISTED_USER_IDS?.split(",") || [];
-const IS_WHITELIST_ENABLED: boolean = process.env.IS_WHITELIST_ENABLED?.toLowerCase() === "true";
-const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || "1"; // TODO
-const TWITCH_SECRET = process.env.TWITCH_SECRET || "1"; // TODO
-
 async function fetchTwitchUserData(accessToken: string): Promise<TwitchUserData> {
     const headers = {
-        "Client-ID": process.env.TWITCH_CLIENT_ID,
+        "Client-ID": env.twitchClientId,
         Authorization: `Bearer ${accessToken}`,
     };
     try {
@@ -37,9 +31,9 @@ export async function handleTwitchCallback(
     try {
         const { token } = await fastify.twitchOauth2.getAccessTokenFromAuthorizationCodeFlow(req);
         const userData = await fetchTwitchUserData(token.access_token);
-        if (IS_WHITELIST_ENABLED && (!userData.id || !WHITELISTED_USER_IDS.includes(userData.id))) {
+        if (env.isWhitelistEnabled && (!userData.id || !env.whitelistedUserIds.includes(userData.id))) {
             logger.error(`User try to connect but are not whitelisted: %s`, userData.id);
-            reply.redirect(REACT_URL);
+            reply.redirect(env.reactUrl);
             return;
         }
         const userSessionData: UserSession = {
@@ -55,7 +49,7 @@ export async function handleTwitchCallback(
         };
         req.session.set("user", userSessionData);
         await userFeature.updateUserDetail(userData);
-        reply.redirect(REACT_URL);
+        reply.redirect(env.reactUrl);
         await initUser(userData.id, token.access_token);
     } catch (err) {
         reply.code(500).send({ error: "Failed to authenticate with Twitch." });
@@ -82,7 +76,7 @@ export async function checkSession(req: FastifyRequest, reply: FastifyReply): Pr
         if (userSession && userSession.twitchToken.refresh_token) {
             if (isExpiredToken(userSession.twitchToken.expires_in)) {
                 const refreshToken = userSession.twitchToken.refresh_token;
-                const result = await fetchRefreshToken(refreshToken, TWITCH_CLIENT_ID, TWITCH_SECRET);
+                const result = await fetchRefreshToken(refreshToken, env.twitchClientId, env.twitchSecret);
                 if (!result) {
                     logger.error("Failed to refresh token");
                     reply.status(401).send({ status: "not authenticated" });
@@ -136,7 +130,7 @@ export async function refreshToken(req: FastifyRequest, reply: FastifyReply): Pr
     const userSession = req.session?.user as UserSession | undefined;
     if (userSession && userSession.twitchToken.refresh_token) {
         const refreshToken = userSession.twitchToken.refresh_token;
-        const result = await fetchRefreshToken(refreshToken, TWITCH_CLIENT_ID, TWITCH_SECRET);
+        const result = await fetchRefreshToken(refreshToken, env.twitchClientId, env.twitchSecret);
         if (!result) {
             reply.status(500).send({ error: "Failed to refresh token" });
             return;

@@ -10,10 +10,8 @@ import moment from "moment";
 import { StreamWithRelations } from "../../types/sharedTypes";
 import { categoryFeature } from "../category";
 import { transformVideo, videoDTO } from "./video.DTO";
+import { PUBLIC_DIR } from "../../constants/folderConstants";
 const logger = rootLogger.child({ domain: "video", service: "videoService" });
-
-const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
-const PUBLIC_DIR = process.env.PUBLIC_DIR || VIDEO_PATH;
 
 export const getVideoById = async (id: number): Promise<videoDTO | null> => {
     const video = await prisma.video.findUnique({

@@ -1,14 +1,12 @@
 import { Webhook } from "../../models/webhookModel";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TWITCH_MESSAGE_ID, TWITCH_MESSAGE_TIMESTAMP } from "../../constants/twitchConstants";
-import { logger as rootLogger } from "../../app";
+import { env, logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { transformWebhookEvent } from "./webhook.DTO";
 import { eventSubProcessingFeature } from ".";
 import { FastifyRequest } from "fastify";
 const logger = rootLogger.child({ domain: "webhook", service: "webhookService" });
-
-const CALLBACK_URL_WEBHOOK = process.env.CALLBACK_URL_WEBHOOK;
 
 export const addWebhook = async (webhook: Webhook) => {
     logger.info(webhook);
@@ -38,7 +36,7 @@ export const getAllWebhooks = async () => {
 };
 
 export const getSecret = () => {
-    return process.env.SECRET!;
+    return env.secret;
 };
 
 export const getHmacMessage = (req: FastifyRequest): string => {
@@ -55,10 +53,7 @@ export const getHmac = (secret: string, message: string): string => {
 };
 
 export const getCallbackUrlWebhook = (): string => {
-    if (typeof CALLBACK_URL_WEBHOOK === "undefined") {
-        throw new Error("CALLBACK_URL_WEBHOOK is undefined");
-    }
-    return CALLBACK_URL_WEBHOOK;
+    return env.callbackUrlWebhook;
 };
 
 export const verifyMessage = (hmac: string, verifySignature: string): boolean => {

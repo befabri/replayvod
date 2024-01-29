@@ -7,11 +7,10 @@ import { videoFeature } from ".";
 import { userFeature } from "../user";
 import { channelFeature } from "../channel";
 import { categoryFeature } from "../category";
+import { PUBLIC_DIR } from "../../constants/folderConstants";
 
 const logger = rootLogger.child({ domain: "video", service: "videoHandler" });
 
-const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
-const PUBLIC_DIR = process.env.PUBLIC_DIR || VIDEO_PATH;
 const RANGE_LIMIT = 500 * 1024;
 
 interface Params extends RouteGenericInterface {

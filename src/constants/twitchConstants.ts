@@ -19,3 +19,4 @@ export interface TwitchHeaders {
     "twitch-eventsub-subscription-version": string;
     [key: string]: string | undefined;
 }
+export const TWITCH_ENDPOINT = "/api/auth/twitch";

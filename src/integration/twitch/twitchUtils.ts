@@ -1,13 +1,10 @@
 import axios from "axios";
-import { logger as rootLogger } from "../../app";
+import { env, logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "auth", service: "accessToken" });
 
-const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
-const TWITCH_SECRET = process.env.TWITCH_SECRET;
-
-if (!TWITCH_CLIENT_ID || !TWITCH_SECRET) {
-    throw new Error("Missing .env: TWITCH_CLIENT_ID and/or TWITCH_SECRET");
+if (!env.twitchClientId || !env.twitchSecret) {
+    throw new Error("Missing .env: env.twitchClientId and/or env.twitchSecret");
 }
 
 export const getAppAccessToken = async () => {
@@ -36,8 +33,8 @@ export const fetchAppAccessToken = async () => {
     try {
         const response = await axios.post("https://id.twitch.tv/oauth2/token", null, {
             params: {
-                client_id: TWITCH_CLIENT_ID,
-                client_secret: TWITCH_SECRET,
+                client_id: env.twitchClientId,
+                client_secret: env.twitchSecret,
                 grant_type: "client_credentials",
             },
         });

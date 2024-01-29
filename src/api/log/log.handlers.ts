@@ -2,6 +2,7 @@ import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
 import fs from "fs";
 import path from "path";
 import { logFeature } from ".";
+import { LOG_DIR } from "../../constants/folderConstants";
 
 let logCache;
 
@@ -43,7 +44,7 @@ export const getLog = async (req: FastifyRequest<Params>, reply: FastifyReply) =
         if (isNaN(logId)) {
             return reply.code(404).send({ message: `'${req.params.id}' not found` });
         }
-        const logDir = process.env.LOG_DIR || "."; // TODO
+        const logDir = LOG_DIR; // TODO
         const logFilePath = path.resolve(logDir, "replay.log");
         logCache = await fs.promises.readFile(logFilePath, "utf-8");
         reply.send(logCache);
@@ -75,7 +76,7 @@ export const getDomain = async (req: FastifyRequest<Params>, reply: FastifyReply
             return reply.code(404).send({ message: `'${req.params.id}' not found` });
         }
 
-        const logDir = process.env.LOG_DIR || ".";
+        const logDir = LOG_DIR || ".";
         const logFilePath = path.resolve(logDir, "replay.log");
         const fileContents = await fs.promises.readFile(logFilePath, "utf-8");
         const lines = fileContents.split("\n").filter((line) => line.trim().length > 0);
