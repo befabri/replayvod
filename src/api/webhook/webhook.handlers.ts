@@ -1,18 +1,12 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
 import { Webhook } from "../../models/webhookModel";
 import {
-    CHANNEL_UPDATE,
-    HMAC_PREFIX,
     MESSAGE_TYPE,
     MESSAGE_TYPE_NOTIFICATION,
     MESSAGE_TYPE_REVOCATION,
     MESSAGE_TYPE_VERIFICATION,
-    STREAM_OFFLINE,
-    STREAM_ONLINE,
-    TWITCH_MESSAGE_SIGNATURE,
     TwitchHeaders,
 } from "../../constants/twitchConstants";
-import { logger } from "../../app";
 import { NotificationBody, SubscriptionType } from "../../models/notificationTwitch";
 import { webhookFeature } from ".";
 
@@ -45,52 +39,36 @@ export const removeWebhook = async (req: FastifyRequest<WebhookRequest>, reply: 
 };
 
 export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
-    let secret = webhookFeature.getSecret();
-    let message = webhookFeature.getHmacMessage(req);
-    let hmac = HMAC_PREFIX + webhookFeature.getHmac(secret, message);
-
-    let signature = req.headers[TWITCH_MESSAGE_SIGNATURE];
-    if (typeof signature !== "string") {
-        reply.status(400).send();
-        return;
-    }
-
-    if (webhookFeature.verifyMessage(hmac, signature) === true) {
-        let notification: NotificationBody = req.body;
-        let messageType = req.headers[MESSAGE_TYPE];
-        let response;
-        if (MESSAGE_TYPE_NOTIFICATION === messageType) {
-            switch (notification.subscription.type) {
-                case SubscriptionType.CHANNEL_UPDATE:
-                    response = await webhookFeature.handleChannelUpdate(notification);
-                    break;
-                case SubscriptionType.STREAM_ONLINE:
-                    response = await webhookFeature.handleStreamOnline(notification);
-                    break;
-                case SubscriptionType.STREAM_OFFLINE:
-                    response = await webhookFeature.handleStreamOffline(notification);
-                    break;
-                default:
-                    response = await webhookFeature.handleNotification(notification);
-                    break;
-            }
-        } else if (MESSAGE_TYPE_VERIFICATION === messageType) {
-            response = await webhookFeature.handleVerification(notification);
-        } else if (MESSAGE_TYPE_REVOCATION === messageType) {
-            response = await webhookFeature.handleRevocation(notification);
-        } else {
-            reply.status(400).send();
-            return;
+    let notification: NotificationBody = req.body;
+    let messageType = req.headers[MESSAGE_TYPE];
+    let response;
+    if (MESSAGE_TYPE_NOTIFICATION === messageType) {
+        switch (notification.subscription.type) {
+            case SubscriptionType.CHANNEL_UPDATE:
+                response = await webhookFeature.handleChannelUpdate(notification);
+                break;
+            case SubscriptionType.STREAM_ONLINE:
+                response = await webhookFeature.handleStreamOnline(notification);
+                break;
+            case SubscriptionType.STREAM_OFFLINE:
+                response = await webhookFeature.handleStreamOffline(notification);
+                break;
+            default:
+                response = await webhookFeature.handleNotification(notification);
+                break;
         }
-        reply.status(response.status);
-        if (response.body) {
-            reply.send(response.body);
-        } else {
-            reply.send();
-        }
+    } else if (MESSAGE_TYPE_VERIFICATION === messageType) {
+        response = await webhookFeature.handleVerification(notification);
+    } else if (MESSAGE_TYPE_REVOCATION === messageType) {
+        response = await webhookFeature.handleRevocation(notification);
     } else {
-        reply.status(403).send();
+        return reply.status(400).send();
     }
+    reply.status(response.status);
+    if (response.body) {
+        return reply.send(response.body);
+    }
+    reply.send();
 };
 
 // export const test = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
