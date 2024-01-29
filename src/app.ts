@@ -1,28 +1,44 @@
 import fastify, { FastifyInstance } from "fastify";
 import path from "path";
-import moment from "moment-timezone";
+import { EnvType, envSchema } from "./utils/env";
+import { ZodError } from "zod";
+import { DateTime } from "luxon";
 
 let app: FastifyInstance;
 let ROOT_DIR: string;
+let env: EnvType;
 
-if (process.env.NODE_ENV === "production") {
+try {
+    env = envSchema.parse(process.env);
+} catch (error) {
+    if (error instanceof ZodError) {
+        console.error("Environment variable validation failed: ", error.message);
+    } else {
+        console.error("There is a problem with the environment variable");
+    }
+    process.exit(1);
+}
+
+if (env.nodeEnv === "production") {
     ROOT_DIR = __dirname;
 } else {
     ROOT_DIR = path.join(__dirname, "..");
 }
 
-if (process.env.NODE_ENV === "dev") {
+const formatDateTime = () => DateTime.now().setZone("Europe/Paris").toISO();
+
+if (env.nodeEnv === "dev") {
     app = fastify({
         logger: {
             level: "info",
-            timestamp: () => `,"time":"${moment().tz("Europe/Paris").format()}"`,
+            timestamp: () => `,"time":"${formatDateTime()}"`,
         },
     });
-} else if (process.env.NODE_ENV === "production") {
+} else if (env.nodeEnv === "production") {
     app = fastify({
         logger: {
             level: "info",
-            timestamp: () => `,"time":"${moment().tz("Europe/Paris").format()}"`,
+            timestamp: () => `,"time":"${formatDateTime()}"`,
             transport: {
                 target: "pino/file",
                 options: {
@@ -36,5 +52,6 @@ if (process.env.NODE_ENV === "dev") {
 }
 
 export default app;
+export { env };
 export const logger = app.log;
 logger.info("Loading...");
