@@ -1,19 +1,21 @@
 {
-  "$schema": "https://json.schemastore.org/tsconfig",
-  "display": "Node 20",
-
-  "_version": "20.7.0",
-
   "compilerOptions": {
-    "lib": ["es2023"],
-    "module": "Node16",
-    "target": "es2022",
-    "strict": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "preserve",
+    "declaration": true,
     "outDir": "dist",
+    "allowJs": false,
+    "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
+    "strict": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node16"
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "strictNullChecks": true,
+    "useUnknownInCatchVariables": false
   },
   "include": ["src/**/*",  "src/types.d.ts"],
   "exclude": ["node_modules"]
