@@ -8,7 +8,6 @@ import { Link } from "react-router-dom";
 import ScheduleModal from "../../components/UI/Modal/ScheduleModal";
 import NotFound from "../../components/Others/NotFound";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { truncateString } from "../../utils/utils";
 
 const ManagePage: React.FC = () => {
     const { t } = useTranslation();
