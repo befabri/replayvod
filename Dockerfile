@@ -32,4 +32,5 @@ EXPOSE $PORT
 
 VOLUME ["/app/logs", "/app/public", "/app/data", "/app/bin", "/app/secret"]
 
-CMD [ "node", "server.js" ]
+CMD ["npm", "run", "prod"]
+
