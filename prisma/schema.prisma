@@ -27,7 +27,6 @@ model FetchLog {
   Stream        Stream[]
 }
 
-// utilisateur sur le site qui fait la demande ? Date de demande, le fetch, et lié à la reposne pour savoir qui que quoi
 model EventSub {
   id            Int                    @id @default(autoincrement())
   userId        String
@@ -37,7 +36,6 @@ model EventSub {
   subscriptions SubscriptionEventSub[]
 }
 
-// Reponse après demande de webhook à twitch -> Soda / Enable / cout 1 ...
 model Subscription {
   id               String                 @id
   status           String
