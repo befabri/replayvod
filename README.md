@@ -1,6 +1,6 @@
 # Fastify Backend for ReplayVod
 
-This repository contains the backend codebase for ReplayVod. It is built using Fastify and is intended to be used alongside our [React Frontend](https://gitlab.com/befabri/replay-vod-web).
+This repository contains the backend codebase for ReplayVod. It is built using Fastify and is intended to be used alongside our [React Frontend](https://gitlab.com/replayvod/replay-vod-web).
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ This repository contains the backend codebase for ReplayVod. It is built using F
 1. **Clone the Repository**
 
     ```bash
-    git clone https://gitlab.com/befabri/replay-vod-api.git
+    git clone https://gitlab.com/replayvod/replay-vod-api.git
     cd replay-vod-api
     ```
 
