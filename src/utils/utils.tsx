@@ -1,6 +1,7 @@
 import { t } from "i18next";
 import { Quality } from "../type";
 import i18n from "../i18n";
+import { ApiRoutes, getApiRoute } from "../type/routes";
 
 export function capitalizeFirstLetter(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
@@ -148,3 +149,22 @@ export function formatIntervalPast(milliseconds: number) {
     }
     return t("a while ago");
 }
+
+export const customFetch = async (apiRoute: ApiRoutes): Promise<any> => {
+    const url = getApiRoute(apiRoute);
+    const response = await fetch(url, { credentials: "include" });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error while fetching data from ${apiRoute}`);
+    }
+
+    return response.json();
+};
+
+export const convertToMilliseconds = (dateStr: string | number | Date) => {
+    const now = new Date();
+    const date = new Date(dateStr);
+    const timedate = date.getTime();
+    const difference = now.getTime() - timedate;
+    return difference;
+};

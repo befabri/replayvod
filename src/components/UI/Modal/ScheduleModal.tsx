@@ -1,43 +1,33 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ManageSchedule, ManageScheduleDTO } from "../../../type";
+import { Schedule, ScheduleDTO } from "../../../type";
 import { Icon } from "@iconify/react/dist/iconify.js";
 import ScheduleForm from "../../Others/ScheduleForm";
 import { ApiRoutes, getApiRoute } from "../../../type/routes";
-import { qualityLabelToResolution } from "../../../utils/utils";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 
 interface ScheduleModalProps {
     isOpen: boolean;
     onClose: () => void;
-    data: ManageSchedule;
+    data: Schedule;
     onScheduleDelete: (scheduleId: number) => void;
-    onDataChange: any;
 }
 
-const transformDataToForm = (modalData: ManageSchedule | null): ManageScheduleDTO | null => {
+const transformDataToForm = (modalData: Schedule | null): ScheduleDTO | null => {
     if (!modalData) {
         return null;
     }
     const defaultValue = {
         ...modalData,
         isChannelNameDisabled: true,
-        quality: qualityLabelToResolution(modalData.quality),
     };
-    console.log("transformed: ", defaultValue)
     return defaultValue;
 };
 
-const ScheduleModal: React.FC<ScheduleModalProps> = ({
-    isOpen,
-    onClose,
-    onScheduleDelete,
-    data,
-    onDataChange,
-}) => {
+const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, onClose, onScheduleDelete, data }) => {
     const { t } = useTranslation();
     const modalRef = useRef<HTMLDivElement>(null);
-    const [modalData, setModalData] = useState<ManageSchedule | null>(null);
+    const [modalData, setModalData] = useState<Schedule | null>(null);
 
     useEffect(() => {
         if (data) {
@@ -105,7 +95,6 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({
                             }}
                             defaultValue={transformDataToForm(modalData) || undefined}
                             scheduleId={modalData.id}
-                            onDataChange={onDataChange}
                         />
                     </div>
                 </div>

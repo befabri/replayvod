@@ -14,18 +14,9 @@ export interface Video {
     broadcasterId: string;
     jobId: string;
     streamId: string;
-    tags: Tag[];
-    titles: {
-        title: {
-            name: string;
-        };
-    }[];
-    videoCategory: {
-        videoId: number;
-        categoryId: string;
-        category: Category;
-    }[];
-
+    tags: string[];
+    titles: string[];
+    videoCategory: Category[];
     isChecked?: boolean;
 }
 
@@ -39,9 +30,20 @@ type CompletedVideoConstraints = {
     size: number;
     thumbnail: string;
     channel: Channel;
+    playUrl?: string;
 };
 
 export type CompletedVideo = WithNotNull<Video, "downloadedAt" | "size" | "thumbnail"> & CompletedVideoConstraints;
+
+export interface ChannelDetailResponse {
+    channel: Channel;
+    videos: CompletedVideo[];
+}
+
+export interface CategoryDetailResponse {
+    category: Category;
+    videos: CompletedVideo[];
+}
 
 export interface TableProps {
     items: Video[];
@@ -75,20 +77,24 @@ export interface EventLog {
 }
 
 export interface EventSub {
-    _id?: string;
-    id: string;
-    status: string;
-    type: string;
-    user_id: string;
-    user_login?: string;
-    created_at: Date;
-    cost: number;
+    data: {
+        id: string;
+        status: string;
+        subscriptionType: string;
+        broadcasterId: string;
+        createdAt: Date;
+        cost: number;
+    }[];
+    message: string;
 }
 
 export interface EventSubCost {
-    total: number;
-    total_cost: number;
-    max_total_cost: number;
+    data?: {
+        total: number;
+        total_cost: number;
+        max_total_cost: number;
+    };
+    message: string;
 }
 
 export interface Stream {
@@ -173,10 +179,10 @@ export interface Tag {
     name: string;
 }
 
-export interface ManageSchedule {
+export interface Schedule {
     id: number;
     broadcasterId: string;
-    quality: "LOW" | "MEDIUM" | "HIGH";
+    quality: 480 | 720 | 1080;
     viewersCount: number | null;
     isDeleteRediff: boolean;
     timeBeforeDelete: number | null;
@@ -191,16 +197,30 @@ export interface ManageSchedule {
     channelName: string;
 }
 
-export interface ManageScheduleDTO {
+export interface ScheduleDTO {
     isChannelNameDisabled: boolean;
     channelName: string;
     timeBeforeDelete: number | null;
     viewersCount: number | null;
     categories: string[];
-    quality: Quality;
+    quality: 480 | 720 | 1080;
     isDeleteRediff: boolean;
     hasTags: boolean;
     hasMinView: boolean;
     hasCategory: boolean;
     tags: string[];
+}
+
+export interface LastLive {
+    id: string;
+    isMature: boolean;
+    language: string;
+    startedAt: string;
+    endedAt: string;
+    thumbnailUrl: string;
+    type: string;
+    broadcasterId: string;
+    viewerCount: number;
+    fetchId: string;
+    channel: Channel;
 }

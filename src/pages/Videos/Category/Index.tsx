@@ -1,41 +1,52 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Category } from "../../../type";
 import { ApiRoutes, getApiRoute } from "../../../type/routes";
 import CategoryComponent from "../../../components/Media/Category";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
+import Container from "../../../components/Layout/Container";
+
+const fetchCategories = async (): Promise<Category[]> => {
+    const url = getApiRoute(ApiRoutes.GET_VIDEO_CATEGORY_ALL_DONE);
+    const response = await fetch(url, {
+        credentials: "include",
+    });
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+};
 
 const CategoryPage: React.FC = () => {
     const { t } = useTranslation();
-    const [categories, setCategories] = useState<Category[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_VIDEO_CATEGORY_ALL_DONE);
-            const response = await fetch(url, {
-                credentials: "include",
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            setCategories(data);
-            setIsLoading(false);
-        };
+    const {
+        data: categories,
+        isLoading,
+        isError,
+        error,
+    } = useQuery<Category[], Error>({
+        queryKey: ["categories"],
+        queryFn: fetchCategories,
+        staleTime: 5 * 60 * 1000,
+    });
 
-        fetchData();
-        const intervalId = setInterval(fetchData, 10000);
+    if (isLoading) {
+        return <div>{t("Loading")}</div>;
+    }
 
-        return () => clearInterval(intervalId);
-    }, []);
+    if (isError) {
+        const errorMessage = error instanceof Error ? error.message : "An error occurred";
+        return <div>{errorMessage}</div>;
+    }
 
     return (
-        <div className="p-4 ">
-            <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("Categories")}</h1>
+        <Container>
+            <div className="mt-14 p-4">
+                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Categories")}</h1>
             </div>
-            {isLoading ? <div>{t("Loading")}</div> : <CategoryComponent categories={categories} />}
-        </div>
+            <CategoryComponent categories={categories} />
+        </Container>
     );
 };
 

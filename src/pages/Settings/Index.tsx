@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { SettingsSchema } from "../../models/Settings";
@@ -6,68 +6,51 @@ import type { SettingsForm } from "../../models/Settings";
 import { useTranslation } from "react-i18next";
 import Select from "../../components/UI/Form/Select";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
-import { DateTimeFormats, Settings } from "../../type";
+import { DateTimeFormats } from "../../type";
 import { timeZones } from "../../utils/timezones";
 import Button from "../../components/UI/Button/Button";
+import { useQuery } from "@tanstack/react-query";
+
+const fetchSettings = async (): Promise<SettingsForm> => {
+    const url = getApiRoute(ApiRoutes.GET_SETTINGS);
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+};
+
+const postSettings = async (data: SettingsForm) => {
+    try {
+        const url = getApiRoute(ApiRoutes.POST_SETTINGS);
+        const response = await fetch(url, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        localStorage.setItem("timeZone", data.timeZone);
+        localStorage.setItem("dateTimeFormat", data.dateTimeFormat);
+        return response.json();
+    } catch (error) {
+        console.error(`Error posting data: ${error}`);
+    }
+};
 
 const SettingsPage: React.FC = () => {
     const { t } = useTranslation();
-    const [isLoading, setIsLoading] = useState<boolean>(true);
 
-    const fetchData = async () => {
-        try {
-            const url = getApiRoute(ApiRoutes.GET_SETTINGS);
-            const response = await fetch(url, { credentials: "include" });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data: Settings = await response.json();
-            setValue("timeZone", data.timeZone ? data.timeZone : "Europe/London");
-            setValue("dateTimeFormat", data.dateTimeFormat ? data.dateTimeFormat : DateTimeFormats[0]);
-            setIsLoading(false);
-        } catch (error) {
-            console.error(`Error fetching data: ${error}`);
-        }
-    };
-
-    useEffect(() => {
-        const storedTimeZone = localStorage.getItem("timeZone");
-        const storedDateTimeFormat = localStorage.getItem("dateTimeFormat");
-
-        if (storedTimeZone && storedDateTimeFormat) {
-            setValue("timeZone", storedTimeZone);
-            setValue("dateTimeFormat", storedDateTimeFormat);
-            setIsLoading(false);
-        } else {
-            fetchData();
-        }
-    }, []);
-
-    const postData = async (data: SettingsForm) => {
-        try {
-            const url = getApiRoute(ApiRoutes.POST_SETTINGS);
-            const response = await fetch(url, {
-                method: "POST",
-                credentials: "include",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(data),
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            if (response.ok) {
-                localStorage.setItem("timeZone", data.timeZone);
-                localStorage.setItem("dateTimeFormat", data.dateTimeFormat);
-            }
-        } catch (error) {
-            console.error(`Error posting data: ${error}`);
-        }
-    };
+    const { data, isLoading, isError } = useQuery<SettingsForm, Error>({
+        queryKey: ["settings"],
+        queryFn: () => fetchSettings(),
+        staleTime: 5 * 60 * 1000,
+        enabled: !localStorage.getItem("timeZone") || !localStorage.getItem("dateTimeFormat"),
+    });
 
     const {
         register,
@@ -82,13 +65,28 @@ const SettingsPage: React.FC = () => {
         },
     });
 
+    useEffect(() => {
+        const storedTimeZone = localStorage.getItem("timeZone");
+        const storedDateTimeFormat = localStorage.getItem("dateTimeFormat");
+
+        if (storedTimeZone && storedDateTimeFormat) {
+            setValue("timeZone", storedTimeZone);
+            setValue("dateTimeFormat", storedDateTimeFormat);
+        } else if (data) {
+            setValue("timeZone", data.timeZone || "Europe/London");
+            setValue("dateTimeFormat", data.dateTimeFormat || DateTimeFormats[0]);
+        }
+    }, [data, setValue]);
+
     const onSubmit: SubmitHandler<SettingsForm> = async (data) => {
-        postData(data);
+        postSettings(data);
     };
 
     if (isLoading) {
         return <div>{t("Loading")}</div>;
     }
+
+    if (isError) return <div>{t("Error")}</div>;
 
     return (
         <div className="p-4">

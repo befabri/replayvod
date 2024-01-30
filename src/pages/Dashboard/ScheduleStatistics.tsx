@@ -1,36 +1,32 @@
-import { useEffect, useState } from "react";
-import { ManageSchedule } from "../../type";
+import { Schedule } from "../../type";
 import { Link } from "react-router-dom";
-import { ApiRoutes, Pathnames, getApiRoute } from "../../type/routes";
+import { ApiRoutes, Pathnames } from "../../type/routes";
 import { useTranslation } from "react-i18next";
 import HrefLink from "../../components/UI/Navigation/HrefLink";
-import { qualityLabelToResolution } from "../../utils/utils";
+import { customFetch } from "../../utils/utils";
+import { useQuery } from "@tanstack/react-query";
 
 const ScheduleStatistics: React.FC = () => {
     const { t } = useTranslation();
-    const [schedule, setSchedule] = useState<ManageSchedule[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_SCHEDULE);
-            const response = await fetch(url, {
-                credentials: "include",
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            const limitedData = data.slice(0, 3);
-            setSchedule(limitedData || []);
-            setIsLoading(false);
-        };
+    const {
+        data: schedules,
+        isLoading,
+        isError,
+        error,
+    } = useQuery<Schedule[], Error>({
+        queryKey: ["schedules"],
+        queryFn: (): Promise<Schedule[]> => customFetch(ApiRoutes.GET_SCHEDULE),
+        staleTime: 5 * 60 * 1000,
+    });
 
-        fetchData();
-        const intervalId = setInterval(fetchData, 10000);
+    if (isLoading) {
+        return <div>{t("Loading")}</div>;
+    }
 
-        return () => clearInterval(intervalId);
-    }, []);
+    if (isError || !schedules) {
+        return <div>Error: {error?.message}</div>;
+    }
 
     return (
         <div className="rounded-lg bg-white p-4 shadow  dark:bg-custom_lightblue sm:p-5">
@@ -42,18 +38,18 @@ const ScheduleStatistics: React.FC = () => {
             </div>
             <div className="pt-4" id="about" role="tabpanel" aria-labelledby="about-tab">
                 <ul role="list" className="divide-y divide-gray-200 dark:divide-slate-400">
-                    {schedule.map((eventSub, idx) => (
+                    {schedules.slice(0, 4).map((schedule, idx) => (
                         <li className="py-3 sm:py-4" key={idx}>
                             <div className="flex items-center space-x-4">
                                 <div className="flex-shrink-0">
                                     <Link
                                         to={`${
                                             Pathnames.Video.Channel
-                                        }/${eventSub.channel.displayName.toLowerCase()}`}
+                                        }/${schedule.channel.displayName.toLowerCase()}`}
                                         className="flex-shrink-0">
                                         <img
                                             className="h-10 w-10 rounded-full"
-                                            src={eventSub.channel.profilePicture}
+                                            src={schedule.channel.profilePicture}
                                             alt="Profile Picture"
                                         />
                                     </Link>
@@ -63,14 +59,14 @@ const ScheduleStatistics: React.FC = () => {
                                         <HrefLink
                                             to={`${
                                                 Pathnames.Video.Channel
-                                            }/${eventSub.channel.displayName.toLowerCase()}`}
+                                            }/${schedule.channel.displayName.toLowerCase()}`}
                                             style="normal">
-                                            {eventSub.channel.broadcasterName}
+                                            {schedule.channel.broadcasterName}
                                         </HrefLink>
                                     </p>
                                 </div>
                                 <div className="inline-flex items-center text-base font-semibold text-gray-900 dark:text-white">
-                                    {qualityLabelToResolution(eventSub.quality)}p
+                                    {schedule.quality}p
                                 </div>
                             </div>
                         </li>

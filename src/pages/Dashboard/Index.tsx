@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import VideoStatistics from "./VideoStatistics";
-import LastLive from "./LastLive";
+import LastLive from "./LastLiveStatistics.tsx";
 import ScheduleStatistics from "./ScheduleStatistics";
 
 const DashboardPage: React.FC = () => {

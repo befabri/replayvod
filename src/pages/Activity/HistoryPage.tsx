@@ -1,43 +1,37 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useTranslation } from "react-i18next";
 import Table from "../../components/Table/Tables";
 import { Video } from "../../type";
-import { ApiRoutes, getApiRoute } from "../../type/routes";
+import { ApiRoutes } from "../../type/routes";
+import { customFetch } from "../../utils/utils";
+import { useQuery } from "@tanstack/react-query";
 
 const HistoryPage: React.FC = () => {
     const { t } = useTranslation();
-    const [videos, setVideos] = useState<Video[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const url = getApiRoute(ApiRoutes.GET_VIDEO_ALL);
-                const response = await fetch(url, { credentials: "include" });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-                setVideos(data);
-                setIsLoading(false);
-            } catch (error) {
-                console.error(`Error fetching data: ${error}`);
-            }
-        };
-
-        fetchData();
-    }, []);
+    const {
+        data: videos,
+        isLoading,
+        isError,
+        error,
+    } = useQuery<Video[], Error>({
+        queryKey: ["videos", "all"],
+        queryFn: (): Promise<Video[]> => customFetch(ApiRoutes.GET_VIDEO_ALL),
+        staleTime: 5 * 60 * 1000,
+    });
 
     if (isLoading) {
         return <div>{t("Loading")}</div>;
     }
 
+    if (isError || !videos) {
+        return <div>Error: {error?.message}</div>;
+    }
+
     return (
         <div className="p-4">
-            <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("History")}</h1>
+            <div className="mt-14 p-4">
+                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("History")}</h1>
             </div>
             {isLoading ? (
                 <div>{t("Loading")}</div>

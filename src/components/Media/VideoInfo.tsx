@@ -46,9 +46,9 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
                 </Link>
             )}
             <div>
-                <div title={video?.titles[0].title.name}>
+                <div title={video?.titles[0]}>
                     <HrefLink to={`${Pathnames.Watch}${video?.id}`} style="title">
-                        {truncateString(video?.titles[0].title.name, 125, true)}
+                        {truncateString(video?.titles[0], 125, true)}
                     </HrefLink>
                 </div>
                 <div>
@@ -58,10 +58,8 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
                 </div>
                 <div>
                     {video?.videoCategory.map((item) => (
-                        <HrefLink
-                            to={`${Pathnames.Video.Category}/${toKebabCase(item.category.name)}`}
-                            key={item.categoryId}>
-                            {item.category.name}
+                        <HrefLink to={`${Pathnames.Video.Category}/${toKebabCase(item.name)}`} key={item.id}>
+                            {item.name}
                         </HrefLink>
                     ))}
                 </div>
@@ -69,8 +67,8 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
                     {video?.tags.slice(0, numberOfTagsToRender).map((item) => (
                         <span
                             className="mr-2 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 dark:bg-custom_space_cadet dark:text-gray-400"
-                            key={item.tag.name}>
-                            {truncateString(item.tag.name, 18, false)}
+                            key={item}>
+                            {truncateString(item, 18, false)}
                         </span>
                     ))}
                 </div>

@@ -1,78 +1,76 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ApiRoutes, Pathnames, getApiRoute } from "../../../type/routes";
-import { Link, useNavigate } from "react-router-dom";
+import { ApiRoutes, Pathnames } from "../../../type/routes";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Channel, Stream } from "../../../type";
 import DropdownButton from "../../../components/UI/Button/ButtonDropdown";
+import { useQuery } from "@tanstack/react-query";
+import Container from "../../../components/Layout/Container";
+import { customFetch } from "../../../utils/utils";
 
 const ChannelPage: React.FC = () => {
     const { t } = useTranslation();
-    const [channels, setChannels] = useState<Channel[]>([]);
-    const [streams, setStreams] = useState<Stream[]>([]);
-    const [order, setOrder] = useState({ value: "channel_asc", label: t("Channel (A-Z)") });
-    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const location = useLocation();
     const navigate = useNavigate();
+    const [selectedOrder, setSelectedOrder] = useState({ value: "channel_asc", label: t("Channel (A-Z)") });
+    const [sortedChannels, setSortedChannels] = useState<Channel[]>([]);
+
+    const {
+        data: channels,
+        isLoading: isLoadingChannels,
+        isError: isErrorChannels,
+        error: errorChannels,
+    } = useQuery<Channel[], Error>({
+        queryKey: ["channels"],
+        queryFn: (): Promise<Channel[]> => customFetch(ApiRoutes.GET_USER_FOLLOWED_CHANNELS),
+        staleTime: 5 * 60 * 1000,
+    });
+
+    const {
+        data: streams,
+        isLoading: _isLoadingStreams,
+        isError: isErrorStreams,
+        error: errorStreams,
+    } = useQuery<Stream[], Error>({
+        queryKey: ["streams"],
+        queryFn: (): Promise<Stream[]> => customFetch(ApiRoutes.GET_USER_FOLLOWED_STREAMS),
+        staleTime: 5 * 60 * 1000,
+    });
+
+    const isLoading = isLoadingChannels;
+    const isError = isErrorChannels || isErrorStreams;
+    const error = errorChannels || errorStreams;
 
     const orderOptions = [
         { value: "channel_asc", label: t("Channel (A-Z)") },
         { value: "channel_desc", label: t("Channel (Z-A)") },
     ];
 
-    const fetchData = async () => {
-        const urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
-        const urlFollowedStreams = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_STREAMS);
-        try {
-            const [followedChannelsResponse, followedStreamsResponse] = await Promise.all([
-                fetch(urlFollowedChannels, { credentials: "include" }),
-                fetch(urlFollowedStreams, { credentials: "include" }),
-            ]);
-
-            if (!followedChannelsResponse.ok || !followedStreamsResponse.ok) {
-                throw new Error("HTTP error");
-            }
-
-            const [followedChannelsData, followedStreamsData] = await Promise.all([
-                followedChannelsResponse.json(),
-                followedStreamsResponse.json(),
-            ]);
-
-            const params = new URLSearchParams(location.search);
-            const sortParam = params.get("sort");
-            const newOrder = orderOptions.find((option) => option.value === sortParam) || {
-                value: "channel_asc",
-                label: t("Channel (A-Z)"),
-            };
-            setOrder(newOrder);
-            sortChannels(followedChannelsData, newOrder.value);
-            setIsLoading(false);
-            setStreams(followedStreamsData);
-        } catch (error) {
-            console.error("Error:", error);
-            setIsLoading(false);
-        }
-    };
-
-    const sortChannels = (channels: Channel[], order: string) => {
-        const sortedVideos = [...channels];
-        if (order === "channel_desc") {
-            sortedVideos.sort((b, a) => a.broadcasterName.localeCompare(b.broadcasterName));
-        } else {
-            sortedVideos.sort((a, b) => a.broadcasterName.localeCompare(b.broadcasterName));
-        }
-        setChannels(sortedVideos);
+    const sortChannels = (channels: Channel[], sortOrder: string) => {
+        return [...channels].sort((a, b) => {
+            return sortOrder === "channel_desc"
+                ? b.broadcasterName.localeCompare(a.broadcasterName)
+                : a.broadcasterName.localeCompare(b.broadcasterName);
+        });
     };
 
     useEffect(() => {
-        fetchData();
-        const intervalId = setInterval(fetchData, 120000);
-        return () => clearInterval(intervalId);
-    }, []);
+        const params = new URLSearchParams(location.search);
+        const sortParam = params.get("sort");
+        const newOrder = orderOptions.find((option) => option.value === sortParam) || orderOptions[0];
+        setSelectedOrder(newOrder);
+
+        if (channels) {
+            setSortedChannels(sortChannels(channels, newOrder.value));
+        }
+        // orderOptions
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [channels, location.search]);
 
     const handleOrderSelected = (value: string) => {
         const selectedOption = orderOptions.find((option) => option.value === value);
         if (selectedOption) {
-            setOrder(selectedOption);
-            sortChannels(channels, selectedOption.value);
+            setSelectedOrder(selectedOption);
             navigate(`${location.pathname}?sort=${value}`);
         }
     };
@@ -81,22 +79,26 @@ const ChannelPage: React.FC = () => {
         return <div>{t("Loading")}</div>;
     }
 
+    if (isError) {
+        return <div>Error: {error?.message}</div>;
+    }
+
     return (
-        <div className="p-4">
+        <Container>
             <div className="mt-14 p-4">
                 <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Channels")}</h1>
                 <div className="mb-4 flex items-center justify-end space-x-5">
                     <div className="space-x-2">
                         <DropdownButton
-                            label={t(order.label)}
+                            label={t(selectedOrder.label)}
                             options={orderOptions}
                             onOptionSelected={handleOrderSelected}
                         />
                     </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
-                    {channels.map((channel) => {
-                        const isLive = streams.some(
+                    {sortedChannels.map((channel) => {
+                        const isLive = streams?.some(
                             (stream) => stream.broadcasterId === channel.broadcasterId && stream.type === "live"
                         );
 
@@ -125,7 +127,7 @@ const ChannelPage: React.FC = () => {
                     })}
                 </div>
             </div>
-        </div>
+        </Container>
     );
 };
 export default ChannelPage;
