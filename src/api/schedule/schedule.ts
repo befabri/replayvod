@@ -1,5 +1,6 @@
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
+import { videoFeature } from "../video";
 import { CreateScheduleDTO, transformDownloadSchedule, transformDownloadScheduleEdit } from "./schedule.DTO";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
@@ -29,6 +30,7 @@ export const getCurrentSchedulesByUser = async (userId: string) => {
     });
     return schedules.map(({ downloadScheduleCategory, downloadScheduleTag, ...schedule }) => ({
         ...schedule,
+        quality: videoFeature.mapQualityToVideoQuality(schedule.quality),
         channelName: schedule.channel.broadcasterLogin,
         categories: downloadScheduleCategory.map((c) => c.category.name),
         tags: downloadScheduleTag.map((t) => t.tag.name),
