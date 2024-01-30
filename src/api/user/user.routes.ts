@@ -8,11 +8,11 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
         await userAuthenticated(request, reply);
     });
 
-    fastify.get("/followedstreams", {
+    fastify.get("/followed-streams", {
         handler: userHandler.getUserFollowedStreams,
     });
 
-    fastify.get("/followedchannels", {
+    fastify.get("/followed-channels", {
         handler: userHandler.getUserFollowedChannels,
     });
 
