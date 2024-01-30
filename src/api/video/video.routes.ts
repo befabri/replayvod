@@ -55,6 +55,10 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
         handler: videoHandler.getFinishedVideos,
     });
 
+    fastify.get("/pending", {
+        handler: videoHandler.getPendingVideos,
+    });
+
     fastify.get("/statistics", {
         handler: videoHandler.getVideoStatistics,
     });

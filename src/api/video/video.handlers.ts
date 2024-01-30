@@ -101,6 +101,15 @@ export const getFinishedVideos = async (req: FastifyRequest, reply: FastifyReply
     reply.send(videos);
 };
 
+export const getPendingVideos = async (req: FastifyRequest, reply: FastifyReply) => {
+    const userId = userFeature.getUserIdFromSession(req);
+    if (!userId) {
+        return reply.status(401).send({ message: "Unauthorized" });
+    }
+    const videos = await videoFeature.getVideosFromUser(userId, Status.PENDING);
+    reply.send(videos);
+};
+
 export const getVideosByCategory = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
     const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
