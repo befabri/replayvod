@@ -1,6 +1,6 @@
 # React Frontend for ReplayVod
 
-This repository contains the frontend codebase for ReplayVod. It is built using React and is intended to be used alongside our [Fastify Backend](https://gitlab.com/befabri/replay-vod-api).
+This repository contains the frontend codebase for ReplayVod. It is built using React and is intended to be used alongside our [Fastify Backend](https://gitlab.com/replayvod/replay-vod-api).
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ This repository contains the frontend codebase for ReplayVod. It is built using 
 1. **Clone the Repository**
 
     ```bash
-    git clone https://gitlab.com/befabri/replay-vod-web.git
+    git clone https://gitlab.com/replayvod/replay-vod-web.git
     cd replay-vod-web
     ```
 
@@ -33,7 +33,7 @@ This repository contains the frontend codebase for ReplayVod. It is built using 
    Create a `.env` file in the root directory and fill it with the necessary environment variables. We provide an .env.example file to illustrate the expected variables.
 
     ```bash
-    VITE_ROOTURL="http://localhost:8080" # URL of the API (https://gitlab.com/befabri/replay-vod-api)
+    VITE_ROOTURL="http://localhost:8080" # URL of the API (https://gitlab.com/replayvod/replay-vod-api)
     ```
 
 4. **Run the Development Server**
@@ -46,4 +46,4 @@ This repository contains the frontend codebase for ReplayVod. It is built using 
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. - see the [LICENSE.md](https://gitlab.com/befabri/replay-vod-web/-/blob/main/README.md) file for details.
+This project is licensed under the GNU General Public License v3.0. - see the [LICENSE.md](https://gitlab.com/replayvod/replay-vod-web/-/blob/main/README.md) file for details.
