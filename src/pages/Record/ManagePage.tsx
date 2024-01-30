@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import ScheduleModal from "../../components/UI/Modal/ScheduleModal";
 import NotFound from "../../components/Others/NotFound";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { truncateString } from "../../utils/utils";
 
 const ManagePage: React.FC = () => {
     const { t } = useTranslation();
@@ -141,7 +142,13 @@ const ManagePage: React.FC = () => {
                             </HrefLink>
                         </span>
                         <div className="inline-flex items-center gap-3">
-                            <span className="mr-8 items-center rounded bg-gray-100 px-2.5 py-0 text-xs font-medium text-gray-800 dark:bg-gray-600 dark:text-white">
+                            <span className="inline-flex items-center rounded-full bg-pink-100 px-2.5 py-0 text-sm font-medium text-pink-800 dark:bg-pink-900 dark:text-pink-200">
+                                {schedule.categories.length} categories
+                            </span>
+                            <span className="inline-flex items-center rounded-full bg-lime-100 px-2.5 py-0 text-sm font-medium text-lime-800 dark:bg-lime-900 dark:text-lime-200">
+                                {schedule.tags.length} tags
+                            </span>
+                            <span className="inline-flex items-center rounded-full bg-teal-100 px-2.5 py-0 text-sm font-medium text-teal-800 dark:bg-teal-900 dark:text-teal-200">
                                 {schedule.quality}p
                             </span>
                             <div className="flex gap-1">
