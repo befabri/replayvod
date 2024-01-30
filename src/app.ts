@@ -27,29 +27,12 @@ if (env.nodeEnv === "production") {
 
 const formatDateTime = () => DateTime.now().setZone("Europe/Paris").toISO();
 
-if (env.nodeEnv === "dev") {
-    app = fastify({
-        logger: {
-            level: "info",
-            timestamp: () => `,"time":"${formatDateTime()}"`,
-        },
-    });
-} else if (env.nodeEnv === "production") {
-    app = fastify({
-        logger: {
-            level: "info",
-            timestamp: () => `,"time":"${formatDateTime()}"`,
-            transport: {
-                target: "pino/file",
-                options: {
-                    destination: path.join(ROOT_DIR, "logs", "replay.log"),
-                },
-            },
-        },
-    });
-} else {
-    throw new Error("Invalid NODE_ENV value. Expected 'dev' or 'production'.");
-}
+app = fastify({
+    logger: {
+        level: "info",
+        timestamp: () => `,"time":"${formatDateTime()}"`,
+    },
+});
 
 export default app;
 export { env };

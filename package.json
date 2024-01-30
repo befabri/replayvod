@@ -6,8 +6,8 @@
     "author": "",
     "license": "ISC",
     "scripts": {
-        "prod": "node src/server.js",
-        "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-pretty --colorize\"",
+        "prod": "node src/server.js | pino-tee info ./logs/replay.log",
+        "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-tee info ./logs/replay.log | pino-pretty --colorize\"",
         "prebuild": "shx rm -rf dist || rmdir /s /q dist",
         "build": "tsc -p tsconfig.json",
         "preview": "node --env-file=.env dist/server.js",
@@ -28,6 +28,7 @@
         "fastify": "^4.25.2",
         "fluent-ffmpeg": "^2.1.2",
         "luxon": "^3.4.4",
+        "pino-tee": "^0.3.0",
         "uuid": "^9.0.0",
         "youtube-dl-exec": "^2.5.6",
         "zod": "^3.22.4"
