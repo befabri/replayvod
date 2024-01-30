@@ -40,7 +40,6 @@ export default function App() {
                             <Route path={Pathnames.Home} element={<DashboardPage />} />
                             <Route path={Pathnames.Settings} element={<SettingsPage />} />
                             <Route path={Pathnames.Schedule.Add} element={<AddChannelPage />} />
-                            <Route path={Pathnames.Schedule.EventSub} element={<EventSubPage />} />
                             <Route path={Pathnames.Schedule.Manage} element={<ManagePage />} />
                             <Route path={Pathnames.Activity.Queue} element={<QueuePage />} />
                             <Route path={Pathnames.Activity.History} element={<HistoryPage />} />
@@ -49,6 +48,7 @@ export default function App() {
                             <Route path={Pathnames.Video.CategoryDetail} element={<CategoryDetailPage />} />
                             <Route path={Pathnames.Video.Channel} element={<ChannelPage />} />
                             <Route path={Pathnames.Video.ChannelDetail} element={<ChannelDetailPage />} />
+                            <Route path={Pathnames.System.EventSub} element={<EventSubPage />} />
                             <Route path={Pathnames.System.Status} element={<StatusPage />} />
                             <Route path={Pathnames.System.Tasks} element={<TasksPage />} />
                             <Route path={Pathnames.System.Events} element={<EventsPage />} />

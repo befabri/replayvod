@@ -6,7 +6,6 @@ export const Pathnames = {
     Settings: "/settings" as const,
     Schedule: {
         Add: "/schedule/add" as const,
-        EventSub: "/schedule/event-sub" as const,
         Manage: "/schedule/manage" as const,
     },
     Activity: {
@@ -21,6 +20,7 @@ export const Pathnames = {
         ChannelDetail: "/videos/channel/:id" as const,
     },
     System: {
+        EventSub: "/system/event-sub" as const,
         Status: "/system/status" as const,
         Tasks: "/system/tasks" as const,
         Events: "/system/events" as const,

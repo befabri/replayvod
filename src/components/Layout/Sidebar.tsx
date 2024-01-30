@@ -43,7 +43,6 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
             text: t("Recording"),
             items: [
                 { href: Pathnames.Schedule.Add, text: t("Schedule") },
-                { href: Pathnames.Schedule.EventSub, text: t("Event sub") },
                 { href: Pathnames.Schedule.Manage, text: t("Manage schedule") },
             ],
         },
@@ -66,6 +65,7 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
             icon: "mdi:laptop",
             text: t("System"),
             items: [
+                { href: Pathnames.System.EventSub, text: t("Event sub") },
                 { href: Pathnames.System.Status, text: t("Status") },
                 { href: Pathnames.System.Tasks, text: t("Tasks") },
                 { href: Pathnames.System.Events, text: t("Events") },
