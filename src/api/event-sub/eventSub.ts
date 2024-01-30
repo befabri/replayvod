@@ -68,11 +68,23 @@ export const getEventSubLastFetch = async (userId: string) => {
     });
 
     if (fetchLog && cacheService.isCacheExpire(fetchLog.fetchedAt)) {
-        return prisma.eventSub.findMany({
+        const eventSubs = await prisma.eventSub.findMany({
             where: {
                 fetchId: fetchLog.id,
             },
+            include: {
+                subscriptions: {
+                    include: {
+                        subscription: true,
+                    },
+                },
+            },
         });
+
+        const subscriptions = eventSubs.flatMap((eventSub) =>
+            eventSub.subscriptions.map((subEvent) => subEvent.subscription)
+        );
+        return subscriptions;
     }
     return null;
 };
@@ -80,11 +92,9 @@ export const getEventSubLastFetch = async (userId: string) => {
 export const getEventSub = async (userId: string) => {
     const lastEventSubFetch = await getEventSubLastFetch(userId);
     if (lastEventSubFetch) {
-        return lastEventSubFetch;
+        return { data: lastEventSubFetch, message: "EventSub from cache" };
     }
     const eventSub = await twitchService.getEventSub();
-
-    // TODO: VERIFY parent
     if (!eventSub) {
         return { data: null, message: "Failed to get EventSub from Twitch" };
     }

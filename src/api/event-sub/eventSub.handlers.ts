@@ -26,11 +26,8 @@ export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) 
         return reply.status(401).send({ message: "Unauthorized" });
     }
     try {
-        const eventSub = await eventSubFeature.getEventSub(userId);
-        if ("data" in eventSub && "message" in eventSub) {
-            return reply.send({ data: eventSub.data, message: eventSub.message });
-        }
-        reply.send(eventSub);
+        const { data, message } = await eventSubFeature.getEventSub(userId);
+        return reply.send({ data: data, message: message });
     } catch (err) {
         logger.error(err);
         reply.status(500).send({ message: "An error occurred while fetching EventSub subscriptions." });
