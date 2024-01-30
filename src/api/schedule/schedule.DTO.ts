@@ -10,7 +10,7 @@ export interface CreateScheduleDTO {
     channelName: string;
     quality: Quality;
     hasTags: boolean;
-    tag: string[];
+    tags: string[];
     hasMinView: boolean;
     viewersCount?: number | null;
     hasCategory: boolean;
@@ -63,7 +63,7 @@ const transformCommonSchedule = async (schedule: CreateScheduleDTO) => {
             throw new Error("One or more categories do not exist");
         }
     }
-    const tags = schedule.hasTags ? schedule.tag.map((name) => ({ name })) : [];
+    const tags = schedule.hasTags ? schedule.tags.map((name) => ({ name })) : [];
     return { channel, categories, tags };
 };
 

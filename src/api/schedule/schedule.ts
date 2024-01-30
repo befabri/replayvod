@@ -73,7 +73,6 @@ export const toggleSchedule = async (scheduleId: number, enable: boolean) => {
 export const createSchedule = async (newSchedule: CreateScheduleDTO, userId: string) => {
     try {
         const transformedScheduleData = await transformDownloadSchedule(newSchedule, userId);
-
         await prisma.$transaction(async (prisma) => {
             const createdDownloadSchedule = await prisma.downloadSchedule.create({
                 data: transformedScheduleData.downloadSchedule,

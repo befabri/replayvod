@@ -28,7 +28,7 @@ interface EditScheduleBody extends RouteGenericInterface {
 const isValidData = (data: CreateScheduleDTO) => {
     return !(
         (data.hasMinView && !data.viewersCount) ||
-        (data.hasTags && !data.tag) ||
+        (data.hasTags && !data.tags) ||
         (data.hasCategory && !data.categories)
     );
 };

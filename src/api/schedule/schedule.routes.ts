@@ -26,7 +26,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                         type: "array",
                         items: { type: "string" },
                     },
-                    tag: {
+                    tags: {
                         type: "array",
                         items: { type: "string" },
                     },
@@ -75,7 +75,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                         type: "array",
                         items: { type: "string" },
                     },
-                    tag: {
+                    tags: {
                         type: "array",
                         items: { type: "string" },
                     },
