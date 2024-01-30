@@ -40,7 +40,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         hasTags: false,
         hasMinView: false,
         hasCategory: false,
-        quality: 720,
+        quality: "720",
         timeBeforeDelete: MIN_TIME_BEFORE_DELETE,
         viewersCount: MIN_VIEWERS_COUNT,
         categories: [],
@@ -58,7 +58,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         isLoading: isLoadingCategories,
         isError: isErrorCategories,
     } = useQuery<Category[], Error>({
-        queryKey: ["categories"],
+        queryKey: ["categories", "all"],
         queryFn: (): Promise<Category[]> => customFetch(ApiRoutes.GET_CATEGORY_ALL),
         staleTime: 5 * 60 * 1000,
     });
@@ -155,7 +155,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                 : MIN_TIME_BEFORE_DELETE,
             viewersCount: defaultValue.viewersCount ? defaultValue.viewersCount : MIN_VIEWERS_COUNT,
             categories: defaultValue.categories,
-            tag: defaultValue.tags,
+            tags: defaultValue.tags,
         },
     });
     const channelName = watch("channelName");
@@ -314,12 +314,12 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                     />
 
                     <Controller
-                        name="tag"
+                        name="tags"
                         control={control}
                         render={({ field }) => (
                             <InputTag
-                                id="tag"
-                                error={errors.tag}
+                                id="tags"
+                                error={errors.tags}
                                 disabled={!hasTags}
                                 onTagsChange={field.onChange}
                                 value={field.value}

@@ -19,8 +19,8 @@ export const ScheduleSchema = z.object({
     categories: z
         .array(z.string().trim().min(2, { message: "Categories must be at least 2 characters long" }))
         .optional(),
-    tag: z.array(z.string().trim().min(2, { message: "Tag must be at least 2 characters long" })).optional(),
-    quality: z.union([z.literal(480), z.literal(720), z.literal(1080)]).optional(),
+    tags: z.array(z.string().trim().min(2, { message: "Tag must be at least 2 characters long" })).optional(),
+    quality: z.enum(["480", "720", "1080"]).optional(),
     isDeleteRediff: z.boolean().default(false),
     hasTags: z.boolean().default(false),
     hasMinView: z.boolean().default(false),

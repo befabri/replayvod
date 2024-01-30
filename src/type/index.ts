@@ -182,7 +182,7 @@ export interface Tag {
 export interface Schedule {
     id: number;
     broadcasterId: string;
-    quality: 480 | 720 | 1080;
+    quality: "480" | "720" | "1080";
     viewersCount: number | null;
     isDeleteRediff: boolean;
     timeBeforeDelete: number | null;
@@ -203,7 +203,7 @@ export interface ScheduleDTO {
     timeBeforeDelete: number | null;
     viewersCount: number | null;
     categories: string[];
-    quality: 480 | 720 | 1080;
+    quality: "480" | "720" | "1080";
     isDeleteRediff: boolean;
     hasTags: boolean;
     hasMinView: boolean;
