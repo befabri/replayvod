@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Icon from "../UI/Icon/IconSort";
 import Checkbox from "./CheckBoxTable";
-import { Video, TableProps } from "../../type";
+import { Video, TableProps, Category } from "../../type";
 import { useTranslation } from "react-i18next";
 import { capitalizeFirstLetter, toKebabCase, formatDate, truncateString } from "../../utils/utils";
 import { Pathnames } from "../../type/routes";
@@ -57,31 +57,8 @@ const Table = ({
             let bField = b[field];
 
             if (field === "videoCategory" && Array.isArray(aField) && Array.isArray(bField)) {
-                if (aField[0] && "category" in aField[0]) {
-                    aField = aField[0].category.name || "";
-                } else {
-                    aField = "";
-                }
-
-                if (bField[0] && "category" in bField[0]) {
-                    bField = bField[0].category.name || "";
-                } else {
-                    bField = "";
-                }
-            }
-
-            if (field === "titles" && Array.isArray(aField) && Array.isArray(bField)) {
-                if (aField[0] && "title" in aField[0]) {
-                    aField = aField[0].title.name || "";
-                } else {
-                    aField = "";
-                }
-
-                if (bField[0] && "title" in bField[0]) {
-                    bField = bField[0].title.name || "";
-                } else {
-                    bField = "";
-                }
+                aField = aField.length > 0 ? (aField[0] as Category).name : "";
+                bField = bField.length > 0 ? (bField[0] as Category).name : "";
             }
 
             if (aField === undefined || bField === undefined) return 0;
@@ -114,8 +91,8 @@ const Table = ({
 
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
-            <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-custom_lightblue dark:text-gray-400">
+            <table className="w-full text-left text-sm text-gray-500 dark:text-gray-400">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-700 dark:bg-custom_lightblue dark:text-gray-400">
                     <tr>
                         {showCheckbox && (
                             <th scope="col" className="p-0">
@@ -150,7 +127,7 @@ const Table = ({
                     {items.map((video, idx) => (
                         <tr
                             key={video.id}
-                            className="bg-white border-b dark:bg-custom_blue dark:border-custom_lightblue hover:bg-gray-50 dark:hover:bg-custom_lightblue">
+                            className="border-b bg-white hover:bg-gray-50 dark:border-custom_lightblue dark:bg-custom_blue dark:hover:bg-custom_lightblue">
                             {showCheckbox && (
                                 <Checkbox
                                     id={`checkbox-table-search-${idx}`}
@@ -161,7 +138,7 @@ const Table = ({
                             {showId && (
                                 <th
                                     scope="row"
-                                    className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white">
+                                    className="whitespace-nowrap px-6 py-4 font-medium text-gray-900 dark:text-white">
                                     {video.id}
                                 </th>
                             )}
@@ -170,21 +147,21 @@ const Table = ({
                                     {video.displayName}
                                 </HrefLink>
                             </td>
-                            <td className="px-6 py-4" title={video.videoCategory[0].category.name}>
+                            <td className="px-6 py-4" title={video.videoCategory[0].name}>
                                 {video.videoCategory.map((cat) => (
                                     <HrefLink
-                                        to={`${Pathnames.Video.Category}/${toKebabCase(cat.category.name)}`}
-                                        key={cat.categoryId}>
-                                        <span key={cat.categoryId}>{cat.category.name}</span>
+                                        to={`${Pathnames.Video.Category}/${toKebabCase(cat.name)}`}
+                                        key={cat.id}>
+                                        <span key={cat.id}>{cat.name}</span>
                                     </HrefLink>
                                 ))}
                             </td>
-                            <td className="px-6 py-4" title={video.titles[0].title.name}>
+                            <td className="px-6 py-4" title={video.titles[0]}>
                                 {video.status !== "DONE" ? (
-                                    truncateString(video.titles[0].title.name, 40)
+                                    truncateString(video.titles[0], 40)
                                 ) : (
                                     <HrefLink to={`${Pathnames.Watch}${video.id}`}>
-                                        {truncateString(video.titles[0].title.name, 40)}
+                                        {truncateString(video.titles[0], 40)}
                                     </HrefLink>
                                 )}
                             </td>
@@ -205,7 +182,7 @@ const Table = ({
                                 <td className="px-6 py-4">
                                     <a
                                         href="#"
-                                        className="font-medium text-blue-600 dark:text-blue-500 hover:underline">
+                                        className="font-medium text-blue-600 hover:underline dark:text-blue-500">
                                         Edit
                                     </a>
                                 </td>

@@ -1,31 +1,34 @@
-import React, { useState, useEffect } from "react";
-import { ApiRoutes, getApiRoute } from "../../type/routes";
+import React from "react";
+import { ApiRoutes } from "../../type/routes";
 import { useTranslation } from "react-i18next";
+import { customFetch } from "../../utils/utils";
+import { useQuery } from "@tanstack/react-query";
+
+interface Statistic {
+    totalDoneVideos: number;
+    totalDownloadingVideos: number;
+    totalFailedVideos: number;
+}
 
 const VideoStatisticsPage: React.FC = () => {
     const { t } = useTranslation();
-    const [stats, setStats] = useState({ totalDoneVideos: 0, totalDownloadingVideos: 0, totalFailedVideos: 0 });
-    const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_VIDEO_STATISTICS);
-            const response = await fetch(url, {
-                credentials: "include",
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            setStats(data);
-            setIsLoading(false);
-        };
+    const { data, isLoading, isError, error } = useQuery<Statistic, Error>({
+        queryKey: ["statistics"],
+        queryFn: (): Promise<Statistic> => customFetch(ApiRoutes.GET_VIDEO_STATISTICS),
+        staleTime: 5 * 60 * 1000,
+    });
 
-        fetchData();
-        const intervalId = setInterval(fetchData, 10000);
+    const defaultStats = { totalDoneVideos: 0, totalDownloadingVideos: 0, totalFailedVideos: 0 };
+    const stats = data || defaultStats;
 
-        return () => clearInterval(intervalId);
-    }, []);
+    if (isLoading) {
+        return <div>{t("Loading")}</div>;
+    }
+
+    if (isError) {
+        return <div>Error: {error?.message}</div>;
+    }
 
     return (
         <div className="rounded-lg bg-white p-4 shadow  dark:bg-custom_lightblue sm:p-5">

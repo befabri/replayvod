@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef } from "react";
 import DarkModeToggle from "../UI/Toggle/DarkModeToggle";
 import Sidebar from "./Sidebar";
 import { Icon } from "@iconify/react";

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { Quality } from "../type";
 
 export const ScheduleSchema = z.object({
     channelName: z.string().trim().min(3, { message: "Must be 3 or more characters long" }),
@@ -21,7 +20,7 @@ export const ScheduleSchema = z.object({
         .array(z.string().trim().min(2, { message: "Categories must be at least 2 characters long" }))
         .optional(),
     tag: z.array(z.string().trim().min(2, { message: "Tag must be at least 2 characters long" })).optional(),
-    quality: z.enum([Quality.LOW, Quality.MEDIUM, Quality.HIGH]),
+    quality: z.union([z.literal(480), z.literal(720), z.literal(1080)]).optional(),
     isDeleteRediff: z.boolean().default(false),
     hasTags: z.boolean().default(false),
     hasMinView: z.boolean().default(false),

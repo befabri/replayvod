@@ -1,38 +1,42 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ManageSchedule } from "../../type";
+import { Schedule } from "../../type";
 import { ApiRoutes, Pathnames, getApiRoute } from "../../type/routes";
 import { Icon } from "@iconify/react/dist/iconify.js";
-import { qualityLabelToResolution } from "../../utils/utils";
 import HrefLink from "../../components/UI/Navigation/HrefLink";
 import { Link } from "react-router-dom";
 import ScheduleModal from "../../components/UI/Modal/ScheduleModal";
 import NotFound from "../../components/Others/NotFound";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const ManagePage: React.FC = () => {
     const { t } = useTranslation();
-    const [schedules, setSchedules] = useState<ManageSchedule[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setModalOpen] = useState(false);
-    const [selectedSchedule, setSelectedSchedule] = useState<ManageSchedule | null>(null);
+    const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
+    const queryClient = useQueryClient();
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_SCHEDULE);
-            const response = await fetch(url, {
-                credentials: "include",
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            const initializedItems = data.map((item: any) => ({ ...item, isPaused: false }));
-            setSchedules(initializedItems || []);
-            setIsLoading(false);
-        };
+    const fetchData = async () => {
+        const url = getApiRoute(ApiRoutes.GET_SCHEDULE);
+        const response = await fetch(url, {
+            credentials: "include",
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        const initializedItems = data.map((item: any) => ({ ...item, isPaused: false }));
+        return initializedItems;
+    };
 
-        fetchData();
-    }, []);
+    const {
+        data: schedules,
+        isLoading: isLoading,
+        isError: isError,
+    } = useQuery<Schedule[], Error>({
+        queryKey: ["schedules"],
+        queryFn: fetchData,
+        staleTime: 5 * 60 * 1000,
+    });
 
     const postData = async ({ id, enable }: { id: number; enable: boolean }) => {
         try {
@@ -56,47 +60,63 @@ const ManagePage: React.FC = () => {
         }
     };
 
-    const handlePause = async (field: ManageSchedule) => {
+    const handlePause = async (field: Schedule) => {
         try {
             const response = await postData({ id: field.id, enable: !field.isDisabled });
             if (response && response.message === "Schedule is already in the desired state") {
                 return;
             }
-            setSchedules((prevItems) =>
-                prevItems.map((item) => (item.id === field.id ? { ...item, isDisabled: !item.isDisabled } : item))
+            queryClient.setQueryData<Schedule[]>(
+                ["schedules"],
+                (oldSchedules) =>
+                    oldSchedules?.map((schedule) =>
+                        schedule.id === field.id ? { ...schedule, isDisabled: !schedule.isDisabled } : schedule
+                    )
             );
         } catch (error) {
             console.error(`Error handling pause: ${error}`);
         }
     };
 
-    const handleEdit = (schedule: ManageSchedule) => {
+    const handleEdit = (schedule: Schedule) => {
         setSelectedSchedule(schedule);
         setModalOpen(true);
     };
 
     const handleScheduleDelete = (deletedScheduleId: number) => {
-        setSchedules((prevSchedules) => prevSchedules.filter((schedule) => schedule.id !== deletedScheduleId));
+        queryClient.setQueryData<Schedule[]>(
+            ["schedules"],
+            (oldSchedules) => oldSchedules?.filter((schedule) => schedule.id !== deletedScheduleId)
+        );
     };
 
     if (isLoading) {
-        return <div>{t("Loading")}</div>;
+        return (
+            <div className="p-4">
+                <div className="mt-14 p-4">
+                    <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Manage Schedule")}</h1>
+                </div>
+                <div>{t("Loading")}</div>;
+            </div>
+        );
     }
 
-    //TODO
-    const handleDataChange = (newData: any) => {
-        console.log("newData: ", newData);
-        console.log("schedules: ", schedules);
-    };
-
-    const hasNoSchedules = schedules.length === 0;
+    if (!schedules || isError || schedules.length === 0) {
+        return (
+            <div className="p-4">
+                <div className="mt-14 p-4">
+                    <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Manage Schedule")}</h1>
+                </div>
+                <NotFound text={t("No schedules available.")} />
+            </div>
+        );
+    }
 
     return (
         <div className="p-4">
             <div className="mt-14 p-4">
                 <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Manage Schedule")}</h1>
             </div>
-            {hasNoSchedules && <NotFound text={t("No schedules available.")} />}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {schedules.map((schedule, idx) => (
                     <div
@@ -122,7 +142,7 @@ const ManagePage: React.FC = () => {
                         </span>
                         <div className="inline-flex items-center gap-3">
                             <span className="mr-8 items-center rounded bg-gray-100 px-2.5 py-0 text-xs font-medium text-gray-800 dark:bg-gray-600 dark:text-white">
-                                {qualityLabelToResolution(schedule.quality)}p
+                                {schedule.quality}p
                             </span>
                             <div className="flex gap-1">
                                 <button
@@ -154,7 +174,6 @@ const ManagePage: React.FC = () => {
                         }}
                         onScheduleDelete={handleScheduleDelete}
                         data={selectedSchedule}
-                        onDataChange={handleDataChange}
                     />
                 )}
             </div>

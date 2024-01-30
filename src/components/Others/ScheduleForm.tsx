@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Controller, SubmitHandler, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ScheduleSchema } from "../../models/Schedule";
@@ -7,12 +7,14 @@ import InputText from "../UI/Form/InputText";
 import { useTranslation } from "react-i18next";
 import Select from "../UI/Form/Select";
 import InputNumber from "../UI/Form/InputNumber";
-import { Category, Channel, ManageScheduleDTO, Quality } from "../../type";
+import { Category, Channel, Quality, Schedule, ScheduleDTO } from "../../type";
 import Checkbox from "../UI/Form/CheckBox";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 import Button from "../UI/Button/Button";
 import InputTag from "../UI/Form/InputTag";
 import MultipleSelect from "../UI/Form/MultipleSelect";
+import { customFetch } from "../../utils/utils";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const MIN_TIME_BEFORE_DELETE = 10;
 const MIN_VIEWERS_COUNT = 0;
@@ -23,7 +25,7 @@ interface ModalProps {
 }
 
 interface ScheduleFormProps {
-    defaultValue?: ManageScheduleDTO;
+    defaultValue?: ScheduleDTO;
     modal?: ModalProps;
     scheduleId?: number;
     onDataChange?: (data: ScheduleForm) => void;
@@ -38,55 +40,40 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         hasTags: false,
         hasMinView: false,
         hasCategory: false,
-        quality: Quality.LOW,
+        quality: 720,
         timeBeforeDelete: MIN_TIME_BEFORE_DELETE,
         viewersCount: MIN_VIEWERS_COUNT,
         categories: [],
         tags: [],
     },
     scheduleId,
-    onDataChange,
 }) => {
     const { t } = useTranslation();
     const isModal = !!modal;
-    const [categories, setCategories] = useState<Category[]>([]);
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [channels, setChannels] = useState<Channel[]>([]);
     const [possibleMatches, setPossibleMatches] = useState<string[]>([]);
+    const queryClient = useQueryClient();
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const urlCategory = getApiRoute(ApiRoutes.GET_CATEGORY_ALL);
-            const urlFollowedChannels = getApiRoute(ApiRoutes.GET_USER_FOLLOWED_CHANNELS);
+    const {
+        data: categories,
+        isLoading: isLoadingCategories,
+        isError: isErrorCategories,
+    } = useQuery<Category[], Error>({
+        queryKey: ["categories"],
+        queryFn: (): Promise<Category[]> => customFetch(ApiRoutes.GET_CATEGORY_ALL),
+        staleTime: 5 * 60 * 1000,
+    });
 
-            try {
-                const [categoryResponse, followedChannelsResponse] = await Promise.all([
-                    fetch(urlCategory, { credentials: "include" }),
-                    fetch(urlFollowedChannels, { credentials: "include" }),
-                ]);
+    const {
+        data: channels,
+        isLoading: isLoadingChannels,
+        isError: isErrorChannels,
+    } = useQuery<Channel[], Error>({
+        queryKey: ["channels"],
+        queryFn: (): Promise<Channel[]> => customFetch(ApiRoutes.GET_USER_FOLLOWED_CHANNELS),
+        staleTime: 5 * 60 * 1000,
+    });
 
-                if (!categoryResponse.ok || !followedChannelsResponse.ok) {
-                    throw new Error("HTTP error");
-                }
-
-                const [categoryData, followedChannelsData] = await Promise.all([
-                    categoryResponse.json(),
-                    followedChannelsResponse.json(),
-                ]);
-
-                setCategories(categoryData);
-                setChannels(followedChannelsData);
-            } catch (error) {
-                console.error(`Error fetching data: ${error}`);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchData();
-    }, []);
-
-    const postData = async (data: ScheduleForm) => {
+    const postData = async (data: ScheduleForm): Promise<void> => {
         try {
             let url = "";
             let method = "";
@@ -110,6 +97,15 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            if (isModal) {
+                const currentSchedules = queryClient.getQueryData<Schedule[]>(["schedules"]);
+                if (currentSchedules) {
+                    const updatedSchedules = currentSchedules.map((schedule) =>
+                        schedule.id === scheduleId ? { ...schedule, ...data } : schedule
+                    );
+                    queryClient.setQueryData(["schedules"], updatedSchedules);
+                }
             }
         } catch (error) {
             console.error(`Error posting data: ${error}`);
@@ -143,10 +139,8 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         clearErrors,
         trigger,
         control,
-        // formState: { errors, isValid },
         formState: { errors },
         watch,
-        setValue,
     } = useForm<ScheduleForm>({
         resolver: zodResolver(ScheduleSchema),
         defaultValues: {
@@ -183,9 +177,17 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         postData(data);
     };
 
-    // const allValues = watch();
-    // console.log(allValues);
-    // console.log("Est valide: %s", isValid);
+    if (isLoadingCategories || isLoadingChannels) {
+        return <div>{t("Loading")}</div>;
+    }
+
+    if (isErrorCategories || isErrorChannels) {
+        return <div>{t("Error")}</div>;
+    }
+
+    if (!channels || !categories) {
+        return <div>{t("Error")}</div>;
+    }
 
     const handleBlur = async (fieldName: keyof ScheduleForm) => {
         const isValid = await trigger(fieldName);
@@ -215,16 +217,6 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             }
         }
     };
-
-    //TODO
-    const handleTagsChange = (updatedTags: string[]) => {
-        console.log(updatedTags);
-        setValue("tag", updatedTags); // Update form state
-    };
-
-    if (isLoading) {
-        return <div>{t("Loading")}</div>;
-    }
 
     return (
         <form onSubmit={handleSubmit(onSubmit)}>

@@ -1,39 +1,39 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useTranslation } from "react-i18next";
 import TableSchedule from "../../components/Table/TableSchedule";
 import { EventSub } from "../../type";
-import { ApiRoutes, getApiRoute } from "../../type/routes";
+import { ApiRoutes } from "../../type/routes";
+import { useQuery } from "@tanstack/react-query";
+import { customFetch } from "../../utils/utils";
 
 const EventSubPage: React.FC = () => {
     const { t } = useTranslation();
-    const [eventSubs, setEventSubs] = useState<EventSub[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const url = getApiRoute(ApiRoutes.GET_TWITCH_EVENTSUB_SUBSCRIPTIONS);
-            const response = await fetch(url, {
-                credentials: "include",
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            setEventSubs(data.data || []);
-            setIsLoading(false);
-        };
+    const {
+        data: eventSubs,
+        isLoading,
+        isError,
+        error,
+    } = useQuery<EventSub, Error>({
+        queryKey: ["event-sub"],
+        queryFn: (): Promise<EventSub> => customFetch(ApiRoutes.GET_EVENT_SUB_SUBSCRIPTIONS),
+        staleTime: 5 * 60 * 1000,
+    });
 
-        fetchData();
-        const intervalId = setInterval(fetchData, 120 * 1000);
-        return () => clearInterval(intervalId);
-    }, []);
+    if (isLoading) {
+        return <div>{t("Loading")}</div>;
+    }
+
+    if (isError || !eventSubs) {
+        return <div>Error: {error?.message}</div>;
+    }
 
     return (
         <div className="p-4">
-            <div className="p-4 mt-14">
-                <h1 className="text-3xl font-bold pb-5 dark:text-stone-100">{t("EventSub subscriptions")}</h1>
+            <div className="mt-14 p-4">
+                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("EventSub subscriptions")}</h1>
             </div>
-            {isLoading ? <div>{t("Loading")}</div> : <TableSchedule items={eventSubs} />}
+            {isLoading ? <div>{t("Loading")}</div> : <TableSchedule items={eventSubs.data} />}
         </div>
     );
 };

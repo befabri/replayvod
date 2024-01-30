@@ -1,82 +1,83 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 import { CompletedVideo } from "../../type";
 import VideoInfoComponent from "../../components/Media/VideoInfo";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 import NotFound from "../../components/Others/NotFound";
 
+interface FetchVideoQueryKey {
+    queryKey: [string, string | undefined];
+}
+
 const WatchPage: React.FC = () => {
     const { t } = useTranslation();
     const { id } = useParams();
 
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [video, setVideo] = useState<CompletedVideo>(null);
-    const [playVideo, setPlayVideo] = useState("");
-    const ROOT_URL = import.meta.env.VITE_ROOTURL;
+    const fetchVideo = async ({ queryKey }: FetchVideoQueryKey): Promise<CompletedVideo> => {
+        const [_, videoId] = queryKey;
+        const videoUrl = getApiRoute(ApiRoutes.GET_VIDEO_ID, "id", videoId);
+        const videoResponse = await fetch(videoUrl, { credentials: "include" });
+        if (!videoResponse.ok) {
+            throw new Error(`HTTP error! status: ${videoResponse.status}`);
+        }
+        const video = await videoResponse.json();
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                let url = getApiRoute(ApiRoutes.GET_VIDEO_ID, "id", id);
-                const videoResponse = await fetch(url, { credentials: "include" });
-                if (!videoResponse.ok) {
-                    throw new Error(`HTTP error! status: ${videoResponse.status}`);
-                }
-                const videoData = await videoResponse.json();
-                url = getApiRoute(ApiRoutes.GET_VIDEO_THUMBNAIL_ID, "id", videoData.thumbnail);
-                const thumbnailResponse = await fetch(url, { credentials: "include" });
-                if (!thumbnailResponse.ok) {
-                    throw new Error(`HTTP error! status: ${thumbnailResponse.status}`);
-                }
-                const thumbnailBlob = await thumbnailResponse.blob();
+        const thumbnailUrl = getApiRoute(ApiRoutes.GET_VIDEO_THUMBNAIL_ID, "id", video.thumbnail);
+        const thumbnailResponse = await fetch(thumbnailUrl, { credentials: "include" });
+        if (!thumbnailResponse.ok) {
+            throw new Error(`HTTP error! status: ${thumbnailResponse.status}`);
+        }
+        const thumbnailBlob = await thumbnailResponse.blob();
 
-                setVideo({
-                    ...videoData,
-                    thumbnail: URL.createObjectURL(thumbnailBlob),
-                });
-
-                url = getApiRoute(ApiRoutes.GET_VIDEO_PLAY_ID, "id", videoData.id);
-                setPlayVideo(url);
-                setIsLoading(false);
-            } catch (error) {
-                console.error("Error:", error);
-                setIsLoading(false);
-            }
+        return {
+            ...video,
+            thumbnail: URL.createObjectURL(thumbnailBlob),
+            playUrl: getApiRoute(ApiRoutes.GET_VIDEO_PLAY_ID, "id", video.id),
         };
+    };
 
-        fetchData();
-    }, [id, ROOT_URL]);
+    const {
+        data: video,
+        isLoading,
+        isError,
+    } = useQuery({
+        queryKey: ["video", id],
+        queryFn: fetchVideo,
+        staleTime: 5 * 60 * 1000,
+        retry: false,
+    });
 
     if (isLoading) {
         return <div>{t("Loading")}</div>;
     }
 
-    return (
-        <div>
-            {video ? (
-                <div className="flex h-screen flex-col items-center">
-                    <video
-                        controls
-                        controlsList="nodownload"
-                        poster={video?.thumbnail}
-                        preload="auto"
-                        className="mx-auto mt-14 block max-h-screen w-full flex-grow overflow-auto bg-black object-contain">
-                        <source src={playVideo} type="video/mp4" />
-                        {t("Your browser does not support the video tag.")}
-                    </video>
+    if (isError || !video) {
+        return (
+            <div className="p-4">
+                <div className="mt-14 p-4">
+                    <NotFound text={t("No video found.")} />
+                </div>
+            </div>
+        );
+    }
 
-                    <div className="mb-4 ml-4 self-start">
-                        <VideoInfoComponent video={video} />
-                    </div>
-                </div>
-            ) : (
-                <div className="p-4">
-                    <div className="mt-14 p-4">
-                        <NotFound text={t("No video found.")} />
-                    </div>
-                </div>
-            )}
+    return (
+        <div className="flex h-screen flex-col items-center">
+            <video
+                controls
+                controlsList="nodownload"
+                poster={video.thumbnail}
+                preload="auto"
+                className="mx-auto mt-14 block max-h-screen w-full flex-grow overflow-auto bg-black object-contain">
+                <source src={video.playUrl} type="video/mp4" />
+                {t("Your browser does not support the video tag.")}
+            </video>
+
+            <div className="mb-4 ml-4 self-start">
+                <VideoInfoComponent video={video} />
+            </div>
         </div>
     );
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { Icon } from "@iconify/react";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 
@@ -27,6 +27,7 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptio
         onOptionSelected(option.value);
         setIsOpen(false);
     };
+    
     return (
         <div ref={dropdownRef} className="relative z-10 inline-block text-left dark:bg-custom_lightblue">
             <button

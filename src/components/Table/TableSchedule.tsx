@@ -4,15 +4,15 @@ import { EventSub } from "../../type";
 import { useTranslation } from "react-i18next";
 import { capitalizeFirstLetter, formatDate } from "../../utils/utils";
 
-const TableSchedule = ({ items: initialItems }: any) => {
+const TableSchedule = ({ items: initialItems }: { items: EventSub["data"] }) => {
     const { t } = useTranslation();
-    const [sortField, setSortField] = useState<keyof EventSub | null>(null);
+    const [sortField, setSortField] = useState<keyof EventSub["data"][number] | null>(null);
     const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-    const [items, setItems] = useState<EventSub[]>(initialItems);
+    const [items, setItems] = useState<EventSub["data"]>(initialItems);
 
     const storedTimeZone = localStorage.getItem("timeZone") || "Europe/London";
 
-    const handleSort = (field: keyof EventSub) => {
+    const handleSort = (field: keyof EventSub["data"][number]) => {
         let direction: "asc" | "desc" = "asc";
         if (field === sortField) {
             direction = sortDirection === "asc" ? "desc" : "asc";
@@ -22,7 +22,11 @@ const TableSchedule = ({ items: initialItems }: any) => {
         sortData(items, field, direction);
     };
 
-    const sortData = (data: EventSub[], field: keyof EventSub, direction: "asc" | "desc") => {
+    const sortData = (
+        data: EventSub["data"],
+        field: keyof EventSub["data"][number],
+        direction: "asc" | "desc"
+    ) => {
         const sortedData = [...data].sort((a, b) => {
             const aField = a[field];
             const bField = b[field];
@@ -30,14 +34,9 @@ const TableSchedule = ({ items: initialItems }: any) => {
             if (aField === undefined || bField === undefined) return 0;
 
             if (typeof aField === "string" && typeof bField === "string") {
-                const lowerAField = aField.toLowerCase();
-                const lowerBField = bField.toLowerCase();
-
-                if (lowerAField < lowerBField) return direction === "asc" ? -1 : 1;
-                if (lowerAField > lowerBField) return direction === "asc" ? 1 : -1;
-            } else {
-                if (aField < bField) return direction === "asc" ? -1 : 1;
-                if (aField > bField) return direction === "asc" ? 1 : -1;
+                return direction === "asc" ? aField.localeCompare(bField) : bField.localeCompare(aField);
+            } else if (typeof aField === "number" && typeof bField === "number") {
+                return direction === "asc" ? aField - bField : bField - aField;
             }
 
             return 0;
@@ -46,12 +45,19 @@ const TableSchedule = ({ items: initialItems }: any) => {
         setItems(sortedData);
     };
 
-    const fields: (keyof EventSub)[] = ["user_id", "type", "status", "created_at", "cost"];
+    const fields: (keyof EventSub["data"][number])[] = [
+        "id",
+        "subscriptionType",
+        "status",
+        "broadcasterId",
+        "createdAt",
+        "cost",
+    ];
 
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
-            <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-custom_lightblue dark:text-gray-400">
+            <table className="w-full text-left text-sm text-gray-500 dark:text-gray-400">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-700 dark:bg-custom_lightblue dark:text-gray-400">
                     <tr>
                         {fields.map((field, index) => (
                             <th key={index} scope="col" className="px-6 py-3">
@@ -67,18 +73,18 @@ const TableSchedule = ({ items: initialItems }: any) => {
                     {items.map((eventSub, idx) => (
                         <tr
                             key={idx}
-                            className="bg-white border-b dark:bg-custom_blue dark:border-custom_lightblue hover:bg-gray-50 dark:hover:bg-custom_lightblue">
-                            <td className="px-6 py-4" title={eventSub.user_login}>
-                                {eventSub.user_login}
+                            className="border-b bg-white hover:bg-gray-50 dark:border-custom_lightblue dark:bg-custom_blue dark:hover:bg-custom_lightblue">
+                            <td className="px-6 py-4" title={eventSub.broadcasterId}>
+                                {eventSub.id}
                             </td>
-                            <td className="px-6 py-4" title={eventSub.type}>
-                                {eventSub.type}
+                            <td className="px-6 py-4" title={eventSub.subscriptionType}>
+                                {eventSub.subscriptionType}
                             </td>
                             <td className="px-6 py-4" title={eventSub.status}>
                                 {eventSub.status}
                             </td>
-                            <td className="px-6 py-4" title={formatDate(eventSub.created_at, storedTimeZone)}>
-                                {formatDate(eventSub.created_at, storedTimeZone)}
+                            <td className="px-6 py-4" title={formatDate(eventSub.createdAt, storedTimeZone)}>
+                                {formatDate(eventSub.createdAt, storedTimeZone)}
                             </td>
                             <td className="px-6 py-4" title={eventSub.cost.toString()}>
                                 {eventSub.cost}
