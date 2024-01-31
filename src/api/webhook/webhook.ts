@@ -50,7 +50,7 @@ export const handleStreamOffline = async (notification: any): Promise<{ status: 
 
 export const handleNotification = async (notification: any): Promise<{ status: number; body: null }> => {
     eventSubProcessingFeature.logEvent(notification.subscription.type, notification.event);
-    return {
+    return {    
         status: 204,
         body: null,
     };

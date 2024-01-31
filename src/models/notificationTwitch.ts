@@ -1,7 +1,7 @@
 export enum SubscriptionType {
-    CHANNEL_UPDATE = "CHANNEL_UPDATE",
-    STREAM_ONLINE = "STREAM_ONLINE",
-    STREAM_OFFLINE = "STREAM_OFFLINE",
+    CHANNEL_UPDATE = "channel.update",
+    STREAM_ONLINE = "stream.online",
+    STREAM_OFFLINE = "stream.offline",
 }
 
 export interface Subscription {
