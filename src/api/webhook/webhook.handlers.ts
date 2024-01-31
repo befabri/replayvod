@@ -9,8 +9,6 @@ import {
 } from "../../constants/twitchConstants";
 import { NotificationBody, SubscriptionType } from "../../models/notificationTwitch";
 import { webhookFeature } from ".";
-import { logger as rootLogger } from "../../app";
-const logger = rootLogger.child({ domain: "webhookHandler", service: "webhook" });
 
 interface WebhookRequest extends RouteGenericInterface {
     Body: Webhook;
