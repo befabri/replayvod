@@ -21,8 +21,6 @@ export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply
     let notification: NotificationBody = req.body;
     let messageType = req.headers[MESSAGE_TYPE];
     let response;
-    logger.info("Webhook");
-    logger.info(messageType);
     if (MESSAGE_TYPE_NOTIFICATION === messageType) {
         switch (notification.subscription.type) {
             case SubscriptionType.CHANNEL_UPDATE:

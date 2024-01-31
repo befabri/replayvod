@@ -31,6 +31,7 @@ export const handleDownload = (event: any) => {
 export const handleWebhookEvent = async (eventType: string, event: any) => {
     try {
         const webhookEvent = transformWebhookEvent(eventType, event.broadcaster_user_id);
+        logger.info(`Transformed webhook: ${webhookEvent}`);
         if (!webhookEvent) {
             return;
         }

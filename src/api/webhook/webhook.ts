@@ -31,8 +31,8 @@ export const handleChannelUpdate = async (notification: any): Promise<{ status: 
 
 export const handleStreamOnline = async (notification: any): Promise<{ status: number; body: null }> => {
     eventSubProcessingFeature.logEvent(notification.subscription.type, notification.event);
-    eventSubProcessingFeature.handleWebhookEvent(notification.subscription.type, notification.event);
-    eventSubProcessingFeature.handleDownload(notification.event);
+    await eventSubProcessingFeature.handleWebhookEvent(notification.subscription.type, notification.event);
+    // eventSubProcessingFeature.handleDownload(notification.event);
     return {
         status: 204,
         body: null,
@@ -41,7 +41,7 @@ export const handleStreamOnline = async (notification: any): Promise<{ status: n
 
 export const handleStreamOffline = async (notification: any): Promise<{ status: number; body: null }> => {
     eventSubProcessingFeature.logEvent(notification.subscription.type, notification.event);
-    eventSubProcessingFeature.handleWebhookEvent(notification.subscription.type, notification.event);
+    await eventSubProcessingFeature.handleWebhookEvent(notification.subscription.type, notification.event);
     return {
         status: 204,
         body: null,
