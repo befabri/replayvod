@@ -73,6 +73,11 @@ server.register(oauthPlugin, {
 });
 
 server.register(routes, { prefix: "/api" });
+
+server.get("/", (_request, reply) => {
+    reply.code(444).send();
+});
+
 const start = async () => {
     logger.info("Starting Fastify server...");
     try {
