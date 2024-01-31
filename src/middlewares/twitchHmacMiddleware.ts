@@ -7,16 +7,20 @@ import {
     HMAC_PREFIX,
 } from "../constants/twitchConstants";
 import { env } from "../app";
+import { logger as rootLogger } from "../app";
+const logger = rootLogger.child({ domain: "hmac", service: "middleware" });
 
 export const verifyHmacMiddleware = async (req: FastifyRequest, reply: FastifyReply) => {
     let message = getHmacMessage(req);
     let hmac = HMAC_PREFIX + getHmac(env.twitchSecret, message);
     let signature = req.headers[TWITCH_MESSAGE_SIGNATURE];
     if (typeof signature !== "string") {
+        logger.error("Invalid signature");
         reply.status(400).send("Invalid signature");
         return;
     }
     if (!verifyMessage(hmac, signature)) {
+        logger.error("Signature verification failed");
         reply.status(403).send("Signature verification failed");
         return;
     }
