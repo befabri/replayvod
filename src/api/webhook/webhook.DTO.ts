@@ -6,8 +6,8 @@ export const transformWebhookEvent = (eventType: string, broadcasterId: string) 
             externalEventId: "",
             broadcasterId: broadcasterId,
             eventType: eventType,
-            startedAt: null,
-            endAt: new Date(),
+            startedAt: new Date(),
+            endAt: null,
         };
     } else if (eventType === STREAM_OFFLINE) {
         return {
