@@ -1,5 +1,6 @@
 import { FC, useRef, useState } from "react";
 import useOutsideClick from "../../../hooks/useOutsideClick";
+import classNames from "classnames";
 
 interface SelectProps {
     label?: string;
@@ -58,7 +59,14 @@ const MultipleSelect: FC<SelectProps> = ({
                 <div className="w-full">
                     <div className="items-cente relative flex flex-col ">
                         <div className="w-full">
-                            <div className="flex h-12 w-full flex-wrap items-center rounded-lg border bg-gray-50 px-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-custom_lightblue dark:bg-custom_lightblue dark:text-white dark:placeholder-gray-400 dark:focus:border-custom_lightblue dark:focus:ring-custom_vista_blue">
+                            <div
+                                className={classNames(
+                                    `flex h-12 w-full flex-wrap items-center rounded-lg border bg-gray-50 px-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-custom_lightblue  dark:text-white dark:placeholder-gray-400 dark:focus:border-custom_lightblue dark:focus:ring-custom_vista_blue`,
+                                    {
+                                        "dark:bg-custom_blue": disabled,
+                                        "dark:bg-custom_lightblue": !disabled,
+                                    }
+                                )}>
                                 {categories.map((category) => (
                                     <span
                                         key={category}
