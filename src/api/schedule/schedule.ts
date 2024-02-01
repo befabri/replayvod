@@ -136,7 +136,11 @@ export const editSchedule = async (scheduleId: number, schedule: CreateScheduleD
                 where: { id: scheduleId },
                 data: transformedScheduleData.downloadSchedule,
             });
-
+            if (!schedule.hasTags) {
+                await prisma.downloadScheduleTag.deleteMany({
+                    where: { downloadScheduleId: scheduleId },
+                });
+            }
             if (transformedScheduleData.tags.length > 0) {
                 const existingTags = await prisma.downloadScheduleTag.findMany({
                     where: { downloadScheduleId: scheduleId },
@@ -165,7 +169,11 @@ export const editSchedule = async (scheduleId: number, schedule: CreateScheduleD
                     });
                 }
             }
-
+            if (!schedule.hasCategory) {
+                await prisma.downloadScheduleCategory.deleteMany({
+                    where: { downloadScheduleId: scheduleId },
+                });
+            }
             if (transformedScheduleData.categories.length > 0) {
                 const existingCategories = await prisma.downloadScheduleCategory.findMany({
                     where: { downloadScheduleId: scheduleId },
