@@ -38,7 +38,7 @@ export const getChannel = async (req: FastifyRequest<Params>, reply: FastifyRepl
 };
 
 export const getChannelByName = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
-    const broadcasterName = req.params.name;
+    const broadcasterName = req.params.name?.toLowerCase();
     if (!broadcasterName || typeof broadcasterName !== "string") {
         return reply.status(400).send({ message: "Invalid broadcaster name" });
     }
