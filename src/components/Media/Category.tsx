@@ -31,9 +31,9 @@ const CategoryComponent: FC<CategoryProps> = ({ categories }) => {
     };
 
     return (
-        <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(180px,10%))] gap-3">
+        <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-4">
             {categories?.map((category) => (
-                <div className="max-w-sm" key={category.id} ref={divRef}>
+                <div key={category.id} ref={divRef}>
                     <div>
                         <Link to={`${Pathnames.Video.Category}/${toKebabCase(category.name)}`}>
                             <CategoryImage category={category} width="182" height="252" />
