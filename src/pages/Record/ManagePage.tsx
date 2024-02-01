@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import ScheduleModal from "../../components/UI/Modal/ScheduleModal";
 import NotFound from "../../components/Others/NotFound";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Badge from "../../components/UI/Badge/Badge";
 
 const ManagePage: React.FC = () => {
     const { t } = useTranslation();
@@ -117,7 +118,7 @@ const ManagePage: React.FC = () => {
             <div className="mt-14 p-4">
                 <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Manage Schedule")}</h1>
             </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[repeat(auto-fit,minmax(600px,1fr))]">
                 {schedules.map((schedule, idx) => (
                     <div
                         key={idx}
@@ -141,15 +142,27 @@ const ManagePage: React.FC = () => {
                             </HrefLink>
                         </span>
                         <div className="inline-flex items-center gap-3">
-                            <span className="inline-flex items-center rounded-full bg-pink-100 px-2.5 py-0 text-sm font-medium text-pink-800 dark:bg-pink-900 dark:text-pink-200">
-                                {schedule.categories.length} categories
-                            </span>
-                            <span className="inline-flex items-center rounded-full bg-lime-100 px-2.5 py-0 text-sm font-medium text-lime-800 dark:bg-lime-900 dark:text-lime-200">
-                                {schedule.tags.length} tags
-                            </span>
-                            <span className="inline-flex items-center rounded-full bg-teal-100 px-2.5 py-0 text-sm font-medium text-teal-800 dark:bg-teal-900 dark:text-teal-200">
-                                {schedule.quality}p
-                            </span>
+                            {schedule.isDeleteRediff && (
+                                <Badge color="teal" className="hidden md:flex">
+                                    {schedule.timeBeforeDelete} min
+                                </Badge>
+                            )}
+                            {schedule.hasMinView && (
+                                <Badge color="indigo" className="hidden md:flex">
+                                    {schedule.viewersCount} views
+                                </Badge>
+                            )}
+                            {schedule.categories.length > 0 && (
+                                <Badge color="green" className="hidden md:flex">
+                                    {schedule.categories.length} categories
+                                </Badge>
+                            )}
+                            {schedule.tags.length > 0 && (
+                                <Badge color="purple" className="hidden md:flex">
+                                    {schedule.tags.length} tags
+                                </Badge>
+                            )}
+                            <Badge color="red">{schedule.quality}p</Badge>
                             <div className="flex gap-1">
                                 <button
                                     onClick={() => handlePause(schedule)}
