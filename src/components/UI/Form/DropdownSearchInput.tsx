@@ -2,7 +2,7 @@ import { FC, useRef, useState } from "react";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 import classNames from "classnames";
 
-interface MultipleSelectTextProps {
+interface DropdownSearchInputProps {
     label?: string;
     id: string;
     error: any;
@@ -14,7 +14,7 @@ interface MultipleSelectTextProps {
     value?: string;
 }
 
-const MultipleSelectText: FC<MultipleSelectTextProps> = ({
+const DropdownSearchInput: FC<DropdownSearchInputProps> = ({
     label,
     id,
     error,
@@ -113,4 +113,4 @@ const MultipleSelectText: FC<MultipleSelectTextProps> = ({
     );
 };
 
-export default MultipleSelectText;
+export default DropdownSearchInput;

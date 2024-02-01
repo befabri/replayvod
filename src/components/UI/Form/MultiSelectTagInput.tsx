@@ -2,7 +2,7 @@ import { FC, useRef, useState } from "react";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 import classNames from "classnames";
 
-interface SelectProps {
+interface MultiSelectTagInputProps {
     label?: string;
     id: string;
     error: any;
@@ -12,7 +12,7 @@ interface SelectProps {
     value?: string[];
 }
 
-const MultipleSelect: FC<SelectProps> = ({
+const MultiSelectTagInput: FC<MultiSelectTagInputProps> = ({
     label,
     id,
     error,
@@ -134,4 +134,4 @@ const MultipleSelect: FC<SelectProps> = ({
     );
 };
 
-export default MultipleSelect;
+export default MultiSelectTagInput;

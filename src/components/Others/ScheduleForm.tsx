@@ -11,10 +11,10 @@ import Checkbox from "../UI/Form/CheckBox";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 import Button from "../UI/Button/Button";
 import InputTag from "../UI/Form/InputTag";
-import MultipleSelect from "../UI/Form/MultipleSelect";
 import { customFetch } from "../../utils/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import MultipleSelectText from "../UI/Form/MultipleSelectText";
+import DropdownSearchInput from "../UI/Form/DropdownSearchInput";
+import MultiSelectTagInput from "../UI/Form/MultiSelectTagInput";
 
 const MIN_TIME_BEFORE_DELETE = 10;
 const MIN_VIEWERS_COUNT = 0;
@@ -192,7 +192,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                     name="channelName"
                     control={control}
                     render={({ field }) => (
-                        <MultipleSelectText
+                        <DropdownSearchInput
                             id="channelName"
                             label={t("Channel Name")}
                             placeholder={t("Channel Name")}
@@ -260,7 +260,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         name="categories"
                         control={control}
                         render={({ field }) => (
-                            <MultipleSelect
+                            <MultiSelectTagInput
                                 id="categories"
                                 error={errors.categories}
                                 options={categories.map((category) => category.name)}
