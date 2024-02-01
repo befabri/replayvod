@@ -61,7 +61,7 @@ const MultipleSelect: FC<SelectProps> = ({
                         <div className="w-full">
                             <div
                                 className={classNames(
-                                    `flex h-12 w-full flex-wrap items-center rounded-lg border bg-gray-50 px-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-custom_lightblue  dark:text-white dark:placeholder-gray-400 dark:focus:border-custom_lightblue dark:focus:ring-custom_vista_blue`,
+                                    `flex h-12 w-full flex-wrap items-center rounded-lg border bg-gray-50 px-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-custom_lightblue dark:text-white dark:placeholder-gray-400 dark:focus:border-custom_lightblue dark:focus:ring-custom_vista_blue`,
                                     {
                                         "dark:bg-custom_blue": disabled,
                                         "dark:bg-custom_lightblue": !disabled,
@@ -101,7 +101,7 @@ const MultipleSelect: FC<SelectProps> = ({
                                         onClick={() => togglePopup()}
                                         placeholder=""
                                         disabled={disabled}
-                                        className="h-full w-full flex-1 rounded-lg border-0 border-none border-transparent bg-gray-50 p-0 text-sm text-gray-900 focus-within:border-0  focus-within:border-transparent focus-within:outline-none   focus:border-none  focus:ring-0 dark:bg-custom_lightblue dark:text-white  dark:placeholder-gray-400 disabled:dark:bg-custom_blue"
+                                        className="h-full w-full flex-1 rounded-lg border-0 border-none border-transparent bg-gray-50 p-0 text-sm text-gray-900 focus-within:border-0 focus-within:border-transparent focus-within:outline-none focus:border-none focus:ring-0 dark:bg-custom_lightblue dark:text-white dark:placeholder-gray-400 disabled:dark:bg-custom_blue"
                                     />
                                 </div>
                             </div>

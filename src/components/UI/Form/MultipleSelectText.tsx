@@ -61,7 +61,7 @@ const MultipleSelectText: FC<MultipleSelectTextProps> = ({
 
             <div className="mx-auto flex w-full flex-col ">
                 <div className="w-full">
-                    <div ref={popupRef} className=" items-cente relative flex flex-col ">
+                    <div ref={popupRef} className="relative flex flex-col items-center">
                         <div className="w-full">
                             <div
                                 className={classNames(
@@ -80,7 +80,7 @@ const MultipleSelectText: FC<MultipleSelectTextProps> = ({
                                         onChange={(e) => handleInputChange(e.target.value)}
                                         required={required}
                                         disabled={disabled}
-                                        className="h-full w-full flex-1 rounded-lg border-0 border-none border-transparent bg-gray-50 p-0 text-sm text-gray-900 focus-within:border-0  focus-within:border-transparent focus-within:outline-none   focus:border-none  focus:ring-0 dark:bg-custom_lightblue dark:text-white  dark:placeholder-gray-400 disabled:dark:bg-custom_blue"
+                                        className="h-full w-full flex-1 rounded-lg border-0 border-none border-transparent bg-gray-50 p-0 text-sm text-gray-900 focus-within:border-0  focus-within:border-transparent focus-within:outline-none focus:border-none focus:ring-0 dark:bg-custom_lightblue dark:text-white dark:placeholder-gray-400 disabled:dark:bg-custom_blue"
                                     />
                                 </div>
                             </div>
