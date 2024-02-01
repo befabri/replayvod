@@ -2,49 +2,53 @@ import { FC, useRef, useState } from "react";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 import classNames from "classnames";
 
-interface SelectProps {
+interface MultipleSelectTextProps {
     label?: string;
     id: string;
     error: any;
     options: string[];
     disabled?: boolean;
-    onCategoriesChange: any;
-    value?: string[];
+    placeholder: string;
+    required?: boolean;
+    onChannelChange: any;
+    value?: string;
 }
 
-const MultipleSelect: FC<SelectProps> = ({
+const MultipleSelectText: FC<MultipleSelectTextProps> = ({
     label,
     id,
     error,
     options,
-    onCategoriesChange,
+    required,
+    onChannelChange,
+    placeholder,
     disabled = false,
     value,
 }) => {
-    const [categories, setCategories] = useState<string[]>(value || []);
+    const [channel, setChannel] = useState<string>(value || "");
+    const [possibleMatches, setPossibleMatches] = useState<string[]>(options || []);
     const [showPopup, setShowPopup] = useState<boolean>(false);
     const popupRef = useRef(null);
-
     useOutsideClick(popupRef, () => setShowPopup(false));
 
     const togglePopup = () => {
         setShowPopup(!showPopup);
     };
 
-    const handleAddCategory = (category: string) => {
-        if (!categories.includes(category)) {
-            setCategories([...categories, category]);
-            onCategoriesChange([...categories, category]);
+    const handleInputChange = (newChannel: string) => {
+        if (channel != newChannel) {
+            const matches = options
+                .filter((channel) => channel?.toLowerCase().startsWith(newChannel.toLowerCase()))
+                .map((channel) => channel);
+            setPossibleMatches(matches);
+            setChannel(newChannel);
+            onChannelChange(newChannel);
         }
-        togglePopup();
     };
 
-    const handleRemove = (item: string) => {
-        setCategories((curr) => {
-            const newTags = curr.filter((cat) => cat !== item);
-            onCategoriesChange(newTags);
-            return newTags;
-        });
+    const handleItemClick = (name: string) => {
+        handleInputChange(name);
+        setShowPopup(false);
     };
 
     return (
@@ -57,7 +61,7 @@ const MultipleSelect: FC<SelectProps> = ({
 
             <div className="mx-auto flex w-full flex-col ">
                 <div className="w-full">
-                    <div ref={popupRef} className="relative flex flex-col items-center">
+                    <div ref={popupRef} className=" items-cente relative flex flex-col ">
                         <div className="w-full">
                             <div
                                 className={classNames(
@@ -67,39 +71,14 @@ const MultipleSelect: FC<SelectProps> = ({
                                         "dark:bg-custom_lightblue": !disabled,
                                     }
                                 )}>
-                                {categories.map((category) => (
-                                    <span
-                                        key={category}
-                                        className="me-2 inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                        {category}
-                                        <button
-                                            type="button"
-                                            onClick={() => handleRemove(category)}
-                                            className="ms-2 inline-flex items-center bg-transparent text-sm text-blue-400 hover:bg-blue-200 hover:text-blue-900 dark:hover:bg-blue-800 dark:hover:text-blue-200"
-                                            data-dismiss-target="#badge-dismiss-default"
-                                            aria-label="Remove">
-                                            <svg
-                                                className="h-2 w-2"
-                                                aria-hidden="true"
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                fill="none"
-                                                viewBox="0 0 14 14">
-                                                <path
-                                                    stroke="currentColor"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth="2"
-                                                    d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6"
-                                                />
-                                            </svg>
-                                            <span className="sr-only">Remove badge</span>
-                                        </button>
-                                    </span>
-                                ))}
                                 <div className="h-full flex-1">
                                     <input
+                                        value={channel}
+                                        type="text"
                                         onClick={() => togglePopup()}
-                                        placeholder=""
+                                        placeholder={placeholder}
+                                        onChange={(e) => handleInputChange(e.target.value)}
+                                        required={required}
                                         disabled={disabled}
                                         className="h-full w-full flex-1 rounded-lg border-0 border-none border-transparent bg-gray-50 p-0 text-sm text-gray-900 focus-within:border-0  focus-within:border-transparent focus-within:outline-none   focus:border-none  focus:ring-0 dark:bg-custom_lightblue dark:text-white  dark:placeholder-gray-400 disabled:dark:bg-custom_blue"
                                     />
@@ -109,14 +88,14 @@ const MultipleSelect: FC<SelectProps> = ({
                         {showPopup && (
                             <div className="z-80 absolute left-0 top-14 max-h-64 w-full overflow-y-auto rounded border border-custom_space_cadet_bis bg-white dark:bg-custom_lightblue">
                                 <div className="flex w-full flex-col">
-                                    {options.map((cat) => (
+                                    {possibleMatches.map((name) => (
                                         <div
-                                            key={cat}
+                                            key={name}
                                             className="w-full cursor-pointer border-b border-gray-100 dark:border-custom_lightblue"
-                                            onClick={() => handleAddCategory(cat)}>
+                                            onClick={() => handleItemClick(name)}>
                                             <div className="relative flex w-full items-center border-l-2 border-transparent p-2 pl-2 hover:bg-custom_vista_blue">
                                                 <div className="flex w-full items-center">
-                                                    <div className="mx-2 leading-6 dark:text-white">{cat}</div>
+                                                    <div className="mx-2 leading-6 dark:text-white">{name}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -134,4 +113,4 @@ const MultipleSelect: FC<SelectProps> = ({
     );
 };
 
-export default MultipleSelect;
+export default MultipleSelectText;

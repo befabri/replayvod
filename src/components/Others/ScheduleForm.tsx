@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import React from "react";
 import { Controller, SubmitHandler, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ScheduleSchema } from "../../models/Schedule";
 import type { ScheduleForm } from "../../models/Schedule";
-import InputText from "../UI/Form/InputText";
 import { useTranslation } from "react-i18next";
 import Select from "../UI/Form/Select";
 import InputNumber from "../UI/Form/InputNumber";
@@ -15,6 +14,7 @@ import InputTag from "../UI/Form/InputTag";
 import MultipleSelect from "../UI/Form/MultipleSelect";
 import { customFetch } from "../../utils/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import MultipleSelectText from "../UI/Form/MultipleSelectText";
 
 const MIN_TIME_BEFORE_DELETE = 10;
 const MIN_VIEWERS_COUNT = 0;
@@ -50,7 +50,6 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 }) => {
     const { t } = useTranslation();
     const isModal = !!modal;
-    const [possibleMatches, setPossibleMatches] = useState<string[]>([]);
     const queryClient = useQueryClient();
 
     const {
@@ -136,8 +135,6 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         register,
         handleSubmit,
         setError,
-        clearErrors,
-        trigger,
         control,
         formState: { errors },
         watch,
@@ -158,7 +155,6 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
             tags: defaultValue.tags,
         },
     });
-    const channelName = watch("channelName");
     const isDeleteRediff = watch("isDeleteRediff");
     const hasTags = watch("hasTags");
     const hasMinView = watch("hasMinView");
@@ -189,56 +185,26 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         return <div>{t("Error")}</div>;
     }
 
-    const handleBlur = async (fieldName: keyof ScheduleForm) => {
-        const isValid = await trigger(fieldName);
-        if (!isValid) return;
-        if (fieldName === "channelName") {
-            const exists = await checkChannelNameValidity(channelName);
-            if (!exists) {
-                setError("channelName", {
-                    type: "manual",
-                    message: "Channel name dont exist",
-                });
-            } else {
-                clearErrors("channelName");
-            }
-        }
-    };
-
-    const handleChange = async (fieldName: keyof ScheduleForm, value: string) => {
-        if (fieldName === "channelName") {
-            if (value.length > 0) {
-                const matches = channels
-                    .filter((channel) => channel?.broadcasterName?.toLowerCase().startsWith(value.toLowerCase()))
-                    .map((channel) => channel.broadcasterName);
-                setPossibleMatches(matches);
-            } else {
-                setPossibleMatches([]);
-            }
-        }
-    };
-
     return (
         <form onSubmit={handleSubmit(onSubmit)}>
             <div className=" p-4 md:p-5">
-                <InputText
-                    label={t("Channel Name")}
-                    id="channelName"
-                    placeholder={t("Channel Name")}
-                    required={true}
-                    list="possible-matches"
-                    register={register("channelName")}
-                    disabled={defaultValue.isChannelNameDisabled}
-                    error={errors.channelName}
-                    onBlur={() => handleBlur("channelName")}
-                    onChange={(e: { target: { value: string } }) => handleChange("channelName", e.target.value)}
+                <Controller
+                    name="channelName"
+                    control={control}
+                    render={({ field }) => (
+                        <MultipleSelectText
+                            id="channelName"
+                            label={t("Channel Name")}
+                            placeholder={t("Channel Name")}
+                            required={true}
+                            error={errors.channelName}
+                            options={channels.map((match) => match.broadcasterLogin)}
+                            disabled={defaultValue.isChannelNameDisabled}
+                            onChannelChange={field.onChange}
+                            value={field.value}
+                        />
+                    )}
                 />
-                <datalist id="possible-matches">
-                    {possibleMatches.map((match, index) => (
-                        <option key={index} value={match} />
-                    ))}
-                </datalist>
-
                 <div className="mt-5">
                     <Select
                         label={t("Video quality")}
