@@ -118,7 +118,7 @@ const ManagePage: React.FC = () => {
             <div className="mt-14 p-4">
                 <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Manage Schedule")}</h1>
             </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[repeat(auto-fit,minmax(600px,1fr))]">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(600px,1fr))]">
                 {schedules.map((schedule, idx) => (
                     <div
                         key={idx}
