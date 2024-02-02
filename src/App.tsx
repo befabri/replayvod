@@ -15,7 +15,6 @@ import CategoryPage from "./pages/Videos/Category/Index";
 import CategoryDetailPage from "./pages/Videos/Category/CategoryDetailPage";
 import ChannelDetailPage from "./pages/Videos/Channel/ChannelDetailPage";
 import ChannelPage from "./pages/Videos/Channel/Index";
-import StatusPage from "./pages/System/StatusPage";
 import TasksPage from "./pages/System/TasksPage";
 import EventsPage from "./pages/System/EventsPage";
 import LogsPage from "./pages/System/LogsPage";
@@ -49,7 +48,6 @@ export default function App() {
                             <Route path={Pathnames.Video.Channel} element={<ChannelPage />} />
                             <Route path={Pathnames.Video.ChannelDetail} element={<ChannelDetailPage />} />
                             <Route path={Pathnames.System.EventSub} element={<EventSubPage />} />
-                            <Route path={Pathnames.System.Status} element={<StatusPage />} />
                             <Route path={Pathnames.System.Tasks} element={<TasksPage />} />
                             <Route path={Pathnames.System.Events} element={<EventsPage />} />
                             <Route path={Pathnames.System.Logs} element={<LogsPage />} />

@@ -66,7 +66,6 @@ const Sidebar: React.FC<SidebarProps> = forwardRef((props: SidebarProps, ref: Re
             text: t("System"),
             items: [
                 { href: Pathnames.System.EventSub, text: t("Event sub") },
-                { href: Pathnames.System.Status, text: t("Status") },
                 { href: Pathnames.System.Tasks, text: t("Tasks") },
                 { href: Pathnames.System.Events, text: t("Events") },
                 { href: Pathnames.System.Logs, text: t("Log Files") },

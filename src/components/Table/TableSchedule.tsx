@@ -4,15 +4,15 @@ import { EventSub } from "../../type";
 import { useTranslation } from "react-i18next";
 import { capitalizeFirstLetter, formatDate } from "../../utils/utils";
 
-const TableSchedule = ({ items: initialItems }: { items: EventSub["data"] }) => {
+const TableSchedule = ({ items: initialItems }: { items: EventSub["data"]["list"] }) => {
     const { t } = useTranslation();
-    const [sortField, setSortField] = useState<keyof EventSub["data"][number] | null>(null);
+    const [sortField, setSortField] = useState<keyof EventSub["data"]["list"][number] | null>(null);
     const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-    const [items, setItems] = useState<EventSub["data"]>(initialItems);
+    const [items, setItems] = useState<EventSub["data"]["list"]>(initialItems);
 
     const storedTimeZone = localStorage.getItem("timeZone") || "Europe/London";
 
-    const handleSort = (field: keyof EventSub["data"][number]) => {
+    const handleSort = (field: keyof EventSub["data"]["list"][number]) => {
         let direction: "asc" | "desc" = "asc";
         if (field === sortField) {
             direction = sortDirection === "asc" ? "desc" : "asc";
@@ -23,8 +23,8 @@ const TableSchedule = ({ items: initialItems }: { items: EventSub["data"] }) => 
     };
 
     const sortData = (
-        data: EventSub["data"],
-        field: keyof EventSub["data"][number],
+        data: EventSub["data"]["list"],
+        field: keyof EventSub["data"]["list"][number],
         direction: "asc" | "desc"
     ) => {
         const sortedData = [...data].sort((a, b) => {
@@ -45,7 +45,7 @@ const TableSchedule = ({ items: initialItems }: { items: EventSub["data"] }) => 
         setItems(sortedData);
     };
 
-    const fields: (keyof EventSub["data"][number])[] = [
+    const fields: (keyof EventSub["data"]["list"][number])[] = [
         "id",
         "subscriptionType",
         "status",
