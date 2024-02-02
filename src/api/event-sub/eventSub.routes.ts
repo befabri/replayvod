@@ -9,11 +9,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
     });
 
     fastify.get("/subscriptions", {
-        handler: eventSubHandler.getListEventSub,
-    });
-
-    fastify.get("/costs", {
-        handler: eventSubHandler.getTotalCost,
+        handler: eventSubHandler.getEventSub,
     });
 
     done();

@@ -96,81 +96,76 @@ export const getEventSub = async (userId: string) => {
         return { data: lastEventSubFetch, message: "EventSub from cache" };
     }
     const eventSub = await twitchService.getEventSub();
-    if (!eventSub) {
-        return { data: null, message: "Failed to get EventSub from Twitch" };
-    }
-    const newFetchLog = await cacheService.createFetch({
-        fetchType: cacheService.cacheType.EVENT_SUB,
-        userId: userId,
-    });
-    const createdEventSub = await prisma.eventSub.create({
-        data: {
-            userId: userId,
-            fetchId: newFetchLog.id,
-        },
-    });
-    const processPromises = eventSub.subscriptions.map(async (sub) => {
-        const broadcasterExists = await channelFeature.channelExists(sub.broadcasterId);
-        if (!broadcasterExists) {
-            logger.error(`Broadcaster with ID ${sub.broadcasterId} does not exist in the database.`);
-            await channelFeature.updateChannel(sub.broadcasterId);
-        }
-
-        await prisma.$transaction([
-            prisma.subscription.upsert({
-                where: {
-                    broadcasterId_subscriptionType: {
-                        broadcasterId: sub.broadcasterId,
-                        subscriptionType: sub.subscriptionType,
-                    },
-                },
-                update: {
-                    status: sub.status,
-                    cost: sub.cost,
-                },
-                create: {
-                    id: sub.id,
-                    status: sub.status,
-                    subscriptionType: sub.subscriptionType,
-                    broadcasterId: sub.broadcasterId,
-                    createdAt: sub.createdAt,
-                    cost: sub.cost,
-                },
-            }),
-            prisma.subscriptionEventSub.create({
-                data: {
-                    eventSubId: createdEventSub.id,
-                    subscriptionId: sub.id,
-                },
-            }),
-        ]);
-    });
-
-    for (const promise of processPromises) {
-        try {
-            await promise;
-        } catch (error) {
-            logger.error(`Error processing subscription: %s`, error);
-        }
-    }
-
-    return { data: eventSub.subscriptions, message: "EventSub subscriptions stored successfully." };
-};
-
-export const getTotalCost = async () => {
-    const eventSubResult = await twitchService.getEventSub();
-    if (eventSubResult && "meta" in eventSubResult) {
-        const { meta } = eventSubResult;
+    if (eventSub && "meta" in eventSub) {
+        const { meta } = eventSub;
         if (meta.total === 0) {
             return { data: null, message: "There is no EventSub subscription" };
         }
+        const newFetchLog = await cacheService.createFetch({
+            fetchType: cacheService.cacheType.EVENT_SUB,
+            userId: userId,
+        });
+        const createdEventSub = await prisma.eventSub.create({
+            data: {
+                userId: userId,
+                fetchId: newFetchLog.id,
+            },
+        });
+        const processPromises = eventSub.subscriptions.map(async (sub) => {
+            const broadcasterExists = await channelFeature.channelExists(sub.broadcasterId);
+            if (!broadcasterExists) {
+                logger.error(`Broadcaster with ID ${sub.broadcasterId} does not exist in the database.`);
+                await channelFeature.updateChannel(sub.broadcasterId);
+            }
+
+            await prisma.$transaction([
+                prisma.subscription.upsert({
+                    where: {
+                        broadcasterId_subscriptionType: {
+                            broadcasterId: sub.broadcasterId,
+                            subscriptionType: sub.subscriptionType,
+                        },
+                    },
+                    update: {
+                        status: sub.status,
+                        cost: sub.cost,
+                    },
+                    create: {
+                        id: sub.id,
+                        status: sub.status,
+                        subscriptionType: sub.subscriptionType,
+                        broadcasterId: sub.broadcasterId,
+                        createdAt: sub.createdAt,
+                        cost: sub.cost,
+                    },
+                }),
+                prisma.subscriptionEventSub.create({
+                    data: {
+                        eventSubId: createdEventSub.id,
+                        subscriptionId: sub.id,
+                    },
+                }),
+            ]);
+        });
+
+        for (const promise of processPromises) {
+            try {
+                await promise;
+            } catch (error) {
+                logger.error(`Error processing subscription: %s`, error);
+            }
+        }
+
         return {
             data: {
-                total: meta.total,
-                total_cost: meta.total_cost,
-                max_total_cost: meta.max_total_cost,
+                cost: {
+                    total: eventSub.meta.total,
+                    total_cost: eventSub.meta.total_cost,
+                    max_total_cost: eventSub.meta.max_total_cost,
+                },
+                list: eventSub.subscriptions,
             },
-            message: "Total cost retrieved successfully",
+            message: "EventSub subscriptions stored successfully.",
         };
     }
     return { data: null, message: "Failed to retrieve EventSub information" };

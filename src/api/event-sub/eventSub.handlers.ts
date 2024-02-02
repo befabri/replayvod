@@ -20,7 +20,7 @@ export const fetchAndSaveGames = async (_req: FastifyRequest, reply: FastifyRepl
     }
 };
 
-export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) => {
+export const getEventSub = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = userFeature.getUserIdFromSession(req);
     if (!userId) {
         return reply.status(401).send({ message: "Unauthorized" });
@@ -31,15 +31,5 @@ export const getListEventSub = async (req: FastifyRequest, reply: FastifyReply) 
     } catch (err) {
         logger.error(err);
         reply.status(500).send({ message: "An error occurred while fetching EventSub subscriptions." });
-    }
-};
-
-export const getTotalCost = async (_req: FastifyRequest, reply: FastifyReply) => {
-    try {
-        const eventSub = await eventSubFeature.getTotalCost();
-        reply.send({ data: eventSub.data, message: eventSub.message });
-    } catch (err) {
-        logger.error(err);
-        reply.status(500).send({ message: "An error occurred while fetching total cost." });
     }
 };
