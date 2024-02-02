@@ -31,7 +31,8 @@ const getUser = async (userId: string): Promise<Channel | null> => {
         }
         return transformTwitchUser(fetchedUser);
     } catch (error) {
-        throw error;
+        logger.error("Error getUser: %s", error);
+        return null;
     }
 };
 
@@ -44,7 +45,8 @@ const getUserByLogin = async (login: string): Promise<Channel | null> => {
         }
         return transformTwitchUser(fetchedUser);
     } catch (error) {
-        throw error;
+        logger.error("Error getUserByLogin: %s", error);
+        return null;
     }
 };
 
@@ -57,7 +59,8 @@ const getUsers = async (userIds: string[]): Promise<Channel[] | null> => {
         }
         return fetchedUsers.map((user) => transformTwitchUser(user));
     } catch (error) {
-        throw error;
+        logger.error("Error fetching users: %s", error);
+        return null;
     }
 };
 
@@ -78,7 +81,7 @@ const getAllFollowedChannels = async (
         return transformedChannels;
     } catch (error) {
         logger.error("Error fetching followed channels: %s", error);
-        throw error;
+        return null;
     }
 };
 
@@ -97,7 +100,7 @@ const getAllFollowedStreams = async (
         return transformationResults;
     } catch (error) {
         logger.error("Error fetching followed streams: %s", error);
-        throw error;
+        return null;
     }
 };
 
@@ -118,7 +121,7 @@ const getStreamByUserId = async (
         return transformStream(fetchedStream);
     } catch (error) {
         logger.error("Error fetching stream by user ID: %s", error);
-        throw error;
+        return null;
     }
 };
 
@@ -132,7 +135,7 @@ const getGameDetail = async (gameId: string): Promise<Category | null> => {
         return transformCategory(fetchedGame);
     } catch (error) {
         logger.error("Error fetching game detail: %s", error);
-        throw error;
+        return null;
     }
 };
 
@@ -146,7 +149,7 @@ const getAllGames = async (cursor?: string): Promise<Category[] | null> => {
         return fetchedGames.map((game) => transformCategory(game));
     } catch (error) {
         logger.error("Error fetching all games: %s", error);
-        throw error;
+        return null;
     }
 };
 
@@ -165,26 +168,28 @@ const createEventSub = async (
         return fetchedEventSub.data.map((eventSub) => transformEventSub(eventSub));
     } catch (error) {
         logger.error("Error fetching create eventSub: %s", error);
-        throw error;
+        return null;
     }
 };
 
 const getEventSub = async (): Promise<{ subscriptions: Subscription[]; meta: EventSubMeta } | null> => {
     try {
         const fetchedEventSub = await twitchAPI.getEventSub();
-        if (!fetchedEventSub || !isValidEventSubResponse(fetchedEventSub)) {
+        const validEventSub = isValidEventSubResponse(fetchedEventSub);
+        if (!validEventSub) {
             logger.error("Received invalid eventSub data from Twitch API: %s", fetchedEventSub);
             return null;
         }
-        const subscriptions = fetchedEventSub.data.map((eventSub) => transformEventSub(eventSub));
-        const meta = transformEventSubMeta(fetchedEventSub);
+        const subscriptions = validEventSub.data.map((eventSub) => transformEventSub(eventSub));
+        const meta = transformEventSubMeta(validEventSub);
 
         return {
             subscriptions,
             meta,
         };
     } catch (error) {
-        throw error;
+        logger.error("Error fetching eventSub: %s", error);
+        return null;
     }
 };
 
@@ -193,7 +198,8 @@ const deleteEventSub = async (id: string) => {
         const fetchedEventSub = await twitchAPI.deleteEventSub(id);
         return fetchedEventSub;
     } catch (error) {
-        throw error;
+        logger.error("Error deleteEventSub eventSub: %s", error);
+        return null;
     }
 };
 

@@ -1,4 +1,8 @@
-import { EventSubResponse, Game, User, Stream, FollowedChannel } from "../../models/twitchModel";
+import z from "zod";
+import { Game, User, Stream, FollowedChannel } from "../../models/twitchModel";
+import { EventSubSchema } from "./twitchSchema";
+import { logger as rootLogger } from "../../app";
+const logger = rootLogger.child({ domain: "twitch", service: "validation" });
 
 export const isValidStream = (data: any): data is Stream => {
     return (
@@ -54,30 +58,19 @@ export const isValidFollowedChannel = (data: any): data is FollowedChannel => {
     );
 };
 
-export const isValidEventSubResponse = (data: any): data is EventSubResponse => {
-    return (
-        typeof data.total === "number" &&
-        Array.isArray(data.data) &&
-        data.data.every(
-            (subData: {
-                id: any;
-                status: any;
-                type: any;
-                version: any;
-                created_at: any;
-                transport: { method: any; callback: any };
-                cost: any;
-            }) =>
-                typeof subData.id === "string" &&
-                typeof subData.status === "string" &&
-                typeof subData.type === "string" &&
-                typeof subData.version === "string" &&
-                typeof subData.created_at === "string" &&
-                typeof subData.transport.method === "string" &&
-                typeof subData.transport.callback === "string" &&
-                typeof subData.cost === "number"
-        ) &&
-        typeof data.total_cost === "number" &&
-        typeof data.max_total_cost === "number"
-    );
+export const isValidEventSubResponse = (data: any): typeof EventSubSchema._output | null => {
+    try {
+        const parsedData = EventSubSchema.parse(data);
+        return parsedData;
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            logger.error("Validation error: %s", error);
+            if (data?.data) {
+                logger.info(data.data);
+            }
+        } else {
+            logger.error("Unexpected error: %s", error);
+        }
+        return null;
+    }
 };

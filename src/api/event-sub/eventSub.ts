@@ -89,6 +89,7 @@ export const getEventSubLastFetch = async (userId: string) => {
     return null;
 };
 
+// TODO refactor
 export const getEventSub = async (userId: string) => {
     const lastEventSubFetch = await getEventSubLastFetch(userId);
     if (lastEventSubFetch) {
