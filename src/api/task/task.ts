@@ -1,8 +1,8 @@
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { categoryFeature } from "../category";
+import { eventSubFeature } from "../event-sub";
 import { videoFeature } from "../video";
-import { eventSubFeature } from "../webhook";
 const logger = rootLogger.child({ domain: "task", service: "taskService" });
 
 export const getTask = async (id: string) => {

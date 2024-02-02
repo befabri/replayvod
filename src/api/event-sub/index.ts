@@ -1,2 +1,2 @@
-export * as eventSubFeature from "../../services/twitchService";
+export * as eventSubFeature from "./eventSub";
 export * as eventSubHandler from "./eventSub.handlers";

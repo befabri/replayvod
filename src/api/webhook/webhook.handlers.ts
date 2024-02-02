@@ -2,13 +2,23 @@ import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
 import { Webhook } from "../../models/webhookModel";
 import {
     MESSAGE_TYPE,
-    MESSAGE_TYPE_NOTIFICATION,
-    MESSAGE_TYPE_REVOCATION,
-    MESSAGE_TYPE_VERIFICATION,
+    MessageType,
+    SubscriptionType,
     TwitchHeaders,
-} from "../../constants/twitchConstants";
-import { NotificationBody, SubscriptionType } from "../../models/notificationTwitch";
+    TwitchNotificationBody,
+    TwitchNotificationChallenge,
+    TwitchNotificationEvent,
+    TwitchNotificationRevocation,
+} from "../../models/twitch";
 import { webhookFeature } from ".";
+import { channelFeature } from "../channel";
+import {
+    isTwitchNotificationChallenge,
+    isTwitchNotificationEvent,
+    isTwitchNotificationRevocation,
+} from "./webhook";
+import { logger as rootLogger } from "../../app";
+const logger = rootLogger.child({ domain: "webhook", service: "webhookHandler" });
 
 interface WebhookRequest extends RouteGenericInterface {
     Body: Webhook;
@@ -16,29 +26,42 @@ interface WebhookRequest extends RouteGenericInterface {
 }
 
 export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {
-    let notification: NotificationBody = req.body;
+    let notification: TwitchNotificationBody = req.body;
     let messageType = req.headers[MESSAGE_TYPE];
     let response;
-    if (MESSAGE_TYPE_NOTIFICATION === messageType) {
+    logger.info(`Received Twitch webhook with message type: ${messageType}`);
+    if (messageType === MessageType.MESSAGE_TYPE_NOTIFICATION && isTwitchNotificationEvent(notification)) {
+        logger.info(
+            `Processing notification for subscription type: ${notification.subscription.type}, Subscription ID: ${notification.subscription.id}`
+        );
         switch (notification.subscription.type) {
             case SubscriptionType.CHANNEL_UPDATE:
-                response = await webhookFeature.handleChannelUpdate(notification);
+                response = await handleChannelUpdate(notification);
                 break;
             case SubscriptionType.STREAM_ONLINE:
-                response = await webhookFeature.handleStreamOnline(notification);
+                response = await handleStreamOnline(notification);
                 break;
             case SubscriptionType.STREAM_OFFLINE:
-                response = await webhookFeature.handleStreamOffline(notification);
+                response = await handleStreamOffline(notification);
                 break;
             default:
-                response = await webhookFeature.handleNotification(notification);
+                response = await handleNotification(notification);
                 break;
         }
-    } else if (MESSAGE_TYPE_VERIFICATION === messageType) {
-        response = await webhookFeature.handleVerification(notification);
-    } else if (MESSAGE_TYPE_REVOCATION === messageType) {
-        response = await webhookFeature.handleRevocation(notification);
+    } else if (
+        messageType === MessageType.MESSAGE_TYPE_VERIFICATION &&
+        isTwitchNotificationChallenge(notification)
+    ) {
+        logger.info(`Processing verification challenge for Subscription ID: ${notification.subscription.id}`);
+        response = await handleVerification(notification);
+    } else if (
+        messageType === MessageType.MESSAGE_TYPE_REVOCATION &&
+        isTwitchNotificationRevocation(notification)
+    ) {
+        logger.info(`Processing revocation for Subscription ID: ${notification.subscription.id}`);
+        response = await handleRevocation(notification);
     } else {
+        logger.info(`Processing revocation for Subscription ID: ${notification.subscription.id}`);
         return reply.status(400).send();
     }
     reply.status(response.status);
@@ -46,6 +69,64 @@ export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply
         return reply.send(response.body);
     }
     reply.send();
+};
+
+export const handleVerification = async (
+    notification: TwitchNotificationChallenge
+): Promise<{ status: number; body: string }> => {
+    return {
+        status: 200,
+        body: notification.challenge,
+    };
+};
+
+export const handleChannelUpdate = async (
+    _notification: TwitchNotificationBody
+): Promise<{ status: number; body: null }> => {
+    return {
+        status: 204,
+        body: null,
+    };
+};
+
+export const handleStreamOnline = async (
+    notification: TwitchNotificationEvent
+): Promise<{ status: number; body: null }> => {
+    await webhookFeature.handleWebhookEvent(notification.subscription.type, notification.event);
+    await channelFeature.getChannelStream(notification.event.broadcaster_user_id, "system");
+    return {
+        status: 204,
+        body: null,
+    };
+};
+
+export const handleStreamOffline = async (
+    notification: TwitchNotificationEvent
+): Promise<{ status: number; body: null }> => {
+    await webhookFeature.handleWebhookEvent(notification.subscription.type, notification.event);
+    return {
+        status: 204,
+        body: null,
+    };
+};
+
+export const handleNotification = async (
+    _notification: TwitchNotificationEvent
+): Promise<{ status: number; body: null }> => {
+    return {
+        status: 204,
+        body: null,
+    };
+};
+
+export const handleRevocation = async (
+    notification: TwitchNotificationRevocation
+): Promise<{ status: number; body: null }> => {
+    webhookFeature.handleRevocation(notification);
+    return {
+        status: 204,
+        body: null,
+    };
 };
 
 // export const test = async (req: FastifyRequest<WebhookRequest>, reply: FastifyReply) => {

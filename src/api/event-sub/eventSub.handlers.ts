@@ -2,8 +2,8 @@ import { FastifyReply, FastifyRequest } from "fastify";
 import { logger as rootLogger } from "../../app";
 import { userFeature } from "../user";
 import { categoryFeature } from "../category";
-import { eventSubFeature } from "../webhook";
 import { twitchService } from "../../services";
+import { eventSubFeature } from ".";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchHandler" });
 
 export const fetchAndSaveGames = async (_req: FastifyRequest, reply: FastifyReply) => {

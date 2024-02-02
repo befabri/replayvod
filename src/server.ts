@@ -8,9 +8,9 @@ import routes from "./routes";
 import fastifyStatic from "@fastify/static";
 import { isUserWhitelisted, userAuthenticated } from "./middlewares/authMiddleware";
 import { videoFeature } from "./api/video";
-import { TWITCH_ENDPOINT } from "./constants/twitchConstants";
 import oauthPlugin from "@fastify/oauth2";
 import { readFileSync } from "fs";
+import { TWITCH_ENDPOINT } from "./models/twitch";
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";

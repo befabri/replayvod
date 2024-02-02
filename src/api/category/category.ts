@@ -3,7 +3,7 @@ import { prisma } from "../../server";
 const logger = rootLogger.child({ domain: "channel", service: "categoryService" });
 import { Category, PrismaClient, Status } from "@prisma/client";
 import { twitchService } from "../../services";
-import { FETCH_MAX_RETRIES, FETCH_RETRY_DELAY } from "../../constants/twitchConstants";
+import { FETCH_MAX_RETRIES, FETCH_RETRY_DELAY } from "../../models/twitch";
 
 export const createCategory = async (category: Category) => {
     try {

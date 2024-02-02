@@ -1,13 +1,13 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { createHmac, timingSafeEqual } from "crypto";
-import {
-    TWITCH_MESSAGE_ID,
-    TWITCH_MESSAGE_TIMESTAMP,
-    TWITCH_MESSAGE_SIGNATURE,
-    HMAC_PREFIX,
-} from "../constants/twitchConstants";
 import { env } from "../app";
 import { logger as rootLogger } from "../app";
+import {
+    HMAC_PREFIX,
+    TWITCH_MESSAGE_ID,
+    TWITCH_MESSAGE_SIGNATURE,
+    TWITCH_MESSAGE_TIMESTAMP,
+} from "../models/twitch";
 const logger = rootLogger.child({ domain: "hmac", service: "middleware" });
 
 export const verifyHmacMiddleware = async (req: FastifyRequest, reply: FastifyReply) => {

@@ -1,7 +1,7 @@
-import { STREAM_OFFLINE, STREAM_ONLINE } from "../../constants/twitchConstants";
+import { SubscriptionType } from "../../models/twitch";
 
 export const transformWebhookEvent = (eventType: string, broadcasterId: string) => {
-    if (eventType === STREAM_ONLINE) {
+    if (eventType === SubscriptionType.STREAM_ONLINE) {
         return {
             externalEventId: "",
             broadcasterId: broadcasterId,
@@ -9,7 +9,7 @@ export const transformWebhookEvent = (eventType: string, broadcasterId: string) 
             startedAt: new Date(),
             endAt: null,
         };
-    } else if (eventType === STREAM_OFFLINE) {
+    } else if (eventType === SubscriptionType.STREAM_OFFLINE) {
         return {
             externalEventId: "",
             broadcasterId: broadcasterId,

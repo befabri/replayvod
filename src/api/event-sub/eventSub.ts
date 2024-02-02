@@ -4,8 +4,8 @@ import { WebhookEvent } from "@prisma/client";
 import { webhookFeature } from "../webhook";
 import { channelFeature } from "../channel";
 import { cacheService, twitchService } from "../../services";
-import { STREAM_OFFLINE, STREAM_ONLINE } from "../../constants/twitchConstants";
 import { userFeature } from "../user";
+import { SubscriptionType } from "../../models/twitch";
 const logger = rootLogger.child({ domain: "webhook", service: "eventSubService" });
 
 export const subToAllChannelFollowed = async () => {
@@ -37,7 +37,7 @@ export const subToAllChannelFollowed = async () => {
 
 export const subscribeToStreamOnline = async (userId: string) => {
     return await twitchService.createEventSub(
-        STREAM_ONLINE,
+        SubscriptionType.STREAM_ONLINE,
         "1",
         { broadcaster_user_id: userId },
         {
@@ -50,7 +50,7 @@ export const subscribeToStreamOnline = async (userId: string) => {
 
 export const subscribeToStreamOffline = async (userId: string) => {
     return await twitchService.createEventSub(
-        STREAM_OFFLINE,
+        SubscriptionType.STREAM_OFFLINE,
         "1",
         { broadcaster_user_id: userId },
         {
