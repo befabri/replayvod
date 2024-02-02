@@ -6,6 +6,7 @@ import { channelFeature } from "../channel";
 import { cacheService, twitchService } from "../../services";
 import { userFeature } from "../user";
 import { SubscriptionType } from "../../models/twitch";
+import { EventSubDTO } from "./eventSub.DTO";
 const logger = rootLogger.child({ domain: "webhook", service: "eventSubService" });
 
 export const subToAllChannelFollowed = async () => {
@@ -61,14 +62,14 @@ export const subscribeToStreamOffline = async (userId: string) => {
     );
 };
 
-export const getEventSubLastFetch = async (userId: string) => {
+export const getEventSubLastFetch = async (userId: string): Promise<EventSubDTO | null> => {
     const fetchLog = await cacheService.getLastFetch({
         fetchType: cacheService.cacheType.EVENT_SUB,
         userId: userId,
     });
 
     if (fetchLog && cacheService.isCacheExpire(fetchLog.fetchedAt)) {
-        const eventSubs = await prisma.eventSub.findMany({
+        const eventSub = await prisma.eventSub.findUnique({
             where: {
                 fetchId: fetchLog.id,
             },
@@ -80,31 +81,47 @@ export const getEventSubLastFetch = async (userId: string) => {
                 },
             },
         });
-
-        const subscriptions = eventSubs.flatMap((eventSub) =>
-            eventSub.subscriptions.map((subEvent) => subEvent.subscription)
-        );
-        return subscriptions;
+        if (eventSub && eventSub.subscriptions.length > 0) {
+            const subscriptions = eventSub.subscriptions.flatMap((subEvent) => subEvent.subscription);
+            return {
+                data: {
+                    cost: {
+                        total: eventSub.total,
+                        total_cost: eventSub.totalCost,
+                        max_total_cost: eventSub.maxTotalCost,
+                    },
+                    list: subscriptions.map((sub) => ({
+                        id: sub.id,
+                        status: sub.status,
+                        subscriptionType: sub.subscriptionType,
+                        broadcasterId: sub.broadcasterId,
+                        createdAt: sub.createdAt,
+                        cost: sub.cost,
+                    })),
+                },
+                message: "EventSub from cache",
+            };
+        }
     }
     return null;
 };
 
-// TODO refactor
-export const getEventSub = async (userId: string) => {
+export const getEventSub = async (userId: string): Promise<EventSubDTO> => {
     const lastEventSubFetch = await getEventSubLastFetch(userId);
     if (lastEventSubFetch) {
-        return { data: lastEventSubFetch, message: "EventSub from cache" };
+        return lastEventSubFetch;
     }
     const eventSub = await twitchService.getEventSub();
     if (eventSub && "meta" in eventSub) {
-        const { meta } = eventSub;
-        if (meta.total === 0) {
+        if (eventSub.meta.total === 0) {
             return { data: null, message: "There is no EventSub subscription" };
         }
+
         const newFetchLog = await cacheService.createFetch({
             fetchType: cacheService.cacheType.EVENT_SUB,
             userId: userId,
         });
+
         const createdEventSub = await prisma.eventSub.create({
             data: {
                 userId: userId,

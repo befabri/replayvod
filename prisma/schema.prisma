@@ -29,7 +29,10 @@ model FetchLog {
 model EventSub {
   id            Int                    @id @default(autoincrement())
   userId        String
-  fetchId       String
+  fetchId       String                 @unique
+  total         Int                    @default(0)
+  totalCost     Int                    @default(0)
+  maxTotalCost  Int                    @default(0)
   user          User                   @relation(fields: [userId], references: [userId])
   fetch         FetchLog               @relation(fields: [fetchId], references: [id])
   subscriptions SubscriptionEventSub[]
