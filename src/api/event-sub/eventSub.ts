@@ -126,6 +126,9 @@ export const getEventSub = async (userId: string): Promise<EventSubDTO> => {
             data: {
                 userId: userId,
                 fetchId: newFetchLog.id,
+                total: eventSub.meta.total,
+                totalCost: eventSub.meta.total_cost,
+                maxTotalCost: eventSub.meta.max_total_cost,
             },
         });
         const processPromises = eventSub.subscriptions.map(async (sub) => {
