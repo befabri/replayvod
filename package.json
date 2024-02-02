@@ -7,7 +7,8 @@
     "license": "ISC",
     "scripts": {
         "prod": "node server.js | pino-tee info ./logs/replay.log",
-        "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-tee info ./logs/replay.log | pino-pretty --colorize\"",
+        "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-tee info ./logs/replay.log\"",
+        "dev:pretty": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-tee info ./logs/replay.log | pino-pretty --colorize\"",
         "prebuild": "shx rm -rf dist || rmdir /s /q dist",
         "build": "tsc -p tsconfig.json",
         "preview": "node --env-file=.env dist/server.js",
