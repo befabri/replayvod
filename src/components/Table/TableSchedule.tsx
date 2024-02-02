@@ -74,7 +74,7 @@ const TableSchedule = ({ items: initialItems }: { items: EventSub["data"]["list"
                         <tr
                             key={idx}
                             className="border-b bg-white hover:bg-gray-50 dark:border-custom_lightblue dark:bg-custom_blue dark:hover:bg-custom_lightblue">
-                            <td className="px-6 py-4" title={eventSub.broadcasterId}>
+                            <td className="px-6 py-4" title={eventSub.id}>
                                 {eventSub.id}
                             </td>
                             <td className="px-6 py-4" title={eventSub.subscriptionType}>
@@ -82,6 +82,9 @@ const TableSchedule = ({ items: initialItems }: { items: EventSub["data"]["list"
                             </td>
                             <td className="px-6 py-4" title={eventSub.status}>
                                 {eventSub.status}
+                            </td>
+                            <td className="px-6 py-4" title={eventSub.broadcasterId}>
+                                {eventSub.broadcasterId}
                             </td>
                             <td className="px-6 py-4" title={formatDate(eventSub.createdAt, storedTimeZone)}>
                                 {formatDate(eventSub.createdAt, storedTimeZone)}

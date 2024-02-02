@@ -18,7 +18,7 @@ const EventSubPage: React.FC = () => {
     } = useQuery<EventSub, Error>({
         queryKey: ["event-sub"],
         queryFn: (): Promise<EventSub> => customFetch(ApiRoutes.GET_EVENT_SUB_SUBSCRIPTIONS),
-        staleTime: 5 * 60 * 1000,
+        staleTime: 60 * 60 * 1000,
     });
 
     if (isLoading) {
@@ -35,7 +35,7 @@ const EventSubPage: React.FC = () => {
                 <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("EventSub subscriptions")}</h1>
             </div>
             {eventSubs.data ? (
-                <>
+                <div className="flex  flex-col gap-3">
                     <span className="pb-5 dark:text-stone-100">
                         {t("The number of total EventSub subscription is ")}
                         {eventSubs.data.cost.total}
@@ -43,7 +43,7 @@ const EventSubPage: React.FC = () => {
                         {eventSubs.data.cost.total_cost}/{eventSubs.data.cost.max_total_cost}
                     </span>
                     <TableSchedule items={eventSubs.data.list} />
-                </>
+                </div>
             ) : (
                 <NotFound text={t("There is no EventSub subscription")} />
             )}
