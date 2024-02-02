@@ -13,7 +13,6 @@ model AppAccessToken {
   expiresAt   DateTime
 }
 
-// Represents logs when data is fetched.
 // BroadcasterId MUST BE NULL IF fetchType is not equal to Stream
 model FetchLog {
   id            String     @id
@@ -325,7 +324,6 @@ model Settings {
   user           User   @relation(fields: [userId], references: [userId])
 }
 
-/// Webhook recu -> xxx est entrain de streamer à 12h jusque 15h (début/fin)
 model WebhookEvent {
   id              Int       @id @default(autoincrement())
   externalEventId String?
