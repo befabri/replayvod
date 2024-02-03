@@ -8,6 +8,7 @@ import { ApiRoutes, getApiRoute } from "../../type/routes";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import Container from "../../components/Layout/Container";
+import Title from "../../components/Typography/TitleComponent";
 
 const fetchImage = async (url: string | URL | Request) => {
     const response = await fetch(url, { credentials: "include" });
@@ -103,9 +104,7 @@ const VideosPage: React.FC = () => {
 
     return (
         <Container>
-            <div className="mt-14 p-4">
-                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Videos")}</h1>
-            </div>
+            <Title title={t("Videos")} />
             <div className="mb-4 flex items-center justify-end space-x-5">
                 {view.value === "grid" && (
                     <div className="space-x-2">

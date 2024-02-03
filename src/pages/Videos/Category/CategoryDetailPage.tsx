@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import Container from "../../../components/Layout/Container";
 import NotFound from "../../../components/Others/NotFound";
+import Title from "../../../components/Typography/TitleComponent";
 
 interface CategoryImageProps {
     category: Category;
@@ -95,9 +96,9 @@ const CategoryDetailPage: React.FC = () => {
 
     return (
         <Container>
-            <div className="mt-14 flex flex-row items-baseline gap-3 p-4">
+            <div className="flex flex-row items-baseline gap-3">
                 <CategoryImage category={category} width="91" height="126" />
-                <h1 className="text-3xl font-bold dark:text-stone-100">{toTitleCase(id)}</h1>
+                <Title title={toTitleCase(id)} />
             </div>
             <div className="mt-5">
                 <h2 className="pb-5 text-2xl font-bold dark:text-stone-100">{t("Videos")}</h2>

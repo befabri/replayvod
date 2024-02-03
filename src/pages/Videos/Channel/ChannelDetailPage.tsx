@@ -89,7 +89,7 @@ const ChannelDetailPage: React.FC = () => {
     if (videos.length === 0) {
         return (
             <Container>
-                <div className="mt-14 flex flex-row items-center gap-3 p-4">
+                <div className="flex flex-row items-center gap-3">
                     <img
                         className="h-12 min-h-[10px] w-12 min-w-[10px] rounded-full"
                         src={data?.channel.profilePicture}

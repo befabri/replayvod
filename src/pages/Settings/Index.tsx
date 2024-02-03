@@ -10,6 +10,8 @@ import { DateTimeFormats } from "../../type";
 import { timeZones } from "../../utils/timezones";
 import Button from "../../components/UI/Button/Button";
 import { useQuery } from "@tanstack/react-query";
+import Container from "../../components/Layout/Container";
+import Title from "../../components/Typography/TitleComponent";
 
 const fetchSettings = async (): Promise<SettingsForm> => {
     const url = getApiRoute(ApiRoutes.GET_SETTINGS);
@@ -89,38 +91,36 @@ const SettingsPage: React.FC = () => {
     if (isError) return <div>{t("Error")}</div>;
 
     return (
-        <div className="p-4">
-            <div className="mt-14 p-4">
-                <form onSubmit={handleSubmit(onSubmit)}>
-                    <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Settings")}</h1>
+        <Container>
+            <Title title={t("Settings")} />
+            <form onSubmit={handleSubmit(onSubmit)}>
+                <div className="mt-5">
                     <div className="mt-5">
-                        <div className="mt-5">
-                            <Select
-                                label={t("Time Zone")}
-                                id="timeZone"
-                                register={register("timeZone", { required: true })}
-                                required={false}
-                                error={errors.timeZone}
-                                options={timeZones}
-                            />
-                        </div>
-                        <div className="mt-5">
-                            <Select
-                                label={t("DateTime Format")}
-                                id="dateTimeFormat"
-                                register={register("dateTimeFormat", { required: true })}
-                                required={false}
-                                error={errors.dateTimeFormat}
-                                options={DateTimeFormats}
-                            />
-                        </div>
-                        <div className="mt-5">
-                            <Button text={t("Export settings")} typeButton="submit" />
-                        </div>
+                        <Select
+                            label={t("Time Zone")}
+                            id="timeZone"
+                            register={register("timeZone", { required: true })}
+                            required={false}
+                            error={errors.timeZone}
+                            options={timeZones}
+                        />
                     </div>
-                </form>
-            </div>
-        </div>
+                    <div className="mt-5">
+                        <Select
+                            label={t("DateTime Format")}
+                            id="dateTimeFormat"
+                            register={register("dateTimeFormat", { required: true })}
+                            required={false}
+                            error={errors.dateTimeFormat}
+                            options={DateTimeFormats}
+                        />
+                    </div>
+                    <div className="mt-5">
+                        <Button text={t("Export settings")} typeButton="submit" />
+                    </div>
+                </div>
+            </form>
+        </Container>
     );
 };
 

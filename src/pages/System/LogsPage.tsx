@@ -5,6 +5,8 @@ import { Log } from "../../type";
 import { ApiRoutes } from "../../type/routes";
 import { useQuery } from "@tanstack/react-query";
 import { customFetch } from "../../utils/utils";
+import Container from "../../components/Layout/Container";
+import Title from "../../components/Typography/TitleComponent";
 
 const LogsPage: React.FC = () => {
     const { t } = useTranslation();
@@ -29,12 +31,10 @@ const LogsPage: React.FC = () => {
     }
 
     return (
-        <div className="p-4">
-            <div className="mt-14 p-4">
-                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Log Files")}</h1>
-            </div>
+        <Container>
+            <Title title={t("Log Files")} />
             {isLoading ? <div>{t("Loading")}</div> : <TableLogs items={log} />}
-        </div>
+        </Container>
     );
 };
 

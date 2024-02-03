@@ -5,6 +5,7 @@ import CategoryComponent from "../../../components/Media/Category";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import Container from "../../../components/Layout/Container";
+import Title from "../../../components/Typography/TitleComponent";
 
 const fetchCategories = async (): Promise<Category[]> => {
     const url = getApiRoute(ApiRoutes.GET_VIDEO_CATEGORY_ALL_DONE);
@@ -42,9 +43,7 @@ const CategoryPage: React.FC = () => {
 
     return (
         <Container>
-            <div className="mt-14 p-4">
-                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Categories")}</h1>
-            </div>
+            <Title title={t("Categories")} />
             <CategoryComponent categories={categories} />
         </Container>
     );

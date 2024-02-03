@@ -6,6 +6,8 @@ import { ApiRoutes } from "../../type/routes";
 import { useQuery } from "@tanstack/react-query";
 import { customFetch } from "../../utils/utils";
 import NotFound from "../../components/Others/NotFound";
+import Container from "../../components/Layout/Container";
+import Title from "../../components/Typography/TitleComponent";
 
 const EventSubPage: React.FC = () => {
     const { t } = useTranslation();
@@ -30,10 +32,8 @@ const EventSubPage: React.FC = () => {
     }
 
     return (
-        <div className="p-4">
-            <div className="mt-14 p-4">
-                <h1 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("EventSub subscriptions")}</h1>
-            </div>
+        <Container>
+            <Title title={t("EventSub subscriptions")} />
             {eventSubs.data ? (
                 <div className="flex  flex-col gap-3">
                     <span className="pb-5 dark:text-stone-100">
@@ -47,7 +47,7 @@ const EventSubPage: React.FC = () => {
             ) : (
                 <NotFound text={t("There is no EventSub subscription")} />
             )}
-        </div>
+        </Container>
     );
 };
 
