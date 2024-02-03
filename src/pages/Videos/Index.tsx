@@ -110,7 +110,7 @@ const VideosPage: React.FC = () => {
                 {view.value === "grid" && (
                     <div className="space-x-2">
                         <DropdownButton
-                            label={t("Order")}
+                            label={t("Sort")}
                             options={orderOptions}
                             onOptionSelected={handleOrderSelected}
                             icon="lucide:arrow-up-down"

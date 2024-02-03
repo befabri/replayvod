@@ -90,7 +90,7 @@ const ChannelPage: React.FC = () => {
                 <div className="mb-4 flex items-center justify-end space-x-5">
                     <div className="space-x-2">
                         <DropdownButton
-                            label={t("Order")}
+                            label={t("Sort")}
                             options={orderOptions}
                             onOptionSelected={handleOrderSelected}
                             icon="lucide:arrow-up-down"
