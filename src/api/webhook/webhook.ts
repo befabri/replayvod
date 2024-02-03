@@ -72,7 +72,7 @@ export const handleDownload = (event: any) => {
 export const handleWebhookEvent = async (eventType: SubscriptionType, event: TwitchEvent) => {
     try {
         const webhookEvent = transformWebhookEvent(eventType, event.broadcaster_user_id);
-        logger.info(`Transformed webhook: ${webhookEvent}`);
+        logger.info(`Transformed webhook: ${JSON.stringify(webhookEvent)}`);
         if (!webhookEvent) {
             return;
         }
