@@ -1,15 +1,8 @@
 import { Category, Channel, UserFollowedChannels, Stream, Subscription, Tag, Title } from "@prisma/client";
-import {
-    FollowedChannel as TwitchFollowedChannel,
-    Game as TwitchGame,
-    User as TwitchUser,
-    Stream as TwitchStream,
-    EventSubData as TwitchEventSubData,
-    EventSubResponse as TwitchEventSubResponse,
-    EventSubMeta,
-} from "../../models/twitchModel";
+import { EventSubMeta, EventSubResponse } from "../../models/twitchModel";
+import { EventSubDataSchemaType, FollowedChannelType, GameType, StreamType, UserType } from "./twitchSchema";
 
-export const transformTwitchUser = (user: TwitchUser): Channel => {
+export const transformTwitchUser = (user: UserType): Channel => {
     return {
         broadcasterId: user.id,
         broadcasterLogin: user.login,
@@ -26,10 +19,7 @@ export const transformTwitchUser = (user: TwitchUser): Channel => {
     };
 };
 
-export const transformFollowedChannel = async (
-    channel: TwitchFollowedChannel,
-    userId: string
-): Promise<UserFollowedChannels> => {
+export const transformFollowedChannel = (channel: FollowedChannelType, userId: string): UserFollowedChannels => {
     const transformedChannel = {
         broadcasterId: channel.broadcaster_id,
         userId: userId,
@@ -39,9 +29,9 @@ export const transformFollowedChannel = async (
     return transformedChannel;
 };
 
-export const transformStream = async (
-    stream: TwitchStream
-): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> }> => {
+export const transformStream = (
+    stream: StreamType
+): { stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> } => {
     const transformedStream = {
         id: stream.id,
         fetchId: "",
@@ -67,7 +57,7 @@ export const transformStream = async (
     };
 };
 
-export const transformCategory = (game: TwitchGame): Category => {
+export const transformCategory = (game: GameType): Category => {
     return {
         id: game.id,
         boxArtUrl: game.box_art_url,
@@ -76,7 +66,7 @@ export const transformCategory = (game: TwitchGame): Category => {
     };
 };
 
-export const transformEventSub = (eventSub: TwitchEventSubData): Subscription => {
+export const transformEventSub = (eventSub: EventSubDataSchemaType): Subscription => {
     const userId = eventSub.condition.broadcaster_user_id || eventSub.condition.user_id;
     return {
         id: eventSub.id,
@@ -88,7 +78,7 @@ export const transformEventSub = (eventSub: TwitchEventSubData): Subscription =>
     };
 };
 
-export const transformEventSubMeta = (eventSubResponse: TwitchEventSubResponse): EventSubMeta => {
+export const transformEventSubMeta = (eventSubResponse: EventSubResponse): EventSubMeta => {
     return {
         total: eventSubResponse.total,
         total_cost: eventSubResponse.total_cost,

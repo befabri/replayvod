@@ -131,6 +131,7 @@ export const getEventSub = async (userId: string): Promise<EventSubDTO> => {
                 maxTotalCost: eventSub.meta.max_total_cost,
             },
         });
+
         const processPromises = eventSub.subscriptions.map(async (sub) => {
             const broadcasterExists = await channelFeature.channelExists(sub.broadcasterId);
             if (!broadcasterExists) {

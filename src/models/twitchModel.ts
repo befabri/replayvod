@@ -1,4 +1,4 @@
-export interface Stream {
+export interface StreamResponse {
     id: string;
     user_id: string;
     user_login: string;
@@ -16,14 +16,14 @@ export interface Stream {
     is_mature?: boolean;
 }
 
-export interface Game {
+export interface GameResponse {
     id: string;
     name: string;
     box_art_url: string;
     igdb_id: string;
 }
 
-export interface User {
+export interface UserResponse {
     id: string;
     login: string;
     display_name: string;
@@ -37,7 +37,7 @@ export interface User {
     created_at: string;
 }
 
-export interface FollowedChannel {
+export interface FollowedChannelResponse {
     broadcaster_id: string;
     broadcaster_login: string;
     broadcaster_name: string;
