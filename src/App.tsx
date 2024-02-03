@@ -22,7 +22,7 @@ import WatchPage from "./pages/Watch/Index";
 import LoginPage from "./pages/Login/Index";
 import QueuePage from "./pages/Activity/QueuePage";
 import DashboardPage from "./pages/Dashboard/Index";
-import EventSubPage from "./pages/System/EventSub";
+import EventSubPage from "./pages/System/EventSubPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 const queryClient = new QueryClient();
