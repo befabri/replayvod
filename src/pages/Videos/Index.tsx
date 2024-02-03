@@ -35,8 +35,8 @@ const fetchData = async () => {
 const VideosPage: React.FC = () => {
     const { t } = useTranslation();
     const location = useLocation();
-    const [view, setView] = useState({ value: "grid", label: "Grid" });
-    const [selectedOrder, setSelectedOrder] = useState({ value: "recently", label: t("Recently Added") });
+    const [view, setView] = useState({ value: "grid", label: "View" });
+    const [selectedOrder, setSelectedOrder] = useState({ value: "recently", label: t("Order") });
     const [sortedVideos, setSortedVideos] = useState<CompletedVideo[]>([]);
     const navigate = useNavigate();
 
@@ -47,14 +47,14 @@ const VideosPage: React.FC = () => {
     });
 
     const orderOptions = [
-        { value: "recently", label: t("Recently Added") },
-        { value: "channel_asc", label: t("Channel (A-Z)") },
-        { value: "channel_desc", label: t("Channel (Z-A)") },
+        { value: "recently", label: t("Recently Added"), icon: "mdi:sort-clock-ascending" },
+        { value: "channel_asc", label: t("Channel (A-Z)"), icon: "mdi:sort-alphabetical-ascending" },
+        { value: "channel_desc", label: t("Channel (Z-A)"), icon: "mdi:sort-alphabetical-descending" },
     ];
 
     const viewOptions = [
-        { value: "grid", label: t("Grid") },
-        { value: "table", label: t("Table") },
+        { value: "grid", label: t("Grid"), icon: "mdi:view-grid" },
+        { value: "table", label: t("Table"), icon: "mdi:table-large" },
     ];
 
     const sortVideos = (videos: CompletedVideo[], sortOrder: string) => {
@@ -70,10 +70,17 @@ const VideosPage: React.FC = () => {
     };
 
     useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const sortParam = params.get("sort");
+        const newOrder = orderOptions.find((option) => option.value === sortParam) || orderOptions[0];
+        setSelectedOrder(newOrder);
+
         if (videos) {
             setSortedVideos(sortVideos(videos, selectedOrder.value));
         }
-    }, [videos, selectedOrder]);
+        // orderOptions
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [videos, location.search]);
 
     const handleOrderSelected = (value: string) => {
         const selectedOption = orderOptions.find((option) => option.value === value);
@@ -103,17 +110,19 @@ const VideosPage: React.FC = () => {
                 {view.value === "grid" && (
                     <div className="space-x-2">
                         <DropdownButton
-                            label={selectedOrder.label}
+                            label={t("Order")}
                             options={orderOptions}
                             onOptionSelected={handleOrderSelected}
+                            icon="lucide:arrow-up-down"
                         />
                     </div>
                 )}
                 <div className="space-x-2">
                     <DropdownButton
-                        label={view.label}
+                        label={t("View")}
                         options={viewOptions}
                         onOptionSelected={handleViewSelected}
+                        icon="mdi-slider"
                     />
                 </div>
             </div>

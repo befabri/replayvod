@@ -12,7 +12,7 @@ const ChannelPage: React.FC = () => {
     const { t } = useTranslation();
     const location = useLocation();
     const navigate = useNavigate();
-    const [selectedOrder, setSelectedOrder] = useState({ value: "channel_asc", label: t("Channel (A-Z)") });
+    const [_selectedOrder, setSelectedOrder] = useState({ value: "channel_asc", label: t("Order") });
     const [sortedChannels, setSortedChannels] = useState<Channel[]>([]);
 
     const {
@@ -28,7 +28,7 @@ const ChannelPage: React.FC = () => {
 
     const {
         data: streams,
-        isLoading: _isLoadingStreams,
+        isLoading: isLoadingStreams,
         isError: isErrorStreams,
         error: errorStreams,
     } = useQuery<Stream[], Error>({
@@ -42,8 +42,8 @@ const ChannelPage: React.FC = () => {
     const error = errorChannels || errorStreams;
 
     const orderOptions = [
-        { value: "channel_asc", label: t("Channel (A-Z)") },
-        { value: "channel_desc", label: t("Channel (Z-A)") },
+        { value: "channel_asc", label: t("Channel (A-Z)"), icon: "mdi:sort-alphabetical-ascending" },
+        { value: "channel_desc", label: t("Channel (Z-A)"), icon: "mdi:sort-alphabetical-descending" },
     ];
 
     const sortChannels = (channels: Channel[], sortOrder: string) => {
@@ -90,18 +90,21 @@ const ChannelPage: React.FC = () => {
                 <div className="mb-4 flex items-center justify-end space-x-5">
                     <div className="space-x-2">
                         <DropdownButton
-                            label={t(selectedOrder.label)}
+                            label={t("Order")}
                             options={orderOptions}
                             onOptionSelected={handleOrderSelected}
+                            icon="lucide:arrow-up-down"
                         />
                     </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
                     {sortedChannels.map((channel) => {
-                        const isLive = streams?.some(
-                            (stream) => stream.broadcasterId === channel.broadcasterId && stream.type === "live"
-                        );
-
+                        const isLive =
+                            !isLoadingStreams &&
+                            streams?.some(
+                                (stream) =>
+                                    stream.broadcasterId === channel.broadcasterId && stream.type === "live"
+                            );
                         return (
                             <Link
                                 to={`${Pathnames.Video.Channel}/${channel.broadcasterLogin}`}
