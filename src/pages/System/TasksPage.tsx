@@ -5,8 +5,7 @@ import { Task } from "../../type";
 import { ApiRoutes } from "../../type/routes";
 import { customFetch } from "../../utils/utils";
 import { useQuery } from "@tanstack/react-query";
-import Container from "../../components/Layout/Container";
-import Title from "../../components/Typography/TitleComponent";
+import TitledLayout from "../../components/Layout/TitledLayout";
 
 const TasksPage: React.FC = () => {
     const { t } = useTranslation();
@@ -31,10 +30,9 @@ const TasksPage: React.FC = () => {
     }
 
     return (
-        <Container>
-            <Title title={t("Tasks Scheduled")} />
+        <TitledLayout title={t("Tasks Scheduled")}>
             {isLoading ? <div>{t("Loading")}</div> : <TableTasks items={tasks} />}
-        </Container>
+        </TitledLayout>
     );
 };
 

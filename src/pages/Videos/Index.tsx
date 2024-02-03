@@ -7,8 +7,7 @@ import VideoComponent from "../../components/Media/Video";
 import { ApiRoutes, getApiRoute } from "../../type/routes";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import Container from "../../components/Layout/Container";
-import Title from "../../components/Typography/TitleComponent";
+import TitledLayout from "../../components/Layout/TitledLayout";
 
 const fetchImage = async (url: string | URL | Request) => {
     const response = await fetch(url, { credentials: "include" });
@@ -103,8 +102,7 @@ const VideosPage: React.FC = () => {
     }
 
     return (
-        <Container>
-            <Title title={t("Videos")} />
+        <TitledLayout title={t("Videos")}>
             <div className="mb-4 flex items-center justify-end space-x-5">
                 {view.value === "grid" && (
                     <div className="space-x-2">
@@ -138,7 +136,7 @@ const VideosPage: React.FC = () => {
                     />
                 </div>
             )}
-        </Container>
+        </TitledLayout>
     );
 };
 

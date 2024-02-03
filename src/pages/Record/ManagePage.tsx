@@ -9,8 +9,7 @@ import ScheduleModal from "../../components/UI/Modal/ScheduleModal";
 import NotFound from "../../components/Others/NotFound";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Badge from "../../components/UI/Badge/Badge";
-import Title from "../../components/Typography/TitleComponent";
-import Container from "../../components/Layout/Container";
+import TitledLayout from "../../components/Layout/TitledLayout";
 
 const ManagePage: React.FC = () => {
     const { t } = useTranslation();
@@ -116,8 +115,7 @@ const ManagePage: React.FC = () => {
     }
 
     return (
-        <Container>
-            <Title title={t("Manage Schedule")} />
+        <TitledLayout title={t("Manage Schedule")}>
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(600px,1fr))]">
                 {schedules.map((schedule, idx) => (
                     <div
@@ -196,7 +194,7 @@ const ManagePage: React.FC = () => {
                     />
                 )}
             </div>
-        </Container>
+        </TitledLayout>
     );
 };
 

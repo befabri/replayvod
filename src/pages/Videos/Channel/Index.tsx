@@ -5,9 +5,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Channel, Stream } from "../../../type";
 import DropdownButton from "../../../components/UI/Button/ButtonDropdown";
 import { useQuery } from "@tanstack/react-query";
-import Container from "../../../components/Layout/Container";
 import { customFetch } from "../../../utils/utils";
-import Title from "../../../components/Typography/TitleComponent";
+import TitledLayout from "../../../components/Layout/TitledLayout";
 
 const ChannelPage: React.FC = () => {
     const { t } = useTranslation();
@@ -85,8 +84,7 @@ const ChannelPage: React.FC = () => {
     }
 
     return (
-        <Container>
-            <Title title={t("Channels")} />
+        <TitledLayout title={t("Channels")}>
             <div className="mb-4 flex items-center justify-end space-x-5">
                 <div className="space-x-2">
                     <DropdownButton
@@ -128,7 +126,7 @@ const ChannelPage: React.FC = () => {
                     );
                 })}
             </div>
-        </Container>
+        </TitledLayout>
     );
 };
 export default ChannelPage;

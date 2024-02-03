@@ -4,8 +4,7 @@ import { ApiRoutes, getApiRoute } from "../../../type/routes";
 import CategoryComponent from "../../../components/Media/Category";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import Container from "../../../components/Layout/Container";
-import Title from "../../../components/Typography/TitleComponent";
+import TitledLayout from "../../../components/Layout/TitledLayout";
 
 const fetchCategories = async (): Promise<Category[]> => {
     const url = getApiRoute(ApiRoutes.GET_VIDEO_CATEGORY_ALL_DONE);
@@ -42,10 +41,9 @@ const CategoryPage: React.FC = () => {
     }
 
     return (
-        <Container>
-            <Title title={t("Categories")} />
+        <TitledLayout title={t("Categories")}>
             <CategoryComponent categories={categories} />
-        </Container>
+        </TitledLayout>
     );
 };
 

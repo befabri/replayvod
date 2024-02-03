@@ -5,8 +5,7 @@ import { Video } from "../../type";
 import { ApiRoutes } from "../../type/routes";
 import { customFetch } from "../../utils/utils";
 import { useQuery } from "@tanstack/react-query";
-import Container from "../../components/Layout/Container";
-import Title from "../../components/Typography/TitleComponent";
+import TitledLayout from "../../components/Layout/TitledLayout";
 
 const QueuePage: React.FC = () => {
     const { t } = useTranslation();
@@ -31,14 +30,13 @@ const QueuePage: React.FC = () => {
     }
 
     return (
-        <Container>
-            <Title title={t("Queue")} />
+        <TitledLayout title={t("Queue")}>
             {isLoading ? (
                 <div>{t("Loading")}</div>
             ) : (
                 <Table items={videos} showEdit={false} showCheckbox={false} showId={false} />
             )}
-        </Container>
+        </TitledLayout>
     );
 };
 

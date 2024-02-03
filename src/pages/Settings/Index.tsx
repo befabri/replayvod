@@ -10,8 +10,7 @@ import { DateTimeFormats } from "../../type";
 import { timeZones } from "../../utils/timezones";
 import Button from "../../components/UI/Button/Button";
 import { useQuery } from "@tanstack/react-query";
-import Container from "../../components/Layout/Container";
-import Title from "../../components/Typography/TitleComponent";
+import TitledLayout from "../../components/Layout/TitledLayout";
 
 const fetchSettings = async (): Promise<SettingsForm> => {
     const url = getApiRoute(ApiRoutes.GET_SETTINGS);
@@ -91,8 +90,7 @@ const SettingsPage: React.FC = () => {
     if (isError) return <div>{t("Error")}</div>;
 
     return (
-        <Container>
-            <Title title={t("Settings")} />
+        <TitledLayout title={t("Settings")}>
             <form onSubmit={handleSubmit(onSubmit)}>
                 <div className="mt-5">
                     <div className="mt-5">
@@ -120,7 +118,7 @@ const SettingsPage: React.FC = () => {
                     </div>
                 </div>
             </form>
-        </Container>
+        </TitledLayout>
     );
 };
 

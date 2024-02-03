@@ -1,17 +1,15 @@
 import React from "react";
 import ScheduleComponent from "../../components/Others/ScheduleForm";
 import { useTranslation } from "react-i18next";
-import Title from "../../components/Typography/TitleComponent";
-import Container from "../../components/Layout/Container";
+import TitledLayout from "../../components/Layout/TitledLayout";
 
 const AddChannelPage: React.FC = () => {
     const { t } = useTranslation();
 
     return (
-        <Container>
-            <Title title={t("Schedule")} />
+        <TitledLayout title={t("Schedule")}>
             <ScheduleComponent />
-        </Container>
+        </TitledLayout>
     );
 };
 

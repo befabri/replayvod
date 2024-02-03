@@ -6,8 +6,9 @@ import VideoComponent from "../../../components/Media/Video";
 import { ApiRoutes, getApiRoute } from "../../../type/routes";
 import NotFound from "../../../components/Others/NotFound";
 import { useQuery } from "@tanstack/react-query";
-import Container from "../../../components/Layout/Container";
 import Button from "../../../components/UI/Button/Button";
+import Layout from "../../../components/Layout/Layout";
+import Title from "../../../components/Typography/TitleComponent";
 
 const fetchImage = async (url: RequestInfo | URL): Promise<string> => {
     const response = await fetch(url, { credentials: "include" });
@@ -74,13 +75,13 @@ const ChannelDetailPage: React.FC = () => {
 
     if (!data || isError) {
         return (
-            <Container>
+            <Layout>
                 <div className="mt-14 flex flex-row items-center gap-3 p-4"></div>
                 <div className="mt-5">
                     <h2 className="pb-5 text-2xl font-bold dark:text-stone-100">{t("Videos")}</h2>
                     <NotFound text={t("Channel not found.")} />;
                 </div>
-            </Container>
+            </Layout>
         );
     }
 
@@ -88,16 +89,14 @@ const ChannelDetailPage: React.FC = () => {
 
     if (videos.length === 0) {
         return (
-            <Container>
+            <Layout>
                 <div className="flex flex-row items-center gap-3">
                     <img
                         className="h-12 min-h-[10px] w-12 min-w-[10px] rounded-full"
                         src={data?.channel.profilePicture}
                         alt="Profile Picture"
                     />
-                    <h1 className="mr-1 text-3xl font-bold dark:text-stone-100">
-                        {data?.channel.broadcasterName}
-                    </h1>
+                    <Title title={data?.channel.broadcasterName} />
                     <Button onClick={() => handleClick(data.channel.broadcasterId)} style={"svg"}>
                         <svg
                             className="h-4 w-4 fill-current"
@@ -111,30 +110,30 @@ const ChannelDetailPage: React.FC = () => {
                     <h2 className="pb-5 text-2xl font-bold dark:text-stone-100">{t("Videos")}</h2>
                     <NotFound text={t("No video found.")} />;
                 </div>
-            </Container>
+            </Layout>
         );
     }
 
     return (
-        <Container>
-            <div className="mt-14 flex flex-row items-center gap-3 p-4">
+        <Layout>
+            <div className="flex flex-row items-center gap-3 pb-8">
                 <img
                     className="h-12 min-h-[10px] w-12 min-w-[10px] rounded-full"
                     src={channel.profilePicture}
                     alt="Profile Picture"
                 />
-                <h1 className="mr-1 text-3xl font-bold dark:text-stone-100">{channel.broadcasterName}</h1>
+                <Title title={channel.broadcasterName} />
                 <Button onClick={() => handleClick(channel.broadcasterId)} style={"svg"}>
                     <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
                         <path d="M13 8V2H7v6H2l8 8 8-8h-5zM0 18h20v2H0v-2z" />
                     </svg>
                 </Button>
             </div>
-            <div className="mt-5">
-                <h2 className="pb-5 text-2xl font-bold dark:text-stone-100">{t("Videos")}</h2>
+            <div>
+                <h2 className="pb-5 text-3xl font-bold dark:text-stone-100">{t("Videos")}</h2>
                 {videos && <VideoComponent videos={videos} disablePicture={true} />}
             </div>
-        </Container>
+        </Layout>
     );
 };
 
