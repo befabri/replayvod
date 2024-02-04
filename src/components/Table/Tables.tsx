@@ -154,14 +154,16 @@ const Table = ({
                             )}
                             <td className="px-6 py-2.5" title={video.displayName}>
                                 <div className="flex items-center gap-4">
-                                    <HrefLink
-                                        to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
-                                        <img
-                                            className="h-10 w-10 rounded-full"
-                                            src={video.channel.profilePicture}
-                                            alt="Profile Picture"
-                                        />
-                                    </HrefLink>
+                                    <div className="h-10 w-10">
+                                        <HrefLink
+                                            to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
+                                            <img
+                                                className="h-10 w-10 rounded-full object-cover"
+                                                src={video.channel.profilePicture}
+                                                alt="Profile Picture"
+                                            />
+                                        </HrefLink>
+                                    </div>
                                     <HrefLink
                                         to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
                                         {video.displayName}
