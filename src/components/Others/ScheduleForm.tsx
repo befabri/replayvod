@@ -187,25 +187,27 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
     return (
         <form onSubmit={handleSubmit(onSubmit)}>
-            <div>
-                <Controller
-                    name="channelName"
-                    control={control}
-                    render={({ field }) => (
-                        <DropdownSearchInput
-                            id="channelName"
-                            label={t("Channel Name")}
-                            placeholder={t("Channel Name")}
-                            required={true}
-                            error={errors.channelName}
-                            options={channels.map((match) => match.broadcasterLogin)}
-                            disabled={defaultValue.isChannelNameDisabled}
-                            onChannelChange={field.onChange}
-                            value={field.value}
-                        />
-                    )}
-                />
-                <div className="mt-5">
+            <div className="flex flex-col gap-4 px-4 md:px-7">
+                <div className="flex flex-col gap-2">
+                    <Controller
+                        name="channelName"
+                        control={control}
+                        render={({ field }) => (
+                            <DropdownSearchInput
+                                id="channelName"
+                                label={t("Channel Name")}
+                                placeholder={t("Channel Name")}
+                                required={true}
+                                error={errors.channelName}
+                                options={channels.map((match) => match.broadcasterLogin)}
+                                disabled={defaultValue.isChannelNameDisabled}
+                                onChannelChange={field.onChange}
+                                value={field.value}
+                            />
+                        )}
+                    />
+                </div>
+                <div className="flex flex-col gap-2">
                     <Select
                         label={t("Video quality")}
                         id="quality"
@@ -215,7 +217,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         options={[Quality.LOW, Quality.MEDIUM, Quality.HIGH]}
                     />
                 </div>
-                <div className="mt-5">
+                <div className="flex flex-col gap-2">
                     <Checkbox
                         label={t("Deletion of the video if the VOD is kept after the stream")}
                         helperText={t("Set the stream end time in minutes before the VOD is suppressed")}
@@ -232,8 +234,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         minValue={MIN_TIME_BEFORE_DELETE}
                     />
                 </div>
-
-                <div className="mt-5">
+                <div className="flex flex-col gap-2">
                     <Checkbox
                         label={t("Minimum number of views")}
                         id="hasMinView"
@@ -249,7 +250,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         minValue={MIN_VIEWERS_COUNT}
                     />
                 </div>
-                <div className="mt-5">
+                <div className="flex flex-col gap-2">
                     <Checkbox
                         label={t("Game category")}
                         id="hasCategory"
@@ -271,7 +272,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                         )}
                     />
                 </div>
-                <div className="mt-5">
+                <div className="flex flex-col gap-2">
                     <Checkbox
                         label={t("Twitch tags")}
                         id="hasTags"
@@ -295,7 +296,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                 </div>
             </div>
             {!isModal && (
-                <div className="mt-5">
+                <div className="px-4 md:px-7">
                     <Button
                         text={t("Add Schedule")}
                         typeButton="submit"
@@ -304,7 +305,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                 </div>
             )}
             {isModal && (
-                <div className="mt-4 flex items-center justify-between rounded-b border-t-2  border-gray-200 p-4 dark:border-custom_delft_blue md:p-5">
+                <div className="mt-6 flex items-center justify-between rounded-b border-t-2 border-gray-200 p-4 dark:border-custom_delft_blue md:p-5">
                     <Button onClick={modal.onDelete} style="primary">
                         {t("Delete")}
                     </Button>

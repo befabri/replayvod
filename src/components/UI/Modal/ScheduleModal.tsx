@@ -87,7 +87,7 @@ const ScheduleModal: React.FC<ScheduleModalProps> = ({ isOpen, onClose, onSchedu
                             <Icon icon="mdi:close" width="18" height="18" />
                         </button>
                     </div>
-                    <div className="mt-2 space-y-4 p-4">
+                    <div className="mt-2 space-y-4">
                         <ScheduleForm
                             modal={{
                                 onClose,
