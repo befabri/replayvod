@@ -16,12 +16,14 @@ try {
     }
     process.exit(1);
 }
-const formatDateTime = () => DateTime.now().setZone("Europe/Paris").toISO();
+
+const formatDateTime = () => DateTime.now().setZone('Europe/Paris').toFormat('dd-MM-yyyy HH:mm:ss');
 
 app = fastify({
     logger: {
         level: "info",
         timestamp: () => `,"time":"${formatDateTime()}"`,
+        base: null,
     },
 });
 
