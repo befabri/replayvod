@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { capitalizeFirstLetter, toKebabCase, formatDate, truncateString } from "../../utils/utils";
 import { Pathnames } from "../../type/routes";
 import HrefLink from "../UI/Navigation/HrefLink";
+import React from "react";
 
 type ExtendedTableProps = {
     showEdit?: boolean;
@@ -80,6 +81,15 @@ const Table = ({
         setItems(sortedData);
     };
 
+    const tableFieldDisplayNames: { [key in keyof Video]?: string } = {
+        displayName: "Channel",
+        videoCategory: "Category",
+        titles: "Title",
+        filename: "Filename",
+        status: "Status",
+        startDownloadAt: "Download At",
+    };
+
     const fields: (keyof Video)[] = [
         "displayName",
         "videoCategory",
@@ -92,7 +102,7 @@ const Table = ({
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
             <table className="w-full text-left text-sm text-gray-500 dark:text-gray-400">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-700 dark:bg-custom_lightblue dark:text-gray-400">
+                <thead className="bg-gray-50 uppercase text-gray-700 dark:bg-custom_lightblue dark:text-gray-400">
                     <tr>
                         {showCheckbox && (
                             <th scope="col" className="p-0">
@@ -111,7 +121,7 @@ const Table = ({
                         {fields.map((field) => (
                             <th key={field} scope="col" className="px-6 py-3">
                                 <div className="flex items-center">
-                                    {t(capitalizeFirstLetter(field).replaceAll("_", " "))}
+                                    {tableFieldDisplayNames[field]}
                                     <Icon onClick={() => handleSort(field)} />
                                 </div>
                             </th>
@@ -142,21 +152,35 @@ const Table = ({
                                     {video.id}
                                 </th>
                             )}
-                            <td className="px-6 py-4" title={video.displayName}>
-                                <HrefLink to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
-                                    {video.displayName}
-                                </HrefLink>
-                            </td>
-                            <td className="px-6 py-4" title={video.videoCategory[0].name}>
-                                {video.videoCategory.map((cat) => (
+                            <td className="px-6 py-2.5" title={video.displayName}>
+                                <div className="flex items-center gap-4">
                                     <HrefLink
-                                        to={`${Pathnames.Video.Category}/${toKebabCase(cat.name)}`}
-                                        key={cat.id}>
-                                        <span key={cat.id}>{cat.name}</span>
+                                        to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
+                                        <img
+                                            className="h-10 w-10 rounded-full"
+                                            src={video.channel.profilePicture}
+                                            alt="Profile Picture"
+                                        />
                                     </HrefLink>
-                                ))}
+                                    <HrefLink
+                                        to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
+                                        {video.displayName}
+                                    </HrefLink>
+                                </div>
                             </td>
-                            <td className="px-6 py-4" title={video.titles[0]}>
+                            <td className="px-6 py-2.5" title={video.videoCategory[0].name}>
+                                <div className="flex flex-row items-center gap-2">
+                                    {video.videoCategory.map((cat, index) => (
+                                        <React.Fragment key={cat.id}>
+                                            <HrefLink to={`${Pathnames.Video.Category}/${toKebabCase(cat.name)}`}>
+                                                <span>{cat.name}</span>
+                                            </HrefLink>
+                                            {index < video.videoCategory.length - 1 && <span> - </span>}
+                                        </React.Fragment>
+                                    ))}
+                                </div>
+                            </td>
+                            <td className="px-6 py-2.5" title={video.titles[0]}>
                                 {video.status !== "DONE" ? (
                                     truncateString(video.titles[0], 40)
                                 ) : (
@@ -166,20 +190,20 @@ const Table = ({
                                 )}
                             </td>
 
-                            <td className="px-6 py-4" title={video.filename}>
+                            <td className="px-6 py-2.5" title={video.filename}>
                                 {video.filename}
                             </td>
                             {showStatus && (
-                                <td className="px-6 py-4" title={video.status}>
+                                <td className="px-6 py-2.5" title={video.status}>
                                     {t(video.status)}
                                 </td>
                             )}
 
-                            <td className="px-6 py-4" title={formatDate(video.startDownloadAt, storedTimeZone)}>
+                            <td className="px-6 py-2.5" title={formatDate(video.startDownloadAt, storedTimeZone)}>
                                 {formatDate(video.startDownloadAt, storedTimeZone)}
                             </td>
                             {showEdit && (
-                                <td className="px-6 py-4">
+                                <td className="px-6 py-2.5">
                                     <a
                                         href="#"
                                         className="font-medium text-blue-600 hover:underline dark:text-blue-500">

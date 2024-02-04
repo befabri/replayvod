@@ -18,6 +18,7 @@ export interface Video {
     titles: string[];
     videoCategory: Category[];
     isChecked?: boolean;
+    channel: Channel;
 }
 
 type WithNotNull<T, K extends keyof T> = {
@@ -29,7 +30,6 @@ type CompletedVideoConstraints = {
     downloadedAt: Date;
     size: number;
     thumbnail: string;
-    channel: Channel;
     playUrl?: string;
 };
 
