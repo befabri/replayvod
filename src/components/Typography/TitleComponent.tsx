@@ -1,11 +1,15 @@
-import { FC } from "react";
+import React from "react";
 
-interface TitleProps {
+interface TitleProps extends React.ComponentPropsWithoutRef<"h1"> {
     title: string;
 }
 
-const Title: FC<TitleProps> = ({ title }) => {
-    return <h1 className="text-4xl font-bold dark:text-stone-100">{title}</h1>;
+const Title = ({ title, ...props }: TitleProps) => {
+    return (
+        <h1 {...props} className={`text-4xl font-bold dark:text-stone-100 ${props.className || ""}`}>
+            {title}
+        </h1>
+    );
 };
 
 export default Title;
