@@ -134,8 +134,6 @@ export const getChannelStream = async (
 export const createStreamEntry = async ({ fetchId, stream, tags, category, title }: CreateStreamEntry) => {
     try {
         await prisma.$transaction(async (tx) => {
-            logger.info("Beginning transaction...");
-
             const streamInserted = await tx.stream.upsert({
                 where: { id: stream.id },
                 update: {
@@ -163,7 +161,6 @@ export const createStreamEntry = async ({ fetchId, stream, tags, category, title
                     tx as PrismaClient
                 );
             }
-            logger.info("Ending transaction...");
             return streamInserted;
         });
     } catch (error) {
