@@ -18,7 +18,7 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
     return (
         <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[repeat(auto-fit,minmax(400px,1fr))]">
             {videos?.map((video) => (
-                <div className="w-full" key={video.id} ref={divRef}>
+                <div className="mb-2 w-full" key={video.id} ref={divRef}>
                     <div className="relative border-4 border-custom_black hover:border-custom_vista_blue">
                         <Link to={`${Pathnames.Watch}${video.id}`}>
                             <img src={`${video.thumbnail}`} alt={`${video.displayName}`} />
@@ -38,14 +38,14 @@ const VideoComponent: FC<VideoProps> = ({ videos, disablePicture = false }) => {
                 </div>
             ))}
             {hasOneOrTwoVideos && (
-                <div className="w-full opacity-0">
+                <div className="mb-2 w-full opacity-0">
                     <a href="#">
                         <img alt="dummy" />
                     </a>
                 </div>
             )}
             {videos?.length === 1 && (
-                <div className="w-full opacity-0">
+                <div className="mb-2 w-full opacity-0">
                     <a href="#">
                         <img alt="dummy" />
                     </a>
