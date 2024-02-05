@@ -3,10 +3,11 @@ import Icon from "../UI/Icon/IconSort";
 import Checkbox from "./CheckBoxTable";
 import { Video, TableProps, Category } from "../../type";
 import { useTranslation } from "react-i18next";
-import { capitalizeFirstLetter, toKebabCase, formatDate, truncateString } from "../../utils/utils";
+import { toKebabCase, formatDate, truncateString } from "../../utils/utils";
 import { Pathnames } from "../../type/routes";
 import HrefLink from "../UI/Navigation/HrefLink";
 import React from "react";
+import ProfileImage from "../Profile/ProfileImage";
 
 type ExtendedTableProps = {
     showEdit?: boolean;
@@ -157,10 +158,10 @@ const Table = ({
                                     <div className="h-10 w-10">
                                         <HrefLink
                                             to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}>
-                                            <img
-                                                className="h-10 w-10 rounded-full object-cover"
-                                                src={video.channel.profilePicture}
-                                                alt="Profile Picture"
+                                            <ProfileImage
+                                                url={video.channel.profilePicture}
+                                                height={"10"}
+                                                width={"10"}
                                             />
                                         </HrefLink>
                                     </div>
