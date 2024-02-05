@@ -1,7 +1,7 @@
 import axios from "axios";
 import { chunkArray } from "../../utils/utils";
 import { env, logger as rootLogger } from "../../app";
-import { getAppAccessToken } from "./twitchUtils";
+import { getAppAccessToken } from "./twitchAccessToken";
 import {
     EventSubResponse,
     FollowedChannelResponse,
