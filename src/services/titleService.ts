@@ -13,7 +13,7 @@ const createTitle = async (title: Omit<Title, "id">) => {
                 data: title,
             });
         } else {
-            logger.info("Title already exists: %s", title.name);
+            logger.debug("Title already exists: %s", title.name);
             return existingTitle;
         }
     } catch (error) {

@@ -56,7 +56,6 @@ export async function checkSession(req: FastifyRequest, reply: FastifyReply): Pr
                 } else {
                     req.session.user.twitchToken = { ...req.session.user.twitchToken, ...result };
                     logger.info("Token refreshed");
-                    logger.info(req.session.user.twitchToken);
                 }
             }
             reply.status(200).send({

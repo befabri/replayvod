@@ -77,7 +77,6 @@ export const updateChannel = async (broadcasterId: string): Promise<Channel | nu
 export const getChannelByName = async (login: string): Promise<Channel | null> => {
     try {
         let channel = await getChannelDbByName(login);
-        logger.info(`channel: ${channel}`);
         if (!channel) {
             const channelData = await twitchService.getUserByLogin(login);
             if (!channelData) {

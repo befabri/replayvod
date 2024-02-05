@@ -13,7 +13,7 @@ const createTag = async (tag: Tag) => {
                 data: tag,
             });
         } else {
-            logger.info("Tag already exists: %s", tag.name);
+            logger.debug("Tag already exists: %s", tag.name);
             return existingTag;
         }
     } catch (error) {

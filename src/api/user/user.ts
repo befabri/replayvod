@@ -155,8 +155,6 @@ const getUserFollowedChannelsLastFetch = async (userId: string) => {
 
 export const getUserFollowedChannels = async (userId: string, accessToken: string) => {
     try {
-        logger.info("userId %s", userId);
-        logger.info("accessToken %s", accessToken);
         const lastUserFollowedChannelsFetch = await getUserFollowedChannelsLastFetch(userId);
         if (lastUserFollowedChannelsFetch) {
             return lastUserFollowedChannelsFetch;
@@ -181,7 +179,7 @@ export const getUserFollowedChannels = async (userId: string, accessToken: strin
             for (const channel of followedChannels) {
                 const channelData = await channelFeature.getChannel(channel.broadcasterId);
                 if (!channelData) {
-                    logger.info("Channel not found: %s", channel.broadcasterId);
+                    logger.error("Channel not found: %s", channel.broadcasterId);
                     continue;
                 }
                 await prisma.userFollowedChannels.upsert({

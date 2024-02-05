@@ -15,7 +15,7 @@ export const createCategory = async (category: Category) => {
                 data: category,
             });
         } else {
-            logger.info("Category already exists: %s", category.name);
+            logger.debug("Category already exists: %s", category.name);
             return existingCategory;
         }
     } catch (error) {
