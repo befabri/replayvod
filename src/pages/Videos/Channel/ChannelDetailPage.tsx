@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import Button from "../../../components/UI/Button/Button";
 import Layout from "../../../components/Layout/Layout";
 import Title from "../../../components/Typography/TitleComponent";
+import ProfileImage from "../../../components/Profile/ProfileImage";
 
 const fetchImage = async (url: RequestInfo | URL): Promise<string> => {
     const response = await fetch(url, { credentials: "include" });
@@ -91,11 +92,7 @@ const ChannelDetailPage: React.FC = () => {
         return (
             <Layout>
                 <div className="flex flex-row items-center gap-3">
-                    <img
-                        className="h-12 min-h-[10px] w-12 min-w-[10px] rounded-full"
-                        src={data?.channel.profilePicture}
-                        alt="Profile Picture"
-                    />
+                    <ProfileImage url={data?.channel.profilePicture} height={"12"} width={"12"} />
                     <Title title={data?.channel.broadcasterName} />
                     <Button onClick={() => handleClick(data.channel.broadcasterId)} style={"svg"}>
                         <svg
@@ -117,11 +114,7 @@ const ChannelDetailPage: React.FC = () => {
     return (
         <Layout>
             <div className="flex flex-row items-center gap-3 pb-8">
-                <img
-                    className="h-12 min-h-[10px] w-12 min-w-[10px] rounded-full"
-                    src={channel.profilePicture}
-                    alt="Profile Picture"
-                />
+                <ProfileImage url={channel.profilePicture} height={"12"} width={"12"} />
                 <Title title={channel.broadcasterName} />
                 <Button onClick={() => handleClick(channel.broadcasterId)} style={"svg"}>
                     <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">

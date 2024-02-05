@@ -10,6 +10,7 @@ import NotFound from "../../components/Others/NotFound";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Badge from "../../components/UI/Badge/Badge";
 import TitledLayout from "../../components/Layout/TitledLayout";
+import ProfileImage from "../../components/Profile/ProfileImage";
 
 const ManagePage: React.FC = () => {
     const { t } = useTranslation();
@@ -126,11 +127,7 @@ const ManagePage: React.FC = () => {
                         <Link
                             to={`${Pathnames.Video.Channel}/${schedule.channel.displayName.toLowerCase()}`}
                             className="flex-shrink-0">
-                            <img
-                                className="h-10 w-10 rounded-full"
-                                src={schedule.channel.profilePicture}
-                                alt="Profile Picture"
-                            />
+                            <ProfileImage url={schedule.channel.profilePicture} height={"10"} width={"10"} />
                         </Link>
                         <span className="ms-4 min-w-0 flex-1">
                             <HrefLink

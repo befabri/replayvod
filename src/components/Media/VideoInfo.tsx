@@ -4,9 +4,10 @@ import { Pathnames } from "../../type/routes";
 import { toKebabCase, truncateString } from "../../utils/utils";
 import { Link } from "react-router-dom";
 import HrefLink from "../UI/Navigation/HrefLink";
+import ProfileImage from "../Profile/ProfileImage";
 
 type VideoInfoProps = {
-    video: CompletedVideo | undefined;
+    video: CompletedVideo;
     disablePicture?: boolean;
 };
 
@@ -38,11 +39,7 @@ const VideoInfoComponent: FC<VideoInfoProps> = ({ video, disablePicture = false 
                 <Link
                     to={`${Pathnames.Video.Channel}/${video?.displayName.toLowerCase()}`}
                     className="min-w-[40px]">
-                    <img
-                        className="mt-1 h-10 w-10 rounded-full"
-                        src={video?.channel.profilePicture}
-                        alt="Profile Picture"
-                    />
+                    <ProfileImage url={video.channel.profilePicture} height={"10"} width={"10"} className="mt-1" />
                 </Link>
             )}
             <div>

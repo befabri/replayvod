@@ -7,6 +7,7 @@ import DropdownButton from "../../../components/UI/Button/ButtonDropdown";
 import { useQuery } from "@tanstack/react-query";
 import { customFetch } from "../../../utils/utils";
 import TitledLayout from "../../../components/Layout/TitledLayout";
+import ProfileImage from "../../../components/Profile/ProfileImage";
 
 const ChannelPage: React.FC = () => {
     const { t } = useTranslation();
@@ -95,7 +96,7 @@ const ChannelPage: React.FC = () => {
                     />
                 </div>
             </div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(230px,1fr))]">
                 {sortedChannels.map((channel) => {
                     const isLive =
                         !isLoadingStreams &&
@@ -109,18 +110,16 @@ const ChannelPage: React.FC = () => {
                                 isLive ? "relative" : ""
                             }`}
                             key={channel.broadcasterId}>
-                            <div className="flex">
-                                <img
-                                    className="h-10 w-10 rounded-full"
-                                    src={channel.profilePicture}
-                                    alt="Profile Picture"
+                            <div className="flex gap-4">
+                                <ProfileImage
+                                    url={channel.profilePicture}
+                                    height={"10"}
+                                    width={"10"}
+                                    status={isLive}
                                 />
-                                <span className="flex items-center px-3 dark:text-white">
+                                <span className="flex items-center overflow-hidden whitespace-nowrap dark:text-white">
                                     {channel.broadcasterName}
                                 </span>
-                                {isLive && (
-                                    <div className="align-center m-auto ml-0 h-4 w-4 rounded-full bg-red-500"></div>
-                                )}
                             </div>
                         </Link>
                     );

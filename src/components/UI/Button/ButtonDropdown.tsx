@@ -31,10 +31,12 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({ label, options, onOptio
     };
 
     return (
-        <div ref={dropdownRef} className="relative z-10 inline-block text-left dark:bg-custom_lightblue">
+        <div
+            ref={dropdownRef}
+            className="relative z-10 inline-block rounded-md text-left dark:bg-custom_lightblue">
             <button
                 type="button"
-                className="inline-flex w-full items-center justify-center rounded-md border border-gray-300 bg-white px-2.5 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none dark:border-custom_lightblue dark:bg-custom_lightblue dark:text-gray-200 dark:hover:bg-custom_vista_blue"
+                className="inline-flex w-full items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none dark:border-custom_lightblue dark:bg-custom_lightblue dark:text-gray-200 dark:hover:bg-custom_vista_blue"
                 id="options-menu"
                 aria-expanded="true"
                 aria-haspopup="true"
