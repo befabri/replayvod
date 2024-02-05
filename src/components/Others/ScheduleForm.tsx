@@ -296,7 +296,7 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
                 </div>
             </div>
             {!isModal && (
-                <div className="px-4 md:px-7">
+                <div className="mt-6 px-4 md:px-7">
                     <Button
                         text={t("Add Schedule")}
                         typeButton="submit"
