@@ -164,6 +164,9 @@ const getStreamByUserId = async (
 
 const getGameDetail = async (gameId: string): Promise<Category | null> => {
     try {
+        if(!gameId){
+            return null
+        }
         const fetchedGame = await twitchAPI.getGameDetail(gameId);
         if (!fetchedGame) {
             logger.error("Received null response 'getGameDetail' from Twitch API");
