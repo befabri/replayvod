@@ -23,256 +23,170 @@ import { EventSubMeta } from "../models/twitchModel";
 import { StreamStatus } from "../models/streamMode";
 
 const logger = rootLogger.child({ domain: "twitch", service: "twitchService" });
-const twitchAPI = new TwitchAPI();
 
-const getUser = async (userId: string): Promise<Channel | null> => {
-    try {
-        const fetchedUser = await twitchAPI.getUser(userId);
-        if (!fetchedUser) {
-            logger.error("Received null response 'getUser' from Twitch API");
-            return null;
-        }
-        const validUser = isValidUser(fetchedUser);
-        if (!validUser) {
-            logger.error("Received invalid 'getUser' data from Twitch API: %s", JSON.stringify(fetchedUser));
-            return null;
-        }
-        return transformTwitchUser(validUser);
-    } catch (error) {
-        logger.error("Error getUser: %s", error);
-        return null;
+class TwitchService {
+    private api: TwitchAPI;
+
+    constructor() {
+        this.api = new TwitchAPI();
     }
-};
 
-const getUserByLogin = async (login: string): Promise<Channel | null> => {
-    try {
-        const fetchedUser = await twitchAPI.getUserByLogin(login.toLowerCase());
-        if (!fetchedUser) {
-            logger.error("Received null response 'getUserByLogin' from Twitch API");
-            return null;
+    private async fetchData<T>(fetchFunction: () => Promise<T | null>, validator: (data: T) => boolean, transformer: (data: T) => any): Promise<any> {
+        try {
+            const data = await fetchFunction();
+            if (!data) {
+                throw new Error("Received null response from Twitch API");
+            }
+            if (!validator(data)) {
+                throw new Error("Received invalid data from Twitch API: " + JSON.stringify(data));
+            }
+            return transformer(data);
+        } catch (error) {
+            throw new Error("Error during API call: %s", error);
         }
-        const validUser = isValidUser(fetchedUser);
-        if (!validUser) {
-            logger.error(
-                "Received invalid 'getUserByLogin' data from Twitch API: %s",
-                JSON.stringify(fetchedUser)
+    }
+
+    public async getUser(userId: string): Promise<Channel | null> {
+        try {
+            return await this.fetchData(
+                () => this.api.getUser(userId),
+                isValidUser,
+                transformTwitchUser
             );
+        } catch (error) {
+            logger.error("Error fetching 'getUser': %s", error);
             return null;
         }
-        return transformTwitchUser(validUser);
-    } catch (error) {
-        logger.error("Error getUserByLogin: %s", error);
-        return null;
     }
-};
 
-const getUsers = async (userIds: string[]): Promise<Channel[] | null> => {
-    try {
-        const fetchedUsers = await twitchAPI.getUsers(userIds);
-        if (!fetchedUsers) {
-            logger.error("Received null response 'getUsers' from Twitch API");
-            return null;
-        }
-        const validUsers = isValidUsers(fetchedUsers);
-        if (!validUsers) {
-            logger.error("Received invalid 'getUsers' data from Twitch API: %s", JSON.stringify(fetchedUsers));
-            return null;
-        }
-        return validUsers.map(transformTwitchUser);
-    } catch (error) {
-        logger.error("Error fetching users: %s", error);
-        return null;
-    }
-};
-
-const getAllFollowedChannels = async (
-    userId: string,
-    accessToken: string,
-    cursor?: string
-): Promise<UserFollowedChannels[] | null> => {
-    try {
-        const fetchedFollowedChannels = await twitchAPI.getAllFollowedChannels(userId, accessToken, cursor);
-        if (!fetchedFollowedChannels) {
-            logger.error("Received null response 'getAllFollowedChannels' from Twitch API");
-            return null;
-        }
-        const validFollowedChannel = isValidFollowedChannel(fetchedFollowedChannels);
-        if (!validFollowedChannel) {
-            logger.error(
-                "Received invalid 'getAllFollowedChannels' data from Twitch API: %s",
-                JSON.stringify(fetchedFollowedChannels)
+    public async getUserByLogin(login: string): Promise<Channel | null> {
+        try {
+        return await this.fetchData(
+            () => this.api.getUserByLogin(login.toLowerCase()),
+            isValidUser,
+            transformTwitchUser
             );
+        } catch (error) {
+            logger.error("Error fetching 'getUserByLogin': %s", error);
             return null;
         }
-        return validFollowedChannel.map((channel) => transformFollowedChannel(channel, userId));
-    } catch (error) {
-        logger.error("Error fetching followed channels: %s", error);
-        return null;
     }
-};
 
-const getAllFollowedStreams = async (
-    userId: string,
-    accessToken: string,
-    cursor?: string
-): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> }[] | null> => {
-    try {
-        const fetchedFollowedStreams = await twitchAPI.getAllFollowedStreams(userId, accessToken, cursor);
-        if (!fetchedFollowedStreams) {
-            logger.error("Received null response 'getAllFollowedStreams' from Twitch API");
-            return null;
-        }
-        const validStreams = isValidStreams(fetchedFollowedStreams);
-        if (!validStreams) {
-            logger.error(
-                "Received invalid 'getAllFollowedStreams' data from Twitch API: %s",
-                JSON.stringify(fetchedFollowedStreams)
+    public async getUsers (userIds: string[]): Promise<Channel[] | null> {
+        try {
+        return await this.fetchData(
+            () => this.api.getUsers(userIds),
+            isValidUsers,
+            (users) => users.map(transformTwitchUser)
             );
+        } catch (error) {
+            logger.error("Error fetching 'getUsers': %s", error);
             return null;
         }
-        return validStreams.map(transformStream);
-    } catch (error) {
-        logger.error("Error fetching followed streams: %s", error);
-        return null;
     }
-};
 
-const getStreamByUserId = async (
-    userId: string
-): Promise<
-    { stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> } | StreamStatus.OFFLINE | null
-> => {
-    try {
-        const fetchedStream = await twitchAPI.getStreamByUserId(userId);
-        if (!fetchedStream) {
-            return StreamStatus.OFFLINE;
-        }
-        const validStream = isValidStream(fetchedStream);
-        if (!validStream) {
-            logger.error(
-                "Received invalid 'getStreamByUserId' data from Twitch API: %s",
-                JSON.stringify(fetchedStream)
+    public async getAllFollowedChannels(userId: string, accessToken: string, cursor?: string): Promise<UserFollowedChannels[] | null> {
+        try {
+        return await this.fetchData(
+            () => this.api.getAllFollowedChannels(userId, accessToken, cursor),
+            isValidFollowedChannel,
+            (channels) => channels.map(channel => transformFollowedChannel(channel, userId))
             );
+        } catch (error) {
+            logger.error("Error fetching 'getAllFollowedChannels': %s", error);
             return null;
         }
-        return transformStream(validStream);
-    } catch (error) {
-        logger.error("Error fetching stream by user ID: %s", error);
-        return null;
     }
-};
 
-const getGameDetail = async (gameId: string): Promise<Category | null> => {
-    try {
-        if(!gameId){
-            return null
-        }
-        const fetchedGame = await twitchAPI.getGameDetail(gameId);
-        if (!fetchedGame) {
-            logger.error("Received null response 'getGameDetail' from Twitch API");
-            return null;
-        }
-        const validEventSub = isValidGame(fetchedGame);
-        if (!validEventSub) {
-            logger.error("Received invalid 'getGameDetail' data from Twitch API: %s", JSON.stringify(fetchedGame));
-            return null;
-        }
-        return transformCategory(validEventSub);
-    } catch (error) {
-        logger.error("Error fetching game detail: %s", error);
-        return null;
-    }
-};
-
-const getAllGames = async (cursor?: string): Promise<Category[] | null> => {
-    try {
-        const fetchedGames = await twitchAPI.getAllGames(cursor);
-        if (!fetchedGames) {
-            logger.error("Received null response 'getAllGames' from Twitch API");
-            return null;
-        }
-        const validUsers = isValidGames(fetchedGames);
-        if (!validUsers) {
-            logger.error("Received invalid 'getAllGames' data from Twitch API: %s", JSON.stringify(fetchedGames));
-            return null;
-        }
-        return validUsers.map(transformCategory);
-    } catch (error) {
-        logger.error("Error fetching all games: %s", error);
-        return null;
-    }
-};
-
-const createEventSub = async (
-    type: string,
-    version: string,
-    condition: any,
-    transport: any
-): Promise<Subscription[] | null> => {
-    try {
-        const fetchedEventSub = await twitchAPI.createEventSub(type, version, condition, transport);
-        if (!fetchedEventSub) {
-            logger.error("Received null response 'createEventSub' from Twitch API");
-            return null;
-        }
-        const validEventSub = isValidEventSub(fetchedEventSub);
-        if (!validEventSub) {
-            logger.error(
-                "Received invalid 'createEventSub' data from Twitch API: %s",
-                JSON.stringify(fetchedEventSub)
+    public async getAllFollowedStreams(userId: string, accessToken: string, cursor?: string): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> }[] | null> {
+        try {
+        return await this.fetchData(
+            () => this.api.getAllFollowedStreams(userId, accessToken, cursor),
+            isValidStreams,
+            (streams) => streams.map(transformStream)
             );
+        } catch (error) {
+            logger.error("Error fetching 'getAllFollowedStreams': %s", error);
             return null;
         }
-        return validEventSub.data.map((eventSub) => transformEventSub(eventSub));
-    } catch (error) {
-        logger.error("Error fetching create eventSub: %s", error);
-        return null;
     }
-};
 
-const getEventSub = async (): Promise<{ subscriptions: Subscription[]; meta: EventSubMeta } | null> => {
-    try {
-        const fetchedEventSub = await twitchAPI.getEventSub();
-        const validEventSub = isValidEventSub(fetchedEventSub);
-        if (!validEventSub) {
-            logger.error(
-                "Received invalid 'getEventSub' data from Twitch API: %s",
-                JSON.stringify(fetchedEventSub)
+    public async getStreamByUserId(userId: string): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> } | StreamStatus.OFFLINE | null> {
+        try {
+            return await this.fetchData(
+                () => this.api.getStreamByUserId(userId),
+                isValidStream,
+                transformStream
             );
+        } catch (error) {
+            logger.error("Error fetching 'getStreamByUserId': %s", error);
             return null;
         }
-        const subscriptions = validEventSub.data.map((eventSub) => transformEventSub(eventSub));
-        const meta = transformEventSubMeta(validEventSub);
-        return {
-            subscriptions,
-            meta,
-        };
-    } catch (error) {
-        logger.error("Error fetching eventSub: %s", error);
-        return null;
     }
-};
 
-const deleteEventSub = async (id: string) => {
-    try {
-        const fetchedEventSub = await twitchAPI.deleteEventSub(id);
-        return fetchedEventSub;
-    } catch (error) {
-        logger.error("Error 'deleteEventSub' eventSub: %s", error);
-        return null;
+    public async getGameDetail(gameId: string): Promise<Category | null> {
+        try {
+            return await this.fetchData(
+                () => this.api.getGameDetail(gameId),
+                isValidGame,
+                transformCategory
+            );
+        } catch (error) {
+            logger.error("Error fetching 'getGameDetail': %s", error);
+            return null;
+        }
     }
-};
 
-export default {
-    getUser,
-    getUserByLogin,
-    getUsers,
-    getAllFollowedChannels,
-    getAllFollowedStreams,
-    getStreamByUserId,
-    getGameDetail,
-    getAllGames,
-    createEventSub,
-    getEventSub,
-    deleteEventSub,
-};
+    public async getAllGames(cursor?: string): Promise<Category[] | null> {
+        try {
+            return await this.fetchData(
+                () => this.api.getAllGames(cursor),
+                isValidGames,
+                (games) => games.map(transformCategory)
+            );
+        } catch (error) {
+            logger.error("Error fetching 'getAllGames': %s", error);
+            return null;
+        }
+    }
+
+    public async createEventSub(type: string, version: string, condition: any, transport: any): Promise<Subscription[] | null> {
+        try {
+            return await this.fetchData(
+                () => this.api.createEventSub(type, version, condition, transport),
+                isValidEventSub,
+                (eventSub) => eventSub.data.map(transformEventSub)
+            );
+        } catch (error) {
+            logger.error("Error fetching 'createEventSub': %s", error);
+            return null;
+        }
+    }
+
+    public async getEventSub(): Promise<{ subscriptions: Subscription[]; meta: EventSubMeta } | null> {
+        try {
+            return await this.fetchData(
+                () => this.api.getEventSub(),
+                isValidEventSub,
+                (eventSub) => ({
+                    subscriptions: eventSub.data.map(transformEventSub),
+                    meta: transformEventSubMeta(eventSub)
+                })
+            );
+        } catch (error) {
+            logger.error("Error fetching 'getEventSub': %s", error);
+            return null;
+        }
+    }
+
+    public async deleteEventSub(id: string): Promise<any | null> {
+        try {
+            return await this.api.deleteEventSub(id);
+        } catch (error) {
+            logger.error("Error deleting 'eventSub': %s", error);
+            return null;
+        }
+    }
+}
+
+export const twitchService = new TwitchService();

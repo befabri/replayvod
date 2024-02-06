@@ -2,13 +2,7 @@ import axios from "axios";
 import { chunkArray } from "../../utils/utils";
 import { env, logger as rootLogger } from "../../app";
 import { getAppAccessToken } from "./twitchAccessToken";
-import {
-    EventSubResponse,
-    FollowedChannelResponse,
-    GameResponse,
-    StreamResponse,
-    UserResponse,
-} from "../../models/twitchModel";
+import { EventSubType, FollowedChannelArrayType, GameArrayType, GameType, StreamArrayType, StreamType, UserArrayType, UserType } from "./twitchSchema";
 const logger = rootLogger.child({ domain: "twitch", service: "twitchApi" });
 
 function handleAxiosError(error: unknown) {
@@ -28,7 +22,7 @@ function handleAxiosError(error: unknown) {
 }
 
 class TwitchAPI {
-    async getUser(userId: string): Promise<UserResponse | null> {
+    async getUser(userId: string): Promise<UserType | null> {
         try {
             const accessToken = await getAppAccessToken();
             const response = await axios.get(`https://api.twitch.tv/helix/users?id=${userId}`, {
@@ -45,7 +39,7 @@ class TwitchAPI {
         }
     }
 
-    async getUserByLogin(login: string): Promise<UserResponse | null> {
+    async getUserByLogin(login: string): Promise<UserType | null> {
         try {
             const accessToken = await getAppAccessToken();
             const response = await axios.get(`https://api.twitch.tv/helix/users?login=${login}`, {
@@ -62,7 +56,7 @@ class TwitchAPI {
         }
     }
 
-    async getUsers(userIds: string[]): Promise<UserResponse[]> {
+    async getUsers(userIds: string[]): Promise<UserArrayType> {
         try {
             const accessToken = await getAppAccessToken();
             const userIdChunks = chunkArray(userIds, 100);
@@ -88,7 +82,7 @@ class TwitchAPI {
         userId: string,
         accessToken: string,
         cursor?: string
-    ): Promise<FollowedChannelResponse[]> {
+    ): Promise<FollowedChannelArrayType> {
         const response = await axios({
             method: "get",
             url: `https://api.twitch.tv/helix/channels/followed`,
@@ -113,7 +107,7 @@ class TwitchAPI {
         }
     }
 
-    async getAllFollowedStreams(userId: string, accessToken: string, cursor?: string): Promise<StreamResponse[]> {
+    async getAllFollowedStreams(userId: string, accessToken: string, cursor?: string): Promise<StreamArrayType> {
         const response = await axios({
             method: "get",
             url: `https://api.twitch.tv/helix/streams/followed`,
@@ -138,7 +132,7 @@ class TwitchAPI {
         }
     }
 
-    async getStreamByUserId(userId: string): Promise<StreamResponse | null> {
+    async getStreamByUserId(userId: string): Promise<StreamType | null> {
         try {
             const accessToken = await getAppAccessToken();
             const response = await axios.get(`https://api.twitch.tv/helix/streams?user_id=${userId}`, {
@@ -154,7 +148,7 @@ class TwitchAPI {
         }
     }
 
-    async getAllGames(cursor?: string): Promise<GameResponse[]> {
+    async getAllGames(cursor?: string): Promise<GameArrayType> {
         const accessToken = await getAppAccessToken();
         const response = await axios.get("https://api.twitch.tv/helix/games/top", {
             headers: {
@@ -177,7 +171,7 @@ class TwitchAPI {
         }
     }
 
-    async getGameDetail(gameId: string): Promise<GameResponse | null> {
+    async getGameDetail(gameId: string): Promise<GameType | null> {
         try {
             const accessToken = await getAppAccessToken();
             const response = await axios.get(`https://api.twitch.tv/helix/games?id=${gameId}`, {
@@ -198,7 +192,7 @@ class TwitchAPI {
         version: string,
         condition: any,
         transport: any
-    ): Promise<EventSubResponse | null> {
+    ): Promise<EventSubType | null> {
         const accessToken = await getAppAccessToken();
         try {
             const response = await axios.post(
@@ -262,7 +256,7 @@ class TwitchAPI {
         }
     }
 
-    async getEventSub(cursor?: string): Promise<EventSubResponse> {
+    async getEventSub(cursor?: string): Promise<EventSubType> {
         const accessToken = await getAppAccessToken();
         try {
             const response = await axios.get("https://api.twitch.tv/helix/eventsub/subscriptions", {
