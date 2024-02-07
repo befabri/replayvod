@@ -93,7 +93,16 @@ export const handleStreamOnline = async (
     notification: TwitchNotificationEvent
 ): Promise<{ status: number; body: null }> => {
     await webhookFeature.handleWebhookEvent(notification.subscription.type, notification.event);
-    await channelFeature.getChannelStream(notification.event.broadcaster_user_id, "system");
+    try {
+        const streamfetched = await channelFeature.getChannelStream(notification.event.broadcaster_user_id, "system");
+        if (!streamfetched){
+        logger.error(`OFFLINE? Stream fetched error in handleStreamOnline for ${notification.event.broadcaster_user_id}`)
+        } else {
+            logger.info(`Stream successfully fetched in handleStreamOnline for ${notification.event.broadcaster_user_id}`)
+        }
+    } catch (error){
+        logger.error(`Stream fetched error in handleStreamOnline for ${notification.event.broadcaster_user_id}`)
+    }
     return {
         status: 204,
         body: null,
