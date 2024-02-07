@@ -42,7 +42,7 @@ class TwitchService {
             }
             return transformer(data);
         } catch (error) {
-            throw new Error("Error during API call: %s", error);
+            throw new Error(`Error during API call: ${error}`);
         }
     }
 
@@ -54,7 +54,7 @@ class TwitchService {
                 transformTwitchUser
             );
         } catch (error) {
-            logger.error("Error fetching 'getUser': %s", error);
+            logger.error(`Error fetching getUser: ${error}`);
             return null;
         }
     }
@@ -67,7 +67,7 @@ class TwitchService {
             transformTwitchUser
             );
         } catch (error) {
-            logger.error("Error fetching 'getUserByLogin': %s", error);
+            logger.error(`Error fetching getUserByLogin: ${error}`);
             return null;
         }
     }
@@ -80,7 +80,7 @@ class TwitchService {
             (users) => users.map(transformTwitchUser)
             );
         } catch (error) {
-            logger.error("Error fetching 'getUsers': %s", error);
+            logger.error(`Error fetching getUsers: ${error}`);
             return null;
         }
     }
@@ -93,7 +93,7 @@ class TwitchService {
             (channels) => channels.map(channel => transformFollowedChannel(channel, userId))
             );
         } catch (error) {
-            logger.error("Error fetching 'getAllFollowedChannels': %s", error);
+            logger.error(`Error fetching getAllFollowedChannels: ${error}`);
             return null;
         }
     }
@@ -106,7 +106,7 @@ class TwitchService {
             (streams) => streams.map(transformStream)
             );
         } catch (error) {
-            logger.error("Error fetching 'getAllFollowedStreams': %s", error);
+            logger.error(`Error fetching getAllFollowedStreams: ${error}`);
             return null;
         }
     }
@@ -119,7 +119,7 @@ class TwitchService {
                 transformStream
             );
         } catch (error) {
-            logger.error("Error fetching 'getStreamByUserId': %s", error);
+            logger.error(`Error fetching getStreamByUserId: ${error}`);
             return null;
         }
     }
@@ -132,7 +132,7 @@ class TwitchService {
                 transformCategory
             );
         } catch (error) {
-            logger.error("Error fetching 'getGameDetail': %s", error);
+            logger.error(`Error fetching getGameDetail: ${error}`);
             return null;
         }
     }
@@ -145,7 +145,7 @@ class TwitchService {
                 (games) => games.map(transformCategory)
             );
         } catch (error) {
-            logger.error("Error fetching 'getAllGames': %s", error);
+            logger.error(`Error fetching getAllGames: ${error}`);
             return null;
         }
     }
@@ -158,7 +158,7 @@ class TwitchService {
                 (eventSub) => eventSub.data.map(transformEventSub)
             );
         } catch (error) {
-            logger.error("Error fetching 'createEventSub': %s", error);
+            logger.error(`Error fetching createEventSub: ${error}`);
             return null;
         }
     }
@@ -174,7 +174,7 @@ class TwitchService {
                 })
             );
         } catch (error) {
-            logger.error("Error fetching 'getEventSub': %s", error);
+            logger.error(`Error fetching getEventSub: ${error}`);
             return null;
         }
     }
@@ -183,7 +183,7 @@ class TwitchService {
         try {
             return await this.api.deleteEventSub(id);
         } catch (error) {
-            logger.error("Error deleting 'eventSub': %s", error);
+            logger.error(`Error fetching deleteEventSub: ${error}`);
             return null;
         }
     }

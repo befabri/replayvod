@@ -104,10 +104,6 @@ export const getChannelStream = async (
         if (!(await channelExists(broadcasterId))) {
             return null;
         }
-        const lastStreamFetch = await getStreamLastFetch(userId, broadcasterId);
-        if (lastStreamFetch) {
-            return lastStreamFetch;
-        }
         const stream = await twitchService.getStreamByUserId(broadcasterId);
         if (!stream || stream === StreamStatus.OFFLINE) {
             return null;
@@ -130,6 +126,7 @@ export const getChannelStream = async (
         throw new Error("Error fetching stream");
     }
 };
+
 
 export const createStreamEntry = async ({ fetchId, stream, tags, category, title }: CreateStreamEntry) => {
     try {

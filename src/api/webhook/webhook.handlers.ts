@@ -89,25 +89,32 @@ export const handleChannelUpdate = async (
     };
 };
 
+
+// WIP
 export const handleStreamOnline = async (
     notification: TwitchNotificationEvent
 ): Promise<{ status: number; body: null }> => {
     await webhookFeature.handleWebhookEvent(notification.subscription.type, notification.event);
-    try {
-        const streamfetched = await channelFeature.getChannelStream(notification.event.broadcaster_user_id, "system");
-        if (!streamfetched){
-        logger.error(`OFFLINE? Stream fetched error in handleStreamOnline for ${notification.event.broadcaster_user_id}`)
-        } else {
-            logger.info(`Stream successfully fetched in handleStreamOnline for ${notification.event.broadcaster_user_id}`)
+    const fetchStream = async () => {
+        try {
+            const streamfetched = await channelFeature.getChannelStream(notification.event.broadcaster_user_id, "system");
+            if (!streamfetched) {
+                logger.error(`OFFLINE? Stream fetched error in handleStreamOnline for ${notification.event.broadcaster_user_id}`);
+                setTimeout(fetchStream, 300000); // 300000 milliseconds = 5 minutes
+            } else {
+                logger.info(`Stream successfully fetched in handleStreamOnline for ${notification.event.broadcaster_user_id}`);
+            }
+        } catch (error) {
+            logger.error(`Stream fetched error in handleStreamOnline for ${notification.event.broadcaster_user_id}`);
         }
-    } catch (error){
-        logger.error(`Stream fetched error in handleStreamOnline for ${notification.event.broadcaster_user_id}`)
-    }
+    };
+    await fetchStream();
     return {
         status: 204,
         body: null,
     };
 };
+
 
 export const handleStreamOffline = async (
     notification: TwitchNotificationEvent

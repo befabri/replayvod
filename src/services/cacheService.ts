@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { prisma } from "../server";
 
-const FIVE_MINUTES = 30 * 60 * 1000;
+const CACHE_MINUTES = 10 * 60 * 1000;
 
 enum cacheType {
     STREAM = "stream",
@@ -123,7 +123,7 @@ async function createFetch({
 }
 
 const isCacheExpire = (fetchedAt: Date) => {
-    return fetchedAt > new Date(Date.now() - FIVE_MINUTES);
+    return fetchedAt > new Date(Date.now() - CACHE_MINUTES);
 };
 
 const generateFetchId = () => {
