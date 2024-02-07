@@ -62,7 +62,7 @@ export async function handleStreamOnline(notification: TwitchNotificationEvent) 
     const event = notification.event as StreamOnlineEvent;
     logger.info(`Handling stream online for broadcaster ID: ${event.broadcaster_user_id}`);
     await createWebhookEvent(notification.subscription.type, event);
-    const fetchStream = async () => {
+    const fetchStream = async (retryCount = 0) => {
         try {
             const streamFetched = await channelFeature.getChannelStream(
                 notification.event.broadcaster_user_id,
@@ -72,12 +72,21 @@ export async function handleStreamOnline(notification: TwitchNotificationEvent) 
                 logger.error(
                     `OFFLINE? Stream fetched error in handleStreamOnline for ${event.broadcaster_user_id}`
                 );
-                setTimeout(fetchStream, 300000); // 300000 milliseconds = 5 minutes
+                if (retryCount < 5) {
+                    setTimeout(() => fetchStream(retryCount + 1), 120000); // 120000 milliseconds = 2 minutes
+                } else {
+                    logger.error(`Max retries reached for ${event.broadcaster_user_id}`);
+                }
             } else {
                 logger.info(`Stream successfully fetched in handleStreamOnline for ${event.broadcaster_user_id}`);
             }
         } catch (error) {
-            logger.error(`Stream fetched error in handleStreamOnline for ${event.broadcaster_user_id}`);
+            logger.error(`Stream fetched error in handleStreamOnline for ${event.broadcaster_user_id}: ${error}`);
+            if (retryCount < 5) {
+                setTimeout(() => fetchStream(retryCount + 1), 120000);
+            } else {
+                logger.error(`Max retries reached for ${event.broadcaster_user_id} after encountering an error`);
+            }
         }
     };
     await fetchStream();
