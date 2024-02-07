@@ -19,8 +19,8 @@ import {
     transformStream,
     transformTwitchUser,
 } from "../integration/twitch/transformation";
-import { EventSubMeta } from "../models/twitchModel";
 import { StreamStatus } from "../models/streamMode";
+import { EventSubMetaType } from "../integration/twitch/twitchSchema";
 
 const logger = rootLogger.child({ domain: "twitch", service: "twitchService" });
 
@@ -163,7 +163,7 @@ class TwitchService {
         }
     }
 
-    public async getEventSub(): Promise<{ subscriptions: Subscription[]; meta: EventSubMeta } | null> {
+    public async getEventSub(): Promise<{ subscriptions: Subscription[]; meta: EventSubMetaType } | null> {
         try {
             return await this.fetchData(
                 () => this.api.getEventSub(),

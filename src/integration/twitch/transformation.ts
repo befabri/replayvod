@@ -1,6 +1,5 @@
 import { Category, Channel, UserFollowedChannels, Stream, Subscription, Tag, Title } from "@prisma/client";
-import { EventSubMeta, EventSubResponse } from "../../models/twitchModel";
-import { EventSubDataSchemaType, FollowedChannelType, GameType, StreamType, UserType } from "./twitchSchema";
+import { EventSubDataSchemaType, EventSubMetaType, FollowedChannelType, GameType, StreamType, UserType } from "./twitchSchema";
 
 export const transformTwitchUser = (user: UserType): Channel => {
     return {
@@ -78,7 +77,7 @@ export const transformEventSub = (eventSub: EventSubDataSchemaType): Subscriptio
     };
 };
 
-export const transformEventSubMeta = (eventSubResponse: EventSubResponse): EventSubMeta => {
+export const transformEventSubMeta = (eventSubResponse: EventSubMetaType): EventSubMetaType => {
     return {
         total: eventSubResponse.total,
         total_cost: eventSubResponse.total_cost,

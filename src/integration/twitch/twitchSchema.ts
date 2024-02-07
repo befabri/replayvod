@@ -25,15 +25,20 @@ const DataSchema = z.object({
 
 export type EventSubDataSchemaType = z.infer<typeof DataSchema>;
 
-export const EventSubSchema = z.object({
+export const EventSubMetaSchema = z.object({
     total: z.number(),
-    data: z.array(DataSchema),
     total_cost: z.number(),
     max_total_cost: z.number(),
+});
+
+export const EventSubSchema = EventSubMetaSchema.extend({
+    data: z.array(DataSchema),
     pagination: PaginationSchema,
 });
 
 export type EventSubType = z.infer<typeof EventSubSchema>;
+export type EventSubMetaType = z.infer<typeof EventSubMetaSchema>;
+
 
 export const StreamSchema = z.object({
     id: z.string(),
