@@ -1,6 +1,5 @@
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
-import { WebhookEvent } from "@prisma/client";
 import { webhookFeature } from "../webhook";
 import { channelFeature } from "../channel";
 import { cacheService, twitchService } from "../../services";
@@ -190,19 +189,4 @@ export const getEventSub = async (userId: string): Promise<EventSubDTO> => {
         };
     }
     return { data: null, message: "Failed to retrieve EventSub information" };
-};
-
-export const addWebhookEvent = async (event: Omit<WebhookEvent, "id">) => {
-    try {
-        await prisma.webhookEvent.create({
-            data: {
-                broadcasterId: event.broadcasterId,
-                eventType: event.eventType,
-                startedAt: event.startedAt,
-                endAt: event.endAt,
-            },
-        });
-    } catch (error) {
-        throw error;
-    }
 };

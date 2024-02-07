@@ -2,6 +2,8 @@ import { env } from "../../app";
 import { prisma } from "../../server";
 import { logger as rootLogger } from "../../app";
 import {
+    StreamOfflineEvent,
+    StreamOnlineEvent,
     SubscriptionType,
     TwitchEvent,
     TwitchNotificationBody,
@@ -10,7 +12,7 @@ import {
     TwitchNotificationRevocation,
 } from "../../models/twitch";
 import { transformWebhookEvent } from "./webhook.DTO";
-import { eventSubFeature } from "../event-sub";
+import { channelFeature } from "../channel";
 const logger = rootLogger.child({ domain: "webhook", service: "webhookFeature" });
 
 export const getWebhook = async (id: string) => {
@@ -50,6 +52,55 @@ export const isTwitchNotificationRevocation = (
     return !("event" in notification) && !("challenge" in notification);
 };
 
+export async function handleChannelUpdate(notification: TwitchNotificationEvent) {
+    logger.info(`Handling channel update for broadcaster ID: ${notification.event.broadcaster_user_id}`);
+    // Add your logic here to handle channel updates
+    // Example: Update channel info in your database
+}
+
+export async function handleStreamOnline(notification: TwitchNotificationEvent) {
+    const event = notification.event as StreamOnlineEvent;
+    logger.info(`Handling stream online for broadcaster ID: ${event.broadcaster_user_id}`);
+    await createWebhookEvent(notification.subscription.type, event);
+    const fetchStream = async () => {
+        try {
+            const streamFetched = await channelFeature.getChannelStream(
+                notification.event.broadcaster_user_id,
+                "system"
+            );
+            if (!streamFetched) {
+                logger.error(
+                    `OFFLINE? Stream fetched error in handleStreamOnline for ${event.broadcaster_user_id}`
+                );
+                setTimeout(fetchStream, 300000); // 300000 milliseconds = 5 minutes
+            } else {
+                logger.info(`Stream successfully fetched in handleStreamOnline for ${event.broadcaster_user_id}`);
+            }
+        } catch (error) {
+            logger.error(`Stream fetched error in handleStreamOnline for ${event.broadcaster_user_id}`);
+        }
+    };
+    await fetchStream();
+}
+
+export async function handleStreamOffline(notification: TwitchNotificationEvent) {
+    const event = notification.event as StreamOfflineEvent;
+    logger.info(`Handling stream offline for broadcaster ID: ${event.broadcaster_user_id}`);
+    await createWebhookEvent(notification.subscription.type, event);
+    const lastStream = await channelFeature.getLastActiveStreamByBroadcaster(event.broadcaster_user_id);
+    if (!lastStream) {
+        logger.error(`Stream not found in handleStreamOffline for ${event.broadcaster_user_id}`);
+        return;
+    }
+    await channelFeature.updateStreamEnded(lastStream.id);
+}
+
+export async function handleNotification(notification: TwitchNotificationBody) {
+    logger.info(`Handling generic notification for subscription type: ${notification.subscription.type}`);
+    // Add your generic handling logic here
+    // Example: Log the notification or perform a generic update
+}
+
 export const handleRevocation = (notification: any) => {
     // Implementation for handling revocation
     logger.info("Received a revocation:");
@@ -69,14 +120,20 @@ export const handleDownload = (event: any) => {
     // });
 };
 
-export const handleWebhookEvent = async (eventType: SubscriptionType, event: TwitchEvent) => {
+export const createWebhookEvent = async (eventType: SubscriptionType, event: TwitchEvent) => {
     try {
         const webhookEvent = transformWebhookEvent(eventType, event.broadcaster_user_id);
-        logger.info(`Transformed webhook: ${JSON.stringify(webhookEvent)}`);
         if (!webhookEvent) {
             return;
         }
-        await eventSubFeature.addWebhookEvent(webhookEvent);
+        await prisma.webhookEvent.create({
+            data: {
+                broadcasterId: webhookEvent.broadcasterId,
+                eventType: webhookEvent.eventType,
+                startedAt: webhookEvent.startedAt,
+                endAt: webhookEvent.endAt,
+            },
+        });
     } catch (error) {
         logger.error(
             "Error in handleWebhookEvent with eventType: %s and broadcasterId: %s - %s",

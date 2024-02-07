@@ -127,6 +127,31 @@ export const getChannelStream = async (
     }
 };
 
+export const updateStreamEnded = async (streamId: string) => {
+    const result = await prisma.stream.update({
+        where: {
+            id: streamId,
+        },
+        data: {
+            endedAt: new Date(),
+        },
+    });
+    return result;
+};
+
+export const getLastActiveStreamByBroadcaster = async (broadcasterId: string) => {
+    const lastActiveStream = await prisma.stream.findMany({
+        where: {
+            broadcasterId: broadcasterId,
+            endedAt: null,
+        },
+        orderBy: {
+            startedAt: "desc",
+        },
+        take: 1,
+    });
+    return lastActiveStream.length > 0 ? lastActiveStream[0] : null;
+};
 
 export const createStreamEntry = async ({ fetchId, stream, tags, category, title }: CreateStreamEntry) => {
     try {
