@@ -41,15 +41,21 @@ export interface TwitchSubscription {
 }
 
 export interface TwitchEvent {
-    id?: string;
-    type?: "live" | "playlist" | "watch_party" | "premiere" | "rerun";
-    started_at?: string;
     broadcaster_user_id: string;
     broadcaster_user_login: string;
     broadcaster_user_name: string;
 }
 
+export interface StreamOfflineEvent extends TwitchEvent {}
+
+export interface StreamOnlineEvent extends TwitchEvent {
+    id: string;
+    type: "live" | "playlist" | "watch_party" | "premiere" | "rerun";
+    started_at: string;
+}
+
 export interface TwitchNotificationBody {
+    message_type: MessageType;
     subscription: TwitchSubscription;
 }
 
