@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
-import { downloadHandler } from ".";
+import { scheduleHandler } from ".";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
     fastify.addHook("preHandler", async (request, reply) => {
@@ -47,7 +47,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 ],
             },
         },
-        handler: downloadHandler.createSchedule,
+        handler: scheduleHandler.createSchedule,
     });
 
     fastify.put("/:id", {
@@ -96,7 +96,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 ],
             },
         },
-        handler: downloadHandler.editSchedule,
+        handler: scheduleHandler.editSchedule,
     });
 
     fastify.delete("/:id", {
@@ -109,7 +109,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: downloadHandler.removeSchedule,
+        handler: scheduleHandler.removeSchedule,
     });
 
     fastify.post("/:id/toggle", {
@@ -129,11 +129,11 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["enable"],
             },
         },
-        handler: downloadHandler.toggleScheduleStatus,
+        handler: scheduleHandler.toggleScheduleStatus,
     });
 
     fastify.get("/", {
-        handler: downloadHandler.getCurrentSchedules,
+        handler: scheduleHandler.getCurrentSchedules,
     });
 
     done();

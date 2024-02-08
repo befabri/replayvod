@@ -1,2 +1,2 @@
-export * as downloadFeature from "./schedule";
-export * as downloadHandler from "./schedule.handlers";
+export * as scheduleFeature from "./schedule";
+export * as scheduleHandler from "./schedule.handlers";
