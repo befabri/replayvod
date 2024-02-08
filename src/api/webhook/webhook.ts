@@ -90,71 +90,18 @@ export async function handleStreamOnline(notification: TwitchNotificationEvent) 
         action: "streamOnlineHandlingStart",
     });
     await createWebhookEvent(notification.subscription.type, event);
-    const fetchStream = async (retryCount = 0) => {
-        const logContext = {
-            broadcasterID: event.broadcaster_user_id,
-            retryAttempt: retryCount,
-            action: "fetchStreamAttempt",
-        };
-        try {
-            const streamFetched = await channelFeature.getChannelStream(
-                notification.event.broadcaster_user_id,
-                "system"
-            );
-            if (!streamFetched) {
-                logger.warn({
-                    ...logContext,
-                    message: "Stream OFFLINE or not started. Retrying...",
-                    status: "offlineOrNotStarted",
-                });
-                if (retryCount < 5) {
-                    setTimeout(() => fetchStream(retryCount + 1), 120000); // 120000 milliseconds = 2 minutes
-                } else {
-                    logger.error({
-                        ...logContext,
-                        message: `Maximum retry attempts reached. Stream fetch failed.`,
-                        status: "maxRetriesReached",
-                    });
-                }
-            } else {
-                logger.info({
-                    ...logContext,
-                    message: "Stream fetched successfully.",
-                    status: "streamFetched",
-                });
-                const schedules = await scheduleFeature.getScheduleByBroadcaster(event.broadcaster_user_id);
-                for (const schedule of schedules) {
-                    if (scheduleFeature.matchesCriteria(schedule, streamFetched)) {
-                        logger.info({
-                            broadcasterID: event.broadcaster_user_id,
-                            message: "Download initiated for matching schedule.",
-                            action: "downloadInitiated",
-                        });
-                        const jobDetails = downloadFeature.getDownloadJobDetail(
-                            streamFetched,
-                            "system",
-                            streamFetched.channel,
-                            ""
-                        );
-                        // TODO map the quality of the schedule
-                        await downloadFeature.handleDownload(jobDetails, event.broadcaster_user_id);
-                        break;
-                    }
-                }
-            }
-        } catch (error) {
-            if (retryCount < 5) {
-                setTimeout(() => fetchStream(retryCount + 1), 120000);
-            } else {
-                logger.error({
-                    ...logContext,
-                    message: "Maximum retries reached after error. Stream remains OFFLINE.",
-                    status: "maxRetriesAfterError",
-                });
-            }
+    const stream = await channelFeature.fetchStreamWithRetries(event.broadcaster_user_id);
+    if (stream) {
+        if (await scheduleFeature.isScheduleMatch(stream, event.broadcaster_user_id)) {
+            logger.info({
+                broadcasterId: event.broadcaster_user_id,
+                message: "Download initiated for matching schedule.",
+                action: "downloadInitiated",
+            });
+            const jobDetails = downloadFeature.getDownloadJobDetail(stream, "system", stream.channel, "");
+            await downloadFeature.handleDownload(jobDetails, event.broadcaster_user_id);
         }
-    };
-    await fetchStream();
+    }
 }
 
 export async function handleStreamOffline(notification: TwitchNotificationEvent) {

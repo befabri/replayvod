@@ -1,12 +1,16 @@
 export function chunkArray<T>(array: T[], chunkSize: number): T[][] {
-  let index = 0;
-  let arrayLength = array.length;
-  let tempArray = [];
+    let index = 0;
+    let arrayLength = array.length;
+    let tempArray = [];
 
-  for (index = 0; index < arrayLength; index += chunkSize) {
-    let myChunk = array.slice(index, index + chunkSize);
-    tempArray.push(myChunk);
-  }
+    for (index = 0; index < arrayLength; index += chunkSize) {
+        let myChunk = array.slice(index, index + chunkSize);
+        tempArray.push(myChunk);
+    }
 
-  return tempArray;
+    return tempArray;
+}
+
+export function delay(milliseconds: number) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

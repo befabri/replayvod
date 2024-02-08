@@ -6,6 +6,7 @@ import { CreateStreamEntry, StreamWithRelations } from "../../types/sharedTypes"
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import { StreamStatus } from "../../models/streamMode";
 import { categoryFeature } from "../category";
+import { delay } from "../../utils/utils";
 const logger = rootLogger.child({ domain: "channel", service: "channelService" });
 
 export const getChannelDb = async (broadcasterId: string): Promise<Channel | null> => {
@@ -94,6 +95,43 @@ export const getChannelByName = async (login: string): Promise<Channel | null> =
 export const channelExists = async (broadcasterId: string): Promise<boolean> => {
     const channel = await getChannel(broadcasterId);
     return !!channel;
+};
+
+export const fetchStreamWithRetries = async (broadcasterId: string, maxRetries = 5) => {
+    for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
+        const logContext = { broadcasterId, retryAttempt: retryCount, action: "fetchStreamAttempt" };
+        try {
+            const streamFetched = await getChannelStream(broadcasterId, "system");
+            if (!streamFetched) {
+                logger.warn({
+                    ...logContext,
+                    message: "Stream OFFLINE or not started. Retrying...",
+                    status: "offlineOrNotStarted",
+                });
+                await delay(120000);
+                continue;
+            }
+            logger.info({ ...logContext, message: "Stream fetched successfully.", status: "streamFetched" });
+            return streamFetched;
+        } catch (error) {
+            logger.error({
+                ...logContext,
+                message: "Error fetching stream. Retrying...",
+                error: error.toString(),
+                status: "errorFetchingStream",
+            });
+            if (retryCount === maxRetries) {
+                logger.error({
+                    ...logContext,
+                    message: "Maximum retries reached. Stream fetch failed.",
+                    status: "maxRetriesReached",
+                });
+                return;
+            } else {
+                await delay(120000);
+            }
+        }
+    }
 };
 
 export const getChannelStream = async (
