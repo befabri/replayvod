@@ -27,9 +27,8 @@ RUN apk add --update ffmpeg
 
 COPY ./dist ./
 COPY ./bin ./bin
-COPY entrypoint.sh /usr/local/bin/
 
-RUN chmod +x ./bin/yt-dlp
+RUN chmod +x ./bin/*
 
 EXPOSE $PORT
 
