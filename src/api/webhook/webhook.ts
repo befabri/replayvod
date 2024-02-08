@@ -13,6 +13,8 @@ import {
 } from "../../models/twitch";
 import { transformWebhookEvent } from "./webhook.DTO";
 import { channelFeature } from "../channel";
+import { scheduleFeature } from "../schedule";
+import { downloadFeature } from "../download";
 const logger = rootLogger.child({ domain: "webhook", service: "webhookFeature" });
 
 export const getWebhook = async (id: string) => {
@@ -120,25 +122,25 @@ export async function handleStreamOnline(notification: TwitchNotificationEvent) 
                     message: "Stream fetched successfully.",
                     status: "streamFetched",
                 });
-                // const schedules = await scheduleFeature.getScheduleByBroadcaster(event.broadcaster_user_id);
-                // for (const schedule of schedules) {
-                //     if (matchesCriteria(schedule, streamFetched)) {
-                //         logger.info({
-                //             broadcasterID: event.broadcaster_user_id,
-                //             message: "Download initiated for matching schedule.",
-                //             action: "downloadInitiated",
-                //             scheduleID: schedule.id,
-                //         });
-                //         const jobDetails = downloadFeature.getDownloadJobDetail(
-                //             streamFetched,
-                //             "system",
-                //             streamFetched.channel,
-                //             ""
-                //         );
-                //         await downloadFeature.handleDownload(jobDetails, event.broadcaster_user_id);
-                //         break;
-                //     }
-                // }
+                const schedules = await scheduleFeature.getScheduleByBroadcaster(event.broadcaster_user_id);
+                for (const schedule of schedules) {
+                    if (scheduleFeature.matchesCriteria(schedule, streamFetched)) {
+                        logger.info({
+                            broadcasterID: event.broadcaster_user_id,
+                            message: "Download initiated for matching schedule.",
+                            action: "downloadInitiated",
+                        });
+                        const jobDetails = downloadFeature.getDownloadJobDetail(
+                            streamFetched,
+                            "system",
+                            streamFetched.channel,
+                            ""
+                        );
+                        // TODO map the quality of the schedule
+                        await downloadFeature.handleDownload(jobDetails, event.broadcaster_user_id);
+                        break;
+                    }
+                }
             }
         } catch (error) {
             if (retryCount < 5) {

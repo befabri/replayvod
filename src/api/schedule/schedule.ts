@@ -4,6 +4,7 @@ import { videoFeature } from "../video";
 import { CreateScheduleDTO, transformDownloadSchedule, transformDownloadScheduleEdit } from "./schedule.DTO";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import { ScheduleDTO } from "../../models/scheduleModel";
+import { StreamWithRelations } from "../../types/sharedTypes";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 export const getCurrentSchedulesByUser = async (userId: string) => {
@@ -38,20 +39,20 @@ export const getCurrentSchedulesByUser = async (userId: string) => {
     }));
 };
 
-// function matchesCriteria(schedule: ScheduleDTO, streamFetched: Stream) {
-//     const meetsViewerCountCriteria =
-//         !schedule.hasMinView ||
-//         (schedule.viewersCount !== null && streamFetched.viewerCount >= schedule.viewersCount);
-//     const meetsCategoryCriteria =
-//         !schedule.hasCategory ||
-//         streamFetched.ca  .some((category: { name: string }) => category.name === schedule); // Assuming you have a way to match categories
-//     const scheduleTags = schedule.tags; // Assuming 'schedule' has a tags array
-//     const streamTags = streamFetched.tags.map((tag) => tag.tag.name); // Assuming 'streamFetched.tags' is an array of { streamId, tagId, tag: { name } }
-//     const meetsTagsCriteria =
-//         !schedule.hasTags || scheduleTags.every((scheduleTag) => streamTags.includes(scheduleTag));
-//     // Combine all criteria checks
-//     return meetsViewerCountCriteria && meetsQualityCriteria && meetsCategoryCriteria && meetsTagsCriteria;
-// }
+export const matchesCriteria = (schedule: ScheduleDTO, streamFetched: StreamWithRelations) => {
+    const meetsViewerCountCriteria =
+        !schedule.hasMinView ||
+        (schedule.viewersCount !== null &&
+            schedule.viewersCount &&
+            streamFetched.viewerCount >= schedule.viewersCount);
+    const meetsCategoryCriteria =
+        !schedule.hasCategory ||
+        streamFetched.categories.some((category) => schedule.categories.includes(category.categoryId));
+    const meetsTagsCriteria =
+        !schedule.hasTags || streamFetched.tags.some((tag) => schedule.tags.includes(tag.tagId));
+    const meetsQualityCriteria = true;
+    return meetsViewerCountCriteria && meetsQualityCriteria && meetsCategoryCriteria && meetsTagsCriteria;
+};
 
 export const getScheduleByBroadcaster = async (broadcasterId: string): Promise<ScheduleDTO[]> => {
     const schedules = await prisma.downloadSchedule.findMany({
