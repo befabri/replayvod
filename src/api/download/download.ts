@@ -3,8 +3,8 @@ import { jobService } from "../../services";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import path from "path";
-import { Status } from "@prisma/client";
-import { DownloadParams, JobDetail } from "../../types/sharedTypes";
+import { Channel, Status } from "@prisma/client";
+import { DownloadParams, JobDetail, StreamWithRelations } from "../../types/sharedTypes";
 import { spawn } from "child_process";
 import { platform } from "os";
 import fs from "fs/promises";
@@ -377,6 +377,17 @@ export const updateVideoCollection = async (_user_id: string) => {
     //     throw error;
     // }
     return;
+};
+
+export const getDownloadJobDetail = (
+    stream: StreamWithRelations,
+    userId: string,
+    channel: Channel,
+    videoQuality: string
+): JobDetail => {
+    const jobId = jobService.createJobId();
+    const quality = videoFeature.mapVideoQualityToQuality(videoQuality);
+    return { stream, userId, channel, jobId, quality };
 };
 
 export const handleDownload = async (

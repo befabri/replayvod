@@ -1,10 +1,7 @@
 import { FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
 import { jobService } from "../../services";
-import { Quality } from "@prisma/client";
-import { JobDetail } from "../../types/sharedTypes";
 import { userFeature } from "../user";
 import { channelFeature } from "../channel";
-import { videoFeature } from "../video";
 import { downloadFeature } from ".";
 
 interface Params extends RouteGenericInterface {
@@ -38,11 +35,9 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
             jobId: pendingJob.id,
         });
     }
-    const jobId = jobService.createJobId();
-    const quality: Quality = videoFeature.mapVideoQualityToQuality(req.params.quality || "");
-    const jobDetails: JobDetail = { stream, userId, channel, jobId, quality };
+    const jobDetails = downloadFeature.getDownloadJobDetail(stream, userId, channel, req.params.quality || "");
     await downloadFeature.handleDownload(jobDetails, broadcasterId);
-    reply.send({ jobId });
+    reply.send({ jobId: jobDetails.jobId });
 };
 
 export const getJobStatus = async (req: FastifyRequest<Params>, reply: FastifyReply) => {
