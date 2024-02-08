@@ -48,8 +48,7 @@ export const callbackWebhook = async (req: FastifyRequest<WebhookRequest>, reply
 
 async function processNotificationAsync(notification: TwitchNotificationBody) {
     try {
-        let messageType = notification.message_type;
-        logger.info(`Asynchronously processing notification with message type: ${messageType}`);
+        logger.info(`Processing notification with: ${notification.subscription.type}`);
         if (isTwitchNotificationEvent(notification)) {
             switch (notification.subscription.type) {
                 case SubscriptionType.CHANNEL_UPDATE:
@@ -66,9 +65,8 @@ async function processNotificationAsync(notification: TwitchNotificationBody) {
                     break;
             }
         }
-        logger.info("suc");
     } catch (error) {
-        logger.error(`Error processing revocation: ${error.message}`);
+        logger.error(`Error processing notification: ${error.message}`);
     }
 }
 
