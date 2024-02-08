@@ -29,7 +29,7 @@ COPY ./dist ./
 COPY ./bin ./bin
 COPY entrypoint.sh /usr/local/bin/
 
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN chmod +x ./bin/yt-dlp
 
 EXPOSE $PORT
 
