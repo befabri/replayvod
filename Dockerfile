@@ -29,10 +29,7 @@ COPY ./dist ./
 COPY ./bin ./bin
 COPY entrypoint.sh /usr/local/bin/
 
-RUN chmod +x /usr/local/bin/entrypoint.sh && \
-    chown -R node:node /app
-
-USER node
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE $PORT
 
