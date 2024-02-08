@@ -249,6 +249,7 @@ export const startDownload = async ({
             resolution,
             `https://www.twitch.tv/${channel.broadcasterLogin}`
         );
+        logger.info("Starting downloading...");
         const result = await proceedWithDownload(
             channel.broadcasterLogin,
             filename,
@@ -259,7 +260,7 @@ export const startDownload = async ({
         );
         return result;
     } catch (error) {
-        logger.error(error);
+        logger.error(`There is a problem when downloading... ${error}`);
         throw error;
     }
 };
