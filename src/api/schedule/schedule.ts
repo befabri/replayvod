@@ -119,6 +119,16 @@ export const toggleSchedule = async (scheduleId: number, enable: boolean) => {
     });
 };
 
+export async function isScheduleMatch(stream: StreamWithRelations, broadcasterId: string) {
+    const schedules = await getScheduleByBroadcaster(broadcasterId);
+    for (const schedule of schedules) {
+        if (matchesCriteria(schedule, stream)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export const createSchedule = async (newSchedule: CreateScheduleDTO, userId: string) => {
     try {
         const transformedScheduleData = await transformDownloadSchedule(newSchedule, userId);
@@ -176,16 +186,6 @@ export const createSchedule = async (newSchedule: CreateScheduleDTO, userId: str
         throw error;
     }
 };
-
-export async function isScheduleMatch(stream: StreamWithRelations, broadcasterId: string) {
-    const schedules = await getScheduleByBroadcaster(broadcasterId);
-    for (const schedule of schedules) {
-        if (matchesCriteria(schedule, stream)) {
-            return true;
-        }
-    }
-    return false;
-}
 
 export const editSchedule = async (scheduleId: number, schedule: CreateScheduleDTO) => {
     try {
