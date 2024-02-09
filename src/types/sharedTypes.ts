@@ -1,15 +1,16 @@
 import { Category, Channel, Prisma, PrismaClient, Quality, Stream, Tag, Title } from "@prisma/client";
+import { StreamDTO } from "../api/channel/channel.DTO";
 
 export interface DownloadParams {
     requestingUserId: string;
     channel: Channel;
     jobId: string;
-    stream: StreamWithRelations;
+    stream: StreamDTO;
     videoQuality: Quality;
 }
 
 export interface JobDetail {
-    stream: StreamWithRelations;
+    stream: StreamDTO;
     userId: string;
     channel: Channel;
     jobId: string;

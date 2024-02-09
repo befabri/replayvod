@@ -3,12 +3,13 @@ import { logger as rootLogger } from "../../app";
 import { channelFeature } from "../channel";
 import { videoFeature } from "../video";
 import { categoryFeature } from "../category";
+import { Resolution } from "../../models/dowloadModel";
 
 const logger = rootLogger.child({ domain: "download", service: "transformUtils" });
 
 export interface CreateScheduleDTO {
     channelName: string;
-    quality: Quality;
+    quality: Resolution;
     hasTags: boolean;
     tags: string[];
     hasMinView: boolean;

@@ -257,8 +257,8 @@ export const getStreamByFetchId = async (fetchId: string): Promise<StreamDTO | n
 
     return {
         ...stream,
-        categories: stream.categories.map((c) => c.category.name),
-        tags: stream.tags.map((t) => t.tag.name),
+        categories: stream.categories.map((c) => c.category),
+        tags: stream.tags.map((t) => t.tag),
     };
 };
 

@@ -4,12 +4,12 @@ import ffmpeg, { FfprobeFormat } from "fluent-ffmpeg";
 import { Channel, Quality, Status, Video } from "@prisma/client";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
-import { Resolution, VideoQuality } from "../../models/downloadModel";
+import { Resolution, VideoQuality } from "../../models/dowloadModel";
 import { tagService, titleService } from "../../services";
-import { StreamWithRelations } from "../../types/sharedTypes";
 import { categoryFeature } from "../category";
 import { transformVideo, videoDTO } from "./video.DTO";
 import { DateTime } from "luxon";
+import { StreamDTO } from "../channel/channel.DTO";
 const logger = rootLogger.child({ domain: "video", service: "videoService" });
 
 const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
@@ -453,7 +453,7 @@ export const saveVideoInfo = async ({
     startAt: Date;
     status: Status;
     jobId: string;
-    stream: StreamWithRelations;
+    stream: StreamDTO;
     videoQuality: Quality;
 }) => {
     try {
@@ -501,10 +501,10 @@ export const saveVideoInfo = async ({
             await titleService.createVideoTitle(video.id, title.titleId);
         }
         for (let category of stream.categories) {
-            await categoryFeature.createVideoCategory(video.id, category.categoryId);
+            await categoryFeature.createVideoCategory(video.id, category.id);
         }
         for (let tag of stream.tags) {
-            await tagService.addVideoTag(video.id, tag.tagId);
+            await tagService.addVideoTag(video.id, tag.name);
         }
     } catch (error) {
         throw new Error(`Error saving video: ${error}`);

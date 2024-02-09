@@ -3,8 +3,7 @@ import { prisma } from "../../server";
 import { videoFeature } from "../video";
 import { CreateScheduleDTO, transformDownloadSchedule, transformDownloadScheduleEdit } from "./schedule.DTO";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
-import { ScheduleDTO } from "../../models/scheduleModel";
-import { StreamWithRelations } from "../../types/sharedTypes";
+import { StreamDTO } from "../channel/channel.DTO";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 export const getCurrentSchedulesByUser = async (userId: string) => {
@@ -39,7 +38,8 @@ export const getCurrentSchedulesByUser = async (userId: string) => {
     }));
 };
 
-export const matchesCriteria = (schedule: ScheduleDTO, streamFetched: StreamWithRelations) => {
+export const matchesCriteria = (schedule: CreateScheduleDTO, streamFetched: StreamDTO) => {
+    logger.info("Match criteria....");
     const meetsViewerCountCriteria =
         !schedule.hasMinView ||
         (schedule.viewersCount !== null &&
@@ -47,14 +47,16 @@ export const matchesCriteria = (schedule: ScheduleDTO, streamFetched: StreamWith
             streamFetched.viewerCount >= schedule.viewersCount);
     const meetsCategoryCriteria =
         !schedule.hasCategory ||
-        streamFetched.categories.some((category) => schedule.categories.includes(category.categoryId));
+        streamFetched.categories.some((category) => schedule.categories.includes(category.name));
     const meetsTagsCriteria =
-        !schedule.hasTags || streamFetched.tags.some((tag) => schedule.tags.includes(tag.tagId));
-    const meetsQualityCriteria = true;
-    return meetsViewerCountCriteria && meetsQualityCriteria && meetsCategoryCriteria && meetsTagsCriteria;
+        !schedule.hasTags ||
+        streamFetched.tags.some((tag) =>
+            schedule.tags.map((scheduleTag) => scheduleTag.toLowerCase()).includes(tag.name.toLowerCase())
+        );
+    return meetsViewerCountCriteria && meetsCategoryCriteria && meetsTagsCriteria;
 };
 
-export const getScheduleByBroadcaster = async (broadcasterId: string): Promise<ScheduleDTO[]> => {
+export const getScheduleByBroadcaster = async (broadcasterId: string): Promise<CreateScheduleDTO[]> => {
     const schedules = await prisma.downloadSchedule.findMany({
         where: {
             broadcasterId: broadcasterId,
@@ -119,7 +121,7 @@ export const toggleSchedule = async (scheduleId: number, enable: boolean) => {
     });
 };
 
-export async function isScheduleMatch(stream: StreamWithRelations, broadcasterId: string) {
+export async function isScheduleMatch(stream: StreamDTO, broadcasterId: string): Promise<boolean> {
     const schedules = await getScheduleByBroadcaster(broadcasterId);
     for (const schedule of schedules) {
         if (matchesCriteria(schedule, stream)) {

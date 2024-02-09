@@ -1,4 +1,4 @@
-import { Channel, FetchLog, StreamTitle, Video } from "@prisma/client";
+import { Category, Channel, FetchLog, StreamTitle, Tag, Video } from "@prisma/client";
 
 export interface StreamDTO {
     id: string;
@@ -13,8 +13,8 @@ export interface StreamDTO {
     fetchId: string;
     channel: Channel;
     fetchLog: FetchLog;
-    tags: string[];
+    tags: Tag[];
     videos: Video[];
-    categories: string[];
+    categories: Category[];
     titles: StreamTitle[];
 }
