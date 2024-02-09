@@ -1,7 +1,7 @@
 import axios from "axios";
 import { env, logger as rootLogger } from "../../app";
 import { userFeature } from "../user";
-import { TwitchTokenResponse, TwitchUserData } from "../../models/userModel";
+import { TwitchTokenResponse, TwitchUserData } from "../../models/twitchModel";
 const logger = rootLogger.child({ domain: "auth", service: "authHandler" });
 
 export async function fetchTwitchUserData(accessToken: string): Promise<TwitchUserData> {

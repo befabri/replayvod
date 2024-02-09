@@ -100,3 +100,38 @@ export const HMAC_PREFIX = "sha256=";
 export const TWITCH_ENDPOINT = "/api/auth/twitch";
 export const FETCH_MAX_RETRIES = 3;
 export const FETCH_RETRY_DELAY = 1000;
+
+export interface TwitchUserData {
+    id: string;
+    login: string;
+    display_name: string;
+    type: string;
+    broadcaster_type: string;
+    description: string;
+    profile_image_url: string;
+    offline_image_url: string;
+    view_count?: number;
+    email: string;
+    created_at: Date;
+}
+
+export interface TwitchToken {
+    access_token: string;
+    expires_in: number;
+    refresh_token?: string;
+    token_type: string;
+    expires_at: Date;
+}
+
+export interface TwitchTokenResponse {
+    access_token: string;
+    expires_in: number;
+    refresh_token?: string;
+    token_type: string;
+    scope: string[];
+}
+
+export enum StreamStatus {
+    ONLINE = "online",
+    OFFLINE = "offline",
+}

@@ -6,7 +6,7 @@ import {
     TwitchHeaders,
     TwitchNotificationBody,
     TwitchNotificationRevocation,
-} from "../../models/twitch";
+} from "../../models/twitchModel";
 import { webhookFeature } from ".";
 import {
     isTwitchNotificationChallenge,

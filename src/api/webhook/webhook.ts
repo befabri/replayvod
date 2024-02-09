@@ -10,7 +10,7 @@ import {
     TwitchNotificationChallenge,
     TwitchNotificationEvent,
     TwitchNotificationRevocation,
-} from "../../models/twitch";
+} from "../../models/twitchModel";
 import { transformWebhookEvent } from "./webhook.DTO";
 import { channelFeature } from "../channel";
 import { scheduleFeature } from "../schedule";

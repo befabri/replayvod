@@ -2,11 +2,12 @@ import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import { Channel, PrismaClient } from "@prisma/client";
 import { cacheService, tagService, titleService, twitchService } from "../../services";
-import { CreateStreamEntry, StreamWithRelations } from "../../types/sharedTypes";
+import { CreateStreamEntry } from "../../types/sharedTypes";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
-import { StreamStatus } from "../../models/streamMode";
 import { categoryFeature } from "../category";
 import { delay } from "../../utils/utils";
+import { StreamDTO } from "./channel.DTO";
+import { StreamStatus } from "../../models/twitchModel";
 const logger = rootLogger.child({ domain: "channel", service: "channelService" });
 
 export const getChannelDb = async (broadcasterId: string): Promise<Channel | null> => {
@@ -134,10 +135,7 @@ export const fetchStreamWithRetries = async (broadcasterId: string, maxRetries =
     }
 };
 
-export const getChannelStream = async (
-    broadcasterId: string,
-    userId: string
-): Promise<StreamWithRelations | null> => {
+export const getChannelStream = async (broadcasterId: string, userId: string): Promise<StreamDTO | null> => {
     try {
         if (!(await channelExists(broadcasterId))) {
             return null;
@@ -230,20 +228,38 @@ export const createStreamEntry = async ({ fetchId, stream, tags, category, title
     }
 };
 
-export const getStreamByFetchId = async (fetchId: string): Promise<StreamWithRelations | null> => {
-    return prisma.stream.findFirst({
+export const getStreamByFetchId = async (fetchId: string): Promise<StreamDTO | null> => {
+    const stream = await prisma.stream.findFirst({
         where: {
             fetchId: fetchId,
         },
         include: {
             channel: true,
             fetchLog: true,
-            tags: true,
+            tags: {
+                include: {
+                    tag: true,
+                },
+            },
             videos: true,
-            categories: true,
+            categories: {
+                include: {
+                    category: true,
+                },
+            },
             titles: true,
         },
     });
+
+    if (!stream) {
+        return null;
+    }
+
+    return {
+        ...stream,
+        categories: stream.categories.map((c) => c.category.name),
+        tags: stream.tags.map((t) => t.tag.name),
+    };
 };
 
 export const getStreamLastFetch = async (userId: string, broadcasterId: string) => {

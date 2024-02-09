@@ -1,4 +1,4 @@
-import { SubscriptionType } from "../../models/twitch";
+import { SubscriptionType } from "../../models/twitchModel";
 
 export const transformWebhookEvent = (eventType: string, broadcasterId: string) => {
     if (eventType === SubscriptionType.STREAM_ONLINE) {

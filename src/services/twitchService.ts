@@ -19,8 +19,8 @@ import {
     transformStream,
     transformTwitchUser,
 } from "../integration/twitch/transformation";
-import { StreamStatus } from "../models/streamMode";
 import { EventSubMetaType } from "../integration/twitch/twitchSchema";
+import { StreamStatus } from "../models/twitchModel";
 
 const logger = rootLogger.child({ domain: "twitch", service: "twitchService" });
 
@@ -31,7 +31,11 @@ class TwitchService {
         this.api = new TwitchAPI();
     }
 
-    private async fetchData<T>(fetchFunction: () => Promise<T | null>, validator: (data: T) => boolean, transformer: (data: T) => any): Promise<any> {
+    private async fetchData<T>(
+        fetchFunction: () => Promise<T | null>,
+        validator: (data: T) => boolean,
+        transformer: (data: T) => any
+    ): Promise<any> {
         try {
             const data = await fetchFunction();
             if (!data) {
@@ -48,11 +52,7 @@ class TwitchService {
 
     public async getUser(userId: string): Promise<Channel | null> {
         try {
-            return await this.fetchData(
-                () => this.api.getUser(userId),
-                isValidUser,
-                transformTwitchUser
-            );
+            return await this.fetchData(() => this.api.getUser(userId), isValidUser, transformTwitchUser);
         } catch (error) {
             logger.error(`Error fetching getUser: ${error}`);
             return null;
@@ -61,10 +61,10 @@ class TwitchService {
 
     public async getUserByLogin(login: string): Promise<Channel | null> {
         try {
-        return await this.fetchData(
-            () => this.api.getUserByLogin(login.toLowerCase()),
-            isValidUser,
-            transformTwitchUser
+            return await this.fetchData(
+                () => this.api.getUserByLogin(login.toLowerCase()),
+                isValidUser,
+                transformTwitchUser
             );
         } catch (error) {
             logger.error(`Error fetching getUserByLogin: ${error}`);
@@ -72,12 +72,12 @@ class TwitchService {
         }
     }
 
-    public async getUsers (userIds: string[]): Promise<Channel[] | null> {
+    public async getUsers(userIds: string[]): Promise<Channel[] | null> {
         try {
-        return await this.fetchData(
-            () => this.api.getUsers(userIds),
-            isValidUsers,
-            (users) => users.map(transformTwitchUser)
+            return await this.fetchData(
+                () => this.api.getUsers(userIds),
+                isValidUsers,
+                (users) => users.map(transformTwitchUser)
             );
         } catch (error) {
             logger.error(`Error fetching getUsers: ${error}`);
@@ -85,12 +85,16 @@ class TwitchService {
         }
     }
 
-    public async getAllFollowedChannels(userId: string, accessToken: string, cursor?: string): Promise<UserFollowedChannels[] | null> {
+    public async getAllFollowedChannels(
+        userId: string,
+        accessToken: string,
+        cursor?: string
+    ): Promise<UserFollowedChannels[] | null> {
         try {
-        return await this.fetchData(
-            () => this.api.getAllFollowedChannels(userId, accessToken, cursor),
-            isValidFollowedChannel,
-            (channels) => channels.map(channel => transformFollowedChannel(channel, userId))
+            return await this.fetchData(
+                () => this.api.getAllFollowedChannels(userId, accessToken, cursor),
+                isValidFollowedChannel,
+                (channels) => channels.map((channel) => transformFollowedChannel(channel, userId))
             );
         } catch (error) {
             logger.error(`Error fetching getAllFollowedChannels: ${error}`);
@@ -98,12 +102,16 @@ class TwitchService {
         }
     }
 
-    public async getAllFollowedStreams(userId: string, accessToken: string, cursor?: string): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> }[] | null> {
+    public async getAllFollowedStreams(
+        userId: string,
+        accessToken: string,
+        cursor?: string
+    ): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> }[] | null> {
         try {
-        return await this.fetchData(
-            () => this.api.getAllFollowedStreams(userId, accessToken, cursor),
-            isValidStreams,
-            (streams) => streams.map(transformStream)
+            return await this.fetchData(
+                () => this.api.getAllFollowedStreams(userId, accessToken, cursor),
+                isValidStreams,
+                (streams) => streams.map(transformStream)
             );
         } catch (error) {
             logger.error(`Error fetching getAllFollowedStreams: ${error}`);
@@ -111,13 +119,13 @@ class TwitchService {
         }
     }
 
-    public async getStreamByUserId(userId: string): Promise<{ stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> } | StreamStatus.OFFLINE | null> {
+    public async getStreamByUserId(
+        userId: string
+    ): Promise<
+        { stream: Stream; tags: Tag[]; category: Category; title: Omit<Title, "id"> } | StreamStatus.OFFLINE | null
+    > {
         try {
-            return await this.fetchData(
-                () => this.api.getStreamByUserId(userId),
-                isValidStream,
-                transformStream
-            );
+            return await this.fetchData(() => this.api.getStreamByUserId(userId), isValidStream, transformStream);
         } catch (error) {
             logger.error(`Error fetching getStreamByUserId: ${error}`);
             return null;
@@ -126,11 +134,7 @@ class TwitchService {
 
     public async getGameDetail(gameId: string): Promise<Category | null> {
         try {
-            return await this.fetchData(
-                () => this.api.getGameDetail(gameId),
-                isValidGame,
-                transformCategory
-            );
+            return await this.fetchData(() => this.api.getGameDetail(gameId), isValidGame, transformCategory);
         } catch (error) {
             logger.error(`Error fetching getGameDetail: ${error}`);
             return null;
@@ -150,7 +154,12 @@ class TwitchService {
         }
     }
 
-    public async createEventSub(type: string, version: string, condition: any, transport: any): Promise<Subscription[] | null> {
+    public async createEventSub(
+        type: string,
+        version: string,
+        condition: any,
+        transport: any
+    ): Promise<Subscription[] | null> {
         try {
             return await this.fetchData(
                 () => this.api.createEventSub(type, version, condition, transport),
@@ -170,7 +179,7 @@ class TwitchService {
                 isValidEventSub,
                 (eventSub) => ({
                     subscriptions: eventSub.data.map(transformEventSub),
-                    meta: transformEventSubMeta(eventSub)
+                    meta: transformEventSubMeta(eventSub),
                 })
             );
         } catch (error) {

@@ -1,5 +1,5 @@
 import { User } from ".prisma/client";
-import { TwitchUserData } from "../../models/userModel";
+import { TwitchUserData } from "../../models/twitchModel";
 
 export const transformSessionUser = (user: TwitchUserData): User => {
     return {

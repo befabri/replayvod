@@ -10,7 +10,7 @@ import { isUserWhitelisted, userAuthenticated } from "./middlewares/authMiddlewa
 import { videoFeature } from "./api/video";
 import oauthPlugin from "@fastify/oauth2";
 import { readFileSync } from "fs";
-import { TWITCH_ENDPOINT } from "./models/twitch";
+import { TWITCH_ENDPOINT } from "./models/twitchModel";
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";

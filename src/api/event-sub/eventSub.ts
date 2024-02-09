@@ -4,7 +4,7 @@ import { webhookFeature } from "../webhook";
 import { channelFeature } from "../channel";
 import { cacheService, twitchService } from "../../services";
 import { userFeature } from "../user";
-import { SubscriptionType } from "../../models/twitch";
+import { SubscriptionType } from "../../models/twitchModel";
 import { EventSubDTO } from "./eventSub.DTO";
 const logger = rootLogger.child({ domain: "webhook", service: "eventSubService" });
 

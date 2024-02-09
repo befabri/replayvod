@@ -1,15 +1,16 @@
-import { FallbackResolutions, Resolution } from "../../models/downloadModel";
+import { FallbackResolutions, Resolution } from "../../models/dowloadModel";
 import { jobService } from "../../services";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import path from "path";
 import { Channel, Status } from "@prisma/client";
-import { DownloadParams, JobDetail, StreamWithRelations } from "../../types/sharedTypes";
+import { DownloadParams, JobDetail } from "../../types/sharedTypes";
 import { spawn } from "child_process";
 import { platform } from "os";
 import fs from "fs/promises";
 import { create as createYoutubeDl } from "youtube-dl-exec";
 import { videoFeature } from "../video";
+import { StreamDTO } from "../channel/channel.DTO";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 let youtubedl: {
@@ -381,7 +382,7 @@ export const updateVideoCollection = async (_user_id: string) => {
 };
 
 export const getDownloadJobDetail = (
-    stream: StreamWithRelations,
+    stream: StreamDTO,
     userId: string,
     channel: Channel,
     videoQuality: string
