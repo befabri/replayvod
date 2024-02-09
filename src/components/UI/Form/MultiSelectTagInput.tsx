@@ -107,7 +107,7 @@ const MultiSelectTagInput: FC<MultiSelectTagInputProps> = ({
                             </div>
                         </div>
                         {showPopup && (
-                            <div className="z-80 absolute left-0 top-14 max-h-64 w-full overflow-y-auto rounded border border-custom_space_cadet_bis bg-white dark:bg-custom_lightblue">
+                            <div className="z-80 absolute left-0 top-14 max-h-56 w-full overflow-y-auto rounded border border-custom_space_cadet_bis bg-white dark:bg-custom_lightblue">
                                 <div className="flex w-full flex-col">
                                     {options.map((cat) => (
                                         <div

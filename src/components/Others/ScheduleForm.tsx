@@ -58,7 +58,12 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         isError: isErrorCategories,
     } = useQuery<Category[], Error>({
         queryKey: ["categories", "all"],
-        queryFn: (): Promise<Category[]> => customFetch(ApiRoutes.GET_CATEGORY_ALL),
+        queryFn: async (): Promise<Category[]> => {
+            const fetchedCategories = await customFetch(ApiRoutes.GET_CATEGORY_ALL);
+            return fetchedCategories.sort((a: { name: string }, b: { name: string }) =>
+                a.name.localeCompare(b.name)
+            );
+        },
         staleTime: 5 * 60 * 1000,
     });
 

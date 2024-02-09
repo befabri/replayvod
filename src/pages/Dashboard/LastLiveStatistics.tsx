@@ -38,7 +38,7 @@ const LastLiveStatistics: React.FC = () => {
             </div>
             <div className="pt-4" id="about" role="tabpanel" aria-labelledby="about-tab">
                 <ul role="list" className="divide-y divide-gray-200 dark:divide-slate-400">
-                    {lastLives.map((lastLive, idx) => (
+                    {lastLives.slice(0, 4).map((lastLive, idx) => (
                         <li className="py-3 sm:py-4" key={idx}>
                             <div className="flex items-center space-x-4">
                                 <div className="flex-shrink-0">
