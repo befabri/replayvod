@@ -11,6 +11,7 @@ import { videoFeature } from "./api/video";
 import oauthPlugin from "@fastify/oauth2";
 import { readFileSync } from "fs";
 import { TWITCH_ENDPOINT } from "./models/twitchModel";
+import { ROOT_DIR } from "./constants/folderConstants";
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
@@ -18,13 +19,6 @@ const server = app;
 
 logger.info("Launching Fastify in %s environment", env.nodeEnv);
 export const prisma = new PrismaClient();
-
-let ROOT_DIR = "";
-if (env.nodeEnv === "production") {
-    ROOT_DIR = __dirname;
-} else {
-    ROOT_DIR = path.join(__dirname, "..");
-}
 
 server.register(cors, {
     origin: env.reactUrl,

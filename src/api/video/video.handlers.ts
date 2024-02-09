@@ -1,14 +1,10 @@
 import { FastifyRequest, FastifyReply, RouteGenericInterface } from "fastify";
 import fs from "fs";
-import path from "path";
 import { Status } from "@prisma/client";
 import { videoFeature } from ".";
 import { userFeature } from "../user";
 import { channelFeature } from "../channel";
 import { categoryFeature } from "../category";
-
-const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
-const PUBLIC_DIR = process.env.PUBLIC_DIR || VIDEO_PATH;
 
 const RANGE_LIMIT = 500 * 1024;
 
@@ -42,7 +38,7 @@ export const playVideo = async (req: FastifyRequest<Params>, reply: FastifyReply
     if (!video) {
         return reply.status(404).send({ message: "Video not found in database" });
     }
-    const videoPath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
+    const videoPath = videoFeature.getVideoPath(video.displayName, video.filename);
     if (!fs.existsSync(videoPath)) {
         return reply.status(404).send({ message: "File not found on server" });
     }

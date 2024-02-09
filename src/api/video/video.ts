@@ -10,10 +10,8 @@ import { categoryFeature } from "../category";
 import { transformVideo, videoDTO } from "./video.DTO";
 import { DateTime } from "luxon";
 import { StreamDTO } from "../channel/channel.DTO";
+import { THUMBNAIL_PATH, VIDEO_PATH } from "../../constants/folderConstants";
 const logger = rootLogger.child({ domain: "video", service: "videoService" });
-
-const VIDEO_PATH = path.resolve(__dirname, "..", "..", "public", "videos");
-const PUBLIC_DIR = process.env.PUBLIC_DIR || VIDEO_PATH;
 
 export const getVideoById = async (id: number): Promise<videoDTO | null> => {
     const video = await prisma.video.findUnique({
@@ -28,6 +26,14 @@ export const getVideoById = async (id: number): Promise<videoDTO | null> => {
     }
     const transformed = transformVideo([video]);
     return transformed[0];
+};
+
+export const getVideoPath = (broadcasterLogin: string, filename: string) => {
+    return path.resolve(VIDEO_PATH, broadcasterLogin.toLocaleLowerCase(), filename);
+};
+
+const getThumbnailPath = (broadcasterLogin: string, filename: string) => {
+    return path.resolve(THUMBNAIL_PATH, broadcasterLogin.toLocaleLowerCase(), filename.replace(".mp4", ".jpg"));
 };
 
 export const getVideosByCategory = async (categoryId: string, userId: string): Promise<videoDTO[]> => {
@@ -145,7 +151,7 @@ export const mapQualityToVideoQuality = (quality: Quality): Resolution => {
 };
 
 export const updateVideoSize = async (video: Video) => {
-    const filePath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
+    const filePath = getVideoPath(video.displayName, video.filename);
     if (fs.existsSync(filePath)) {
         const stat = fs.statSync(filePath);
         const fileSizeInBytes = stat.size;
@@ -188,7 +194,7 @@ export const generateThumbnail = (videoPath: string, thumbnailPath: string, time
 export const generateSingleThumbnail = async (videoPath: string, videoName: string, login: string) => {
     const duration = await getVideoDuration(videoPath); // TODO when is 0
     const thumbnailName = videoName.replace(".mp4", ".jpg");
-    const directoryPath = path.resolve(PUBLIC_DIR, "thumbnail", login);
+    const directoryPath = path.resolve(THUMBNAIL_PATH, login);
     if (!fs.existsSync(directoryPath)) {
         fs.mkdirSync(directoryPath, { recursive: true });
     }
@@ -225,13 +231,8 @@ export const generateMissingThumbnailsAndUpdate = async () => {
             where: { thumbnail: null, status: Status.DONE },
         });
         const promises = videos.map(async (video) => {
-            const thumbnailPath = path.resolve(
-                PUBLIC_DIR,
-                "thumbnail",
-                video.displayName.toLowerCase(),
-                video.filename.replace(".mp4", ".jpg")
-            );
-            const videoPath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
+            const thumbnailPath = getThumbnailPath(video.displayName, video.filename);
+            const videoPath = getVideoPath(video.displayName, video.filename);
             const duration = await getVideoDuration(videoPath);
             if (!fs.existsSync(path.dirname(thumbnailPath))) {
                 fs.mkdirSync(path.dirname(thumbnailPath), { recursive: true });
@@ -303,7 +304,7 @@ export const fixMalformedVideos = async () => {
         where: { status: Status.DONE },
     });
     for (const video of videos) {
-        const videoPath = path.resolve(PUBLIC_DIR, "videos", video.displayName.toLowerCase(), video.filename);
+        const videoPath = getVideoPath(video.displayName, video.filename);
         if (fs.existsSync(videoPath)) {
             try {
                 logger.info(`Processing video: ${videoPath}`);
@@ -623,7 +624,7 @@ export const updateVideoInfo = async (videoName: string, endAt: Date, status: St
 export const getVideoFilePath = (login: string) => {
     const currentDate = DateTime.now().toFormat("ddMMyyyy-HHmmss");
     const filename = `${login}_${currentDate}.mp4`;
-    const directoryPath = path.resolve(PUBLIC_DIR, "videos", login);
+    const directoryPath = path.resolve(VIDEO_PATH, login);
     if (!fs.existsSync(directoryPath)) {
         fs.mkdirSync(directoryPath, { recursive: true });
     }
