@@ -8,6 +8,8 @@ export const ROOT_DIR = env.nodeEnv === "production" ? path.resolve(__dirname) :
 const PUBLIC_DIR = "public";
 const VIDEO_DIR = "videos";
 const THUMBNAIL_DIR = "thumbnail";
+const SECRET_DIR = "secret";
 export const PUBLIC_PATH = path.resolve(ROOT_DIR, PUBLIC_DIR);
 export const VIDEO_PATH = path.resolve(ROOT_DIR, PUBLIC_DIR, VIDEO_DIR);
 export const THUMBNAIL_PATH = path.resolve(ROOT_DIR, PUBLIC_DIR, THUMBNAIL_DIR);
+export const SECRET_PATH = path.resolve(ROOT_DIR, SECRET_DIR);

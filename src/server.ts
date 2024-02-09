@@ -11,10 +11,11 @@ import { videoFeature } from "./api/video";
 import oauthPlugin from "@fastify/oauth2";
 import { readFileSync } from "fs";
 import { TWITCH_ENDPOINT } from "./models/twitchModel";
-import { ROOT_DIR } from "./constants/folderConstants";
+import { ROOT_DIR, SECRET_PATH, THUMBNAIL_PATH } from "./constants/folderConstants";
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
+const SECRET_FILENAME = "secret-key";
 const server = app;
 
 logger.info("Launching Fastify in %s environment", env.nodeEnv);
@@ -27,7 +28,7 @@ server.register(cors, {
 
 server.register(async (instance, _opts) => {
     instance.register(fastifyStatic, {
-        root: path.join(ROOT_DIR, "public", "thumbnail"),
+        root: THUMBNAIL_PATH,
         prefix: "/api/video/thumbnail/",
         serve: true,
     });
@@ -39,7 +40,7 @@ server.register(async (instance, _opts) => {
 server.register(fastifyCookie);
 
 server.register(fastifySecureSession, {
-    key: readFileSync(path.join(ROOT_DIR, "secret", "secret-key")),
+    key: readFileSync(path.resolve(SECRET_PATH, SECRET_FILENAME)),
     cookieName: "session",
     cookie: {
         path: "/",
