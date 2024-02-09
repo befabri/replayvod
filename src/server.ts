@@ -4,6 +4,7 @@ import app, { env, logger } from "./app";
 import { PrismaClient } from "@prisma/client";
 import fastifySecureSession from "@fastify/secure-session";
 import fastifyCookie from "@fastify/cookie";
+import fs from "fs";
 import routes from "./routes";
 import fastifyStatic from "@fastify/static";
 import { isUserWhitelisted, userAuthenticated } from "./middlewares/authMiddleware";
@@ -11,7 +12,7 @@ import { videoFeature } from "./api/video";
 import oauthPlugin from "@fastify/oauth2";
 import { readFileSync } from "fs";
 import { TWITCH_ENDPOINT } from "./models/twitchModel";
-import { SECRET_PATH, THUMBNAIL_PATH } from "./constants/folderConstants";
+import { SECRET_PATH, THUMBNAIL_PATH, VIDEO_PATH } from "./constants/folderConstants";
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
@@ -19,6 +20,17 @@ const SECRET_FILENAME = "secret-key";
 const server = app;
 
 logger.info("Launching Fastify in %s environment", env.nodeEnv);
+
+if (!fs.existsSync(THUMBNAIL_PATH)) {
+    logger.error("THUMBNAIL folder doesn't exist, creating...");
+    fs.mkdirSync(THUMBNAIL_PATH, { recursive: false });
+}
+
+if (!fs.existsSync(VIDEO_PATH)) {
+    logger.error("VIDEO folder doesn't exist, creating...");
+    fs.mkdirSync(VIDEO_PATH, { recursive: false });
+}
+
 export const prisma = new PrismaClient();
 
 server.register(cors, {

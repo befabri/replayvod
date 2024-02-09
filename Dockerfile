@@ -3,8 +3,7 @@ FROM node:20.7.0-alpine as base
 ENV NODE_ENV=production \
     PORT=8080 \
     LOG_DIR=/app/logs \
-    PUBLIC_DIR=/app/public \ 
-    DATA_DIR=/app/data \
+    DATA_DIR=/app/data \ 
     SECRET-DIR=/app/secret
 
 WORKDIR /app
@@ -32,7 +31,7 @@ RUN chmod +x ./bin/*
 
 EXPOSE $PORT
 
-VOLUME ["/app/logs", "/app/public", "/app/data", "/app/bin", "/app/secret"]
+VOLUME ["/app/logs", "/app/data", "/app/bin", "/app/secret"]
 
 CMD ["npm", "run", "prod"]
 

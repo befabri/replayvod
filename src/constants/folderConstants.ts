@@ -1,15 +1,13 @@
 import path from "path";
-import { env } from "../app";
 
 export const YOUTUBE_DL_DIR = "bin";
 export const LOG_DIR = "logs";
-export const DATA_DIR = "data";
-export const ROOT_DIR = env.nodeEnv === "production" ? path.resolve(__dirname) : path.resolve(__dirname, "..");
-const PUBLIC_DIR = "public";
+export const ROOT_DIR = path.resolve(__dirname, "..");
+const DATA_DIR = "data";
 const VIDEO_DIR = "videos";
 const THUMBNAIL_DIR = "thumbnail";
 const SECRET_DIR = "secret";
-export const PUBLIC_PATH = path.resolve(ROOT_DIR, PUBLIC_DIR);
-export const VIDEO_PATH = path.resolve(ROOT_DIR, PUBLIC_DIR, VIDEO_DIR);
-export const THUMBNAIL_PATH = path.resolve(ROOT_DIR, PUBLIC_DIR, THUMBNAIL_DIR);
+export const PUBLIC_PATH = path.resolve(ROOT_DIR, DATA_DIR);
+export const VIDEO_PATH = path.resolve(ROOT_DIR, DATA_DIR, VIDEO_DIR);
+export const THUMBNAIL_PATH = path.resolve(ROOT_DIR, DATA_DIR, THUMBNAIL_DIR);
 export const SECRET_PATH = path.resolve(ROOT_DIR, SECRET_DIR);

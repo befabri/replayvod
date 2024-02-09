@@ -36,4 +36,6 @@ logs
 docker-compose.yaml
 md/
 docker
+data
 compose.yaml
+container
