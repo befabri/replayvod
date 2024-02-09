@@ -11,7 +11,7 @@ import { videoFeature } from "./api/video";
 import oauthPlugin from "@fastify/oauth2";
 import { readFileSync } from "fs";
 import { TWITCH_ENDPOINT } from "./models/twitchModel";
-import { ROOT_DIR, SECRET_PATH, THUMBNAIL_PATH } from "./constants/folderConstants";
+import { SECRET_PATH, THUMBNAIL_PATH } from "./constants/folderConstants";
 
 const PORT: number = 8080;
 const HOST: string = "0.0.0.0";
