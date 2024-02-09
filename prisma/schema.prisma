@@ -189,7 +189,7 @@ model Category {
   id                       String                     @id
   boxArtUrl                String
   igdbId                   String?
-  name                     String
+  name                     String                     @unique
   videoCategory            VideoCategory[]
   streamCategory           StreamCategory[]
   downloadScheduleCategory DownloadScheduleCategory[]
