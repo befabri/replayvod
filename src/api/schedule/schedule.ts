@@ -56,10 +56,11 @@ export const matchesCriteria = (schedule: CreateScheduleDTO, streamFetched: Stre
     return meetsViewerCountCriteria && meetsCategoryCriteria && meetsTagsCriteria;
 };
 
-export const getScheduleByBroadcaster = async (broadcasterId: string): Promise<CreateScheduleDTO[]> => {
+export const getScheduleEnabledByBroadcaster = async (broadcasterId: string): Promise<CreateScheduleDTO[]> => {
     const schedules = await prisma.downloadSchedule.findMany({
         where: {
             broadcasterId: broadcasterId,
+            isDisabled: false,
         },
         include: {
             channel: true,
@@ -122,7 +123,7 @@ export const toggleSchedule = async (scheduleId: number, enable: boolean) => {
 };
 
 export async function isScheduleMatch(stream: StreamDTO, broadcasterId: string): Promise<boolean> {
-    const schedules = await getScheduleByBroadcaster(broadcasterId);
+    const schedules = await getScheduleEnabledByBroadcaster(broadcasterId);
     for (const schedule of schedules) {
         if (matchesCriteria(schedule, stream)) {
             return true;
