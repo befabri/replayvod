@@ -122,14 +122,9 @@ export const toggleSchedule = async (scheduleId: number, enable: boolean) => {
     });
 };
 
-export async function isScheduleMatch(stream: StreamDTO, broadcasterId: string): Promise<boolean> {
+export async function getScheduleMatch(stream: StreamDTO, broadcasterId: string): Promise<CreateScheduleDTO[]> {
     const schedules = await getScheduleEnabledByBroadcaster(broadcasterId);
-    for (const schedule of schedules) {
-        if (matchesCriteria(schedule, stream)) {
-            return true;
-        }
-    }
-    return false;
+    return schedules.filter((schedule) => matchesCriteria(schedule, stream));
 }
 
 export const createSchedule = async (newSchedule: CreateScheduleDTO, userId: string) => {

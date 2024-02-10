@@ -35,7 +35,7 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
             jobId: pendingJob.id,
         });
     }
-    const jobDetails = downloadFeature.getDownloadJobDetail(stream, userId, channel, req.params.quality || "");
+    const jobDetails = downloadFeature.getDownloadJobDetail(stream, [userId], channel, req.params.quality || "");
     await downloadFeature.handleDownload(jobDetails, broadcasterId);
     reply.send({ jobId: jobDetails.jobId });
 };

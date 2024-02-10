@@ -383,17 +383,17 @@ export const updateVideoCollection = async (_user_id: string) => {
 
 export const getDownloadJobDetail = (
     stream: StreamDTO,
-    userId: string,
+    userIds: string[],
     channel: Channel,
     videoQuality: string
 ): JobDetail => {
     const jobId = jobService.createJobId();
     const quality = videoFeature.mapVideoQualityToQuality(videoQuality);
-    return { stream, userId, channel, jobId, quality };
+    return { stream, userIds, channel, jobId, quality };
 };
 
 export const handleDownload = async (
-    { stream, userId, channel, jobId, quality }: JobDetail,
+    { stream, userIds, channel, jobId, quality }: JobDetail,
     broadcasterId: string
 ) => {
     const pendingJob = await jobService.findPendingJobByBroadcasterId(broadcasterId);
@@ -404,7 +404,7 @@ export const handleDownload = async (
         jobService.createJob(jobId, async () => {
             try {
                 await startDownload({
-                    requestingUserId: userId,
+                    requestingUserId: userIds,
                     channel: channel,
                     jobId: jobId,
                     stream: stream,

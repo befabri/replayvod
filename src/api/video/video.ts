@@ -448,7 +448,7 @@ export const saveVideoInfo = async ({
     stream,
     videoQuality,
 }: {
-    userRequesting: string;
+    userRequesting: string[];
     channel: Channel;
     videoName: string;
     startAt: Date;
@@ -484,20 +484,22 @@ export const saveVideoInfo = async ({
                 },
             },
         });
-        await prisma.videoRequest.create({
-            data: {
-                video: {
-                    connect: {
-                        id: video.id,
+        for (const userId of userRequesting) {
+            await prisma.videoRequest.create({
+                data: {
+                    video: {
+                        connect: {
+                            id: video.id,
+                        },
+                    },
+                    user: {
+                        connect: {
+                            userId: userId,
+                        },
                     },
                 },
-                user: {
-                    connect: {
-                        userId: userRequesting,
-                    },
-                },
-            },
-        });
+            });
+        }
         for (let title of stream.titles) {
             await titleService.createVideoTitle(video.id, title.titleId);
         }

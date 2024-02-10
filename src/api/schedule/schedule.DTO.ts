@@ -18,7 +18,7 @@ export interface CreateScheduleDTO {
     categories: string[];
     timeBeforeDelete?: number | null;
     isDeleteRediff: boolean;
-    requestedBy?: string;
+    requestedBy: string;
 }
 
 export interface ToggleScheduleStatusDTO {

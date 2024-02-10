@@ -92,13 +92,26 @@ export async function handleStreamOnline(notification: TwitchNotificationEvent) 
     await createWebhookEvent(notification.subscription.type, event);
     const stream = await channelFeature.fetchStreamWithRetries(event.broadcaster_user_id);
     if (stream) {
-        if (await scheduleFeature.isScheduleMatch(stream, event.broadcaster_user_id)) {
+        const schedules = await scheduleFeature.getScheduleMatch(stream, event.broadcaster_user_id);
+        if (schedules.length > 0) {
             logger.info({
                 broadcasterId: event.broadcaster_user_id,
                 message: "Download initiated for matching schedule.",
                 action: "downloadInitiated",
             });
-            const jobDetails = downloadFeature.getDownloadJobDetail(stream, "system", stream.channel, "");
+
+            const highestResolution = schedules.reduce((acc, schedule) => {
+                const currentRes = parseInt(schedule.quality);
+                const accRes = parseInt(acc);
+                return currentRes > accRes ? schedule.quality : acc;
+            }, "0");
+
+            const jobDetails = downloadFeature.getDownloadJobDetail(
+                stream,
+                schedules.map((schedule) => schedule.requestedBy),
+                stream.channel,
+                highestResolution
+            );
             await downloadFeature.handleDownload(jobDetails, event.broadcaster_user_id);
         }
     }
