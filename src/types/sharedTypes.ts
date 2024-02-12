@@ -2,18 +2,14 @@ import { Category, Channel, Prisma, PrismaClient, Quality, Stream, Tag, Title } 
 import { StreamDTO } from "../api/channel/channel.DTO";
 
 export interface DownloadParams {
-    requestingUserId: string[];
-    channel: Channel;
     jobId: string;
-    stream: StreamDTO;
-    videoQuality: Quality;
+    jobDetail: JobDetail;
 }
 
 export interface JobDetail {
-    stream: StreamDTO;
-    userIds: string[];
+    requestingUserId: string[];
     channel: Channel;
-    jobId: string;
+    stream: StreamDTO;
     quality: Quality;
 }
 

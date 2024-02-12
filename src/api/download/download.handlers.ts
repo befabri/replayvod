@@ -36,8 +36,8 @@ export const downloadStream = async (req: FastifyRequest<Params>, reply: Fastify
         });
     }
     const jobDetails = downloadFeature.getDownloadJobDetail(stream, [userId], channel, req.params.quality || "");
-    await downloadFeature.handleDownload(jobDetails, broadcasterId);
-    reply.send({ jobId: jobDetails.jobId });
+    const jobId = await downloadFeature.handleDownload(jobDetails, broadcasterId);
+    reply.send({ jobId: jobId });
 };
 
 export const getJobStatus = async (req: FastifyRequest<Params>, reply: FastifyReply) => {

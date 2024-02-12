@@ -1,5 +1,4 @@
 import { FallbackResolutions, Resolution } from "../../models/dowloadModel";
-import { jobService } from "../../services";
 import { logger as rootLogger } from "../../app";
 import { prisma } from "../../server";
 import path from "path";
@@ -11,6 +10,7 @@ import fs from "fs/promises";
 import { create as createYoutubeDl } from "youtube-dl-exec";
 import { videoFeature } from "../video";
 import { StreamDTO } from "../channel/channel.DTO";
+import { jobService } from "../../services";
 const logger = rootLogger.child({ domain: "download", service: "downloadService" });
 
 let youtubedl: {
@@ -222,37 +222,31 @@ const proceedWithDownload = async (
     }
 };
 
-export const startDownload = async ({
-    requestingUserId,
-    channel,
-    jobId,
-    stream,
-    videoQuality,
-}: DownloadParams) => {
-    const videoFilePath = videoFeature.getVideoFilePath(channel.broadcasterLogin);
+export const startDownload = async ({ jobDetail, jobId }: DownloadParams) => {
+    const videoFilePath = videoFeature.getVideoFilePath(jobDetail.channel.broadcasterLogin);
     // const cookiesFilePath = path.resolve(process.env.DATA_DIR, "cookies.txt");
     const filename = path.basename(videoFilePath);
     await videoFeature.saveVideoInfo({
-        userRequesting: requestingUserId,
-        channel: channel,
+        userRequesting: jobDetail.requestingUserId,
+        channel: jobDetail.channel,
         videoName: filename,
         startAt: new Date(),
         status: Status.PENDING,
         jobId: jobId,
-        stream: stream,
-        videoQuality: videoQuality,
+        stream: jobDetail.stream,
+        videoQuality: jobDetail.quality,
     });
-    const resolution = videoFeature.mapQualityToVideoQuality(videoQuality);
+    const resolution = videoFeature.mapQualityToVideoQuality(jobDetail.quality);
     const aRate = 48000;
     const tmpVideoFilePath = videoFilePath.replace(".mp4", "_tmp.mp4");
     try {
         const resolutionToUse = await selectBestResolution(
             resolution,
-            `https://www.twitch.tv/${channel.broadcasterLogin}`
+            `https://www.twitch.tv/${jobDetail.channel.broadcasterLogin}`
         );
         logger.info("Starting downloading...");
         const result = await proceedWithDownload(
-            channel.broadcasterLogin,
+            jobDetail.channel.broadcasterLogin,
             filename,
             resolutionToUse,
             tmpVideoFilePath,
@@ -383,38 +377,24 @@ export const updateVideoCollection = async (_user_id: string) => {
 
 export const getDownloadJobDetail = (
     stream: StreamDTO,
-    userIds: string[],
+    requestingUserId: string[],
     channel: Channel,
     videoQuality: string
 ): JobDetail => {
-    const jobId = jobService.createJobId();
     const quality = videoFeature.mapVideoQualityToQuality(videoQuality);
-    return { stream, userIds, channel, jobId, quality };
+    return { stream, requestingUserId, channel, quality };
 };
 
-export const handleDownload = async (
-    { stream, userIds, channel, jobId, quality }: JobDetail,
-    broadcasterId: string
-) => {
+export const handleDownload = async (jobDetails: JobDetail, broadcasterId: string) => {
     const pendingJob = await jobService.findPendingJobByBroadcasterId(broadcasterId);
     if (pendingJob) {
         return;
     }
     try {
-        jobService.createJob(jobId, async () => {
-            try {
-                await startDownload({
-                    requestingUserId: userIds,
-                    channel: channel,
-                    jobId: jobId,
-                    stream: stream,
-                    videoQuality: quality,
-                });
-            } catch (error) {
-                logger.error("Error when downloading: %s", error);
-                throw error;
-            }
+        const jobId = await jobService.createJob(async (jobId) => {
+            await startDownload({ jobId, jobDetail: jobDetails });
         });
+        return jobId;
     } catch (error) {
         logger.error("Failed to create job: %s", error);
         throw error;
