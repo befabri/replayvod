@@ -610,7 +610,6 @@ export const saveVideoInfo = async ({
 //     }
 // };
 
-// TODO: pourquoi mettre une date de fin ? -> Si fin autant mettre DONE directement
 export const updateVideoInfo = async (videoName: string, endAt: Date, status: Status) => {
     return prisma.video.update({
         where: {

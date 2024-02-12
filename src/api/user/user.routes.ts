@@ -16,9 +16,5 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
         handler: userHandler.getUserFollowedChannels,
     });
 
-    // fastify.get("/update/users", {
-    //     preHandler: [isUserWhitelisted, userAuthenticated],
-    //     handler: userHandler.updateUsers,
-    // });
     done();
 }

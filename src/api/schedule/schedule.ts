@@ -265,26 +265,3 @@ export const editSchedule = async (scheduleId: number, schedule: CreateScheduleD
         throw error;
     }
 };
-
-// const getScheduleByFollowedChannel = async (broadcaster_id: string) => {
-// return prisma.downloadSchedule.findFirst({
-//     where: {
-//         provider: Provider.FOLLOWED_CHANNEL,
-//         channel: {
-//             usersFollowing: {
-//                 some: {
-//                     broadcasterId: broadcaster_id,
-//                 },
-//             },
-//         },
-//     },
-// });
-// };
-
-// const getAllScheduleByChannel = async (broadcasterId: string): Promise<DownloadSchedule[]> => {
-//     return await prisma.downloadSchedule.findMany({
-//         where: {
-//             broadcasterId: broadcasterId,
-//         },
-//     });
-// };

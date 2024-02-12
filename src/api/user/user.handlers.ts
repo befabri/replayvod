@@ -32,20 +32,3 @@ export const getUserFollowedChannels = async (req: FastifyRequest, reply: Fastif
         reply.status(500).send({ message: "Error fetching followed channels" });
     }
 };
-
-// TODO
-export const updateUsers = async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = userFeature.getUserIdFromSession(req);
-    const accessToken = userFeature.getUserAccessTokenFromSession(req);
-    if (!userId || !accessToken) {
-        return reply.status(401).send({ message: "Unauthorized" });
-    }
-    try {
-        // const result = await channelService.updateUsers(userId);
-        // reply.status(200).send(result);
-        reply.status(200).send(null);
-    } catch (error) {
-        logger.error("Error updating users:", error);
-        reply.status(500).send({ message: "Error updating users" });
-    }
-};

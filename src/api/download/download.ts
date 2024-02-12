@@ -420,18 +420,3 @@ export const handleDownload = async (
         throw error;
     }
 };
-
-// export const downloadSchedule = async (broadcaster_id: string) => {
-// Todo: A savoir que plusieurs utilisateurs peuvent avoir la même video demandé
-// et donc il faut modifié jobDetail + handleDownload
-// let schedule;
-// schedule = await getScheduleByFollowedChannel(broadcaster_id);
-// if (schedule) {
-//     const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
-//     await handleDownload(jobDetails, broadcaster_id);
-// } else {
-//     schedule = getAllScheduleByChannel;
-//     // const jobDetails = await getScheduleDetail(schedule, broadcaster_id);
-//     // await handleDownload(jobDetails, broadcaster_id);
-// }
-// };
