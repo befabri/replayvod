@@ -1,0 +1,21 @@
+{
+  "name": "replay-vod",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm:dev-*\"",
+    "dev-frontend": "npm run dev -w frontend",
+    "dev-backend": "npm run dev -w backend",
+    "preview": "concurrently \"npm:preview-*\"",
+    "preview-frontend": "npm run preview -w frontend",
+    "preview-backend": "npm run preview -w backend"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "workspaces": ["apps/*"],
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
