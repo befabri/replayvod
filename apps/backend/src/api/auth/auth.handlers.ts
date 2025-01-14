@@ -14,7 +14,7 @@ export async function handleTwitchCallback(
         const { token } = await fastify.twitchOauth2.getAccessTokenFromAuthorizationCodeFlow(req);
         const userData = await authFeature.fetchTwitchUserData(token.access_token);
         if (env.isWhitelistEnabled && (!userData.id || !env.whitelistedUserIds.includes(userData.id))) {
-            logger.error(`User try to connect but are not whitelisted: %s`, userData.id);
+            logger.error(`User try to connect but are not whitelisted: ${userData.id}`);
             reply.redirect(env.reactUrl);
             return;
         }
@@ -40,7 +40,7 @@ export async function handleTwitchCallback(
 
 export async function checkSession(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
-        const userSession = req.session?.user as UserSession | undefined;
+        const userSession = req.session.user;
         if (userSession && userSession.twitchToken.refresh_token) {
             if (authFeature.isExpiredToken(userSession.twitchToken.expires_in)) {
                 const refreshToken = userSession.twitchToken.refresh_token;
@@ -54,7 +54,7 @@ export async function checkSession(req: FastifyRequest, reply: FastifyReply): Pr
                     reply.status(401).send({ status: "not authenticated" });
                     return;
                 } else {
-                    req.session.user.twitchToken = { ...req.session.user.twitchToken, ...result };
+                    userSession.twitchToken = { ...userSession.twitchToken, ...result };
                     logger.info("Token refreshed");
                 }
             }
@@ -99,7 +99,7 @@ export async function getUser(req: FastifyRequest, reply: FastifyReply): Promise
 
 export async function refreshToken(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     logger.info(`Refreshing token...`);
-    const userSession = req.session?.user as UserSession | undefined;
+    const userSession = req.session?.user;
     if (userSession && userSession.twitchToken.refresh_token) {
         const refreshToken = userSession.twitchToken.refresh_token;
         const result = await authFeature.fetchRefreshToken(refreshToken, env.twitchClientId, env.twitchSecret);
@@ -107,7 +107,7 @@ export async function refreshToken(req: FastifyRequest, reply: FastifyReply): Pr
             reply.status(500).send({ error: "Failed to refresh token" });
             return;
         }
-        req.session.user.twitchToken = { ...req.session.user.twitchToken, ...result };
+        userSession.twitchToken = { ...userSession.twitchToken, ...result };
         reply.status(200).send({ status: "Token refreshed" });
         return;
     } else {
