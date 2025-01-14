@@ -12,7 +12,7 @@ const logger = rootLogger.child({ domain: "hmac", service: "middleware" });
 
 export const verifyHmacMiddleware = async (req: FastifyRequest, reply: FastifyReply) => {
     let message = getHmacMessage(req);
-    let hmac = HMAC_PREFIX + getHmac(env.secret, message);
+    let hmac = HMAC_PREFIX + getHmac(env.hmacSecret, message);
     let signature = req.headers[TWITCH_MESSAGE_SIGNATURE];
     if (typeof signature !== "string") {
         logger.error("Invalid signature");

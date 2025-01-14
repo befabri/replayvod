@@ -4,7 +4,7 @@ export const envSchema = z
     .object({
         TWITCH_CLIENT_ID: z.string().min(1),
         TWITCH_SECRET: z.string().min(1),
-        SESSION_SECRET: z.string().min(1),
+        HMAC_SECRET: z.string().min(1),
         NODE_ENV: z
             .string()
             .transform((val) => val.toLowerCase())
@@ -24,7 +24,6 @@ export const envSchema = z
         CALLBACK_URL: z.string().min(1),
         REACT_URL: z.string().min(1),
         CALLBACK_URL_WEBHOOK: z.string().min(1),
-        SECRET: z.string().min(1),
         DATABASE_URL: z.string().min(1),
     })
     .refine((data) => !(data.IS_WHITELIST_ENABLED && !data.WHITELISTED_USER_IDS), {
@@ -33,14 +32,13 @@ export const envSchema = z
     .transform((object) => ({
         twitchClientId: object.TWITCH_CLIENT_ID,
         twitchSecret: object.TWITCH_SECRET,
-        sessionSecret: object.SESSION_SECRET,
+        hmacSecret: object.HMAC_SECRET,
         nodeEnv: object.NODE_ENV,
         whitelistedUserIds: object.WHITELISTED_USER_IDS ? object.WHITELISTED_USER_IDS.split(",") : [],
         isWhitelistEnabled: object.IS_WHITELIST_ENABLED === "true",
         callbackUrl: object.CALLBACK_URL,
         reactUrl: object.REACT_URL,
         callbackUrlWebhook: object.CALLBACK_URL_WEBHOOK,
-        secret: object.SECRET,
         databaseUrl: object.DATABASE_URL,
     }));
 

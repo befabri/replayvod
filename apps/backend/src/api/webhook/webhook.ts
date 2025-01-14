@@ -52,8 +52,8 @@ export const createWebhookEvent = async (eventType: SubscriptionType, event: Twi
     }
 };
 
-export const getSecret = () => {
-    return env.secret;
+export const getHMACSecret = () => {
+    return env.hmacSecret;
 };
 
 export const getCallbackUrlWebhook = (): string => {

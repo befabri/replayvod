@@ -43,7 +43,7 @@ export const subscribeToStreamOnline = async (userId: string) => {
         {
             method: "webhook",
             callback: webhookFeature.getCallbackUrlWebhook(),
-            secret: webhookFeature.getSecret(),
+            secret: webhookFeature.getHMACSecret(),
         }
     );
 };
@@ -56,7 +56,7 @@ export const subscribeToStreamOffline = async (userId: string) => {
         {
             method: "webhook",
             callback: webhookFeature.getCallbackUrlWebhook(),
-            secret: webhookFeature.getSecret(),
+            secret: webhookFeature.getHMACSecret(),
         }
     );
 };
