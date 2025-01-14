@@ -24,7 +24,7 @@
         "@fastify/secure-session": "^7.1.0",
         "@fastify/static": "^6.12.0",
         "@prisma/client": "^5.8.1",
-        "axios": "^1.6.5",
+        "axios": "^1.7.9",
         "fastify": "^4.25.2",
         "fluent-ffmpeg": "^2.1.2",
         "luxon": "^3.4.4",
@@ -45,6 +45,6 @@
         "typescript": "^5.3.3"
     },
     "engines": {
-        "node": "v21.3.0"
+        "node": ">v21.3.0"
     }
 }
