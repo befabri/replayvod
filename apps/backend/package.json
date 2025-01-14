@@ -6,17 +6,16 @@
     "author": "",
     "license": "ISC",
     "scripts": {
-        "prod": "node server.js | pino-tee info ./logs/replay.log",
-        "dev": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-tee info ./logs/replay.log\"",
-        "dev:pretty": "tsup-node src/server.ts --watch --on-success \"cls && node --env-file=.env dist/server.js | pino-tee info ./logs/replay.log | pino-pretty --colorize\"",
+        "prod": "node server.js | pino-tee info ./logs/replayvod.log",
+        "dev": "tsx --env-file=.env --watch src/server.ts | pino-tee info logs/replayvod.log | pino-pretty --colorize",
         "prebuild": "shx rm -rf dist || rmdir /s /q dist",
         "build": "tsc -p tsconfig.json",
         "preview": "node --env-file=.env dist/server.js",
         "db:gen": "npx prisma generate",
         "db:studio": "npx prisma studio",
-        "db:migrate": "npx  prisma migrate dev",
-        "db:push": "npx run prisma db push",
-        "db:seed": "ts-node prisma/seed.ts"
+        "db:migrate": "npx prisma migrate dev",
+        "db:push": "npx prisma db push",
+        "db:seed": "tsx prisma/seed.ts"
     },
     "dependencies": {
         "@fastify/cookie": "^9.3.1",
@@ -42,11 +41,10 @@
         "pino-pretty": "^10.2.0",
         "prisma": "^5.8.1",
         "shx": "^0.3.4",
-        "ts-node": "^10.9.2",
-        "tsup": "^8.0.1",
+        "tsx": "^4.19.2",
         "typescript": "^5.3.3"
     },
     "engines": {
-        "node": "20.7.0"
+        "node": "v21.3.0"
     }
 }
