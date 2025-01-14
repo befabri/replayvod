@@ -9,11 +9,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
     });
 
     fastify.get("/", {
-        schema: {
-            querystring: {
-                userIds: { type: "array", items: { type: "string" } },
-            },
-        },
+        schema: {},
         handler: settingsHandler.getSettings,
     });
 
