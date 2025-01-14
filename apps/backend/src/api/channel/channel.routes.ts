@@ -37,8 +37,15 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
     fastify.get("/", {
         schema: {
             querystring: {
-                userIds: { type: "array", items: { type: "string" } },
+                type: "object",
+                properties: {
+                    userIds: {
+                        type: "array",
+                        items: { type: "string" },
+                    },
+                },
             },
+            required: ["userIds"],
         },
         handler: channelHandler.getMultipleChannelDB,
     });
