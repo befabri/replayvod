@@ -1,7 +1,7 @@
-import fastify, { FastifyInstance } from "fastify";
+import fastify, { FastifyInstance, FastifyServerOptions } from "fastify";
 import { EnvType, envSchema } from "./utils/env";
 import { ZodError } from "zod";
-import { DateTime } from "luxon";
+import { formatTimestamp } from "./utils/utils";
 
 let app: FastifyInstance;
 let env: EnvType;
@@ -17,15 +17,15 @@ try {
     process.exit(1);
 }
 
-const formatDateTime = () => DateTime.now().setZone('Europe/Paris').toFormat('dd-MM-yyyy HH:mm:ss');
-
-app = fastify({
+const options: FastifyServerOptions = {
     logger: {
         level: "info",
-        timestamp: () => `,"time":"${formatDateTime()}"`,
+        timestamp: formatTimestamp,
         base: null,
     },
-});
+};
+
+app = fastify(options);
 
 export default app;
 export { env };

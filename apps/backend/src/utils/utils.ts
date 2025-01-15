@@ -1,3 +1,6 @@
+import { DateTime } from "luxon";
+import { TIMEZONE } from "../constants/constants";
+
 export function chunkArray<T>(array: T[], chunkSize: number): T[][] {
     let index = 0;
     let arrayLength = array.length;
@@ -14,3 +17,8 @@ export function chunkArray<T>(array: T[], chunkSize: number): T[][] {
 export function delay(milliseconds: number) {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
+
+export const formatTimestamp = () => {
+    const formattedDate = DateTime.now().setZone(TIMEZONE).toFormat("yyyy-MM-dd HH:mm:ss");
+    return `,"time":"${formattedDate}"`;
+};
