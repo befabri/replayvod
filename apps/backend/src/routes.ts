@@ -1,16 +1,16 @@
 import { FastifyInstance, FastifyPluginAsync } from "fastify";
-import authRoutes from "./api/auth/auth.routes";
-import userRoutes from "./api/user/user.routes";
-import channelRoutes from "./api/channel/channel.routes";
-import downloadRoutes from "./api/download/download.routes";
-import videoRoutes from "./api/video/video.routes";
-import taskRoutes from "./api/task/task.routes";
-import logRoutes from "./api/log/log.routes";
-import webhookRoutes from "./api/webhook/webhook.routes";
-import categoryRoutes from "./api/category/category.routes";
-import settingsRoutes from "./api/settings/settings.routes";
-import scheduleRoutes from "./api/schedule/schedule.routes";
-import eventSubRoutes from "./api/event-sub/eventSub.routes";
+import authRoutes from "./api/auth/auth.route";
+import userRoutes from "./api/user/user.route";
+import channelRoutes from "./api/channel/channel.route";
+import downloadRoutes from "./api/download/download.route";
+import videoRoutes from "./api/video/video.route";
+import taskRoutes from "./api/task/task.route";
+import logRoutes from "./api/logging/logging.route";
+import webhookRoutes from "./api/webhook/webhook.route";
+import categoryRoutes from "./api/category/category.route";
+import settingsRoutes from "./api/settings/settings.route";
+import scheduleRoutes from "./api/schedule/schedule.route";
+import eventSubRoutes from "./api/event-sub/eventSub.route";
 
 const routes: FastifyPluginAsync = async (server: FastifyInstance) => {
     server.register(authRoutes, { prefix: "/auth" });

@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { TIMEZONE } from "../constants/constants";
+import { TIMEZONE } from "../constants/constant.server";
 
 export function chunkArray<T>(array: T[], chunkSize: number): T[][] {
     let index = 0;
