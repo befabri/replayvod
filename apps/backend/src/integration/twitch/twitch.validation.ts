@@ -16,7 +16,7 @@ import {
     UserArrayType,
     UserSchema,
     UserType,
-} from "./twitchSchema";
+} from "./twitch.schema";
 import { logger as rootLogger } from "../../app";
 const logger = rootLogger.child({ domain: "twitch", service: "validation" });
 
@@ -30,11 +30,11 @@ export const isValidFollowedChannel = (data: FollowedChannelArrayType): boolean 
         } else {
             logger.error("Unexpected error during 'followedChannel' validation: %s", error);
         }
-        return false
+        return false;
     }
 };
 
-export const isValidUser = (data: UserType ): boolean => {
+export const isValidUser = (data: UserType): boolean => {
     try {
         UserSchema.parse(data);
         return true;

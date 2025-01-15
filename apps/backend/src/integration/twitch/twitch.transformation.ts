@@ -1,5 +1,12 @@
 import { Category, Channel, UserFollowedChannels, Stream, Subscription, Tag, Title } from "@prisma/client";
-import { EventSubDataSchemaType, EventSubMetaType, FollowedChannelType, GameType, StreamType, UserType } from "./twitchSchema";
+import {
+    EventSubDataSchemaType,
+    EventSubMetaType,
+    FollowedChannelType,
+    GameType,
+    StreamType,
+    UserType,
+} from "./twitch.schema";
 
 export const transformTwitchUser = (user: UserType): Channel => {
     return {
