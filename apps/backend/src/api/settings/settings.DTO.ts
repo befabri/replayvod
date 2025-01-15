@@ -1,7 +1,7 @@
 import { logger as rootLogger } from "../../app";
 import { Settings } from "@prisma/client";
 
-const logger = rootLogger.child({ domain: "settings", service: "transformUtils" });
+const logger = rootLogger.child({ domain: "settings", service: "dto" });
 
 export interface SettingsDTO {
     timeZone: string;

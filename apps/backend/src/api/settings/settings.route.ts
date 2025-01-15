@@ -1,8 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
-import { settingsHandler } from ".";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/middleware.auth";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
+    const handler = fastify.settings.handler;
+
     fastify.addHook("preHandler", async (request, reply) => {
         await isUserWhitelisted(request, reply);
         await userAuthenticated(request, reply);
@@ -10,7 +11,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
 
     fastify.get("/", {
         schema: {},
-        handler: settingsHandler.getSettings,
+        handler: handler.getSettings,
     });
 
     fastify.post("/", {
@@ -24,7 +25,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["timeZone", "dateTimeFormat"],
             },
         },
-        handler: settingsHandler.upsertSettings,
+        handler: handler.upsertSettings,
     });
 
     done();
