@@ -1,27 +1,28 @@
 import { FastifyInstance } from "fastify";
-import { authHandler } from ".";
-import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/middleware.auth";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
+    const handler = fastify.auth.handler;
+
     fastify.get("/twitch/callback", {
-        handler: (req, reply) => authHandler.handleTwitchCallback(fastify, req, reply),
+        handler: (req, reply) => handler.handleTwitchCallback(fastify, req, reply),
     });
 
-    fastify.get("/check-session", authHandler.checkSession);
+    fastify.get("/check-session", handler.checkSession);
 
     fastify.get("/user", {
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: authHandler.getUser,
+        handler: handler.getUser,
     });
 
     fastify.get("/refresh", {
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: authHandler.refreshToken,
+        handler: handler.refreshToken,
     });
 
     fastify.post("/signout", {
         preHandler: [isUserWhitelisted, userAuthenticated],
-        handler: authHandler.signOut,
+        handler: handler.signOut,
     });
 
     done();
