@@ -1,6 +1,6 @@
 import path from "path";
 
-export const SECRET_FILENAME = "secret";
+export const SECRET_FILENAME = "secret-key";
 export const LOG_FILENAME = "replayvod.log";
 
 export const YOUTUBE_DL_DIR = "bin";
