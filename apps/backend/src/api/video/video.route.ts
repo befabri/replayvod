@@ -1,8 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
-import { videoHandler } from ".";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/middleware.auth";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
+    const handler = fastify.video.handler;
+
     fastify.addHook("preHandler", async (request, reply) => {
         await isUserWhitelisted(request, reply);
         await userAuthenticated(request, reply);
@@ -18,7 +19,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: videoHandler.playVideo,
+        handler: handler.playVideo,
     });
 
     fastify.get("/:id", {
@@ -31,7 +32,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: videoHandler.getVideo,
+        handler: handler.getVideo,
     });
 
     fastify.get("/category/:name", {
@@ -44,23 +45,23 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["name"],
             },
         },
-        handler: videoHandler.getVideosByCategory,
+        handler: handler.getVideosByCategory,
     });
 
     fastify.get("/all", {
-        handler: videoHandler.getVideos,
+        handler: handler.getVideos,
     });
 
     fastify.get("/finished", {
-        handler: videoHandler.getFinishedVideos,
+        handler: handler.getFinishedVideos,
     });
 
     fastify.get("/pending", {
-        handler: videoHandler.getPendingVideos,
+        handler: handler.getPendingVideos,
     });
 
     fastify.get("/statistics", {
-        handler: videoHandler.getVideoStatistics,
+        handler: handler.getVideoStatistics,
     });
 
     fastify.get("/channel/:broadcasterLogin", {
@@ -73,11 +74,11 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["broadcasterLogin"],
             },
         },
-        handler: videoHandler.getChannelVideos,
+        handler: handler.getChannelVideos,
     });
 
     fastify.get("/update/missing", {
-        handler: videoHandler.generateMissingThumbnail,
+        handler: handler.generateMissingThumbnail,
     });
 
     // fastify.get("/thumbnail/:login/:filename", {
