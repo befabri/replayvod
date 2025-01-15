@@ -1,8 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { webhookHandler } from ".";
-import { verifyHmacMiddleware } from "../../middlewares/twitchHmacMiddleware";
+import { verifyHmacMiddleware } from "../../middlewares/middleware.hmac";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
+    const handler = fastify.webhook.handler;
+
     fastify.addHook("preHandler", async (request, reply) => {
         await verifyHmacMiddleware(request, reply);
     });
@@ -10,7 +11,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
     // fastify.get("/webhooks/test", webhookHandler.test);
 
     fastify.post("/webhooks/callback", {
-        handler: webhookHandler.callbackWebhook,
+        handler: handler.callbackWebhook,
     });
 
     done();
