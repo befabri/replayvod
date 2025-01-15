@@ -1,19 +1,19 @@
 import path from "path";
 import cors from "@fastify/cors";
 import app, { env, logger } from "./app";
-import { PrismaClient } from "@prisma/client";
 import fastifySecureSession from "@fastify/secure-session";
 import fastifyCookie from "@fastify/cookie";
 import fs from "fs";
 import routes from "./routes";
 import fastifyStatic from "@fastify/static";
-import { isUserWhitelisted, userAuthenticated } from "./middlewares/authMiddleware";
-import { videoFeature } from "./api/video";
+import { isUserWhitelisted, userAuthenticated } from "./middlewares/middleware.auth";
 import oauthPlugin from "@fastify/oauth2";
 import { readFileSync } from "fs";
-import { TWITCH_ENDPOINT } from "./models/twitchModel";
-import { SECRET_FILENAME, SECRET_PATH, THUMBNAIL_PATH, VIDEO_PATH } from "./constants/folderConstants";
-import { HOST, PORT } from "./constants/constants";
+import { TWITCH_ENDPOINT } from "./models/model.twitch";
+import { SECRET_FILENAME, SECRET_PATH, THUMBNAIL_PATH, VIDEO_PATH } from "./constants/constant.folder";
+import { HOST, PORT } from "./constants/constant.server";
+import { modulesPlugin } from "./plugins/plugin.module";
+import { prismaPlugin } from "./plugins/plugin.prisma";
 
 const server = app;
 
@@ -28,8 +28,6 @@ if (!fs.existsSync(VIDEO_PATH)) {
     logger.error("VIDEO folder doesn't exist, creating...");
     fs.mkdirSync(VIDEO_PATH, { recursive: false });
 }
-
-export const prisma = new PrismaClient();
 
 server.register(cors, {
     origin: env.reactUrl,
@@ -48,6 +46,8 @@ server.register(async (instance, _opts) => {
 });
 
 server.register(fastifyCookie);
+
+server.register(prismaPlugin);
 
 server.register(fastifySecureSession, {
     key: readFileSync(path.resolve(SECRET_PATH, SECRET_FILENAME)),
@@ -77,16 +77,21 @@ server.register(oauthPlugin, {
     scope: ["user:read:email", "user:read:follows"],
 });
 
+server.register(modulesPlugin);
+
 server.register(routes, { prefix: "/api" });
 
 server.get("/", (_request, reply) => {
     reply.code(444).send();
 });
 
+server.addHook("onReady", async () => {
+    await server.video.repository.setVideoFailed();
+});
+
 const start = async () => {
     logger.info("Starting Fastify server...");
     try {
-        await videoFeature.setVideoFailed();
         await server.listen({ port: PORT, host: HOST });
     } catch (err) {
         logger.error(err);
@@ -95,14 +100,12 @@ const start = async () => {
 };
 
 process.on("SIGINT", async () => {
-    logger.info("Closing Prisma Client...");
-    await prisma.$disconnect();
+    logger.info("Closing SIGINT...");
     process.exit();
 });
 
 process.on("SIGTERM", async () => {
-    logger.info("Closing Prisma Client...");
-    await prisma.$disconnect();
+    logger.info("Closing SIGTERM...");
 });
 
 start();
