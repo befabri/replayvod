@@ -1,5 +1,5 @@
-import TwitchAPI from "../integration/twitch/twitchAPI";
-import { logger as rootLogger } from "../app";
+import TwitchAPI from "../integration/twitch/twitch.api";
+import { env, logger as rootLogger } from "../app";
 import { Category, Channel, Stream, Subscription, Tag, Title, UserFollowedChannels } from "@prisma/client";
 import {
     isValidEventSub,
@@ -10,7 +10,7 @@ import {
     isValidStreams,
     isValidUser,
     isValidUsers,
-} from "../integration/twitch/validation";
+} from "../integration/twitch/twitch.validation";
 import {
     transformCategory,
     transformEventSub,
@@ -18,18 +18,95 @@ import {
     transformFollowedChannel,
     transformStream,
     transformTwitchUser,
-} from "../integration/twitch/transformation";
-import { EventSubMetaType } from "../integration/twitch/twitchSchema";
-import { StreamStatus } from "../models/twitchModel";
+} from "../integration/twitch/twitch.transformation";
+import { EventSubMetaType } from "../integration/twitch/twitch.schema";
+import { StreamStatus } from "../models/model.twitch";
+import { PrismaClient } from "@prisma/client/extension";
+import axios from "axios";
 
-const logger = rootLogger.child({ domain: "twitch", service: "twitchService" });
+const logger = rootLogger.child({ domain: "service", service: "twitch" });
 
-class TwitchService {
+export class TwitchService {
+    private twitchClientId: string;
+    private twitchSecret: string;
     private api: TwitchAPI;
 
-    constructor() {
-        this.api = new TwitchAPI();
+    constructor(private db: PrismaClient) {
+        if (!env.twitchClientId || !env.twitchSecret) {
+            throw new Error("Missing .env: env.twitchClientId and/or env.twitchSecret");
+        }
+        this.twitchClientId = env.twitchClientId;
+        this.twitchSecret = env.twitchSecret;
+        this.api = new TwitchAPI(this.getAppAccessToken.bind(this));
     }
+
+    getAppAccessToken = async () => {
+        const latestToken = await this.db.appAccessToken.findFirst({
+            orderBy: {
+                expiresAt: "desc",
+            },
+        });
+        if (latestToken && new Date(latestToken.expiresAt) > new Date(Date.now() + 300000)) {
+            // 5 min
+            return latestToken.accessToken;
+        }
+
+        try {
+            const token = await this.fetchAppAccessToken();
+            await this.saveAppAccessToken(token.access_token, token.expires_in);
+            return token.access_token;
+        } catch (error) {
+            logger.error("Error getting app access token: %s", error);
+            throw error;
+        }
+    };
+
+    fetchAppAccessToken = async () => {
+        logger.info("Fetching access token...");
+        try {
+            const response = await axios.post("https://id.twitch.tv/oauth2/token", null, {
+                params: {
+                    client_id: this.twitchClientId,
+                    client_secret: this.twitchSecret,
+                    grant_type: "client_credentials",
+                },
+            });
+            return response.data;
+        } catch (error) {
+            logger.error("Error fetching app access token: %s", error);
+            throw error;
+        }
+    };
+
+    saveAppAccessToken = async (accessToken: string, expiresIn: number) => {
+        logger.info("Saving access token...");
+        try {
+            const tokenLifetime = expiresIn * 1000;
+            const currentTimestamp = new Date();
+            const expiresAt = new Date(currentTimestamp.getTime() + tokenLifetime);
+            await this.db.appAccessToken.create({
+                data: {
+                    accessToken: accessToken,
+                    expiresAt: expiresAt,
+                },
+            });
+        } catch (error) {
+            logger.error("Error saving app access token: %s", error);
+            throw error;
+        }
+    };
+
+    // Todo used it
+    cleanupExpiredTokens = async () => {
+        const currentTimestamp = new Date();
+        await this.db.appAccessToken.deleteMany({
+            where: {
+                expiresAt: {
+                    lte: currentTimestamp,
+                },
+            },
+        });
+    };
 
     private async fetchData<T>(
         fetchFunction: () => Promise<T | null>,
@@ -197,5 +274,3 @@ class TwitchService {
         }
     }
 }
-
-export const twitchService = new TwitchService();

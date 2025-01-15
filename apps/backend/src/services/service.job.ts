@@ -1,20 +1,21 @@
 import { v4 as uuidv4 } from "uuid";
 import { logger as rootLogger } from "../app";
-import { prisma } from "../server";
-import { Job, Status, Video } from "@prisma/client";
-import { downloadFeature } from "../api/download";
-const logger = rootLogger.child({ domain: "download", service: "jobService" });
+import { Job, PrismaClient, Status } from "@prisma/client";
+const logger = rootLogger.child({ domain: "service", service: "job" });
 
 type JobFunc = (jobId: string) => Promise<void>;
+type FailureHandler = (jobId: string) => Promise<void>;
 
-class JobService {
+export class JobService {
+    constructor(private db: PrismaClient) {}
+
     private static jobs: Map<string, Job> = new Map<string, Job>();
 
     private static createJobId(): string {
         return uuidv4();
     }
 
-    async createJob(func: JobFunc): Promise<string> {
+    async createJob(func: JobFunc, failureHandler?: FailureHandler): Promise<string> {
         const id = JobService.createJobId();
         const job: Job = { id, status: Status.PENDING };
         JobService.jobs.set(id, job);
@@ -29,14 +30,16 @@ class JobService {
             logger.error("Job failed:", error);
             job.status = Status.FAILED;
             await this.updateJobStatus(id, Status.FAILED);
-            await downloadFeature.setVideoFailed(id);
+            if (failureHandler) {
+                await failureHandler(id);
+            }
         }
         return id;
     }
 
     private async createNewJob(id: string, status: Status): Promise<Job> {
         try {
-            return await prisma.job.create({
+            return await this.db.job.create({
                 data: {
                     id: id,
                     status: status,
@@ -50,7 +53,7 @@ class JobService {
 
     private async updateJobStatus(jobId: string, newStatus: Status): Promise<void> {
         try {
-            await prisma.job.update({
+            await this.db.job.update({
                 where: { id: jobId },
                 data: { status: newStatus },
             });
@@ -65,22 +68,11 @@ class JobService {
     }
 
     async isJobExists(id: string): Promise<boolean> {
-        const job = await prisma.job.findUnique({
+        const job = await this.db.job.findUnique({
             where: {
                 id: id,
             },
         });
         return !!job;
     }
-
-    async findPendingJobByBroadcasterId(broadcasterId: string): Promise<Video | null> {
-        return prisma.video.findFirst({
-            where: {
-                broadcasterId: broadcasterId,
-                status: Status.PENDING,
-            },
-        });
-    }
 }
-
-export const jobService = new JobService();
