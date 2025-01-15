@@ -1,4 +1,4 @@
-import { TwitchToken, TwitchUserData } from "./twitchModel";
+import { TwitchToken, TwitchUserData } from "./model.twitch";
 
 export interface UserSession {
     twitchToken: TwitchToken;
