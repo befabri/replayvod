@@ -1,10 +1,10 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { env, logger as rootLogger } from "../app";
-import { userFeature } from "../api/user";
-const logger = rootLogger.child({ domain: "auth", service: "authMiddleware" });
+const logger = rootLogger.child({ domain: "middleware", service: "auth" });
 
 export const isUserWhitelisted = async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = userFeature.getUserIdFromSession(req);
+    const userRepository = req.server.user.repository;
+    const userId = userRepository.getUserIdFromSession(req);
     if (env.isWhitelistEnabled && (!userId || !env.whitelistedUserIds.includes(userId))) {
         logger.error(`Forbidden, you're not on the whitelist.`);
         reply.status(403).send({ error: "Forbidden, you're not on the whitelist." });

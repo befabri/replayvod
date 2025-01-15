@@ -7,8 +7,8 @@ import {
     TWITCH_MESSAGE_ID,
     TWITCH_MESSAGE_SIGNATURE,
     TWITCH_MESSAGE_TIMESTAMP,
-} from "../models/twitchModel";
-const logger = rootLogger.child({ domain: "hmac", service: "middleware" });
+} from "../models/model.twitch";
+const logger = rootLogger.child({ domain: "middleware", service: "hmac" });
 
 export const verifyHmacMiddleware = async (req: FastifyRequest, reply: FastifyReply) => {
     let message = getHmacMessage(req);
