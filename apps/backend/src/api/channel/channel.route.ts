@@ -1,8 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
-import { channelHandler } from ".";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/middleware.auth";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
+    const handler = fastify.channel.handler;
+
     fastify.addHook("preHandler", async (request, reply) => {
         await isUserWhitelisted(request, reply);
         await userAuthenticated(request, reply);
@@ -18,7 +19,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: channelHandler.getChannel,
+        handler: handler.getChannel,
     });
 
     fastify.put("/:id", {
@@ -31,7 +32,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: channelHandler.updateChannel,
+        handler: handler.updateChannel,
     });
 
     fastify.get("/", {
@@ -47,7 +48,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
             },
             required: ["userIds"],
         },
-        handler: channelHandler.getMultipleChannelDB,
+        handler: handler.getMultipleChannelDB,
     });
 
     fastify.get("/name/:name", {
@@ -60,12 +61,12 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["name"],
             },
         },
-        handler: channelHandler.getChannelByName,
+        handler: handler.getChannelByName,
     });
 
     fastify.get("/stream/lastlive", {
         schema: {},
-        handler: channelHandler.getLastLive,
+        handler: handler.getLastLive,
     });
 
     done();
