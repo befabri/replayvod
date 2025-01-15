@@ -1,8 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
-import { scheduleHandler } from ".";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/middleware.auth";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
+    const handler = fastify.schedule.handler;
+
     fastify.addHook("preHandler", async (request, reply) => {
         await isUserWhitelisted(request, reply);
         await userAuthenticated(request, reply);
@@ -47,7 +48,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 ],
             },
         },
-        handler: scheduleHandler.createSchedule,
+        handler: handler.createSchedule,
     });
 
     fastify.put("/:id", {
@@ -96,7 +97,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 ],
             },
         },
-        handler: scheduleHandler.editSchedule,
+        handler: handler.editSchedule,
     });
 
     fastify.delete("/:id", {
@@ -109,7 +110,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: scheduleHandler.removeSchedule,
+        handler: handler.removeSchedule,
     });
 
     fastify.post("/:id/toggle", {
@@ -129,11 +130,11 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["enable"],
             },
         },
-        handler: scheduleHandler.toggleScheduleStatus,
+        handler: handler.toggleScheduleStatus,
     });
 
     fastify.get("/", {
-        handler: scheduleHandler.getCurrentSchedules,
+        handler: handler.getCurrentSchedules,
     });
 
     done();
