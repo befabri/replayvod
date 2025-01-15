@@ -1,8 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
-import { downloadHandler } from ".";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/middleware.auth";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
+    const handler = fastify.download.handler;
+
     fastify.addHook("preHandler", async (request, reply) => {
         await isUserWhitelisted(request, reply);
         await userAuthenticated(request, reply);
@@ -18,7 +19,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: downloadHandler.downloadStream,
+        handler: handler.downloadStream,
     });
 
     fastify.get("/status/:id", {
@@ -31,7 +32,7 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: downloadHandler.getJobStatus,
+        handler: handler.getJobStatus,
     });
 
     done();
