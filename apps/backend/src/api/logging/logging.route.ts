@@ -1,8 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { isUserWhitelisted, userAuthenticated } from "../../middlewares/authMiddleware";
-import { logHandler } from ".";
+import { isUserWhitelisted, userAuthenticated } from "../../middlewares/middleware.auth";
 
 export default function (fastify: FastifyInstance, _opts: any, done: any) {
+    const handler = fastify.logging.handler;
+
     fastify.addHook("preHandler", async (request, reply) => {
         await isUserWhitelisted(request, reply);
         await userAuthenticated(request, reply);
@@ -18,11 +19,11 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: logHandler.getLog,
+        handler: handler.getLog,
     });
 
     fastify.get("/files", {
-        handler: logHandler.getLogs,
+        handler: handler.getLogs,
     });
 
     fastify.get("/domains/:id", {
@@ -35,11 +36,11 @@ export default function (fastify: FastifyInstance, _opts: any, done: any) {
                 required: ["id"],
             },
         },
-        handler: logHandler.getDomain,
+        handler: handler.getDomain,
     });
 
     fastify.get("/domains", {
-        handler: logHandler.getDomains,
+        handler: handler.getDomains,
     });
 
     done();
