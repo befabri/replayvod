@@ -12,14 +12,12 @@ import { videoFeature } from "./api/video";
 import oauthPlugin from "@fastify/oauth2";
 import { readFileSync } from "fs";
 import { TWITCH_ENDPOINT } from "./models/twitchModel";
-import { SECRET_PATH, THUMBNAIL_PATH, VIDEO_PATH } from "./constants/folderConstants";
+import { SECRET_FILENAME, SECRET_PATH, THUMBNAIL_PATH, VIDEO_PATH } from "./constants/folderConstants";
+import { HOST, PORT } from "./constants/constants";
 
-const PORT: number = 8080;
-const HOST: string = "0.0.0.0";
-const SECRET_FILENAME = "secret-key";
 const server = app;
 
-logger.info("Launching Fastify in %s environment", env.nodeEnv);
+logger.info(`Launching Fastify in '${env.nodeEnv}' environment`);
 
 if (!fs.existsSync(THUMBNAIL_PATH)) {
     logger.error("THUMBNAIL folder doesn't exist, creating...");
@@ -97,13 +95,13 @@ const start = async () => {
 };
 
 process.on("SIGINT", async () => {
-    console.log("Closing Prisma Client...");
+    logger.info("Closing Prisma Client...");
     await prisma.$disconnect();
     process.exit();
 });
 
 process.on("SIGTERM", async () => {
-    console.log("Closing Prisma Client...");
+    logger.info("Closing Prisma Client...");
     await prisma.$disconnect();
 });
 
