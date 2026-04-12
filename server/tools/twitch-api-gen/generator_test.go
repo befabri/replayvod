@@ -175,3 +175,32 @@ func TestEventSubScraper_resolvesKnownTypes(t *testing.T) {
 		t.Errorf("%s not resolved by scraper", typ)
 	}
 }
+
+// TestIsDeprecatedField locks each entry in deprecatedFieldMarkers plus a
+// handful of negatives. Previously covered only indirectly via User.ViewCount
+// in the snapshot — if Twitch reworded a marker, we'd lose coverage silently.
+func TestIsDeprecatedField(t *testing.T) {
+	positives := []string{
+		"**DEPRECATED** Use the new field instead.",
+		"**IMPORTANT** As of February 28, 2023, this field is deprecated and ignored.",
+		"**NOTE**: This field has been deprecated (see the deprecation notice).",
+		"This field has been deprecated and will be removed in a future release.",
+	}
+	negatives := []string{
+		"This field is no longer recommended.",
+		"Deprecated soon — migrate to the new endpoint.", // no full marker phrase
+		"Partially deprecated but still in use.",
+		"",
+		"The user's ID.",
+	}
+	for _, d := range positives {
+		if !isDeprecatedField(d) {
+			t.Errorf("expected match: %q", d)
+		}
+	}
+	for _, d := range negatives {
+		if isDeprecatedField(d) {
+			t.Errorf("unexpected match: %q", d)
+		}
+	}
+}
