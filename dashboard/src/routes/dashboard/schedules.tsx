@@ -1,6 +1,8 @@
+import { useForm } from "@tanstack/react-form"
 import { createFileRoute } from "@tanstack/react-router"
-import { useState } from "react"
 import { useTranslation } from "react-i18next"
+import { z } from "zod"
+import { CreateInputSchema } from "@/api/generated/zod"
 import type { ScheduleResponse } from "@/features/schedules"
 import {
 	useCreateSchedule,
@@ -8,6 +10,23 @@ import {
 	useSchedules,
 	useToggleSchedule,
 } from "@/features/schedules"
+
+// Shrink the generated Zod schema to the fields the form actually lets
+// users edit today. The filter toggles are deferred (see "coming soon"
+// fieldset) so they stay hardcoded `false` at submit time instead of
+// showing up in the form state. Once Phase 6's stream-signal enrichment
+// lands, widen this schema and the form will pick up the new fields.
+const ScheduleFormSchema = CreateInputSchema.pick({
+	broadcaster_id: true,
+	quality: true,
+}).extend({
+	broadcaster_id: z
+		.string()
+		.min(1)
+		.regex(/^\d+$/, "broadcaster_id must be numeric"),
+})
+
+type ScheduleFormValues = z.infer<typeof ScheduleFormSchema>
 
 export const Route = createFileRoute("/dashboard/schedules")({
 	component: SchedulesPage,
@@ -56,22 +75,23 @@ function SchedulesPage() {
 function CreateForm() {
 	const { t } = useTranslation()
 	const create = useCreateSchedule()
-	const [broadcasterId, setBroadcasterId] = useState("")
-	const [quality, setQuality] = useState("HIGH")
 
-	const submit = (e: React.FormEvent) => {
-		e.preventDefault()
-		const bid = broadcasterId.trim()
-		if (!bid) return
-		// Viewer-count / category / tag filters are deliberately not wired:
-		// the webhook processor's stream.online payload doesn't carry
-		// viewer_count or categories/tags yet, so any "true" toggle would
-		// create a never-matching schedule. Phase 6 enriches via GetStreams
-		// before flipping these controls on.
-		create.mutate(
-			{
-				broadcaster_id: bid,
-				quality,
+	// TanStack Form wired with a Zod-validated submit. Viewer-count /
+	// category / tag filters stay hardcoded false here because the
+	// stream.online webhook doesn't carry those signals yet — when Phase 6
+	// enriches via GetStreams, widen ScheduleFormSchema to pick them up.
+	const form = useForm({
+		defaultValues: {
+			broadcaster_id: "",
+			quality: "HIGH",
+		} as ScheduleFormValues,
+		validators: {
+			onSubmit: ScheduleFormSchema,
+		},
+		onSubmit: async ({ value, formApi }) => {
+			await create.mutateAsync({
+				broadcaster_id: value.broadcaster_id.trim(),
+				quality: value.quality,
 				has_min_viewers: false,
 				has_categories: false,
 				has_tags: false,
@@ -79,48 +99,70 @@ function CreateForm() {
 				is_disabled: false,
 				category_ids: [],
 				tag_ids: [],
-			},
-			{
-				onSuccess: () => {
-					setBroadcasterId("")
-				},
-			},
-		)
-	}
+			})
+			formApi.reset()
+		},
+	})
 
 	return (
 		<form
-			onSubmit={submit}
+			onSubmit={(e) => {
+				e.preventDefault()
+				e.stopPropagation()
+				void form.handleSubmit()
+			}}
 			className="rounded-lg border border-border bg-card p-4 mb-6 space-y-3"
 		>
 			<h2 className="text-lg font-medium">{t("schedules.create_title")}</h2>
 			<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-				<label className="flex flex-col gap-1">
-					<span className="text-sm text-muted-foreground">
-						{t("schedules.broadcaster_id")}
-					</span>
-					<input
-						type="text"
-						value={broadcasterId}
-						onChange={(e) => setBroadcasterId(e.target.value)}
-						placeholder="12345"
-						className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-					/>
-				</label>
-				<label className="flex flex-col gap-1">
-					<span className="text-sm text-muted-foreground">
-						{t("schedules.quality")}
-					</span>
-					<select
-						value={quality}
-						onChange={(e) => setQuality(e.target.value)}
-						className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-					>
-						<option value="HIGH">{t("schedules.quality_high")}</option>
-						<option value="MEDIUM">{t("schedules.quality_medium")}</option>
-						<option value="LOW">{t("schedules.quality_low")}</option>
-					</select>
-				</label>
+				<form.Field name="broadcaster_id">
+					{(field) => (
+						<label className="flex flex-col gap-1">
+							<span className="text-sm text-muted-foreground">
+								{t("schedules.broadcaster_id")}
+							</span>
+							<input
+								id={field.name}
+								name={field.name}
+								type="text"
+								value={field.state.value}
+								onChange={(e) => field.handleChange(e.target.value)}
+								onBlur={field.handleBlur}
+								placeholder="12345"
+								className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+								aria-invalid={
+									field.state.meta.errors.length > 0 ? true : undefined
+								}
+							/>
+							<FieldError errors={field.state.meta.errors} />
+						</label>
+					)}
+				</form.Field>
+				<form.Field name="quality">
+					{(field) => (
+						<label className="flex flex-col gap-1">
+							<span className="text-sm text-muted-foreground">
+								{t("schedules.quality")}
+							</span>
+							<select
+								id={field.name}
+								name={field.name}
+								value={field.state.value}
+								onChange={(e) =>
+									field.handleChange(
+										e.target.value as ScheduleFormValues["quality"],
+									)
+								}
+								onBlur={field.handleBlur}
+								className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+							>
+								<option value="HIGH">{t("schedules.quality_high")}</option>
+								<option value="MEDIUM">{t("schedules.quality_medium")}</option>
+								<option value="LOW">{t("schedules.quality_low")}</option>
+							</select>
+						</label>
+					)}
+				</form.Field>
 			</div>
 
 			<fieldset className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
@@ -138,15 +180,38 @@ function CreateForm() {
 				</div>
 			)}
 
-			<button
-				type="submit"
-				disabled={create.isPending || !broadcasterId.trim()}
-				className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+			<form.Subscribe
+				selector={(s) => [s.canSubmit, s.isSubmitting] as const}
 			>
-				{create.isPending ? t("common.saving") : t("schedules.create_submit")}
-			</button>
+				{([canSubmit, isSubmitting]) => (
+					<button
+						type="submit"
+						disabled={!canSubmit || isSubmitting || create.isPending}
+						className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+					>
+						{isSubmitting || create.isPending
+							? t("common.saving")
+							: t("schedules.create_submit")}
+					</button>
+				)}
+			</form.Subscribe>
 		</form>
 	)
+}
+
+// FieldError renders the first validation error TanStack Form surfaces.
+// Errors come through as Zod issues — stringifying is enough for the
+// homelab UI; internationalized field errors would layer on top.
+function FieldError({ errors }: { errors: readonly unknown[] }) {
+	if (errors.length === 0) return null
+	const first = errors[0]
+	const msg =
+		typeof first === "string"
+			? first
+			: first && typeof first === "object" && "message" in first
+				? String((first as { message: unknown }).message)
+				: "Invalid"
+	return <span className="text-xs text-destructive">{msg}</span>
 }
 
 function DisabledFilter({ label }: { label: string }) {
