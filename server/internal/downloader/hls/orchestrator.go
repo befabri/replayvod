@@ -310,24 +310,71 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		}
 	}
 
-	// Drain worker results + ad-skip events from a single select
-	// so every sequence-level outcome is processed in arrival
-	// order. Loop exits when both channels are closed (nil-out
-	// the local each time we see a closed channel so the select
-	// can't wake on it again — standard "combine two ranges"
-	// idiom).
-	//
-	// Both branches:
-	//   1. Advance result.LastMediaSeq.
-	//   2. Emit one SegmentEvent via cfg.OnEvent.
-	//   3. Emit one cumulative Progress.
-	//
-	// authErr is its own var so the outer auth-refresh caller
-	// (downloader.run) can detect it without string-matching:
-	// errors.Is(err, ErrPlaylistAuth) matches.
+	abortErr, authErr := drainOutcomes(&cfg, result, results, adSkips, cancel, log)
+
+	if authErr != nil {
+		_ = g.Wait()
+		return result, authErr
+	}
+	if abortErr != nil {
+		_ = g.Wait()
+		return result, abortErr
+	}
+
+	// Filter both ctx-err kinds — the JobResult is always
+	// valid on shutdown (partial tally), so the caller only
+	// wants the error when something actually broke. Returning
+	// ctx-err on normal shutdown would make every caller
+	// special-case both Canceled and DeadlineExceeded.
+	if err := g.Wait(); err != nil &&
+		!errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded) {
+		return result, err
+	}
+	return result, nil
+}
+
+// emitEvent invokes onEvent with the given event if onEvent is
+// non-nil. Nil-safe so call sites don't need to guard; keeps the
+// drain loop readable.
+func emitEvent(onEvent func(SegmentEvent), ev SegmentEvent) {
+	if onEvent != nil {
+		onEvent(ev)
+	}
+}
+
+// drainOutcomes consumes every SegmentResult + ad-skip event until
+// both channels are closed, maintaining result counters, firing
+// OnEvent, and streaming Progress snapshots. Exported from Run for
+// unit-testability: the drain's behavior after an auth/abort latch
+// needs to be verified directly, and wiring a real CDN race to
+// produce a "commit after cancel" outcome is hostile to the test
+// runner.
+//
+// Every drained outcome advances LastMediaSeq, updates counters,
+// and fires OnEvent + Progress — even after an abort marker is
+// set. Reason: once the worker has finished (file written, error
+// observed, ad skipped) the work has already happened on disk or
+// on the wire; the next attempt will skip past LastMediaSeq and
+// never re-process it, so durable accounting (OnEvent) and totals
+// (counters) must see it. The abort/auth markers latch once to
+// trigger cancel() exactly once and to drive Run's return value —
+// they are NOT used to gate counters or events.
+//
+// The returned (abortErr, authErr) carry whichever marker was
+// latched first; Run's caller errors-out on authErr in preference
+// to abortErr so the auth-refresh loop can distinguish "refresh
+// the token" from "give up."
+func drainOutcomes(
+	cfg *JobConfig,
+	result *JobResult,
+	results <-chan SegmentResult,
+	adSkips <-chan int64,
+	cancel context.CancelFunc,
+	log *slog.Logger,
+) (*GapAbortError, error) {
 	var abortErr *GapAbortError
 	var authErr error
-	aborted := func() bool { return abortErr != nil || authErr != nil }
 
 	resultsCh := results
 	adSkipsCh := adSkips
@@ -348,25 +395,40 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 			if res.MediaSeq > result.LastMediaSeq {
 				result.LastMediaSeq = res.MediaSeq
 			}
-			if aborted() {
-				continue
-			}
 			if res.Err != nil {
 				// Auth errors escape gap policy: the outer
-				// auth-refresh loop handles them.
+				// auth-refresh loop handles them. First auth
+				// error latches authErr + cancel(); subsequent
+				// ones in the drain tail still emit OnEvent for
+				// accounting but don't re-trigger.
 				if IsAuth(res.Err) {
-					authErr = fmt.Errorf("hls: segment seq=%d auth error: %w", res.MediaSeq, ErrPlaylistAuth)
-					log.Info("segment auth error; requesting refresh", "seq", res.MediaSeq)
+					if authErr == nil && abortErr == nil {
+						authErr = fmt.Errorf("hls: segment seq=%d auth error: %w", res.MediaSeq, ErrPlaylistAuth)
+						log.Info("segment auth error; requesting refresh", "seq", res.MediaSeq)
+						cancel()
+					}
 					emitEvent(cfg.OnEvent, SegmentEvent{
 						MediaSeq: res.MediaSeq,
 						Outcome:  OutcomeAuth,
 						Err:      res.Err,
 					})
-					cancel()
 					continue
 				}
-				abortErr = evaluateGap(&cfg.GapPolicy, result, res)
-				if abortErr == nil {
+				// Once aborting (auth or gap), treat subsequent
+				// failures as accepted gaps — the files are lost,
+				// the next attempt will skip past LastMediaSeq.
+				// Not evaluating the policy again avoids
+				// re-assigning abortErr to a later, less-
+				// informative trigger.
+				if authErr != nil || abortErr != nil {
+					result.SegmentsGaps++
+					log.Debug("segment gap accepted post-abort", "seq", res.MediaSeq, "error", res.Err)
+					emitEvent(cfg.OnEvent, SegmentEvent{
+						MediaSeq: res.MediaSeq,
+						Outcome:  OutcomeGapAccepted,
+						Err:      res.Err,
+					})
+				} else if gapErr := evaluateGap(&cfg.GapPolicy, result, res); gapErr == nil {
 					result.SegmentsGaps++
 					log.Debug("segment gap accepted", "seq", res.MediaSeq, "error", res.Err)
 					emitEvent(cfg.OnEvent, SegmentEvent{
@@ -375,6 +437,10 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 						Err:      res.Err,
 					})
 				} else {
+					// Trigger gap: causes the abort, so it is
+					// intentionally not counted or emitted — the
+					// GapAbortError carries its seq + err.
+					abortErr = gapErr
 					log.Warn("segment gap aborts job",
 						"reason", abortErr.Reason,
 						"seq", res.MediaSeq,
@@ -406,9 +472,6 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 			if seq > result.LastMediaSeq {
 				result.LastMediaSeq = seq
 			}
-			if aborted() {
-				continue
-			}
 			result.SegmentsAdGaps++
 			emitEvent(cfg.OnEvent, SegmentEvent{
 				MediaSeq: seq,
@@ -417,36 +480,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 			emitProgress(cfg.Progress, result)
 		}
 	}
-
-	if authErr != nil {
-		_ = g.Wait()
-		return result, authErr
-	}
-	if abortErr != nil {
-		_ = g.Wait()
-		return result, abortErr
-	}
-
-	// Filter both ctx-err kinds — the JobResult is always
-	// valid on shutdown (partial tally), so the caller only
-	// wants the error when something actually broke. Returning
-	// ctx-err on normal shutdown would make every caller
-	// special-case both Canceled and DeadlineExceeded.
-	if err := g.Wait(); err != nil &&
-		!errors.Is(err, context.Canceled) &&
-		!errors.Is(err, context.DeadlineExceeded) {
-		return result, err
-	}
-	return result, nil
-}
-
-// emitEvent invokes onEvent with the given event if onEvent is
-// non-nil. Nil-safe so call sites don't need to guard; keeps the
-// drain loop readable.
-func emitEvent(onEvent func(SegmentEvent), ev SegmentEvent) {
-	if onEvent != nil {
-		onEvent(ev)
-	}
+	return abortErr, authErr
 }
 
 // emitProgress does a non-blocking snapshot send onto the Progress
