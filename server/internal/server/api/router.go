@@ -20,6 +20,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/routes/settings"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/stream"
 	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
+	taskroute "github.com/befabri/replayvod/server/internal/server/api/routes/task"
 	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
@@ -111,6 +112,7 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	eventsubMgr := eventsubservice.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
 	eventsubSvc := eventsubroute.NewService(repo, eventsubMgr, log)
 	settingsSvc := settings.NewService(repo, log)
+	taskSvc := taskroute.NewService(repo, log)
 
 	// Middleware
 	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
@@ -227,6 +229,17 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// own row; lazy-create happens server-side on first Get.
 	trpcgo.MustVoidQuery(tr, "settings.get", settingsSvc.Get, viewerProcedure)
 	trpcgo.MustMutation(tr, "settings.update", settingsSvc.Update, viewerProcedure)
+
+	// Task admin — owner-only. Toggling a task pauses the schedule for
+	// the whole system; run-now triggers an immediate run on the next
+	// scheduler tick (not synchronous — keeps the tRPC call fast).
+	trpcgo.MustVoidQuery(tr, "task.list", taskSvc.List, ownerProcedure)
+	trpcgo.MustMutation(tr, "task.toggle", taskSvc.Toggle, ownerProcedure)
+	trpcgo.MustMutation(tr, "task.runNow", taskSvc.RunNow, ownerProcedure)
+
+	// Event logs — owner-only, extends the system.* surface so the
+	// existing owner procedures and dashboard nav apply uniformly.
+	trpcgo.MustQuery(tr, "system.eventLogs", systemSvc.EventLogs, ownerProcedure)
 
 	return tr
 }

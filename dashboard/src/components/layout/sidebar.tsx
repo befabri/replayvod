@@ -118,6 +118,16 @@ export function Sidebar() {
 								label={t("nav.eventsub")}
 								onNavigate={() => setOpen(false)}
 							/>
+							<NavLink
+								to="/dashboard/system/tasks"
+								label={t("nav.tasks")}
+								onNavigate={() => setOpen(false)}
+							/>
+							<NavLink
+								to="/dashboard/system/events"
+								label={t("nav.events")}
+								onNavigate={() => setOpen(false)}
+							/>
 						</>
 					)}
 				</nav>
