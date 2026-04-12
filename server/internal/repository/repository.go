@@ -74,4 +74,48 @@ type Repository interface {
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
 	DeleteOldFetchLogs(ctx context.Context, before time.Time) error
+
+	// Streams
+	GetStream(ctx context.Context, id string) (*Stream, error)
+	UpsertStream(ctx context.Context, s *StreamInput) (*Stream, error)
+	EndStream(ctx context.Context, id string, endedAt time.Time) error
+	UpdateStreamViewers(ctx context.Context, id string, viewerCount int64) error
+	ListActiveStreams(ctx context.Context) ([]Stream, error)
+	ListStreamsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]Stream, error)
+	GetLastLiveStream(ctx context.Context, broadcasterID string) (*Stream, error)
+
+	// Videos
+	GetVideo(ctx context.Context, id int64) (*Video, error)
+	GetVideoByJobID(ctx context.Context, jobID string) (*Video, error)
+	CreateVideo(ctx context.Context, v *VideoInput) (*Video, error)
+	UpdateVideoStatus(ctx context.Context, id int64, status string) error
+	MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string) error
+	MarkVideoFailed(ctx context.Context, id int64, errMsg string) error
+	SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error
+	ListVideos(ctx context.Context, limit, offset int) ([]Video, error)
+	ListVideosByStatus(ctx context.Context, status string, limit, offset int) ([]Video, error)
+	ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]Video, error)
+	ListVideosByCategory(ctx context.Context, categoryID string, limit, offset int) ([]Video, error)
+	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
+	SoftDeleteVideo(ctx context.Context, id int64) error
+	CountVideosByStatus(ctx context.Context, status string) (int64, error)
+	VideoStatsByStatus(ctx context.Context) ([]VideoStatsByStatus, error)
+	VideoStatsTotals(ctx context.Context) (*VideoStatsTotals, error)
+
+	// Titles
+	UpsertTitle(ctx context.Context, name string) (*Title, error)
+	LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error
+	LinkVideoTitle(ctx context.Context, videoID int64, titleID int64) error
+	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
+	ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error)
+
+	// Junctions (categories, tags, requests)
+	LinkStreamCategory(ctx context.Context, streamID, categoryID string) error
+	LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error
+	LinkStreamTag(ctx context.Context, streamID string, tagID int64) error
+	LinkVideoTag(ctx context.Context, videoID, tagID int64) error
+	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error)
+	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
+	AddVideoRequest(ctx context.Context, videoID int64, userID string) error
+	ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]Video, error)
 }

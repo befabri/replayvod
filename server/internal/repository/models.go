@@ -113,3 +113,97 @@ type FetchLogInput struct {
 	Error         *string
 	DurationMs    int64
 }
+
+// Video status/quality enums. Stored as TEXT with a CHECK constraint so both
+// dialects enforce the same value set without a server-side enum type.
+const (
+	VideoStatusPending = "PENDING"
+	VideoStatusRunning = "RUNNING"
+	VideoStatusDone    = "DONE"
+	VideoStatusFailed  = "FAILED"
+
+	QualityLow    = "LOW"
+	QualityMedium = "MEDIUM"
+	QualityHigh   = "HIGH"
+)
+
+// Stream is a single Twitch broadcast session.
+type Stream struct {
+	ID            string
+	BroadcasterID string
+	Type          string
+	Language      string
+	ThumbnailURL  *string
+	ViewerCount   int64
+	IsMature      *bool
+	StartedAt     time.Time
+	EndedAt       *time.Time
+	CreatedAt     time.Time
+}
+
+// StreamInput is the upsert payload for a stream snapshot.
+type StreamInput struct {
+	ID            string
+	BroadcasterID string
+	Type          string
+	Language      string
+	ThumbnailURL  *string
+	ViewerCount   int64
+	IsMature      *bool
+	StartedAt     time.Time
+}
+
+// Video is a downloaded VOD or an in-flight download. Status drives UI state
+// (PENDING queued → RUNNING downloading → DONE/FAILED terminal).
+type Video struct {
+	ID              int64
+	JobID           string
+	Filename        string
+	DisplayName     string
+	Status          string
+	Quality         string
+	BroadcasterID   string
+	StreamID        *string
+	ViewerCount     int64
+	Language        string
+	DurationSeconds *float64
+	SizeBytes       *int64
+	Thumbnail       *string
+	Error           *string
+	StartDownloadAt time.Time
+	DownloadedAt    *time.Time
+	DeletedAt       *time.Time
+}
+
+// VideoInput is the creation payload for a new download row.
+type VideoInput struct {
+	JobID         string
+	Filename      string
+	DisplayName   string
+	Status        string
+	Quality       string
+	BroadcasterID string
+	StreamID      *string
+	ViewerCount   int64
+	Language      string
+}
+
+// Title is a stream/video title string (deduplicated by name).
+type Title struct {
+	ID        int64
+	Name      string
+	CreatedAt time.Time
+}
+
+// VideoStatsTotals is the aggregate row for video.statistics.
+type VideoStatsTotals struct {
+	Total         int64
+	TotalSize     int64
+	TotalDuration float64
+}
+
+// VideoStatsByStatus is one bucket of the status histogram.
+type VideoStatsByStatus struct {
+	Status string
+	Count  int64
+}
