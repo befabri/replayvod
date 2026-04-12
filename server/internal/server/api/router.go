@@ -13,6 +13,9 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/auth"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/category"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/channel"
+	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/replayvod/server/internal/validate"
@@ -46,7 +49,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	})
 
 	// tRPC router with CSRF/origin protection
-	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, log)
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, twitchClient, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -67,15 +70,21 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 }
 
 // setupTRPCRouter builds the tRPC router with all procedures.
-func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, log *slog.Logger) *trpcgo.Router {
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, log *slog.Logger) *trpcgo.Router {
 	// Services
 	authSvc := auth.NewService(repo, sessionMgr, log)
+	channelSvc := channel.NewService(repo, twitchClient, log)
+	categorySvc := category.NewService(repo, log)
+	systemSvc := systemroute.NewService(repo, log)
 
 	// Middleware
 	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
+	ownerMw := middleware.TRPCRequireRole(middleware.RoleOwner)
 
 	// Base procedures (ProcedureBuilder pattern)
 	authedProcedure := trpcgo.Procedure().Use(authMw)
+	viewerProcedure := authedProcedure
+	ownerProcedure := authedProcedure.Use(ownerMw)
 
 	opts := []trpcgo.Option{
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
@@ -115,6 +124,25 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	trpcgo.MustVoidMutation(tr, "auth.logout", authSvc.Logout, authedProcedure)
 	trpcgo.MustVoidQuery(tr, "auth.sessions", authSvc.ListSessions, authedProcedure)
 	trpcgo.MustMutation(tr, "auth.revokeSession", authSvc.RevokeSession, authedProcedure)
+
+	// Channel procedures
+	trpcgo.MustQuery(tr, "channel.getById", channelSvc.GetByID, viewerProcedure)
+	trpcgo.MustQuery(tr, "channel.getByLogin", channelSvc.GetByLogin, viewerProcedure)
+	trpcgo.MustVoidQuery(tr, "channel.list", channelSvc.List, viewerProcedure)
+	trpcgo.MustVoidQuery(tr, "channel.listFollowed", channelSvc.ListFollowed, viewerProcedure)
+	trpcgo.MustMutation(tr, "channel.syncFromTwitch", channelSvc.SyncFromTwitch, ownerProcedure)
+
+	// Category procedures
+	trpcgo.MustQuery(tr, "category.getById", categorySvc.GetByID, viewerProcedure)
+	trpcgo.MustVoidQuery(tr, "category.list", categorySvc.List, viewerProcedure)
+
+	// System procedures (owner only)
+	trpcgo.MustQuery(tr, "system.fetchLogs", systemSvc.FetchLogs, ownerProcedure)
+	trpcgo.MustVoidQuery(tr, "system.listUsers", systemSvc.ListUsers, ownerProcedure)
+	trpcgo.MustMutation(tr, "system.updateUserRole", systemSvc.UpdateUserRole, ownerProcedure)
+	trpcgo.MustVoidQuery(tr, "system.listWhitelist", systemSvc.ListWhitelist, ownerProcedure)
+	trpcgo.MustMutation(tr, "system.addWhitelist", systemSvc.AddWhitelist, ownerProcedure)
+	trpcgo.MustMutation(tr, "system.removeWhitelist", systemSvc.RemoveWhitelist, ownerProcedure)
 
 	return tr
 }
