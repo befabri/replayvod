@@ -61,6 +61,15 @@ type Poller struct {
 	// 1-second TargetDuration from pounding the CDN. Default
 	// 1 second.
 	MinTick time.Duration
+
+	// BackoffBase + BackoffMax control the full-jitter
+	// exponential sleep between playlist-retry attempts.
+	// Default 200ms / 5s — tuned for playlist fetches which
+	// are small JSON-ish bodies, not for the segment-retry
+	// path (which lives in FetcherConfig). Exposed so Phase
+	// 4d's resume-only Poller path can use a tighter window.
+	BackoffBase time.Duration
+	BackoffMax  time.Duration
 }
 
 // PollResult carries metadata observed on the first successful
@@ -110,6 +119,14 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 	if minTick <= 0 {
 		minTick = time.Second
 	}
+	backoffBase := p.BackoffBase
+	if backoffBase <= 0 {
+		backoffBase = 200 * time.Millisecond
+	}
+	backoffMax := p.BackoffMax
+	if backoffMax <= 0 {
+		backoffMax = 5 * time.Second
+	}
 
 	defer close(out)
 
@@ -137,7 +154,7 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			if attempt >= maxAttempts {
 				return fmt.Errorf("hls poller: playlist fetch exhausted after %d attempts: %w", attempt, err)
 			}
-			if sleepErr := sleepCtx(ctx, Backoff(attempt-1, 200*time.Millisecond, 5*time.Second)); sleepErr != nil {
+			if sleepErr := sleepCtx(ctx, Backoff(attempt-1, backoffBase, backoffMax)); sleepErr != nil {
 				return sleepErr
 			}
 			continue

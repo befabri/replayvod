@@ -363,23 +363,33 @@ func TestRun_PlaylistAuthErrorBubbles(t *testing.T) {
 // TestRun_InitFetchFailureStopsGoroutines is the H1 regression
 // guard. A 404 on the init segment must cancel the poller + pool
 // and drain them before Run returns — otherwise segments keep
-// landing on disk after the caller has been told the job failed.
+// landing on disk and the playlist keeps getting polled after
+// the caller has been told the job failed.
+//
+// Watches both signals: segment fetches (pool-leak shape) AND
+// playlist polls (poller-leak shape). Sleeps past one
+// TargetDuration tick so a leaked poller actually has the chance
+// to re-fetch within the window — a shorter sleep would miss
+// poller-only leaks that wait a full tick before doing anything.
 func TestRun_InitFetchFailureStopsGoroutines(t *testing.T) {
-	var segFetches int32
+	const tickInterval = 1 // seconds
+	var segFetches, playlistPolls int32
 	s := &liveServer{
 		t:            t,
 		kind:         SegmentKindFMP4,
 		maxSegments:  100, // keep the playlist live indefinitely
 		windowSize:   3,
 		baseSeq:      1,
-		tickInterval: 1,
+		tickInterval: tickInterval,
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/init.mp4" {
+		switch {
+		case r.URL.Path == "/init.mp4":
 			w.WriteHeader(http.StatusNotFound)
 			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/seg/") {
+		case r.URL.Path == "/playlist.m3u8":
+			atomic.AddInt32(&playlistPolls, 1)
+		case strings.HasPrefix(r.URL.Path, "/seg/"):
 			atomic.AddInt32(&segFetches, 1)
 		}
 		s.handler().ServeHTTP(w, r)
@@ -400,15 +410,19 @@ func TestRun_InitFetchFailureStopsGoroutines(t *testing.T) {
 		t.Errorf("err=%v, want init segment mention", err)
 	}
 
-	// Capture the fetch count at return time, sleep long enough
-	// to detect any lingering goroutine still committing
-	// segments, then verify the count hasn't grown.
-	before := atomic.LoadInt32(&segFetches)
-	time.Sleep(150 * time.Millisecond)
-	after := atomic.LoadInt32(&segFetches)
-	if after != before {
+	// Capture counts at return time, sleep past one tick + slack
+	// so a leaked poller goroutine would get a chance to re-fetch
+	// the playlist, then verify neither counter advanced.
+	segsBefore := atomic.LoadInt32(&segFetches)
+	pollsBefore := atomic.LoadInt32(&playlistPolls)
+	time.Sleep(time.Duration(tickInterval)*time.Second + 200*time.Millisecond)
+	if got := atomic.LoadInt32(&segFetches); got != segsBefore {
 		t.Errorf("segment fetches kept firing after Run returned: before=%d after=%d",
-			before, after)
+			segsBefore, got)
+	}
+	if got := atomic.LoadInt32(&playlistPolls); got != pollsBefore {
+		t.Errorf("playlist polls kept firing after Run returned: before=%d after=%d",
+			pollsBefore, got)
 	}
 }
 
