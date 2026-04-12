@@ -83,6 +83,11 @@ export function Sidebar() {
 						label={t("nav.requests")}
 						onNavigate={() => setOpen(false)}
 					/>
+					<NavLink
+						to="/dashboard/schedules"
+						label={t("nav.schedules")}
+						onNavigate={() => setOpen(false)}
+					/>
 					{user && hasRole(user, "owner") && (
 						<>
 							<div className="pt-4 pb-1 px-3 text-xs uppercase tracking-wide text-muted-foreground">
@@ -101,6 +106,11 @@ export function Sidebar() {
 							<NavLink
 								to="/dashboard/system/whitelist"
 								label={t("nav.whitelist")}
+								onNavigate={() => setOpen(false)}
+							/>
+							<NavLink
+								to="/dashboard/system/eventsub"
+								label={t("nav.eventsub")}
 								onNavigate={() => setOpen(false)}
 							/>
 						</>

@@ -1,0 +1,244 @@
+import { createFileRoute } from "@tanstack/react-router"
+import { useState } from "react"
+import { useTranslation } from "react-i18next"
+import type { ScheduleResponse } from "@/features/schedules"
+import {
+	useCreateSchedule,
+	useDeleteSchedule,
+	useSchedules,
+	useToggleSchedule,
+} from "@/features/schedules"
+
+export const Route = createFileRoute("/dashboard/schedules")({
+	component: SchedulesPage,
+})
+
+function SchedulesPage() {
+	const { t } = useTranslation()
+	const { data, isLoading, error } = useSchedules()
+
+	return (
+		<div className="p-8 max-w-4xl">
+			<h1 className="text-3xl font-heading font-bold mb-2">
+				{t("schedules.title")}
+			</h1>
+			<p className="text-sm text-muted-foreground mb-6">
+				{t("schedules.description")}
+			</p>
+
+			<CreateForm />
+
+			{isLoading && (
+				<div className="text-muted-foreground">{t("common.loading")}</div>
+			)}
+			{error && (
+				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
+					{t("schedules.failed_to_load")}: {error.message}
+				</div>
+			)}
+			{data && data.data.length === 0 && !isLoading && !error && (
+				<div className="text-muted-foreground mt-8">
+					{t("schedules.empty")}
+				</div>
+			)}
+
+			{data && data.data.length > 0 && (
+				<div className="mt-8 space-y-3">
+					{data.data.map((s) => (
+						<ScheduleRow key={s.id} schedule={s} />
+					))}
+				</div>
+			)}
+		</div>
+	)
+}
+
+function CreateForm() {
+	const { t } = useTranslation()
+	const create = useCreateSchedule()
+	const [broadcasterId, setBroadcasterId] = useState("")
+	const [quality, setQuality] = useState("HIGH")
+	const [hasMinViewers, setHasMinViewers] = useState(false)
+	const [minViewers, setMinViewers] = useState("")
+
+	const submit = (e: React.FormEvent) => {
+		e.preventDefault()
+		const bid = broadcasterId.trim()
+		if (!bid) return
+		create.mutate(
+			{
+				broadcaster_id: bid,
+				quality,
+				has_min_viewers: hasMinViewers,
+				min_viewers:
+					hasMinViewers && minViewers ? parseInt(minViewers, 10) : undefined,
+				has_categories: false,
+				has_tags: false,
+				is_delete_rediff: false,
+				is_disabled: false,
+				category_ids: [],
+				tag_ids: [],
+			},
+			{
+				onSuccess: () => {
+					setBroadcasterId("")
+					setMinViewers("")
+					setHasMinViewers(false)
+				},
+			},
+		)
+	}
+
+	return (
+		<form
+			onSubmit={submit}
+			className="rounded-lg border border-border bg-card p-4 mb-6 space-y-3"
+		>
+			<h2 className="text-lg font-medium">{t("schedules.create_title")}</h2>
+			<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+				<label className="flex flex-col gap-1">
+					<span className="text-sm text-muted-foreground">
+						{t("schedules.broadcaster_id")}
+					</span>
+					<input
+						type="text"
+						value={broadcasterId}
+						onChange={(e) => setBroadcasterId(e.target.value)}
+						placeholder="12345"
+						className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+					/>
+				</label>
+				<label className="flex flex-col gap-1">
+					<span className="text-sm text-muted-foreground">
+						{t("schedules.quality")}
+					</span>
+					<select
+						value={quality}
+						onChange={(e) => setQuality(e.target.value)}
+						className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+					>
+						<option value="HIGH">{t("schedules.quality_high")}</option>
+						<option value="MEDIUM">{t("schedules.quality_medium")}</option>
+						<option value="LOW">{t("schedules.quality_low")}</option>
+					</select>
+				</label>
+			</div>
+			<label className="flex items-center gap-2 text-sm">
+				<input
+					type="checkbox"
+					checked={hasMinViewers}
+					onChange={(e) => setHasMinViewers(e.target.checked)}
+				/>
+				{t("schedules.has_min_viewers")}
+			</label>
+			{hasMinViewers && (
+				<label className="flex flex-col gap-1">
+					<span className="text-sm text-muted-foreground">
+						{t("schedules.min_viewers")}
+					</span>
+					<input
+						type="number"
+						min={0}
+						value={minViewers}
+						onChange={(e) => setMinViewers(e.target.value)}
+						className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-xs"
+					/>
+				</label>
+			)}
+
+			{create.isError && (
+				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+					{create.error?.message ?? t("schedules.create_failed")}
+				</div>
+			)}
+
+			<button
+				type="submit"
+				disabled={create.isPending || !broadcasterId.trim()}
+				className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+			>
+				{create.isPending ? t("common.saving") : t("schedules.create_submit")}
+			</button>
+		</form>
+	)
+}
+
+function ScheduleRow({ schedule }: { schedule: ScheduleResponse }) {
+	const { t } = useTranslation()
+	const toggle = useToggleSchedule()
+	const del = useDeleteSchedule()
+
+	return (
+		<div className="rounded-lg border border-border bg-card p-4">
+			<div className="flex items-start justify-between gap-4">
+				<div className="flex-1 min-w-0">
+					<div className="font-mono text-sm text-muted-foreground mb-1">
+						{schedule.broadcaster_id}
+					</div>
+					<div className="flex flex-wrap items-center gap-2 text-sm">
+						<Badge>{t(`videos.quality`)}: {schedule.quality}</Badge>
+						{schedule.has_min_viewers && schedule.min_viewers != null && (
+							<Badge>
+								{t("schedules.min_viewers")}: {schedule.min_viewers}
+							</Badge>
+						)}
+						{schedule.is_disabled ? (
+							<Badge variant="muted">{t("schedules.disabled")}</Badge>
+						) : (
+							<Badge variant="success">{t("schedules.enabled")}</Badge>
+						)}
+					</div>
+					<div className="mt-2 text-xs text-muted-foreground">
+						{t("schedules.triggered_count", { count: schedule.trigger_count })}
+						{schedule.last_triggered_at && (
+							<>
+								{" · "}
+								{t("schedules.last_triggered")}:{" "}
+								{new Date(schedule.last_triggered_at).toLocaleString()}
+							</>
+						)}
+					</div>
+				</div>
+				<div className="flex flex-col gap-2 items-end">
+					<button
+						type="button"
+						onClick={() => toggle.mutate({ id: schedule.id })}
+						disabled={toggle.isPending}
+						className="text-sm px-3 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-60"
+					>
+						{schedule.is_disabled
+							? t("schedules.enable")
+							: t("schedules.disable")}
+					</button>
+					<button
+						type="button"
+						onClick={() => del.mutate({ id: schedule.id })}
+						disabled={del.isPending}
+						className="text-sm text-destructive hover:underline disabled:opacity-60"
+					>
+						{t("schedules.delete")}
+					</button>
+				</div>
+			</div>
+		</div>
+	)
+}
+
+function Badge({
+	children,
+	variant = "default",
+}: {
+	children: React.ReactNode
+	variant?: "default" | "muted" | "success"
+}) {
+	const cls = {
+		default: "bg-muted text-foreground",
+		muted: "bg-muted text-muted-foreground",
+		success: "bg-primary/20 text-primary-foreground",
+	}[variant]
+	return (
+		<span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs ${cls}`}>
+			{children}
+		</span>
+	)
+}

@@ -13,6 +13,7 @@
 		"logs": "API Logs",
 		"users": "Users",
 		"whitelist": "Whitelist",
+		"eventsub": "EventSub",
 		"open_menu": "Open menu",
 		"close_menu": "Close menu",
 		"requests": "Requests"
@@ -20,6 +21,10 @@
 	"auth": {
 		"login": "Login with Twitch",
 		"logout": "Logout"
+	},
+	"common": {
+		"loading": "Loading…",
+		"saving": "Saving…"
 	},
 	"videos": {
 		"title": "Videos",
@@ -43,5 +48,48 @@
 		"total_size": "Storage used",
 		"total_duration": "Total duration",
 		"by_status": "By status"
+	},
+	"schedules": {
+		"title": "Auto-download schedules",
+		"description": "When a channel goes live, matching schedules automatically start a download.",
+		"failed_to_load": "Failed to load schedules",
+		"empty": "No schedules yet. Create one above to auto-record a channel.",
+		"create_title": "New schedule",
+		"create_submit": "Create",
+		"create_failed": "Failed to create schedule",
+		"broadcaster_id": "Broadcaster ID",
+		"quality": "Quality",
+		"quality_high": "High",
+		"quality_medium": "Medium",
+		"quality_low": "Low",
+		"has_min_viewers": "Only record above viewer threshold",
+		"min_viewers": "Min viewers",
+		"enable": "Enable",
+		"disable": "Disable",
+		"enabled": "Enabled",
+		"disabled": "Disabled",
+		"delete": "Delete",
+		"triggered_count": "Triggered {{count}} time(s)",
+		"last_triggered": "Last triggered"
+	},
+	"eventsub": {
+		"title": "EventSub",
+		"description": "Twitch EventSub webhook subscriptions and cost/quota history.",
+		"poll_now": "Poll now",
+		"polling": "Polling…",
+		"poll_failed": "Failed to poll Twitch",
+		"quota_label": "Cost used",
+		"active_subs": "Active subscriptions",
+		"snapshot_at": "Last poll",
+		"no_snapshot_yet": "No snapshot yet — click Poll now to fetch current state.",
+		"snapshots": "Recent polls",
+		"no_snapshots": "No polls recorded yet.",
+		"subscriptions": "Subscriptions",
+		"no_subscriptions": "No active subscriptions.",
+		"col_type": "Type",
+		"col_broadcaster": "Broadcaster",
+		"col_status": "Status",
+		"col_cost": "Cost",
+		"unsubscribe": "Unsubscribe"
 	}
 }

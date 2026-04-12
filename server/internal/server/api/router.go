@@ -72,7 +72,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	})
 
 	// tRPC router with CSRF/origin protection
-	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, log)
+	trpcRouter := SetupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -92,8 +92,8 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	return r
 }
 
-// setupTRPCRouter builds the tRPC router with all procedures.
-func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, log *slog.Logger) *trpcgo.Router {
+// SetupTRPCRouter builds the tRPC router with all procedures.
+func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, log *slog.Logger) *trpcgo.Router {
 	// Services
 	authSvc := auth.NewService(repo, sessionMgr, log)
 	channelSvc := channel.NewService(repo, twitchClient, log)

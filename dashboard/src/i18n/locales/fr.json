@@ -13,6 +13,7 @@
 		"logs": "Logs API",
 		"users": "Utilisateurs",
 		"whitelist": "Liste d'accès",
+		"eventsub": "EventSub",
 		"open_menu": "Ouvrir le menu",
 		"close_menu": "Fermer le menu",
 		"requests": "Demandes"
@@ -20,6 +21,10 @@
 	"auth": {
 		"login": "Se connecter avec Twitch",
 		"logout": "Déconnexion"
+	},
+	"common": {
+		"loading": "Chargement…",
+		"saving": "Enregistrement…"
 	},
 	"videos": {
 		"title": "Vidéos",
@@ -43,5 +48,48 @@
 		"total_size": "Espace utilisé",
 		"total_duration": "Durée totale",
 		"by_status": "Par statut"
+	},
+	"schedules": {
+		"title": "Planifications d'enregistrement",
+		"description": "Quand une chaîne passe en live, les planifications correspondantes lancent automatiquement un téléchargement.",
+		"failed_to_load": "Impossible de charger les planifications",
+		"empty": "Aucune planification. Créez-en une ci-dessus pour enregistrer automatiquement une chaîne.",
+		"create_title": "Nouvelle planification",
+		"create_submit": "Créer",
+		"create_failed": "Impossible de créer la planification",
+		"broadcaster_id": "Identifiant de la chaîne",
+		"quality": "Qualité",
+		"quality_high": "Haute",
+		"quality_medium": "Moyenne",
+		"quality_low": "Basse",
+		"has_min_viewers": "N'enregistrer qu'au-dessus d'un seuil de viewers",
+		"min_viewers": "Viewers minimum",
+		"enable": "Activer",
+		"disable": "Désactiver",
+		"enabled": "Activée",
+		"disabled": "Désactivée",
+		"delete": "Supprimer",
+		"triggered_count": "Déclenchée {{count}} fois",
+		"last_triggered": "Dernier déclenchement"
+	},
+	"eventsub": {
+		"title": "EventSub",
+		"description": "Abonnements webhook Twitch EventSub et historique du quota.",
+		"poll_now": "Interroger",
+		"polling": "Interrogation…",
+		"poll_failed": "Impossible d'interroger Twitch",
+		"quota_label": "Coût utilisé",
+		"active_subs": "Abonnements actifs",
+		"snapshot_at": "Dernier sondage",
+		"no_snapshot_yet": "Aucun sondage. Cliquez sur Interroger pour récupérer l'état actuel.",
+		"snapshots": "Sondages récents",
+		"no_snapshots": "Aucun sondage enregistré.",
+		"subscriptions": "Abonnements",
+		"no_subscriptions": "Aucun abonnement actif.",
+		"col_type": "Type",
+		"col_broadcaster": "Chaîne",
+		"col_status": "Statut",
+		"col_cost": "Coût",
+		"unsubscribe": "Désabonner"
 	}
 }
