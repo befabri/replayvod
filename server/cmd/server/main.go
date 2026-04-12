@@ -12,6 +12,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/database"
+	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/logger"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
@@ -135,7 +136,9 @@ func main() {
 		log.Error("Unsupported storage type", "type", cfg.App.Storage.Type)
 		os.Exit(1)
 	}
-	_ = store // wired into downloader/streaming handlers later in Phase 4
+
+	// Downloader service
+	dl := downloader.NewService(cfg, repo, store, log)
 
 	// Setup graceful shutdown
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -143,7 +146,7 @@ func main() {
 
 	// Start server
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, log)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, log)
 	go srv.Start()
 
 	// Wait for shutdown signal

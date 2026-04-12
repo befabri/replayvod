@@ -15,8 +15,13 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/routes/auth"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/category"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/channel"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/stream"
 	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
+	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
+	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/replayvod/server/internal/validate"
 	"github.com/befabri/trpcgo"
@@ -26,7 +31,7 @@ import (
 )
 
 // SetupRouter creates and configures the Chi router.
-func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, log *slog.Logger) *chi.Mux {
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, log *slog.Logger) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -42,14 +47,19 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
-	// Chi routes (non-tRPC: OAuth, webhooks, video streaming)
+	// Chi routes (non-tRPC: OAuth, webhooks, video streaming, thumbnails).
+	// Video/thumbnail routes reuse the session middleware — auth required
+	// for both, and we want the same context population the tRPC side gets.
 	authHandler := auth.NewHandler(cfg, repo, twitchClient, sessionMgr, log)
+	videoHandler := videoroute.NewHandler(repo, store, log)
+	sessionMw := middleware.Auth(sessionMgr, repo, log)
 	r.Route("/api/v1", func(r chi.Router) {
 		authHandler.SetupRoutes(r)
+		videoHandler.SetupRoutes(r, sessionMw)
 	})
 
 	// tRPC router with CSRF/origin protection
-	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, twitchClient, log)
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -70,15 +80,19 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 }
 
 // setupTRPCRouter builds the tRPC router with all procedures.
-func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, log *slog.Logger) *trpcgo.Router {
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, log *slog.Logger) *trpcgo.Router {
 	// Services
 	authSvc := auth.NewService(repo, sessionMgr, log)
 	channelSvc := channel.NewService(repo, twitchClient, log)
 	categorySvc := category.NewService(repo, log)
 	systemSvc := systemroute.NewService(repo, log)
+	videoSvc := videoroute.NewService(repo, dl, twitchClient, log)
+	streamSvc := stream.NewService(repo, log)
+	videoRequestSvc := videorequest.NewService(repo, log)
 
 	// Middleware
 	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
+	adminMw := middleware.TRPCRequireRole(middleware.RoleAdmin)
 	ownerMw := middleware.TRPCRequireRole(middleware.RoleOwner)
 
 	// Base procedures (ProcedureBuilder pattern)
@@ -143,6 +157,30 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	trpcgo.MustVoidQuery(tr, "system.listWhitelist", systemSvc.ListWhitelist, ownerProcedure)
 	trpcgo.MustMutation(tr, "system.addWhitelist", systemSvc.AddWhitelist, ownerProcedure)
 	trpcgo.MustMutation(tr, "system.removeWhitelist", systemSvc.RemoveWhitelist, ownerProcedure)
+
+	// Video procedures. Reads are viewer-level; download triggers and cancel
+	// are admin-level so regular viewers can't burn Twitch/Helix quota.
+	adminProcedure := authedProcedure.Use(adminMw)
+	trpcgo.MustQuery(tr, "video.list", videoSvc.List, viewerProcedure)
+	trpcgo.MustQuery(tr, "video.getById", videoSvc.GetByID, viewerProcedure)
+	trpcgo.MustQuery(tr, "video.byBroadcaster", videoSvc.ByBroadcaster, viewerProcedure)
+	trpcgo.MustQuery(tr, "video.byCategory", videoSvc.ByCategory, viewerProcedure)
+	trpcgo.MustVoidQuery(tr, "video.statistics", videoSvc.Statistics, viewerProcedure)
+	trpcgo.MustMutation(tr, "video.triggerDownload", videoSvc.TriggerDownload, adminProcedure)
+	trpcgo.MustMutation(tr, "video.cancel", videoSvc.Cancel, adminProcedure)
+	// SSE progress stream. Admin-only: if you can trigger a download you can
+	// watch it. trpcgo.TRPCAuth middleware runs at subscribe time and the SSE
+	// lifecycle closes the stream if the session expires mid-flight.
+	trpcgo.MustSubscribe(tr, "video.downloadProgress", videoSvc.DownloadProgress, adminProcedure)
+
+	// Stream procedures.
+	trpcgo.MustVoidQuery(tr, "stream.active", streamSvc.Active, viewerProcedure)
+	trpcgo.MustQuery(tr, "stream.byBroadcaster", streamSvc.ByBroadcaster, viewerProcedure)
+	trpcgo.MustQuery(tr, "stream.lastLive", streamSvc.LastLive, viewerProcedure)
+
+	// Video request procedures.
+	trpcgo.MustQuery(tr, "videorequest.mine", videoRequestSvc.Mine, viewerProcedure)
+	trpcgo.MustMutation(tr, "videorequest.request", videoRequestSvc.Request, viewerProcedure)
 
 	return tr
 }

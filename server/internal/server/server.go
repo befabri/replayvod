@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
+	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api"
 	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
@@ -20,24 +22,28 @@ type Server struct {
 	repo         repository.Repository
 	sessionMgr   *session.Manager
 	twitchClient *twitch.Client
+	storage      storage.Storage
+	downloader   *downloader.Service
 	log          *slog.Logger
 	httpServer   *http.Server
 }
 
 // NewServer creates a new server.
-func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, log *slog.Logger) *Server {
+func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, log *slog.Logger) *Server {
 	return &Server{
 		cfg:          cfg,
 		repo:         repo,
 		sessionMgr:   sessionMgr,
 		twitchClient: twitchClient,
+		storage:      store,
+		downloader:   dl,
 		log:          log,
 	}
 }
 
 // Start begins serving HTTP requests.
 func (s *Server) Start() {
-	router := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.log)
+	router := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.log)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port),
@@ -52,8 +58,12 @@ func (s *Server) Start() {
 	}
 }
 
-// Stop gracefully shuts down the server.
+// Stop gracefully shuts down the server. Active downloads are cancelled
+// first so the HTTP shutdown doesn't outrun subprocess termination.
 func (s *Server) Stop() {
+	if s.downloader != nil {
+		s.downloader.Shutdown()
+	}
 	if s.httpServer == nil {
 		return
 	}
