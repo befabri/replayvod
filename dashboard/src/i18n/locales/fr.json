@@ -68,6 +68,10 @@
 		"has_categories": "Filtrer par catégorie",
 		"has_tags": "Filtrer par tag",
 		"min_viewers": "Viewers minimum",
+		"search_categories": "Rechercher des catégories…",
+		"no_categories": "Aucune catégorie — elles apparaissent quand les streams passent en live.",
+		"search_tags": "Rechercher des tags…",
+		"no_tags": "Aucun tag — ils apparaissent quand les streams passent en live.",
 		"coming_soon": "Bientôt",
 		"filters": "Filtres",
 		"filters_coming_soon": "Filtres",
@@ -84,6 +88,10 @@
 		"delete": "Supprimer",
 		"triggered_count": "Déclenchée {{count}} fois",
 		"last_triggered": "Dernier déclenchement"
+	},
+	"streams_live": {
+		"title": "Live en direct",
+		"matched": "{{count}} planification(s) déclenchée(s)"
 	},
 	"tasks": {
 		"title": "Tâches planifiées",

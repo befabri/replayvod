@@ -68,6 +68,10 @@
 		"has_categories": "Match specific categories",
 		"has_tags": "Match specific tags",
 		"min_viewers": "Min viewers",
+		"search_categories": "Search categories…",
+		"no_categories": "No categories yet — they populate as streams go live.",
+		"search_tags": "Search tags…",
+		"no_tags": "No tags yet — they populate as streams go live.",
 		"coming_soon": "Coming soon",
 		"filters": "Filters",
 		"filters_coming_soon": "Filters",
@@ -84,6 +88,10 @@
 		"delete": "Delete",
 		"triggered_count": "Triggered {{count}} time(s)",
 		"last_triggered": "Last triggered"
+	},
+	"streams_live": {
+		"title": "Just went live",
+		"matched": "{{count}} schedule(s) matched"
 	},
 	"tasks": {
 		"title": "Scheduled tasks",

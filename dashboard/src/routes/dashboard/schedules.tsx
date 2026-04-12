@@ -4,6 +4,11 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 import { CreateInputSchema } from "@/api/generated/zod"
+import {
+	MultiSelectPicker,
+	type PickerOption,
+} from "@/components/MultiSelectPicker"
+import { useCategories } from "@/features/categories/queries"
 import type { ScheduleResponse } from "@/features/schedules"
 import {
 	useCreateSchedule,
@@ -12,18 +17,21 @@ import {
 	useToggleSchedule,
 	useUpdateSchedule,
 } from "@/features/schedules"
+import { useTags } from "@/features/tags"
 
-// ScheduleFormSchema picks the fields the form lets users edit. The
-// backend's CreateInput accepts viewer-count / category / tag filters
-// but the dashboard form currently only exposes min_viewers (a
-// numeric threshold). Categories and tags need a picker UI that
-// depends on having the full category/tag catalog populated — we'll
-// layer that in when there's a concrete UX for it.
+// ScheduleFormSchema picks the fields the form lets users edit. All
+// filter dimensions from the backend CreateInput are active now:
+// min_viewers (numeric threshold), plus category and tag allowlists
+// driven by the shared MultiSelectPicker.
 const ScheduleFormSchema = CreateInputSchema.pick({
 	broadcaster_id: true,
 	quality: true,
 	has_min_viewers: true,
 	min_viewers: true,
+	has_categories: true,
+	category_ids: true,
+	has_tags: true,
+	tag_ids: true,
 }).extend({
 	broadcaster_id: z
 		.string()
@@ -81,16 +89,20 @@ function CreateForm() {
 	const { t } = useTranslation()
 	const create = useCreateSchedule()
 
-	// TanStack Form wired with a Zod-validated submit. min_viewers is now
-	// live (Phase 6 stream enrichment fetches viewer_count on
-	// stream.online); categories + tags still need a picker UI for the
-	// tag/category catalog, so they stay `false` at submit.
+	// TanStack Form wired with a Zod-validated submit. All three
+	// filter dimensions (min_viewers / categories / tags) are now
+	// live via Phase 6 stream enrichment + the MultiSelectPicker
+	// plugged in below.
 	const form = useForm({
 		defaultValues: {
 			broadcaster_id: "",
 			quality: "HIGH",
 			has_min_viewers: false,
 			min_viewers: undefined,
+			has_categories: false,
+			category_ids: [],
+			has_tags: false,
+			tag_ids: [],
 		} as ScheduleFormValues,
 		validators: {
 			onSubmit: ScheduleFormSchema,
@@ -101,12 +113,12 @@ function CreateForm() {
 				quality: value.quality,
 				has_min_viewers: value.has_min_viewers,
 				min_viewers: value.has_min_viewers ? value.min_viewers : undefined,
-				has_categories: false,
-				has_tags: false,
+				has_categories: value.has_categories,
+				has_tags: value.has_tags,
 				is_delete_rediff: false,
 				is_disabled: false,
-				category_ids: [],
-				tag_ids: [],
+				category_ids: value.has_categories ? value.category_ids : [],
+				tag_ids: value.has_tags ? value.tag_ids : [],
 			})
 			formApi.reset()
 		},
@@ -173,56 +185,8 @@ function CreateForm() {
 				</form.Field>
 			</div>
 
-			<fieldset className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
-				<legend className="text-xs px-1 text-muted-foreground">
-					{t("schedules.filters")}
-				</legend>
-				<form.Field name="has_min_viewers">
-					{(field) => (
-						<label className="flex items-center gap-2 text-sm">
-							<input
-								id={field.name}
-								type="checkbox"
-								checked={field.state.value}
-								onChange={(e) => field.handleChange(e.target.checked)}
-							/>
-							{t("schedules.has_min_viewers")}
-						</label>
-					)}
-				</form.Field>
-				<form.Subscribe selector={(s) => s.values.has_min_viewers}>
-					{(hasMinViewers) =>
-						hasMinViewers ? (
-							<form.Field name="min_viewers">
-								{(field) => (
-									<label className="flex flex-col gap-1 max-w-xs">
-										<span className="text-xs text-muted-foreground">
-											{t("schedules.min_viewers")}
-										</span>
-										<input
-											id={field.name}
-											type="number"
-											min={0}
-											value={field.state.value ?? ""}
-											onChange={(e) =>
-												field.handleChange(
-													e.target.value === ""
-														? undefined
-														: Number(e.target.value),
-												)
-											}
-											onBlur={field.handleBlur}
-											className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-										/>
-									</label>
-								)}
-							</form.Field>
-						) : null
-					}
-				</form.Subscribe>
-				<DisabledFilter label={t("schedules.has_categories")} />
-				<DisabledFilter label={t("schedules.has_tags")} />
-			</fieldset>
+			<FiltersFieldset form={form} />
+
 
 			{create.isError && (
 				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
@@ -264,19 +228,140 @@ function FieldError({ errors }: { errors: readonly unknown[] }) {
 	return <span className="text-xs text-destructive">{msg}</span>
 }
 
-function DisabledFilter({ label }: { label: string }) {
+// FiltersFieldset renders the shared filter controls used by both the
+// create and edit forms. Uses `any` on the form prop because TanStack
+// Form's inferred signature depends on a closure-captured validators
+// arg; typing it explicitly balloons the generic shape without payoff
+// for a one-file-shared component.
+// biome-ignore lint/suspicious/noExplicitAny: See above
+function FiltersFieldset({ form }: { form: any }) {
 	const { t } = useTranslation()
+	const categoriesQuery = useCategories()
+	const tagsQuery = useTags()
+
+	const categoryOptions: PickerOption<string>[] = (categoriesQuery.data ?? []).map(
+		(c) => ({ id: c.id, label: c.name }),
+	)
+	const tagOptions: PickerOption<number>[] = (tagsQuery.data ?? []).map((tag) => ({
+		id: tag.id,
+		label: tag.name,
+	}))
+
 	return (
-		<label
-			className="flex items-center gap-2 text-sm opacity-60 cursor-not-allowed"
-			title={t("schedules.filters_coming_soon_hint")}
-		>
-			<input type="checkbox" disabled />
-			<span>{label}</span>
-			<span className="ml-auto rounded-md bg-muted px-2 py-0.5 text-xs">
-				{t("schedules.coming_soon")}
-			</span>
-		</label>
+		<fieldset className="rounded-md border border-border bg-muted/20 p-3 space-y-3">
+			<legend className="text-xs px-1 text-muted-foreground">
+				{t("schedules.filters")}
+			</legend>
+
+			<form.Field name="has_min_viewers">
+				{(field: any) => (
+					<label className="flex items-center gap-2 text-sm">
+						<input
+							type="checkbox"
+							checked={field.state.value}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+								field.handleChange(e.target.checked)
+							}
+						/>
+						{t("schedules.has_min_viewers")}
+					</label>
+				)}
+			</form.Field>
+			<form.Subscribe selector={(s: any) => s.values.has_min_viewers}>
+				{(hasMinViewers: boolean) =>
+					hasMinViewers ? (
+						<form.Field name="min_viewers">
+							{(field: any) => (
+								<label className="flex flex-col gap-1 max-w-xs">
+									<span className="text-xs text-muted-foreground">
+										{t("schedules.min_viewers")}
+									</span>
+									<input
+										type="number"
+										min={0}
+										value={field.state.value ?? ""}
+										onChange={(
+											e: React.ChangeEvent<HTMLInputElement>,
+										) =>
+											field.handleChange(
+												e.target.value === ""
+													? undefined
+													: Number(e.target.value),
+											)
+										}
+										className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+									/>
+								</label>
+							)}
+						</form.Field>
+					) : null
+				}
+			</form.Subscribe>
+
+			<form.Field name="has_categories">
+				{(field: any) => (
+					<label className="flex items-center gap-2 text-sm">
+						<input
+							type="checkbox"
+							checked={field.state.value}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+								field.handleChange(e.target.checked)
+							}
+						/>
+						{t("schedules.has_categories")}
+					</label>
+				)}
+			</form.Field>
+			<form.Subscribe selector={(s: any) => s.values.has_categories}>
+				{(hasCategories: boolean) =>
+					hasCategories ? (
+						<form.Field name="category_ids">
+							{(field: any) => (
+								<MultiSelectPicker<string>
+									options={categoryOptions}
+									selected={field.state.value ?? []}
+									onChange={(next) => field.handleChange(next)}
+									placeholder={t("schedules.search_categories")}
+									emptyHint={t("schedules.no_categories")}
+								/>
+							)}
+						</form.Field>
+					) : null
+				}
+			</form.Subscribe>
+
+			<form.Field name="has_tags">
+				{(field: any) => (
+					<label className="flex items-center gap-2 text-sm">
+						<input
+							type="checkbox"
+							checked={field.state.value}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+								field.handleChange(e.target.checked)
+							}
+						/>
+						{t("schedules.has_tags")}
+					</label>
+				)}
+			</form.Field>
+			<form.Subscribe selector={(s: any) => s.values.has_tags}>
+				{(hasTags: boolean) =>
+					hasTags ? (
+						<form.Field name="tag_ids">
+							{(field: any) => (
+								<MultiSelectPicker<number>
+									options={tagOptions}
+									selected={field.state.value ?? []}
+									onChange={(next) => field.handleChange(next)}
+									placeholder={t("schedules.search_tags")}
+									emptyHint={t("schedules.no_tags")}
+								/>
+							)}
+						</form.Field>
+					) : null
+				}
+			</form.Subscribe>
+		</fieldset>
 	)
 }
 
@@ -376,6 +461,10 @@ function EditForm({
 			quality: schedule.quality as ScheduleFormValues["quality"],
 			has_min_viewers: schedule.has_min_viewers,
 			min_viewers: schedule.min_viewers ?? undefined,
+			has_categories: schedule.has_categories,
+			category_ids: schedule.categories.map((c) => c.id),
+			has_tags: schedule.has_tags,
+			tag_ids: schedule.tags.map((t) => t.id),
 		} as ScheduleFormValues,
 		validators: {
 			onSubmit: ScheduleFormSchema,
@@ -386,13 +475,13 @@ function EditForm({
 				quality: value.quality,
 				has_min_viewers: value.has_min_viewers,
 				min_viewers: value.has_min_viewers ? value.min_viewers : undefined,
-				has_categories: schedule.has_categories,
-				has_tags: schedule.has_tags,
+				has_categories: value.has_categories,
+				has_tags: value.has_tags,
 				is_delete_rediff: schedule.is_delete_rediff,
 				time_before_delete: schedule.time_before_delete,
 				is_disabled: schedule.is_disabled,
-				category_ids: schedule.categories.map((c) => c.id),
-				tag_ids: schedule.tags.map((t) => t.id),
+				category_ids: value.has_categories ? value.category_ids : [],
+				tag_ids: value.has_tags ? value.tag_ids : [],
 			})
 			onDone()
 		},
@@ -437,46 +526,7 @@ function EditForm({
 					</label>
 				)}
 			</form.Field>
-			<form.Field name="has_min_viewers">
-				{(field) => (
-					<label className="flex items-center gap-2 text-sm">
-						<input
-							type="checkbox"
-							checked={field.state.value}
-							onChange={(e) => field.handleChange(e.target.checked)}
-						/>
-						{t("schedules.has_min_viewers")}
-					</label>
-				)}
-			</form.Field>
-			<form.Subscribe selector={(s) => s.values.has_min_viewers}>
-				{(hasMinViewers) =>
-					hasMinViewers ? (
-						<form.Field name="min_viewers">
-							{(field) => (
-								<label className="flex flex-col gap-1 max-w-xs">
-									<span className="text-xs text-muted-foreground">
-										{t("schedules.min_viewers")}
-									</span>
-									<input
-										type="number"
-										min={0}
-										value={field.state.value ?? ""}
-										onChange={(e) =>
-											field.handleChange(
-												e.target.value === ""
-													? undefined
-													: Number(e.target.value),
-											)
-										}
-										className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-									/>
-								</label>
-							)}
-						</form.Field>
-					) : null
-				}
-			</form.Subscribe>
+			<FiltersFieldset form={form} />
 
 			{update.isError && (
 				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
