@@ -46,10 +46,12 @@ func New(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, 
 // Helix calls + fetch logs attribute to them rather than the app
 // credential.
 //
-// RecordingType + ForceH264 are persisted on the videos row (so the
-// operator's intent survives across restarts and shows up in the UI)
-// but the yt-dlp shim does not consume them — that work lands with
-// the native HLS pipeline.
+// RecordingType + ForceH264 are persisted on the videos row AND
+// forwarded to the downloader so the native pipeline's Stage 3
+// variant selector picks the right rendition (audio_only vs the
+// quality chain) and applies the codec filter. Operator intent
+// survives across restarts (videos row) and affects the in-flight
+// pipeline (Params).
 type TriggerInput struct {
 	BroadcasterID   string
 	RecordingType   string
@@ -97,6 +99,8 @@ func (s *Service) Trigger(ctx context.Context, input TriggerInput) (TriggerResul
 		DisplayName:      ch.BroadcasterName,
 		Quality:          quality,
 		Language:         derefString(ch.BroadcasterLanguage),
+		RecordingType:    input.RecordingType,
+		ForceH264:        input.ForceH264,
 	})
 	if err != nil {
 		return TriggerResult{}, fmt.Errorf("start download: %w", err)
