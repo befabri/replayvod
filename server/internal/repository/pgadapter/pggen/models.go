@@ -67,6 +67,17 @@ type DownloadScheduleTag struct {
 	TagID      int64 `json:"tag_id"`
 }
 
+type EventLog struct {
+	ID          int64           `json:"id"`
+	Domain      string          `json:"domain"`
+	EventType   string          `json:"event_type"`
+	Severity    string          `json:"severity"`
+	Message     string          `json:"message"`
+	ActorUserID *string         `json:"actor_user_id"`
+	Data        json.RawMessage `json:"data"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
 type EventsubSnapshot struct {
 	ID           int64     `json:"id"`
 	Total        int32     `json:"total"`
@@ -95,6 +106,15 @@ type Session struct {
 	UserAgent       *string   `json:"user_agent"`
 	IpAddress       *string   `json:"ip_address"`
 	CreatedAt       time.Time `json:"created_at"`
+}
+
+type Setting struct {
+	UserID         string    `json:"user_id"`
+	Timezone       string    `json:"timezone"`
+	DatetimeFormat string    `json:"datetime_format"`
+	Language       string    `json:"language"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type SnapshotSubscription struct {
@@ -152,6 +172,20 @@ type Tag struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Task struct {
+	Name            string     `json:"name"`
+	Description     string     `json:"description"`
+	IntervalSeconds int32      `json:"interval_seconds"`
+	IsEnabled       bool       `json:"is_enabled"`
+	LastRunAt       *time.Time `json:"last_run_at"`
+	LastDurationMs  int32      `json:"last_duration_ms"`
+	LastStatus      string     `json:"last_status"`
+	LastError       *string    `json:"last_error"`
+	NextRunAt       *time.Time `json:"next_run_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type Title struct {

@@ -19,6 +19,8 @@ type Querier interface {
 	// stays; just the fat JSON column goes.
 	ClearWebhookEventPayload(ctx context.Context, receivedAt time.Time) error
 	CountActiveSubscriptions(ctx context.Context) (int64, error)
+	CountEventLogs(ctx context.Context) (int64, error)
+	CountEventLogsByDomain(ctx context.Context, domain string) (int64, error)
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
 	CountUserSessions(ctx context.Context, userID string) (int64, error)
@@ -27,6 +29,7 @@ type Querier interface {
 	CountWebhookEvents(ctx context.Context) (int64, error)
 	CountWebhookEventsByType(ctx context.Context, eventType *string) (int64, error)
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
+	CreateEventLog(ctx context.Context, arg CreateEventLogParams) (EventLog, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (DownloadSchedule, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
@@ -41,6 +44,10 @@ type Querier interface {
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
+	// Retention task path: debug/info rows older than the retention window
+	// are pruned; warn/error rows stay longer (retention task uses a
+	// different cutoff). Partial WHERE keeps the sweep focused.
+	DeleteOldEventLogs(ctx context.Context, createdAt time.Time) error
 	DeleteOldFetchLogs(ctx context.Context, fetchedAt time.Time) error
 	// Retention: the dashboard chart wants maybe 30 days of history; older
 	// snapshots get pruned by the scheduler task.
@@ -68,10 +75,12 @@ type Querier interface {
 	GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
+	GetSettings(ctx context.Context, userID string) (Setting, error)
 	GetStream(ctx context.Context, id string) (Stream, error)
 	GetSubscription(ctx context.Context, id string) (Subscription, error)
 	GetTag(ctx context.Context, id int64) (Tag, error)
 	GetTagByName(ctx context.Context, name string) (Tag, error)
+	GetTask(ctx context.Context, name string) (Task, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByLogin(ctx context.Context, login string) (User, error)
 	GetVideo(ctx context.Context, id int64) (Video, error)
@@ -103,6 +112,12 @@ type Querier interface {
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
+	// Scheduler tick path: enabled tasks whose next_run_at has passed.
+	// The partial index idx_tasks_next_run_at keeps this O(log n).
+	ListDueTasks(ctx context.Context) ([]Task, error)
+	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
+	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
+	ListEventLogsBySeverity(ctx context.Context, arg ListEventLogsBySeverityParams) ([]EventLog, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
@@ -120,6 +135,7 @@ type Querier interface {
 	ListSubscriptionsForSnapshot(ctx context.Context, snapshotID int64) ([]ListSubscriptionsForSnapshotRow, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
+	ListTasks(ctx context.Context) ([]Task, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
 	ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error)
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
@@ -140,6 +156,9 @@ type Querier interface {
 	// issue a DELETE via the Helix API. Preserves the row for audit; the
 	// partial UNIQUE index then allows creating a replacement subscription.
 	MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error
+	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
+	MarkTaskRunning(ctx context.Context, name string) error
+	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
 	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
 	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
@@ -148,6 +167,11 @@ type Querier interface {
 	// trigger so the dashboard can show "this schedule fired N times, last at T".
 	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
+	// Manual "run now" path — set next_run_at to now so the scheduler picks
+	// it up on the next tick. Separate from SetTaskEnabled so the caller
+	// can request a one-shot run without changing the enabled flag.
+	SetTaskNextRun(ctx context.Context, name string) error
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
 	SoftDeleteVideo(ctx context.Context, id int64) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
@@ -165,8 +189,17 @@ type Querier interface {
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
+	// Called on first access and on every update. Defaults (UTC / ISO /
+	// en) come from the column defaults when the caller passes empty
+	// strings, but we expect callers to pass concrete values — validation
+	// lives at the tRPC boundary.
+	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) (Setting, error)
 	UpsertStream(ctx context.Context, arg UpsertStreamParams) (Stream, error)
 	UpsertTag(ctx context.Context, name string) (Tag, error)
+	// Registered on scheduler startup. Only writes the descriptive columns;
+	// existing rows keep their runtime state (last_run_at, last_status,
+	// etc.) so a redeploy doesn't reset counters.
+	UpsertTask(ctx context.Context, arg UpsertTaskParams) (Task, error)
 	UpsertTitle(ctx context.Context, name string) (Title, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 	UpsertUserFollow(ctx context.Context, arg UpsertUserFollowParams) error

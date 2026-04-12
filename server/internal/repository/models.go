@@ -344,3 +344,76 @@ type WebhookEventInput struct {
 	MessageTimestamp time.Time
 	Payload          json.RawMessage
 }
+
+// TaskStatus enumerates the lifecycle values for scheduled tasks.
+// Stored on tasks.last_status with a CHECK constraint matching these.
+const (
+	TaskStatusPending = "pending"
+	TaskStatusRunning = "running"
+	TaskStatusSuccess = "success"
+	TaskStatusFailed  = "failed"
+	TaskStatusSkipped = "skipped"
+)
+
+// Task is a registered scheduled background job. Runtime state
+// (last_run_at, last_status, next_run_at) is mutated by the scheduler
+// on each invocation; descriptive columns (name, description,
+// interval_seconds) are registered on startup and respected across
+// restarts. See queries/*/tasks.sql for the state-transition SQL.
+type Task struct {
+	Name            string
+	Description     string
+	IntervalSeconds int32
+	IsEnabled       bool
+	LastRunAt       *time.Time
+	LastDurationMs  int32
+	LastStatus      string
+	LastError       *string
+	NextRunAt       *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// EventLogSeverity enumerates severities stored on event_logs.severity.
+const (
+	EventLogSeverityDebug = "debug"
+	EventLogSeverityInfo  = "info"
+	EventLogSeverityWarn  = "warn"
+	EventLogSeverityError = "error"
+)
+
+// EventLog is an append-only app-side audit entry. Distinct from
+// webhook_events (inbound Twitch) and fetch_logs (outbound Helix):
+// event_logs records what the app itself did.
+type EventLog struct {
+	ID          int64
+	Domain      string
+	EventType   string
+	Severity    string
+	Message     string
+	ActorUserID *string
+	Data        json.RawMessage
+	CreatedAt   time.Time
+}
+
+// EventLogInput is the create payload for CreateEventLog. Data is
+// optional JSON context; empty means no structured data.
+type EventLogInput struct {
+	Domain      string
+	EventType   string
+	Severity    string
+	Message     string
+	ActorUserID *string
+	Data        json.RawMessage
+}
+
+// Settings is a user's display preferences. One row per user, keyed
+// by users.id with ON DELETE CASCADE.
+type Settings struct {
+	UserID         string
+	Timezone       string
+	DatetimeFormat string
+	Language       string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}

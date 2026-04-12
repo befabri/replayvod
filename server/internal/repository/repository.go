@@ -160,6 +160,31 @@ type Repository interface {
 	DeleteOldEventSubSnapshots(ctx context.Context, before time.Time) error
 	LinkSnapshotSubscription(ctx context.Context, snapshotID int64, subscriptionID string, costAtSnapshot int64, statusAtSnapshot string) error
 
+	// Scheduled tasks — registered on startup, runtime state mutated
+	// by the scheduler. See queries/*/tasks.sql for the state-machine.
+	UpsertTask(ctx context.Context, name, description string, intervalSeconds int64) (*Task, error)
+	GetTask(ctx context.Context, name string) (*Task, error)
+	ListTasks(ctx context.Context) ([]Task, error)
+	ListDueTasks(ctx context.Context) ([]Task, error)
+	MarkTaskRunning(ctx context.Context, name string) error
+	MarkTaskSuccess(ctx context.Context, name string, durationMs int64) error
+	MarkTaskFailed(ctx context.Context, name string, durationMs int64, errMsg string) error
+	SetTaskEnabled(ctx context.Context, name string, enabled bool) (*Task, error)
+	SetTaskNextRun(ctx context.Context, name string) error
+
+	// Event logs — append-only app-side audit trail.
+	CreateEventLog(ctx context.Context, input *EventLogInput) (*EventLog, error)
+	ListEventLogs(ctx context.Context, limit, offset int) ([]EventLog, error)
+	ListEventLogsByDomain(ctx context.Context, domain string, limit, offset int) ([]EventLog, error)
+	ListEventLogsBySeverity(ctx context.Context, severity string, limit, offset int) ([]EventLog, error)
+	CountEventLogs(ctx context.Context) (int64, error)
+	CountEventLogsByDomain(ctx context.Context, domain string) (int64, error)
+	DeleteOldEventLogs(ctx context.Context, before time.Time) error
+
+	// Settings — per-user preferences.
+	GetSettings(ctx context.Context, userID string) (*Settings, error)
+	UpsertSettings(ctx context.Context, s *Settings) (*Settings, error)
+
 	// Webhook events — audit log with state machine + retention.
 	CreateWebhookEvent(ctx context.Context, input *WebhookEventInput) (*WebhookEvent, error)
 	GetWebhookEvent(ctx context.Context, id int64) (*WebhookEvent, error)
