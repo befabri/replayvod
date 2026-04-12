@@ -21,6 +21,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
 	"github.com/befabri/replayvod/server/internal/downloader"
+	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -55,11 +56,11 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	videoHandler := videoroute.NewHandler(repo, store, log)
 	// The webhook handler needs the raw body for HMAC verification, so it
 	// must live on the Chi side (no tRPC JSON middleware) and outside the
-	// csrfProtection group (Twitch can't provide a CSRF cookie). Processor
-	// is nil until Phase 5 Task #36 wires scheduleservice — the handler
-	// records events regardless, processor is only used for notification
-	// dispatch.
-	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, nil, log)
+	// csrfProtection group (Twitch can't provide a CSRF cookie). The
+	// schedule-service processor dispatches stream.online events to the
+	// auto-download pipeline; other event types are audit-logged only.
+	scheduleProcessor := scheduleservice.NewEventProcessor(repo, dl, log)
+	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, scheduleProcessor, log)
 	sessionMw := middleware.Auth(sessionMgr, repo, log)
 	r.Route("/api/v1", func(r chi.Router) {
 		authHandler.SetupRoutes(r)
