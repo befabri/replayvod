@@ -6,6 +6,18 @@ package twitch
 
 import "context"
 
+// CreateChannelStreamScheduleSegment — Adds a single or recurring broadcast to the broadcaster’s streaming schedule.
+// POST /schedule/segment
+// Auth: user (scopes: channel:manage:schedule)
+// https://dev.twitch.tv/docs/api/reference#create-channel-stream-schedule-segment
+func (c *Client) CreateChannelStreamScheduleSegment(ctx context.Context, params *CreateChannelStreamScheduleSegmentParams, body *CreateChannelStreamScheduleSegmentBody) ([]CreateChannelStreamScheduleSegmentResponse, error) {
+	var result helixResponse[CreateChannelStreamScheduleSegmentResponse]
+	if err := c.post(ctx, "/schedule/segment", params, body, &result); err != nil {
+		return nil, err
+	}
+	return result.Data, nil
+}
+
 // CreateEventSubSubscription — Creates an EventSub subscription.
 // POST /eventsub/subscriptions
 // Auth: either (scopes: channel:read:subscriptions)
@@ -16,6 +28,29 @@ func (c *Client) CreateEventSubSubscription(ctx context.Context, body *CreateEve
 		return nil, err
 	}
 	return result.Data, nil
+}
+
+// CreateStreamMarker — Adds a marker to a live stream.
+// POST /streams/markers
+// Auth: user (scopes: channel:manage:broadcast)
+// https://dev.twitch.tv/docs/api/reference#create-stream-marker
+func (c *Client) CreateStreamMarker(ctx context.Context, body *CreateStreamMarkerBody) ([]CreateStreamMarkerResponse, error) {
+	var result helixResponse[CreateStreamMarkerResponse]
+	if err := c.post(ctx, "/streams/markers", nil, body, &result); err != nil {
+		return nil, err
+	}
+	return result.Data, nil
+}
+
+// DeleteChannelStreamScheduleSegment — Deletes a broadcast from the broadcaster’s streaming schedule.
+// DELETE /schedule/segment
+// Auth: user (scopes: channel:manage:schedule)
+// https://dev.twitch.tv/docs/api/reference#delete-channel-stream-schedule-segment
+func (c *Client) DeleteChannelStreamScheduleSegment(ctx context.Context, params *DeleteChannelStreamScheduleSegmentParams) error {
+	if err := c.delete(ctx, "/schedule/segment", params, nil); err != nil {
+		return err
+	}
+	return nil
 }
 
 // DeleteEventSubSubscription — Deletes an EventSub subscription.
@@ -39,6 +74,55 @@ func (c *Client) GetChannelInformation(ctx context.Context, params *GetChannelIn
 		return nil, err
 	}
 	return result.Data, nil
+}
+
+// GetChannelStreamSchedule — Gets the broadcaster’s streaming schedule.
+// GET /schedule
+// Auth: either
+// https://dev.twitch.tv/docs/api/reference#get-channel-stream-schedule
+func (c *Client) GetChannelStreamSchedule(ctx context.Context, params *GetChannelStreamScheduleParams) ([]GetChannelStreamScheduleResponse, error) {
+	var result helixResponse[GetChannelStreamScheduleResponse]
+	if err := c.get(ctx, "/schedule", params, &result); err != nil {
+		return nil, err
+	}
+	return result.Data, nil
+}
+
+// GetClips — Gets one or more video clips.
+// GET /clips
+// Auth: either
+// https://dev.twitch.tv/docs/api/reference#get-clips
+func (c *Client) GetClips(ctx context.Context, params *GetClipsParams) ([]GetClipsResponse, Pagination, error) {
+	var result helixResponse[GetClipsResponse]
+	if err := c.get(ctx, "/clips", params, &result); err != nil {
+		return nil, Pagination{}, err
+	}
+	return result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil
+}
+
+// GetClipsAll iterates GetClips until pagination is exhausted.
+// The returned Pagination carries the final page's Total / TotalCost / MaxCost
+// so callers can record quota without rolling their own loop.
+func (c *Client) GetClipsAll(ctx context.Context, params *GetClipsParams) ([]GetClipsResponse, Pagination, error) {
+	var (
+		all  []GetClipsResponse
+		last Pagination
+	)
+	if params == nil {
+		params = &GetClipsParams{}
+	}
+	for {
+		page, pagination, err := c.GetClips(ctx, params)
+		if err != nil {
+			return nil, Pagination{}, err
+		}
+		all = append(all, page...)
+		last = pagination
+		if pagination.Cursor == "" {
+			return all, last, nil
+		}
+		params.After = pagination.Cursor
+	}
 }
 
 // GetEventSubSubscriptions — Gets a list of EventSub subscriptions that the client in the access token created.
@@ -162,6 +246,43 @@ func (c *Client) GetGames(ctx context.Context, params *GetGamesParams) ([]Game, 
 		return nil, err
 	}
 	return result.Data, nil
+}
+
+// GetStreamMarkers — Gets a list of markers from the user’s most recent stream or from the specified VOD/video.
+// GET /streams/markers
+// Auth: user (scopes: user:read:broadcast, channel:manage:broadcast)
+// https://dev.twitch.tv/docs/api/reference#get-stream-markers
+func (c *Client) GetStreamMarkers(ctx context.Context, params *GetStreamMarkersParams) ([]GetStreamMarkersResponse, Pagination, error) {
+	var result helixResponse[GetStreamMarkersResponse]
+	if err := c.get(ctx, "/streams/markers", params, &result); err != nil {
+		return nil, Pagination{}, err
+	}
+	return result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil
+}
+
+// GetStreamMarkersAll iterates GetStreamMarkers until pagination is exhausted.
+// The returned Pagination carries the final page's Total / TotalCost / MaxCost
+// so callers can record quota without rolling their own loop.
+func (c *Client) GetStreamMarkersAll(ctx context.Context, params *GetStreamMarkersParams) ([]GetStreamMarkersResponse, Pagination, error) {
+	var (
+		all  []GetStreamMarkersResponse
+		last Pagination
+	)
+	if params == nil {
+		params = &GetStreamMarkersParams{}
+	}
+	for {
+		page, pagination, err := c.GetStreamMarkers(ctx, params)
+		if err != nil {
+			return nil, Pagination{}, err
+		}
+		all = append(all, page...)
+		last = pagination
+		if pagination.Cursor == "" {
+			return all, last, nil
+		}
+		params.After = pagination.Cursor
+	}
 }
 
 // GetStreams — Gets a list of all streams.
@@ -296,4 +417,27 @@ func (c *Client) ModifyChannelInformation(ctx context.Context, params *ModifyCha
 		return err
 	}
 	return nil
+}
+
+// UpdateChannelStreamSchedule — Updates the broadcaster’s schedule settings, such as scheduling a vacation.
+// PATCH /schedule/settings
+// Auth: user (scopes: channel:manage:schedule)
+// https://dev.twitch.tv/docs/api/reference#update-channel-stream-schedule
+func (c *Client) UpdateChannelStreamSchedule(ctx context.Context, params *UpdateChannelStreamScheduleParams) error {
+	if err := c.patch(ctx, "/schedule/settings", params, nil, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+// UpdateChannelStreamScheduleSegment — Updates a scheduled broadcast segment.
+// PATCH /schedule/segment
+// Auth: user (scopes: channel:manage:schedule)
+// https://dev.twitch.tv/docs/api/reference#update-channel-stream-schedule-segment
+func (c *Client) UpdateChannelStreamScheduleSegment(ctx context.Context, params *UpdateChannelStreamScheduleSegmentParams, body *UpdateChannelStreamScheduleSegmentBody) ([]UpdateChannelStreamScheduleSegmentResponse, error) {
+	var result helixResponse[UpdateChannelStreamScheduleSegmentResponse]
+	if err := c.patch(ctx, "/schedule/segment", params, body, &result); err != nil {
+		return nil, err
+	}
+	return result.Data, nil
 }

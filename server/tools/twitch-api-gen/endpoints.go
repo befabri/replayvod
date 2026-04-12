@@ -19,4 +19,18 @@ var endpoints = []string{
 	"create-eventsub-subscription",
 	"get-eventsub-subscriptions",
 	"delete-eventsub-subscription",
+
+	// Stream markers — Twitch-authored segmentation for VOD post-processing.
+	"get-stream-markers",
+	"create-stream-marker",
+
+	// Clips — per-broadcaster clip listings for the dashboard.
+	"get-clips",
+
+	// Broadcaster schedule — mirror Twitch's programmatic stream schedule.
+	"get-channel-stream-schedule",
+	"update-channel-stream-schedule",
+	"create-channel-stream-schedule-segment",
+	"update-channel-stream-schedule-segment",
+	"delete-channel-stream-schedule-segment",
 }
