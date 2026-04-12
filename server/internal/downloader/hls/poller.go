@@ -70,6 +70,23 @@ type Poller struct {
 	// 4d's resume-only Poller path can use a tighter window.
 	BackoffBase time.Duration
 	BackoffMax  time.Duration
+
+	// StartMediaSeq optionally skips segments whose MediaSeq is
+	// below this threshold. Used by the auth-refresh and
+	// resume-on-restart paths: after a fresh signed URL is
+	// obtained, the Poller should pick up where the previous
+	// attempt left off rather than re-emit already-committed
+	// segments.
+	//
+	// Zero (the default) means "emit everything the playlist
+	// publishes." Set to last_seen_mediaSeq + 1 to resume.
+	//
+	// Window-roll detection: if the playlist's first segment
+	// has MediaSeq > StartMediaSeq the poller logs a warn and
+	// continues from whatever the playlist exposes — those
+	// segments are lost. Full gap-tracking on window roll is a
+	// later phase.
+	StartMediaSeq int64
 }
 
 // PollResult carries metadata observed on the first successful
@@ -130,11 +147,15 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 
 	defer close(out)
 
-	// lastSeq: highest MediaSeq we've already enqueued. -1
-	// before the first poll so Segments[0].MediaSeq=0 still
-	// gets dispatched. int64 to match the domain type.
-	var lastSeq int64 = -1
+	// lastSeq: highest MediaSeq we've already enqueued. Resume
+	// callers pass StartMediaSeq to skip segments already
+	// committed in a prior attempt; lastSeq starts at
+	// StartMediaSeq-1 so emission begins at StartMediaSeq.
+	// For fresh starts (StartMediaSeq=0) this is -1, which
+	// lets a seq-0 segment through unchanged.
+	lastSeq := p.StartMediaSeq - 1
 	var firstSent bool
+	var warnedWindowRoll bool
 
 	for attempt := 0; ; {
 		pl, err := p.fetchAndParse(ctx)
@@ -175,6 +196,22 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 				return ctx.Err()
 			}
 			firstSent = true
+		}
+
+		// Window-roll warning: on the first poll after a
+		// resume attempt, if the playlist has already rolled
+		// past StartMediaSeq we've irreversibly lost those
+		// segments. Log once so operators can notice when
+		// auth-refresh or resume windows are too slow to
+		// keep up with the stream's TARGETDURATION.
+		if p.StartMediaSeq > 0 && !warnedWindowRoll && len(pl.Segments) > 0 {
+			warnedWindowRoll = true
+			if pl.Segments[0].MediaSeq > p.StartMediaSeq {
+				log.Warn("playlist window rolled past resume point",
+					"resume_from", p.StartMediaSeq,
+					"playlist_head", pl.Segments[0].MediaSeq,
+					"lost_segments", pl.Segments[0].MediaSeq-p.StartMediaSeq)
+			}
 		}
 
 		ext := segmentExt(pl.Kind)

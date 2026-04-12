@@ -353,19 +353,13 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	}
 	defer func() { _ = os.RemoveAll(jobDir) }()
 
-	// Stage 1: auth — anonymous playback for Phase 6a. OAuth-token
-	// path (ad-skip + HEVC unlock) is Phase 6c.
-	s.emitProgress(d, "auth")
-	token, err := s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, "")
-	if err != nil {
-		s.failDownload(dbCtx, d, log, fmt.Errorf("playback token: %w", err))
-		return
-	}
-
-	// Stages 2 + 3: master playlist + variant selection. Gap policy
-	// fields drive Stage 4 and Stage 3 alike, so build SelectOptions
-	// once and reuse.
-	s.emitProgress(d, "playlist")
+	// Stages 1-4 run inside an auth-refresh loop. On
+	// hls.ErrPlaylistAuth we re-mint a playback token, re-
+	// fetch the master playlist, re-select the variant, and
+	// resume the segment fetch at the cursor from the failed
+	// attempt. Loop bounded by cfg.Download.AuthRefreshAttempts
+	// so a stream we're never going to be allowed to play
+	// doesn't loop indefinitely.
 	selectOpts := twitch.SelectOptions{
 		RecordingType: p.RecordingType,
 		Quality:       qualityToHeight(p.Quality),
@@ -376,38 +370,10 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	if selectOpts.RecordingType == "" {
 		selectOpts.RecordingType = twitch.RecordingTypeVideo
 	}
-	manifest, err := s.twitch.FetchMasterPlaylist(ctx, p.BroadcasterLogin, token, selectOpts)
-	if err != nil {
-		s.failDownload(dbCtx, d, log, fmt.Errorf("master playlist: %w", err))
-		return
-	}
-	variant, err := twitch.SelectVariant(manifest, selectOpts)
-	if err != nil {
-		s.failDownload(dbCtx, d, log, fmt.Errorf("variant selection: %w", err))
-		return
-	}
-	log.Info("selected variant", "quality", variant.Quality, "codec", variant.Codec)
 
-	// Stage 4: HLS fetch — segments stream into segmentsDir. Progress
-	// is published by the orchestrator through its own channel;
-	// we bridge it to downloader.Progress via a separate goroutine.
-	hlsProgress := make(chan hls.Progress, 32)
-	go s.bridgeProgress(d, hlsProgress)
-	s.emitProgress(d, "segments")
-	hlsResult, err := hls.Run(ctx, hls.JobConfig{
-		MediaPlaylistURL:   variant.URL,
-		WorkDir:            segmentsDir,
-		Fetcher:            s.fetcher,
-		SegmentConcurrency: s.cfg.App.Download.SegmentConcurrency,
-		Log:                log,
-		Progress:           hlsProgress,
-		GapPolicy: hls.GapPolicy{
-			Strict:      s.cfg.App.Download.Strict,
-			MaxGapRatio: s.cfg.App.Download.MaxGapRatio,
-		},
-	})
+	hlsResult, err := s.fetchWithAuthRefresh(ctx, d, p, segmentsDir, selectOpts, log)
 	if err != nil {
-		s.failDownload(dbCtx, d, log, fmt.Errorf("hls run: %w", err))
+		s.failDownload(dbCtx, d, log, err)
 		return
 	}
 
@@ -524,6 +490,127 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		"gaps", hlsResult.SegmentsGaps,
 		"segments", hlsResult.SegmentsDone,
 	)
+}
+
+// fetchWithAuthRefresh runs Stages 1-4 (twitch playback token +
+// master playlist + variant selection + hls.Run) with an auth-
+// refresh loop around the hls fetch. On hls.ErrPlaylistAuth we
+// re-run Stages 1-3 for a fresh signed URL and call hls.Run
+// again with StartMediaSeq set to the previous attempt's cursor,
+// so segments already on disk aren't re-fetched.
+//
+// Bounded by cfg.Download.AuthRefreshAttempts. Permanent auth
+// failures (entitlement codes) from the Twitch classifier bail
+// on the first attempt; retryable auth goes through the budget.
+// Non-auth hls errors (gap policy abort, transport exhausted
+// on the playlist) surface immediately.
+//
+// Returns an accumulated JobResult across all attempts. The
+// Kind + InitURI are taken from the final successful iteration
+// (or the last one attempted on failure).
+func (s *Service) fetchWithAuthRefresh(ctx context.Context, d *download, p Params, segmentsDir string, selectOpts twitch.SelectOptions, log *slog.Logger) (*hls.JobResult, error) {
+	maxAuthAttempts := s.cfg.App.Download.AuthRefreshAttempts
+	if maxAuthAttempts <= 0 {
+		maxAuthAttempts = 2
+	}
+
+	agg := &hls.JobResult{}
+	var authAttempts int
+	var startSeq int64
+
+	for {
+		// Stages 1-3: fresh signed URL.
+		s.emitProgress(d, "auth")
+		variantURL, err := s.resolveVariantURL(ctx, p, selectOpts)
+		if err != nil {
+			// Permanent entitlement errors can't be refreshed
+			// away — surface immediately.
+			if twitch.IsPermanent(err) {
+				return agg, err
+			}
+			return agg, err
+		}
+		s.emitProgress(d, "playlist")
+
+		// Stage 4: segment fetch. The progress channel is
+		// per-attempt because hls.Run closes it on the way
+		// out; sharing across attempts would send on a closed
+		// channel.
+		hlsProgress := make(chan hls.Progress, 32)
+		go s.bridgeProgress(d, hlsProgress)
+		s.emitProgress(d, "segments")
+
+		result, err := hls.Run(ctx, hls.JobConfig{
+			MediaPlaylistURL:   variantURL,
+			WorkDir:            segmentsDir,
+			Fetcher:            s.fetcher,
+			SegmentConcurrency: s.cfg.App.Download.SegmentConcurrency,
+			Log:                log,
+			Progress:           hlsProgress,
+			StartMediaSeq:      startSeq,
+			GapPolicy: hls.GapPolicy{
+				Strict:      s.cfg.App.Download.Strict,
+				MaxGapRatio: s.cfg.App.Download.MaxGapRatio,
+			},
+		})
+
+		// Fold this attempt's counters into the running total.
+		// Kind + InitURI come from whichever attempt most
+		// recently had them set — the manifest side shouldn't
+		// flip between attempts for the same variant, but if
+		// it does the final value wins.
+		if result != nil {
+			agg.SegmentsDone += result.SegmentsDone
+			agg.SegmentsGaps += result.SegmentsGaps
+			agg.BytesWritten += result.BytesWritten
+			if result.Kind != "" {
+				agg.Kind = result.Kind
+			}
+			if result.InitURI != "" {
+				agg.InitURI = result.InitURI
+			}
+			if result.LastMediaSeq > agg.LastMediaSeq {
+				agg.LastMediaSeq = result.LastMediaSeq
+			}
+			startSeq = agg.LastMediaSeq + 1
+		}
+
+		if err == nil {
+			return agg, nil
+		}
+		if !errors.Is(err, hls.ErrPlaylistAuth) {
+			// Gap abort, transport exhaustion on the
+			// playlist, ctx cancel — not fixable by refresh.
+			return agg, fmt.Errorf("hls run: %w", err)
+		}
+		authAttempts++
+		if authAttempts > maxAuthAttempts {
+			return agg, fmt.Errorf("auth refresh budget exhausted after %d attempts: %w", authAttempts, err)
+		}
+		log.Info("playback URL expired; refreshing",
+			"attempt", authAttempts,
+			"budget", maxAuthAttempts,
+			"resume_from_seq", startSeq)
+	}
+}
+
+// resolveVariantURL walks Stages 1-3 and returns the fresh
+// signed media-playlist URL for the currently-selected variant.
+// Phase 6b anonymous path; OAuth service-account flow is 6c.
+func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.SelectOptions) (string, error) {
+	token, err := s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, "")
+	if err != nil {
+		return "", fmt.Errorf("playback token: %w", err)
+	}
+	manifest, err := s.twitch.FetchMasterPlaylist(ctx, p.BroadcasterLogin, token, opts)
+	if err != nil {
+		return "", fmt.Errorf("master playlist: %w", err)
+	}
+	variant, err := twitch.SelectVariant(manifest, opts)
+	if err != nil {
+		return "", fmt.Errorf("variant selection: %w", err)
+	}
+	return variant.URL, nil
 }
 
 // kindFromRecordingType maps the spec's recording_type enum to

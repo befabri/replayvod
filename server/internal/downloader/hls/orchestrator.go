@@ -62,6 +62,13 @@ type JobConfig struct {
 	// for live recording. Override for VOD or operator-opted
 	// strict mode.
 	GapPolicy GapPolicy
+
+	// StartMediaSeq optionally resumes from a prior attempt's
+	// cursor. Passed directly to the Poller; segments below
+	// this threshold are not re-emitted. Zero = fresh start.
+	// Auth-refresh and resume-on-restart callers set this to
+	// JobResult.LastMediaSeq + 1 from the previous attempt.
+	StartMediaSeq int64
 }
 
 // GapPolicy decides "accept segment failure as a gap" vs "abort
@@ -115,16 +122,23 @@ type Progress struct {
 
 // JobResult summarizes a completed Run. SegmentsDone counts
 // commits, SegmentsGaps counts failures the tolerant policy
-// accepted. The orchestrator returns non-nil error only for
-// bootstrap failures or gap-policy aborts (strict mode, ratio
-// breach, first-content guard tripped); otherwise per-segment
+// accepted. The orchestrator returns non-nil error for
+// bootstrap failures, gap-policy aborts (strict mode, ratio
+// breach, first-content guard tripped), or auth refresh
+// escalation (ErrPlaylistAuth wrapped); otherwise per-segment
 // failures are tallied in gaps.
+//
+// LastMediaSeq is the highest MediaSeq the result drain
+// observed (success OR accepted gap). Auth-refresh callers set
+// the next attempt's JobConfig.StartMediaSeq to LastMediaSeq+1
+// so already-processed segments aren't re-fetched.
 type JobResult struct {
 	SegmentsDone int64
 	SegmentsGaps int64
 	BytesWritten int64
 	Kind         SegmentKind
 	InitURI      string // empty for ts jobs
+	LastMediaSeq int64
 }
 
 // GapAbortError is the typed error returned when the gap policy
@@ -181,9 +195,10 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	}
 
 	poller := &Poller{
-		URL:        cfg.MediaPlaylistURL,
-		HTTPClient: cfg.PlaylistClient,
-		Log:        log,
+		URL:           cfg.MediaPlaylistURL,
+		HTTPClient:    cfg.PlaylistClient,
+		Log:           log,
+		StartMediaSeq: cfg.StartMediaSeq,
 	}
 	pool := &Pool{
 		Fetcher: cfg.Fetcher,
@@ -259,19 +274,38 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 
 	// Drain results. The pool closes `results` after all
 	// workers finish, so the for-range exits cleanly on
-	// normal termination. A gap-policy abort mid-stream
-	// cancel()s the siblings and breaks out; the remaining
-	// results are drained silently to let the pool close
-	// cleanly.
+	// normal termination. A gap-policy abort or a segment-
+	// level auth error cancel()s the siblings and breaks out;
+	// the remaining results are drained silently to let the
+	// pool close cleanly.
+	//
+	// authErr is its own var so the outer auth-refresh caller
+	// (downloader.run in Phase 6b) can detect it without
+	// string-matching: errors.Is(err, ErrPlaylistAuth) matches.
 	var abortErr *GapAbortError
+	var authErr error
 	for res := range results {
-		if abortErr != nil {
+		if res.MediaSeq > result.LastMediaSeq {
+			result.LastMediaSeq = res.MediaSeq
+		}
+		if abortErr != nil || authErr != nil {
 			// Already aborting — keep draining so the pool's
 			// workers can exit via ctx.Done and close the
 			// channel. Don't update counters.
 			continue
 		}
 		if res.Err != nil {
+			// Auth errors escape gap policy: they're fixable
+			// by re-running Stages 1-3 for a fresh signed URL.
+			// Surface via ErrPlaylistAuth so the outer refresh
+			// loop detects it.
+			if IsAuth(res.Err) {
+				authErr = fmt.Errorf("hls: segment seq=%d auth error: %w", res.MediaSeq, ErrPlaylistAuth)
+				log.Info("segment auth error; requesting refresh",
+					"seq", res.MediaSeq)
+				cancel()
+				continue
+			}
 			abortErr = evaluateGap(&cfg.GapPolicy, result, res)
 			if abortErr == nil {
 				result.SegmentsGaps++
@@ -305,6 +339,10 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		}
 	}
 
+	if authErr != nil {
+		_ = g.Wait()
+		return result, authErr
+	}
 	if abortErr != nil {
 		_ = g.Wait()
 		return result, abortErr
