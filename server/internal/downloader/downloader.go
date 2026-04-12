@@ -18,10 +18,15 @@
 //	10. storage.Save                          — upload to backend
 //	11. os.RemoveAll(work_dir)                — cleanup
 //
-// Phase 6a scope: single-part happy path. Auth refresh (ErrPlaylistAuth
-// → re-stages), resume-on-restart, part-splitting on variant/codec/
-// container change, and stitched-ad gap segregation are Phase 6b+
-// concerns.
+// Durable state: jobs table (status + resume_state JSONB per attempt)
+// plus video_parts (one row per output part — single-part today with
+// structural headroom for variant/codec/container splits). Start()
+// creates both; run() transitions them alongside the pipeline;
+// Resume() at server boot reads RUNNING jobs and re-spawns them.
+//
+// Shutdown semantics: SIGINT/SIGTERM cancels in-flight jobs' contexts
+// but LEAVES their rows as RUNNING so the next Resume() picks them
+// back up. A user-initiated Cancel marks the video FAILED explicitly.
 package downloader
 
 import (
@@ -36,6 +41,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -174,6 +180,17 @@ type Service struct {
 
 	mu     sync.Mutex
 	active map[string]*download
+
+	// wg tracks the per-job run() goroutines so Shutdown can wait
+	// for their defers (resume-state flush, progressCh close,
+	// active-map cleanup) to land before the process exits.
+	wg sync.WaitGroup
+
+	// shuttingDown flips atomically on Shutdown(). failDownload
+	// observes it to suppress the mark-FAILED transition — a
+	// job interrupted by shutdown stays RUNNING so Resume() on
+	// the next boot picks it back up per spec line 615.
+	shuttingDown atomic.Bool
 }
 
 // download is the per-job state kept in memory. cancel propagates
@@ -405,6 +422,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	d.cancel = cancel
 
+	s.wg.Add(1)
 	go s.run(runCtx, d, p, filename)
 	return jobID, nil
 }
@@ -438,13 +456,36 @@ func (s *Service) Subscribe(jobID string) <-chan Progress {
 	return nil
 }
 
-// Shutdown cancels all active downloads. Called from the server's
-// graceful-shutdown path.
+// Shutdown cancels all active downloads and waits up to 30s for
+// their run goroutines to flush durable state (final resume-state
+// checkpoint, progress channel close, active-map cleanup) before
+// returning. Past the timeout in-flight goroutines continue running
+// but the caller proceeds with process exit — the dbCtx
+// (context.WithoutCancel) path means late checkpoint writes can
+// still land if the caller doesn't force-kill immediately.
+//
+// Jobs interrupted by shutdown stay RUNNING in the DB — spec
+// line 625 "Shutdown is not a download failure." Resume() on the
+// next process boot picks them back up. A user Cancel() taken
+// concurrently with shutdown wins: ErrCancelled still records.
 func (s *Service) Shutdown() {
+	s.shuttingDown.Store(true)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, d := range s.active {
 		d.cancel()
+	}
+	s.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		s.log.Info("downloader shutdown: all jobs flushed")
+	case <-time.After(30 * time.Second):
+		s.log.Warn("downloader shutdown: 30s timeout reached; some jobs still in flight")
 	}
 }
 
@@ -568,6 +609,7 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 	// vid.Filename is the deterministic base name chosen at
 	// original Start(); reuse it so the remuxed path is stable
 	// across restart.
+	s.wg.Add(1)
 	go s.run(runCtx, d, p, vid.Filename)
 	return nil
 }
@@ -596,6 +638,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		s.mu.Lock()
 		delete(s.active, d.jobID)
 		s.mu.Unlock()
+		s.wg.Done()
 	}()
 
 	if err := s.repo.UpdateVideoStatus(dbCtx, d.videoID, repository.VideoStatusRunning); err != nil {
@@ -1208,10 +1251,25 @@ func (s *Service) checkpointResume(dbCtx context.Context, d *download, log *slog
 // download was cancelled by a user call to Cancel(), the
 // recorded error is ErrCancelled so the UI can distinguish
 // "admin stopped this" from a real crash.
+//
+// Shutdown case: when s.shuttingDown is set AND the user did NOT
+// cancel, we flush the final resume-state checkpoint but do NOT
+// mark video/job as FAILED — the row stays RUNNING for Resume()
+// to pick up on next boot. Spec line 625 "Shutdown is not a
+// download failure."
 func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Logger, cause error) {
 	s.mu.Lock()
 	userCancelled := d.userCancelled
 	s.mu.Unlock()
+
+	if s.shuttingDown.Load() && !userCancelled {
+		log.Info("download interrupted by shutdown; leaving RUNNING for resume",
+			"error", cause,
+			"stage", d.resume.Stage,
+			"accounted_frontier", d.resume.AccountedFrontierMediaSeq)
+		s.checkpointResume(dbCtx, d, log)
+		return
+	}
 
 	recorded := cause
 	if userCancelled {
