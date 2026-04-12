@@ -226,6 +226,190 @@ func TestRun_AdHeavyStreamDoesNotTripMaxGapRatio(t *testing.T) {
 	}
 }
 
+// TestRun_AdSkipsAdvanceLastMediaSeq is the H1 regression guard:
+// skipped ad segments must advance JobResult.LastMediaSeq so the
+// auth-refresh / resume caller's next StartMediaSeq lands past
+// them. Previously LastMediaSeq only advanced on worker results,
+// so a refresh right after an ad pod would resume before the
+// skipped ads and re-process them.
+func TestRun_AdSkipsAdvanceLastMediaSeq(t *testing.T) {
+	// Ad pod at the very end of the stream — the highest seqs
+	// are all ads. If LastMediaSeq only tracked worker results
+	// it'd stop at the last non-ad seq, not the last observed seq.
+	s := &adPodServer{
+		baseSeq:      0,
+		maxSegments:  5,
+		adStart:      3, // ads at seqs 3, 4 — the tail
+		adLen:        2,
+		tickInterval: 1,
+		fetched:      make(map[int]int),
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := JobConfig{
+		MediaPlaylistURL: srv.URL + "/playlist.m3u8",
+		WorkDir:          dir,
+		Fetcher: NewFetcher(http.DefaultClient, FetcherConfig{
+			TargetDuration: time.Second,
+			BaseBackoff:    time.Millisecond,
+			MaxBackoff:     2 * time.Millisecond,
+		}, slog.New(slog.DiscardHandler)),
+		PlaylistClient:     http.DefaultClient,
+		SegmentConcurrency: 2,
+		Log:                slog.New(slog.DiscardHandler),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	result, err := Run(ctx, cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.SegmentsAdGaps != 2 {
+		t.Errorf("SegmentsAdGaps=%d, want 2", result.SegmentsAdGaps)
+	}
+	if result.LastMediaSeq != 4 {
+		t.Errorf("LastMediaSeq=%d, want 4 (highest ad seq); otherwise a "+
+			"refresh after the ad pod would re-process ads", result.LastMediaSeq)
+	}
+}
+
+// TestRun_OnEventReceivesSequenceLevelEvents pins the durable-
+// accounting contract: OnEvent fires once per segment outcome
+// (committed + gap_accepted + ad_skipped) with the exact MediaSeq,
+// in drain-processing order. Resume-on-restart (Phase 6g) depends
+// on this shape.
+func TestRun_OnEventReceivesSequenceLevelEvents(t *testing.T) {
+	s := &adPodServer{
+		baseSeq:      10,
+		maxSegments:  6,
+		adStart:      2, // ads at 12, 13
+		adLen:        2,
+		tickInterval: 1,
+		fetched:      make(map[int]int),
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	var evMu sync.Mutex
+	events := []SegmentEvent{}
+
+	dir := t.TempDir()
+	cfg := JobConfig{
+		MediaPlaylistURL: srv.URL + "/playlist.m3u8",
+		WorkDir:          dir,
+		Fetcher: NewFetcher(http.DefaultClient, FetcherConfig{
+			TargetDuration: time.Second,
+			BaseBackoff:    time.Millisecond,
+			MaxBackoff:     2 * time.Millisecond,
+		}, slog.New(slog.DiscardHandler)),
+		PlaylistClient:     http.DefaultClient,
+		SegmentConcurrency: 2,
+		Log:                slog.New(slog.DiscardHandler),
+		OnEvent: func(ev SegmentEvent) {
+			evMu.Lock()
+			events = append(events, ev)
+			evMu.Unlock()
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if _, err := Run(ctx, cfg); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	evMu.Lock()
+	defer evMu.Unlock()
+
+	// Expected: every seq from 10..15 produces exactly one event.
+	// Seqs 12 + 13 are ad_skipped; the rest are committed.
+	if len(events) != 6 {
+		t.Fatalf("len(events)=%d, want 6", len(events))
+	}
+	committed := map[int64]bool{}
+	ads := map[int64]bool{}
+	for _, ev := range events {
+		switch ev.Outcome {
+		case OutcomeCommitted:
+			committed[ev.MediaSeq] = true
+			if ev.BytesWritten == 0 {
+				t.Errorf("committed seq=%d has BytesWritten=0", ev.MediaSeq)
+			}
+		case OutcomeAdSkipped:
+			ads[ev.MediaSeq] = true
+			if ev.BytesWritten != 0 {
+				t.Errorf("ad_skipped seq=%d has BytesWritten=%d, want 0", ev.MediaSeq, ev.BytesWritten)
+			}
+		default:
+			t.Errorf("unexpected Outcome=%q for seq=%d", ev.Outcome, ev.MediaSeq)
+		}
+	}
+	for _, seq := range []int64{10, 11, 14, 15} {
+		if !committed[seq] {
+			t.Errorf("seq=%d missing committed event", seq)
+		}
+	}
+	for _, seq := range []int64{12, 13} {
+		if !ads[seq] {
+			t.Errorf("seq=%d missing ad_skipped event", seq)
+		}
+	}
+}
+
+// TestRun_PrerollDoesNotTripFirstContentGuard covers the review-
+// flagged interaction: an ad pod at seq 0 must not count as "no
+// content committed" from the guard's perspective, because ads
+// never enter the gap-policy path at all.
+func TestRun_PrerollDoesNotTripFirstContentGuard(t *testing.T) {
+	s := &adPodServer{
+		baseSeq:      0,
+		maxSegments:  5,
+		adStart:      0, // PREROLL: seqs 0, 1, 2 are ads
+		adLen:        3,
+		tickInterval: 1,
+		fetched:      make(map[int]int),
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := JobConfig{
+		MediaPlaylistURL: srv.URL + "/playlist.m3u8",
+		WorkDir:          dir,
+		Fetcher: NewFetcher(http.DefaultClient, FetcherConfig{
+			TargetDuration: time.Second,
+			BaseBackoff:    time.Millisecond,
+			MaxBackoff:     2 * time.Millisecond,
+		}, slog.New(slog.DiscardHandler)),
+		PlaylistClient:     http.DefaultClient,
+		SegmentConcurrency: 2,
+		Log:                slog.New(slog.DiscardHandler),
+		GapPolicy: GapPolicy{
+			// Guard is on by default (SkipFirstContentGuard=false).
+			MaxGapRatio: 0.01,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	result, err := Run(ctx, cfg)
+	if err != nil {
+		t.Fatalf("Run: want success (ads shouldn't trigger guard), got %v", err)
+	}
+	if result.SegmentsAdGaps != 3 {
+		t.Errorf("SegmentsAdGaps=%d, want 3", result.SegmentsAdGaps)
+	}
+	if result.SegmentsDone != 2 {
+		t.Errorf("SegmentsDone=%d, want 2", result.SegmentsDone)
+	}
+}
+
 // TestRun_ProgressReportsAdGapsSeparately drains the Progress
 // channel while a run is in flight and confirms the terminal
 // event carries SegmentsAdGaps matching the ad-pod size.
