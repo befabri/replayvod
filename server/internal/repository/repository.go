@@ -118,4 +118,59 @@ type Repository interface {
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	AddVideoRequest(ctx context.Context, videoID int64, userID string) error
 	ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]Video, error)
+
+	// Download schedules — auto-record rules matched on stream.online.
+	CreateSchedule(ctx context.Context, input *ScheduleInput) (*DownloadSchedule, error)
+	GetSchedule(ctx context.Context, id int64) (*DownloadSchedule, error)
+	GetScheduleForUserChannel(ctx context.Context, broadcasterID, userID string) (*DownloadSchedule, error)
+	UpdateSchedule(ctx context.Context, id int64, input *ScheduleInput) (*DownloadSchedule, error)
+	ToggleSchedule(ctx context.Context, id int64) (*DownloadSchedule, error)
+	DeleteSchedule(ctx context.Context, id int64) error
+	ListSchedules(ctx context.Context, limit, offset int) ([]DownloadSchedule, error)
+	ListSchedulesForUser(ctx context.Context, userID string, limit, offset int) ([]DownloadSchedule, error)
+	// ListActiveSchedulesForBroadcaster is the hot path: called on every
+	// stream.online webhook. Must be fast (partial index on is_disabled).
+	ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]DownloadSchedule, error)
+	RecordScheduleTrigger(ctx context.Context, id int64) error
+	LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error
+	UnlinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error
+	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
+	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
+	LinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error
+	UnlinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error
+	ClearScheduleTags(ctx context.Context, scheduleID int64) error
+	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
+
+	// EventSub subscriptions (soft-delete via MarkSubscriptionRevoked).
+	CreateSubscription(ctx context.Context, input *SubscriptionInput) (*Subscription, error)
+	GetSubscription(ctx context.Context, id string) (*Subscription, error)
+	GetActiveSubscriptionForBroadcasterType(ctx context.Context, broadcasterID, subType string) (*Subscription, error)
+	ListActiveSubscriptions(ctx context.Context, limit, offset int) ([]Subscription, error)
+	ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID string) ([]Subscription, error)
+	ListSubscriptionsByType(ctx context.Context, subType string) ([]Subscription, error)
+	UpdateSubscriptionStatus(ctx context.Context, id, status string) error
+	MarkSubscriptionRevoked(ctx context.Context, id, reason string) error
+	DeleteSubscription(ctx context.Context, id string) error
+	CountActiveSubscriptions(ctx context.Context) (int64, error)
+
+	// EventSub snapshots + junction for historical state reconstruction.
+	CreateEventSubSnapshot(ctx context.Context, total, totalCost, maxTotalCost int64) (*EventSubSnapshot, error)
+	GetLatestEventSubSnapshot(ctx context.Context) (*EventSubSnapshot, error)
+	ListEventSubSnapshots(ctx context.Context, limit, offset int) ([]EventSubSnapshot, error)
+	DeleteOldEventSubSnapshots(ctx context.Context, before time.Time) error
+	LinkSnapshotSubscription(ctx context.Context, snapshotID int64, subscriptionID string, costAtSnapshot int64, statusAtSnapshot string) error
+
+	// Webhook events — audit log with state machine + retention.
+	CreateWebhookEvent(ctx context.Context, input *WebhookEventInput) (*WebhookEvent, error)
+	GetWebhookEvent(ctx context.Context, id int64) (*WebhookEvent, error)
+	GetWebhookEventByEventID(ctx context.Context, eventID string) (*WebhookEvent, error)
+	MarkWebhookEventProcessed(ctx context.Context, id int64) error
+	MarkWebhookEventFailed(ctx context.Context, id int64, errMsg string) error
+	ListWebhookEvents(ctx context.Context, limit, offset int) ([]WebhookEvent, error)
+	ListWebhookEventsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]WebhookEvent, error)
+	ListWebhookEventsByType(ctx context.Context, eventType string, limit, offset int) ([]WebhookEvent, error)
+	ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]WebhookEvent, error)
+	ClearWebhookEventPayload(ctx context.Context, before time.Time) error
+	CountWebhookEvents(ctx context.Context) (int64, error)
+	CountWebhookEventsByType(ctx context.Context, eventType string) (int64, error)
 }
