@@ -55,6 +55,46 @@ type JobConfig struct {
 	// Caller must NOT write to this channel and must NOT close
 	// it; orchestrator owns the close.
 	Progress chan<- Progress
+
+	// GapPolicy controls what the orchestrator does when a
+	// segment fails. Zero value is tolerant with 1% ratio and
+	// the first-content-segment guard on — the spec's default
+	// for live recording. Override for VOD or operator-opted
+	// strict mode.
+	GapPolicy GapPolicy
+}
+
+// GapPolicy decides "accept segment failure as a gap" vs "abort
+// the job." The spec's model: tolerant mode for live (a flaky
+// edge shouldn't drop a 4-hour recording); strict mode for
+// operators who'd rather fail fast than ship a partial VOD.
+//
+// The first-content-segment guard is non-negotiable in tolerant
+// mode — it prevents the "job succeeds having captured only
+// preroll-ad segments" silent failure.
+type GapPolicy struct {
+	// Strict aborts the job on the first segment failure.
+	// Overrides MaxGapRatio when true.
+	Strict bool
+
+	// MaxGapRatio is the tolerant-mode ceiling: gaps / (gaps +
+	// done) above this fraction fails the job. Default 0.01
+	// (1%). Zero means "no tolerance" — any gap fails, same as
+	// Strict.
+	MaxGapRatio float64
+
+	// SkipFirstContentGuard disables the "at least one real
+	// content segment must succeed before any gap is accepted"
+	// rule. Operator-opt-out only; the default posture is
+	// "never ship a VOD that's all ads."
+	SkipFirstContentGuard bool
+}
+
+// normalize fills in zero-value defaults. Mutates in place.
+func (p *GapPolicy) normalize() {
+	if p.MaxGapRatio <= 0 {
+		p.MaxGapRatio = 0.01
+	}
 }
 
 // Progress carries cumulative counters the UI / SSE subscriber
@@ -71,10 +111,10 @@ type Progress struct {
 
 // JobResult summarizes a completed Run. SegmentsDone counts
 // commits, SegmentsGaps counts failures the tolerant policy
-// accepted (none for now — gap policy comes in 4d alongside
-// resume state). The orchestrator returns non-nil error only for
-// bootstrap failures (first playlist fetch) or unrecoverable
-// wiring errors; per-segment failures are tallied in gaps.
+// accepted. The orchestrator returns non-nil error only for
+// bootstrap failures or gap-policy aborts (strict mode, ratio
+// breach, first-content guard tripped); otherwise per-segment
+// failures are tallied in gaps.
 type JobResult struct {
 	SegmentsDone int64
 	SegmentsGaps int64
@@ -82,6 +122,25 @@ type JobResult struct {
 	Kind         SegmentKind
 	InitURI      string // empty for ts jobs
 }
+
+// GapAbortError is the typed error returned when the gap policy
+// aborts the job. Carries the triggering reason so the caller's
+// operator logs / UI can distinguish "first content never
+// succeeded" from "1.5% gap ratio exceeded 1% ceiling."
+type GapAbortError struct {
+	Reason   string
+	Done     int64
+	Gaps     int64
+	LastSeq  int64
+	LastErr  error
+}
+
+func (e *GapAbortError) Error() string {
+	return fmt.Sprintf("hls job: gap policy abort (%s): done=%d gaps=%d last_seq=%d: %v",
+		e.Reason, e.Done, e.Gaps, e.LastSeq, e.LastErr)
+}
+
+func (e *GapAbortError) Unwrap() error { return e.LastErr }
 
 // Run is the top-level entry point for Phase 4c. Blocks until the
 // playlist's ENDLIST is observed, ctx is canceled, or an unrecov-
@@ -104,6 +163,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	if err := validateJobConfig(&cfg); err != nil {
 		return nil, err
 	}
+	cfg.GapPolicy.normalize()
 
 	log := cfg.Log.With("domain", "hls.job")
 
@@ -195,15 +255,32 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 
 	// Drain results. The pool closes `results` after all
 	// workers finish, so the for-range exits cleanly on
-	// normal termination.
+	// normal termination. A gap-policy abort mid-stream
+	// cancel()s the siblings and breaks out; the remaining
+	// results are drained silently to let the pool close
+	// cleanly.
+	var abortErr *GapAbortError
 	for res := range results {
+		if abortErr != nil {
+			// Already aborting — keep draining so the pool's
+			// workers can exit via ctx.Done and close the
+			// channel. Don't update counters.
+			continue
+		}
 		if res.Err != nil {
-			// Phase 4c policy: every failure is a gap. 4d
-			// will split this into gap-vs-fatal per the
-			// tolerant/strict config and the first-content-
-			// segment guard.
-			result.SegmentsGaps++
-			log.Debug("segment gap", "seq", res.MediaSeq, "error", res.Err)
+			abortErr = evaluateGap(&cfg.GapPolicy, result, res)
+			if abortErr == nil {
+				result.SegmentsGaps++
+				log.Debug("segment gap accepted", "seq", res.MediaSeq, "error", res.Err)
+			} else {
+				log.Warn("segment gap aborts job",
+					"reason", abortErr.Reason,
+					"seq", res.MediaSeq,
+					"done", result.SegmentsDone,
+					"gaps", result.SegmentsGaps)
+				cancel()
+				continue
+			}
 		} else {
 			result.SegmentsDone++
 			result.BytesWritten += res.BytesWritten
@@ -224,6 +301,11 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		}
 	}
 
+	if abortErr != nil {
+		_ = g.Wait()
+		return result, abortErr
+	}
+
 	// Filter both ctx-err kinds — the JobResult is always
 	// valid on shutdown (partial tally), so the caller only
 	// wants the error when something actually broke. Returning
@@ -235,6 +317,52 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+// evaluateGap applies the gap policy to a failed segment result.
+// Returns non-nil when the job should abort; nil when the caller
+// should treat the failure as an accepted gap and keep going.
+//
+// Order of checks:
+//  1. Strict mode: any failure aborts.
+//  2. First-content guard: failure before any success aborts.
+//  3. Ratio check: if accepting this gap would push gaps / total
+//     above MaxGapRatio, abort.
+//
+// "Total" here is (gaps_after + done) — the denominator grows as
+// the job progresses so a single early failure in a long stream
+// doesn't immediately trip the ratio.
+func evaluateGap(p *GapPolicy, r *JobResult, res SegmentResult) *GapAbortError {
+	if p.Strict {
+		return &GapAbortError{
+			Reason:  "strict mode",
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: res.MediaSeq,
+			LastErr: res.Err,
+		}
+	}
+	if !p.SkipFirstContentGuard && r.SegmentsDone == 0 {
+		return &GapAbortError{
+			Reason:  "no content segment committed yet",
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: res.MediaSeq,
+			LastErr: res.Err,
+		}
+	}
+	gapsAfter := r.SegmentsGaps + 1
+	total := gapsAfter + r.SegmentsDone
+	if total > 0 && float64(gapsAfter)/float64(total) > p.MaxGapRatio {
+		return &GapAbortError{
+			Reason:  fmt.Sprintf("gap ratio %.2f%% over ceiling %.2f%%", 100*float64(gapsAfter)/float64(total), 100*p.MaxGapRatio),
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: res.MediaSeq,
+			LastErr: res.Err,
+		}
+	}
+	return nil
 }
 
 // fetchInit synchronously downloads the fmp4 initialization
