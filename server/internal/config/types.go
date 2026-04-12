@@ -40,10 +40,21 @@ type Environment struct {
 	DashboardDir string `env:"DASHBOARD_DIR"`
 
 	// ScratchDir is where subprocess downloads (yt-dlp, ffmpeg) land
-	// before being uploaded to the configured Storage backend. Kept
-	// separate from VideoDir so the remote-storage case (S3, rclone)
-	// has a known local workspace; local-storage setups can point
-	// this at the same disk as VideoDir.
+	// before being uploaded to the configured Storage backend.
+	//
+	// Default keeps scratch on the same filesystem as VideoDir. This
+	// is deliberate for the local-storage case: LocalStorage.Save
+	// uses os.Rename under the hood, which is metadata-only within a
+	// filesystem but falls back to copy+unlink across devices.
+	// Pointing ScratchDir at os.TempDir() (often tmpfs on Linux) when
+	// VideoDir lives on spinning disk turns a 10 GB "rename" into
+	// minutes of wasted I/O.
+	//
+	// Remote backends (S3, rclone) don't care where scratch lives —
+	// Save streams the file out over the network and the rename
+	// penalty doesn't apply. Operators on those backends with spare
+	// RAM may prefer pointing ScratchDir at a tmpfs mount so large
+	// writes don't churn the data disk.
 	ScratchDir string `env:"SCRATCH_DIR" envDefault:"./data/.scratch"`
 }
 

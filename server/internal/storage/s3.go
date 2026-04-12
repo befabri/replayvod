@@ -91,6 +91,10 @@ func NewS3(ctx context.Context, opts S3Options) (*S3Storage, error) {
 		o.UsePathStyle = opts.UsePathStyle
 	})
 
+	// TODO: swap for github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager
+	// when it exits the feature/ prefix and reaches v1 stable. The
+	// deprecation warnings here are aspirational — SDK still supports
+	// this path and the successor is in pre-release territory.
 	uploader := manager.NewUploader(client, func(u *manager.Uploader) {
 		// 5 MiB parts — S3 minimum. Videos that fit in a single part
 		// skip multipart entirely via the uploader's internal check.

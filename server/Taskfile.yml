@@ -19,6 +19,11 @@ tasks:
     cmds:
       - go test ./...
 
+  test-integration:
+    desc: Run integration tests that need Docker (Garage for S3 backend)
+    cmds:
+      - go test -tags integration -count=1 ./...
+
   vet:
     desc: Run go vet
     cmds:
