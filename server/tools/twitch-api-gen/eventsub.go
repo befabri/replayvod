@@ -58,6 +58,9 @@ func ParseEventSubReference(referenceDoc, subTypesDoc *goquery.Document, log *sl
 	if err := parseReferenceSchemas(referenceDoc, ref); err != nil {
 		return nil, nil, fmt.Errorf("parse eventsub reference: %w", err)
 	}
+	if err := validateManualEventAnchorOverrides(ref); err != nil {
+		return nil, nil, err
+	}
 
 	subs, err := parseSubscriptionTypes(subTypesDoc, ref, log)
 	if err != nil {
@@ -258,6 +261,11 @@ func resolvePerSectionAnchors(doc *goquery.Document, sub EventSubSubscriptionTyp
 	//      child rows (rare but exists for some subscription types).
 	var eventAnchor string
 	if override, ok := manualEventAnchorOverrides[[2]string{sub.Type, sub.Version}]; ok {
+		// Intentional side-effect: promote the referenced schema from
+		// NamedSchemas into Events so downstream emitSchemaStructs finds it
+		// under Events. The alternative (a pre-pass that promotes before any
+		// subscription resolution runs) is cleaner-shaped but more plumbing;
+		// keep the mutation here until the registry grows enough to justify it.
 		if schema, exists := ref.NamedSchemas[override]; exists {
 			ref.Events[override] = schema
 			delete(ref.NamedSchemas, override)
@@ -292,11 +300,32 @@ func resolvePerSectionAnchors(doc *goquery.Document, sub EventSubSubscriptionTyp
 //
 // Data-driven: only add entries confirmed by inspecting the reference page —
 // the referenced anchor must exist and describe the full event payload.
+// validateManualEventAnchorOverrides fails generation at startup if a target
+// doesn't resolve, so typos surface here instead of at webhook delivery time.
 var manualEventAnchorOverrides = map[[2]string]string{
-	{"channel.shield_mode.begin", "1"}:  "shield-mode",
-	{"channel.shield_mode.end", "1"}:    "shield-mode",
-	{"channel.shoutout.create", "1"}:    "shoutout-create",
-	{"channel.shoutout.receive", "1"}:   "shoutout-received",
+	{"channel.shield_mode.begin", "1"}: "shield-mode",
+	{"channel.shield_mode.end", "1"}:   "shield-mode",
+	{"channel.shoutout.create", "1"}:   "shoutout-create",
+	{"channel.shoutout.receive", "1"}:  "shoutout-received",
+}
+
+// validateManualEventAnchorOverrides checks each override's target is present
+// in ref.NamedSchemas (the normal landing place) or already in ref.Events
+// (possible if a prior override promoted it). A missing target almost always
+// means a typo in manualEventAnchorOverrides — failing loud at generate-time
+// is much better than silently dispatching to UnknownEvent at webhook-time.
+func validateManualEventAnchorOverrides(ref *EventSubReference) error {
+	for key, target := range manualEventAnchorOverrides {
+		if _, ok := ref.NamedSchemas[target]; ok {
+			continue
+		}
+		if _, ok := ref.Events[target]; ok {
+			continue
+		}
+		return fmt.Errorf("manualEventAnchorOverrides[%v=%s/%s]: target %q not found in NamedSchemas or Events — typo?",
+			key, key[0], key[1], target)
+	}
+	return nil
 }
 
 // findEventAnchorInSection extracts the reference-page anchor the section's

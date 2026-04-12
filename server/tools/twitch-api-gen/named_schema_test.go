@@ -152,6 +152,43 @@ func TestReachability_Cycle(t *testing.T) {
 	}
 }
 
+// TestValidateManualEventAnchorOverrides_catchesMissingTarget simulates a
+// typo in manualEventAnchorOverrides by running validation against a ref
+// that lacks one of the real override targets. Fails loud is the contract.
+func TestValidateManualEventAnchorOverrides_catchesMissingTarget(t *testing.T) {
+	// Include every override target except "shield-mode" so validation must
+	// complain about at least one entry.
+	ref := &EventSubReference{
+		NamedSchemas: map[string]EventSubSchema{
+			"shoutout-create":   {AnchorID: "shoutout-create"},
+			"shoutout-received": {AnchorID: "shoutout-received"},
+		},
+		Events: map[string]EventSubSchema{},
+	}
+	if err := validateManualEventAnchorOverrides(ref); err == nil {
+		t.Fatalf("expected error for missing shield-mode; got nil")
+	}
+}
+
+// TestValidateManualEventAnchorOverrides_acceptsPromotedTargets — a target
+// already promoted into Events (by a prior override) is still considered
+// valid. Mirrors what happens when shield_mode.begin moves the schema and
+// shield_mode.end consults the same anchor.
+func TestValidateManualEventAnchorOverrides_acceptsPromotedTargets(t *testing.T) {
+	ref := &EventSubReference{
+		NamedSchemas: map[string]EventSubSchema{
+			"shoutout-create":   {AnchorID: "shoutout-create"},
+			"shoutout-received": {AnchorID: "shoutout-received"},
+		},
+		Events: map[string]EventSubSchema{
+			"shield-mode": {AnchorID: "shield-mode"}, // previously promoted
+		},
+	}
+	if err := validateManualEventAnchorOverrides(ref); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 // TestReachability_Unused asserts NamedSchemas that nothing references are
 // NOT emitted — the registry doesn't leak unused types into the output.
 func TestReachability_Unused(t *testing.T) {
