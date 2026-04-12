@@ -166,12 +166,15 @@ func parseProbeOutput(data []byte) (*Result, error) {
 	}
 
 	out := &Result{}
+	// Some containers report format.duration as "N/A" on early
+	// demuxable-but-incomplete files. Silently treat unparseable
+	// values as zero — same behavior as stream.duration below —
+	// so the corruption check can interpret zero as "can't
+	// measure, skip healing" per spec.
 	if raw.Format.Duration != "" {
-		d, err := strconv.ParseFloat(raw.Format.Duration, 64)
-		if err != nil {
-			return nil, fmt.Errorf("probe: parse format.duration %q: %w", raw.Format.Duration, err)
+		if d, err := strconv.ParseFloat(raw.Format.Duration, 64); err == nil {
+			out.Duration = d
 		}
-		out.Duration = d
 	}
 
 	for _, s := range raw.Streams {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,13 +13,16 @@ import (
 )
 
 // mockRunner captures the args passed to Run + lets the test
-// script a return error. Test-only.
+// script a return error. When emulateSuccess is true, the runner
+// writes an empty file at args[len(args)-1] before returning so
+// Run's .part → final rename step has something to rename.
 type mockRunner struct {
-	lastName   string
-	lastArgs   []string
-	stderrOut  string
-	returnErr  error
-	returnDelay time.Duration
+	lastName        string
+	lastArgs        []string
+	stderrOut       string
+	returnErr       error
+	returnDelay     time.Duration
+	emulateSuccess  bool
 }
 
 func (m *mockRunner) Run(ctx context.Context, name string, args []string, stderr io.Writer) error {
@@ -33,17 +38,24 @@ func (m *mockRunner) Run(ctx context.Context, name string, args []string, stderr
 			return ctx.Err()
 		}
 	}
+	if m.returnErr == nil && m.emulateSuccess && len(args) > 0 {
+		out := args[len(args)-1]
+		if err := os.WriteFile(out, []byte{}, 0o644); err != nil {
+			return err
+		}
+	}
 	return m.returnErr
 }
 
 func TestFFmpegArgs_TS(t *testing.T) {
-	args, err := ffmpegArgs(RunInput{
+	in := RunInput{
 		Mode:           ModeTS,
 		Kind:           KindVideo,
 		InputPath:      "/work/segments.txt",
 		OutputDir:      "/out",
 		OutputBasename: "rec-part01",
-	})
+	}
+	args, err := ffmpegArgs(in, in.OutputPath()+partSuffix)
 	if err != nil {
 		t.Fatalf("args: %v", err)
 	}
@@ -53,7 +65,7 @@ func TestFFmpegArgs_TS(t *testing.T) {
 		"-safe", "0",
 		"-i", "/work/segments.txt",
 		"-c", "copy",
-		"/out/rec-part01.mp4",
+		"/out/rec-part01.mp4.part",
 	}
 	if !reflect.DeepEqual(args, want) {
 		t.Errorf("args=%v\nwant=%v", args, want)
@@ -61,13 +73,14 @@ func TestFFmpegArgs_TS(t *testing.T) {
 }
 
 func TestFFmpegArgs_FMP4_Audio(t *testing.T) {
-	args, err := ffmpegArgs(RunInput{
+	in := RunInput{
 		Mode:           ModeFMP4,
 		Kind:           KindAudio,
 		InputPath:      "/work/media.m3u8",
 		OutputDir:      "/out",
 		OutputBasename: "rec-part01",
-	})
+	}
+	args, err := ffmpegArgs(in, in.OutputPath()+partSuffix)
 	if err != nil {
 		t.Fatalf("args: %v", err)
 	}
@@ -75,7 +88,7 @@ func TestFFmpegArgs_FMP4_Audio(t *testing.T) {
 		"-y",
 		"-i", "/work/media.m3u8",
 		"-c", "copy",
-		"/out/rec-part01.m4a",
+		"/out/rec-part01.m4a.part",
 	}
 	if !reflect.DeepEqual(args, want) {
 		t.Errorf("args=%v\nwant=%v", args, want)
@@ -83,41 +96,49 @@ func TestFFmpegArgs_FMP4_Audio(t *testing.T) {
 }
 
 func TestFFmpegArgs_UnknownMode(t *testing.T) {
-	_, err := ffmpegArgs(RunInput{Mode: Mode("x")})
+	_, err := ffmpegArgs(RunInput{Mode: Mode("x")}, "/tmp/out.mp4.part")
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
-func TestRemuxer_Run_SuccessHitsRunner(t *testing.T) {
-	m := &mockRunner{}
+func TestRemuxer_Run_SuccessCommitsAtomicRename(t *testing.T) {
+	// After success: final file exists, .part file doesn't.
+	dir := t.TempDir()
+	m := &mockRunner{emulateSuccess: true}
 	r := &Remuxer{Runner: m}
+
 	err := r.Run(context.Background(), RunInput{
 		Mode:           ModeTS,
 		Kind:           KindVideo,
 		InputPath:      "/in/segments.txt",
-		OutputDir:      "/out",
+		OutputDir:      dir,
 		OutputBasename: "rec",
 	})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if m.lastName != DefaultFFmpegPath {
-		t.Errorf("binary=%q, want %q", m.lastName, DefaultFFmpegPath)
+	if _, err := os.Stat(filepath.Join(dir, "rec.mp4")); err != nil {
+		t.Errorf("final file missing: %v", err)
 	}
-	if len(m.lastArgs) == 0 {
-		t.Fatal("runner got no args")
+	if _, err := os.Stat(filepath.Join(dir, "rec.mp4.part")); !os.IsNotExist(err) {
+		t.Errorf(".part should be gone after commit, got err=%v", err)
+	}
+	// Runner was invoked with the .part path as the output arg.
+	if m.lastArgs[len(m.lastArgs)-1] != filepath.Join(dir, "rec.mp4.part") {
+		t.Errorf("last arg=%q, want .part path", m.lastArgs[len(m.lastArgs)-1])
 	}
 }
 
 func TestRemuxer_Run_CustomBinary(t *testing.T) {
-	m := &mockRunner{}
+	dir := t.TempDir()
+	m := &mockRunner{emulateSuccess: true}
 	r := &Remuxer{Runner: m, FFmpegPath: "/usr/local/bin/ffmpeg-hevc"}
 	_ = r.Run(context.Background(), RunInput{
 		Mode:           ModeTS,
 		Kind:           KindVideo,
 		InputPath:      "/in/segments.txt",
-		OutputDir:      "/out",
+		OutputDir:      dir,
 		OutputBasename: "rec",
 	})
 	if m.lastName != "/usr/local/bin/ffmpeg-hevc" {
@@ -125,7 +146,71 @@ func TestRemuxer_Run_CustomBinary(t *testing.T) {
 	}
 }
 
+func TestRemuxer_Run_FailureCleansPartFile(t *testing.T) {
+	// On ffmpeg failure the .part file — if ffmpeg happened to
+	// create one before crashing — must be removed, and no
+	// final file may be produced.
+	dir := t.TempDir()
+	// Pretend ffmpeg wrote a partial .part file before crashing:
+	// create it ourselves, then have the runner return error.
+	partPath := filepath.Join(dir, "rec.mp4.part")
+	if err := os.WriteFile(partPath, []byte("partial junk"), 0o644); err != nil {
+		t.Fatalf("seed .part: %v", err)
+	}
+	m := &mockRunner{
+		returnErr: errors.New("exit status 1"),
+		stderrOut: "ffmpeg crashed",
+	}
+	r := &Remuxer{Runner: m}
+	err := r.Run(context.Background(), RunInput{
+		Mode:           ModeTS,
+		Kind:           KindVideo,
+		InputPath:      "/in/segments.txt",
+		OutputDir:      dir,
+		OutputBasename: "rec",
+	})
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if _, err := os.Stat(partPath); !os.IsNotExist(err) {
+		t.Errorf(".part not cleaned after ffmpeg failure: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "rec.mp4")); !os.IsNotExist(err) {
+		t.Errorf("final should not exist on failure, err=%v", err)
+	}
+}
+
+func TestRemuxer_Run_CtxCancelCleansPartFile(t *testing.T) {
+	dir := t.TempDir()
+	partPath := filepath.Join(dir, "rec.mp4.part")
+	_ = os.WriteFile(partPath, []byte("in flight"), 0o644)
+
+	m := &mockRunner{returnErr: context.Canceled}
+	r := &Remuxer{Runner: m}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := r.Run(ctx, RunInput{
+		Mode:           ModeTS,
+		Kind:           KindVideo,
+		InputPath:      "/in/segments.txt",
+		OutputDir:      dir,
+		OutputBasename: "rec",
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err=%v, want context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), "stderr") {
+		t.Errorf("ctx cancel dressed with stderr: %q", err)
+	}
+	if _, err := os.Stat(partPath); !os.IsNotExist(err) {
+		t.Errorf(".part not cleaned after cancel: %v", err)
+	}
+}
+
 func TestRemuxer_Run_FailureIncludesStderrPreview(t *testing.T) {
+	dir := t.TempDir()
 	m := &mockRunner{
 		returnErr: errors.New("exit status 1"),
 		stderrOut: "this is some ffmpeg stderr output",
@@ -135,7 +220,7 @@ func TestRemuxer_Run_FailureIncludesStderrPreview(t *testing.T) {
 		Mode:           ModeTS,
 		Kind:           KindVideo,
 		InputPath:      "/in/segments.txt",
-		OutputDir:      "/out",
+		OutputDir:      dir,
 		OutputBasename: "rec",
 	})
 	if err == nil {
@@ -152,6 +237,7 @@ func TestRemuxer_Run_FailureIncludesStderrPreview(t *testing.T) {
 func TestRemuxer_Run_FailureTruncatesStderr(t *testing.T) {
 	// Long stderr must be truncated to 8 KB so the error
 	// message stays loggable.
+	dir := t.TempDir()
 	big := strings.Repeat("A", 16<<10)
 	m := &mockRunner{
 		returnErr: errors.New("exit status 1"),
@@ -162,7 +248,7 @@ func TestRemuxer_Run_FailureTruncatesStderr(t *testing.T) {
 		Mode:           ModeTS,
 		Kind:           KindVideo,
 		InputPath:      "/in/segments.txt",
-		OutputDir:      "/out",
+		OutputDir:      dir,
 		OutputBasename: "rec",
 	})
 	if err == nil {
@@ -171,44 +257,13 @@ func TestRemuxer_Run_FailureTruncatesStderr(t *testing.T) {
 	if !strings.Contains(err.Error(), "truncated") {
 		t.Errorf("err=%v, want truncation marker", err)
 	}
-	// The returned message must be bounded — 8 KB preview + a
-	// bit of framing text. 12 KB is a generous upper bound.
 	if len(err.Error()) > 12<<10 {
 		t.Errorf("err length=%d, want < 12 KB", len(err.Error()))
 	}
 }
 
-func TestRemuxer_Run_CtxCancelPassesThrough(t *testing.T) {
-	m := &mockRunner{
-		returnErr:   context.Canceled,
-		returnDelay: 50 * time.Millisecond,
-	}
-	r := &Remuxer{Runner: m}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // already canceled
-
-	err := r.Run(ctx, RunInput{
-		Mode:           ModeTS,
-		Kind:           KindVideo,
-		InputPath:      "/in/segments.txt",
-		OutputDir:      "/out",
-		OutputBasename: "rec",
-	})
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("err=%v, want context.Canceled surfaced cleanly", err)
-	}
-	// Cancel must NOT be dressed up with ffmpeg stderr — the
-	// caller already knows the cancel was intentional.
-	if strings.Contains(err.Error(), "stderr") {
-		t.Errorf("err=%q, should not include stderr for ctx cancel", err.Error())
-	}
-}
-
 func TestRemuxer_Run_UnknownModeFailsEarly(t *testing.T) {
-	// Unknown mode must fail before invoking ffmpeg. Otherwise
-	// a typo in caller config could produce an "exit status 1"
-	// that looks like an ffmpeg problem.
+	// Unknown mode must fail before invoking ffmpeg.
 	m := &mockRunner{}
 	r := &Remuxer{Runner: m}
 	err := r.Run(context.Background(), RunInput{Mode: Mode("bogus"), Kind: KindVideo})
@@ -236,7 +291,7 @@ func TestTruncate(t *testing.T) {
 func TestRunInput_OutputPath(t *testing.T) {
 	in := RunInput{
 		Kind:           KindVideo,
-		OutputDir:      "/out/",
+		OutputDir:      "/out",
 		OutputBasename: "rec-part01",
 	}
 	if got := in.OutputPath(); got != "/out/rec-part01.mp4" {
@@ -245,5 +300,11 @@ func TestRunInput_OutputPath(t *testing.T) {
 	in.Kind = KindAudio
 	if got := in.OutputPath(); got != "/out/rec-part01.m4a" {
 		t.Errorf("OutputPath audio=%q", got)
+	}
+	// Trailing slash on OutputDir normalized.
+	in.OutputDir = "/out/"
+	in.Kind = KindVideo
+	if got := in.OutputPath(); got != "/out/rec-part01.mp4" {
+		t.Errorf("OutputPath trailing slash=%q", got)
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
+	"path/filepath"
 )
 
 // DefaultFFmpegPath is the binary the driver invokes when
@@ -17,6 +17,12 @@ import (
 // PATH lookup — operators who need a specific binary (e.g. a
 // custom build with HEVC support) can override at construction.
 const DefaultFFmpegPath = "ffmpeg"
+
+// partSuffix is the .part extension we append to ffmpeg's output
+// while it's in flight. Matches the hls.PartWriter pattern so
+// the startup sweep and the mid-crash cleanup story look the
+// same across the pipeline.
+const partSuffix = ".part"
 
 // Runner abstracts os/exec so tests can substitute a mock
 // without shelling out to a real ffmpeg. The real implementation
@@ -52,10 +58,7 @@ type RunInput struct {
 	// standalone-playlist path (fMP4).
 	Mode Mode
 
-	// Kind picks the output extension (OutputFile overrides if
-	// set, but typical callers leave OutputFile empty and let
-	// this field drive both the extension and the ffmpeg-level
-	// behavior).
+	// Kind picks the output extension.
 	Kind Kind
 
 	// InputPath is the segments.txt (TS) or media.m3u8 (fMP4)
@@ -73,64 +76,66 @@ type RunInput struct {
 	OutputBasename string
 }
 
-// OutputPath computes the final file path ffmpeg writes to.
-// Exposed so callers can log the path before invocation.
+// OutputPath computes the final file path ffmpeg will land at
+// on successful Run. Exposed so callers can log the path before
+// invocation.
 func (in RunInput) OutputPath() string {
-	return strings.TrimSuffix(in.OutputDir, "/") + "/" + in.OutputBasename + in.Kind.OutputExt()
+	return filepath.Join(in.OutputDir, in.OutputBasename+in.Kind.OutputExt())
 }
 
-// Run invokes ffmpeg with the flags appropriate to Mode + Kind
-// and streams stderr to an in-memory buffer. On non-zero exit,
-// the buffer's contents — truncated to 8 KB so an ffmpeg flood
-// doesn't balloon the error message — are included in the
-// returned error for diagnostic purposes.
+// Run invokes ffmpeg and produces a committed output file at
+// OutputPath. ffmpeg actually writes to OutputPath+".part"; on
+// a clean exit we atomic-rename to the final name, and on any
+// failure or cancellation we remove the partial file. Matches
+// the hls.PartWriter lifecycle so the startup sweep can treat
+// stray .part files uniformly across the pipeline.
 //
-// The context must be honored by the Runner. execRunner does
-// this via exec.CommandContext + CommandContext's default SIGKILL
-// on cancel; mock runners in tests should check ctx themselves.
+// On non-zero exit, stderr is captured to an 8 KiB preview and
+// included in the error message for diagnostics. Cancellation
+// surfaces as the raw ctx error without the stderr dressing —
+// the operator already knows why they canceled.
 func (r *Remuxer) Run(ctx context.Context, in RunInput) error {
-	log := r.Log
-	if log == nil {
-		log = slog.New(slog.DiscardHandler)
-	}
-	runner := r.Runner
-	if runner == nil {
-		runner = execRunner{}
-	}
-	bin := r.FFmpegPath
-	if bin == "" {
-		bin = DefaultFFmpegPath
-	}
+	log := r.logOrDiscard()
+	runner := r.runnerOrExec()
+	bin := r.binOrDefault()
 
-	args, err := ffmpegArgs(in)
+	finalPath := in.OutputPath()
+	partPath := finalPath + partSuffix
+
+	args, err := ffmpegArgs(in, partPath)
 	if err != nil {
 		return err
 	}
 
 	var stderr bytes.Buffer
 	runErr := runner.Run(ctx, bin, args, &stderr)
-	if runErr == nil {
-		return nil
+	if runErr != nil {
+		_ = os.Remove(partPath)
+		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			return runErr
+		}
+		preview := truncate(stderr.String(), 8<<10)
+		log.Warn("ffmpeg failed",
+			"input", in.InputPath,
+			"output", finalPath,
+			"stderr", preview)
+		return fmt.Errorf("remux: ffmpeg failed: %w\nstderr:\n%s", runErr, preview)
 	}
 
-	// Cancellation wins: don't dress up ctx.Err() with
-	// ffmpeg stderr that the operator already knows is
-	// meaningless.
-	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
-		return runErr
+	// Success: rename .part → final. A rename failure here is
+	// rare (cross-filesystem, disk full, permissions) but real;
+	// we remove the orphan .part and surface the error.
+	if err := os.Rename(partPath, finalPath); err != nil {
+		_ = os.Remove(partPath)
+		return fmt.Errorf("remux: commit rename %s → %s: %w", partPath, finalPath, err)
 	}
-
-	preview := truncate(stderr.String(), 8<<10)
-	log.Warn("ffmpeg failed",
-		"input", in.InputPath,
-		"output", in.OutputPath(),
-		"stderr", preview)
-	return fmt.Errorf("remux: ffmpeg failed: %w\nstderr:\n%s", runErr, preview)
+	return nil
 }
 
-// ffmpegArgs returns the argv slice for Mode. Kept separate from
-// Run so tests can assert exact argument shape without running
-// the command.
+// ffmpegArgs returns the argv slice for Mode, parameterized by
+// the exact output path ffmpeg should write to. Run passes
+// OutputPath()+".part" so the caller can rename-commit on
+// success; tests pass whatever they want to assert.
 //
 // Flag reference:
 //   -y: overwrite output without prompting
@@ -138,7 +143,7 @@ func (r *Remuxer) Run(ctx context.Context, in RunInput) error {
 //   -safe 0: allow absolute paths in concat input
 //   -i: input path
 //   -c copy: stream-copy all streams (no re-encode)
-func ffmpegArgs(in RunInput) ([]string, error) {
+func ffmpegArgs(in RunInput, outputPath string) ([]string, error) {
 	switch in.Mode {
 	case ModeTS:
 		return []string{
@@ -147,18 +152,41 @@ func ffmpegArgs(in RunInput) ([]string, error) {
 			"-safe", "0",
 			"-i", in.InputPath,
 			"-c", "copy",
-			in.OutputPath(),
+			outputPath,
 		}, nil
 	case ModeFMP4:
 		return []string{
 			"-y",
 			"-i", in.InputPath,
 			"-c", "copy",
-			in.OutputPath(),
+			outputPath,
 		}, nil
 	default:
 		return nil, fmt.Errorf("remux: unknown mode %q", in.Mode)
 	}
+}
+
+// Internal shortcut helpers so Run and Heal don't repeat the
+// same nil-check boilerplate five ways.
+func (r *Remuxer) logOrDiscard() *slog.Logger {
+	if r.Log != nil {
+		return r.Log
+	}
+	return slog.New(slog.DiscardHandler)
+}
+
+func (r *Remuxer) runnerOrExec() Runner {
+	if r.Runner != nil {
+		return r.Runner
+	}
+	return execRunner{}
+}
+
+func (r *Remuxer) binOrDefault() string {
+	if r.FFmpegPath != "" {
+		return r.FFmpegPath
+	}
+	return DefaultFFmpegPath
 }
 
 // truncate returns s clipped to n bytes. Keeps the trailing
@@ -180,11 +208,9 @@ func (execRunner) Run(ctx context.Context, name string, args []string, stderr io
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = stderr
-	// CommandContext's default is to SIGKILL on cancel. That's
-	// aggressive but matches the scratch-file lifecycle: if
-	// ffmpeg is canceled, its partial output is the next
-	// orphan the startup sweep will clear, so we don't need
-	// graceful SIGTERM.
-	_ = os.Stdout // keep import graph stable for future orchestration hooks
+	// CommandContext sends SIGKILL on cancel. Run wraps output
+	// in a .part file and deletes it on non-success, so the
+	// aggressive signal is fine — no partial final file gets
+	// left around for the startup sweep to guess at.
 	return cmd.Run()
 }

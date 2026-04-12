@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"os"
 )
 
 // CorruptionThreshold is the duration-mismatch ceiling (seconds)
@@ -21,80 +21,68 @@ import (
 const CorruptionThreshold = 50.0
 
 // Heal re-runs ffmpeg with stream copy to fix a container whose
-// format.duration doesn't match its video/audio stream duration.
-// Common cause: the fetcher died mid-remux and the parent
-// retried, leaving ffmpeg's container-level duration field stale
-// relative to the actual stream bytes.
+// format.duration doesn't match its stream duration. Like Run,
+// writes to outputPath+".part" first and atomic-renames on
+// success; on failure or cancellation the partial output is
+// removed.
 //
-// Video mode runs `ffmpeg -i input -vcodec copy -acodec copy
-// output`; audio mode drops the video stream flag. Both are pure
-// stream copies — no decoding, no re-encoding, no quality loss.
-// Typical run time is seconds even for long VODs.
+// Output is a caller-provided path rather than an in-place
+// overwrite — the caller keeps the un-healed input until it
+// confirms the heal produced a better file. Spec's "log and
+// continue, a partial VOD is better than none" policy relies
+// on having both files available at decision time.
 //
-// Output is written to a caller-provided path; Heal does not
-// replace the input in place. The caller decides whether to
-// rename over the original on success or keep both for
-// diagnostic purposes.
-//
-// On ffmpeg failure, Heal returns an error with an 8 KiB stderr
-// preview just like Run. ctx cancellation surfaces as the raw
-// ctx error without the stderr dressing.
+// Audio mode passes `-c:a copy` so ffmpeg doesn't try to copy
+// a non-existent video stream; video mode passes `-c copy`
+// which matches Run.
 func (r *Remuxer) Heal(ctx context.Context, inputPath, outputPath string, kind Kind) error {
-	log := r.Log
-	if log == nil {
-		log = slog.New(slog.DiscardHandler)
-	}
-	runner := r.Runner
-	if runner == nil {
-		runner = execRunner{}
-	}
-	bin := r.FFmpegPath
-	if bin == "" {
-		bin = DefaultFFmpegPath
-	}
+	log := r.logOrDiscard()
+	runner := r.runnerOrExec()
+	bin := r.binOrDefault()
 
-	args := healArgs(inputPath, outputPath, kind)
+	partPath := outputPath + partSuffix
+	args := healArgs(inputPath, partPath, kind)
 
 	var stderr bytes.Buffer
 	runErr := runner.Run(ctx, bin, args, &stderr)
-	if runErr == nil {
-		return nil
-	}
-	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
-		return runErr
+	if runErr != nil {
+		_ = os.Remove(partPath)
+		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			return runErr
+		}
+		preview := truncate(stderr.String(), 8<<10)
+		log.Warn("ffmpeg heal failed",
+			"input", inputPath,
+			"output", outputPath,
+			"kind", kind,
+			"stderr", preview)
+		return fmt.Errorf("remux heal: ffmpeg failed: %w\nstderr:\n%s", runErr, preview)
 	}
 
-	preview := truncate(stderr.String(), 8<<10)
-	log.Warn("ffmpeg heal failed",
-		"input", inputPath,
-		"output", outputPath,
-		"kind", kind,
-		"stderr", preview)
-	return fmt.Errorf("remux heal: ffmpeg failed: %w\nstderr:\n%s", runErr, preview)
+	if err := os.Rename(partPath, outputPath); err != nil {
+		_ = os.Remove(partPath)
+		return fmt.Errorf("remux heal: commit rename %s → %s: %w", partPath, outputPath, err)
+	}
+	return nil
 }
 
-// healArgs returns the argv for the heal pass. Audio jobs drop
-// the video-copy flag so ffmpeg doesn't complain about a missing
-// video stream.
-//
-// Kept separate from Run's ffmpegArgs because the flag shape is
-// different (no -f concat, single input file, different codec
-// flags). Collapsing the two would mean more conditionals than
-// a second function.
+// healArgs returns the argv for the heal pass. Audio jobs use
+// `-c:a copy` so ffmpeg doesn't complain about the missing video
+// stream; video jobs use `-c copy` (all streams) to stay
+// consistent with Run.
 func healArgs(inputPath, outputPath string, kind Kind) []string {
 	if kind == KindAudio {
 		return []string{
 			"-y",
 			"-i", inputPath,
-			"-acodec", "copy",
+			"-c:a", "copy",
 			outputPath,
 		}
 	}
 	return []string{
 		"-y",
 		"-i", inputPath,
-		"-vcodec", "copy",
-		"-acodec", "copy",
+		"-c", "copy",
 		outputPath,
 	}
 }
