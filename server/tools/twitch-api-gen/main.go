@@ -38,6 +38,8 @@ func main() {
 	flag.BoolVar(&debugDumpFields, "debug-fields", false, "dump response field trees to stdout")
 	var timestampOverride string
 	flag.StringVar(&timestampOverride, "timestamp", "", "RFC3339 timestamp for generated header; overrides cache file mtime")
+	var genFixtures bool
+	flag.BoolVar(&genFixtures, "gen-fixtures", false, "regenerate testdata/normalize/*.{input,expected}.html pairs from the snapshot and exit")
 	flag.Parse()
 
 	log := slog.New(tint.NewHandler(os.Stderr, &tint.Options{
@@ -47,6 +49,14 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if genFixtures {
+		if err := generateNormalizeFixtures(log); err != nil {
+			log.Error("gen-fixtures", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	filter, err := loadEndpointFilter(endpointsFile)
 	if err != nil {
