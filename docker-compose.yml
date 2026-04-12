@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: replayvod
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  replayvod:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_DRIVER: postgres
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: replayvod
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      HOST: 0.0.0.0
+      PORT: 8080
+      DASHBOARD_DIR: /app/dashboard
+    volumes:
+      - data:/app/data
+      - logs:/app/logs
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
+  data:
+  logs:
