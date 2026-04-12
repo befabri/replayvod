@@ -31,6 +31,58 @@ const (
 	SegmentKindFMP4 SegmentKind = "fmp4"
 )
 
+// SegmentOutcome is the per-segment result class Run reports to a
+// JobConfig.OnEvent callback. Designed for durable accounting
+// (resume-on-restart, accounted-frontier tracking) — distinct from
+// the cumulative Progress stream which is UI-only and lossy.
+type SegmentOutcome string
+
+const (
+	// OutcomeCommitted: worker successfully fetched + renamed.
+	OutcomeCommitted SegmentOutcome = "committed"
+
+	// OutcomeGapAccepted: worker failed permanently, gap policy
+	// tolerated it as a gap.
+	OutcomeGapAccepted SegmentOutcome = "gap_accepted"
+
+	// OutcomeAdSkipped: poller filtered a stitched-ad segment
+	// before it was enqueued. Carries the MediaSeq so resume
+	// state records the frontier advance with a typed reason.
+	OutcomeAdSkipped SegmentOutcome = "ad_skipped"
+
+	// OutcomeAuth: worker hit an auth failure. The orchestrator
+	// escalates via ErrPlaylistAuth; this event lets resume
+	// state record which seq triggered the refresh boundary.
+	OutcomeAuth SegmentOutcome = "auth"
+)
+
+// SegmentEvent is one sequence-level outcome observation. Delivered
+// synchronously to JobConfig.OnEvent from Run's drain goroutine, so
+// the callback sees events in the order Run processed them — no
+// reordering, no duplication. Callbacks must be fast: they block the
+// drain loop. Long-running work belongs behind a channel the
+// callback writes to.
+//
+// Contrast with Progress: Progress is cumulative + lossy (non-
+// blocking send, each event supersedes). SegmentEvent is per-event
+// + exact — the right shape for frontier accounting, audit logs,
+// or anything that needs "did seq N happen?" certainty.
+type SegmentEvent struct {
+	// MediaSeq of the segment this event describes.
+	MediaSeq int64
+
+	// Outcome classifies what happened.
+	Outcome SegmentOutcome
+
+	// BytesWritten is non-zero only for OutcomeCommitted — the
+	// byte count of the finalized file on disk.
+	BytesWritten int64
+
+	// Err carries the underlying cause for OutcomeGapAccepted
+	// and OutcomeAuth. Nil for Committed + AdSkipped.
+	Err error
+}
+
 // Segment is one media fragment parsed out of the media playlist.
 // Fields are minimal by design: the parser thins Eyevinn's rich
 // MediaSegment down to what the fetch loop actually consults. All

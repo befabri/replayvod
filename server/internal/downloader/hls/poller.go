@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"sync/atomic"
 	"time"
 )
 
@@ -89,19 +88,17 @@ type Poller struct {
 	// later phase.
 	StartMediaSeq int64
 
-	// adSkipped counts stitched-ad segments filtered before they
-	// were enqueued. Incremented atomically inside the poll
-	// loop; the orchestrator reads it via AdSkipped() when
-	// building Progress events and finalizing the JobResult.
-	// Atomic (not mutex-guarded) because the orchestrator may
-	// sample it from a different goroutine than the poll loop.
-	adSkipped atomic.Int64
-}
-
-// AdSkipped returns the number of stitched-ad segments the poller
-// has filtered so far. Safe to call from any goroutine.
-func (p *Poller) AdSkipped() int64 {
-	return p.adSkipped.Load()
+	// AdSkips, when non-nil, receives the MediaSeq of each
+	// stitched-ad segment the poller filters. The orchestrator
+	// creates the channel, consumes events alongside worker
+	// results, and closes its ownership via the same defer path
+	// that closes the jobs channel. Sequence-level events (not a
+	// counter) so resume-on-restart can record frontier advances
+	// with typed reasons rather than reconstructing from a delta.
+	//
+	// Writes use the same select-with-ctx-cancel pattern as jobs:
+	// a slow drain won't wedge the poll loop.
+	AdSkips chan<- int64
 }
 
 // PollResult carries metadata observed on the first successful
@@ -237,11 +234,17 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			if seg.IsAd {
 				// Skip Twitch stitched-ad content entirely —
 				// don't enqueue, don't fetch, don't write.
-				// Advance lastSeq so the next poll doesn't
-				// re-offer the same ad segment, and bump the
-				// ad-skip counter for the orchestrator to
-				// surface in Progress + JobResult.
-				p.adSkipped.Add(1)
+				// Emit a sequence-level ad-skip event so the
+				// orchestrator can advance LastMediaSeq and
+				// feed resume/accounted-frontier accounting.
+				log.Debug("skipping stitched-ad segment", "seq", seg.MediaSeq)
+				if p.AdSkips != nil {
+					select {
+					case p.AdSkips <- seg.MediaSeq:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
 				lastSeq = seg.MediaSeq
 				continue
 			}

@@ -69,6 +69,22 @@ type JobConfig struct {
 	// Auth-refresh and resume-on-restart callers set this to
 	// JobResult.LastMediaSeq + 1 from the previous attempt.
 	StartMediaSeq int64
+
+	// OnEvent, when non-nil, is invoked synchronously from Run's
+	// drain goroutine for every sequence-level outcome:
+	// committed segments, accepted gaps, stitched-ad skips, and
+	// auth failures. Ordered by drain-processing order (not
+	// mediaSeq — concurrent workers can complete out of order).
+	//
+	// Intended for durable accounting (resume-on-restart,
+	// audit logs). Distinct from Progress which is cumulative +
+	// lossy; OnEvent is per-event + exact.
+	//
+	// The callback must be fast. It blocks the drain loop;
+	// long-running work belongs behind a channel the callback
+	// writes to. Callback is invoked from a single goroutine
+	// so it does not need to be thread-safe internally.
+	OnEvent func(SegmentEvent)
 }
 
 // GapPolicy decides "accept segment failure as a gap" vs "abort
@@ -204,19 +220,6 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		defer close(cfg.Progress)
 	}
 
-	poller := &Poller{
-		URL:           cfg.MediaPlaylistURL,
-		HTTPClient:    cfg.PlaylistClient,
-		Log:           log,
-		StartMediaSeq: cfg.StartMediaSeq,
-	}
-	pool := &Pool{
-		Fetcher: cfg.Fetcher,
-		WorkDir: cfg.WorkDir,
-		Workers: cfg.SegmentConcurrency,
-		Log:     log,
-	}
-
 	// Bounded queue: 2 × worker count per spec.
 	// Producer blocks when full → natural backpressure so the
 	// poller doesn't outrun the fetchers during a CDN burst.
@@ -224,6 +227,26 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	jobs := make(chan segmentJob, jobChanCap)
 	results := make(chan SegmentResult, jobChanCap)
 	first := make(chan PollResult, 1)
+	// adSkips carries sequence-level stitched-ad skip events
+	// from the poller. Orchestrator drains them alongside worker
+	// results so SegmentEvent ordering is a single stream.
+	// Buffered same as jobs so a burst of ads during a poll
+	// doesn't block the poll loop.
+	adSkips := make(chan int64, jobChanCap)
+
+	poller := &Poller{
+		URL:           cfg.MediaPlaylistURL,
+		HTTPClient:    cfg.PlaylistClient,
+		Log:           log,
+		StartMediaSeq: cfg.StartMediaSeq,
+		AdSkips:       adSkips,
+	}
+	pool := &Pool{
+		Fetcher: cfg.Fetcher,
+		WorkDir: cfg.WorkDir,
+		Workers: cfg.SegmentConcurrency,
+		Log:     log,
+	}
 
 	// Explicit cancel so a synchronous bootstrap failure
 	// (init-segment fetch error) can stop the poller + pool
@@ -236,6 +259,11 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	g, gctx := errgroup.WithContext(runCtx)
 
 	g.Go(func() error {
+		// Poller closes jobs via its defer; we close adSkips
+		// here in lock-step so the drain loop's select picks
+		// up both closures together. Deferred so it fires on
+		// any Run return path.
+		defer close(adSkips)
 		err := poller.Run(gctx, first, jobs)
 		// ENDLIST + ctx.Canceled both arrive as nil/ctx.Err;
 		// the errgroup won't cancel siblings on nil. We do
@@ -282,88 +310,113 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		}
 	}
 
-	// Drain results. The pool closes `results` after all
-	// workers finish, so the for-range exits cleanly on
-	// normal termination. A gap-policy abort or a segment-
-	// level auth error cancel()s the siblings and breaks out;
-	// the remaining results are drained silently to let the
-	// pool close cleanly.
+	// Drain worker results + ad-skip events from a single select
+	// so every sequence-level outcome is processed in arrival
+	// order. Loop exits when both channels are closed (nil-out
+	// the local each time we see a closed channel so the select
+	// can't wake on it again — standard "combine two ranges"
+	// idiom).
+	//
+	// Both branches:
+	//   1. Advance result.LastMediaSeq.
+	//   2. Emit one SegmentEvent via cfg.OnEvent.
+	//   3. Emit one cumulative Progress.
 	//
 	// authErr is its own var so the outer auth-refresh caller
-	// (downloader.run in Phase 6b) can detect it without
-	// string-matching: errors.Is(err, ErrPlaylistAuth) matches.
+	// (downloader.run) can detect it without string-matching:
+	// errors.Is(err, ErrPlaylistAuth) matches.
 	var abortErr *GapAbortError
 	var authErr error
-	for res := range results {
-		// LastMediaSeq advances on EVERY outcome — success, gap,
-		// or auth error. The auth-refresh caller uses it as the
-		// next attempt's StartMediaSeq, so advancing past an
-		// auth-errored segment means that segment is not retried
-		// on refresh: it becomes a gap. Deliberate trade-off —
-		// on a fast CDN-window-roll refresh cycle the segment has
-		// likely already rolled off the edge by the time a new
-		// signed URL exists, so retrying would 404 anyway. The
-		// spec's first-content guard + per-attempt gap policy
-		// still protect against "every segment auth-failed" as
-		// silent corruption.
-		if res.MediaSeq > result.LastMediaSeq {
-			result.LastMediaSeq = res.MediaSeq
-		}
-		if abortErr != nil || authErr != nil {
-			// Already aborting — keep draining so the pool's
-			// workers can exit via ctx.Done and close the
-			// channel. Don't update counters.
-			continue
-		}
-		if res.Err != nil {
-			// Auth errors escape gap policy: they're fixable
-			// by re-running Stages 1-3 for a fresh signed URL.
-			// Surface via ErrPlaylistAuth so the outer refresh
-			// loop detects it.
-			if IsAuth(res.Err) {
-				authErr = fmt.Errorf("hls: segment seq=%d auth error: %w", res.MediaSeq, ErrPlaylistAuth)
-				log.Info("segment auth error; requesting refresh",
-					"seq", res.MediaSeq)
-				cancel()
+	aborted := func() bool { return abortErr != nil || authErr != nil }
+
+	resultsCh := results
+	adSkipsCh := adSkips
+	for resultsCh != nil || adSkipsCh != nil {
+		select {
+		case res, ok := <-resultsCh:
+			if !ok {
+				resultsCh = nil
 				continue
 			}
-			abortErr = evaluateGap(&cfg.GapPolicy, result, res)
-			if abortErr == nil {
-				result.SegmentsGaps++
-				log.Debug("segment gap accepted", "seq", res.MediaSeq, "error", res.Err)
+			// LastMediaSeq advances on every outcome — success,
+			// gap, auth error. The auth-refresh caller uses it
+			// as the next attempt's StartMediaSeq, so advancing
+			// past an auth-errored segment means that segment
+			// is not retried on refresh: it becomes a gap.
+			// Trade-off — on a fast refresh cycle the segment
+			// has usually rolled off the CDN window anyway.
+			if res.MediaSeq > result.LastMediaSeq {
+				result.LastMediaSeq = res.MediaSeq
+			}
+			if aborted() {
+				continue
+			}
+			if res.Err != nil {
+				// Auth errors escape gap policy: the outer
+				// auth-refresh loop handles them.
+				if IsAuth(res.Err) {
+					authErr = fmt.Errorf("hls: segment seq=%d auth error: %w", res.MediaSeq, ErrPlaylistAuth)
+					log.Info("segment auth error; requesting refresh", "seq", res.MediaSeq)
+					emitEvent(cfg.OnEvent, SegmentEvent{
+						MediaSeq: res.MediaSeq,
+						Outcome:  OutcomeAuth,
+						Err:      res.Err,
+					})
+					cancel()
+					continue
+				}
+				abortErr = evaluateGap(&cfg.GapPolicy, result, res)
+				if abortErr == nil {
+					result.SegmentsGaps++
+					log.Debug("segment gap accepted", "seq", res.MediaSeq, "error", res.Err)
+					emitEvent(cfg.OnEvent, SegmentEvent{
+						MediaSeq: res.MediaSeq,
+						Outcome:  OutcomeGapAccepted,
+						Err:      res.Err,
+					})
+				} else {
+					log.Warn("segment gap aborts job",
+						"reason", abortErr.Reason,
+						"seq", res.MediaSeq,
+						"done", result.SegmentsDone,
+						"gaps", result.SegmentsGaps)
+					cancel()
+					continue
+				}
 			} else {
-				log.Warn("segment gap aborts job",
-					"reason", abortErr.Reason,
-					"seq", res.MediaSeq,
-					"done", result.SegmentsDone,
-					"gaps", result.SegmentsGaps)
-				cancel()
+				result.SegmentsDone++
+				result.BytesWritten += res.BytesWritten
+				emitEvent(cfg.OnEvent, SegmentEvent{
+					MediaSeq:     res.MediaSeq,
+					Outcome:      OutcomeCommitted,
+					BytesWritten: res.BytesWritten,
+				})
+			}
+			emitProgress(cfg.Progress, result)
+
+		case seq, ok := <-adSkipsCh:
+			if !ok {
+				adSkipsCh = nil
 				continue
 			}
-		} else {
-			result.SegmentsDone++
-			result.BytesWritten += res.BytesWritten
-		}
-		if cfg.Progress != nil {
-			// Non-blocking send — progress is informational.
-			// A slow subscriber shouldn't throttle the fetch.
-			select {
-			case cfg.Progress <- Progress{
-				SegmentsDone:   result.SegmentsDone,
-				SegmentsGaps:   result.SegmentsGaps,
-				SegmentsAdGaps: poller.AdSkipped(),
-				BytesWritten:   result.BytesWritten,
-				Kind:           result.Kind,
-				InitURI:        result.InitURI,
-			}:
-			default:
+			// Ad skips advance LastMediaSeq too — resume must
+			// see them as "accounted for, no retry." Otherwise
+			// the next attempt's StartMediaSeq would be before
+			// the skipped ads and re-process them.
+			if seq > result.LastMediaSeq {
+				result.LastMediaSeq = seq
 			}
+			if aborted() {
+				continue
+			}
+			result.SegmentsAdGaps++
+			emitEvent(cfg.OnEvent, SegmentEvent{
+				MediaSeq: seq,
+				Outcome:  OutcomeAdSkipped,
+			})
+			emitProgress(cfg.Progress, result)
 		}
 	}
-
-	// Snapshot ad-skip count now that the result drain has
-	// finished; the poller won't enqueue any more segments.
-	result.SegmentsAdGaps = poller.AdSkipped()
 
 	if authErr != nil {
 		_ = g.Wait()
@@ -385,6 +438,35 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+// emitEvent invokes onEvent with the given event if onEvent is
+// non-nil. Nil-safe so call sites don't need to guard; keeps the
+// drain loop readable.
+func emitEvent(onEvent func(SegmentEvent), ev SegmentEvent) {
+	if onEvent != nil {
+		onEvent(ev)
+	}
+}
+
+// emitProgress does a non-blocking snapshot send onto the Progress
+// channel when non-nil. Nil-safe; drop-on-contention is the spec's
+// Progress contract (cumulative, informational).
+func emitProgress(ch chan<- Progress, r *JobResult) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- Progress{
+		SegmentsDone:   r.SegmentsDone,
+		SegmentsGaps:   r.SegmentsGaps,
+		SegmentsAdGaps: r.SegmentsAdGaps,
+		BytesWritten:   r.BytesWritten,
+		Kind:           r.Kind,
+		InitURI:        r.InitURI,
+	}:
+	default:
+	}
 }
 
 // evaluateGap applies the gap policy to a failed segment result.
