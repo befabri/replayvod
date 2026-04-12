@@ -91,15 +91,63 @@ type Params struct {
 	ForceH264 bool
 }
 
-// Progress is a single snapshot written to the per-job progress
-// channel. The Stage field tracks which spec stage is running so
-// the SSE subscriber can show a meaningful label.
+// Progress is the per-segment cumulative snapshot pushed to the
+// per-job channel. Shape matches the spec's DownloadProgress so
+// the SSE subscriber can render a meaningful progress bar.
+//
+// Cumulative semantics: each event fully supersedes the previous.
+// Intermediate events are safe to drop (buffered channel, non-
+// blocking send); the terminal event goes through when the
+// bridge closes the chan.
 type Progress struct {
-	JobID   string
-	Stage   string  // "auth" | "playlist" | "segments" | "remux" | "metadata" | "thumbnail" | "done"
-	Percent float64 // -1 when not computable (live stream, in-progress remux)
-	Speed   string
-	ETA     string
+	JobID string `json:"job_id"`
+
+	// PartIndex is 1-based and increments on a part boundary
+	// (variant/codec/container switch). Phase 6d always emits 1
+	// — part-splitting lands in a later phase.
+	PartIndex int `json:"part_index"`
+
+	// Stage labels the active pipeline stage. Values:
+	//   "auth" | "playlist" | "segments" | "remux" |
+	//   "metadata" | "thumbnail" | "done"
+	Stage string `json:"stage"`
+
+	// BytesWritten is cumulative across parts — the sum of
+	// successfully committed segment bytes so far.
+	BytesWritten int64 `json:"bytes_written"`
+
+	// SegmentsDone + SegmentsGaps + SegmentsTotal track the
+	// segment-level counters. Total is -1 for a live playlist
+	// before EXT-X-ENDLIST; set once the window closes.
+	SegmentsDone  int64 `json:"segments_done"`
+	SegmentsGaps  int64 `json:"segments_gaps"`
+	SegmentsTotal int64 `json:"segments_total"`
+
+	// Percent is SegmentsDone / SegmentsTotal when Total is
+	// known, otherwise -1. The UI renders an indeterminate bar
+	// on -1.
+	Percent float64 `json:"percent"`
+
+	// Speed is a human-readable bytes/second string (e.g.
+	// "2.4 MiB/s"). Empty while the bridge hasn't seen enough
+	// deltas to compute a rate. Computed from a short
+	// rolling-window average so a one-burst read doesn't
+	// spike the display.
+	Speed string `json:"speed"`
+
+	// ETA is a human-readable time-to-completion string when
+	// SegmentsTotal is known and Speed is positive, otherwise
+	// empty.
+	ETA string `json:"eta"`
+
+	// Quality + Codec describe the current part's variant.
+	// Populated from the twitch.SelectedVariant once Stage 3
+	// completes; empty before.
+	Quality string `json:"quality"`
+	Codec   string `json:"codec"`
+
+	// RecordingType mirrors the video row — "video" or "audio".
+	RecordingType string `json:"recording_type"`
 }
 
 // Service orchestrates downloads. Safe for concurrent use. One
@@ -358,6 +406,15 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		log.Error("failed to mark video running", "error", err)
 	}
 
+	// Normalize the recording type early — everything downstream
+	// (variant selector, remux kind mapping, progress emitter)
+	// keys off it and empty-string would propagate surprises.
+	recordingType := p.RecordingType
+	if recordingType == "" {
+		recordingType = twitch.RecordingTypeVideo
+	}
+	emitter := newProgressEmitter(d.jobID, recordingType, d.progressCh)
+
 	// Per-job scratch layout:
 	//   <scratch>/<jobID>/segments/   — .ts / .m4s fragments + init.mp4
 	//   <scratch>/<jobID>/<base>.mp4  — remuxed output
@@ -379,26 +436,27 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// so a stream we're never going to be allowed to play
 	// doesn't loop indefinitely.
 	selectOpts := twitch.SelectOptions{
-		RecordingType: p.RecordingType,
+		RecordingType: recordingType,
 		Quality:       qualityToHeight(p.Quality),
 		EnableAV1:     s.cfg.App.Download.EnableAV1,
 		DisableHEVC:   s.cfg.App.Download.DisableHEVC,
 		ForceH264:     p.ForceH264,
 	}
-	if selectOpts.RecordingType == "" {
-		selectOpts.RecordingType = twitch.RecordingTypeVideo
-	}
 
-	hlsResult, err := s.fetchWithAuthRefresh(ctx, d, p, segmentsDir, selectOpts, log)
+	hlsResult, err := s.fetchWithAuthRefresh(ctx, emitter, p, segmentsDir, selectOpts, log)
 	if err != nil {
 		s.failDownload(dbCtx, d, log, err)
 		return
 	}
+	// Segment count is now authoritative — total = done + gaps.
+	// Fires one event so the UI transitions out of the "-1 =
+	// unknown total" indeterminate-bar state before remux begins.
+	emitter.finalize()
 
 	// Stage 5 + 6: remux. Pick the ffmpeg mode from what the hls
 	// orchestrator observed — the media-playlist capability gate
 	// is what actually decided ts vs fmp4.
-	s.emitProgress(d, "remux")
+	emitter.setStage("remux")
 	remuxMode := remux.ModeTS
 	if hlsResult.Kind == hls.SegmentKindFMP4 {
 		remuxMode = remux.ModeFMP4
@@ -423,7 +481,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	remuxedPath := remuxIn.OutputPath()
 
 	// Stage 7: probe.
-	s.emitProgress(d, "metadata")
+	emitter.setStage("metadata")
 	probeResult, err := s.probe.Run(ctx, remuxedPath)
 	if err != nil {
 		s.failDownload(dbCtx, d, log, fmt.Errorf("probe: %w", err))
@@ -461,7 +519,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// back to the channel avatar.
 	var thumbRel string
 	if kind == remux.KindVideo {
-		s.emitProgress(d, "thumbnail")
+		emitter.setStage("thumbnail")
 		thumbPath := filepath.Join(jobDir, filename+".jpg")
 		err := s.thumb.Generate(ctx, thumbnail.Input{
 			VideoPath:       remuxedPath,
@@ -501,7 +559,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		log.Error("failed to mark video done", "error", err)
 		return
 	}
-	s.emitProgress(d, "done")
+	emitter.setStage("done")
 	log.Info("download complete",
 		"duration_seconds", probeResult.Duration,
 		"size_bytes", probeResult.Size,
@@ -526,7 +584,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 // Returns an accumulated JobResult across all attempts. The
 // Kind + InitURI are taken from the final successful iteration
 // (or the last one attempted on failure).
-func (s *Service) fetchWithAuthRefresh(ctx context.Context, d *download, p Params, segmentsDir string, selectOpts twitch.SelectOptions, log *slog.Logger) (*hls.JobResult, error) {
+func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmitter, p Params, segmentsDir string, selectOpts twitch.SelectOptions, log *slog.Logger) (*hls.JobResult, error) {
 	maxAuthAttempts := s.cfg.App.Download.AuthRefreshAttempts
 	if maxAuthAttempts <= 0 {
 		maxAuthAttempts = 2
@@ -538,8 +596,8 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, d *download, p Param
 
 	for {
 		// Stages 1-3: fresh signed URL.
-		s.emitProgress(d, "auth")
-		variantURL, err := s.resolveVariantURL(ctx, p, selectOpts)
+		emitter.setStage("auth")
+		variant, err := s.resolveVariantURL(ctx, p, selectOpts)
 		if err != nil {
 			// Permanent entitlement errors can't be refreshed
 			// away — surface immediately.
@@ -548,18 +606,19 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, d *download, p Param
 			}
 			return agg, err
 		}
-		s.emitProgress(d, "playlist")
+		emitter.setStage("playlist")
+		emitter.setVariant(variant.Quality, variant.Codec)
 
 		// Stage 4: segment fetch. The progress channel is
 		// per-attempt because hls.Run closes it on the way
 		// out; sharing across attempts would send on a closed
 		// channel.
 		hlsProgress := make(chan hls.Progress, 32)
-		go s.bridgeProgress(d, hlsProgress)
-		s.emitProgress(d, "segments")
+		go bridgeHLSProgress(emitter, hlsProgress)
+		emitter.setStage("segments")
 
 		result, err := hls.Run(ctx, hls.JobConfig{
-			MediaPlaylistURL:   variantURL,
+			MediaPlaylistURL:   variant.URL,
 			WorkDir:            segmentsDir,
 			Fetcher:            s.fetcher,
 			SegmentConcurrency: s.cfg.App.Download.SegmentConcurrency,
@@ -612,8 +671,9 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, d *download, p Param
 	}
 }
 
-// resolveVariantURL walks Stages 1-3 and returns the fresh
-// signed media-playlist URL for the currently-selected variant.
+// resolveVariantURL walks Stages 1-3 and returns the freshly-
+// selected variant — URL plus quality + codec metadata the
+// progress emitter surfaces to the UI.
 //
 // When a service account is configured, the playback-token GQL
 // call carries Authorization: OAuth <access_token> — unlocks
@@ -621,21 +681,21 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, d *download, p Param
 // channels whose transcode ladder serves HEVC to authenticated
 // viewers. A refresh failure or unset refresh token falls back
 // to anonymous playback rather than failing the job.
-func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.SelectOptions) (string, error) {
+func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.SelectOptions) (twitch.SelectedVariant, error) {
 	accessToken := s.svcAcct.Token(ctx)
 	token, err := s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, accessToken)
 	if err != nil {
-		return "", fmt.Errorf("playback token: %w", err)
+		return twitch.SelectedVariant{}, fmt.Errorf("playback token: %w", err)
 	}
 	manifest, err := s.twitch.FetchMasterPlaylist(ctx, p.BroadcasterLogin, token, opts)
 	if err != nil {
-		return "", fmt.Errorf("master playlist: %w", err)
+		return twitch.SelectedVariant{}, fmt.Errorf("master playlist: %w", err)
 	}
 	variant, err := twitch.SelectVariant(manifest, opts)
 	if err != nil {
-		return "", fmt.Errorf("variant selection: %w", err)
+		return twitch.SelectedVariant{}, fmt.Errorf("variant selection: %w", err)
 	}
-	return variant.URL, nil
+	return variant, nil
 }
 
 // kindFromRecordingType maps the spec's recording_type enum to
@@ -673,42 +733,14 @@ func isCorrupt(r *probe.Result, kind remux.Kind) bool {
 	return math.Abs(r.Duration-streamDur) > remux.CorruptionThreshold
 }
 
-// bridgeProgress translates hls.Progress events into the
-// downloader.Progress shape. Runs until the hls channel is
-// closed — which the hls orchestrator does on every termination
-// path — and then exits.
-//
-// Phase 6a only forwards the stage + segment count as a textual
-// label; exact Percent/Speed/ETA math against a live stream
-// (SegmentsTotal unknown until EXT-X-ENDLIST) is deferred.
-func (s *Service) bridgeProgress(d *download, in <-chan hls.Progress) {
+// bridgeHLSProgress forwards hls.Progress events into the
+// downloader's progressEmitter until the hls channel is closed
+// (which the hls orchestrator does on every termination path).
+// The emitter handles the cumulative-state + speed-window math;
+// this function just pumps the channel.
+func bridgeHLSProgress(emitter *progressEmitter, in <-chan hls.Progress) {
 	for hp := range in {
-		prog := Progress{
-			JobID:   d.jobID,
-			Stage:   "segments",
-			Percent: -1,
-		}
-		_ = hp // reserved for richer fields in a later phase
-		select {
-		case d.progressCh <- prog:
-		default:
-			// Buffered channel is full; progress is
-			// informational — drop rather than block the
-			// pipeline.
-		}
-	}
-}
-
-// emitProgress sends a stage-transition event best-effort. Drops
-// the event when the buffered channel is full (slow subscriber
-// or none at all); the final "done" event goes through the same
-// path and subscribers rely on Subscribe returning nil to know
-// the job has ended.
-func (s *Service) emitProgress(d *download, stage string) {
-	prog := Progress{JobID: d.jobID, Stage: stage, Percent: -1}
-	select {
-	case d.progressCh <- prog:
-	default:
+		emitter.bridge(hp)
 	}
 }
 
