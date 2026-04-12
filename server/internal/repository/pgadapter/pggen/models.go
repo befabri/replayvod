@@ -8,6 +8,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AppAccessToken struct {
+	ID        int64              `json:"id"`
+	Token     string             `json:"token"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type Session struct {
+	HashedID        string             `json:"hashed_id"`
+	UserID          string             `json:"user_id"`
+	EncryptedTokens []byte             `json:"encrypted_tokens"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	LastActiveAt    pgtype.Timestamptz `json:"last_active_at"`
+	UserAgent       pgtype.Text        `json:"user_agent"`
+	IpAddress       pgtype.Text        `json:"ip_address"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type User struct {
 	ID              string             `json:"id"`
 	Login           string             `json:"login"`
@@ -17,4 +35,9 @@ type User struct {
 	Role            string             `json:"role"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Whitelist struct {
+	TwitchUserID string             `json:"twitch_user_id"`
+	AddedAt      pgtype.Timestamptz `json:"added_at"`
 }

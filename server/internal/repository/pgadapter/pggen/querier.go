@@ -9,9 +9,25 @@ import (
 )
 
 type Querier interface {
+	AddToWhitelist(ctx context.Context, twitchUserID string) error
+	CountUserSessions(ctx context.Context, userID string) (int64, error)
+	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
+	CreateSession(ctx context.Context, arg CreateSessionParams) error
+	DeleteExpiredAppTokens(ctx context.Context) error
+	DeleteExpiredSessions(ctx context.Context) error
+	DeleteSession(ctx context.Context, hashedID string) error
+	DeleteUserSessions(ctx context.Context, userID string) error
+	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
+	GetSession(ctx context.Context, hashedID string) (Session, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByLogin(ctx context.Context, login string) (User, error)
+	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
+	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	ListWhitelist(ctx context.Context) ([]Whitelist, error)
+	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	UpdateSessionActivity(ctx context.Context, hashedID string) error
+	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 }

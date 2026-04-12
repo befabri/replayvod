@@ -8,6 +8,24 @@ import (
 	"database/sql"
 )
 
+type AppAccessToken struct {
+	ID        int64  `json:"id"`
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+type Session struct {
+	HashedID        string         `json:"hashed_id"`
+	UserID          string         `json:"user_id"`
+	EncryptedTokens []byte         `json:"encrypted_tokens"`
+	ExpiresAt       string         `json:"expires_at"`
+	LastActiveAt    string         `json:"last_active_at"`
+	UserAgent       sql.NullString `json:"user_agent"`
+	IpAddress       sql.NullString `json:"ip_address"`
+	CreatedAt       string         `json:"created_at"`
+}
+
 type User struct {
 	ID              string         `json:"id"`
 	Login           string         `json:"login"`
@@ -17,4 +35,9 @@ type User struct {
 	Role            string         `json:"role"`
 	CreatedAt       string         `json:"created_at"`
 	UpdatedAt       string         `json:"updated_at"`
+}
+
+type Whitelist struct {
+	TwitchUserID string `json:"twitch_user_id"`
+	AddedAt      string `json:"added_at"`
 }
