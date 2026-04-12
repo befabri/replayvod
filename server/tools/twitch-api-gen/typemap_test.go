@@ -24,6 +24,13 @@ func TestGoType(t *testing.T) {
 		{"timestamp by name", FieldSchema{Type: "String", Name: "created_at"}, "", "time.Time"},
 		{"timestamp by desc", FieldSchema{Type: "String", Description: "An RFC3339 time"}, "", "time.Time"},
 		{"nullable", FieldSchema{Type: "String", Description: "Can be **null**"}, "", "*string"},
+		// Lowercase variants (EventSub docs). Parser must be case-insensitive.
+		{"lowercase string", FieldSchema{Type: "string"}, "", "string"},
+		{"lowercase integer", FieldSchema{Type: "integer"}, "", "int"},
+		{"lowercase boolean", FieldSchema{Type: "boolean"}, "", "bool"},
+		{"lowercase object named", FieldSchema{Type: "object"}, "User", "User"},
+		{"lowercase object[] named", FieldSchema{Type: "object[]"}, "Segment", "[]Segment"},
+		{"lowercase timestamp", FieldSchema{Type: "string", Name: "created_at"}, "", "time.Time"},
 	}
 	for _, c := range cases {
 		got := GoType(c.f, c.nest)

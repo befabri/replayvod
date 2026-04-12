@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -9,6 +10,12 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+// ErrNotSchemaTable is returned by ParseTable when the <table> doesn't look
+// like a field-schema table (missing one of name/type/description headers).
+// Callers can treat this as "skip this table" vs wrapping other errors as
+// real parse failures.
+var ErrNotSchemaTable = errors.New("not a schema table")
+
 // ParseTable turns one Twitch docs `<table>` into a tree of FieldSchema.
 // Ported from parseTableSchema.ts.
 func ParseTable(table *goquery.Selection) ([]FieldSchema, error) {
@@ -16,7 +23,7 @@ func ParseTable(table *goquery.Selection) ([]FieldSchema, error) {
 	table.Find("thead th").Each(func(i int, th *goquery.Selection) {
 		txt := strings.ToLower(strings.TrimSpace(th.Text()))
 		switch {
-		case txt == "fields" || txt == "field" || txt == "parameter" || txt == "name":
+		case txt == "fields" || txt == "field" || txt == "parameter" || txt == "param" || txt == "name":
 			parameterIdx = i
 		case txt == "type":
 			typeIdx = i
@@ -28,7 +35,7 @@ func ParseTable(table *goquery.Selection) ([]FieldSchema, error) {
 	})
 	if parameterIdx == -1 || typeIdx == -1 || descriptionIdx == -1 {
 		header := strings.TrimSpace(table.Find("thead").Text())
-		return nil, fmt.Errorf("cannot find table schema headers: %q", header)
+		return nil, fmt.Errorf("%w: headers %q", ErrNotSchemaTable, header)
 	}
 
 	var schemas []FieldSchema
@@ -55,11 +62,12 @@ func ParseTable(table *goquery.Selection) ([]FieldSchema, error) {
 		descriptionLower := strings.ToLower(descriptionText)
 
 		// Required: column value first; description overrides to false if it hints optional.
+		// Twitch's Helix docs use "Yes"/"No"; EventSub docs use "yes"/"no". Accept either.
 		var required *bool
 		if requiredCell != nil {
 			rt := strings.TrimSpace(requiredCell.Text())
 			if rt != "" {
-				v := rt == "Yes"
+				v := strings.EqualFold(rt, "Yes")
 				required = &v
 			}
 		}

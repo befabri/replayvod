@@ -9,20 +9,47 @@ import (
 // baseTypeMap translates a Twitch-docs-written raw type (left-hand column) into
 // a Go type. Object/Object[] map to empty strings because the caller must
 // substitute the name of a nested struct.
+//
+// Keys are lowercased for case-insensitive lookup: Helix docs use "String"/"Yes",
+// EventSub docs use "string"/"yes". lookupType normalizes the input before lookup.
 var baseTypeMap = map[string]string{
-	"String":             "string",
-	"String[]":           "[]string",
-	"Integer":            "int",
-	"Unsigned Integer":   "int",
-	"Int64":              "int64",
-	"Float":              "float64",
+	"string":             "string",
+	"string[]":           "[]string",
+	"integer":            "int",
+	"unsigned integer":   "int",
+	"int64":              "int64",
 	"float":              "float64",
-	"Boolean":            "bool",
-	"Bool":               "bool",
-	"Object":             "", // caller substitutes named struct
-	"Object[]":           "",
+	"boolean":            "bool",
+	"bool":               "bool",
+	"object":             "", // caller substitutes named struct
+	"object[]":           "",
 	"map[string,string]": "map[string]string",
-	"map[string]Object":  "map[string]", // caller completes with value type
+	"map[string]object":  "map[string]", // caller completes with value type
+}
+
+func lookupType(rawType string) (string, bool) {
+	t, ok := baseTypeMap[strings.ToLower(rawType)]
+	return t, ok
+}
+
+func isObjectType(rawType string) bool {
+	switch strings.ToLower(rawType) {
+	case "object":
+		return true
+	}
+	return false
+}
+
+func isObjectArrayType(rawType string) bool {
+	return strings.EqualFold(rawType, "object[]")
+}
+
+func isMapObjectType(rawType string) bool {
+	return strings.EqualFold(rawType, "map[string]object")
+}
+
+func isStringType(rawType string) bool {
+	return strings.EqualFold(rawType, "string")
 }
 
 // GoType returns the Go type for a field, given the base primitive mapping.
@@ -32,7 +59,7 @@ func GoType(f FieldSchema, nestedName string) string {
 	base := translate(f.Type, nestedName)
 
 	// Timestamp detection: RFC3339 string → time.Time.
-	if f.Type == "String" && (strings.HasSuffix(f.Name, "_at") || strings.Contains(f.Description, "RFC3339")) {
+	if isStringType(f.Type) && (strings.HasSuffix(f.Name, "_at") || strings.Contains(f.Description, "RFC3339")) {
 		base = "time.Time"
 	}
 
@@ -44,27 +71,27 @@ func GoType(f FieldSchema, nestedName string) string {
 }
 
 func translate(rawType, nestedName string) string {
-	switch rawType {
-	case "Object":
+	switch {
+	case isObjectType(rawType):
 		if nestedName == "" {
 			return "any"
 		}
 		return nestedName
-	case "Object[]":
+	case isObjectArrayType(rawType):
 		if nestedName == "" {
 			return "[]any"
 		}
 		return "[]" + nestedName
-	case "map[string]Object":
+	case isMapObjectType(rawType):
 		if nestedName == "" {
 			return "map[string]any"
 		}
 		return "map[string]" + nestedName
 	}
-	if t, ok := baseTypeMap[rawType]; ok && t != "" {
+	if t, ok := lookupType(rawType); ok && t != "" {
 		return t
 	}
-	if t, ok := baseTypeMap[rawType]; ok && t == "" {
+	if _, ok := lookupType(rawType); ok {
 		return "any"
 	}
 	// Unknown type: fall back to any, caller should log.

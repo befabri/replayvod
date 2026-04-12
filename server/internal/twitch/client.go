@@ -17,7 +17,7 @@ import (
 	"github.com/google/go-querystring/query"
 )
 
-//go:generate go run ../../tools/twitch-api-gen -out . -cache ../../tmp/reference.html
+//go:generate go run ../../tools/twitch-api-gen -out . -cache ../../tmp/reference.html -eventsub-ref-cache ../../tmp/eventsub-reference.html -eventsub-types-cache ../../tmp/eventsub-subscription-types.html
 
 const (
 	helixBaseURL = "https://api.twitch.tv/helix"
@@ -105,6 +105,14 @@ func (c *Client) get(ctx context.Context, path string, params any, out any) erro
 
 func (c *Client) post(ctx context.Context, path string, params any, body any, out any) error {
 	return c.do(ctx, http.MethodPost, path, params, body, out)
+}
+
+func (c *Client) put(ctx context.Context, path string, params any, body any, out any) error {
+	return c.do(ctx, http.MethodPut, path, params, body, out)
+}
+
+func (c *Client) patch(ctx context.Context, path string, params any, body any, out any) error {
+	return c.do(ctx, http.MethodPatch, path, params, body, out)
 }
 
 func (c *Client) delete(ctx context.Context, path string, params any, out any) error {

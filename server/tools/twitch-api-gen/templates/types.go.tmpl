@@ -29,7 +29,8 @@ type helixResponse[T any] struct {
 {{ end -}}
 type {{ .Name }} struct {
 {{- range .Fields }}
-	{{ .GoName }} {{ .GoType }} `json:"{{ .JSONName }}{{ if .OmitEmpty }},omitempty{{ end }}"`
+{{ if .Deprecated }}	// Deprecated: Twitch marks this field deprecated in the API reference.
+{{ end }}	{{ .GoName }} {{ .GoType }} `json:"{{ .JSONName }}{{ if .OmitEmpty }},omitempty{{ end }}"`
 {{- end }}
 }
 
@@ -53,7 +54,8 @@ type {{ .Name }} struct {
 {{ end -}}
 type {{ .Name }} struct {
 {{- range .Fields }}
-	{{ .GoName }} {{ .GoType }} `json:"{{ .JSONName }}{{ if .OmitEmpty }},omitempty{{ end }}"`
+{{ if .Deprecated }}	// Deprecated: Twitch marks this field deprecated in the API reference.
+{{ end }}	{{ .GoName }} {{ .GoType }} `json:"{{ .JSONName }}{{ if .OmitEmpty }},omitempty{{ end }}"`
 {{- end }}
 }
 

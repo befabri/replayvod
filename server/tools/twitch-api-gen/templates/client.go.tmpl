@@ -13,13 +13,13 @@ import "context"
 // https://dev.twitch.tv/docs/api/reference#{{ .ID }}
 func (c *Client) {{ .MethodName }}(ctx context.Context{{ if .HasParams }}, params *{{ .ParamsType }}{{ end }}{{ if .HasBody }}, body *{{ .BodyType }}{{ end }}) ({{ .ReturnType }}) {
 {{- if .NoContent }}
-	if err := c.{{ .HTTPHelper }}(ctx, "{{ .Path }}", {{ if .HasParams }}params{{ else }}nil{{ end }}{{ if eq .HTTPHelper "post" }}, {{ if .HasBody }}body{{ else }}nil{{ end }}{{ end }}, nil); err != nil {
+	if err := c.{{ .HTTPHelper }}(ctx, "{{ .Path }}", {{ if .HasParams }}params{{ else }}nil{{ end }}{{ if or (eq .HTTPHelper "post") (eq .HTTPHelper "put") (eq .HTTPHelper "patch") }}, {{ if .HasBody }}body{{ else }}nil{{ end }}{{ end }}, nil); err != nil {
 		return {{ .ErrReturn }}
 	}
 	return {{ .OKReturn }}
 {{- else }}
 	var result helixResponse[{{ .ItemType }}]
-	if err := c.{{ .HTTPHelper }}(ctx, "{{ .Path }}", {{ if .HasParams }}params{{ else }}nil{{ end }}{{ if eq .HTTPHelper "post" }}, {{ if .HasBody }}body{{ else }}nil{{ end }}{{ end }}, &result); err != nil {
+	if err := c.{{ .HTTPHelper }}(ctx, "{{ .Path }}", {{ if .HasParams }}params{{ else }}nil{{ end }}{{ if or (eq .HTTPHelper "post") (eq .HTTPHelper "put") (eq .HTTPHelper "patch") }}, {{ if .HasBody }}body{{ else }}nil{{ end }}{{ end }}, &result); err != nil {
 		return {{ .ErrReturn }}
 	}
 	return {{ .OKReturn }}

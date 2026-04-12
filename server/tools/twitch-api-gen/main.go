@@ -25,11 +25,16 @@ func main() {
 		referenceURL  string
 	)
 
+	var eventSubRefURL, eventSubTypesURL, eventSubRefCache, eventSubTypesCache string
 	flag.StringVar(&outDir, "out", "./internal/twitch/", "output directory for generated files")
 	flag.StringVar(&cachePath, "cache", "./tmp/reference.html", "path to cache the fetched HTML")
 	flag.StringVar(&endpointsFile, "endpoints", "", "optional path to endpoint filter list (one id per line); overrides built-in list")
 	flag.BoolVar(&refresh, "refresh", false, "force re-fetch even if cache is fresh")
 	flag.StringVar(&referenceURL, "url", "https://dev.twitch.tv/docs/api/reference/", "reference HTML URL")
+	flag.StringVar(&eventSubRefURL, "eventsub-ref-url", "https://dev.twitch.tv/docs/eventsub/eventsub-reference/", "EventSub reference HTML URL")
+	flag.StringVar(&eventSubTypesURL, "eventsub-types-url", "https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/", "EventSub subscription types HTML URL")
+	flag.StringVar(&eventSubRefCache, "eventsub-ref-cache", "./tmp/eventsub-reference.html", "path to cache the EventSub reference HTML")
+	flag.StringVar(&eventSubTypesCache, "eventsub-types-cache", "./tmp/eventsub-subscription-types.html", "path to cache the EventSub subscription types HTML")
 	flag.BoolVar(&debugDumpFields, "debug-fields", false, "dump response field trees to stdout")
 	var timestampOverride string
 	flag.StringVar(&timestampOverride, "timestamp", "", "RFC3339 timestamp for generated header; overrides cache file mtime")
@@ -63,6 +68,40 @@ func main() {
 	}
 	Normalize(doc, log)
 	log.Info("normalized reference html")
+
+	eventSubRefDoc, err := Fetch(ctx, FetchOptions{
+		URL:       eventSubRefURL,
+		CachePath: eventSubRefCache,
+		MaxAge:    24 * time.Hour,
+		Refresh:   refresh,
+		Log:       log,
+	})
+	if err != nil {
+		log.Error("fetch eventsub reference", "err", err)
+		os.Exit(1)
+	}
+	eventSubTypesDoc, err := Fetch(ctx, FetchOptions{
+		URL:       eventSubTypesURL,
+		CachePath: eventSubTypesCache,
+		MaxAge:    24 * time.Hour,
+		Refresh:   refresh,
+		Log:       log,
+	})
+	if err != nil {
+		log.Error("fetch eventsub subscription types", "err", err)
+		os.Exit(1)
+	}
+
+	eventSubRef, eventSubSubs, err := ParseEventSubReference(eventSubRefDoc, eventSubTypesDoc, log)
+	if err != nil {
+		log.Error("parse eventsub reference", "err", err)
+		os.Exit(1)
+	}
+	log.Info("parsed eventsub",
+		"conditions", len(eventSubRef.Conditions),
+		"events", len(eventSubRef.Events),
+		"subscription_types", len(eventSubSubs),
+	)
 
 	defs, err := ParseAll(doc, filter, log)
 	if err != nil {
@@ -99,10 +138,12 @@ func main() {
 		ts = fi.ModTime().UTC()
 	}
 	if err := Generate(defs, GenerateOptions{
-		OutDir:    outDir,
-		SourceURL: referenceURL,
-		Timestamp: ts,
-		Log:       log,
+		OutDir:            outDir,
+		SourceURL:         referenceURL,
+		Timestamp:         ts,
+		EventSubReference: eventSubRef,
+		EventSubSubs:      eventSubSubs,
+		Log:               log,
 	}); err != nil {
 		log.Error("generate", "err", err)
 		os.Exit(1)

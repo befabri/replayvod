@@ -25,7 +25,12 @@ type GenerateOptions struct {
 	// the current UTC time. Tests and snapshot-driven runs should pass a fixed
 	// value (e.g. the cache file mtime) so the output is reproducible.
 	Timestamp time.Time
-	Log       *slog.Logger
+	// Optional EventSub scraper output; when present, the generator emits
+	// generated_eventsub.go with typed Condition/Event overlays and rewires
+	// the Condition field on EventSubSubscription / CreateEventSubSubscriptionBody.
+	EventSubReference *EventSubReference
+	EventSubSubs      []EventSubSubscriptionType
+	Log               *slog.Logger
 }
 
 // Generate writes generated_types.go and generated_client.go into opts.OutDir.
@@ -42,11 +47,21 @@ func Generate(defs []EndpointDef, opts GenerateOptions) error {
 		return err
 	}
 
+	hasEventSub := opts.EventSubReference != nil && len(opts.EventSubSubs) > 0
+	if hasEventSub {
+		BuildEventSubModel(opts.EventSubReference, opts.EventSubSubs, model, opts.Log)
+	}
+
 	if err := renderAndWrite("types.go.tmpl", filepath.Join(opts.OutDir, "generated_types.go"), model); err != nil {
 		return err
 	}
 	if err := renderAndWrite("client.go.tmpl", filepath.Join(opts.OutDir, "generated_client.go"), model); err != nil {
 		return err
+	}
+	if hasEventSub {
+		if err := renderAndWrite("eventsub.go.tmpl", filepath.Join(opts.OutDir, "generated_eventsub.go"), model); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -73,13 +88,35 @@ func renderAndWrite(tmplName, outPath string, data any) error {
 // --- model: per-template view of the parsed endpoints ---
 
 type templateModel struct {
-	SourceURL  string
-	Timestamp  string
-	ImportTime bool
-	Types      []typeModel
-	ParamTypes []typeModel
-	BodyTypes  []typeModel
-	Endpoints  []endpointModel
+	SourceURL          string
+	Timestamp          string
+	ImportTime         bool
+	Types              []typeModel
+	ParamTypes         []typeModel
+	BodyTypes          []typeModel
+	Endpoints          []endpointModel
+	EventSubConditions []eventSubTypeModel
+	EventSubEvents     []eventSubTypeModel
+	EventSubDispatch   eventSubDispatchModel
+}
+
+// eventSubTypeModel is one scraped EventSub schema to emit as a Go struct.
+type eventSubTypeModel struct {
+	GoName   string // e.g. "ChannelFollowCondition"
+	AnchorID string // e.g. "channel-follow-condition"
+	Fields   []fieldModel
+}
+
+// eventSubDispatchModel holds the switch-case data for generated factories.
+type eventSubDispatchModel struct {
+	ConditionCases []eventSubCase
+	EventCases     []eventSubCase
+}
+
+type eventSubCase struct {
+	TypeString string // "channel.follow"
+	Version    string // "2"
+	GoName     string // "ChannelFollowCondition"
 }
 
 type typeModel struct {
@@ -91,10 +128,11 @@ type typeModel struct {
 }
 
 type fieldModel struct {
-	GoName    string
-	GoType    string
-	JSONName  string
-	OmitEmpty bool
+	GoName     string
+	GoType     string
+	JSONName   string
+	OmitEmpty  bool
+	Deprecated bool // emits a `// Deprecated: …` doc comment before the field
 }
 
 type endpointModel struct {
@@ -258,6 +296,25 @@ func buildStructType(
 	return tm, nil
 }
 
+// deprecatedFieldMarkers lists description substrings Twitch uses to mark a
+// struct field deprecated. Ported from FIELD_DEPRECATED_TEXT in the TS reference
+// plus the plain "**DEPRECATED**" inline marker seen in EventSub docs.
+var deprecatedFieldMarkers = []string{
+	"**DEPRECATED**",
+	"**IMPORTANT** As of February 28, 2023, this field is deprecated",
+	"**NOTE**: This field has been deprecated",
+	"This field has been deprecated",
+}
+
+func isDeprecatedField(description string) bool {
+	for _, m := range deprecatedFieldMarkers {
+		if strings.Contains(description, m) {
+			return true
+		}
+	}
+	return false
+}
+
 // toStructFieldModel handles one field inside a struct. When the field is an
 // Object/Object[] with children, a nested struct is generated and its name is
 // used as the field's Go type.
@@ -266,6 +323,24 @@ func toStructFieldModel(
 	types *[]typeModel, emitted map[string]bool,
 	model *templateModel, log *slog.Logger,
 ) (fieldModel, error) {
+	// Condition field is polymorphic; route to the generated EventSubCondition
+	// interface so callers can type-switch instead of decoding any.
+	if f.Name == "condition" && (parent == "EventSubSubscription" || parent == "CreateEventSubSubscriptionBody") {
+		return fieldModel{
+			GoName:   "Condition",
+			GoType:   "EventSubCondition",
+			JSONName: "condition",
+		}, nil
+	}
+	// Transport field is polymorphic (webhook / websocket / conduit); route to
+	// the hand-written EventSubTransport sealed interface in eventsub.go.
+	if f.Name == "transport" && (parent == "EventSubSubscription" || parent == "CreateEventSubSubscriptionBody") {
+		return fieldModel{
+			GoName:   "Transport",
+			GoType:   "EventSubTransport",
+			JSONName: "transport",
+		}, nil
+	}
 	goType := ""
 	hasChildren := len(f.Children) > 0
 	isObject := f.Type == "Object" || f.Type == "Object[]"
@@ -298,10 +373,11 @@ func toStructFieldModel(
 
 	omitEmpty := f.Required == nil || !*f.Required
 	return fieldModel{
-		GoName:    PascalCase(f.Name),
-		GoType:    goType,
-		JSONName:  f.Name,
-		OmitEmpty: omitEmpty,
+		GoName:     PascalCase(f.Name),
+		GoType:     goType,
+		JSONName:   f.Name,
+		OmitEmpty:  omitEmpty,
+		Deprecated: isDeprecatedField(f.Description),
 	}, nil
 }
 
