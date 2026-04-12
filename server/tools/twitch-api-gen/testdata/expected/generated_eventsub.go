@@ -603,6 +603,83 @@ type AutomodMessageHoldEvent struct {
 	HeldAt               time.Time                      `json:"held_at"`
 }
 
+// AutomodMessageHoldEventV2MessageFragmentEmote is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2MessageFragmentEmote struct {
+	ID         string `json:"id"`
+	EmoteSetID string `json:"emote_set_id"`
+}
+
+// AutomodMessageHoldEventV2MessageFragmentCheermote is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2MessageFragmentCheermote struct {
+	Prefix string `json:"prefix"`
+	Bits   int    `json:"bits"`
+	Tier   int    `json:"tier"`
+}
+
+// AutomodMessageHoldEventV2MessageFragment is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2MessageFragment struct {
+	Type      string                                            `json:"type"`
+	Text      string                                            `json:"text"`
+	Emote     AutomodMessageHoldEventV2MessageFragmentEmote     `json:"emote"`
+	Cheermote AutomodMessageHoldEventV2MessageFragmentCheermote `json:"cheermote"`
+}
+
+// AutomodMessageHoldEventV2Message is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2Message struct {
+	Text      string                                     `json:"text"`
+	Fragments []AutomodMessageHoldEventV2MessageFragment `json:"fragments"`
+}
+
+// AutomodMessageHoldEventV2AutomodBoundary is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2AutomodBoundary struct {
+	StartPos int `json:"start_pos"`
+	EndPos   int `json:"end_pos"`
+}
+
+// AutomodMessageHoldEventV2Automod is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2Automod struct {
+	Category   string                                     `json:"category"`
+	Level      int                                        `json:"level"`
+	Boundaries []AutomodMessageHoldEventV2AutomodBoundary `json:"boundaries"`
+}
+
+// AutomodMessageHoldEventV2BlockedTermTermsFoundBoundary is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2BlockedTermTermsFoundBoundary struct {
+	StartPos int `json:"start_pos"`
+	EndPos   int `json:"end_pos"`
+}
+
+// AutomodMessageHoldEventV2BlockedTermTermsFound is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2BlockedTermTermsFound struct {
+	TermID                    string                                                 `json:"term_id"`
+	Boundary                  AutomodMessageHoldEventV2BlockedTermTermsFoundBoundary `json:"boundary"`
+	OwnerBroadcasterUserID    string                                                 `json:"owner_broadcaster_user_id"`
+	OwnerBroadcasterUserLogin string                                                 `json:"owner_broadcaster_user_login"`
+	OwnerBroadcasterUserName  string                                                 `json:"owner_broadcaster_user_name"`
+}
+
+// AutomodMessageHoldEventV2BlockedTerm is a nested object inside a generated EventSub event type.
+type AutomodMessageHoldEventV2BlockedTerm struct {
+	TermsFound []AutomodMessageHoldEventV2BlockedTermTermsFound `json:"terms_found"`
+}
+
+// AutomodMessageHoldEventV2 is the Event payload for subscription types sharing
+// anchor "automod-message-hold-event-v2" on the eventsub-reference page.
+type AutomodMessageHoldEventV2 struct {
+	BroadcasterUserID    string                               `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string                               `json:"broadcaster_user_login"`
+	BroadcasterUserName  string                               `json:"broadcaster_user_name"`
+	UserID               string                               `json:"user_id"`
+	UserLogin            string                               `json:"user_login"`
+	UserName             string                               `json:"user_name"`
+	MessageID            string                               `json:"message_id"`
+	Message              AutomodMessageHoldEventV2Message     `json:"message"`
+	HeldAt               time.Time                            `json:"held_at"`
+	Reason               string                               `json:"reason"`
+	Automod              AutomodMessageHoldEventV2Automod     `json:"automod"`
+	BlockedTerm          AutomodMessageHoldEventV2BlockedTerm `json:"blocked_term"`
+}
+
 // AutomodMessageUpdateEventMessageFragmentEmote is a nested object inside a generated EventSub event type.
 type AutomodMessageUpdateEventMessageFragmentEmote struct {
 	ID         string `json:"id"`
@@ -647,6 +724,87 @@ type AutomodMessageUpdateEvent struct {
 	Level                int                              `json:"level"`
 	Status               string                           `json:"status"`
 	HeldAt               time.Time                        `json:"held_at"`
+}
+
+// AutomodMessageUpdateEventV2MessageFragmentEmote is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2MessageFragmentEmote struct {
+	ID         string `json:"id"`
+	EmoteSetID string `json:"emote_set_id"`
+}
+
+// AutomodMessageUpdateEventV2MessageFragmentCheermote is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2MessageFragmentCheermote struct {
+	Prefix string `json:"prefix"`
+	Bits   int    `json:"bits"`
+	Tier   int    `json:"tier"`
+}
+
+// AutomodMessageUpdateEventV2MessageFragment is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2MessageFragment struct {
+	Text      string                                              `json:"text"`
+	Type      string                                              `json:"type"`
+	Emote     AutomodMessageUpdateEventV2MessageFragmentEmote     `json:"emote"`
+	Cheermote AutomodMessageUpdateEventV2MessageFragmentCheermote `json:"cheermote"`
+}
+
+// AutomodMessageUpdateEventV2Message is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2Message struct {
+	Text      string                                       `json:"text"`
+	Fragments []AutomodMessageUpdateEventV2MessageFragment `json:"fragments"`
+}
+
+// AutomodMessageUpdateEventV2AutomodBoundary is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2AutomodBoundary struct {
+	StartPos int `json:"start_pos"`
+	EndPos   int `json:"end_pos"`
+}
+
+// AutomodMessageUpdateEventV2Automod is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2Automod struct {
+	Category   string                                       `json:"category"`
+	Level      int                                          `json:"level"`
+	Boundaries []AutomodMessageUpdateEventV2AutomodBoundary `json:"boundaries"`
+}
+
+// AutomodMessageUpdateEventV2BlockedTermTermsFoundBoundary is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2BlockedTermTermsFoundBoundary struct {
+	StartPos int `json:"start_pos"`
+	EndPos   int `json:"end_pos"`
+}
+
+// AutomodMessageUpdateEventV2BlockedTermTermsFound is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2BlockedTermTermsFound struct {
+	TermID                    string                                                   `json:"term_id"`
+	Boundary                  AutomodMessageUpdateEventV2BlockedTermTermsFoundBoundary `json:"boundary"`
+	OwnerBroadcasterUserID    string                                                   `json:"owner_broadcaster_user_id"`
+	OwnerBroadcasterUserLogin string                                                   `json:"owner_broadcaster_user_login"`
+	OwnerBroadcasterUserName  string                                                   `json:"owner_broadcaster_user_name"`
+}
+
+// AutomodMessageUpdateEventV2BlockedTerm is a nested object inside a generated EventSub event type.
+type AutomodMessageUpdateEventV2BlockedTerm struct {
+	TermsFound []AutomodMessageUpdateEventV2BlockedTermTermsFound `json:"terms_found"`
+}
+
+// AutomodMessageUpdateEventV2 is the Event payload for subscription types sharing
+// anchor "automod-message-update-event-v2" on the eventsub-reference page.
+type AutomodMessageUpdateEventV2 struct {
+	BroadcasterUserID    string                                 `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string                                 `json:"broadcaster_user_login"`
+	BroadcasterUserName  string                                 `json:"broadcaster_user_name"`
+	UserID               string                                 `json:"user_id"`
+	UserLogin            string                                 `json:"user_login"`
+	UserName             string                                 `json:"user_name"`
+	ModeratorUserID      string                                 `json:"moderator_user_id"`
+	ModeratorUserName    string                                 `json:"moderator_user_name"`
+	ModeratorUserLogin   string                                 `json:"moderator_user_login"`
+	MessageID            string                                 `json:"message_id"`
+	Message              AutomodMessageUpdateEventV2Message     `json:"message"`
+	Status               string                                 `json:"status"`
+	HeldAt               time.Time                              `json:"held_at"`
+	Reason               string                                 `json:"reason"`
+	Automod              AutomodMessageUpdateEventV2Automod     `json:"automod"`
+	BlockedTerm          AutomodMessageUpdateEventV2BlockedTerm `json:"blocked_term"`
 }
 
 // AutomodSettingsUpdateEvent is the Event payload for subscription types sharing
@@ -1428,6 +1586,161 @@ type ChannelModerateEvent struct {
 	SharedChatTimeout          any                              `json:"shared_chat_timeout"`
 	SharedChatUntimeout        any                              `json:"shared_chat_untimeout"`
 	SharedChatDelete           any                              `json:"shared_chat_delete"`
+}
+
+// ChannelModerateEventV2Followers is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Followers struct {
+	FollowDurationMinutes int `json:"follow_duration_minutes"`
+}
+
+// ChannelModerateEventV2Slow is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Slow struct {
+	WaitTimeSeconds int `json:"wait_time_seconds"`
+}
+
+// ChannelModerateEventV2Vip is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Vip struct {
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+}
+
+// ChannelModerateEventV2Unvip is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Unvip struct {
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+}
+
+// ChannelModerateEventV2Mod is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Mod struct {
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+}
+
+// ChannelModerateEventV2Unmod is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Unmod struct {
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+}
+
+// ChannelModerateEventV2Ban is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Ban struct {
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+	Reason    string `json:"reason"`
+}
+
+// ChannelModerateEventV2Unban is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Unban struct {
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+}
+
+// ChannelModerateEventV2Timeout is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Timeout struct {
+	UserID    string    `json:"user_id"`
+	UserLogin string    `json:"user_login"`
+	UserName  string    `json:"user_name"`
+	Reason    string    `json:"reason"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// ChannelModerateEventV2Untimeout is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Untimeout struct {
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+}
+
+// ChannelModerateEventV2Raid is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Raid struct {
+	UserID      string `json:"user_id"`
+	UserLogin   string `json:"user_login"`
+	UserName    string `json:"user_name"`
+	ViewerCount int    `json:"viewer_count"`
+}
+
+// ChannelModerateEventV2Unraid is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Unraid struct {
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+}
+
+// ChannelModerateEventV2Delete is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Delete struct {
+	UserID      string `json:"user_id"`
+	UserLogin   string `json:"user_login"`
+	UserName    string `json:"user_name"`
+	MessageID   string `json:"message_id"`
+	MessageBody string `json:"message_body"`
+}
+
+// ChannelModerateEventV2AutomodTerms is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2AutomodTerms struct {
+	Action      string   `json:"action"`
+	List        string   `json:"list"`
+	Terms       []string `json:"terms"`
+	FromAutomod bool     `json:"from_automod"`
+}
+
+// ChannelModerateEventV2UnbanRequest is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2UnbanRequest struct {
+	IsApproved       bool   `json:"is_approved"`
+	UserID           string `json:"user_id"`
+	UserLogin        string `json:"user_login"`
+	UserName         string `json:"user_name"`
+	ModeratorMessage string `json:"moderator_message"`
+}
+
+// ChannelModerateEventV2Warn is a nested object inside a generated EventSub event type.
+type ChannelModerateEventV2Warn struct {
+	UserID         string   `json:"user_id"`
+	UserLogin      string   `json:"user_login"`
+	UserName       string   `json:"user_name"`
+	Reason         string   `json:"reason"`
+	ChatRulesCited []string `json:"chat_rules_cited"`
+}
+
+// ChannelModerateEventV2 is the Event payload for subscription types sharing
+// anchor "channel-moderate-event-v2" on the eventsub-reference page.
+type ChannelModerateEventV2 struct {
+	BroadcasterUserID          string                             `json:"broadcaster_user_id"`
+	BroadcasterUserLogin       string                             `json:"broadcaster_user_login"`
+	BroadcasterUserName        string                             `json:"broadcaster_user_name"`
+	SourceBroadcasterUserID    string                             `json:"source_broadcaster_user_id"`
+	SourceBroadcasterUserLogin string                             `json:"source_broadcaster_user_login"`
+	SourceBroadcasterUserName  string                             `json:"source_broadcaster_user_name"`
+	ModeratorUserID            string                             `json:"moderator_user_id"`
+	ModeratorUserLogin         string                             `json:"moderator_user_login"`
+	ModeratorUserName          string                             `json:"moderator_user_name"`
+	Action                     string                             `json:"action"`
+	Followers                  ChannelModerateEventV2Followers    `json:"followers"`
+	Slow                       ChannelModerateEventV2Slow         `json:"slow"`
+	Vip                        ChannelModerateEventV2Vip          `json:"vip"`
+	Unvip                      ChannelModerateEventV2Unvip        `json:"unvip"`
+	Mod                        ChannelModerateEventV2Mod          `json:"mod"`
+	Unmod                      ChannelModerateEventV2Unmod        `json:"unmod"`
+	Ban                        ChannelModerateEventV2Ban          `json:"ban"`
+	Unban                      ChannelModerateEventV2Unban        `json:"unban"`
+	Timeout                    ChannelModerateEventV2Timeout      `json:"timeout"`
+	Untimeout                  ChannelModerateEventV2Untimeout    `json:"untimeout"`
+	Raid                       ChannelModerateEventV2Raid         `json:"raid"`
+	Unraid                     ChannelModerateEventV2Unraid       `json:"unraid"`
+	Delete                     ChannelModerateEventV2Delete       `json:"delete"`
+	AutomodTerms               ChannelModerateEventV2AutomodTerms `json:"automod_terms"`
+	UnbanRequest               ChannelModerateEventV2UnbanRequest `json:"unban_request"`
+	Warn                       ChannelModerateEventV2Warn         `json:"warn"`
+	SharedChatBan              any                                `json:"shared_chat_ban"`
+	SharedChatUnban            any                                `json:"shared_chat_unban"`
+	SharedChatTimeout          any                                `json:"shared_chat_timeout"`
+	SharedChatUntimeout        any                                `json:"shared_chat_untimeout"`
+	SharedChatDelete           any                                `json:"shared_chat_delete"`
 }
 
 // ChannelModeratorAddEvent is the Event payload for subscription types sharing
@@ -2547,7 +2860,9 @@ func (UserUpdateCondition) isEventSubCondition()                                
 func (WhisperReceivedCondition) isEventSubCondition()                             {}
 
 func (AutomodMessageHoldEvent) isEventSubEvent()                          {}
+func (AutomodMessageHoldEventV2) isEventSubEvent()                        {}
 func (AutomodMessageUpdateEvent) isEventSubEvent()                        {}
+func (AutomodMessageUpdateEventV2) isEventSubEvent()                      {}
 func (AutomodSettingsUpdateEvent) isEventSubEvent()                       {}
 func (AutomodTermsUpdateEvent) isEventSubEvent()                          {}
 func (ChannelAdBreakBeginEvent) isEventSubEvent()                         {}
@@ -2568,6 +2883,7 @@ func (ChannelGuestStarSessionBeginEvent) isEventSubEvent()                {}
 func (ChannelGuestStarSessionEndEvent) isEventSubEvent()                  {}
 func (ChannelGuestStarSettingsUpdateEvent) isEventSubEvent()              {}
 func (ChannelModerateEvent) isEventSubEvent()                             {}
+func (ChannelModerateEventV2) isEventSubEvent()                           {}
 func (ChannelModeratorAddEvent) isEventSubEvent()                         {}
 func (ChannelModeratorRemoveEvent) isEventSubEvent()                      {}
 func (ChannelPointsAutomaticRewardRedemptionAddEvent) isEventSubEvent()   {}
@@ -2714,9 +3030,9 @@ var eventSubConditionFactories = map[eventSubKey]func() EventSubCondition{
 
 var eventSubEventFactories = map[eventSubKey]func() EventSubEvent{
 	{"automod.message.hold", "1"}:                                   func() EventSubEvent { return &AutomodMessageHoldEvent{} },
-	{"automod.message.hold", "2"}:                                   func() EventSubEvent { return &AutomodMessageHoldEvent{} },
+	{"automod.message.hold", "2"}:                                   func() EventSubEvent { return &AutomodMessageHoldEventV2{} },
 	{"automod.message.update", "1"}:                                 func() EventSubEvent { return &AutomodMessageUpdateEvent{} },
-	{"automod.message.update", "2"}:                                 func() EventSubEvent { return &AutomodMessageUpdateEvent{} },
+	{"automod.message.update", "2"}:                                 func() EventSubEvent { return &AutomodMessageUpdateEventV2{} },
 	{"automod.settings.update", "1"}:                                func() EventSubEvent { return &AutomodSettingsUpdateEvent{} },
 	{"automod.terms.update", "1"}:                                   func() EventSubEvent { return &AutomodTermsUpdateEvent{} },
 	{"channel.ad_break.begin", "1"}:                                 func() EventSubEvent { return &ChannelAdBreakBeginEvent{} },
@@ -2754,6 +3070,7 @@ var eventSubEventFactories = map[eventSubKey]func() EventSubEvent{
 	{"channel.hype_train.end", "2"}:                                 func() EventSubEvent { return &HypeTrainEndEvent{} },
 	{"channel.hype_train.progress", "2"}:                            func() EventSubEvent { return &HypeTrainProgressEvent{} },
 	{"channel.moderate", "1"}:                                       func() EventSubEvent { return &ChannelModerateEvent{} },
+	{"channel.moderate", "2"}:                                       func() EventSubEvent { return &ChannelModerateEventV2{} },
 	{"channel.moderator.add", "1"}:                                  func() EventSubEvent { return &ChannelModeratorAddEvent{} },
 	{"channel.moderator.remove", "1"}:                               func() EventSubEvent { return &ChannelModeratorRemoveEvent{} },
 	{"channel.poll.begin", "1"}:                                     func() EventSubEvent { return &ChannelPollBeginEvent{} },

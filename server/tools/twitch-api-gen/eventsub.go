@@ -104,7 +104,10 @@ func parseReferenceSchemas(doc *goquery.Document, ref *EventSubReference) error 
 		switch {
 		case strings.HasSuffix(id, "-condition"):
 			ref.Conditions[id] = schema
-		case strings.HasSuffix(id, "-event"):
+		case isEventAnchor(id):
+			// Plain `-event` suffix OR versioned `-event-v{N}` suffix. Twitch
+			// has separate anchors per version for some types whose event shape
+			// changed (automod.message.hold v1 vs v2, channel.moderate v1 vs v2).
 			ref.Events[id] = schema
 		default:
 			// Shared data schemas (image, outcomes, reward, max-per-stream, …).
@@ -114,6 +117,20 @@ func parseReferenceSchemas(doc *goquery.Document, ref *EventSubReference) error 
 		return true
 	})
 	return walkErr
+}
+
+// eventAnchorSuffixRe matches versioned event anchor suffixes like
+// `-event-v2` that the subscription-types page links for v2 variants of
+// automod.message.hold, automod.message.update, and channel.moderate.
+var eventAnchorSuffixRe = regexp.MustCompile(`-event-v\d+$`)
+
+// isEventAnchor reports whether an anchor id is a per-event schema. Plain
+// `-event` suffix is the common case; `-event-v{N}` covers versioned events.
+func isEventAnchor(id string) bool {
+	if strings.HasSuffix(id, "-event") {
+		return true
+	}
+	return eventAnchorSuffixRe.MatchString(id)
 }
 
 // firstTableBeforeNextHeading returns the first <table> sibling appearing
