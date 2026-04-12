@@ -19,6 +19,7 @@ import (
 	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
 	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -52,10 +53,18 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// for both, and we want the same context population the tRPC side gets.
 	authHandler := auth.NewHandler(cfg, repo, twitchClient, sessionMgr, log)
 	videoHandler := videoroute.NewHandler(repo, store, log)
+	// The webhook handler needs the raw body for HMAC verification, so it
+	// must live on the Chi side (no tRPC JSON middleware) and outside the
+	// csrfProtection group (Twitch can't provide a CSRF cookie). Processor
+	// is nil until Phase 5 Task #36 wires scheduleservice — the handler
+	// records events regardless, processor is only used for notification
+	// dispatch.
+	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, nil, log)
 	sessionMw := middleware.Auth(sessionMgr, repo, log)
 	r.Route("/api/v1", func(r chi.Router) {
 		authHandler.SetupRoutes(r)
 		videoHandler.SetupRoutes(r, sessionMw)
+		webhookHandler.SetupRoutes(r)
 	})
 
 	// tRPC router with CSRF/origin protection
