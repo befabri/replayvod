@@ -69,6 +69,14 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
+	// Pprof endpoints, dev-only. Production config.toml leaves
+	// Development=false so this never listens on a hardened deploy.
+	// Mounted directly (not under /api/) to match the default
+	// net/http/pprof paths that `go tool pprof` expects.
+	if cfg.App.Development {
+		r.Mount("/debug", chimiddleware.Profiler())
+	}
+
 	// Chi routes (non-tRPC: OAuth, webhooks, video streaming, thumbnails).
 	// Video/thumbnail routes reuse the session middleware — auth required
 	// for both, and we want the same context population the tRPC side gets.
