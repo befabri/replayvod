@@ -79,8 +79,12 @@ type GapPolicy struct {
 
 	// MaxGapRatio is the tolerant-mode ceiling: gaps / (gaps +
 	// done) above this fraction fails the job. Default 0.01
-	// (1%). Zero means "no tolerance" — any gap fails, same as
-	// Strict.
+	// (1%). Zero is treated as "unset" and takes the default —
+	// for no-tolerance semantics, set Strict=true instead.
+	// (A *float64 sentinel would be the faithful "zero means
+	// zero" shape; the simpler "Strict for no-tolerance" path
+	// is enough in practice and avoids a pointer-valued config
+	// field.)
 	MaxGapRatio float64
 
 	// SkipFirstContentGuard disables the "at least one real
@@ -353,7 +357,7 @@ func evaluateGap(p *GapPolicy, r *JobResult, res SegmentResult) *GapAbortError {
 	}
 	gapsAfter := r.SegmentsGaps + 1
 	total := gapsAfter + r.SegmentsDone
-	if total > 0 && float64(gapsAfter)/float64(total) > p.MaxGapRatio {
+	if float64(gapsAfter)/float64(total) > p.MaxGapRatio {
 		return &GapAbortError{
 			Reason:  fmt.Sprintf("gap ratio %.2f%% over ceiling %.2f%%", 100*float64(gapsAfter)/float64(total), 100*p.MaxGapRatio),
 			Done:    r.SegmentsDone,

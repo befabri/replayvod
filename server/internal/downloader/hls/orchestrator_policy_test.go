@@ -73,7 +73,7 @@ func TestRun_GapPolicy_StrictAbortsOnFirstFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	result, err := Run(ctx, cfg)
+	_, err := Run(ctx, cfg)
 	if err == nil {
 		t.Fatal("want GapAbortError in strict mode")
 	}
@@ -84,9 +84,11 @@ func TestRun_GapPolicy_StrictAbortsOnFirstFailure(t *testing.T) {
 	if ge.Reason != "strict mode" {
 		t.Errorf("Reason=%q, want strict mode", ge.Reason)
 	}
-	if result.SegmentsDone == 0 {
-		t.Error("SegmentsDone=0 — strict should still record the successful segments before the failure")
-	}
+	// Don't assert SegmentsDone > 0 — with concurrent workers
+	// the count depends on whether seqs 0+1 land before seq 2's
+	// failure propagates. The correctness property the test
+	// guards is "strict aborts on first failure," which the
+	// Reason check above already covers.
 }
 
 func TestRun_GapPolicy_FirstContentGuardFailsEarly(t *testing.T) {
@@ -223,10 +225,13 @@ func TestRun_GapPolicy_SkipFirstContentGuard(t *testing.T) {
 }
 
 // TestRun_GapPolicy_AbortCancelsPoller guards the cleanup path.
-// A gap-policy abort must cancel the poller + pool so neither
-// keeps working after Run returns.
+// A gap-policy abort must cancel both the poller and the pool so
+// neither keeps working after Run returns. Watches both signals
+// (playlist polls and segment fetches) — the init-fetch test
+// catches the same shape for the bootstrap path; this one covers
+// mid-stream aborts.
 func TestRun_GapPolicy_AbortCancelsPoller(t *testing.T) {
-	var playlistPolls int32
+	var playlistPolls, segFetches int32
 	live := &liveServer{
 		kind: SegmentKindTS, maxSegments: 100, windowSize: 3,
 		baseSeq: 0, tickInterval: 1,
@@ -234,8 +239,11 @@ func TestRun_GapPolicy_AbortCancelsPoller(t *testing.T) {
 	s := &failingSegmentServer{live: live, fail: map[int]bool{0: true}}
 	baseHandler := s.handler()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/playlist.m3u8" {
+		switch {
+		case r.URL.Path == "/playlist.m3u8":
 			atomic.AddInt32(&playlistPolls, 1)
+		case strings.HasPrefix(r.URL.Path, "/seg/"):
+			atomic.AddInt32(&segFetches, 1)
 		}
 		baseHandler.ServeHTTP(w, r)
 	}))
@@ -252,11 +260,14 @@ func TestRun_GapPolicy_AbortCancelsPoller(t *testing.T) {
 		t.Fatal("want abort error")
 	}
 
-	before := atomic.LoadInt32(&playlistPolls)
+	pollsBefore := atomic.LoadInt32(&playlistPolls)
+	segsBefore := atomic.LoadInt32(&segFetches)
 	time.Sleep(1200 * time.Millisecond) // > one TargetDuration tick + slack
-	after := atomic.LoadInt32(&playlistPolls)
-	if after != before {
-		t.Errorf("playlist polls kept firing after abort: before=%d after=%d", before, after)
+	if got := atomic.LoadInt32(&playlistPolls); got != pollsBefore {
+		t.Errorf("playlist polls kept firing after abort: before=%d after=%d", pollsBefore, got)
+	}
+	if got := atomic.LoadInt32(&segFetches); got != segsBefore {
+		t.Errorf("segment fetches kept firing after abort: before=%d after=%d", segsBefore, got)
 	}
 }
 
