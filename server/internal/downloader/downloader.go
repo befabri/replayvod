@@ -623,6 +623,14 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 var (
 	ErrBusy      = errors.New("downloader: broadcaster already has an active download")
 	ErrCancelled = errors.New("downloader: cancelled by user")
+
+	// ErrVariantChanged fires when an auth-refresh iteration lands
+	// on a different (quality, codec) pair than the one locked in
+	// for the current run. Part-splitting across codec/container
+	// boundaries is deferred to Phase 6f; until then, a mid-run
+	// variant change is a hard failure — retrying as a fresh job
+	// re-runs Stage 3 from scratch.
+	ErrVariantChanged = errors.New("downloader: selected variant changed mid-run; retry as new job")
 )
 
 // run walks the full pipeline for one job. All DB writes use
@@ -985,6 +993,24 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			// call doesn't burn a retry slot before hls.Run even
 			// starts.
 			return agg, err
+		}
+		// Variant lock across auth-refresh iterations: a resumed
+		// pipeline must not silently change codec, container, or
+		// quality mid-stream — `ffmpeg -c copy` across those
+		// boundaries produces a broken output, and part-split
+		// mechanics are deferred to Phase 6f. If Stage 3 returns
+		// a different variant than what was already locked in
+		// (either from a prior attempt in THIS run or from a
+		// resumed ResumeState), abort with ErrVariantChanged.
+		// The operator can retry as a new job, which gets its
+		// own variant selection from scratch.
+		if d.resume.SelectedQuality != "" && d.resume.SelectedQuality != variant.Quality {
+			return agg, fmt.Errorf("%w: quality %q → %q",
+				ErrVariantChanged, d.resume.SelectedQuality, variant.Quality)
+		}
+		if d.resume.SelectedCodec != "" && d.resume.SelectedCodec != variant.Codec {
+			return agg, fmt.Errorf("%w: codec %q → %q",
+				ErrVariantChanged, d.resume.SelectedCodec, variant.Codec)
 		}
 		emitter.setStage("playlist")
 		emitter.setVariant(variant.Quality, variant.Codec)
