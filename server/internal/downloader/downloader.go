@@ -253,6 +253,12 @@ func (s *Service) SetOAuthRefresher(r TokenRefresher) {
 // Scratch layout: <scratch>/<jobID>/ contains segments/, the
 // remuxed mp4, and the thumbnail. One RemoveAll per job dir
 // gets everything.
+//
+// ScratchDir is assumed to be owned by a single Service
+// instance. Two Services sharing a ScratchDir would delete each
+// other's in-flight job dirs at startup. Operators running more
+// than one downloader process (dev-only corner case) must
+// configure distinct ScratchDir paths.
 func (s *Service) sweepOrphanedTemps() {
 	scratch := s.cfg.Env.ScratchDir
 	entries, err := os.ReadDir(scratch)
@@ -584,6 +590,15 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 // Returns an accumulated JobResult across all attempts. The
 // Kind + InitURI are taken from the final successful iteration
 // (or the last one attempted on failure).
+//
+// Gap policy is evaluated PER ATTEMPT, not against the aggregate.
+// If attempt 1 commits 99 segments + 1 gap (1%) and auth-refreshes,
+// attempt 2 starts its own first-content guard and MaxGapRatio
+// check from zero. This is deliberate: a new signed URL is a
+// fresh starting point for "has Twitch let us capture anything
+// real yet" — it doesn't inherit attempt 1's success/gap ratio.
+// Aggregate counters on the returned JobResult are for the
+// caller's reporting, not for policy decisions.
 func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmitter, p Params, segmentsDir string, selectOpts twitch.SelectOptions, log *slog.Logger) (*hls.JobResult, error) {
 	maxAuthAttempts := s.cfg.App.Download.AuthRefreshAttempts
 	if maxAuthAttempts <= 0 {
@@ -599,11 +614,14 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmi
 		emitter.setStage("auth")
 		variant, err := s.resolveVariantURL(ctx, p, selectOpts)
 		if err != nil {
-			// Permanent entitlement errors can't be refreshed
-			// away — surface immediately.
-			if twitch.IsPermanent(err) {
-				return agg, err
-			}
+			// Any resolveVariantURL failure — permanent entitlement
+			// or transient — bails the whole loop. The loop's
+			// purpose is to re-run Stages 1-3 when HLS segment
+			// fetch surfaces an auth error; it does not re-run
+			// on a Stage 1-3 failure itself. Auth-refresh budget
+			// is intentionally not consumed here so a flaky GQL
+			// call doesn't burn a retry slot before hls.Run even
+			// starts.
 			return agg, err
 		}
 		emitter.setStage("playlist")
@@ -613,6 +631,12 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmi
 		// per-attempt because hls.Run closes it on the way
 		// out; sharing across attempts would send on a closed
 		// channel.
+		//
+		// Buffered higher than the downloader-facing progressCh
+		// (16) because hls emits per-segment, which at ~2s
+		// target duration + N workers can briefly outpace the
+		// bridge's drain. The bridge collapses multiple hls
+		// events into a rate-limited stream on the way out.
 		hlsProgress := make(chan hls.Progress, 32)
 		go bridgeHLSProgress(emitter, hlsProgress)
 		emitter.setStage("segments")
@@ -738,6 +762,14 @@ func isCorrupt(r *probe.Result, kind remux.Kind) bool {
 // (which the hls orchestrator does on every termination path).
 // The emitter handles the cumulative-state + speed-window math;
 // this function just pumps the channel.
+//
+// fetchWithAuthRefresh may spawn a new bridgeHLSProgress per
+// iteration. Two bridges may briefly coexist if a previous
+// iteration's drain hasn't finished before the next hls.Run
+// starts — both write to the same progressEmitter, which uses
+// its own mutex, so concurrent writes are safe. Events stay
+// cumulative so any interleaving still produces coherent state
+// at the subscriber.
 func bridgeHLSProgress(emitter *progressEmitter, in <-chan hls.Progress) {
 	for hp := range in {
 		emitter.bridge(hp)

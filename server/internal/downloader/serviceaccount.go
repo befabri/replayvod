@@ -2,8 +2,6 @@ package downloader
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -56,8 +54,15 @@ func newServiceAccount(refreshToken string, log *slog.Logger) *serviceAccount {
 }
 
 // setRefresher wires in the token-exchange callback. Safe to
-// call at any time; concurrent Token callers pick up the new
-// refresher on their next refresh.
+// call at any time.
+//
+// Mid-refresh semantics: a concurrent Token call that's already
+// past its single-flight "take ownership of inflight" point
+// snapshots the OLD refresher under lock and completes with it.
+// Only subsequent Token calls see the new refresher. In practice
+// setRefresher is called once at server startup before any
+// Token call fires, so the concurrent path is only exercised
+// under test — but the snapshot ensures correctness either way.
 func (sa *serviceAccount) setRefresher(r TokenRefresher) {
 	sa.mu.Lock()
 	sa.refresher = r
@@ -137,24 +142,3 @@ func (sa *serviceAccount) Token(ctx context.Context) string {
 	return flight.token
 }
 
-// ErrNoRefresher is returned by callers that required a valid
-// refresher — currently only tests touch this path.
-var ErrNoRefresher = errors.New("downloader: service account has no refresher wired")
-
-// debugString is a test hook that surfaces the cache state
-// without exposing the struct fields. Concatenated so a single
-// log line reads cleanly.
-func (sa *serviceAccount) debugString() string {
-	sa.mu.Lock()
-	defer sa.mu.Unlock()
-	return fmt.Sprintf("access=%q expires=%s inflight=%v",
-		redact(sa.access), sa.expires.Format(time.RFC3339), sa.inflight != nil)
-}
-
-// redact masks all but the last 4 chars of a token for log safety.
-func redact(s string) string {
-	if len(s) <= 4 {
-		return "****"
-	}
-	return "****" + s[len(s)-4:]
-}

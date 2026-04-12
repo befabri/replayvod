@@ -285,6 +285,17 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	var abortErr *GapAbortError
 	var authErr error
 	for res := range results {
+		// LastMediaSeq advances on EVERY outcome — success, gap,
+		// or auth error. The auth-refresh caller uses it as the
+		// next attempt's StartMediaSeq, so advancing past an
+		// auth-errored segment means that segment is not retried
+		// on refresh: it becomes a gap. Deliberate trade-off —
+		// on a fast CDN-window-roll refresh cycle the segment has
+		// likely already rolled off the edge by the time a new
+		// signed URL exists, so retrying would 404 anyway. The
+		// spec's first-content guard + per-attempt gap policy
+		// still protect against "every segment auth-failed" as
+		// silent corruption.
 		if res.MediaSeq > result.LastMediaSeq {
 			result.LastMediaSeq = res.MediaSeq
 		}
