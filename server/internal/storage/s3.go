@@ -39,6 +39,13 @@ type S3Storage struct {
 // S3Options configures the client. Endpoint is optional; empty means
 // AWS default resolution. Region is required even for MinIO (pass any
 // value — "us-east-1" works).
+//
+// AccessKey + SecretKey are optional. When either is empty, NewS3
+// skips the static credentials provider so the AWS SDK walks its
+// default chain (env vars, shared credentials file, EC2/ECS
+// metadata, SSO, etc.). Set both only when you explicitly want to
+// pin credentials in config — production IAM-role deployments should
+// leave them empty.
 type S3Options struct {
 	Endpoint  string
 	Bucket    string

@@ -132,13 +132,22 @@ func main() {
 		log.Info("Storage initialized", "type", "local", "path", local.Root)
 
 	case "s3":
+		// Path-style default: on when a custom endpoint is set (MinIO
+		// and most self-hosted S3 implementations require it), off for
+		// AWS. Operators on providers that disagree with the heuristic
+		// (some Wasabi/DO Spaces setups prefer virtual-hosted even with
+		// a custom endpoint) override via use_path_style in TOML.
+		usePathStyle := cfg.App.Storage.S3.Endpoint != ""
+		if cfg.App.Storage.S3.UsePathStyle != nil {
+			usePathStyle = *cfg.App.Storage.S3.UsePathStyle
+		}
 		s3opts := storage.S3Options{
 			Endpoint:     cfg.App.Storage.S3.Endpoint,
 			Bucket:       cfg.App.Storage.S3.Bucket,
 			Region:       cfg.App.Storage.S3.Region,
 			AccessKey:    cfg.App.Storage.S3.AccessKey,
 			SecretKey:    cfg.App.Storage.S3.SecretKey,
-			UsePathStyle: cfg.App.Storage.S3.Endpoint != "",
+			UsePathStyle: usePathStyle,
 		}
 		s3store, err := storage.NewS3(ctx, s3opts)
 		if err != nil {

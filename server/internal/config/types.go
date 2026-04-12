@@ -75,14 +75,42 @@ type StorageConfig struct {
 	Rclone    RcloneConfig `toml:"rclone"`
 }
 
+// S3Config holds S3-compatible storage options. Leave AccessKey and
+// SecretKey empty to delegate to the AWS SDK's default credential
+// chain (env vars AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, shared
+// credentials file, EC2 instance metadata, etc.) — recommended for
+// production IAM-role deployments.
+//
+// Endpoint is optional; empty uses AWS default resolution. Set for
+// self-hosted (MinIO, Ceph) or alternate clouds (R2, DO Spaces,
+// Wasabi).
+//
+// UsePathStyle is a 3-state toggle: nil pointer lets the backend pick
+// (path-style when Endpoint is set — required for MinIO — otherwise
+// virtual-hosted style matching AWS). Set explicitly when a provider
+// disagrees with the heuristic (some DO Spaces / Wasabi setups
+// prefer virtual-hosted even with a custom endpoint).
 type S3Config struct {
-	Endpoint  string `toml:"endpoint"`
-	Bucket    string `toml:"bucket"`
-	Region    string `toml:"region"`
-	AccessKey string `toml:"access_key"`
-	SecretKey string `toml:"secret_key"`
+	Endpoint     string `toml:"endpoint"`
+	Bucket       string `toml:"bucket"`
+	Region       string `toml:"region"`
+	AccessKey    string `toml:"access_key"`
+	SecretKey    string `toml:"secret_key"`
+	UsePathStyle *bool  `toml:"use_path_style"`
 }
 
+// RcloneConfig drives the rclone-shell-out backend.
+//
+// Trade-offs:
+//   - Save is streaming (rclone rcat) — cheap.
+//   - Open buffers the whole object into a local tempfile before
+//     returning a Seeker, because rclone's CLI doesn't expose a
+//     byte-range read that composes with io.Seeker.
+//
+// Pick rclone for archival tiering (S3 Glacier via rclone, Backblaze
+// cold, SFTP to NAS). For hot playback where multiple clients stream
+// concurrently, use the S3 backend instead — its Open is ranged and
+// memory-bounded.
 type RcloneConfig struct {
 	Remote string `toml:"remote"`
 }

@@ -138,6 +138,17 @@ func (h *rcloneTempHandle) Close() error {
 }
 
 func (r *RcloneStorage) Delete(ctx context.Context, p string) error {
+	// Probe with Stat first: lsjson's "missing" signal is structured
+	// and stable across rclone versions, whereas deletefile's stderr
+	// phrasing drifted historically ("object not found" vs
+	// "directory not found" vs newer variants). Idempotent Delete is
+	// a Storage contract — callers rely on it for cleanup retries.
+	if _, err := r.Stat(ctx, p); err != nil {
+		if errors.As(err, new(errNotFound)) {
+			return nil
+		}
+		return err
+	}
 	target, err := r.joinRemote(p)
 	if err != nil {
 		return err
@@ -146,13 +157,6 @@ func (r *RcloneStorage) Delete(ctx context.Context, p string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		// rclone returns non-zero when the target doesn't exist.
-		// Swallow that case to keep Delete idempotent — callers
-		// rely on it for cleanup retries.
-		if strings.Contains(stderr.String(), "object not found") ||
-			strings.Contains(stderr.String(), "directory not found") {
-			return nil
-		}
 		return fmt.Errorf("rclone deletefile %s: %w (stderr: %s)", target, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
