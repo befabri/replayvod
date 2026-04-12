@@ -49,10 +49,24 @@ sql:
             nullable: true
             go_type: { type: "int64", pointer: true }
 
+          # Nullable integer → *int32 (4-byte)
+          - db_type: "pg_catalog.int4"
+            nullable: true
+            go_type: { type: "int32", pointer: true }
+
           # Nullable double → *float64
           - db_type: "pg_catalog.float8"
             nullable: true
             go_type: { type: "float64", pointer: true }
+
+          # JSONB → json.RawMessage (semantically equivalent to []byte but
+          # self-documenting at call sites: reviewers see "this is JSON, not
+          # arbitrary bytes"). Applies to both NOT NULL and NULL columns.
+          - db_type: "jsonb"
+            go_type: { import: "encoding/json", type: "RawMessage" }
+          - db_type: "jsonb"
+            nullable: true
+            go_type: { import: "encoding/json", type: "RawMessage" }
 
   - engine: "sqlite"
     queries: "./queries/sqlite"

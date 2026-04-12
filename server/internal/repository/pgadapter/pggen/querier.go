@@ -12,33 +12,64 @@ import (
 type Querier interface {
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
 	AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error
+	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
+	ClearScheduleTags(ctx context.Context, scheduleID int64) error
+	// Retention trim: scheduler task nulls the payload on rows older than
+	// webhook_event_payload_retention_days. The row (with audit metadata)
+	// stays; just the fat JSON column goes.
+	ClearWebhookEventPayload(ctx context.Context, receivedAt time.Time) error
+	CountActiveSubscriptions(ctx context.Context) (int64, error)
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
 	CountUserSessions(ctx context.Context, userID string) (int64, error)
 	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
+	CountWebhookEvents(ctx context.Context) (int64, error)
+	CountWebhookEventsByType(ctx context.Context, eventType *string) (int64, error)
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
+	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (DownloadSchedule, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
+	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) (EventsubSnapshot, error)
+	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
 	CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error)
 	CreateVideoPart(ctx context.Context, arg CreateVideoPartParams) (VideoPart, error)
+	// Idempotent: Twitch retries with the same Message-Id on delivery failure.
+	// ON CONFLICT DO NOTHING avoids double-processing; the RETURNING is NULL
+	// on conflict so the handler knows the event was already recorded.
+	CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteOldFetchLogs(ctx context.Context, fetchedAt time.Time) error
+	// Retention: the dashboard chart wants maybe 30 days of history; older
+	// snapshots get pruned by the scheduler task.
+	DeleteOldSnapshots(ctx context.Context, fetchedAt time.Time) error
+	DeleteSchedule(ctx context.Context, id int64) error
 	DeleteSession(ctx context.Context, hashedID string) error
+	// Hard-delete. Only intended for cleanup after a full system teardown or
+	// rebuild; production code paths should call MarkSubscriptionRevoked.
+	DeleteSubscription(ctx context.Context, id string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
 	FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartParams) error
+	// Respects the partial UNIQUE: at most one active (non-revoked) sub per
+	// (broadcaster_id, type). Used before creating to prevent duplicate calls
+	// to Twitch that would fail with 409.
+	GetActiveSubscriptionForBroadcasterType(ctx context.Context, arg GetActiveSubscriptionForBroadcasterTypeParams) (Subscription, error)
 	GetCategory(ctx context.Context, id string) (Category, error)
 	GetCategoryByName(ctx context.Context, name string) (Category, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (Stream, error)
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
+	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
+	GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
+	GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
 	GetStream(ctx context.Context, id string) (Stream, error)
+	GetSubscription(ctx context.Context, id string) (Subscription, error)
 	GetTag(ctx context.Context, id int64) (Tag, error)
 	GetTagByName(ctx context.Context, name string) (Tag, error)
 	GetUser(ctx context.Context, id string) (User, error)
@@ -46,14 +77,27 @@ type Querier interface {
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
+	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
+	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
+	LinkScheduleCategory(ctx context.Context, arg LinkScheduleCategoryParams) error
+	LinkScheduleTag(ctx context.Context, arg LinkScheduleTagParams) error
+	// Called once per (snapshot, subscription) pair when the EventSub poller
+	// records a snapshot. cost_at_snapshot and status_at_snapshot freeze the
+	// subscription's state at snapshot time so historical queries don't
+	// silently return the CURRENT values after a status/cost change.
+	LinkSnapshotSubscription(ctx context.Context, arg LinkSnapshotSubscriptionParams) error
 	LinkStreamCategory(ctx context.Context, arg LinkStreamCategoryParams) error
 	LinkStreamTag(ctx context.Context, arg LinkStreamTagParams) error
 	LinkStreamTitle(ctx context.Context, arg LinkStreamTitleParams) error
 	LinkVideoCategory(ctx context.Context, arg LinkVideoCategoryParams) error
 	LinkVideoTag(ctx context.Context, arg LinkVideoTagParams) error
 	LinkVideoTitle(ctx context.Context, arg LinkVideoTitleParams) error
+	// Match path: called on every stream.online event. Partial index
+	// idx_schedules_active makes this O(log active_schedules).
+	ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]DownloadSchedule, error)
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
+	ListActiveSubscriptions(ctx context.Context, arg ListActiveSubscriptionsParams) ([]Subscription, error)
 	ListCategories(ctx context.Context) ([]Category, error)
 	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
@@ -61,7 +105,19 @@ type Querier interface {
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
+	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
+	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
+	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]DownloadSchedule, error)
+	ListSchedulesForUser(ctx context.Context, arg ListSchedulesForUserParams) ([]DownloadSchedule, error)
+	ListSnapshots(ctx context.Context, arg ListSnapshotsParams) ([]EventsubSnapshot, error)
 	ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsByBroadcasterParams) ([]Stream, error)
+	// Dashboard "stuck" query: status='received' rows older than a threshold
+	// indicate the handler crashed mid-processing. Partial index
+	// idx_webhook_events_received_status keeps this fast.
+	ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error)
+	ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID *string) ([]Subscription, error)
+	ListSubscriptionsByType(ctx context.Context, type_ string) ([]Subscription, error)
+	ListSubscriptionsForSnapshot(ctx context.Context, snapshotID int64) ([]ListSubscriptionsForSnapshotRow, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
@@ -76,18 +132,35 @@ type Querier interface {
 	ListVideosByCategory(ctx context.Context, arg ListVideosByCategoryParams) ([]Video, error)
 	ListVideosByStatus(ctx context.Context, arg ListVideosByStatusParams) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
+	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
+	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
+	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
 	ListWhitelist(ctx context.Context) ([]Whitelist, error)
+	// Soft-delete. Called when Twitch sends a revocation message or when we
+	// issue a DELETE via the Helix API. Preserves the row for audit; the
+	// partial UNIQUE index then allows creating a replacement subscription.
+	MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error
 	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
+	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
+	MarkWebhookEventProcessed(ctx context.Context, id int64) error
+	// Atomic increment + timestamp stamp. Called after a successful auto-download
+	// trigger so the dashboard can show "this schedule fired N times, last at T".
+	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
 	SoftDeleteVideo(ctx context.Context, id int64) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
 	StatisticsTotals(ctx context.Context) (StatisticsTotalsRow, error)
+	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
+	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
+	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
+	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
 	UpdateStreamViewers(ctx context.Context, arg UpdateStreamViewersParams) error
+	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)

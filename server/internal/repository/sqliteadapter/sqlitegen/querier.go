@@ -6,38 +6,57 @@ package sqlitegen
 
 import (
 	"context"
+	"database/sql"
 )
 
 type Querier interface {
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
 	AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error
+	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
+	ClearScheduleTags(ctx context.Context, scheduleID int64) error
+	ClearWebhookEventPayload(ctx context.Context, receivedAt string) error
+	CountActiveSubscriptions(ctx context.Context) (int64, error)
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
 	CountUserSessions(ctx context.Context, userID string) (int64, error)
 	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
+	CountWebhookEvents(ctx context.Context) (int64, error)
+	CountWebhookEventsByType(ctx context.Context, eventType sql.NullString) (int64, error)
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
+	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (DownloadSchedule, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
+	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) (EventsubSnapshot, error)
+	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
 	CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error)
 	CreateVideoPart(ctx context.Context, arg CreateVideoPartParams) (VideoPart, error)
+	CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteOldFetchLogs(ctx context.Context, fetchedAt string) error
+	DeleteOldSnapshots(ctx context.Context, fetchedAt string) error
+	DeleteSchedule(ctx context.Context, id int64) error
 	DeleteSession(ctx context.Context, hashedID string) error
+	DeleteSubscription(ctx context.Context, id string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
 	FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartParams) error
+	GetActiveSubscriptionForBroadcasterType(ctx context.Context, arg GetActiveSubscriptionForBroadcasterTypeParams) (Subscription, error)
 	GetCategory(ctx context.Context, id string) (Category, error)
 	GetCategoryByName(ctx context.Context, name string) (Category, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (Stream, error)
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
+	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
+	GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
+	GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
 	GetStream(ctx context.Context, id string) (Stream, error)
+	GetSubscription(ctx context.Context, id string) (Subscription, error)
 	GetTag(ctx context.Context, id int64) (Tag, error)
 	GetTagByName(ctx context.Context, name string) (Tag, error)
 	GetUser(ctx context.Context, id string) (User, error)
@@ -45,21 +64,37 @@ type Querier interface {
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
+	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
+	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
+	LinkScheduleCategory(ctx context.Context, arg LinkScheduleCategoryParams) error
+	LinkScheduleTag(ctx context.Context, arg LinkScheduleTagParams) error
+	LinkSnapshotSubscription(ctx context.Context, arg LinkSnapshotSubscriptionParams) error
 	LinkStreamCategory(ctx context.Context, arg LinkStreamCategoryParams) error
 	LinkStreamTag(ctx context.Context, arg LinkStreamTagParams) error
 	LinkStreamTitle(ctx context.Context, arg LinkStreamTitleParams) error
 	LinkVideoCategory(ctx context.Context, arg LinkVideoCategoryParams) error
 	LinkVideoTag(ctx context.Context, arg LinkVideoTagParams) error
 	LinkVideoTitle(ctx context.Context, arg LinkVideoTitleParams) error
+	ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]DownloadSchedule, error)
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
+	ListActiveSubscriptions(ctx context.Context, arg ListActiveSubscriptionsParams) ([]Subscription, error)
 	ListCategories(ctx context.Context) ([]Category, error)
 	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
+	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
+	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
+	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]DownloadSchedule, error)
+	ListSchedulesForUser(ctx context.Context, arg ListSchedulesForUserParams) ([]DownloadSchedule, error)
+	ListSnapshots(ctx context.Context, arg ListSnapshotsParams) ([]EventsubSnapshot, error)
 	ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsByBroadcasterParams) ([]Stream, error)
+	ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error)
+	ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID sql.NullString) ([]Subscription, error)
+	ListSubscriptionsByType(ctx context.Context, type_ string) ([]Subscription, error)
+	ListSubscriptionsForSnapshot(ctx context.Context, snapshotID int64) ([]ListSubscriptionsForSnapshotRow, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
@@ -74,18 +109,32 @@ type Querier interface {
 	ListVideosByCategory(ctx context.Context, arg ListVideosByCategoryParams) ([]Video, error)
 	ListVideosByStatus(ctx context.Context, arg ListVideosByStatusParams) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
+	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
+	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
+	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
 	ListWhitelist(ctx context.Context) ([]Whitelist, error)
+	MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error
 	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
+	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
+	MarkWebhookEventProcessed(ctx context.Context, id int64) error
+	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
 	SoftDeleteVideo(ctx context.Context, id int64) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
 	StatisticsTotals(ctx context.Context) (StatisticsTotalsRow, error)
+	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
+	// between 0/1 explicitly via CASE for clarity on non-boolean-ish values.
+	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
+	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
+	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
+	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
 	UpdateStreamViewers(ctx context.Context, arg UpdateStreamViewersParams) error
+	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)

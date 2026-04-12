@@ -5,6 +5,7 @@
 package pggen
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -38,6 +39,42 @@ type Channel struct {
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
+type DownloadSchedule struct {
+	ID               int64      `json:"id"`
+	BroadcasterID    string     `json:"broadcaster_id"`
+	RequestedBy      string     `json:"requested_by"`
+	Quality          string     `json:"quality"`
+	HasMinViewers    bool       `json:"has_min_viewers"`
+	MinViewers       *int32     `json:"min_viewers"`
+	HasCategories    bool       `json:"has_categories"`
+	HasTags          bool       `json:"has_tags"`
+	IsDeleteRediff   bool       `json:"is_delete_rediff"`
+	TimeBeforeDelete *int32     `json:"time_before_delete"`
+	IsDisabled       bool       `json:"is_disabled"`
+	LastTriggeredAt  *time.Time `json:"last_triggered_at"`
+	TriggerCount     int64      `json:"trigger_count"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+type DownloadScheduleCategory struct {
+	ScheduleID int64  `json:"schedule_id"`
+	CategoryID string `json:"category_id"`
+}
+
+type DownloadScheduleTag struct {
+	ScheduleID int64 `json:"schedule_id"`
+	TagID      int64 `json:"tag_id"`
+}
+
+type EventsubSnapshot struct {
+	ID           int64     `json:"id"`
+	Total        int32     `json:"total"`
+	TotalCost    int32     `json:"total_cost"`
+	MaxTotalCost int32     `json:"max_total_cost"`
+	FetchedAt    time.Time `json:"fetched_at"`
+}
+
 type FetchLog struct {
 	ID            int64     `json:"id"`
 	UserID        *string   `json:"user_id"`
@@ -58,6 +95,13 @@ type Session struct {
 	UserAgent       *string   `json:"user_agent"`
 	IpAddress       *string   `json:"ip_address"`
 	CreatedAt       time.Time `json:"created_at"`
+}
+
+type SnapshotSubscription struct {
+	SnapshotID       int64  `json:"snapshot_id"`
+	SubscriptionID   string `json:"subscription_id"`
+	CostAtSnapshot   int32  `json:"cost_at_snapshot"`
+	StatusAtSnapshot string `json:"status_at_snapshot"`
 }
 
 type Stream struct {
@@ -86,6 +130,22 @@ type StreamTag struct {
 type StreamTitle struct {
 	StreamID string `json:"stream_id"`
 	TitleID  int64  `json:"title_id"`
+}
+
+type Subscription struct {
+	ID                string          `json:"id"`
+	Status            string          `json:"status"`
+	Type              string          `json:"type"`
+	Version           string          `json:"version"`
+	Cost              int32           `json:"cost"`
+	Condition         json.RawMessage `json:"condition"`
+	BroadcasterID     *string         `json:"broadcaster_id"`
+	TransportMethod   string          `json:"transport_method"`
+	TransportCallback string          `json:"transport_callback"`
+	TwitchCreatedAt   time.Time       `json:"twitch_created_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+	RevokedAt         *time.Time      `json:"revoked_at"`
+	RevokedReason     *string         `json:"revoked_reason"`
 }
 
 type Tag struct {
@@ -173,6 +233,21 @@ type VideoTag struct {
 type VideoTitle struct {
 	VideoID int64 `json:"video_id"`
 	TitleID int64 `json:"title_id"`
+}
+
+type WebhookEvent struct {
+	ID               int64           `json:"id"`
+	EventID          string          `json:"event_id"`
+	MessageType      string          `json:"message_type"`
+	EventType        *string         `json:"event_type"`
+	SubscriptionID   *string         `json:"subscription_id"`
+	BroadcasterID    *string         `json:"broadcaster_id"`
+	MessageTimestamp time.Time       `json:"message_timestamp"`
+	Payload          json.RawMessage `json:"payload"`
+	Status           string          `json:"status"`
+	Error            *string         `json:"error"`
+	ReceivedAt       time.Time       `json:"received_at"`
+	ProcessedAt      *time.Time      `json:"processed_at"`
 }
 
 type Whitelist struct {

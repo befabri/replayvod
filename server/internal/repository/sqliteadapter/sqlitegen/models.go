@@ -38,6 +38,42 @@ type Channel struct {
 	UpdatedAt           string         `json:"updated_at"`
 }
 
+type DownloadSchedule struct {
+	ID               int64          `json:"id"`
+	BroadcasterID    string         `json:"broadcaster_id"`
+	RequestedBy      string         `json:"requested_by"`
+	Quality          string         `json:"quality"`
+	HasMinViewers    int64          `json:"has_min_viewers"`
+	MinViewers       sql.NullInt64  `json:"min_viewers"`
+	HasCategories    int64          `json:"has_categories"`
+	HasTags          int64          `json:"has_tags"`
+	IsDeleteRediff   int64          `json:"is_delete_rediff"`
+	TimeBeforeDelete sql.NullInt64  `json:"time_before_delete"`
+	IsDisabled       int64          `json:"is_disabled"`
+	LastTriggeredAt  sql.NullString `json:"last_triggered_at"`
+	TriggerCount     int64          `json:"trigger_count"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
+}
+
+type DownloadScheduleCategory struct {
+	ScheduleID int64  `json:"schedule_id"`
+	CategoryID string `json:"category_id"`
+}
+
+type DownloadScheduleTag struct {
+	ScheduleID int64 `json:"schedule_id"`
+	TagID      int64 `json:"tag_id"`
+}
+
+type EventsubSnapshot struct {
+	ID           int64  `json:"id"`
+	Total        int64  `json:"total"`
+	TotalCost    int64  `json:"total_cost"`
+	MaxTotalCost int64  `json:"max_total_cost"`
+	FetchedAt    string `json:"fetched_at"`
+}
+
 type FetchLog struct {
 	ID            int64          `json:"id"`
 	UserID        sql.NullString `json:"user_id"`
@@ -58,6 +94,13 @@ type Session struct {
 	UserAgent       sql.NullString `json:"user_agent"`
 	IpAddress       sql.NullString `json:"ip_address"`
 	CreatedAt       string         `json:"created_at"`
+}
+
+type SnapshotSubscription struct {
+	SnapshotID       int64  `json:"snapshot_id"`
+	SubscriptionID   string `json:"subscription_id"`
+	CostAtSnapshot   int64  `json:"cost_at_snapshot"`
+	StatusAtSnapshot string `json:"status_at_snapshot"`
 }
 
 type Stream struct {
@@ -86,6 +129,22 @@ type StreamTag struct {
 type StreamTitle struct {
 	StreamID string `json:"stream_id"`
 	TitleID  int64  `json:"title_id"`
+}
+
+type Subscription struct {
+	ID                string         `json:"id"`
+	Status            string         `json:"status"`
+	Type              string         `json:"type"`
+	Version           string         `json:"version"`
+	Cost              int64          `json:"cost"`
+	Condition         string         `json:"condition"`
+	BroadcasterID     sql.NullString `json:"broadcaster_id"`
+	TransportMethod   string         `json:"transport_method"`
+	TransportCallback string         `json:"transport_callback"`
+	TwitchCreatedAt   string         `json:"twitch_created_at"`
+	CreatedAt         string         `json:"created_at"`
+	RevokedAt         sql.NullString `json:"revoked_at"`
+	RevokedReason     sql.NullString `json:"revoked_reason"`
 }
 
 type Tag struct {
@@ -173,6 +232,21 @@ type VideoTag struct {
 type VideoTitle struct {
 	VideoID int64 `json:"video_id"`
 	TitleID int64 `json:"title_id"`
+}
+
+type WebhookEvent struct {
+	ID               int64          `json:"id"`
+	EventID          string         `json:"event_id"`
+	MessageType      string         `json:"message_type"`
+	EventType        sql.NullString `json:"event_type"`
+	SubscriptionID   sql.NullString `json:"subscription_id"`
+	BroadcasterID    sql.NullString `json:"broadcaster_id"`
+	MessageTimestamp string         `json:"message_timestamp"`
+	Payload          sql.NullString `json:"payload"`
+	Status           string         `json:"status"`
+	Error            sql.NullString `json:"error"`
+	ReceivedAt       string         `json:"received_at"`
+	ProcessedAt      sql.NullString `json:"processed_at"`
 }
 
 type Whitelist struct {
