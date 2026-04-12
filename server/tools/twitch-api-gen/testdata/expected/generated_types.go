@@ -139,12 +139,12 @@ type DeleteEventSubSubscriptionParams struct {
 
 // GetChannelInformationParams are the query parameters for get-channel-information.
 type GetChannelInformationParams struct {
-	BroadcasterID []string `url:"broadcaster_id"`
+	BroadcasterID []string `url:"broadcaster_id" validate:"omitempty,max=100"`
 }
 
 // GetEventSubSubscriptionsParams are the query parameters for get-eventsub-subscriptions.
 type GetEventSubSubscriptionsParams struct {
-	Status         string `url:"status,omitempty"`
+	Status         string `url:"status,omitempty" validate:"omitempty,oneof=enabled webhook_callback_verification_pending webhook_callback_verification_failed notification_failures_exceeded authorization_revoked moderator_removed user_removed chat_user_banned version_removed beta_maintenance websocket_disconnected websocket_failed_ping_pong websocket_received_inbound_traffic websocket_connection_unused websocket_internal_error websocket_network_timeout websocket_network_error websocket_failed_to_reconnect"`
 	Type           string `url:"type,omitempty"`
 	UserID         string `url:"user_id,omitempty"`
 	SubscriptionID string `url:"subscription_id,omitempty"`
@@ -168,18 +168,18 @@ type GetFollowedStreamsParams struct {
 
 // GetGamesParams are the query parameters for get-games.
 type GetGamesParams struct {
-	ID     []string `url:"id"`
+	ID     []string `url:"id" validate:"omitempty,max=100"`
 	Name   []string `url:"name"`
-	IGDBID []string `url:"igdb_id"`
+	IGDBID []string `url:"igdb_id" validate:"omitempty,max=100"`
 }
 
 // GetStreamsParams are the query parameters for get-streams.
 type GetStreamsParams struct {
-	UserID    []string `url:"user_id"`
+	UserID    []string `url:"user_id" validate:"omitempty,max=100"`
 	UserLogin []string `url:"user_login"`
-	GameID    []string `url:"game_id"`
-	Type      string   `url:"type,omitempty"`
-	Language  []string `url:"language"`
+	GameID    []string `url:"game_id" validate:"omitempty,max=100"`
+	Type      string   `url:"type,omitempty" validate:"omitempty,oneof=all live"`
+	Language  []string `url:"language" validate:"omitempty,len=2"`
 	First     int      `url:"first,omitempty"`
 	Before    string   `url:"before,omitempty"`
 	After     string   `url:"after,omitempty"`
@@ -200,16 +200,21 @@ type GetUsersParams struct {
 
 // GetVideosParams are the query parameters for get-videos.
 type GetVideosParams struct {
-	ID       []string `url:"id"`
+	ID       []string `url:"id" validate:"omitempty,max=100"`
 	UserID   string   `url:"user_id,omitempty"`
 	GameID   string   `url:"game_id,omitempty"`
-	Language string   `url:"language,omitempty"`
-	Period   string   `url:"period,omitempty"`
-	Sort     string   `url:"sort,omitempty"`
-	Type     string   `url:"type,omitempty"`
+	Language string   `url:"language,omitempty" validate:"omitempty,len=2"`
+	Period   string   `url:"period,omitempty" validate:"omitempty,oneof=all day month week"`
+	Sort     string   `url:"sort,omitempty" validate:"omitempty,oneof=time trending views"`
+	Type     string   `url:"type,omitempty" validate:"omitempty,oneof=all archive highlight upload"`
 	First    string   `url:"first,omitempty"`
 	After    string   `url:"after,omitempty"`
 	Before   string   `url:"before,omitempty"`
+}
+
+// ModifyChannelInformationParams are the query parameters for modify-channel-information.
+type ModifyChannelInformationParams struct {
+	BroadcasterID string `url:"broadcaster_id,omitempty"`
 }
 
 // CreateEventSubSubscriptionBody is the JSON request body for create-eventsub-subscription.
@@ -218,4 +223,15 @@ type CreateEventSubSubscriptionBody struct {
 	Version   string            `json:"version"`
 	Condition EventSubCondition `json:"condition"`
 	Transport EventSubTransport `json:"transport"`
+}
+
+// ModifyChannelInformationBody is the JSON request body for modify-channel-information.
+type ModifyChannelInformationBody struct {
+	GameID                      string   `json:"game_id,omitempty"`
+	BroadcasterLanguage         string   `json:"broadcaster_language,omitempty" validate:"omitempty,len=2"`
+	Title                       string   `json:"title,omitempty"`
+	Delay                       int      `json:"delay,omitempty"`
+	Tags                        []string `json:"tags,omitempty" validate:"omitempty,max=10,dive,max=25"`
+	ContentClassificationLabels any      `json:"content_classification_labels,omitempty"`
+	IsBrandedContent            bool     `json:"is_branded_content,omitempty"`
 }

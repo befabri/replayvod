@@ -5,6 +5,7 @@ var endpoints = []string{
 	// Phase 3
 	"get-users",
 	"get-channel-information",
+	"modify-channel-information",
 	"get-followed-channels",
 	"get-games",
 	"get-top-games",

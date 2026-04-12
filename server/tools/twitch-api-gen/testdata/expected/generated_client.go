@@ -250,3 +250,14 @@ func (c *Client) GetVideosAll(ctx context.Context, params *GetVideosParams) ([]V
 		params.After = pagination.Cursor
 	}
 }
+
+// ModifyChannelInformation — Updates a channel’s properties.
+// PATCH /channels
+// Auth: user (scopes: channel:manage:broadcast)
+// https://dev.twitch.tv/docs/api/reference#modify-channel-information
+func (c *Client) ModifyChannelInformation(ctx context.Context, params *ModifyChannelInformationParams, body *ModifyChannelInformationBody) error {
+	if err := c.patch(ctx, "/channels", params, body, nil); err != nil {
+		return err
+	}
+	return nil
+}
