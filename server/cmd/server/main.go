@@ -186,6 +186,20 @@ func main() {
 		})
 	}
 
+	// Resume in-flight downloads from the previous process
+	// lifetime. Must run after SetOAuthRefresher (resumed jobs
+	// may hit the service-account refresh path) and before the
+	// HTTP server accepts requests (a concurrent Start would
+	// race resume over the active map + concurrency cap).
+	//
+	// Sweeps orphaned scratch dirs as a side effect; on a clean
+	// boot with no RUNNING jobs this is the only place the
+	// sweep runs.
+	if err := dl.Resume(ctx); err != nil {
+		log.Error("Failed to resume in-flight downloads", "error", err)
+		os.Exit(1)
+	}
+
 	// SSE bus: one set of topics shared between scheduler (publishes
 	// task status), schedule processor (publishes stream.live), and
 	// event-log writer (publishes system.events). Routing handlers
