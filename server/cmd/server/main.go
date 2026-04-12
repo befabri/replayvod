@@ -20,6 +20,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/server"
 	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
@@ -118,6 +119,23 @@ func main() {
 		log.Error("Failed to seed whitelist", "error", err)
 		os.Exit(1)
 	}
+
+	// Storage backend. Only local is wired in Phase 4; S3 + rclone land in Phase 8.
+	var store storage.Storage
+	switch cfg.App.Storage.Type {
+	case "", "local":
+		local, err := storage.NewLocal(cfg.App.Storage.LocalPath)
+		if err != nil {
+			log.Error("Failed to init local storage", "error", err)
+			os.Exit(1)
+		}
+		store = local
+		log.Info("Storage initialized", "type", "local", "path", local.Root)
+	default:
+		log.Error("Unsupported storage type", "type", cfg.App.Storage.Type)
+		os.Exit(1)
+	}
+	_ = store // wired into downloader/streaming handlers later in Phase 4
 
 	// Setup graceful shutdown
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
