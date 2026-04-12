@@ -106,19 +106,22 @@ func translate(rawType, nestedName string) string {
 // Ported selectively from RESPONSE_BODY_SCHEMA_NAMES in constants.ts —
 // only entries relevant to Phase 3/4/5 are included.
 var responseBodySchemaNames = map[string]string{
-	"get-users":                    "User",
-	"get-channel-information":      "ChannelInformation",
-	"get-games":                    "Game",
-	"get-top-games":                "Game",
-	"get-streams":                  "Stream",
-	"get-followed-streams":         "Stream",
-	"get-videos":                   "Video",
-	"get-followed-channels":        "FollowedChannel",
-	"create-eventsub-subscription": "EventSubSubscription",
-	"get-eventsub-subscriptions":   "EventSubSubscription",
-	"get-clips":                    "Clip",
-	"create-stream-marker":         "StreamMarkerCreated",
-	"get-stream-markers":           "StreamMarkers",
+	"get-users":                              "User",
+	"get-channel-information":                "ChannelInformation",
+	"get-games":                              "Game",
+	"get-top-games":                          "Game",
+	"get-streams":                            "Stream",
+	"get-followed-streams":                   "Stream",
+	"get-videos":                             "Video",
+	"get-followed-channels":                  "FollowedChannel",
+	"create-eventsub-subscription":           "EventSubSubscription",
+	"get-eventsub-subscriptions":             "EventSubSubscription",
+	"get-clips":                              "Clip",
+	"create-stream-marker":                   "StreamMarkerCreated",
+	"get-stream-markers":                     "StreamMarkers",
+	"get-channel-stream-schedule":            "ChannelStreamSchedule",
+	"create-channel-stream-schedule-segment": "ChannelStreamSchedule",
+	"update-channel-stream-schedule-segment": "ChannelStreamSchedule",
 }
 
 // responseItemType returns the struct name for the `data[]` element of an endpoint,
@@ -152,4 +155,3 @@ func IsArrayParam(description string) bool {
 	}
 	return false
 }
-
