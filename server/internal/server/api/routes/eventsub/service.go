@@ -196,7 +196,7 @@ func (s *Service) SubscribeStreamOnline(ctx context.Context, input SubscribeInpu
 
 type UnsubscribeInput struct {
 	ID     string `json:"id" validate:"required"`
-	Reason string `json:"reason"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type UnsubscribeResponse struct {

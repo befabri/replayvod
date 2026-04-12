@@ -211,7 +211,7 @@ func (s *Service) Statistics(ctx context.Context) (StatisticsResponse, error) {
 // TriggerDownloadInput starts a manual download for a live broadcaster.
 type TriggerDownloadInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
-	Quality       string `json:"quality" validate:"omitempty,oneof=LOW MEDIUM HIGH"`
+	Quality       string `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH"`
 }
 
 // TriggerDownloadResponse returns the job id so the UI can subscribe to progress.
