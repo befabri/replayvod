@@ -93,6 +93,21 @@ export function Sidebar() {
 						label={t("nav.settings")}
 						onNavigate={() => setOpen(false)}
 					/>
+					<NavLink
+						to="/dashboard/sessions"
+						label={t("nav.sessions")}
+						onNavigate={() => setOpen(false)}
+					/>
+					<NavLink
+						to="/dashboard/activity/queue"
+						label={t("nav.activity_queue")}
+						onNavigate={() => setOpen(false)}
+					/>
+					<NavLink
+						to="/dashboard/activity/history"
+						label={t("nav.activity_history")}
+						onNavigate={() => setOpen(false)}
+					/>
 					{user && hasRole(user, "owner") && (
 						<>
 							<div className="pt-4 pb-1 px-3 text-xs uppercase tracking-wide text-muted-foreground">

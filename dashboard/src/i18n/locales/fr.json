@@ -18,7 +18,10 @@
 		"events": "Événements",
 		"open_menu": "Ouvrir le menu",
 		"close_menu": "Fermer le menu",
-		"requests": "Demandes"
+		"requests": "Demandes",
+		"sessions": "Sessions",
+		"activity_queue": "File d'attente",
+		"activity_history": "Historique"
 	},
 	"auth": {
 		"login": "Se connecter avec Twitch",
