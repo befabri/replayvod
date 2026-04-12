@@ -20,26 +20,17 @@ type helixResponse[T any] struct {
 	MaxCost    int        `json:"max_total_cost,omitempty"`
 }
 
-// EventSubSubscriptionTransport is a nested object inside a generated response type.
-type EventSubSubscriptionTransport struct {
-	Method      string    `json:"method"`
-	Callback    string    `json:"callback,omitempty"`
-	SessionID   string    `json:"session_id,omitempty"`
-	ConnectedAt time.Time `json:"connected_at,omitempty"`
-	ConduitID   string    `json:"conduit_id,omitempty"`
-}
-
 // EventSubSubscription is the response item type for create-eventsub-subscription.
 // https://dev.twitch.tv/docs/api/reference#create-eventsub-subscription
 type EventSubSubscription struct {
-	ID        string                        `json:"id"`
-	Status    string                        `json:"status"`
-	Type      string                        `json:"type"`
-	Version   string                        `json:"version"`
-	Condition any                           `json:"condition"`
-	CreatedAt time.Time                     `json:"created_at"`
-	Transport EventSubSubscriptionTransport `json:"transport"`
-	Cost      int                           `json:"cost"`
+	ID        string            `json:"id"`
+	Status    string            `json:"status"`
+	Type      string            `json:"type"`
+	Version   string            `json:"version"`
+	Condition EventSubCondition `json:"condition"`
+	CreatedAt time.Time         `json:"created_at"`
+	Transport EventSubTransport `json:"transport"`
+	Cost      int               `json:"cost"`
 }
 
 // ChannelInformation is the response item type for get-channel-information.
@@ -99,17 +90,18 @@ type Game struct {
 // User is the response item type for get-users.
 // https://dev.twitch.tv/docs/api/reference#get-users
 type User struct {
-	ID              string    `json:"id"`
-	Login           string    `json:"login"`
-	DisplayName     string    `json:"display_name"`
-	Type            string    `json:"type"`
-	BroadcasterType string    `json:"broadcaster_type"`
-	Description     string    `json:"description"`
-	ProfileImageURL string    `json:"profile_image_url"`
-	OfflineImageURL string    `json:"offline_image_url"`
-	ViewCount       int       `json:"view_count"`
-	Email           string    `json:"email,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              string `json:"id"`
+	Login           string `json:"login"`
+	DisplayName     string `json:"display_name"`
+	Type            string `json:"type"`
+	BroadcasterType string `json:"broadcaster_type"`
+	Description     string `json:"description"`
+	ProfileImageURL string `json:"profile_image_url"`
+	OfflineImageURL string `json:"offline_image_url"`
+	// Deprecated: Twitch marks this field deprecated in the API reference.
+	ViewCount int       `json:"view_count"`
+	Email     string    `json:"email,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // VideoMutedSegment is a nested object inside a generated response type.
@@ -220,19 +212,10 @@ type GetVideosParams struct {
 	Before   string   `url:"before,omitempty"`
 }
 
-// CreateEventSubSubscriptionBodyTransport is a nested object inside a generated body type.
-type CreateEventSubSubscriptionBodyTransport struct {
-	Method    string `json:"method"`
-	Callback  string `json:"callback,omitempty"`
-	Secret    string `json:"secret,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	ConduitID string `json:"conduit_id,omitempty"`
-}
-
 // CreateEventSubSubscriptionBody is the JSON request body for create-eventsub-subscription.
 type CreateEventSubSubscriptionBody struct {
-	Type      string                                  `json:"type"`
-	Version   string                                  `json:"version"`
-	Condition any                                     `json:"condition"`
-	Transport CreateEventSubSubscriptionBodyTransport `json:"transport"`
+	Type      string            `json:"type"`
+	Version   string            `json:"version"`
+	Condition EventSubCondition `json:"condition"`
+	Transport EventSubTransport `json:"transport"`
 }
