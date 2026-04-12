@@ -209,6 +209,11 @@ func decodeEntitiesForMatch(s string) string {
 // htmlTagRe matches an HTML tag (open or close, with attrs). The regions
 // BETWEEN these matches are text content, where quote encoding differs from
 // attribute values.
+//
+// Naive: the pattern breaks on a tag whose attribute value contains a literal
+// `>` (e.g. `<a title="5>3">`). Twitch's docs don't emit that shape in any
+// fix's search/value string, so we accept the limitation. If a future fix's
+// string ever does, the fix won't apply and TestNormalize_AllFixesApply fires.
 var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
 
 var textQuoteReplacer = strings.NewReplacer(`"`, "&#34;", "'", "&#39;")
