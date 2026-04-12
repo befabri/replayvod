@@ -603,83 +603,6 @@ type AutomodMessageHoldEvent struct {
 	HeldAt               time.Time                      `json:"held_at"`
 }
 
-// AutomodMessageHoldEventV2MessageFragmentEmote is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2MessageFragmentEmote struct {
-	ID         string `json:"id"`
-	EmoteSetID string `json:"emote_set_id"`
-}
-
-// AutomodMessageHoldEventV2MessageFragmentCheermote is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2MessageFragmentCheermote struct {
-	Prefix string `json:"prefix"`
-	Bits   int    `json:"bits"`
-	Tier   int    `json:"tier"`
-}
-
-// AutomodMessageHoldEventV2MessageFragment is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2MessageFragment struct {
-	Type      string                                            `json:"type"`
-	Text      string                                            `json:"text"`
-	Emote     AutomodMessageHoldEventV2MessageFragmentEmote     `json:"emote"`
-	Cheermote AutomodMessageHoldEventV2MessageFragmentCheermote `json:"cheermote"`
-}
-
-// AutomodMessageHoldEventV2Message is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2Message struct {
-	Text      string                                     `json:"text"`
-	Fragments []AutomodMessageHoldEventV2MessageFragment `json:"fragments"`
-}
-
-// AutomodMessageHoldEventV2AutomodBoundary is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2AutomodBoundary struct {
-	StartPos int `json:"start_pos"`
-	EndPos   int `json:"end_pos"`
-}
-
-// AutomodMessageHoldEventV2Automod is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2Automod struct {
-	Category   string                                     `json:"category"`
-	Level      int                                        `json:"level"`
-	Boundaries []AutomodMessageHoldEventV2AutomodBoundary `json:"boundaries"`
-}
-
-// AutomodMessageHoldEventV2BlockedTermTermsFoundBoundary is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2BlockedTermTermsFoundBoundary struct {
-	StartPos int `json:"start_pos"`
-	EndPos   int `json:"end_pos"`
-}
-
-// AutomodMessageHoldEventV2BlockedTermTermsFound is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2BlockedTermTermsFound struct {
-	TermID                    string                                                 `json:"term_id"`
-	Boundary                  AutomodMessageHoldEventV2BlockedTermTermsFoundBoundary `json:"boundary"`
-	OwnerBroadcasterUserID    string                                                 `json:"owner_broadcaster_user_id"`
-	OwnerBroadcasterUserLogin string                                                 `json:"owner_broadcaster_user_login"`
-	OwnerBroadcasterUserName  string                                                 `json:"owner_broadcaster_user_name"`
-}
-
-// AutomodMessageHoldEventV2BlockedTerm is a nested object inside a generated EventSub event type.
-type AutomodMessageHoldEventV2BlockedTerm struct {
-	TermsFound []AutomodMessageHoldEventV2BlockedTermTermsFound `json:"terms_found"`
-}
-
-// AutomodMessageHoldEventV2 is the Event payload for subscription types sharing
-// anchor "automod-message-hold-event-v2" on the eventsub-reference page.
-type AutomodMessageHoldEventV2 struct {
-	BroadcasterUserID    string                               `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string                               `json:"broadcaster_user_login"`
-	BroadcasterUserName  string                               `json:"broadcaster_user_name"`
-	UserID               string                               `json:"user_id"`
-	UserLogin            string                               `json:"user_login"`
-	UserName             string                               `json:"user_name"`
-	MessageID            string                               `json:"message_id"`
-	Message              AutomodMessageHoldEventV2Message     `json:"message"`
-	HeldAt               time.Time                            `json:"held_at"`
-	Reason               string                               `json:"reason"`
-	Automod              AutomodMessageHoldEventV2Automod     `json:"automod"`
-	BlockedTerm          AutomodMessageHoldEventV2BlockedTerm `json:"blocked_term"`
-}
-
 // AutomodMessageUpdateEventMessageFragmentEmote is a nested object inside a generated EventSub event type.
 type AutomodMessageUpdateEventMessageFragmentEmote struct {
 	ID         string `json:"id"`
@@ -724,87 +647,6 @@ type AutomodMessageUpdateEvent struct {
 	Level                int                              `json:"level"`
 	Status               string                           `json:"status"`
 	HeldAt               time.Time                        `json:"held_at"`
-}
-
-// AutomodMessageUpdateEventV2MessageFragmentEmote is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2MessageFragmentEmote struct {
-	ID         string `json:"id"`
-	EmoteSetID string `json:"emote_set_id"`
-}
-
-// AutomodMessageUpdateEventV2MessageFragmentCheermote is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2MessageFragmentCheermote struct {
-	Prefix string `json:"prefix"`
-	Bits   int    `json:"bits"`
-	Tier   int    `json:"tier"`
-}
-
-// AutomodMessageUpdateEventV2MessageFragment is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2MessageFragment struct {
-	Text      string                                              `json:"text"`
-	Type      string                                              `json:"type"`
-	Emote     AutomodMessageUpdateEventV2MessageFragmentEmote     `json:"emote"`
-	Cheermote AutomodMessageUpdateEventV2MessageFragmentCheermote `json:"cheermote"`
-}
-
-// AutomodMessageUpdateEventV2Message is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2Message struct {
-	Text      string                                       `json:"text"`
-	Fragments []AutomodMessageUpdateEventV2MessageFragment `json:"fragments"`
-}
-
-// AutomodMessageUpdateEventV2AutomodBoundary is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2AutomodBoundary struct {
-	StartPos int `json:"start_pos"`
-	EndPos   int `json:"end_pos"`
-}
-
-// AutomodMessageUpdateEventV2Automod is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2Automod struct {
-	Category   string                                       `json:"category"`
-	Level      int                                          `json:"level"`
-	Boundaries []AutomodMessageUpdateEventV2AutomodBoundary `json:"boundaries"`
-}
-
-// AutomodMessageUpdateEventV2BlockedTermTermsFoundBoundary is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2BlockedTermTermsFoundBoundary struct {
-	StartPos int `json:"start_pos"`
-	EndPos   int `json:"end_pos"`
-}
-
-// AutomodMessageUpdateEventV2BlockedTermTermsFound is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2BlockedTermTermsFound struct {
-	TermID                    string                                                   `json:"term_id"`
-	Boundary                  AutomodMessageUpdateEventV2BlockedTermTermsFoundBoundary `json:"boundary"`
-	OwnerBroadcasterUserID    string                                                   `json:"owner_broadcaster_user_id"`
-	OwnerBroadcasterUserLogin string                                                   `json:"owner_broadcaster_user_login"`
-	OwnerBroadcasterUserName  string                                                   `json:"owner_broadcaster_user_name"`
-}
-
-// AutomodMessageUpdateEventV2BlockedTerm is a nested object inside a generated EventSub event type.
-type AutomodMessageUpdateEventV2BlockedTerm struct {
-	TermsFound []AutomodMessageUpdateEventV2BlockedTermTermsFound `json:"terms_found"`
-}
-
-// AutomodMessageUpdateEventV2 is the Event payload for subscription types sharing
-// anchor "automod-message-update-event-v2" on the eventsub-reference page.
-type AutomodMessageUpdateEventV2 struct {
-	BroadcasterUserID    string                                 `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string                                 `json:"broadcaster_user_login"`
-	BroadcasterUserName  string                                 `json:"broadcaster_user_name"`
-	UserID               string                                 `json:"user_id"`
-	UserLogin            string                                 `json:"user_login"`
-	UserName             string                                 `json:"user_name"`
-	ModeratorUserID      string                                 `json:"moderator_user_id"`
-	ModeratorUserName    string                                 `json:"moderator_user_name"`
-	ModeratorUserLogin   string                                 `json:"moderator_user_login"`
-	MessageID            string                                 `json:"message_id"`
-	Message              AutomodMessageUpdateEventV2Message     `json:"message"`
-	Status               string                                 `json:"status"`
-	HeldAt               time.Time                              `json:"held_at"`
-	Reason               string                                 `json:"reason"`
-	Automod              AutomodMessageUpdateEventV2Automod     `json:"automod"`
-	BlockedTerm          AutomodMessageUpdateEventV2BlockedTerm `json:"blocked_term"`
 }
 
 // AutomodSettingsUpdateEvent is the Event payload for subscription types sharing
@@ -1588,161 +1430,6 @@ type ChannelModerateEvent struct {
 	SharedChatDelete           any                              `json:"shared_chat_delete"`
 }
 
-// ChannelModerateEventV2Followers is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Followers struct {
-	FollowDurationMinutes int `json:"follow_duration_minutes"`
-}
-
-// ChannelModerateEventV2Slow is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Slow struct {
-	WaitTimeSeconds int `json:"wait_time_seconds"`
-}
-
-// ChannelModerateEventV2Vip is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Vip struct {
-	UserID    string `json:"user_id"`
-	UserLogin string `json:"user_login"`
-	UserName  string `json:"user_name"`
-}
-
-// ChannelModerateEventV2Unvip is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Unvip struct {
-	UserID    string `json:"user_id"`
-	UserLogin string `json:"user_login"`
-	UserName  string `json:"user_name"`
-}
-
-// ChannelModerateEventV2Mod is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Mod struct {
-	UserID    string `json:"user_id"`
-	UserLogin string `json:"user_login"`
-	UserName  string `json:"user_name"`
-}
-
-// ChannelModerateEventV2Unmod is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Unmod struct {
-	UserID    string `json:"user_id"`
-	UserLogin string `json:"user_login"`
-	UserName  string `json:"user_name"`
-}
-
-// ChannelModerateEventV2Ban is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Ban struct {
-	UserID    string `json:"user_id"`
-	UserLogin string `json:"user_login"`
-	UserName  string `json:"user_name"`
-	Reason    string `json:"reason"`
-}
-
-// ChannelModerateEventV2Unban is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Unban struct {
-	UserID    string `json:"user_id"`
-	UserLogin string `json:"user_login"`
-	UserName  string `json:"user_name"`
-}
-
-// ChannelModerateEventV2Timeout is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Timeout struct {
-	UserID    string    `json:"user_id"`
-	UserLogin string    `json:"user_login"`
-	UserName  string    `json:"user_name"`
-	Reason    string    `json:"reason"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
-
-// ChannelModerateEventV2Untimeout is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Untimeout struct {
-	UserID    string `json:"user_id"`
-	UserLogin string `json:"user_login"`
-	UserName  string `json:"user_name"`
-}
-
-// ChannelModerateEventV2Raid is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Raid struct {
-	UserID      string `json:"user_id"`
-	UserLogin   string `json:"user_login"`
-	UserName    string `json:"user_name"`
-	ViewerCount int    `json:"viewer_count"`
-}
-
-// ChannelModerateEventV2Unraid is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Unraid struct {
-	UserID    string `json:"user_id"`
-	UserLogin string `json:"user_login"`
-	UserName  string `json:"user_name"`
-}
-
-// ChannelModerateEventV2Delete is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Delete struct {
-	UserID      string `json:"user_id"`
-	UserLogin   string `json:"user_login"`
-	UserName    string `json:"user_name"`
-	MessageID   string `json:"message_id"`
-	MessageBody string `json:"message_body"`
-}
-
-// ChannelModerateEventV2AutomodTerms is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2AutomodTerms struct {
-	Action      string   `json:"action"`
-	List        string   `json:"list"`
-	Terms       []string `json:"terms"`
-	FromAutomod bool     `json:"from_automod"`
-}
-
-// ChannelModerateEventV2UnbanRequest is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2UnbanRequest struct {
-	IsApproved       bool   `json:"is_approved"`
-	UserID           string `json:"user_id"`
-	UserLogin        string `json:"user_login"`
-	UserName         string `json:"user_name"`
-	ModeratorMessage string `json:"moderator_message"`
-}
-
-// ChannelModerateEventV2Warn is a nested object inside a generated EventSub event type.
-type ChannelModerateEventV2Warn struct {
-	UserID         string   `json:"user_id"`
-	UserLogin      string   `json:"user_login"`
-	UserName       string   `json:"user_name"`
-	Reason         string   `json:"reason"`
-	ChatRulesCited []string `json:"chat_rules_cited"`
-}
-
-// ChannelModerateEventV2 is the Event payload for subscription types sharing
-// anchor "channel-moderate-event-v2" on the eventsub-reference page.
-type ChannelModerateEventV2 struct {
-	BroadcasterUserID          string                             `json:"broadcaster_user_id"`
-	BroadcasterUserLogin       string                             `json:"broadcaster_user_login"`
-	BroadcasterUserName        string                             `json:"broadcaster_user_name"`
-	SourceBroadcasterUserID    string                             `json:"source_broadcaster_user_id"`
-	SourceBroadcasterUserLogin string                             `json:"source_broadcaster_user_login"`
-	SourceBroadcasterUserName  string                             `json:"source_broadcaster_user_name"`
-	ModeratorUserID            string                             `json:"moderator_user_id"`
-	ModeratorUserLogin         string                             `json:"moderator_user_login"`
-	ModeratorUserName          string                             `json:"moderator_user_name"`
-	Action                     string                             `json:"action"`
-	Followers                  ChannelModerateEventV2Followers    `json:"followers"`
-	Slow                       ChannelModerateEventV2Slow         `json:"slow"`
-	Vip                        ChannelModerateEventV2Vip          `json:"vip"`
-	Unvip                      ChannelModerateEventV2Unvip        `json:"unvip"`
-	Mod                        ChannelModerateEventV2Mod          `json:"mod"`
-	Unmod                      ChannelModerateEventV2Unmod        `json:"unmod"`
-	Ban                        ChannelModerateEventV2Ban          `json:"ban"`
-	Unban                      ChannelModerateEventV2Unban        `json:"unban"`
-	Timeout                    ChannelModerateEventV2Timeout      `json:"timeout"`
-	Untimeout                  ChannelModerateEventV2Untimeout    `json:"untimeout"`
-	Raid                       ChannelModerateEventV2Raid         `json:"raid"`
-	Unraid                     ChannelModerateEventV2Unraid       `json:"unraid"`
-	Delete                     ChannelModerateEventV2Delete       `json:"delete"`
-	AutomodTerms               ChannelModerateEventV2AutomodTerms `json:"automod_terms"`
-	UnbanRequest               ChannelModerateEventV2UnbanRequest `json:"unban_request"`
-	Warn                       ChannelModerateEventV2Warn         `json:"warn"`
-	SharedChatBan              any                                `json:"shared_chat_ban"`
-	SharedChatUnban            any                                `json:"shared_chat_unban"`
-	SharedChatTimeout          any                                `json:"shared_chat_timeout"`
-	SharedChatUntimeout        any                                `json:"shared_chat_untimeout"`
-	SharedChatDelete           any                                `json:"shared_chat_delete"`
-}
-
 // ChannelModeratorAddEvent is the Event payload for subscription types sharing
 // anchor "channel-moderator-add-event" on the eventsub-reference page.
 type ChannelModeratorAddEvent struct {
@@ -1856,26 +1543,26 @@ type ChannelPointsAutomaticRewardRedemptionAddV2Event struct {
 // ChannelPointsCustomRewardAddEvent is the Event payload for subscription types sharing
 // anchor "channel-points-custom-reward-add-event" on the eventsub-reference page.
 type ChannelPointsCustomRewardAddEvent struct {
-	ID                                string    `json:"id"`
-	BroadcasterUserID                 string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin              string    `json:"broadcaster_user_login"`
-	BroadcasterUserName               string    `json:"broadcaster_user_name"`
-	IsEnabled                         bool      `json:"is_enabled"`
-	IsPaused                          bool      `json:"is_paused"`
-	IsInStock                         bool      `json:"is_in_stock"`
-	Title                             string    `json:"title"`
-	Cost                              int       `json:"cost"`
-	Prompt                            string    `json:"prompt"`
-	IsUserInputRequired               bool      `json:"is_user_input_required"`
-	ShouldRedemptionsSkipRequestQueue bool      `json:"should_redemptions_skip_request_queue"`
-	MaxPerStream                      any       `json:"max_per_stream"`
-	MaxPerUserPerStream               any       `json:"max_per_user_per_stream"`
-	BackgroundColor                   string    `json:"background_color"`
-	Image                             any       `json:"image"`
-	DefaultImage                      any       `json:"default_image"`
-	GlobalCooldown                    any       `json:"global_cooldown"`
-	CooldownExpiresAt                 time.Time `json:"cooldown_expires_at"`
-	RedemptionsRedeemedCurrentStream  int       `json:"redemptions_redeemed_current_stream"`
+	ID                                string              `json:"id"`
+	BroadcasterUserID                 string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin              string              `json:"broadcaster_user_login"`
+	BroadcasterUserName               string              `json:"broadcaster_user_name"`
+	IsEnabled                         bool                `json:"is_enabled"`
+	IsPaused                          bool                `json:"is_paused"`
+	IsInStock                         bool                `json:"is_in_stock"`
+	Title                             string              `json:"title"`
+	Cost                              int                 `json:"cost"`
+	Prompt                            string              `json:"prompt"`
+	IsUserInputRequired               bool                `json:"is_user_input_required"`
+	ShouldRedemptionsSkipRequestQueue bool                `json:"should_redemptions_skip_request_queue"`
+	MaxPerStream                      MaxPerStream        `json:"max_per_stream"`
+	MaxPerUserPerStream               MaxPerUserPerStream `json:"max_per_user_per_stream"`
+	BackgroundColor                   string              `json:"background_color"`
+	Image                             Image               `json:"image"`
+	DefaultImage                      Image               `json:"default_image"`
+	GlobalCooldown                    GlobalCooldown      `json:"global_cooldown"`
+	CooldownExpiresAt                 time.Time           `json:"cooldown_expires_at"`
+	RedemptionsRedeemedCurrentStream  int                 `json:"redemptions_redeemed_current_stream"`
 }
 
 // ChannelPointsCustomRewardRedemptionAddEvent is the Event payload for subscription types sharing
@@ -1890,7 +1577,7 @@ type ChannelPointsCustomRewardRedemptionAddEvent struct {
 	UserName             string    `json:"user_name"`
 	UserInput            string    `json:"user_input"`
 	Status               string    `json:"status"`
-	Reward               any       `json:"reward"`
+	Reward               Reward    `json:"reward"`
 	RedeemedAt           time.Time `json:"redeemed_at"`
 }
 
@@ -1906,104 +1593,104 @@ type ChannelPointsCustomRewardRedemptionUpdateEvent struct {
 	UserName             string    `json:"user_name"`
 	UserInput            string    `json:"user_input"`
 	Status               string    `json:"status"`
-	Reward               any       `json:"reward"`
+	Reward               Reward    `json:"reward"`
 	RedeemedAt           time.Time `json:"redeemed_at"`
 }
 
 // ChannelPointsCustomRewardRemoveEvent is the Event payload for subscription types sharing
 // anchor "channel-points-custom-reward-remove-event" on the eventsub-reference page.
 type ChannelPointsCustomRewardRemoveEvent struct {
-	ID                                string    `json:"id"`
-	BroadcasterUserID                 string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin              string    `json:"broadcaster_user_login"`
-	BroadcasterUserName               string    `json:"broadcaster_user_name"`
-	IsEnabled                         bool      `json:"is_enabled"`
-	IsPaused                          bool      `json:"is_paused"`
-	IsInStock                         bool      `json:"is_in_stock"`
-	Title                             string    `json:"title"`
-	Cost                              int       `json:"cost"`
-	Prompt                            string    `json:"prompt"`
-	IsUserInputRequired               bool      `json:"is_user_input_required"`
-	ShouldRedemptionsSkipRequestQueue bool      `json:"should_redemptions_skip_request_queue"`
-	MaxPerStream                      any       `json:"max_per_stream"`
-	MaxPerUserPerStream               any       `json:"max_per_user_per_stream"`
-	BackgroundColor                   string    `json:"background_color"`
-	Image                             any       `json:"image"`
-	DefaultImage                      any       `json:"default_image"`
-	GlobalCooldown                    any       `json:"global_cooldown"`
-	CooldownExpiresAt                 time.Time `json:"cooldown_expires_at"`
-	RedemptionsRedeemedCurrentStream  int       `json:"redemptions_redeemed_current_stream"`
+	ID                                string              `json:"id"`
+	BroadcasterUserID                 string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin              string              `json:"broadcaster_user_login"`
+	BroadcasterUserName               string              `json:"broadcaster_user_name"`
+	IsEnabled                         bool                `json:"is_enabled"`
+	IsPaused                          bool                `json:"is_paused"`
+	IsInStock                         bool                `json:"is_in_stock"`
+	Title                             string              `json:"title"`
+	Cost                              int                 `json:"cost"`
+	Prompt                            string              `json:"prompt"`
+	IsUserInputRequired               bool                `json:"is_user_input_required"`
+	ShouldRedemptionsSkipRequestQueue bool                `json:"should_redemptions_skip_request_queue"`
+	MaxPerStream                      MaxPerStream        `json:"max_per_stream"`
+	MaxPerUserPerStream               MaxPerUserPerStream `json:"max_per_user_per_stream"`
+	BackgroundColor                   string              `json:"background_color"`
+	Image                             Image               `json:"image"`
+	DefaultImage                      Image               `json:"default_image"`
+	GlobalCooldown                    GlobalCooldown      `json:"global_cooldown"`
+	CooldownExpiresAt                 time.Time           `json:"cooldown_expires_at"`
+	RedemptionsRedeemedCurrentStream  int                 `json:"redemptions_redeemed_current_stream"`
 }
 
 // ChannelPointsCustomRewardUpdateEvent is the Event payload for subscription types sharing
 // anchor "channel-points-custom-reward-update-event" on the eventsub-reference page.
 type ChannelPointsCustomRewardUpdateEvent struct {
-	ID                                string    `json:"id"`
-	BroadcasterUserID                 string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin              string    `json:"broadcaster_user_login"`
-	BroadcasterUserName               string    `json:"broadcaster_user_name"`
-	IsEnabled                         bool      `json:"is_enabled"`
-	IsPaused                          bool      `json:"is_paused"`
-	IsInStock                         bool      `json:"is_in_stock"`
-	Title                             string    `json:"title"`
-	Cost                              int       `json:"cost"`
-	Prompt                            string    `json:"prompt"`
-	IsUserInputRequired               bool      `json:"is_user_input_required"`
-	ShouldRedemptionsSkipRequestQueue bool      `json:"should_redemptions_skip_request_queue"`
-	MaxPerStream                      any       `json:"max_per_stream"`
-	MaxPerUserPerStream               any       `json:"max_per_user_per_stream"`
-	BackgroundColor                   string    `json:"background_color"`
-	Image                             any       `json:"image"`
-	DefaultImage                      any       `json:"default_image"`
-	GlobalCooldown                    any       `json:"global_cooldown"`
-	CooldownExpiresAt                 time.Time `json:"cooldown_expires_at"`
-	RedemptionsRedeemedCurrentStream  int       `json:"redemptions_redeemed_current_stream"`
+	ID                                string              `json:"id"`
+	BroadcasterUserID                 string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin              string              `json:"broadcaster_user_login"`
+	BroadcasterUserName               string              `json:"broadcaster_user_name"`
+	IsEnabled                         bool                `json:"is_enabled"`
+	IsPaused                          bool                `json:"is_paused"`
+	IsInStock                         bool                `json:"is_in_stock"`
+	Title                             string              `json:"title"`
+	Cost                              int                 `json:"cost"`
+	Prompt                            string              `json:"prompt"`
+	IsUserInputRequired               bool                `json:"is_user_input_required"`
+	ShouldRedemptionsSkipRequestQueue bool                `json:"should_redemptions_skip_request_queue"`
+	MaxPerStream                      MaxPerStream        `json:"max_per_stream"`
+	MaxPerUserPerStream               MaxPerUserPerStream `json:"max_per_user_per_stream"`
+	BackgroundColor                   string              `json:"background_color"`
+	Image                             Image               `json:"image"`
+	DefaultImage                      Image               `json:"default_image"`
+	GlobalCooldown                    GlobalCooldown      `json:"global_cooldown"`
+	CooldownExpiresAt                 time.Time           `json:"cooldown_expires_at"`
+	RedemptionsRedeemedCurrentStream  int                 `json:"redemptions_redeemed_current_stream"`
 }
 
 // ChannelPollBeginEvent is the Event payload for subscription types sharing
 // anchor "channel-poll-begin-event" on the eventsub-reference page.
 type ChannelPollBeginEvent struct {
-	ID                   string    `json:"id"`
-	BroadcasterUserID    string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
-	BroadcasterUserName  string    `json:"broadcaster_user_name"`
-	Title                string    `json:"title"`
-	Choices              any       `json:"choices"`
-	BitsVoting           any       `json:"bits_voting"`
-	ChannelPointsVoting  any       `json:"channel_points_voting"`
-	StartedAt            time.Time `json:"started_at"`
-	EndsAt               time.Time `json:"ends_at"`
+	ID                   string              `json:"id"`
+	BroadcasterUserID    string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string              `json:"broadcaster_user_login"`
+	BroadcasterUserName  string              `json:"broadcaster_user_name"`
+	Title                string              `json:"title"`
+	Choices              []Choice            `json:"choices"`
+	BitsVoting           BitsVoting          `json:"bits_voting"`
+	ChannelPointsVoting  ChannelPointsVoting `json:"channel_points_voting"`
+	StartedAt            time.Time           `json:"started_at"`
+	EndsAt               time.Time           `json:"ends_at"`
 }
 
 // ChannelPollEndEvent is the Event payload for subscription types sharing
 // anchor "channel-poll-end-event" on the eventsub-reference page.
 type ChannelPollEndEvent struct {
-	ID                   string    `json:"id"`
-	BroadcasterUserID    string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
-	BroadcasterUserName  string    `json:"broadcaster_user_name"`
-	Title                string    `json:"title"`
-	Choices              any       `json:"choices"`
-	BitsVoting           any       `json:"bits_voting"`
-	ChannelPointsVoting  any       `json:"channel_points_voting"`
-	Status               string    `json:"status"`
-	StartedAt            time.Time `json:"started_at"`
-	EndedAt              time.Time `json:"ended_at"`
+	ID                   string              `json:"id"`
+	BroadcasterUserID    string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string              `json:"broadcaster_user_login"`
+	BroadcasterUserName  string              `json:"broadcaster_user_name"`
+	Title                string              `json:"title"`
+	Choices              []Choice            `json:"choices"`
+	BitsVoting           BitsVoting          `json:"bits_voting"`
+	ChannelPointsVoting  ChannelPointsVoting `json:"channel_points_voting"`
+	Status               string              `json:"status"`
+	StartedAt            time.Time           `json:"started_at"`
+	EndedAt              time.Time           `json:"ended_at"`
 }
 
 // ChannelPollProgressEvent is the Event payload for subscription types sharing
 // anchor "channel-poll-progress-event" on the eventsub-reference page.
 type ChannelPollProgressEvent struct {
-	ID                   string    `json:"id"`
-	BroadcasterUserID    string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
-	BroadcasterUserName  string    `json:"broadcaster_user_name"`
-	Title                string    `json:"title"`
-	Choices              any       `json:"choices"`
-	BitsVoting           any       `json:"bits_voting"`
-	ChannelPointsVoting  any       `json:"channel_points_voting"`
-	StartedAt            time.Time `json:"started_at"`
-	EndsAt               time.Time `json:"ends_at"`
+	ID                   string              `json:"id"`
+	BroadcasterUserID    string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string              `json:"broadcaster_user_login"`
+	BroadcasterUserName  string              `json:"broadcaster_user_name"`
+	Title                string              `json:"title"`
+	Choices              []Choice            `json:"choices"`
+	BitsVoting           BitsVoting          `json:"bits_voting"`
+	ChannelPointsVoting  ChannelPointsVoting `json:"channel_points_voting"`
+	StartedAt            time.Time           `json:"started_at"`
+	EndsAt               time.Time           `json:"ends_at"`
 }
 
 // ChannelPredictionBeginEvent is the Event payload for subscription types sharing
@@ -2014,7 +1701,7 @@ type ChannelPredictionBeginEvent struct {
 	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
 	BroadcasterUserName  string    `json:"broadcaster_user_name"`
 	Title                string    `json:"title"`
-	Outcomes             any       `json:"outcomes"`
+	Outcomes             []Outcome `json:"outcomes"`
 	StartedAt            time.Time `json:"started_at"`
 	LocksAt              time.Time `json:"locks_at"`
 }
@@ -2028,7 +1715,7 @@ type ChannelPredictionEndEvent struct {
 	BroadcasterUserName  string    `json:"broadcaster_user_name"`
 	Title                string    `json:"title"`
 	WinningOutcomeID     string    `json:"winning_outcome_id"`
-	Outcomes             any       `json:"outcomes"`
+	Outcomes             []Outcome `json:"outcomes"`
 	Status               string    `json:"status"`
 	StartedAt            time.Time `json:"started_at"`
 	EndedAt              time.Time `json:"ended_at"`
@@ -2042,7 +1729,7 @@ type ChannelPredictionLockEvent struct {
 	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
 	BroadcasterUserName  string    `json:"broadcaster_user_name"`
 	Title                string    `json:"title"`
-	Outcomes             any       `json:"outcomes"`
+	Outcomes             []Outcome `json:"outcomes"`
 	StartedAt            time.Time `json:"started_at"`
 	LockedAt             time.Time `json:"locked_at"`
 }
@@ -2055,7 +1742,7 @@ type ChannelPredictionProgressEvent struct {
 	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
 	BroadcasterUserName  string    `json:"broadcaster_user_name"`
 	Title                string    `json:"title"`
-	Outcomes             any       `json:"outcomes"`
+	Outcomes             []Outcome `json:"outcomes"`
 	StartedAt            time.Time `json:"started_at"`
 	LocksAt              time.Time `json:"locks_at"`
 }
@@ -2168,17 +1855,17 @@ type ChannelSubscriptionGiftEvent struct {
 // ChannelSubscriptionMessageEvent is the Event payload for subscription types sharing
 // anchor "channel-subscription-message-event" on the eventsub-reference page.
 type ChannelSubscriptionMessageEvent struct {
-	UserID               string `json:"user_id"`
-	UserLogin            string `json:"user_login"`
-	UserName             string `json:"user_name"`
-	BroadcasterUserID    string `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string `json:"broadcaster_user_login"`
-	BroadcasterUserName  string `json:"broadcaster_user_name"`
-	Tier                 string `json:"tier"`
-	Message              any    `json:"message"`
-	CumulativeMonths     int    `json:"cumulative_months"`
-	StreakMonths         int    `json:"streak_months"`
-	DurationMonths       int    `json:"duration_months"`
+	UserID               string  `json:"user_id"`
+	UserLogin            string  `json:"user_login"`
+	UserName             string  `json:"user_name"`
+	BroadcasterUserID    string  `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string  `json:"broadcaster_user_login"`
+	BroadcasterUserName  string  `json:"broadcaster_user_name"`
+	Tier                 string  `json:"tier"`
+	Message              Message `json:"message"`
+	CumulativeMonths     int     `json:"cumulative_months"`
+	StreakMonths         int     `json:"streak_months"`
+	DurationMonths       int     `json:"duration_months"`
 }
 
 // ChannelSuspiciousUserMessageEventMessageFragmentCheermote is a nested object inside a generated EventSub event type.
@@ -2485,15 +2172,15 @@ type DropEntitlementGrantEvent struct {
 // ExtensionBitsTransactionCreateEvent is the Event payload for subscription types sharing
 // anchor "extension-bits-transaction-create-event" on the eventsub-reference page.
 type ExtensionBitsTransactionCreateEvent struct {
-	ExtensionClientID    string `json:"extension_client_id"`
-	ID                   string `json:"id"`
-	BroadcasterUserID    string `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string `json:"broadcaster_user_login"`
-	BroadcasterUserName  string `json:"broadcaster_user_name"`
-	UserID               string `json:"user_id"`
-	UserLogin            string `json:"user_login"`
-	UserName             string `json:"user_name"`
-	Product              any    `json:"product"`
+	ExtensionClientID    string  `json:"extension_client_id"`
+	ID                   string  `json:"id"`
+	BroadcasterUserID    string  `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string  `json:"broadcaster_user_login"`
+	BroadcasterUserName  string  `json:"broadcaster_user_name"`
+	UserID               string  `json:"user_id"`
+	UserLogin            string  `json:"user_login"`
+	UserName             string  `json:"user_name"`
+	Product              Product `json:"product"`
 }
 
 // GoalsEvent is the Event payload for subscription types sharing
@@ -2618,32 +2305,6 @@ type HypeTrainProgressEvent struct {
 	IsSharedTrain           bool                                           `json:"is_shared_train"`
 }
 
-// ShieldModeEvent is the Event payload for subscription types sharing
-// anchor "shield-mode" on the eventsub-reference page.
-type ShieldModeEvent struct {
-	BroadcasterUserID    string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
-	BroadcasterUserName  string    `json:"broadcaster_user_name"`
-	ModeratorUserID      string    `json:"moderator_user_id"`
-	ModeratorUserLogin   string    `json:"moderator_user_login"`
-	ModeratorUserName    string    `json:"moderator_user_name"`
-	StartedAt            time.Time `json:"started_at"`
-	EndedAt              time.Time `json:"ended_at"`
-}
-
-// ShoutoutReceivedEvent is the Event payload for subscription types sharing
-// anchor "shoutout-received" on the eventsub-reference page.
-type ShoutoutReceivedEvent struct {
-	BroadcasterUserID        string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin     string    `json:"broadcaster_user_login"`
-	BroadcasterUserName      string    `json:"broadcaster_user_name"`
-	FromBroadcasterUserID    string    `json:"from_broadcaster_user_id"`
-	FromBroadcasterUserLogin string    `json:"from_broadcaster_user_login"`
-	FromBroadcasterUserName  string    `json:"from_broadcaster_user_name"`
-	ViewerCount              int       `json:"viewer_count"`
-	StartedAt                time.Time `json:"started_at"`
-}
-
 // StreamOfflineEvent is the Event payload for subscription types sharing
 // anchor "stream-offline-event" on the eventsub-reference page.
 type StreamOfflineEvent struct {
@@ -2708,6 +2369,100 @@ type WhisperReceivedEvent struct {
 	ToUserLogin   string                      `json:"to_user_login"`
 	WhisperID     string                      `json:"whisper_id"`
 	Whisper       WhisperReceivedEventWhisper `json:"whisper"`
+}
+
+// BitsVoting is a nested object inside a generated EventSub event type.
+type BitsVoting struct {
+	IsEnabled     bool `json:"is_enabled"`
+	AmountPerVote int  `json:"amount_per_vote"`
+}
+
+// ChannelPointsVoting is a nested object inside a generated EventSub event type.
+type ChannelPointsVoting struct {
+	IsEnabled     bool `json:"is_enabled"`
+	AmountPerVote int  `json:"amount_per_vote"`
+}
+
+// Choice is a nested object inside a generated EventSub event type.
+type Choice struct {
+	ID                 string `json:"id"`
+	Title              string `json:"title"`
+	BitsVotes          int    `json:"bits_votes"`
+	ChannelPointsVotes int    `json:"channel_points_votes"`
+	Votes              int    `json:"votes"`
+}
+
+// GlobalCooldown is a nested object inside a generated EventSub event type.
+type GlobalCooldown struct {
+	IsEnabled bool `json:"is_enabled"`
+	Seconds   int  `json:"seconds"`
+}
+
+// Image is a nested object inside a generated EventSub event type.
+type Image struct {
+	URL1x string `json:"url_1x"`
+	URL2x string `json:"url_2x"`
+	URL4x string `json:"url_4x"`
+}
+
+// MaxPerStream is a nested object inside a generated EventSub event type.
+type MaxPerStream struct {
+	IsEnabled bool `json:"is_enabled"`
+	Value     int  `json:"value"`
+}
+
+// MaxPerUserPerStream is a nested object inside a generated EventSub event type.
+type MaxPerUserPerStream struct {
+	IsEnabled bool `json:"is_enabled"`
+	Value     int  `json:"value"`
+}
+
+// Message is a nested object inside a generated EventSub event type.
+type Message struct {
+	Text   string  `json:"text"`
+	Emotes []Emote `json:"emotes"`
+}
+
+// Outcome is a nested object inside a generated EventSub event type.
+type Outcome struct {
+	ID            string         `json:"id"`
+	Title         string         `json:"title"`
+	Color         string         `json:"color"`
+	Users         int            `json:"users"`
+	ChannelPoints int            `json:"channel_points"`
+	TopPredictors []TopPredictor `json:"top_predictors"`
+}
+
+// Product is a nested object inside a generated EventSub event type.
+type Product struct {
+	Name          string `json:"name"`
+	Bits          int    `json:"bits"`
+	Sku           string `json:"sku"`
+	InDevelopment bool   `json:"in_development"`
+}
+
+// Reward is a nested object inside a generated EventSub event type.
+type Reward struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Cost   int    `json:"cost"`
+	Prompt string `json:"prompt"`
+}
+
+// Emote is a nested object inside a generated EventSub event type.
+type Emote struct {
+	Begin int    `json:"begin"`
+	End   int    `json:"end"`
+	ID    string `json:"id"`
+}
+
+// TopPredictor is a nested object inside a generated EventSub event type.
+type TopPredictor struct {
+	UserID            string `json:"user_id"`
+	UserLogin         string `json:"user_login"`
+	UserName          string `json:"user_name"`
+	ChannelPointsWon  int    `json:"channel_points_won"`
+	ChannelPointsUsed int    `json:"channel_points_used"`
 }
 
 // Sealed interface markers. Nested structs don't implement the sealed
@@ -2792,9 +2547,7 @@ func (UserUpdateCondition) isEventSubCondition()                                
 func (WhisperReceivedCondition) isEventSubCondition()                             {}
 
 func (AutomodMessageHoldEvent) isEventSubEvent()                          {}
-func (AutomodMessageHoldEventV2) isEventSubEvent()                        {}
 func (AutomodMessageUpdateEvent) isEventSubEvent()                        {}
-func (AutomodMessageUpdateEventV2) isEventSubEvent()                      {}
 func (AutomodSettingsUpdateEvent) isEventSubEvent()                       {}
 func (AutomodTermsUpdateEvent) isEventSubEvent()                          {}
 func (ChannelAdBreakBeginEvent) isEventSubEvent()                         {}
@@ -2815,7 +2568,6 @@ func (ChannelGuestStarSessionBeginEvent) isEventSubEvent()                {}
 func (ChannelGuestStarSessionEndEvent) isEventSubEvent()                  {}
 func (ChannelGuestStarSettingsUpdateEvent) isEventSubEvent()              {}
 func (ChannelModerateEvent) isEventSubEvent()                             {}
-func (ChannelModerateEventV2) isEventSubEvent()                           {}
 func (ChannelModeratorAddEvent) isEventSubEvent()                         {}
 func (ChannelModeratorRemoveEvent) isEventSubEvent()                      {}
 func (ChannelPointsAutomaticRewardRedemptionAddEvent) isEventSubEvent()   {}
@@ -2861,8 +2613,6 @@ func (GoalsEvent) isEventSubEvent()                                       {}
 func (HypeTrainBeginEvent) isEventSubEvent()                              {}
 func (HypeTrainEndEvent) isEventSubEvent()                                {}
 func (HypeTrainProgressEvent) isEventSubEvent()                           {}
-func (ShieldModeEvent) isEventSubEvent()                                  {}
-func (ShoutoutReceivedEvent) isEventSubEvent()                            {}
 func (StreamOfflineEvent) isEventSubEvent()                               {}
 func (StreamOnlineEvent) isEventSubEvent()                                {}
 func (UserAuthorizationGrantEvent) isEventSubEvent()                      {}
@@ -2964,9 +2714,9 @@ var eventSubConditionFactories = map[eventSubKey]func() EventSubCondition{
 
 var eventSubEventFactories = map[eventSubKey]func() EventSubEvent{
 	{"automod.message.hold", "1"}:                                   func() EventSubEvent { return &AutomodMessageHoldEvent{} },
-	{"automod.message.hold", "2"}:                                   func() EventSubEvent { return &AutomodMessageHoldEventV2{} },
+	{"automod.message.hold", "2"}:                                   func() EventSubEvent { return &AutomodMessageHoldEvent{} },
 	{"automod.message.update", "1"}:                                 func() EventSubEvent { return &AutomodMessageUpdateEvent{} },
-	{"automod.message.update", "2"}:                                 func() EventSubEvent { return &AutomodMessageUpdateEventV2{} },
+	{"automod.message.update", "2"}:                                 func() EventSubEvent { return &AutomodMessageUpdateEvent{} },
 	{"automod.settings.update", "1"}:                                func() EventSubEvent { return &AutomodSettingsUpdateEvent{} },
 	{"automod.terms.update", "1"}:                                   func() EventSubEvent { return &AutomodTermsUpdateEvent{} },
 	{"channel.ad_break.begin", "1"}:                                 func() EventSubEvent { return &ChannelAdBreakBeginEvent{} },
@@ -3004,7 +2754,6 @@ var eventSubEventFactories = map[eventSubKey]func() EventSubEvent{
 	{"channel.hype_train.end", "2"}:                                 func() EventSubEvent { return &HypeTrainEndEvent{} },
 	{"channel.hype_train.progress", "2"}:                            func() EventSubEvent { return &HypeTrainProgressEvent{} },
 	{"channel.moderate", "1"}:                                       func() EventSubEvent { return &ChannelModerateEvent{} },
-	{"channel.moderate", "2"}:                                       func() EventSubEvent { return &ChannelModerateEventV2{} },
 	{"channel.moderator.add", "1"}:                                  func() EventSubEvent { return &ChannelModeratorAddEvent{} },
 	{"channel.moderator.remove", "1"}:                               func() EventSubEvent { return &ChannelModeratorRemoveEvent{} },
 	{"channel.poll.begin", "1"}:                                     func() EventSubEvent { return &ChannelPollBeginEvent{} },
@@ -3018,9 +2767,6 @@ var eventSubEventFactories = map[eventSubKey]func() EventSubEvent{
 	{"channel.shared_chat.begin", "1"}:                              func() EventSubEvent { return &ChannelSharedChatSessionBeginEvent{} },
 	{"channel.shared_chat.end", "1"}:                                func() EventSubEvent { return &ChannelSharedChatSessionEndEvent{} },
 	{"channel.shared_chat.update", "1"}:                             func() EventSubEvent { return &ChannelSharedChatSessionUpdateEvent{} },
-	{"channel.shield_mode.begin", "1"}:                              func() EventSubEvent { return &ShieldModeEvent{} },
-	{"channel.shield_mode.end", "1"}:                                func() EventSubEvent { return &ShieldModeEvent{} },
-	{"channel.shoutout.receive", "1"}:                               func() EventSubEvent { return &ShoutoutReceivedEvent{} },
 	{"channel.subscribe", "1"}:                                      func() EventSubEvent { return &ChannelSubscribeEvent{} },
 	{"channel.subscription.end", "1"}:                               func() EventSubEvent { return &ChannelSubscriptionEndEvent{} },
 	{"channel.subscription.gift", "1"}:                              func() EventSubEvent { return &ChannelSubscriptionGiftEvent{} },

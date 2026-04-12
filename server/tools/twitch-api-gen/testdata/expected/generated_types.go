@@ -221,14 +221,14 @@ type ModifyChannelInformationParams struct {
 type CreateEventSubSubscriptionBody struct {
 	Type      string            `json:"type" validate:"required"`
 	Version   string            `json:"version" validate:"required"`
-	Condition EventSubCondition `json:"condition"`
-	Transport EventSubTransport `json:"transport"`
+	Condition EventSubCondition `json:"condition" validate:"required"`
+	Transport EventSubTransport `json:"transport" validate:"required"`
 }
 
 // ModifyChannelInformationBodyContentClassificationLabel is a nested object inside a generated body type.
 type ModifyChannelInformationBodyContentClassificationLabel struct {
 	ID        string `json:"id" validate:"required,oneof=DebatedSocialIssuesAndPolitics DrugsIntoxication SexualThemes ViolentGraphic Gambling ProfanityVulgarity"`
-	IsEnabled bool   `json:"is_enabled" validate:"required"`
+	IsEnabled bool   `json:"is_enabled"`
 }
 
 // ModifyChannelInformationBody is the JSON request body for modify-channel-information.
