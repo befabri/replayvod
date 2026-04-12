@@ -26,6 +26,7 @@ package downloader
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -186,6 +187,20 @@ type download struct {
 	userCancelled bool
 	progressCh    chan Progress
 	startedAt     time.Time
+
+	// resume is the durable per-job checkpoint. Lives in memory
+	// alongside the running pipeline; persisted to
+	// jobs.resume_state on every material state transition so a
+	// crash-restart can pick up without reprocessing completed
+	// work. Zero-valued state (Stage=AUTH) is the "fresh job"
+	// shape and is safe to persist as-is.
+	resume *ResumeState
+
+	// videoPartID is the row ID of the video_parts entry created
+	// at Stage 5 (PrepareInput) and finalized at Stage 10 (Store).
+	// Zero until CreateVideoPart succeeds. Phase 6g ships single-
+	// part recordings; 6f grows this to an []int64 or similar.
+	videoPartID int64
 }
 
 // NewService wires up the pipeline components. The twitch client,
@@ -230,7 +245,12 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		svcAcct: newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
 		active:  make(map[string]*download),
 	}
-	s.sweepOrphanedTemps()
+	// Scratch-dir sweep is NOT performed here — Resume() owns that
+	// step so it can preserve the work dirs of RUNNING jobs before
+	// wiping the rest. Callers that don't resume (tests using
+	// t.TempDir, CLI tools that never see a crash) can skip
+	// Resume without leaking: the temp dir gets cleaned up via
+	// the test harness or the OS.
 	return s
 }
 
@@ -250,10 +270,11 @@ func (s *Service) SetOAuthRefresher(r TokenRefresher) {
 	}
 }
 
-// sweepOrphanedTemps removes leftover per-job work directories
-// from a previous crash or hard kill. The native pipeline's
-// partial output is never resumable at Phase 6a (resume lands in
-// 6b), so cleanup is always safe.
+// sweepOrphanedTempsExcept removes leftover per-job work
+// directories from a previous crash or hard kill. Directories
+// whose name (the jobID) is in `protected` are left in place so
+// the resume path can reuse their committed segments + init
+// segment. Pass nil to wipe everything unconditionally.
 //
 // Scratch layout: <scratch>/<jobID>/ contains segments/, the
 // remuxed mp4, and the thumbnail. One RemoveAll per job dir
@@ -264,14 +285,18 @@ func (s *Service) SetOAuthRefresher(r TokenRefresher) {
 // other's in-flight job dirs at startup. Operators running more
 // than one downloader process (dev-only corner case) must
 // configure distinct ScratchDir paths.
-func (s *Service) sweepOrphanedTemps() {
+func (s *Service) sweepOrphanedTempsExcept(protected map[string]bool) {
 	scratch := s.cfg.Env.ScratchDir
 	entries, err := os.ReadDir(scratch)
 	if err != nil {
 		return
 	}
-	var swept int
+	var swept, kept int
 	for _, e := range entries {
+		if protected[e.Name()] {
+			kept++
+			continue
+		}
 		p := filepath.Join(scratch, e.Name())
 		if err := os.RemoveAll(p); err != nil {
 			s.log.Warn("failed to remove scratch leftover", "path", p, "error", err)
@@ -279,8 +304,8 @@ func (s *Service) sweepOrphanedTemps() {
 		}
 		swept++
 	}
-	if swept > 0 {
-		s.log.Info("swept scratch leftovers", "count", swept)
+	if swept > 0 || kept > 0 {
+		s.log.Info("scratch sweep complete", "swept", swept, "preserved_for_resume", kept)
 	}
 }
 
@@ -290,7 +315,10 @@ func (s *Service) sweepOrphanedTemps() {
 //
 // Returns ErrBusy if there's already an active download for this
 // broadcaster — prevents two copies of the same stream running
-// in parallel.
+// in parallel. The check is enforced at two layers: an in-memory
+// scan of s.active (fast path, covers the common case) and a DB
+// query against jobs.status IN ('PENDING','RUNNING') (survives a
+// process restart that dropped the in-memory map).
 func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	s.mu.Lock()
 	for _, existing := range s.active {
@@ -308,6 +336,20 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		return "", fmt.Errorf("downloader: at max concurrent downloads (%d)", maxConcurrent)
 	}
 
+	// DB-level broadcaster idempotency: catches the case where a
+	// previous process crashed leaving PENDING/RUNNING rows the
+	// in-memory active map no longer knows about. ErrNotFound is
+	// the happy path; any other error is a DB problem worth
+	// surfacing.
+	switch existing, err := s.repo.GetActiveJobByBroadcaster(ctx, p.BroadcasterID); {
+	case err == nil && existing != nil:
+		s.mu.Unlock()
+		return "", ErrBusy
+	case err != nil && !errors.Is(err, repository.ErrNotFound):
+		s.mu.Unlock()
+		return "", fmt.Errorf("check active job: %w", err)
+	}
+
 	jobID := uuid.NewString()
 	filename := buildFilename(p.BroadcasterLogin, jobID)
 
@@ -316,6 +358,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		broadcasterID: p.BroadcasterID,
 		progressCh:    make(chan Progress, 16),
 		startedAt:     time.Now(),
+		resume:        NewResumeState(),
 	}
 	s.active[jobID] = d
 	s.mu.Unlock()
@@ -340,6 +383,24 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		return "", fmt.Errorf("create video row: %w", err)
 	}
 	d.videoID = vid.ID
+
+	// Job row lives alongside the video row — one per download
+	// attempt. Resume-on-restart reads status IN ('PENDING',
+	// 'RUNNING') jobs at boot and drives recovery off them.
+	if _, err := s.repo.CreateJob(ctx, &repository.JobInput{
+		ID:            jobID,
+		VideoID:       vid.ID,
+		BroadcasterID: p.BroadcasterID,
+	}); err != nil {
+		s.mu.Lock()
+		delete(s.active, jobID)
+		s.mu.Unlock()
+		// The video row is already committed. Mark it failed so
+		// it doesn't stay PENDING forever; the UI will surface
+		// the failure.
+		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("create job row: %v", err))
+		return "", fmt.Errorf("create job row: %w", err)
+	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	d.cancel = cancel
@@ -387,6 +448,130 @@ func (s *Service) Shutdown() {
 	}
 }
 
+// Resume restores in-flight downloads after a process restart.
+// Must be called by the server bootstrap AFTER NewService +
+// SetOAuthRefresher and BEFORE the HTTP server starts accepting
+// requests — otherwise a concurrent Start() could race with
+// resume over the in-memory active map or concurrency cap.
+//
+// For every jobs row with status IN ('PENDING','RUNNING'):
+//
+//   - Preserves the job's scratch directory from the orphan sweep
+//     (committed segments + init.mp4 on disk get reused).
+//   - Loads the video + channel rows to reconstruct Params.
+//   - Unmarshals resume_state into *ResumeState.
+//   - Spawns run(), which seeds hls.Run's StartMediaSeq from
+//     AccountedFrontierMediaSeq+1 so already-committed segments
+//     aren't re-fetched.
+//
+// Job-level failures are recorded on the job row and surfaced to
+// the operator; they don't fail Resume overall. A catastrophic
+// repo failure (can't list) is the only return-error case.
+//
+// Safe to call multiple times: jobs already in s.active are
+// skipped on subsequent calls.
+func (s *Service) Resume(ctx context.Context) error {
+	jobs, err := s.repo.ListRunningJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("list running jobs: %w", err)
+	}
+
+	protected := make(map[string]bool, len(jobs))
+	for i := range jobs {
+		protected[jobs[i].ID] = true
+	}
+	s.sweepOrphanedTempsExcept(protected)
+
+	if len(jobs) == 0 {
+		return nil
+	}
+	s.log.Info("resuming in-flight jobs", "count", len(jobs))
+	for i := range jobs {
+		job := jobs[i]
+		if err := s.restartJob(ctx, &job); err != nil {
+			s.log.Error("resume job failed",
+				"job_id", job.ID,
+				"video_id", job.VideoID,
+				"broadcaster_id", job.BroadcasterID,
+				"error", err)
+			errMsg := fmt.Sprintf("resume: %v", err)
+			_ = s.repo.MarkJobFailed(ctx, job.ID, errMsg)
+			_ = s.repo.MarkVideoFailed(ctx, job.VideoID, errMsg)
+		}
+	}
+	return nil
+}
+
+// restartJob rebuilds a single download's in-memory state from
+// its DB rows + resume_state, inserts it into s.active, and
+// spawns run(). Returns an error only for recoverable-looking
+// setup failures; run()'s own error path handles anything that
+// goes wrong during the pipeline itself.
+func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
+	s.mu.Lock()
+	if _, exists := s.active[job.ID]; exists {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
+	state, err := UnmarshalResumeState(job.ResumeState)
+	if err != nil {
+		return fmt.Errorf("parse resume state: %w", err)
+	}
+
+	vid, err := s.repo.GetVideo(ctx, job.VideoID)
+	if err != nil {
+		return fmt.Errorf("load video: %w", err)
+	}
+	chn, err := s.repo.GetChannel(ctx, job.BroadcasterID)
+	if err != nil {
+		return fmt.Errorf("load channel: %w", err)
+	}
+
+	p := Params{
+		BroadcasterID:    job.BroadcasterID,
+		BroadcasterLogin: chn.BroadcasterLogin,
+		DisplayName:      vid.DisplayName,
+		Quality:          vid.Quality,
+		Language:         vid.Language,
+		ViewerCount:      vid.ViewerCount,
+		StreamID:         vid.StreamID,
+		RecordingType:    vid.RecordingType,
+		ForceH264:        vid.ForceH264,
+	}
+
+	d := &download{
+		jobID:         job.ID,
+		videoID:       vid.ID,
+		broadcasterID: job.BroadcasterID,
+		progressCh:    make(chan Progress, 16),
+		startedAt:     time.Now(),
+		resume:        state,
+	}
+
+	s.mu.Lock()
+	maxConcurrent := s.cfg.App.Download.MaxConcurrent
+	if maxConcurrent <= 0 {
+		maxConcurrent = 2
+	}
+	if len(s.active) >= maxConcurrent {
+		s.mu.Unlock()
+		return fmt.Errorf("at max concurrent downloads (%d); cannot resume", maxConcurrent)
+	}
+	s.active[job.ID] = d
+	s.mu.Unlock()
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	d.cancel = cancel
+
+	// vid.Filename is the deterministic base name chosen at
+	// original Start(); reuse it so the remuxed path is stable
+	// across restart.
+	go s.run(runCtx, d, p, vid.Filename)
+	return nil
+}
+
 // ErrBusy is returned by Start when a download for the broadcaster
 // is already in flight. Callers that want to replace the running
 // download should call Cancel first.
@@ -415,6 +600,9 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 
 	if err := s.repo.UpdateVideoStatus(dbCtx, d.videoID, repository.VideoStatusRunning); err != nil {
 		log.Error("failed to mark video running", "error", err)
+	}
+	if err := s.repo.MarkJobRunning(dbCtx, d.jobID); err != nil {
+		log.Error("failed to mark job running", "error", err)
 	}
 
 	// Normalize the recording type early — everything downstream
@@ -454,30 +642,109 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		ForceH264:     p.ForceH264,
 	}
 
-	hlsResult, err := s.fetchWithAuthRefresh(ctx, emitter, p, segmentsDir, selectOpts, log)
-	if err != nil {
-		s.failDownload(dbCtx, d, log, err)
-		return
+	// Stage-aware skip on resume: when the checkpoint was already
+	// past Stage 4 in a prior attempt, the segment fetch is
+	// already done (files on disk, Resume preserved the scratch
+	// dir) and re-running Stages 1-4 would fail or race —
+	// playback tokens have rolled, the live stream may have
+	// ended, and the ENDLIST poll would race the fetch loop.
+	// Synthesize a minimal JobResult from the checkpoint and
+	// jump straight to PrepareInput.
+	//
+	// Fresh jobs and jobs resumed at SEGMENTS take the normal
+	// fetch path; the frontier seeding inside
+	// fetchWithAuthRefresh handles "pick up where we left off."
+	var hlsResult *hls.JobResult
+	if d.resume.Stage.AtOrAfter(StagePrepareInput) {
+		log.Info("resume: skipping segment fetch, checkpoint past SEGMENTS",
+			"stage", d.resume.Stage,
+			"accounted_frontier", d.resume.AccountedFrontierMediaSeq,
+			"segment_format", d.resume.SegmentFormat)
+		hlsResult = &hls.JobResult{
+			Kind:           hls.SegmentKind(d.resume.SegmentFormat),
+			LastMediaSeq:   d.resume.AccountedFrontierMediaSeq,
+			SegmentsDone:   int64(len(d.resume.CompletedAboveFrontier)) + d.resume.AccountedFrontierMediaSeq - d.resume.PartStartMediaSequence + 1,
+			SegmentsAdGaps: 0, // aggregates not reconstructed from resume_state
+			SegmentsGaps:   int64(len(d.resume.Gaps)),
+		}
+	} else {
+		// Stages 1-4 all live behind SEGMENTS as far as resume
+		// dispatch is concerned — plan line 199 treats AUTH/
+		// PLAYLIST as "no durable work, restart from Stage 1"
+		// and SEGMENTS as "use the accounted frontier." Coarse-
+		// grained checkpoint here; per-segment frontier updates
+		// fire through OnEvent from inside fetchWithAuthRefresh.
+		s.setResumeStage(dbCtx, d, StageSegments, log)
+		var err error
+		hlsResult, err = s.fetchWithAuthRefresh(ctx, dbCtx, d, emitter, p, segmentsDir, selectOpts, log)
+		if err != nil {
+			s.failDownload(dbCtx, d, log, err)
+			return
+		}
+		// Segment count is now authoritative — total = done +
+		// gaps. Fires one event so the UI transitions out of
+		// the "-1 = unknown total" indeterminate-bar state
+		// before remux begins.
+		emitter.finalize()
 	}
-	// Segment count is now authoritative — total = done + gaps.
-	// Fires one event so the UI transitions out of the "-1 =
-	// unknown total" indeterminate-bar state before remux begins.
-	emitter.finalize()
 
-	// Stage 5 + 6: remux. Pick the ffmpeg mode from what the hls
-	// orchestrator observed — the media-playlist capability gate
-	// is what actually decided ts vs fmp4.
-	emitter.setStage("remux")
+	// Stage 5: prepare ffmpeg input. Idempotent; a crash after
+	// this but before REMUX just rebuilds the same segments.txt
+	// / media.m3u8 on restart.
+	kind := kindFromRecordingType(selectOpts.RecordingType)
 	remuxMode := remux.ModeTS
 	if hlsResult.Kind == hls.SegmentKindFMP4 {
 		remuxMode = remux.ModeFMP4
 	}
-	kind := kindFromRecordingType(selectOpts.RecordingType)
+	// SegmentFormat is now known; mirror it into resume state so
+	// a restart rebuilds the right ffmpeg input shape without
+	// re-polling the playlist just to learn ts vs fmp4.
+	d.resume.SegmentFormat = string(hlsResult.Kind)
+
+	// video_parts row goes in at PREPARE_INPUT so a restart mid-
+	// pipeline finds the part metadata already persisted.
+	// FinalizeVideoPart at Stage 10 fills in duration/size/
+	// thumbnail/end_media_seq — the numbers we only know once
+	// probe runs. Phase 6g: always part_index=1. 6f grows this.
+	//
+	// On resume the row may already exist from the prior attempt;
+	// look up by (video_id, part_index) first rather than
+	// relying on CreateVideoPart to be idempotent at the adapter
+	// layer (it isn't — DB unique constraint would fail).
+	if existing, err := s.repo.GetVideoPartByIndex(dbCtx, d.videoID, d.resume.CurrentPartIndex); err == nil && existing != nil {
+		d.videoPartID = existing.ID
+	} else if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		s.failDownload(dbCtx, d, log, fmt.Errorf("lookup video part: %w", err))
+		return
+	} else {
+		part, err := s.repo.CreateVideoPart(dbCtx, &repository.VideoPartInput{
+			VideoID:       d.videoID,
+			PartIndex:     d.resume.CurrentPartIndex,
+			Filename:      filename + kind.OutputExt(),
+			Quality:       d.resume.SelectedQuality,
+			Codec:         d.resume.SelectedCodec,
+			SegmentFormat: d.resume.SegmentFormat,
+			StartMediaSeq: d.resume.PartStartMediaSequence,
+		})
+		if err != nil {
+			s.failDownload(dbCtx, d, log, fmt.Errorf("create video part: %w", err))
+			return
+		}
+		d.videoPartID = part.ID
+	}
+
+	s.setResumeStage(dbCtx, d, StagePrepareInput, log)
+	emitter.setStage("remux")
 	inputPath, err := remux.PrepareInput(segmentsDir, remuxMode)
 	if err != nil {
 		s.failDownload(dbCtx, d, log, fmt.Errorf("remux prep: %w", err))
 		return
 	}
+
+	// Stage 6: remux. Also idempotent — Remuxer writes through a
+	// .part/rename so a crash leaves the previous attempt's
+	// output (or nothing) rather than a half-written file.
+	s.setResumeStage(dbCtx, d, StageRemux, log)
 	remuxIn := remux.RunInput{
 		Mode:           remuxMode,
 		Kind:           kind,
@@ -492,6 +759,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	remuxedPath := remuxIn.OutputPath()
 
 	// Stage 7: probe.
+	s.setResumeStage(dbCtx, d, StageProbe, log)
 	emitter.setStage("metadata")
 	probeResult, err := s.probe.Run(ctx, remuxedPath)
 	if err != nil {
@@ -504,6 +772,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// the un-healed file per spec ("partial VOD is better than
 	// none").
 	if isCorrupt(probeResult, kind) {
+		s.setResumeStage(dbCtx, d, StageCorruptionCheck, log)
 		log.Info("duration mismatch — running heal pass",
 			"format_duration", probeResult.Duration,
 			"threshold", remux.CorruptionThreshold)
@@ -530,6 +799,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// back to the channel avatar.
 	var thumbRel string
 	if kind == remux.KindVideo {
+		s.setResumeStage(dbCtx, d, StageThumbnail, log)
 		emitter.setStage("thumbnail")
 		thumbPath := filepath.Join(jobDir, filename+".jpg")
 		err := s.thumb.Generate(ctx, thumbnail.Input{
@@ -549,6 +819,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 
 	// Stage 10: store. Video first, then thumbnail — if the
 	// thumbnail upload fails we still want the video playable.
+	s.setResumeStage(dbCtx, d, StageStore, log)
 	videoRel := filepath.ToSlash(filepath.Join("videos", filename+kind.OutputExt()))
 	if err := s.uploadFromScratch(ctx, remuxedPath, videoRel); err != nil {
 		s.failDownload(dbCtx, d, log, fmt.Errorf("upload video: %w", err))
@@ -566,9 +837,29 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 
 	// Stage 11: mark done. The deferred RemoveAll handles the
 	// scratch cleanup.
+	if err := s.repo.FinalizeVideoPart(dbCtx, &repository.VideoPartFinalize{
+		ID:              d.videoPartID,
+		DurationSeconds: probeResult.Duration,
+		SizeBytes:       probeResult.Size,
+		Thumbnail:       thumbPtr,
+		EndMediaSeq:     hlsResult.LastMediaSeq,
+	}); err != nil {
+		log.Error("failed to finalize video part", "error", err)
+		// Part row without finalization is a consistency smell
+		// but videos.duration/size aggregate via SUM so one
+		// unfinalized part doesn't hide the others. Continue to
+		// the terminal marks rather than dragging the whole
+		// pipeline down for a child-row update.
+	}
 	if err := s.repo.MarkVideoDone(dbCtx, d.videoID, probeResult.Duration, probeResult.Size, thumbPtr); err != nil {
 		log.Error("failed to mark video done", "error", err)
 		return
+	}
+	if err := s.repo.MarkJobDone(dbCtx, d.jobID); err != nil {
+		log.Error("failed to mark job done", "error", err)
+		// Job row stuck as RUNNING is a DB-consistency smell
+		// but the video output is already committed and
+		// uploaded — no value in surfacing this to the user.
 	}
 	emitter.setStage("done")
 	log.Info("download complete",
@@ -604,7 +895,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 // real yet" — it doesn't inherit attempt 1's success/gap ratio.
 // Aggregate counters on the returned JobResult are for the
 // caller's reporting, not for policy decisions.
-func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmitter, p Params, segmentsDir string, selectOpts twitch.SelectOptions, log *slog.Logger) (*hls.JobResult, error) {
+func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, emitter *progressEmitter, p Params, segmentsDir string, selectOpts twitch.SelectOptions, log *slog.Logger) (*hls.JobResult, error) {
 	maxAuthAttempts := s.cfg.App.Download.AuthRefreshAttempts
 	if maxAuthAttempts <= 0 {
 		maxAuthAttempts = 2
@@ -612,7 +903,30 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmi
 
 	agg := &hls.JobResult{}
 	var authAttempts int
+
+	// bootstrapped guards PartStartMediaSequence: first poll's
+	// MediaSequenceBase anchors the frontier. Auth-refresh
+	// iterations reuse the anchor — d.resume is shared across
+	// attempts, so a refresh mid-stream doesn't reset the part.
+	// A resumed job enters already bootstrapped from its prior
+	// attempt's state; fresh jobs bootstrap on the first poll.
+	bootstrapped := d.resume.PartStartMediaSequence != 0 || d.resume.AccountedFrontierMediaSeq != 0
+
+	// Seed startSeq from the resume frontier when we're picking
+	// up a prior attempt — the first hls.Run call then skips
+	// already-committed segments. Fresh jobs start at 0 (emit
+	// everything the playlist publishes).
 	var startSeq int64
+	if bootstrapped {
+		startSeq = d.resume.AccountedFrontierMediaSeq + 1
+	}
+
+	// eventsSinceCheckpoint counts OnEvent firings between resume-
+	// state writes. Checkpoint cadence: every N events keeps DB
+	// traffic bounded during live recording (with 4 workers +
+	// ~2s target duration, ~2 events/sec → 1 checkpoint/5s).
+	const checkpointEveryEvents = 10
+	var eventsSinceCheckpoint int
 
 	for {
 		// Stages 1-3: fresh signed URL.
@@ -631,6 +945,13 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmi
 		}
 		emitter.setStage("playlist")
 		emitter.setVariant(variant.Quality, variant.Codec)
+		// Mirror the selected variant into resume state so a
+		// crash-restart between PREPARE_INPUT and STORE recovers
+		// the exact (quality, codec) pair without re-walking
+		// Stage 3. SegmentFormat lands after hls.Run returns —
+		// it's a property of the media playlist, not the master.
+		d.resume.SelectedQuality = variant.Quality
+		d.resume.SelectedCodec = variant.Codec
 
 		// Stage 4: segment fetch. The progress channel is
 		// per-attempt because hls.Run closes it on the way
@@ -664,7 +985,57 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmi
 				Strict:      s.cfg.App.Download.Strict,
 				MaxGapRatio: s.cfg.App.Download.MaxGapRatio,
 			},
+			OnFirstPoll: func(base int64) {
+				if bootstrapped {
+					return
+				}
+				bootstrapped = true
+				d.resume.StartPart(base)
+				s.checkpointResume(dbCtx, d, log)
+			},
+			OnWindowRoll: func(from, to int64) {
+				// Resume gap: the CDN window rolled past the
+				// frontier while we were down. Record the loss
+				// so the frontier advances past it; without this
+				// the frontier would stall forever waiting for
+				// segments the edge no longer serves.
+				d.resume.NoteRangeGap(from, to, GapReasonRestartWindowRolled)
+				log.Warn("resume gap recorded",
+					"reason", GapReasonRestartWindowRolled,
+					"from", from,
+					"to", to,
+					"lost_segments", to-from+1)
+				s.checkpointResume(dbCtx, d, log)
+			},
+			OnEvent: func(ev hls.SegmentEvent) {
+				switch ev.Outcome {
+				case hls.OutcomeCommitted:
+					d.resume.NoteCommitted(ev.MediaSeq)
+				case hls.OutcomeGapAccepted:
+					d.resume.NoteGap(ev.MediaSeq, GapReasonFetchFailure)
+				case hls.OutcomeAdSkipped:
+					d.resume.NoteGap(ev.MediaSeq, GapReasonStitchedAd)
+				case hls.OutcomeAuth:
+					// Auth-errored seqs are gapped from the
+					// current attempt's perspective — the next
+					// auth-refresh attempt's StartMediaSeq skips
+					// past via LastMediaSeq+1. Recording as a
+					// resume gap preserves that decision across
+					// a crash-restart within the refresh window.
+					d.resume.NoteGap(ev.MediaSeq, GapReasonAuth)
+				}
+				eventsSinceCheckpoint++
+				if eventsSinceCheckpoint >= checkpointEveryEvents {
+					s.checkpointResume(dbCtx, d, log)
+					eventsSinceCheckpoint = 0
+				}
+			},
 		})
+		// Unconditional checkpoint between attempts — captures
+		// any trailing events from the batch counter and the
+		// latest stage info before the next refresh iteration.
+		s.checkpointResume(dbCtx, d, log)
+		eventsSinceCheckpoint = 0
 
 		// Fold this attempt's counters into the running total.
 		// Kind + InitURI come from whichever attempt most
@@ -803,6 +1174,36 @@ func (s *Service) uploadFromScratch(ctx context.Context, scratchPath, storagePat
 	return nil
 }
 
+// setResumeStage latches the next pipeline stage on the in-memory
+// checkpoint and persists the whole state to jobs.resume_state.
+// Called at every stage boundary in run(); a crash-restart reads
+// the row to decide where to pick up.
+//
+// Uses dbCtx (context.WithoutCancel of the run ctx) so a user
+// Cancel() still lets the final checkpoint write land. Errors
+// are logged and swallowed: a failed checkpoint doesn't derail
+// the pipeline — the worst case is resume kicks in at a coarser
+// stage and re-runs idempotent work.
+func (s *Service) setResumeStage(dbCtx context.Context, d *download, stage Stage, log *slog.Logger) {
+	d.resume.SetStage(stage)
+	s.checkpointResume(dbCtx, d, log)
+}
+
+// checkpointResume persists the current in-memory ResumeState to
+// jobs.resume_state without changing the stage. Used from the
+// OnEvent batch path where segment outcomes have updated the
+// frontier but the stage hasn't transitioned.
+func (s *Service) checkpointResume(dbCtx context.Context, d *download, log *slog.Logger) {
+	data, err := json.Marshal(d.resume)
+	if err != nil {
+		log.Error("resume state marshal failed", "error", err, "stage", d.resume.Stage)
+		return
+	}
+	if err := s.repo.UpdateJobResumeState(dbCtx, d.jobID, data); err != nil {
+		log.Error("resume state persist failed", "error", err, "stage", d.resume.Stage)
+	}
+}
+
 // failDownload records a failure on the video row. If the
 // download was cancelled by a user call to Cancel(), the
 // recorded error is ErrCancelled so the UI can distinguish
@@ -821,6 +1222,9 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	}
 	if err := s.repo.MarkVideoFailed(dbCtx, d.videoID, recorded.Error()); err != nil {
 		log.Error("failed to mark video failed", "error", err)
+	}
+	if err := s.repo.MarkJobFailed(dbCtx, d.jobID, recorded.Error()); err != nil {
+		log.Error("failed to mark job failed", "error", err)
 	}
 }
 
