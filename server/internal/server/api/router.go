@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/befabri/replayvod/server/internal/config"
+	"github.com/befabri/replayvod/server/internal/downloader"
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/auth"
@@ -26,8 +28,6 @@ import (
 	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
-	"github.com/befabri/replayvod/server/internal/downloader"
-	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
 	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -40,8 +40,9 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 )
 
-// SetupRouter creates and configures the Chi router.
-func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, bus *eventbus.Buses, log *slog.Logger) *chi.Mux {
+// SetupRouter creates and configures the Chi router and returns a cleanup
+// hook for the tRPC router lifecycle.
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, bus *eventbus.Buses, log *slog.Logger) (*chi.Mux, func() error) {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -94,7 +95,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		setupDashboardRoutes(r, cfg.Env.DashboardDir, log)
 	}
 
-	return r
+	return r, trpcRouter.Close
 }
 
 // SetupTRPCRouter builds the tRPC router with all procedures.

@@ -28,6 +28,7 @@ type Server struct {
 	bus          *eventbus.Buses
 	log          *slog.Logger
 	httpServer   *http.Server
+	closeTRPC    func() error
 }
 
 // NewServer creates a new server. bus may be nil to disable SSE
@@ -47,7 +48,8 @@ func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *sessi
 
 // Start begins serving HTTP requests.
 func (s *Server) Start() {
-	router := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.bus, s.log)
+	router, closeTRPC := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.bus, s.log)
+	s.closeTRPC = closeTRPC
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port),
@@ -68,16 +70,20 @@ func (s *Server) Stop() {
 	if s.downloader != nil {
 		s.downloader.Shutdown()
 	}
-	if s.httpServer == nil {
-		return
+	if s.httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			s.log.Error("Server shutdown error", "error", err)
+		} else {
+			s.log.Info("Server gracefully stopped")
+		}
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		s.log.Error("Server shutdown error", "error", err)
-	} else {
-		s.log.Info("Server gracefully stopped")
+	if s.closeTRPC != nil {
+		if err := s.closeTRPC(); err != nil {
+			s.log.Error("tRPC router shutdown error", "error", err)
+		}
+		s.closeTRPC = nil
 	}
 }
