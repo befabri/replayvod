@@ -81,30 +81,80 @@ func TestReArrayMax(t *testing.T) {
 		"A channel may specify a maximum of 10 tags.",
 		"maximum of 50 items",
 	}
-	// Known phrasing we do NOT pick up (the trailing-number variant). Documented
-	// here as an expected miss; if we decide to add a second regex for it later,
-	// these strings move from neg → pos.
-	missed := []string{
-		"The maximum number of IDs you may specify is 100.",
-		"The maximum number of login names you may specify is 100.",
-	}
 	neg := []string{
 		"maximum of 45 characters", // strings — handled by reStringMax
 		"The default is 20.",
+		// Trailing-number variant — handled by reArrayMaxTrailing.
+		"The maximum number of IDs you may specify is 100.",
+		"The maximum number of login names you may specify is 100.",
 	}
 	for _, s := range pos {
 		if reArrayMax.FindStringSubmatch(s) == nil {
 			t.Errorf("reArrayMax should match: %q", s)
 		}
 	}
-	for _, s := range missed {
-		if reArrayMax.FindStringSubmatch(s) != nil {
-			t.Errorf("reArrayMax unexpectedly matched known-miss phrasing: %q", s)
-		}
-	}
 	for _, s := range neg {
 		if reArrayMax.FindStringSubmatch(s) != nil {
 			t.Errorf("reArrayMax should NOT match: %q", s)
+		}
+	}
+}
+
+func TestReArrayMaxTrailing(t *testing.T) {
+	pos := []string{
+		"The maximum number of IDs you may specify is 100.",
+		"The maximum number of IDs that you may specify is 100.",
+		"The maximum number of login names you may specify is 100.",
+		"maximum number of broadcasters you may specify is 10",
+	}
+	neg := []string{
+		// No trailing "is N" — plural alone is not enough.
+		"The maximum number of tags allowed.",
+		"maximum number of items to return per page in the response",
+		// Non-list nouns.
+		"maximum number of custom rewards per channel is 50",
+		"maximum number of redemptions allowed per user per stream",
+		// Wrong phrasing — this is reArrayMax's territory.
+		"maximum of 100 IDs",
+		// Numeric scalar in prose — this is reNumericMaxPhrase's territory.
+		"The maximum delay is 900 seconds.",
+		// Character max — handled by reStringMax.
+		"maximum length is 45 characters",
+	}
+	for _, s := range pos {
+		if reArrayMaxTrailing.FindStringSubmatch(s) == nil {
+			t.Errorf("reArrayMaxTrailing should match: %q", s)
+		}
+	}
+	for _, s := range neg {
+		if reArrayMaxTrailing.FindStringSubmatch(s) != nil {
+			t.Errorf("reArrayMaxTrailing should NOT match: %q", s)
+		}
+	}
+}
+
+func TestReNumericMaxPhrase(t *testing.T) {
+	pos := []string{
+		"The maximum delay is 900 seconds (15 minutes).",
+		"The maximum timeout is 60 seconds.",
+		"maximum hold is 30 minutes",
+	}
+	neg := []string{
+		// No unit → ambiguous, not matched.
+		"maximum length is 45 characters",
+		"The maximum number of IDs is 100.",
+		// Different phrasing handled elsewhere.
+		"Range: 0 - 900",
+		"between 1 and 140 characters long",
+	}
+	for _, s := range pos {
+		if reNumericMaxPhrase.FindStringSubmatch(s) == nil {
+			t.Errorf("reNumericMaxPhrase should match: %q", s)
+		}
+	}
+	for _, s := range neg {
+		if reNumericMaxPhrase.FindStringSubmatch(s) != nil {
+			t.Errorf("reNumericMaxPhrase should NOT match: %q", s)
 		}
 	}
 }
@@ -213,6 +263,31 @@ func TestExtractConstraints(t *testing.T) {
 			wantBase: "max=100",
 		},
 		{
+			name: "array id max — trailing phrasing",
+			field: FieldSchema{
+				Name: "id", Type: "String",
+				Description: "To specify more than one user, include the id parameter for each user. The maximum number of IDs you may specify is 100.",
+			},
+			// "To specify more than one" triggers IsArrayParam.
+			wantBase: "max=100",
+		},
+		{
+			name: "numeric max in prose on Integer field",
+			field: FieldSchema{
+				Name: "delay", Type: "Integer",
+				Description: "The maximum delay is 900 seconds (15 minutes).",
+			},
+			wantBase: "max=900",
+		},
+		{
+			name: "numeric max phrase does not fire on String type",
+			field: FieldSchema{
+				Name: "title", Type: "String",
+				Description: "The maximum wait is 5 minutes.",
+			},
+			wantBase: "",
+		},
+		{
 			name: "array + element bound combined",
 			field: FieldSchema{
 				Name: "tags", Type: "String[]",
@@ -246,16 +321,6 @@ func TestExtractConstraints(t *testing.T) {
 				Name: "first", Type: "Integer",
 				Description: "The maximum number of items to return per page. The default is 20.",
 			},
-			wantBase: "",
-		},
-		{
-			name: "negative — numeric max in prose without Range keyword",
-			field: FieldSchema{
-				Name: "delay", Type: "Integer",
-				Description: "The maximum delay is 900 seconds (15 minutes).",
-			},
-			// We miss this intentionally (no "Range:" keyword; no "characters").
-			// Twitch's 400 covers it.
 			wantBase: "",
 		},
 		{

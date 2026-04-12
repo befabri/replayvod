@@ -39,6 +39,17 @@ var (
 	// Twitch uses so we don't accidentally capture "characters".
 	reArrayMax = regexp.MustCompile(`(?i)maximum\s+of\s+(\d+)\s+(?:ids?|tags?|items?|urls?|redemptions?|broadcasters?)`)
 
+	// Trailing-number variant: "The maximum number of IDs you may specify is 100",
+	// "maximum number of login names ... is 100". Requires one of the specific
+	// plural nouns BEFORE "is" so it doesn't fire on e.g. "The maximum delay is
+	// 900 seconds" (covered by reNumericMaxPhrase instead).
+	reArrayMaxTrailing = regexp.MustCompile(`(?i)maximum\s+number\s+of\s+(?:ids?|tags?|items?|urls?|login\s+names?|broadcasters?)[^.]{0,60}\bis\s+(\d+)`)
+
+	// Numeric max in prose ("The maximum delay is 900 seconds"). Gated to unit
+	// suffixes so it doesn't collide with reStringMax ("... 45 characters") or
+	// with the array variants above.
+	reNumericMaxPhrase = regexp.MustCompile(`(?i)maximum\s+\w+\s+is\s+(\d+)\s+(?:seconds?|minutes?|hours?|days?)`)
+
 	// "Must be a positive integer." Pure signal for min=1 on numeric fields.
 	rePositiveInt = regexp.MustCompile(`(?i)\bmust\s+be\s+a\s+positive\s+integer\b`)
 )
@@ -85,6 +96,17 @@ func ExtractConstraints(f FieldSchema) (base, dive string) {
 	// Array max ("maximum of 100 IDs") — array-level, not element-level.
 	if m := reArrayMax.FindStringSubmatch(desc); m != nil && isArrayField {
 		baseParts = append(baseParts, "max="+m[1])
+	}
+	if m := reArrayMaxTrailing.FindStringSubmatch(desc); m != nil && isArrayField {
+		baseParts = append(baseParts, "max="+m[1])
+	}
+
+	// Numeric max in prose — only on numeric scalars. Unit suffix in the regex
+	// avoids firing on "maximum length is 45 characters" or the array variants.
+	if isNumericType(f.Type) && !isArrayField {
+		if m := reNumericMaxPhrase.FindStringSubmatch(desc); m != nil {
+			baseParts = append(baseParts, "max="+m[1])
+		}
 	}
 
 	// Positive-integer assertion — only meaningful on numeric types.

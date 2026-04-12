@@ -39,6 +39,13 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 		{"GetVideosParams", "ID"}:      "omitempty,max=100",
 		{"GetStreamsParams", "UserID"}: "omitempty,max=100",
 
+		// Trailing-number array-max phrasing picked up by reArrayMaxTrailing.
+		{"GetUsersParams", "ID"}:    "omitempty,max=100",
+		{"GetUsersParams", "Login"}: "omitempty,max=100",
+
+		// Numeric-max-in-prose picked up by reNumericMaxPhrase.
+		{"ModifyChannelInformationBody", "Delay"}: "omitempty,max=900",
+
 		// Required field with no extracted constraint → bare `required`.
 		{"CreateEventSubSubscriptionBody", "Type"}:    "required",
 		{"CreateEventSubSubscriptionBody", "Version"}: "required",
@@ -55,9 +62,6 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 	// docs that our v1 regexes intentionally don't match. If we later tighten
 	// the regex set, move the entry to the positives table.
 	knownMisses := [][2]string{
-		{"GetUsersParams", "ID"},                  // "maximum number of IDs ... is 100"
-		{"GetUsersParams", "Login"},               // same wording
-		{"ModifyChannelInformationBody", "Delay"}, // "maximum delay is 900 seconds"
 		{"ModifyChannelInformationBody", "Title"}, // no documented max
 		// BroadcasterLanguage intentionally unconstrained — "other" is a
 		// documented sentinel that `len=2` would reject. See constraints_test.go.

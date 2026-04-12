@@ -194,8 +194,8 @@ type GetTopGamesParams struct {
 
 // GetUsersParams are the query parameters for get-users.
 type GetUsersParams struct {
-	ID    []string `url:"id"`
-	Login []string `url:"login"`
+	ID    []string `url:"id" validate:"omitempty,max=100"`
+	Login []string `url:"login" validate:"omitempty,max=100"`
 }
 
 // GetVideosParams are the query parameters for get-videos.
@@ -236,7 +236,7 @@ type ModifyChannelInformationBody struct {
 	GameID                      string                                                   `json:"game_id,omitempty"`
 	BroadcasterLanguage         string                                                   `json:"broadcaster_language,omitempty"`
 	Title                       string                                                   `json:"title,omitempty"`
-	Delay                       int                                                      `json:"delay,omitempty"`
+	Delay                       int                                                      `json:"delay,omitempty" validate:"omitempty,max=900"`
 	Tags                        []string                                                 `json:"tags,omitempty" validate:"omitempty,max=10,dive,max=25"`
 	ContentClassificationLabels []ModifyChannelInformationBodyContentClassificationLabel `json:"content_classification_labels,omitempty"`
 	IsBrandedContent            bool                                                     `json:"is_branded_content,omitempty"`
