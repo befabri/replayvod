@@ -1,0 +1,7 @@
+#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-TARGETDURATION:6
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://license.example.com/key",KEYFORMAT="com.apple.streamingkeydelivery",KEYFORMATVERSIONS="1"
+#EXTINF:5.000,
+https://edge.example.com/0.ts

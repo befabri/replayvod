@@ -1,0 +1,14 @@
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:42
+#EXT-X-TWITCH-LIVE-SEQUENCE:42
+#EXTINF:2.000,
+https://edge.example.com/42.ts
+#EXTINF:2.000,
+https://edge.example.com/43.ts
+#EXTINF:2.000,
+https://edge.example.com/44.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:2.000,
+https://edge.example.com/45.ts

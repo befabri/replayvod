@@ -1,0 +1,9 @@
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-KEY:METHOD=AES-128,URI="https://edge.example.com/key",IV=0x12345678901234567890123456789012
+#EXTINF:2.000,
+https://edge.example.com/0.ts
+#EXTINF:2.000,
+https://edge.example.com/1.ts
