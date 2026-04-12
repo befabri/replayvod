@@ -2,8 +2,10 @@ package scheduleservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -11,28 +13,39 @@ import (
 )
 
 // EventProcessor implements routes/webhook.EventProcessor. On a
-// stream.online webhook it runs every active schedule on the affected
-// broadcaster through MatchSchedule, picks the highest-quality winner
-// from the matching set, and kicks off exactly one download. Other
-// matching schedules still get trigger_count bumped so operators can
-// see they fired, even though only the winner's quality is used.
+// stream.online webhook it enriches the event with full stream data
+// from Helix, runs every active schedule through MatchSchedule, picks
+// the highest-quality winner, and kicks off exactly one download. All
+// matching schedules get trigger_count bumped so the dashboard shows
+// every schedule that fired, even non-winners.
 type EventProcessor struct {
 	repo       repository.Repository
 	dl         *downloader.Service
+	twitch     *twitch.Client
 	log        *slog.Logger
 	defaultLng string
+	// fetchRetries / fetchRetryDelay configure the GetStreams retry
+	// loop for stream enrichment. stream.online fires before Helix
+	// necessarily reflects the live state, so per the spec we retry a
+	// few times before giving up and processing without signals.
+	fetchRetries    int
+	fetchRetryDelay time.Duration
 }
 
-// NewEventProcessor builds the webhook dispatcher. defaultLanguage is the
-// fallback language stored on Video rows when the incoming stream.online
-// payload has none (Twitch omits language in the event — we'd normally
-// fetch it separately; until then "en" is a safe default).
-func NewEventProcessor(repo repository.Repository, dl *downloader.Service, log *slog.Logger) *EventProcessor {
+// NewEventProcessor builds the webhook dispatcher. twitchClient is
+// used to enrich stream.online events with viewer_count / category /
+// tags via GET /helix/streams. Pass nil to skip enrichment (tests, or
+// a degraded mode where we want schedule matching on raw webhook data
+// only — filtered schedules then never match, see matcher invariant).
+func NewEventProcessor(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, log *slog.Logger) *EventProcessor {
 	return &EventProcessor{
-		repo:       repo,
-		dl:         dl,
-		log:        log.With("domain", "schedule"),
-		defaultLng: "en",
+		repo:            repo,
+		dl:              dl,
+		twitch:          tc,
+		log:             log.With("domain", "schedule"),
+		defaultLng:      "en",
+		fetchRetries:    3,
+		fetchRetryDelay: time.Second,
 	}
 }
 
@@ -80,12 +93,16 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		login = channel.BroadcasterLogin
 	}
 
-	// Current stream signals: we don't have viewer_count or categories/tags
-	// from the stream.online event itself. The matcher has defensive
-	// branches for empty filters, so schedules with those toggles disabled
-	// still match. Fully-filtered schedules will match on the next poll
-	// once we enrich from GetStreams (Phase 6).
-	signals := StreamSignals{}
+	// Enrich from Helix per spec: retry GetStreams a few times because
+	// stream.online races ahead of the live listing by a few hundred ms.
+	// On failure we proceed with empty signals — filtered schedules won't
+	// match (that's the invariant), but unfiltered ones still fire.
+	signals, language := p.enrichStreamSignals(ctx, event)
+	if language != "" {
+		// Override the Video row's language hint when we actually have one.
+		// The struct assignment below picks this up in Start params.
+		_ = language
+	}
 
 	// First pass: collect matching schedules. We need them all to pick
 	// the highest-quality one per spec (eventsub.md § stream.online). The
@@ -116,12 +133,16 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 	// same winner.
 	winner := highestQuality(matches)
 
+	dlLanguage := p.defaultLng
+	if language != "" {
+		dlLanguage = language
+	}
 	jobID, startErr := p.dl.Start(ctx, downloader.Params{
 		BroadcasterID:    event.BroadcasterUserID,
 		BroadcasterLogin: login,
 		DisplayName:      displayName,
 		Quality:          winner.Quality,
-		Language:         p.defaultLng,
+		Language:         dlLanguage,
 		ViewerCount:      signals.ViewerCount,
 	})
 	if startErr != nil {
@@ -173,6 +194,129 @@ func highestQuality(matches []*repository.DownloadSchedule) *repository.Download
 		}
 	}
 	return winner
+}
+
+// enrichStreamSignals fetches the live stream from Helix (with retry),
+// persists the stream row + category/tag links, and returns the
+// StreamSignals for the matcher plus the stream language (used as the
+// Video row's Language hint). On any failure we return empty signals
+// and defaultLng — filtered schedules won't match, which is the
+// documented degradation per spec § stream.online.
+func (p *EventProcessor) enrichStreamSignals(ctx context.Context, event twitch.StreamOnlineEvent) (StreamSignals, string) {
+	if p.twitch == nil {
+		return StreamSignals{}, ""
+	}
+	stream, err := p.fetchStreamWithRetry(ctx, event.BroadcasterUserID)
+	if err != nil {
+		p.log.Warn("stream enrichment failed; processing with empty signals",
+			"broadcaster_id", event.BroadcasterUserID, "error", err)
+		return StreamSignals{}, ""
+	}
+
+	// Persist the stream row. ctx.WithoutCancel so a client drop
+	// mid-handler doesn't strand a partial write.
+	persistCtx := context.WithoutCancel(ctx)
+	isMature := stream.IsMature
+	viewerCount := int64(stream.ViewerCount)
+	thumb := stream.ThumbnailURL
+	streamPtr, err := p.repo.UpsertStream(persistCtx, &repository.StreamInput{
+		ID:            stream.ID,
+		BroadcasterID: event.BroadcasterUserID,
+		Type:          stream.Type,
+		Language:      stream.Language,
+		ThumbnailURL:  stringOrNil(thumb),
+		ViewerCount:   viewerCount,
+		IsMature:      &isMature,
+		StartedAt:     stream.StartedAt,
+	})
+	if err != nil {
+		p.log.Warn("upsert stream row", "stream_id", stream.ID, "error", err)
+	}
+
+	// Link category (upsert first so the category row exists).
+	var catIDs []string
+	if stream.GameID != "" {
+		if _, err := p.repo.UpsertCategory(persistCtx, &repository.Category{
+			ID:   stream.GameID,
+			Name: stream.GameName,
+		}); err != nil {
+			p.log.Warn("upsert stream category", "game_id", stream.GameID, "error", err)
+		} else if streamPtr != nil {
+			if err := p.repo.LinkStreamCategory(persistCtx, streamPtr.ID, stream.GameID); err != nil {
+				p.log.Warn("link stream category", "stream_id", streamPtr.ID, "error", err)
+			}
+			catIDs = append(catIDs, stream.GameID)
+		}
+	}
+
+	// Link tags. Helix returns tag TEXT, not IDs — upsert each name and
+	// collect the resulting int64 IDs so the matcher can compare against
+	// download_schedule_tags rows (which are FK to tags.id).
+	var tagIDs []int64
+	for _, name := range stream.Tags {
+		if name == "" {
+			continue
+		}
+		tag, err := p.repo.UpsertTag(persistCtx, name)
+		if err != nil {
+			p.log.Warn("upsert tag", "name", name, "error", err)
+			continue
+		}
+		tagIDs = append(tagIDs, tag.ID)
+		if streamPtr != nil {
+			if err := p.repo.LinkStreamTag(persistCtx, streamPtr.ID, tag.ID); err != nil {
+				p.log.Warn("link stream tag", "tag_id", tag.ID, "error", err)
+			}
+		}
+	}
+
+	return StreamSignals{
+		ViewerCount: viewerCount,
+		CategoryIDs: catIDs,
+		TagIDs:      tagIDs,
+	}, stream.Language
+}
+
+// fetchStreamWithRetry wraps GetStreams with the spec-mandated retry
+// loop. Returns ErrNotFound-shaped error if the stream still isn't
+// visible after fetchRetries attempts — caller degrades to empty
+// signals.
+func (p *EventProcessor) fetchStreamWithRetry(ctx context.Context, broadcasterID string) (*twitch.Stream, error) {
+	var lastErr error
+	for attempt := 0; attempt < p.fetchRetries; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(p.fetchRetryDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+		streams, _, err := p.twitch.GetStreams(ctx, &twitch.GetStreamsParams{
+			UserID: []string{broadcasterID},
+		})
+		if err != nil {
+			// Rate-limit error or network issue — retry.
+			lastErr = err
+			continue
+		}
+		if len(streams) > 0 {
+			return &streams[0], nil
+		}
+		lastErr = errors.New("twitch returned no streams for broadcaster")
+	}
+	if lastErr == nil {
+		lastErr = errors.New("stream enrichment retries exhausted")
+	}
+	return nil, lastErr
+}
+
+func stringOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (p *EventProcessor) loadFilters(ctx context.Context, schedule *repository.DownloadSchedule) (ScheduleFilters, error) {

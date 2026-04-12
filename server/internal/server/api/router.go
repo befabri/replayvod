@@ -62,7 +62,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// csrfProtection group (Twitch can't provide a CSRF cookie). The
 	// schedule-service processor dispatches stream.online events to the
 	// auto-download pipeline; other event types are audit-logged only.
-	scheduleProcessor := scheduleservice.NewEventProcessor(repo, dl, log)
+	scheduleProcessor := scheduleservice.NewEventProcessor(repo, dl, twitchClient, log)
 	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, scheduleProcessor, log)
 	sessionMw := middleware.Auth(sessionMgr, repo, log)
 	r.Route("/api/v1", func(r chi.Router) {

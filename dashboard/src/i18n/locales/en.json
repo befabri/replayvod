@@ -67,6 +67,7 @@
 		"has_tags": "Match specific tags",
 		"min_viewers": "Min viewers",
 		"coming_soon": "Coming soon",
+		"filters": "Filters",
 		"filters_coming_soon": "Filters",
 		"filters_coming_soon_hint": "Stream signals aren't captured yet; these filters will be enabled in a later phase.",
 		"enable": "Enable",

@@ -67,6 +67,7 @@
 		"has_tags": "Filtrer par tag",
 		"min_viewers": "Viewers minimum",
 		"coming_soon": "Bientôt",
+		"filters": "Filtres",
 		"filters_coming_soon": "Filtres",
 		"filters_coming_soon_hint": "Les signaux du stream ne sont pas encore collectés ; ces filtres seront activés dans une phase ultérieure.",
 		"enable": "Activer",

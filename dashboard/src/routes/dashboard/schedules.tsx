@@ -11,14 +11,17 @@ import {
 	useToggleSchedule,
 } from "@/features/schedules"
 
-// Shrink the generated Zod schema to the fields the form actually lets
-// users edit today. The filter toggles are deferred (see "coming soon"
-// fieldset) so they stay hardcoded `false` at submit time instead of
-// showing up in the form state. Once Phase 6's stream-signal enrichment
-// lands, widen this schema and the form will pick up the new fields.
+// ScheduleFormSchema picks the fields the form lets users edit. The
+// backend's CreateInput accepts viewer-count / category / tag filters
+// but the dashboard form currently only exposes min_viewers (a
+// numeric threshold). Categories and tags need a picker UI that
+// depends on having the full category/tag catalog populated — we'll
+// layer that in when there's a concrete UX for it.
 const ScheduleFormSchema = CreateInputSchema.pick({
 	broadcaster_id: true,
 	quality: true,
+	has_min_viewers: true,
+	min_viewers: true,
 }).extend({
 	broadcaster_id: z
 		.string()
@@ -76,14 +79,16 @@ function CreateForm() {
 	const { t } = useTranslation()
 	const create = useCreateSchedule()
 
-	// TanStack Form wired with a Zod-validated submit. Viewer-count /
-	// category / tag filters stay hardcoded false here because the
-	// stream.online webhook doesn't carry those signals yet — when Phase 6
-	// enriches via GetStreams, widen ScheduleFormSchema to pick them up.
+	// TanStack Form wired with a Zod-validated submit. min_viewers is now
+	// live (Phase 6 stream enrichment fetches viewer_count on
+	// stream.online); categories + tags still need a picker UI for the
+	// tag/category catalog, so they stay `false` at submit.
 	const form = useForm({
 		defaultValues: {
 			broadcaster_id: "",
 			quality: "HIGH",
+			has_min_viewers: false,
+			min_viewers: undefined,
 		} as ScheduleFormValues,
 		validators: {
 			onSubmit: ScheduleFormSchema,
@@ -92,7 +97,8 @@ function CreateForm() {
 			await create.mutateAsync({
 				broadcaster_id: value.broadcaster_id.trim(),
 				quality: value.quality,
-				has_min_viewers: false,
+				has_min_viewers: value.has_min_viewers,
+				min_viewers: value.has_min_viewers ? value.min_viewers : undefined,
 				has_categories: false,
 				has_tags: false,
 				is_delete_rediff: false,
@@ -167,9 +173,51 @@ function CreateForm() {
 
 			<fieldset className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
 				<legend className="text-xs px-1 text-muted-foreground">
-					{t("schedules.filters_coming_soon")}
+					{t("schedules.filters")}
 				</legend>
-				<DisabledFilter label={t("schedules.has_min_viewers")} />
+				<form.Field name="has_min_viewers">
+					{(field) => (
+						<label className="flex items-center gap-2 text-sm">
+							<input
+								id={field.name}
+								type="checkbox"
+								checked={field.state.value}
+								onChange={(e) => field.handleChange(e.target.checked)}
+							/>
+							{t("schedules.has_min_viewers")}
+						</label>
+					)}
+				</form.Field>
+				<form.Subscribe selector={(s) => s.values.has_min_viewers}>
+					{(hasMinViewers) =>
+						hasMinViewers ? (
+							<form.Field name="min_viewers">
+								{(field) => (
+									<label className="flex flex-col gap-1 max-w-xs">
+										<span className="text-xs text-muted-foreground">
+											{t("schedules.min_viewers")}
+										</span>
+										<input
+											id={field.name}
+											type="number"
+											min={0}
+											value={field.state.value ?? ""}
+											onChange={(e) =>
+												field.handleChange(
+													e.target.value === ""
+														? undefined
+														: Number(e.target.value),
+												)
+											}
+											onBlur={field.handleBlur}
+											className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+										/>
+									</label>
+								)}
+							</form.Field>
+						) : null
+					}
+				</form.Subscribe>
 				<DisabledFilter label={t("schedules.has_categories")} />
 				<DisabledFilter label={t("schedules.has_tags")} />
 			</fieldset>
