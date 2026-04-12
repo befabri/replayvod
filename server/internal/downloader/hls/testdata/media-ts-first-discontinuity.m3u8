@@ -1,0 +1,9 @@
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:100
+#EXT-X-DISCONTINUITY
+#EXTINF:2.000,
+https://edge.example.com/100.ts
+#EXTINF:2.000,
+https://edge.example.com/101.ts

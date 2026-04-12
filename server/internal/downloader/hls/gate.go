@@ -91,27 +91,42 @@ var drmKeyformats = map[string]struct{}{
 }
 
 // checkCapability runs the capability gate against a decoded
-// Eyevinn MediaPlaylist. It returns the Kind the parser should
-// assign when successful (ts or fmp4) and a non-nil error wrapping
-// UnsupportedManifestError when any rejection criteria fires.
+// Eyevinn MediaPlaylist. Returns the Kind the parser should
+// assign (ts or fmp4), the init segment inferred from EXT-X-MAP
+// (nil for TS, non-nil for fMP4), and a non-nil error wrapping
+// UnsupportedManifestError when any rejection criterion fires.
+//
+// Both kind and init are returned here so the parser doesn't
+// re-inspect p.Map — single source of truth for the ts/fmp4
+// decision.
 //
 // The gate is deliberately per-playlist, not per-segment: we
 // check once after decode, before any segment work begins. That
 // means we pay the full playlist scan once per poll, which is
 // cheap next to the network I/O.
-func checkCapability(p *m3u8.MediaPlaylist) (SegmentKind, error) {
+func checkCapability(p *m3u8.MediaPlaylist) (SegmentKind, *InitSegment, error) {
 	if p == nil {
-		return "", &UnsupportedManifestError{Reason: ReasonMalformed, Detail: "nil playlist"}
+		return "", nil, &UnsupportedManifestError{Reason: ReasonMalformed, Detail: "nil playlist"}
+	}
+
+	// Missing EXT-X-TARGETDURATION → treat as malformed. Zero
+	// would make the poll loop tick-spin against the CDN; better
+	// to fail fast with a readable reason than ship a pathological
+	// fetch loop.
+	if p.TargetDuration == 0 {
+		return "", nil, &UnsupportedManifestError{Reason: ReasonMalformed, Detail: "missing EXT-X-TARGETDURATION"}
 	}
 
 	// LL-HLS rejection runs first because it's the cheapest
 	// scan (two fields) and a positive match short-circuits
-	// the rest.
+	// the rest. Require both non-nil AND a populated URI so a
+	// future Eyevinn change that emits an empty-but-non-nil
+	// PreloadHints doesn't misfire the gate.
 	if len(p.PartialSegments) > 0 {
-		return "", &UnsupportedManifestError{Reason: ReasonLowLatency, Detail: "EXT-X-PART"}
+		return "", nil, &UnsupportedManifestError{Reason: ReasonLowLatency, Detail: "EXT-X-PART"}
 	}
-	if p.PreloadHints != nil {
-		return "", &UnsupportedManifestError{Reason: ReasonLowLatency, Detail: "EXT-X-PRELOAD-HINT"}
+	if p.PreloadHints != nil && p.PreloadHints.URI != "" {
+		return "", nil, &UnsupportedManifestError{Reason: ReasonLowLatency, Detail: "EXT-X-PRELOAD-HINT"}
 	}
 
 	// Encryption / DRM: examine every key both at playlist
@@ -120,7 +135,7 @@ func checkCapability(p *m3u8.MediaPlaylist) (SegmentKind, error) {
 	// which Eyevinn attaches to the segments that follow.
 	for i := range p.Keys {
 		if err := checkKey(&p.Keys[i]); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	for _, seg := range p.Segments {
@@ -129,7 +144,7 @@ func checkCapability(p *m3u8.MediaPlaylist) (SegmentKind, error) {
 		}
 		for i := range seg.Keys {
 			if err := checkKey(&seg.Keys[i]); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		}
 	}
@@ -144,7 +159,7 @@ func checkCapability(p *m3u8.MediaPlaylist) (SegmentKind, error) {
 			continue
 		}
 		if seg.Limit > 0 {
-			return "", &UnsupportedManifestError{
+			return "", nil, &UnsupportedManifestError{
 				Reason: ReasonByteRange,
 				Detail: fmt.Sprintf("segment seq=%d carries EXT-X-BYTERANGE", seg.SeqId),
 			}
@@ -155,11 +170,18 @@ func checkCapability(p *m3u8.MediaPlaylist) (SegmentKind, error) {
 	// identified by the map, not by URI suffix — the spec's
 	// empirical altair capture has .mp4 URIs in the master but
 	// .m4s-like behavior at the segment level.
-	kind := SegmentKindTS
-	if p.Map != nil && p.Map.URI != "" {
-		kind = SegmentKindFMP4
+	//
+	// EXT-X-MAP with an empty URI is malformed: the tag declares
+	// "this is fMP4 with an init segment" but doesn't say where
+	// the init segment lives. Silently falling back to TS would
+	// produce a broken output file. Reject.
+	if p.Map != nil {
+		if p.Map.URI == "" {
+			return "", nil, &UnsupportedManifestError{Reason: ReasonMalformed, Detail: "EXT-X-MAP with empty URI"}
+		}
+		return SegmentKindFMP4, &InitSegment{URI: p.Map.URI}, nil
 	}
-	return kind, nil
+	return SegmentKindTS, nil, nil
 }
 
 // checkKey rejects any EXT-X-KEY that would require decryption
