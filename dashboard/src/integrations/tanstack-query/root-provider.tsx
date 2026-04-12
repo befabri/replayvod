@@ -1,10 +1,10 @@
 import type { ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createTRPCClient, httpBatchLink } from "@trpc/client"
-import { TRPCProvider } from "@/api/trpc"
+import { TRPCProvider, type AppRouter } from "@/api/trpc"
 import { API_URL } from "@/env"
 
-export const trpcClient = createTRPCClient({
+export const trpcClient = createTRPCClient<AppRouter>({
 	links: [
 		httpBatchLink({
 			url: `${API_URL}/trpc`,
