@@ -1,0 +1,36 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "./queries/postgres"
+    schema: "./migrations/postgres"
+    gen:
+      go:
+        package: "pggen"
+        out: "internal/repository/pgadapter/pggen"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.timestamptz"
+            nullable: false
+            go_type:
+              import: "time"
+              type: "Time"
+          - db_type: "pg_catalog.timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+
+  - engine: "sqlite"
+    queries: "./queries/sqlite"
+    schema: "./migrations/sqlite"
+    gen:
+      go:
+        package: "sqlitegen"
+        out: "internal/repository/sqliteadapter/sqlitegen"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true

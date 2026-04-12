@@ -1,0 +1,43 @@
+[server]
+allowed_origins = ["http://localhost:3000"]
+
+[download]
+max_concurrent = 2
+default_quality = "1080"
+audio_rate = 48000
+
+[storage]
+type = "local"
+local_path = "./data"
+
+[storage.s3]
+endpoint = ""
+bucket = ""
+region = ""
+access_key = ""
+secret_key = ""
+
+[storage.rclone]
+remote = ""
+
+[scheduler]
+enabled = true
+thumbnail_interval_minutes = 5
+eventsub_interval_minutes = 10
+category_art_interval_minutes = 1440
+token_cleanup_interval_minutes = 60
+
+[logging]
+log_to_file = false
+log_dir = "./logs"
+log_level = "debug"
+sample_rate = 1.0
+
+[postgres]
+max_conns = 25
+min_conns = 5
+max_conn_lifetime_ms = 1800000
+max_conn_idle_time_ms = 300000
+health_check_period_ms = 30000
+
+development = true
