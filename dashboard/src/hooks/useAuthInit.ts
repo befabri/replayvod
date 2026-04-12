@@ -1,30 +1,22 @@
 import { useEffect } from "react"
-import { API_URL } from "@/env"
-import { setUser, clearUser, type Role } from "@/stores/auth"
+import { trpcClient } from "@/integrations/tanstack-query/root-provider"
+import { clearUser, type Role, setUser } from "@/stores/auth"
 
-// useAuthInit hydrates the auth store from the server session cookie on app start.
-// Called once in __root.tsx.
+// useAuthInit hydrates the auth store from the server session cookie on
+// app start. Called once in __root.tsx.
+//
+// Uses the vanilla trpcClient rather than the TanStack Query `useTRPC`
+// hook because the result lands in the Store (not the query cache); no
+// background refetch, no invalidation tracking. A one-shot call is the
+// simpler shape.
 export function useAuthInit() {
 	useEffect(() => {
 		const controller = new AbortController()
 		;(async () => {
 			try {
-				const res = await fetch(`${API_URL}/trpc/auth.session`, {
-					method: "GET",
-					credentials: "include",
+				const data = await trpcClient.auth.session.query(undefined, {
 					signal: controller.signal,
 				})
-				if (!res.ok) {
-					clearUser()
-					return
-				}
-				const body = await res.json()
-				// tRPC envelope: { result: { data: ... } }
-				const data = body?.result?.data
-				if (!data) {
-					clearUser()
-					return
-				}
 				setUser({
 					id: data.user_id,
 					login: data.login,

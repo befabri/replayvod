@@ -1,4 +1,7 @@
 import { useTranslation } from "react-i18next"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
 	MultiSelectPicker,
 	type PickerOption,
@@ -34,16 +37,13 @@ export function FiltersFieldset({ form }: { form: any }) {
 
 			<form.Field name="has_min_viewers">
 				{(field: any) => (
-					<label className="flex items-center gap-2 text-sm">
-						<input
-							type="checkbox"
+					<Label className="flex items-center gap-2 text-sm font-normal">
+						<Checkbox
 							checked={field.state.value}
-							onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-								field.handleChange(e.target.checked)
-							}
+							onCheckedChange={(c: boolean) => field.handleChange(c === true)}
 						/>
 						{t("schedules.has_min_viewers")}
-					</label>
+					</Label>
 				)}
 			</form.Field>
 			<form.Subscribe selector={(s: any) => s.values.has_min_viewers}>
@@ -51,11 +51,15 @@ export function FiltersFieldset({ form }: { form: any }) {
 					hasMinViewers ? (
 						<form.Field name="min_viewers">
 							{(field: any) => (
-								<label className="flex flex-col gap-1 max-w-xs">
-									<span className="text-xs text-muted-foreground">
+								<div className="flex flex-col gap-1 max-w-xs">
+									<Label
+										htmlFor={field.name}
+										className="text-xs text-muted-foreground"
+									>
 										{t("schedules.min_viewers")}
-									</span>
-									<input
+									</Label>
+									<Input
+										id={field.name}
 										type="number"
 										min={0}
 										value={field.state.value ?? ""}
@@ -66,13 +70,12 @@ export function FiltersFieldset({ form }: { form: any }) {
 													: Number(e.target.value),
 											)
 										}
-										className="rounded-md border border-border bg-background px-3 py-2 text-sm"
 										aria-invalid={
 											field.state.meta.errors.length > 0 ? true : undefined
 										}
 									/>
 									<FieldError errors={field.state.meta.errors} />
-								</label>
+								</div>
 							)}
 						</form.Field>
 					) : null
@@ -81,16 +84,13 @@ export function FiltersFieldset({ form }: { form: any }) {
 
 			<form.Field name="has_categories">
 				{(field: any) => (
-					<label className="flex items-center gap-2 text-sm">
-						<input
-							type="checkbox"
+					<Label className="flex items-center gap-2 text-sm font-normal">
+						<Checkbox
 							checked={field.state.value}
-							onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-								field.handleChange(e.target.checked)
-							}
+							onCheckedChange={(c: boolean) => field.handleChange(c === true)}
 						/>
 						{t("schedules.has_categories")}
-					</label>
+					</Label>
 				)}
 			</form.Field>
 			<form.Subscribe selector={(s: any) => s.values.has_categories}>
@@ -113,16 +113,13 @@ export function FiltersFieldset({ form }: { form: any }) {
 
 			<form.Field name="has_tags">
 				{(field: any) => (
-					<label className="flex items-center gap-2 text-sm">
-						<input
-							type="checkbox"
+					<Label className="flex items-center gap-2 text-sm font-normal">
+						<Checkbox
 							checked={field.state.value}
-							onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-								field.handleChange(e.target.checked)
-							}
+							onCheckedChange={(c: boolean) => field.handleChange(c === true)}
 						/>
 						{t("schedules.has_tags")}
-					</label>
+					</Label>
 				)}
 			</form.Field>
 			<form.Subscribe selector={(s: any) => s.values.has_tags}>

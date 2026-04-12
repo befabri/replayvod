@@ -3,6 +3,16 @@ import { useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import type { z } from "zod"
 import { SettingsUpdateInputSchema } from "@/api/generated/zod"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select"
 import {
 	type SettingsResponse,
 	useUpdateSettings,
@@ -50,72 +60,69 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 		>
 			<form.Field name="timezone">
 				{(field) => (
-					<label className="flex flex-col gap-1">
-						<span className="text-sm font-medium">
-							{t("settings.timezone")}
-						</span>
-						<input
+					<div className="flex flex-col gap-1">
+						<Label htmlFor={field.name}>{t("settings.timezone")}</Label>
+						<Input
 							id={field.name}
 							type="text"
 							value={field.state.value}
 							onChange={(e) => field.handleChange(e.target.value)}
 							onBlur={field.handleBlur}
 							placeholder="Europe/Paris"
-							className="rounded-md border border-border bg-background px-3 py-2 text-sm"
 						/>
 						<span className="text-xs text-muted-foreground">
 							{t("settings.timezone_hint")}
 						</span>
-					</label>
+					</div>
 				)}
 			</form.Field>
 
 			<form.Field name="datetime_format">
 				{(field) => (
-					<label className="flex flex-col gap-1">
-						<span className="text-sm font-medium">
+					<div className="flex flex-col gap-1 max-w-xs">
+						<Label htmlFor={field.name}>
 							{t("settings.datetime_format")}
-						</span>
-						<select
-							id={field.name}
+						</Label>
+						<Select
 							value={field.state.value}
-							onChange={(e) =>
+							onValueChange={(v) =>
 								field.handleChange(
-									e.target.value as SettingsFormValues["datetime_format"],
+									v as SettingsFormValues["datetime_format"],
 								)
 							}
-							onBlur={field.handleBlur}
-							className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-xs"
 						>
-							<option value="ISO">ISO (2026-04-12 15:30)</option>
-							<option value="EU">EU (12/04/2026 15:30)</option>
-							<option value="US">US (04/12/2026 3:30 PM)</option>
-						</select>
-					</label>
+							<SelectTrigger id={field.name}>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="ISO">ISO (2026-04-12 15:30)</SelectItem>
+								<SelectItem value="EU">EU (12/04/2026 15:30)</SelectItem>
+								<SelectItem value="US">US (04/12/2026 3:30 PM)</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
 				)}
 			</form.Field>
 
 			<form.Field name="language">
 				{(field) => (
-					<label className="flex flex-col gap-1">
-						<span className="text-sm font-medium">
-							{t("settings.language")}
-						</span>
-						<select
-							id={field.name}
+					<div className="flex flex-col gap-1 max-w-xs">
+						<Label htmlFor={field.name}>{t("settings.language")}</Label>
+						<Select
 							value={field.state.value}
-							onChange={(e) =>
-								field.handleChange(
-									e.target.value as SettingsFormValues["language"],
-								)
+							onValueChange={(v) =>
+								field.handleChange(v as SettingsFormValues["language"])
 							}
-							onBlur={field.handleBlur}
-							className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-xs"
 						>
-							<option value="en">English</option>
-							<option value="fr">Français</option>
-						</select>
-					</label>
+							<SelectTrigger id={field.name}>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="en">English</SelectItem>
+								<SelectItem value="fr">Français</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
 				)}
 			</form.Field>
 
@@ -133,15 +140,14 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 
 			<form.Subscribe selector={(s) => [s.canSubmit, s.isSubmitting] as const}>
 				{([canSubmit, isSubmitting]) => (
-					<button
+					<Button
 						type="submit"
 						disabled={!canSubmit || isSubmitting || update.isPending}
-						className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
 					>
 						{isSubmitting || update.isPending
 							? t("common.saving")
 							: t("settings.save")}
-					</button>
+					</Button>
 				)}
 			</form.Subscribe>
 		</form>

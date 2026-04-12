@@ -1,5 +1,5 @@
 import { Store } from "@tanstack/store"
-import { API_URL } from "@/env"
+import { trpcClient } from "@/integrations/tanstack-query/root-provider"
 
 export type Role = "viewer" | "admin" | "owner"
 
@@ -46,15 +46,11 @@ export function clearUser() {
 }
 
 // logout calls the server to delete the session, then clears local state.
-// If the server call fails, local state is still cleared so the UI reflects logged-out.
+// If the server call fails, local state is still cleared so the UI
+// reflects logged-out.
 export async function logout(): Promise<void> {
 	try {
-		await fetch(`${API_URL}/trpc/auth.logout`, {
-			method: "POST",
-			credentials: "include",
-			headers: { "Content-Type": "application/json" },
-			body: "{}",
-		})
+		await trpcClient.auth.logout.mutate()
 	} catch {
 		// Ignore — we still clear local state below.
 	}

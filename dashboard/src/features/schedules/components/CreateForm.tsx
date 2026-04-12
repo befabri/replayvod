@@ -1,5 +1,15 @@
 import { useForm } from "@tanstack/react-form"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select"
 import { useCreateSchedule } from "@/features/schedules/queries"
 import {
 	ScheduleFormSchema,
@@ -56,11 +66,11 @@ export function CreateForm() {
 			<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 				<form.Field name="broadcaster_id">
 					{(field) => (
-						<label className="flex flex-col gap-1">
-							<span className="text-sm text-muted-foreground">
+						<div className="flex flex-col gap-1">
+							<Label htmlFor={field.name} className="text-muted-foreground">
 								{t("schedules.broadcaster_id")}
-							</span>
-							<input
+							</Label>
+							<Input
 								id={field.name}
 								name={field.name}
 								type="text"
@@ -68,38 +78,42 @@ export function CreateForm() {
 								onChange={(e) => field.handleChange(e.target.value)}
 								onBlur={field.handleBlur}
 								placeholder="12345"
-								className="rounded-md border border-border bg-background px-3 py-2 text-sm"
 								aria-invalid={
 									field.state.meta.errors.length > 0 ? true : undefined
 								}
 							/>
 							<FieldError errors={field.state.meta.errors} />
-						</label>
+						</div>
 					)}
 				</form.Field>
 				<form.Field name="quality">
 					{(field) => (
-						<label className="flex flex-col gap-1">
-							<span className="text-sm text-muted-foreground">
+						<div className="flex flex-col gap-1">
+							<Label htmlFor={field.name} className="text-muted-foreground">
 								{t("schedules.quality")}
-							</span>
-							<select
-								id={field.name}
-								name={field.name}
+							</Label>
+							<Select
 								value={field.state.value}
-								onChange={(e) =>
-									field.handleChange(
-										e.target.value as ScheduleFormValues["quality"],
-									)
+								onValueChange={(v) =>
+									field.handleChange(v as ScheduleFormValues["quality"])
 								}
-								onBlur={field.handleBlur}
-								className="rounded-md border border-border bg-background px-3 py-2 text-sm"
 							>
-								<option value="HIGH">{t("schedules.quality_high")}</option>
-								<option value="MEDIUM">{t("schedules.quality_medium")}</option>
-								<option value="LOW">{t("schedules.quality_low")}</option>
-							</select>
-						</label>
+								<SelectTrigger id={field.name}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="HIGH">
+										{t("schedules.quality_high")}
+									</SelectItem>
+									<SelectItem value="MEDIUM">
+										{t("schedules.quality_medium")}
+									</SelectItem>
+									<SelectItem value="LOW">
+										{t("schedules.quality_low")}
+									</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
 					)}
 				</form.Field>
 			</div>
@@ -114,15 +128,14 @@ export function CreateForm() {
 
 			<form.Subscribe selector={(s) => [s.canSubmit, s.isSubmitting] as const}>
 				{([canSubmit, isSubmitting]) => (
-					<button
+					<Button
 						type="submit"
 						disabled={!canSubmit || isSubmitting || create.isPending}
-						className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
 					>
 						{isSubmitting || create.isPending
 							? t("common.saving")
 							: t("schedules.create_submit")}
-					</button>
+					</Button>
 				)}
 			</form.Subscribe>
 		</form>

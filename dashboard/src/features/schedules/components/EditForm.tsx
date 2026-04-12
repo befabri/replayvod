@@ -1,5 +1,14 @@
 import { useForm } from "@tanstack/react-form"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select"
 import type { ScheduleResponse } from "@/features/schedules"
 import { useUpdateSchedule } from "@/features/schedules/queries"
 import {
@@ -74,24 +83,30 @@ export function EditForm({
 			</div>
 			<form.Field name="quality">
 				{(field) => (
-					<label className="flex flex-col gap-1 max-w-xs">
-						<span className="text-xs text-muted-foreground">
+					<div className="flex flex-col gap-1 max-w-xs">
+						<Label htmlFor={field.name} className="text-xs text-muted-foreground">
 							{t("schedules.quality")}
-						</span>
-						<select
+						</Label>
+						<Select
 							value={field.state.value}
-							onChange={(e) =>
-								field.handleChange(
-									e.target.value as ScheduleFormValues["quality"],
-								)
+							onValueChange={(v) =>
+								field.handleChange(v as ScheduleFormValues["quality"])
 							}
-							className="rounded-md border border-border bg-background px-3 py-2 text-sm"
 						>
-							<option value="HIGH">{t("schedules.quality_high")}</option>
-							<option value="MEDIUM">{t("schedules.quality_medium")}</option>
-							<option value="LOW">{t("schedules.quality_low")}</option>
-						</select>
-					</label>
+							<SelectTrigger id={field.name}>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="HIGH">
+									{t("schedules.quality_high")}
+								</SelectItem>
+								<SelectItem value="MEDIUM">
+									{t("schedules.quality_medium")}
+								</SelectItem>
+								<SelectItem value="LOW">{t("schedules.quality_low")}</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
 				)}
 			</form.Field>
 			<FiltersFieldset form={form} />
@@ -107,24 +122,19 @@ export function EditForm({
 					selector={(s) => [s.canSubmit, s.isSubmitting] as const}
 				>
 					{([canSubmit, isSubmitting]) => (
-						<button
+						<Button
 							type="submit"
 							disabled={!canSubmit || isSubmitting || update.isPending}
-							className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
 						>
 							{isSubmitting || update.isPending
 								? t("common.saving")
 								: t("schedules.save")}
-						</button>
+						</Button>
 					)}
 				</form.Subscribe>
-				<button
-					type="button"
-					onClick={onDone}
-					className="rounded-md border border-border px-4 py-2 text-sm"
-				>
+				<Button type="button" variant="outline" onClick={onDone}>
 					{t("schedules.cancel")}
-				</button>
+				</Button>
 			</div>
 		</form>
 	)

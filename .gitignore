@@ -50,3 +50,5 @@ tmp/
 # Reference & docs (local only, not part of project source)
 .reference/
 .docs/
+
+.claude/
