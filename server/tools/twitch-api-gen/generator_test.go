@@ -185,6 +185,11 @@ func TestIsDeprecatedField(t *testing.T) {
 		"**IMPORTANT** As of February 28, 2023, this field is deprecated and ignored.",
 		"**NOTE**: This field has been deprecated (see the deprecation notice).",
 		"This field has been deprecated and will be removed in a future release.",
+		// Real User.ViewCount phrasing as parsed from the committed snapshot.
+		// Locks the specific marker that catches User.ViewCount today, so an
+		// edit that drops the "This field has been deprecated" entry would
+		// regress without hiding behind the generic positives above.
+		`The number of times the user's channel has been viewed. NOTE: This field has been deprecated (see Get Users API endpoint – "view_count" deprecation). Any data in this field is not valid and should not be used.`,
 	}
 	negatives := []string{
 		"This field is no longer recommended.",
