@@ -7,9 +7,10 @@ SELECT * FROM videos WHERE job_id = ?;
 -- name: CreateVideo :one
 INSERT INTO videos (
     job_id, filename, display_name, status, quality,
-    broadcaster_id, stream_id, viewer_count, language
+    broadcaster_id, stream_id, viewer_count, language, recording_type,
+    force_h264
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateVideoStatus :exec

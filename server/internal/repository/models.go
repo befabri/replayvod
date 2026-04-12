@@ -130,6 +130,100 @@ const (
 	QualityHigh   = "HIGH"
 )
 
+// Stream is a single Twitch broadcast session.
+type Stream struct {
+	ID            string
+	BroadcasterID string
+	Type          string
+	Language      string
+	ThumbnailURL  *string
+	ViewerCount   int64
+	IsMature      *bool
+	StartedAt     time.Time
+	EndedAt       *time.Time
+	CreatedAt     time.Time
+}
+
+// StreamInput is the upsert payload for a stream snapshot.
+type StreamInput struct {
+	ID            string
+	BroadcasterID string
+	Type          string
+	Language      string
+	ThumbnailURL  *string
+	ViewerCount   int64
+	IsMature      *bool
+	StartedAt     time.Time
+}
+
+// Video is a downloaded VOD or an in-flight download. Status drives UI state
+// (PENDING queued → RUNNING downloading → DONE/FAILED terminal).
+//
+// ForceH264 is a per-job codec preference: when true the downloader's
+// Stage 3 variant picker drops HEVC and AV1 variants before running
+// the quality fallback chain. Ignored when RecordingType='audio'.
+type Video struct {
+	ID              int64
+	JobID           string
+	Filename        string
+	DisplayName     string
+	Status          string
+	Quality         string
+	BroadcasterID   string
+	StreamID        *string
+	ViewerCount     int64
+	Language        string
+	DurationSeconds *float64
+	SizeBytes       *int64
+	Thumbnail       *string
+	Error           *string
+	StartDownloadAt time.Time
+	DownloadedAt    *time.Time
+	DeletedAt       *time.Time
+	RecordingType   string
+	ForceH264       bool
+}
+
+// VideoInput is the creation payload for a new download row.
+// RecordingType is required ("video" or "audio"); empty defaults to "video"
+// at the adapter layer. ForceH264 defaults to false.
+type VideoInput struct {
+	JobID         string
+	Filename      string
+	DisplayName   string
+	Status        string
+	Quality       string
+	BroadcasterID string
+	StreamID      *string
+	ViewerCount   int64
+	Language      string
+	RecordingType string
+	ForceH264     bool
+}
+
+// RecordingType enumerates the two recording modes. Stored on
+// videos.recording_type with a CHECK constraint matching these values.
+const (
+	RecordingTypeVideo = "video"
+	RecordingTypeAudio = "audio"
+)
+
+// Codec enumerates the codec values stored on video_parts.codec.
+// 'aac' is the audio-only mode; video modes use h264/h265/av1.
+const (
+	CodecH264 = "h264"
+	CodecH265 = "h265"
+	CodecAV1  = "av1"
+	CodecAAC  = "aac"
+)
+
+// SegmentFormat enumerates the fragment container values stored on
+// video_parts.segment_format. Sticky within a part.
+const (
+	SegmentFormatTS   = "ts"
+	SegmentFormatFMP4 = "fmp4"
+)
+
 // JobStatus enumerates the durable job state machine. Stored on jobs.status
 // with a CHECK constraint matching these values.
 const (
@@ -167,65 +261,55 @@ type JobInput struct {
 	ResumeState   json.RawMessage
 }
 
-// Stream is a single Twitch broadcast session.
-type Stream struct {
-	ID            string
-	BroadcasterID string
-	Type          string
-	Language      string
-	ThumbnailURL  *string
-	ViewerCount   int64
-	IsMature      *bool
-	StartedAt     time.Time
-	EndedAt       *time.Time
-	CreatedAt     time.Time
-}
-
-// StreamInput is the upsert payload for a stream snapshot.
-type StreamInput struct {
-	ID            string
-	BroadcasterID string
-	Type          string
-	Language      string
-	ThumbnailURL  *string
-	ViewerCount   int64
-	IsMature      *bool
-	StartedAt     time.Time
-}
-
-// Video is a downloaded VOD or an in-flight download. Status drives UI state
-// (PENDING queued → RUNNING downloading → DONE/FAILED terminal).
-type Video struct {
+// VideoPart is one output segment of a video. A job with no
+// variant/codec/container switch produces exactly one part. A job that
+// splits on variant loss, codec change, container change, or restart-gap
+// threshold produces 2..N parts, ordered by part_index.
+//
+// EndMediaSeq is nullable: the value is only known at FinalizeVideoPart.
+// A NULL EndMediaSeq means "part created, not yet finalized" — distinct
+// from a zero-length finalized part (which would have
+// EndMediaSeq == &StartMediaSeq).
+type VideoPart struct {
 	ID              int64
-	JobID           string
+	VideoID         int64
+	PartIndex       int32
 	Filename        string
-	DisplayName     string
-	Status          string
 	Quality         string
-	BroadcasterID   string
-	StreamID        *string
-	ViewerCount     int64
-	Language        string
-	DurationSeconds *float64
-	SizeBytes       *int64
+	Codec           string
+	SegmentFormat   string
+	DurationSeconds float64
+	SizeBytes       int64
 	Thumbnail       *string
-	Error           *string
-	StartDownloadAt time.Time
-	DownloadedAt    *time.Time
-	DeletedAt       *time.Time
+	StartMediaSeq   int64
+	EndMediaSeq     *int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
-// VideoInput is the creation payload for a new download row.
-type VideoInput struct {
-	JobID         string
+// VideoPartInput is the creation payload for a new part row. Duration,
+// size, thumbnail, and end_media_seq are filled in at finalization via
+// FinalizeVideoPart — they aren't known until Stage 5+ of the pipeline.
+type VideoPartInput struct {
+	VideoID       int64
+	PartIndex     int32
 	Filename      string
-	DisplayName   string
-	Status        string
 	Quality       string
-	BroadcasterID string
-	StreamID      *string
-	ViewerCount   int64
-	Language      string
+	Codec         string
+	SegmentFormat string
+	StartMediaSeq int64
+}
+
+// VideoPartFinalize is the update payload for FinalizeVideoPart — the
+// fields that are only known after Stage 5-8 of the pipeline complete.
+// Callers must always supply EndMediaSeq here; leaving it unset on a
+// finalize call is a caller bug.
+type VideoPartFinalize struct {
+	ID              int64
+	DurationSeconds float64
+	SizeBytes       int64
+	Thumbnail       *string
+	EndMediaSeq     int64
 }
 
 // Title is a stream/video title string (deduplicated by name).

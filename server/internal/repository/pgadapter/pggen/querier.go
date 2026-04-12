@@ -37,6 +37,10 @@ type Querier interface {
 	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) (EventsubSnapshot, error)
 	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
 	CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error)
+	// end_media_seq is deliberately omitted: its real value is only known
+	// at FinalizeVideoPart time. Creating a part with a placeholder
+	// produced rows indistinguishable from zero-length recordings when a
+	// job failed before finalize.
 	CreateVideoPart(ctx context.Context, arg CreateVideoPartParams) (VideoPart, error)
 	// Idempotent: Twitch retries with the same Message-Id on delivery failure.
 	// ON CONFLICT DO NOTHING avoids double-processing; the RETURNING is NULL
@@ -95,6 +99,9 @@ type Querier interface {
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
+	// The "current part" lookup used by resume logic — given a video and
+	// a part_index, return the row without pulling the whole list.
+	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)

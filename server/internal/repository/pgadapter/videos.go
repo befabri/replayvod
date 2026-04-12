@@ -25,6 +25,10 @@ func (a *PGAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*reposit
 }
 
 func (a *PGAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (*repository.Video, error) {
+	rt := v.RecordingType
+	if rt == "" {
+		rt = repository.RecordingTypeVideo
+	}
 	row, err := a.queries.CreateVideo(ctx, pggen.CreateVideoParams{
 		JobID:         v.JobID,
 		Filename:      v.Filename,
@@ -35,6 +39,8 @@ func (a *PGAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (
 		StreamID:      v.StreamID,
 		ViewerCount:   int32(v.ViewerCount),
 		Language:      v.Language,
+		RecordingType: rt,
+		ForceH264:     v.ForceH264,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg create video: %w", err)
@@ -175,6 +181,8 @@ func pgVideoToDomain(v pggen.Video) *repository.Video {
 		StartDownloadAt: v.StartDownloadAt,
 		DownloadedAt:    v.DownloadedAt,
 		DeletedAt:       v.DeletedAt,
+		RecordingType:   v.RecordingType,
+		ForceH264:       v.ForceH264,
 	}
 }
 

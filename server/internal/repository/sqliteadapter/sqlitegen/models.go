@@ -242,6 +242,8 @@ type Video struct {
 	StartDownloadAt string          `json:"start_download_at"`
 	DownloadedAt    sql.NullString  `json:"downloaded_at"`
 	DeletedAt       sql.NullString  `json:"deleted_at"`
+	RecordingType   string          `json:"recording_type"`
+	ForceH264       int64           `json:"force_h264"`
 }
 
 type VideoCategory struct {
@@ -261,8 +263,9 @@ type VideoPart struct {
 	SizeBytes       int64          `json:"size_bytes"`
 	Thumbnail       sql.NullString `json:"thumbnail"`
 	StartMediaSeq   int64          `json:"start_media_seq"`
-	EndMediaSeq     int64          `json:"end_media_seq"`
+	EndMediaSeq     sql.NullInt64  `json:"end_media_seq"`
 	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
 }
 
 type VideoRequest struct {

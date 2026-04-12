@@ -74,6 +74,7 @@ type Querier interface {
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
+	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)

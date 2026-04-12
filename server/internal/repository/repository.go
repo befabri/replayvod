@@ -118,6 +118,17 @@ type Repository interface {
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]Job, error)
 
+	// Video parts — one row per output segment. A single-part VOD has
+	// one row; a VOD that split on variant change, codec change, or
+	// restart-gap threshold has 2..N rows ordered by part_index.
+	CreateVideoPart(ctx context.Context, input *VideoPartInput) (*VideoPart, error)
+	FinalizeVideoPart(ctx context.Context, input *VideoPartFinalize) error
+	GetVideoPart(ctx context.Context, id int64) (*VideoPart, error)
+	GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*VideoPart, error)
+	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
+	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
+	DeleteVideoParts(ctx context.Context, videoID int64) error
+
 	// Titles
 	UpsertTitle(ctx context.Context, name string) (*Title, error)
 	LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error

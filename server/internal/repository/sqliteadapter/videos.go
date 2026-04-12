@@ -26,6 +26,14 @@ func (a *SQLiteAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*rep
 }
 
 func (a *SQLiteAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (*repository.Video, error) {
+	rt := v.RecordingType
+	if rt == "" {
+		rt = repository.RecordingTypeVideo
+	}
+	var force int64
+	if v.ForceH264 {
+		force = 1
+	}
 	row, err := a.queries.CreateVideo(ctx, sqlitegen.CreateVideoParams{
 		JobID:         v.JobID,
 		Filename:      v.Filename,
@@ -36,6 +44,8 @@ func (a *SQLiteAdapter) CreateVideo(ctx context.Context, v *repository.VideoInpu
 		StreamID:      toNullString(v.StreamID),
 		ViewerCount:   v.ViewerCount,
 		Language:      v.Language,
+		RecordingType: rt,
+		ForceH264:     force,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create video: %w", err)
@@ -186,6 +196,8 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		StartDownloadAt: parseTime(v.StartDownloadAt),
 		DownloadedAt:    parseNullTime(v.DownloadedAt),
 		DeletedAt:       parseNullTime(v.DeletedAt),
+		RecordingType:   v.RecordingType,
+		ForceH264:       v.ForceH264 != 0,
 	}
 }
 

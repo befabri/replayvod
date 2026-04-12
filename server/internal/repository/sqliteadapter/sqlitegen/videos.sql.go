@@ -24,10 +24,11 @@ func (q *Queries) CountVideosByStatus(ctx context.Context, status string) (int64
 const createVideo = `-- name: CreateVideo :one
 INSERT INTO videos (
     job_id, filename, display_name, status, quality,
-    broadcaster_id, stream_id, viewer_count, language
+    broadcaster_id, stream_id, viewer_count, language, recording_type,
+    force_h264
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264
 `
 
 type CreateVideoParams struct {
@@ -40,6 +41,8 @@ type CreateVideoParams struct {
 	StreamID      sql.NullString `json:"stream_id"`
 	ViewerCount   int64          `json:"viewer_count"`
 	Language      string         `json:"language"`
+	RecordingType string         `json:"recording_type"`
+	ForceH264     int64          `json:"force_h264"`
 }
 
 func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error) {
@@ -53,6 +56,8 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		arg.StreamID,
 		arg.ViewerCount,
 		arg.Language,
+		arg.RecordingType,
+		arg.ForceH264,
 	)
 	var i Video
 	err := row.Scan(
@@ -73,12 +78,14 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		&i.StartDownloadAt,
 		&i.DownloadedAt,
 		&i.DeletedAt,
+		&i.RecordingType,
+		&i.ForceH264,
 	)
 	return i, err
 }
 
 const getVideo = `-- name: GetVideo :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at FROM videos WHERE id = ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264 FROM videos WHERE id = ?
 `
 
 func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
@@ -102,12 +109,14 @@ func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
 		&i.StartDownloadAt,
 		&i.DownloadedAt,
 		&i.DeletedAt,
+		&i.RecordingType,
+		&i.ForceH264,
 	)
 	return i, err
 }
 
 const getVideoByJobID = `-- name: GetVideoByJobID :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at FROM videos WHERE job_id = ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264 FROM videos WHERE job_id = ?
 `
 
 func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, error) {
@@ -131,12 +140,14 @@ func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, err
 		&i.StartDownloadAt,
 		&i.DownloadedAt,
 		&i.DeletedAt,
+		&i.RecordingType,
+		&i.ForceH264,
 	)
 	return i, err
 }
 
 const listVideos = `-- name: ListVideos :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at FROM videos WHERE deleted_at IS NULL ORDER BY start_download_at DESC LIMIT ? OFFSET ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264 FROM videos WHERE deleted_at IS NULL ORDER BY start_download_at DESC LIMIT ? OFFSET ?
 `
 
 type ListVideosParams struct {
@@ -171,6 +182,8 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 			&i.StartDownloadAt,
 			&i.DownloadedAt,
 			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
 		); err != nil {
 			return nil, err
 		}
@@ -186,7 +199,7 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 }
 
 const listVideosByBroadcaster = `-- name: ListVideosByBroadcaster :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at FROM videos
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264 FROM videos
 WHERE broadcaster_id = ? AND deleted_at IS NULL
 ORDER BY start_download_at DESC
 LIMIT ? OFFSET ?
@@ -225,6 +238,8 @@ func (q *Queries) ListVideosByBroadcaster(ctx context.Context, arg ListVideosByB
 			&i.StartDownloadAt,
 			&i.DownloadedAt,
 			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
 		); err != nil {
 			return nil, err
 		}
@@ -240,7 +255,7 @@ func (q *Queries) ListVideosByBroadcaster(ctx context.Context, arg ListVideosByB
 }
 
 const listVideosByCategory = `-- name: ListVideosByCategory :many
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264 FROM videos v
 INNER JOIN video_categories vc ON vc.video_id = v.id
 WHERE vc.category_id = ? AND v.deleted_at IS NULL
 ORDER BY v.start_download_at DESC
@@ -280,6 +295,8 @@ func (q *Queries) ListVideosByCategory(ctx context.Context, arg ListVideosByCate
 			&i.StartDownloadAt,
 			&i.DownloadedAt,
 			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
 		); err != nil {
 			return nil, err
 		}
@@ -295,7 +312,7 @@ func (q *Queries) ListVideosByCategory(ctx context.Context, arg ListVideosByCate
 }
 
 const listVideosByStatus = `-- name: ListVideosByStatus :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at FROM videos WHERE status = ? AND deleted_at IS NULL ORDER BY start_download_at DESC LIMIT ? OFFSET ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264 FROM videos WHERE status = ? AND deleted_at IS NULL ORDER BY start_download_at DESC LIMIT ? OFFSET ?
 `
 
 type ListVideosByStatusParams struct {
@@ -331,6 +348,8 @@ func (q *Queries) ListVideosByStatus(ctx context.Context, arg ListVideosByStatus
 			&i.StartDownloadAt,
 			&i.DownloadedAt,
 			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
 		); err != nil {
 			return nil, err
 		}
@@ -346,7 +365,7 @@ func (q *Queries) ListVideosByStatus(ctx context.Context, arg ListVideosByStatus
 }
 
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264 FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
 
 func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, error) {
@@ -376,6 +395,8 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 			&i.StartDownloadAt,
 			&i.DownloadedAt,
 			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
 		); err != nil {
 			return nil, err
 		}
