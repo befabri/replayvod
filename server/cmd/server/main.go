@@ -23,6 +23,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
+	"github.com/befabri/replayvod/server/migrations"
 )
 
 func main() {
@@ -62,12 +63,7 @@ func main() {
 		defer pgPool.Close()
 		log.Info("Connected to PostgreSQL", "host", cfg.Env.PostgresHost, "database", cfg.Env.PostgresDatabase)
 
-		// Run migrations
-		migrationsDir := "migrations/postgres"
-		if _, err := os.Stat("server/migrations/postgres"); err == nil {
-			migrationsDir = "server/migrations/postgres"
-		}
-		if err := database.MigratePostgres(ctx, pgPool, migrationsDir); err != nil {
+		if err := database.MigratePostgres(ctx, pgPool, migrations.Postgres()); err != nil {
 			log.Error("Failed to run PostgreSQL migrations", "error", err)
 			os.Exit(1)
 		}
@@ -84,12 +80,7 @@ func main() {
 		defer sqliteDB.Close()
 		log.Info("Connected to SQLite", "path", cfg.Env.SQLitePath)
 
-		// Run migrations
-		migrationsDir := "migrations/sqlite"
-		if _, err := os.Stat("server/migrations/sqlite"); err == nil {
-			migrationsDir = "server/migrations/sqlite"
-		}
-		if err := database.MigrateSQLite(ctx, sqliteDB, migrationsDir); err != nil {
+		if err := database.MigrateSQLite(ctx, sqliteDB, migrations.SQLite()); err != nil {
 			log.Error("Failed to run SQLite migrations", "error", err)
 			os.Exit(1)
 		}
