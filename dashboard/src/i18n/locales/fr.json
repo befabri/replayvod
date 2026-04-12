@@ -1,0 +1,18 @@
+{
+  "app": {
+    "name": "ReplayVOD"
+  },
+  "nav": {
+    "dashboard": "Tableau de bord",
+    "videos": "Vidéos",
+    "channels": "Chaînes",
+    "categories": "Catégories",
+    "schedules": "Planifications",
+    "settings": "Paramètres",
+    "system": "Système"
+  },
+  "auth": {
+    "login": "Se connecter avec Twitch",
+    "logout": "Déconnexion"
+  }
+}
