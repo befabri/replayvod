@@ -15,6 +15,40 @@ type AppAccessToken struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type Category struct {
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	BoxArtUrl pgtype.Text        `json:"box_art_url"`
+	IgdbID    pgtype.Text        `json:"igdb_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Channel struct {
+	BroadcasterID       string             `json:"broadcaster_id"`
+	BroadcasterLogin    string             `json:"broadcaster_login"`
+	BroadcasterName     string             `json:"broadcaster_name"`
+	BroadcasterLanguage pgtype.Text        `json:"broadcaster_language"`
+	ProfileImageUrl     pgtype.Text        `json:"profile_image_url"`
+	OfflineImageUrl     pgtype.Text        `json:"offline_image_url"`
+	Description         pgtype.Text        `json:"description"`
+	BroadcasterType     pgtype.Text        `json:"broadcaster_type"`
+	ViewCount           int32              `json:"view_count"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type FetchLog struct {
+	ID            int64              `json:"id"`
+	UserID        pgtype.Text        `json:"user_id"`
+	FetchType     string             `json:"fetch_type"`
+	BroadcasterID pgtype.Text        `json:"broadcaster_id"`
+	Status        int32              `json:"status"`
+	Error         pgtype.Text        `json:"error"`
+	DurationMs    int32              `json:"duration_ms"`
+	FetchedAt     pgtype.Timestamptz `json:"fetched_at"`
+}
+
 type Session struct {
 	HashedID        string             `json:"hashed_id"`
 	UserID          string             `json:"user_id"`
@@ -26,6 +60,12 @@ type Session struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type Tag struct {
+	ID        int64              `json:"id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type User struct {
 	ID              string             `json:"id"`
 	Login           string             `json:"login"`
@@ -35,6 +75,13 @@ type User struct {
 	Role            string             `json:"role"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type UserFollowedChannel struct {
+	UserID        string             `json:"user_id"`
+	BroadcasterID string             `json:"broadcaster_id"`
+	FollowedAt    pgtype.Timestamptz `json:"followed_at"`
+	Followed      bool               `json:"followed"`
 }
 
 type Whitelist struct {

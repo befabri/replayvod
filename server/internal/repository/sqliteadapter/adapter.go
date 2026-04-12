@@ -3,12 +3,25 @@ package sqliteadapter
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
+
+// mapErr translates database/sql driver errors to portable repository errors.
+// Callers that need a not-found branch should `errors.Is(err, repository.ErrNotFound)`.
+func mapErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return repository.ErrNotFound
+	}
+	return err
+}
 
 // SQLiteAdapter implements repository.Repository using SQLite via sqlc-generated code.
 type SQLiteAdapter struct {
@@ -23,7 +36,7 @@ func New(queries *sqlitegen.Queries) *SQLiteAdapter {
 func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	row, err := a.queries.GetUser(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite get user %s: %w", id, err)
+		return nil, mapErr(err)
 	}
 	return sqliteUserToDomain(row), nil
 }
@@ -31,7 +44,7 @@ func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.Use
 func (a *SQLiteAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
 	row, err := a.queries.GetUserByLogin(ctx, login)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite get user by login %s: %w", login, err)
+		return nil, mapErr(err)
 	}
 	return sqliteUserToDomain(row), nil
 }

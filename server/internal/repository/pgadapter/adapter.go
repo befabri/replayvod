@@ -2,14 +2,28 @@ package pgadapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
+
+// mapErr translates pgx driver errors to portable repository errors.
+// Callers that need a not-found branch should `errors.Is(err, repository.ErrNotFound)`.
+func mapErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repository.ErrNotFound
+	}
+	return err
+}
 
 // PGAdapter implements repository.Repository using PostgreSQL via sqlc-generated code.
 type PGAdapter struct {
@@ -24,7 +38,7 @@ func New(queries *pggen.Queries) *PGAdapter {
 func (a *PGAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	row, err := a.queries.GetUser(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("pg get user %s: %w", id, err)
+		return nil, mapErr(err)
 	}
 	return pgUserToDomain(row), nil
 }
@@ -32,7 +46,7 @@ func (a *PGAdapter) GetUser(ctx context.Context, id string) (*repository.User, e
 func (a *PGAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
 	row, err := a.queries.GetUserByLogin(ctx, login)
 	if err != nil {
-		return nil, fmt.Errorf("pg get user by login %s: %w", login, err)
+		return nil, mapErr(err)
 	}
 	return pgUserToDomain(row), nil
 }

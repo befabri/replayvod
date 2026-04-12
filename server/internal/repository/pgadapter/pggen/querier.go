@@ -6,30 +6,56 @@ package pggen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
+	CountFetchLogs(ctx context.Context) (int64, error)
+	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
 	CountUserSessions(ctx context.Context, userID string) (int64, error)
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
+	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
+	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
+	DeleteOldFetchLogs(ctx context.Context, fetchedAt pgtype.Timestamptz) error
 	DeleteSession(ctx context.Context, hashedID string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
+	GetCategory(ctx context.Context, id string) (Category, error)
+	GetCategoryByName(ctx context.Context, name string) (Category, error)
+	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
+	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
+	GetTag(ctx context.Context, id int64) (Tag, error)
+	GetTagByName(ctx context.Context, name string) (Tag, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByLogin(ctx context.Context, login string) (User, error)
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
+	ListCategories(ctx context.Context) ([]Category, error)
+	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
+	ListChannels(ctx context.Context) ([]Channel, error)
+	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
+	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
+	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
+	ListTags(ctx context.Context) ([]Tag, error)
+	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	ListWhitelist(ctx context.Context) ([]Whitelist, error)
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
+	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
+	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
+	UpsertTag(ctx context.Context, name string) (Tag, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
+	UpsertUserFollow(ctx context.Context, arg UpsertUserFollowParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -51,3 +51,65 @@ type WhitelistEntry struct {
 	TwitchUserID string
 	AddedAt      time.Time
 }
+
+// Channel is a Twitch broadcaster channel.
+type Channel struct {
+	BroadcasterID       string
+	BroadcasterLogin    string
+	BroadcasterName     string
+	BroadcasterLanguage *string
+	ProfileImageURL     *string
+	OfflineImageURL     *string
+	Description         *string
+	BroadcasterType     *string
+	ViewCount           int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+// UserFollow tracks a user's follow relationship with a channel.
+type UserFollow struct {
+	UserID        string
+	BroadcasterID string
+	FollowedAt    time.Time
+	Followed      bool
+}
+
+// Category is a Twitch game/category.
+type Category struct {
+	ID        string
+	Name      string
+	BoxArtURL *string
+	IGDBID    *string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Tag is a stream tag.
+type Tag struct {
+	ID        int64
+	Name      string
+	CreatedAt time.Time
+}
+
+// FetchLog is an audit entry for a Twitch API call.
+type FetchLog struct {
+	ID            int64
+	UserID        *string
+	FetchType     string
+	BroadcasterID *string
+	Status        int
+	Error         *string
+	DurationMs    int64
+	FetchedAt     time.Time
+}
+
+// FetchLogInput is the input for CreateFetchLog.
+type FetchLogInput struct {
+	UserID        *string
+	FetchType     string
+	BroadcasterID *string
+	Status        int
+	Error         *string
+	DurationMs    int64
+}

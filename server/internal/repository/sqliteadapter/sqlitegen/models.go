@@ -15,6 +15,40 @@ type AppAccessToken struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type Category struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	BoxArtUrl sql.NullString `json:"box_art_url"`
+	IgdbID    sql.NullString `json:"igdb_id"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+}
+
+type Channel struct {
+	BroadcasterID       string         `json:"broadcaster_id"`
+	BroadcasterLogin    string         `json:"broadcaster_login"`
+	BroadcasterName     string         `json:"broadcaster_name"`
+	BroadcasterLanguage sql.NullString `json:"broadcaster_language"`
+	ProfileImageUrl     sql.NullString `json:"profile_image_url"`
+	OfflineImageUrl     sql.NullString `json:"offline_image_url"`
+	Description         sql.NullString `json:"description"`
+	BroadcasterType     sql.NullString `json:"broadcaster_type"`
+	ViewCount           int64          `json:"view_count"`
+	CreatedAt           string         `json:"created_at"`
+	UpdatedAt           string         `json:"updated_at"`
+}
+
+type FetchLog struct {
+	ID            int64          `json:"id"`
+	UserID        sql.NullString `json:"user_id"`
+	FetchType     string         `json:"fetch_type"`
+	BroadcasterID sql.NullString `json:"broadcaster_id"`
+	Status        int64          `json:"status"`
+	Error         sql.NullString `json:"error"`
+	DurationMs    int64          `json:"duration_ms"`
+	FetchedAt     string         `json:"fetched_at"`
+}
+
 type Session struct {
 	HashedID        string         `json:"hashed_id"`
 	UserID          string         `json:"user_id"`
@@ -26,6 +60,12 @@ type Session struct {
 	CreatedAt       string         `json:"created_at"`
 }
 
+type Tag struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+}
+
 type User struct {
 	ID              string         `json:"id"`
 	Login           string         `json:"login"`
@@ -35,6 +75,13 @@ type User struct {
 	Role            string         `json:"role"`
 	CreatedAt       string         `json:"created_at"`
 	UpdatedAt       string         `json:"updated_at"`
+}
+
+type UserFollowedChannel struct {
+	UserID        string `json:"user_id"`
+	BroadcasterID string `json:"broadcaster_id"`
+	FollowedAt    string `json:"followed_at"`
+	Followed      int64  `json:"followed"`
 }
 
 type Whitelist struct {
