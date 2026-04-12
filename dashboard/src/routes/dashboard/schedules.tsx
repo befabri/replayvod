@@ -38,6 +38,15 @@ const ScheduleFormSchema = CreateInputSchema.pick({
 		.min(1)
 		.regex(/^\d+$/, "broadcaster_id must be numeric"),
 })
+	.superRefine((value, ctx) => {
+		if (value.has_min_viewers && value.min_viewers == null) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["min_viewers"],
+				message: "min_viewers is required when has_min_viewers is enabled",
+			})
+		}
+	})
 
 type ScheduleFormValues = z.infer<typeof ScheduleFormSchema>
 
@@ -290,7 +299,11 @@ function FiltersFieldset({ form }: { form: any }) {
 											)
 										}
 										className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+										aria-invalid={
+											field.state.meta.errors.length > 0 ? true : undefined
+										}
 									/>
+									<FieldError errors={field.state.meta.errors} />
 								</label>
 							)}
 						</form.Field>
