@@ -360,8 +360,139 @@ func TestFetch_CtxCancelShortCircuits(t *testing.T) {
 	if !errors.As(err, &fe) {
 		t.Fatalf("err=%T, want *FetchError", err)
 	}
-	if fe.Kind != FetchKindTransport {
-		t.Errorf("Kind=%s, want transport", fe.Kind)
+	if fe.Kind != FetchKindCanceled {
+		t.Errorf("Kind=%s, want canceled", fe.Kind)
+	}
+	if !errors.Is(fe.Cause, context.Canceled) && !errors.Is(fe.Cause, context.DeadlineExceeded) {
+		t.Errorf("Cause=%v, want context.{Canceled,DeadlineExceeded}", fe.Cause)
+	}
+}
+
+// TestFetch_PartialBodyThenSuccess is the regression guard for
+// the bug where the fetcher retried a mid-body copy failure on
+// the same PartWriter, producing a final file equal to
+// partial+full rather than the second response's body. Serves
+// a short response with a broken Content-Length on the first
+// hit, then the real body on the second.
+func TestFetch_PartialBodyThenSuccess(t *testing.T) {
+	const good = "this-is-the-real-body"
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n == 1 {
+			// Declared length longer than what we actually
+			// send → Fetcher hits the short-read path, burns
+			// transport budget, retries.
+			w.Header().Set("Content-Length", "999")
+			_, _ = io.WriteString(w, "junk-")
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(good)))
+		_, _ = io.WriteString(w, good)
+	}))
+	defer srv.Close()
+
+	cfg := FetcherConfig{
+		TransportAttempts: 3,
+		BaseBackoff:       1 * time.Millisecond,
+		MaxBackoff:        2 * time.Millisecond,
+	}
+	f := newTestFetcher(cfg)
+	body, err := fetchInto(t, f, srv.URL+"/seg.ts", "seg.ts")
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if string(body) != good {
+		t.Errorf("body=%q, want %q (partial must NOT persist into final file)", body, good)
+	}
+}
+
+// TestFetch_BodyReadErrorThenSuccess exercises the other
+// retry-after-partial-write path: the 2xx body stream breaks
+// mid-copy (connection closed after partial bytes), the Fetcher
+// resets the writer, next attempt delivers the full body.
+func TestFetch_BodyReadErrorThenSuccess(t *testing.T) {
+	const good = "complete-body-content"
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n == 1 {
+			// Declare one length, send the first chunk, then
+			// hijack the connection to simulate a mid-body
+			// failure (EOF before the promised body length).
+			w.Header().Set("Content-Length", "500")
+			_, _ = io.WriteString(w, "AAAA-BBBB-CCCC")
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("Hijacker unavailable")
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			_ = conn.Close()
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(good)))
+		_, _ = io.WriteString(w, good)
+	}))
+	defer srv.Close()
+
+	cfg := FetcherConfig{
+		TransportAttempts: 3,
+		BaseBackoff:       1 * time.Millisecond,
+		MaxBackoff:        2 * time.Millisecond,
+	}
+	f := newTestFetcher(cfg)
+	body, err := fetchInto(t, f, srv.URL+"/seg.ts", "seg.ts")
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if string(body) != good {
+		t.Errorf("body=%q, want %q (partial from attempt 1 must NOT persist)", body, good)
+	}
+}
+
+// TestFetch_CancelDuringSleep confirms a context cancellation
+// mid-backoff is reported as FetchKindCanceled, not as whatever
+// class triggered the retry. This matters for graceful-shutdown
+// logs in Phase 4c: "job canceled" should not look like a
+// transport flake.
+func TestFetch_CancelDuringSleep(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always 503 so the fetcher goes to sleep honoring a
+		// Retry-After that's longer than the test ctx timeout.
+		w.Header().Set("Retry-After", "10")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	cfg := FetcherConfig{
+		ServerErrorAttempts: 5,
+	}
+	f := newTestFetcher(cfg)
+	dir := t.TempDir()
+	w, err := NewPartWriter(dir, "seg.ts")
+	if err != nil {
+		t.Fatalf("writer: %v", err)
+	}
+	defer w.Abort()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	_, err = f.Fetch(ctx, srv.URL+"/seg.ts", w)
+	if err == nil {
+		t.Fatal("expected cancel error")
+	}
+	var fe *FetchError
+	if !errors.As(err, &fe) {
+		t.Fatalf("err=%T, want *FetchError", err)
+	}
+	if fe.Kind != FetchKindCanceled {
+		t.Errorf("Kind=%s, want canceled (sleep was canceled mid-Retry-After)", fe.Kind)
 	}
 }
 

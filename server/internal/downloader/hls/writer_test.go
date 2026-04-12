@@ -150,6 +150,60 @@ func TestPartWriter_EmptyFinalNameErrors(t *testing.T) {
 	}
 }
 
+func TestPartWriter_ResetReplacesPartialContent(t *testing.T) {
+	// Regression guard for the Phase 4b partial-body-retry bug:
+	// writing, resetting, then writing a fresh body must yield a
+	// committed file equal to *only* the second body — not the
+	// concatenation of the two.
+	dir := t.TempDir()
+	w, err := NewPartWriter(dir, "seg.ts")
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if _, err := io.Copy(w, strings.NewReader("XXXXX-partial-junk-XXXXX")); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	if w.BytesWritten() == 0 {
+		t.Fatal("BytesWritten=0 after first write, want >0")
+	}
+	if err := w.Reset(); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if got := w.BytesWritten(); got != 0 {
+		t.Errorf("BytesWritten after Reset=%d, want 0", got)
+	}
+	if _, err := io.Copy(w, strings.NewReader("final")); err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "seg.ts"))
+	if err != nil {
+		t.Fatalf("read final: %v", err)
+	}
+	if string(body) != "final" {
+		t.Errorf("body=%q, want %q (partial must NOT persist across Reset)", body, "final")
+	}
+}
+
+func TestPartWriter_ResetAfterCommitErrors(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewPartWriter(dir, "seg.ts")
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if _, err := io.Copy(w, strings.NewReader("x")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := w.Reset(); !errors.Is(err, ErrWriterClosed) {
+		t.Errorf("Reset after Commit err=%v, want ErrWriterClosed", err)
+	}
+}
+
 func assertExists(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err != nil {

@@ -71,9 +71,10 @@ type Fetcher struct {
 	// bufPool is a reusable 256 KB copy buffer shared across
 	// concurrent Fetch calls. Spec Stage 4: io.Copy allocates a
 	// fresh 32 KB buffer each call, which matters at segment-
-	// per-second rates. ReadFrom on os.File bypasses this
-	// (sendfile fast path on Linux); the buffer is the fallback
-	// for transports that don't expose a direct file fd.
+	// per-second rates. We use it unconditionally — probing for
+	// io.ReaderFrom doesn't pay off here because os.File's
+	// ReadFrom only zero-copies when the source is backed by a
+	// poll-able FD, and HTTP response bodies don't expose one.
 	bufPool sync.Pool
 }
 
@@ -96,7 +97,7 @@ func NewFetcher(client *http.Client, cfg FetcherConfig, log *slog.Logger) *Fetch
 // FetchKind identifies the failure class. Orchestrator switches
 // on this to decide: retry with new URL (auth), record a gap
 // (transport/server/cdn_lag after budget exhausted), fail the
-// job (body/malformed).
+// job (body/malformed), stop quietly (canceled).
 type FetchKind int
 
 const (
@@ -107,6 +108,7 @@ const (
 	FetchKindAuth
 	FetchKindBody
 	FetchKindMalformed
+	FetchKindCanceled
 )
 
 // String is purely for logs/errors. Stable format so log scrapers
@@ -127,6 +129,8 @@ func (k FetchKind) String() string {
 		return "body"
 	case FetchKindMalformed:
 		return "malformed"
+	case FetchKindCanceled:
+		return "canceled"
 	}
 	return "unknown"
 }
@@ -169,11 +173,22 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 		cdnLagAttempts    = 0
 	)
 
+	// resetForRetry truncates the writer's .part file back to zero
+	// before a retry. Called on every retry branch that executed
+	// at least one Write — otherwise the next attempt's body
+	// concatenates onto the previous partial body. See the
+	// regression tests TestFetch_PartialBodyThenSuccess* for the
+	// exact shape of the bug this prevents.
+	resetForRetry := func() error {
+		if w.BytesWritten() == 0 {
+			return nil
+		}
+		return w.Reset()
+	}
+
 	for {
-		select {
-		case <-ctx.Done():
-			return 0, &FetchError{Kind: FetchKindTransport, Attempts: transportAttempts, Cause: ctx.Err(), Permanent: true}
-		default:
+		if ctx.Err() != nil {
+			return 0, &FetchError{Kind: FetchKindCanceled, Attempts: transportAttempts, Cause: ctx.Err(), Permanent: true}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -183,12 +198,18 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 
 		resp, err := f.client.Do(req)
 		if err != nil {
+			// Cancellation that surfaces as a transport error
+			// shouldn't count against the transport budget —
+			// it's a shutdown, not a flaky network.
+			if ctx.Err() != nil {
+				return 0, &FetchError{Kind: FetchKindCanceled, Attempts: transportAttempts, Cause: ctx.Err(), Permanent: true}
+			}
 			transportAttempts++
 			if transportAttempts >= f.cfg.TransportAttempts {
 				return 0, &FetchError{Kind: FetchKindTransport, Attempts: transportAttempts, Cause: err, Permanent: true}
 			}
 			if sleepErr := f.sleep(ctx, Backoff(transportAttempts-1, f.cfg.BaseBackoff, f.cfg.MaxBackoff)); sleepErr != nil {
-				return 0, &FetchError{Kind: FetchKindTransport, Attempts: transportAttempts, Cause: sleepErr, Permanent: true}
+				return 0, &FetchError{Kind: FetchKindCanceled, Attempts: transportAttempts, Cause: sleepErr, Permanent: true}
 			}
 			continue
 		}
@@ -209,7 +230,7 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 				return 0, &FetchError{Kind: FetchKindCDNLag, Status: resp.StatusCode, Attempts: cdnLagAttempts, Permanent: true}
 			}
 			if sleepErr := f.sleep(ctx, f.cfg.TargetDuration/2); sleepErr != nil {
-				return 0, &FetchError{Kind: FetchKindCDNLag, Status: resp.StatusCode, Attempts: cdnLagAttempts, Cause: sleepErr, Permanent: true}
+				return 0, &FetchError{Kind: FetchKindCanceled, Attempts: cdnLagAttempts, Cause: sleepErr, Permanent: true}
 			}
 			continue
 
@@ -226,7 +247,7 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 				wait = Backoff(serverAttempts-1, f.cfg.BaseBackoff, f.cfg.MaxBackoff)
 			}
 			if sleepErr := f.sleep(ctx, wait); sleepErr != nil {
-				return 0, &FetchError{Kind: FetchKindServer, Status: resp.StatusCode, Attempts: serverAttempts, Cause: sleepErr, Permanent: true}
+				return 0, &FetchError{Kind: FetchKindCanceled, Attempts: serverAttempts, Cause: sleepErr, Permanent: true}
 			}
 			continue
 
@@ -255,12 +276,18 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 		drainAndClose(resp)
 
 		if copyErr != nil {
+			if ctx.Err() != nil {
+				return 0, &FetchError{Kind: FetchKindCanceled, Attempts: transportAttempts, Cause: ctx.Err(), Permanent: true}
+			}
 			transportAttempts++
 			if transportAttempts >= f.cfg.TransportAttempts {
 				return 0, &FetchError{Kind: FetchKindTransport, Attempts: transportAttempts, Cause: copyErr, Permanent: true}
 			}
+			if err := resetForRetry(); err != nil {
+				return 0, &FetchError{Kind: FetchKindBody, Attempts: transportAttempts, Cause: err, Permanent: true}
+			}
 			if sleepErr := f.sleep(ctx, Backoff(transportAttempts-1, f.cfg.BaseBackoff, f.cfg.MaxBackoff)); sleepErr != nil {
-				return 0, &FetchError{Kind: FetchKindTransport, Attempts: transportAttempts, Cause: sleepErr, Permanent: true}
+				return 0, &FetchError{Kind: FetchKindCanceled, Attempts: transportAttempts, Cause: sleepErr, Permanent: true}
 			}
 			continue
 		}
@@ -279,8 +306,11 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 					Permanent: true,
 				}
 			}
+			if err := resetForRetry(); err != nil {
+				return 0, &FetchError{Kind: FetchKindBody, Attempts: transportAttempts, Cause: err, Permanent: true}
+			}
 			if sleepErr := f.sleep(ctx, Backoff(transportAttempts-1, f.cfg.BaseBackoff, f.cfg.MaxBackoff)); sleepErr != nil {
-				return 0, &FetchError{Kind: FetchKindTransport, Attempts: transportAttempts, Cause: sleepErr, Permanent: true}
+				return 0, &FetchError{Kind: FetchKindCanceled, Attempts: transportAttempts, Cause: sleepErr, Permanent: true}
 			}
 			continue
 		}
@@ -289,19 +319,24 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 	}
 }
 
-// copyBody streams the body into the writer. When the writer
-// implements io.ReaderFrom (PartWriter does via os.File), net/http
-// short-circuits to a direct copy that skips the buffer pool.
-// Otherwise we lean on the pooled 256 KB buffer to cut allocations
-// at segment-per-second rates.
+// copyBody streams the body into the writer using the pooled
+// 256 KB buffer. We deliberately defeat io.CopyBuffer's
+// ReaderFrom/WriterTo probing (wrapping w in a Write-only
+// shim): for the HTTP-body-to-file case those paths land in
+// io.Copy's default 32 KB buffer anyway (neither sendfile nor
+// splice is available for a response body that doesn't expose
+// a syscall.Conn), so probing would hide the pool from the
+// hot path. See writer.go's ReadFrom doc for the longer story.
 func (f *Fetcher) copyBody(w io.Writer, r io.Reader) (int64, error) {
-	if rf, ok := w.(io.ReaderFrom); ok {
-		return rf.ReadFrom(r)
-	}
 	buf := f.bufPool.Get().(*[]byte)
 	defer f.bufPool.Put(buf)
-	return io.CopyBuffer(w, r, *buf)
+	return io.CopyBuffer(writeOnly{w}, r, *buf)
 }
+
+// writeOnly hides extra interfaces (notably io.ReaderFrom) from
+// io.CopyBuffer so it actually uses the supplied buffer rather
+// than short-circuiting to an implementation's fast path.
+type writeOnly struct{ io.Writer }
 
 // sleep honors ctx cancellation so a long backoff doesn't delay
 // job shutdown. Returns ctx.Err() on cancel; nil otherwise.

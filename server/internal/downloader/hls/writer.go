@@ -98,15 +98,21 @@ func (w *PartWriter) FinalPath() string {
 	return filepath.Join(w.dir, w.finalName)
 }
 
-// Commit closes the underlying file, fsyncs it, and atomically
-// renames .part → final. After a successful Commit, Abort is a
-// no-op.
+// Commit closes the underlying file, fsyncs it, atomically
+// renames .part → final, and fsyncs the parent directory so the
+// rename itself is durable across a crash. After a successful
+// Commit, Abort is a no-op.
 //
-// The fsync matters: without it a crash between close and rename
-// can leave the filesystem with a zero-length file that looks
-// complete to the startup sweep. Paying the sync cost per-segment
-// is acceptable — segments are ~100 KB–2 MB, and the segment
-// count is bounded by the stream's live window.
+// The file fsync matters: without it a crash between close and
+// rename can leave the filesystem with a zero-length file that
+// looks complete to the startup sweep. The directory fsync
+// matters for the same reason at the directory-entry level — on
+// ext4/XFS the rename isn't durable until the parent dir is
+// synced, so a crash between rename and next-dir-sync can leave
+// neither the .part nor the final on disk even though Commit
+// returned success. Paying both sync costs per-segment is
+// acceptable — segments are ~100 KB–2 MB and the segment count
+// is bounded by the stream's live window.
 func (w *PartWriter) Commit() error {
 	if w.committed {
 		// Caller bug — double-commit. Log-and-return would mask
@@ -131,8 +137,32 @@ func (w *PartWriter) Commit() error {
 	if err := os.Rename(partPath, finalPath); err != nil {
 		return fmt.Errorf("hls writer rename %s → %s: %w", partPath, finalPath, err)
 	}
+	if err := fsyncDir(w.dir); err != nil {
+		// Rename succeeded but directory-entry durability wasn't
+		// confirmed. Don't undo the rename — the file exists;
+		// we just can't promise it survives a power loss in the
+		// next few ms. Surface the error so operators see it.
+		return fmt.Errorf("hls writer fsync dir %s: %w", w.dir, err)
+	}
 	w.committed = true
 	return nil
+}
+
+// fsyncDir opens dir and fsyncs it so the most recent rename
+// inside it becomes durable. On Linux/macOS os.File.Sync on a
+// directory is defined; on Windows the syscall is a no-op and
+// the call typically errors — callers can decide whether to
+// treat that as fatal or benign.
+func fsyncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := d.Sync(); err != nil {
+		_ = d.Close()
+		return err
+	}
+	return d.Close()
 }
 
 // Abort closes the underlying file and removes the .part file.
@@ -154,9 +184,42 @@ func (w *PartWriter) Abort() {
 // has been sealed via Commit or Abort.
 var ErrWriterClosed = fmt.Errorf("hls writer: closed")
 
-// ReadFrom streams from r into the underlying file, avoiding the
-// extra buffer allocation io.Copy would do. Implements
-// io.ReaderFrom so net/http can fast-path the body copy.
+// Reset truncates the .part file back to zero length and rewinds
+// the write offset. Called by the fetch retry loop between
+// attempts so that a partial body from a failed 2xx doesn't
+// concatenate with the replacement body on the next try.
+//
+// Returns ErrWriterClosed if called after Commit or Abort.
+//
+// Reset is not the same as Abort: the file handle stays open and
+// the .part file is preserved, so the caller can write fresh
+// content without re-racing O_EXCL on a new NewPartWriter.
+func (w *PartWriter) Reset() error {
+	if w.file == nil {
+		return ErrWriterClosed
+	}
+	if err := w.file.Truncate(0); err != nil {
+		return fmt.Errorf("hls writer truncate %s: %w", w.finalName, err)
+	}
+	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("hls writer seek %s: %w", w.finalName, err)
+	}
+	w.bytesWritten = 0
+	return nil
+}
+
+// ReadFrom streams from r into the underlying file. Implements
+// io.ReaderFrom so callers doing io.Copy(writer, source) pay the
+// direct-copy path rather than the generic buffered loop.
+//
+// Note: this does NOT trigger sendfile/splice for HTTP body →
+// file transfers. os.File.ReadFrom only zero-copies when the
+// source is itself backed by a poll-able FD (pipe, socket
+// exposed via syscall.Conn). HTTP response bodies wrap the
+// socket in layers that hide the FD, so io.Copy inside ReadFrom
+// falls back to the default 32 KB buffer. The Fetcher drives
+// its own pooled-buffer path for segment copies to avoid that
+// allocation.
 func (w *PartWriter) ReadFrom(r io.Reader) (int64, error) {
 	if w.file == nil {
 		return 0, ErrWriterClosed

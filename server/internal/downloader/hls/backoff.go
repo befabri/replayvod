@@ -14,24 +14,48 @@ import (
 // contention, which is the Twitch-edge contention shape.
 //
 // attempt is zero-indexed: the retry *after* the first failure is
-// attempt=0. base is the initial window (e.g. 500ms); cap caps
-// the exponential growth (e.g. 30s).
+// attempt=0. base is the initial window (e.g. 500ms); maxWindow
+// caps the exponential growth (e.g. 30s).
+//
+// The window is computed overflow-safely: we start from the cap
+// and only lower it if base<<attempt stays representable in an
+// int64 and beats the cap. A naïve `base<<attempt` overflows into
+// negative values at modest (base, attempt) combinations — e.g.
+// base=10s, attempt=30 — and the subsequent comparison with the
+// cap produces nonsense (negative < positive, so the overflowed
+// value "wins"), silently collapsing backoff to zero.
 //
 // Uses math/rand/v2 — no global seed needed, and the package is
 // thread-safe for package-level functions like Int64N.
-func Backoff(attempt int, base, cap time.Duration) time.Duration {
+func Backoff(attempt int, base, maxWindow time.Duration) time.Duration {
 	if attempt < 0 {
 		attempt = 0
 	}
-	// 2^attempt overflows int64 at attempt >= 63; clamp long
-	// before that.
-	if attempt > 30 {
-		attempt = 30
+	capNS := int64(maxWindow)
+	baseNS := int64(base)
+	// Zero base means "no backoff requested" — return immediately
+	// so callers with a disabled backoff don't silently wait the
+	// full cap window.
+	if baseNS <= 0 {
+		return 0
 	}
-	windowNS := int64(base) << attempt
-	capNS := int64(cap)
-	if capNS > 0 && windowNS > capNS {
-		windowNS = capNS
+	if capNS <= 0 {
+		return 0
+	}
+	// windowNS starts at the cap. We only lower it when the
+	// exponential term is (a) representable and (b) smaller.
+	windowNS := capNS
+	if attempt < 63 {
+		// Overflow-safe bound: if baseNS * 2^attempt would
+		// exceed int64, we already know it exceeds the cap (cap
+		// fits in int64 by construction), so leave windowNS at
+		// capNS.
+		if baseNS <= (1<<62)>>attempt {
+			candidate := baseNS << attempt
+			if candidate > 0 && candidate < windowNS {
+				windowNS = candidate
+			}
+		}
 	}
 	if windowNS <= 0 {
 		return 0
