@@ -204,6 +204,53 @@ func (s *Service) Snapshot(ctx context.Context) (*repository.EventSubSnapshot, e
 	return snap, nil
 }
 
+// ListActiveSubscriptions returns non-revoked subscriptions paged for
+// the operator dashboard. Shape matches the manager boundary: domain
+// types, not tRPC DTOs.
+func (s *Service) ListActiveSubscriptions(ctx context.Context, limit, offset int) ([]repository.Subscription, int64, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	subs, err := s.repo.ListActiveSubscriptions(ctx, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list active subscriptions: %w", err)
+	}
+	total, err := s.repo.CountActiveSubscriptions(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count active subscriptions: %w", err)
+	}
+	return subs, total, nil
+}
+
+// ListSnapshots returns the newest-first window of quota snapshots.
+// The dashboard renders a small chart; cap limit defaulting lives here
+// so the transport layer doesn't re-derive it.
+func (s *Service) ListSnapshots(ctx context.Context, limit, offset int) ([]repository.EventSubSnapshot, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	snaps, err := s.repo.ListEventSubSnapshots(ctx, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list snapshots: %w", err)
+	}
+	return snaps, nil
+}
+
+// LatestSnapshot returns the most recent poll or (nil, nil) when none
+// exists yet. The ErrNotFound→nil translation is intentional: the
+// dashboard renders a "poll now" CTA for the zero state, so a 404
+// here would just force the transport layer to do the same mapping.
+func (s *Service) LatestSnapshot(ctx context.Context) (*repository.EventSubSnapshot, error) {
+	snap, err := s.repo.GetLatestEventSubSnapshot(ctx)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("latest snapshot: %w", err)
+	}
+	return snap, nil
+}
+
 // broadcasterIDFromSub pulls the broadcaster_user_id off a condition
 // via the scraper-emitted BroadcasterScopedCondition interface — no
 // reflection, no JSON reparse. Subscription types without a broadcaster

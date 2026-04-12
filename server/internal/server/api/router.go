@@ -137,13 +137,13 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	)
 	streamSvc := stream.NewService(streamservice.New(repo, log), log)
 	videoRequestSvc := videorequest.NewService(videorequestservice.New(repo, log), log)
-	scheduleSvc := schedule.NewService(repo, log)
+	scheduleSvc := schedule.NewService(scheduleservice.NewService(repo, log), log)
 	// EventSub manager drives subscribe/unsubscribe/snapshot. The tRPC
 	// service shares it with the webhook processor (though the processor
 	// only reads the repo, not the manager) so a future cron scheduler
 	// can call Snapshot on the same instance without second construction.
 	eventsubMgr := eventsubservice.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
-	eventsubSvc := eventsubroute.NewService(repo, eventsubMgr, log)
+	eventsubSvc := eventsubroute.NewService(eventsubMgr, log)
 	settingsSvc := settings.NewService(settingsservice.New(repo, log), log)
 	taskSvc := taskroute.NewService(taskservice.New(repo, log), log)
 	tagSvc := tag.NewService(tagservice.New(repo, log), log)

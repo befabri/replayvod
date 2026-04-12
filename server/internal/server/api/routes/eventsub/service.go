@@ -6,7 +6,6 @@ package eventsub
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -15,17 +14,17 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC eventsub procedures.
+// Service handles tRPC eventsub procedures. All repo access goes
+// through the eventsubservice manager — the route layer does not hold
+// a direct repository reference.
 type Service struct {
-	repo    repository.Repository
 	manager *eventsubservice.Service
 	log     *slog.Logger
 }
 
 // NewService creates a new eventsub tRPC service.
-func NewService(repo repository.Repository, mgr *eventsubservice.Service, log *slog.Logger) *Service {
+func NewService(mgr *eventsubservice.Service, log *slog.Logger) *Service {
 	return &Service{
-		repo:    repo,
 		manager: mgr,
 		log:     log.With("domain", "eventsub-api"),
 	}
@@ -101,19 +100,10 @@ type ListSubscriptionsResponse struct {
 // count mirrors active_subs, which the dashboard's cost card uses alongside
 // the latest snapshot's total_cost.
 func (s *Service) ListSubscriptions(ctx context.Context, input ListInput) (ListSubscriptionsResponse, error) {
-	limit := input.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	subs, err := s.repo.ListActiveSubscriptions(ctx, limit, input.Offset)
+	subs, total, err := s.manager.ListActiveSubscriptions(ctx, input.Limit, input.Offset)
 	if err != nil {
 		s.log.Error("list active subs", "error", err)
 		return ListSubscriptionsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list subscriptions")
-	}
-	total, err := s.repo.CountActiveSubscriptions(ctx)
-	if err != nil {
-		s.log.Error("count active subs", "error", err)
-		return ListSubscriptionsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to count subscriptions")
 	}
 	data := make([]SubscriptionResponse, len(subs))
 	for i := range subs {
@@ -130,11 +120,7 @@ type ListSnapshotsResponse struct {
 // a small chart of cost over time. Cap the page size at 200 to keep the
 // default listing cheap.
 func (s *Service) ListSnapshots(ctx context.Context, input ListInput) (ListSnapshotsResponse, error) {
-	limit := input.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	snaps, err := s.repo.ListEventSubSnapshots(ctx, limit, input.Offset)
+	snaps, err := s.manager.ListSnapshots(ctx, input.Limit, input.Offset)
 	if err != nil {
 		s.log.Error("list snapshots", "error", err)
 		return ListSnapshotsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list snapshots")
@@ -154,13 +140,13 @@ type LatestSnapshotResponse struct {
 // has ever been recorded (fresh install, before first Snapshot()). The
 // dashboard renders a "poll now" button for this null case.
 func (s *Service) LatestSnapshot(ctx context.Context) (LatestSnapshotResponse, error) {
-	snap, err := s.repo.GetLatestEventSubSnapshot(ctx)
+	snap, err := s.manager.LatestSnapshot(ctx)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return LatestSnapshotResponse{}, nil
-		}
 		s.log.Error("latest snapshot", "error", err)
 		return LatestSnapshotResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load snapshot")
+	}
+	if snap == nil {
+		return LatestSnapshotResponse{}, nil
 	}
 	r := snapshotToResponse(snap)
 	return LatestSnapshotResponse{Snapshot: &r}, nil

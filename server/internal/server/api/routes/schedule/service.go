@@ -1,7 +1,7 @@
-// Package schedule implements the schedule.* tRPC procedures. Admins
-// manage their own schedules; owners see everyone's. Auto-download
-// triggers (the actual pipeline firing) are wired through the webhook
-// processor — this package handles only CRUD + category/tag junctions.
+// Package schedule implements the schedule.* tRPC procedures. All
+// business logic (authorization, filter validation, category/tag
+// junction replacement) lives in internal/service/scheduleservice/ —
+// this package is the tRPC transport adapter.
 package schedule
 
 import (
@@ -12,43 +12,47 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC schedule procedures.
+// Service adapts tRPC DTOs to the scheduleservice domain. Role-based
+// visibility (owner vs author) is forwarded as a boolean rather than
+// re-inspected in the service — keeps middleware as the single source
+// of truth on role semantics.
 type Service struct {
-	repo repository.Repository
-	log  *slog.Logger
+	svc *scheduleservice.Service
+	log *slog.Logger
 }
 
-// NewService creates a new schedule tRPC service.
-func NewService(repo repository.Repository, log *slog.Logger) *Service {
+// NewService wires the tRPC adapter to the schedule domain service.
+func NewService(svc *scheduleservice.Service, log *slog.Logger) *Service {
 	return &Service{
-		repo: repo,
-		log:  log.With("domain", "schedule"),
+		svc: svc,
+		log: log.With("domain", "schedule"),
 	}
 }
 
 // ScheduleResponse is the wire shape the dashboard consumes. Categories
 // and tags are inlined so the list page doesn't have to N+1 per row.
 type ScheduleResponse struct {
-	ID               int64             `json:"id"`
-	BroadcasterID    string            `json:"broadcaster_id"`
-	RequestedBy      string            `json:"requested_by"`
-	Quality          string            `json:"quality"`
-	HasMinViewers    bool              `json:"has_min_viewers"`
-	MinViewers       *int64            `json:"min_viewers,omitempty"`
-	HasCategories    bool              `json:"has_categories"`
-	HasTags          bool              `json:"has_tags"`
-	IsDeleteRediff   bool              `json:"is_delete_rediff"`
-	TimeBeforeDelete *int64            `json:"time_before_delete,omitempty"`
-	IsDisabled       bool              `json:"is_disabled"`
-	LastTriggeredAt  *time.Time        `json:"last_triggered_at,omitempty"`
-	TriggerCount     int64             `json:"trigger_count"`
-	CreatedAt        time.Time         `json:"created_at"`
-	UpdatedAt        time.Time         `json:"updated_at"`
-	Categories       []CategoryLink    `json:"categories"`
-	Tags             []TagLink         `json:"tags"`
+	ID               int64          `json:"id"`
+	BroadcasterID    string         `json:"broadcaster_id"`
+	RequestedBy      string         `json:"requested_by"`
+	Quality          string         `json:"quality"`
+	HasMinViewers    bool           `json:"has_min_viewers"`
+	MinViewers       *int64         `json:"min_viewers,omitempty"`
+	HasCategories    bool           `json:"has_categories"`
+	HasTags          bool           `json:"has_tags"`
+	IsDeleteRediff   bool           `json:"is_delete_rediff"`
+	TimeBeforeDelete *int64         `json:"time_before_delete,omitempty"`
+	IsDisabled       bool           `json:"is_disabled"`
+	LastTriggeredAt  *time.Time     `json:"last_triggered_at,omitempty"`
+	TriggerCount     int64          `json:"trigger_count"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	Categories       []CategoryLink `json:"categories"`
+	Tags             []TagLink      `json:"tags"`
 }
 
 type CategoryLink struct {
@@ -61,59 +65,62 @@ type TagLink struct {
 	Name string `json:"name"`
 }
 
-// toResponse inflates a schedule row + its category/tag junctions into
-// the wire shape.
-func (s *Service) toResponse(ctx context.Context, sched *repository.DownloadSchedule) (ScheduleResponse, error) {
+// toResponse converts a domain ScheduleView into the wire shape. Kept
+// in the transport layer so domain types don't carry JSON tags.
+func toResponse(v scheduleservice.ScheduleView) ScheduleResponse {
 	resp := ScheduleResponse{
-		ID:               sched.ID,
-		BroadcasterID:    sched.BroadcasterID,
-		RequestedBy:      sched.RequestedBy,
-		Quality:          sched.Quality,
-		HasMinViewers:    sched.HasMinViewers,
-		MinViewers:       sched.MinViewers,
-		HasCategories:    sched.HasCategories,
-		HasTags:          sched.HasTags,
-		IsDeleteRediff:   sched.IsDeleteRediff,
-		TimeBeforeDelete: sched.TimeBeforeDelete,
-		IsDisabled:       sched.IsDisabled,
-		LastTriggeredAt:  sched.LastTriggeredAt,
-		TriggerCount:     sched.TriggerCount,
-		CreatedAt:        sched.CreatedAt,
-		UpdatedAt:        sched.UpdatedAt,
-		Categories:       []CategoryLink{},
-		Tags:             []TagLink{},
+		ID:               v.Schedule.ID,
+		BroadcasterID:    v.Schedule.BroadcasterID,
+		RequestedBy:      v.Schedule.RequestedBy,
+		Quality:          v.Schedule.Quality,
+		HasMinViewers:    v.Schedule.HasMinViewers,
+		MinViewers:       v.Schedule.MinViewers,
+		HasCategories:    v.Schedule.HasCategories,
+		HasTags:          v.Schedule.HasTags,
+		IsDeleteRediff:   v.Schedule.IsDeleteRediff,
+		TimeBeforeDelete: v.Schedule.TimeBeforeDelete,
+		IsDisabled:       v.Schedule.IsDisabled,
+		LastTriggeredAt:  v.Schedule.LastTriggeredAt,
+		TriggerCount:     v.Schedule.TriggerCount,
+		CreatedAt:        v.Schedule.CreatedAt,
+		UpdatedAt:        v.Schedule.UpdatedAt,
+		Categories:       make([]CategoryLink, 0, len(v.Categories)),
+		Tags:             make([]TagLink, 0, len(v.Tags)),
 	}
-	cats, err := s.repo.ListScheduleCategories(ctx, sched.ID)
-	if err != nil {
-		return resp, err
-	}
-	for _, c := range cats {
+	for _, c := range v.Categories {
 		resp.Categories = append(resp.Categories, CategoryLink{ID: c.ID, Name: c.Name})
 	}
-	tags, err := s.repo.ListScheduleTags(ctx, sched.ID)
-	if err != nil {
-		return resp, err
-	}
-	for _, t := range tags {
+	for _, t := range v.Tags {
 		resp.Tags = append(resp.Tags, TagLink{ID: t.ID, Name: t.Name})
 	}
-	return resp, nil
+	return resp
 }
 
-// ensureOwnerOrAuthor returns an error when the caller isn't the schedule
-// owner and isn't the system owner. Admin-tier operations (update, delete,
-// toggle) use this to prevent admin A from clobbering admin B's schedule.
-func (s *Service) ensureOwnerOrAuthor(user *repository.User, sched *repository.DownloadSchedule) error {
-	if user == nil {
-		return trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+// mapErr translates scheduleservice sentinels to tRPC codes. Anything
+// not specifically mapped is logged and surfaced as a 500 — callers
+// pass an action verb for the log + operator-facing message.
+func (s *Service) mapErr(err error, action string) error {
+	if errors.Is(err, repository.ErrNotFound) {
+		return trpcgo.NewError(trpcgo.CodeNotFound, "schedule not found")
 	}
-	if user.Role == middleware.RoleOwner {
-		return nil
-	}
-	if sched.RequestedBy != user.ID {
+	if errors.Is(err, scheduleservice.ErrNotScheduleOwner) {
 		return trpcgo.NewError(trpcgo.CodeForbidden, "not your schedule")
 	}
-	return nil
+	if errors.Is(err, scheduleservice.ErrInvalidFilter) {
+		return trpcgo.NewError(trpcgo.CodeBadRequest, err.Error())
+	}
+	s.log.Error(action, "error", err)
+	return trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to "+action)
+}
+
+// callerContext extracts the authenticated user. Returns a tRPC auth
+// error when no session is attached.
+func callerContext(ctx context.Context) (*repository.User, error) {
+	user := middleware.GetUser(ctx)
+	if user == nil {
+		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	}
+	return user, nil
 }
 
 // --- Procedures ---
@@ -131,65 +138,30 @@ type ListResponse struct {
 // viewers see only their own. We intentionally don't paginate on a total
 // count because the expected cardinality is low (one per user per channel).
 func (s *Service) List(ctx context.Context, input ListInput) (ListResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return ListResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-	}
-	limit := input.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-
-	var schedules []repository.DownloadSchedule
-	var err error
-	if user.Role == middleware.RoleOwner {
-		schedules, err = s.repo.ListSchedules(ctx, limit, input.Offset)
-	} else {
-		schedules, err = s.repo.ListSchedulesForUser(ctx, user.ID, limit, input.Offset)
-	}
+	user, err := callerContext(ctx)
 	if err != nil {
-		s.log.Error("list schedules", "error", err)
-		return ListResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list schedules")
+		return ListResponse{}, err
 	}
-
-	data := make([]ScheduleResponse, 0, len(schedules))
-	for i := range schedules {
-		resp, err := s.toResponse(ctx, &schedules[i])
-		if err != nil {
-			s.log.Error("inflate schedule", "id", schedules[i].ID, "error", err)
-			return ListResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list schedules")
-		}
-		data = append(data, resp)
+	views, err := s.svc.List(ctx, user.ID, user.Role == middleware.RoleOwner, input.Limit, input.Offset)
+	if err != nil {
+		return ListResponse{}, s.mapErr(err, "list schedules")
 	}
-	return ListResponse{Data: data}, nil
+	return ListResponse{Data: toResponses(views)}, nil
 }
 
-// Mine returns schedules owned by the calling user. Viewers use this to
-// see what they've set up even if (for a future public-facing API) they
-// can't see the system-wide list.
+// Mine returns schedules owned by the calling user. Distinct from List
+// so a future public API can expose it to viewers without granting the
+// system-wide list that owners have.
 func (s *Service) Mine(ctx context.Context, input ListInput) (ListResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return ListResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-	}
-	limit := input.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	schedules, err := s.repo.ListSchedulesForUser(ctx, user.ID, limit, input.Offset)
+	user, err := callerContext(ctx)
 	if err != nil {
-		s.log.Error("list user schedules", "error", err)
-		return ListResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list schedules")
+		return ListResponse{}, err
 	}
-	data := make([]ScheduleResponse, 0, len(schedules))
-	for i := range schedules {
-		resp, err := s.toResponse(ctx, &schedules[i])
-		if err != nil {
-			return ListResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list schedules")
-		}
-		data = append(data, resp)
+	views, err := s.svc.Mine(ctx, user.ID, input.Limit, input.Offset)
+	if err != nil {
+		return ListResponse{}, s.mapErr(err, "list schedules")
 	}
-	return ListResponse{Data: data}, nil
+	return ListResponse{Data: toResponses(views)}, nil
 }
 
 type GetByIDInput struct {
@@ -198,31 +170,15 @@ type GetByIDInput struct {
 
 // GetByID returns a single schedule. Non-owners may only see their own.
 func (s *Service) GetByID(ctx context.Context, input GetByIDInput) (ScheduleResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-	}
-	sched, err := s.repo.GetSchedule(ctx, input.ID)
+	user, err := callerContext(ctx)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "schedule not found")
-		}
-		s.log.Error("get schedule", "error", err)
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load schedule")
-	}
-	if err := s.ensureOwnerOrAuthor(user, sched); err != nil {
 		return ScheduleResponse{}, err
 	}
-	return s.toResponseOrError(ctx, sched)
-}
-
-func (s *Service) toResponseOrError(ctx context.Context, sched *repository.DownloadSchedule) (ScheduleResponse, error) {
-	resp, err := s.toResponse(ctx, sched)
+	view, err := s.svc.GetByID(ctx, user.ID, user.Role == middleware.RoleOwner, input.ID)
 	if err != nil {
-		s.log.Error("inflate schedule", "id", sched.ID, "error", err)
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load schedule")
+		return ScheduleResponse{}, s.mapErr(err, "load schedule")
 	}
-	return resp, nil
+	return toResponse(*view), nil
 }
 
 // CreateInput captures the full schedule payload the dashboard posts. The
@@ -245,19 +201,14 @@ type CreateInput struct {
 
 // Create registers a schedule for the caller. requested_by is always the
 // caller; admins cannot create a schedule on someone else's behalf — role
-// boundaries stay intact.
+// boundaries stay intact at the service layer.
 func (s *Service) Create(ctx context.Context, input CreateInput) (ScheduleResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-	}
-	if err := validateFilterConsistency(input.HasMinViewers, input.MinViewers, input.IsDeleteRediff, input.TimeBeforeDelete); err != nil {
+	user, err := callerContext(ctx)
+	if err != nil {
 		return ScheduleResponse{}, err
 	}
-
-	sched, err := s.repo.CreateSchedule(ctx, &repository.ScheduleInput{
+	view, err := s.svc.Create(ctx, user.ID, scheduleservice.ScheduleWriteInput{
 		BroadcasterID:    input.BroadcasterID,
-		RequestedBy:      user.ID,
 		Quality:          input.Quality,
 		HasMinViewers:    input.HasMinViewers,
 		MinViewers:       input.MinViewers,
@@ -266,19 +217,13 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (ScheduleRespon
 		IsDeleteRediff:   input.IsDeleteRediff,
 		TimeBeforeDelete: input.TimeBeforeDelete,
 		IsDisabled:       input.IsDisabled,
+		CategoryIDs:      input.CategoryIDs,
+		TagIDs:           input.TagIDs,
 	})
 	if err != nil {
-		s.log.Error("create schedule", "error", err)
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to create schedule")
+		return ScheduleResponse{}, s.mapErr(err, "create schedule")
 	}
-
-	if err := s.replaceCategories(ctx, sched.ID, input.CategoryIDs); err != nil {
-		return ScheduleResponse{}, err
-	}
-	if err := s.replaceTags(ctx, sched.ID, input.TagIDs); err != nil {
-		return ScheduleResponse{}, err
-	}
-	return s.toResponseOrError(ctx, sched)
+	return toResponse(*view), nil
 }
 
 // UpdateInput mirrors CreateInput plus the schedule ID. We don't allow
@@ -302,27 +247,11 @@ type UpdateInput struct {
 // can edit any. The underlying SQL preserves trigger_count and
 // last_triggered_at — see the adapter test for the regression gate.
 func (s *Service) Update(ctx context.Context, input UpdateInput) (ScheduleResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-	}
-	existing, err := s.repo.GetSchedule(ctx, input.ID)
+	user, err := callerContext(ctx)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "schedule not found")
-		}
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load schedule")
-	}
-	if err := s.ensureOwnerOrAuthor(user, existing); err != nil {
 		return ScheduleResponse{}, err
 	}
-	if err := validateFilterConsistency(input.HasMinViewers, input.MinViewers, input.IsDeleteRediff, input.TimeBeforeDelete); err != nil {
-		return ScheduleResponse{}, err
-	}
-
-	updated, err := s.repo.UpdateSchedule(ctx, input.ID, &repository.ScheduleInput{
-		BroadcasterID:    existing.BroadcasterID,
-		RequestedBy:      existing.RequestedBy,
+	view, err := s.svc.Update(ctx, user.ID, user.Role == middleware.RoleOwner, input.ID, scheduleservice.ScheduleWriteInput{
 		Quality:          input.Quality,
 		HasMinViewers:    input.HasMinViewers,
 		MinViewers:       input.MinViewers,
@@ -331,19 +260,13 @@ func (s *Service) Update(ctx context.Context, input UpdateInput) (ScheduleRespon
 		IsDeleteRediff:   input.IsDeleteRediff,
 		TimeBeforeDelete: input.TimeBeforeDelete,
 		IsDisabled:       input.IsDisabled,
+		CategoryIDs:      input.CategoryIDs,
+		TagIDs:           input.TagIDs,
 	})
 	if err != nil {
-		s.log.Error("update schedule", "error", err)
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to update schedule")
+		return ScheduleResponse{}, s.mapErr(err, "update schedule")
 	}
-
-	if err := s.replaceCategories(ctx, updated.ID, input.CategoryIDs); err != nil {
-		return ScheduleResponse{}, err
-	}
-	if err := s.replaceTags(ctx, updated.ID, input.TagIDs); err != nil {
-		return ScheduleResponse{}, err
-	}
-	return s.toResponseOrError(ctx, updated)
+	return toResponse(*view), nil
 }
 
 type ToggleInput struct {
@@ -353,26 +276,15 @@ type ToggleInput struct {
 // Toggle flips is_disabled in one atomic UPDATE so the dashboard checkbox
 // can POST without re-sending the full payload.
 func (s *Service) Toggle(ctx context.Context, input ToggleInput) (ScheduleResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-	}
-	existing, err := s.repo.GetSchedule(ctx, input.ID)
+	user, err := callerContext(ctx)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "schedule not found")
-		}
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load schedule")
-	}
-	if err := s.ensureOwnerOrAuthor(user, existing); err != nil {
 		return ScheduleResponse{}, err
 	}
-	toggled, err := s.repo.ToggleSchedule(ctx, input.ID)
+	view, err := s.svc.Toggle(ctx, user.ID, user.Role == middleware.RoleOwner, input.ID)
 	if err != nil {
-		s.log.Error("toggle schedule", "error", err)
-		return ScheduleResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to toggle schedule")
+		return ScheduleResponse{}, s.mapErr(err, "toggle schedule")
 	}
-	return s.toResponseOrError(ctx, toggled)
+	return toResponse(*view), nil
 }
 
 type DeleteInput struct {
@@ -385,68 +297,20 @@ type DeleteResponse struct {
 
 // Delete removes a schedule and its junction rows (ON DELETE CASCADE).
 func (s *Service) Delete(ctx context.Context, input DeleteInput) (DeleteResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return DeleteResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-	}
-	existing, err := s.repo.GetSchedule(ctx, input.ID)
+	user, err := callerContext(ctx)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return DeleteResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "schedule not found")
-		}
-		return DeleteResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load schedule")
-	}
-	if err := s.ensureOwnerOrAuthor(user, existing); err != nil {
 		return DeleteResponse{}, err
 	}
-	if err := s.repo.DeleteSchedule(ctx, input.ID); err != nil {
-		s.log.Error("delete schedule", "error", err)
-		return DeleteResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to delete schedule")
+	if err := s.svc.Delete(ctx, user.ID, user.Role == middleware.RoleOwner, input.ID); err != nil {
+		return DeleteResponse{}, s.mapErr(err, "delete schedule")
 	}
 	return DeleteResponse{ID: input.ID}, nil
 }
 
-// replaceCategories is the "set" pattern: clear existing links, re-link to
-// the provided set. Atomic-enough for our scale (rare edit, no concurrent
-// writers for a single schedule); a future move to transactional replace
-// would be the next step if it becomes hot.
-func (s *Service) replaceCategories(ctx context.Context, scheduleID int64, categoryIDs []string) error {
-	if err := s.repo.ClearScheduleCategories(ctx, scheduleID); err != nil {
-		s.log.Error("clear categories", "id", scheduleID, "error", err)
-		return trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to update categories")
+func toResponses(views []scheduleservice.ScheduleView) []ScheduleResponse {
+	out := make([]ScheduleResponse, 0, len(views))
+	for _, v := range views {
+		out = append(out, toResponse(v))
 	}
-	for _, id := range categoryIDs {
-		if err := s.repo.LinkScheduleCategory(ctx, scheduleID, id); err != nil {
-			s.log.Error("link category", "schedule", scheduleID, "category", id, "error", err)
-			return trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to link category")
-		}
-	}
-	return nil
-}
-
-func (s *Service) replaceTags(ctx context.Context, scheduleID int64, tagIDs []int64) error {
-	if err := s.repo.ClearScheduleTags(ctx, scheduleID); err != nil {
-		s.log.Error("clear tags", "id", scheduleID, "error", err)
-		return trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to update tags")
-	}
-	for _, id := range tagIDs {
-		if err := s.repo.LinkScheduleTag(ctx, scheduleID, id); err != nil {
-			s.log.Error("link tag", "schedule", scheduleID, "tag", id, "error", err)
-			return trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to link tag")
-		}
-	}
-	return nil
-}
-
-// validateFilterConsistency mirrors the schema CHECK constraints so bad
-// input gets a clean 400 at the tRPC boundary rather than a driver error
-// 50 layers down.
-func validateFilterConsistency(hasMinViewers bool, minViewers *int64, isDeleteRediff bool, timeBeforeDelete *int64) error {
-	if hasMinViewers && (minViewers == nil || *minViewers < 0) {
-		return trpcgo.NewError(trpcgo.CodeBadRequest, "has_min_viewers=true requires min_viewers >= 0")
-	}
-	if isDeleteRediff && (timeBeforeDelete == nil || *timeBeforeDelete <= 0) {
-		return trpcgo.NewError(trpcgo.CodeBadRequest, "is_delete_rediff=true requires time_before_delete > 0")
-	}
-	return nil
+	return out
 }
