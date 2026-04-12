@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
+import { DataTable } from "@/components/ui/data-table"
 import { useFetchLogs } from "@/features/system"
+import { fetchLogColumns } from "@/features/system/components/logColumns"
 
 const PAGE_SIZE = 50
 
@@ -28,83 +30,37 @@ function SystemLogsPage() {
 				</div>
 			)}
 
-			{logs.length === 0 && !isLoading && !error && (
-				<div className="text-muted-foreground">No fetch logs yet.</div>
-			)}
-
-			{logs.length > 0 && (
+			{!isLoading && !error && (
 				<>
-					<div className="rounded-lg border border-border overflow-hidden">
-						<table className="w-full text-sm">
-							<thead className="bg-muted/50">
-								<tr>
-									<th className="text-left px-4 py-2 font-medium">Time</th>
-									<th className="text-left px-4 py-2 font-medium">Type</th>
-									<th className="text-left px-4 py-2 font-medium">
-										Broadcaster
-									</th>
-									<th className="text-left px-4 py-2 font-medium">Status</th>
-									<th className="text-left px-4 py-2 font-medium">Duration</th>
-									<th className="text-left px-4 py-2 font-medium">Error</th>
-								</tr>
-							</thead>
-							<tbody>
-								{logs.map((log) => (
-									<tr
-										key={log.id}
-										className="border-t border-border hover:bg-muted/30"
-									>
-										<td className="px-4 py-2 whitespace-nowrap text-muted-foreground">
-											{new Date(log.fetched_at).toLocaleString()}
-										</td>
-										<td className="px-4 py-2">{log.fetch_type}</td>
-										<td className="px-4 py-2 text-muted-foreground">
-											{log.broadcaster_id || "—"}
-										</td>
-										<td className="px-4 py-2">
-											<span
-												className={
-													log.status >= 200 && log.status < 300
-														? "text-emerald-600 dark:text-emerald-400"
-														: "text-destructive"
-												}
-											>
-												{log.status}
-											</span>
-										</td>
-										<td className="px-4 py-2 text-muted-foreground">
-											{log.duration_ms}ms
-										</td>
-										<td className="px-4 py-2 text-destructive truncate max-w-xs">
-											{log.error || ""}
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
+					<DataTable
+						columns={fetchLogColumns}
+						data={logs}
+						emptyMessage="No fetch logs yet."
+					/>
 
-					<div className="flex items-center gap-2 mt-4">
-						<button
-							type="button"
-							disabled={page === 0}
-							onClick={() => setPage((p) => Math.max(0, p - 1))}
-							className="px-3 py-1 rounded-md border border-border disabled:opacity-50"
-						>
-							Previous
-						</button>
-						<span className="text-sm text-muted-foreground">
-							Page {page + 1} of {pageCount || 1} ({total} total)
-						</span>
-						<button
-							type="button"
-							disabled={page >= pageCount - 1}
-							onClick={() => setPage((p) => p + 1)}
-							className="px-3 py-1 rounded-md border border-border disabled:opacity-50"
-						>
-							Next
-						</button>
-					</div>
+					{logs.length > 0 && (
+						<div className="flex items-center gap-2 mt-4">
+							<button
+								type="button"
+								disabled={page === 0}
+								onClick={() => setPage((p) => Math.max(0, p - 1))}
+								className="px-3 py-1 rounded-md border border-border disabled:opacity-50"
+							>
+								Previous
+							</button>
+							<span className="text-sm text-muted-foreground">
+								Page {page + 1} of {pageCount || 1} ({total} total)
+							</span>
+							<button
+								type="button"
+								disabled={page >= pageCount - 1}
+								onClick={() => setPage((p) => p + 1)}
+								className="px-3 py-1 rounded-md border border-border disabled:opacity-50"
+							>
+								Next
+							</button>
+						</div>
+					)}
 				</>
 			)}
 		</div>

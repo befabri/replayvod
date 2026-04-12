@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { DataTable } from "@/components/ui/data-table"
 import { useEventLogs, useLiveSystemEvents } from "@/features/eventlogs"
+import { eventLogColumns } from "@/features/eventlogs/components/columns"
 
 const PAGE_SIZE = 50
 
@@ -28,6 +30,8 @@ function EventsPage() {
 	// real time without refreshing.
 	useLiveSystemEvents()
 
+	const columns = useMemo(() => eventLogColumns(t), [t])
+
 	return (
 		<div className="p-8 max-w-5xl">
 			<h1 className="text-3xl font-heading font-bold mb-2">
@@ -47,55 +51,14 @@ function EventsPage() {
 					{t("events.failed_to_load")}: {error.message}
 				</div>
 			)}
-			{data && data.data.length === 0 && (
-				<div className="text-muted-foreground">{t("events.empty")}</div>
-			)}
 
-			{data && data.data.length > 0 && (
+			{data && (
 				<>
-					<div className="rounded-lg border border-border overflow-hidden">
-						<table className="w-full text-sm">
-							<thead className="bg-muted/50">
-								<tr>
-									<th className="text-left px-3 py-2 font-medium w-40">
-										{t("events.col_time")}
-									</th>
-									<th className="text-left px-3 py-2 font-medium w-24">
-										{t("events.col_severity")}
-									</th>
-									<th className="text-left px-3 py-2 font-medium w-32">
-										{t("events.col_domain")}
-									</th>
-									<th className="text-left px-3 py-2 font-medium">
-										{t("events.col_message")}
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-								{data.data.map((row) => (
-									<tr key={row.id} className="border-t border-border align-top">
-										<td className="px-3 py-2 text-xs text-muted-foreground">
-											{new Date(row.created_at).toLocaleString()}
-										</td>
-										<td className="px-3 py-2">
-											<SeverityBadge severity={row.severity} />
-										</td>
-										<td className="px-3 py-2 font-mono text-xs">
-											{row.domain}.{row.event_type}
-										</td>
-										<td className="px-3 py-2">
-											<div>{row.message}</div>
-											{row.data !== undefined && row.data !== null && (
-												<pre className="text-xs text-muted-foreground mt-1 overflow-x-auto">
-													{JSON.stringify(row.data as unknown, null, 2)}
-												</pre>
-											)}
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
+					<DataTable
+						columns={columns}
+						data={data.data}
+						emptyMessage={t("events.empty")}
+					/>
 					<div className="flex items-center gap-2 mt-4">
 						<button
 							type="button"
@@ -106,7 +69,8 @@ function EventsPage() {
 							{t("events.prev")}
 						</button>
 						<span className="text-sm text-muted-foreground">
-							{t("events.page", { n: page + 1 })} · {data.total} {t("events.total")}
+							{t("events.page", { n: page + 1 })} · {data.total}{" "}
+							{t("events.total")}
 						</span>
 						<button
 							type="button"
@@ -167,19 +131,5 @@ function Filters({
 				<option value="error">error</option>
 			</select>
 		</div>
-	)
-}
-
-function SeverityBadge({ severity }: { severity: string }) {
-	const cls = {
-		debug: "bg-muted text-muted-foreground",
-		info: "bg-muted text-foreground",
-		warn: "bg-yellow-500/20 text-yellow-200",
-		error: "bg-destructive/20 text-destructive",
-	}[severity] ?? "bg-muted text-muted-foreground"
-	return (
-		<span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs ${cls}`}>
-			{severity}
-		</span>
 	)
 }

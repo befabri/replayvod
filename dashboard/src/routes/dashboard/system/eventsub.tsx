@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
+import { DataTable } from "@/components/ui/data-table"
+import { subscriptionColumns } from "@/features/eventsub/components/columns"
 import { QuotaCard } from "@/features/eventsub/components/QuotaCard"
 import { SnapshotChart } from "@/features/eventsub/components/SnapshotChart"
-import { SubRow } from "@/features/eventsub/components/SubRow"
 import {
 	useSnapshotNow,
 	useSnapshots,
@@ -18,6 +20,8 @@ function EventSubPage() {
 	const subs = useSubscriptions()
 	const snapshots = useSnapshots()
 	const poll = useSnapshotNow()
+
+	const columns = useMemo(() => subscriptionColumns(t), [t])
 
 	return (
 		<div className="p-8 max-w-5xl">
@@ -70,38 +74,12 @@ function EventSubPage() {
 				{subs.isLoading && (
 					<div className="text-muted-foreground">{t("common.loading")}</div>
 				)}
-				{subs.data && subs.data.data.length === 0 && (
-					<div className="text-muted-foreground text-sm">
-						{t("eventsub.no_subscriptions")}
-					</div>
-				)}
-				{subs.data && subs.data.data.length > 0 && (
-					<div className="rounded-lg border border-border overflow-hidden">
-						<table className="w-full text-sm">
-							<thead className="bg-muted/50">
-								<tr>
-									<th className="text-left px-3 py-2 font-medium">
-										{t("eventsub.col_type")}
-									</th>
-									<th className="text-left px-3 py-2 font-medium">
-										{t("eventsub.col_broadcaster")}
-									</th>
-									<th className="text-left px-3 py-2 font-medium">
-										{t("eventsub.col_status")}
-									</th>
-									<th className="text-right px-3 py-2 font-medium">
-										{t("eventsub.col_cost")}
-									</th>
-									<th className="text-right px-3 py-2 font-medium" />
-								</tr>
-							</thead>
-							<tbody>
-								{subs.data.data.map((s) => (
-									<SubRow key={s.id} sub={s} />
-								))}
-							</tbody>
-						</table>
-					</div>
+				{subs.data && (
+					<DataTable
+						columns={columns}
+						data={subs.data.data}
+						emptyMessage={t("eventsub.no_subscriptions")}
+					/>
 				)}
 			</section>
 		</div>

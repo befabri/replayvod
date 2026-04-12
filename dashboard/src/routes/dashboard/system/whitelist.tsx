@@ -1,10 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
-import {
-	useAddWhitelist,
-	useRemoveWhitelist,
-	useWhitelist,
-} from "@/features/whitelist"
+import { DataTable } from "@/components/ui/data-table"
+import { useAddWhitelist, useWhitelist } from "@/features/whitelist"
+import { whitelistColumns } from "@/features/whitelist/components/columns"
 
 export const Route = createFileRoute("/dashboard/system/whitelist")({
 	component: WhitelistPage,
@@ -13,17 +11,13 @@ export const Route = createFileRoute("/dashboard/system/whitelist")({
 function WhitelistPage() {
 	const { data: entries, isLoading, error } = useWhitelist()
 	const add = useAddWhitelist()
-	const remove = useRemoveWhitelist()
 	const [input, setInput] = useState("")
 
 	const submit = (e: React.FormEvent) => {
 		e.preventDefault()
 		const v = input.trim()
 		if (!v) return
-		add.mutate(
-			{ twitch_user_id: v },
-			{ onSuccess: () => setInput("") },
-		)
+		add.mutate({ twitch_user_id: v }, { onSuccess: () => setInput("") })
 	}
 
 	return (
@@ -64,49 +58,12 @@ function WhitelistPage() {
 				</div>
 			)}
 
-			{entries && entries.length === 0 && !isLoading && !error && (
-				<div className="text-muted-foreground">No whitelist entries.</div>
-			)}
-
-			{entries && entries.length > 0 && (
-				<div className="rounded-lg border border-border overflow-hidden">
-					<table className="w-full text-sm">
-						<thead className="bg-muted/50">
-							<tr>
-								<th className="text-left px-4 py-2 font-medium">
-									Twitch User ID
-								</th>
-								<th className="text-left px-4 py-2 font-medium">Added</th>
-								<th className="text-right px-4 py-2 font-medium">Actions</th>
-							</tr>
-						</thead>
-						<tbody>
-							{entries.map((e) => (
-								<tr
-									key={e.twitch_user_id}
-									className="border-t border-border hover:bg-muted/30"
-								>
-									<td className="px-4 py-2 font-mono">{e.twitch_user_id}</td>
-									<td className="px-4 py-2 text-muted-foreground">
-										{new Date(e.added_at).toLocaleString()}
-									</td>
-									<td className="px-4 py-2 text-right">
-										<button
-											type="button"
-											disabled={remove.isPending}
-											onClick={() =>
-												remove.mutate({ twitch_user_id: e.twitch_user_id })
-											}
-											className="text-destructive hover:underline disabled:opacity-60"
-										>
-											Remove
-										</button>
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				</div>
+			{entries && (
+				<DataTable
+					columns={whitelistColumns}
+					data={entries}
+					emptyMessage="No whitelist entries."
+				/>
 			)}
 		</div>
 	)

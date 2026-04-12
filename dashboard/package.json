@@ -28,7 +28,7 @@
     "@tanstack/react-router-ssr-query": "latest",
     "@tanstack/react-start": "latest",
     "@tanstack/react-store": "latest",
-    "@tanstack/react-table": "latest",
+    "@tanstack/react-table": "^8.21.3",
     "@tanstack/router-plugin": "latest",
     "@tanstack/store": "latest",
     "@trpc/client": "^11.11.0",

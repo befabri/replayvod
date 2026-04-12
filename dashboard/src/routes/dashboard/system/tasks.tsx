@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { TaskRow } from "@/features/tasks/components/TaskRow"
+import { DataTable } from "@/components/ui/data-table"
+import { taskColumns } from "@/features/tasks/components/columns"
 import { useLiveTaskStatus, useTasks } from "@/features/tasks"
 
 export const Route = createFileRoute("/dashboard/system/tasks")({
@@ -14,6 +16,8 @@ function TasksPage() {
 	// triggers a task.list re-fetch so the UI reflects running →
 	// success / failed without polling.
 	useLiveTaskStatus()
+
+	const columns = useMemo(() => taskColumns(t), [t])
 
 	return (
 		<div className="p-8 max-w-5xl">
@@ -32,37 +36,13 @@ function TasksPage() {
 					{t("tasks.failed_to_load")}: {error.message}
 				</div>
 			)}
-			{data && data.data.length === 0 && (
-				<div className="text-muted-foreground">{t("tasks.empty")}</div>
-			)}
 
-			{data && data.data.length > 0 && (
-				<div className="rounded-lg border border-border overflow-hidden">
-					<table className="w-full text-sm">
-						<thead className="bg-muted/50">
-							<tr>
-								<th className="text-left px-3 py-2 font-medium">
-									{t("tasks.col_name")}
-								</th>
-								<th className="text-left px-3 py-2 font-medium">
-									{t("tasks.col_status")}
-								</th>
-								<th className="text-left px-3 py-2 font-medium">
-									{t("tasks.col_last_run")}
-								</th>
-								<th className="text-left px-3 py-2 font-medium">
-									{t("tasks.col_next_run")}
-								</th>
-								<th className="text-right px-3 py-2 font-medium" />
-							</tr>
-						</thead>
-						<tbody>
-							{data.data.map((task) => (
-								<TaskRow key={task.name} task={task} />
-							))}
-						</tbody>
-					</table>
-				</div>
+			{data && (
+				<DataTable
+					columns={columns}
+					data={data.data}
+					emptyMessage={t("tasks.empty")}
+				/>
 			)}
 		</div>
 	)
