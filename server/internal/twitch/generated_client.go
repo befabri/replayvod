@@ -34,8 +34,8 @@ func (c *Client) CreateEventSubSubscription(ctx context.Context, body *CreateEve
 // POST /streams/markers
 // Auth: user (scopes: channel:manage:broadcast)
 // https://dev.twitch.tv/docs/api/reference#create-stream-marker
-func (c *Client) CreateStreamMarker(ctx context.Context, body *CreateStreamMarkerBody) ([]CreateStreamMarkerResponse, error) {
-	var result helixResponse[CreateStreamMarkerResponse]
+func (c *Client) CreateStreamMarker(ctx context.Context, body *CreateStreamMarkerBody) ([]StreamMarkerCreated, error) {
+	var result helixResponse[StreamMarkerCreated]
 	if err := c.post(ctx, "/streams/markers", nil, body, &result); err != nil {
 		return nil, err
 	}
@@ -92,8 +92,8 @@ func (c *Client) GetChannelStreamSchedule(ctx context.Context, params *GetChanne
 // GET /clips
 // Auth: either
 // https://dev.twitch.tv/docs/api/reference#get-clips
-func (c *Client) GetClips(ctx context.Context, params *GetClipsParams) ([]GetClipsResponse, Pagination, error) {
-	var result helixResponse[GetClipsResponse]
+func (c *Client) GetClips(ctx context.Context, params *GetClipsParams) ([]Clip, Pagination, error) {
+	var result helixResponse[Clip]
 	if err := c.get(ctx, "/clips", params, &result); err != nil {
 		return nil, Pagination{}, err
 	}
@@ -103,9 +103,9 @@ func (c *Client) GetClips(ctx context.Context, params *GetClipsParams) ([]GetCli
 // GetClipsAll iterates GetClips until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
 // so callers can record quota without rolling their own loop.
-func (c *Client) GetClipsAll(ctx context.Context, params *GetClipsParams) ([]GetClipsResponse, Pagination, error) {
+func (c *Client) GetClipsAll(ctx context.Context, params *GetClipsParams) ([]Clip, Pagination, error) {
 	var (
-		all  []GetClipsResponse
+		all  []Clip
 		last Pagination
 	)
 	if params == nil {
@@ -252,8 +252,8 @@ func (c *Client) GetGames(ctx context.Context, params *GetGamesParams) ([]Game, 
 // GET /streams/markers
 // Auth: user (scopes: user:read:broadcast, channel:manage:broadcast)
 // https://dev.twitch.tv/docs/api/reference#get-stream-markers
-func (c *Client) GetStreamMarkers(ctx context.Context, params *GetStreamMarkersParams) ([]GetStreamMarkersResponse, Pagination, error) {
-	var result helixResponse[GetStreamMarkersResponse]
+func (c *Client) GetStreamMarkers(ctx context.Context, params *GetStreamMarkersParams) ([]StreamMarkers, Pagination, error) {
+	var result helixResponse[StreamMarkers]
 	if err := c.get(ctx, "/streams/markers", params, &result); err != nil {
 		return nil, Pagination{}, err
 	}
@@ -263,9 +263,9 @@ func (c *Client) GetStreamMarkers(ctx context.Context, params *GetStreamMarkersP
 // GetStreamMarkersAll iterates GetStreamMarkers until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
 // so callers can record quota without rolling their own loop.
-func (c *Client) GetStreamMarkersAll(ctx context.Context, params *GetStreamMarkersParams) ([]GetStreamMarkersResponse, Pagination, error) {
+func (c *Client) GetStreamMarkersAll(ctx context.Context, params *GetStreamMarkersParams) ([]StreamMarkers, Pagination, error) {
 	var (
-		all  []GetStreamMarkersResponse
+		all  []StreamMarkers
 		last Pagination
 	)
 	if params == nil {

@@ -78,9 +78,9 @@ type EventSubSubscription struct {
 	Cost      int               `json:"cost"`
 }
 
-// CreateStreamMarkerResponse is the response item type for create-stream-marker.
+// StreamMarkerCreated is the response item type for create-stream-marker.
 // https://dev.twitch.tv/docs/api/reference#create-stream-marker
-type CreateStreamMarkerResponse struct {
+type StreamMarkerCreated struct {
 	ID              string    `json:"id"`
 	CreatedAt       time.Time `json:"created_at"`
 	PositionSeconds int       `json:"position_seconds"`
@@ -142,9 +142,9 @@ type GetChannelStreamScheduleResponse struct {
 	Pagination       GetChannelStreamScheduleResponsePagination `json:"pagination,omitempty"`
 }
 
-// GetClipsResponse is the response item type for get-clips.
+// Clip is the response item type for get-clips.
 // https://dev.twitch.tv/docs/api/reference#get-clips
-type GetClipsResponse struct {
+type Clip struct {
 	ID              string    `json:"id"`
 	URL             string    `json:"url"`
 	EmbedURL        string    `json:"embed_url"`
@@ -204,8 +204,8 @@ type Game struct {
 	IGDBID    string `json:"igdb_id"`
 }
 
-// GetStreamMarkersResponseVideoMarker is a nested object inside a generated response type.
-type GetStreamMarkersResponseVideoMarker struct {
+// StreamMarkersVideoMarker is a nested object inside a generated response type.
+type StreamMarkersVideoMarker struct {
 	ID              string    `json:"id"`
 	CreatedAt       time.Time `json:"created_at"`
 	Description     string    `json:"description"`
@@ -213,19 +213,19 @@ type GetStreamMarkersResponseVideoMarker struct {
 	URL             string    `json:"url"`
 }
 
-// GetStreamMarkersResponseVideo is a nested object inside a generated response type.
-type GetStreamMarkersResponseVideo struct {
-	VideoID string                                `json:"video_id"`
-	Markers []GetStreamMarkersResponseVideoMarker `json:"markers"`
+// StreamMarkersVideo is a nested object inside a generated response type.
+type StreamMarkersVideo struct {
+	VideoID string                     `json:"video_id"`
+	Markers []StreamMarkersVideoMarker `json:"markers"`
 }
 
-// GetStreamMarkersResponse is the response item type for get-stream-markers.
+// StreamMarkers is the response item type for get-stream-markers.
 // https://dev.twitch.tv/docs/api/reference#get-stream-markers
-type GetStreamMarkersResponse struct {
-	UserID    string                          `json:"user_id"`
-	UserName  string                          `json:"user_name"`
-	UserLogin string                          `json:"user_login"`
-	Videos    []GetStreamMarkersResponseVideo `json:"videos"`
+type StreamMarkers struct {
+	UserID    string               `json:"user_id"`
+	UserName  string               `json:"user_name"`
+	UserLogin string               `json:"user_login"`
+	Videos    []StreamMarkersVideo `json:"videos"`
 }
 
 // User is the response item type for get-users.

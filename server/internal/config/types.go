@@ -86,6 +86,17 @@ type SchedulerConfig struct {
 	EventsubIntervalMinutes     int  `toml:"eventsub_interval_minutes"`
 	CategoryArtIntervalMinutes  int  `toml:"category_art_interval_minutes"`
 	TokenCleanupIntervalMinutes int  `toml:"token_cleanup_interval_minutes"`
+	// FetchLogsRetentionDays prunes fetch_logs older than this on a
+	// daily interval. 0 disables the task (keep forever).
+	FetchLogsRetentionDays int `toml:"fetch_logs_retention_days"`
+	// WebhookEventPayloadRetentionDays trims the payload column (not
+	// the row) on webhook_events older than this.
+	WebhookEventPayloadRetentionDays int `toml:"webhook_event_payload_retention_days"`
+	// EventLogsRetentionDays prunes debug+info event_logs older than
+	// this. warn+error rows have a longer retention managed below.
+	EventLogsRetentionDays int `toml:"event_logs_retention_days"`
+	// SessionCleanupIntervalMinutes sweeps expired sessions.
+	SessionCleanupIntervalMinutes int `toml:"session_cleanup_interval_minutes"`
 }
 
 type LoggingConfig struct {
