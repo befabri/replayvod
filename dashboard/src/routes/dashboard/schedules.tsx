@@ -1,5 +1,6 @@
 import { useForm } from "@tanstack/react-form"
 import { createFileRoute } from "@tanstack/react-router"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 import { CreateInputSchema } from "@/api/generated/zod"
@@ -9,6 +10,7 @@ import {
 	useDeleteSchedule,
 	useSchedules,
 	useToggleSchedule,
+	useUpdateSchedule,
 } from "@/features/schedules"
 
 // ScheduleFormSchema picks the fields the form lets users edit. The
@@ -282,6 +284,13 @@ function ScheduleRow({ schedule }: { schedule: ScheduleResponse }) {
 	const { t } = useTranslation()
 	const toggle = useToggleSchedule()
 	const del = useDeleteSchedule()
+	const [editing, setEditing] = useState(false)
+
+	if (editing) {
+		return (
+			<EditForm schedule={schedule} onDone={() => setEditing(false)} />
+		)
+	}
 
 	return (
 		<div className="rounded-lg border border-border bg-card p-4">
@@ -317,6 +326,13 @@ function ScheduleRow({ schedule }: { schedule: ScheduleResponse }) {
 				<div className="flex flex-col gap-2 items-end">
 					<button
 						type="button"
+						onClick={() => setEditing(true)}
+						className="text-sm px-3 py-1 rounded-md border border-border hover:bg-muted"
+					>
+						{t("schedules.edit")}
+					</button>
+					<button
+						type="button"
 						onClick={() => toggle.mutate({ id: schedule.id })}
 						disabled={toggle.isPending}
 						className="text-sm px-3 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-60"
@@ -336,6 +352,161 @@ function ScheduleRow({ schedule }: { schedule: ScheduleResponse }) {
 				</div>
 			</div>
 		</div>
+	)
+}
+
+// EditForm reuses the same Zod-validated TanStack Form shape as the
+// create form but submits to useUpdateSchedule. Non-editable fields
+// (broadcaster_id, is_delete_rediff, is_disabled) pass through as-is
+// from the current schedule so the update doesn't silently reset
+// operational state the user didn't touch.
+function EditForm({
+	schedule,
+	onDone,
+}: {
+	schedule: ScheduleResponse
+	onDone: () => void
+}) {
+	const { t } = useTranslation()
+	const update = useUpdateSchedule()
+
+	const form = useForm({
+		defaultValues: {
+			broadcaster_id: schedule.broadcaster_id,
+			quality: schedule.quality as ScheduleFormValues["quality"],
+			has_min_viewers: schedule.has_min_viewers,
+			min_viewers: schedule.min_viewers ?? undefined,
+		} as ScheduleFormValues,
+		validators: {
+			onSubmit: ScheduleFormSchema,
+		},
+		onSubmit: async ({ value }) => {
+			await update.mutateAsync({
+				id: schedule.id,
+				quality: value.quality,
+				has_min_viewers: value.has_min_viewers,
+				min_viewers: value.has_min_viewers ? value.min_viewers : undefined,
+				has_categories: schedule.has_categories,
+				has_tags: schedule.has_tags,
+				is_delete_rediff: schedule.is_delete_rediff,
+				time_before_delete: schedule.time_before_delete,
+				is_disabled: schedule.is_disabled,
+				category_ids: schedule.categories.map((c) => c.id),
+				tag_ids: schedule.tags.map((t) => t.id),
+			})
+			onDone()
+		},
+	})
+
+	return (
+		<form
+			onSubmit={(e) => {
+				e.preventDefault()
+				e.stopPropagation()
+				void form.handleSubmit()
+			}}
+			className="rounded-lg border border-primary/40 bg-card p-4 space-y-3"
+		>
+			<div className="flex items-center justify-between">
+				<h3 className="text-sm font-medium">
+					{t("schedules.edit_title")}
+					<span className="ml-2 font-mono text-xs text-muted-foreground">
+						{schedule.broadcaster_id}
+					</span>
+				</h3>
+			</div>
+			<form.Field name="quality">
+				{(field) => (
+					<label className="flex flex-col gap-1 max-w-xs">
+						<span className="text-xs text-muted-foreground">
+							{t("schedules.quality")}
+						</span>
+						<select
+							value={field.state.value}
+							onChange={(e) =>
+								field.handleChange(
+									e.target.value as ScheduleFormValues["quality"],
+								)
+							}
+							className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+						>
+							<option value="HIGH">{t("schedules.quality_high")}</option>
+							<option value="MEDIUM">{t("schedules.quality_medium")}</option>
+							<option value="LOW">{t("schedules.quality_low")}</option>
+						</select>
+					</label>
+				)}
+			</form.Field>
+			<form.Field name="has_min_viewers">
+				{(field) => (
+					<label className="flex items-center gap-2 text-sm">
+						<input
+							type="checkbox"
+							checked={field.state.value}
+							onChange={(e) => field.handleChange(e.target.checked)}
+						/>
+						{t("schedules.has_min_viewers")}
+					</label>
+				)}
+			</form.Field>
+			<form.Subscribe selector={(s) => s.values.has_min_viewers}>
+				{(hasMinViewers) =>
+					hasMinViewers ? (
+						<form.Field name="min_viewers">
+							{(field) => (
+								<label className="flex flex-col gap-1 max-w-xs">
+									<span className="text-xs text-muted-foreground">
+										{t("schedules.min_viewers")}
+									</span>
+									<input
+										type="number"
+										min={0}
+										value={field.state.value ?? ""}
+										onChange={(e) =>
+											field.handleChange(
+												e.target.value === ""
+													? undefined
+													: Number(e.target.value),
+											)
+										}
+										className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+									/>
+								</label>
+							)}
+						</form.Field>
+					) : null
+				}
+			</form.Subscribe>
+
+			{update.isError && (
+				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+					{update.error?.message ?? t("schedules.update_failed")}
+				</div>
+			)}
+
+			<div className="flex gap-2">
+				<form.Subscribe selector={(s) => [s.canSubmit, s.isSubmitting] as const}>
+					{([canSubmit, isSubmitting]) => (
+						<button
+							type="submit"
+							disabled={!canSubmit || isSubmitting || update.isPending}
+							className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+						>
+							{isSubmitting || update.isPending
+								? t("common.saving")
+								: t("schedules.save")}
+						</button>
+					)}
+				</form.Subscribe>
+				<button
+					type="button"
+					onClick={onDone}
+					className="rounded-md border border-border px-4 py-2 text-sm"
+				>
+					{t("schedules.cancel")}
+				</button>
+			</div>
+		</form>
 	)
 }
 
