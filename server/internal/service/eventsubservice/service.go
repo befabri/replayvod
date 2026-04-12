@@ -85,10 +85,12 @@ func (s *Service) subscribe(ctx context.Context, subType, version string, cond t
 		return nil, fmt.Errorf("eventsub: marshal condition: %w", err)
 	}
 
-	bid := broadcasterIDFromCondition(sub.Condition)
+	// broadcasterID is the value we passed INTO the condition — no need to
+	// reflect it back out of Twitch's echo. An empty string means this
+	// subscription type doesn't key on a broadcaster (e.g. drop grants).
 	var bidPtr *string
-	if bid != "" {
-		bidPtr = &bid
+	if broadcasterID != "" {
+		bidPtr = &broadcasterID
 	}
 
 	// Mirror what Twitch stored, not what we sent — status in particular
@@ -200,29 +202,3 @@ func transportFields(t twitch.EventSubTransport) (method, callback string) {
 	}
 }
 
-// broadcasterIDFromCondition mirrors the webhook handler's helper: most
-// condition shapes have BroadcasterUserID. Kept as a local helper rather
-// than exposed because the reflection tradeoff is scoped to these two
-// callers — exposing it would imply a contract we don't want to commit to.
-func broadcasterIDFromCondition(cond twitch.EventSubCondition) string {
-	type hasBroadcaster interface {
-		GetBroadcasterUserID() string
-	}
-	// No interface method exists on generated types, so fall back to
-	// reflection via JSON round-trip — robust across every shape that
-	// carries a `broadcaster_user_id` field (the majority).
-	if b, ok := cond.(hasBroadcaster); ok {
-		return b.GetBroadcasterUserID()
-	}
-	data, err := json.Marshal(cond)
-	if err != nil {
-		return ""
-	}
-	var probe struct {
-		BroadcasterUserID string `json:"broadcaster_user_id"`
-	}
-	if err := json.Unmarshal(data, &probe); err != nil {
-		return ""
-	}
-	return probe.BroadcasterUserID
-}

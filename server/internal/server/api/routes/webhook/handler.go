@@ -16,7 +16,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -225,36 +224,12 @@ func buildEventInput(eventID string, ts time.Time, body []byte, notif *twitch.Ev
 		et := notif.Subscription.Type
 		input.EventType = &et
 	}
-	if bid := broadcasterIDFromCondition(notif.Subscription.Condition); bid != "" {
-		input.BroadcasterID = &bid
+	if cond, ok := notif.Subscription.Condition.(twitch.BroadcasterScopedCondition); ok {
+		if bid := cond.GetBroadcasterUserID(); bid != "" {
+			input.BroadcasterID = &bid
+		}
 	}
 	return input
-}
-
-// broadcasterIDFromCondition pulls BroadcasterUserID out of the typed condition
-// via reflection. Works for any generated *Condition that carries the standard
-// broadcaster field (the vast majority). Returns empty for condition shapes
-// that don't carry one (drop.entitlement.grant, user.authorization.*) and for
-// UnknownCondition — we simply don't denormalize broadcaster_id in those cases.
-func broadcasterIDFromCondition(cond twitch.EventSubCondition) string {
-	if cond == nil {
-		return ""
-	}
-	rv := reflect.ValueOf(cond)
-	if rv.Kind() == reflect.Ptr {
-		if rv.IsNil() {
-			return ""
-		}
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return ""
-	}
-	f := rv.FieldByName("BroadcasterUserID")
-	if !f.IsValid() || f.Kind() != reflect.String {
-		return ""
-	}
-	return f.String()
 }
 
 // parseHeaderTimestamp accepts the RFC3339Nano Twitch sends, falling back to

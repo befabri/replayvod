@@ -58,20 +58,21 @@ function CreateForm() {
 	const create = useCreateSchedule()
 	const [broadcasterId, setBroadcasterId] = useState("")
 	const [quality, setQuality] = useState("HIGH")
-	const [hasMinViewers, setHasMinViewers] = useState(false)
-	const [minViewers, setMinViewers] = useState("")
 
 	const submit = (e: React.FormEvent) => {
 		e.preventDefault()
 		const bid = broadcasterId.trim()
 		if (!bid) return
+		// Viewer-count / category / tag filters are deliberately not wired:
+		// the webhook processor's stream.online payload doesn't carry
+		// viewer_count or categories/tags yet, so any "true" toggle would
+		// create a never-matching schedule. Phase 6 enriches via GetStreams
+		// before flipping these controls on.
 		create.mutate(
 			{
 				broadcaster_id: bid,
 				quality,
-				has_min_viewers: hasMinViewers,
-				min_viewers:
-					hasMinViewers && minViewers ? parseInt(minViewers, 10) : undefined,
+				has_min_viewers: false,
 				has_categories: false,
 				has_tags: false,
 				is_delete_rediff: false,
@@ -82,8 +83,6 @@ function CreateForm() {
 			{
 				onSuccess: () => {
 					setBroadcasterId("")
-					setMinViewers("")
-					setHasMinViewers(false)
 				},
 			},
 		)
@@ -123,28 +122,15 @@ function CreateForm() {
 					</select>
 				</label>
 			</div>
-			<label className="flex items-center gap-2 text-sm">
-				<input
-					type="checkbox"
-					checked={hasMinViewers}
-					onChange={(e) => setHasMinViewers(e.target.checked)}
-				/>
-				{t("schedules.has_min_viewers")}
-			</label>
-			{hasMinViewers && (
-				<label className="flex flex-col gap-1">
-					<span className="text-sm text-muted-foreground">
-						{t("schedules.min_viewers")}
-					</span>
-					<input
-						type="number"
-						min={0}
-						value={minViewers}
-						onChange={(e) => setMinViewers(e.target.value)}
-						className="rounded-md border border-border bg-background px-3 py-2 text-sm max-w-xs"
-					/>
-				</label>
-			)}
+
+			<fieldset className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+				<legend className="text-xs px-1 text-muted-foreground">
+					{t("schedules.filters_coming_soon")}
+				</legend>
+				<DisabledFilter label={t("schedules.has_min_viewers")} />
+				<DisabledFilter label={t("schedules.has_categories")} />
+				<DisabledFilter label={t("schedules.has_tags")} />
+			</fieldset>
 
 			{create.isError && (
 				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
@@ -160,6 +146,22 @@ function CreateForm() {
 				{create.isPending ? t("common.saving") : t("schedules.create_submit")}
 			</button>
 		</form>
+	)
+}
+
+function DisabledFilter({ label }: { label: string }) {
+	const { t } = useTranslation()
+	return (
+		<label
+			className="flex items-center gap-2 text-sm opacity-60 cursor-not-allowed"
+			title={t("schedules.filters_coming_soon_hint")}
+		>
+			<input type="checkbox" disabled />
+			<span>{label}</span>
+			<span className="ml-auto rounded-md bg-muted px-2 py-0.5 text-xs">
+				{t("schedules.coming_soon")}
+			</span>
+		</label>
 	)
 }
 

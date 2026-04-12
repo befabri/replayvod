@@ -226,8 +226,9 @@ func (s *Service) toResponseOrError(ctx context.Context, sched *repository.Downl
 }
 
 // CreateInput captures the full schedule payload the dashboard posts. The
-// CHECK constraints in the schema enforce has_*/value consistency, so
-// surfacing a Twitch-like 400 with a tight message keeps the UI simple.
+// CHECK constraints in the schema enforce that each has_X toggle has its
+// corresponding value present; surfacing a tight 400 at the tRPC boundary
+// keeps the UI simpler than wrapping driver-level constraint errors.
 type CreateInput struct {
 	BroadcasterID    string   `json:"broadcaster_id" validate:"required"`
 	Quality          string   `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH"`

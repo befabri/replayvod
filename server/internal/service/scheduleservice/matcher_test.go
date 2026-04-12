@@ -154,3 +154,44 @@ func TestMatchSchedule_NilSchedule_NeverMatches(t *testing.T) {
 		t.Fatal("nil schedule must never match")
 	}
 }
+
+// TestMatchSchedule_EmptySignals_NoOpsFilteredSchedules pins the Phase 5
+// contract: until the webhook processor enriches stream.online with
+// viewer_count / categories / tags (deferred to a later phase), any
+// schedule that opts INTO one of those filters must fail to match
+// empty signals rather than match by default. The dashboard mirrors
+// this by disabling filter toggles with "Coming soon."
+//
+// Don't "simplify" the matcher by treating empty stream signals as
+// wildcards — that would ship enabled-but-broken schedules (filtered
+// rules that fire on every stream.online regardless of filter).
+func TestMatchSchedule_EmptySignals_NoOpsFilteredSchedules(t *testing.T) {
+	minViewers := int64(10)
+	cases := []struct {
+		name     string
+		schedule repository.DownloadSchedule
+		filters  ScheduleFilters
+	}{
+		{
+			name:     "has_min_viewers no-matches empty viewer_count",
+			schedule: repository.DownloadSchedule{HasMinViewers: true, MinViewers: &minViewers},
+		},
+		{
+			name:     "has_categories no-matches empty stream categories",
+			schedule: repository.DownloadSchedule{HasCategories: true},
+			filters:  ScheduleFilters{Categories: []repository.Category{{ID: "cat"}}},
+		},
+		{
+			name:     "has_tags no-matches empty stream tags",
+			schedule: repository.DownloadSchedule{HasTags: true},
+			filters:  ScheduleFilters{Tags: []repository.Tag{{ID: 1}}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if MatchSchedule(&tc.schedule, tc.filters, StreamSignals{}) {
+				t.Errorf("filtered schedule must not match empty stream signals")
+			}
+		})
+	}
+}

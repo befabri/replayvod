@@ -7,7 +7,6 @@ dist/
 server/server
 server/replayvod
 server/twitch-api-gen
-server/gentrpc
 
 # Environment
 .env
