@@ -29,9 +29,11 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
 	"github.com/befabri/replayvod/server/internal/service/authservice"
+	"github.com/befabri/replayvod/server/internal/service/categoryservice"
 	"github.com/befabri/replayvod/server/internal/service/channelservice"
 	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
 	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
+	"github.com/befabri/replayvod/server/internal/service/tagservice"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -111,7 +113,7 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// Services
 	authSvc := auth.NewService(authSvcDomain, sessionMgr, log)
 	channelSvc := channel.NewService(channelservice.New(repo, twitchClient, log), log)
-	categorySvc := category.NewService(repo, log)
+	categorySvc := category.NewService(categoryservice.New(repo, log), log)
 	systemSvc := systemroute.NewService(repo, log)
 	videoSvc := videoroute.NewService(repo, dl, twitchClient, log)
 	streamSvc := stream.NewService(repo, log)
@@ -125,7 +127,7 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	eventsubSvc := eventsubroute.NewService(repo, eventsubMgr, log)
 	settingsSvc := settings.NewService(repo, log)
 	taskSvc := taskroute.NewService(repo, log)
-	tagSvc := tag.NewService(repo, log)
+	tagSvc := tag.NewService(tagservice.New(repo, log), log)
 	sseSvc := sse.NewService(bus, log)
 
 	// Middleware

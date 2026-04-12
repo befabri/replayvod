@@ -1,6 +1,5 @@
-// Package tag implements tag.* tRPC procedures. Tags are name-keyed
-// (text) with an auto int64 ID; the dashboard's schedule pickers need
-// both to build a searchable multi-select.
+// Package tag is the tRPC-transport wrapper for tag reads. Business
+// logic lives in internal/service/tagservice.
 package tag
 
 import (
@@ -8,22 +7,17 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/tagservice"
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC tag procedures.
 type Service struct {
-	repo repository.Repository
-	log  *slog.Logger
+	svc *tagservice.Service
+	log *slog.Logger
 }
 
-// NewService builds a tag service.
-func NewService(repo repository.Repository, log *slog.Logger) *Service {
-	return &Service{
-		repo: repo,
-		log:  log.With("domain", "tag"),
-	}
+func NewService(svc *tagservice.Service, log *slog.Logger) *Service {
+	return &Service{svc: svc, log: log.With("domain", "tag-api")}
 }
 
 // TagResponse is the wire shape for a tag row.
@@ -33,11 +27,8 @@ type TagResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// List returns every tag, ordered by the repository's list query
-// (name). Tag count is bounded by Twitch's real-world usage; no
-// pagination needed for the forseeable future.
 func (s *Service) List(ctx context.Context) ([]TagResponse, error) {
-	rows, err := s.repo.ListTags(ctx)
+	rows, err := s.svc.List(ctx)
 	if err != nil {
 		s.log.Error("list tags", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list tags")

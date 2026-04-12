@@ -7,21 +7,18 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/categoryservice"
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC category procedures.
+// Service is the tRPC-transport wrapper around categoryservice.
 type Service struct {
-	repo repository.Repository
-	log  *slog.Logger
+	svc *categoryservice.Service
+	log *slog.Logger
 }
 
-// NewService creates a new category tRPC service.
-func NewService(repo repository.Repository, log *slog.Logger) *Service {
-	return &Service{
-		repo: repo,
-		log:  log.With("domain", "category"),
-	}
+func NewService(svc *categoryservice.Service, log *slog.Logger) *Service {
+	return &Service{svc: svc, log: log.With("domain", "category-api")}
 }
 
 // CategoryResponse is the wire shape for a category.
@@ -45,34 +42,31 @@ func toResponse(c *repository.Category) CategoryResponse {
 	}
 }
 
-// GetByIDInput for category.getById.
 type GetByIDInput struct {
 	ID string `json:"id" validate:"required"`
 }
 
-// GetByID fetches a category by ID.
 func (s *Service) GetByID(ctx context.Context, input GetByIDInput) (CategoryResponse, error) {
-	c, err := s.repo.GetCategory(ctx, input.ID)
+	c, err := s.svc.GetByID(ctx, input.ID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return CategoryResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "category not found")
 		}
-		s.log.Error("failed to get category", "error", err)
+		s.log.Error("get category", "error", err)
 		return CategoryResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get category")
 	}
 	return toResponse(c), nil
 }
 
-// List returns all categories.
 func (s *Service) List(ctx context.Context) ([]CategoryResponse, error) {
-	categories, err := s.repo.ListCategories(ctx)
+	rows, err := s.svc.List(ctx)
 	if err != nil {
-		s.log.Error("failed to list categories", "error", err)
+		s.log.Error("list categories", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list categories")
 	}
-	out := make([]CategoryResponse, len(categories))
-	for i, c := range categories {
-		out[i] = toResponse(&c)
+	out := make([]CategoryResponse, len(rows))
+	for i := range rows {
+		out[i] = toResponse(&rows[i])
 	}
 	return out, nil
 }
