@@ -169,8 +169,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Downloader service
+	// Downloader service. When a service-account refresh token
+	// is configured (TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN), wire
+	// the Helix client's RefreshUserToken so the playback-token
+	// GQL path can carry Authorization: OAuth <access>. Narrow
+	// callback rather than the full client keeps
+	// internal/downloader off internal/twitch's import graph.
 	dl := downloader.NewService(cfg, repo, store, log)
+	if cfg.Env.ServiceAccountOAuthToken != "" {
+		dl.SetOAuthRefresher(func(ctx context.Context, refreshToken string) (string, time.Time, error) {
+			resp, err := twitchClient.RefreshUserToken(ctx, refreshToken)
+			if err != nil {
+				return "", time.Time{}, err
+			}
+			expiresAt := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
+			return resp.AccessToken, expiresAt, nil
+		})
+	}
 
 	// SSE bus: one set of topics shared between scheduler (publishes
 	// task status), schedule processor (publishes stream.live), and

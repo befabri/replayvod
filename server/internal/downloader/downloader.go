@@ -116,6 +116,7 @@ type Service struct {
 	remuxer *remux.Remuxer
 	probe   *probe.Probe
 	thumb   *thumbnail.Generator
+	svcAcct *serviceAccount
 
 	mu     sync.Mutex
 	active map[string]*download
@@ -173,10 +174,27 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		remuxer: &remux.Remuxer{Log: domainLog},
 		probe:   &probe.Probe{Log: domainLog},
 		thumb:   &thumbnail.Generator{Log: domainLog},
+		svcAcct: newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
 		active:  make(map[string]*download),
 	}
 	s.sweepOrphanedTemps()
 	return s
+}
+
+// SetOAuthRefresher wires in the service-account token-exchange
+// callback. Must be called after NewService if
+// TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN is set in the environment
+// — without a refresher the service account falls back to
+// anonymous playback.
+//
+// The callback typically wraps the Helix client's
+// RefreshUserToken. Taken as a narrow interface (TokenRefresher)
+// rather than the full client so internal/downloader doesn't
+// depend on internal/twitch.
+func (s *Service) SetOAuthRefresher(r TokenRefresher) {
+	if s.svcAcct != nil {
+		s.svcAcct.setRefresher(r)
+	}
 }
 
 // sweepOrphanedTemps removes leftover per-job work directories
@@ -596,9 +614,16 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, d *download, p Param
 
 // resolveVariantURL walks Stages 1-3 and returns the fresh
 // signed media-playlist URL for the currently-selected variant.
-// Phase 6b anonymous path; OAuth service-account flow is 6c.
+//
+// When a service account is configured, the playback-token GQL
+// call carries Authorization: OAuth <access_token> — unlocks
+// ad-free playback on Turbo accounts and HEVC variants on
+// channels whose transcode ladder serves HEVC to authenticated
+// viewers. A refresh failure or unset refresh token falls back
+// to anonymous playback rather than failing the job.
 func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.SelectOptions) (string, error) {
-	token, err := s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, "")
+	accessToken := s.svcAcct.Token(ctx)
+	token, err := s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, accessToken)
 	if err != nil {
 		return "", fmt.Errorf("playback token: %w", err)
 	}
