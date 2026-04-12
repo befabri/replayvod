@@ -40,6 +40,10 @@ func main() {
 	flag.StringVar(&timestampOverride, "timestamp", "", "RFC3339 timestamp for generated header; overrides cache file mtime")
 	var genFixtures bool
 	flag.BoolVar(&genFixtures, "gen-fixtures", false, "regenerate testdata/normalize/*.{input,expected}.html pairs from the snapshot and exit")
+	var checkCommitted bool
+	flag.BoolVar(&checkCommitted, "check", false, "run pipeline to a tempdir and fail if output differs from committed files in -out (CI gate)")
+	var explain bool
+	flag.BoolVar(&explain, "explain", false, "structured diff of two generated Go files (usage: -explain OLD NEW); report added/removed types, changed fields and validate tags")
 	flag.Parse()
 
 	log := slog.New(tint.NewHandler(os.Stderr, &tint.Options{
@@ -56,6 +60,30 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+
+	if explain {
+		args := flag.Args()
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: -explain OLD NEW")
+			os.Exit(2)
+		}
+		if err := explainDiff(args[0], args[1], os.Stdout); err != nil {
+			log.Error("explain", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	committedOutDir := outDir
+	if checkCommitted {
+		tmpDir, err := os.MkdirTemp("", "twitch-api-gen-check-*")
+		if err != nil {
+			log.Error("create tempdir", "err", err)
+			os.Exit(1)
+		}
+		defer os.RemoveAll(tmpDir)
+		outDir = tmpDir
 	}
 
 	filter, err := loadEndpointFilter(endpointsFile)
@@ -160,6 +188,13 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("generated", "out", outDir)
+
+	if checkCommitted {
+		if err := checkAgainstCommitted(outDir, committedOutDir, log); err != nil {
+			log.Error("check", "err", err)
+			os.Exit(1)
+		}
+	}
 }
 
 // debugDumpFields toggles a prettyprint of the parsed field tree per endpoint.
