@@ -1856,26 +1856,26 @@ type ChannelPointsAutomaticRewardRedemptionAddV2Event struct {
 // ChannelPointsCustomRewardAddEvent is the Event payload for subscription types sharing
 // anchor "channel-points-custom-reward-add-event" on the eventsub-reference page.
 type ChannelPointsCustomRewardAddEvent struct {
-	ID                                string    `json:"id"`
-	BroadcasterUserID                 string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin              string    `json:"broadcaster_user_login"`
-	BroadcasterUserName               string    `json:"broadcaster_user_name"`
-	IsEnabled                         bool      `json:"is_enabled"`
-	IsPaused                          bool      `json:"is_paused"`
-	IsInStock                         bool      `json:"is_in_stock"`
-	Title                             string    `json:"title"`
-	Cost                              int       `json:"cost"`
-	Prompt                            string    `json:"prompt"`
-	IsUserInputRequired               bool      `json:"is_user_input_required"`
-	ShouldRedemptionsSkipRequestQueue bool      `json:"should_redemptions_skip_request_queue"`
-	MaxPerStream                      any       `json:"max_per_stream"`
-	MaxPerUserPerStream               any       `json:"max_per_user_per_stream"`
-	BackgroundColor                   string    `json:"background_color"`
-	Image                             any       `json:"image"`
-	DefaultImage                      any       `json:"default_image"`
-	GlobalCooldown                    any       `json:"global_cooldown"`
-	CooldownExpiresAt                 time.Time `json:"cooldown_expires_at"`
-	RedemptionsRedeemedCurrentStream  int       `json:"redemptions_redeemed_current_stream"`
+	ID                                string              `json:"id"`
+	BroadcasterUserID                 string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin              string              `json:"broadcaster_user_login"`
+	BroadcasterUserName               string              `json:"broadcaster_user_name"`
+	IsEnabled                         bool                `json:"is_enabled"`
+	IsPaused                          bool                `json:"is_paused"`
+	IsInStock                         bool                `json:"is_in_stock"`
+	Title                             string              `json:"title"`
+	Cost                              int                 `json:"cost"`
+	Prompt                            string              `json:"prompt"`
+	IsUserInputRequired               bool                `json:"is_user_input_required"`
+	ShouldRedemptionsSkipRequestQueue bool                `json:"should_redemptions_skip_request_queue"`
+	MaxPerStream                      MaxPerStream        `json:"max_per_stream"`
+	MaxPerUserPerStream               MaxPerUserPerStream `json:"max_per_user_per_stream"`
+	BackgroundColor                   string              `json:"background_color"`
+	Image                             Image               `json:"image"`
+	DefaultImage                      Image               `json:"default_image"`
+	GlobalCooldown                    GlobalCooldown      `json:"global_cooldown"`
+	CooldownExpiresAt                 time.Time           `json:"cooldown_expires_at"`
+	RedemptionsRedeemedCurrentStream  int                 `json:"redemptions_redeemed_current_stream"`
 }
 
 // ChannelPointsCustomRewardRedemptionAddEvent is the Event payload for subscription types sharing
@@ -1890,7 +1890,7 @@ type ChannelPointsCustomRewardRedemptionAddEvent struct {
 	UserName             string    `json:"user_name"`
 	UserInput            string    `json:"user_input"`
 	Status               string    `json:"status"`
-	Reward               any       `json:"reward"`
+	Reward               Reward    `json:"reward"`
 	RedeemedAt           time.Time `json:"redeemed_at"`
 }
 
@@ -1906,104 +1906,104 @@ type ChannelPointsCustomRewardRedemptionUpdateEvent struct {
 	UserName             string    `json:"user_name"`
 	UserInput            string    `json:"user_input"`
 	Status               string    `json:"status"`
-	Reward               any       `json:"reward"`
+	Reward               Reward    `json:"reward"`
 	RedeemedAt           time.Time `json:"redeemed_at"`
 }
 
 // ChannelPointsCustomRewardRemoveEvent is the Event payload for subscription types sharing
 // anchor "channel-points-custom-reward-remove-event" on the eventsub-reference page.
 type ChannelPointsCustomRewardRemoveEvent struct {
-	ID                                string    `json:"id"`
-	BroadcasterUserID                 string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin              string    `json:"broadcaster_user_login"`
-	BroadcasterUserName               string    `json:"broadcaster_user_name"`
-	IsEnabled                         bool      `json:"is_enabled"`
-	IsPaused                          bool      `json:"is_paused"`
-	IsInStock                         bool      `json:"is_in_stock"`
-	Title                             string    `json:"title"`
-	Cost                              int       `json:"cost"`
-	Prompt                            string    `json:"prompt"`
-	IsUserInputRequired               bool      `json:"is_user_input_required"`
-	ShouldRedemptionsSkipRequestQueue bool      `json:"should_redemptions_skip_request_queue"`
-	MaxPerStream                      any       `json:"max_per_stream"`
-	MaxPerUserPerStream               any       `json:"max_per_user_per_stream"`
-	BackgroundColor                   string    `json:"background_color"`
-	Image                             any       `json:"image"`
-	DefaultImage                      any       `json:"default_image"`
-	GlobalCooldown                    any       `json:"global_cooldown"`
-	CooldownExpiresAt                 time.Time `json:"cooldown_expires_at"`
-	RedemptionsRedeemedCurrentStream  int       `json:"redemptions_redeemed_current_stream"`
+	ID                                string              `json:"id"`
+	BroadcasterUserID                 string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin              string              `json:"broadcaster_user_login"`
+	BroadcasterUserName               string              `json:"broadcaster_user_name"`
+	IsEnabled                         bool                `json:"is_enabled"`
+	IsPaused                          bool                `json:"is_paused"`
+	IsInStock                         bool                `json:"is_in_stock"`
+	Title                             string              `json:"title"`
+	Cost                              int                 `json:"cost"`
+	Prompt                            string              `json:"prompt"`
+	IsUserInputRequired               bool                `json:"is_user_input_required"`
+	ShouldRedemptionsSkipRequestQueue bool                `json:"should_redemptions_skip_request_queue"`
+	MaxPerStream                      MaxPerStream        `json:"max_per_stream"`
+	MaxPerUserPerStream               MaxPerUserPerStream `json:"max_per_user_per_stream"`
+	BackgroundColor                   string              `json:"background_color"`
+	Image                             Image               `json:"image"`
+	DefaultImage                      Image               `json:"default_image"`
+	GlobalCooldown                    GlobalCooldown      `json:"global_cooldown"`
+	CooldownExpiresAt                 time.Time           `json:"cooldown_expires_at"`
+	RedemptionsRedeemedCurrentStream  int                 `json:"redemptions_redeemed_current_stream"`
 }
 
 // ChannelPointsCustomRewardUpdateEvent is the Event payload for subscription types sharing
 // anchor "channel-points-custom-reward-update-event" on the eventsub-reference page.
 type ChannelPointsCustomRewardUpdateEvent struct {
-	ID                                string    `json:"id"`
-	BroadcasterUserID                 string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin              string    `json:"broadcaster_user_login"`
-	BroadcasterUserName               string    `json:"broadcaster_user_name"`
-	IsEnabled                         bool      `json:"is_enabled"`
-	IsPaused                          bool      `json:"is_paused"`
-	IsInStock                         bool      `json:"is_in_stock"`
-	Title                             string    `json:"title"`
-	Cost                              int       `json:"cost"`
-	Prompt                            string    `json:"prompt"`
-	IsUserInputRequired               bool      `json:"is_user_input_required"`
-	ShouldRedemptionsSkipRequestQueue bool      `json:"should_redemptions_skip_request_queue"`
-	MaxPerStream                      any       `json:"max_per_stream"`
-	MaxPerUserPerStream               any       `json:"max_per_user_per_stream"`
-	BackgroundColor                   string    `json:"background_color"`
-	Image                             any       `json:"image"`
-	DefaultImage                      any       `json:"default_image"`
-	GlobalCooldown                    any       `json:"global_cooldown"`
-	CooldownExpiresAt                 time.Time `json:"cooldown_expires_at"`
-	RedemptionsRedeemedCurrentStream  int       `json:"redemptions_redeemed_current_stream"`
+	ID                                string              `json:"id"`
+	BroadcasterUserID                 string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin              string              `json:"broadcaster_user_login"`
+	BroadcasterUserName               string              `json:"broadcaster_user_name"`
+	IsEnabled                         bool                `json:"is_enabled"`
+	IsPaused                          bool                `json:"is_paused"`
+	IsInStock                         bool                `json:"is_in_stock"`
+	Title                             string              `json:"title"`
+	Cost                              int                 `json:"cost"`
+	Prompt                            string              `json:"prompt"`
+	IsUserInputRequired               bool                `json:"is_user_input_required"`
+	ShouldRedemptionsSkipRequestQueue bool                `json:"should_redemptions_skip_request_queue"`
+	MaxPerStream                      MaxPerStream        `json:"max_per_stream"`
+	MaxPerUserPerStream               MaxPerUserPerStream `json:"max_per_user_per_stream"`
+	BackgroundColor                   string              `json:"background_color"`
+	Image                             Image               `json:"image"`
+	DefaultImage                      Image               `json:"default_image"`
+	GlobalCooldown                    GlobalCooldown      `json:"global_cooldown"`
+	CooldownExpiresAt                 time.Time           `json:"cooldown_expires_at"`
+	RedemptionsRedeemedCurrentStream  int                 `json:"redemptions_redeemed_current_stream"`
 }
 
 // ChannelPollBeginEvent is the Event payload for subscription types sharing
 // anchor "channel-poll-begin-event" on the eventsub-reference page.
 type ChannelPollBeginEvent struct {
-	ID                   string    `json:"id"`
-	BroadcasterUserID    string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
-	BroadcasterUserName  string    `json:"broadcaster_user_name"`
-	Title                string    `json:"title"`
-	Choices              any       `json:"choices"`
-	BitsVoting           any       `json:"bits_voting"`
-	ChannelPointsVoting  any       `json:"channel_points_voting"`
-	StartedAt            time.Time `json:"started_at"`
-	EndsAt               time.Time `json:"ends_at"`
+	ID                   string              `json:"id"`
+	BroadcasterUserID    string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string              `json:"broadcaster_user_login"`
+	BroadcasterUserName  string              `json:"broadcaster_user_name"`
+	Title                string              `json:"title"`
+	Choices              []Choice            `json:"choices"`
+	BitsVoting           BitsVoting          `json:"bits_voting"`
+	ChannelPointsVoting  ChannelPointsVoting `json:"channel_points_voting"`
+	StartedAt            time.Time           `json:"started_at"`
+	EndsAt               time.Time           `json:"ends_at"`
 }
 
 // ChannelPollEndEvent is the Event payload for subscription types sharing
 // anchor "channel-poll-end-event" on the eventsub-reference page.
 type ChannelPollEndEvent struct {
-	ID                   string    `json:"id"`
-	BroadcasterUserID    string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
-	BroadcasterUserName  string    `json:"broadcaster_user_name"`
-	Title                string    `json:"title"`
-	Choices              any       `json:"choices"`
-	BitsVoting           any       `json:"bits_voting"`
-	ChannelPointsVoting  any       `json:"channel_points_voting"`
-	Status               string    `json:"status"`
-	StartedAt            time.Time `json:"started_at"`
-	EndedAt              time.Time `json:"ended_at"`
+	ID                   string              `json:"id"`
+	BroadcasterUserID    string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string              `json:"broadcaster_user_login"`
+	BroadcasterUserName  string              `json:"broadcaster_user_name"`
+	Title                string              `json:"title"`
+	Choices              []Choice            `json:"choices"`
+	BitsVoting           BitsVoting          `json:"bits_voting"`
+	ChannelPointsVoting  ChannelPointsVoting `json:"channel_points_voting"`
+	Status               string              `json:"status"`
+	StartedAt            time.Time           `json:"started_at"`
+	EndedAt              time.Time           `json:"ended_at"`
 }
 
 // ChannelPollProgressEvent is the Event payload for subscription types sharing
 // anchor "channel-poll-progress-event" on the eventsub-reference page.
 type ChannelPollProgressEvent struct {
-	ID                   string    `json:"id"`
-	BroadcasterUserID    string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
-	BroadcasterUserName  string    `json:"broadcaster_user_name"`
-	Title                string    `json:"title"`
-	Choices              any       `json:"choices"`
-	BitsVoting           any       `json:"bits_voting"`
-	ChannelPointsVoting  any       `json:"channel_points_voting"`
-	StartedAt            time.Time `json:"started_at"`
-	EndsAt               time.Time `json:"ends_at"`
+	ID                   string              `json:"id"`
+	BroadcasterUserID    string              `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string              `json:"broadcaster_user_login"`
+	BroadcasterUserName  string              `json:"broadcaster_user_name"`
+	Title                string              `json:"title"`
+	Choices              []Choice            `json:"choices"`
+	BitsVoting           BitsVoting          `json:"bits_voting"`
+	ChannelPointsVoting  ChannelPointsVoting `json:"channel_points_voting"`
+	StartedAt            time.Time           `json:"started_at"`
+	EndsAt               time.Time           `json:"ends_at"`
 }
 
 // ChannelPredictionBeginEvent is the Event payload for subscription types sharing
@@ -2014,7 +2014,7 @@ type ChannelPredictionBeginEvent struct {
 	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
 	BroadcasterUserName  string    `json:"broadcaster_user_name"`
 	Title                string    `json:"title"`
-	Outcomes             any       `json:"outcomes"`
+	Outcomes             []Outcome `json:"outcomes"`
 	StartedAt            time.Time `json:"started_at"`
 	LocksAt              time.Time `json:"locks_at"`
 }
@@ -2028,7 +2028,7 @@ type ChannelPredictionEndEvent struct {
 	BroadcasterUserName  string    `json:"broadcaster_user_name"`
 	Title                string    `json:"title"`
 	WinningOutcomeID     string    `json:"winning_outcome_id"`
-	Outcomes             any       `json:"outcomes"`
+	Outcomes             []Outcome `json:"outcomes"`
 	Status               string    `json:"status"`
 	StartedAt            time.Time `json:"started_at"`
 	EndedAt              time.Time `json:"ended_at"`
@@ -2042,7 +2042,7 @@ type ChannelPredictionLockEvent struct {
 	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
 	BroadcasterUserName  string    `json:"broadcaster_user_name"`
 	Title                string    `json:"title"`
-	Outcomes             any       `json:"outcomes"`
+	Outcomes             []Outcome `json:"outcomes"`
 	StartedAt            time.Time `json:"started_at"`
 	LockedAt             time.Time `json:"locked_at"`
 }
@@ -2055,7 +2055,7 @@ type ChannelPredictionProgressEvent struct {
 	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
 	BroadcasterUserName  string    `json:"broadcaster_user_name"`
 	Title                string    `json:"title"`
-	Outcomes             any       `json:"outcomes"`
+	Outcomes             []Outcome `json:"outcomes"`
 	StartedAt            time.Time `json:"started_at"`
 	LocksAt              time.Time `json:"locks_at"`
 }
@@ -2168,17 +2168,17 @@ type ChannelSubscriptionGiftEvent struct {
 // ChannelSubscriptionMessageEvent is the Event payload for subscription types sharing
 // anchor "channel-subscription-message-event" on the eventsub-reference page.
 type ChannelSubscriptionMessageEvent struct {
-	UserID               string `json:"user_id"`
-	UserLogin            string `json:"user_login"`
-	UserName             string `json:"user_name"`
-	BroadcasterUserID    string `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string `json:"broadcaster_user_login"`
-	BroadcasterUserName  string `json:"broadcaster_user_name"`
-	Tier                 string `json:"tier"`
-	Message              any    `json:"message"`
-	CumulativeMonths     int    `json:"cumulative_months"`
-	StreakMonths         int    `json:"streak_months"`
-	DurationMonths       int    `json:"duration_months"`
+	UserID               string  `json:"user_id"`
+	UserLogin            string  `json:"user_login"`
+	UserName             string  `json:"user_name"`
+	BroadcasterUserID    string  `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string  `json:"broadcaster_user_login"`
+	BroadcasterUserName  string  `json:"broadcaster_user_name"`
+	Tier                 string  `json:"tier"`
+	Message              Message `json:"message"`
+	CumulativeMonths     int     `json:"cumulative_months"`
+	StreakMonths         int     `json:"streak_months"`
+	DurationMonths       int     `json:"duration_months"`
 }
 
 // ChannelSuspiciousUserMessageEventMessageFragmentCheermote is a nested object inside a generated EventSub event type.
@@ -2485,15 +2485,15 @@ type DropEntitlementGrantEvent struct {
 // ExtensionBitsTransactionCreateEvent is the Event payload for subscription types sharing
 // anchor "extension-bits-transaction-create-event" on the eventsub-reference page.
 type ExtensionBitsTransactionCreateEvent struct {
-	ExtensionClientID    string `json:"extension_client_id"`
-	ID                   string `json:"id"`
-	BroadcasterUserID    string `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string `json:"broadcaster_user_login"`
-	BroadcasterUserName  string `json:"broadcaster_user_name"`
-	UserID               string `json:"user_id"`
-	UserLogin            string `json:"user_login"`
-	UserName             string `json:"user_name"`
-	Product              any    `json:"product"`
+	ExtensionClientID    string  `json:"extension_client_id"`
+	ID                   string  `json:"id"`
+	BroadcasterUserID    string  `json:"broadcaster_user_id"`
+	BroadcasterUserLogin string  `json:"broadcaster_user_login"`
+	BroadcasterUserName  string  `json:"broadcaster_user_name"`
+	UserID               string  `json:"user_id"`
+	UserLogin            string  `json:"user_login"`
+	UserName             string  `json:"user_name"`
+	Product              Product `json:"product"`
 }
 
 // GoalsEvent is the Event payload for subscription types sharing
@@ -2618,32 +2618,6 @@ type HypeTrainProgressEvent struct {
 	IsSharedTrain           bool                                           `json:"is_shared_train"`
 }
 
-// ShieldModeEvent is the Event payload for subscription types sharing
-// anchor "shield-mode" on the eventsub-reference page.
-type ShieldModeEvent struct {
-	BroadcasterUserID    string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin string    `json:"broadcaster_user_login"`
-	BroadcasterUserName  string    `json:"broadcaster_user_name"`
-	ModeratorUserID      string    `json:"moderator_user_id"`
-	ModeratorUserLogin   string    `json:"moderator_user_login"`
-	ModeratorUserName    string    `json:"moderator_user_name"`
-	StartedAt            time.Time `json:"started_at"`
-	EndedAt              time.Time `json:"ended_at"`
-}
-
-// ShoutoutReceivedEvent is the Event payload for subscription types sharing
-// anchor "shoutout-received" on the eventsub-reference page.
-type ShoutoutReceivedEvent struct {
-	BroadcasterUserID        string    `json:"broadcaster_user_id"`
-	BroadcasterUserLogin     string    `json:"broadcaster_user_login"`
-	BroadcasterUserName      string    `json:"broadcaster_user_name"`
-	FromBroadcasterUserID    string    `json:"from_broadcaster_user_id"`
-	FromBroadcasterUserLogin string    `json:"from_broadcaster_user_login"`
-	FromBroadcasterUserName  string    `json:"from_broadcaster_user_name"`
-	ViewerCount              int       `json:"viewer_count"`
-	StartedAt                time.Time `json:"started_at"`
-}
-
 // StreamOfflineEvent is the Event payload for subscription types sharing
 // anchor "stream-offline-event" on the eventsub-reference page.
 type StreamOfflineEvent struct {
@@ -2708,6 +2682,100 @@ type WhisperReceivedEvent struct {
 	ToUserLogin   string                      `json:"to_user_login"`
 	WhisperID     string                      `json:"whisper_id"`
 	Whisper       WhisperReceivedEventWhisper `json:"whisper"`
+}
+
+// BitsVoting is a nested object inside a generated EventSub event type.
+type BitsVoting struct {
+	IsEnabled     bool `json:"is_enabled"`
+	AmountPerVote int  `json:"amount_per_vote"`
+}
+
+// ChannelPointsVoting is a nested object inside a generated EventSub event type.
+type ChannelPointsVoting struct {
+	IsEnabled     bool `json:"is_enabled"`
+	AmountPerVote int  `json:"amount_per_vote"`
+}
+
+// Choice is a nested object inside a generated EventSub event type.
+type Choice struct {
+	ID                 string `json:"id"`
+	Title              string `json:"title"`
+	BitsVotes          int    `json:"bits_votes"`
+	ChannelPointsVotes int    `json:"channel_points_votes"`
+	Votes              int    `json:"votes"`
+}
+
+// GlobalCooldown is a nested object inside a generated EventSub event type.
+type GlobalCooldown struct {
+	IsEnabled bool `json:"is_enabled"`
+	Seconds   int  `json:"seconds"`
+}
+
+// Image is a nested object inside a generated EventSub event type.
+type Image struct {
+	URL1x string `json:"url_1x"`
+	URL2x string `json:"url_2x"`
+	URL4x string `json:"url_4x"`
+}
+
+// MaxPerStream is a nested object inside a generated EventSub event type.
+type MaxPerStream struct {
+	IsEnabled bool `json:"is_enabled"`
+	Value     int  `json:"value"`
+}
+
+// MaxPerUserPerStream is a nested object inside a generated EventSub event type.
+type MaxPerUserPerStream struct {
+	IsEnabled bool `json:"is_enabled"`
+	Value     int  `json:"value"`
+}
+
+// Message is a nested object inside a generated EventSub event type.
+type Message struct {
+	Text   string  `json:"text"`
+	Emotes []Emote `json:"emotes"`
+}
+
+// Outcome is a nested object inside a generated EventSub event type.
+type Outcome struct {
+	ID            string         `json:"id"`
+	Title         string         `json:"title"`
+	Color         string         `json:"color"`
+	Users         int            `json:"users"`
+	ChannelPoints int            `json:"channel_points"`
+	TopPredictors []TopPredictor `json:"top_predictors"`
+}
+
+// Product is a nested object inside a generated EventSub event type.
+type Product struct {
+	Name          string `json:"name"`
+	Bits          int    `json:"bits"`
+	Sku           string `json:"sku"`
+	InDevelopment bool   `json:"in_development"`
+}
+
+// Reward is a nested object inside a generated EventSub event type.
+type Reward struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Cost   int    `json:"cost"`
+	Prompt string `json:"prompt"`
+}
+
+// Emote is a nested object inside a generated EventSub event type.
+type Emote struct {
+	Begin int    `json:"begin"`
+	End   int    `json:"end"`
+	ID    string `json:"id"`
+}
+
+// TopPredictor is a nested object inside a generated EventSub event type.
+type TopPredictor struct {
+	UserID            string `json:"user_id"`
+	UserLogin         string `json:"user_login"`
+	UserName          string `json:"user_name"`
+	ChannelPointsWon  int    `json:"channel_points_won"`
+	ChannelPointsUsed int    `json:"channel_points_used"`
 }
 
 // Sealed interface markers. Nested structs don't implement the sealed
@@ -2861,8 +2929,6 @@ func (GoalsEvent) isEventSubEvent()                                       {}
 func (HypeTrainBeginEvent) isEventSubEvent()                              {}
 func (HypeTrainEndEvent) isEventSubEvent()                                {}
 func (HypeTrainProgressEvent) isEventSubEvent()                           {}
-func (ShieldModeEvent) isEventSubEvent()                                  {}
-func (ShoutoutReceivedEvent) isEventSubEvent()                            {}
 func (StreamOfflineEvent) isEventSubEvent()                               {}
 func (StreamOnlineEvent) isEventSubEvent()                                {}
 func (UserAuthorizationGrantEvent) isEventSubEvent()                      {}
@@ -3018,9 +3084,6 @@ var eventSubEventFactories = map[eventSubKey]func() EventSubEvent{
 	{"channel.shared_chat.begin", "1"}:                              func() EventSubEvent { return &ChannelSharedChatSessionBeginEvent{} },
 	{"channel.shared_chat.end", "1"}:                                func() EventSubEvent { return &ChannelSharedChatSessionEndEvent{} },
 	{"channel.shared_chat.update", "1"}:                             func() EventSubEvent { return &ChannelSharedChatSessionUpdateEvent{} },
-	{"channel.shield_mode.begin", "1"}:                              func() EventSubEvent { return &ShieldModeEvent{} },
-	{"channel.shield_mode.end", "1"}:                                func() EventSubEvent { return &ShieldModeEvent{} },
-	{"channel.shoutout.receive", "1"}:                               func() EventSubEvent { return &ShoutoutReceivedEvent{} },
 	{"channel.subscribe", "1"}:                                      func() EventSubEvent { return &ChannelSubscribeEvent{} },
 	{"channel.subscription.end", "1"}:                               func() EventSubEvent { return &ChannelSubscriptionEndEvent{} },
 	{"channel.subscription.gift", "1"}:                              func() EventSubEvent { return &ChannelSubscriptionGiftEvent{} },
