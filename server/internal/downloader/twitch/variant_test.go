@@ -135,6 +135,32 @@ func TestSelectVariant_AudioMissing(t *testing.T) {
 	}
 }
 
+// TestSelectVariant_PrefersHEVCOverAV1AtEqualQuality pins the spec's
+// codec preference order: HEVC is the mature supported codec; AV1 is
+// optional behind a flag but does NOT outrank HEVC. Regression for
+// the earlier codecRank that had AV1=3 > HEVC=2.
+func TestSelectVariant_PrefersHEVCOverAV1AtEqualQuality(t *testing.T) {
+	m := &Manifest{
+		Variants: []Variant{
+			{URL: "av1-1080", Quality: "1080", Codec: CodecAV1, GroupID: "1080p60-av1"},
+			{URL: "hevc-1080", Quality: "1080", Codec: CodecH265, GroupID: "1080p60-h265"},
+			{URL: "h264-1080", Quality: "1080", Codec: CodecH264, GroupID: "1080p60"},
+		},
+	}
+	got, err := SelectVariant(m, SelectOptions{
+		RecordingType: RecordingTypeVideo,
+		Quality:       "1080",
+		EnableAV1:     true,
+	})
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if got.Codec != CodecH265 {
+		t.Errorf("codec=%s, want %s (HEVC must outrank AV1 even with EnableAV1=true)",
+			got.Codec, CodecH265)
+	}
+}
+
 func TestSelectVariant_AV1GatedByFlag(t *testing.T) {
 	m := &Manifest{
 		Variants: []Variant{

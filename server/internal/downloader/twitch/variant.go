@@ -170,14 +170,18 @@ func pickByCodecPreference(pool []Variant, quality string) *Variant {
 }
 
 // codecRank orders codecs by "prefer when equal quality." Higher is
-// better. H.264 is the baseline; HEVC wins over H.264; AV1 wins
-// over HEVC when explicitly enabled. Codecs we don't recognize
+// better. H.264 is the baseline; HEVC is the spec's preferred codec
+// when Twitch offers it; AV1 is an optional third tier that only
+// wins over H.264, not over HEVC. Rationale: the spec's Overview
+// flags HEVC as "supported and preferred whenever Twitch offers
+// it" and AV1 as "optional behind config" — HEVC is the mature
+// codec on this pipeline, AV1 is experimental. Unknown codecs
 // rank -1 and never win.
 func codecRank(codec string) int {
 	switch codec {
-	case CodecAV1:
-		return 3
 	case CodecH265:
+		return 3
+	case CodecAV1:
 		return 2
 	case CodecH264:
 		return 1
