@@ -29,7 +29,8 @@
 	},
 	"common": {
 		"loading": "Loading…",
-		"saving": "Saving…"
+		"saving": "Saving…",
+		"cancel": "Cancel"
 	},
 	"videos": {
 		"title": "Videos",
@@ -43,8 +44,21 @@
 		},
 		"watch": "Watch",
 		"triggered": "Download started",
-		"trigger_download": "Trigger download",
+		"trigger_download": "Download",
+		"trigger_title": "Start a download",
+		"trigger_description": "Record {{name}}'s current stream.",
+		"trigger_submit": "Start download",
+		"trigger_failed": "Failed to start download",
+		"recording_mode": "Mode",
+		"mode_video": "Video",
+		"mode_audio": "Audio only",
 		"quality": "Quality",
+		"quality_high": "High",
+		"quality_medium": "Medium",
+		"quality_low": "Low",
+		"force_h264": "Force H.264 (for older devices / broader playback compatibility)",
+		"force_h264_tooltip": "When a channel offers HEVC, check this to download H.264 instead. HEVC gives smaller files; some devices and browsers can't play it.",
+		"force_h264_tooltip_aria": "About Force H.264",
 		"duration": "Duration",
 		"size": "Size"
 	},
@@ -52,6 +66,7 @@
 		"total_videos": "Total videos",
 		"total_size": "Storage used",
 		"total_duration": "Total duration",
+		"active_schedules": "Active schedules",
 		"by_status": "By status"
 	},
 	"schedules": {

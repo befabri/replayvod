@@ -29,7 +29,8 @@
 	},
 	"common": {
 		"loading": "Chargement…",
-		"saving": "Enregistrement…"
+		"saving": "Enregistrement…",
+		"cancel": "Annuler"
 	},
 	"videos": {
 		"title": "Vidéos",
@@ -43,8 +44,21 @@
 		},
 		"watch": "Regarder",
 		"triggered": "Téléchargement démarré",
-		"trigger_download": "Lancer le téléchargement",
+		"trigger_download": "Télécharger",
+		"trigger_title": "Lancer un téléchargement",
+		"trigger_description": "Enregistrer le stream actuel de {{name}}.",
+		"trigger_submit": "Lancer",
+		"trigger_failed": "Échec du lancement",
+		"recording_mode": "Mode",
+		"mode_video": "Vidéo",
+		"mode_audio": "Audio seulement",
 		"quality": "Qualité",
+		"quality_high": "Haute",
+		"quality_medium": "Moyenne",
+		"quality_low": "Basse",
+		"force_h264": "Forcer H.264 (pour les appareils anciens / compatibilité élargie)",
+		"force_h264_tooltip": "Si la chaîne propose du HEVC, cochez pour télécharger en H.264. Le HEVC produit des fichiers plus petits ; certains appareils et navigateurs ne peuvent pas le lire.",
+		"force_h264_tooltip_aria": "À propos de Forcer H.264",
 		"duration": "Durée",
 		"size": "Taille"
 	},
@@ -52,6 +66,7 @@
 		"total_videos": "Vidéos",
 		"total_size": "Espace utilisé",
 		"total_duration": "Durée totale",
+		"active_schedules": "Planifications actives",
 		"by_status": "Par statut"
 	},
 	"schedules": {

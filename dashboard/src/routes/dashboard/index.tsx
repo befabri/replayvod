@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useStore } from "@tanstack/react-store"
 import { useTranslation } from "react-i18next"
+import { useMineSchedules } from "@/features/schedules"
 import { LiveStreamsCard } from "@/features/streams-live"
 import { useStatistics } from "@/features/videos"
 import { formatBytes, formatDuration } from "@/features/videos/format"
@@ -14,6 +15,9 @@ function DashboardHome() {
 	const { t } = useTranslation()
 	const user = useStore(authStore, (s) => s.user)
 	const { data: stats, isLoading } = useStatistics()
+	const schedules = useMineSchedules()
+	const activeScheduleCount =
+		schedules.data?.data.filter((s) => !s.is_disabled).length ?? 0
 
 	return (
 		<div className="p-8">
@@ -31,7 +35,7 @@ function DashboardHome() {
 
 			{stats && (
 				<>
-					<div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
 						<StatCard
 							label={t("stats.total_videos")}
 							value={stats.total.toLocaleString()}
@@ -43,6 +47,10 @@ function DashboardHome() {
 						<StatCard
 							label={t("stats.total_duration")}
 							value={formatDuration(stats.total_duration_seconds)}
+						/>
+						<StatCard
+							label={t("stats.active_schedules")}
+							value={activeScheduleCount.toLocaleString()}
 						/>
 					</div>
 
