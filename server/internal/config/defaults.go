@@ -6,9 +6,19 @@ func getDefaultAppConfig() AppConfig {
 			AllowedOrigins: []string{"http://localhost:3000"},
 		},
 		Download: DownloadConfig{
-			MaxConcurrent:  2,
-			DefaultQuality: "1080",
-			AudioRate:      48000,
+			MaxConcurrent:        2,
+			PreferredQuality:     "1080",
+			SegmentConcurrency:   4,
+			NetworkAttempts:      5,
+			ServerErrorAttempts:  5,
+			CDNLagAttempts:       3,
+			AuthRefreshAttempts:  2,
+			MaxGapRatio:          0.01,
+			Strict:               false,
+			EnableAV1:            false,
+			DisableHEVC:          false,
+			MaxRestartGapSeconds: 120,
+			AudioRate:            48000,
 		},
 		Storage: StorageConfig{
 			Type:      "local",
@@ -45,6 +55,34 @@ func getDefaultAppConfig() AppConfig {
 func validateAppConfig(config *AppConfig) {
 	if config.Download.MaxConcurrent <= 0 {
 		config.Download.MaxConcurrent = 2
+	}
+	if config.Download.PreferredQuality == "" {
+		config.Download.PreferredQuality = "1080"
+	}
+	if config.Download.SegmentConcurrency <= 0 {
+		config.Download.SegmentConcurrency = 4
+	}
+	if config.Download.NetworkAttempts <= 0 {
+		config.Download.NetworkAttempts = 5
+	}
+	if config.Download.ServerErrorAttempts <= 0 {
+		config.Download.ServerErrorAttempts = 5
+	}
+	if config.Download.CDNLagAttempts <= 0 {
+		config.Download.CDNLagAttempts = 3
+	}
+	if config.Download.AuthRefreshAttempts <= 0 {
+		config.Download.AuthRefreshAttempts = 2
+	}
+	// MaxGapRatio must be in [0, 1). 0 = no tolerance (all gaps fail);
+	// >=1 would accept any number of gaps and is nonsensical. Negative
+	// or > 1 silently reset to the default rather than panicking at
+	// startup.
+	if config.Download.MaxGapRatio < 0 || config.Download.MaxGapRatio >= 1 {
+		config.Download.MaxGapRatio = 0.01
+	}
+	if config.Download.MaxRestartGapSeconds <= 0 {
+		config.Download.MaxRestartGapSeconds = 120
 	}
 	if config.Download.AudioRate <= 0 {
 		config.Download.AudioRate = 48000

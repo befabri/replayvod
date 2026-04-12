@@ -5,7 +5,17 @@ allowed_origins = ["http://localhost:3000"]
 
 [download]
 max_concurrent = 2
-default_quality = "1080"
+preferred_quality = "1080"
+segment_concurrency = 4
+network_attempts = 5
+server_error_attempts = 5
+cdn_lag_attempts = 3
+auth_refresh_attempts = 2
+max_gap_ratio = 0.01
+strict = false
+enable_av1 = false
+disable_hevc = false
+max_restart_gap_seconds = 120
 audio_rate = 48000
 
 [storage]

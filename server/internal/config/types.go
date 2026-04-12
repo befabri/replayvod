@@ -18,6 +18,16 @@ type Environment struct {
 	TwitchSecret   string `env:"TWITCH_SECRET"`
 	HMACSecret     string `env:"HMAC_SECRET"`
 
+	// ServiceAccountOAuthToken is an optional Twitch user refresh token
+	// (not an access token) used for authenticated playback — unlocks
+	// ad-free recording on Turbo accounts and HEVC variants on channels
+	// whose transcode ladder serves HEVC only to authenticated viewers.
+	// Empty disables authenticated playback (anonymous requests only,
+	// works for public non-subscriber-only streams). Lives in the env
+	// rather than config.toml because it's a long-lived secret;
+	// config.toml is not expected to carry secrets.
+	ServiceAccountOAuthToken string `env:"TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN"`
+
 	// Server
 	Host string `env:"HOST" envDefault:"0.0.0.0"`
 	Port int    `env:"PORT" envDefault:"8080"`
@@ -73,10 +83,93 @@ type ServerConfig struct {
 	AllowedOrigins []string `toml:"allowed_origins"`
 }
 
+// DownloadConfig controls the native Go HLS downloader. Field docs
+// follow the retry-and-resume model documented in
+// .docs/spec/download-pipeline.md. Retry budgets are *per segment*
+// unless otherwise noted; exhausting any one of them without a
+// successful completion escalates the segment to a permanent failure
+// (which then goes through the tolerant/strict mode policy).
 type DownloadConfig struct {
-	MaxConcurrent  int    `toml:"max_concurrent"`
-	DefaultQuality string `toml:"default_quality"`
-	AudioRate      int    `toml:"audio_rate"`
+	// MaxConcurrent caps the number of in-flight jobs service-wide.
+	// Default 2. Combined with SegmentConcurrency, sets the
+	// aggregate host-connection cap (MaxConcurrent *
+	// SegmentConcurrency) on the shared http.Transport — every
+	// active job shares the same Twitch host budget.
+	MaxConcurrent int `toml:"max_concurrent"`
+
+	// PreferredQuality is the starting quality for new jobs, as a
+	// numeric string ("1080", "720", "480", "360", "160"). The
+	// Stage 3 fallback chain downgrades from here if the requested
+	// quality isn't available on the master playlist. New jobs
+	// always start at this value; prior jobs' downgrades don't
+	// stick across jobs.
+	PreferredQuality string `toml:"preferred_quality"`
+
+	// SegmentConcurrency is the size of the per-job fetcher worker
+	// pool. Default 4. Each worker owns one HTTP request at a time
+	// over the shared transport; the queue feeding them is a
+	// buffered channel of capacity 2*SegmentConcurrency (producer
+	// blocks when full → natural backpressure).
+	SegmentConcurrency int `toml:"segment_concurrency"`
+
+	// NetworkAttempts is the per-segment transport-error retry
+	// budget — timeouts, reset connections, DNS failures, truncated
+	// body reads. Default 5.
+	NetworkAttempts int `toml:"network_attempts"`
+
+	// ServerErrorAttempts is the per-segment retry budget for
+	// 429/5xx responses. Honors Retry-After when present. Default 5.
+	ServerErrorAttempts int `toml:"server_error_attempts"`
+
+	// CDNLagAttempts is the per-segment retry budget for 404/410 —
+	// "segment not yet on edge, or just rolled off the window."
+	// Tight by design (default 3, at half-targetDuration intervals):
+	// live HLS segments propagate within a few seconds or they
+	// never will.
+	CDNLagAttempts int `toml:"cdn_lag_attempts"`
+
+	// AuthRefreshAttempts is the per-segment budget for
+	// token-refresh cycles triggered by non-permanent 401/403
+	// responses. Default 2. Permanent entitlement codes
+	// (unauthorized_entitlements, etc.) fail immediately and do not
+	// consume this budget.
+	AuthRefreshAttempts int `toml:"auth_refresh_attempts"`
+
+	// MaxGapRatio is the tolerant-mode ceiling: permanent segment
+	// failures exceeding this fraction of observed segments fail
+	// the whole job. Default 0.01 (1%). Ignored when Strict=true.
+	MaxGapRatio float64 `toml:"max_gap_ratio"`
+
+	// Strict flips the orchestrator from tolerant mode (record a
+	// gap, keep going) to strict mode (any permanent segment
+	// failure fails the job). Default false. Opt-in for operators
+	// who would rather fail fast than record a partial VOD.
+	Strict bool `toml:"strict"`
+
+	// EnableAV1 opts into AV1 codec support at Stage 3. Default
+	// false. When true, av01.* variants are retained during codec
+	// filtering and the master-playlist `supported_codecs` query
+	// parameter includes av1. Code paths exist even when this is
+	// false — only runtime selection is gated.
+	EnableAV1 bool `toml:"enable_av1"`
+
+	// DisableHEVC is a config escape hatch: drop hvc1/hev1 variants
+	// at Stage 3 even when the master playlist offers them. Default
+	// false. Used when ffmpeg's HEVC build on the operator's system
+	// has a known bug, or the downstream player can't decode HEVC.
+	DisableHEVC bool `toml:"disable_hevc"`
+
+	// MaxRestartGapSeconds bounds the size of any single gap
+	// recorded on restart before the resume path splits the
+	// recording into a new part. Default 120. Prevents a server
+	// outage from embedding a massive hole in one MP4.
+	MaxRestartGapSeconds int `toml:"max_restart_gap_seconds"`
+
+	// AudioRate is legacy. The native pipeline's `-c copy` remux
+	// carries Twitch's native sample rate through untouched; this
+	// field is only read by the yt-dlp shim path while the rewrite
+	// is in progress. Dropped once the native downloader ships.
+	AudioRate int `toml:"audio_rate"`
 }
 
 type StorageConfig struct {
