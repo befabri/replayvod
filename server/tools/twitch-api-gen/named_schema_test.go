@@ -1,0 +1,105 @@
+package main
+
+import "testing"
+
+func TestSchemaGoName(t *testing.T) {
+	cases := []struct {
+		anchor string
+		want   string
+	}{
+		// Plural anchors → singular struct name.
+		{"outcomes", "Outcome"},
+		{"choices", "Choice"},
+		{"top_predictors", "TopPredictor"},
+		{"top_contributions", "TopContribution"},
+
+		// Singular anchors → PascalCase as-is.
+		{"reward", "Reward"},
+		{"image", "Image"},
+		{"product", "Product"},
+		{"message", "Message"},
+
+		// Anchors in the singularAnchors override: ends in 's' but already singular.
+		{"max_per_stream", "MaxPerStream"},
+		{"max_per_user_per_stream", "MaxPerUserPerStream"},
+		{"bits_voting", "BitsVoting"},
+		{"channel_points_voting", "ChannelPointsVoting"},
+		{"global_cooldown", "GlobalCooldown"},
+	}
+	for _, c := range cases {
+		got := schemaGoName(c.anchor)
+		if got != c.want {
+			t.Errorf("schemaGoName(%q) = %q; want %q", c.anchor, got, c.want)
+		}
+	}
+}
+
+func TestIsPluralAnchor(t *testing.T) {
+	plural := []string{"outcomes", "choices", "top_predictors", "top_contributions"}
+	singular := []string{"reward", "image", "product", "max_per_stream", "bits_voting", "global_cooldown"}
+
+	for _, a := range plural {
+		if !isPluralAnchor(a) {
+			t.Errorf("isPluralAnchor(%q) = false; want true", a)
+		}
+	}
+	for _, a := range singular {
+		if isPluralAnchor(a) {
+			t.Errorf("isPluralAnchor(%q) = true; want false", a)
+		}
+	}
+}
+
+// TestNamedSchemaResolver_resolve exercises the resolver against a minimal
+// in-memory EventSubReference. Covers: plural → []T, singular → T, miss → empty.
+func TestNamedSchemaResolver_resolve(t *testing.T) {
+	ref := &EventSubReference{
+		NamedSchemas: map[string]EventSubSchema{
+			"outcomes":       {AnchorID: "outcomes"},
+			"image":          {AnchorID: "image"},
+			"max-per-stream": {AnchorID: "max-per-stream"}, // anchor is hyphenated on the page
+		},
+	}
+	// The singularAnchors set uses underscored keys; test that match too.
+	// (The resolver normalizes `max_per_stream` → `max-per-stream` before lookup.)
+
+	r := &namedSchemaResolver{ref: ref, reached: map[string]bool{}}
+
+	cases := []struct {
+		typeStr  string
+		want     string
+		wantOK   bool
+	}{
+		{"outcomes", "[]Outcome", true},
+		{"Outcomes", "[]Outcome", true}, // case-insensitive
+		{"image", "Image", true},
+		{"max_per_stream", "MaxPerStream", true}, // underscore → hyphen + singular override
+		{"unknown_schema", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		got, ok := r.resolve(c.typeStr)
+		if got != c.want || ok != c.wantOK {
+			t.Errorf("resolve(%q) = (%q, %v); want (%q, %v)", c.typeStr, got, ok, c.want, c.wantOK)
+		}
+	}
+
+	// Reached set should include the anchors we successfully resolved.
+	for _, a := range []string{"outcomes", "image", "max-per-stream"} {
+		if !r.reached[a] {
+			t.Errorf("resolve was supposed to mark %q reached", a)
+		}
+	}
+}
+
+// TestNamedSchemaResolver_nil safety — nil receiver, nil ref.
+func TestNamedSchemaResolver_nil(t *testing.T) {
+	var r *namedSchemaResolver
+	if got, ok := r.resolve("outcomes"); got != "" || ok {
+		t.Errorf("nil receiver: resolve = (%q, %v); want (\"\", false)", got, ok)
+	}
+	r = &namedSchemaResolver{}
+	if got, ok := r.resolve("outcomes"); got != "" || ok {
+		t.Errorf("nil ref: resolve = (%q, %v); want (\"\", false)", got, ok)
+	}
+}

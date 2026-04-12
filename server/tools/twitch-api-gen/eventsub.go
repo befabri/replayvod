@@ -20,6 +20,11 @@ type EventSubReference struct {
 	Conditions map[string]EventSubSchema
 	// Events keyed by anchor id on the reference page, e.g. "channel-follow-event".
 	Events map[string]EventSubSchema
+	// NamedSchemas are shared data schemas referenced by their anchor name
+	// from field type cells (e.g. a field with type "outcomes" points at
+	// anchor "outcomes"). Keys are the anchor id. Emitted only when reachable
+	// from a Condition or Event via field-type references — see BuildEventSubModel.
+	NamedSchemas map[string]EventSubSchema
 }
 
 // EventSubSchema is one condition or event payload schema.
@@ -46,8 +51,9 @@ func ParseEventSubReference(referenceDoc, subTypesDoc *goquery.Document, log *sl
 	}
 
 	ref := &EventSubReference{
-		Conditions: map[string]EventSubSchema{},
-		Events:     map[string]EventSubSchema{},
+		Conditions:   map[string]EventSubSchema{},
+		Events:       map[string]EventSubSchema{},
+		NamedSchemas: map[string]EventSubSchema{},
 	}
 	if err := parseReferenceSchemas(referenceDoc, ref); err != nil {
 		return nil, nil, fmt.Errorf("parse eventsub reference: %w", err)
@@ -95,11 +101,16 @@ func parseReferenceSchemas(doc *goquery.Document, ref *EventSubReference) error 
 		}
 		setRequiredDefault(fields, true, nil)
 		schema := EventSubSchema{AnchorID: id, Fields: fields}
-		if strings.HasSuffix(id, "-condition") {
+		switch {
+		case strings.HasSuffix(id, "-condition"):
 			ref.Conditions[id] = schema
-			return true
+		case strings.HasSuffix(id, "-event"):
+			ref.Events[id] = schema
+		default:
+			// Shared data schemas (image, outcomes, reward, max-per-stream, …).
+			// Emitted lazily when a Condition/Event field actually references one.
+			ref.NamedSchemas[id] = schema
 		}
-		ref.Events[id] = schema
 		return true
 	})
 	return walkErr

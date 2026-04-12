@@ -100,6 +100,7 @@ func main() {
 	log.Info("parsed eventsub",
 		"conditions", len(eventSubRef.Conditions),
 		"events", len(eventSubRef.Events),
+		"named_schemas", len(eventSubRef.NamedSchemas),
 		"subscription_types", len(eventSubSubs),
 	)
 
