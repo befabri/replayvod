@@ -54,19 +54,25 @@ func (c *Client) GetEventSubSubscriptions(ctx context.Context, params *GetEventS
 }
 
 // GetEventSubSubscriptionsAll iterates GetEventSubSubscriptions until pagination is exhausted.
-func (c *Client) GetEventSubSubscriptionsAll(ctx context.Context, params *GetEventSubSubscriptionsParams) ([]EventSubSubscription, error) {
-	var all []EventSubSubscription
+// The returned Pagination carries the final page's Total / TotalCost / MaxCost
+// so callers can record quota without rolling their own loop.
+func (c *Client) GetEventSubSubscriptionsAll(ctx context.Context, params *GetEventSubSubscriptionsParams) ([]EventSubSubscription, Pagination, error) {
+	var (
+		all  []EventSubSubscription
+		last Pagination
+	)
 	if params == nil {
 		params = &GetEventSubSubscriptionsParams{}
 	}
 	for {
 		page, pagination, err := c.GetEventSubSubscriptions(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, Pagination{}, err
 		}
 		all = append(all, page...)
+		last = pagination
 		if pagination.Cursor == "" {
-			return all, nil
+			return all, last, nil
 		}
 		params.After = pagination.Cursor
 	}
@@ -85,19 +91,25 @@ func (c *Client) GetFollowedChannels(ctx context.Context, params *GetFollowedCha
 }
 
 // GetFollowedChannelsAll iterates GetFollowedChannels until pagination is exhausted.
-func (c *Client) GetFollowedChannelsAll(ctx context.Context, params *GetFollowedChannelsParams) ([]FollowedChannel, error) {
-	var all []FollowedChannel
+// The returned Pagination carries the final page's Total / TotalCost / MaxCost
+// so callers can record quota without rolling their own loop.
+func (c *Client) GetFollowedChannelsAll(ctx context.Context, params *GetFollowedChannelsParams) ([]FollowedChannel, Pagination, error) {
+	var (
+		all  []FollowedChannel
+		last Pagination
+	)
 	if params == nil {
 		params = &GetFollowedChannelsParams{}
 	}
 	for {
 		page, pagination, err := c.GetFollowedChannels(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, Pagination{}, err
 		}
 		all = append(all, page...)
+		last = pagination
 		if pagination.Cursor == "" {
-			return all, nil
+			return all, last, nil
 		}
 		params.After = pagination.Cursor
 	}
@@ -116,19 +128,25 @@ func (c *Client) GetFollowedStreams(ctx context.Context, params *GetFollowedStre
 }
 
 // GetFollowedStreamsAll iterates GetFollowedStreams until pagination is exhausted.
-func (c *Client) GetFollowedStreamsAll(ctx context.Context, params *GetFollowedStreamsParams) ([]Stream, error) {
-	var all []Stream
+// The returned Pagination carries the final page's Total / TotalCost / MaxCost
+// so callers can record quota without rolling their own loop.
+func (c *Client) GetFollowedStreamsAll(ctx context.Context, params *GetFollowedStreamsParams) ([]Stream, Pagination, error) {
+	var (
+		all  []Stream
+		last Pagination
+	)
 	if params == nil {
 		params = &GetFollowedStreamsParams{}
 	}
 	for {
 		page, pagination, err := c.GetFollowedStreams(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, Pagination{}, err
 		}
 		all = append(all, page...)
+		last = pagination
 		if pagination.Cursor == "" {
-			return all, nil
+			return all, last, nil
 		}
 		params.After = pagination.Cursor
 	}
@@ -159,19 +177,25 @@ func (c *Client) GetStreams(ctx context.Context, params *GetStreamsParams) ([]St
 }
 
 // GetStreamsAll iterates GetStreams until pagination is exhausted.
-func (c *Client) GetStreamsAll(ctx context.Context, params *GetStreamsParams) ([]Stream, error) {
-	var all []Stream
+// The returned Pagination carries the final page's Total / TotalCost / MaxCost
+// so callers can record quota without rolling their own loop.
+func (c *Client) GetStreamsAll(ctx context.Context, params *GetStreamsParams) ([]Stream, Pagination, error) {
+	var (
+		all  []Stream
+		last Pagination
+	)
 	if params == nil {
 		params = &GetStreamsParams{}
 	}
 	for {
 		page, pagination, err := c.GetStreams(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, Pagination{}, err
 		}
 		all = append(all, page...)
+		last = pagination
 		if pagination.Cursor == "" {
-			return all, nil
+			return all, last, nil
 		}
 		params.After = pagination.Cursor
 	}
@@ -190,19 +214,25 @@ func (c *Client) GetTopGames(ctx context.Context, params *GetTopGamesParams) ([]
 }
 
 // GetTopGamesAll iterates GetTopGames until pagination is exhausted.
-func (c *Client) GetTopGamesAll(ctx context.Context, params *GetTopGamesParams) ([]Game, error) {
-	var all []Game
+// The returned Pagination carries the final page's Total / TotalCost / MaxCost
+// so callers can record quota without rolling their own loop.
+func (c *Client) GetTopGamesAll(ctx context.Context, params *GetTopGamesParams) ([]Game, Pagination, error) {
+	var (
+		all  []Game
+		last Pagination
+	)
 	if params == nil {
 		params = &GetTopGamesParams{}
 	}
 	for {
 		page, pagination, err := c.GetTopGames(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, Pagination{}, err
 		}
 		all = append(all, page...)
+		last = pagination
 		if pagination.Cursor == "" {
-			return all, nil
+			return all, last, nil
 		}
 		params.After = pagination.Cursor
 	}
@@ -233,19 +263,25 @@ func (c *Client) GetVideos(ctx context.Context, params *GetVideosParams) ([]Vide
 }
 
 // GetVideosAll iterates GetVideos until pagination is exhausted.
-func (c *Client) GetVideosAll(ctx context.Context, params *GetVideosParams) ([]Video, error) {
-	var all []Video
+// The returned Pagination carries the final page's Total / TotalCost / MaxCost
+// so callers can record quota without rolling their own loop.
+func (c *Client) GetVideosAll(ctx context.Context, params *GetVideosParams) ([]Video, Pagination, error) {
+	var (
+		all  []Video
+		last Pagination
+	)
 	if params == nil {
 		params = &GetVideosParams{}
 	}
 	for {
 		page, pagination, err := c.GetVideos(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, Pagination{}, err
 		}
 		all = append(all, page...)
+		last = pagination
 		if pagination.Cursor == "" {
-			return all, nil
+			return all, last, nil
 		}
 		params.After = pagination.Cursor
 	}

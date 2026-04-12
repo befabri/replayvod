@@ -10,8 +10,12 @@ import "time"
 // paginated list endpoints. Cursor comes from the wire envelope's nested
 // `pagination` object; Total / TotalCost / MaxCost come from top-level
 // envelope fields and are assembled at return time by the generated method.
-// json:"-" keeps them out of Unmarshal when the envelope's inner
-// "pagination" object is decoded.
+//
+// json:"-" on the quota fields keeps them out of Unmarshal when the
+// envelope's inner "pagination" object is decoded. Side-effect:
+// json.Marshal(pag) also drops them — safe today because the tRPC layer
+// builds its own response shapes, but if a procedure ever returns
+// Pagination directly, re-read the quota via a wrapper struct.
 type Pagination struct {
 	Cursor    string `json:"cursor,omitempty"`
 	Total     int    `json:"-"`
