@@ -1,32 +1,25 @@
-// Package videorequest tracks which users asked for which videos. Simple
-// join-table model in Phase 4; Phase 5+ may grow this into a full request
-// workflow (pending → approved → downloaded).
+// Package videorequest is the tRPC-transport wrapper around
+// videorequestservice.
 package videorequest
 
 import (
 	"context"
 	"log/slog"
 
-	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	"github.com/befabri/replayvod/server/internal/service/videorequestservice"
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC videorequest procedures.
 type Service struct {
-	repo repository.Repository
-	log  *slog.Logger
+	svc *videorequestservice.Service
+	log *slog.Logger
 }
 
-// NewService creates the videorequest tRPC service.
-func NewService(repo repository.Repository, log *slog.Logger) *Service {
-	return &Service{
-		repo: repo,
-		log:  log.With("domain", "videorequest"),
-	}
+func NewService(svc *videorequestservice.Service, log *slog.Logger) *Service {
+	return &Service{svc: svc, log: log.With("domain", "videorequest-api")}
 }
 
-// ListInput paginates requests for the current user.
 type ListInput struct {
 	Limit  int `json:"limit" validate:"min=0,max=200"`
 	Offset int `json:"offset" validate:"min=0"`
@@ -40,7 +33,6 @@ type VideoSummary struct {
 	Status      string `json:"status"`
 }
 
-// Mine returns the videos the current user has requested.
 func (s *Service) Mine(ctx context.Context, input ListInput) ([]VideoSummary, error) {
 	user := middleware.GetUser(ctx)
 	if user == nil {
@@ -50,9 +42,9 @@ func (s *Service) Mine(ctx context.Context, input ListInput) ([]VideoSummary, er
 	if limit <= 0 {
 		limit = 50
 	}
-	videos, err := s.repo.ListVideoRequestsForUser(ctx, user.ID, limit, input.Offset)
+	videos, err := s.svc.ListForUser(ctx, user.ID, limit, input.Offset)
 	if err != nil {
-		s.log.Error("list video requests failed", "error", err)
+		s.log.Error("list video requests", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list requests")
 	}
 	out := make([]VideoSummary, len(videos))
@@ -67,25 +59,21 @@ func (s *Service) Mine(ctx context.Context, input ListInput) ([]VideoSummary, er
 	return out, nil
 }
 
-// RequestInput links the current user to a video.
 type RequestInput struct {
 	VideoID int64 `json:"video_id" validate:"required"`
 }
 
-// OK is a minimal ack response.
 type OK struct {
 	OK bool `json:"ok"`
 }
 
-// Request registers the caller as someone who wants this video (used for
-// tracking who asked for each download). Idempotent.
 func (s *Service) Request(ctx context.Context, input RequestInput) (OK, error) {
 	user := middleware.GetUser(ctx)
 	if user == nil {
 		return OK{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
-	if err := s.repo.AddVideoRequest(ctx, input.VideoID, user.ID); err != nil {
-		s.log.Error("add video request failed", "error", err)
+	if err := s.svc.Request(ctx, user.ID, input.VideoID); err != nil {
+		s.log.Error("add video request", "error", err)
 		return OK{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to request video")
 	}
 	return OK{OK: true}, nil

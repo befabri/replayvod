@@ -1,6 +1,4 @@
-// Package stream exposes tRPC procedures for Twitch broadcast session data.
-// These are read-mostly — writes happen via EventSub webhooks (Phase 5) and
-// the scheduler's viewer-count poller.
+// Package stream is the tRPC-transport wrapper around streamservice.
 package stream
 
 import (
@@ -10,21 +8,17 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/streamservice"
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC stream procedures.
 type Service struct {
-	repo repository.Repository
-	log  *slog.Logger
+	svc *streamservice.Service
+	log *slog.Logger
 }
 
-// NewService creates the stream tRPC service.
-func NewService(repo repository.Repository, log *slog.Logger) *Service {
-	return &Service{
-		repo: repo,
-		log:  log.With("domain", "stream"),
-	}
+func NewService(svc *streamservice.Service, log *slog.Logger) *Service {
+	return &Service{svc: svc, log: log.With("domain", "stream-api")}
 }
 
 // StreamResponse is the wire shape for a stream record.
@@ -54,11 +48,10 @@ func toResponse(s *repository.Stream) StreamResponse {
 	}
 }
 
-// Active returns all currently-live streams (ended_at IS NULL).
 func (s *Service) Active(ctx context.Context) ([]StreamResponse, error) {
-	streams, err := s.repo.ListActiveStreams(ctx)
+	streams, err := s.svc.ListActive(ctx)
 	if err != nil {
-		s.log.Error("list active streams failed", "error", err)
+		s.log.Error("list active streams", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list active streams")
 	}
 	out := make([]StreamResponse, len(streams))
@@ -68,22 +61,20 @@ func (s *Service) Active(ctx context.Context) ([]StreamResponse, error) {
 	return out, nil
 }
 
-// ByBroadcasterInput paginates past streams for a broadcaster.
 type ByBroadcasterInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 	Limit         int    `json:"limit" validate:"min=0,max=100"`
 	Offset        int    `json:"offset" validate:"min=0"`
 }
 
-// ByBroadcaster returns a broadcaster's stream history.
 func (s *Service) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) ([]StreamResponse, error) {
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 25
 	}
-	streams, err := s.repo.ListStreamsByBroadcaster(ctx, input.BroadcasterID, limit, input.Offset)
+	streams, err := s.svc.ListByBroadcaster(ctx, input.BroadcasterID, limit, input.Offset)
 	if err != nil {
-		s.log.Error("list streams by broadcaster failed", "error", err)
+		s.log.Error("list streams by broadcaster", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list streams")
 	}
 	out := make([]StreamResponse, len(streams))
@@ -93,19 +84,17 @@ func (s *Service) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (
 	return out, nil
 }
 
-// LastLiveInput picks the most recent stream for a broadcaster.
 type LastLiveInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 }
 
-// LastLive returns the most recent stream (active or ended). 404 if none exist.
 func (s *Service) LastLive(ctx context.Context, input LastLiveInput) (StreamResponse, error) {
-	stream, err := s.repo.GetLastLiveStream(ctx, input.BroadcasterID)
+	stream, err := s.svc.GetLastLive(ctx, input.BroadcasterID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return StreamResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "no streams for broadcaster")
 		}
-		s.log.Error("get last live stream failed", "error", err)
+		s.log.Error("get last live stream", "error", err)
 		return StreamResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load stream")
 	}
 	return toResponse(stream), nil

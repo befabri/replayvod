@@ -33,7 +33,9 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/channelservice"
 	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
 	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
+	"github.com/befabri/replayvod/server/internal/service/streamservice"
 	"github.com/befabri/replayvod/server/internal/service/tagservice"
+	"github.com/befabri/replayvod/server/internal/service/videorequestservice"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -116,8 +118,8 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	categorySvc := category.NewService(categoryservice.New(repo, log), log)
 	systemSvc := systemroute.NewService(repo, log)
 	videoSvc := videoroute.NewService(repo, dl, twitchClient, log)
-	streamSvc := stream.NewService(repo, log)
-	videoRequestSvc := videorequest.NewService(repo, log)
+	streamSvc := stream.NewService(streamservice.New(repo, log), log)
+	videoRequestSvc := videorequest.NewService(videorequestservice.New(repo, log), log)
 	scheduleSvc := schedule.NewService(repo, log)
 	// EventSub manager drives subscribe/unsubscribe/snapshot. The tRPC
 	// service shares it with the webhook processor (though the processor
