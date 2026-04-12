@@ -33,6 +33,15 @@ type progressEmitter struct {
 	quality      string
 	codec        string
 
+	// Baselines captured at the start of each hls.Run invocation.
+	// hls.Progress counters reset to zero on every new hls.Run
+	// (fresh JobResult), so the auth-refresh loop would regress
+	// the UI every iteration without this layering. bridge()
+	// computes cumulative = baseline + hp.<field>.
+	baselineBytes int64
+	baselineDone  int64
+	baselineGaps  int64
+
 	// Speed smoothing: a short window of (time, bytes) samples
 	// keeps a single burst from dominating the displayed
 	// rate. Each bridged event appends one sample; samples
@@ -91,20 +100,40 @@ func (p *progressEmitter) setVariant(quality, codec string) {
 	p.send(snap)
 }
 
+// startAttempt captures the current cumulative counters as the
+// baseline for the next hls.Run invocation. Call this
+// immediately before every hls.Run in the auth-refresh loop so
+// bridge() can layer per-attempt hls deltas on top and the
+// cumulative UI view doesn't regress when hls's internal
+// counters reset.
+//
+// Also clears the speed-window samples: the new attempt's
+// hp.BytesWritten starts at 0, so keeping old samples would
+// produce a negative delta on the first bridged event and
+// mis-report the rate as empty.
+func (p *progressEmitter) startAttempt() {
+	p.mu.Lock()
+	p.baselineBytes = p.bytesWritten
+	p.baselineDone = p.segmentsDone
+	p.baselineGaps = p.segmentsGaps
+	p.samples = nil
+	p.mu.Unlock()
+}
+
 // bridge consumes an hls.Progress event, updates the cumulative
-// counters, refreshes the speed-smoothing window, and fires one
-// event. Safe to call from the bridge goroutine while other
-// goroutines call setStage / setVariant; the mutex serializes
-// all writes.
+// counters (baseline + hls-attempt delta), refreshes the speed-
+// smoothing window, and fires one event. Safe to call from the
+// bridge goroutine while other goroutines call setStage /
+// setVariant; the mutex serializes all writes.
 func (p *progressEmitter) bridge(hp hls.Progress) {
 	p.mu.Lock()
-	p.bytesWritten = hp.BytesWritten
-	p.segmentsDone = hp.SegmentsDone
-	p.segmentsGaps = hp.SegmentsGaps
+	p.bytesWritten = p.baselineBytes + hp.BytesWritten
+	p.segmentsDone = p.baselineDone + hp.SegmentsDone
+	p.segmentsGaps = p.baselineGaps + hp.SegmentsGaps
 	// Keep segmentsTot as the orchestrator last set it — hls
 	// doesn't currently report total. A later phase can set it
 	// on the final event.
-	p.samples = appendSample(p.samples, byteSample{at: time.Now(), bytes: hp.BytesWritten})
+	p.samples = appendSample(p.samples, byteSample{at: time.Now(), bytes: p.bytesWritten})
 	snap := p.snapshotLocked()
 	p.mu.Unlock()
 	p.send(snap)
@@ -126,7 +155,7 @@ func (p *progressEmitter) finalize() {
 // Speed, and ETA derive from the raw counters so the caller
 // doesn't have to recompute them.
 func (p *progressEmitter) snapshotLocked() Progress {
-	speed := computeSpeed(p.samples)
+	rate, rateOK := currentRate(p.samples)
 	return Progress{
 		JobID:         p.jobID,
 		PartIndex:     p.partIndex,
@@ -136,8 +165,8 @@ func (p *progressEmitter) snapshotLocked() Progress {
 		SegmentsGaps:  p.segmentsGaps,
 		SegmentsTotal: p.segmentsTot,
 		Percent:       computePercent(p.segmentsDone, p.segmentsTot),
-		Speed:         speed,
-		ETA:           computeETA(p.segmentsDone, p.segmentsTot, p.bytesWritten, p.samples, speed),
+		Speed:         formatSpeed(rate, rateOK),
+		ETA:           computeETA(p.segmentsDone, p.segmentsTot, p.bytesWritten, rate, rateOK),
 		Quality:       p.quality,
 		Codec:         p.codec,
 		RecordingType: p.recordingType,
@@ -176,54 +205,63 @@ func appendSample(samples []byteSample, s byteSample) []byteSample {
 	return append(samples, s)
 }
 
-// computeSpeed returns a human-readable bytes/second string from
-// the rolling window. Empty when there's < 2 samples (need at
-// least one delta) or when the window covers <100ms of wall
-// clock (too noisy).
-func computeSpeed(samples []byteSample) string {
+// currentRate returns the rolling-window rate in bytes/sec and
+// whether the window is meaningful. Consolidates the guards that
+// computeSpeed and computeETA would otherwise duplicate so the
+// two derived values stay consistent: if Speed is empty, ETA is
+// empty; if Speed says 5 MiB/s, ETA uses the same 5 MiB/s.
+//
+// Returns ok=false on <2 samples (no delta), <100ms window (too
+// noisy), or non-positive delta (clock skew / sample reset).
+func currentRate(samples []byteSample) (float64, bool) {
 	if len(samples) < 2 {
-		return ""
+		return 0, false
 	}
 	first, last := samples[0], samples[len(samples)-1]
 	dt := last.at.Sub(first.at)
 	if dt < 100*time.Millisecond {
-		return ""
+		return 0, false
 	}
 	db := last.bytes - first.bytes
 	if db <= 0 {
+		return 0, false
+	}
+	return float64(db) / dt.Seconds(), true
+}
+
+// formatSpeed renders the numeric rate as a human string. Empty
+// when rate isn't meaningful.
+func formatSpeed(rate float64, ok bool) string {
+	if !ok {
 		return ""
 	}
-	rate := float64(db) / dt.Seconds()
 	return formatRate(rate)
 }
 
+// computeSpeed is a test-facing convenience that runs currentRate
+// + formatSpeed in one call. Production code uses the two steps
+// directly via snapshotLocked so the same rate drives both Speed
+// and ETA without re-derivation.
+func computeSpeed(samples []byteSample) string {
+	rate, ok := currentRate(samples)
+	return formatSpeed(rate, ok)
+}
+
 // computeETA returns a human-readable duration to completion
-// when SegmentsTotal is known and the current speed is positive.
-// Empty otherwise — indeterminate live streams and unknown rates
-// both show blank.
-func computeETA(done, total int64, bytesWritten int64, samples []byteSample, speedStr string) string {
-	if total <= 0 || done >= total || speedStr == "" {
+// when SegmentsTotal is known, at least one segment has committed,
+// and the current rate is positive. Empty otherwise —
+// indeterminate live streams, brand-new jobs, and unknown rates
+// all show blank.
+func computeETA(done, total, bytesWritten int64, rate float64, rateOK bool) string {
+	if total <= 0 || done >= total || !rateOK || done == 0 {
 		return ""
 	}
-	if len(samples) < 2 {
-		return ""
-	}
-	first, last := samples[0], samples[len(samples)-1]
-	dt := last.at.Sub(first.at)
-	if dt < 100*time.Millisecond {
-		return ""
-	}
-	db := last.bytes - first.bytes
-	if db <= 0 {
-		return ""
-	}
-	rate := float64(db) / dt.Seconds() // bytes/sec
 	// Use segment ratio to estimate remaining bytes — assumes
-	// segments are roughly equal size, which holds for fMP4
-	// and TS in practice. An early / late bias would matter
-	// most for short streams where the ETA isn't load-bearing.
+	// segments are roughly equal size, which holds for fMP4 and
+	// TS in practice. An early / late bias matters most for
+	// short streams where the ETA isn't load-bearing anyway.
 	remainingSegs := total - done
-	avgBytesPerSeg := float64(bytesWritten) / float64(done+1)
+	avgBytesPerSeg := float64(bytesWritten) / float64(done)
 	remainingBytes := float64(remainingSegs) * avgBytesPerSeg
 	secs := remainingBytes / rate
 	if math.IsInf(secs, 0) || math.IsNaN(secs) || secs < 0 {

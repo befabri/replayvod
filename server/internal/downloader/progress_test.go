@@ -219,35 +219,70 @@ func TestComputePercent(t *testing.T) {
 	}
 }
 
+// TestProgressEmitter_StartAttemptPreservesCumulativeState is the
+// M2 regression guard: under auth-refresh, hls.Run restarts with
+// a fresh internal counter (BytesWritten=0, SegmentsDone=0).
+// Without startAttempt() the emitter would overwrite its
+// cumulative view with the per-attempt value and regress the UI
+// back to zero. With startAttempt() snapshotting a baseline, the
+// next attempt's deltas add on top of what was already shown.
+func TestProgressEmitter_StartAttemptPreservesCumulativeState(t *testing.T) {
+	ch := make(chan Progress, 64)
+	e := newProgressEmitter("job-1", "video", ch)
+
+	// Attempt 1: hls reports 10 segments, 1 MiB.
+	e.bridge(hls.Progress{BytesWritten: 1 << 20, SegmentsDone: 10})
+	mid, _ := drain(ch)
+	if mid.BytesWritten != 1<<20 || mid.SegmentsDone != 10 {
+		t.Fatalf("after attempt 1: bytes=%d done=%d, want 1MiB/10",
+			mid.BytesWritten, mid.SegmentsDone)
+	}
+
+	// Simulate an auth-refresh boundary.
+	e.startAttempt()
+
+	// Attempt 2: hls reports its own fresh counter starting at 0,
+	// then grows. The emitter must keep attempt 1's cumulative
+	// state as the baseline.
+	e.bridge(hls.Progress{BytesWritten: 512 << 10, SegmentsDone: 5})
+	after, _ := drain(ch)
+	wantBytes := int64(1<<20 + (512 << 10)) // 1.5 MiB
+	wantDone := int64(15)
+	if after.BytesWritten != wantBytes || after.SegmentsDone != wantDone {
+		t.Errorf("after attempt 2: bytes=%d done=%d, want %d/%d (baseline + attempt delta)",
+			after.BytesWritten, after.SegmentsDone, wantBytes, wantDone)
+	}
+}
+
 func TestComputeETA_EmptyOnLiveOrUnknownRate(t *testing.T) {
 	// No SegmentsTotal → no ETA.
-	got := computeETA(5, -1, 1000, nil, "1 KiB/s")
+	got := computeETA(5, -1, 1000, 1024, true)
 	if got != "" {
 		t.Errorf("live ETA=%q, want empty", got)
 	}
-	// SegmentsTotal known but speedStr empty (insufficient samples).
-	got = computeETA(5, 10, 1000, nil, "")
+	// SegmentsTotal known but rate unknown.
+	got = computeETA(5, 10, 1000, 0, false)
 	if got != "" {
-		t.Errorf("no-speed ETA=%q, want empty", got)
+		t.Errorf("no-rate ETA=%q, want empty", got)
+	}
+	// done == 0 guard — avgBytesPerSeg would div by zero.
+	got = computeETA(0, 10, 0, 1024, true)
+	if got != "" {
+		t.Errorf("done=0 ETA=%q, want empty", got)
 	}
 }
 
 func TestComputeETA_FormatRoundTrip(t *testing.T) {
-	// 5 segs done of 10, 500 bytes per seg, rate ~100 B/s →
-	// remaining ~2500 bytes → ~25s.
-	t0 := time.Now()
-	samples := []byteSample{
-		{at: t0, bytes: 0},
-		{at: t0.Add(time.Second), bytes: 100},
-	}
-	got := computeETA(5, 10, 2500, samples, "100 B/s")
+	// done=5, total=10, bytesWritten=2500 → avgBytesPerSeg=500.
+	// remainingSegs=5 → remainingBytes=2500. rate=100 B/s →
+	// secs = 2500/100 = 25s exactly.
+	got := computeETA(5, 10, 2500, 100.0, true)
 	if got == "" {
 		t.Fatal("ETA empty, want non-empty")
 	}
-	// Should read "25s" or similar — don't pin the exact value
-	// since avgBytesPerSeg uses bytesWritten/(done+1).
-	if !strings.Contains(got, "s") {
-		t.Errorf("ETA=%q, want a duration string", got)
+	// With the /done fix (was /(done+1)), 25s is exact.
+	if got != "25s" {
+		t.Errorf("ETA=%q, want %q", got, "25s")
 	}
 }
 

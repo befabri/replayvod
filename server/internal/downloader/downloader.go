@@ -637,6 +637,12 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmi
 		// target duration + N workers can briefly outpace the
 		// bridge's drain. The bridge collapses multiple hls
 		// events into a rate-limited stream on the way out.
+		//
+		// startAttempt snapshots the emitter's cumulative
+		// counters as the baseline for this hls.Run's deltas —
+		// without it, hls's per-run counter reset would regress
+		// the UI back to zero on every auth refresh.
+		emitter.startAttempt()
 		hlsProgress := make(chan hls.Progress, 32)
 		go bridgeHLSProgress(emitter, hlsProgress)
 		emitter.setStage("segments")
