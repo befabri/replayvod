@@ -160,6 +160,7 @@ func ParseTable(table *goquery.Selection) ([]FieldSchema, error) {
 			EnumValues:  enumValues,
 			EnumDefault: enumDefault,
 		}
+		field.Validate, field.ValidateDive = ExtractConstraints(field)
 		addField(&schemas, field, depth)
 		return true
 	})

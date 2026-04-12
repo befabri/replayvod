@@ -133,6 +133,41 @@ type fieldModel struct {
 	JSONName   string
 	OmitEmpty  bool
 	Deprecated bool // emits a `// Deprecated: …` doc comment before the field
+
+	// Required, Validate, ValidateDive are request-side only (Params + Body).
+	// Response types leave these empty so the template doesn't emit a tag.
+	Required     bool
+	Validate     string
+	ValidateDive string
+	// ValidateTag is the pre-composed tag contents (without the `validate:""`
+	// wrapper) — empty when no constraint was extracted and required/omitempty
+	// would be the sole content.
+	ValidateTag string
+}
+
+// composeValidateTag assembles a go-playground/validator tag fragment.
+// Returns empty when there's no constraint content worth emitting — we
+// skip the "bare" omitempty case to avoid noise in the generated source.
+func composeValidateTag(forRequest, required bool, validate, validateDive string) string {
+	if !forRequest {
+		return ""
+	}
+	if validate == "" && validateDive == "" {
+		return ""
+	}
+	var parts []string
+	if required {
+		parts = append(parts, "required")
+	} else {
+		parts = append(parts, "omitempty")
+	}
+	if validate != "" {
+		parts = append(parts, validate)
+	}
+	if validateDive != "" {
+		parts = append(parts, "dive", validateDive)
+	}
+	return strings.Join(parts, ",")
 }
 
 type endpointModel struct {
@@ -190,7 +225,7 @@ func buildModel(defs []EndpointDef, sourceURL string, timestamp time.Time, log *
 
 			if !emittedTypes[itemTypeName] {
 				emittedTypes[itemTypeName] = true
-				tm, err := buildStructType(itemTypeName, ep.ID, dataField.Children, &model.Types, emittedTypes, model, log)
+				tm, err := buildStructType(itemTypeName, ep.ID, dataField.Children, &model.Types, emittedTypes, model, false, log)
 				if err != nil {
 					return nil, fmt.Errorf("endpoint %q: %w", ep.ID, err)
 				}
@@ -224,7 +259,7 @@ func buildModel(defs []EndpointDef, sourceURL string, timestamp time.Time, log *
 		hasBody := len(ep.BodyFields) > 0
 		if hasBody {
 			bodyType = PascalCase(ep.ID) + "Body"
-			bm, err := buildStructType(bodyType, ep.ID, ep.BodyFields, &model.BodyTypes, emittedTypes, model, log)
+			bm, err := buildStructType(bodyType, ep.ID, ep.BodyFields, &model.BodyTypes, emittedTypes, model, true, log)
 			if err != nil {
 				return nil, fmt.Errorf("endpoint %q body: %w", ep.ID, err)
 			}
@@ -280,11 +315,12 @@ func buildStructType(
 	types *[]typeModel,
 	emitted map[string]bool,
 	model *templateModel,
+	forRequest bool,
 	log *slog.Logger,
 ) (typeModel, error) {
 	tm := typeModel{Name: name, SourceID: sourceID}
 	for _, child := range children {
-		fm, err := toStructFieldModel(name, child, types, emitted, model, log)
+		fm, err := toStructFieldModel(name, child, types, emitted, model, forRequest, log)
 		if err != nil {
 			return typeModel{}, fmt.Errorf("field %q: %w", child.Name, err)
 		}
@@ -321,7 +357,7 @@ func isDeprecatedField(description string) bool {
 func toStructFieldModel(
 	parent string, f FieldSchema,
 	types *[]typeModel, emitted map[string]bool,
-	model *templateModel, log *slog.Logger,
+	model *templateModel, forRequest bool, log *slog.Logger,
 ) (fieldModel, error) {
 	// Condition field is polymorphic; route to the generated EventSubCondition
 	// interface so callers can type-switch instead of decoding any.
@@ -352,7 +388,7 @@ func toStructFieldModel(
 		}
 		if !emitted[nestedName] {
 			emitted[nestedName] = true
-			nested, err := buildStructType(nestedName, "", f.Children, types, emitted, model, log)
+			nested, err := buildStructType(nestedName, "", f.Children, types, emitted, model, forRequest, log)
 			if err != nil {
 				return fieldModel{}, err
 			}
@@ -372,13 +408,20 @@ func toStructFieldModel(
 	}
 
 	omitEmpty := f.Required == nil || !*f.Required
-	return fieldModel{
+	fm := fieldModel{
 		GoName:     PascalCase(f.Name),
 		GoType:     goType,
 		JSONName:   f.Name,
 		OmitEmpty:  omitEmpty,
 		Deprecated: isDeprecatedField(f.Description),
-	}, nil
+	}
+	if forRequest {
+		fm.Required = f.Required != nil && *f.Required
+		fm.Validate = f.Validate
+		fm.ValidateDive = f.ValidateDive
+		fm.ValidateTag = composeValidateTag(true, fm.Required, fm.Validate, fm.ValidateDive)
+	}
+	return fm, nil
 }
 
 // toParamFieldModel converts a query parameter into an emitted struct field.
@@ -398,10 +441,13 @@ func toParamFieldModel(f FieldSchema, log *slog.Logger) (fieldModel, error) {
 		omitEmpty = false
 	}
 	return fieldModel{
-		GoName:    PascalCase(f.Name),
-		GoType:    goType,
-		JSONName:  f.Name,
-		OmitEmpty: omitEmpty,
+		GoName:       PascalCase(f.Name),
+		GoType:       goType,
+		JSONName:     f.Name,
+		OmitEmpty:    omitEmpty,
+		Validate:     f.Validate,
+		ValidateDive: f.ValidateDive,
+		ValidateTag:  composeValidateTag(true, false, f.Validate, f.ValidateDive),
 	}, nil
 }
 

@@ -40,7 +40,7 @@ type {{ .Name }} struct {
 // {{ .Name }} are the query parameters for {{ .EndpointID }}.
 type {{ .Name }} struct {
 {{- range .Fields }}
-	{{ .GoName }} {{ .GoType }} `url:"{{ .JSONName }}{{ if .OmitEmpty }},omitempty{{ end }}"`
+	{{ .GoName }} {{ .GoType }} `url:"{{ .JSONName }}{{ if .OmitEmpty }},omitempty{{ end }}"{{ if .ValidateTag }} validate:"{{ .ValidateTag }}"{{ end }}`
 {{- end }}
 }
 
@@ -55,7 +55,7 @@ type {{ .Name }} struct {
 type {{ .Name }} struct {
 {{- range .Fields }}
 {{ if .Deprecated }}	// Deprecated: Twitch marks this field deprecated in the API reference.
-{{ end }}	{{ .GoName }} {{ .GoType }} `json:"{{ .JSONName }}{{ if .OmitEmpty }},omitempty{{ end }}"`
+{{ end }}	{{ .GoName }} {{ .GoType }} `json:"{{ .JSONName }}{{ if .OmitEmpty }},omitempty{{ end }}"{{ if .ValidateTag }} validate:"{{ .ValidateTag }}"{{ end }}`
 {{- end }}
 }
 

@@ -11,6 +11,13 @@ type FieldSchema struct {
 	EnumValues  []any // string or int
 	EnumDefault any
 	Children    []FieldSchema
+
+	// Validate and ValidateDive are go-playground/validator tag fragments
+	// extracted from Description by constraints.go. Validate applies to the
+	// field itself; ValidateDive applies to each element of an array field.
+	// Populated for request-side fields (Params, Body) only.
+	Validate     string
+	ValidateDive string
 }
 
 // AuthType is the Twitch authentication requirement for an endpoint.
