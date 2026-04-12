@@ -134,12 +134,12 @@ type Video struct {
 
 // DeleteEventSubSubscriptionParams are the query parameters for delete-eventsub-subscription.
 type DeleteEventSubSubscriptionParams struct {
-	ID string `url:"id,omitempty"`
+	ID string `url:"id,omitempty" validate:"required"`
 }
 
 // GetChannelInformationParams are the query parameters for get-channel-information.
 type GetChannelInformationParams struct {
-	BroadcasterID []string `url:"broadcaster_id" validate:"omitempty,max=100"`
+	BroadcasterID []string `url:"broadcaster_id" validate:"required,max=100"`
 }
 
 // GetEventSubSubscriptionsParams are the query parameters for get-eventsub-subscriptions.
@@ -153,7 +153,7 @@ type GetEventSubSubscriptionsParams struct {
 
 // GetFollowedChannelsParams are the query parameters for get-followed-channels.
 type GetFollowedChannelsParams struct {
-	UserID        string `url:"user_id,omitempty"`
+	UserID        string `url:"user_id,omitempty" validate:"required"`
 	BroadcasterID string `url:"broadcaster_id,omitempty"`
 	First         int    `url:"first,omitempty"`
 	After         string `url:"after,omitempty"`
@@ -161,7 +161,7 @@ type GetFollowedChannelsParams struct {
 
 // GetFollowedStreamsParams are the query parameters for get-followed-streams.
 type GetFollowedStreamsParams struct {
-	UserID string `url:"user_id,omitempty"`
+	UserID string `url:"user_id,omitempty" validate:"required"`
 	First  int    `url:"first,omitempty"`
 	After  string `url:"after,omitempty"`
 }
@@ -179,7 +179,7 @@ type GetStreamsParams struct {
 	UserLogin []string `url:"user_login"`
 	GameID    []string `url:"game_id" validate:"omitempty,max=100"`
 	Type      string   `url:"type,omitempty" validate:"omitempty,oneof=all live"`
-	Language  []string `url:"language" validate:"omitempty,len=2"`
+	Language  []string `url:"language"`
 	First     int      `url:"first,omitempty"`
 	Before    string   `url:"before,omitempty"`
 	After     string   `url:"after,omitempty"`
@@ -203,7 +203,7 @@ type GetVideosParams struct {
 	ID       []string `url:"id" validate:"omitempty,max=100"`
 	UserID   string   `url:"user_id,omitempty"`
 	GameID   string   `url:"game_id,omitempty"`
-	Language string   `url:"language,omitempty" validate:"omitempty,len=2"`
+	Language string   `url:"language,omitempty"`
 	Period   string   `url:"period,omitempty" validate:"omitempty,oneof=all day month week"`
 	Sort     string   `url:"sort,omitempty" validate:"omitempty,oneof=time trending views"`
 	Type     string   `url:"type,omitempty" validate:"omitempty,oneof=all archive highlight upload"`
@@ -214,24 +214,30 @@ type GetVideosParams struct {
 
 // ModifyChannelInformationParams are the query parameters for modify-channel-information.
 type ModifyChannelInformationParams struct {
-	BroadcasterID string `url:"broadcaster_id,omitempty"`
+	BroadcasterID string `url:"broadcaster_id,omitempty" validate:"required"`
 }
 
 // CreateEventSubSubscriptionBody is the JSON request body for create-eventsub-subscription.
 type CreateEventSubSubscriptionBody struct {
-	Type      string            `json:"type"`
-	Version   string            `json:"version"`
+	Type      string            `json:"type" validate:"required"`
+	Version   string            `json:"version" validate:"required"`
 	Condition EventSubCondition `json:"condition"`
 	Transport EventSubTransport `json:"transport"`
 }
 
+// ModifyChannelInformationBodyContentClassificationLabel is a nested object inside a generated body type.
+type ModifyChannelInformationBodyContentClassificationLabel struct {
+	ID        string `json:"id" validate:"required,oneof=DebatedSocialIssuesAndPolitics DrugsIntoxication SexualThemes ViolentGraphic Gambling ProfanityVulgarity"`
+	IsEnabled bool   `json:"is_enabled" validate:"required"`
+}
+
 // ModifyChannelInformationBody is the JSON request body for modify-channel-information.
 type ModifyChannelInformationBody struct {
-	GameID                      string   `json:"game_id,omitempty"`
-	BroadcasterLanguage         string   `json:"broadcaster_language,omitempty" validate:"omitempty,len=2"`
-	Title                       string   `json:"title,omitempty"`
-	Delay                       int      `json:"delay,omitempty"`
-	Tags                        []string `json:"tags,omitempty" validate:"omitempty,max=10,dive,max=25"`
-	ContentClassificationLabels any      `json:"content_classification_labels,omitempty"`
-	IsBrandedContent            bool     `json:"is_branded_content,omitempty"`
+	GameID                      string                                                   `json:"game_id,omitempty"`
+	BroadcasterLanguage         string                                                   `json:"broadcaster_language,omitempty"`
+	Title                       string                                                   `json:"title,omitempty"`
+	Delay                       int                                                      `json:"delay,omitempty"`
+	Tags                        []string                                                 `json:"tags,omitempty" validate:"omitempty,max=10,dive,max=25"`
+	ContentClassificationLabels []ModifyChannelInformationBodyContentClassificationLabel `json:"content_classification_labels,omitempty"`
+	IsBrandedContent            bool                                                     `json:"is_branded_content,omitempty"`
 }
