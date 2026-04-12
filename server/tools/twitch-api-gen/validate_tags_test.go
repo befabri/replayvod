@@ -170,26 +170,6 @@ func parseGeneratedFieldTypes(t *testing.T, path string) map[string]map[string]s
 	return out
 }
 
-// exprString renders an ast.Expr back to source form. Handles the field-type
-// shapes we actually emit: Ident, SelectorExpr, ArrayType, StarExpr, MapType.
-func exprString(e ast.Expr) string {
-	switch t := e.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.SelectorExpr:
-		return exprString(t.X) + "." + t.Sel.Name
-	case *ast.ArrayType:
-		return "[]" + exprString(t.Elt)
-	case *ast.StarExpr:
-		return "*" + exprString(t.X)
-	case *ast.MapType:
-		return "map[" + exprString(t.Key) + "]" + exprString(t.Value)
-	case *ast.InterfaceType:
-		return "any" // any / interface{} both emit this in the pool
-	}
-	return "<unknown>"
-}
-
 // parseGeneratedTags parses the generated source with go/ast and returns a
 // [structName][fieldName] → validate-tag-body map. An entry exists for every
 // exported field; its value is "" when the field has no `validate:""` tag.
