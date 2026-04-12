@@ -6,6 +6,7 @@ dist/
 .output/
 server/server
 server/replayvod
+server/twitch-api-gen
 
 # Environment
 .env
