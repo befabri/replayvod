@@ -103,3 +103,73 @@ func TestNamedSchemaResolver_nil(t *testing.T) {
 		t.Errorf("nil ref: resolve = (%q, %v); want (\"\", false)", got, ok)
 	}
 }
+
+// TestReachability_Transitive asserts emitReachedNamedSchemas follows
+// multi-hop refs: a seed anchor whose schema references another, which in
+// turn references a third, must emit all three.
+func TestReachability_Transitive(t *testing.T) {
+	ref := &EventSubReference{
+		NamedSchemas: map[string]EventSubSchema{
+			"alpha": {AnchorID: "alpha", Fields: []FieldSchema{{Name: "b_ref", Type: "beta"}}},
+			"beta":  {AnchorID: "beta", Fields: []FieldSchema{{Name: "c_ref", Type: "gamma"}}},
+			"gamma": {AnchorID: "gamma", Fields: []FieldSchema{{Name: "v", Type: "String"}}},
+		},
+	}
+	resolver := &namedSchemaResolver{ref: ref, reached: map[string]bool{"alpha": true}}
+	out := emitReachedNamedSchemas(ref, resolver, &templateModel{}, silentLogger())
+
+	got := map[string]bool{}
+	for _, tm := range out {
+		got[tm.AnchorID] = true
+	}
+	for _, a := range []string{"alpha", "beta", "gamma"} {
+		if !got[a] {
+			t.Errorf("anchor %q not emitted; got %v", a, got)
+		}
+	}
+}
+
+// TestReachability_Cycle asserts a ref cycle A ↔ B terminates and emits each
+// schema once.
+func TestReachability_Cycle(t *testing.T) {
+	ref := &EventSubReference{
+		NamedSchemas: map[string]EventSubSchema{
+			"alpha": {AnchorID: "alpha", Fields: []FieldSchema{{Name: "b_ref", Type: "beta"}}},
+			"beta":  {AnchorID: "beta", Fields: []FieldSchema{{Name: "a_ref", Type: "alpha"}}},
+		},
+	}
+	resolver := &namedSchemaResolver{ref: ref, reached: map[string]bool{"alpha": true}}
+	out := emitReachedNamedSchemas(ref, resolver, &templateModel{}, silentLogger())
+
+	counts := map[string]int{}
+	for _, tm := range out {
+		counts[tm.AnchorID]++
+	}
+	for _, a := range []string{"alpha", "beta"} {
+		if counts[a] != 1 {
+			t.Errorf("anchor %q emitted %d times; want 1", a, counts[a])
+		}
+	}
+}
+
+// TestReachability_Unused asserts NamedSchemas that nothing references are
+// NOT emitted — the registry doesn't leak unused types into the output.
+func TestReachability_Unused(t *testing.T) {
+	ref := &EventSubReference{
+		NamedSchemas: map[string]EventSubSchema{
+			"alpha": {AnchorID: "alpha", Fields: []FieldSchema{{Name: "v", Type: "String"}}},
+			"zeta":  {AnchorID: "zeta", Fields: []FieldSchema{{Name: "x", Type: "String"}}},
+		},
+	}
+	resolver := &namedSchemaResolver{ref: ref, reached: map[string]bool{"alpha": true}}
+	out := emitReachedNamedSchemas(ref, resolver, &templateModel{}, silentLogger())
+
+	for _, tm := range out {
+		if tm.AnchorID == "zeta" {
+			t.Errorf("unreferenced anchor %q unexpectedly emitted", tm.AnchorID)
+		}
+	}
+	if len(out) != 1 {
+		t.Errorf("emitted %d schemas; want only 1 (alpha)", len(out))
+	}
+}
