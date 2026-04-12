@@ -353,13 +353,19 @@ func buildStructType(
 }
 
 // deprecatedFieldMarkers lists description substrings Twitch uses to mark a
-// struct field deprecated. Ported from FIELD_DEPRECATED_TEXT in the TS reference
-// plus the plain "**DEPRECATED**" inline marker seen in EventSub docs.
+// struct field deprecated. Compared against the plain-text description
+// (tableschema.go calls Text() which strips HTML tags before we see it) —
+// `**`-prefixed markers ported from the TS reference never fired because
+// `<strong>X</strong>` becomes `X` on the way through, not `**X**`.
+// Verified on all three snapshots: no "DEPRECATED" (all-caps post-strip)
+// phrasings exist either. See P1.6 in the plan.
+//
+// Both entries are pulled verbatim from the committed reference snapshots;
+// don't add speculative variants — data-driven extension only.
 var deprecatedFieldMarkers = []string{
-	"**DEPRECATED**",
-	"**IMPORTANT** As of February 28, 2023, this field is deprecated",
-	"**NOTE**: This field has been deprecated",
-	"This field has been deprecated",
+	"As of February 28, 2023, this field is deprecated", // tag_ids on Stream/Video
+	"This field is deprecated",                          // is_mature on Stream/Video/ChannelRaid (present tense)
+	"This field has been deprecated",                    // view_count on User (past perfect)
 }
 
 func isDeprecatedField(description string) bool {

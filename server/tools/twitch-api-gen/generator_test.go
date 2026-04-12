@@ -176,24 +176,23 @@ func TestEventSubScraper_resolvesKnownTypes(t *testing.T) {
 	}
 }
 
-// TestIsDeprecatedField locks each entry in deprecatedFieldMarkers plus a
-// handful of negatives. Previously covered only indirectly via User.ViewCount
-// in the snapshot — if Twitch reworded a marker, we'd lose coverage silently.
+// TestIsDeprecatedField locks each entry in deprecatedFieldMarkers against
+// the verbatim phrasings pulled from the committed reference snapshot.
+// Descriptions are HTML-stripped by tableschema.go (<strong> → plain text),
+// so the positives here have no `**` markers — matches what isDeprecatedField
+// actually sees at runtime.
 func TestIsDeprecatedField(t *testing.T) {
 	positives := []string{
-		"**DEPRECATED** Use the new field instead.",
-		"**IMPORTANT** As of February 28, 2023, this field is deprecated and ignored.",
-		"**NOTE**: This field has been deprecated (see the deprecation notice).",
-		"This field has been deprecated and will be removed in a future release.",
-		// Real User.ViewCount phrasing as parsed from the committed snapshot.
-		// Locks the specific marker that catches User.ViewCount today, so an
-		// edit that drops the "This field has been deprecated" entry would
-		// regress without hiding behind the generic positives above.
+		// Stream.TagIds, Video.TagIds (Feb 28 deprecation).
+		`IMPORTANT As of February 28, 2023, this field is deprecated and returns only an empty array. If you use this field, please update your code to use the tags field.`,
+		// Stream.IsMature, Video.IsMature (is_mature always false).
+		`IMPORTANT This field is deprecated and returns only false. A Boolean value that indicates whether the stream is meant for mature audiences.`,
+		// User.ViewCount.
 		`The number of times the user's channel has been viewed. NOTE: This field has been deprecated (see Get Users API endpoint – "view_count" deprecation). Any data in this field is not valid and should not be used.`,
 	}
 	negatives := []string{
 		"This field is no longer recommended.",
-		"Deprecated soon — migrate to the new endpoint.", // no full marker phrase
+		"Deprecated soon — migrate to the new endpoint.",
 		"Partially deprecated but still in use.",
 		"",
 		"The user's ID.",
