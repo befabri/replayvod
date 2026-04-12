@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS fetch_logs;
