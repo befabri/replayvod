@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync/atomic"
 	"time"
 )
 
@@ -87,6 +88,20 @@ type Poller struct {
 	// segments are lost. Full gap-tracking on window roll is a
 	// later phase.
 	StartMediaSeq int64
+
+	// adSkipped counts stitched-ad segments filtered before they
+	// were enqueued. Incremented atomically inside the poll
+	// loop; the orchestrator reads it via AdSkipped() when
+	// building Progress events and finalizing the JobResult.
+	// Atomic (not mutex-guarded) because the orchestrator may
+	// sample it from a different goroutine than the poll loop.
+	adSkipped atomic.Int64
+}
+
+// AdSkipped returns the number of stitched-ad segments the poller
+// has filtered so far. Safe to call from any goroutine.
+func (p *Poller) AdSkipped() int64 {
+	return p.adSkipped.Load()
 }
 
 // PollResult carries metadata observed on the first successful
@@ -217,6 +232,17 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 		ext := segmentExt(pl.Kind)
 		for _, seg := range pl.Segments {
 			if seg.MediaSeq <= lastSeq {
+				continue
+			}
+			if seg.IsAd {
+				// Skip Twitch stitched-ad content entirely —
+				// don't enqueue, don't fetch, don't write.
+				// Advance lastSeq so the next poll doesn't
+				// re-offer the same ad segment, and bump the
+				// ad-skip counter for the orchestrator to
+				// surface in Progress + JobResult.
+				p.adSkipped.Add(1)
+				lastSeq = seg.MediaSeq
 				continue
 			}
 			job := segmentJob{

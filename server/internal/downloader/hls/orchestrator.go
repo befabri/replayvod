@@ -115,9 +115,15 @@ func (p *GapPolicy) normalize() {
 type Progress struct {
 	SegmentsDone int64
 	SegmentsGaps int64
-	BytesWritten int64
-	Kind         SegmentKind
-	InitURI      string
+	// SegmentsAdGaps counts stitched-ad segments the poller
+	// skipped. Reported separately from SegmentsGaps so the UI
+	// can show "Twitch ad content omitted" distinctly from
+	// "fetch failures tolerated," and so gap-policy math
+	// (MaxGapRatio) doesn't count ads against the ceiling.
+	SegmentsAdGaps int64
+	BytesWritten   int64
+	Kind           SegmentKind
+	InitURI        string
 }
 
 // JobResult summarizes a completed Run. SegmentsDone counts
@@ -135,10 +141,14 @@ type Progress struct {
 type JobResult struct {
 	SegmentsDone int64
 	SegmentsGaps int64
-	BytesWritten int64
-	Kind         SegmentKind
-	InitURI      string // empty for ts jobs
-	LastMediaSeq int64
+	// SegmentsAdGaps counts stitched-ad segments skipped by the
+	// poller. Excluded from MaxGapRatio — Twitch-injected
+	// content isn't a CDN or transport failure.
+	SegmentsAdGaps int64
+	BytesWritten   int64
+	Kind           SegmentKind
+	InitURI        string // empty for ts jobs
+	LastMediaSeq   int64
 }
 
 // GapAbortError is the typed error returned when the gap policy
@@ -339,16 +349,21 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 			// A slow subscriber shouldn't throttle the fetch.
 			select {
 			case cfg.Progress <- Progress{
-				SegmentsDone: result.SegmentsDone,
-				SegmentsGaps: result.SegmentsGaps,
-				BytesWritten: result.BytesWritten,
-				Kind:         result.Kind,
-				InitURI:      result.InitURI,
+				SegmentsDone:   result.SegmentsDone,
+				SegmentsGaps:   result.SegmentsGaps,
+				SegmentsAdGaps: poller.AdSkipped(),
+				BytesWritten:   result.BytesWritten,
+				Kind:           result.Kind,
+				InitURI:        result.InitURI,
 			}:
 			default:
 			}
 		}
 	}
+
+	// Snapshot ad-skip count now that the result drain has
+	// finished; the poller won't enqueue any more segments.
+	result.SegmentsAdGaps = poller.AdSkipped()
 
 	if authErr != nil {
 		_ = g.Wait()
