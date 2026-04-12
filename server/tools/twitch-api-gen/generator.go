@@ -110,6 +110,11 @@ type eventSubTypeModel struct {
 	AnchorID string // e.g. "channel-follow-condition" (empty for Nested)
 	Fields   []fieldModel
 	Nested   bool
+
+	// HasBroadcasterUserID is true when the struct carries a
+	// BroadcasterUserID string field — used by the template to emit the
+	// GetBroadcasterUserID accessor that satisfies BroadcasterScopedCondition.
+	HasBroadcasterUserID bool
 }
 
 // eventSubDispatchModel holds the switch-case data for generated factories.

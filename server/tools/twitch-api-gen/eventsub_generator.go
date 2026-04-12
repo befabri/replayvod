@@ -208,6 +208,9 @@ func emitSchemaStructs(
 			if strings.Contains(fm.GoType, "time.Time") {
 				model.ImportTime = true
 			}
+			if fm.GoName == "BroadcasterUserID" && fm.GoType == "string" {
+				tm.HasBroadcasterUserID = true
+			}
 		}
 		out = append(out, tm)
 	}

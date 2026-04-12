@@ -35,6 +35,23 @@ type EventSubEvent interface {
 	isEventSubEvent()
 }
 
+// BroadcasterScopedCondition is the subset of EventSubCondition whose
+// condition carries a broadcaster_user_id field — which is most of them.
+// Callers denormalizing broadcaster_id out of a typed condition type-assert
+// on this interface instead of reflecting or JSON-round-tripping:
+//
+//	if bsc, ok := cond.(BroadcasterScopedCondition); ok {
+//	    id := bsc.GetBroadcasterUserID()
+//	}
+//
+// Condition shapes that don't carry broadcaster_user_id (drop.entitlement
+// .grant, user.authorization.*, UnknownCondition) don't satisfy this
+// interface — the type assertion is the denormalize gate.
+type BroadcasterScopedCondition interface {
+	EventSubCondition
+	GetBroadcasterUserID() string
+}
+
 // UnknownCondition holds the raw JSON for a subscription type not in the
 // generated factory. Returned by the UnmarshalJSON of EventSubSubscription /
 // CreateEventSubSubscriptionBody when Twitch ships a new type; see the
@@ -95,6 +112,12 @@ type {{ .GoName }} struct {
 {{ end }}{{ end }}
 {{ range .EventSubEvents -}}
 {{ if not .Nested }}func ({{ .GoName }}) isEventSubEvent() {}
+{{ end }}{{ end }}
+
+// BroadcasterScopedCondition accessors — emitted for every non-nested
+// condition whose schema carries a broadcaster_user_id field.
+{{ range .EventSubConditions -}}
+{{ if and (not .Nested) .HasBroadcasterUserID }}func (c {{ .GoName }}) GetBroadcasterUserID() string { return c.BroadcasterUserID }
 {{ end }}{{ end }}
 
 // --- Dispatch ---
