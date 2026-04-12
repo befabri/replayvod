@@ -1,3 +1,5 @@
+development = true
+
 [server]
 allowed_origins = ["http://localhost:3000"]
 
@@ -39,5 +41,3 @@ min_conns = 5
 max_conn_lifetime_ms = 1800000
 max_conn_idle_time_ms = 300000
 health_check_period_ms = 30000
-
-development = true

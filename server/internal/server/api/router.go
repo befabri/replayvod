@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -11,12 +12,18 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/auth"
+	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/twitch"
+	"github.com/befabri/replayvod/server/internal/validate"
+	"github.com/befabri/trpcgo"
+	"github.com/befabri/trpcgo/trpc"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 )
 
 // SetupRouter creates and configures the Chi router.
-func SetupRouter(cfg *config.Config, repo repository.Repository, log *slog.Logger) *chi.Mux {
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, log *slog.Logger) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -32,15 +39,24 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, log *slog.Logge
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
-	// TODO: tRPC router will be mounted here
-	// r.Handle("/trpc/*", trpcRouter.Handler("/trpc"))
+	// Chi routes (non-tRPC: OAuth, webhooks, video streaming)
+	authHandler := auth.NewHandler(cfg, repo, twitchClient, sessionMgr, log)
+	r.Route("/api/v1", func(r chi.Router) {
+		authHandler.SetupRoutes(r)
+	})
 
-	// TODO: Chi routes for non-tRPC endpoints
-	// r.Route("/api/v1", func(r chi.Router) {
-	//     auth.SetupOAuthRoutes(r, ...)
-	//     webhook.SetupRoutes(r, ...)
-	//     video.SetupStreamingRoutes(r, ...)
-	// })
+	// tRPC router with CSRF/origin protection
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, log)
+	csrfProtection := http.NewCrossOriginProtection()
+	for _, origin := range cfg.App.Server.AllowedOrigins {
+		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
+			log.Warn("invalid trusted origin for CSRF protection", "origin", origin, "error", err)
+		}
+	}
+	r.Group(func(r chi.Router) {
+		r.Use(csrfProtection.Handler)
+		r.Handle("/trpc/*", trpc.NewHandler(trpcRouter, "/trpc"))
+	})
 
 	// SPA fallback
 	if cfg.Env.DashboardDir != "" {
@@ -48,6 +64,59 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, log *slog.Logge
 	}
 
 	return r
+}
+
+// setupTRPCRouter builds the tRPC router with all procedures.
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, log *slog.Logger) *trpcgo.Router {
+	// Services
+	authSvc := auth.NewService(repo, sessionMgr, log)
+
+	// Middleware
+	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
+
+	// Base procedures (ProcedureBuilder pattern)
+	authedProcedure := trpcgo.Procedure().Use(authMw)
+
+	opts := []trpcgo.Option{
+		trpcgo.WithContextCreator(middleware.WithContextCreator),
+		trpcgo.WithValidator(validate.V.Struct),
+		trpcgo.WithBatching(true),
+		trpcgo.WithMethodOverride(true),
+		trpcgo.WithDev(cfg.App.Development),
+		trpcgo.WithErrorFormatter(func(input trpcgo.ErrorFormatterInput) any {
+			return map[string]any{
+				"error": map[string]any{
+					"message": input.Error.Message,
+					"code":    input.Shape.Error.Code,
+					"data":    input.Shape.Error.Data,
+				},
+			}
+		}),
+		trpcgo.WithOnError(func(ctx context.Context, err *trpcgo.Error, path string) {
+			if err.Code == trpcgo.CodeUnauthorized || err.Code == trpcgo.CodeBadRequest {
+				return
+			}
+			log.Error("tRPC error", "path", path, "code", trpcgo.NameFromCode(err.Code), "message", err.Message)
+		}),
+	}
+
+	if cfg.App.Development {
+		opts = append(opts,
+			trpcgo.WithTypeOutput("../dashboard/src/api/generated/trpc.ts"),
+			trpcgo.WithZodOutput("../dashboard/src/api/generated/zod.ts"),
+			trpcgo.WithWatchPackages("./..."),
+		)
+	}
+
+	tr := trpcgo.NewRouter(opts...)
+
+	// Auth procedures (all require authenticated session)
+	trpcgo.MustVoidQuery(tr, "auth.session", authSvc.Session, authedProcedure)
+	trpcgo.MustVoidMutation(tr, "auth.logout", authSvc.Logout, authedProcedure)
+	trpcgo.MustVoidQuery(tr, "auth.sessions", authSvc.ListSessions, authedProcedure)
+	trpcgo.MustMutation(tr, "auth.revokeSession", authSvc.RevokeSession, authedProcedure)
+
+	return tr
 }
 
 // setupDashboardRoutes serves the dashboard SPA with proper 404→index.html fallback.

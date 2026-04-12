@@ -10,28 +10,34 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api"
+	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
 // Server represents the HTTP server.
 type Server struct {
-	cfg        *config.Config
-	repo       repository.Repository
-	log        *slog.Logger
-	httpServer *http.Server
+	cfg          *config.Config
+	repo         repository.Repository
+	sessionMgr   *session.Manager
+	twitchClient *twitch.Client
+	log          *slog.Logger
+	httpServer   *http.Server
 }
 
 // NewServer creates a new server.
-func NewServer(cfg *config.Config, repo repository.Repository, log *slog.Logger) *Server {
+func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, log *slog.Logger) *Server {
 	return &Server{
-		cfg:  cfg,
-		repo: repo,
-		log:  log,
+		cfg:          cfg,
+		repo:         repo,
+		sessionMgr:   sessionMgr,
+		twitchClient: twitchClient,
+		log:          log,
 	}
 }
 
 // Start begins serving HTTP requests.
 func (s *Server) Start() {
-	router := api.SetupRouter(s.cfg, s.repo, s.log)
+	router := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.log)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port),

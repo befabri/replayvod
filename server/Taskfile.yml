@@ -29,6 +29,17 @@ tasks:
     cmds:
       - sqlc generate
 
+  trpcgen:
+    desc: Generate TypeScript + Zod types from tRPC procedures
+    cmds:
+      - go tool trpcgo generate -o ../dashboard/src/api/generated/trpc.ts --zod ../dashboard/src/api/generated/zod.ts ./...
+
+  gen:
+    desc: Run all code generation (sqlc + trpcgen)
+    cmds:
+      - task: sqlc
+      - task: trpcgen
+
   migrate:
     desc: Run database migrations (requires running server)
     cmds:

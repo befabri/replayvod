@@ -19,6 +19,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/server"
+	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
 func main() {
@@ -97,13 +99,32 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create Twitch client
+	twitchClient := twitch.NewClient(cfg.Env.TwitchClientID, cfg.Env.TwitchSecret, log)
+
+	// Create session manager
+	secureCookie := cfg.Env.Host != "localhost" && cfg.Env.Host != "0.0.0.0"
+	sessionMgr, err := session.NewManager(repo, cfg.Env.SessionSecret, secureCookie, log)
+	if err != nil {
+		log.Error("Failed to create session manager", "error", err)
+		os.Exit(1)
+	}
+
+	// Seed whitelist from config (idempotent). OWNER_TWITCH_ID is always seeded
+	// so the owner can log in even with whitelist enabled and an empty DB.
+	// Runtime auth only consults the DB — config is bootstrap-only.
+	if err := session.SeedWhitelist(ctx, repo, cfg.Env.OwnerTwitchID, cfg.Env.WhitelistedUserIDs, log); err != nil {
+		log.Error("Failed to seed whitelist", "error", err)
+		os.Exit(1)
+	}
+
 	// Setup graceful shutdown
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	// Start server
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, log)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, log)
 	go srv.Start()
 
 	// Wait for shutdown signal
