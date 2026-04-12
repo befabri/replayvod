@@ -5,86 +5,161 @@
 package pggen
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 type AppAccessToken struct {
-	ID        int64              `json:"id"`
-	Token     string             `json:"token"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64     `json:"id"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Category struct {
-	ID        string             `json:"id"`
-	Name      string             `json:"name"`
-	BoxArtUrl pgtype.Text        `json:"box_art_url"`
-	IgdbID    pgtype.Text        `json:"igdb_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	BoxArtUrl *string   `json:"box_art_url"`
+	IgdbID    *string   `json:"igdb_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Channel struct {
-	BroadcasterID       string             `json:"broadcaster_id"`
-	BroadcasterLogin    string             `json:"broadcaster_login"`
-	BroadcasterName     string             `json:"broadcaster_name"`
-	BroadcasterLanguage pgtype.Text        `json:"broadcaster_language"`
-	ProfileImageUrl     pgtype.Text        `json:"profile_image_url"`
-	OfflineImageUrl     pgtype.Text        `json:"offline_image_url"`
-	Description         pgtype.Text        `json:"description"`
-	BroadcasterType     pgtype.Text        `json:"broadcaster_type"`
-	ViewCount           int32              `json:"view_count"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	BroadcasterID       string    `json:"broadcaster_id"`
+	BroadcasterLogin    string    `json:"broadcaster_login"`
+	BroadcasterName     string    `json:"broadcaster_name"`
+	BroadcasterLanguage *string   `json:"broadcaster_language"`
+	ProfileImageUrl     *string   `json:"profile_image_url"`
+	OfflineImageUrl     *string   `json:"offline_image_url"`
+	Description         *string   `json:"description"`
+	BroadcasterType     *string   `json:"broadcaster_type"`
+	ViewCount           int32     `json:"view_count"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type FetchLog struct {
-	ID            int64              `json:"id"`
-	UserID        pgtype.Text        `json:"user_id"`
-	FetchType     string             `json:"fetch_type"`
-	BroadcasterID pgtype.Text        `json:"broadcaster_id"`
-	Status        int32              `json:"status"`
-	Error         pgtype.Text        `json:"error"`
-	DurationMs    int32              `json:"duration_ms"`
-	FetchedAt     pgtype.Timestamptz `json:"fetched_at"`
+	ID            int64     `json:"id"`
+	UserID        *string   `json:"user_id"`
+	FetchType     string    `json:"fetch_type"`
+	BroadcasterID *string   `json:"broadcaster_id"`
+	Status        int32     `json:"status"`
+	Error         *string   `json:"error"`
+	DurationMs    int32     `json:"duration_ms"`
+	FetchedAt     time.Time `json:"fetched_at"`
 }
 
 type Session struct {
-	HashedID        string             `json:"hashed_id"`
-	UserID          string             `json:"user_id"`
-	EncryptedTokens []byte             `json:"encrypted_tokens"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	LastActiveAt    pgtype.Timestamptz `json:"last_active_at"`
-	UserAgent       pgtype.Text        `json:"user_agent"`
-	IpAddress       pgtype.Text        `json:"ip_address"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	HashedID        string    `json:"hashed_id"`
+	UserID          string    `json:"user_id"`
+	EncryptedTokens []byte    `json:"encrypted_tokens"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	LastActiveAt    time.Time `json:"last_active_at"`
+	UserAgent       *string   `json:"user_agent"`
+	IpAddress       *string   `json:"ip_address"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type Stream struct {
+	ID            string     `json:"id"`
+	BroadcasterID string     `json:"broadcaster_id"`
+	Type          string     `json:"type"`
+	Language      string     `json:"language"`
+	ThumbnailUrl  *string    `json:"thumbnail_url"`
+	ViewerCount   int32      `json:"viewer_count"`
+	IsMature      *bool      `json:"is_mature"`
+	StartedAt     time.Time  `json:"started_at"`
+	EndedAt       *time.Time `json:"ended_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+type StreamCategory struct {
+	StreamID   string `json:"stream_id"`
+	CategoryID string `json:"category_id"`
+}
+
+type StreamTag struct {
+	StreamID string `json:"stream_id"`
+	TagID    int64  `json:"tag_id"`
+}
+
+type StreamTitle struct {
+	StreamID string `json:"stream_id"`
+	TitleID  int64  `json:"title_id"`
 }
 
 type Tag struct {
-	ID        int64              `json:"id"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Title struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type User struct {
-	ID              string             `json:"id"`
-	Login           string             `json:"login"`
-	DisplayName     string             `json:"display_name"`
-	Email           pgtype.Text        `json:"email"`
-	ProfileImageUrl pgtype.Text        `json:"profile_image_url"`
-	Role            string             `json:"role"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ID              string    `json:"id"`
+	Login           string    `json:"login"`
+	DisplayName     string    `json:"display_name"`
+	Email           *string   `json:"email"`
+	ProfileImageUrl *string   `json:"profile_image_url"`
+	Role            string    `json:"role"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type UserFollowedChannel struct {
-	UserID        string             `json:"user_id"`
-	BroadcasterID string             `json:"broadcaster_id"`
-	FollowedAt    pgtype.Timestamptz `json:"followed_at"`
-	Followed      bool               `json:"followed"`
+	UserID        string    `json:"user_id"`
+	BroadcasterID string    `json:"broadcaster_id"`
+	FollowedAt    time.Time `json:"followed_at"`
+	Followed      bool      `json:"followed"`
+}
+
+type Video struct {
+	ID              int64      `json:"id"`
+	JobID           string     `json:"job_id"`
+	Filename        string     `json:"filename"`
+	DisplayName     string     `json:"display_name"`
+	Status          string     `json:"status"`
+	Quality         string     `json:"quality"`
+	BroadcasterID   string     `json:"broadcaster_id"`
+	StreamID        *string    `json:"stream_id"`
+	ViewerCount     int32      `json:"viewer_count"`
+	Language        string     `json:"language"`
+	DurationSeconds *float64   `json:"duration_seconds"`
+	SizeBytes       *int64     `json:"size_bytes"`
+	Thumbnail       *string    `json:"thumbnail"`
+	Error           *string    `json:"error"`
+	StartDownloadAt time.Time  `json:"start_download_at"`
+	DownloadedAt    *time.Time `json:"downloaded_at"`
+	DeletedAt       *time.Time `json:"deleted_at"`
+}
+
+type VideoCategory struct {
+	VideoID    int64  `json:"video_id"`
+	CategoryID string `json:"category_id"`
+}
+
+type VideoRequest struct {
+	VideoID     int64     `json:"video_id"`
+	UserID      string    `json:"user_id"`
+	RequestedAt time.Time `json:"requested_at"`
+}
+
+type VideoTag struct {
+	VideoID int64 `json:"video_id"`
+	TagID   int64 `json:"tag_id"`
+}
+
+type VideoTitle struct {
+	VideoID int64 `json:"video_id"`
+	TitleID int64 `json:"title_id"`
 }
 
 type Whitelist struct {
-	TwitchUserID string             `json:"twitch_user_id"`
-	AddedAt      pgtype.Timestamptz `json:"added_at"`
+	TwitchUserID string    `json:"twitch_user_id"`
+	AddedAt      time.Time `json:"added_at"`
 }

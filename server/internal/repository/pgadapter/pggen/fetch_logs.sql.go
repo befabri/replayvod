@@ -7,8 +7,7 @@ package pggen
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 const countFetchLogs = `-- name: CountFetchLogs :one
@@ -39,12 +38,12 @@ VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type CreateFetchLogParams struct {
-	UserID        pgtype.Text `json:"user_id"`
-	FetchType     string      `json:"fetch_type"`
-	BroadcasterID pgtype.Text `json:"broadcaster_id"`
-	Status        int32       `json:"status"`
-	Error         pgtype.Text `json:"error"`
-	DurationMs    int32       `json:"duration_ms"`
+	UserID        *string `json:"user_id"`
+	FetchType     string  `json:"fetch_type"`
+	BroadcasterID *string `json:"broadcaster_id"`
+	Status        int32   `json:"status"`
+	Error         *string `json:"error"`
+	DurationMs    int32   `json:"duration_ms"`
 }
 
 func (q *Queries) CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error {
@@ -63,7 +62,7 @@ const deleteOldFetchLogs = `-- name: DeleteOldFetchLogs :exec
 DELETE FROM fetch_logs WHERE fetched_at < $1
 `
 
-func (q *Queries) DeleteOldFetchLogs(ctx context.Context, fetchedAt pgtype.Timestamptz) error {
+func (q *Queries) DeleteOldFetchLogs(ctx context.Context, fetchedAt time.Time) error {
 	_, err := q.db.Exec(ctx, deleteOldFetchLogs, fetchedAt)
 	return err
 }

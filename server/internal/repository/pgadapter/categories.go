@@ -30,8 +30,8 @@ func (a *PGAdapter) UpsertCategory(ctx context.Context, c *repository.Category) 
 	row, err := a.queries.UpsertCategory(ctx, pggen.UpsertCategoryParams{
 		ID:        c.ID,
 		Name:      c.Name,
-		BoxArtUrl: toPgText(c.BoxArtURL),
-		IgdbID:    toPgText(c.IGDBID),
+		BoxArtUrl: c.BoxArtURL,
+		IgdbID:    c.IGDBID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg upsert category %s: %w", c.ID, err)
@@ -105,10 +105,10 @@ func pgCategoryToDomain(c pggen.Category) *repository.Category {
 	return &repository.Category{
 		ID:        c.ID,
 		Name:      c.Name,
-		BoxArtURL: fromPgText(c.BoxArtUrl),
-		IGDBID:    fromPgText(c.IgdbID),
-		CreatedAt: c.CreatedAt.Time,
-		UpdatedAt: c.UpdatedAt.Time,
+		BoxArtURL: c.BoxArtUrl,
+		IGDBID:    c.IgdbID,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
 	}
 }
 
@@ -116,6 +116,6 @@ func pgTagToDomain(t pggen.Tag) *repository.Tag {
 	return &repository.Tag{
 		ID:        t.ID,
 		Name:      t.Name,
-		CreatedAt: t.CreatedAt.Time,
+		CreatedAt: t.CreatedAt,
 	}
 }

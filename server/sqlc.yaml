@@ -12,17 +12,47 @@ sql:
         emit_interface: true
         emit_empty_slices: true
         overrides:
+          # Timestamps: both table columns and query outputs should come out as
+          # time.Time (NOT NULL) or *time.Time (NULL). Defaults to pgtype
+          # under pgx/v5 — overriding keeps domain code free of pgtype.
           - db_type: "pg_catalog.timestamptz"
             nullable: false
-            go_type:
-              import: "time"
-              type: "Time"
+            go_type: { import: "time", type: "Time" }
           - db_type: "pg_catalog.timestamptz"
             nullable: true
-            go_type:
-              import: "time"
-              type: "Time"
-              pointer: true
+            go_type: { import: "time", type: "Time", pointer: true }
+          - db_type: "timestamptz"
+            nullable: false
+            go_type: { import: "time", type: "Time" }
+          - db_type: "timestamptz"
+            nullable: true
+            go_type: { import: "time", type: "Time", pointer: true }
+
+          # Nullable text → *string (keeps consistency with SQLite sql.NullString → *string in the adapter).
+          - db_type: "text"
+            nullable: true
+            go_type: { type: "string", pointer: true }
+          - db_type: "pg_catalog.text"
+            nullable: true
+            go_type: { type: "string", pointer: true }
+
+          # Nullable bool → *bool
+          - db_type: "pg_catalog.bool"
+            nullable: true
+            go_type: { type: "bool", pointer: true }
+          - db_type: "bool"
+            nullable: true
+            go_type: { type: "bool", pointer: true }
+
+          # Nullable bigint → *int64
+          - db_type: "pg_catalog.int8"
+            nullable: true
+            go_type: { type: "int64", pointer: true }
+
+          # Nullable double → *float64
+          - db_type: "pg_catalog.float8"
+            nullable: true
+            go_type: { type: "float64", pointer: true }
 
   - engine: "sqlite"
     queries: "./queries/sqlite"

@@ -7,8 +7,6 @@ package pggen
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getCategory = `-- name: GetCategory :one
@@ -121,10 +119,10 @@ RETURNING id, name, box_art_url, igdb_id, created_at, updated_at
 `
 
 type UpsertCategoryParams struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	BoxArtUrl pgtype.Text `json:"box_art_url"`
-	IgdbID    pgtype.Text `json:"igdb_id"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	BoxArtUrl *string `json:"box_art_url"`
+	IgdbID    *string `json:"igdb_id"`
 }
 
 func (q *Queries) UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error) {

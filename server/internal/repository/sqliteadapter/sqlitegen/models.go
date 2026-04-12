@@ -60,7 +60,41 @@ type Session struct {
 	CreatedAt       string         `json:"created_at"`
 }
 
+type Stream struct {
+	ID            string         `json:"id"`
+	BroadcasterID string         `json:"broadcaster_id"`
+	Type          string         `json:"type"`
+	Language      string         `json:"language"`
+	ThumbnailUrl  sql.NullString `json:"thumbnail_url"`
+	ViewerCount   int64          `json:"viewer_count"`
+	IsMature      sql.NullInt64  `json:"is_mature"`
+	StartedAt     string         `json:"started_at"`
+	EndedAt       sql.NullString `json:"ended_at"`
+	CreatedAt     string         `json:"created_at"`
+}
+
+type StreamCategory struct {
+	StreamID   string `json:"stream_id"`
+	CategoryID string `json:"category_id"`
+}
+
+type StreamTag struct {
+	StreamID string `json:"stream_id"`
+	TagID    int64  `json:"tag_id"`
+}
+
+type StreamTitle struct {
+	StreamID string `json:"stream_id"`
+	TitleID  int64  `json:"title_id"`
+}
+
 type Tag struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+}
+
+type Title struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
@@ -82,6 +116,47 @@ type UserFollowedChannel struct {
 	BroadcasterID string `json:"broadcaster_id"`
 	FollowedAt    string `json:"followed_at"`
 	Followed      int64  `json:"followed"`
+}
+
+type Video struct {
+	ID              int64           `json:"id"`
+	JobID           string          `json:"job_id"`
+	Filename        string          `json:"filename"`
+	DisplayName     string          `json:"display_name"`
+	Status          string          `json:"status"`
+	Quality         string          `json:"quality"`
+	BroadcasterID   string          `json:"broadcaster_id"`
+	StreamID        sql.NullString  `json:"stream_id"`
+	ViewerCount     int64           `json:"viewer_count"`
+	Language        string          `json:"language"`
+	DurationSeconds sql.NullFloat64 `json:"duration_seconds"`
+	SizeBytes       sql.NullInt64   `json:"size_bytes"`
+	Thumbnail       sql.NullString  `json:"thumbnail"`
+	Error           sql.NullString  `json:"error"`
+	StartDownloadAt string          `json:"start_download_at"`
+	DownloadedAt    sql.NullString  `json:"downloaded_at"`
+	DeletedAt       sql.NullString  `json:"deleted_at"`
+}
+
+type VideoCategory struct {
+	VideoID    int64  `json:"video_id"`
+	CategoryID string `json:"category_id"`
+}
+
+type VideoRequest struct {
+	VideoID     int64  `json:"video_id"`
+	UserID      string `json:"user_id"`
+	RequestedAt string `json:"requested_at"`
+}
+
+type VideoTag struct {
+	VideoID int64 `json:"video_id"`
+	TagID   int64 `json:"tag_id"`
+}
+
+type VideoTitle struct {
+	VideoID int64 `json:"video_id"`
+	TitleID int64 `json:"title_id"`
 }
 
 type Whitelist struct {

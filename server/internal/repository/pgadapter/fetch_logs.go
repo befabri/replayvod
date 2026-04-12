@@ -11,11 +11,11 @@ import (
 
 func (a *PGAdapter) CreateFetchLog(ctx context.Context, input *repository.FetchLogInput) error {
 	return a.queries.CreateFetchLog(ctx, pggen.CreateFetchLogParams{
-		UserID:        toPgText(input.UserID),
+		UserID:        input.UserID,
 		FetchType:     input.FetchType,
-		BroadcasterID: toPgText(input.BroadcasterID),
+		BroadcasterID: input.BroadcasterID,
 		Status:        int32(input.Status),
-		Error:         toPgText(input.Error),
+		Error:         input.Error,
 		DurationMs:    int32(input.DurationMs),
 	})
 }
@@ -52,7 +52,7 @@ func (a *PGAdapter) CountFetchLogsByType(ctx context.Context, fetchType string) 
 }
 
 func (a *PGAdapter) DeleteOldFetchLogs(ctx context.Context, before time.Time) error {
-	return a.queries.DeleteOldFetchLogs(ctx, toPgTimestamptz(before))
+	return a.queries.DeleteOldFetchLogs(ctx, before)
 }
 
 func pgFetchLogsToDomain(rows []pggen.FetchLog) []repository.FetchLog {
@@ -60,13 +60,13 @@ func pgFetchLogsToDomain(rows []pggen.FetchLog) []repository.FetchLog {
 	for i, row := range rows {
 		logs[i] = repository.FetchLog{
 			ID:            row.ID,
-			UserID:        fromPgText(row.UserID),
+			UserID:        row.UserID,
 			FetchType:     row.FetchType,
-			BroadcasterID: fromPgText(row.BroadcasterID),
+			BroadcasterID: row.BroadcasterID,
 			Status:        int(row.Status),
-			Error:         fromPgText(row.Error),
+			Error:         row.Error,
 			DurationMs:    int64(row.DurationMs),
-			FetchedAt:     row.FetchedAt.Time,
+			FetchedAt:     row.FetchedAt,
 		}
 	}
 	return logs

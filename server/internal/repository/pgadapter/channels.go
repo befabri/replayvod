@@ -8,8 +8,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-// Channels
-
 func (a *PGAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
 	row, err := a.queries.GetChannel(ctx, broadcasterID)
 	if err != nil {
@@ -31,11 +29,11 @@ func (a *PGAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*
 		BroadcasterID:       c.BroadcasterID,
 		BroadcasterLogin:    c.BroadcasterLogin,
 		BroadcasterName:     c.BroadcasterName,
-		BroadcasterLanguage: toPgText(c.BroadcasterLanguage),
-		ProfileImageUrl:     toPgText(c.ProfileImageURL),
-		OfflineImageUrl:     toPgText(c.OfflineImageURL),
-		Description:         toPgText(c.Description),
-		BroadcasterType:     toPgText(c.BroadcasterType),
+		BroadcasterLanguage: c.BroadcasterLanguage,
+		ProfileImageUrl:     c.ProfileImageURL,
+		OfflineImageUrl:     c.OfflineImageURL,
+		Description:         c.Description,
+		BroadcasterType:     c.BroadcasterType,
 		ViewCount:           int32(c.ViewCount),
 	})
 	if err != nil {
@@ -60,13 +58,11 @@ func (a *PGAdapter) DeleteChannel(ctx context.Context, broadcasterID string) err
 	return a.queries.DeleteChannel(ctx, broadcasterID)
 }
 
-// User follows
-
 func (a *PGAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFollow) error {
 	return a.queries.UpsertUserFollow(ctx, pggen.UpsertUserFollowParams{
 		UserID:        f.UserID,
 		BroadcasterID: f.BroadcasterID,
-		FollowedAt:    toPgTimestamptz(f.FollowedAt),
+		FollowedAt:    f.FollowedAt,
 		Followed:      f.Followed,
 	})
 }
@@ -95,13 +91,13 @@ func pgChannelToDomain(c pggen.Channel) *repository.Channel {
 		BroadcasterID:       c.BroadcasterID,
 		BroadcasterLogin:    c.BroadcasterLogin,
 		BroadcasterName:     c.BroadcasterName,
-		BroadcasterLanguage: fromPgText(c.BroadcasterLanguage),
-		ProfileImageURL:     fromPgText(c.ProfileImageUrl),
-		OfflineImageURL:     fromPgText(c.OfflineImageUrl),
-		Description:         fromPgText(c.Description),
-		BroadcasterType:     fromPgText(c.BroadcasterType),
+		BroadcasterLanguage: c.BroadcasterLanguage,
+		ProfileImageURL:     c.ProfileImageUrl,
+		OfflineImageURL:     c.OfflineImageUrl,
+		Description:         c.Description,
+		BroadcasterType:     c.BroadcasterType,
 		ViewCount:           int64(c.ViewCount),
-		CreatedAt:           c.CreatedAt.Time,
-		UpdatedAt:           c.UpdatedAt.Time,
+		CreatedAt:           c.CreatedAt,
+		UpdatedAt:           c.UpdatedAt,
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
@@ -26,6 +25,7 @@ func mapErr(err error) error {
 }
 
 // PGAdapter implements repository.Repository using PostgreSQL via sqlc-generated code.
+// sqlc.yaml maps nullable columns to *T so this adapter doesn't need pgtype shuffling.
 type PGAdapter struct {
 	queries *pggen.Queries
 }
@@ -34,6 +34,8 @@ type PGAdapter struct {
 func New(queries *pggen.Queries) *PGAdapter {
 	return &PGAdapter{queries: queries}
 }
+
+// Users
 
 func (a *PGAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	row, err := a.queries.GetUser(ctx, id)
@@ -56,8 +58,8 @@ func (a *PGAdapter) UpsertUser(ctx context.Context, u *repository.User) (*reposi
 		ID:              u.ID,
 		Login:           u.Login,
 		DisplayName:     u.DisplayName,
-		Email:           toPgText(u.Email),
-		ProfileImageUrl: toPgText(u.ProfileImageURL),
+		Email:           u.Email,
+		ProfileImageUrl: u.ProfileImageURL,
 		Role:            u.Role,
 	})
 	if err != nil {
@@ -79,46 +81,23 @@ func (a *PGAdapter) ListUsers(ctx context.Context) ([]repository.User, error) {
 }
 
 func (a *PGAdapter) UpdateUserRole(ctx context.Context, id string, role string) error {
-	if err := a.queries.UpdateUserRole(ctx, pggen.UpdateUserRoleParams{
-		ID:   id,
-		Role: role,
-	}); err != nil {
+	if err := a.queries.UpdateUserRole(ctx, pggen.UpdateUserRoleParams{ID: id, Role: role}); err != nil {
 		return fmt.Errorf("pg update user role %s: %w", id, err)
 	}
 	return nil
 }
-
-// Conversion helpers
 
 func pgUserToDomain(u pggen.User) *repository.User {
 	return &repository.User{
 		ID:              u.ID,
 		Login:           u.Login,
 		DisplayName:     u.DisplayName,
-		Email:           fromPgText(u.Email),
-		ProfileImageURL: fromPgText(u.ProfileImageUrl),
+		Email:           u.Email,
+		ProfileImageURL: u.ProfileImageUrl,
 		Role:            u.Role,
-		CreatedAt:       u.CreatedAt.Time,
-		UpdatedAt:       u.UpdatedAt.Time,
+		CreatedAt:       u.CreatedAt,
+		UpdatedAt:       u.UpdatedAt,
 	}
-}
-
-func fromPgText(t pgtype.Text) *string {
-	if !t.Valid {
-		return nil
-	}
-	return &t.String
-}
-
-func toPgText(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{}
-	}
-	return pgtype.Text{String: *s, Valid: true}
-}
-
-func toPgTimestamptz(t time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: t, Valid: true}
 }
 
 // Sessions
@@ -128,9 +107,9 @@ func (a *PGAdapter) CreateSession(ctx context.Context, s *repository.Session) er
 		HashedID:        s.HashedID,
 		UserID:          s.UserID,
 		EncryptedTokens: s.EncryptedTokens,
-		ExpiresAt:       toPgTimestamptz(s.ExpiresAt),
-		UserAgent:       toPgText(s.UserAgent),
-		IpAddress:       toPgText(s.IPAddress),
+		ExpiresAt:       s.ExpiresAt,
+		UserAgent:       s.UserAgent,
+		IpAddress:       s.IPAddress,
 	}); err != nil {
 		return fmt.Errorf("pg create session: %w", err)
 	}
@@ -140,28 +119,25 @@ func (a *PGAdapter) CreateSession(ctx context.Context, s *repository.Session) er
 func (a *PGAdapter) GetSession(ctx context.Context, hashedID string) (*repository.Session, error) {
 	row, err := a.queries.GetSession(ctx, hashedID)
 	if err != nil {
-		return nil, fmt.Errorf("pg get session: %w", err)
+		return nil, mapErr(err)
 	}
 	return &repository.Session{
 		HashedID:        row.HashedID,
 		UserID:          row.UserID,
 		EncryptedTokens: row.EncryptedTokens,
-		ExpiresAt:       row.ExpiresAt.Time,
-		LastActiveAt:    row.LastActiveAt.Time,
-		UserAgent:       fromPgText(row.UserAgent),
-		IPAddress:       fromPgText(row.IpAddress),
-		CreatedAt:       row.CreatedAt.Time,
+		ExpiresAt:       row.ExpiresAt,
+		LastActiveAt:    row.LastActiveAt,
+		UserAgent:       row.UserAgent,
+		IPAddress:       row.IpAddress,
+		CreatedAt:       row.CreatedAt,
 	}, nil
 }
 
 func (a *PGAdapter) UpdateSessionTokens(ctx context.Context, hashedID string, encryptedTokens []byte) error {
-	if err := a.queries.UpdateSessionTokens(ctx, pggen.UpdateSessionTokensParams{
+	return a.queries.UpdateSessionTokens(ctx, pggen.UpdateSessionTokensParams{
 		HashedID:        hashedID,
 		EncryptedTokens: encryptedTokens,
-	}); err != nil {
-		return fmt.Errorf("pg update session tokens: %w", err)
-	}
-	return nil
+	})
 }
 
 func (a *PGAdapter) UpdateSessionActivity(ctx context.Context, hashedID string) error {
@@ -190,11 +166,11 @@ func (a *PGAdapter) ListUserSessions(ctx context.Context, userID string) ([]repo
 		sessions[i] = repository.SessionInfo{
 			HashedID:     row.HashedID,
 			UserID:       row.UserID,
-			ExpiresAt:    row.ExpiresAt.Time,
-			LastActiveAt: row.LastActiveAt.Time,
-			UserAgent:    fromPgText(row.UserAgent),
-			IPAddress:    fromPgText(row.IpAddress),
-			CreatedAt:    row.CreatedAt.Time,
+			ExpiresAt:    row.ExpiresAt,
+			LastActiveAt: row.LastActiveAt,
+			UserAgent:    row.UserAgent,
+			IPAddress:    row.IpAddress,
+			CreatedAt:    row.CreatedAt,
 		}
 	}
 	return sessions, nil
@@ -205,20 +181,20 @@ func (a *PGAdapter) ListUserSessions(ctx context.Context, userID string) ([]repo
 func (a *PGAdapter) GetLatestAppToken(ctx context.Context) (*repository.AppAccessToken, error) {
 	row, err := a.queries.GetLatestAppToken(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("pg get latest app token: %w", err)
+		return nil, mapErr(err)
 	}
 	return &repository.AppAccessToken{
 		ID:        row.ID,
 		Token:     row.Token,
-		ExpiresAt: row.ExpiresAt.Time,
-		CreatedAt: row.CreatedAt.Time,
+		ExpiresAt: row.ExpiresAt,
+		CreatedAt: row.CreatedAt,
 	}, nil
 }
 
 func (a *PGAdapter) CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*repository.AppAccessToken, error) {
 	row, err := a.queries.CreateAppToken(ctx, pggen.CreateAppTokenParams{
 		Token:     token,
-		ExpiresAt: toPgTimestamptz(expiresAt),
+		ExpiresAt: expiresAt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg create app token: %w", err)
@@ -226,8 +202,8 @@ func (a *PGAdapter) CreateAppToken(ctx context.Context, token string, expiresAt 
 	return &repository.AppAccessToken{
 		ID:        row.ID,
 		Token:     row.Token,
-		ExpiresAt: row.ExpiresAt.Time,
-		CreatedAt: row.CreatedAt.Time,
+		ExpiresAt: row.ExpiresAt,
+		CreatedAt: row.CreatedAt,
 	}, nil
 }
 
@@ -258,7 +234,7 @@ func (a *PGAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEn
 	for i, row := range rows {
 		entries[i] = repository.WhitelistEntry{
 			TwitchUserID: row.TwitchUserID,
-			AddedAt:      row.AddedAt.Time,
+			AddedAt:      row.AddedAt,
 		}
 	}
 	return entries, nil

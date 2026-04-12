@@ -7,8 +7,6 @@ package pggen
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getUser = `-- name: GetUser :one
@@ -111,12 +109,12 @@ RETURNING id, login, display_name, email, profile_image_url, role, created_at, u
 `
 
 type UpsertUserParams struct {
-	ID              string      `json:"id"`
-	Login           string      `json:"login"`
-	DisplayName     string      `json:"display_name"`
-	Email           pgtype.Text `json:"email"`
-	ProfileImageUrl pgtype.Text `json:"profile_image_url"`
-	Role            string      `json:"role"`
+	ID              string  `json:"id"`
+	Login           string  `json:"login"`
+	DisplayName     string  `json:"display_name"`
+	Email           *string `json:"email"`
+	ProfileImageUrl *string `json:"profile_image_url"`
+	Role            string  `json:"role"`
 }
 
 func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error) {

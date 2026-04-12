@@ -7,8 +7,7 @@ package pggen
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 const createAppToken = `-- name: CreateAppToken :one
@@ -16,8 +15,8 @@ INSERT INTO app_access_tokens (token, expires_at) VALUES ($1, $2) RETURNING id, 
 `
 
 type CreateAppTokenParams struct {
-	Token     string             `json:"token"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 func (q *Queries) CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error) {

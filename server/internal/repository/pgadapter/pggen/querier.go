@@ -6,54 +6,89 @@ package pggen
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 type Querier interface {
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
+	AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
 	CountUserSessions(ctx context.Context, userID string) (int64, error)
+	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
+	CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
-	DeleteOldFetchLogs(ctx context.Context, fetchedAt pgtype.Timestamptz) error
+	DeleteOldFetchLogs(ctx context.Context, fetchedAt time.Time) error
 	DeleteSession(ctx context.Context, hashedID string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
+	EndStream(ctx context.Context, arg EndStreamParams) error
 	GetCategory(ctx context.Context, id string) (Category, error)
 	GetCategoryByName(ctx context.Context, name string) (Category, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
+	GetLastLiveStream(ctx context.Context, broadcasterID string) (Stream, error)
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
+	GetStream(ctx context.Context, id string) (Stream, error)
 	GetTag(ctx context.Context, id int64) (Tag, error)
 	GetTagByName(ctx context.Context, name string) (Tag, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByLogin(ctx context.Context, login string) (User, error)
+	GetVideo(ctx context.Context, id int64) (Video, error)
+	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
+	LinkStreamCategory(ctx context.Context, arg LinkStreamCategoryParams) error
+	LinkStreamTag(ctx context.Context, arg LinkStreamTagParams) error
+	LinkStreamTitle(ctx context.Context, arg LinkStreamTitleParams) error
+	LinkVideoCategory(ctx context.Context, arg LinkVideoCategoryParams) error
+	LinkVideoTag(ctx context.Context, arg LinkVideoTagParams) error
+	LinkVideoTitle(ctx context.Context, arg LinkVideoTitleParams) error
+	ListActiveStreams(ctx context.Context) ([]Stream, error)
 	ListCategories(ctx context.Context) ([]Category, error)
+	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
+	ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsByBroadcasterParams) ([]Stream, error)
 	ListTags(ctx context.Context) ([]Tag, error)
+	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
+	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
+	ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error)
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
+	ListVideos(ctx context.Context, arg ListVideosParams) ([]Video, error)
+	ListVideosByBroadcaster(ctx context.Context, arg ListVideosByBroadcasterParams) ([]Video, error)
+	ListVideosByCategory(ctx context.Context, arg ListVideosByCategoryParams) ([]Video, error)
+	ListVideosByStatus(ctx context.Context, arg ListVideosByStatusParams) ([]Video, error)
+	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	ListWhitelist(ctx context.Context) ([]Whitelist, error)
+	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
+	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
+	SoftDeleteVideo(ctx context.Context, id int64) error
+	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
+	StatisticsTotals(ctx context.Context) (StatisticsTotalsRow, error)
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
+	UpdateStreamViewers(ctx context.Context, arg UpdateStreamViewersParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
+	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
+	UpsertStream(ctx context.Context, arg UpsertStreamParams) (Stream, error)
 	UpsertTag(ctx context.Context, name string) (Tag, error)
+	UpsertTitle(ctx context.Context, name string) (Title, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 	UpsertUserFollow(ctx context.Context, arg UpsertUserFollowParams) error
 }

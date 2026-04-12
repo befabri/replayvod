@@ -7,8 +7,7 @@ package pggen
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 const countUserSessions = `-- name: CountUserSessions :one
@@ -28,12 +27,12 @@ VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type CreateSessionParams struct {
-	HashedID        string             `json:"hashed_id"`
-	UserID          string             `json:"user_id"`
-	EncryptedTokens []byte             `json:"encrypted_tokens"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	UserAgent       pgtype.Text        `json:"user_agent"`
-	IpAddress       pgtype.Text        `json:"ip_address"`
+	HashedID        string    `json:"hashed_id"`
+	UserID          string    `json:"user_id"`
+	EncryptedTokens []byte    `json:"encrypted_tokens"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	UserAgent       *string   `json:"user_agent"`
+	IpAddress       *string   `json:"ip_address"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
@@ -101,13 +100,13 @@ FROM sessions WHERE user_id = $1 ORDER BY last_active_at DESC
 `
 
 type ListUserSessionsRow struct {
-	HashedID     string             `json:"hashed_id"`
-	UserID       string             `json:"user_id"`
-	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
-	LastActiveAt pgtype.Timestamptz `json:"last_active_at"`
-	UserAgent    pgtype.Text        `json:"user_agent"`
-	IpAddress    pgtype.Text        `json:"ip_address"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	HashedID     string    `json:"hashed_id"`
+	UserID       string    `json:"user_id"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	LastActiveAt time.Time `json:"last_active_at"`
+	UserAgent    *string   `json:"user_agent"`
+	IpAddress    *string   `json:"ip_address"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (q *Queries) ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error) {

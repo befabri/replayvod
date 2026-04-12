@@ -7,8 +7,7 @@ package pggen
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 const deleteChannel = `-- name: DeleteChannel :exec
@@ -211,15 +210,15 @@ RETURNING broadcaster_id, broadcaster_login, broadcaster_name, broadcaster_langu
 `
 
 type UpsertChannelParams struct {
-	BroadcasterID       string      `json:"broadcaster_id"`
-	BroadcasterLogin    string      `json:"broadcaster_login"`
-	BroadcasterName     string      `json:"broadcaster_name"`
-	BroadcasterLanguage pgtype.Text `json:"broadcaster_language"`
-	ProfileImageUrl     pgtype.Text `json:"profile_image_url"`
-	OfflineImageUrl     pgtype.Text `json:"offline_image_url"`
-	Description         pgtype.Text `json:"description"`
-	BroadcasterType     pgtype.Text `json:"broadcaster_type"`
-	ViewCount           int32       `json:"view_count"`
+	BroadcasterID       string  `json:"broadcaster_id"`
+	BroadcasterLogin    string  `json:"broadcaster_login"`
+	BroadcasterName     string  `json:"broadcaster_name"`
+	BroadcasterLanguage *string `json:"broadcaster_language"`
+	ProfileImageUrl     *string `json:"profile_image_url"`
+	OfflineImageUrl     *string `json:"offline_image_url"`
+	Description         *string `json:"description"`
+	BroadcasterType     *string `json:"broadcaster_type"`
+	ViewCount           int32   `json:"view_count"`
 }
 
 func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error) {
@@ -260,10 +259,10 @@ ON CONFLICT (user_id, broadcaster_id) DO UPDATE SET
 `
 
 type UpsertUserFollowParams struct {
-	UserID        string             `json:"user_id"`
-	BroadcasterID string             `json:"broadcaster_id"`
-	FollowedAt    pgtype.Timestamptz `json:"followed_at"`
-	Followed      bool               `json:"followed"`
+	UserID        string    `json:"user_id"`
+	BroadcasterID string    `json:"broadcaster_id"`
+	FollowedAt    time.Time `json:"followed_at"`
+	Followed      bool      `json:"followed"`
 }
 
 func (q *Queries) UpsertUserFollow(ctx context.Context, arg UpsertUserFollowParams) error {
