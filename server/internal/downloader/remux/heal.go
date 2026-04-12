@@ -43,10 +43,19 @@ func (r *Remuxer) Heal(ctx context.Context, inputPath, outputPath string, kind K
 	partPath := outputPath + partSuffix
 	args := healArgs(inputPath, partPath, kind)
 
+	// Same cleanup pattern as Run: defer os.Remove gated on a
+	// committed flag so panic / rename-failure / ffmpeg-failure
+	// all land the .part in the bin.
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(partPath)
+		}
+	}()
+
 	var stderr bytes.Buffer
 	runErr := runner.Run(ctx, bin, args, &stderr)
 	if runErr != nil {
-		_ = os.Remove(partPath)
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return runErr
 		}
@@ -60,9 +69,9 @@ func (r *Remuxer) Heal(ctx context.Context, inputPath, outputPath string, kind K
 	}
 
 	if err := os.Rename(partPath, outputPath); err != nil {
-		_ = os.Remove(partPath)
 		return fmt.Errorf("remux heal: commit rename %s → %s: %w", partPath, outputPath, err)
 	}
+	committed = true
 	return nil
 }
 

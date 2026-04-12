@@ -107,10 +107,21 @@ func (r *Remuxer) Run(ctx context.Context, in RunInput) error {
 		return err
 	}
 
+	// Cleanup on every non-success path — including a panic
+	// between runner.Run and the rename. The committed flag
+	// gates the removal so the happy path leaves the final
+	// file intact. os.Remove on a non-existent path is a no-op
+	// so failed-ffmpeg + already-gone-.part paths are fine too.
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(partPath)
+		}
+	}()
+
 	var stderr bytes.Buffer
 	runErr := runner.Run(ctx, bin, args, &stderr)
 	if runErr != nil {
-		_ = os.Remove(partPath)
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return runErr
 		}
@@ -124,11 +135,12 @@ func (r *Remuxer) Run(ctx context.Context, in RunInput) error {
 
 	// Success: rename .part → final. A rename failure here is
 	// rare (cross-filesystem, disk full, permissions) but real;
-	// we remove the orphan .part and surface the error.
+	// the deferred Remove cleans up the orphan .part and we
+	// surface the error.
 	if err := os.Rename(partPath, finalPath); err != nil {
-		_ = os.Remove(partPath)
 		return fmt.Errorf("remux: commit rename %s → %s: %w", partPath, finalPath, err)
 	}
+	committed = true
 	return nil
 }
 

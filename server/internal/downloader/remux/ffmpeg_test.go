@@ -180,6 +180,45 @@ func TestRemuxer_Run_FailureCleansPartFile(t *testing.T) {
 	}
 }
 
+// panickyRunner writes a partial .part file like ffmpeg would,
+// then panics — simulates a hard fault between runner.Run
+// returning and the rename step. The deferred cleanup in Run
+// should remove the .part even though the panic propagates.
+type panickyRunner struct{}
+
+func (panickyRunner) Run(_ context.Context, _ string, args []string, _ io.Writer) error {
+	if len(args) > 0 {
+		_ = os.WriteFile(args[len(args)-1], []byte("in flight"), 0o644)
+	}
+	panic("simulated fault")
+}
+
+func TestRemuxer_Run_PanicMidRunStillCleansPartFile(t *testing.T) {
+	dir := t.TempDir()
+	r := &Remuxer{Runner: panickyRunner{}}
+
+	defer func() {
+		// Swallow the panic so the test can assert state after.
+		if recover() == nil {
+			t.Fatal("expected panic from runner")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "rec.mp4.part")); !os.IsNotExist(err) {
+			t.Errorf(".part not cleaned after panic: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "rec.mp4")); !os.IsNotExist(err) {
+			t.Errorf("final file should not exist after panic: %v", err)
+		}
+	}()
+
+	_ = r.Run(context.Background(), RunInput{
+		Mode:           ModeTS,
+		Kind:           KindVideo,
+		InputPath:      "/in/segments.txt",
+		OutputDir:      dir,
+		OutputBasename: "rec",
+	})
+}
+
 func TestRemuxer_Run_CtxCancelCleansPartFile(t *testing.T) {
 	dir := t.TempDir()
 	partPath := filepath.Join(dir, "rec.mp4.part")
