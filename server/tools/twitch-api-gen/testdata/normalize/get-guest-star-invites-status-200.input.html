@@ -1,0 +1,123 @@
+<section class="left-docs">
+			<h2 id="get-guest-star-invites">Get Guest Star Invites</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[72]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p><span class="pill pill-beta">BETA</span> Provides the caller with a list of pending invites to a Guest Star session, including the invitee’s ready status while joining the waiting room.</p>
+
+<h3>Authorization</h3>
+
+<ul>
+  <li>Query parameter <code class="highlighter-rouge">broadcaster_id</code> must match the <code class="highlighter-rouge">user_id</code> in the <a href="/docs/authentication#user-access-tokens">User-Access token</a></li>
+  <li>Requires OAuth Scope: <code class="highlighter-rouge">channel:read:guest_star</code>, <code class="highlighter-rouge">channel:manage:guest_star</code>, <code class="highlighter-rouge">moderator:read:guest_star</code> or <code class="highlighter-rouge">moderator:manage:guest_star</code></li>
+</ul>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">GET https://api.twitch.tv/helix/guest_star/invites</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Required</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The ID of the broadcaster running the Guest Star session.</td>
+    </tr>
+    <tr>
+      <td>moderator_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The ID of the broadcaster or a user that has permission to moderate the broadcaster’s chat room. This ID must match the <code class="highlighter-rouge">user_id</code> in the user access token.</td>
+    </tr>
+    <tr>
+      <td>session_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The session ID to query for invite status.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>data</td>
+      <td>Invite[]</td>
+      <td>A list of invite objects describing the invited user as well as their ready status.</td>
+    </tr>
+    <tr>
+      <td>   user_id</td>
+      <td>String</td>
+      <td>Twitch User ID corresponding to the invited guest</td>
+    </tr>
+    <tr>
+      <td>   invited_at</td>
+      <td>string</td>
+      <td>Timestamp when this user was invited to the session.</td>
+    </tr>
+    <tr>
+      <td>   status</td>
+      <td>string</td>
+      <td>Status representing the invited user’s join state. Can be one of the following: <ul><li><code>INVITED</code>: The user has been invited to the session but has not acknowledged it.</li> <li><code>ACCEPTED</code>: The invited user has acknowledged the invite and joined the waiting room, but may still be setting up their media devices or otherwise preparing to join the call.</li> <li><code>READY</code>: The invited user has signaled they are ready to join the call from the waiting room.</li></ul></td>
+    </tr>
+    <tr>
+      <td>   is_video_enabled</td>
+      <td>Boolean</td>
+      <td>Flag signaling that the invited user has chosen to disable their local video device. The user has hidden themselves, but they may choose to reveal their video feed upon joining the session.</td>
+    </tr>
+    <tr>
+      <td>   is_audio_enabled</td>
+      <td>Boolean</td>
+      <td>Flag signaling that the invited user has chosen to disable their local audio device. The user has muted themselves, but they may choose to unmute their audio feed upon joining the session.</td>
+    </tr>
+    <tr>
+      <td>   is_video_available</td>
+      <td>Boolean</td>
+      <td>Flag signaling that the invited user has a video device available for sharing.</td>
+    </tr>
+    <tr>
+      <td>   is_audio_available</td>
+      <td>Boolean</td>
+      <td>Flag signaling that the invited user has an audio device available for sharing.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Code</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>400 Bad Request</td>
+      <td><ul><li>Missing <i>broadcaster_id</i></li> <li>Missing <i>session_id</i></li></ul></td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

@@ -1,0 +1,68 @@
+<section class="right-code">
+				<h3>Example Request</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> PATCH <span class="s1">&#39;https://api.twitch.tv/helix/eventsub/conduits/shards&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Authorization: Bearer cfabdegwdoklmawdzdo98xt2fo512y&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Client-Id: uo6dggojyb8d6soh92zknwmi5ej1q2&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Content-Type: application/json&#39;</span> <span class="se">\</span>
+<span class="nt">-d</span> <span class="s1">&#39;{
+  &#34;conduit_id&#34;:&#34;bfcfc993-26b1-b876-44d9-afe75a379dac&#34;,
+  &#34;shards&#34;: [{
+    &#34;id&#34;: &#34;0&#34;,
+    &#34;transport&#34;: {
+        &#34;method&#34;: &#34;webhook&#34;,
+        &#34;callback&#34;: &#34;https://this-is-a-callback.com&#34;,
+        &#34;secret&#34;: &#34;s3cre7&#34;
+    }
+  },
+  {
+    &#34;id&#34;: &#34;1&#34;,
+    &#34;transport&#34;: {
+        &#34;method&#34;: &#34;webhook&#34;,
+        &#34;callback&#34;: &#34;https://this-is-a-callback-2.com&#34;,
+        &#34;secret&#34;: &#34;s3cre7&#34;
+    }
+  },
+  {
+    &#34;id&#34;: &#34;3&#34;,
+    &#34;transport&#34;:{
+        &#34;method&#34;: &#34;webhook&#34;,
+        &#34;callback&#34;: &#34;https://this-is-a-callback-3.com&#34;,
+        &#34;secret&#34;: &#34;s3cre7&#34;
+    }
+  }]
+}&#39;</span>
+</code></pre></div></div>
+
+<h3>Example Response</h3>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="s2">&#34;data&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;0&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;status&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;enabled&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;transport&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s2">&#34;method&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;webhook&#34;</span><span class="p">,</span><span class="w">
+        </span><span class="s2">&#34;callback&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://this-is-a-callback.com&#34;</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">},</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;1&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;status&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;webhook_callback_verification_pending&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;transport&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s2">&#34;method&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;webhook&#34;</span><span class="p">,</span><span class="w">
+        </span><span class="s2">&#34;callback&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://this-is-a-callback-2.com&#34;</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">],</span><span class="w">
+  </span><span class="s2">&#34;errors&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;3&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;message&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;The shard id is outside the conduit&#39;s range&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;code&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;invalid_parameter&#34;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+			</section>

@@ -1,0 +1,116 @@
+<section class="left-docs">
+			<h2 id="get-ad-schedule">Get Ad Schedule</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[1]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p>This endpoint returns ad schedule related information, including snooze, when the last ad was run, when the next ad is scheduled, and if the channel is currently in pre-roll free time. Note that a new ad cannot be run until 8 minutes after running a previous ad.</p>
+
+<h3>Authorization</h3>
+
+<p>Requires one of the following:</p>
+
+<ul>
+  <li>A <a href="/docs/authentication#user-access-tokens">user access token</a> that includes the <strong>channel:read:ads</strong> scope. The user ID associated with the token must match the <code class="highlighter-rouge">broadcaster_id</code> in the query parameter.</li>
+  <li><span class="pill pill-beta">BETA</span> An <a href="/docs/authentication#app-access-tokens">app access token</a> where the application, through a prior authorization, has the <strong>channel:read:ads</strong> scope for the user represented by the <code class="highlighter-rouge">broadcaster_id</code> query parameter.</li>
+</ul>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">GET https://api.twitch.tv/helix/channels/ads</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Required?</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>Provided <code class="highlighter-rouge">broadcaster_id</code> must match the <code class="highlighter-rouge">user_id</code> in the auth token.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>data</td>
+      <td>Object[]</td>
+      <td>A list that contains information related to the channel’s ad schedule.</td>
+    </tr>
+    <tr>
+      <td>   snooze_count</td>
+      <td>Integer</td>
+      <td>The number of snoozes available for the broadcaster.</td>
+    </tr>
+    <tr>
+      <td>   snooze_refresh_at</td>
+      <td>Int64</td>
+      <td>The UTC timestamp when the broadcaster will gain an additional snooze, in RFC3339 format.</td>
+    </tr>
+    <tr>
+      <td>   next_ad_at</td>
+      <td>Int64</td>
+      <td>The UTC timestamp of the broadcaster’s next scheduled ad, in RFC3339 format. <code class="highlighter-rouge">0</code> if the channel has no ad scheduled or is not live.</td>
+    </tr>
+    <tr>
+      <td>   duration</td>
+      <td>Integer</td>
+      <td>The length in seconds of the scheduled upcoming ad break.</td>
+    </tr>
+    <tr>
+      <td>   last_ad_at</td>
+      <td>Int64</td>
+      <td>The UTC timestamp of the broadcaster’s last ad-break, in RFC3339 format. Empty if the channel has not run an ad or is not live.</td>
+    </tr>
+    <tr>
+      <td>   preroll_free_time</td>
+      <td>Integer</td>
+      <td>The amount of pre-roll free time remaining for the channel in seconds. Returns 0 if they are currently not pre-roll free.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Code</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>200 OK</td>
+      <td>Returns the ad schedule information for the channel.</td>
+    </tr>
+    <tr>
+      <td>400 Bad Request</td>
+      <td>The broadcaster ID is not valid.</td>
+    </tr>
+    <tr>
+      <td>500 Internal Server Error</td>
+      <td> </td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

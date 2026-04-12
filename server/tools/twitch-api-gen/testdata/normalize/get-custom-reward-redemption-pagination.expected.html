@@ -1,0 +1,222 @@
+<section class="left-docs">
+			<h2 id="get-custom-reward-redemption">Get Custom Reward Redemption</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[16]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p>Gets a list of redemptions for the specified custom reward. The app used to create the reward is the only app that may get the redemptions.</p>
+
+<h3>Authorization</h3>
+
+<p>Requires a <a href="/docs/authentication#user-access-tokens">user access token</a> that includes the <strong>channel:read:redemptions</strong> or <strong>channel:manage:redemptions</strong> scope.</p>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">GET https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Required?</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The ID of the broadcaster that owns the custom reward. This ID must match the user ID found in the user OAuth token.</td>
+    </tr>
+    <tr>
+      <td>reward_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The ID that identifies the custom reward whose redemptions you want to get.</td>
+    </tr>
+    <tr>
+      <td>status</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The status of the redemptions to return. The possible case-sensitive values are:<ul><li>CANCELED</li><li>FULFILLED</li><li>UNFULFILLED</li></ul><strong>NOTE</strong>: This field is required only if you don’t specify the <em>id</em> query parameter.<br/><br/><strong>NOTE</strong>: Canceled and fulfilled redemptions are returned for only a few days after they’re canceled or fulfilled.</td>
+    </tr>
+    <tr>
+      <td>id</td>
+      <td>String</td>
+      <td>No</td>
+      <td>A list of IDs to filter the redemptions by. To specify more than one ID, include this parameter for each redemption you want to get. For example, <code class="highlighter-rouge">id=1234&amp;id=5678</code>. You may specify a maximum of 50 IDs.<br/><br/>Duplicate IDs are ignored. The response contains only the IDs that were found. If none of the IDs were found, the response is 404 Not Found.</td>
+    </tr>
+    <tr>
+      <td>sort</td>
+      <td>String</td>
+      <td>No</td>
+      <td>The order to sort redemptions by. The possible case-sensitive values are:<ul><li>OLDEST</li><li>NEWEST</li></ul>The default is OLDEST.</td>
+    </tr>
+    <tr>
+      <td>after</td>
+      <td>String</td>
+      <td>No</td>
+      <td>The cursor used to get the next page of results. The <strong>Pagination</strong> object in the response contains the cursor’s value. <a href="/docs/api/guide#pagination">Read more</a></td>
+    </tr>
+    <tr>
+      <td>first</td>
+      <td>Integer</td>
+      <td>No</td>
+      <td>The maximum number of redemptions to return per page in the response. The minimum page size is 1 redemption per page and the maximum is 50. The default is 20.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>data</td>
+      <td>Object[]</td>
+      <td>The list of redemptions for the specified reward. The list is empty if there are no redemptions that match the redemption criteria.</td>
+    </tr>
+    <tr>
+      <td>   broadcaster_id</td>
+      <td>String</td>
+      <td>The ID that uniquely identifies the broadcaster.</td>
+    </tr>
+    <tr>
+      <td>   broadcaster_login</td>
+      <td>String</td>
+      <td>The broadcaster’s login name.</td>
+    </tr>
+    <tr>
+      <td>   broadcaster_name</td>
+      <td>string</td>
+      <td>The broadcaster’s display name.</td>
+    </tr>
+    <tr>
+      <td>   id</td>
+      <td>String</td>
+      <td>The ID that uniquely identifies this redemption.</td>
+    </tr>
+    <tr>
+      <td>   user_login</td>
+      <td>String</td>
+      <td>The user’s login name.</td>
+    </tr>
+    <tr>
+      <td>   user_id</td>
+      <td>String</td>
+      <td>The ID that uniquely identifies the user that redeemed the reward.</td>
+    </tr>
+    <tr>
+      <td>   user_name</td>
+      <td>String</td>
+      <td>The user’s display name.</td>
+    </tr>
+    <tr>
+      <td>   user_input</td>
+      <td>String</td>
+      <td>The text the user entered at the prompt when they redeemed the reward; otherwise, an empty string if user input was not required.</td>
+    </tr>
+    <tr>
+      <td>   status</td>
+      <td>String</td>
+      <td>The state of the redemption. Possible values are:<ul><li>CANCELED</li><li>FULFILLED</li><li>UNFULFILLED</li></ul></td>
+    </tr>
+    <tr>
+      <td>   redeemed_at</td>
+      <td>String</td>
+      <td>The date and time of when the reward was redeemed, in RFC3339 format.</td>
+    </tr>
+    <tr>
+      <td>   reward</td>
+      <td>Object</td>
+      <td>The reward that the user redeemed.</td>
+    </tr>
+    <tr>
+      <td>      id</td>
+      <td>String</td>
+      <td>The ID that uniquely identifies the redeemed reward.</td>
+    </tr>
+    <tr>
+      <td>      title</td>
+      <td>String</td>
+      <td>The reward’s title.</td>
+    </tr>
+    <tr>
+      <td>      prompt</td>
+      <td>String</td>
+      <td>The prompt displayed to the viewer if user input is required.</td>
+    </tr>
+    <tr>
+      <td>      cost</td>
+      <td>Int64</td>
+      <td>The reward’s cost, in Channel Points.</td>
+    </tr>
+  
+      <tr>
+        <td>pagination</td>
+        <td>Object</td>
+        <td>
+          Contains the information used to page through the list of results.
+          The object is empty if there are no more pages left to page through.
+          <a href="/docs/api/guide#pagination">Read More</a>
+        </td>
+      </tr>
+      <tr>
+        <td>   cursor</td>
+        <td>String</td>
+        <td>
+          The cursor used to get the next page of results.
+          Use the cursor to set the request’s <em>after</em> query parameter.
+        </td>
+      </tr>
+    </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>HTTP Code</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>200 Ok</td>
+      <td>Successfully retrieved the list of redeemed custom rewards.</td>
+    </tr>
+    <tr>
+      <td>400 Bad Request</td>
+      <td><ul><li>The <i>broadcaster_id</i> query parameter is required.</li><li>The <i>reward_id</i> query parameter is required.</li><li>The <i>status</i> query parameter is required if you didn&#39;t specify the <i>id</i> query parameter.</li><li>The value in the <i>status</i> query parameter is not valid.</li><li>The value in the <i>sort</i> query parameter is not valid.</li></ul></td>
+    </tr>
+    <tr>
+      <td>401 Unauthorized</td>
+      <td><ul><li>The Authorization header is required and must specify a user access token.</li><li>The user access token must include the <b>channel:read:redemptions</b> scope.</li><li>The OAuth token is not valid.</li><li>The ID in the Client-Id header must match the Client ID in the OAuth token.</li></ul></td>
+    </tr>
+    <tr>
+      <td>403 Forbidden</td>
+      <td><ul><li>The ID in the Client-Id header must match the client ID used to create the custom reward.</li><li>The broadcaster is not a partner or affiliate.</li></ul></td>
+    </tr>
+    <tr>
+      <td>404 Not Found</td>
+      <td><ul><li>All of the redemptions specified using the <i>id</i> query parameter were not found.</li></ul></td>
+    </tr>
+    <tr>
+      <td>500 Internal Server Error</td>
+      <td> </td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

@@ -1,0 +1,98 @@
+<section class="left-docs">
+			<h2 id="get-moderated-channels">Get Moderated Channels</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[93]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p>Gets a list of channels that the specified user has moderator privileges in.</p>
+
+<h3>Authorization</h3>
+
+<p>Requires one of the following:</p>
+
+<ul>
+  <li>A <a href="/docs/authentication#user-access-tokens">user access token</a> that includes the <strong>user:read:moderated_channels</strong>. The user ID associated with the token must match the <code class="highlighter-rouge">user_id</code> in the query parameter.</li>
+  <li><span class="pill pill-beta">BETA</span> An <a href="/docs/authentication#app-access-tokens">app access token</a> where the application, through a prior authorization, has the <strong>user:read:moderated_channels</strong> scope for the user represented by the <code class="highlighter-rouge">user_id</code> query parameter.</li>
+</ul>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">GET https://api.twitch.tv/helix/moderation/channels</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Required?</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>user_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>A user’s ID. Returns the list of channels that this user has moderator privileges in. This ID must match the user ID in the user OAuth token</td>
+    </tr>
+    <tr>
+      <td>after</td>
+      <td>String</td>
+      <td>No</td>
+      <td>The cursor used to get the next page of results. The Pagination object in the response contains the cursor’s value.</td>
+    </tr>
+    <tr>
+      <td>first</td>
+      <td>Integer</td>
+      <td>No</td>
+      <td>The maximum number of items to return per page in the response.<br/><br/>Minimum page size is 1 item per page and the maximum is 100. The default is 20.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>data</td>
+      <td>Object[]</td>
+      <td>The list of channels that the user has moderator privileges in.</td>
+    </tr>
+    <tr>
+      <td>   broadcaster_id</td>
+      <td>String</td>
+      <td>An ID that uniquely identifies the channel this user can moderate.</td>
+    </tr>
+    <tr>
+      <td>   broadcaster_login</td>
+      <td>String</td>
+      <td>The channel’s login name.</td>
+    </tr>
+    <tr>
+      <td>   broadcaster_name</td>
+      <td>String</td>
+      <td>The channels’ display name.</td>
+    </tr>
+    <tr>
+      <td>pagination</td>
+      <td>Object</td>
+      <td>Contains the information used to page through the list of results. The object is empty if there are no more pages left to page through.</td>
+    </tr>
+    <tr>
+      <td>   cursor</td>
+      <td>String</td>
+      <td>The cursor used to get the next page of results. Use the cursor to set the request’s after query parameter.</td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

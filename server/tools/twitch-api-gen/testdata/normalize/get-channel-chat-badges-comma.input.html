@@ -1,0 +1,49 @@
+<section class="right-code">
+				<h3>Example Request</h3>
+
+<p>Get the list of custom chat badges that the BlueLava Twitch channel created.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> GET <span class="s1">&#39;https://api.twitch.tv/helix/chat/badges?broadcaster_id=135093069&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Authorization: Bearer cfabdegwdoklmawdzdo98xt2fo512y&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Client-Id: uo6dggojyb8d6soh92zknwmi5ej1q2&#39;</span>
+</code></pre></div></div>
+
+<h3>Example Response</h3>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="s2">&#34;data&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;set_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;bits&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;versions&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+          </span><span class="s2">&#34;id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;1&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;image_url_1x&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://static-cdn.jtvnw.net/badges/v1/743a0f3b-84b3-450b-96a0-503d7f4a9764/1&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;image_url_2x&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://static-cdn.jtvnw.net/badges/v1/743a0f3b-84b3-450b-96a0-503d7f4a9764/2&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;image_url_4x&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://static-cdn.jtvnw.net/badges/v1/743a0f3b-84b3-450b-96a0-503d7f4a9764/3&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;title&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;cheer 1&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;description&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;cheer 1&#34;</span><span class="w">
+          </span><span class="s2">&#34;click_action&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;visit_url&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;click_url&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://bits.twitch.tv&#34;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">]</span><span class="w">
+    </span><span class="p">},</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;set_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;subscriber&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;versions&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+          </span><span class="s2">&#34;id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;0&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;image_url_1x&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://static-cdn.jtvnw.net/badges/v1/eb4a8a4c-eacd-4f5e-b9f2-394348310442/1&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;image_url_2x&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://static-cdn.jtvnw.net/badges/v1/eb4a8a4c-eacd-4f5e-b9f2-394348310442/2&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;image_url_4x&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://static-cdn.jtvnw.net/badges/v1/eb4a8a4c-eacd-4f5e-b9f2-394348310442/3&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;title&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;Subscriber&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;description&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;Subscriber&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;click_action&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;subscribe_to_channel&#34;</span><span class="p">,</span><span class="w">
+          </span><span class="s2">&#34;click_url&#34;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="w">
+        </span><span class="p">},</span><span class="w">
+      </span><span class="p">]</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+			</section>

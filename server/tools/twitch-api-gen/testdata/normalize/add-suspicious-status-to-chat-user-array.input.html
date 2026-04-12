@@ -1,0 +1,160 @@
+<section class="left-docs">
+			<h2 id="add-suspicious-status-to-chat-user">Add Suspicious Status to Chat User</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[103]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p><span class="pill pill-new">NEW</span> Adds a suspicious user status to a chatter on the broadcaster’s channel.</p>
+
+<h3>Authorization</h3>
+
+<p>Requires an <a href="/docs/authentication#app-access-tokens">app access token</a> or <a href="/docs/authentication#user-access-tokens">user access token</a> that includes the <strong>moderator:manage:suspicious_users</strong> scope.</p>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">POST https://api.twitch.tv/helix/moderation/suspicious_users</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Required?</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The user ID of the broadcaster, indicating the channel where the status is being applied.</td>
+    </tr>
+    <tr>
+      <td>moderator_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The user ID of the moderator who is applying the status.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Request Body Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Required?</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>user_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The ID of the user being given the suspicious status.</td>
+    </tr>
+    <tr>
+      <td>status</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The type of suspicious status. Possible values are: ACTIVE_MONITORING, RESTRICTED</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>data</td>
+      <td>Object[]</td>
+      <td>An array with one object containing information about the suspicious user action.</td>
+    </tr>
+    <tr>
+      <td>   user_id</td>
+      <td>String</td>
+      <td>The ID of the user being given the suspicious status.</td>
+    </tr>
+    <tr>
+      <td>   broadcaster_id</td>
+      <td>String</td>
+      <td>The user ID of the broadcaster indicating in which channel the status is being applied.</td>
+    </tr>
+    <tr>
+      <td>   moderator_id</td>
+      <td>String</td>
+      <td>The user ID of the moderator who applied the last status.</td>
+    </tr>
+    <tr>
+      <td>   updated_at</td>
+      <td>String</td>
+      <td>The timestamp of the last time this user’s status was updated.</td>
+    </tr>
+    <tr>
+      <td>   status</td>
+      <td>String</td>
+      <td>The type of suspicious status. Possible values are: ACTIVE_MONITORING, RESTRICTED</td>
+    </tr>
+    <tr>
+      <td>   types</td>
+      <td>Array</td>
+      <td>An array of strings representing the type(s) of suspicious user this is. Possible values are: MANUALLY_ADDED, DETECTED_BAN_EVADER, DETECTED_SUS_CHATTER, BANNED_IN_SHARED_CHANNEL</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Code</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>200 OK</td>
+      <td>Successfully applied a suspicious user status.</td>
+    </tr>
+    <tr>
+      <td>400 Bad Request</td>
+      <td><ul>
+        <li>Validation errors: Missing required fields.</li>
+        <li>The ID in the broadcaster_id query parameter was not found.</li>
+        <li>The status specified was invalid. Must either be ACTIVE_MONITORING or RESTRICTED</li>
+        <li>The status update is not allowed for this user.</li>
+      </ul></td>
+    </tr>
+    <tr>
+      <td>401 Unauthorized</td>
+      <td><ul>
+        <li>The Authorization header is required and must specify user access token.</li>
+        <li>The user access token must include the <b>moderator:manage:suspicious_users</b> scope.</li>
+        <li>The OAuth token is not valid.</li>
+        <li>The ID in the Client-Id header must match the Client ID in the OAuth token.</li>
+      </ul></td>
+    </tr>
+    <tr>
+      <td>403 Forbidden</td>
+      <td><ul>
+        <li>The user in the moderator_id query parameter is not one of the broadcaster&#39;s moderators.</li>
+      </ul></td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

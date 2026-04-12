@@ -1,0 +1,31 @@
+<section class="left-docs">
+			<h2 id="get-unban-requests">Get Unban Requests</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[87]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p>Gets a list of unban requests for a broadcaster’s channel.</p>
+
+<h3>Authorization</h3>
+
+<ul>
+  <li>Requires a user access token that includes the <strong>moderator:read:unban_requests</strong> or <strong>moderator:manage:unban_requests</strong> scope.</li>
+  <li>Query parameter <code class="highlighter-rouge">moderator_id</code> must match the <code class="highlighter-rouge">user_id</code> in the <a href="https://dev.twitch.tv/docs/authentication/#user-access-tokens">user access token</a>.</li>
+</ul>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">GET https://api.twitch.tv/helix/moderation/unban_requests</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table><thead><tr><th>Parameter</th><th>Type</th><th>Required?</th><th>Description</th></tr></thead><tbody><tr><td>broadcaster_id</td><td>String</td><td>Yes</td><td>The ID of the broadcaster whose channel is receiving unban requests.</td></tr><tr><td>moderator_id</td><td>String</td><td>Yes</td><td>The ID of the broadcaster or a user that has permission to moderate the broadcaster’s unban requests. This ID must match the user ID in the user access token.</td></tr><tr><td>status</td><td>String</td><td>Yes</td><td>Filter by a status.<ul><li>pending</li><li>approved</li><li>denied</li><li>acknowledged</li><li>canceled</li></ul></td></tr><tr><td>user_id</td><td>String</td><td>No</td><td>The ID used to filter what unban requests are returned.</td></tr><tr><td>after</td><td>String</td><td>No</td><td>Cursor used to get next page of results. Pagination object in response contains cursor value.</td></tr><tr><td>first</td><td>Integer</td><td>No</td><td>The maximum number of items to return per page in response</td></tr></tbody></table>
+
+<h3>Response Body</h3>
+
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td>data</td><td>Object[]</td><td>A list that contains information about the channel&#39;s unban requests.</td></tr><tr><td>   id</td><td>String</td><td>Unban request ID.</td></tr><tr><td>   broadcaster_id</td><td>String</td><td>User ID of broadcaster whose channel is receiving the unban request.</td></tr><tr><td>       broadcaster_name</td><td>String</td><td>The broadcaster&#39;s display name.</td></tr><tr><td>   broadcaster_login</td><td>String</td><td>The broadcaster&#39;s login name.</td></tr><tr><td>   moderator_id</td><td>String</td><td>User ID of moderator who approved/denied the request.</td></tr><tr><td>   moderator_login</td><td>String</td><td>The moderator&#39;s login name.</td></tr><tr><td>   moderator_name</td><td>String</td><td>The moderator&#39;s display name.</td></tr><tr><td>   user_id</td><td>String</td><td>User ID of the requestor who is asking for an unban.</td></tr><tr><td>   user_login</td><td>String</td><td>The user&#39;s login name.</td></tr><tr><td>   user_name</td><td>String</td><td>The user&#39;s display name.</td></tr><tr><td>   text</td><td>String</td><td>Text of the request from the requesting user.</td></tr><tr><td>   status</td><td>String</td><td>Status of the request. One of:<ul><li>pending</li><li>approved</li><li>denied</li><li>acknowledged</li><li>canceled</li></ul></td></tr><tr><td>   created_at</td><td>String</td><td>Timestamp of when the unban request was created.</td></tr><tr><td>   resolved_at</td><td>String</td><td>Timestamp of when moderator/broadcaster approved or denied the request.</td></tr><tr><td>   resolution_text</td><td>String</td><td>Text input by the resolver (moderator) of the unban. request</td></tr><tr><td>pagination</td><td>Object</td><td>Contains information used to page through a list of results. The object is empty if there are no more pages left to page through.</td></tr><tr><td>   cursor</td><td>String</td><td>The cursor used to get the next page of results. Use the cursor to set the request’s after query parameter.</td></tr></tbody></table>
+
+<h3>Response Codes</h3>
+
+<table><thead><tr><th>HTTP Code</th><th>Description</th></tr></thead><tbody><tr><td>200 OK</td><td>Successfully retrieved the list of unban requests.</td></tr><tr><td>400 Bad Request</td><td><ul><li>The <em>broadcaster_id</em> query parameter is required.</li><li>The ID in the <em>broadcaster_id</em> query parameter is not valid.</li><li>The <em>moderator_id</em> query parameter is required.</li><li>The ID in the <em>moderator_id</em> query parameter is not valid.</li><li>The pagination cursor is not valid.</li></ul></td></tr><tr><td>401 Unauthorized</td><td><ul><li>The ID in <em>moderator_id</em> must match the user ID in the user access token.</li><li>The Authorization header is required and must contain a user access token.</li><li>The user access token must include the <strong>moderator:read:unban_requests</strong> or <strong>moderator:manage:unban_requests</strong> scope.</li><li>The access token is not valid.</li><li>The client ID specified in the Client-Id header does not match the client ID specified in the access token.</li></ul></td></tr></tbody></table>
+
+			
+		</section>

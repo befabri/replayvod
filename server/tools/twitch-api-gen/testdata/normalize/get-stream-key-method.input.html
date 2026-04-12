@@ -1,0 +1,90 @@
+<section class="left-docs">
+			<h2 id="get-stream-key">Get Stream Key</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[121]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p>Gets the channel’s stream key.</p>
+
+<h3>Authorization</h3>
+
+<p>Requires a <a href="/docs/authentication#user-access-tokens">user access token</a> that includes the <strong>channel:read:stream_key</strong> scope.</p>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">https://api.twitch.tv/helix/streams/key</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Required?</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The ID of the broadcaster that owns the channel. The ID must match the user ID in the access token.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>data</td>
+      <td>Object[]</td>
+      <td>A list that contains the channel’s stream key.</td>
+    </tr>
+    <tr>
+      <td>   stream_key</td>
+      <td>String</td>
+      <td>The channel’s stream key.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Code</th>
+      <th>Decription</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>200 OK</td>
+      <td>Successfully retrieved the stream’s key.</td>
+    </tr>
+    <tr>
+      <td>400 Bad Request</td>
+      <td><ul><li>The <i>broadcaster_id</i> field is required.</li><li>The ID in the <i>broadcaster_id</i> field is not valid.</li></ul></td>
+    </tr>
+    <tr>
+      <td>401 Unauthorized</td>
+      <td><ul><li>The ID in <i>broadcaster_id</i> must match the user ID in the access token.</li><li>The Authorization header is required and must contain a user access token.</li><li>The user access token must include the <b>channel:read:stream_key</b> scope.</li><li>The access token is not valid.</li><li>The client ID specified in the Client-Id header must match the client ID specified in the access token.</li></ul></td>
+    </tr>
+    <tr>
+      <td>403 Forbidden</td>
+      <td>The user must complete additional steps in order to stream. Present the user with the returned error message.</td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

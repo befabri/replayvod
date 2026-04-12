@@ -1,0 +1,28 @@
+<section class="left-docs">
+			<h2 id="update-extension-bits-product">Update Extension Bits Product</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[60]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p>Adds or updates a Bits product that the extension created. If the SKU doesn’t exist, the product is added. You may update all fields except the <code class="highlighter-rouge">sku</code> field.</p>
+
+<h3>Authorization</h3>
+
+<p>Requires an <a href="/docs/authentication#app-access-tokens">app access token</a>. The client ID in the app access token must match the extension’s client ID.</p>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">PUT https://api.twitch.tv/helix/bits/extensions</code></p>
+
+<h3>Request Body Parameters</h3>
+
+<table><thead><tr><th>Parameter</th><th>Type</th><th>Required?</th><th>Description</th></tr></thead><tbody><tr><td>sku</td><td>String</td><td>Yes</td><td>The product&#39;s SKU. The SKU must be unique within an extension. The product&#39;s SKU cannot be changed. The SKU may contain only alphanumeric characters, dashes (-), underscores (_), and periods (.) and is limited to a maximum of 255 characters. No spaces.</td></tr><tr><td>cost</td><td>Object</td><td>Yes</td><td>An object that contains the product&#39;s cost information.</td></tr><tr><td>   amount</td><td>Integer</td><td>Yes</td><td>The product&#39;s price.</td></tr><tr><td>   type</td><td>String</td><td>Yes</td><td>The type of currency. Possible values are:<ul><li>bits — The minimum price is 1 and the maximum is 10000.</li></ul></td></tr><tr><td>display_name</td><td>String</td><td>Yes</td><td>The product&#39;s name as displayed in the extension. The maximum length is 255 characters.</td></tr><tr><td>in_development</td><td>Boolean</td><td>No</td><td>A Boolean value that indicates whether the product is in development. Set to <strong>true</strong> if the product is in development and not available for public use. The default is <strong>false</strong>.</td></tr><tr><td>expiration</td><td>String</td><td>No</td><td>The date and time, in RFC3339 format, when the product expires. If not set, the product does not expire. To disable the product, set the expiration date to a date in the past.</td></tr><tr><td>is_broadcast</td><td>Boolean</td><td>No</td><td>A Boolean value that determines whether Bits product purchase events are broadcast to all instances of the extension on a channel. The events are broadcast via the <code>onTransactionComplete</code> helper callback. The default is <strong>false</strong>.</td></tr></tbody></table>
+
+<h3>Response Body</h3>
+
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td>data</td><td>Object[]</td><td>A list of Bits products that the extension created. The list is in ascending SKU order. The list is empty if the extension hasn&#39;t created any products or they&#39;re all expired or disabled.</td></tr><tr><td>   sku</td><td>String</td><td>The product&#39;s SKU. The SKU is unique across an extension&#39;s products.</td></tr><tr><td>   cost</td><td>Object</td><td>An object that contains the product&#39;s cost information.</td></tr><tr><td>      amount</td><td>Integer</td><td>The product&#39;s price.</td></tr><tr><td>      type</td><td>String</td><td>The type of currency. Possible values are:<ul><li>bits</li></ul></td></tr><tr><td>   in_development</td><td>Boolean</td><td>A Boolean value that indicates whether the product is in development. If <strong>true</strong>, the product is not available for public use.</td></tr><tr><td>   display_name</td><td>String</td><td>The product&#39;s name as displayed in the extension.</td></tr><tr><td>   expiration</td><td>String</td><td>The date and time, in RFC3339 format, when the product expires.</td></tr><tr><td>   is_broadcast</td><td>Boolean</td><td>A Boolean value that determines whether Bits product purchase events are broadcast to all instances of an extension on a channel. The events are broadcast via the <code>onTransactionComplete</code> helper callback. Is <strong>true</strong> if the event is broadcast to all instances.</td></tr></tbody></table>
+
+<h3>Response Codes</h3>
+
+<table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody><tr><td>200 OK</td><td>Successfully created the product.</td></tr><tr><td>400 Bad Request</td><td><ul><li>The <code>sku</code> field is required.</li><li>The value in the <code>sku</code> field is not valid. The SKU may contain only alphanumeric characters, dashes (-), underscores (_), and periods (.).</li><li>The <code>cost</code> object&#39;s <code>amount</code> field is required.</li><li>The value in the <code>cost</code> object&#39;s <code>amount</code> field is not valid.</li><li>The <code>cost</code> object&#39;s <code>type</code> field is required.</li><li>The value in the <code>cost</code> object&#39;s <code>type</code> field is not valid.</li><li>The <code>display_name</code> field is required.</li><li>The ID in the Client-Id header must belong to the extension.</li></ul></td></tr><tr><td>401 Unauthorized</td><td><ul><li>The Authorization header is required and must specify an app access token; you may not specify a user access token.</li><li>The OAuth token is not valid.</li><li>The ID in the Client-Id header must match the Client ID in the OAuth token.</li></ul></td></tr></tbody></table>
+
+			
+		</section>

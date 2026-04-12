@@ -1,0 +1,169 @@
+<section class="left-docs">
+			<h2 id="create-guest-star-session">Create Guest Star Session</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[70]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p><span class="pill pill-beta">BETA</span> Programmatically creates a Guest Star session on behalf of the broadcaster. Requires the broadcaster to be present in the call interface, or the call will be ended automatically.</p>
+
+<h3>Authorization</h3>
+
+<ul>
+  <li>Query parameter <code class="highlighter-rouge">broadcaster_id</code> must match the <code class="highlighter-rouge">user_id</code> in the <a href="/docs/authentication#user-access-tokens">User-Access token</a></li>
+  <li>Requires OAuth Scope: <code class="highlighter-rouge">channel:manage:guest_star</code></li>
+</ul>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">POST https://api.twitch.tv/helix/guest_star/session</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Required</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The ID of the broadcaster you want to create a Guest Star session for. Provided <code class="highlighter-rouge">broadcaster_id</code> must match the <code class="highlighter-rouge">user_id</code> in the auth token.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>data</td>
+      <td>Session[]</td>
+      <td>Summary of the session details.</td>
+    </tr>
+    <tr>
+      <td>   id</td>
+      <td>String</td>
+      <td>ID uniquely representing the Guest Star session.</td>
+    </tr>
+    <tr>
+      <td>   guests</td>
+      <td>Object[]</td>
+      <td>List of guests currently interacting with the Guest Star session. On creation, the session will contain the broadcaster as a solo guest.</td>
+    </tr>
+    <tr>
+      <td>      slot_id</td>
+      <td>String</td>
+      <td>ID representing this guest’s slot assignment. <ul><li>Host is always in slot &#34;0&#34;</li> <li>Guests are assigned the following consecutive IDs (e.g, &#34;1&#34;, &#34;2&#34;, &#34;3&#34;, etc)</li> <li>Screen Share is represented as a special guest with the ID &#34;SCREENSHARE&#34;</li> <li>The identifier here matches the ID referenced in browser source links used in broadcasting software.</li></ul></td>
+    </tr>
+    <tr>
+      <td>      is_live</td>
+      <td>Boolean</td>
+      <td>Flag determining whether or not the guest is visible in the browser source in the host’s streaming software.</td>
+    </tr>
+    <tr>
+      <td>      user_id</td>
+      <td>String</td>
+      <td>User ID of the guest assigned to this slot.</td>
+    </tr>
+    <tr>
+      <td>      user_display_name</td>
+      <td>String</td>
+      <td>Display name of the guest assigned to this slot.</td>
+    </tr>
+    <tr>
+      <td>      user_login</td>
+      <td>String</td>
+      <td>Login of the guest assigned to this slot.</td>
+    </tr>
+    <tr>
+      <td>      volume</td>
+      <td>Integer</td>
+      <td>Value from 0 to 100 representing the host’s volume setting for this guest.</td>
+    </tr>
+    <tr>
+      <td>      assigned_at</td>
+      <td>String</td>
+      <td>Timestamp when this guest was assigned a slot in the session.</td>
+    </tr>
+    <tr>
+      <td>      audio_settings</td>
+      <td>MediaSettings</td>
+      <td>Information about the guest’s audio settings</td>
+    </tr>
+    <tr>
+      <td>         is_host_enabled</td>
+      <td>Boolean</td>
+      <td>Flag determining whether the host is allowing the guest’s audio to be seen or heard within the session.</td>
+    </tr>
+    <tr>
+      <td>         is_guest_enabled</td>
+      <td>Boolean</td>
+      <td>Flag determining whether the guest is allowing their audio to be transmitted to the session.</td>
+    </tr>
+    <tr>
+      <td>         is_available</td>
+      <td>Boolean</td>
+      <td>Flag determining whether the guest has an appropriate audio device available to be transmitted to the session.</td>
+    </tr>
+    <tr>
+      <td>      video_settings</td>
+      <td>MediaSettings</td>
+      <td>Information about the guest’s video settings</td>
+    </tr>
+    <tr>
+      <td>         is_host_enabled</td>
+      <td>Boolean</td>
+      <td>Flag determining whether the host is allowing the guest’s video to be seen or heard within the session.</td>
+    </tr>
+    <tr>
+      <td>         is_guest_enabled</td>
+      <td>Boolean</td>
+      <td>Flag determining whether the guest is allowing their video to be transmitted to the session.</td>
+    </tr>
+    <tr>
+      <td>         is_available</td>
+      <td>Boolean</td>
+      <td>Flag determining whether the guest has an appropriate video device available to be transmitted to the session.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Code</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>400 Bad Request</td>
+      <td><ul><li>Missing <i>broadcaster_id</i></li> <li>Session limit reached (1 active call)</li></ul></td>
+    </tr>
+    <tr>
+      <td>401 Unauthorized</td>
+      <td>Phone verification missing</td>
+    </tr>
+    <tr>
+      <td>403 Forbidden</td>
+      <td>Insufficient authorization for creating session</td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

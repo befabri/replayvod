@@ -1,0 +1,26 @@
+<section class="right-code">
+				<h3>Example Request</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> PATCH <span class="s1">&#39;https://api.twitch.tv/helix/channels?broadcaster_id=41245072&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Authorization: Bearer 2gbdx6oar67tqtcmt49t3wpcgycthx&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Client-Id: wbmytr93xzw8zbg0p1izqyzzc5mbiz&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Content-Type: application/json&#39;</span> <span class="se">\</span>
+<span class="nt">--data-raw</span> <span class="s1">&#39;{&#34;game_id&#34;:&#34;33214&#34;, &#34;title&#34;:&#34;there are helicopters in the game? REASON TO PLAY FORTNITE found&#34;, &#34;broadcaster_language&#34;:&#34;en&#34;, &#34;tags&#34;:[&#34;LevelingUp&#34;]}&#39;</span>
+</code></pre></div></div>
+<p>Set CCLs for a Channel</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> PATCH
+<span class="s1">&#39;https://api.twitch.tv/helix/channels?broadcaster_id=41245072&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Authorization: Bearer 2gbdx6oar67tqtcmt49t3wpcgycthx&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Client-Id: wbmytr93xzw8zbg0p1izqyzzc5mbiz&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Content-Type: application/json&#39;</span> <span class="se">\</span>
+<span class="nt">--data-raw</span> <span class="s1">&#39;{ 
+    “game_id”: “SomeGameID”,
+    “content_classification_labels”: [
+       {“id”: “Gambling”, “is_enabled”: true}, // adds this label
+       {“id”: “DrugsIntoxication”, “is_enabled”: false}  // removes this label
+     ],
+    “is_branded_content”: true
+}&#39;</span>
+</code></pre></div></div>
+
+			</section>

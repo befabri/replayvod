@@ -1,0 +1,106 @@
+<section class="left-docs">
+			<h2 id="get-channel-guest-star-settings">Get Channel Guest Star Settings</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[67]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p><span class="pill pill-beta">BETA</span> Gets the channel settings for configuration of the Guest Star feature for a particular host.</p>
+
+<h3>Authorization</h3>
+
+<ul>
+  <li>Query parameter <code class="highlighter-rouge">moderator_id</code> must match the <code class="highlighter-rouge">user_id</code> in the <a href="/docs/authentication#user-access-tokens">User-Access token</a></li>
+  <li>Requires OAuth Scope: <code class="highlighter-rouge">channel:read:guest_star</code>, <code class="highlighter-rouge">channel:manage:guest_star</code>, <code class="highlighter-rouge">moderator:read:guest_star</code> or <code class="highlighter-rouge">moderator:manage:guest_star</code></li>
+</ul>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">GET https://api.twitch.tv/helix/guest_star/channel_settings</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Required</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The ID of the broadcaster you want to get guest star settings for.</td>
+    </tr>
+    <tr>
+      <td>moderator_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The ID of the broadcaster or a user that has permission to moderate the broadcaster’s chat room. This ID must match the user ID in the user access token.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>is_moderator_send_live_enabled</td>
+      <td>Boolean</td>
+      <td>Flag determining if Guest Star moderators have access to control whether a guest is live once assigned to a slot.</td>
+    </tr>
+    <tr>
+      <td>slot_count</td>
+      <td>Integer</td>
+      <td>Number of slots the Guest Star call interface will allow the host to add to a call. Required to be between 1 and 6.</td>
+    </tr>
+    <tr>
+      <td>is_browser_source_audio_enabled</td>
+      <td>Boolean</td>
+      <td>Flag determining if Browser Sources subscribed to sessions on this channel should output audio</td>
+    </tr>
+    <tr>
+      <td>group_layout</td>
+      <td>String</td>
+      <td>This setting determines how the guests within a session should be laid out within the browser source. Can be one of the following values: <ul><li><code>TILED_LAYOUT</code>: All live guests are tiled within the browser source with the same size.</li> <li><code>SCREENSHARE_LAYOUT</code>: All live guests are tiled within the browser source with the same size. If there is an active screen share, it is sized larger than the other guests.</li></ul></td>
+    </tr>
+    <tr>
+      <td>browser_source_token</td>
+      <td>String</td>
+      <td>View only token to generate browser source URLs</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Code</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>400 Bad Request</td>
+      <td><ul><li>Missing <i>broadcaster_id</i></li> <li>Missing <i>moderator_id</i></li></ul></td>
+    </tr>
+    <tr>
+      <td>403 Forbidden</td>
+      <td>Insufficient authorization for viewing channel’s Guest Star settings</td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

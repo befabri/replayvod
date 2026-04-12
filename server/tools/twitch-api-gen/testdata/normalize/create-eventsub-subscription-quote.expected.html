@@ -1,0 +1,149 @@
+<section class="right-code">
+				<h3>Example Request 1</h3>
+
+<p>For a <strong>webhook</strong> <code class="highlighter-rouge">method</code> type. Adds a user.update subscription.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> POST <span class="s1">&#39;https://api.twitch.tv/helix/eventsub/subscriptions&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Authorization: Bearer 2gbdx6oar67tqtcmt49t3wpcgycthx&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Client-Id: wbmytr93xzw8zbg0p1izqyzzc5mbiz&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Content-Type: application/json&#39;</span> <span class="se">\</span>
+<span class="nt">-d</span> <span class="s1">&#39;{
+  &#34;type&#34;: &#34;user.update&#34;,
+  &#34;version&#34;: &#34;1&#34;,
+  &#34;condition&#34;: {
+    &#34;user_id&#34;: &#34;1234&#34;
+  },
+  &#34;transport&#34;: {
+    &#34;method&#34;: &#34;webhook&#34;,
+    &#34;callback&#34;: &#34;https://this-is-a-callback.com&#34;,
+    &#34;secret&#34;:&#34;s3cre7&#34;
+  }
+}&#39;</span>
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Twitch CLI example that adds a user.update subscription.</span>
+
+twitch api post /eventsub/subscriptions <span class="nt">-b</span> <span class="s1">&#39;{&#34;type&#34;:&#34;user.update&#34;,&#34;version&#34;:&#34;1&#34;,&#34;condition&#34;:{&#34;user_id&#34;:&#34;1234&#34;},&#34;transport&#34;:{&#34;method&#34;:&#34;webhook&#34;,&#34;callback&#34;:&#34;https://this-is-a-callback.com&#34;,&#34;secret&#34;:&#34;s3cre7&#34;}}&#39;</span>Example Response - Webhook
+</code></pre></div></div>
+
+<h3>Example Response 1</h3>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="s2">&#34;data&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;26b1c993-bfcf-44d9-b876-379dacafe75a&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;status&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;webhook_callback_verification_pending&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;type&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;user.update&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;version&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;1&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;condition&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s2">&#34;user_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;1234&#34;</span><span class="w">
+      </span><span class="p">},</span><span class="w">
+      </span><span class="s2">&#34;created_at&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;2020-11-10T14:32:18.730260295Z&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;transport&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s2">&#34;method&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;webhook&#34;</span><span class="p">,</span><span class="w">
+        </span><span class="s2">&#34;callback&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://this-is-a-callback.com&#34;</span><span class="w">
+      </span><span class="p">},</span><span class="w">
+      </span><span class="s2">&#34;cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">],</span><span class="w">
+  </span><span class="s2">&#34;total&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+  </span><span class="s2">&#34;total_cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+  </span><span class="s2">&#34;max_total_cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">10000</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<h3>Example Request 2</h3>
+
+<p>For a <strong>websocket</strong> <code class="highlighter-rouge">method</code> type.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> POST <span class="s1">&#39;https://api.twitch.tv/helix/eventsub/subscriptions&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Authorization: Bearer 2gbdx6oar67tqtcmt49t3wpcgycthx&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Client-Id: wbmytr93xzw8zbg0p1izqyzzc5mbiz&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Content-Type: application/json&#39;</span> <span class="se">\</span>
+<span class="nt">-d</span> <span class="s1">&#39;{
+    &#34;type&#34;: &#34;user.update&#34;,
+    &#34;version&#34;: &#34;1&#34;,
+    &#34;condition&#34;: {
+        &#34;user_id&#34;: &#34;1234&#34;
+    },
+    &#34;transport&#34;: {
+        &#34;method&#34;: &#34;websocket&#34;,
+        &#34;session_id&#34;: &#34;AQoQexAWVYKSTIu4ec_2VAxyuhAB&#34;
+    }
+}&#39;</span>
+</code></pre></div></div>
+
+<h3>​​​​​​Example Response 2</h3>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="s2">&#34;data&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;26b1c993-bfcf-44d9-b876-379dacafe75a&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;status&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;webhook_callback_verification_pending&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;type&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;user.update&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;version&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;1&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;condition&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s2">&#34;user_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;1234&#34;</span><span class="w">
+      </span><span class="p">},</span><span class="w">
+      </span><span class="s2">&#34;created_at&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;2020-11-10T14:32:18.730260295Z&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;transport&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s2">&#34;method&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;webhook&#34;</span><span class="p">,</span><span class="w">
+        </span><span class="s2">&#34;callback&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;https://this-is-a-callback.com&#34;</span><span class="w">
+      </span><span class="p">},</span><span class="w">
+      </span><span class="s2">&#34;cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">],</span><span class="w">
+  </span><span class="s2">&#34;total&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+  </span><span class="s2">&#34;total_cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+  </span><span class="s2">&#34;max_total_cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">10000</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<h3>Example Request 3</h3>
+
+<p>For a <strong>conduit</strong> <code class="highlighter-rouge">method</code> type.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Example RequestExample Requestcurl <span class="nt">-X</span> POST <span class="s1">&#39;https://api.twitch.tv/helix/eventsub/subscriptions&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Authorization: Bearer 2gbdx6oar67tqtcmt49t3wpcgycthx&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Client-Id: wbmytr93xzw8zbg0p1izqyzzc5mbiz&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Content-Type: application/json&#39;</span> <span class="se">\</span>
+<span class="nt">-d</span> <span class="s1">&#39;{
+    &#34;type&#34;:&#34;user.update&#34;,
+    &#34;version&#34;:&#34;1&#34;,
+    &#34;condition&#34;:{
+        &#34;user_id&#34;:&#34;1234&#34;
+    },
+    &#34;transport&#34;:{
+        &#34;method&#34;:&#34;conduit&#34;,
+        &#34;conduit_id&#34;:&#34;bfcfc993-26b1-b876-44d9-afe75a379dac&#34;
+    }
+}&#39;</span>
+</code></pre></div></div>
+
+<h3>​​​​​Example Response 3</h3>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="s2">&#34;data&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;26b1c993-bfcf-44d9-b876-379dacafe75a&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;status&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;enabled&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;type&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;user.update&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;version&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;1&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;condition&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s2">&#34;user_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;1234&#34;</span><span class="w">
+      </span><span class="p">},</span><span class="w">
+      </span><span class="s2">&#34;created_at&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;2020-11-10T14:32:18.730260295Z&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;transport&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s2">&#34;method&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;conduit&#34;</span><span class="p">,</span><span class="w">
+        </span><span class="s2">&#34;conduit_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;bfcfc993-26b1-b876-44d9-afe75a379dac&#34;</span><span class="w">
+      </span><span class="p">},</span><span class="w">
+      </span><span class="s2">&#34;cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">],</span><span class="w">
+  </span><span class="s2">&#34;total&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+  </span><span class="s2">&#34;total_cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+  </span><span class="s2">&#34;max_total_cost&#34;</span><span class="p">:</span><span class="w"> </span><span class="mi">10000</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+			</section>

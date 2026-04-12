@@ -1,0 +1,79 @@
+<section class="left-docs">
+			<h2 id="delete-guest-star-invite">Delete Guest Star Invite</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[74]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p><span class="pill pill-beta">BETA</span> Revokes a previously sent invite for a Guest Star session.</p>
+
+<h3>Authorization</h3>
+
+<ul>
+  <li>Query parameter <code class="highlighter-rouge">moderator_id</code> must match the <code class="highlighter-rouge">user_id</code> in the <a href="/docs/authentication#user-access-tokens">User-Access token</a></li>
+  <li>Requires OAuth Scope: <code class="highlighter-rouge">channel:manage:guest_star</code> or <code class="highlighter-rouge">moderator:manage:guest_star</code></li>
+</ul>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">DELETE https://api.twitch.tv/helix/guest_star/invites</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Required</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The ID of the broadcaster running the Guest Star session.</td>
+    </tr>
+    <tr>
+      <td>moderator_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The ID of the broadcaster or a user that has permission to moderate the broadcaster’s chat room. This ID must match the <code class="highlighter-rouge">user_id</code> in the user access token.</td>
+    </tr>
+    <tr>
+      <td>session_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>The ID of the session for the invite to be revoked on behalf of the broadcaster.</td>
+    </tr>
+    <tr>
+      <td>guest_id</td>
+      <td>Yes</td>
+      <td>String</td>
+      <td>Twitch User ID for the guest to revoke the Guest Star session invite from.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Code</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody><tr><td>204 No Content</td><td></td></tr>
+    <tr>
+      <td>400 Bad Request</td>
+      <td><ul><li>Missing <i>broadcaster_id</i></li> <li>Missing <i>session_id</i></li> <li>Missing <i>guest_id</i></li> <li>Invalid <i>session_id</i></li></ul></td>
+    </tr>
+    <tr>
+      <td>404 Not Found</td>
+      <td>No invite exists for specified <em>guest_id</em></td>
+    </tr>
+  </tbody>
+</table>
+
+			
+		</section>

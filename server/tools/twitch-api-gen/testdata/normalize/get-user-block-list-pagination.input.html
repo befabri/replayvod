@@ -1,0 +1,87 @@
+<section class="left-docs">
+			<h2 id="get-user-block-list">Get User Block List</h2>
+			<a class="editor-link" href="cloudcannon:#content_blocks[135]" data-cms-editor-link-style="modal">✎</a>
+			
+				<p>Gets the list of users that the broadcaster has blocked. <a href="https://help.twitch.tv/s/article/how-to-manage-harassment-in-chat?language=en_US#BlockWhispersandMessagesfromStrangers">Read More</a></p>
+
+<h3>Authorization</h3>
+
+<p>Requires a <a href="/docs/authentication#user-access-tokens">user access token</a> that includes the <strong>user:read:blocked_users</strong> scope.</p>
+
+<h3>URL</h3>
+
+<p><code class="highlighter-rouge">GET https://api.twitch.tv/helix/users/blocks</code></p>
+
+<h3>Request Query Parameters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Type</th>
+      <th>Required?</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>broadcaster_id</td>
+      <td>String</td>
+      <td>Yes</td>
+      <td>The ID of the broadcaster whose list of blocked users you want to get.</td>
+    </tr>
+    <tr>
+      <td>first</td>
+      <td>Integer</td>
+      <td>No</td>
+      <td>The maximum number of items to return per page in the response. The minimum page size is 1 item per page and the maximum is 100. The default is 20.</td>
+    </tr>
+    <tr>
+      <td>after</td>
+      <td>String</td>
+      <td>No</td>
+      <td>The cursor used to get the next page of results. The <strong>Pagination</strong> object in the response contains the cursor’s value. <a href="/docs/api/guide#pagination">Read More</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Body</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>data</td>
+      <td>Object[]</td>
+      <td>The list of blocked users. The list is in descending order by when the user was blocked.</td>
+    </tr>
+    <tr>
+      <td>   user_id</td>
+      <td>String</td>
+      <td>An ID that identifies the blocked user.</td>
+    </tr>
+    <tr>
+      <td>   user_login</td>
+      <td>String</td>
+      <td>The blocked user’s login name.</td>
+    </tr>
+    <tr>
+      <td>   display_name</td>
+      <td>String</td>
+      <td>The blocked user’s display name.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Response Codes</h3>
+
+<table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody><tr><td>200 OK</td><td>Successfully retrieved the broadcaster&#39;s list of blocked users.</td></tr><tr><td>400 Bad Request</td><td><ul><li>The <i>broadcaster_id</i> query parameter is required.</li></ul></td></tr><tr><td>401 Unauthorized</td><td><ul><li>The ID in <i>broadcaster_id</i> must match the user ID found in the request’s access token.</li><li>The Authorization header is required and must contain a user access token.</li><li>The user access token must include the <b>user:read:blocked_users</b> scope.</li><li>The access token is not valid.</li><li>The ID specified in the Client-Id header does not match the client ID specified in the access token.</li></ul></td></tr></tbody></table>
+
+			
+		</section>

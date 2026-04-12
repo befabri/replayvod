@@ -1,0 +1,28 @@
+<section class="right-code">
+				<h3>Example Request</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> GET <span class="s1">&#39;https://api.twitch.tv/helix/shared_chat/session?broadcaster_id=198704263&#39;</span>  <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Authorization: Bearer cfabdegwdoklmawdzdo98xt2fo512y&#39;</span> <span class="se">\</span>
+<span class="nt">-H</span> <span class="s1">&#39;Client-Id: uo6dggojyb8d6soh92zknwmi5ej1q2&#39;</span>
+</code></pre></div></div>
+
+<h3>Example Response</h3>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="s2">&#34;data&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s2">&#34;session_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;359bce59-fa4e-41a5-bd6f-9bc0c8360485&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;host_broadcaster_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="err">“</span><span class="mi">198704263</span><span class="err">”</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;participants&#34;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w">
+          </span><span class="s2">&#34;broadcaster_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="err">“</span><span class="mi">198704263</span><span class="err">”</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="s2">&#34;broadcaster_id&#34;</span><span class="p">:</span><span class="w"> </span><span class="err">“</span><span class="mi">487263401</span><span class="err">”</span><span class="w">
+      </span><span class="p">}],</span><span class="w">
+      </span><span class="s2">&#34;created_at&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;2024-09-29T19:45:37Z&#34;</span><span class="p">,</span><span class="w">
+      </span><span class="s2">&#34;updated_at&#34;</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;2024-09-29T19:45:37Z&#34;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+			</section>
