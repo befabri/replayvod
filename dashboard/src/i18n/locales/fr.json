@@ -67,6 +67,8 @@
 		"has_min_viewers": "N'enregistrer qu'au-dessus d'un seuil de viewers",
 		"has_categories": "Filtrer par catégorie",
 		"has_tags": "Filtrer par tag",
+		"categories": "Catégories",
+		"tags": "Tags",
 		"min_viewers": "Viewers minimum",
 		"search_categories": "Rechercher des catégories…",
 		"no_categories": "Aucune catégorie — elles apparaissent quand les streams passent en live.",

@@ -391,6 +391,19 @@ function ScheduleRow({ schedule }: { schedule: ScheduleResponse }) {
 								{t("schedules.min_viewers")}: {schedule.min_viewers}
 							</Badge>
 						)}
+						{schedule.has_categories &&
+							schedule.categories.length > 0 && (
+								<Badge>
+									{t("schedules.categories")}:{" "}
+									{schedule.categories.map((c) => c.name).join(", ")}
+								</Badge>
+							)}
+						{schedule.has_tags && schedule.tags.length > 0 && (
+							<Badge>
+								{t("schedules.tags")}:{" "}
+								{schedule.tags.map((tag) => tag.name).join(", ")}
+							</Badge>
+						)}
 						{schedule.is_disabled ? (
 							<Badge variant="muted">{t("schedules.disabled")}</Badge>
 						) : (

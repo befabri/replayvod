@@ -67,6 +67,8 @@
 		"has_min_viewers": "Only record above viewer threshold",
 		"has_categories": "Match specific categories",
 		"has_tags": "Match specific tags",
+		"categories": "Categories",
+		"tags": "Tags",
 		"min_viewers": "Min viewers",
 		"search_categories": "Search categories…",
 		"no_categories": "No categories yet — they populate as streams go live.",
