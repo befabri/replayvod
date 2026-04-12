@@ -33,8 +33,11 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/channelservice"
 	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
 	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
+	"github.com/befabri/replayvod/server/internal/service/settingsservice"
 	"github.com/befabri/replayvod/server/internal/service/streamservice"
+	"github.com/befabri/replayvod/server/internal/service/systemservice"
 	"github.com/befabri/replayvod/server/internal/service/tagservice"
+	"github.com/befabri/replayvod/server/internal/service/taskservice"
 	"github.com/befabri/replayvod/server/internal/service/videorequestservice"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -116,7 +119,7 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	authSvc := auth.NewService(authSvcDomain, sessionMgr, log)
 	channelSvc := channel.NewService(channelservice.New(repo, twitchClient, log), log)
 	categorySvc := category.NewService(categoryservice.New(repo, log), log)
-	systemSvc := systemroute.NewService(repo, log)
+	systemSvc := systemroute.NewService(systemservice.New(repo, log), log)
 	videoSvc := videoroute.NewService(repo, dl, twitchClient, log)
 	streamSvc := stream.NewService(streamservice.New(repo, log), log)
 	videoRequestSvc := videorequest.NewService(videorequestservice.New(repo, log), log)
@@ -127,8 +130,8 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// can call Snapshot on the same instance without second construction.
 	eventsubMgr := eventsubservice.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
 	eventsubSvc := eventsubroute.NewService(repo, eventsubMgr, log)
-	settingsSvc := settings.NewService(repo, log)
-	taskSvc := taskroute.NewService(repo, log)
+	settingsSvc := settings.NewService(settingsservice.New(repo, log), log)
+	taskSvc := taskroute.NewService(taskservice.New(repo, log), log)
 	tagSvc := tag.NewService(tagservice.New(repo, log), log)
 	sseSvc := sse.NewService(bus, log)
 
