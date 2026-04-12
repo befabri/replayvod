@@ -154,9 +154,18 @@ type fieldModel struct {
 // Returns empty when there's nothing to assert — an optional field with no
 // extracted constraint produces no tag (bare omitempty is noise). But a
 // required field ALWAYS gets at least `required`, even without other constraints.
-func composeValidateTag(forRequest, required bool, validate, validateDive string) string {
+//
+// `goType` is consulted to suppress semantically-incorrect tags: `required` on
+// a `bool` rejects `false` as the zero value, but `false` is a valid explicit
+// request payload (e.g. `is_enabled: false` disables a feature). Validator
+// can't distinguish "caller set it to false" from "caller didn't set it", so
+// we drop `required` for bools entirely and trust the caller.
+func composeValidateTag(forRequest, required bool, goType, validate, validateDive string) string {
 	if !forRequest {
 		return ""
+	}
+	if goType == "bool" && required {
+		required = false
 	}
 	if !required && validate == "" && validateDive == "" {
 		return ""
@@ -365,22 +374,25 @@ func toStructFieldModel(
 	types *[]typeModel, emitted map[string]bool,
 	model *templateModel, forRequest bool, log *slog.Logger,
 ) (fieldModel, error) {
-	// Condition field is polymorphic; route to the generated EventSubCondition
-	// interface so callers can type-switch instead of decoding any.
-	if f.Name == "condition" && (parent == "EventSubSubscription" || parent == "CreateEventSubSubscriptionBody") {
+	// Condition/Transport fields are polymorphic; route to the generated sealed
+	// interfaces so callers can type-switch instead of decoding any. Both
+	// preserve the Required flag from the parsed schema so pre-flight validation
+	// catches nil interface values on required request bodies.
+	if (f.Name == "condition" || f.Name == "transport") &&
+		(parent == "EventSubSubscription" || parent == "CreateEventSubSubscriptionBody") {
+		goName := "Condition"
+		goType := "EventSubCondition"
+		if f.Name == "transport" {
+			goName = "Transport"
+			goType = "EventSubTransport"
+		}
+		required := forRequest && f.Required != nil && *f.Required
 		return fieldModel{
-			GoName:   "Condition",
-			GoType:   "EventSubCondition",
-			JSONName: "condition",
-		}, nil
-	}
-	// Transport field is polymorphic (webhook / websocket / conduit); route to
-	// the hand-written EventSubTransport sealed interface in eventsub.go.
-	if f.Name == "transport" && (parent == "EventSubSubscription" || parent == "CreateEventSubSubscriptionBody") {
-		return fieldModel{
-			GoName:   "Transport",
-			GoType:   "EventSubTransport",
-			JSONName: "transport",
+			GoName:      goName,
+			GoType:      goType,
+			JSONName:    f.Name,
+			Required:    required,
+			ValidateTag: composeValidateTag(forRequest, required, goType, "", ""),
 		}, nil
 	}
 	goType := ""
@@ -425,7 +437,7 @@ func toStructFieldModel(
 		fm.Required = f.Required != nil && *f.Required
 		fm.Validate = f.Validate
 		fm.ValidateDive = f.ValidateDive
-		fm.ValidateTag = composeValidateTag(true, fm.Required, fm.Validate, fm.ValidateDive)
+		fm.ValidateTag = composeValidateTag(true, fm.Required, fm.GoType, fm.Validate, fm.ValidateDive)
 	}
 	return fm, nil
 }
@@ -472,7 +484,7 @@ func toParamFieldModel(endpointID string, f FieldSchema, log *slog.Logger) (fiel
 		Required:     required,
 		Validate:     f.Validate,
 		ValidateDive: f.ValidateDive,
-		ValidateTag:  composeValidateTag(true, required, f.Validate, f.ValidateDive),
+		ValidateTag:  composeValidateTag(true, required, goType, f.Validate, f.ValidateDive),
 	}, nil
 }
 

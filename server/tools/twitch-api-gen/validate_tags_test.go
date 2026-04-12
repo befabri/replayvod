@@ -84,6 +84,108 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 	}
 }
 
+// TestSnapshot_namedSchemaFieldTypes verifies that cross-schema references
+// emit as typed Go fields, not `any`. Named-schema refs on the Twitch
+// eventsub-reference page (outcomes, choices, image, reward, etc.) are
+// resolved via namedSchemaResolver during generation; this test guards the
+// emitted Go type on a handful of representative fields.
+func TestSnapshot_namedSchemaFieldTypes(t *testing.T) {
+	fieldTypes := parseGeneratedFieldTypes(t, filepath.Join("testdata", "expected", "generated_eventsub.go"))
+
+	want := map[[2]string]string{
+		// Plural anchor → array of singular struct.
+		{"ChannelPredictionBeginEvent", "Outcomes"}: "[]Outcome",
+		{"ChannelPollBeginEvent", "Choices"}:        "[]Choice",
+
+		// Singular anchor → scalar struct (BitsVoting, ChannelPointsVoting,
+		// Image are all in singularAnchors overrides or genuinely singular).
+		{"ChannelPollBeginEvent", "BitsVoting"}:          "BitsVoting",
+		{"ChannelPollBeginEvent", "ChannelPointsVoting"}: "ChannelPointsVoting",
+	}
+	for k, w := range want {
+		got, ok := fieldTypes[k[0]][k[1]]
+		if !ok {
+			t.Errorf("%s.%s not found in generated source", k[0], k[1])
+			continue
+		}
+		if got != w {
+			t.Errorf("%s.%s Go type = %q; want %q", k[0], k[1], got, w)
+		}
+	}
+
+	// Negative assertion — no field on these structs should be `any` or `[]any`.
+	// Cross-schema resolution should have replaced every previously-`any` ref.
+	for _, structName := range []string{
+		"ChannelPredictionBeginEvent",
+		"ChannelPollBeginEvent",
+		"ChannelPointsCustomRewardAddEvent",
+	} {
+		for fieldName, goType := range fieldTypes[structName] {
+			if goType == "any" || goType == "[]any" {
+				t.Errorf("%s.%s is %q — cross-schema resolver should have typed this", structName, fieldName, goType)
+			}
+		}
+	}
+}
+
+// parseGeneratedFieldTypes mirrors parseGeneratedTags but returns the emitted
+// Go type of each field (e.g. "[]Outcome", "string", "*CustomType") instead of
+// its validate tag.
+func parseGeneratedFieldTypes(t *testing.T, path string) map[string]map[string]string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	out := map[string]map[string]string{}
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			st, ok := ts.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+			fields := map[string]string{}
+			for _, field := range st.Fields.List {
+				typeStr := exprString(field.Type)
+				for _, n := range field.Names {
+					fields[n.Name] = typeStr
+				}
+			}
+			out[ts.Name.Name] = fields
+		}
+	}
+	return out
+}
+
+// exprString renders an ast.Expr back to source form. Handles the field-type
+// shapes we actually emit: Ident, SelectorExpr, ArrayType, StarExpr, MapType.
+func exprString(e ast.Expr) string {
+	switch t := e.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return exprString(t.X) + "." + t.Sel.Name
+	case *ast.ArrayType:
+		return "[]" + exprString(t.Elt)
+	case *ast.StarExpr:
+		return "*" + exprString(t.X)
+	case *ast.MapType:
+		return "map[" + exprString(t.Key) + "]" + exprString(t.Value)
+	case *ast.InterfaceType:
+		return "any" // any / interface{} both emit this in the pool
+	}
+	return "<unknown>"
+}
+
 // parseGeneratedTags parses the generated source with go/ast and returns a
 // [structName][fieldName] → validate-tag-body map. An entry exists for every
 // exported field; its value is "" when the field has no `validate:""` tag.

@@ -294,21 +294,27 @@ func TestComposeValidateTag(t *testing.T) {
 		name     string
 		forReq   bool
 		required bool
+		goType   string
 		base     string
 		dive     string
 		want     string
 	}{
-		{"response side — no tag", false, true, "max=10", "", ""},
-		{"request, no constraint — no tag", true, false, "", "", ""},
-		{"optional with base", true, false, "max=140", "", "omitempty,max=140"},
-		{"required with base", true, true, "max=140", "", "required,max=140"},
-		{"required without other constraint", true, true, "", "", "required"},
-		{"optional with base + dive", true, false, "max=10", "max=25", "omitempty,max=10,dive,max=25"},
-		{"optional with only dive", true, false, "", "max=25", "omitempty,dive,max=25"},
+		{"response side — no tag", false, true, "string", "max=10", "", ""},
+		{"request, no constraint — no tag", true, false, "string", "", "", ""},
+		{"optional with base", true, false, "string", "max=140", "", "omitempty,max=140"},
+		{"required with base", true, true, "string", "max=140", "", "required,max=140"},
+		{"required without other constraint", true, true, "string", "", "", "required"},
+		{"optional with base + dive", true, false, "[]string", "max=10", "max=25", "omitempty,max=10,dive,max=25"},
+		{"optional with only dive", true, false, "[]string", "", "max=25", "omitempty,dive,max=25"},
+		// Bug A: validator's `required` rejects the zero value, and `false` is the
+		// zero value for bool — which is a legitimate payload (is_enabled=false
+		// disables a setting). Generator drops `required` for bool fields.
+		{"required bool — skipped, no tag", true, true, "bool", "", "", ""},
+		{"required bool + other constraint — drops required, keeps omitempty", true, true, "bool", "max=1", "", "omitempty,max=1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := composeValidateTag(tc.forReq, tc.required, tc.base, tc.dive)
+			got := composeValidateTag(tc.forReq, tc.required, tc.goType, tc.base, tc.dive)
 			if got != tc.want {
 				t.Errorf("composeValidateTag = %q; want %q", got, tc.want)
 			}
