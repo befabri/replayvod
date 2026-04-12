@@ -64,6 +64,11 @@ export function Sidebar() {
 						onNavigate={() => setOpen(false)}
 					/>
 					<NavLink
+						to="/dashboard/videos"
+						label={t("nav.videos")}
+						onNavigate={() => setOpen(false)}
+					/>
+					<NavLink
 						to="/dashboard/channels"
 						label={t("nav.channels")}
 						onNavigate={() => setOpen(false)}
@@ -71,6 +76,11 @@ export function Sidebar() {
 					<NavLink
 						to="/dashboard/categories"
 						label={t("nav.categories")}
+						onNavigate={() => setOpen(false)}
+					/>
+					<NavLink
+						to="/dashboard/requests"
+						label={t("nav.requests")}
 						onNavigate={() => setOpen(false)}
 					/>
 					{user && hasRole(user, "owner") && (

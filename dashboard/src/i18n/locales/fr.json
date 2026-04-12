@@ -14,10 +14,34 @@
 		"users": "Utilisateurs",
 		"whitelist": "Liste d'accès",
 		"open_menu": "Ouvrir le menu",
-		"close_menu": "Fermer le menu"
+		"close_menu": "Fermer le menu",
+		"requests": "Demandes"
 	},
 	"auth": {
 		"login": "Se connecter avec Twitch",
 		"logout": "Déconnexion"
+	},
+	"videos": {
+		"title": "Vidéos",
+		"empty": "Aucune vidéo. Lancez un téléchargement depuis une chaîne.",
+		"failed_to_load": "Impossible de charger les vidéos",
+		"status": {
+			"PENDING": "En attente",
+			"RUNNING": "En cours",
+			"DONE": "Terminé",
+			"FAILED": "Échoué"
+		},
+		"watch": "Regarder",
+		"triggered": "Téléchargement démarré",
+		"trigger_download": "Lancer le téléchargement",
+		"quality": "Qualité",
+		"duration": "Durée",
+		"size": "Taille"
+	},
+	"stats": {
+		"total_videos": "Vidéos",
+		"total_size": "Espace utilisé",
+		"total_duration": "Durée totale",
+		"by_status": "Par statut"
 	}
 }

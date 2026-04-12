@@ -14,10 +14,34 @@
 		"users": "Users",
 		"whitelist": "Whitelist",
 		"open_menu": "Open menu",
-		"close_menu": "Close menu"
+		"close_menu": "Close menu",
+		"requests": "Requests"
 	},
 	"auth": {
 		"login": "Login with Twitch",
 		"logout": "Logout"
+	},
+	"videos": {
+		"title": "Videos",
+		"empty": "No videos yet. Trigger a download from a channel page.",
+		"failed_to_load": "Failed to load videos",
+		"status": {
+			"PENDING": "Pending",
+			"RUNNING": "Downloading",
+			"DONE": "Done",
+			"FAILED": "Failed"
+		},
+		"watch": "Watch",
+		"triggered": "Download started",
+		"trigger_download": "Trigger download",
+		"quality": "Quality",
+		"duration": "Duration",
+		"size": "Size"
+	},
+	"stats": {
+		"total_videos": "Total videos",
+		"total_size": "Storage used",
+		"total_duration": "Total duration",
+		"by_status": "By status"
 	}
 }
