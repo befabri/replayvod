@@ -131,7 +131,12 @@ func (c *Client) parseMasterPlaylist(r io.Reader) (*Manifest, error) {
 		}
 		variant.Quality = normalizeQuality(v.Resolution, v.Video)
 		if variant.Quality == "" || variant.Codec == "" {
-			c.log.Debug("drop variant from master playlist",
+			// Parser keeps the variant; Stage 3 (SelectVariant)
+			// is what actually filters it out. Log here so an
+			// unfamiliar manifest shape is visible in
+			// operator logs rather than only in the "why did
+			// selection pick 720 instead of 1080" report.
+			c.log.Debug("unusable variant in master playlist",
 				"reason", "unrecognized quality or codec",
 				"resolution", v.Resolution,
 				"group_id", v.Video,

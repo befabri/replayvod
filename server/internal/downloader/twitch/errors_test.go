@@ -62,6 +62,18 @@ func TestClassifyAuthError_PermanentCodes(t *testing.T) {
 	}
 }
 
+func TestClassifyAuthError_PQNFPermanentAtAnyStatus(t *testing.T) {
+	// PQNF arrives via HTTP 200 with a GQL application error.
+	// It must still classify as permanent — retry/refresh/integrity
+	// can't fix a stale persisted-query hash.
+	for _, status := range []int{200, 400, 403} {
+		e := &AuthError{Status: status, Code: GQLCodePersistedQueryNotFound}
+		if !IsPermanent(e) {
+			t.Errorf("status=%d: IsPermanent=false, want true", status)
+		}
+	}
+}
+
 func TestClassifyAuthError_RetryableAuth(t *testing.T) {
 	// Token-expiry style error: no recognized code, 401 status.
 	// Retryable: caller should refresh + try again.

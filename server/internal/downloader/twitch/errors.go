@@ -5,19 +5,28 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
-// permanentEntitlementCodes enumerates the Twitch JSON error codes
-// that a token refresh will never fix — the viewer isn't allowed
-// to see this stream, full stop. Observed in the wild via yt-dlp's
-// Twitch extractor (yt_dlp/extractor/twitch.py:206-223).
+// permanentCodes enumerates Twitch error codes that retry/refresh
+// will never fix. Two categories live here:
+//
+//   - Viewer-side entitlement restrictions (subscriber-only,
+//     geoblock, VOD manifest restrictions). Normally arrive on
+//     401/403; observed in yt-dlp extractor/twitch.py:206-223.
+//
+//   - GQL-contract failures like PersistedQueryNotFound. These
+//     can surface with status=200 (the classifier's status check
+//     would otherwise skip them) or, hypothetically, status=403.
+//     Membership here short-circuits both paths.
 //
 // This list is intentionally conservative: when in doubt, we treat
 // a 401/403 as refreshable and let the authRefreshes budget bound
-// the retries. Adding a new code here turns one more class of
-// streams from "retry uselessly, then fail" into "fail fast with a
-// useful message."
-var permanentEntitlementCodes = map[string]struct{}{
+// the retries. Adding a code here turns one more class of failures
+// from "retry uselessly, then fail" into "fail fast with a useful
+// message."
+var permanentCodes = map[string]struct{}{
+	// Entitlement restrictions.
 	"unauthorized_entitlements":   {},
 	"vod_manifest_restricted":     {},
 	"subscriptions_restricted":    {},
@@ -25,6 +34,9 @@ var permanentEntitlementCodes = map[string]struct{}{
 	"geoblock_restricted":         {},
 	"content_restricted":          {},
 	"content_moderation_required": {},
+	// GQL hash drift — no amount of integrity-acquiring or
+	// token-refreshing resolves a stale persisted-query hash.
+	GQLCodePersistedQueryNotFound: {},
 }
 
 // GQL error code constants. GQL application errors don't carry a
@@ -55,44 +67,16 @@ const (
 // we know how to classify; anything else stays as a raw message
 // and the classifier treats it as "not a permanent failure".
 func gqlMessageToCode(msg string) string {
+	lower := strings.ToLower(msg)
 	switch {
-	case containsIgnoreCase(msg, "PersistedQueryNotFound"):
+	case strings.Contains(lower, "persistedquerynotfound"):
 		return GQLCodePersistedQueryNotFound
-	case containsIgnoreCase(msg, "service timeout"):
+	case strings.Contains(lower, "service timeout"):
 		return GQLCodeServiceTimeout
-	case containsIgnoreCase(msg, "service unavailable"):
+	case strings.Contains(lower, "service unavailable"):
 		return GQLCodeServiceUnavailable
 	}
 	return ""
-}
-
-// containsIgnoreCase avoids importing strings just for one call;
-// the message is always ASCII so a byte-level lowercase is safe.
-func containsIgnoreCase(s, sub string) bool {
-	if len(sub) == 0 || len(s) < len(sub) {
-		return len(sub) == 0
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		match := true
-		for j := 0; j < len(sub); j++ {
-			a := s[i+j]
-			b := sub[j]
-			if a >= 'A' && a <= 'Z' {
-				a += 'a' - 'A'
-			}
-			if b >= 'A' && b <= 'Z' {
-				b += 'a' - 'A'
-			}
-			if a != b {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
 }
 
 // AuthError carries everything the orchestrator needs to decide
@@ -205,6 +189,10 @@ func firstNonEmpty(a, b string) string {
 //   - permanent=false + isAuth=false: not an auth error at all —
 //     likely transport; caller handles per its own policy.
 //
+// Permanent classification runs *before* the status check: codes
+// like PersistedQueryNotFound come back with status=200 and would
+// otherwise escape the status-gated auth branch entirely.
+//
 // nil error is treated as not-auth (caller gets (false, false)).
 func classifyAuthError(err error) (permanent, isAuth bool) {
 	if err == nil {
@@ -214,15 +202,16 @@ func classifyAuthError(err error) (permanent, isAuth bool) {
 	if !errors.As(err, &ae) {
 		return false, false
 	}
-	// Not a 401/403/4xx-auth range → not an auth problem per se,
-	// but since we wrapped it in AuthError the caller asked us
-	// to look. 5xx and 400 get treated as not-auth so the caller
-	// falls back to their own retry policy.
-	if ae.Status != http.StatusUnauthorized && ae.Status != http.StatusForbidden {
-		return false, false
+	isAuth401or403 := ae.Status == http.StatusUnauthorized || ae.Status == http.StatusForbidden
+	if _, ok := permanentCodes[ae.Code]; ok {
+		return true, isAuth401or403
 	}
-	if _, ok := permanentEntitlementCodes[ae.Code]; ok {
-		return true, true
+	// No permanent code: the only remaining way to be an "auth
+	// error" is a 401/403. 5xx / 400 / 200-with-unknown-GQL-err
+	// fall through as not-auth so the caller uses transport-
+	// level retry instead of refresh.
+	if !isAuth401or403 {
+		return false, false
 	}
 	return false, true
 }

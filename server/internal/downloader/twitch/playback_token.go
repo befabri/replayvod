@@ -28,9 +28,9 @@ const (
 )
 
 // gqlPersistedQuery is the envelope Twitch expects for a persisted
-// query call. Operation names the GQL operation ("PlaybackAccessToken_Template"
-// for this endpoint); variables carries the query-specific input
-// (login + isLive etc. for playback token); extensions.persistedQuery
+// query call. OperationName is the stored operation (see
+// playbackAccessTokenOp); Variables carries the query-specific input
+// (login + isLive etc. for playback token); Extensions.PersistedQuery
 // is the hash lookup that tells Twitch which canned query to run.
 type gqlPersistedQuery struct {
 	OperationName string            `json:"operationName"`
