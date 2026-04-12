@@ -149,6 +149,122 @@ func TestRun_LastMediaSeqAdvancesOnGap(t *testing.T) {
 	}
 }
 
+// TestRun_WindowRollCallbackFiresWithLostRange validates the
+// resume-path correctness fix: when StartMediaSeq > 0 (resume
+// attempt) and the playlist head is already past it, the
+// orchestrator invokes cfg.OnWindowRoll with the inclusive
+// [from, to] range of lost segments. Without this, the resume
+// state's frontier would stall forever waiting on segments the
+// CDN no longer serves.
+func TestRun_WindowRollCallbackFiresWithLostRange(t *testing.T) {
+	// Playlist head is 100; caller asks to resume at 50.
+	// Expected lost range: [50, 99].
+	live := &liveServer{
+		kind:         SegmentKindTS,
+		maxSegments:  5,
+		windowSize:   5,
+		baseSeq:      100,
+		tickInterval: 1,
+	}
+	srv := httptest.NewServer(live.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+	cfg.StartMediaSeq = 50
+
+	var called atomic.Int32
+	var gotFrom, gotTo atomic.Int64
+	cfg.OnWindowRoll = func(from, to int64) {
+		called.Add(1)
+		gotFrom.Store(from)
+		gotTo.Store(to)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if _, err := Run(ctx, cfg); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if got := called.Load(); got != 1 {
+		t.Fatalf("OnWindowRoll called %d times, want 1", got)
+	}
+	if gotFrom.Load() != 50 {
+		t.Errorf("OnWindowRoll from=%d, want 50", gotFrom.Load())
+	}
+	if gotTo.Load() != 99 {
+		t.Errorf("OnWindowRoll to=%d, want 99 (playlist head - 1)", gotTo.Load())
+	}
+}
+
+// TestRun_WindowRollCallbackSkippedWhenNoRoll: sanity check that
+// resumes landing inside the playlist window (no loss) do NOT
+// fire the callback. StartMediaSeq = playlistHead is the edge
+// case — zero lost segments, no callback.
+func TestRun_WindowRollCallbackSkippedWhenNoRoll(t *testing.T) {
+	live := &liveServer{
+		kind:         SegmentKindTS,
+		maxSegments:  5,
+		windowSize:   5,
+		baseSeq:      100,
+		tickInterval: 1,
+	}
+	srv := httptest.NewServer(live.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+	cfg.StartMediaSeq = 100 // lands exactly on the playlist head
+
+	var called atomic.Int32
+	cfg.OnWindowRoll = func(from, to int64) { called.Add(1) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if _, err := Run(ctx, cfg); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := called.Load(); got != 0 {
+		t.Errorf("OnWindowRoll called %d times, want 0 (no window roll)", got)
+	}
+}
+
+// TestRun_WindowRollCallbackSkippedOnFreshJob: a StartMediaSeq=0
+// run is a fresh job; the poller's WindowRollFrom is 0 and the
+// orchestrator's guard (WindowRollFrom > 0) must suppress the
+// callback. A false positive here would record a phantom
+// restart_window_rolled gap for every fresh recording.
+func TestRun_WindowRollCallbackSkippedOnFreshJob(t *testing.T) {
+	live := &liveServer{
+		kind:         SegmentKindTS,
+		maxSegments:  5,
+		windowSize:   5,
+		baseSeq:      100,
+		tickInterval: 1,
+	}
+	srv := httptest.NewServer(live.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir) // StartMediaSeq = 0
+
+	var called atomic.Int32
+	cfg.OnWindowRoll = func(from, to int64) { called.Add(1) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if _, err := Run(ctx, cfg); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := called.Load(); got != 0 {
+		t.Errorf("OnWindowRoll called %d times on fresh job, want 0", got)
+	}
+}
+
 // syncMapInt is a tiny wrapper over sync.Map specialized for
 // int counters keyed by string. Avoids the interface-casting
 // noise in the fetch counter.

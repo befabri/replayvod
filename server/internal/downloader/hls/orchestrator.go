@@ -85,6 +85,28 @@ type JobConfig struct {
 	// writes to. Callback is invoked from a single goroutine
 	// so it does not need to be thread-safe internally.
 	OnEvent func(SegmentEvent)
+
+	// OnFirstPoll, when non-nil, is invoked once with the
+	// MediaSequenceBase from the first successful playlist fetch
+	// — before any segment outcome flows through OnEvent.
+	// Resume-state callers use it to seed the accounted-frontier
+	// anchor so out-of-order worker completions at the manifest
+	// head don't get silently dropped as "below frontier." Runs
+	// on the Run goroutine, so callbacks must be fast and not
+	// block; write to a channel if you need async work.
+	OnFirstPoll func(mediaSequenceBase int64)
+
+	// OnWindowRoll, when non-nil, is invoked once when the first
+	// poll after a resume (StartMediaSeq > 0) observes that the
+	// playlist head is already past the caller's requested
+	// resume point. The lost range [from, to] is inclusive.
+	//
+	// Resume-state callers record this as a restart_window_rolled
+	// gap so the accounted frontier advances past the loss —
+	// without that the frontier stays stuck waiting for segments
+	// that will never be fetched. Called before OnFirstPoll +
+	// OnEvent so the gap lands before any subsequent commit.
+	OnWindowRoll func(from, to int64)
 }
 
 // GapPolicy decides "accept segment failure as a gap" vs "abort
@@ -295,6 +317,18 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		return result, g.Wait()
 	}
 	result.Kind = pr.Kind
+	// Window-roll fires first so the resume gap is recorded
+	// before any frontier/segment callback can observe state.
+	// In practice a window-roll only appears for resumed jobs
+	// (StartMediaSeq > 0), and OnFirstPoll's StartPart is a
+	// no-op on already-bootstrapped resume state — so the
+	// ordering is conservative rather than load-bearing.
+	if cfg.OnWindowRoll != nil && pr.WindowRollFrom > 0 && pr.WindowRollTo >= pr.WindowRollFrom {
+		cfg.OnWindowRoll(pr.WindowRollFrom, pr.WindowRollTo)
+	}
+	if cfg.OnFirstPoll != nil {
+		cfg.OnFirstPoll(pr.MediaSequenceBase)
+	}
 	if pr.Init != nil {
 		result.InitURI = pr.Init.URI
 		if err := fetchInit(gctx, cfg.Fetcher, cfg.WorkDir, pr.Init.URI); err != nil {

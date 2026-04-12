@@ -103,11 +103,30 @@ type Poller struct {
 
 // PollResult carries metadata observed on the first successful
 // poll — the orchestrator needs Kind + Init to fetch the init
-// segment (fmp4) before any media segment is fetched.
+// segment (fmp4) before any media segment is fetched, and
+// MediaSequenceBase to seed any downstream accounting that can't
+// wait for the first segment outcome (e.g. resume-state frontier
+// bootstrap, where using the first committed seq as the anchor
+// would drop earlier out-of-order completions).
 type PollResult struct {
-	Kind           SegmentKind
-	Init           *InitSegment
-	TargetDuration time.Duration
+	Kind              SegmentKind
+	Init              *InitSegment
+	TargetDuration    time.Duration
+	MediaSequenceBase int64
+
+	// WindowRollFrom / WindowRollTo report the range of MediaSeqs
+	// the playlist has already rolled past since the caller's
+	// StartMediaSeq. Populated only when both StartMediaSeq > 0
+	// (i.e. a resume attempt) and the first segment's MediaSeq
+	// exceeds it. The lost range is inclusive:
+	// [StartMediaSeq, firstSegmentMediaSeq-1].
+	//
+	// Consumers record this as a restart_window_rolled gap so
+	// the resume frontier can advance past the loss rather than
+	// waiting forever for segments that will never be fetched.
+	// Zero values (both) mean "no window roll observed."
+	WindowRollFrom int64
+	WindowRollTo   int64
 }
 
 // ErrPlaylistAuth signals a 401/403 on the playlist fetch. The
@@ -194,36 +213,46 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 		}
 		attempt = 0
 
-		// Publish PollResult once, before any segment leaves
-		// the poller. Guarantees the orchestrator sees Kind +
-		// Init before a worker tries to use them.
-		if !firstSent {
-			select {
-			case first <- PollResult{
-				Kind:           pl.Kind,
-				Init:           pl.Init,
-				TargetDuration: pl.TargetDuration,
-			}:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			firstSent = true
-		}
-
-		// Window-roll warning: on the first poll after a
+		// Window-roll detection: on the first poll after a
 		// resume attempt, if the playlist has already rolled
 		// past StartMediaSeq we've irreversibly lost those
-		// segments. Log once so operators can notice when
-		// auth-refresh or resume windows are too slow to
-		// keep up with the stream's TARGETDURATION.
+		// segments. Flag the range on the first PollResult so
+		// the orchestrator can forward it to the resume-state
+		// writer; without this the accounted frontier would
+		// wait forever for segments the CDN no longer serves.
+		var windowRollFrom, windowRollTo int64
 		if p.StartMediaSeq > 0 && !warnedWindowRoll && len(pl.Segments) > 0 {
 			warnedWindowRoll = true
 			if pl.Segments[0].MediaSeq > p.StartMediaSeq {
+				windowRollFrom = p.StartMediaSeq
+				windowRollTo = pl.Segments[0].MediaSeq - 1
 				log.Warn("playlist window rolled past resume point",
 					"resume_from", p.StartMediaSeq,
 					"playlist_head", pl.Segments[0].MediaSeq,
 					"lost_segments", pl.Segments[0].MediaSeq-p.StartMediaSeq)
 			}
+		}
+
+		// Publish PollResult once, before any segment leaves
+		// the poller. Guarantees the orchestrator sees Kind +
+		// Init before a worker tries to use them. The window-
+		// roll fields ride along on this same first emission
+		// so the resume writer records the gap range before
+		// the first NoteCommitted lands.
+		if !firstSent {
+			select {
+			case first <- PollResult{
+				Kind:              pl.Kind,
+				Init:              pl.Init,
+				TargetDuration:    pl.TargetDuration,
+				MediaSequenceBase: pl.MediaSequenceBase,
+				WindowRollFrom:    windowRollFrom,
+				WindowRollTo:      windowRollTo,
+			}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			firstSent = true
 		}
 
 		ext := segmentExt(pl.Kind)
