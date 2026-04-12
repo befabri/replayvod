@@ -21,6 +21,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/routes/sse"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/stream"
 	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/tag"
 	taskroute "github.com/befabri/replayvod/server/internal/server/api/routes/task"
 	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
@@ -115,6 +116,7 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	eventsubSvc := eventsubroute.NewService(repo, eventsubMgr, log)
 	settingsSvc := settings.NewService(repo, log)
 	taskSvc := taskroute.NewService(repo, log)
+	tagSvc := tag.NewService(repo, log)
 	sseSvc := sse.NewService(bus, log)
 
 	// Middleware
@@ -176,6 +178,10 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// Category procedures
 	trpcgo.MustQuery(tr, "category.getById", categorySvc.GetByID, viewerProcedure)
 	trpcgo.MustVoidQuery(tr, "category.list", categorySvc.List, viewerProcedure)
+
+	// Tag procedures — viewer-level read only; tags are created by the
+	// stream enrichment path on stream.online, not user input.
+	trpcgo.MustVoidQuery(tr, "tag.list", tagSvc.List, viewerProcedure)
 
 	// System procedures (owner only)
 	trpcgo.MustQuery(tr, "system.fetchLogs", systemSvc.FetchLogs, ownerProcedure)
