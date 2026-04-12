@@ -1,6 +1,9 @@
 package repository
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // User is the domain model for an authenticated Twitch user.
 type User struct {
@@ -206,4 +209,138 @@ type VideoStatsTotals struct {
 type VideoStatsByStatus struct {
 	Status string
 	Count  int64
+}
+
+// WebhookMessageType enumerates the three Twitch EventSub message types.
+// Stored on webhook_events.message_type with a CHECK constraint matching
+// these values.
+const (
+	WebhookMessageNotification = "notification"
+	WebhookMessageVerification = "webhook_callback_verification"
+	WebhookMessageRevocation   = "revocation"
+)
+
+// WebhookEventStatus enumerates the handler lifecycle states.
+const (
+	WebhookStatusReceived  = "received"
+	WebhookStatusProcessed = "processed"
+	WebhookStatusFailed    = "failed"
+)
+
+// DownloadSchedule is a user-defined auto-record rule matched against
+// incoming stream.online webhooks.
+type DownloadSchedule struct {
+	ID                int64
+	BroadcasterID     string
+	RequestedBy       string
+	Quality           string
+	HasMinViewers     bool
+	MinViewers        *int64
+	HasCategories     bool
+	HasTags           bool
+	IsDeleteRediff    bool
+	TimeBeforeDelete  *int64
+	IsDisabled        bool
+	LastTriggeredAt   *time.Time
+	TriggerCount      int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// ScheduleInput captures the fields a caller supplies on create/update.
+// ID/timestamps/trigger counters are server-managed.
+type ScheduleInput struct {
+	BroadcasterID    string
+	RequestedBy      string
+	Quality          string
+	HasMinViewers    bool
+	MinViewers       *int64
+	HasCategories    bool
+	HasTags          bool
+	IsDeleteRediff   bool
+	TimeBeforeDelete *int64
+	IsDisabled       bool
+}
+
+// Subscription is our local mirror of a Twitch EventSub subscription.
+// Condition carries the type-specific JSON (e.g., {"broadcaster_user_id":...}).
+type Subscription struct {
+	ID                string
+	Status            string
+	Type              string
+	Version           string
+	Cost              int64
+	Condition         json.RawMessage
+	BroadcasterID     *string
+	TransportMethod   string
+	TransportCallback string
+	TwitchCreatedAt   time.Time
+	CreatedAt         time.Time
+	RevokedAt         *time.Time
+	RevokedReason     *string
+}
+
+// SubscriptionInput is the create payload, matching what Twitch returns
+// when we call CreateEventSubSubscription.
+type SubscriptionInput struct {
+	ID                string
+	Status            string
+	Type              string
+	Version           string
+	Cost              int64
+	Condition         json.RawMessage
+	BroadcasterID     *string
+	TransportMethod   string
+	TransportCallback string
+	TwitchCreatedAt   time.Time
+}
+
+// EventSubSnapshot is a periodic snapshot of aggregate subscription cost.
+type EventSubSnapshot struct {
+	ID            int64
+	Total         int64
+	TotalCost     int64
+	MaxTotalCost  int64
+	FetchedAt     time.Time
+}
+
+// SnapshotSubscription pins a subscription's state at snapshot time so
+// historical queries don't silently return current values.
+type SnapshotSubscription struct {
+	SnapshotID       int64
+	SubscriptionID   string
+	CostAtSnapshot   int64
+	StatusAtSnapshot string
+}
+
+// WebhookEvent is one received EventSub webhook in the audit log.
+// Payload is the raw Twitch body; nulled out by the retention task after
+// webhook_event_payload_retention_days. See migration comments for the
+// message_type / status state machine.
+type WebhookEvent struct {
+	ID               int64
+	EventID          string
+	MessageType      string
+	EventType        *string
+	SubscriptionID   *string
+	BroadcasterID    *string
+	MessageTimestamp time.Time
+	Payload          json.RawMessage
+	Status           string
+	Error            *string
+	ReceivedAt       time.Time
+	ProcessedAt      *time.Time
+}
+
+// WebhookEventInput is the create payload for audit logging a received
+// webhook. The handler fills this before dispatching to the event-type
+// specific processor.
+type WebhookEventInput struct {
+	EventID          string
+	MessageType      string
+	EventType        *string
+	SubscriptionID   *string
+	BroadcasterID    *string
+	MessageTimestamp time.Time
+	Payload          json.RawMessage
 }
