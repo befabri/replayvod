@@ -245,6 +245,106 @@ func TestParseMediaPlaylist_FirstSegmentDiscontinuity(t *testing.T) {
 	}
 }
 
+func TestParseMediaPlaylist_StitchedAdPod(t *testing.T) {
+	// Canonical Twitch ad-pod shape:
+	//   DateRange CLASS="twitch-stitched-ad" spans [t+2s, t+6s).
+	//   Segment 100 (t+0s) is pre-ad content.
+	//   Segments 101, 102 (t+2s, t+4s) are inside the window → ads.
+	//   Segments 103, 104 (t+6s, t+8s) are post-ad content;
+	//     segment 103 sits exactly at the window's end and must
+	//     NOT be marked ad (half-open interval).
+	f := openFixture(t, "media-ts-ad-pod.m3u8")
+	defer f.Close()
+
+	pl, err := ParseMediaPlaylist(f)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if pl.Len() != 5 {
+		t.Fatalf("len=%d, want 5", pl.Len())
+	}
+	want := map[int64]bool{
+		100: false, // pre-ad
+		101: true,  // ad
+		102: true,  // ad
+		103: false, // post-ad (at window end)
+		104: false, // post-ad
+	}
+	for _, seg := range pl.Segments {
+		exp, ok := want[seg.MediaSeq]
+		if !ok {
+			t.Errorf("unexpected segment seq=%d", seg.MediaSeq)
+			continue
+		}
+		if seg.IsAd != exp {
+			t.Errorf("seq=%d IsAd=%v, want %v", seg.MediaSeq, seg.IsAd, exp)
+		}
+	}
+}
+
+func TestParseMediaPlaylist_MutedSegmentIsNotAd(t *testing.T) {
+	// Regression guard: a muted-DMCA segment has no ad DateRange,
+	// just an EXTINF "muted" title. Must stay IsAd=false — the
+	// filter is attribute-driven, not EXTINF-title-driven.
+	f := openFixture(t, "media-ts-muted-segment.m3u8")
+	defer f.Close()
+
+	pl, err := ParseMediaPlaylist(f)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, seg := range pl.Segments {
+		if seg.IsAd {
+			t.Errorf("seq=%d IsAd=true, want false (muted != ad)", seg.MediaSeq)
+		}
+	}
+}
+
+func TestParseMediaPlaylist_NoAdsWhenNoDateRange(t *testing.T) {
+	// Regression for TS-live fixture: no EXT-X-DATERANGE at all,
+	// so no segment can be an ad regardless of other content.
+	f := openFixture(t, "media-ts-live.m3u8")
+	defer f.Close()
+	pl, err := ParseMediaPlaylist(f)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, seg := range pl.Segments {
+		if seg.IsAd {
+			t.Errorf("seq=%d IsAd=true, want false (no ad DateRanges)", seg.MediaSeq)
+		}
+	}
+}
+
+func TestIsAdSegment_BoundaryMath(t *testing.T) {
+	// The ad window is half-open: [Start, End). A segment whose
+	// PDT equals End is the first post-ad segment, not the last
+	// ad segment.
+	t0 := time.Date(2026, 4, 12, 13, 22, 0, 0, time.UTC)
+	windows := []adWindow{{Start: t0, End: t0.Add(4 * time.Second)}}
+
+	cases := []struct {
+		label string
+		pdt   time.Time
+		want  bool
+	}{
+		{"before window", t0.Add(-time.Second), false},
+		{"at start (inclusive)", t0, true},
+		{"inside", t0.Add(2 * time.Second), true},
+		{"at end (exclusive)", t0.Add(4 * time.Second), false},
+		{"after window", t0.Add(10 * time.Second), false},
+		{"zero PDT never matches", time.Time{}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			got := isAdSegment(c.pdt, windows)
+			if got != c.want {
+				t.Errorf("isAdSegment(%v) = %v, want %v", c.pdt, got, c.want)
+			}
+		})
+	}
+}
+
 func TestParseMediaPlaylist_InputCap(t *testing.T) {
 	// Build a valid-enough playlist header followed by filler
 	// large enough to bust the 1 MiB cap. The LimitReader cuts

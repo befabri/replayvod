@@ -55,9 +55,22 @@ type Segment struct {
 
 	// Discontinuity is true when the preceding tag was
 	// EXT-X-DISCONTINUITY. The orchestrator's ad-gap logic
-	// (Phase 4b) walks these boundaries; the fetcher itself
-	// just records the flag.
+	// walks these boundaries; the fetcher itself just records
+	// the flag.
 	Discontinuity bool
+
+	// IsAd is true when this segment falls inside a Twitch
+	// stitched-ad pod. Attributed by the parser from an
+	// EXT-X-DATERANGE tag with CLASS="twitch-stitched-ad" or
+	// an ID starting with "stitched-ad-", using the segment's
+	// EXT-X-PROGRAM-DATE-TIME to check membership in the
+	// DateRange's [START-DATE, START-DATE+DURATION) interval.
+	//
+	// The poller skips ad segments entirely — they don't enter
+	// the fetch queue, aren't written to disk, and don't count
+	// against the gap policy's MaxGapRatio. Muted-DMCA segments
+	// are NOT ads; only the DateRange class check sets this.
+	IsAd bool
 }
 
 // InitSegment is the #EXT-X-MAP entry pointing at the fMP4
