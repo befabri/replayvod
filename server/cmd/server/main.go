@@ -118,7 +118,7 @@ func main() {
 	}
 
 	// Storage backend selection. Fail fast on missing required fields
-	// for the chosen type — a misconfigured S3 or rclone only surfaces
+	// for the chosen type — a misconfigured S3 backend only surfaces
 	// on the first download otherwise, which is a far worse diagnostic.
 	var store storage.Storage
 	switch cfg.App.Storage.Type {
@@ -161,21 +161,10 @@ func main() {
 			"region", cfg.App.Storage.S3.Region,
 		)
 
-	case "rclone":
-		rclone, err := storage.NewRclone("rclone", cfg.App.Storage.Rclone.Remote)
-		if err != nil {
-			log.Error("Failed to init rclone storage", "error", err)
-			os.Exit(1)
-		}
-		store = rclone
-		log.Info("Storage initialized", "type", "rclone",
-			"remote", cfg.App.Storage.Rclone.Remote,
-		)
-
 	default:
 		log.Error("Unsupported storage type",
 			"type", cfg.App.Storage.Type,
-			"supported", []string{"local", "s3", "rclone"},
+			"supported", []string{"local", "s3"},
 		)
 		os.Exit(1)
 	}

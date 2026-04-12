@@ -1,6 +1,9 @@
 // Package storage provides a backend-agnostic object store for video files
 // and thumbnails. The Storage interface has one implementation per backend
-// (local FS; S3 and rclone planned for Phase 8).
+// (local FS; S3-compatible for remote). Operators who want to push recordings
+// to non-S3 targets (Google Drive, SFTP, Backblaze, etc.) run an external
+// rclone sync/move against the local VideoDir — the app itself stays focused
+// on record → store, not on archival tiering.
 package storage
 
 import (
@@ -20,8 +23,7 @@ type FileInfo struct {
 //
 // Paths are always forward-slash separated, rooted at the backend's base
 // location. Implementations are responsible for mapping them to their
-// native conventions (absolute path for local, key for S3, remote path for
-// rclone).
+// native conventions (absolute path for local, key for S3).
 type Storage interface {
 	// Save writes r to path, creating parent directories as needed. The full
 	// read is copied; callers typically hand this a file or a subprocess

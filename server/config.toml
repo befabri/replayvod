@@ -29,9 +29,6 @@ region = ""
 access_key = ""
 secret_key = ""
 
-[storage.rclone]
-remote = ""
-
 [scheduler]
 enabled = true
 thumbnail_interval_minutes = 5

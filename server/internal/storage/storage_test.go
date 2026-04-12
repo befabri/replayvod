@@ -3,11 +3,11 @@ package storage
 import "testing"
 
 // TestObjectKey_RejectsEscapesAndNormalizes pins the contract the S3
-// and rclone backends share: Save("videos/foo.mp4") lands at a safe
-// key without leading slashes or path-escape segments. LocalStorage
-// has its own resolve() with the same shape — this test covers the
-// S3/rclone path, which would otherwise let an attacker controlling
-// the filename write outside the configured bucket prefix.
+// backend uses: Save("videos/foo.mp4") lands at a safe key without
+// leading slashes or path-escape segments. LocalStorage has its own
+// resolve() with the same shape — this test covers the S3 path,
+// which would otherwise let an attacker controlling the filename
+// write outside the configured bucket prefix.
 func TestObjectKey_RejectsEscapesAndNormalizes(t *testing.T) {
 	cases := []struct {
 		name      string

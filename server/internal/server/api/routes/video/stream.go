@@ -80,7 +80,7 @@ func (h *Handler) streamVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Open through the storage layer so S3/rclone backends Just Work later.
+	// Open through the storage layer so S3 Just Works alongside local.
 	relPath := videoRelPath(video)
 	f, err := h.storage.Open(ctx, relPath)
 	if err != nil {

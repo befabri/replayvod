@@ -116,8 +116,7 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 // Called once at startup — partial yt-dlp output that survived a crash
 // or hard kill is never resumable, so cleanup is always safe. The
 // scratch dir is local by definition (subprocesses can't write to S3
-// or an rclone remote directly), so this works uniformly across
-// storage backends.
+// directly), so this works uniformly across storage backends.
 func (s *Service) sweepOrphanedTemps() {
 	scratch := s.cfg.Env.ScratchDir
 	entries, err := os.ReadDir(scratch)
@@ -285,9 +284,9 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	}
 
 	// Subprocess IO always lands in ScratchDir first: yt-dlp and
-	// ffmpeg can't write to an S3 bucket or rclone remote. After the
-	// pipeline finishes, Save() uploads to whichever Storage backend
-	// is configured. Local backend is just a move at Save time.
+	// ffmpeg can't write to an S3 bucket. After the pipeline
+	// finishes, Save() uploads to whichever Storage backend is
+	// configured. Local backend is just a move at Save time.
 	//
 	// Layout is flat: videos/<filename>.mp4. The filename already embeds
 	// the broadcaster login + timestamp, so no nested subdirs needed.
@@ -378,8 +377,8 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 
 // uploadFromScratch opens a scratch file and streams it to the Storage
 // backend at the given relative path. For local storage this is an
-// atomic move under the hood; for S3/rclone it uploads bytes.
-// Always uses forward slashes for the remote path.
+// atomic move under the hood; for S3 it uploads bytes. Always uses
+// forward slashes for the remote path.
 func (s *Service) uploadFromScratch(ctx context.Context, scratchPath, storagePath string) error {
 	f, err := os.Open(scratchPath)
 	if err != nil {

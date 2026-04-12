@@ -60,11 +60,11 @@ type Environment struct {
 	// VideoDir lives on spinning disk turns a 10 GB "rename" into
 	// minutes of wasted I/O.
 	//
-	// Remote backends (S3, rclone) don't care where scratch lives —
-	// Save streams the file out over the network and the rename
-	// penalty doesn't apply. Operators on those backends with spare
-	// RAM may prefer pointing ScratchDir at a tmpfs mount so large
-	// writes don't churn the data disk.
+	// The S3 backend doesn't care where scratch lives — Save streams
+	// the file out over the network and the rename penalty doesn't
+	// apply. Operators on S3 with spare RAM may prefer pointing
+	// ScratchDir at a tmpfs mount so large writes don't churn the
+	// data disk.
 	ScratchDir string `env:"SCRATCH_DIR" envDefault:"./data/.scratch"`
 }
 
@@ -173,10 +173,9 @@ type DownloadConfig struct {
 }
 
 type StorageConfig struct {
-	Type      string       `toml:"type"`
-	LocalPath string       `toml:"local_path"`
-	S3        S3Config     `toml:"s3"`
-	Rclone    RcloneConfig `toml:"rclone"`
+	Type      string   `toml:"type"`
+	LocalPath string   `toml:"local_path"`
+	S3        S3Config `toml:"s3"`
 }
 
 // S3Config holds S3-compatible storage options. Leave AccessKey and
@@ -201,28 +200,6 @@ type S3Config struct {
 	AccessKey    string `toml:"access_key"`
 	SecretKey    string `toml:"secret_key"`
 	UsePathStyle *bool  `toml:"use_path_style"`
-}
-
-// RcloneConfig drives the rclone-shell-out backend.
-//
-// Requires rclone with the lsjson command — present in every release
-// since 2016, so no practical version floor for current operators.
-// Delete's idempotence probes via `rclone lsjson` rather than
-// stderr-string matching, so the Delete path is stable across rclone
-// upgrades.
-//
-// Trade-offs:
-//   - Save is streaming (rclone rcat) — cheap.
-//   - Open buffers the whole object into a local tempfile before
-//     returning a Seeker, because rclone's CLI doesn't expose a
-//     byte-range read that composes with io.Seeker.
-//
-// Pick rclone for archival tiering (S3 Glacier via rclone, Backblaze
-// cold, SFTP to NAS). For hot playback where multiple clients stream
-// concurrently, use the S3 backend instead — its Open is ranged and
-// memory-bounded.
-type RcloneConfig struct {
-	Remote string `toml:"remote"`
 }
 
 type SchedulerConfig struct {
