@@ -246,14 +246,29 @@ func resolvePerSectionAnchors(doc *goquery.Document, sub EventSubSubscriptionTyp
 	}
 
 	// Event anchor resolution, in order of preference:
+	//   0. Manual override — for subscription types whose reference-page anchor
+	//      lacks the `-event` suffix that isEventAnchor recognizes. The schema
+	//      was routed into NamedSchemas by parseReferenceSchemas; promote it
+	//      into Events so emitSchemaStructs materializes a typed event struct.
 	//   1. The Notification Payload table in the same per-type section has an
-	//      `event` row whose href points at a reference-page anchor — that's
-	//      authoritative (handles group anchors like "#shield-mode").
+	//      `event` row whose href points at a reference-page anchor.
 	//   2. Swap "-condition" suffix for "-event" on the condition anchor —
 	//      works for anchors shaped like "channel-follow-condition" → "channel-follow-event".
 	//   3. Inline-parse a Notification Payload table whose `event` row has
 	//      child rows (rare but exists for some subscription types).
-	eventAnchor := findEventAnchorInSection(sectionHTML, ref)
+	var eventAnchor string
+	if override, ok := manualEventAnchorOverrides[[2]string{sub.Type, sub.Version}]; ok {
+		if schema, exists := ref.NamedSchemas[override]; exists {
+			ref.Events[override] = schema
+			delete(ref.NamedSchemas, override)
+		}
+		if _, exists := ref.Events[override]; exists {
+			eventAnchor = override
+		}
+	}
+	if eventAnchor == "" {
+		eventAnchor = findEventAnchorInSection(sectionHTML, ref)
+	}
 	if eventAnchor == "" {
 		base := strings.TrimSuffix(condAnchor, "-condition")
 		if _, ok := ref.Events[base+"-event"]; ok {
@@ -264,14 +279,24 @@ func resolvePerSectionAnchors(doc *goquery.Document, sub EventSubSubscriptionTyp
 		eventAnchor = extractInlineEventFromNodes(sectionNodes, sub, ref, log)
 	}
 	if eventAnchor == "" {
-		// TODO(phase5): channel.shoutout.create's subscription-types page links
-		// to a "shoutout-sent" anchor on the reference page that doesn't exist
-		// (reference has "shoutout-create" / "shoutout-received"). If shoutout
-		// event decoding misbehaves in production, start here and audit whether
-		// Twitch fixed the doc or whether we need a manual anchor override.
 		log.Warn("eventsub: no event anchor", "type", sub.Type, "version", sub.Version)
 	}
 	return condAnchor, eventAnchor
+}
+
+// manualEventAnchorOverrides maps (type, version) → reference-page anchor for
+// subscription types whose reference-page section lacks the `-event` suffix
+// that `isEventAnchor` detects. Without an override, `parseReferenceSchemas`
+// files the schema under NamedSchemas, `findEventAnchorInSection` can't find
+// it, and the dispatch falls through to UnknownEvent.
+//
+// Data-driven: only add entries confirmed by inspecting the reference page —
+// the referenced anchor must exist and describe the full event payload.
+var manualEventAnchorOverrides = map[[2]string]string{
+	{"channel.shield_mode.begin", "1"}:  "shield-mode",
+	{"channel.shield_mode.end", "1"}:    "shield-mode",
+	{"channel.shoutout.create", "1"}:    "shoutout-create",
+	{"channel.shoutout.receive", "1"}:   "shoutout-received",
 }
 
 // findEventAnchorInSection extracts the reference-page anchor the section's
