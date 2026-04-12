@@ -69,6 +69,16 @@ func NewS3(ctx context.Context, opts S3Options) (*S3Storage, error) {
 		return nil, fmt.Errorf("s3 storage: region required")
 	}
 
+	// Enforce all-or-nothing credentials: either both AccessKey and
+	// SecretKey are set (explicit static provider) or both are empty
+	// (delegate to the AWS SDK default chain). Asymmetric config
+	// would silently skip the static provider and fall through to
+	// whatever IAM role / env var happens to be available — operator
+	// thinks their TOML took effect, auth quietly uses something else.
+	if (opts.AccessKey == "") != (opts.SecretKey == "") {
+		return nil, fmt.Errorf("s3 storage: AccessKey and SecretKey must both be set or both be empty")
+	}
+
 	loadOpts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(opts.Region),
 	}

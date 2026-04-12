@@ -40,16 +40,23 @@ func newS3(t *testing.T) *storage.S3Storage {
 	return s
 }
 
+// multipartThreshold is sized to exceed s3manager's 5 MiB PartSize
+// (set at NewS3 construction) so the Uploader takes the multipart
+// path instead of a single PutObject. The +123 suffix keeps it off a
+// whole-part boundary so final-part-shorter-than-PartSize handling
+// also gets exercised. Keep the constant next to the doc — if one
+// drifts without the other, the test name becomes a lie.
+const multipartThreshold = 6*1024*1024 + 123
+
 // TestS3_RoundTrip_SaveOpenReadAllBytes guards the core data path:
-// Save a multi-MB blob, Open, read to EOF, compare bytes. Multi-MB
-// so s3manager.Uploader takes the multipart path (5 MiB part size —
-// a 6 MiB blob triggers it). Plain PutObject would paper over
+// Save a multi-MB blob that forces s3manager's multipart path, Open,
+// read to EOF, compare bytes. Plain PutObject would paper over
 // multipart-specific bugs.
 func TestS3_RoundTrip_SaveOpenReadAllBytes(t *testing.T) {
 	ctx := context.Background()
 	s := newS3(t)
 
-	src := make([]byte, 6*1024*1024+123) // 6 MiB + change, forces multipart
+	src := make([]byte, multipartThreshold)
 	if _, err := rand.Read(src); err != nil {
 		t.Fatalf("rand: %v", err)
 	}

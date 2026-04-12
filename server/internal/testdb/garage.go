@@ -99,7 +99,13 @@ func NewGarageBucket(t *testing.T) *Garage {
 		strings.ToLower(strings.ReplaceAll(uuid.NewString(), "-", ""))[:32]
 
 	req := testcontainers.ContainerRequest{
-		Image: "dxflrs/garage:v2.0.0",
+		// Requires Garage v2.3.0+ for --single-node and --default-*
+		// flags — confirmed by .reference/garage/doc/book/quick-start
+		// ("For older versions of Garage (before v2.3.0): automatic
+		// configuration using --single-node and --default-bucket is
+		// not available"). Earlier tags reject the flags at startup
+		// and every integration test fails immediately.
+		Image: "dxflrs/garage:v2.3.0",
 		// --single-node auto-applies the initial layout.
 		// --default-bucket + --default-access-key provision from env on
 		// startup so the helper doesn't need to shell out post-boot.
@@ -134,7 +140,12 @@ func NewGarageBucket(t *testing.T) *Garage {
 		t.Fatalf("garage: start container: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = container.Terminate(context.Background())
+		// Bounded Terminate ctx: if the Docker daemon stalls during
+		// shutdown, the test process shouldn't hang forever on a
+		// hung teardown. 10s is generous for a single-container stop.
+		termCtx, termCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer termCancel()
+		_ = container.Terminate(termCtx)
 	})
 
 	host, err := container.Host(ctx)

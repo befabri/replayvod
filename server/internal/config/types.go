@@ -112,6 +112,12 @@ type S3Config struct {
 
 // RcloneConfig drives the rclone-shell-out backend.
 //
+// Requires rclone with the lsjson command — present in every release
+// since 2016, so no practical version floor for current operators.
+// Delete's idempotence probes via `rclone lsjson` rather than
+// stderr-string matching, so the Delete path is stable across rclone
+// upgrades.
+//
 // Trade-offs:
 //   - Save is streaming (rclone rcat) — cheap.
 //   - Open buffers the whole object into a local tempfile before

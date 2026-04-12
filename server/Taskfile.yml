@@ -20,7 +20,11 @@ tasks:
       - go test ./...
 
   test-integration:
-    desc: Run integration tests that need Docker (Garage for S3 backend)
+    desc: |
+      Run integration tests that need Docker. Currently only
+      internal/storage (Garage-backed S3 wire tests) tags in, but the
+      scope will grow as more packages add //go:build integration
+      tests — any future dir joining the run is automatic.
     cmds:
       - go test -tags integration -count=1 ./...
 
