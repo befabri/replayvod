@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/validate"
 	"github.com/google/go-querystring/query"
 )
 
@@ -24,12 +25,32 @@ const (
 	authBaseURL  = "https://id.twitch.tv/oauth2"
 )
 
+// FetchLogRecorder is the minimal interface the client needs to audit Helix calls.
+// Implemented by the repository adapters via repository.Repository.CreateFetchLog.
+// Kept as an interface here to avoid a circular import.
+type FetchLogRecorder interface {
+	RecordFetch(ctx context.Context, entry FetchLogEntry)
+}
+
+// FetchLogEntry is the data passed to FetchLogRecorder for each Helix call.
+// userID is the Twitch user ID on whose behalf the request was made, or nil
+// when the request used the app access token.
+type FetchLogEntry struct {
+	UserID        *string
+	FetchType     string
+	BroadcasterID *string
+	Status        int
+	Error         string
+	DurationMs    int64
+}
+
 // Client is the Twitch Helix API client.
 type Client struct {
 	clientID     string
 	clientSecret string
 	httpClient   *http.Client
 	log          *slog.Logger
+	recorder     FetchLogRecorder
 
 	appTokenMu  sync.Mutex
 	appToken    string
@@ -48,9 +69,17 @@ func NewClient(clientID, clientSecret string, log *slog.Logger) *Client {
 	}
 }
 
+// SetFetchLogRecorder wires up audit logging. Must be called after NewClient
+// because the repository needs the client for scheduler bootstrap while the
+// recorder itself depends on the repository.
+func (c *Client) SetFetchLogRecorder(r FetchLogRecorder) {
+	c.recorder = r
+}
+
 // --- Context token plumbing ---
 
 type userTokenCtxKey struct{}
+type userIDCtxKey struct{}
 
 // WithUserToken attaches a user access token to ctx. Generated Helix methods
 // pick it up from the context automatically; when unset they fall back to the
@@ -65,6 +94,23 @@ func WithUserToken(ctx context.Context, token string) context.Context {
 func userTokenFrom(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(userTokenCtxKey{}).(string)
 	return v, ok && v != ""
+}
+
+// WithUserID attaches the Twitch user ID of the authenticated caller to ctx.
+// Recorded on fetch log entries for auditing. Callers without a user (e.g.,
+// scheduler jobs using the app access token) simply omit this.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	if userID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, userIDCtxKey{}, userID)
+}
+
+func userIDFrom(ctx context.Context) *string {
+	if v, ok := ctx.Value(userIDCtxKey{}).(string); ok && v != "" {
+		return &v
+	}
+	return nil
 }
 
 // --- App access token (client_credentials grant, cached) ---
@@ -120,14 +166,41 @@ func (c *Client) delete(ctx context.Context, path string, params any, out any) e
 }
 
 func (c *Client) do(ctx context.Context, method, path string, params any, body any, out any) error {
+	// Pre-flight validation. validate.V.Struct is a no-op on types without
+	// `validate:""` tags, so non-validator user types pass through unaffected.
+	// Generator produces `validate:"required"` for required fields and
+	// `max=100,dive,max=<n>` for array constraints, so we catch constraint
+	// violations with typed validator.ValidationErrors (field names included)
+	// instead of Twitch's opaque 400.
+	if !isNilLike(params) {
+		if err := validate.V.Struct(params); err != nil {
+			return fmt.Errorf("twitch: invalid %s %s params: %w", method, path, err)
+		}
+	}
+	if !isNilLike(body) {
+		if err := validate.V.Struct(body); err != nil {
+			return fmt.Errorf("twitch: invalid %s %s body: %w", method, path, err)
+		}
+	}
+
+	start := time.Now()
+	status, err := c.doOnce(ctx, method, path, params, body, out)
+	c.record(ctx, method, path, status, time.Since(start), err)
+	return err
+}
+
+// doOnce performs the HTTP exchange and returns the status code even on error
+// so the caller can record it. Status is 0 when the request never reached the
+// server (e.g., encoding or network failure).
+func (c *Client) doOnce(ctx context.Context, method, path string, params any, body any, out any) (int, error) {
 	u, err := url.Parse(helixBaseURL + path)
 	if err != nil {
-		return fmt.Errorf("parse url: %w", err)
+		return 0, fmt.Errorf("parse url: %w", err)
 	}
 	if !isNilLike(params) {
 		v, err := query.Values(params)
 		if err != nil {
-			return fmt.Errorf("encode query: %w", err)
+			return 0, fmt.Errorf("encode query: %w", err)
 		}
 		u.RawQuery = v.Encode()
 	}
@@ -136,21 +209,21 @@ func (c *Client) do(ctx context.Context, method, path string, params any, body a
 	if !isNilLike(body) {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("encode body: %w", err)
+			return 0, fmt.Errorf("encode body: %w", err)
 		}
 		bodyReader = bytes.NewReader(b)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), bodyReader)
 	if err != nil {
-		return fmt.Errorf("new request: %w", err)
+		return 0, fmt.Errorf("new request: %w", err)
 	}
 
 	token, ok := userTokenFrom(ctx)
 	if !ok {
 		token, err = c.appAccessToken(ctx)
 		if err != nil {
-			return fmt.Errorf("acquire app token: %w", err)
+			return 0, fmt.Errorf("acquire app token: %w", err)
 		}
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -161,22 +234,48 @@ func (c *Client) do(ctx context.Context, method, path string, params any, body a
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("do request: %w", err)
+		return 0, fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return &HelixError{Status: resp.StatusCode, Body: string(b)}
+		return resp.StatusCode, &HelixError{Status: resp.StatusCode, Body: string(b)}
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil
+		return resp.StatusCode, nil
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+		return resp.StatusCode, fmt.Errorf("decode response: %w", err)
 	}
-	return nil
+	return resp.StatusCode, nil
+}
+
+// record forwards a completed Helix call to the fetch log recorder, if wired.
+// Recording failures are swallowed — auditing must not fail user requests.
+// BroadcasterID is best-effort extracted from query params when present.
+func (c *Client) record(ctx context.Context, method, path string, status int, dur time.Duration, err error) {
+	if c.recorder == nil {
+		return
+	}
+	entry := FetchLogEntry{
+		UserID:     userIDFrom(ctx),
+		FetchType:  method + " " + path,
+		Status:     status,
+		DurationMs: dur.Milliseconds(),
+	}
+	if err != nil {
+		entry.Error = err.Error()
+	}
+	defer func() {
+		// Recorder implementations are not expected to panic; guard anyway so
+		// a bug there never takes down a user request.
+		if r := recover(); r != nil {
+			c.log.Error("fetch log recorder panicked", "panic", r)
+		}
+	}()
+	c.recorder.RecordFetch(ctx, entry)
 }
 
 // isNilLike returns true for nil interfaces and typed-nil pointers.

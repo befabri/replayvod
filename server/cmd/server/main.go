@@ -99,8 +99,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create Twitch client
+	// Create Twitch client with fetch log recorder.
 	twitchClient := twitch.NewClient(cfg.Env.TwitchClientID, cfg.Env.TwitchSecret, log)
+	twitchClient.SetFetchLogRecorder(&fetchLogRecorder{repo: repo, log: log})
 
 	// Create session manager
 	secureCookie := cfg.Env.Host != "localhost" && cfg.Env.Host != "0.0.0.0"
