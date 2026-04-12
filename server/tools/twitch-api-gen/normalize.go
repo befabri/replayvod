@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -304,16 +305,43 @@ func applyReps(log *slog.Logger, id string, sel *goquery.Selection, reps []rep) 
 	sel.SetHtml(html)
 }
 
-// decodeEntitiesForMatch converts a few common HTML entities to their literal
-// characters so that search strings ported verbatim from the TS normalizer
-// (where jsdom preserves entities) match goquery's decoded innerHTML.
-var entityReplacer = strings.NewReplacer(
-	"&nbsp;", "\u00a0",
-)
-
+// decodeEntitiesForMatch rewrites a search/value string (ported from the TS
+// normalizer or hand-written against the raw HTML source) into the form that
+// goquery's `.Html()` round-trips to. It must match what goquery PRODUCES on
+// serialization, not what the HTML source contains — misses here surface as
+// silently no-op normalize fixes. Known mappings:
+//
+//   - `&nbsp;` anywhere → `\u00a0` (goquery decodes the entity and stores it
+//     as the literal character).
+//   - `"` in TEXT content → `&#34;`. `'` → `&#39;`. Goquery re-encodes these
+//     on serialization; attribute values (e.g. `class="x"`) are preserved
+//     with literal quotes, so we deliberately skip them via tag-splitting.
+//
+// Extend here only after confirming via `sel.Html()` what goquery actually
+// emits — the encoding is context-sensitive, so a flat `strings.NewReplacer`
+// is the wrong tool.
 func decodeEntitiesForMatch(s string) string {
-	return entityReplacer.Replace(s)
+	s = strings.ReplaceAll(s, "&nbsp;", "\u00a0")
+	var b strings.Builder
+	b.Grow(len(s))
+	last := 0
+	for _, idx := range htmlTagRe.FindAllStringIndex(s, -1) {
+		b.WriteString(encodeTextContentQuotes(s[last:idx[0]]))
+		b.WriteString(s[idx[0]:idx[1]])
+		last = idx[1]
+	}
+	b.WriteString(encodeTextContentQuotes(s[last:]))
+	return b.String()
 }
+
+// htmlTagRe matches an HTML tag (open or close, with attrs). The regions
+// BETWEEN these matches are text content, where quote encoding differs from
+// attribute values.
+var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
+
+var textQuoteReplacer = strings.NewReplacer(`"`, "&#34;", "'", "&#39;")
+
+func encodeTextContentQuotes(s string) string { return textQuoteReplacer.Replace(s) }
 
 func truncateForLog(s string) string {
 	const max = 80
