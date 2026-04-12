@@ -27,6 +27,74 @@ var permanentEntitlementCodes = map[string]struct{}{
 	"content_moderation_required": {},
 }
 
+// GQL error code constants. GQL application errors don't carry a
+// dedicated `error_code` field — Twitch surfaces them as free-form
+// messages on the `errors[].message` path. We synthesize a stable
+// code by matching on the message so the classifier can route them
+// without a string-match escape hatch in every call site.
+const (
+	// GQLCodePersistedQueryNotFound means the SHA256 we sent isn't
+	// registered on Twitch's GQL server — usually because the
+	// schema drifted and our hash is stale. Retryable in principle
+	// (re-sending with the full `query` body works) but in practice
+	// means the sync broke and the next job will fail the same way.
+	GQLCodePersistedQueryNotFound = "persisted_query_not_found"
+
+	// GQLCodeServiceTimeout is Twitch's internal upstream timeout.
+	// Retryable — the caller's backoff handles it.
+	GQLCodeServiceTimeout = "service_timeout"
+
+	// GQLCodeServiceUnavailable is the generic Twitch 5xx-in-200
+	// signal. Retryable via backoff.
+	GQLCodeServiceUnavailable = "service_unavailable"
+)
+
+// gqlMessageToCode recognizes a small set of GQL application-error
+// messages and returns a stable code. Unknown messages return "".
+// Kept intentionally narrow — we only synthesize codes for errors
+// we know how to classify; anything else stays as a raw message
+// and the classifier treats it as "not a permanent failure".
+func gqlMessageToCode(msg string) string {
+	switch {
+	case containsIgnoreCase(msg, "PersistedQueryNotFound"):
+		return GQLCodePersistedQueryNotFound
+	case containsIgnoreCase(msg, "service timeout"):
+		return GQLCodeServiceTimeout
+	case containsIgnoreCase(msg, "service unavailable"):
+		return GQLCodeServiceUnavailable
+	}
+	return ""
+}
+
+// containsIgnoreCase avoids importing strings just for one call;
+// the message is always ASCII so a byte-level lowercase is safe.
+func containsIgnoreCase(s, sub string) bool {
+	if len(sub) == 0 || len(s) < len(sub) {
+		return len(sub) == 0
+	}
+	for i := 0; i+len(sub) <= len(s); i++ {
+		match := true
+		for j := 0; j < len(sub); j++ {
+			a := s[i+j]
+			b := sub[j]
+			if a >= 'A' && a <= 'Z' {
+				a += 'a' - 'A'
+			}
+			if b >= 'A' && b <= 'Z' {
+				b += 'a' - 'A'
+			}
+			if a != b {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 // AuthError carries everything the orchestrator needs to decide
 // whether to refresh + retry or fail the job. Always wrap low-level
 // 401/403s in AuthError so the classifier has something to work with.

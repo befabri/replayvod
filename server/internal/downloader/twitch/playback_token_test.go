@@ -3,6 +3,7 @@ package twitch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -154,6 +155,65 @@ func TestPlaybackToken_PermanentEntitlement(t *testing.T) {
 	}
 }
 
+func TestPlaybackToken_PersistedQueryNotFoundBailsFast(t *testing.T) {
+	// Hash drift — Twitch returns HTTP 200 with a GQL-application
+	// error. Classifier treats this as non-auth, so the H2 path
+	// bails with the original error rather than burning an
+	// integrity round-trip.
+	var gqlCalls, integrityCalls int
+	h := http.NewServeMux()
+	h.HandleFunc("/gql", func(w http.ResponseWriter, r *http.Request) {
+		gqlCalls++
+		_, _ = w.Write([]byte(`{"errors":[{"message":"PersistedQueryNotFound"}]}`))
+	})
+	h.HandleFunc("/integrity", func(w http.ResponseWriter, r *http.Request) {
+		integrityCalls++
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	c := newRoutedClient(t, srv)
+
+	_, err := c.PlaybackToken(context.Background(), "altair", "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var ae *AuthError
+	if !errors.As(err, &ae) {
+		t.Fatalf("expected AuthError, got %T: %v", err, err)
+	}
+	if ae.Code != GQLCodePersistedQueryNotFound {
+		t.Errorf("Code=%q, want %q", ae.Code, GQLCodePersistedQueryNotFound)
+	}
+	if gqlCalls != 1 {
+		t.Errorf("gqlCalls=%d, want 1 (no integrity retry for PQNF)", gqlCalls)
+	}
+	if integrityCalls != 0 {
+		t.Errorf("integrityCalls=%d, want 0", integrityCalls)
+	}
+}
+
+func TestPlaybackToken_TransportErrorBailsFast(t *testing.T) {
+	// H2 regression guard: a transport-level failure must not
+	// flow into the integrity path. Close the server immediately
+	// so /gql fails at the TCP layer.
+	var integrityCalls int
+	h := http.NewServeMux()
+	h.HandleFunc("/integrity", func(w http.ResponseWriter, r *http.Request) {
+		integrityCalls++
+	})
+	srv := httptest.NewServer(h)
+	srv.Close()
+	c := newRoutedClient(t, srv)
+
+	_, err := c.PlaybackToken(context.Background(), "altair", "")
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if integrityCalls != 0 {
+		t.Errorf("integrityCalls=%d, want 0 (transport errors skip integrity)", integrityCalls)
+	}
+}
+
 func TestPlaybackToken_AuthedPlayback(t *testing.T) {
 	var sawOAuth bool
 	h := http.NewServeMux()
@@ -185,8 +245,11 @@ func TestPlaybackToken_GQLPayloadShape(t *testing.T) {
 		if err := json.Unmarshal(body, &parsed); err != nil {
 			t.Fatalf("server side decode: %v", err)
 		}
-		if parsed.OperationName != "PlaybackAccessToken_Template" {
-			t.Errorf("OperationName=%q", parsed.OperationName)
+		if parsed.OperationName != "PlaybackAccessToken" {
+			// _Template suffix = mismatch against the persisted-query hash.
+			// Twitch returns PersistedQueryNotFound. Guard against
+			// anyone re-introducing the old name.
+			t.Errorf("OperationName=%q, want PlaybackAccessToken", parsed.OperationName)
 		}
 		if parsed.Extensions.PersistedQuery.SHA256Hash != playbackAccessTokenSHA256 {
 			t.Errorf("hash drifted: %q", parsed.Extensions.PersistedQuery.SHA256Hash)

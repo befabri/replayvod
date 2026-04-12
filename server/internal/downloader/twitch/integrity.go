@@ -122,6 +122,8 @@ func fetchIntegrity(ctx context.Context, client *Client) (string, time.Time, err
 	req.Header.Set("Client-ID", client.clientID)
 	req.Header.Set("Device-Id", client.deviceID)
 	req.Header.Set("User-Agent", client.userAgent)
+	req.Header.Set("Origin", playerOrigin)
+	req.Header.Set("Referer", playerReferer)
 
 	resp, err := client.http.Do(req)
 	if err != nil {

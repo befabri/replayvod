@@ -22,6 +22,14 @@ const (
 	gqlURL       = "https://gql.twitch.tv/gql"
 	integrityURL = "https://gql.twitch.tv/integrity"
 	usherBaseURL = "https://usher.ttvnw.net"
+
+	// playerOrigin + playerReferer match what streamlink sends on
+	// its Twitch HLS requests. Not strictly required for the
+	// anonymous captures we've probed with, but aligning with a
+	// realistic browser source makes integrity-gated requests more
+	// likely to stay accepted and is cheap to carry.
+	playerOrigin  = "https://player.twitch.tv"
+	playerReferer = "https://player.twitch.tv/"
 )
 
 // Client is a Twitch streaming-side client: it does NOT talk to

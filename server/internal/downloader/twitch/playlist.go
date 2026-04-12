@@ -15,27 +15,23 @@ import (
 	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
 )
 
-// MasterPlaylistOptions configures the Stage 2 fetch. Both fields
-// are optional; zero values produce the "anonymous H.264+HEVC, no
-// AV1" manifest that covers every observed channel in the spec's
-// empirical captures.
-type MasterPlaylistOptions struct {
-	// EnableAV1 adds av1 to the supported_codecs query. Leave
-	// false unless operator has explicitly opted in; Twitch
-	// doesn't serve AV1 to anyone yet, but sending av1 doesn't
-	// hurt when the channel doesn't have it.
-	EnableAV1 bool
-}
-
 // FetchMasterPlaylist hits usher.ttvnw.net with the full query-
 // parameter set streamlink + yt-dlp settled on. Returns the parsed
 // manifest. All codec/quality filtering happens in SelectVariant;
 // this function is I/O only.
 //
+// Takes SelectOptions rather than a fetch-specific struct so the
+// same per-job options drive both the `supported_codecs` query
+// parameter here and the Stage 3 codec filter. Keeping them in
+// one place prevents the drift where a caller opts AV1 into the
+// fetch but not the select (or vice versa) and then can't explain
+// why selection picks the "wrong" codec. Only EnableAV1 is read
+// here; the rest of SelectOptions is ignored by the fetch.
+//
 // 4xx responses are wrapped in AuthError so the caller can run
 // them through classifyAuthError — a 403 on usher usually means
 // the playback token expired or the stream is geo/sub-restricted.
-func (c *Client) FetchMasterPlaylist(ctx context.Context, login string, token PlaybackToken, opts MasterPlaylistOptions) (*Manifest, error) {
+func (c *Client) FetchMasterPlaylist(ctx context.Context, login string, token PlaybackToken, opts SelectOptions) (*Manifest, error) {
 	if login == "" {
 		return nil, fmt.Errorf("twitch: empty login")
 	}
@@ -64,6 +60,8 @@ func (c *Client) FetchMasterPlaylist(ctx context.Context, login string, token Pl
 		return nil, fmt.Errorf("build usher request: %w", err)
 	}
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Origin", playerOrigin)
+	req.Header.Set("Referer", playerReferer)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -79,7 +77,7 @@ func (c *Client) FetchMasterPlaylist(ctx context.Context, login string, token Pl
 		return nil, NewAuthError(resp.StatusCode, body)
 	}
 
-	manifest, err := parseMasterPlaylist(resp.Body)
+	manifest, err := c.parseMasterPlaylist(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("parse master playlist: %w", err)
 	}
@@ -111,6 +109,42 @@ func randomCacheBuster() int {
 //     wins; avc1 → h264, hvc1/hev1 → h265, av01 → av1, mp4a-only →
 //     aac)
 //   - carry Group-ID through so the selector can find audio_only.
+//
+// log may be nil; when provided, variants dropped for unparseable
+// shape are surfaced at Debug so an unfamiliar manifest surfaces in
+// logs instead of as "why did selection pick 720 instead of 1080".
+func (c *Client) parseMasterPlaylist(r io.Reader) (*Manifest, error) {
+	master := m3u8.NewMasterPlaylist()
+	if err := master.DecodeFrom(r, false); err != nil {
+		return nil, err
+	}
+	out := &Manifest{}
+	for _, v := range master.Variants {
+		if v == nil {
+			continue
+		}
+		variant := Variant{
+			URL:     v.URI,
+			FPS:     v.FrameRate,
+			GroupID: v.Video,
+			Codec:   primaryCodec(v.Codecs),
+		}
+		variant.Quality = normalizeQuality(v.Resolution, v.Video)
+		if variant.Quality == "" || variant.Codec == "" {
+			c.log.Debug("drop variant from master playlist",
+				"reason", "unrecognized quality or codec",
+				"resolution", v.Resolution,
+				"group_id", v.Video,
+				"codecs", v.Codecs)
+		}
+		out.Variants = append(out.Variants, variant)
+	}
+	return out, nil
+}
+
+// parseMasterPlaylist (package function) is kept for tests that
+// don't want to construct a Client. Logs nothing. When the Stage 4
+// integration lands, delete this in favor of the method.
 func parseMasterPlaylist(r io.Reader) (*Manifest, error) {
 	master := m3u8.NewMasterPlaylist()
 	if err := master.DecodeFrom(r, false); err != nil {

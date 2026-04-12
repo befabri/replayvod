@@ -107,3 +107,23 @@ func TestAuthError_ErrorMessageShape(t *testing.T) {
 		t.Error("Error() returned empty string")
 	}
 }
+
+func TestGQLMessageToCode(t *testing.T) {
+	cases := []struct {
+		msg  string
+		want string
+	}{
+		{"PersistedQueryNotFound", GQLCodePersistedQueryNotFound},
+		{"persistedquerynotfound", GQLCodePersistedQueryNotFound},
+		{"service timeout after 30s", GQLCodeServiceTimeout},
+		{"Service Unavailable", GQLCodeServiceUnavailable},
+		{"some other error", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := gqlMessageToCode(c.msg)
+		if got != c.want {
+			t.Errorf("gqlMessageToCode(%q) = %q, want %q", c.msg, got, c.want)
+		}
+	}
+}
