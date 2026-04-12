@@ -306,3 +306,71 @@ func (q *Queries) UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscr
 	_, err := q.db.Exec(ctx, updateSubscriptionStatus, arg.ID, arg.Status)
 	return err
 }
+
+const upsertSubscription = `-- name: UpsertSubscription :one
+INSERT INTO subscriptions (
+    id, status, type, version, cost,
+    condition, broadcaster_id,
+    transport_method, transport_callback,
+    twitch_created_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT (id) DO UPDATE
+SET status            = EXCLUDED.status,
+    cost              = EXCLUDED.cost,
+    transport_method  = EXCLUDED.transport_method,
+    transport_callback = EXCLUDED.transport_callback
+RETURNING id, status, type, version, cost, condition, broadcaster_id, transport_method, transport_callback, twitch_created_at, created_at, revoked_at, revoked_reason
+`
+
+type UpsertSubscriptionParams struct {
+	ID                string          `json:"id"`
+	Status            string          `json:"status"`
+	Type              string          `json:"type"`
+	Version           string          `json:"version"`
+	Cost              int32           `json:"cost"`
+	Condition         json.RawMessage `json:"condition"`
+	BroadcasterID     *string         `json:"broadcaster_id"`
+	TransportMethod   string          `json:"transport_method"`
+	TransportCallback string          `json:"transport_callback"`
+	TwitchCreatedAt   time.Time       `json:"twitch_created_at"`
+}
+
+// Self-heal path: the snapshot poll discovers a sub Twitch has that we
+// don't mirror locally (another tool created it, or our create path
+// succeeded on Twitch but failed to record). Insert the row so the
+// junction link succeeds; on conflict refresh the mutable columns so
+// a status drift Twitch surfaces is reflected locally without
+// clobbering revoked_at / revoked_reason (those belong to our
+// soft-delete lifecycle, not Twitch's).
+func (q *Queries) UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) (Subscription, error) {
+	row := q.db.QueryRow(ctx, upsertSubscription,
+		arg.ID,
+		arg.Status,
+		arg.Type,
+		arg.Version,
+		arg.Cost,
+		arg.Condition,
+		arg.BroadcasterID,
+		arg.TransportMethod,
+		arg.TransportCallback,
+		arg.TwitchCreatedAt,
+	)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.Type,
+		&i.Version,
+		&i.Cost,
+		&i.Condition,
+		&i.BroadcasterID,
+		&i.TransportMethod,
+		&i.TransportCallback,
+		&i.TwitchCreatedAt,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.RevokedReason,
+	)
+	return i, err
+}

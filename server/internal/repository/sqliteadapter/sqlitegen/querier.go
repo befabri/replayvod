@@ -157,6 +157,8 @@ type Querier interface {
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
 	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) (Setting, error)
 	UpsertStream(ctx context.Context, arg UpsertStreamParams) (Stream, error)
+	// Self-heal path; see postgres variant.
+	UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) (Subscription, error)
 	UpsertTag(ctx context.Context, name string) (Tag, error)
 	UpsertTask(ctx context.Context, arg UpsertTaskParams) (Task, error)
 	UpsertTitle(ctx context.Context, name string) (Title, error)

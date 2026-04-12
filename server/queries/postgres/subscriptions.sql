@@ -8,6 +8,28 @@ INSERT INTO subscriptions (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
+-- name: UpsertSubscription :one
+-- Self-heal path: the snapshot poll discovers a sub Twitch has that we
+-- don't mirror locally (another tool created it, or our create path
+-- succeeded on Twitch but failed to record). Insert the row so the
+-- junction link succeeds; on conflict refresh the mutable columns so
+-- a status drift Twitch surfaces is reflected locally without
+-- clobbering revoked_at / revoked_reason (those belong to our
+-- soft-delete lifecycle, not Twitch's).
+INSERT INTO subscriptions (
+    id, status, type, version, cost,
+    condition, broadcaster_id,
+    transport_method, transport_callback,
+    twitch_created_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT (id) DO UPDATE
+SET status            = EXCLUDED.status,
+    cost              = EXCLUDED.cost,
+    transport_method  = EXCLUDED.transport_method,
+    transport_callback = EXCLUDED.transport_callback
+RETURNING *;
+
 -- name: GetSubscription :one
 SELECT * FROM subscriptions WHERE id = $1;
 

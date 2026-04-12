@@ -8,6 +8,22 @@ INSERT INTO subscriptions (
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
+-- name: UpsertSubscription :one
+-- Self-heal path; see postgres variant.
+INSERT INTO subscriptions (
+    id, status, type, version, cost,
+    condition, broadcaster_id,
+    transport_method, transport_callback,
+    twitch_created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE
+SET status             = excluded.status,
+    cost               = excluded.cost,
+    transport_method   = excluded.transport_method,
+    transport_callback = excluded.transport_callback
+RETURNING *;
+
 -- name: GetSubscription :one
 SELECT * FROM subscriptions WHERE id = ?;
 

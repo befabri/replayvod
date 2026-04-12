@@ -104,6 +104,25 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// processed on the other, leaving us with phantom "received" rows.
 	dbCtx := context.WithoutCancel(r.Context())
 
+	// subscription_id is a FK into subscriptions(id). The verification
+	// handshake arrives BEFORE the row we're mirroring exists locally,
+	// and a notification can race ahead of the mirror insert. In both
+	// cases we still want the webhook audit row — insert a NULL FK
+	// instead of failing. The snapshot self-heal (Phase 6) eventually
+	// reconciles, and ListWebhookEventsBySubscription still works via
+	// the subscription lifecycle because notifications for our own
+	// subs fire after mirror is in place the vast majority of the time.
+	if input.SubscriptionID != nil {
+		if _, err := h.repo.GetSubscription(dbCtx, *input.SubscriptionID); err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				input.SubscriptionID = nil
+			} else {
+				h.log.Warn("check subscription for audit FK", "id", *input.SubscriptionID, "error", err)
+				input.SubscriptionID = nil
+			}
+		}
+	}
+
 	switch notif.MessageType {
 	case twitch.MsgTypeVerification:
 		h.handleVerification(w, dbCtx, input, notif.Challenge)

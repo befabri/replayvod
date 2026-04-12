@@ -157,18 +157,43 @@ func (s *Service) Snapshot(ctx context.Context) (*repository.EventSubSnapshot, e
 	}
 
 	for _, sub := range all {
-		// LinkSnapshotSubscription FKs into subscriptions(id). Orphans
-		// (subs Twitch has but we never mirrored) would error on FK
-		// violation. Skip with a warning so the snapshot as a whole
-		// still records — a partial linkage is better than no snapshot.
+		// Self-heal orphans: if Twitch returns a sub we don't mirror
+		// locally, upsert it so the junction link succeeds. Matches
+		// the plan's Phase 6 self-heal — historical snapshots stay
+		// complete instead of silently losing subs we didn't create.
 		if _, err := s.repo.GetSubscription(ctx, sub.ID); err != nil {
-			if errors.Is(err, repository.ErrNotFound) {
-				s.log.Warn("snapshot saw untracked subscription, skipping link",
-					"sub_id", sub.ID, "type", sub.Type)
+			if !errors.Is(err, repository.ErrNotFound) {
+				s.log.Error("snapshot sub lookup failed", "sub_id", sub.ID, "error", err)
 				continue
 			}
-			s.log.Error("snapshot sub lookup failed", "sub_id", sub.ID, "error", err)
-			continue
+			s.log.Warn("snapshot self-healing untracked subscription",
+				"sub_id", sub.ID, "type", sub.Type)
+			condJSON, mErr := json.Marshal(sub.Condition)
+			if mErr != nil {
+				s.log.Error("marshal orphan condition", "sub_id", sub.ID, "error", mErr)
+				continue
+			}
+			method, callback := transportFields(sub.Transport)
+			bid := broadcasterIDFromSub(&sub)
+			var bidPtr *string
+			if bid != "" {
+				bidPtr = &bid
+			}
+			if _, err := s.repo.UpsertSubscription(ctx, &repository.SubscriptionInput{
+				ID:                sub.ID,
+				Status:            sub.Status,
+				Type:              sub.Type,
+				Version:           sub.Version,
+				Cost:              int64(sub.Cost),
+				Condition:         condJSON,
+				BroadcasterID:     bidPtr,
+				TransportMethod:   method,
+				TransportCallback: callback,
+				TwitchCreatedAt:   sub.CreatedAt,
+			}); err != nil {
+				s.log.Error("self-heal upsert failed", "sub_id", sub.ID, "error", err)
+				continue
+			}
 		}
 		if err := s.repo.LinkSnapshotSubscription(ctx, snap.ID, sub.ID, int64(sub.Cost), sub.Status); err != nil {
 			s.log.Error("snapshot link failed", "snapshot_id", snap.ID, "sub_id", sub.ID, "error", err)
@@ -177,6 +202,18 @@ func (s *Service) Snapshot(ctx context.Context) (*repository.EventSubSnapshot, e
 	}
 
 	return snap, nil
+}
+
+// broadcasterIDFromSub pulls the broadcaster_user_id off a condition
+// via the scraper-emitted BroadcasterScopedCondition interface — no
+// reflection, no JSON reparse. Subscription types without a broadcaster
+// (drop.entitlement.grant, user.authorization.*) return empty string;
+// the caller stores a NULL broadcaster_id for those.
+func broadcasterIDFromSub(sub *twitch.EventSubSubscription) string {
+	if b, ok := sub.Condition.(twitch.BroadcasterScopedCondition); ok {
+		return b.GetBroadcasterUserID()
+	}
+	return ""
 }
 
 // transportFields extracts method+callback from an EventSubTransport, which

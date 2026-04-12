@@ -29,6 +29,25 @@ func (a *SQLiteAdapter) CreateSubscription(ctx context.Context, input *repositor
 	return sqliteSubscriptionToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) UpsertSubscription(ctx context.Context, input *repository.SubscriptionInput) (*repository.Subscription, error) {
+	row, err := a.queries.UpsertSubscription(ctx, sqlitegen.UpsertSubscriptionParams{
+		ID:                input.ID,
+		Status:            input.Status,
+		Type:              input.Type,
+		Version:           input.Version,
+		Cost:              input.Cost,
+		Condition:         string(input.Condition),
+		BroadcasterID:     stringPtrToNullString(input.BroadcasterID),
+		TransportMethod:   input.TransportMethod,
+		TransportCallback: input.TransportCallback,
+		TwitchCreatedAt:   formatTime(input.TwitchCreatedAt),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert subscription: %w", err)
+	}
+	return sqliteSubscriptionToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) GetSubscription(ctx context.Context, id string) (*repository.Subscription, error) {
 	row, err := a.queries.GetSubscription(ctx, id)
 	if err != nil {

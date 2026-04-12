@@ -143,6 +143,11 @@ type Repository interface {
 
 	// EventSub subscriptions (soft-delete via MarkSubscriptionRevoked).
 	CreateSubscription(ctx context.Context, input *SubscriptionInput) (*Subscription, error)
+	// UpsertSubscription mirrors a Twitch-reported sub into the local
+	// table. Used by the snapshot self-heal path when Twitch returns
+	// a sub we didn't create (or whose create-mirror failed) — lets
+	// the snapshot junction link to a real subscriptions row.
+	UpsertSubscription(ctx context.Context, input *SubscriptionInput) (*Subscription, error)
 	GetSubscription(ctx context.Context, id string) (*Subscription, error)
 	GetActiveSubscriptionForBroadcasterType(ctx context.Context, broadcasterID, subType string) (*Subscription, error)
 	ListActiveSubscriptions(ctx context.Context, limit, offset int) ([]Subscription, error)

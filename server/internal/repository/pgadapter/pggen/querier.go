@@ -195,6 +195,14 @@ type Querier interface {
 	// lives at the tRPC boundary.
 	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) (Setting, error)
 	UpsertStream(ctx context.Context, arg UpsertStreamParams) (Stream, error)
+	// Self-heal path: the snapshot poll discovers a sub Twitch has that we
+	// don't mirror locally (another tool created it, or our create path
+	// succeeded on Twitch but failed to record). Insert the row so the
+	// junction link succeeds; on conflict refresh the mutable columns so
+	// a status drift Twitch surfaces is reflected locally without
+	// clobbering revoked_at / revoked_reason (those belong to our
+	// soft-delete lifecycle, not Twitch's).
+	UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) (Subscription, error)
 	UpsertTag(ctx context.Context, name string) (Tag, error)
 	// Registered on scheduler startup. Only writes the descriptive columns;
 	// existing rows keep their runtime state (last_run_at, last_status,

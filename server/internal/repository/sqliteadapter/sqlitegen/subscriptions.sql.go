@@ -306,3 +306,65 @@ func (q *Queries) UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscr
 	_, err := q.db.ExecContext(ctx, updateSubscriptionStatus, arg.Status, arg.ID)
 	return err
 }
+
+const upsertSubscription = `-- name: UpsertSubscription :one
+INSERT INTO subscriptions (
+    id, status, type, version, cost,
+    condition, broadcaster_id,
+    transport_method, transport_callback,
+    twitch_created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE
+SET status             = excluded.status,
+    cost               = excluded.cost,
+    transport_method   = excluded.transport_method,
+    transport_callback = excluded.transport_callback
+RETURNING id, status, type, version, cost, condition, broadcaster_id, transport_method, transport_callback, twitch_created_at, created_at, revoked_at, revoked_reason
+`
+
+type UpsertSubscriptionParams struct {
+	ID                string         `json:"id"`
+	Status            string         `json:"status"`
+	Type              string         `json:"type"`
+	Version           string         `json:"version"`
+	Cost              int64          `json:"cost"`
+	Condition         string         `json:"condition"`
+	BroadcasterID     sql.NullString `json:"broadcaster_id"`
+	TransportMethod   string         `json:"transport_method"`
+	TransportCallback string         `json:"transport_callback"`
+	TwitchCreatedAt   string         `json:"twitch_created_at"`
+}
+
+// Self-heal path; see postgres variant.
+func (q *Queries) UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) (Subscription, error) {
+	row := q.db.QueryRowContext(ctx, upsertSubscription,
+		arg.ID,
+		arg.Status,
+		arg.Type,
+		arg.Version,
+		arg.Cost,
+		arg.Condition,
+		arg.BroadcasterID,
+		arg.TransportMethod,
+		arg.TransportCallback,
+		arg.TwitchCreatedAt,
+	)
+	var i Subscription
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.Type,
+		&i.Version,
+		&i.Cost,
+		&i.Condition,
+		&i.BroadcasterID,
+		&i.TransportMethod,
+		&i.TransportCallback,
+		&i.TwitchCreatedAt,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.RevokedReason,
+	)
+	return i, err
+}
