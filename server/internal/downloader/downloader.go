@@ -112,20 +112,15 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 	return s
 }
 
-// sweepOrphanedTemps removes leftover .tmp.mp4 files from the videos
-// directory. Called once at startup — partial yt-dlp output that survived a
-// crash or hard kill is never resumable (yt-dlp writes a single MP4 end to
-// end; a cut-off file is useless), so cleanup is always safe.
-//
-// Only works on the local backend. S3/rclone backends don't have this
-// problem because uploads are all-or-nothing from the caller's perspective.
+// sweepOrphanedTemps removes leftover files from the scratch dir.
+// Called once at startup — partial yt-dlp output that survived a crash
+// or hard kill is never resumable, so cleanup is always safe. The
+// scratch dir is local by definition (subprocesses can't write to S3
+// or an rclone remote directly), so this works uniformly across
+// storage backends.
 func (s *Service) sweepOrphanedTemps() {
-	local, ok := s.storage.(*storage.LocalStorage)
-	if !ok {
-		return
-	}
-	videosDir := filepath.Join(local.Root, "videos")
-	entries, err := os.ReadDir(videosDir)
+	scratch := s.cfg.Env.ScratchDir
+	entries, err := os.ReadDir(scratch)
 	if err != nil {
 		// Missing dir is expected on first boot; other errors shouldn't
 		// stop us from starting the server.
@@ -136,19 +131,15 @@ func (s *Service) sweepOrphanedTemps() {
 		if e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		if !strings.HasSuffix(name, ".tmp.mp4") {
-			continue
-		}
-		p := filepath.Join(videosDir, name)
+		p := filepath.Join(scratch, e.Name())
 		if err := os.Remove(p); err != nil {
-			s.log.Warn("failed to remove orphaned temp", "path", p, "error", err)
+			s.log.Warn("failed to remove scratch leftover", "path", p, "error", err)
 			continue
 		}
 		swept++
 	}
 	if swept > 0 {
-		s.log.Info("swept orphaned download temps", "count", swept)
+		s.log.Info("swept scratch leftovers", "count", swept)
 	}
 }
 
@@ -293,26 +284,29 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		log.Error("failed to mark video running", "error", err)
 	}
 
-	// Resolve temp and final paths. The downloader assumes LocalStorage so it
-	// can hand absolute paths to subprocesses; S3/rclone would need a
-	// different flow (download to a scratch dir, then upload).
+	// Subprocess IO always lands in ScratchDir first: yt-dlp and
+	// ffmpeg can't write to an S3 bucket or rclone remote. After the
+	// pipeline finishes, Save() uploads to whichever Storage backend
+	// is configured. Local backend is just a move at Save time.
 	//
-	// Layout is flat: videos/<filename>.mp4. The filename already embeds the
-	// broadcaster login and a timestamp, so no nested subdirs are needed —
-	// and keeping it flat means videoRelPath in the streaming handler just
-	// prepends "videos/" without needing to know the login.
-	local, ok := s.storage.(*storage.LocalStorage)
-	if !ok {
-		s.failDownload(dbCtx, d, log, fmt.Errorf("downloader requires LocalStorage; got %T", s.storage))
+	// Layout is flat: videos/<filename>.mp4. The filename already embeds
+	// the broadcaster login + timestamp, so no nested subdirs needed.
+	scratch := s.cfg.Env.ScratchDir
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		s.failDownload(dbCtx, d, log, fmt.Errorf("create scratch dir: %w", err))
 		return
 	}
-	tmpPath, _ := local.LocalPath(filepath.Join("videos", filename+".tmp.mp4"))
-	finalPath, _ := local.LocalPath(filepath.Join("videos", filename+".mp4"))
+	tmpPath := filepath.Join(scratch, filename+".tmp.mp4")
+	scratchFinal := filepath.Join(scratch, filename+".mp4")
+	videoRel := filepath.Join("videos", filename+".mp4")
 
-	if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
-		s.failDownload(dbCtx, d, log, fmt.Errorf("create video dir: %w", err))
-		return
-	}
+	// Ensure scratch leftovers from this jobID are cleaned up on every
+	// exit path. The orphan sweep handles crashes; this handles
+	// normal completion + failures.
+	defer func() {
+		_ = os.Remove(tmpPath)
+		_ = os.Remove(scratchFinal)
+	}()
 
 	// Resolution selection.
 	preferred := qualityToHeight(p.Quality)
@@ -326,39 +320,53 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 
 	// Stage 1: yt-dlp.
 	if err := s.runYtDlp(ctx, d, url, resolution, tmpPath); err != nil {
-		os.Remove(tmpPath)
 		s.failDownload(dbCtx, d, log, fmt.Errorf("yt-dlp: %w", err))
 		return
 	}
 
 	// Stage 2: ffmpeg remux with audio rate fix.
-	if err := s.runFFmpeg(ctx, d, tmpPath, finalPath); err != nil {
-		os.Remove(tmpPath)
-		os.Remove(finalPath)
+	if err := s.runFFmpeg(ctx, d, tmpPath, scratchFinal); err != nil {
 		s.failDownload(dbCtx, d, log, fmt.Errorf("ffmpeg: %w", err))
 		return
 	}
-	os.Remove(tmpPath)
+	_ = os.Remove(tmpPath)
 
-	// Stage 3: metadata extraction + thumbnail.
+	// Stage 3: metadata extraction.
 	d.progressCh <- Progress{JobID: d.jobID, Stage: "metadata", Percent: 0}
-	duration, err := probeDuration(ctx, finalPath)
+	duration, err := probeDuration(ctx, scratchFinal)
 	if err != nil {
 		log.Warn("probe duration failed; continuing", "error", err)
 	}
-	info, err := os.Stat(finalPath)
+	info, err := os.Stat(scratchFinal)
 	if err != nil {
 		s.failDownload(dbCtx, d, log, fmt.Errorf("stat final: %w", err))
 		return
 	}
 
-	thumbRel, thumbErr := s.generateThumbnail(ctx, finalPath, filename, duration)
-	if thumbErr != nil {
-		log.Warn("thumbnail generation failed; continuing", "error", thumbErr)
+	// Stage 4: thumbnail. ffmpeg writes to a scratch path; we upload
+	// after the video so the Video row never references a thumbnail
+	// that doesn't yet exist in storage.
+	scratchThumb := filepath.Join(scratch, filename+".jpg")
+	thumbRel := filepath.Join("thumbnails", filename+".jpg")
+	defer os.Remove(scratchThumb)
+	if err := s.generateThumbnail(ctx, scratchFinal, scratchThumb, duration); err != nil {
+		log.Warn("thumbnail generation failed; continuing without thumbnail", "error", err)
+		thumbRel = ""
+	}
+
+	// Stage 5: upload to Storage. Video first, then thumbnail — if
+	// thumbnail upload fails we still want the video playable.
+	if err := s.uploadFromScratch(ctx, scratchFinal, videoRel); err != nil {
+		s.failDownload(dbCtx, d, log, fmt.Errorf("upload video: %w", err))
+		return
 	}
 	var thumbPtr *string
 	if thumbRel != "" {
-		thumbPtr = &thumbRel
+		if err := s.uploadFromScratch(ctx, scratchThumb, thumbRel); err != nil {
+			log.Warn("thumbnail upload failed; continuing without thumbnail", "error", err)
+		} else {
+			thumbPtr = &thumbRel
+		}
 	}
 
 	if err := s.repo.MarkVideoDone(dbCtx, d.videoID, duration, info.Size(), thumbPtr); err != nil {
@@ -366,6 +374,22 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		return
 	}
 	log.Info("download complete", "duration_seconds", duration, "size_bytes", info.Size())
+}
+
+// uploadFromScratch opens a scratch file and streams it to the Storage
+// backend at the given relative path. For local storage this is an
+// atomic move under the hood; for S3/rclone it uploads bytes.
+// Always uses forward slashes for the remote path.
+func (s *Service) uploadFromScratch(ctx context.Context, scratchPath, storagePath string) error {
+	f, err := os.Open(scratchPath)
+	if err != nil {
+		return fmt.Errorf("open scratch: %w", err)
+	}
+	defer f.Close()
+	if err := s.storage.Save(ctx, filepath.ToSlash(storagePath), f); err != nil {
+		return fmt.Errorf("save to storage: %w", err)
+	}
+	return nil
 }
 
 // failDownload records a failure on the video row. If the download was
@@ -543,16 +567,11 @@ func (s *Service) parseProgress(d *download, r io.Reader, stage string) {
 }
 
 // generateThumbnail runs ffmpeg to capture a frame at ~10% of the video
-// duration and writes it as JPEG into thumbnails/<filename>.jpg.
-// Returns the relative storage path on success, empty string if skipped.
-func (s *Service) generateThumbnail(ctx context.Context, videoPath, filename string, durationSec float64) (string, error) {
-	local, ok := s.storage.(*storage.LocalStorage)
-	if !ok {
-		return "", fmt.Errorf("thumbnail generation requires LocalStorage")
-	}
-	// Pick a frame offset: 10% of the duration, clamped to 5s minimum and
-	// 600s maximum. Very short clips get a frame from 5s in; long streams
-	// get an interesting frame early rather than burying the thumbnail.
+// duration and writes it to outPath (a local filesystem path — the
+// caller uploads it to storage afterward). Picks a frame at 10% of the
+// video, clamped to [5s, 600s] so very short clips still get a frame
+// and long streams don't bury the thumbnail late.
+func (s *Service) generateThumbnail(ctx context.Context, videoPath, outPath string, durationSec float64) error {
 	offset := durationSec * 0.1
 	if offset < 5 {
 		offset = 5
@@ -560,28 +579,21 @@ func (s *Service) generateThumbnail(ctx context.Context, videoPath, filename str
 	if offset > 600 {
 		offset = 600
 	}
-
-	rel := filepath.Join("thumbnails", filename+".jpg")
-	thumbAbs, err := local.LocalPath(rel)
-	if err != nil {
-		return "", err
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(thumbAbs), 0o755); err != nil {
-		return "", err
-	}
-
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-y",
 		"-ss", fmt.Sprintf("%.2f", offset),
 		"-i", videoPath,
 		"-vframes", "1",
 		"-q:v", "3",
-		thumbAbs,
+		outPath,
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("ffmpeg thumbnail: %w (output: %s)", err, string(out))
+		return fmt.Errorf("ffmpeg thumbnail: %w (output: %s)", err, string(out))
 	}
-	return rel, nil
+	return nil
 }
 
 // probeDuration uses ffprobe to read the container duration. Returns 0 if

@@ -117,7 +117,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Storage backend. Only local is wired in Phase 4; S3 + rclone land in Phase 8.
+	// Storage backend selection. Fail fast on missing required fields
+	// for the chosen type — a misconfigured S3 or rclone only surfaces
+	// on the first download otherwise, which is a far worse diagnostic.
 	var store storage.Storage
 	switch cfg.App.Storage.Type {
 	case "", "local":
@@ -128,8 +130,44 @@ func main() {
 		}
 		store = local
 		log.Info("Storage initialized", "type", "local", "path", local.Root)
+
+	case "s3":
+		s3opts := storage.S3Options{
+			Endpoint:     cfg.App.Storage.S3.Endpoint,
+			Bucket:       cfg.App.Storage.S3.Bucket,
+			Region:       cfg.App.Storage.S3.Region,
+			AccessKey:    cfg.App.Storage.S3.AccessKey,
+			SecretKey:    cfg.App.Storage.S3.SecretKey,
+			UsePathStyle: cfg.App.Storage.S3.Endpoint != "",
+		}
+		s3store, err := storage.NewS3(ctx, s3opts)
+		if err != nil {
+			log.Error("Failed to init S3 storage", "error", err)
+			os.Exit(1)
+		}
+		store = s3store
+		log.Info("Storage initialized", "type", "s3",
+			"endpoint", cfg.App.Storage.S3.Endpoint,
+			"bucket", cfg.App.Storage.S3.Bucket,
+			"region", cfg.App.Storage.S3.Region,
+		)
+
+	case "rclone":
+		rclone, err := storage.NewRclone("rclone", cfg.App.Storage.Rclone.Remote)
+		if err != nil {
+			log.Error("Failed to init rclone storage", "error", err)
+			os.Exit(1)
+		}
+		store = rclone
+		log.Info("Storage initialized", "type", "rclone",
+			"remote", cfg.App.Storage.Rclone.Remote,
+		)
+
 	default:
-		log.Error("Unsupported storage type", "type", cfg.App.Storage.Type)
+		log.Error("Unsupported storage type",
+			"type", cfg.App.Storage.Type,
+			"supported", []string{"local", "s3", "rclone"},
+		)
 		os.Exit(1)
 	}
 

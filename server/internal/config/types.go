@@ -38,6 +38,13 @@ type Environment struct {
 	ThumbnailDir string `env:"THUMBNAIL_DIR" envDefault:"./data/thumbnails"`
 	YtdlpPath    string `env:"YTDLP_PATH" envDefault:"yt-dlp"`
 	DashboardDir string `env:"DASHBOARD_DIR"`
+
+	// ScratchDir is where subprocess downloads (yt-dlp, ffmpeg) land
+	// before being uploaded to the configured Storage backend. Kept
+	// separate from VideoDir so the remote-storage case (S3, rclone)
+	// has a known local workspace; local-storage setups can point
+	// this at the same disk as VideoDir.
+	ScratchDir string `env:"SCRATCH_DIR" envDefault:"./data/.scratch"`
 }
 
 // AppConfig contains behavior settings from config.toml — hot-reloadable.
