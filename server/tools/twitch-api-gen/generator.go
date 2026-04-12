@@ -101,10 +101,15 @@ type templateModel struct {
 }
 
 // eventSubTypeModel is one scraped EventSub schema to emit as a Go struct.
+// Nested types — produced by recursing into Object/Object[] children of a
+// condition or event schema — also use this model but set Nested=true so the
+// template emits a different header comment and skips the sealed-interface
+// marker method (nested types aren't EventSubCondition/EventSubEvent themselves).
 type eventSubTypeModel struct {
-	GoName   string // e.g. "ChannelFollowCondition"
-	AnchorID string // e.g. "channel-follow-condition"
+	GoName   string // e.g. "ChannelFollowCondition" or "ChannelChatMessageEventMessage"
+	AnchorID string // e.g. "channel-follow-condition" (empty for Nested)
 	Fields   []fieldModel
+	Nested   bool
 }
 
 // eventSubDispatchModel holds the switch-case data for generated factories.
@@ -146,13 +151,14 @@ type fieldModel struct {
 }
 
 // composeValidateTag assembles a go-playground/validator tag fragment.
-// Returns empty when there's no constraint content worth emitting — we
-// skip the "bare" omitempty case to avoid noise in the generated source.
+// Returns empty when there's nothing to assert — an optional field with no
+// extracted constraint produces no tag (bare omitempty is noise). But a
+// required field ALWAYS gets at least `required`, even without other constraints.
 func composeValidateTag(forRequest, required bool, validate, validateDive string) string {
 	if !forRequest {
 		return ""
 	}
-	if validate == "" && validateDive == "" {
+	if !required && validate == "" && validateDive == "" {
 		return ""
 	}
 	var parts []string
@@ -240,7 +246,7 @@ func buildModel(defs []EndpointDef, sourceURL string, timestamp time.Time, log *
 			paramsType = PascalCase(ep.ID) + "Params"
 			pm := typeModel{Name: paramsType, EndpointID: ep.ID}
 			for _, q := range ep.QueryParams {
-				fm, err := toParamFieldModel(q, log)
+				fm, err := toParamFieldModel(ep.ID, q, log)
 				if err != nil {
 					return nil, fmt.Errorf("endpoint %q param %q: %w", ep.ID, q.Name, err)
 				}
@@ -379,11 +385,11 @@ func toStructFieldModel(
 	}
 	goType := ""
 	hasChildren := len(f.Children) > 0
-	isObject := f.Type == "Object" || f.Type == "Object[]"
 
-	if hasChildren && isObject {
+	if hasChildren {
+		isArrayType := strings.HasSuffix(f.Type, "[]")
 		nestedName := parent + PascalCase(f.Name)
-		if f.Type == "Object[]" {
+		if isArrayType {
 			nestedName = parent + PascalCase(singularize(f.Name))
 		}
 		if !emitted[nestedName] {
@@ -395,7 +401,7 @@ func toStructFieldModel(
 			nested.Nested = true
 			*types = append(*types, nested)
 		}
-		if f.Type == "Object[]" {
+		if isArrayType {
 			goType = "[]" + nestedName
 		} else {
 			goType = nestedName
@@ -424,10 +430,24 @@ func toStructFieldModel(
 	return fm, nil
 }
 
+// mutuallyExclusiveParamEndpoints lists endpoints where Twitch marks several
+// query parameters `Required: Yes` but only ONE needs to be supplied per
+// request (e.g. get-games accepts `id` OR `name` OR `igdb_id`). Ported from
+// parseSchemaObject.ts. For these endpoints the generator downgrades the
+// required flag on every param to optional so a valid `id=123` request isn't
+// rejected client-side for missing `name`.
+var mutuallyExclusiveParamEndpoints = map[string]bool{
+	"get-clips":          true,
+	"get-stream-markers": true,
+	"get-teams":          true,
+	"get-videos":         true,
+	"get-games":          true,
+}
+
 // toParamFieldModel converts a query parameter into an emitted struct field.
 // Scalar fields get `,omitempty`. Array parameters (Twitch `?id=A&id=B`
 // convention) become `[]T` without omitempty since nil slices serialize as nothing.
-func toParamFieldModel(f FieldSchema, log *slog.Logger) (fieldModel, error) {
+func toParamFieldModel(endpointID string, f FieldSchema, log *slog.Logger) (fieldModel, error) {
 	goType := GoType(f, "")
 	if goType == "any" || goType == "[]any" {
 		log.Warn("generator: unknown param type", "name", f.Name, "type", f.Type)
@@ -440,14 +460,19 @@ func toParamFieldModel(f FieldSchema, log *slog.Logger) (fieldModel, error) {
 		}
 		omitEmpty = false
 	}
+	required := f.Required != nil && *f.Required
+	if mutuallyExclusiveParamEndpoints[endpointID] {
+		required = false
+	}
 	return fieldModel{
 		GoName:       PascalCase(f.Name),
 		GoType:       goType,
 		JSONName:     f.Name,
 		OmitEmpty:    omitEmpty,
+		Required:     required,
 		Validate:     f.Validate,
 		ValidateDive: f.ValidateDive,
-		ValidateTag:  composeValidateTag(true, false, f.Validate, f.ValidateDive),
+		ValidateTag:  composeValidateTag(true, required, f.Validate, f.ValidateDive),
 	}, nil
 }
 

@@ -57,8 +57,12 @@ type UnknownEvent struct {
 func (UnknownEvent) isEventSubEvent() {}
 
 {{ range .EventSubConditions -}}
+{{ if .Nested -}}
+// {{ .GoName }} is a nested object inside a generated EventSub condition type.
+{{ else -}}
 // {{ .GoName }} is the Condition schema for subscription types sharing
 // anchor "{{ .AnchorID }}" on the eventsub-reference page.
+{{ end -}}
 type {{ .GoName }} struct {
 {{- range .Fields }}
 {{ if .Deprecated }}	// Deprecated: Twitch marks this field deprecated in the API reference.
@@ -69,8 +73,12 @@ type {{ .GoName }} struct {
 {{ end -}}
 
 {{ range .EventSubEvents -}}
+{{ if .Nested -}}
+// {{ .GoName }} is a nested object inside a generated EventSub event type.
+{{ else -}}
 // {{ .GoName }} is the Event payload for subscription types sharing
 // anchor "{{ .AnchorID }}" on the eventsub-reference page.
+{{ end -}}
 type {{ .GoName }} struct {
 {{- range .Fields }}
 {{ if .Deprecated }}	// Deprecated: Twitch marks this field deprecated in the API reference.
@@ -80,14 +88,14 @@ type {{ .GoName }} struct {
 
 {{ end -}}
 
-// Sealed interface markers, defined after struct declarations.
+// Sealed interface markers. Nested structs don't implement the sealed
+// interfaces — only the top-level Condition/Event schemas do.
 {{ range .EventSubConditions -}}
-func ({{ .GoName }}) isEventSubCondition() {}
-{{ end }}
-
+{{ if not .Nested }}func ({{ .GoName }}) isEventSubCondition() {}
+{{ end }}{{ end }}
 {{ range .EventSubEvents -}}
-func ({{ .GoName }}) isEventSubEvent() {}
-{{ end }}
+{{ if not .Nested }}func ({{ .GoName }}) isEventSubEvent() {}
+{{ end }}{{ end }}
 
 // --- Dispatch ---
 

@@ -15,7 +15,10 @@ import (
 var baseTypeMap = map[string]string{
 	"string":             "string",
 	"string[]":           "[]string",
+	"[]string":           "[]string", // EventSub docs sometimes use this form
 	"integer":            "int",
+	"int":                "int", // EventSub shorthand
+	"int[]":              "[]int",
 	"unsigned integer":   "int",
 	"int64":              "int64",
 	"float":              "float64",

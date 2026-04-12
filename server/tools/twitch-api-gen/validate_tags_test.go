@@ -26,14 +26,23 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 	// Twitch side; when the snapshot is regenerated, this table may need to
 	// follow.
 	positives := map[[2]string]string{
-		{"ModifyChannelInformationBody", "BroadcasterLanguage"}: "omitempty,len=2",
-		{"ModifyChannelInformationBody", "Tags"}:                "omitempty,max=10,dive,max=25",
+		{"ModifyChannelInformationBody", "Tags"}: "omitempty,max=10,dive,max=25",
 
-		{"GetChannelInformationParams", "BroadcasterID"}: "omitempty,max=100",
-		{"GetGamesParams", "ID"}:                         "omitempty,max=100",
-		{"GetGamesParams", "IGDBID"}:                     "omitempty,max=100",
-		{"GetStreamsParams", "UserID"}:                   "omitempty,max=100",
-		{"GetVideosParams", "ID"}:                        "omitempty,max=100",
+		// Single required param — no mutual-exclusion override.
+		{"GetChannelInformationParams", "BroadcasterID"}: "required,max=100",
+
+		// Mutually-exclusive required params (get-games/get-videos accept
+		// exactly one of id/name/igdb_id) — generator downgrades to optional
+		// via mutuallyExclusiveParamEndpoints.
+		{"GetGamesParams", "ID"}:       "omitempty,max=100",
+		{"GetGamesParams", "IGDBID"}:   "omitempty,max=100",
+		{"GetVideosParams", "ID"}:      "omitempty,max=100",
+		{"GetStreamsParams", "UserID"}: "omitempty,max=100",
+
+		// Required field with no extracted constraint → bare `required`.
+		{"CreateEventSubSubscriptionBody", "Type"}:    "required",
+		{"CreateEventSubSubscriptionBody", "Version"}: "required",
+		{"DeleteEventSubSubscriptionParams", "ID"}:    "required",
 	}
 	for k, want := range positives {
 		got := tags[k[0]][k[1]]
@@ -46,10 +55,13 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 	// docs that our v1 regexes intentionally don't match. If we later tighten
 	// the regex set, move the entry to the positives table.
 	knownMisses := [][2]string{
-		{"GetUsersParams", "ID"},                          // "maximum number of IDs ... is 100"
-		{"GetUsersParams", "Login"},                       // same wording
-		{"ModifyChannelInformationBody", "Delay"},         // "maximum delay is 900 seconds"
-		{"ModifyChannelInformationBody", "Title"},         // no documented max
+		{"GetUsersParams", "ID"},                  // "maximum number of IDs ... is 100"
+		{"GetUsersParams", "Login"},               // same wording
+		{"ModifyChannelInformationBody", "Delay"}, // "maximum delay is 900 seconds"
+		{"ModifyChannelInformationBody", "Title"}, // no documented max
+		// BroadcasterLanguage intentionally unconstrained — "other" is a
+		// documented sentinel that `len=2` would reject. See constraints_test.go.
+		{"ModifyChannelInformationBody", "BroadcasterLanguage"},
 	}
 	for _, k := range knownMisses {
 		if got := tags[k[0]][k[1]]; got != "" {

@@ -130,24 +130,14 @@ func TestRePositiveInt(t *testing.T) {
 	}
 }
 
-func TestReTwoLetter(t *testing.T) {
-	pos := []string{
-		"Must be a two-letter language code.",
-		"The broadcaster's language. Must be a two letter ISO code.",
+func TestTwoLetter_langFieldsNotConstrained(t *testing.T) {
+	f := FieldSchema{
+		Name: "broadcaster_language", Type: "String",
+		Description: "Must be a two-letter language code. Set to other if not supported.",
 	}
-	neg := []string{
-		"Must be a three-letter code.",
-		"language code",
-	}
-	for _, s := range pos {
-		if !reTwoLetter.MatchString(s) {
-			t.Errorf("reTwoLetter should match: %q", s)
-		}
-	}
-	for _, s := range neg {
-		if reTwoLetter.MatchString(s) {
-			t.Errorf("reTwoLetter should NOT match: %q", s)
-		}
+	base, dive := ExtractConstraints(f)
+	if base != "" || dive != "" {
+		t.Errorf("expected no constraint on two-letter language field; got base=%q dive=%q", base, dive)
 	}
 }
 
@@ -204,12 +194,13 @@ func TestExtractConstraints(t *testing.T) {
 			wantBase: "",
 		},
 		{
-			name: "two-letter code on scalar string",
+			// Intentional: no constraint emitted. See TestTwoLetter_langFieldsNotConstrained.
+			name: "two-letter code on scalar string — deliberately unconstrained",
 			field: FieldSchema{
 				Name: "broadcaster_language", Type: "String",
 				Description: "Must be a two-letter language code.",
 			},
-			wantBase: "len=2",
+			wantBase: "",
 		},
 		{
 			name: "array id max",
@@ -311,6 +302,7 @@ func TestComposeValidateTag(t *testing.T) {
 		{"request, no constraint — no tag", true, false, "", "", ""},
 		{"optional with base", true, false, "max=140", "", "omitempty,max=140"},
 		{"required with base", true, true, "max=140", "", "required,max=140"},
+		{"required without other constraint", true, true, "", "", "required"},
 		{"optional with base + dive", true, false, "max=10", "max=25", "omitempty,max=10,dive,max=25"},
 		{"optional with only dive", true, false, "", "max=25", "omitempty,dive,max=25"},
 	}

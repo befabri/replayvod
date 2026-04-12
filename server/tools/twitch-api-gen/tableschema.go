@@ -186,15 +186,32 @@ func nestingDepth(cellText string) (int, error) {
 	return depth, nil
 }
 
+// hasSiblingNamed reports whether any entry in schemas already has this name.
+// Used to drop Twitch doc duplicates (e.g. two `user_name` rows in the same
+// sub-table — happens in channel.moderate's raid schema). First occurrence wins.
+func hasSiblingNamed(schemas []FieldSchema, name string) bool {
+	for _, s := range schemas {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // addField inserts field into schemas, descending into the last element's children
-// for each depth level.
+// for each depth level. Duplicates (same Name within the same level) are dropped —
+// Twitch's docs occasionally list the same field twice in the same sub-table
+// (e.g. `user_name` appears twice in channel.moderate's raid schema). First
+// occurrence wins.
 func addField(schemas *[]FieldSchema, field FieldSchema, depth int) {
 	if depth == 0 {
+		if hasSiblingNamed(*schemas, field.Name) {
+			return
+		}
 		*schemas = append(*schemas, field)
 		return
 	}
 	if len(*schemas) == 0 {
-		// No parent row at depth-1; attach as top-level to avoid panic.
 		*schemas = append(*schemas, field)
 		return
 	}

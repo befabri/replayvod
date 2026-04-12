@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
@@ -71,8 +72,9 @@ func emitSchemaStructs(
 			GoName:   name,
 			AnchorID: anchor,
 		}
+		emittedNested := map[string]bool{name: true}
 		for _, f := range schema.Fields {
-			fm, err := toEventSubFieldModel(f, log)
+			fm, err := toEventSubFieldModel(name, f, &out, emittedNested, model, log)
 			if err != nil {
 				log.Warn("eventsub: field conversion", "anchor", anchor, "field", f.Name, "err", err)
 				continue
@@ -136,17 +138,52 @@ func buildDispatch(subs []EventSubSubscriptionType, condNames, evtNames map[stri
 	return d
 }
 
-// toEventSubFieldModel is the EventSub-specific cousin of toFieldModel.
-// Currently identical (same naming + typemap rules) but kept separate so
-// EventSub-specific adjustments (e.g. nested object promotion) can land
-// without touching the Helix struct path.
-func toEventSubFieldModel(f FieldSchema, log *slog.Logger) (fieldModel, error) {
-	// Reuse the Helix flattening logic — nested Object/Object[] → any for now.
-	// Nested named structs for EventSub payloads are a later enhancement.
-	goType := GoType(f, "")
-	if goType == "any" || goType == "[]any" {
-		log.Warn("generator: eventsub unknown type", "name", f.Name, "type", f.Type)
+// toEventSubFieldModel is the EventSub mirror of Helix's toStructFieldModel:
+// fields with documented children are promoted to nested named structs, which
+// are appended to `out` and referenced by generated Go type. Fields without
+// children fall back to the flat typemap (may still be `any` for Twitch's
+// cross-schema references like `reward` / `image` — see Tier 3).
+func toEventSubFieldModel(
+	parent string, f FieldSchema,
+	out *[]eventSubTypeModel, emitted map[string]bool,
+	model *templateModel, log *slog.Logger,
+) (fieldModel, error) {
+	goType := ""
+	hasChildren := len(f.Children) > 0
+
+	if hasChildren {
+		isArrayType := strings.HasSuffix(f.Type, "[]")
+		nestedName := parent + PascalCase(f.Name)
+		if isArrayType {
+			nestedName = parent + PascalCase(singularize(f.Name))
+		}
+		if !emitted[nestedName] {
+			emitted[nestedName] = true
+			nested := eventSubTypeModel{GoName: nestedName, Nested: true}
+			for _, child := range f.Children {
+				cfm, err := toEventSubFieldModel(nestedName, child, out, emitted, model, log)
+				if err != nil {
+					return fieldModel{}, fmt.Errorf("nested field %q: %w", child.Name, err)
+				}
+				nested.Fields = append(nested.Fields, cfm)
+				if strings.Contains(cfm.GoType, "time.Time") {
+					model.ImportTime = true
+				}
+			}
+			*out = append(*out, nested)
+		}
+		if isArrayType {
+			goType = "[]" + nestedName
+		} else {
+			goType = nestedName
+		}
+	} else {
+		goType = GoType(f, "")
+		if goType == "any" || goType == "[]any" {
+			log.Warn("generator: eventsub unknown type", "name", f.Name, "type", f.Type, "parent", parent)
+		}
 	}
+
 	omitEmpty := f.Required == nil || !*f.Required
 	return fieldModel{
 		GoName:     PascalCase(f.Name),

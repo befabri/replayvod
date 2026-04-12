@@ -41,9 +41,6 @@ var (
 
 	// "Must be a positive integer." Pure signal for min=1 on numeric fields.
 	rePositiveInt = regexp.MustCompile(`(?i)\bmust\s+be\s+a\s+positive\s+integer\b`)
-
-	// "a two-letter language code", "two-letter ISO code".
-	reTwoLetter = regexp.MustCompile(`(?i)\btwo[-\s]letter\s+(?:\w+\s+)?code\b`)
 )
 
 // ExtractConstraints inspects a parsed FieldSchema and returns two validator-tag
@@ -93,11 +90,6 @@ func ExtractConstraints(f FieldSchema) (base, dive string) {
 	// Positive-integer assertion — only meaningful on numeric types.
 	if rePositiveInt.MatchString(desc) && isNumericType(f.Type) {
 		baseParts = append(baseParts, "min=1")
-	}
-
-	// Two-letter language code — only meaningful on scalar strings.
-	if reTwoLetter.MatchString(desc) && f.Type == "String" {
-		baseParts = append(baseParts, "len=2")
 	}
 
 	// Enums from the parser. For string-array fields the oneof lives in dive;
