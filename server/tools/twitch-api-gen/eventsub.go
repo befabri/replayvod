@@ -128,12 +128,31 @@ func parseReferenceSchemas(doc *goquery.Document, ref *EventSubReference) error 
 var eventAnchorSuffixRe = regexp.MustCompile(`-event-v\d+$`)
 
 // isEventAnchor reports whether an anchor id is a per-event schema. Plain
-// `-event` suffix is the common case; `-event-v{N}` covers versioned events.
+// `-event` suffix is the common case; `-event-v{N}` covers versioned events;
+// manualEventAnchors covers reference-page anchors (shield-mode, shoutout-*)
+// that describe events without wearing the suffix.
 func isEventAnchor(id string) bool {
 	if strings.HasSuffix(id, "-event") {
 		return true
 	}
-	return eventAnchorSuffixRe.MatchString(id)
+	if eventAnchorSuffixRe.MatchString(id) {
+		return true
+	}
+	return manualEventAnchors[id]
+}
+
+// manualEventAnchors is the set of anchors classified as events because of
+// manualEventAnchorOverrides. Derived once at init so classification and
+// lookup stay in sync — adding an override entry extends isEventAnchor
+// automatically, no second place to update.
+var manualEventAnchors = buildManualEventAnchorSet()
+
+func buildManualEventAnchorSet() map[string]bool {
+	s := make(map[string]bool, len(manualEventAnchorOverrides))
+	for _, anchor := range manualEventAnchorOverrides {
+		s[anchor] = true
+	}
+	return s
 }
 
 // firstTableBeforeNextHeading returns the first <table> sibling appearing
@@ -261,15 +280,6 @@ func resolvePerSectionAnchors(doc *goquery.Document, sub EventSubSubscriptionTyp
 	//      child rows (rare but exists for some subscription types).
 	var eventAnchor string
 	if override, ok := manualEventAnchorOverrides[[2]string{sub.Type, sub.Version}]; ok {
-		// Intentional side-effect: promote the referenced schema from
-		// NamedSchemas into Events so downstream emitSchemaStructs finds it
-		// under Events. The alternative (a pre-pass that promotes before any
-		// subscription resolution runs) is cleaner-shaped but more plumbing;
-		// keep the mutation here until the registry grows enough to justify it.
-		if schema, exists := ref.NamedSchemas[override]; exists {
-			ref.Events[override] = schema
-			delete(ref.NamedSchemas, override)
-		}
 		if _, exists := ref.Events[override]; exists {
 			eventAnchor = override
 		}
@@ -294,9 +304,10 @@ func resolvePerSectionAnchors(doc *goquery.Document, sub EventSubSubscriptionTyp
 
 // manualEventAnchorOverrides maps (type, version) → reference-page anchor for
 // subscription types whose reference-page section lacks the `-event` suffix
-// that `isEventAnchor` detects. Without an override, `parseReferenceSchemas`
-// files the schema under NamedSchemas, `findEventAnchorInSection` can't find
-// it, and the dispatch falls through to UnknownEvent.
+// that `isEventAnchor` detects. The anchors named here get classified as
+// events by isEventAnchor (via the derived manualEventAnchors set), so
+// parseReferenceSchemas routes their schemas into ref.Events at parse time;
+// resolvePerSectionAnchors is then a pure lookup.
 //
 // Data-driven: only add entries confirmed by inspecting the reference page —
 // the referenced anchor must exist and describe the full event payload.
@@ -309,20 +320,16 @@ var manualEventAnchorOverrides = map[[2]string]string{
 	{"channel.shoutout.receive", "1"}:  "shoutout-received",
 }
 
-// validateManualEventAnchorOverrides checks each override's target is present
-// in ref.NamedSchemas (the normal landing place) or already in ref.Events
-// (possible if a prior override promoted it). A missing target almost always
-// means a typo in manualEventAnchorOverrides — failing loud at generate-time
+// validateManualEventAnchorOverrides checks each override's target ended up
+// in ref.Events (classified via isEventAnchor + manualEventAnchors). A
+// missing target almost always means a typo — failing loud at generate-time
 // is much better than silently dispatching to UnknownEvent at webhook-time.
 func validateManualEventAnchorOverrides(ref *EventSubReference) error {
 	for key, target := range manualEventAnchorOverrides {
-		if _, ok := ref.NamedSchemas[target]; ok {
-			continue
-		}
 		if _, ok := ref.Events[target]; ok {
 			continue
 		}
-		return fmt.Errorf("manualEventAnchorOverrides[%v=%s/%s]: target %q not found in NamedSchemas or Events — typo?",
+		return fmt.Errorf("manualEventAnchorOverrides[%v=%s/%s]: target %q not found in Events — typo?",
 			key, key[0], key[1], target)
 	}
 	return nil

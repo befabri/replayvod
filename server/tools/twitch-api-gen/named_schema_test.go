@@ -154,38 +154,45 @@ func TestReachability_Cycle(t *testing.T) {
 
 // TestValidateManualEventAnchorOverrides_catchesMissingTarget simulates a
 // typo in manualEventAnchorOverrides by running validation against a ref
-// that lacks one of the real override targets. Fails loud is the contract.
+// whose Events map is missing one override target. Fails loud is the contract.
 func TestValidateManualEventAnchorOverrides_catchesMissingTarget(t *testing.T) {
-	// Include every override target except "shield-mode" so validation must
-	// complain about at least one entry.
 	ref := &EventSubReference{
-		NamedSchemas: map[string]EventSubSchema{
+		Events: map[string]EventSubSchema{
 			"shoutout-create":   {AnchorID: "shoutout-create"},
 			"shoutout-received": {AnchorID: "shoutout-received"},
+			// shield-mode intentionally missing
 		},
-		Events: map[string]EventSubSchema{},
 	}
 	if err := validateManualEventAnchorOverrides(ref); err == nil {
 		t.Fatalf("expected error for missing shield-mode; got nil")
 	}
 }
 
-// TestValidateManualEventAnchorOverrides_acceptsPromotedTargets — a target
-// already promoted into Events (by a prior override) is still considered
-// valid. Mirrors what happens when shield_mode.begin moves the schema and
-// shield_mode.end consults the same anchor.
-func TestValidateManualEventAnchorOverrides_acceptsPromotedTargets(t *testing.T) {
+// TestValidateManualEventAnchorOverrides_acceptsAllTargets — every override
+// target present in ref.Events (where parseReferenceSchemas files them via
+// isEventAnchor + manualEventAnchors). No errors expected.
+func TestValidateManualEventAnchorOverrides_acceptsAllTargets(t *testing.T) {
 	ref := &EventSubReference{
-		NamedSchemas: map[string]EventSubSchema{
+		Events: map[string]EventSubSchema{
+			"shield-mode":       {AnchorID: "shield-mode"},
 			"shoutout-create":   {AnchorID: "shoutout-create"},
 			"shoutout-received": {AnchorID: "shoutout-received"},
-		},
-		Events: map[string]EventSubSchema{
-			"shield-mode": {AnchorID: "shield-mode"}, // previously promoted
 		},
 	}
 	if err := validateManualEventAnchorOverrides(ref); err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestIsEventAnchor_includesManualOverrides locks the classification: each
+// anchor in manualEventAnchorOverrides is recognized as an event by
+// isEventAnchor, so parseReferenceSchemas routes them into ref.Events at
+// parse time without any post-hoc promotion.
+func TestIsEventAnchor_includesManualOverrides(t *testing.T) {
+	for _, anchor := range manualEventAnchorOverrides {
+		if !isEventAnchor(anchor) {
+			t.Errorf("isEventAnchor(%q) = false; want true (in manualEventAnchors)", anchor)
+		}
 	}
 }
 
