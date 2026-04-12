@@ -28,6 +28,7 @@ import (
 	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
+	"github.com/befabri/replayvod/server/internal/service/authservice"
 	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
 	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -61,7 +62,11 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// Chi routes (non-tRPC: OAuth, webhooks, video streaming, thumbnails).
 	// Video/thumbnail routes reuse the session middleware — auth required
 	// for both, and we want the same context population the tRPC side gets.
-	authHandler := auth.NewHandler(cfg, repo, twitchClient, sessionMgr, log)
+	authSvcDomain := authservice.New(repo, sessionMgr, twitchClient, authservice.Config{
+		WhitelistEnabled: cfg.Env.WhitelistEnabled,
+		OwnerTwitchID:    cfg.Env.OwnerTwitchID,
+	}, log)
+	authHandler := auth.NewHandler(cfg, twitchClient, sessionMgr, authSvcDomain, log)
 	videoHandler := videoroute.NewHandler(repo, store, log)
 	// The webhook handler needs the raw body for HMAC verification, so it
 	// must live on the Chi side (no tRPC JSON middleware) and outside the
@@ -77,8 +82,10 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		webhookHandler.SetupRoutes(r)
 	})
 
-	// tRPC router with CSRF/origin protection
-	trpcRouter := SetupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, bus, log)
+	// tRPC router with CSRF/origin protection. authSvcDomain is
+	// threaded through so the same domain service backs both the Chi
+	// OAuth handler and the tRPC session procedures.
+	trpcRouter := SetupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, bus, authSvcDomain, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -99,9 +106,9 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 }
 
 // SetupTRPCRouter builds the tRPC router with all procedures.
-func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, bus *eventbus.Buses, log *slog.Logger) *trpcgo.Router {
+func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, bus *eventbus.Buses, authSvcDomain *authservice.Service, log *slog.Logger) *trpcgo.Router {
 	// Services
-	authSvc := auth.NewService(repo, sessionMgr, log)
+	authSvc := auth.NewService(authSvcDomain, sessionMgr, log)
 	channelSvc := channel.NewService(repo, twitchClient, log)
 	categorySvc := category.NewService(repo, log)
 	systemSvc := systemroute.NewService(repo, log)

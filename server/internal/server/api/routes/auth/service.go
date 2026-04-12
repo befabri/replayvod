@@ -2,28 +2,32 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
-	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	"github.com/befabri/replayvod/server/internal/service/authservice"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC auth procedures (session info, logout, session management).
+// Service is the tRPC-transport wrapper around authservice. Kept thin:
+// DTO conversion, ctx extraction, error-to-trpc-code translation, and
+// cookie side-effects (which the service layer stays out of because
+// they're a tRPC-context concern).
 type Service struct {
-	repo       repository.Repository
+	svc        *authservice.Service
 	sessionMgr *session.Manager
 	log        *slog.Logger
 }
 
-// NewService creates a new auth tRPC service.
-func NewService(repo repository.Repository, sm *session.Manager, log *slog.Logger) *Service {
+// NewService wires the tRPC auth procedures onto a domain authservice.
+func NewService(svc *authservice.Service, sm *session.Manager, log *slog.Logger) *Service {
 	return &Service{
-		repo:       repo,
+		svc:        svc,
 		sessionMgr: sm,
-		log:        log.With("domain", "auth"),
+		log:        log.With("domain", "auth-api"),
 	}
 }
 
@@ -37,13 +41,13 @@ type SessionResponse struct {
 	Role            string  `json:"role" validate:"oneof=viewer admin owner"`
 }
 
-// Session returns the current authenticated user.
+// Session returns the current authenticated user. Pure ctx extraction
+// — no service call needed.
 func (s *Service) Session(ctx context.Context) (SessionResponse, error) {
 	user := middleware.GetUser(ctx)
 	if user == nil {
 		return SessionResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
-
 	return SessionResponse{
 		UserID:          user.ID,
 		Login:           user.Login,
@@ -65,12 +69,10 @@ func (s *Service) Logout(ctx context.Context) (LogoutResult, error) {
 	if sess == nil {
 		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
-
-	if err := s.sessionMgr.DeleteByHash(ctx, sess.HashedID); err != nil {
-		s.log.Error("failed to delete session", "error", err)
+	if err := s.svc.DeleteSession(ctx, sess.HashedID); err != nil {
+		s.log.Error("delete session", "error", err)
 		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to logout")
 	}
-
 	trpcgo.SetCookie(ctx, s.sessionMgr.ClearCookie())
 	return LogoutResult{OK: true}, nil
 }
@@ -86,20 +88,20 @@ type SessionInfo struct {
 	Current      bool      `json:"current"`
 }
 
-// ListSessions returns all active sessions for the current user.
+// ListSessions returns every active session for the current user. The
+// service layer doesn't know which one is current (it's ctx-bound) —
+// we mark it here at the transport layer.
 func (s *Service) ListSessions(ctx context.Context) ([]SessionInfo, error) {
 	user := middleware.GetUser(ctx)
 	current := middleware.GetSession(ctx)
 	if user == nil || current == nil {
 		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
-
-	rows, err := s.repo.ListUserSessions(ctx, user.ID)
+	rows, err := s.svc.ListSessionsForUser(ctx, user.ID)
 	if err != nil {
-		s.log.Error("failed to list sessions", "error", err)
+		s.log.Error("list sessions", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list sessions")
 	}
-
 	out := make([]SessionInfo, len(rows))
 	for i, row := range rows {
 		out[i] = SessionInfo{
@@ -120,40 +122,27 @@ type RevokeSessionInput struct {
 	HashedID string `json:"hashed_id" validate:"required"`
 }
 
-// RevokeSession deletes a specific session (must belong to the current user).
+// RevokeSession deletes a specific session (must belong to the
+// current user). ErrSessionNotOwned collapses "exists but not yours"
+// and "doesn't exist" to 404 — stops session-enumeration probing.
 func (s *Service) RevokeSession(ctx context.Context, input RevokeSessionInput) (LogoutResult, error) {
 	user := middleware.GetUser(ctx)
 	if user == nil {
 		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
-
-	// Verify the session belongs to this user
-	rows, err := s.repo.ListUserSessions(ctx, user.ID)
-	if err != nil {
-		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to verify session")
-	}
-
-	owns := false
-	for _, row := range rows {
-		if row.HashedID == input.HashedID {
-			owns = true
-			break
+	if err := s.svc.RevokeUserSession(ctx, user.ID, input.HashedID); err != nil {
+		if errors.Is(err, authservice.ErrSessionNotOwned) {
+			return LogoutResult{}, trpcgo.NewError(trpcgo.CodeNotFound, "session not found")
 		}
-	}
-	if !owns {
-		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeNotFound, "session not found")
-	}
-
-	if err := s.sessionMgr.DeleteByHash(ctx, input.HashedID); err != nil {
-		s.log.Error("failed to delete session", "error", err)
-		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to revoke session")
+		s.log.Error("revoke session", "error", err)
+		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to revoke")
 	}
 
-	// If revoking current session, clear cookie too
+	// If revoking the current session, clear the cookie too so the
+	// next request is unambiguously unauthenticated.
 	current := middleware.GetSession(ctx)
 	if current != nil && current.HashedID == input.HashedID {
 		trpcgo.SetCookie(ctx, s.sessionMgr.ClearCookie())
 	}
-
 	return LogoutResult{OK: true}, nil
 }
