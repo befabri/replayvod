@@ -13,14 +13,21 @@ server/twitch-api-gen
 .env.local
 !.env.example
 
-# Data & databases
+# Runtime data (server creates these on startup — `data/` holds
+# downloads + SQLite file + scratch workspace, `logs/` is optional
+# file-sink output)
 data/
+server/data/
 logs/
 *.db
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
 *.sqlite-journal
+
+# Dashboard build / dev caches (TanStack Start build, Vite temp)
+dashboard/.tanstack/tmp/
+dashboard/node_modules/.vite-temp/
 
 # IDE
 .idea/
