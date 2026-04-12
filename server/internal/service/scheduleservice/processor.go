@@ -49,21 +49,58 @@ func NewEventProcessor(repo repository.Repository, dl *downloader.Service, tc *t
 	}
 }
 
-// Process dispatches the decoded notification. Only stream.online drives
-// auto-download in Phase 5 — other event types are recorded in the audit
-// log by the webhook handler but otherwise ignored here.
+// Process dispatches the decoded notification to the per-event handler.
+// Events we don't act on (e.g. channel.update v1, automod, etc.) are
+// audit-logged by the webhook handler; here we return nil so the
+// webhook returns 204 cleanly.
 func (p *EventProcessor) Process(ctx context.Context, n *twitch.EventSubNotification) error {
-	event, ok := n.Event.(twitch.StreamOnlineEvent)
-	if !ok {
-		// The webhook handler recorded the event in the audit log; no
-		// auto-download means no work, not an error.
+	switch ev := n.Event.(type) {
+	case twitch.StreamOnlineEvent:
+		if ev.BroadcasterUserID == "" {
+			p.log.Warn("stream.online event missing broadcaster_user_id", "event_id", ev.ID)
+			return nil
+		}
+		return p.dispatchStreamOnline(ctx, ev)
+	case twitch.StreamOfflineEvent:
+		if ev.BroadcasterUserID == "" {
+			p.log.Warn("stream.offline event missing broadcaster_user_id")
+			return nil
+		}
+		return p.dispatchStreamOffline(ctx, ev)
+	default:
 		return nil
 	}
-	if event.BroadcasterUserID == "" {
-		p.log.Warn("stream.online event missing broadcaster_user_id", "event_id", event.ID)
+}
+
+// dispatchStreamOffline stamps ended_at on the most recent active
+// stream for the broadcaster. The live downloader (if running) keeps
+// its own end-detection, so this doesn't cancel in-flight downloads —
+// it just closes the stream row for reporting.
+func (p *EventProcessor) dispatchStreamOffline(ctx context.Context, event twitch.StreamOfflineEvent) error {
+	// WithoutCancel so webhook timeouts don't leave ended_at unset.
+	persistCtx := context.WithoutCancel(ctx)
+
+	stream, err := p.repo.GetLastLiveStream(persistCtx, event.BroadcasterUserID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			p.log.Info("stream.offline with no active stream row; ignoring",
+				"broadcaster_id", event.BroadcasterUserID)
+			return nil
+		}
+		return fmt.Errorf("get last live stream: %w", err)
+	}
+	if stream.EndedAt != nil {
+		// Already ended — idempotent, happens when Twitch retries the
+		// same offline event or we processed one earlier.
 		return nil
 	}
-	return p.dispatchStreamOnline(ctx, event)
+	if err := p.repo.EndStream(persistCtx, stream.ID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("end stream: %w", err)
+	}
+	p.log.Info("stream ended",
+		"stream_id", stream.ID,
+		"broadcaster_id", event.BroadcasterUserID)
+	return nil
 }
 
 func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.StreamOnlineEvent) error {
