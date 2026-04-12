@@ -1,3 +1,6 @@
+// Package video is the tRPC-transport wrapper around videoservice
+// (metadata reads + aggregates) and downloadservice (control plane).
+// stream.go holds the byte-range Chi handler.
 package video
 
 import (
@@ -6,29 +9,24 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
-	"github.com/befabri/replayvod/server/internal/twitch"
+	"github.com/befabri/replayvod/server/internal/service/downloadservice"
+	"github.com/befabri/replayvod/server/internal/service/videoservice"
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC video procedures. Separate from the streaming
-// Handler above — this serves JSON metadata, that serves bytes.
 type Service struct {
-	repo       repository.Repository
-	downloader *downloader.Service
-	twitch     *twitch.Client
-	log        *slog.Logger
+	video    *videoservice.Service
+	download *downloadservice.Service
+	log      *slog.Logger
 }
 
-// NewService creates the video tRPC service.
-func NewService(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, log *slog.Logger) *Service {
+func NewService(video *videoservice.Service, download *downloadservice.Service, log *slog.Logger) *Service {
 	return &Service{
-		repo:       repo,
-		downloader: dl,
-		twitch:     tc,
-		log:        log.With("domain", "video"),
+		video:    video,
+		download: download,
+		log:      log.With("domain", "video-api"),
 	}
 }
 
@@ -81,102 +79,84 @@ func toVideoResponses(vs []repository.Video) []VideoResponse {
 	return out
 }
 
-// ListInput is the pagination input for video.list.
 type ListInput struct {
 	Limit  int    `json:"limit" validate:"min=0,max=200"`
 	Offset int    `json:"offset" validate:"min=0"`
-	Status string `json:"status" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
+	Status string `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
 }
 
-// List returns videos with optional status filter. Default limit 50.
 func (s *Service) List(ctx context.Context, input ListInput) ([]VideoResponse, error) {
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	var (
-		vids []repository.Video
-		err  error
-	)
-	if input.Status != "" {
-		vids, err = s.repo.ListVideosByStatus(ctx, input.Status, limit, input.Offset)
-	} else {
-		vids, err = s.repo.ListVideos(ctx, limit, input.Offset)
-	}
+	vids, err := s.video.List(ctx, input.Status, limit, input.Offset)
 	if err != nil {
-		s.log.Error("list videos failed", "error", err)
+		s.log.Error("list videos", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
 	}
 	return toVideoResponses(vids), nil
 }
 
-// GetByIDInput wraps the integer video id.
 type GetByIDInput struct {
 	ID int64 `json:"id" validate:"required"`
 }
 
-// GetByID returns a single video.
 func (s *Service) GetByID(ctx context.Context, input GetByIDInput) (VideoResponse, error) {
-	v, err := s.repo.GetVideo(ctx, input.ID)
+	v, err := s.video.GetByID(ctx, input.ID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return VideoResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "video not found")
 		}
-		s.log.Error("get video failed", "error", err)
+		s.log.Error("get video", "error", err)
 		return VideoResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get video")
 	}
 	return toVideoResponse(v), nil
 }
 
-// ByBroadcasterInput filters videos by broadcaster.
 type ByBroadcasterInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 	Limit         int    `json:"limit" validate:"min=0,max=200"`
 	Offset        int    `json:"offset" validate:"min=0"`
 }
 
-// ByBroadcaster returns paginated videos for a broadcaster.
 func (s *Service) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) ([]VideoResponse, error) {
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	vids, err := s.repo.ListVideosByBroadcaster(ctx, input.BroadcasterID, limit, input.Offset)
+	vids, err := s.video.ListByBroadcaster(ctx, input.BroadcasterID, limit, input.Offset)
 	if err != nil {
-		s.log.Error("list videos by broadcaster failed", "error", err)
+		s.log.Error("list videos by broadcaster", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
 	}
 	return toVideoResponses(vids), nil
 }
 
-// ByCategoryInput filters videos by category.
 type ByCategoryInput struct {
 	CategoryID string `json:"category_id" validate:"required"`
 	Limit      int    `json:"limit" validate:"min=0,max=200"`
 	Offset     int    `json:"offset" validate:"min=0"`
 }
 
-// ByCategory returns paginated videos in a category.
 func (s *Service) ByCategory(ctx context.Context, input ByCategoryInput) ([]VideoResponse, error) {
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	vids, err := s.repo.ListVideosByCategory(ctx, input.CategoryID, limit, input.Offset)
+	vids, err := s.video.ListByCategory(ctx, input.CategoryID, limit, input.Offset)
 	if err != nil {
-		s.log.Error("list videos by category failed", "error", err)
+		s.log.Error("list videos by category", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
 	}
 	return toVideoResponses(vids), nil
 }
 
-// StatsBucket is one row of the status histogram.
 type StatsBucket struct {
 	Status string `json:"status"`
 	Count  int64  `json:"count"`
 }
 
-// StatisticsResponse is the aggregate shape for the dashboard home page.
 type StatisticsResponse struct {
 	Total         int64         `json:"total"`
 	TotalSize     int64         `json:"total_size"`
@@ -184,25 +164,19 @@ type StatisticsResponse struct {
 	ByStatus      []StatsBucket `json:"by_status"`
 }
 
-// Statistics returns totals + per-status counts.
 func (s *Service) Statistics(ctx context.Context) (StatisticsResponse, error) {
-	totals, err := s.repo.VideoStatsTotals(ctx)
+	stats, err := s.video.Statistics(ctx)
 	if err != nil {
-		s.log.Error("stats totals failed", "error", err)
-		return StatisticsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load statistics")
-	}
-	buckets, err := s.repo.VideoStatsByStatus(ctx)
-	if err != nil {
-		s.log.Error("stats by status failed", "error", err)
+		s.log.Error("video statistics", "error", err)
 		return StatisticsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load statistics")
 	}
 	out := StatisticsResponse{
-		Total:         totals.Total,
-		TotalSize:     totals.TotalSize,
-		TotalDuration: totals.TotalDuration,
-		ByStatus:      make([]StatsBucket, len(buckets)),
+		Total:         stats.Totals.Total,
+		TotalSize:     stats.Totals.TotalSize,
+		TotalDuration: stats.Totals.TotalDuration,
+		ByStatus:      make([]StatsBucket, len(stats.ByStatus)),
 	}
-	for i, b := range buckets {
+	for i, b := range stats.ByStatus {
 		out.ByStatus[i] = StatsBucket{Status: b.Status, Count: b.Count}
 	}
 	return out, nil
@@ -214,89 +188,56 @@ type TriggerDownloadInput struct {
 	Quality       string `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH"`
 }
 
-// TriggerDownloadResponse returns the job id so the UI can subscribe to progress.
+// TriggerDownloadResponse returns the job id so the UI can subscribe
+// to progress.
 type TriggerDownloadResponse struct {
 	JobID   string `json:"job_id"`
 	VideoID int64  `json:"video_id"`
 }
 
-// TriggerDownload queues a new download. Admin-level: viewers can't trigger
-// downloads. Uses the caller's user token so Helix rate-limit attribution
-// goes to the right user.
 func (s *Service) TriggerDownload(ctx context.Context, input TriggerDownloadInput) (TriggerDownloadResponse, error) {
 	user := middleware.GetUser(ctx)
 	tokens := middleware.GetTokens(ctx)
 	if user == nil || tokens == nil {
 		return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
-
-	quality := input.Quality
-	if quality == "" {
-		quality = repository.QualityHigh
-	}
-
-	// Channel record needs to exist so the foreign key on videos.broadcaster_id
-	// is satisfied. If the admin hasn't synced this channel yet, tell them
-	// rather than silently dropping the request.
-	ch, err := s.repo.GetChannel(ctx, input.BroadcasterID)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "channel not synced — run channel.syncFromTwitch first")
-		}
-		s.log.Error("get channel failed", "error", err)
-		return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load channel")
-	}
-
-	// Attach user tokens + ID so Helix calls (from within the download flow)
-	// are attributed and fetch logs get the right user.
-	downloadCtx := twitch.WithUserToken(ctx, tokens.AccessToken)
-	downloadCtx = twitch.WithUserID(downloadCtx, user.ID)
-
-	jobID, err := s.downloader.Start(downloadCtx, downloader.Params{
-		BroadcasterID:    ch.BroadcasterID,
-		BroadcasterLogin: ch.BroadcasterLogin,
-		DisplayName:      ch.BroadcasterName,
-		Quality:          quality,
-		Language:         derefString(ch.BroadcasterLanguage),
+	result, err := s.download.Trigger(ctx, downloadservice.TriggerInput{
+		BroadcasterID:   input.BroadcasterID,
+		Quality:         input.Quality,
+		UserID:          user.ID,
+		UserAccessToken: tokens.AccessToken,
 	})
 	if err != nil {
-		s.log.Error("start download failed", "error", err, "broadcaster_id", input.BroadcasterID)
-		return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to start download: "+err.Error())
+		if errors.Is(err, downloadservice.ErrChannelNotSynced) {
+			return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeNotFound,
+				"channel not synced — run channel.syncFromTwitch first")
+		}
+		s.log.Error("trigger download", "error", err, "broadcaster_id", input.BroadcasterID)
+		return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError,
+			"failed to start download: "+err.Error())
 	}
-
-	v, err := s.repo.GetVideoByJobID(ctx, jobID)
-	if err != nil {
-		// Row was just created — if we can't read it back something is wrong
-		// with the DB, but the download itself is already queued.
-		s.log.Error("reload video after start failed", "error", err, "job_id", jobID)
-		return TriggerDownloadResponse{JobID: jobID}, nil
-	}
-	return TriggerDownloadResponse{JobID: jobID, VideoID: v.ID}, nil
+	return TriggerDownloadResponse{JobID: result.JobID, VideoID: result.VideoID}, nil
 }
 
-// CancelInput asks the downloader to terminate an active job.
 type CancelInput struct {
 	JobID string `json:"job_id" validate:"required"`
 }
 
-// Cancel terminates an in-flight download. No-op if the job has finished.
-func (s *Service) Cancel(ctx context.Context, input CancelInput) (OK, error) {
-	s.downloader.Cancel(input.JobID)
-	return OK{OK: true}, nil
-}
-
-// OK is a minimal ack response.
 type OK struct {
 	OK bool `json:"ok"`
 }
 
-// DownloadProgressInput identifies which job to stream progress for.
+func (s *Service) Cancel(ctx context.Context, input CancelInput) (OK, error) {
+	s.download.Cancel(ctx, input.JobID)
+	return OK{OK: true}, nil
+}
+
 type DownloadProgressInput struct {
 	JobID string `json:"job_id" validate:"required"`
 }
 
-// ProgressEvent is the wire shape for a download progress update. Matches
-// downloader.Progress but pinned to a JSON-stable schema.
+// ProgressEvent is the wire shape for a download progress update.
+// Matches downloader.Progress but pinned to a JSON-stable schema.
 type ProgressEvent struct {
 	JobID   string  `json:"job_id"`
 	Stage   string  `json:"stage"`
@@ -305,22 +246,19 @@ type ProgressEvent struct {
 	ETA     string  `json:"eta,omitempty"`
 }
 
-// DownloadProgress streams Progress events for a running download via SSE.
-// Returns an empty closed channel if the job is not (or no longer) active —
-// this collapses "already done" and "never existed" into a single tidy
-// closed-stream path the client handles naturally.
+// DownloadProgress streams Progress events for a running download
+// via SSE. Returns an empty closed channel if the job is not (or no
+// longer) active — this collapses "already done" and "never existed"
+// into a single tidy closed-stream path the client handles naturally.
 //
 // The trpcgo middleware chain runs before this handler, so an expired
-// session will 401 on subscribe rather than hanging an open SSE forever.
-// The SSE transport handles client disconnects by cancelling ctx, which
-// propagates to our goroutine through the progressCh's closer (downloader
-// already closes progressCh on completion).
+// session 401s on subscribe rather than hanging an open SSE forever.
+// The SSE transport handles client disconnects by cancelling ctx,
+// which propagates through to us; the downloader publishes with a
+// non-blocking select so a dropped subscriber never wedges its writes.
 func (s *Service) DownloadProgress(ctx context.Context, input DownloadProgressInput) (<-chan ProgressEvent, error) {
-	src := s.downloader.Subscribe(input.JobID)
+	src := s.download.Subscribe(input.JobID)
 	if src == nil {
-		// Return a pre-closed channel: the client's subscription completes
-		// immediately, no error, which is the right UX for "nothing to
-		// stream — the job is done or never existed."
 		ch := make(chan ProgressEvent)
 		close(ch)
 		return ch, nil
@@ -332,10 +270,6 @@ func (s *Service) DownloadProgress(ctx context.Context, input DownloadProgressIn
 		for {
 			select {
 			case <-ctx.Done():
-				// Client disconnected or SSE max-duration hit. Leaving the
-				// source channel alone is fine; the downloader publishes
-				// with a non-blocking select so a dropped subscriber never
-				// wedges its writes.
 				return
 			case p, ok := <-src:
 				if !ok {
@@ -356,11 +290,4 @@ func (s *Service) DownloadProgress(ctx context.Context, input DownloadProgressIn
 		}
 	}()
 	return out, nil
-}
-
-func derefString(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
