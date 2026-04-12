@@ -185,7 +185,7 @@ func (c *Client) do(ctx context.Context, method, path string, params any, body a
 
 	start := time.Now()
 	status, err := c.doOnce(ctx, method, path, params, body, out)
-	c.record(ctx, method, path, status, time.Since(start), err)
+	c.record(ctx, method, path, status, time.Since(start), err, extractBroadcasterID(params))
 	return err
 }
 
@@ -254,16 +254,19 @@ func (c *Client) doOnce(ctx context.Context, method, path string, params any, bo
 
 // record forwards a completed Helix call to the fetch log recorder, if wired.
 // Recording failures are swallowed — auditing must not fail user requests.
-// BroadcasterID is best-effort extracted from query params when present.
-func (c *Client) record(ctx context.Context, method, path string, status int, dur time.Duration, err error) {
+// broadcasterID is best-effort: extracted from params via extractBroadcasterID
+// (scalar or first element of a slice). nil when params lacks the field or the
+// value is empty.
+func (c *Client) record(ctx context.Context, method, path string, status int, dur time.Duration, err error, broadcasterID *string) {
 	if c.recorder == nil {
 		return
 	}
 	entry := FetchLogEntry{
-		UserID:     userIDFrom(ctx),
-		FetchType:  method + " " + path,
-		Status:     status,
-		DurationMs: dur.Milliseconds(),
+		UserID:        userIDFrom(ctx),
+		FetchType:     method + " " + path,
+		BroadcasterID: broadcasterID,
+		Status:        status,
+		DurationMs:    dur.Milliseconds(),
 	}
 	if err != nil {
 		entry.Error = err.Error()
@@ -276,6 +279,47 @@ func (c *Client) record(ctx context.Context, method, path string, status int, du
 		}
 	}()
 	c.recorder.RecordFetch(ctx, entry)
+}
+
+// extractBroadcasterID returns the value of params.BroadcasterID (via reflection)
+// for audit logging. Handles both the scalar `string` shape (e.g. ModifyChannel*)
+// and the `[]string` shape (e.g. GetChannelInformation*). Returns nil when
+// params is nil-like, lacks the field, or has an empty value.
+//
+// Best-effort — the audit trail gets the first ID when a request carries many,
+// which is typical for per-broadcaster actions. Not a substitute for inspecting
+// the full request body.
+func extractBroadcasterID(params any) *string {
+	if isNilLike(params) {
+		return nil
+	}
+	rv := reflect.ValueOf(params)
+	for rv.Kind() == reflect.Ptr || rv.Kind() == reflect.Interface {
+		if rv.IsNil() {
+			return nil
+		}
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return nil
+	}
+	f := rv.FieldByName("BroadcasterID")
+	if !f.IsValid() {
+		return nil
+	}
+	switch f.Kind() {
+	case reflect.String:
+		if s := f.String(); s != "" {
+			return &s
+		}
+	case reflect.Slice:
+		if f.Len() > 0 && f.Index(0).Kind() == reflect.String {
+			if s := f.Index(0).String(); s != "" {
+				return &s
+			}
+		}
+	}
+	return nil
 }
 
 // isNilLike returns true for nil interfaces and typed-nil pointers.
