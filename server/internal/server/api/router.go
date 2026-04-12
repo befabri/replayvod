@@ -278,7 +278,11 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 
 	// Event logs — owner-only, extends the system.* surface so the
 	// existing owner procedures and dashboard nav apply uniformly.
+	// searchEventLogs is a separate procedure rather than an
+	// `eventLogs(query=...)` variant because the output shape differs
+	// (ranked + rank field) and the UI handles them in distinct tabs.
 	trpcgo.MustQuery(tr, "system.eventLogs", systemSvc.EventLogs, ownerProcedure)
+	trpcgo.MustQuery(tr, "system.searchEventLogs", systemSvc.SearchEventLogs, ownerProcedure)
 
 	// SSE subscriptions. system.events and task.status are
 	// owner-level (operator telemetry); stream.live is viewer-level so

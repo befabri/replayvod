@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
@@ -199,7 +198,7 @@ func TestSettings_Upsert_InsertThenUpdate(t *testing.T) {
 func TestSettings_UserCascadeDelete(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.NewPGPool(t)
-	a := New(pggen.New(pool))
+	a := New(pool)
 
 	if _, err := a.UpsertUser(ctx, &repository.User{
 		ID: "u-cascade", Login: "u", DisplayName: "u", Role: "viewer",

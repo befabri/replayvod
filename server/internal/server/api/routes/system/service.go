@@ -124,6 +124,53 @@ func (s *Service) EventLogs(ctx context.Context, input EventLogsInput) (EventLog
 	return EventLogsResponse{Total: total, Data: data}, nil
 }
 
+type SearchEventLogsInput struct {
+	Query  string `json:"query" validate:"required,min=1,max=200"`
+	Limit  int    `json:"limit" validate:"min=0,max=200"`
+	Offset int    `json:"offset" validate:"min=0"`
+}
+
+type SearchEventLogEntry struct {
+	EventLogEntry
+	Rank float64 `json:"rank"`
+}
+
+type SearchEventLogsResponse struct {
+	Total   int64                 `json:"total"`
+	Data    []SearchEventLogEntry `json:"data"`
+	Ranked  bool                  `json:"ranked"`
+}
+
+// SearchEventLogs runs a relevance-ordered search over event_logs.
+// Full-text on Postgres (websearch_to_tsquery syntax — quoted phrases,
+// AND/OR, -negation); substring fallback on SQLite with ranked=false
+// so the dashboard can hide the rank column on backends that can't
+// produce it.
+func (s *Service) SearchEventLogs(ctx context.Context, input SearchEventLogsInput) (SearchEventLogsResponse, error) {
+	out, err := s.svc.SearchEventLogs(ctx, input.Query, input.Limit, input.Offset)
+	if err != nil {
+		s.log.Error("search event logs", "error", err)
+		return SearchEventLogsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to search event logs")
+	}
+	data := make([]SearchEventLogEntry, len(out.Results))
+	for i, r := range out.Results {
+		data[i] = SearchEventLogEntry{
+			EventLogEntry: EventLogEntry{
+				ID:          r.ID,
+				Domain:      r.Domain,
+				EventType:   r.EventType,
+				Severity:    r.Severity,
+				Message:     r.Message,
+				ActorUserID: r.ActorUserID,
+				Data:        r.Data,
+				CreatedAt:   r.CreatedAt,
+			},
+			Rank: r.Rank,
+		}
+	}
+	return SearchEventLogsResponse{Total: out.Total, Data: data, Ranked: out.Ranked}, nil
+}
+
 // repositoryErrNotFoundSentinel keeps the import of repository used by
 // users.go / whitelist.go if those files get slimmer — belt-and-
 // suspenders, harmless.

@@ -17,7 +17,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/logger"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
-	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/scheduler"
@@ -73,7 +72,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		repo = pgadapter.New(pggen.New(pgPool))
+		repo = pgadapter.New(pgPool)
 
 	case "sqlite":
 		var err error

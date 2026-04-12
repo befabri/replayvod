@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 )
@@ -133,6 +134,102 @@ func (s *Service) ListEventLogs(ctx context.Context, f EventLogsFilter) ([]repos
 		}
 		total, err := s.repo.CountEventLogs(ctx)
 		return rows, total, err
+	}
+}
+
+// EventLogSearchResult pairs a matched event log with its ranking
+// score. On backends without full-text support (SQLite), Rank is 0
+// and rows are returned in the same order ListEventLogs would give.
+type EventLogSearchResult struct {
+	repository.EventLog
+	Rank float64
+}
+
+// EventLogSearchResponse bundles the page + total count + a flag the
+// UI uses to decide whether to show relevance highlighting.
+type EventLogSearchResponse struct {
+	Results []EventLogSearchResult
+	Total   int64
+	// Ranked is true when the backing query was full-text. When false,
+	// the fallback path ran a substring LIKE scan and `Rank` is zero —
+	// the dashboard should hide the relevance column in that case so
+	// operators don't read meaning into identical-zero scores.
+	Ranked bool
+}
+
+// SearchEventLogs runs a relevance-ordered search over event_logs. On
+// Postgres this goes through the FullTextSearcher capability with
+// websearch_to_tsquery semantics; on SQLite it falls back to a
+// substring LIKE over message+event_type+domain so the dashboard still
+// has something to show, just without ranking.
+//
+// Empty queries return an empty result rather than "all rows" — full
+// listing goes through ListEventLogs.
+func (s *Service) SearchEventLogs(ctx context.Context, query string, limit, offset int) (*EventLogSearchResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if query == "" {
+		return &EventLogSearchResponse{}, nil
+	}
+
+	if fts, ok := s.repo.(repository.FullTextSearcher); ok {
+		rows, total, err := fts.SearchEventLogs(ctx, query, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]EventLogSearchResult, len(rows))
+		for i, r := range rows {
+			out[i] = EventLogSearchResult{EventLog: r.EventLog, Rank: r.Rank}
+		}
+		return &EventLogSearchResponse{Results: out, Total: total, Ranked: true}, nil
+	}
+
+	// Portable fallback: scan the full (retention-bounded) event_logs
+	// table in memory, filter to substring matches across message +
+	// event_type + domain, then apply the caller's offset/limit on the
+	// filtered result. For the SQLite homelab case event_logs is small
+	// (retention task prunes), so the simple path is cheaper than
+	// maintaining a third adapter-level LIKE query.
+	needle := strings.ToLower(query)
+	matched, err := s.scanEventLogsSubstring(ctx, needle)
+	if err != nil {
+		return nil, err
+	}
+
+	total := int64(len(matched))
+	start := min(offset, len(matched))
+	end := min(start+limit, len(matched))
+	return &EventLogSearchResponse{
+		Results: matched[start:end],
+		Total:   total,
+		Ranked:  false,
+	}, nil
+}
+
+// scanEventLogsSubstring walks event_logs in newest-first pages,
+// keeping rows whose message/event_type/domain contain needle. The
+// pagination loop is there so a future large table doesn't trip on a
+// single 50-row ListEventLogs call — it keeps pulling until the repo
+// reports a short read.
+func (s *Service) scanEventLogsSubstring(ctx context.Context, needle string) ([]EventLogSearchResult, error) {
+	const pageSize = 500
+	var out []EventLogSearchResult
+	for offset := 0; ; offset += pageSize {
+		rows, err := s.repo.ListEventLogs(ctx, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			if strings.Contains(strings.ToLower(r.Message), needle) ||
+				strings.Contains(strings.ToLower(r.EventType), needle) ||
+				strings.Contains(strings.ToLower(r.Domain), needle) {
+				out = append(out, EventLogSearchResult{EventLog: r})
+			}
+		}
+		if len(rows) < pageSize {
+			return out, nil
+		}
 	}
 }
 

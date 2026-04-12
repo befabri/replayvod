@@ -32,7 +32,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
-	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/server/api"
@@ -126,7 +125,7 @@ func newRepo(t *testing.T, d driver) repository.Repository {
 		return sqliteadapter.New(sqlitegen.New(db))
 	case driverPG:
 		pool := testdb.NewPGPool(t)
-		return pgadapter.New(pggen.New(pool))
+		return pgadapter.New(pool)
 	}
 	t.Fatalf("unknown driver %q", d)
 	return nil

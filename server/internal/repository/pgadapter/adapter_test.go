@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
@@ -19,7 +18,7 @@ func TestMain(m *testing.M) {
 func newTestAdapter(t *testing.T) *PGAdapter {
 	t.Helper()
 	pool := testdb.NewPGPool(t)
-	return New(pggen.New(pool))
+	return New(pool)
 }
 
 // TestUser_Upsert_RoundTrip covers the primary auth path: OAuth callback
