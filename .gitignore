@@ -1,4 +1,44 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+.output/
+server/server
+server/replayvod
+
+# Environment
 .env
+.env.local
+!.env.example
+
+# Data & databases
+data/
+logs/
+*.db
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated (regeneratable)
+dashboard/src/routeTree.gen.ts
+dashboard/src/api/generated/
+
+# Temporary
+tmp/
 *.old
+
+# Reference & docs (local only, not part of project source)
+.reference/
+.docs/
