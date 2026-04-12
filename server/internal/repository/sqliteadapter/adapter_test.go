@@ -2,64 +2,21 @@ package sqliteadapter
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
 	_ "modernc.org/sqlite"
 
-	"github.com/befabri/replayvod/server/internal/database"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
+	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
-// migrationsDir returns the absolute path to server/migrations/sqlite,
-// resolved from this test file's location so the test is invariant to the
-// caller's cwd (go test from /, from the package dir, from CI, all work).
-func migrationsDir(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	// file = .../server/internal/repository/sqliteadapter/adapter_test.go
-	return filepath.Join(filepath.Dir(file), "..", "..", "..", "migrations", "sqlite")
-}
-
-// openTestSQLite returns a fresh :memory: SQLite DB with all migrations
-// applied. Using file::memory: plus cache=shared keeps the DB alive across
-// multiple connections in the same test, but default MaxOpenConns=1 (set by
-// database.NewSQLiteDB) means we don't actually need that — a simple
-// connection-pooled :memory: is enough.
-//
-// The caller should use t.Cleanup for Close rather than defer: some test
-// failures skip the defer path.
-func openTestSQLite(t *testing.T) *sql.DB {
-	t.Helper()
-	// A fresh file in t.TempDir gives us a clean slate per test without the
-	// cache=shared dance. modernc.org/sqlite supports :memory: but per-conn
-	// isolation there is tricky; tempfile is simpler and fast enough.
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := database.NewSQLiteDB(dbPath)
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	if err := database.MigrateSQLite(context.Background(), db, migrationsDir(t)); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	return db
-}
-
-// newTestAdapter wires up a fresh adapter against a fresh migrated DB.
+// newTestAdapter wires up a fresh adapter against a fresh migrated SQLite DB.
 func newTestAdapter(t *testing.T) *SQLiteAdapter {
 	t.Helper()
-	db := openTestSQLite(t)
-	return New(sqlitegen.New(db))
+	return New(sqlitegen.New(testdb.NewSQLiteDB(t)))
 }
 
 // TestTimeRoundtrip exercises parseTime/formatTime directly. No DB involved —
