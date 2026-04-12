@@ -1,18 +1,23 @@
 {
-  "app": {
-    "name": "ReplayVOD"
-  },
-  "nav": {
-    "dashboard": "Dashboard",
-    "videos": "Videos",
-    "channels": "Channels",
-    "categories": "Categories",
-    "schedules": "Schedules",
-    "settings": "Settings",
-    "system": "System"
-  },
-  "auth": {
-    "login": "Login with Twitch",
-    "logout": "Logout"
-  }
+	"app": {
+		"name": "ReplayVOD"
+	},
+	"nav": {
+		"dashboard": "Dashboard",
+		"videos": "Videos",
+		"channels": "Channels",
+		"categories": "Categories",
+		"schedules": "Schedules",
+		"settings": "Settings",
+		"system": "System",
+		"logs": "API Logs",
+		"users": "Users",
+		"whitelist": "Whitelist",
+		"open_menu": "Open menu",
+		"close_menu": "Close menu"
+	},
+	"auth": {
+		"login": "Login with Twitch",
+		"logout": "Logout"
+	}
 }

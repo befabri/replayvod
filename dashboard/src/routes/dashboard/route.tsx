@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router"
 import { useRequireAuth } from "@/hooks/useRequireAuth"
+import { Sidebar } from "@/components/layout/sidebar"
 
 export const Route = createFileRoute("/dashboard")({
 	component: DashboardLayout,
@@ -17,8 +18,15 @@ function DashboardLayout() {
 	}
 
 	if (!isAuthenticated) {
-		return null // useRequireAuth triggers navigate to /login
+		return null
 	}
 
-	return <Outlet />
+	return (
+		<div className="min-h-screen">
+			<Sidebar />
+			<main className="md:ml-56 pt-14 md:pt-0">
+				<Outlet />
+			</main>
+		</div>
+	)
 }
