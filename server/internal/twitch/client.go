@@ -1,6 +1,7 @@
 package twitch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,9 +9,15 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/go-querystring/query"
 )
+
+//go:generate go run ../../tools/twitch-api-gen -out . -cache ../../tmp/reference.html
 
 const (
 	helixBaseURL = "https://api.twitch.tv/helix"
@@ -23,6 +30,10 @@ type Client struct {
 	clientSecret string
 	httpClient   *http.Client
 	log          *slog.Logger
+
+	appTokenMu  sync.Mutex
+	appToken    string
+	appTokenExp time.Time
 }
 
 // NewClient creates a new Twitch API client.
@@ -37,56 +48,143 @@ func NewClient(clientID, clientSecret string, log *slog.Logger) *Client {
 	}
 }
 
-// helixResponse is the standard Twitch Helix API response envelope.
-type helixResponse[T any] struct {
-	Data []T `json:"data"`
+// --- Context token plumbing ---
+
+type userTokenCtxKey struct{}
+
+// WithUserToken attaches a user access token to ctx. Generated Helix methods
+// pick it up from the context automatically; when unset they fall back to the
+// cached app access token.
+func WithUserToken(ctx context.Context, token string) context.Context {
+	if token == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, userTokenCtxKey{}, token)
 }
 
-// User represents a Twitch user from the Helix API.
-type User struct {
-	ID              string `json:"id"`
-	Login           string `json:"login"`
-	DisplayName     string `json:"display_name"`
-	Type            string `json:"type"`
-	BroadcasterType string `json:"broadcaster_type"`
-	Description     string `json:"description"`
-	ProfileImageURL string `json:"profile_image_url"`
-	OfflineImageURL string `json:"offline_image_url"`
-	Email           string `json:"email"`
+func userTokenFrom(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(userTokenCtxKey{}).(string)
+	return v, ok && v != ""
 }
 
-// GetUser fetches the authenticated user's profile using their access token.
-func (c *Client) GetUser(ctx context.Context, accessToken string) (*User, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, helixBaseURL+"/users", nil)
+// --- App access token (client_credentials grant, cached) ---
+
+// appAccessToken returns a cached app access token, refreshing when <5 min remain.
+func (c *Client) appAccessToken(ctx context.Context) (string, error) {
+	c.appTokenMu.Lock()
+	defer c.appTokenMu.Unlock()
+	if c.appToken != "" && time.Until(c.appTokenExp) > 5*time.Minute {
+		return c.appToken, nil
+	}
+	resp, err := c.GetAppAccessToken(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return "", err
+	}
+	c.appToken = resp.AccessToken
+	c.appTokenExp = time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
+	return c.appToken, nil
+}
+
+// --- Helix error ---
+
+// HelixError is returned when the Twitch API responds with a non-2xx status.
+type HelixError struct {
+	Status int
+	Body   string
+}
+
+func (e *HelixError) Error() string {
+	return fmt.Sprintf("twitch: helix %d: %s", e.Status, e.Body)
+}
+
+// --- HTTP helpers used by generated_client.go ---
+
+func (c *Client) get(ctx context.Context, path string, params any, out any) error {
+	return c.do(ctx, http.MethodGet, path, params, nil, out)
+}
+
+func (c *Client) post(ctx context.Context, path string, params any, body any, out any) error {
+	return c.do(ctx, http.MethodPost, path, params, body, out)
+}
+
+func (c *Client) delete(ctx context.Context, path string, params any, out any) error {
+	return c.do(ctx, http.MethodDelete, path, params, nil, out)
+}
+
+func (c *Client) do(ctx context.Context, method, path string, params any, body any, out any) error {
+	u, err := url.Parse(helixBaseURL + path)
+	if err != nil {
+		return fmt.Errorf("parse url: %w", err)
+	}
+	if !isNilLike(params) {
+		v, err := query.Values(params)
+		if err != nil {
+			return fmt.Errorf("encode query: %w", err)
+		}
+		u.RawQuery = v.Encode()
 	}
 
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	var bodyReader io.Reader
+	if !isNilLike(body) {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("encode body: %w", err)
+		}
+		bodyReader = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), bodyReader)
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+
+	token, ok := userTokenFrom(ctx)
+	if !ok {
+		token, err = c.appAccessToken(ctx)
+		if err != nil {
+			return fmt.Errorf("acquire app token: %w", err)
+		}
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Client-Id", c.clientID)
+	if bodyReader != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch user: %w", err)
+		return fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("twitch API error %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return &HelixError{Status: resp.StatusCode, Body: string(b)}
 	}
-
-	var result helixResponse[User]
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode user response: %w", err)
+	if out == nil || resp.StatusCode == http.StatusNoContent {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil
 	}
-
-	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("no user data returned")
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
 	}
-
-	return &result.Data[0], nil
+	return nil
 }
+
+// isNilLike returns true for nil interfaces and typed-nil pointers.
+func isNilLike(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
+		return rv.IsNil()
+	}
+	return false
+}
+
+// --- OAuth: kept hand-written ---
 
 // TokenResponse is the response from the Twitch token endpoint.
 type TokenResponse struct {
@@ -107,7 +205,6 @@ func (c *Client) ExchangeCode(ctx context.Context, code, redirectURI, codeVerifi
 		"redirect_uri":  {redirectURI},
 		"code_verifier": {codeVerifier},
 	}
-
 	return c.tokenRequest(ctx, data)
 }
 
@@ -119,18 +216,17 @@ func (c *Client) RefreshUserToken(ctx context.Context, refreshToken string) (*To
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
 	}
-
 	return c.tokenRequest(ctx, data)
 }
 
 // GetAppAccessToken obtains an app access token using client credentials.
+// Callers that want the cached token should use appAccessToken instead.
 func (c *Client) GetAppAccessToken(ctx context.Context) (*TokenResponse, error) {
 	data := url.Values{
 		"client_id":     {c.clientID},
 		"client_secret": {c.clientSecret},
 		"grant_type":    {"client_credentials"},
 	}
-
 	return c.tokenRequest(ctx, data)
 }
 
@@ -156,6 +252,5 @@ func (c *Client) tokenRequest(ctx context.Context, data url.Values) (*TokenRespo
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return nil, fmt.Errorf("failed to decode token response: %w", err)
 	}
-
 	return &tokenResp, nil
 }
