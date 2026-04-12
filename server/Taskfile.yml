@@ -34,6 +34,17 @@ tasks:
     cmds:
       - go tool trpcgo generate -o ../dashboard/src/api/generated/trpc.ts --zod ../dashboard/src/api/generated/zod.ts ./...
 
+  twitch-api-gen:
+    desc: Regenerate Twitch API types and client from docs
+    cmds:
+      - go run ./tools/twitch-api-gen -out ./internal/twitch/
+
+  twitch-api-gen:regen-snapshot:
+    desc: Update committed test fixtures from the current cached reference HTML
+    cmds:
+      - cp ./tmp/reference.html ./tools/twitch-api-gen/testdata/reference-snapshot.html
+      - go run ./tools/twitch-api-gen -out ./tools/twitch-api-gen/testdata/expected -cache ./tools/twitch-api-gen/testdata/reference-snapshot.html -timestamp 2026-04-12T00:00:00Z
+
   gen:
     desc: Run all code generation (sqlc + trpcgen)
     cmds:
