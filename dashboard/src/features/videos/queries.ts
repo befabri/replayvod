@@ -25,6 +25,16 @@ export function useVideosByBroadcaster(broadcasterId: string, limit = 50, offset
 	)
 }
 
+export function useVideosByCategory(categoryId: string, limit = 50, offset = 0) {
+	const trpc = useTRPC()
+	return useQuery(
+		trpc.video.byCategory.queryOptions(
+			{ category_id: categoryId, limit, offset },
+			{ enabled: !!categoryId },
+		),
+	)
+}
+
 export function useStatistics() {
 	const trpc = useTRPC()
 	return useQuery(trpc.video.statistics.queryOptions())

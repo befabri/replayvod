@@ -1,9 +1,8 @@
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { API_URL } from "@/env"
 import { useVideos } from "@/features/videos"
-import { formatBytes, formatDuration } from "@/features/videos/format"
+import { VideoCard } from "@/features/videos/components/VideoCard"
 
 const PAGE_SIZE = 50
 
@@ -71,76 +70,6 @@ function VideosPage() {
 	)
 }
 
-type Video = NonNullable<ReturnType<typeof useVideos>["data"]>[number]
-
-function VideoCard({ video }: { video: Video }) {
-	const { t } = useTranslation()
-	const thumbnail = video.thumbnail
-		? `${API_URL}/api/v1/thumbnails/${video.thumbnail.replace(/^thumbnails\//, "")}`
-		: null
-	return (
-		<div className="rounded-lg border border-border bg-card overflow-hidden flex flex-col">
-			<div className="aspect-video bg-muted flex items-center justify-center relative">
-				{thumbnail ? (
-					<img
-						src={thumbnail}
-						alt=""
-						className="w-full h-full object-cover"
-						loading="lazy"
-					/>
-				) : (
-					<div className="text-muted-foreground text-sm">No thumbnail</div>
-				)}
-				<StatusBadge status={video.status} />
-			</div>
-			<div className="p-3 flex-1 flex flex-col">
-				<div className="font-medium truncate" title={video.display_name}>
-					{video.display_name}
-				</div>
-				<div className="text-sm text-muted-foreground mt-1 flex gap-3">
-					<span>{formatDuration(video.duration_seconds)}</span>
-					<span>{formatBytes(video.size_bytes)}</span>
-				</div>
-				<div className="mt-auto pt-3">
-					{video.status === "DONE" ? (
-						<Link
-							// biome-ignore lint/suspicious/noExplicitAny: param route typing
-							to={"/dashboard/watch/$videoId" as any}
-							params={{ videoId: String(video.id) } as any}
-							className="text-sm text-primary hover:underline"
-						>
-							{t("videos.watch")} →
-						</Link>
-					) : (
-						<span className="text-sm text-muted-foreground">
-							{t(`videos.status.${video.status}` as const)}
-						</span>
-					)}
-				</div>
-			</div>
-		</div>
-	)
-}
-
-function StatusBadge({ status }: { status: string }) {
-	const { t } = useTranslation()
-	const color =
-		status === "DONE"
-			? "bg-emerald-500/90"
-			: status === "FAILED"
-				? "bg-destructive/90"
-				: status === "RUNNING"
-					? "bg-primary/90"
-					: "bg-muted-foreground/80"
-	return (
-		<span
-			className={`absolute top-2 right-2 px-2 py-0.5 rounded text-xs font-medium text-white ${color}`}
-		>
-			{t(`videos.status.${status}` as const, status)}
-		</span>
-	)
-}
-
 function StatusFilter({ current }: { current: string }) {
 	const options: Array<{ value: string; label: string }> = [
 		{ value: "all", label: "All" },
@@ -156,7 +85,11 @@ function StatusFilter({ current }: { current: string }) {
 					key={o.value}
 					// biome-ignore lint/suspicious/noExplicitAny: static route typing
 					to={"/dashboard/videos" as any}
-					search={(o.value === "all" ? { status: undefined } : { status: o.value }) as any}
+					search={
+						(o.value === "all"
+							? { status: undefined }
+							: { status: o.value }) as any
+					}
 					className={`px-3 py-1 rounded-md text-sm border transition-colors ${
 						current === o.value
 							? "bg-primary text-primary-foreground border-primary"

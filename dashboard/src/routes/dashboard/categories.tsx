@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { Link, createFileRoute } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 import { useCategories } from "@/features/categories"
 
@@ -36,19 +36,24 @@ function CategoriesPage() {
 			{categories && categories.length > 0 && (
 				<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
 					{categories.map((c) => (
-						<div
+						<Link
 							key={c.id}
-							className="rounded-lg border border-border bg-card overflow-hidden"
+							// biome-ignore lint/suspicious/noExplicitAny: param route typing
+							to={"/dashboard/categories/$categoryId" as any}
+							params={{ categoryId: c.id } as any}
+							className="rounded-lg border border-border bg-card overflow-hidden hover:border-primary/40 transition-colors"
 						>
 							{c.box_art_url && (
 								<img
-									src={c.box_art_url.replace("{width}", "144").replace("{height}", "192")}
+									src={c.box_art_url
+										.replace("{width}", "144")
+										.replace("{height}", "192")}
 									alt={c.name}
 									className="w-full aspect-[3/4] object-cover"
 								/>
 							)}
 							<div className="p-2 text-sm font-medium truncate">{c.name}</div>
-						</div>
+						</Link>
 					))}
 				</div>
 			)}
