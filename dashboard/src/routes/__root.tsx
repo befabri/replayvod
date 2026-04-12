@@ -1,6 +1,5 @@
 import {
 	HeadContent,
-	Outlet,
 	Scripts,
 	createRootRouteWithContext,
 } from "@tanstack/react-router"
@@ -8,6 +7,7 @@ import type { QueryClient } from "@tanstack/react-query"
 
 import appCss from "@/styles.css?url"
 import "@/i18n"
+import { useAuthInit } from "@/hooks/useAuthInit"
 
 interface MyRouterContext {
 	queryClient: QueryClient
@@ -33,6 +33,9 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+	// Hydrate auth store from session cookie on app startup
+	useAuthInit()
+
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
