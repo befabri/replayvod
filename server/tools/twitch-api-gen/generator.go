@@ -308,7 +308,7 @@ func buildModel(defs []EndpointDef, sourceURL string, timestamp time.Time, log *
 			epm.ErrReturn = "err"
 		case paginated:
 			epm.ReturnType = "[]" + itemTypeName + ", Pagination, error"
-			epm.OKReturn = "result.Data, result.Pagination, nil"
+			epm.OKReturn = "result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil"
 			epm.ErrReturn = "nil, Pagination{}, err"
 		default:
 			epm.ReturnType = "[]" + itemTypeName + ", error"

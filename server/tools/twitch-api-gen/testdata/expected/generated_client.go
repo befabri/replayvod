@@ -50,7 +50,7 @@ func (c *Client) GetEventSubSubscriptions(ctx context.Context, params *GetEventS
 	if err := c.get(ctx, "/eventsub/subscriptions", params, &result); err != nil {
 		return nil, Pagination{}, err
 	}
-	return result.Data, result.Pagination, nil
+	return result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil
 }
 
 // GetEventSubSubscriptionsAll iterates GetEventSubSubscriptions until pagination is exhausted.
@@ -81,7 +81,7 @@ func (c *Client) GetFollowedChannels(ctx context.Context, params *GetFollowedCha
 	if err := c.get(ctx, "/channels/followed", params, &result); err != nil {
 		return nil, Pagination{}, err
 	}
-	return result.Data, result.Pagination, nil
+	return result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil
 }
 
 // GetFollowedChannelsAll iterates GetFollowedChannels until pagination is exhausted.
@@ -112,7 +112,7 @@ func (c *Client) GetFollowedStreams(ctx context.Context, params *GetFollowedStre
 	if err := c.get(ctx, "/streams/followed", params, &result); err != nil {
 		return nil, Pagination{}, err
 	}
-	return result.Data, result.Pagination, nil
+	return result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil
 }
 
 // GetFollowedStreamsAll iterates GetFollowedStreams until pagination is exhausted.
@@ -155,7 +155,7 @@ func (c *Client) GetStreams(ctx context.Context, params *GetStreamsParams) ([]St
 	if err := c.get(ctx, "/streams", params, &result); err != nil {
 		return nil, Pagination{}, err
 	}
-	return result.Data, result.Pagination, nil
+	return result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil
 }
 
 // GetStreamsAll iterates GetStreams until pagination is exhausted.
@@ -186,7 +186,7 @@ func (c *Client) GetTopGames(ctx context.Context, params *GetTopGamesParams) ([]
 	if err := c.get(ctx, "/games/top", params, &result); err != nil {
 		return nil, Pagination{}, err
 	}
-	return result.Data, result.Pagination, nil
+	return result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil
 }
 
 // GetTopGamesAll iterates GetTopGames until pagination is exhausted.
@@ -229,7 +229,7 @@ func (c *Client) GetVideos(ctx context.Context, params *GetVideosParams) ([]Vide
 	if err := c.get(ctx, "/videos", params, &result); err != nil {
 		return nil, Pagination{}, err
 	}
-	return result.Data, result.Pagination, nil
+	return result.Data, Pagination{Cursor: result.Pagination.Cursor, Total: result.Total, TotalCost: result.TotalCost, MaxCost: result.MaxCost}, nil
 }
 
 // GetVideosAll iterates GetVideos until pagination is exhausted.

@@ -145,17 +145,34 @@ func (s *Service) Unsubscribe(ctx context.Context, id, reason string) error {
 // locally are skipped with a warning — Phase 6 will add a self-heal that
 // upserts orphans so historical snapshots remain complete.
 func (s *Service) Snapshot(ctx context.Context) (*repository.EventSubSnapshot, error) {
-	page, err := s.twitch.GetEventSubSubscriptionsAllWithQuota(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("eventsub: poll twitch: %w", err)
+	// Iterate pages manually: the generated *All helper drops Pagination,
+	// and we need its Total/TotalCost/MaxCost to record the quota row.
+	// Twitch returns the same totals on every page, so the final page's
+	// pagination carries the authoritative values.
+	var (
+		all     []twitch.EventSubSubscription
+		lastPag twitch.Pagination
+		params  = &twitch.GetEventSubSubscriptionsParams{}
+	)
+	for {
+		data, pag, err := s.twitch.GetEventSubSubscriptions(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("eventsub: poll twitch: %w", err)
+		}
+		all = append(all, data...)
+		lastPag = pag
+		if pag.Cursor == "" {
+			break
+		}
+		params.After = pag.Cursor
 	}
 
-	snap, err := s.repo.CreateEventSubSnapshot(ctx, int64(page.Total), int64(page.TotalCost), int64(page.MaxCost))
+	snap, err := s.repo.CreateEventSubSnapshot(ctx, int64(lastPag.Total), int64(lastPag.TotalCost), int64(lastPag.MaxCost))
 	if err != nil {
 		return nil, fmt.Errorf("eventsub: create snapshot: %w", err)
 	}
 
-	for _, sub := range page.Data {
+	for _, sub := range all {
 		// LinkSnapshotSubscription FKs into subscriptions(id). Orphans
 		// (subs Twitch has but we never mirrored) would error on FK
 		// violation. Skip with a warning so the snapshot as a whole

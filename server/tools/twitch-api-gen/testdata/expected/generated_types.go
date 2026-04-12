@@ -6,9 +6,17 @@ package twitch
 
 import "time"
 
-// Pagination is the cursor-based pagination object returned by list endpoints.
+// Pagination is the domain-level pagination object returned alongside
+// paginated list endpoints. Cursor comes from the wire envelope's nested
+// `pagination` object; Total / TotalCost / MaxCost come from top-level
+// envelope fields and are assembled at return time by the generated method.
+// json:"-" keeps them out of Unmarshal when the envelope's inner
+// "pagination" object is decoded.
 type Pagination struct {
-	Cursor string `json:"cursor,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
+	Total     int    `json:"-"`
+	TotalCost int    `json:"-"`
+	MaxCost   int    `json:"-"`
 }
 
 // helixResponse is the standard Twitch Helix API envelope.
