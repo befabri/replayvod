@@ -1,11 +1,13 @@
 package twitch
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -28,6 +30,17 @@ func signedHeaders(id, timestamp string, body []byte, secret string) http.Header
 	h.Set(EventSubHeaderMessageTimestamp, timestamp)
 	h.Set(EventSubHeaderMessageSignature, sig)
 	return h
+}
+
+func captureDefaultLogger(t *testing.T) (*bytes.Buffer, func()) {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	slog.SetDefault(logger)
+	return &buf, func() {
+		slog.SetDefault(prev)
+	}
 }
 
 // --- VerifyEventSubSignature ---
@@ -197,6 +210,9 @@ func TestDecodeEventSubWebhook_notificationKnownType(t *testing.T) {
 }
 
 func TestDecodeEventSubWebhook_notificationUnknownType(t *testing.T) {
+	logBuf, restore := captureDefaultLogger(t)
+	defer restore()
+
 	body := []byte(`{
 		"subscription": {
 			"id": "sub-new",
@@ -225,6 +241,9 @@ func TestDecodeEventSubWebhook_notificationUnknownType(t *testing.T) {
 	}
 	if len(ue.Raw) == 0 {
 		t.Error("UnknownEvent.Raw should preserve the raw event payload")
+	}
+	if !strings.Contains(logBuf.String(), "unknown eventsub event type") {
+		t.Fatalf("expected unknown event warning, got %q", logBuf.String())
 	}
 }
 
@@ -278,6 +297,31 @@ func TestDecodeEventSubWebhook_malformedEnvelope(t *testing.T) {
 	}
 }
 
+func TestDecodeEventSubWebhook_notificationKnownMalformedEventReturnsError(t *testing.T) {
+	body := []byte(`{
+		"subscription": {
+			"id": "sub-abc",
+			"status": "enabled",
+			"type": "stream.online",
+			"version": "1",
+			"condition": {"broadcaster_user_id": "12345"},
+			"transport": {"method": "webhook", "callback": "https://example/cb"},
+			"created_at": "2026-04-12T00:00:00Z",
+			"cost": 1
+		},
+		"event": "not-an-object"
+	}`)
+	h := http.Header{}
+	h.Set(EventSubHeaderMessageType, string(MsgTypeNotification))
+	_, err := DecodeEventSubWebhook(h, body)
+	if err == nil {
+		t.Fatal("expected error for malformed known event payload")
+	}
+	if !strings.Contains(err.Error(), "decode stream.online v1 event") {
+		t.Fatalf("expected known-event decode error, got %v", err)
+	}
+}
+
 // --- conditionFromType / decodeEventSubTransport fallback paths ---
 
 func TestConditionFromType_unknownReturnsUnknownCondition(t *testing.T) {
@@ -298,6 +342,32 @@ func TestConditionFromType_unknownReturnsUnknownCondition(t *testing.T) {
 	}
 	if string(uc.Raw) != string(raw) {
 		t.Errorf("UnknownCondition.Raw not preserved")
+	}
+}
+
+func TestEventSubSubscription_UnmarshalJSON_unknownTypeLogsWarning(t *testing.T) {
+	logBuf, restore := captureDefaultLogger(t)
+	defer restore()
+
+	var sub EventSubSubscription
+	err := json.Unmarshal([]byte(`{
+		"id": "sub-new",
+		"status": "enabled",
+		"type": "stream.brand_new_type",
+		"version": "1",
+		"condition": {"some": "condition"},
+		"transport": {"method": "webhook", "callback": "https://example/cb"},
+		"created_at": "2026-04-12T00:00:00Z",
+		"cost": 1
+	}`), &sub)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := sub.Condition.(UnknownCondition); !ok {
+		t.Fatalf("expected UnknownCondition, got %T", sub.Condition)
+	}
+	if !strings.Contains(logBuf.String(), "unknown eventsub subscription type") {
+		t.Fatalf("expected unknown subscription warning, got %q", logBuf.String())
 	}
 }
 
