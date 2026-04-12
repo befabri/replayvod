@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useStore } from "@tanstack/react-store"
 import { useTranslation } from "react-i18next"
+import { LiveStreamsCard } from "@/features/streams-live"
 import { useStatistics } from "@/features/videos"
 import { formatBytes, formatDuration } from "@/features/videos/format"
 import { authStore } from "@/stores/auth"
@@ -23,6 +24,8 @@ function DashboardHome() {
 				Welcome{user ? `, ${user.displayName}` : ""}
 				{user ? ` (${user.role})` : ""}
 			</p>
+
+			<LiveStreamsCard />
 
 			{isLoading && <div className="text-muted-foreground">Loading…</div>}
 

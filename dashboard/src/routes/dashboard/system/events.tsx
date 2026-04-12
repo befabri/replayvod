@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { useEventLogs } from "@/features/eventlogs"
+import { useEventLogs, useLiveSystemEvents } from "@/features/eventlogs"
 
 const PAGE_SIZE = 50
 
@@ -23,6 +23,10 @@ function EventsPage() {
 		domain,
 		severity,
 	})
+	// Mount the system.events SSE subscription — each new row
+	// invalidates the current page so operators see activity land in
+	// real time without refreshing.
+	useLiveSystemEvents()
 
 	return (
 		<div className="p-8 max-w-5xl">
