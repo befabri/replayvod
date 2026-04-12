@@ -41,12 +41,20 @@ func New(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, 
 }
 
 // TriggerInput carries everything needed to queue a manual download
-// from a tRPC procedure: the broadcaster ID, requested quality, and
-// the caller's identity so Helix calls + fetch logs attribute to
-// them rather than the app credential.
+// from a tRPC procedure: the broadcaster ID, requested quality, the
+// recording mode + codec preference, and the caller's identity so
+// Helix calls + fetch logs attribute to them rather than the app
+// credential.
+//
+// RecordingType + ForceH264 are persisted on the videos row (so the
+// operator's intent survives across restarts and shows up in the UI)
+// but the yt-dlp shim does not consume them — that work lands with
+// the native HLS pipeline.
 type TriggerInput struct {
 	BroadcasterID   string
+	RecordingType   string
 	Quality         string
+	ForceH264       bool
 	UserID          string
 	UserAccessToken string
 }
