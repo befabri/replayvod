@@ -192,6 +192,9 @@ func main() {
 	if checkCommitted {
 		if err := checkAgainstCommitted(outDir, committedOutDir, log); err != nil {
 			log.Error("check", "err", err)
+			if errors.Is(err, ErrGeneratedFilesStale) {
+				os.Exit(2)
+			}
 			os.Exit(1)
 		}
 	}
