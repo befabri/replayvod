@@ -35,6 +35,23 @@ type EventSubEvent interface {
 	isEventSubEvent()
 }
 
+// BroadcasterScopedCondition is the subset of EventSubCondition whose
+// condition carries a broadcaster_user_id field — which is most of them.
+// Callers denormalizing broadcaster_id out of a typed condition type-assert
+// on this interface instead of reflecting or JSON-round-tripping:
+//
+//	if bsc, ok := cond.(BroadcasterScopedCondition); ok {
+//	    id := bsc.GetBroadcasterUserID()
+//	}
+//
+// Condition shapes that don't carry broadcaster_user_id (drop.entitlement
+// .grant, user.authorization.*, UnknownCondition) don't satisfy this
+// interface — the type assertion is the denormalize gate.
+type BroadcasterScopedCondition interface {
+	EventSubCondition
+	GetBroadcasterUserID() string
+}
+
 // UnknownCondition holds the raw JSON for a subscription type not in the
 // generated factory. Returned by the UnmarshalJSON of EventSubSubscription /
 // CreateEventSubSubscriptionBody when Twitch ships a new type; see the
@@ -2982,6 +2999,128 @@ func (UserAuthorizationGrantEvent) isEventSubEvent()                      {}
 func (UserAuthorizationRevokeEvent) isEventSubEvent()                     {}
 func (UserUpdateEvent) isEventSubEvent()                                  {}
 func (WhisperReceivedEvent) isEventSubEvent()                             {}
+
+// BroadcasterScopedCondition accessors — emitted for every non-nested
+// condition whose schema carries a broadcaster_user_id field.
+func (c AutomodMessageHoldCondition) GetBroadcasterUserID() string    { return c.BroadcasterUserID }
+func (c AutomodMessageUpdateCondition) GetBroadcasterUserID() string  { return c.BroadcasterUserID }
+func (c AutomodSettingsUpdateCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c AutomodTermsUpdateCondition) GetBroadcasterUserID() string    { return c.BroadcasterUserID }
+func (c ChannelBanCondition) GetBroadcasterUserID() string            { return c.BroadcasterUserID }
+func (c ChannelBitsUseCondition) GetBroadcasterUserID() string        { return c.BroadcasterUserID }
+func (c ChannelCharityCampaignDonateCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelCharityCampaignProgressCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelCharityCampaignStartCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelCharityCampaignStopCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelChatClearCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c ChannelChatClearUserMessagesCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelChatMessageCondition) GetBroadcasterUserID() string        { return c.BroadcasterUserID }
+func (c ChannelChatMessageDeleteCondition) GetBroadcasterUserID() string  { return c.BroadcasterUserID }
+func (c ChannelChatNotificationCondition) GetBroadcasterUserID() string   { return c.BroadcasterUserID }
+func (c ChannelChatSettingsUpdateCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c ChannelChatUserMessageHoldCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelChatUserMessageUpdateCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelCheerCondition) GetBroadcasterUserID() string  { return c.BroadcasterUserID }
+func (c ChannelFollowCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c ChannelGuestStarGuestUpdateVbetaCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelGuestStarSessionBeginVbetaCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelGuestStarSessionEndVbetaCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelGuestStarSettingsUpdateVbetaCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelModerateCondition) GetBroadcasterUserID() string        { return c.BroadcasterUserID }
+func (c ChannelModerateV2Condition) GetBroadcasterUserID() string      { return c.BroadcasterUserID }
+func (c ChannelModeratorAddCondition) GetBroadcasterUserID() string    { return c.BroadcasterUserID }
+func (c ChannelModeratorRemoveCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c ChannelPointsAutomaticRewardRedemptionAddCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelPointsAutomaticRewardRedemptionAddV2Condition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelPointsCustomRewardAddCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelPointsCustomRewardRedemptionAddCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelPointsCustomRewardRedemptionUpdateCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelPointsCustomRewardRemoveCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelPointsCustomRewardUpdateCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelPollBeginCondition) GetBroadcasterUserID() string          { return c.BroadcasterUserID }
+func (c ChannelPollEndCondition) GetBroadcasterUserID() string            { return c.BroadcasterUserID }
+func (c ChannelPollProgressCondition) GetBroadcasterUserID() string       { return c.BroadcasterUserID }
+func (c ChannelPredictionBeginCondition) GetBroadcasterUserID() string    { return c.BroadcasterUserID }
+func (c ChannelPredictionEndCondition) GetBroadcasterUserID() string      { return c.BroadcasterUserID }
+func (c ChannelPredictionLockCondition) GetBroadcasterUserID() string     { return c.BroadcasterUserID }
+func (c ChannelPredictionProgressCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c ChannelSharedChatSessionBeginCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelSharedChatSessionEndCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelSharedChatSessionUpdateCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelShieldModeBeginCondition) GetBroadcasterUserID() string  { return c.BroadcasterUserID }
+func (c ChannelShieldModeEndCondition) GetBroadcasterUserID() string    { return c.BroadcasterUserID }
+func (c ChannelShoutoutCreateCondition) GetBroadcasterUserID() string   { return c.BroadcasterUserID }
+func (c ChannelShoutoutReceiveCondition) GetBroadcasterUserID() string  { return c.BroadcasterUserID }
+func (c ChannelSubscribeCondition) GetBroadcasterUserID() string        { return c.BroadcasterUserID }
+func (c ChannelSubscriptionEndCondition) GetBroadcasterUserID() string  { return c.BroadcasterUserID }
+func (c ChannelSubscriptionGiftCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c ChannelSubscriptionMessageCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelSuspiciousUserMessageCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelSuspiciousUserUpdateCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelUnbanCondition) GetBroadcasterUserID() string              { return c.BroadcasterUserID }
+func (c ChannelUnbanRequestCreateCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c ChannelUnbanRequestResolveCondition) GetBroadcasterUserID() string {
+	return c.BroadcasterUserID
+}
+func (c ChannelUpdateCondition) GetBroadcasterUserID() string             { return c.BroadcasterUserID }
+func (c ChannelVipAddCondition) GetBroadcasterUserID() string             { return c.BroadcasterUserID }
+func (c ChannelVipRemoveCondition) GetBroadcasterUserID() string          { return c.BroadcasterUserID }
+func (c ChannelWarningAcknowledgeCondition) GetBroadcasterUserID() string { return c.BroadcasterUserID }
+func (c ChannelWarningSendCondition) GetBroadcasterUserID() string        { return c.BroadcasterUserID }
+func (c GoalsCondition) GetBroadcasterUserID() string                     { return c.BroadcasterUserID }
+func (c HypeTrainBeginCondition) GetBroadcasterUserID() string            { return c.BroadcasterUserID }
+func (c HypeTrainEndCondition) GetBroadcasterUserID() string              { return c.BroadcasterUserID }
+func (c HypeTrainProgressCondition) GetBroadcasterUserID() string         { return c.BroadcasterUserID }
+func (c StreamOfflineCondition) GetBroadcasterUserID() string             { return c.BroadcasterUserID }
+func (c StreamOnlineCondition) GetBroadcasterUserID() string              { return c.BroadcasterUserID }
 
 // --- Dispatch ---
 
