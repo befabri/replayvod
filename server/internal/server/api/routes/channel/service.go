@@ -8,23 +8,21 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
-	"github.com/befabri/replayvod/server/internal/twitch"
+	"github.com/befabri/replayvod/server/internal/service/channelservice"
 	"github.com/befabri/trpcgo"
 )
 
-// Service handles tRPC channel procedures.
+// Service is the tRPC-transport wrapper around channelservice.
 type Service struct {
-	repo   repository.Repository
-	twitch *twitch.Client
-	log    *slog.Logger
+	svc *channelservice.Service
+	log *slog.Logger
 }
 
-// NewService creates a new channel tRPC service.
-func NewService(repo repository.Repository, tc *twitch.Client, log *slog.Logger) *Service {
+// NewService wires the tRPC channel procedures onto a domain service.
+func NewService(svc *channelservice.Service, log *slog.Logger) *Service {
 	return &Service{
-		repo:   repo,
-		twitch: tc,
-		log:    log.With("domain", "channel"),
+		svc: svc,
+		log: log.With("domain", "channel-api"),
 	}
 }
 
@@ -59,134 +57,88 @@ func toResponse(c *repository.Channel) ChannelResponse {
 	}
 }
 
-// GetByIDInput for channel.getById.
 type GetByIDInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 }
 
-// GetByID fetches a channel by broadcaster ID (from DB, not Twitch).
 func (s *Service) GetByID(ctx context.Context, input GetByIDInput) (ChannelResponse, error) {
-	c, err := s.repo.GetChannel(ctx, input.BroadcasterID)
+	c, err := s.svc.GetByID(ctx, input.BroadcasterID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "channel not found")
 		}
-		s.log.Error("failed to get channel", "error", err)
+		s.log.Error("get channel", "error", err)
 		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get channel")
 	}
 	return toResponse(c), nil
 }
 
-// GetByLoginInput for channel.getByLogin.
 type GetByLoginInput struct {
 	Login string `json:"login" validate:"required"`
 }
 
-// GetByLogin fetches a channel by login name.
 func (s *Service) GetByLogin(ctx context.Context, input GetByLoginInput) (ChannelResponse, error) {
-	c, err := s.repo.GetChannelByLogin(ctx, input.Login)
+	c, err := s.svc.GetByLogin(ctx, input.Login)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "channel not found")
 		}
-		s.log.Error("failed to get channel by login", "error", err)
+		s.log.Error("get channel by login", "error", err)
 		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get channel")
 	}
 	return toResponse(c), nil
 }
 
-// List returns all channels.
 func (s *Service) List(ctx context.Context) ([]ChannelResponse, error) {
-	channels, err := s.repo.ListChannels(ctx)
+	channels, err := s.svc.List(ctx)
 	if err != nil {
-		s.log.Error("failed to list channels", "error", err)
+		s.log.Error("list channels", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list channels")
 	}
 	out := make([]ChannelResponse, len(channels))
-	for i, c := range channels {
-		out[i] = toResponse(&c)
+	for i := range channels {
+		out[i] = toResponse(&channels[i])
 	}
 	return out, nil
 }
 
-// ListFollowed returns the current user's followed channels (from DB, not Twitch).
 func (s *Service) ListFollowed(ctx context.Context) ([]ChannelResponse, error) {
 	user := middleware.GetUser(ctx)
 	if user == nil {
 		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
-
-	channels, err := s.repo.ListUserFollows(ctx, user.ID)
+	channels, err := s.svc.ListFollowedByUser(ctx, user.ID)
 	if err != nil {
-		s.log.Error("failed to list followed channels", "error", err)
+		s.log.Error("list followed channels", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list followed channels")
 	}
 	out := make([]ChannelResponse, len(channels))
-	for i, c := range channels {
-		out[i] = toResponse(&c)
+	for i := range channels {
+		out[i] = toResponse(&channels[i])
 	}
 	return out, nil
 }
 
-// SyncFromTwitchInput for channel.syncFromTwitch.
 type SyncFromTwitchInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 }
 
-// SyncFromTwitch fetches a channel from Twitch API and upserts it in the DB.
-// Uses the user's access token.
+// SyncFromTwitch uses the caller's user access token so rate-limit +
+// fetch-log attribution stays accurate.
 func (s *Service) SyncFromTwitch(ctx context.Context, input SyncFromTwitchInput) (ChannelResponse, error) {
 	tokens := middleware.GetTokens(ctx)
 	user := middleware.GetUser(ctx)
 	if tokens == nil || user == nil {
 		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
-	// Attach the user's access token + ID so Helix calls use the user endpoint
-	// set and fetch logs are attributed correctly.
-	ctx = twitch.WithUserToken(ctx, tokens.AccessToken)
-	ctx = twitch.WithUserID(ctx, user.ID)
-
-	users, err := s.twitch.GetUsers(ctx, &twitch.GetUsersParams{ID: []string{input.BroadcasterID}})
-	if err != nil {
-		s.log.Error("failed to fetch twitch user", "error", err)
-		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to fetch channel from twitch")
-	}
-	if len(users) == 0 {
-		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "twitch user not found")
-	}
-	u := users[0]
-
-	// Channel-information endpoint carries broadcaster_language, title, game.
-	// Failure here is non-fatal — we still upsert the user profile.
-	var language *string
-	chans, err := s.twitch.GetChannelInformation(ctx, &twitch.GetChannelInformationParams{BroadcasterID: []string{u.ID}})
-	if err != nil {
-		s.log.Warn("failed to fetch channel information; profile sync continuing", "broadcaster_id", u.ID, "error", err)
-	} else if len(chans) > 0 {
-		language = stringOrNil(chans[0].BroadcasterLanguage)
-	}
-
-	c, err := s.repo.UpsertChannel(ctx, &repository.Channel{
-		BroadcasterID:       u.ID,
-		BroadcasterLogin:    u.Login,
-		BroadcasterName:     u.DisplayName,
-		BroadcasterLanguage: language,
-		ProfileImageURL:     stringOrNil(u.ProfileImageURL),
-		OfflineImageURL:     stringOrNil(u.OfflineImageURL),
-		Description:         stringOrNil(u.Description),
-		BroadcasterType:     stringOrNil(u.BroadcasterType),
-		ViewCount:           0,
+	c, err := s.svc.SyncFromTwitch(ctx, channelservice.SyncInput{
+		BroadcasterID:   input.BroadcasterID,
+		UserID:          user.ID,
+		UserAccessToken: tokens.AccessToken,
 	})
 	if err != nil {
-		s.log.Error("failed to upsert channel", "error", err)
-		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to save channel")
+		s.log.Error("sync channel", "error", err)
+		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to sync channel")
 	}
 	return toResponse(c), nil
-}
-
-func stringOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
