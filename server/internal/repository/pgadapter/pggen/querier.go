@@ -31,6 +31,7 @@ type Querier interface {
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
 	CreateEventLog(ctx context.Context, arg CreateEventLogParams) (EventLog, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
+	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (DownloadSchedule, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) (EventsubSnapshot, error)
@@ -61,6 +62,9 @@ type Querier interface {
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
 	FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartParams) error
+	// Broadcaster-level idempotency check. Returns PENDING or RUNNING
+	// only — terminal rows don't block a new job.
+	GetActiveJobByBroadcaster(ctx context.Context, broadcasterID string) (Job, error)
 	// Respects the partial UNIQUE: at most one active (non-revoked) sub per
 	// (broadcaster_id, type). Used before creating to prevent duplicate calls
 	// to Twitch that would fail with 409.
@@ -69,6 +73,11 @@ type Querier interface {
 	GetCategoryByName(ctx context.Context, name string) (Category, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
+	GetJob(ctx context.Context, id string) (Job, error)
+	// The most recent job for a video. Used to wire resume state back to
+	// the download service on restart: a video can accumulate multiple
+	// FAILED jobs + one DONE, and we want the live/terminal one.
+	GetJobByVideoID(ctx context.Context, videoID int64) (Job, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (Stream, error)
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
@@ -118,8 +127,15 @@ type Querier interface {
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
 	ListEventLogsBySeverity(ctx context.Context, arg ListEventLogsBySeverityParams) ([]EventLog, error)
+	// Scheduler retry query: FAILED jobs whose finished_at is older than
+	// the retry cooldown. Caller filters further (e.g. only retry if the
+	// video's stream is still live).
+	ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
+	// On server startup: every row here is a job whose process crashed
+	// mid-execution. The downloader's resume path runs for each.
+	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
 	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]DownloadSchedule, error)
@@ -152,6 +168,9 @@ type Querier interface {
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
 	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
 	ListWhitelist(ctx context.Context) ([]Whitelist, error)
+	MarkJobDone(ctx context.Context, id string) error
+	MarkJobFailed(ctx context.Context, arg MarkJobFailedParams) error
+	MarkJobRunning(ctx context.Context, id string) error
 	// Soft-delete. Called when Twitch sends a revocation message or when we
 	// issue a DELETE via the Helix API. Preserves the row for audit; the
 	// partial UNIQUE index then allows creating a replacement subscription.
@@ -180,6 +199,10 @@ type Querier interface {
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
 	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
+	// Hot path: called after every segment completion, stage transition,
+	// and accepted gap. Single UPDATE keeps the write atomic with respect
+	// to the frontier-advance logic in the downloader.
+	UpdateJobResumeState(ctx context.Context, arg UpdateJobResumeStateParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error

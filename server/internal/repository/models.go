@@ -130,6 +130,43 @@ const (
 	QualityHigh   = "HIGH"
 )
 
+// JobStatus enumerates the durable job state machine. Stored on jobs.status
+// with a CHECK constraint matching these values.
+const (
+	JobStatusPending = "PENDING"
+	JobStatusRunning = "RUNNING"
+	JobStatusDone    = "DONE"
+	JobStatusFailed  = "FAILED"
+)
+
+// Job is the durable record of a download execution. One row per attempt
+// at turning a live stream into a stored VOD; the `videos` row is the
+// logical output, jobs accumulate over retries. ResumeState is a JSON blob
+// whose schema is documented in .docs/spec/download-pipeline.md under
+// "Resume on restart".
+type Job struct {
+	ID            string
+	VideoID       int64
+	BroadcasterID string
+	Status        string
+	StartedAt     *time.Time
+	FinishedAt    *time.Time
+	Error         *string
+	ResumeState   json.RawMessage
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// JobInput is the creation payload for a new job row. Status defaults to
+// PENDING at the SQL layer. ResumeState empty means "no checkpoint yet"
+// — the adapter sends `{}` so the NOT NULL column stays unmarshal-safe.
+type JobInput struct {
+	ID            string
+	VideoID       int64
+	BroadcasterID string
+	ResumeState   json.RawMessage
+}
+
 // Stream is a single Twitch broadcast session.
 type Stream struct {
 	ID            string

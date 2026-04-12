@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -101,6 +102,21 @@ type Repository interface {
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	VideoStatsByStatus(ctx context.Context) ([]VideoStatsByStatus, error)
 	VideoStatsTotals(ctx context.Context) (*VideoStatsTotals, error)
+
+	// Jobs — durable record of a download execution. Broadcaster-level
+	// idempotency + resume-on-restart live here. See models.go Job for
+	// schema and .docs/spec/download-pipeline.md for the resume-state
+	// JSON shape.
+	CreateJob(ctx context.Context, input *JobInput) (*Job, error)
+	GetJob(ctx context.Context, id string) (*Job, error)
+	GetJobByVideoID(ctx context.Context, videoID int64) (*Job, error)
+	GetActiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*Job, error)
+	MarkJobRunning(ctx context.Context, id string) error
+	MarkJobDone(ctx context.Context, id string) error
+	MarkJobFailed(ctx context.Context, id string, errMsg string) error
+	UpdateJobResumeState(ctx context.Context, id string, resumeState json.RawMessage) error
+	ListRunningJobs(ctx context.Context) ([]Job, error)
+	ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]Job, error)
 
 	// Titles
 	UpsertTitle(ctx context.Context, name string) (*Title, error)

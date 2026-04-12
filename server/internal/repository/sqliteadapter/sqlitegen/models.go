@@ -96,6 +96,19 @@ type FetchLog struct {
 	FetchedAt     string         `json:"fetched_at"`
 }
 
+type Job struct {
+	ID            string         `json:"id"`
+	VideoID       int64          `json:"video_id"`
+	BroadcasterID string         `json:"broadcaster_id"`
+	Status        string         `json:"status"`
+	StartedAt     sql.NullString `json:"started_at"`
+	FinishedAt    sql.NullString `json:"finished_at"`
+	Error         sql.NullString `json:"error"`
+	ResumeState   string         `json:"resume_state"`
+	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
+}
+
 type Session struct {
 	HashedID        string         `json:"hashed_id"`
 	UserID          string         `json:"user_id"`
