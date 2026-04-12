@@ -151,12 +151,18 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch user profile
-	twitchUser, err := h.twitch.GetUser(ctx, tokenResp.AccessToken)
+	users, err := h.twitch.GetUsers(twitch.WithUserToken(ctx, tokenResp.AccessToken), nil)
 	if err != nil {
 		h.log.Error("failed to fetch twitch user", "error", err)
 		http.Error(w, "failed to fetch user", http.StatusInternalServerError)
 		return
 	}
+	if len(users) == 0 {
+		h.log.Error("twitch returned no user data")
+		http.Error(w, "failed to fetch user", http.StatusInternalServerError)
+		return
+	}
+	twitchUser := users[0]
 
 	// Check whitelist
 	if h.cfg.Env.WhitelistEnabled {
