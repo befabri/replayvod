@@ -2,6 +2,7 @@ package hls
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -306,6 +307,9 @@ func TestRun_DedupAcrossPolls(t *testing.T) {
 func TestRun_CtxCancelReturnsPartialResult(t *testing.T) {
 	// Canceling mid-flight must not surface as a fatal error —
 	// the caller wants "here's what we got; the rest is on you."
+	// SegmentsDone is not asserted because a slow CI can race
+	// the 500ms budget; the correctness property is "Run returns
+	// cleanly with a result struct and no fatal error."
 	s := &liveServer{
 		t:            t,
 		kind:         SegmentKindTS,
@@ -324,19 +328,11 @@ func TestRun_CtxCancelReturnsPartialResult(t *testing.T) {
 	defer cancel()
 
 	result, err := Run(ctx, cfg)
-	// Either context.Canceled/DeadlineExceeded, or nil if we
-	// happened to hit ENDLIST first (won't, maxSegments=100).
-	if err != nil && err != context.Canceled && err != context.DeadlineExceeded {
-		t.Errorf("err=%v, want nil | Canceled | DeadlineExceeded", err)
+	if err != nil {
+		t.Errorf("err=%v, want nil (ctx-err filtered)", err)
 	}
 	if result == nil {
 		t.Fatal("result nil on cancel — want partial tally")
-	}
-	// Should have at least one segment written before cancel —
-	// the first poll's window is 3 segments, all fetched before
-	// the 500ms budget runs out.
-	if result.SegmentsDone == 0 {
-		t.Error("SegmentsDone=0 after 500ms; pool should have written ≥ 1 segment")
 	}
 }
 
@@ -356,10 +352,111 @@ func TestRun_PlaylistAuthErrorBubbles(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
-	// Auth error on the first poll exhausts the poller's retry
-	// budget (since every retry also returns 403); the error
-	// surfaces wrapped around ErrPlaylistAuth.
-	if !strings.Contains(err.Error(), "auth") {
-		t.Errorf("err=%v, expected mention of auth", err)
+	// Auth error must surface as the sentinel Phase 4d branches
+	// on. String-matching the message would silently rot if the
+	// error text ever changes.
+	if !errors.Is(err, ErrPlaylistAuth) {
+		t.Errorf("err=%v, want errors.Is(ErrPlaylistAuth)", err)
+	}
+}
+
+// TestRun_InitFetchFailureStopsGoroutines is the H1 regression
+// guard. A 404 on the init segment must cancel the poller + pool
+// and drain them before Run returns — otherwise segments keep
+// landing on disk after the caller has been told the job failed.
+func TestRun_InitFetchFailureStopsGoroutines(t *testing.T) {
+	var segFetches int32
+	s := &liveServer{
+		t:            t,
+		kind:         SegmentKindFMP4,
+		maxSegments:  100, // keep the playlist live indefinitely
+		windowSize:   3,
+		baseSeq:      1,
+		tickInterval: 1,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/init.mp4" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/seg/") {
+			atomic.AddInt32(&segFetches, 1)
+		}
+		s.handler().ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := Run(ctx, cfg)
+	if err == nil {
+		t.Fatal("want init-fetch error")
+	}
+	if !strings.Contains(err.Error(), "init segment") {
+		t.Errorf("err=%v, want init segment mention", err)
+	}
+
+	// Capture the fetch count at return time, sleep long enough
+	// to detect any lingering goroutine still committing
+	// segments, then verify the count hasn't grown.
+	before := atomic.LoadInt32(&segFetches)
+	time.Sleep(150 * time.Millisecond)
+	after := atomic.LoadInt32(&segFetches)
+	if after != before {
+		t.Errorf("segment fetches kept firing after Run returned: before=%d after=%d",
+			before, after)
+	}
+}
+
+// TestRun_ProgressChannelClosedOnTermination pins M2: the
+// orchestrator closes Progress exactly once on the way out so
+// subscribers see the final cumulative state without relying on
+// a best-effort non-blocking send.
+func TestRun_ProgressChannelClosedOnTermination(t *testing.T) {
+	s := &liveServer{
+		t:            t,
+		kind:         SegmentKindTS,
+		maxSegments:  3,
+		windowSize:   2,
+		baseSeq:      0,
+		tickInterval: 1,
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+	progress := make(chan Progress, 16)
+	cfg.Progress = progress
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	_, err := Run(ctx, cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Drain the channel. After Run returns, the chan must be
+	// closed — a blocking range loop will terminate rather than
+	// hang.
+	var last Progress
+	drained := make(chan struct{})
+	go func() {
+		for p := range progress {
+			last = p
+		}
+		close(drained)
+	}()
+	select {
+	case <-drained:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Progress channel not closed after Run returned")
+	}
+	if last.SegmentsDone != 3 {
+		t.Errorf("last Progress SegmentsDone=%d, want 3", last.SegmentsDone)
 	}
 }

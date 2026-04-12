@@ -89,7 +89,18 @@ var ErrPlaylistAuth = errors.New("hls poller: playlist auth error")
 // Closes out on clean termination (ENDLIST or ctx). The orch-
 // estrator uses that as the signal to drain the pool and report
 // completion.
+//
+// Zero-value Log or HTTPClient are normalized to discard + the
+// default HTTP client — Phase 4d's resume-path uses a stripped-
+// down Poller to observe the current playlist head, and we want
+// that to not panic on the hot path.
 func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- segmentJob) error {
+	if p.Log == nil {
+		p.Log = slog.New(slog.DiscardHandler)
+	}
+	if p.HTTPClient == nil {
+		p.HTTPClient = http.DefaultClient
+	}
 	log := p.Log
 	maxAttempts := p.MaxAttempts
 	if maxAttempts <= 0 {

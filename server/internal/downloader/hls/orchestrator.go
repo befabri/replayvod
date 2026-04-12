@@ -44,8 +44,16 @@ type JobConfig struct {
 
 	// Progress is optional; when non-nil the orchestrator sends
 	// a Progress event after every finished segment (success,
-	// gap, or fatal). Caller owns the channel and must drain
-	// it. Buffer it or accept back-pressure at the fetch rate.
+	// gap, or fatal) and closes the channel before Run returns.
+	// Closing is the terminal signal — SSE subscribers observe
+	// "channel closed" as "job done" and transition out of
+	// in-progress state. Mid-stream events use a non-blocking
+	// send (drop-is-fine because the next cumulative event
+	// supersedes); the close is unconditional so the terminal
+	// state is never lost.
+	//
+	// Caller must NOT write to this channel and must NOT close
+	// it; orchestrator owns the close.
 	Progress chan<- Progress
 }
 
@@ -99,6 +107,15 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 
 	log := cfg.Log.With("domain", "hls.job")
 
+	// Close Progress exactly once on the way out, regardless
+	// of whether Run succeeds, errors, or the ctx cancels.
+	// Subscribers treat "chan closed" as "terminal state
+	// reached" — the close signals that no more updates will
+	// arrive and the cumulative counters are final.
+	if cfg.Progress != nil {
+		defer close(cfg.Progress)
+	}
+
 	poller := &Poller{
 		URL:        cfg.MediaPlaylistURL,
 		HTTPClient: cfg.PlaylistClient,
@@ -119,7 +136,15 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	results := make(chan SegmentResult, jobChanCap)
 	first := make(chan PollResult, 1)
 
-	g, gctx := errgroup.WithContext(ctx)
+	// Explicit cancel so a synchronous bootstrap failure
+	// (init-segment fetch error) can stop the poller + pool
+	// and drain them before Run returns. The errgroup's own
+	// context-cancel fires only when a g.Go function returns
+	// non-nil; fetchInit lives outside g.Go and so needs a
+	// direct cancel handle.
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	g, gctx := errgroup.WithContext(runCtx)
 
 	g.Go(func() error {
 		err := poller.Run(gctx, first, jobs)
@@ -157,9 +182,13 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		result.InitURI = pr.Init.URI
 		if err := fetchInit(gctx, cfg.Fetcher, cfg.WorkDir, pr.Init.URI); err != nil {
 			// Init fetch is the one hard failure: without it,
-			// fmp4 fragments can't be muxed. Cancel the pool +
-			// poller and bail.
+			// fmp4 fragments can't be muxed. Cancel poller +
+			// pool and drain — otherwise they keep polling the
+			// playlist + committing segments to WorkDir after
+			// the caller has already been told the job failed.
 			log.Error("init segment fetch failed; aborting job", "error", err)
+			cancel()
+			_ = g.Wait()
 			return result, fmt.Errorf("hls init segment: %w", err)
 		}
 	}
@@ -195,7 +224,14 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		}
 	}
 
-	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+	// Filter both ctx-err kinds — the JobResult is always
+	// valid on shutdown (partial tally), so the caller only
+	// wants the error when something actually broke. Returning
+	// ctx-err on normal shutdown would make every caller
+	// special-case both Canceled and DeadlineExceeded.
+	if err := g.Wait(); err != nil &&
+		!errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded) {
 		return result, err
 	}
 	return result, nil

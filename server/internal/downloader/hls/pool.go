@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 )
 
 // SegmentResult is what the pool reports per finished segment.
@@ -52,13 +53,23 @@ type Pool struct {
 // Errors per segment are reported via SegmentResult.Err rather
 // than bubbling from Run — the orchestrator's gap policy needs to
 // see every outcome, not fail-fast on the first permanent error.
-// Run itself only returns an error on ctx cancel.
+// Run itself only returns an error when a worker actually exited
+// via ctx.Done(); if every worker exited because `in` closed
+// cleanly and ctx happens to cancel after wg.Wait() returns, we
+// still report success.
 func (p *Pool) Run(ctx context.Context, in <-chan segmentJob, out chan<- SegmentResult) error {
 	workers := p.Workers
 	if workers <= 0 {
 		workers = 4
 	}
 	log := p.Log
+
+	// ctxObserved is set by any worker that exited because ctx
+	// was canceled rather than because `in` closed. Only then
+	// do we surface ctx.Err() — otherwise a post-wait ctx-
+	// cancel race would make a cleanly-completed job report as
+	// failed.
+	var ctxObserved atomic.Bool
 
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -76,9 +87,11 @@ func (p *Pool) Run(ctx context.Context, in <-chan segmentJob, out chan<- Segment
 					select {
 					case out <- result:
 					case <-ctx.Done():
+						ctxObserved.Store(true)
 						return
 					}
 				case <-ctx.Done():
+					ctxObserved.Store(true)
 					return
 				}
 			}
@@ -87,8 +100,8 @@ func (p *Pool) Run(ctx context.Context, in <-chan segmentJob, out chan<- Segment
 
 	wg.Wait()
 	close(out)
-	if err := ctx.Err(); err != nil {
-		return err
+	if ctxObserved.Load() {
+		return ctx.Err()
 	}
 	return nil
 }
