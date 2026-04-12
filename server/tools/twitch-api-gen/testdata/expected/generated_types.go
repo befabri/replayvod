@@ -32,6 +32,39 @@ type helixResponse[T any] struct {
 	MaxCost    int        `json:"max_total_cost,omitempty"`
 }
 
+// CreateChannelStreamScheduleSegmentResponseSegmentCategory is a nested object inside a generated response type.
+type CreateChannelStreamScheduleSegmentResponseSegmentCategory struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// CreateChannelStreamScheduleSegmentResponseSegment is a nested object inside a generated response type.
+type CreateChannelStreamScheduleSegmentResponseSegment struct {
+	ID            string                                                    `json:"id"`
+	StartTime     time.Time                                                 `json:"start_time"`
+	EndTime       time.Time                                                 `json:"end_time"`
+	Title         string                                                    `json:"title"`
+	CanceledUntil string                                                    `json:"canceled_until"`
+	Category      CreateChannelStreamScheduleSegmentResponseSegmentCategory `json:"category"`
+	IsRecurring   bool                                                      `json:"is_recurring"`
+}
+
+// CreateChannelStreamScheduleSegmentResponseVacation is a nested object inside a generated response type.
+type CreateChannelStreamScheduleSegmentResponseVacation struct {
+	StartTime time.Time `json:"start_time"`
+	EndTime   time.Time `json:"end_time"`
+}
+
+// CreateChannelStreamScheduleSegmentResponse is the response item type for create-channel-stream-schedule-segment.
+// https://dev.twitch.tv/docs/api/reference#create-channel-stream-schedule-segment
+type CreateChannelStreamScheduleSegmentResponse struct {
+	Segments         []CreateChannelStreamScheduleSegmentResponseSegment `json:"segments"`
+	BroadcasterID    string                                              `json:"broadcaster_id"`
+	BroadcasterName  string                                              `json:"broadcaster_name"`
+	BroadcasterLogin string                                              `json:"broadcaster_login"`
+	Vacation         CreateChannelStreamScheduleSegmentResponseVacation  `json:"vacation"`
+}
+
 // EventSubSubscription is the response item type for create-eventsub-subscription.
 // https://dev.twitch.tv/docs/api/reference#create-eventsub-subscription
 type EventSubSubscription struct {
@@ -43,6 +76,15 @@ type EventSubSubscription struct {
 	CreatedAt time.Time         `json:"created_at"`
 	Transport EventSubTransport `json:"transport"`
 	Cost      int               `json:"cost"`
+}
+
+// StreamMarkerCreated is the response item type for create-stream-marker.
+// https://dev.twitch.tv/docs/api/reference#create-stream-marker
+type StreamMarkerCreated struct {
+	ID              string    `json:"id"`
+	CreatedAt       time.Time `json:"created_at"`
+	PositionSeconds int       `json:"position_seconds"`
+	Description     string    `json:"description"`
 }
 
 // ChannelInformation is the response item type for get-channel-information.
@@ -59,6 +101,67 @@ type ChannelInformation struct {
 	Tags                        []string `json:"tags"`
 	ContentClassificationLabels []string `json:"content_classification_labels"`
 	IsBrandedContent            bool     `json:"is_branded_content"`
+}
+
+// GetChannelStreamScheduleResponseSegmentCategory is a nested object inside a generated response type.
+type GetChannelStreamScheduleResponseSegmentCategory struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetChannelStreamScheduleResponseSegment is a nested object inside a generated response type.
+type GetChannelStreamScheduleResponseSegment struct {
+	ID            string                                          `json:"id"`
+	StartTime     time.Time                                       `json:"start_time"`
+	EndTime       time.Time                                       `json:"end_time"`
+	Title         string                                          `json:"title"`
+	CanceledUntil string                                          `json:"canceled_until"`
+	Category      GetChannelStreamScheduleResponseSegmentCategory `json:"category"`
+	IsRecurring   bool                                            `json:"is_recurring"`
+}
+
+// GetChannelStreamScheduleResponseVacation is a nested object inside a generated response type.
+type GetChannelStreamScheduleResponseVacation struct {
+	StartTime time.Time `json:"start_time"`
+	EndTime   time.Time `json:"end_time"`
+}
+
+// GetChannelStreamScheduleResponsePagination is a nested object inside a generated response type.
+type GetChannelStreamScheduleResponsePagination struct {
+	Cursor string `json:"cursor,omitempty"`
+}
+
+// GetChannelStreamScheduleResponse is the response item type for get-channel-stream-schedule.
+// https://dev.twitch.tv/docs/api/reference#get-channel-stream-schedule
+type GetChannelStreamScheduleResponse struct {
+	Segments         []GetChannelStreamScheduleResponseSegment  `json:"segments"`
+	BroadcasterID    string                                     `json:"broadcaster_id"`
+	BroadcasterName  string                                     `json:"broadcaster_name"`
+	BroadcasterLogin string                                     `json:"broadcaster_login"`
+	Vacation         GetChannelStreamScheduleResponseVacation   `json:"vacation"`
+	Pagination       GetChannelStreamScheduleResponsePagination `json:"pagination,omitempty"`
+}
+
+// Clip is the response item type for get-clips.
+// https://dev.twitch.tv/docs/api/reference#get-clips
+type Clip struct {
+	ID              string    `json:"id"`
+	URL             string    `json:"url"`
+	EmbedURL        string    `json:"embed_url"`
+	BroadcasterID   string    `json:"broadcaster_id"`
+	BroadcasterName string    `json:"broadcaster_name"`
+	CreatorID       string    `json:"creator_id"`
+	CreatorName     string    `json:"creator_name"`
+	VideoID         string    `json:"video_id"`
+	GameID          string    `json:"game_id"`
+	Language        string    `json:"language"`
+	Title           string    `json:"title"`
+	ViewCount       int       `json:"view_count"`
+	CreatedAt       time.Time `json:"created_at"`
+	ThumbnailURL    string    `json:"thumbnail_url"`
+	Duration        float64   `json:"duration"`
+	VodOffset       int       `json:"vod_offset"`
+	IsFeatured      bool      `json:"is_featured"`
 }
 
 // FollowedChannel is the response item type for get-followed-channels.
@@ -99,6 +202,30 @@ type Game struct {
 	Name      string `json:"name"`
 	BoxArtURL string `json:"box_art_url"`
 	IGDBID    string `json:"igdb_id"`
+}
+
+// StreamMarkersVideoMarker is a nested object inside a generated response type.
+type StreamMarkersVideoMarker struct {
+	ID              string    `json:"id"`
+	CreatedAt       time.Time `json:"created_at"`
+	Description     string    `json:"description"`
+	PositionSeconds int       `json:"position_seconds"`
+	URL             string    `json:"url"`
+}
+
+// StreamMarkersVideo is a nested object inside a generated response type.
+type StreamMarkersVideo struct {
+	VideoID string                     `json:"video_id"`
+	Markers []StreamMarkersVideoMarker `json:"markers"`
+}
+
+// StreamMarkers is the response item type for get-stream-markers.
+// https://dev.twitch.tv/docs/api/reference#get-stream-markers
+type StreamMarkers struct {
+	UserID    string               `json:"user_id"`
+	UserName  string               `json:"user_name"`
+	UserLogin string               `json:"user_login"`
+	Videos    []StreamMarkersVideo `json:"videos"`
 }
 
 // User is the response item type for get-users.
@@ -146,6 +273,50 @@ type Video struct {
 	MutedSegments []VideoMutedSegment `json:"muted_segments"`
 }
 
+// UpdateChannelStreamScheduleSegmentResponseSegmentCategory is a nested object inside a generated response type.
+type UpdateChannelStreamScheduleSegmentResponseSegmentCategory struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// UpdateChannelStreamScheduleSegmentResponseSegment is a nested object inside a generated response type.
+type UpdateChannelStreamScheduleSegmentResponseSegment struct {
+	ID            string                                                    `json:"id"`
+	StartTime     time.Time                                                 `json:"start_time"`
+	EndTime       time.Time                                                 `json:"end_time"`
+	Title         string                                                    `json:"title"`
+	CanceledUntil string                                                    `json:"canceled_until"`
+	Category      UpdateChannelStreamScheduleSegmentResponseSegmentCategory `json:"category"`
+	IsRecurring   bool                                                      `json:"is_recurring"`
+}
+
+// UpdateChannelStreamScheduleSegmentResponseVacation is a nested object inside a generated response type.
+type UpdateChannelStreamScheduleSegmentResponseVacation struct {
+	StartTime time.Time `json:"start_time"`
+	EndTime   time.Time `json:"end_time"`
+}
+
+// UpdateChannelStreamScheduleSegmentResponse is the response item type for update-channel-stream-schedule-segment.
+// https://dev.twitch.tv/docs/api/reference#update-channel-stream-schedule-segment
+type UpdateChannelStreamScheduleSegmentResponse struct {
+	Segments         []UpdateChannelStreamScheduleSegmentResponseSegment `json:"segments"`
+	BroadcasterID    string                                              `json:"broadcaster_id"`
+	BroadcasterName  string                                              `json:"broadcaster_name"`
+	BroadcasterLogin string                                              `json:"broadcaster_login"`
+	Vacation         UpdateChannelStreamScheduleSegmentResponseVacation  `json:"vacation"`
+}
+
+// CreateChannelStreamScheduleSegmentParams are the query parameters for create-channel-stream-schedule-segment.
+type CreateChannelStreamScheduleSegmentParams struct {
+	BroadcasterID string `url:"broadcaster_id,omitempty" validate:"required"`
+}
+
+// DeleteChannelStreamScheduleSegmentParams are the query parameters for delete-channel-stream-schedule-segment.
+type DeleteChannelStreamScheduleSegmentParams struct {
+	BroadcasterID string `url:"broadcaster_id,omitempty" validate:"required"`
+	ID            string `url:"id,omitempty" validate:"required"`
+}
+
 // DeleteEventSubSubscriptionParams are the query parameters for delete-eventsub-subscription.
 type DeleteEventSubSubscriptionParams struct {
 	ID string `url:"id,omitempty" validate:"required"`
@@ -154,6 +325,29 @@ type DeleteEventSubSubscriptionParams struct {
 // GetChannelInformationParams are the query parameters for get-channel-information.
 type GetChannelInformationParams struct {
 	BroadcasterID []string `url:"broadcaster_id" validate:"required,max=100"`
+}
+
+// GetChannelStreamScheduleParams are the query parameters for get-channel-stream-schedule.
+type GetChannelStreamScheduleParams struct {
+	BroadcasterID string    `url:"broadcaster_id,omitempty" validate:"required"`
+	ID            []string  `url:"id" validate:"omitempty,max=100"`
+	StartTime     time.Time `url:"start_time,omitempty"`
+	UtcOffset     string    `url:"utc_offset,omitempty"`
+	First         int       `url:"first,omitempty"`
+	After         string    `url:"after,omitempty"`
+}
+
+// GetClipsParams are the query parameters for get-clips.
+type GetClipsParams struct {
+	BroadcasterID string    `url:"broadcaster_id,omitempty"`
+	GameID        string    `url:"game_id,omitempty"`
+	ID            []string  `url:"id" validate:"omitempty,max=100"`
+	StartedAt     time.Time `url:"started_at,omitempty"`
+	EndedAt       time.Time `url:"ended_at,omitempty"`
+	First         int       `url:"first,omitempty"`
+	Before        string    `url:"before,omitempty"`
+	After         string    `url:"after,omitempty"`
+	IsFeatured    bool      `url:"is_featured,omitempty"`
 }
 
 // GetEventSubSubscriptionsParams are the query parameters for get-eventsub-subscriptions.
@@ -185,6 +379,15 @@ type GetGamesParams struct {
 	ID     []string `url:"id" validate:"omitempty,max=100"`
 	Name   []string `url:"name"`
 	IGDBID []string `url:"igdb_id" validate:"omitempty,max=100"`
+}
+
+// GetStreamMarkersParams are the query parameters for get-stream-markers.
+type GetStreamMarkersParams struct {
+	UserID  string `url:"user_id,omitempty"`
+	VideoID string `url:"video_id,omitempty"`
+	First   string `url:"first,omitempty"`
+	Before  string `url:"before,omitempty"`
+	After   string `url:"after,omitempty"`
 }
 
 // GetStreamsParams are the query parameters for get-streams.
@@ -231,12 +434,43 @@ type ModifyChannelInformationParams struct {
 	BroadcasterID string `url:"broadcaster_id,omitempty" validate:"required"`
 }
 
+// UpdateChannelStreamScheduleParams are the query parameters for update-channel-stream-schedule.
+type UpdateChannelStreamScheduleParams struct {
+	BroadcasterID     string    `url:"broadcaster_id,omitempty" validate:"required"`
+	IsVacationEnabled bool      `url:"is_vacation_enabled,omitempty"`
+	VacationStartTime time.Time `url:"vacation_start_time,omitempty"`
+	VacationEndTime   time.Time `url:"vacation_end_time,omitempty"`
+	Timezone          string    `url:"timezone,omitempty"`
+}
+
+// UpdateChannelStreamScheduleSegmentParams are the query parameters for update-channel-stream-schedule-segment.
+type UpdateChannelStreamScheduleSegmentParams struct {
+	BroadcasterID string `url:"broadcaster_id,omitempty" validate:"required"`
+	ID            string `url:"id,omitempty" validate:"required"`
+}
+
+// CreateChannelStreamScheduleSegmentBody is the JSON request body for create-channel-stream-schedule-segment.
+type CreateChannelStreamScheduleSegmentBody struct {
+	StartTime   time.Time `json:"start_time" validate:"required"`
+	Timezone    string    `json:"timezone" validate:"required"`
+	Duration    string    `json:"duration" validate:"required"`
+	IsRecurring bool      `json:"is_recurring,omitempty"`
+	CategoryID  string    `json:"category_id,omitempty"`
+	Title       string    `json:"title,omitempty" validate:"omitempty,max=140"`
+}
+
 // CreateEventSubSubscriptionBody is the JSON request body for create-eventsub-subscription.
 type CreateEventSubSubscriptionBody struct {
 	Type      string            `json:"type" validate:"required"`
 	Version   string            `json:"version" validate:"required"`
 	Condition EventSubCondition `json:"condition" validate:"required"`
 	Transport EventSubTransport `json:"transport" validate:"required"`
+}
+
+// CreateStreamMarkerBody is the JSON request body for create-stream-marker.
+type CreateStreamMarkerBody struct {
+	UserID      string `json:"user_id" validate:"required"`
+	Description string `json:"description,omitempty"`
 }
 
 // ModifyChannelInformationBodyContentClassificationLabel is a nested object inside a generated body type.
@@ -254,4 +488,14 @@ type ModifyChannelInformationBody struct {
 	Tags                        []string                                                 `json:"tags,omitempty" validate:"omitempty,max=10,dive,max=25"`
 	ContentClassificationLabels []ModifyChannelInformationBodyContentClassificationLabel `json:"content_classification_labels,omitempty"`
 	IsBrandedContent            bool                                                     `json:"is_branded_content,omitempty"`
+}
+
+// UpdateChannelStreamScheduleSegmentBody is the JSON request body for update-channel-stream-schedule-segment.
+type UpdateChannelStreamScheduleSegmentBody struct {
+	StartTime  time.Time `json:"start_time,omitempty"`
+	Duration   string    `json:"duration,omitempty"`
+	CategoryID string    `json:"category_id,omitempty"`
+	Title      string    `json:"title,omitempty" validate:"omitempty,max=140"`
+	IsCanceled bool      `json:"is_canceled,omitempty"`
+	Timezone   string    `json:"timezone,omitempty"`
 }
