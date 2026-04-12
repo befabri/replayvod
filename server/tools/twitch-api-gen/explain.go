@@ -174,6 +174,11 @@ func tagSuffix(tag string) string {
 // exprString renders an ast.Expr back to source form. Handles the field-type
 // shapes the generator actually emits: Ident, SelectorExpr, ArrayType,
 // StarExpr, MapType, InterfaceType.
+//
+// The fallthrough returns `<unknown:T>` naming the concrete ast node so an
+// unhandled shape (e.g. `ast.FuncType` someone added to the template) shows
+// up in -explain output as a visible sentinel rather than silently equating
+// two different types.
 func exprString(e ast.Expr) string {
 	switch t := e.(type) {
 	case *ast.Ident:
@@ -189,5 +194,5 @@ func exprString(e ast.Expr) string {
 	case *ast.InterfaceType:
 		return "any" // any / interface{} both emit this in the pool
 	}
-	return "<unknown>"
+	return fmt.Sprintf("<unknown:%T>", e)
 }

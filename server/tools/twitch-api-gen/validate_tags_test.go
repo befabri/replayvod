@@ -1,12 +1,7 @@
 package main
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -19,7 +14,7 @@ import (
 // Also enforces the negative invariant: response types (User, Game, Stream…)
 // must NOT carry any validate tag. Constraint extraction is request-side only.
 func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
-	tags := parseGeneratedTags(t, filepath.Join("testdata", "expected", "generated_types.go"))
+	tags := loadFieldInfo(t, filepath.Join("testdata", "expected", "generated_types.go"))
 
 	// Positive — each of these fields must have the exact validate tag listed.
 	// Empty string means "no validate tag present". Phrasings change on the
@@ -52,7 +47,7 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 		{"DeleteEventSubSubscriptionParams", "ID"}:    "required",
 	}
 	for k, want := range positives {
-		got := tags[k[0]][k[1]]
+		got := tags[k[0]][k[1]].ValidateTag
 		if got != want {
 			t.Errorf("%s.%s validate = %q; want %q", k[0], k[1], got, want)
 		}
@@ -68,7 +63,7 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 		{"ModifyChannelInformationBody", "BroadcasterLanguage"},
 	}
 	for _, k := range knownMisses {
-		if got := tags[k[0]][k[1]]; got != "" {
+		if got := tags[k[0]][k[1]].ValidateTag; got != "" {
 			t.Errorf("%s.%s unexpectedly has validate tag %q — update knownMisses table", k[0], k[1], got)
 		}
 	}
@@ -80,9 +75,9 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 		if !ok {
 			continue // type not in filter
 		}
-		for name, tag := range fields {
-			if tag != "" {
-				t.Errorf("response type %s.%s must not have validate tag; got %q", typ, name, tag)
+		for name, fi := range fields {
+			if fi.ValidateTag != "" {
+				t.Errorf("response type %s.%s must not have validate tag; got %q", typ, name, fi.ValidateTag)
 			}
 		}
 	}
@@ -94,7 +89,7 @@ func TestSnapshot_validateTagsOnKnownFields(t *testing.T) {
 // resolved via namedSchemaResolver during generation; this test guards the
 // emitted Go type on a handful of representative fields.
 func TestSnapshot_namedSchemaFieldTypes(t *testing.T) {
-	fieldTypes := parseGeneratedFieldTypes(t, filepath.Join("testdata", "expected", "generated_eventsub.go"))
+	fieldTypes := loadFieldInfo(t, filepath.Join("testdata", "expected", "generated_eventsub.go"))
 
 	want := map[[2]string]string{
 		// Plural anchor → array of singular struct.
@@ -112,8 +107,8 @@ func TestSnapshot_namedSchemaFieldTypes(t *testing.T) {
 			t.Errorf("%s.%s not found in generated source", k[0], k[1])
 			continue
 		}
-		if got != w {
-			t.Errorf("%s.%s Go type = %q; want %q", k[0], k[1], got, w)
+		if got.GoType != w {
+			t.Errorf("%s.%s Go type = %q; want %q", k[0], k[1], got.GoType, w)
 		}
 	}
 
@@ -124,94 +119,21 @@ func TestSnapshot_namedSchemaFieldTypes(t *testing.T) {
 		"ChannelPollBeginEvent",
 		"ChannelPointsCustomRewardAddEvent",
 	} {
-		for fieldName, goType := range fieldTypes[structName] {
-			if goType == "any" || goType == "[]any" {
-				t.Errorf("%s.%s is %q — cross-schema resolver should have typed this", structName, fieldName, goType)
+		for fieldName, fi := range fieldTypes[structName] {
+			if fi.GoType == "any" || fi.GoType == "[]any" {
+				t.Errorf("%s.%s is %q — cross-schema resolver should have typed this", structName, fieldName, fi.GoType)
 			}
 		}
 	}
 }
 
-// parseGeneratedFieldTypes mirrors parseGeneratedTags but returns the emitted
-// Go type of each field (e.g. "[]Outcome", "string", "*CustomType") instead of
-// its validate tag.
-func parseGeneratedFieldTypes(t *testing.T, path string) map[string]map[string]string {
+// loadFieldInfo wraps parseGeneratedTypes for the snapshot tests, failing the
+// test on parse errors so call-sites stay free of boilerplate.
+func loadFieldInfo(t *testing.T, path string) map[string]map[string]fieldInfo {
 	t.Helper()
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	out, err := parseGeneratedTypes(path)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
-	}
-	out := map[string]map[string]string{}
-	for _, decl := range f.Decls {
-		gd, ok := decl.(*ast.GenDecl)
-		if !ok || gd.Tok != token.TYPE {
-			continue
-		}
-		for _, spec := range gd.Specs {
-			ts, ok := spec.(*ast.TypeSpec)
-			if !ok {
-				continue
-			}
-			st, ok := ts.Type.(*ast.StructType)
-			if !ok {
-				continue
-			}
-			fields := map[string]string{}
-			for _, field := range st.Fields.List {
-				typeStr := exprString(field.Type)
-				for _, n := range field.Names {
-					fields[n.Name] = typeStr
-				}
-			}
-			out[ts.Name.Name] = fields
-		}
-	}
-	return out
-}
-
-// parseGeneratedTags parses the generated source with go/ast and returns a
-// [structName][fieldName] → validate-tag-body map. An entry exists for every
-// exported field; its value is "" when the field has no `validate:""` tag.
-func parseGeneratedTags(t *testing.T, path string) map[string]map[string]string {
-	t.Helper()
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse %s: %v", path, err)
-	}
-
-	out := map[string]map[string]string{}
-	for _, decl := range f.Decls {
-		gd, ok := decl.(*ast.GenDecl)
-		if !ok || gd.Tok != token.TYPE {
-			continue
-		}
-		for _, spec := range gd.Specs {
-			ts, ok := spec.(*ast.TypeSpec)
-			if !ok {
-				continue
-			}
-			st, ok := ts.Type.(*ast.StructType)
-			if !ok {
-				continue
-			}
-			fields := map[string]string{}
-			for _, field := range st.Fields.List {
-				if field.Tag == nil {
-					for _, n := range field.Names {
-						fields[n.Name] = ""
-					}
-					continue
-				}
-				tag := strings.Trim(field.Tag.Value, "`")
-				v := reflect.StructTag(tag).Get("validate")
-				for _, n := range field.Names {
-					fields[n.Name] = v
-				}
-			}
-			out[ts.Name.Name] = fields
-		}
 	}
 	return out
 }
