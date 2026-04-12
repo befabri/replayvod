@@ -88,6 +88,11 @@ export function Sidebar() {
 						label={t("nav.schedules")}
 						onNavigate={() => setOpen(false)}
 					/>
+					<NavLink
+						to="/dashboard/settings"
+						label={t("nav.settings")}
+						onNavigate={() => setOpen(false)}
+					/>
 					{user && hasRole(user, "owner") && (
 						<>
 							<div className="pt-4 pb-1 px-3 text-xs uppercase tracking-wide text-muted-foreground">

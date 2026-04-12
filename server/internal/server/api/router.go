@@ -17,6 +17,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/routes/channel"
 	eventsubroute "github.com/befabri/replayvod/server/internal/server/api/routes/eventsub"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/schedule"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/settings"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/stream"
 	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
 	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
@@ -109,6 +110,7 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// can call Snapshot on the same instance without second construction.
 	eventsubMgr := eventsubservice.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
 	eventsubSvc := eventsubroute.NewService(repo, eventsubMgr, log)
+	settingsSvc := settings.NewService(repo, log)
 
 	// Middleware
 	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
@@ -220,6 +222,11 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	trpcgo.MustVoidMutation(tr, "eventsub.snapshot", eventsubSvc.Snapshot, ownerProcedure)
 	trpcgo.MustMutation(tr, "eventsub.subscribeStreamOnline", eventsubSvc.SubscribeStreamOnline, ownerProcedure)
 	trpcgo.MustMutation(tr, "eventsub.unsubscribe", eventsubSvc.Unsubscribe, ownerProcedure)
+
+	// Settings — per-user, viewer-level. Every authed user gets their
+	// own row; lazy-create happens server-side on first Get.
+	trpcgo.MustVoidQuery(tr, "settings.get", settingsSvc.Get, viewerProcedure)
+	trpcgo.MustMutation(tr, "settings.update", settingsSvc.Update, viewerProcedure)
 
 	return tr
 }

@@ -78,6 +78,18 @@
 		"triggered_count": "Déclenchée {{count}} fois",
 		"last_triggered": "Dernier déclenchement"
 	},
+	"settings": {
+		"title": "Paramètres",
+		"description": "Préférences d'affichage appliquées dans tout le tableau de bord.",
+		"failed_to_load": "Impossible de charger les paramètres",
+		"timezone": "Fuseau horaire",
+		"timezone_hint": "Nom IANA, ex. Europe/Paris. Défaut : UTC.",
+		"datetime_format": "Format de date/heure",
+		"language": "Langue",
+		"save": "Enregistrer",
+		"saved": "Paramètres enregistrés",
+		"save_failed": "Impossible d'enregistrer les paramètres"
+	},
 	"eventsub": {
 		"title": "EventSub",
 		"description": "Abonnements webhook Twitch EventSub et historique du quota.",

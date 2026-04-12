@@ -78,6 +78,18 @@
 		"triggered_count": "Triggered {{count}} time(s)",
 		"last_triggered": "Last triggered"
 	},
+	"settings": {
+		"title": "Settings",
+		"description": "Display preferences applied across the dashboard.",
+		"failed_to_load": "Failed to load settings",
+		"timezone": "Time zone",
+		"timezone_hint": "IANA name, e.g. Europe/Paris. Defaults to UTC.",
+		"datetime_format": "Date and time format",
+		"language": "Language",
+		"save": "Save",
+		"saved": "Settings saved",
+		"save_failed": "Failed to save settings"
+	},
 	"eventsub": {
 		"title": "EventSub",
 		"description": "Twitch EventSub webhook subscriptions and cost/quota history.",
