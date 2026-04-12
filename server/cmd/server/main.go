@@ -13,6 +13,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/database"
 	"github.com/befabri/replayvod/server/internal/downloader"
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/logger"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
@@ -135,13 +136,19 @@ func main() {
 	// Downloader service
 	dl := downloader.NewService(cfg, repo, store, log)
 
+	// SSE bus: one set of topics shared between scheduler (publishes
+	// task status), schedule processor (publishes stream.live), and
+	// event-log writer (publishes system.events). Routing handlers
+	// subscribe per-client.
+	bus := eventbus.New()
+
 	// Scheduler: wire the EventSub manager first so the snapshot task
 	// has something to call. Skip entirely if cfg.App.Scheduler.Enabled
 	// is false — useful for one-off CLI invocations or tests.
 	var sched *scheduler.Service
 	if cfg.App.Scheduler.Enabled {
 		esvc := eventsubservice.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
-		sched = scheduler.NewService(repo, log, 15*time.Second)
+		sched = scheduler.NewService(repo, log, 15*time.Second, bus)
 		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
 			os.Exit(1)
@@ -155,13 +162,14 @@ func main() {
 		log.Info("Scheduler disabled by config")
 	}
 
+
 	// Setup graceful shutdown
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	// Start server
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, log)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, bus, log)
 	go srv.Start()
 
 	// Wait for shutdown signal

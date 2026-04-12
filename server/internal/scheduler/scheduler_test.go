@@ -20,7 +20,7 @@ func newTestScheduler(t *testing.T) (*Service, repository.Repository) {
 	db := testdb.NewSQLiteDB(t)
 	repo := sqliteadapter.New(sqlitegen.New(db))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	s := NewService(repo, log, 20*time.Millisecond)
+	s := NewService(repo, log, 20*time.Millisecond, nil)
 	t.Cleanup(s.Stop)
 	return s, repo
 }

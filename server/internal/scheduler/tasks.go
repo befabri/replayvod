@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
 )
@@ -109,25 +110,47 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 }
 
 // EmitEventLog is a convenience for tasks to append a structured row
-// to event_logs. Swallows errors (audit logging must not fail the
-// caller) and logs them.
-func EmitEventLog(ctx context.Context, repo repository.Repository, log *slog.Logger, domain, eventType, severity, message string, data any) {
+// to event_logs and publish to the SSE bus. Swallows errors (audit
+// logging must not fail the caller) and logs them. bus may be nil —
+// the row still lands in the DB.
+func EmitEventLog(ctx context.Context, repo repository.Repository, bus *eventbus.Buses, log *slog.Logger, domain, eventType, severity, message string, data any) {
 	var raw json.RawMessage
+	var dataMap map[string]any
 	if data != nil {
 		b, err := json.Marshal(data)
 		if err != nil {
 			log.Warn("marshal event log data", "error", err)
 		} else {
 			raw = b
+			// For the SSE payload we want a map so the client sees a
+			// proper JSON object; re-unmarshal into a map so we don't
+			// leak a Go-specific shape. Non-object payloads skip the
+			// bus event (rare enough not to matter).
+			_ = json.Unmarshal(b, &dataMap)
 		}
 	}
-	if _, err := repo.CreateEventLog(ctx, &repository.EventLogInput{
+	row, err := repo.CreateEventLog(ctx, &repository.EventLogInput{
 		Domain:    domain,
 		EventType: eventType,
 		Severity:  severity,
 		Message:   message,
 		Data:      raw,
-	}); err != nil {
+	})
+	if err != nil {
 		log.Warn("append event log", "domain", domain, "type", eventType, "error", err)
+		return
 	}
+	if bus != nil {
+		bus.EventLogs.Publish(eventbus.EventLogEvent{
+			ID:          row.ID,
+			Domain:      row.Domain,
+			EventType:   row.EventType,
+			Severity:    row.Severity,
+			Message:     row.Message,
+			ActorUserID: row.ActorUserID,
+			Data:        dataMap,
+			CreatedAt:   row.CreatedAt,
+		})
+	}
+	_ = time.Now // time imported for future use; keeps import section stable
 }

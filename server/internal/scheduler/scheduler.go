@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
@@ -44,26 +45,32 @@ type Task struct {
 type Service struct {
 	repo repository.Repository
 	log  *slog.Logger
+	// bus is optional — nil means task status transitions don't fan
+	// out to SSE subscribers. Useful for tests that build a scheduler
+	// without constructing the full bus graph.
+	bus *eventbus.Buses
 
-	mu       sync.Mutex
-	tasks    map[string]*Task
-	running  map[string]struct{} // in-flight task names
-	poll     time.Duration
-	stopCh   chan struct{}
-	stopped  bool
-	wg       sync.WaitGroup
+	mu      sync.Mutex
+	tasks   map[string]*Task
+	running map[string]struct{} // in-flight task names
+	poll    time.Duration
+	stopCh  chan struct{}
+	stopped bool
+	wg      sync.WaitGroup
 }
 
 // NewService builds a scheduler. pollInterval is how often the ticker
 // checks for due tasks — 15s is a reasonable default; a task with a
 // 1-minute interval will slip up to pollInterval on its firing time.
-func NewService(repo repository.Repository, log *slog.Logger, pollInterval time.Duration) *Service {
+// bus may be nil in tests or degraded modes.
+func NewService(repo repository.Repository, log *slog.Logger, pollInterval time.Duration, bus *eventbus.Buses) *Service {
 	if pollInterval <= 0 {
 		pollInterval = 15 * time.Second
 	}
 	return &Service{
 		repo:    repo,
 		log:     log.With("domain", "scheduler"),
+		bus:     bus,
 		tasks:   make(map[string]*Task),
 		running: make(map[string]struct{}),
 		poll:    pollInterval,
@@ -195,6 +202,7 @@ func (s *Service) runOne(t *Task) {
 	if err := s.repo.MarkTaskRunning(ctx, t.Name); err != nil {
 		s.log.Error("mark task running", "name", t.Name, "error", err)
 	}
+	s.publishStatus(t.Name, repository.TaskStatusRunning, 0, "")
 	start := time.Now()
 
 	defer func() {
@@ -213,12 +221,28 @@ func (s *Service) runOne(t *Task) {
 	s.markSuccess(t.Name, start)
 }
 
+// publishStatus fans a task lifecycle change onto the SSE bus. No-op
+// when the scheduler was constructed without a bus (tests).
+func (s *Service) publishStatus(name, status string, durationMs int64, errMsg string) {
+	if s.bus == nil {
+		return
+	}
+	s.bus.TaskStatus.Publish(eventbus.TaskStatusEvent{
+		Name:           name,
+		Status:         status,
+		DurationMs:     durationMs,
+		Error:          errMsg,
+		TransitionedAt: time.Now().UTC(),
+	})
+}
+
 func (s *Service) markSuccess(name string, start time.Time) {
 	// Use a short detached context — we want this write to land even
 	// if the parent ctx is cancelled.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	dur := time.Since(start).Milliseconds()
+	s.publishStatus(name, repository.TaskStatusSuccess, dur, "")
 	if err := s.repo.MarkTaskSuccess(ctx, name, dur); err != nil {
 		s.log.Error("mark task success", "name", name, "error", err)
 	}
@@ -228,6 +252,7 @@ func (s *Service) markFailed(name string, start time.Time, runErr error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	dur := time.Since(start).Milliseconds()
+	s.publishStatus(name, repository.TaskStatusFailed, dur, runErr.Error())
 	if err := s.repo.MarkTaskFailed(ctx, name, dur, runErr.Error()); err != nil {
 		s.log.Error("mark task failed", "name", name, "error", err)
 	}

@@ -24,7 +24,7 @@ func TestProcess_StreamOffline_EndsLastActiveStream(t *testing.T) {
 	db := testdb.NewSQLiteDB(t)
 	repo := sqliteadapter.New(sqlitegen.New(db))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	p := NewEventProcessor(repo, nil, nil, log)
+	p := NewEventProcessor(repo, nil, nil, nil, log)
 
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
 		BroadcasterID: "b-off", BroadcasterLogin: "b", BroadcasterName: "b",

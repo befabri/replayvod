@@ -9,6 +9,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader"
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -24,12 +25,14 @@ type Server struct {
 	twitchClient *twitch.Client
 	storage      storage.Storage
 	downloader   *downloader.Service
+	bus          *eventbus.Buses
 	log          *slog.Logger
 	httpServer   *http.Server
 }
 
-// NewServer creates a new server.
-func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, log *slog.Logger) *Server {
+// NewServer creates a new server. bus may be nil to disable SSE
+// feeds — the subscription procedures then return pre-closed channels.
+func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, bus *eventbus.Buses, log *slog.Logger) *Server {
 	return &Server{
 		cfg:          cfg,
 		repo:         repo,
@@ -37,13 +40,14 @@ func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *sessi
 		twitchClient: twitchClient,
 		storage:      store,
 		downloader:   dl,
+		bus:          bus,
 		log:          log,
 	}
 }
 
 // Start begins serving HTTP requests.
 func (s *Server) Start() {
-	router := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.log)
+	router := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.bus, s.log)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port),

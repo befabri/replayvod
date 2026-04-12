@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/downloader"
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
@@ -22,6 +23,7 @@ type EventProcessor struct {
 	repo       repository.Repository
 	dl         *downloader.Service
 	twitch     *twitch.Client
+	bus        *eventbus.Buses
 	log        *slog.Logger
 	defaultLng string
 	// fetchRetries / fetchRetryDelay configure the GetStreams retry
@@ -37,11 +39,14 @@ type EventProcessor struct {
 // tags via GET /helix/streams. Pass nil to skip enrichment (tests, or
 // a degraded mode where we want schedule matching on raw webhook data
 // only — filtered schedules then never match, see matcher invariant).
-func NewEventProcessor(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, log *slog.Logger) *EventProcessor {
+// bus is optional: when set, stream.live fires on every stream.online
+// dispatch so SSE subscribers see channels going live in real time.
+func NewEventProcessor(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, bus *eventbus.Buses, log *slog.Logger) *EventProcessor {
 	return &EventProcessor{
 		repo:            repo,
 		dl:              dl,
 		twitch:          tc,
+		bus:             bus,
 		log:             log.With("domain", "schedule"),
 		defaultLng:      "en",
 		fetchRetries:    3,
@@ -198,6 +203,19 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		if err := p.repo.RecordScheduleTrigger(recordCtx, s.ID); err != nil {
 			p.log.Error("record schedule trigger", "schedule_id", s.ID, "error", err)
 		}
+	}
+
+	// Fan out to SSE subscribers. Non-blocking; the bus drops when a
+	// subscriber falls behind (see eventbus docs).
+	if p.bus != nil {
+		p.bus.StreamLive.Publish(eventbus.StreamLiveEvent{
+			BroadcasterID:    event.BroadcasterUserID,
+			BroadcasterLogin: login,
+			DisplayName:      displayName,
+			StartedAt:        time.Now().UTC(),
+			MatchedSchedules: len(matches),
+			JobID:            jobID,
+		})
 	}
 	p.log.Info("schedule triggered auto-download",
 		"winner_schedule_id", winner.ID,

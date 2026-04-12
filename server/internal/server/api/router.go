@@ -18,6 +18,7 @@ import (
 	eventsubroute "github.com/befabri/replayvod/server/internal/server/api/routes/eventsub"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/schedule"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/settings"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/sse"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/stream"
 	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
 	taskroute "github.com/befabri/replayvod/server/internal/server/api/routes/task"
@@ -25,6 +26,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
 	"github.com/befabri/replayvod/server/internal/downloader"
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
 	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -38,7 +40,7 @@ import (
 )
 
 // SetupRouter creates and configures the Chi router.
-func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, log *slog.Logger) *chi.Mux {
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, bus *eventbus.Buses, log *slog.Logger) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -64,7 +66,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// csrfProtection group (Twitch can't provide a CSRF cookie). The
 	// schedule-service processor dispatches stream.online events to the
 	// auto-download pipeline; other event types are audit-logged only.
-	scheduleProcessor := scheduleservice.NewEventProcessor(repo, dl, twitchClient, log)
+	scheduleProcessor := scheduleservice.NewEventProcessor(repo, dl, twitchClient, bus, log)
 	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, scheduleProcessor, log)
 	sessionMw := middleware.Auth(sessionMgr, repo, log)
 	r.Route("/api/v1", func(r chi.Router) {
@@ -74,7 +76,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	})
 
 	// tRPC router with CSRF/origin protection
-	trpcRouter := SetupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, log)
+	trpcRouter := SetupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, bus, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -95,7 +97,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 }
 
 // SetupTRPCRouter builds the tRPC router with all procedures.
-func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, log *slog.Logger) *trpcgo.Router {
+func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, bus *eventbus.Buses, log *slog.Logger) *trpcgo.Router {
 	// Services
 	authSvc := auth.NewService(repo, sessionMgr, log)
 	channelSvc := channel.NewService(repo, twitchClient, log)
@@ -113,6 +115,7 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	eventsubSvc := eventsubroute.NewService(repo, eventsubMgr, log)
 	settingsSvc := settings.NewService(repo, log)
 	taskSvc := taskroute.NewService(repo, log)
+	sseSvc := sse.NewService(bus, log)
 
 	// Middleware
 	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
@@ -240,6 +243,13 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// Event logs — owner-only, extends the system.* surface so the
 	// existing owner procedures and dashboard nav apply uniformly.
 	trpcgo.MustQuery(tr, "system.eventLogs", systemSvc.EventLogs, ownerProcedure)
+
+	// SSE subscriptions. system.events and task.status are
+	// owner-level (operator telemetry); stream.live is viewer-level so
+	// any signed-in user can watch for channels going live.
+	trpcgo.MustVoidSubscribe(tr, "system.events", sseSvc.SystemEvents, ownerProcedure)
+	trpcgo.MustVoidSubscribe(tr, "task.status", sseSvc.TaskStatus, ownerProcedure)
+	trpcgo.MustVoidSubscribe(tr, "stream.live", sseSvc.StreamLive, viewerProcedure)
 
 	return tr
 }
