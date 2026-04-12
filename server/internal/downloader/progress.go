@@ -23,24 +23,26 @@ type progressEmitter struct {
 	out           chan<- Progress
 	recordingType string
 
-	mu           sync.Mutex
-	stage        string
-	partIndex    int
-	bytesWritten int64
-	segmentsDone int64
-	segmentsGaps int64
-	segmentsTot  int64 // -1 until EXT-X-ENDLIST
-	quality      string
-	codec        string
+	mu             sync.Mutex
+	stage          string
+	partIndex      int
+	bytesWritten   int64
+	segmentsDone   int64
+	segmentsGaps   int64
+	segmentsAdGaps int64
+	segmentsTot    int64 // -1 until EXT-X-ENDLIST
+	quality        string
+	codec          string
 
 	// Baselines captured at the start of each hls.Run invocation.
 	// hls.Progress counters reset to zero on every new hls.Run
 	// (fresh JobResult), so the auth-refresh loop would regress
 	// the UI every iteration without this layering. bridge()
 	// computes cumulative = baseline + hp.<field>.
-	baselineBytes int64
-	baselineDone  int64
-	baselineGaps  int64
+	baselineBytes  int64
+	baselineDone   int64
+	baselineGaps   int64
+	baselineAdGaps int64
 
 	// Speed smoothing: a short window of (time, bytes) samples
 	// keeps a single burst from dominating the displayed
@@ -116,6 +118,7 @@ func (p *progressEmitter) startAttempt() {
 	p.baselineBytes = p.bytesWritten
 	p.baselineDone = p.segmentsDone
 	p.baselineGaps = p.segmentsGaps
+	p.baselineAdGaps = p.segmentsAdGaps
 	p.samples = nil
 	p.mu.Unlock()
 }
@@ -130,6 +133,7 @@ func (p *progressEmitter) bridge(hp hls.Progress) {
 	p.bytesWritten = p.baselineBytes + hp.BytesWritten
 	p.segmentsDone = p.baselineDone + hp.SegmentsDone
 	p.segmentsGaps = p.baselineGaps + hp.SegmentsGaps
+	p.segmentsAdGaps = p.baselineAdGaps + hp.SegmentsAdGaps
 	// Keep segmentsTot as the orchestrator last set it — hls
 	// doesn't currently report total. A later phase can set it
 	// on the final event.
@@ -157,19 +161,20 @@ func (p *progressEmitter) finalize() {
 func (p *progressEmitter) snapshotLocked() Progress {
 	rate, rateOK := currentRate(p.samples)
 	return Progress{
-		JobID:         p.jobID,
-		PartIndex:     p.partIndex,
-		Stage:         p.stage,
-		BytesWritten:  p.bytesWritten,
-		SegmentsDone:  p.segmentsDone,
-		SegmentsGaps:  p.segmentsGaps,
-		SegmentsTotal: p.segmentsTot,
-		Percent:       computePercent(p.segmentsDone, p.segmentsTot),
-		Speed:         formatSpeed(rate, rateOK),
-		ETA:           computeETA(p.segmentsDone, p.segmentsTot, p.bytesWritten, rate, rateOK),
-		Quality:       p.quality,
-		Codec:         p.codec,
-		RecordingType: p.recordingType,
+		JobID:          p.jobID,
+		PartIndex:      p.partIndex,
+		Stage:          p.stage,
+		BytesWritten:   p.bytesWritten,
+		SegmentsDone:   p.segmentsDone,
+		SegmentsGaps:   p.segmentsGaps,
+		SegmentsAdGaps: p.segmentsAdGaps,
+		SegmentsTotal:  p.segmentsTot,
+		Percent:        computePercent(p.segmentsDone, p.segmentsTot),
+		Speed:          formatSpeed(rate, rateOK),
+		ETA:            computeETA(p.segmentsDone, p.segmentsTot, p.bytesWritten, rate, rateOK),
+		Quality:        p.quality,
+		Codec:          p.codec,
+		RecordingType:  p.recordingType,
 	}
 }
 

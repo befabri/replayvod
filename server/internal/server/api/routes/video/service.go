@@ -251,19 +251,20 @@ type DownloadProgressInput struct {
 // so subscribers that miss intermediate events (slow render, SSE
 // reconnect) stay consistent once they receive the next one.
 type ProgressEvent struct {
-	JobID         string  `json:"job_id"`
-	PartIndex     int     `json:"part_index"`
-	Stage         string  `json:"stage"`
-	BytesWritten  int64   `json:"bytes_written"`
-	SegmentsDone  int64   `json:"segments_done"`
-	SegmentsGaps  int64   `json:"segments_gaps"`
-	SegmentsTotal int64   `json:"segments_total"`
-	Percent       float64 `json:"percent"`
-	Speed         string  `json:"speed,omitempty"`
-	ETA           string  `json:"eta,omitempty"`
-	Quality       string  `json:"quality,omitempty"`
-	Codec         string  `json:"codec,omitempty"`
-	RecordingType string  `json:"recording_type,omitempty"`
+	JobID          string  `json:"job_id"`
+	PartIndex      int     `json:"part_index"`
+	Stage          string  `json:"stage"`
+	BytesWritten   int64   `json:"bytes_written"`
+	SegmentsDone   int64   `json:"segments_done"`
+	SegmentsGaps   int64   `json:"segments_gaps"`
+	SegmentsAdGaps int64   `json:"segments_ad_gaps"`
+	SegmentsTotal  int64   `json:"segments_total"`
+	Percent        float64 `json:"percent"`
+	Speed          string  `json:"speed,omitempty"`
+	ETA            string  `json:"eta,omitempty"`
+	Quality        string  `json:"quality,omitempty"`
+	Codec          string  `json:"codec,omitempty"`
+	RecordingType  string  `json:"recording_type,omitempty"`
 }
 
 // DownloadProgress streams Progress events for a running download
@@ -297,19 +298,20 @@ func (s *Service) DownloadProgress(ctx context.Context, input DownloadProgressIn
 				}
 				select {
 				case out <- ProgressEvent{
-					JobID:         p.JobID,
-					PartIndex:     p.PartIndex,
-					Stage:         p.Stage,
-					BytesWritten:  p.BytesWritten,
-					SegmentsDone:  p.SegmentsDone,
-					SegmentsGaps:  p.SegmentsGaps,
-					SegmentsTotal: p.SegmentsTotal,
-					Percent:       p.Percent,
-					Speed:         p.Speed,
-					ETA:           p.ETA,
-					Quality:       p.Quality,
-					Codec:         p.Codec,
-					RecordingType: p.RecordingType,
+					JobID:          p.JobID,
+					PartIndex:      p.PartIndex,
+					Stage:          p.Stage,
+					BytesWritten:   p.BytesWritten,
+					SegmentsDone:   p.SegmentsDone,
+					SegmentsGaps:   p.SegmentsGaps,
+					SegmentsAdGaps: p.SegmentsAdGaps,
+					SegmentsTotal:  p.SegmentsTotal,
+					Percent:        p.Percent,
+					Speed:          p.Speed,
+					ETA:            p.ETA,
+					Quality:        p.Quality,
+					Codec:          p.Codec,
+					RecordingType:  p.RecordingType,
 				}:
 				case <-ctx.Done():
 					return

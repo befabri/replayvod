@@ -116,12 +116,17 @@ type Progress struct {
 	// successfully committed segment bytes so far.
 	BytesWritten int64 `json:"bytes_written"`
 
-	// SegmentsDone + SegmentsGaps + SegmentsTotal track the
-	// segment-level counters. Total is -1 for a live playlist
-	// before EXT-X-ENDLIST; set once the window closes.
-	SegmentsDone  int64 `json:"segments_done"`
-	SegmentsGaps  int64 `json:"segments_gaps"`
-	SegmentsTotal int64 `json:"segments_total"`
+	// SegmentsDone + SegmentsGaps + SegmentsAdGaps +
+	// SegmentsTotal track the segment-level counters. Ad-gaps
+	// are reported distinctly from quality-gaps so the UI can
+	// show "Twitch ad content skipped" separately from "fetch
+	// failures tolerated," and so the gap-policy MaxGapRatio
+	// doesn't count ads as errors. Total is -1 for a live
+	// playlist before EXT-X-ENDLIST; set once the window closes.
+	SegmentsDone   int64 `json:"segments_done"`
+	SegmentsGaps   int64 `json:"segments_gaps"`
+	SegmentsAdGaps int64 `json:"segments_ad_gaps"`
+	SegmentsTotal  int64 `json:"segments_total"`
 
 	// Percent is SegmentsDone / SegmentsTotal when Total is
 	// known, otherwise -1. The UI renders an indeterminate bar
@@ -669,6 +674,7 @@ func (s *Service) fetchWithAuthRefresh(ctx context.Context, emitter *progressEmi
 		if result != nil {
 			agg.SegmentsDone += result.SegmentsDone
 			agg.SegmentsGaps += result.SegmentsGaps
+			agg.SegmentsAdGaps += result.SegmentsAdGaps
 			agg.BytesWritten += result.BytesWritten
 			if result.Kind != "" {
 				agg.Kind = result.Kind
