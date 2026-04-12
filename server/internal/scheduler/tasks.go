@@ -152,5 +152,4 @@ func EmitEventLog(ctx context.Context, repo repository.Repository, bus *eventbus
 			CreatedAt:   row.CreatedAt,
 		})
 	}
-	_ = time.Now // time imported for future use; keeps import section stable
 }

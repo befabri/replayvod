@@ -246,14 +246,32 @@ func (s *Service) markSuccess(name string, start time.Time) {
 	if err := s.repo.MarkTaskSuccess(ctx, name, dur); err != nil {
 		s.log.Error("mark task success", "name", name, "error", err)
 	}
+	// Successful runs land as info event_logs for operator visibility
+	// on the events page. Keeps the dashboard's task-activity feed
+	// useful without spamming slog: the retention task prunes
+	// debug/info rows so the volume is bounded.
+	EmitEventLog(ctx, s.repo, s.bus, s.log,
+		"task", "run_success", repository.EventLogSeverityInfo,
+		fmt.Sprintf("task %s completed in %dms", name, dur),
+		map[string]any{"task": name, "duration_ms": dur},
+	)
 }
 
 func (s *Service) markFailed(name string, start time.Time, runErr error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	dur := time.Since(start).Milliseconds()
-	s.publishStatus(name, repository.TaskStatusFailed, dur, runErr.Error())
-	if err := s.repo.MarkTaskFailed(ctx, name, dur, runErr.Error()); err != nil {
+	errMsg := runErr.Error()
+	s.publishStatus(name, repository.TaskStatusFailed, dur, errMsg)
+	if err := s.repo.MarkTaskFailed(ctx, name, dur, errMsg); err != nil {
 		s.log.Error("mark task failed", "name", name, "error", err)
 	}
+	// Failure writes an error event_log — these survive the info-
+	// retention sweep and are the first thing operators look at on
+	// the dashboard's events page during an incident.
+	EmitEventLog(ctx, s.repo, s.bus, s.log,
+		"task", "run_failed", repository.EventLogSeverityError,
+		fmt.Sprintf("task %s failed: %s", name, errMsg),
+		map[string]any{"task": name, "duration_ms": dur, "error": errMsg},
+	)
 }
