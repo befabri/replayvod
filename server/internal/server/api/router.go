@@ -15,12 +15,15 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/routes/auth"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/category"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/channel"
+	eventsubroute "github.com/befabri/replayvod/server/internal/server/api/routes/eventsub"
+	"github.com/befabri/replayvod/server/internal/server/api/routes/schedule"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/stream"
 	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
 	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
 	"github.com/befabri/replayvod/server/internal/downloader"
+	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
 	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -99,6 +102,13 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	videoSvc := videoroute.NewService(repo, dl, twitchClient, log)
 	streamSvc := stream.NewService(repo, log)
 	videoRequestSvc := videorequest.NewService(repo, log)
+	scheduleSvc := schedule.NewService(repo, log)
+	// EventSub manager drives subscribe/unsubscribe/snapshot. The tRPC
+	// service shares it with the webhook processor (though the processor
+	// only reads the repo, not the manager) so a future cron scheduler
+	// can call Snapshot on the same instance without second construction.
+	eventsubMgr := eventsubservice.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
+	eventsubSvc := eventsubroute.NewService(repo, eventsubMgr, log)
 
 	// Middleware
 	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
@@ -191,6 +201,25 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// Video request procedures.
 	trpcgo.MustQuery(tr, "videorequest.mine", videoRequestSvc.Mine, viewerProcedure)
 	trpcgo.MustMutation(tr, "videorequest.request", videoRequestSvc.Request, viewerProcedure)
+
+	// Schedule procedures. Reads are viewer-level (owners see all); writes
+	// are admin-only so viewers can't burn Twitch quota auto-downloading.
+	trpcgo.MustQuery(tr, "schedule.list", scheduleSvc.List, viewerProcedure)
+	trpcgo.MustQuery(tr, "schedule.mine", scheduleSvc.Mine, viewerProcedure)
+	trpcgo.MustQuery(tr, "schedule.getById", scheduleSvc.GetByID, viewerProcedure)
+	trpcgo.MustMutation(tr, "schedule.create", scheduleSvc.Create, adminProcedure)
+	trpcgo.MustMutation(tr, "schedule.update", scheduleSvc.Update, adminProcedure)
+	trpcgo.MustMutation(tr, "schedule.toggle", scheduleSvc.Toggle, adminProcedure)
+	trpcgo.MustMutation(tr, "schedule.delete", scheduleSvc.Delete, adminProcedure)
+
+	// EventSub procedures — all owner-only. Manual subscribe/unsubscribe
+	// burns Twitch quota; manual snapshot polls Helix.
+	trpcgo.MustQuery(tr, "eventsub.listSubscriptions", eventsubSvc.ListSubscriptions, ownerProcedure)
+	trpcgo.MustQuery(tr, "eventsub.listSnapshots", eventsubSvc.ListSnapshots, ownerProcedure)
+	trpcgo.MustVoidQuery(tr, "eventsub.latestSnapshot", eventsubSvc.LatestSnapshot, ownerProcedure)
+	trpcgo.MustVoidMutation(tr, "eventsub.snapshot", eventsubSvc.Snapshot, ownerProcedure)
+	trpcgo.MustMutation(tr, "eventsub.subscribeStreamOnline", eventsubSvc.SubscribeStreamOnline, ownerProcedure)
+	trpcgo.MustMutation(tr, "eventsub.unsubscribe", eventsubSvc.Unsubscribe, ownerProcedure)
 
 	return tr
 }
