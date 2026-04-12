@@ -14,18 +14,22 @@ type Querier interface {
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
 	CountUserSessions(ctx context.Context, userID string) (int64, error)
+	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error)
+	CreateVideoPart(ctx context.Context, arg CreateVideoPartParams) (VideoPart, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteOldFetchLogs(ctx context.Context, fetchedAt string) error
 	DeleteSession(ctx context.Context, hashedID string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
+	DeleteVideoParts(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
+	FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartParams) error
 	GetCategory(ctx context.Context, id string) (Category, error)
 	GetCategoryByName(ctx context.Context, name string) (Category, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
@@ -40,6 +44,7 @@ type Querier interface {
 	GetUserByLogin(ctx context.Context, login string) (User, error)
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
+	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
 	LinkStreamCategory(ctx context.Context, arg LinkStreamCategoryParams) error
 	LinkStreamTag(ctx context.Context, arg LinkStreamTagParams) error
@@ -62,6 +67,7 @@ type Querier interface {
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
 	ListVideos(ctx context.Context, arg ListVideosParams) ([]Video, error)
 	ListVideosByBroadcaster(ctx context.Context, arg ListVideosByBroadcasterParams) ([]Video, error)

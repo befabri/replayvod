@@ -143,6 +143,22 @@ type VideoCategory struct {
 	CategoryID string `json:"category_id"`
 }
 
+type VideoPart struct {
+	ID              int64          `json:"id"`
+	VideoID         int64          `json:"video_id"`
+	PartIndex       int64          `json:"part_index"`
+	Filename        string         `json:"filename"`
+	Quality         string         `json:"quality"`
+	Codec           string         `json:"codec"`
+	SegmentFormat   string         `json:"segment_format"`
+	DurationSeconds float64        `json:"duration_seconds"`
+	SizeBytes       int64          `json:"size_bytes"`
+	Thumbnail       sql.NullString `json:"thumbnail"`
+	StartMediaSeq   int64          `json:"start_media_seq"`
+	EndMediaSeq     int64          `json:"end_media_seq"`
+	CreatedAt       string         `json:"created_at"`
+}
+
 type VideoRequest struct {
 	VideoID     int64  `json:"video_id"`
 	UserID      string `json:"user_id"`
