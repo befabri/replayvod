@@ -96,9 +96,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create Twitch client with fetch log recorder.
+	// Create Twitch client. Audit every Helix call into the fetch_logs
+	// table — adapter lives at the wiring site so twitch stays unaware of
+	// the repository, and repository stays unaware of twitch.
 	twitchClient := twitch.NewClient(cfg.Env.TwitchClientID, cfg.Env.TwitchSecret, log)
-	twitchClient.SetFetchLogRecorder(&fetchLogRecorder{repo: repo, log: log})
+	twitchClient.SetFetchLogRecorder(twitch.RecorderFunc(func(ctx context.Context, e twitch.FetchLogEntry) {
+		var errStr *string
+		if e.Error != "" {
+			errStr = &e.Error
+		}
+		if err := repo.CreateFetchLog(ctx, &repository.FetchLogInput{
+			UserID:        e.UserID,
+			FetchType:     e.FetchType,
+			BroadcasterID: e.BroadcasterID,
+			Status:        e.Status,
+			Error:         errStr,
+			DurationMs:    e.DurationMs,
+		}); err != nil {
+			log.Warn("failed to record fetch log", "error", err)
+		}
+	}))
 
 	// Create session manager
 	secureCookie := cfg.Env.Host != "localhost" && cfg.Env.Host != "0.0.0.0"

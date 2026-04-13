@@ -26,11 +26,18 @@ const (
 )
 
 // FetchLogRecorder is the minimal interface the client needs to audit Helix calls.
-// Implemented by the repository adapters via repository.Repository.CreateFetchLog.
-// Kept as an interface here to avoid a circular import.
+// Kept as an interface (not a concrete type) so the adapter that writes to
+// storage lives at the wiring site and doesn't pull repository into twitch.
 type FetchLogRecorder interface {
 	RecordFetch(ctx context.Context, entry FetchLogEntry)
 }
+
+// RecorderFunc adapts a plain function to FetchLogRecorder, mirroring the
+// http.HandlerFunc idiom. Lets wiring code pass a closure without declaring
+// a one-method type.
+type RecorderFunc func(ctx context.Context, entry FetchLogEntry)
+
+func (f RecorderFunc) RecordFetch(ctx context.Context, entry FetchLogEntry) { f(ctx, entry) }
 
 // FetchLogEntry is the data passed to FetchLogRecorder for each Helix call.
 // userID is the Twitch user ID on whose behalf the request was made, or nil
