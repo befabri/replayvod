@@ -116,6 +116,18 @@ type Poller struct {
 	// allowed to watch. Nil means "always treat as retryable" —
 	// behavior before the hook existed.
 	ClassifyAuth func(status int, body []byte) (permanent bool)
+
+	// RefetchSeqs lists MediaSeqs that a prior auth-refresh attempt
+	// failed on (worker hit 401/403). The poller emits these
+	// segments on the first poll regardless of StartMediaSeq so
+	// the new signed URL can fill the holes the previous attempt
+	// left behind. Seqs that are no longer in the CDN window
+	// (rolled off) are dropped with a warning and stay as gaps
+	// in the upstream resume state.
+	//
+	// Nil or empty means "no refetch needed" — the usual case on
+	// a fresh run or an auth-refresh-free attempt.
+	RefetchSeqs map[int64]bool
 }
 
 // PollResult carries metadata observed on the first successful
@@ -284,7 +296,13 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 
 		ext := segmentExt(pl.Kind)
 		for _, seg := range pl.Segments {
-			if seg.MediaSeq <= lastSeq {
+			// Refetch path: a seq this Poller was asked to retry
+			// (auth-errored on the prior attempt) bypasses the
+			// "below lastSeq" dedup so it can be re-enqueued even
+			// if it's trailing the current frontier. Consumed on
+			// emit so subsequent polls in this run don't re-emit.
+			refetch := p.RefetchSeqs[seg.MediaSeq]
+			if !refetch && seg.MediaSeq <= lastSeq {
 				continue
 			}
 			if seg.IsAd {
@@ -301,7 +319,10 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 						return ctx.Err()
 					}
 				}
-				lastSeq = seg.MediaSeq
+				if seg.MediaSeq > lastSeq {
+					lastSeq = seg.MediaSeq
+				}
+				delete(p.RefetchSeqs, seg.MediaSeq)
 				continue
 			}
 			job := segmentJob{
@@ -312,10 +333,29 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			}
 			select {
 			case out <- job:
-				lastSeq = seg.MediaSeq
+				if seg.MediaSeq > lastSeq {
+					lastSeq = seg.MediaSeq
+				}
+				delete(p.RefetchSeqs, seg.MediaSeq)
 			case <-ctx.Done():
 				return ctx.Err()
 			}
+		}
+
+		// Any refetch seqs still in the map after the first poll
+		// have rolled off the CDN window — the playlist no longer
+		// serves them. Log and drop so we don't keep checking
+		// every tick; the upstream resume state keeps them as
+		// GapReasonAuth gaps (their original classification).
+		if len(p.RefetchSeqs) > 0 {
+			lost := make([]int64, 0, len(p.RefetchSeqs))
+			for s := range p.RefetchSeqs {
+				lost = append(lost, s)
+			}
+			log.Warn("refetch seqs rolled off CDN window; staying as gaps",
+				"seqs", lost,
+				"lost_count", len(lost))
+			clear(p.RefetchSeqs)
 		}
 
 		if pl.EndList {
