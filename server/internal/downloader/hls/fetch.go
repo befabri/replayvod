@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,6 +30,16 @@ type FetcherConfig struct {
 	BaseBackoff    time.Duration
 	MaxBackoff     time.Duration
 	TargetDuration time.Duration
+
+	// ThroughputWindow is the stall tolerance for a single body
+	// copy: if no bytes are read for this long the Fetcher closes
+	// the response to free the worker. Spec Stage 4 gotcha: a
+	// trickling TCP can evade http.Transport's ResponseHeaderTimeout
+	// because headers have already arrived. Default 30s.
+	//
+	// Zero or negative disables the watchdog — legitimate for tests
+	// that want to exercise the retry loop without timing noise.
+	ThroughputWindow time.Duration
 
 	// ClassifyAuth, when non-nil, inspects a 401/403 response
 	// body and reports whether the failure is permanent. The
@@ -60,6 +71,9 @@ func (c FetcherConfig) normalize() FetcherConfig {
 	}
 	if c.TargetDuration <= 0 {
 		c.TargetDuration = 2 * time.Second
+	}
+	if c.ThroughputWindow == 0 {
+		c.ThroughputWindow = 30 * time.Second
 	}
 	return c
 }
@@ -358,10 +372,84 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter, targetDu
 // splice is available for a response body that doesn't expose
 // a syscall.Conn), so probing would hide the pool from the
 // hot path. See writer.go's ReadFrom doc for the longer story.
-func (f *Fetcher) copyBody(w io.Writer, r io.Reader) (int64, error) {
+func (f *Fetcher) copyBody(w io.Writer, r io.ReadCloser) (int64, error) {
 	buf := f.bufPool.Get().(*[]byte)
 	defer f.bufPool.Put(buf)
-	return io.CopyBuffer(writeOnly{w}, r, *buf)
+
+	// Throughput watchdog: if the body stalls for
+	// f.cfg.ThroughputWindow, close r so the in-flight Read
+	// unblocks with an error. Classified as FetchKindTransport
+	// (body-copy failure) and burns the transport retry budget
+	// — a trickle-bytes stall shouldn't pin a worker forever.
+	//
+	// bytesRead is updated by a counting reader wrapper so the
+	// watchdog goroutine observes forward progress without
+	// having to synchronize with the Copy call itself.
+	var bytesRead atomic.Int64
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	if f.cfg.ThroughputWindow > 0 {
+		go f.watchThroughput(r, &bytesRead, f.cfg.ThroughputWindow, stop, done)
+	} else {
+		close(done)
+	}
+	defer func() {
+		close(stop)
+		<-done
+	}()
+
+	counter := &countingReader{r: r, n: &bytesRead}
+	return io.CopyBuffer(writeOnly{w}, counter, *buf)
+}
+
+// watchThroughput samples bytesRead at window/3 cadence and closes
+// body when no progress has happened for `window`. Runs until
+// `stop` closes (happy path) or the stall trigger fires. Sends
+// `done` at exit so the caller can wait out its goroutine rather
+// than leak it.
+func (f *Fetcher) watchThroughput(body io.Closer, bytesRead *atomic.Int64, window time.Duration, stop <-chan struct{}, done chan<- struct{}) {
+	defer close(done)
+	tick := max(window/3, 100*time.Millisecond)
+	ticker := time.NewTicker(tick)
+	defer ticker.Stop()
+	var last int64
+	lastChange := time.Now()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			cur := bytesRead.Load()
+			if cur != last {
+				last = cur
+				lastChange = time.Now()
+				continue
+			}
+			if time.Since(lastChange) >= window {
+				// Force the Copy to fail. Close on an
+				// already-closed body is a no-op for
+				// net/http.
+				_ = body.Close()
+				return
+			}
+		}
+	}
+}
+
+// countingReader forwards Read to an underlying reader and
+// publishes the byte count into an atomic.Int64 so a watchdog
+// goroutine can observe progress without locking.
+type countingReader struct {
+	r io.Reader
+	n *atomic.Int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if n > 0 {
+		c.n.Add(int64(n))
+	}
+	return n, err
 }
 
 // writeOnly hides extra interfaces (notably io.ReaderFrom) from

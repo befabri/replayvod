@@ -167,6 +167,52 @@ func TestFetch_AuthPermanentFlaggedByClassifier(t *testing.T) {
 	}
 }
 
+// TestFetch_ThroughputWatchdogCancelsStalledBody confirms the
+// spec's Stage 4 gotcha mitigation: a TCP connection that arrives
+// with headers but then trickles zero bytes must not pin the
+// worker. The watchdog observes zero forward progress and closes
+// the body, which fails the Copy and burns a transport attempt.
+func TestFetch_ThroughputWatchdogCancelsStalledBody(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000000")
+		w.WriteHeader(http.StatusOK)
+		// Flush headers, then stall until the test releases.
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+	}))
+	defer func() {
+		close(release)
+		srv.Close()
+	}()
+
+	// Tight window + tight transport budget so the test finishes
+	// in under a second rather than 30.
+	f := newTestFetcher(FetcherConfig{
+		TransportAttempts: 1,
+		ThroughputWindow:  150 * time.Millisecond,
+		BaseBackoff:       time.Millisecond,
+		MaxBackoff:        2 * time.Millisecond,
+	})
+
+	start := time.Now()
+	_, err := fetchInto(t, f, srv.URL+"/seg.ts", "1.ts")
+	elapsed := time.Since(start)
+
+	var fe *FetchError
+	if !errors.As(err, &fe) {
+		t.Fatalf("err=%T, want *FetchError", err)
+	}
+	if fe.Kind != FetchKindTransport {
+		t.Errorf("Kind=%s, want transport (stalled body = transport failure)", fe.Kind)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("elapsed=%v, want fast abort (<2s) — watchdog didn't trigger", elapsed)
+	}
+}
+
 // TestFetch_AuthRetryableWhenClassifierReturnsFalse confirms the
 // default (non-permanent) path: ClassifyAuth returning false
 // leaves Permanent=false, signaling the orchestrator to refresh
