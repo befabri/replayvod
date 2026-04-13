@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -146,6 +147,82 @@ func TestRun_LastMediaSeqAdvancesOnGap(t *testing.T) {
 	}
 	if result.SegmentsGaps != 1 {
 		t.Errorf("SegmentsGaps=%d, want 1", result.SegmentsGaps)
+	}
+}
+
+// TestRun_AuthErrorSeqsPopulatedThenRefetched is the end-to-end
+// regression for the post-refresh refetch path: a server that
+// 403s a specific seq once then 200s it must produce a final
+// workdir where that seq is on disk, not a hole.
+//
+// First run: seq 2 → 403 → AuthErrorSeqs collects it, Run returns
+// ErrPlaylistAuth. Second run: RefetchSeqs=[2], seq 2 now 200s,
+// ends up committed. Simulates what fetchWithAuthRefresh does
+// across an auth-refresh boundary without the full Twitch stack.
+func TestRun_AuthErrorSeqsPopulatedThenRefetched(t *testing.T) {
+	live := &liveServer{
+		kind:         SegmentKindTS,
+		maxSegments:  5,
+		windowSize:   5,
+		baseSeq:      0,
+		tickInterval: 1,
+	}
+	// Seg 2 403s on its first fetch, 200s thereafter.
+	var seg2Hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/seg/2.ts" {
+			if seg2Hits.Add(1) == 1 {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+		}
+		live.handler().ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+
+	// First run: seq 2's initial 403 trips the drain's auth
+	// branch and aborts with ErrPlaylistAuth. Expect seq 2 in
+	// AuthErrorSeqs.
+	cfg := newJob(t, srv, dir)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel1()
+	result1, err := Run(ctx1, cfg)
+	if !errors.Is(err, ErrPlaylistAuth) {
+		t.Fatalf("first run err=%v, want ErrPlaylistAuth", err)
+	}
+	if len(result1.AuthErrorSeqs) == 0 {
+		t.Fatal("AuthErrorSeqs empty, want seq 2 present")
+	}
+	if !slices.Contains(result1.AuthErrorSeqs, 2) {
+		t.Errorf("AuthErrorSeqs=%v, want to include 2", result1.AuthErrorSeqs)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "2.ts")); !os.IsNotExist(err) {
+		t.Errorf("2.ts exists after first run; expected hole until refetch. err=%v", err)
+	}
+
+	// Second run: cursor past seq 2 via StartMediaSeq, but
+	// RefetchSeqs tells the poller to emit seq 2 anyway. Worker
+	// re-fetches → this time 200 → commit.
+	cfg2 := newJob(t, srv, dir)
+	cfg2.StartMediaSeq = result1.LastMediaSeq + 1
+	cfg2.RefetchSeqs = result1.AuthErrorSeqs
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel2()
+	result2, err := Run(ctx2, cfg2)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "2.ts")); err != nil {
+		t.Errorf("2.ts missing after refetch: %v", err)
+	}
+	if len(result2.AuthErrorSeqs) != 0 {
+		t.Errorf("second run AuthErrorSeqs=%v, want empty (refetch succeeded)", result2.AuthErrorSeqs)
+	}
+	// Total server hits on seg 2: one 403 + one 200 = 2.
+	if got := seg2Hits.Load(); got != 2 {
+		t.Errorf("seg 2 fetch count=%d, want 2 (initial 403 + refetch 200)", got)
 	}
 }
 

@@ -956,6 +956,14 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 	agg := &hls.JobResult{}
 	var authAttempts int
 
+	// refetchSeqs carries forward the prior attempt's auth-errored
+	// seqs so the next Poller re-emits them under the fresh URL.
+	// Replaced (not appended) per iteration: a successful refetch
+	// drops the seq off the list, a re-failed refetch puts it
+	// back. Seqs that roll off the CDN window are dropped by the
+	// Poller with a warning and stay as GapReasonAuth in resume.
+	var refetchSeqs []int64
+
 	// bootstrapped guards PartStartMediaSequence: first poll's
 	// MediaSequenceBase anchors the frontier. Auth-refresh
 	// iterations reuse the anchor — d.resume is shared across
@@ -1060,6 +1068,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			// already captured" or reset the ratio denominator.
 			SeedSegmentsDone: agg.SegmentsDone,
 			SeedSegmentsGaps: agg.SegmentsGaps,
+			RefetchSeqs:      refetchSeqs,
 			GapPolicy: hls.GapPolicy{
 				Strict:      s.cfg.App.Download.Strict,
 				MaxGapRatio: s.cfg.App.Download.MaxGapRatio,
@@ -1115,6 +1124,16 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		// latest stage info before the next refresh iteration.
 		s.checkpointResume(dbCtx, d, log)
 		eventsSinceCheckpoint = 0
+
+		// Refresh the refetch list from the attempt's observed
+		// auth-errored seqs. Replace (don't append): a successful
+		// refetch drops the seq off, a repeated auth failure on
+		// the same seq shows up again. Permanent auth stays out
+		// of this list by construction (orchestrator filters it).
+		refetchSeqs = nil
+		if result != nil {
+			refetchSeqs = result.AuthErrorSeqs
+		}
 
 		// Fold this attempt's counters into the running total.
 		// Done/Gaps are SEEDED into each hls.Run (per-part gap
