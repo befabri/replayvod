@@ -294,12 +294,13 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	jobs := make(chan segmentJob, jobChanCap)
 	results := make(chan SegmentResult, jobChanCap)
 	first := make(chan PollResult, 1)
-	// adSkips carries sequence-level stitched-ad skip events
-	// from the poller. Orchestrator drains them alongside worker
-	// results so SegmentEvent ordering is a single stream.
-	// Buffered same as jobs so a burst of ads during a poll
-	// doesn't block the poll loop.
-	adSkips := make(chan int64, jobChanCap)
+	// skipEvents carries sequence-level skip events from the poller
+	// (every reason — stitched ads today, other defect classes as
+	// they land). Orchestrator drains them alongside worker results
+	// so SegmentEvent ordering stays a single stream. Buffered same
+	// as jobs so a burst of skips during a poll doesn't block the
+	// poll loop.
+	skipEvents := make(chan SkipEvent, jobChanCap)
 
 	// Materialize the RefetchSeqs slice into a map the Poller can
 	// do O(1) membership checks against. Nil slices yield a nil
@@ -317,7 +318,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		HTTPClient:    cfg.PlaylistClient,
 		Log:           log,
 		StartMediaSeq: cfg.StartMediaSeq,
-		AdSkips:       adSkips,
+		SkipEvents:    skipEvents,
 		ClassifyAuth:  cfg.ClassifyAuth,
 		RefetchSeqs:   refetchMap,
 	}
@@ -339,11 +340,11 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	g, gctx := errgroup.WithContext(runCtx)
 
 	g.Go(func() error {
-		// Poller closes jobs via its defer; we close adSkips
-		// here in lock-step so the drain loop's select picks
-		// up both closures together. Deferred so it fires on
-		// any Run return path.
-		defer close(adSkips)
+		// Poller closes jobs via its defer; we close skipEvents
+		// here in lock-step so the drain loop's select picks up
+		// both closures together. Deferred so it fires on any
+		// Run return path.
+		defer close(skipEvents)
 		err := poller.Run(gctx, first, jobs)
 		// ENDLIST + ctx.Canceled both arrive as nil/ctx.Err;
 		// the errgroup won't cancel siblings on nil. We do
@@ -410,7 +411,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		}
 	}
 
-	abortErr, authErr := drainOutcomes(&cfg, result, results, adSkips, cancel, log)
+	abortErr, authErr := drainOutcomes(&cfg, result, results, skipEvents, cancel, log)
 
 	if authErr != nil {
 		_ = g.Wait()
@@ -469,7 +470,7 @@ func drainOutcomes(
 	cfg *JobConfig,
 	result *JobResult,
 	results <-chan SegmentResult,
-	adSkips <-chan int64,
+	skipEvents <-chan SkipEvent,
 	cancel context.CancelFunc,
 	log *slog.Logger,
 ) (*GapAbortError, error) {
@@ -477,8 +478,8 @@ func drainOutcomes(
 	var authErr error
 
 	resultsCh := results
-	adSkipsCh := adSkips
-	for resultsCh != nil || adSkipsCh != nil {
+	skipEventsCh := skipEvents
+	for resultsCh != nil || skipEventsCh != nil {
 		select {
 		case res, ok := <-resultsCh:
 			if !ok {
@@ -588,23 +589,38 @@ func drainOutcomes(
 			}
 			emitProgress(cfg.Progress, result)
 
-		case seq, ok := <-adSkipsCh:
+		case ev, ok := <-skipEventsCh:
 			if !ok {
-				adSkipsCh = nil
+				skipEventsCh = nil
 				continue
 			}
-			// Ad skips advance LastMediaSeq too — resume must
-			// see them as "accounted for, no retry." Otherwise
-			// the next attempt's StartMediaSeq would be before
-			// the skipped ads and re-process them.
-			if seq > result.LastMediaSeq {
-				result.LastMediaSeq = seq
+			// Skips advance LastMediaSeq too — resume must see
+			// them as "accounted for, no retry." Otherwise the
+			// next attempt's StartMediaSeq would be before the
+			// skipped seqs and re-process them.
+			if ev.MediaSeq > result.LastMediaSeq {
+				result.LastMediaSeq = ev.MediaSeq
 			}
-			result.SegmentsAdGaps++
-			emitEvent(cfg.OnEvent, SegmentEvent{
-				MediaSeq: seq,
-				Outcome:  OutcomeAdSkipped,
-			})
+			switch ev.Reason {
+			case SkipReasonStitchedAd:
+				// Structurally expected: Twitch-injected ad
+				// content is not a CDN or transport failure.
+				// Counted separately from SegmentsGaps so
+				// MaxGapRatio doesn't trip on ad-heavy streams.
+				result.SegmentsAdGaps++
+				emitEvent(cfg.OnEvent, SegmentEvent{
+					MediaSeq: ev.MediaSeq,
+					Outcome:  OutcomeAdSkipped,
+				})
+			default:
+				// Unknown reason — defensive fallback. Log +
+				// advance the frontier so we don't stall, but
+				// don't apply any policy. Future reasons get an
+				// explicit case branch above.
+				log.Warn("unknown skip reason; advancing frontier without policy",
+					"seq", ev.MediaSeq,
+					"reason", ev.Reason)
+			}
 			emitProgress(cfg.Progress, result)
 		}
 	}

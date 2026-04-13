@@ -96,17 +96,23 @@ type Poller struct {
 	// later phase.
 	StartMediaSeq int64
 
-	// AdSkips, when non-nil, receives the MediaSeq of each
-	// stitched-ad segment the poller filters. The orchestrator
-	// creates the channel, consumes events alongside worker
-	// results, and closes its ownership via the same defer path
-	// that closes the jobs channel. Sequence-level events (not a
-	// counter) so resume-on-restart can record frontier advances
-	// with typed reasons rather than reconstructing from a delta.
+	// SkipEvents, when non-nil, receives one SkipEvent per segment
+	// the poller filters before enqueue. Covers every skip reason
+	// (stitched ads today; other defect classes added as needed)
+	// on a single channel so the orchestrator's drain loop has one
+	// dispatch point. Reason classifies what happened; callers
+	// branch on it to apply reason-specific accounting and policy.
+	//
+	// The orchestrator creates the channel, consumes alongside
+	// worker results, and closes ownership via the same defer
+	// path that closes the jobs channel. Sequence-level events
+	// (not counters) so resume-on-restart records frontier
+	// advances with typed reasons rather than reconstructing
+	// from deltas.
 	//
 	// Writes use the same select-with-ctx-cancel pattern as jobs:
 	// a slow drain won't wedge the poll loop.
-	AdSkips chan<- int64
+	SkipEvents chan<- SkipEvent
 
 	// ClassifyAuth, when non-nil, inspects a 401/403 response body
 	// and reports whether the failure is permanent (entitlement
@@ -314,13 +320,13 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			if seg.IsAd {
 				// Skip Twitch stitched-ad content entirely —
 				// don't enqueue, don't fetch, don't write.
-				// Emit a sequence-level ad-skip event so the
+				// Emit a sequence-level skip event so the
 				// orchestrator can advance LastMediaSeq and
 				// feed resume/accounted-frontier accounting.
 				log.Debug("skipping stitched-ad segment", "seq", seg.MediaSeq)
-				if p.AdSkips != nil {
+				if p.SkipEvents != nil {
 					select {
-					case p.AdSkips <- seg.MediaSeq:
+					case p.SkipEvents <- SkipEvent{MediaSeq: seg.MediaSeq, Reason: SkipReasonStitchedAd}:
 					case <-ctx.Done():
 						return ctx.Err()
 					}

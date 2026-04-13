@@ -83,6 +83,32 @@ type SegmentEvent struct {
 	Err error
 }
 
+// SkipReason classifies why the Poller filtered a segment before
+// it was ever enqueued. Skipped segments never see a worker, never
+// produce bytes on disk, and never go through the gap-policy's
+// MaxGapRatio math for retryable fetch failures. Different reasons
+// map to different downstream accounting: ads are structurally
+// expected and counted separately from real loss; other classes
+// (added later) may apply gap policy or abort the job.
+type SkipReason string
+
+const (
+	// SkipReasonStitchedAd: segment fell inside a Twitch
+	// stitched-ad pod (EXT-X-DATERANGE CLASS="twitch-stitched-ad").
+	// Structurally expected; does NOT count against MaxGapRatio.
+	// Counted in JobResult.SegmentsAdGaps.
+	SkipReasonStitchedAd SkipReason = "stitched-ad"
+)
+
+// SkipEvent is the Poller's "this segment was filtered before
+// enqueue" signal. One channel carries every reason class so the
+// orchestrator's drain loop has a single dispatch point and the
+// Poller doesn't need a parallel channel per defect type.
+type SkipEvent struct {
+	MediaSeq int64
+	Reason   SkipReason
+}
+
 // Segment is one media fragment parsed out of the media playlist.
 // Fields are minimal by design: the parser thins Eyevinn's rich
 // MediaSegment down to what the fetch loop actually consults. All

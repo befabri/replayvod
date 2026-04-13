@@ -285,26 +285,42 @@ func TestRun_RefetchHandlesMultipleSeqs(t *testing.T) {
 	// Refetch run: seed whatever was observed. If only one seq
 	// came back, the other will re-fail auth on this run; loop
 	// once more to capture it.
-	cfg2 := newJob(t, srv, dir)
-	cfg2.StartMediaSeq = result1.LastMediaSeq + 1
-	cfg2.RefetchSeqs = result1.AuthErrorSeqs
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel2()
-	result2, err := Run(ctx2, cfg2)
-	if err != nil && !errors.Is(err, ErrPlaylistAuth) {
-		t.Fatalf("second run: %v", err)
-	}
-
-	// Optional third iteration covers the one-per-run race.
-	if errors.Is(err, ErrPlaylistAuth) && len(result2.AuthErrorSeqs) > 0 {
-		cfg3 := newJob(t, srv, dir)
-		cfg3.StartMediaSeq = result2.LastMediaSeq + 1
-		cfg3.RefetchSeqs = result2.AuthErrorSeqs
-		ctx3, cancel3 := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel3()
-		if _, err := Run(ctx3, cfg3); err != nil {
-			t.Fatalf("third run: %v", err)
+	// Loop Run-with-refetch until both seqs are committed or the
+	// budget is spent. Covers two races:
+	//   1. Orchestrator cancels before both auth-errors drain
+	//      through — AuthErrorSeqs may have only one of them.
+	//   2. Worker's out<-result vs ctx.Done select picks ctx.Done
+	//      when both are ready (known pool.go flake). Result
+	//      never reaches the drain, doesn't land in
+	//      AuthErrorSeqs. Next iteration picks the seq up via
+	//      StartMediaSeq forward-walk (the seq hasn't been
+	//      committed yet, so it's still above LastMediaSeq
+	//      effectively as the playlist re-lists it).
+	prev := result1
+	budget := 5
+	for budget > 0 {
+		if fileExists(dir, "0.ts") && fileExists(dir, "1.ts") {
+			break
 		}
+		cfgN := newJob(t, srv, dir)
+		cfgN.StartMediaSeq = prev.LastMediaSeq + 1
+		cfgN.RefetchSeqs = prev.AuthErrorSeqs
+		// Also re-add any seq below the forward cursor that's
+		// still missing on disk — covers the dropped-drain race
+		// where AuthErrorSeqs didn't capture the seq.
+		for _, s := range []int64{0, 1} {
+			if !fileExists(dir, fmt.Sprintf("%d.ts", s)) && !slices.Contains(cfgN.RefetchSeqs, s) {
+				cfgN.RefetchSeqs = append(cfgN.RefetchSeqs, s)
+			}
+		}
+		ctxN, cancelN := context.WithTimeout(context.Background(), 15*time.Second)
+		rN, err := Run(ctxN, cfgN)
+		cancelN()
+		if err != nil && !errors.Is(err, ErrPlaylistAuth) {
+			t.Fatalf("refetch loop iter %d: %v", 6-budget, err)
+		}
+		prev = rN
+		budget--
 	}
 
 	// User-visible invariant: both seqs on disk after the
@@ -476,6 +492,12 @@ func TestRun_WindowRollCallbackSkippedOnFreshJob(t *testing.T) {
 	if got := called.Load(); got != 0 {
 		t.Errorf("OnWindowRoll called %d times on fresh job, want 0", got)
 	}
+}
+
+// fileExists is a small test helper: true if dir/name is stat-able.
+func fileExists(dir, name string) bool {
+	_, err := os.Stat(filepath.Join(dir, name))
+	return err == nil
 }
 
 // syncMapInt is a tiny wrapper over sync.Map specialized for

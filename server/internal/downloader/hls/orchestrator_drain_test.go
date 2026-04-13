@@ -26,7 +26,7 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 	cfg := &JobConfig{}
 	result := &JobResult{}
 	results := make(chan SegmentResult, 4)
-	adSkips := make(chan int64, 4)
+	skipEvents := make(chan SkipEvent, 4)
 
 	var cancelCalled atomic.Int32
 	authSeen := make(chan struct{})
@@ -57,7 +57,7 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 		authErr  error
 	})
 	go func() {
-		abortErr, authErr := drainOutcomes(cfg, result, results, adSkips, cancel, slog.New(slog.DiscardHandler))
+		abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, slog.New(slog.DiscardHandler))
 		done <- struct {
 			abortErr *GapAbortError
 			authErr  error
@@ -67,10 +67,10 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 	results <- SegmentResult{MediaSeq: 10, Err: &FetchError{Kind: FetchKindAuth, Status: 401}}
 	<-authSeen
 	results <- SegmentResult{MediaSeq: 11, BytesWritten: 2048}
-	adSkips <- 12
+	skipEvents <- SkipEvent{MediaSeq: 12, Reason: SkipReasonStitchedAd}
 	results <- SegmentResult{MediaSeq: 13, Err: errors.New("transport blew up")}
 	close(results)
-	close(adSkips)
+	close(skipEvents)
 
 	out := <-done
 	abortErr, authErr := out.abortErr, out.authErr
