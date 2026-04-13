@@ -177,7 +177,16 @@ func (e *FetchError) Unwrap() error { return e.Cause }
 // transport budget.
 //
 //nolint:gocyclo // State machine; splitting hurts readability.
-func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, error) {
+func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter, targetDuration time.Duration) (int64, error) {
+	// Per-playlist targetDuration overrides the Fetcher's config
+	// default for the 404/410 CDN-lag retry cadence. Spec Stage 4
+	// sleeps half of the playlist's EXT-X-TARGETDURATION between
+	// attempts. Zero or negative (init segment, tests that don't
+	// care) falls back to FetcherConfig.TargetDuration.
+	cdnLagTick := targetDuration
+	if cdnLagTick <= 0 {
+		cdnLagTick = f.cfg.TargetDuration
+	}
 	var (
 		transportAttempts = 0
 		serverAttempts    = 0
@@ -251,7 +260,7 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 			if cdnLagAttempts >= f.cfg.CDNLagAttempts {
 				return 0, &FetchError{Kind: FetchKindCDNLag, Status: resp.StatusCode, Attempts: cdnLagAttempts, Permanent: true}
 			}
-			if sleepErr := f.sleep(ctx, f.cfg.TargetDuration/2); sleepErr != nil {
+			if sleepErr := f.sleep(ctx, cdnLagTick/2); sleepErr != nil {
 				return 0, &FetchError{Kind: FetchKindCanceled, Attempts: cdnLagAttempts, Cause: sleepErr, Permanent: true}
 			}
 			continue

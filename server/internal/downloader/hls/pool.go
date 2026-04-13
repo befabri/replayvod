@@ -123,7 +123,7 @@ func (p *Pool) runOne(ctx context.Context, log *slog.Logger, job segmentJob) Seg
 	}
 	defer writer.Abort()
 
-	n, err := p.Fetcher.Fetch(ctx, job.Segment.URI, writer)
+	n, err := p.Fetcher.Fetch(ctx, job.Segment.URI, writer, job.TargetDuration)
 	if err != nil {
 		// Fetcher drained the body and logged internally; we
 		// surface the error for the orchestrator's gap policy.

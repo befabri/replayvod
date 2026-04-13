@@ -32,7 +32,7 @@ func fetchInto(t *testing.T, f *Fetcher, url, finalName string) ([]byte, error) 
 		t.Fatalf("writer: %v", err)
 	}
 	defer w.Abort()
-	_, err = f.Fetch(context.Background(), url, w)
+	_, err = f.Fetch(context.Background(), url, w, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +422,7 @@ func TestFetch_CtxCancelShortCircuits(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, err = f.Fetch(ctx, srv.URL+"/seg.ts", w)
+	_, err = f.Fetch(ctx, srv.URL+"/seg.ts", w, 0)
 	if err == nil {
 		t.Fatal("expected cancel error")
 	}
@@ -553,7 +553,7 @@ func TestFetch_CancelDuringSleep(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 
-	_, err = f.Fetch(ctx, srv.URL+"/seg.ts", w)
+	_, err = f.Fetch(ctx, srv.URL+"/seg.ts", w, 0)
 	if err == nil {
 		t.Fatal("expected cancel error")
 	}

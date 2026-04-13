@@ -22,6 +22,14 @@ type segmentJob struct {
 	Segment   Segment
 	Kind      SegmentKind
 	FinalName string // e.g. "42.ts" or "105.m4s"
+
+	// TargetDuration is the playlist's observed EXT-X-TARGETDURATION
+	// at the poll when this segment was enqueued. The fetcher's CDN-
+	// lag retry (404/410 path) sleeps half of this between attempts
+	// so the cadence tracks the stream's actual window rather than
+	// the Fetcher's 2s default. Propagated per-job because Fetcher
+	// is process-wide shared state.
+	TargetDuration time.Duration
 }
 
 // Poller polls a media playlist URL on a target-duration tick,
@@ -297,9 +305,10 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 				continue
 			}
 			job := segmentJob{
-				Segment:   seg,
-				Kind:      pl.Kind,
-				FinalName: fmt.Sprintf("%d%s", seg.MediaSeq, ext),
+				Segment:        seg,
+				Kind:           pl.Kind,
+				FinalName:      fmt.Sprintf("%d%s", seg.MediaSeq, ext),
+				TargetDuration: pl.TargetDuration,
 			}
 			select {
 			case out <- job:

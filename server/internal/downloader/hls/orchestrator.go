@@ -627,7 +627,9 @@ func fetchInit(ctx context.Context, f *Fetcher, workDir, url string) error {
 		return err
 	}
 	defer w.Abort()
-	if _, err := f.Fetch(ctx, url, w); err != nil {
+	// Init segment is a one-shot: no CDN-lag cadence to tune, so
+	// we pass 0 and let the Fetcher fall back to its default.
+	if _, err := f.Fetch(ctx, url, w, 0); err != nil {
 		return err
 	}
 	return w.Commit()
