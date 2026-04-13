@@ -13,34 +13,23 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/auth"
+	"github.com/befabri/replayvod/server/internal/server/api/category"
+	"github.com/befabri/replayvod/server/internal/server/api/channel"
+	"github.com/befabri/replayvod/server/internal/server/api/eventsub"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/auth"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/category"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/channel"
-	eventsubroute "github.com/befabri/replayvod/server/internal/server/api/routes/eventsub"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/schedule"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/settings"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/sse"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/stream"
-	systemroute "github.com/befabri/replayvod/server/internal/server/api/routes/system"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/tag"
-	taskroute "github.com/befabri/replayvod/server/internal/server/api/routes/task"
-	videoroute "github.com/befabri/replayvod/server/internal/server/api/routes/video"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/videorequest"
-	"github.com/befabri/replayvod/server/internal/server/api/routes/webhook"
-	"github.com/befabri/replayvod/server/internal/service/authservice"
-	"github.com/befabri/replayvod/server/internal/service/categoryservice"
-	"github.com/befabri/replayvod/server/internal/service/channelservice"
-	"github.com/befabri/replayvod/server/internal/service/downloadservice"
-	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
-	"github.com/befabri/replayvod/server/internal/service/scheduleservice"
-	"github.com/befabri/replayvod/server/internal/service/settingsservice"
-	"github.com/befabri/replayvod/server/internal/service/streamservice"
-	"github.com/befabri/replayvod/server/internal/service/systemservice"
-	"github.com/befabri/replayvod/server/internal/service/tagservice"
-	"github.com/befabri/replayvod/server/internal/service/taskservice"
-	"github.com/befabri/replayvod/server/internal/service/videorequestservice"
-	"github.com/befabri/replayvod/server/internal/service/videoservice"
+	"github.com/befabri/replayvod/server/internal/server/api/schedule"
+	"github.com/befabri/replayvod/server/internal/server/api/settings"
+	"github.com/befabri/replayvod/server/internal/server/api/sse"
+	"github.com/befabri/replayvod/server/internal/server/api/stream"
+	"github.com/befabri/replayvod/server/internal/server/api/system"
+	"github.com/befabri/replayvod/server/internal/server/api/tag"
+	"github.com/befabri/replayvod/server/internal/server/api/task"
+	"github.com/befabri/replayvod/server/internal/server/api/video"
+	"github.com/befabri/replayvod/server/internal/server/api/videorequest"
+	"github.com/befabri/replayvod/server/internal/server/api/webhook"
+	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
+	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -77,33 +66,37 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		r.Mount("/debug", chimiddleware.Profiler())
 	}
 
-	// Chi routes (non-tRPC: OAuth, webhooks, video streaming, thumbnails).
-	// Video/thumbnail routes reuse the session middleware — auth required
-	// for both, and we want the same context population the tRPC side gets.
-	authSvcDomain := authservice.New(repo, sessionMgr, twitchClient, authservice.Config{
+	// Shared domain services — used across multiple transports. Construct
+	// once so the OAuth Chi handler + tRPC handler share an auth Service,
+	// and the schedule webhook processor + tRPC handler share a schedule
+	// Service.
+	authSvc := auth.New(repo, sessionMgr, twitchClient, auth.Config{
 		WhitelistEnabled: cfg.Env.WhitelistEnabled,
 		OwnerTwitchID:    cfg.Env.OwnerTwitchID,
 	}, log)
-	authHandler := auth.NewHandler(cfg, twitchClient, sessionMgr, authSvcDomain, log)
-	videoHandler := videoroute.NewHandler(repo, store, log)
+	scheduleSvc := schedulesvc.New(repo, log)
+
+	// Chi routes (non-tRPC: OAuth, webhooks, video streaming, thumbnails).
+	// Video/thumbnail routes reuse the session middleware — auth required
+	// for both, and we want the same context population the tRPC side gets.
+	authHandler := auth.NewHandler(cfg, twitchClient, sessionMgr, authSvc, log)
+	videoStream := video.NewStreamHandler(repo, store, log)
 	// The webhook handler needs the raw body for HMAC verification, so it
 	// must live on the Chi side (no tRPC JSON middleware) and outside the
 	// csrfProtection group (Twitch can't provide a CSRF cookie). The
 	// schedule-service processor dispatches stream.online events to the
 	// auto-download pipeline; other event types are audit-logged only.
-	scheduleProcessor := scheduleservice.NewEventProcessor(repo, dl, twitchClient, bus, log)
+	scheduleProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, bus, log)
 	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, scheduleProcessor, log)
 	sessionMw := middleware.Auth(sessionMgr, repo, log)
 	r.Route("/api/v1", func(r chi.Router) {
 		authHandler.SetupRoutes(r)
-		videoHandler.SetupRoutes(r, sessionMw)
+		videoStream.SetupRoutes(r, sessionMw)
 		webhookHandler.SetupRoutes(r)
 	})
 
-	// tRPC router with CSRF/origin protection. authSvcDomain is
-	// threaded through so the same domain service backs both the Chi
-	// OAuth handler and the tRPC session procedures.
-	trpcRouter := SetupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, bus, authSvcDomain, log)
+	// tRPC router with CSRF/origin protection.
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, bus, authSvc, scheduleSvc, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -123,42 +116,11 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	return r, trpcRouter.Close
 }
 
-// SetupTRPCRouter builds the tRPC router with all procedures.
-func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, bus *eventbus.Buses, authSvcDomain *authservice.Service, log *slog.Logger) *trpcgo.Router {
-	// Services
-	authSvc := auth.NewService(authSvcDomain, sessionMgr, log)
-	channelSvc := channel.NewService(channelservice.New(repo, twitchClient, log), log)
-	categorySvc := category.NewService(categoryservice.New(repo, log), log)
-	systemSvc := systemroute.NewService(systemservice.New(repo, log), log)
-	videoSvc := videoroute.NewService(
-		videoservice.New(repo, log),
-		downloadservice.New(repo, dl, twitchClient, log),
-		log,
-	)
-	streamSvc := stream.NewService(streamservice.New(repo, log), log)
-	videoRequestSvc := videorequest.NewService(videorequestservice.New(repo, log), log)
-	scheduleSvc := schedule.NewService(scheduleservice.NewService(repo, log), log)
-	// EventSub manager drives subscribe/unsubscribe/snapshot. The tRPC
-	// service shares it with the webhook processor (though the processor
-	// only reads the repo, not the manager) so a future cron scheduler
-	// can call Snapshot on the same instance without second construction.
-	eventsubMgr := eventsubservice.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
-	eventsubSvc := eventsubroute.NewService(eventsubMgr, log)
-	settingsSvc := settings.NewService(settingsservice.New(repo, log), log)
-	taskSvc := taskroute.NewService(taskservice.New(repo, log), log)
-	tagSvc := tag.NewService(tagservice.New(repo, log), log)
-	sseSvc := sse.NewService(bus, log)
-
-	// Middleware
-	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
-	adminMw := middleware.TRPCRequireRole(middleware.RoleAdmin)
-	ownerMw := middleware.TRPCRequireRole(middleware.RoleOwner)
-
-	// Base procedures (ProcedureBuilder pattern)
-	authedProcedure := trpcgo.Procedure().Use(authMw)
-	viewerProcedure := authedProcedure
-	ownerProcedure := authedProcedure.Use(ownerMw)
-
+// setupTRPCRouter builds the tRPC router and dispatches procedure
+// registration to each domain's RegisterRoutes. authSvc + scheduleSvc
+// are the shared domain services constructed by SetupRouter; everything
+// else each domain owns.
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, log *slog.Logger) *trpcgo.Router {
 	opts := []trpcgo.Option{
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
 		trpcgo.WithValidator(validate.V.Struct),
@@ -192,104 +154,39 @@ func SetupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 
 	tr := trpcgo.NewRouter(opts...)
 
-	// Auth procedures (all require authenticated session)
-	trpcgo.MustVoidQuery(tr, "auth.session", authSvc.Session, authedProcedure)
-	trpcgo.MustVoidMutation(tr, "auth.logout", authSvc.Logout, authedProcedure)
-	trpcgo.MustVoidQuery(tr, "auth.sessions", authSvc.ListSessions, authedProcedure)
-	trpcgo.MustMutation(tr, "auth.revokeSession", authSvc.RevokeSession, authedProcedure)
+	// Procedure builders: authed is the base, viewer/admin/owner layer role
+	// middleware on top. Each domain's RegisterRoutes picks the ones it
+	// needs, so we pass only what's relevant per call.
+	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
+	adminMw := middleware.TRPCRequireRole(middleware.RoleAdmin)
+	ownerMw := middleware.TRPCRequireRole(middleware.RoleOwner)
 
-	// Channel procedures
-	trpcgo.MustQuery(tr, "channel.getById", channelSvc.GetByID, viewerProcedure)
-	trpcgo.MustQuery(tr, "channel.getByLogin", channelSvc.GetByLogin, viewerProcedure)
-	trpcgo.MustVoidQuery(tr, "channel.list", channelSvc.List, viewerProcedure)
-	trpcgo.MustVoidQuery(tr, "channel.listFollowed", channelSvc.ListFollowed, viewerProcedure)
-	trpcgo.MustMutation(tr, "channel.syncFromTwitch", channelSvc.SyncFromTwitch, ownerProcedure)
+	authed := trpcgo.Procedure().Use(authMw)
+	viewer := authed
+	admin := authed.Use(adminMw)
+	owner := authed.Use(ownerMw)
 
-	// Category procedures
-	trpcgo.MustQuery(tr, "category.getById", categorySvc.GetByID, viewerProcedure)
-	trpcgo.MustVoidQuery(tr, "category.list", categorySvc.List, viewerProcedure)
+	// EventSub domain service — the tRPC handler shares it with the
+	// scheduler cron task. Constructed here rather than in cmd/server
+	// because the tRPC side is where it's consumed, but main.go also
+	// builds its own copy for the scheduler (see main.go).
+	eventsubMgr := eventsubsvc.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
 
-	// Tag procedures — viewer-level read only; tags are created by the
-	// stream enrichment path on stream.online, not user input.
-	trpcgo.MustVoidQuery(tr, "tag.list", tagSvc.List, viewerProcedure)
-
-	// System procedures (owner only)
-	trpcgo.MustQuery(tr, "system.fetchLogs", systemSvc.FetchLogs, ownerProcedure)
-	trpcgo.MustVoidQuery(tr, "system.listUsers", systemSvc.ListUsers, ownerProcedure)
-	trpcgo.MustMutation(tr, "system.updateUserRole", systemSvc.UpdateUserRole, ownerProcedure)
-	trpcgo.MustVoidQuery(tr, "system.listWhitelist", systemSvc.ListWhitelist, ownerProcedure)
-	trpcgo.MustMutation(tr, "system.addWhitelist", systemSvc.AddWhitelist, ownerProcedure)
-	trpcgo.MustMutation(tr, "system.removeWhitelist", systemSvc.RemoveWhitelist, ownerProcedure)
-
-	// Video procedures. Reads are viewer-level; download triggers and cancel
-	// are admin-level so regular viewers can't burn Twitch/Helix quota.
-	adminProcedure := authedProcedure.Use(adminMw)
-	trpcgo.MustQuery(tr, "video.list", videoSvc.List, viewerProcedure)
-	trpcgo.MustQuery(tr, "video.getById", videoSvc.GetByID, viewerProcedure)
-	trpcgo.MustQuery(tr, "video.byBroadcaster", videoSvc.ByBroadcaster, viewerProcedure)
-	trpcgo.MustQuery(tr, "video.byCategory", videoSvc.ByCategory, viewerProcedure)
-	trpcgo.MustVoidQuery(tr, "video.statistics", videoSvc.Statistics, viewerProcedure)
-	trpcgo.MustMutation(tr, "video.triggerDownload", videoSvc.TriggerDownload, adminProcedure)
-	trpcgo.MustMutation(tr, "video.cancel", videoSvc.Cancel, adminProcedure)
-	// SSE progress stream. Admin-only: if you can trigger a download you can
-	// watch it. trpcgo.TRPCAuth middleware runs at subscribe time and the SSE
-	// lifecycle closes the stream if the session expires mid-flight.
-	trpcgo.MustSubscribe(tr, "video.downloadProgress", videoSvc.DownloadProgress, adminProcedure)
-
-	// Stream procedures.
-	trpcgo.MustVoidQuery(tr, "stream.active", streamSvc.Active, viewerProcedure)
-	trpcgo.MustQuery(tr, "stream.byBroadcaster", streamSvc.ByBroadcaster, viewerProcedure)
-	trpcgo.MustQuery(tr, "stream.lastLive", streamSvc.LastLive, viewerProcedure)
-
-	// Video request procedures.
-	trpcgo.MustQuery(tr, "videorequest.mine", videoRequestSvc.Mine, viewerProcedure)
-	trpcgo.MustMutation(tr, "videorequest.request", videoRequestSvc.Request, viewerProcedure)
-
-	// Schedule procedures. Reads are viewer-level (owners see all); writes
-	// are admin-only so viewers can't burn Twitch quota auto-downloading.
-	trpcgo.MustQuery(tr, "schedule.list", scheduleSvc.List, viewerProcedure)
-	trpcgo.MustQuery(tr, "schedule.mine", scheduleSvc.Mine, viewerProcedure)
-	trpcgo.MustQuery(tr, "schedule.getById", scheduleSvc.GetByID, viewerProcedure)
-	trpcgo.MustMutation(tr, "schedule.create", scheduleSvc.Create, adminProcedure)
-	trpcgo.MustMutation(tr, "schedule.update", scheduleSvc.Update, adminProcedure)
-	trpcgo.MustMutation(tr, "schedule.toggle", scheduleSvc.Toggle, adminProcedure)
-	trpcgo.MustMutation(tr, "schedule.delete", scheduleSvc.Delete, adminProcedure)
-
-	// EventSub procedures — all owner-only. Manual subscribe/unsubscribe
-	// burns Twitch quota; manual snapshot polls Helix.
-	trpcgo.MustQuery(tr, "eventsub.listSubscriptions", eventsubSvc.ListSubscriptions, ownerProcedure)
-	trpcgo.MustQuery(tr, "eventsub.listSnapshots", eventsubSvc.ListSnapshots, ownerProcedure)
-	trpcgo.MustVoidQuery(tr, "eventsub.latestSnapshot", eventsubSvc.LatestSnapshot, ownerProcedure)
-	trpcgo.MustVoidMutation(tr, "eventsub.snapshot", eventsubSvc.Snapshot, ownerProcedure)
-	trpcgo.MustMutation(tr, "eventsub.subscribeStreamOnline", eventsubSvc.SubscribeStreamOnline, ownerProcedure)
-	trpcgo.MustMutation(tr, "eventsub.unsubscribe", eventsubSvc.Unsubscribe, ownerProcedure)
-
-	// Settings — per-user, viewer-level. Every authed user gets their
-	// own row; lazy-create happens server-side on first Get.
-	trpcgo.MustVoidQuery(tr, "settings.get", settingsSvc.Get, viewerProcedure)
-	trpcgo.MustMutation(tr, "settings.update", settingsSvc.Update, viewerProcedure)
-
-	// Task admin — owner-only. Toggling a task pauses the schedule for
-	// the whole system; run-now triggers an immediate run on the next
-	// scheduler tick (not synchronous — keeps the tRPC call fast).
-	trpcgo.MustVoidQuery(tr, "task.list", taskSvc.List, ownerProcedure)
-	trpcgo.MustMutation(tr, "task.toggle", taskSvc.Toggle, ownerProcedure)
-	trpcgo.MustMutation(tr, "task.runNow", taskSvc.RunNow, ownerProcedure)
-
-	// Event logs — owner-only, extends the system.* surface so the
-	// existing owner procedures and dashboard nav apply uniformly.
-	// searchEventLogs is a separate procedure rather than an
-	// `eventLogs(query=...)` variant because the output shape differs
-	// (ranked + rank field) and the UI handles them in distinct tabs.
-	trpcgo.MustQuery(tr, "system.eventLogs", systemSvc.EventLogs, ownerProcedure)
-	trpcgo.MustQuery(tr, "system.searchEventLogs", systemSvc.SearchEventLogs, ownerProcedure)
-
-	// SSE subscriptions. system.events and task.status are
-	// owner-level (operator telemetry); stream.live is viewer-level so
-	// any signed-in user can watch for channels going live.
-	trpcgo.MustVoidSubscribe(tr, "system.events", sseSvc.SystemEvents, ownerProcedure)
-	trpcgo.MustVoidSubscribe(tr, "task.status", sseSvc.TaskStatus, ownerProcedure)
-	trpcgo.MustVoidSubscribe(tr, "stream.live", sseSvc.StreamLive, viewerProcedure)
+	// Dispatch to each domain. Keeps this function stable when a domain
+	// adds a new procedure — the change lives in that domain's routes.go.
+	auth.RegisterTRPC(tr, authSvc, sessionMgr, log, authed)
+	category.RegisterRoutes(tr, repo, log, viewer)
+	channel.RegisterRoutes(tr, repo, twitchClient, log, viewer, owner)
+	eventsub.RegisterRoutes(tr, eventsubMgr, log, owner)
+	schedule.RegisterRoutes(tr, scheduleSvc, log, viewer, admin)
+	settings.RegisterRoutes(tr, repo, log, viewer)
+	sse.RegisterRoutes(tr, bus, log, viewer, owner)
+	stream.RegisterRoutes(tr, repo, log, viewer)
+	system.RegisterRoutes(tr, repo, log, owner)
+	tag.RegisterRoutes(tr, repo, log, viewer)
+	task.RegisterRoutes(tr, repo, log, owner)
+	video.RegisterRoutes(tr, repo, dl, twitchClient, log, viewer, admin)
+	videorequest.RegisterRoutes(tr, repo, log, viewer)
 
 	return tr
 }

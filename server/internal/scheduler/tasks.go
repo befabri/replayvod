@@ -10,7 +10,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
+	"github.com/befabri/replayvod/server/internal/service/eventsub"
 )
 
 // RegisterStandardTasks wires the default scheduled jobs against a
@@ -18,7 +18,7 @@ import (
 // cfg.App.Scheduler; a zero interval skips registration so operators
 // can disable a task by zeroing the value (distinct from is_enabled,
 // which persists across the DB via the dashboard toggle).
-func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repository, eventsub *eventsubservice.Service, log *slog.Logger) error {
+func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repository, esvc *eventsub.Service, log *slog.Logger) error {
 	sc := cfg.App.Scheduler
 
 	if m := sc.TokenCleanupIntervalMinutes; m > 0 {
@@ -89,14 +89,14 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 		}
 	}
 
-	if eventsub != nil {
+	if esvc != nil {
 		if m := sc.EventsubIntervalMinutes; m > 0 {
 			if err := s.Register(Task{
 				Name:            "eventsub_snapshot",
 				Description:     "Poll Twitch EventSub subscriptions + record quota snapshot",
 				IntervalSeconds: int64(m) * 60,
 				Run: func(ctx context.Context) error {
-					_, err := eventsub.Snapshot(ctx)
+					_, err := esvc.Snapshot(ctx)
 					return err
 				},
 			}); err != nil {

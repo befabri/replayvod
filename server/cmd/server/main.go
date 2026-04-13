@@ -21,7 +21,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/scheduler"
 	"github.com/befabri/replayvod/server/internal/server"
-	"github.com/befabri/replayvod/server/internal/service/eventsubservice"
+	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -211,7 +211,7 @@ func main() {
 	// is false — useful for one-off CLI invocations or tests.
 	var sched *scheduler.Service
 	if cfg.App.Scheduler.Enabled {
-		esvc := eventsubservice.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
+		esvc := eventsub.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
 		sched = scheduler.NewService(repo, log, 15*time.Second, bus)
 		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
