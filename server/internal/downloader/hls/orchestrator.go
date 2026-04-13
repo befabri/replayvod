@@ -107,6 +107,17 @@ type JobConfig struct {
 	// that will never be fetched. Called before OnFirstPoll +
 	// OnEvent so the gap lands before any subsequent commit.
 	OnWindowRoll func(from, to int64)
+
+	// ClassifyAuth, when non-nil, is forwarded to both the poller
+	// and the segment fetcher. It inspects 401/403 response bodies
+	// and reports whether the failure is permanent (entitlement
+	// restriction, geoblock, etc.). Permanent failures short-
+	// circuit the auth-refresh loop — ErrPlaylistAuthPermanent or
+	// FetchKindAuthPermanent — so callers don't spin on a stream
+	// they'll never be allowed to watch. Leaving it nil preserves
+	// the pre-hook behavior: every 401/403 is treated as a
+	// refreshable token expiry.
+	ClassifyAuth func(status int, body []byte) (permanent bool)
 }
 
 // GapPolicy decides "accept segment failure as a gap" vs "abort
@@ -262,6 +273,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		Log:           log,
 		StartMediaSeq: cfg.StartMediaSeq,
 		AdSkips:       adSkips,
+		ClassifyAuth:  cfg.ClassifyAuth,
 	}
 	pool := &Pool{
 		Fetcher: cfg.Fetcher,
@@ -430,11 +442,30 @@ func drainOutcomes(
 				result.LastMediaSeq = res.MediaSeq
 			}
 			if res.Err != nil {
-				// Auth errors escape gap policy: the outer
-				// auth-refresh loop handles them. First auth
-				// error latches authErr + cancel(); subsequent
-				// ones in the drain tail still emit OnEvent for
-				// accounting but don't re-trigger.
+				// Permanent auth (entitlement restriction,
+				// geoblock): short-circuit the refresh loop —
+				// the outer caller's errors.Is(ErrPlaylistAuth)
+				// check must return false so fetchWithAuthRefresh
+				// bails to the job-level failure path rather
+				// than burning the auth-refresh budget.
+				if IsAuthPermanent(res.Err) {
+					if authErr == nil && abortErr == nil {
+						authErr = fmt.Errorf("hls: segment seq=%d permanent auth: %w", res.MediaSeq, ErrPlaylistAuthPermanent)
+						log.Info("segment permanent auth failure; failing job", "seq", res.MediaSeq)
+						cancel()
+					}
+					emitEvent(cfg.OnEvent, SegmentEvent{
+						MediaSeq: res.MediaSeq,
+						Outcome:  OutcomeAuth,
+						Err:      res.Err,
+					})
+					continue
+				}
+				// Retryable auth: the outer auth-refresh loop
+				// handles it. First auth error latches authErr +
+				// cancel(); subsequent ones in the drain tail
+				// still emit OnEvent for accounting but don't
+				// re-trigger.
 				if IsAuth(res.Err) {
 					if authErr == nil && abortErr == nil {
 						authErr = fmt.Errorf("hls: segment seq=%d auth error: %w", res.MediaSeq, ErrPlaylistAuth)

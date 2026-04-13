@@ -29,6 +29,17 @@ type FetcherConfig struct {
 	BaseBackoff    time.Duration
 	MaxBackoff     time.Duration
 	TargetDuration time.Duration
+
+	// ClassifyAuth, when non-nil, inspects a 401/403 response
+	// body and reports whether the failure is permanent. The
+	// Fetcher marks permanent FetchErrors with Permanent=true so
+	// the orchestrator can bail fast rather than burning the auth-
+	// refresh budget. Nil preserves the pre-hook behavior of
+	// treating every 401/403 as a refreshable token expiry.
+	//
+	// Set once at NewFetcher and immutable after — the Fetcher is
+	// a process-lifetime singleton shared across all jobs.
+	ClassifyAuth func(status int, body []byte) (permanent bool)
 }
 
 func (c FetcherConfig) normalize() FetcherConfig {
@@ -216,8 +227,19 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter) (int64, 
 
 		switch {
 		case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+			// Classify the 401/403 body before concluding
+			// "refresh and retry" — subscriber-only, geoblock,
+			// and VOD-manifest-restricted errors share the
+			// status code but can never succeed after a refresh.
+			// Permanent=true lets the orchestrator's drain short-
+			// circuit the auth-refresh loop.
+			var body []byte
+			if f.cfg.ClassifyAuth != nil {
+				body, _ = io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+			}
 			drainAndClose(resp)
-			return 0, &FetchError{Kind: FetchKindAuth, Status: resp.StatusCode, Attempts: 1, Permanent: false}
+			permanent := f.cfg.ClassifyAuth != nil && f.cfg.ClassifyAuth(resp.StatusCode, body)
+			return 0, &FetchError{Kind: FetchKindAuth, Status: resp.StatusCode, Attempts: 1, Permanent: permanent}
 
 		case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
 			// CDN lag path — spec Stage 4: live segments propagate
@@ -368,8 +390,20 @@ func drainAndClose(resp *http.Response) {
 
 // IsAuth reports whether err is a FetchError with FetchKindAuth.
 // Convenience for orchestrator code that branches on auth vs
-// other failures.
+// other failures. Matches both retryable and permanent auth
+// failures — callers that need the distinction use
+// IsAuthPermanent.
 func IsAuth(err error) bool {
 	var fe *FetchError
 	return errors.As(err, &fe) && fe.Kind == FetchKindAuth
+}
+
+// IsAuthPermanent reports whether err is a FetchError that the
+// ClassifyAuth hook flagged as permanent. Orchestrator code that
+// decides "refresh the token and retry" vs "fail the job" checks
+// this before IsAuth — otherwise a subscriber-only 403 would burn
+// the auth-refresh budget on a stream no refresh will ever unlock.
+func IsAuthPermanent(err error) bool {
+	var fe *FetchError
+	return errors.As(err, &fe) && fe.Kind == FetchKindAuth && fe.Permanent
 }

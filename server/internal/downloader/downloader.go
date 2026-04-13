@@ -247,6 +247,7 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		TransportAttempts:   cfg.App.Download.NetworkAttempts,
 		ServerErrorAttempts: cfg.App.Download.ServerErrorAttempts,
 		CDNLagAttempts:      cfg.App.Download.CDNLagAttempts,
+		ClassifyAuth:        classifyTwitchAuth,
 	}, domainLog)
 
 	s := &Service{
@@ -1050,6 +1051,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			Log:                log,
 			Progress:           hlsProgress,
 			StartMediaSeq:      startSeq,
+			ClassifyAuth:       classifyTwitchAuth,
 			GapPolicy: hls.GapPolicy{
 				Strict:      s.cfg.App.Download.Strict,
 				MaxGapRatio: s.cfg.App.Download.MaxGapRatio,
@@ -1310,6 +1312,20 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	if err := s.repo.MarkJobFailed(dbCtx, d.jobID, recorded.Error()); err != nil {
 		log.Error("failed to mark job failed", "error", err)
 	}
+}
+
+// classifyTwitchAuth wires the twitch-specific entitlement-code
+// classifier into the hls package's generic ClassifyAuth hook.
+// Returns true when the body carries a permanent code
+// (subscriber-only, geoblock, VOD-manifest-restricted) so the
+// caller can fail fast instead of refreshing. False for any other
+// 401/403 — a stale signed URL that a fresh token will fix.
+//
+// hls package is intentionally Twitch-agnostic; binding this on
+// the downloader side keeps the classifier one function call off
+// the hot path without leaking Twitch symbols into hls/.
+func classifyTwitchAuth(status int, body []byte) bool {
+	return twitch.IsPermanent(twitch.NewAuthError(status, body))
 }
 
 // buildFilename generates a deterministic, filesystem-safe

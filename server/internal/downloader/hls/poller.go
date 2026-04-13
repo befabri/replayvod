@@ -99,6 +99,15 @@ type Poller struct {
 	// Writes use the same select-with-ctx-cancel pattern as jobs:
 	// a slow drain won't wedge the poll loop.
 	AdSkips chan<- int64
+
+	// ClassifyAuth, when non-nil, inspects a 401/403 response body
+	// and reports whether the failure is permanent (entitlement
+	// code, subscriber-only stream, geoblock). Permanent results
+	// fail the job fast via ErrPlaylistAuthPermanent rather than
+	// burning the auth-refresh budget on a stream we'll never be
+	// allowed to watch. Nil means "always treat as retryable" —
+	// behavior before the hook existed.
+	ClassifyAuth func(status int, body []byte) (permanent bool)
 }
 
 // PollResult carries metadata observed on the first successful
@@ -135,6 +144,16 @@ type PollResult struct {
 // errors.Is on the sentinel; errors.As on *FetchError gives the
 // status.
 var ErrPlaylistAuth = errors.New("hls poller: playlist auth error")
+
+// ErrPlaylistAuthPermanent signals a 401/403 the ClassifyAuth hook
+// flagged as permanent — an entitlement restriction no amount of
+// refreshing will fix (subscriber-only, geoblock, VOD manifest
+// restriction). Distinct from ErrPlaylistAuth so the refresh loop
+// in downloader.fetchWithAuthRefresh bails immediately instead of
+// burning its budget. Deliberately not wrapped around
+// ErrPlaylistAuth: callers that `errors.Is(err, ErrPlaylistAuth)`
+// must not accidentally catch the permanent case.
+var ErrPlaylistAuthPermanent = errors.New("hls poller: playlist auth permanent")
 
 // Run executes the poll loop. On the first successful fetch it
 // sends one PollResult onto first (buffered cap 1) so the
@@ -323,6 +342,14 @@ func (p *Poller) fetchAndParse(ctx context.Context) (*MediaPlaylist, error) {
 	defer drainAndClose(resp)
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		// Classify before concluding "retryable auth" — a
+		// subscriber-only stream returns 401/403 with a JSON
+		// body whose error_code is permanent. Refreshing the
+		// token won't grant access, so bail fast.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		if p.ClassifyAuth != nil && p.ClassifyAuth(resp.StatusCode, body) {
+			return nil, fmt.Errorf("%w: status %d: %s", ErrPlaylistAuthPermanent, resp.StatusCode, truncateForLog(body))
+		}
 		return nil, fmt.Errorf("%w: status %d", ErrPlaylistAuth, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -339,6 +366,17 @@ func (p *Poller) fetchAndParse(ctx context.Context) (*MediaPlaylist, error) {
 		return nil, fmt.Errorf("hls poller: resolve URIs: %w", err)
 	}
 	return pl, nil
+}
+
+// truncateForLog caps a body preview at 200 bytes + ellipsis so an
+// error-wrapped body doesn't explode a log line when the CDN
+// returns a verbose HTML page instead of a tight JSON body.
+func truncateForLog(b []byte) string {
+	const limit = 200
+	if len(b) <= limit {
+		return string(b)
+	}
+	return string(b[:limit]) + "…"
 }
 
 // resolveURIs mutates pl in place, replacing each relative URI

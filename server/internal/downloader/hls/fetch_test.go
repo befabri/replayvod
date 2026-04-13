@@ -124,6 +124,76 @@ func TestFetch_AuthReturnsImmediately(t *testing.T) {
 	}
 }
 
+// TestFetch_AuthPermanentFlaggedByClassifier confirms the
+// ClassifyAuth hook marks the FetchError with Permanent=true so
+// the orchestrator can bail without spinning the refresh loop.
+// The hook receives both the status and a bounded body copy for
+// entitlement-code parsing.
+func TestFetch_AuthPermanentFlaggedByClassifier(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error_code":"subscriptions_restricted","error":"sub-only"}`)
+	}))
+	defer srv.Close()
+
+	var gotStatus int
+	var gotBody []byte
+	f := newTestFetcher(FetcherConfig{
+		ClassifyAuth: func(status int, body []byte) bool {
+			gotStatus = status
+			gotBody = append(gotBody, body...)
+			return true
+		},
+	})
+	_, err := fetchInto(t, f, srv.URL+"/seg.ts", "1.ts")
+	var fe *FetchError
+	if !errors.As(err, &fe) {
+		t.Fatalf("err=%T, want *FetchError", err)
+	}
+	if fe.Kind != FetchKindAuth {
+		t.Errorf("Kind=%s, want auth", fe.Kind)
+	}
+	if !fe.Permanent {
+		t.Error("Permanent=false, want true (classifier flagged permanent)")
+	}
+	if !IsAuthPermanent(err) {
+		t.Error("IsAuthPermanent=false for a permanent-flagged auth error")
+	}
+	if gotStatus != http.StatusForbidden {
+		t.Errorf("ClassifyAuth got status=%d, want 403", gotStatus)
+	}
+	if !strings.Contains(string(gotBody), "subscriptions_restricted") {
+		t.Errorf("ClassifyAuth body=%q, want entitlement code", string(gotBody))
+	}
+}
+
+// TestFetch_AuthRetryableWhenClassifierReturnsFalse confirms the
+// default (non-permanent) path: ClassifyAuth returning false
+// leaves Permanent=false, signaling the orchestrator to refresh
+// and retry.
+func TestFetch_AuthRetryableWhenClassifierReturnsFalse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `stale signature`)
+	}))
+	defer srv.Close()
+
+	f := newTestFetcher(FetcherConfig{
+		ClassifyAuth: func(status int, body []byte) bool { return false },
+	})
+	_, err := fetchInto(t, f, srv.URL+"/seg.ts", "1.ts")
+	var fe *FetchError
+	if !errors.As(err, &fe) {
+		t.Fatalf("err=%T, want *FetchError", err)
+	}
+	if fe.Permanent {
+		t.Error("Permanent=true; want false — classifier returned false (retryable)")
+	}
+	if IsAuthPermanent(err) {
+		t.Error("IsAuthPermanent=true for a non-permanent auth error")
+	}
+}
+
 func TestFetch_CDNLagExhausted(t *testing.T) {
 	// Every request returns 404 — CDN-lag budget exhausts.
 	var calls int32
