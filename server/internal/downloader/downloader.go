@@ -1052,6 +1052,14 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			Progress:           hlsProgress,
 			StartMediaSeq:      startSeq,
 			ClassifyAuth:       classifyTwitchAuth,
+			// Per-part gap policy: seed the new attempt's
+			// counters with the cumulative totals so the first-
+			// content-segment guard and MaxGapRatio evaluate
+			// against the whole part, not just this attempt.
+			// Auth refresh mid-stream can't erase "real content
+			// already captured" or reset the ratio denominator.
+			SeedSegmentsDone: agg.SegmentsDone,
+			SeedSegmentsGaps: agg.SegmentsGaps,
 			GapPolicy: hls.GapPolicy{
 				Strict:      s.cfg.App.Download.Strict,
 				MaxGapRatio: s.cfg.App.Download.MaxGapRatio,
@@ -1109,13 +1117,19 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		eventsSinceCheckpoint = 0
 
 		// Fold this attempt's counters into the running total.
+		// Done/Gaps are SEEDED into each hls.Run (per-part gap
+		// policy), so result already carries the cumulative
+		// totals — overwrite instead of accumulating to avoid
+		// double counting. AdGaps and BytesWritten are NOT
+		// seeded, so `+=` remains correct for them.
+		//
 		// Kind + InitURI come from whichever attempt most
 		// recently had them set — the manifest side shouldn't
 		// flip between attempts for the same variant, but if
 		// it does the final value wins.
 		if result != nil {
-			agg.SegmentsDone += result.SegmentsDone
-			agg.SegmentsGaps += result.SegmentsGaps
+			agg.SegmentsDone = result.SegmentsDone
+			agg.SegmentsGaps = result.SegmentsGaps
 			agg.SegmentsAdGaps += result.SegmentsAdGaps
 			agg.BytesWritten += result.BytesWritten
 			if result.Kind != "" {

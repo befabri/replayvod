@@ -118,6 +118,20 @@ type JobConfig struct {
 	// the pre-hook behavior: every 401/403 is treated as a
 	// refreshable token expiry.
 	ClassifyAuth func(status int, body []byte) (permanent bool)
+
+	// SeedSegmentsDone + SeedSegmentsGaps prime the Run counters
+	// with cumulative state from prior auth-refresh attempts for
+	// the same part. Gap policy (MaxGapRatio, first-content-guard)
+	// must evaluate per part, not per attempt — a token refresh
+	// mid-recording must not erase the fact that real content has
+	// already been captured, nor reset the ratio denominator.
+	//
+	// Leave at 0 for fresh jobs or the first attempt. The auth-
+	// refresh loop in downloader.fetchWithAuthRefresh passes the
+	// rolling aggregate so each attempt starts where the last left
+	// off.
+	SeedSegmentsDone int64
+	SeedSegmentsGaps int64
 }
 
 // GapPolicy decides "accept segment failure as a gap" vs "abort
@@ -321,7 +335,15 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	// surface the original error rather than the downstream
 	// "context canceled" — the auth-refresh caller needs the
 	// typed error to know what to do.
-	result := &JobResult{}
+	result := &JobResult{
+		// Seed policy-relevant counters so MaxGapRatio + the
+		// first-content-segment guard evaluate against the
+		// cumulative per-part total across auth-refresh attempts.
+		// Attribute-counters (BytesWritten, SegmentsAdGaps) stay
+		// zero — they're per-attempt for aggregation upstream.
+		SegmentsDone: cfg.SeedSegmentsDone,
+		SegmentsGaps: cfg.SeedSegmentsGaps,
+	}
 	var pr PollResult
 	select {
 	case pr = <-first:
