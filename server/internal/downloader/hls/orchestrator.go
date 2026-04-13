@@ -132,6 +132,18 @@ type JobConfig struct {
 	// off.
 	SeedSegmentsDone int64
 	SeedSegmentsGaps int64
+
+	// RefetchSeqs carries the previous attempt's AuthErrorSeqs:
+	// MediaSeqs that 401'd and need to be re-pulled with the new
+	// signed URL. Forwarded verbatim to the Poller, which emits
+	// them on the first poll regardless of StartMediaSeq. Seqs
+	// that have rolled off the CDN window get dropped with a log
+	// warning; the upstream resume state keeps them as gaps.
+	//
+	// Nil / empty on first attempts and on auth-refresh-free
+	// runs. Bounded by AuthRefreshAttempts upstream — a seq that
+	// keeps auth-erroring eventually fails the job.
+	RefetchSeqs []int64
 }
 
 // GapPolicy decides "accept segment failure as a gap" vs "abort
@@ -212,6 +224,14 @@ type JobResult struct {
 	Kind           SegmentKind
 	InitURI        string // empty for ts jobs
 	LastMediaSeq   int64
+
+	// AuthErrorSeqs lists MediaSeqs that failed with a 401/403
+	// during this run. The auth-refresh caller feeds them back as
+	// the next attempt's JobConfig.RefetchSeqs so the poller re-
+	// enqueues them under a fresh signed URL. Without this, a
+	// mid-stream token expiry leaves a hole in the output at the
+	// seq that tripped the refresh.
+	AuthErrorSeqs []int64
 }
 
 // GapAbortError is the typed error returned when the gap policy
@@ -281,6 +301,17 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	// doesn't block the poll loop.
 	adSkips := make(chan int64, jobChanCap)
 
+	// Materialize the RefetchSeqs slice into a map the Poller can
+	// do O(1) membership checks against. Nil slices yield a nil
+	// map, which is valid — the Poller's refetch[seq] read
+	// returns false without panicking.
+	var refetchMap map[int64]bool
+	if len(cfg.RefetchSeqs) > 0 {
+		refetchMap = make(map[int64]bool, len(cfg.RefetchSeqs))
+		for _, s := range cfg.RefetchSeqs {
+			refetchMap[s] = true
+		}
+	}
 	poller := &Poller{
 		URL:           cfg.MediaPlaylistURL,
 		HTTPClient:    cfg.PlaylistClient,
@@ -288,6 +319,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		StartMediaSeq: cfg.StartMediaSeq,
 		AdSkips:       adSkips,
 		ClassifyAuth:  cfg.ClassifyAuth,
+		RefetchSeqs:   refetchMap,
 	}
 	pool := &Pool{
 		Fetcher: cfg.Fetcher,
@@ -488,7 +520,16 @@ func drainOutcomes(
 				// cancel(); subsequent ones in the drain tail
 				// still emit OnEvent for accounting but don't
 				// re-trigger.
+				//
+				// AuthErrorSeqs collects every retryable-auth seq
+				// so the next attempt can refetch them with the
+				// fresh URL — without this the output file has a
+				// hole at the seq that tripped the refresh.
+				// Permanent-auth seqs are intentionally NOT in
+				// this list: a refresh won't unlock an
+				// entitlement restriction.
 				if IsAuth(res.Err) {
+					result.AuthErrorSeqs = append(result.AuthErrorSeqs, res.MediaSeq)
 					if authErr == nil && abortErr == nil {
 						authErr = fmt.Errorf("hls: segment seq=%d auth error: %w", res.MediaSeq, ErrPlaylistAuth)
 						log.Info("segment auth error; requesting refresh", "seq", res.MediaSeq)
