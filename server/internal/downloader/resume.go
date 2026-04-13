@@ -333,6 +333,31 @@ func (r *ResumeState) insertCompleted(seq int64) {
 	r.CompletedAboveFrontier = slices.Insert(r.CompletedAboveFrontier, i, seq)
 }
 
+// AuthGapSeqs returns the MediaSeq values currently in Gaps with
+// GapReasonAuth and EndMediaSeq == MediaSeq (single-seq entries
+// only). Callers seed refetchSeqs from this on the first auth-
+// refresh iteration after a process restart — the prior lifetime
+// may have auth-errored on segments whose refetch intent didn't
+// survive the crash. A successful refetch clears the entry via
+// NoteCommitted; a rolled-off refetch leaves it in place (the
+// next restart will attempt it once more, at the cost of one
+// wasted poll per gap).
+//
+// Returns nil when no auth gaps are pending — fresh jobs and
+// clean resumes both hit this common path.
+func (r *ResumeState) AuthGapSeqs() []int64 {
+	if len(r.Gaps) == 0 {
+		return nil
+	}
+	var out []int64
+	for _, g := range r.Gaps {
+		if g.Reason == GapReasonAuth && g.MediaSeq == g.EndMediaSeq {
+			out = append(out, g.MediaSeq)
+		}
+	}
+	return out
+}
+
 // SkipSet reports the set of MediaSeq values the resume path must
 // NOT re-enqueue. Anything ≤ frontier, anything in
 // CompletedAboveFrontier, anything inside a Gap range — all

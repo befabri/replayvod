@@ -962,7 +962,12 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 	// drops the seq off the list, a re-failed refetch puts it
 	// back. Seqs that roll off the CDN window are dropped by the
 	// Poller with a warning and stay as GapReasonAuth in resume.
-	var refetchSeqs []int64
+	//
+	// First-iteration seed comes from resume state: a process
+	// crash between iter 1 (gap recorded) and iter 2 (refetch)
+	// would otherwise lose the intent. A resumed job pre-loads
+	// its pending auth gaps here; fresh jobs start with nil.
+	refetchSeqs := d.resume.AuthGapSeqs()
 
 	// bootstrapped guards PartStartMediaSequence: first poll's
 	// MediaSequenceBase anchors the frontier. Auth-refresh

@@ -327,6 +327,76 @@ func TestResumeState_NoteCommittedLeavesRangeGapAlone(t *testing.T) {
 	}
 }
 
+// TestResumeState_AuthGapSeqs validates the restart-seed path:
+// a resumed job with GapReasonAuth entries in resume_state must
+// expose those mediaSeqs so fetchWithAuthRefresh's first attempt
+// can refetch them. Other gap reasons (stitched-ad, window-roll,
+// fetch-failure) must NOT appear — those aren't auth-retryable.
+func TestResumeState_AuthGapSeqs(t *testing.T) {
+	r := NewResumeState()
+	r.NoteCommitted(1)
+	r.NoteGap(2, GapReasonAuth)
+	r.NoteCommitted(3)
+	r.NoteGap(4, GapReasonStitchedAd)
+	r.NoteGap(5, GapReasonAuth)
+	r.NoteGap(6, GapReasonFetchFailure)
+	r.NoteRangeGap(100, 110, GapReasonRestartWindowRolled)
+
+	got := r.AuthGapSeqs()
+	if len(got) != 2 {
+		t.Fatalf("len(AuthGapSeqs)=%d, want 2", len(got))
+	}
+	// Order comes from Gaps[] insertion order; don't depend on it.
+	if !slices.Contains(got, int64(2)) || !slices.Contains(got, int64(5)) {
+		t.Errorf("AuthGapSeqs=%v, want {2, 5}", got)
+	}
+
+	// Round-trip through JSON: AuthGapSeqs must still work after
+	// Unmarshal + Init rebuild.
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	restored, err := UnmarshalResumeState(data)
+	if err != nil {
+		t.Fatalf("UnmarshalResumeState: %v", err)
+	}
+	got2 := restored.AuthGapSeqs()
+	if len(got2) != 2 {
+		t.Errorf("post-restore len(AuthGapSeqs)=%d, want 2", len(got2))
+	}
+}
+
+func TestResumeState_AuthGapSeqs_EmptyWhenNoGaps(t *testing.T) {
+	r := NewResumeState()
+	if got := r.AuthGapSeqs(); len(got) != 0 {
+		t.Errorf("AuthGapSeqs=%v, want empty for fresh state", got)
+	}
+	r.NoteCommitted(1)
+	if got := r.AuthGapSeqs(); len(got) != 0 {
+		t.Errorf("AuthGapSeqs=%v, want empty when no gaps recorded", got)
+	}
+}
+
+// TestResumeState_AuthGapSeqs_AfterRefetchSuccessIsEmpty pins the
+// integration: a Gap{reason:auth_error} followed by a successful
+// NoteCommitted (refetch) must leave AuthGapSeqs empty. Without
+// this, a seq would loop across restarts even after it landed on
+// disk.
+func TestResumeState_AuthGapSeqs_AfterRefetchSuccessIsEmpty(t *testing.T) {
+	r := NewResumeState()
+	r.NoteCommitted(1)
+	r.NoteGap(2, GapReasonAuth)
+	if got := r.AuthGapSeqs(); !slices.Equal(got, []int64{2}) {
+		t.Fatalf("pre-refetch AuthGapSeqs=%v, want [2]", got)
+	}
+	// Refetch succeeds.
+	r.NoteCommitted(2)
+	if got := r.AuthGapSeqs(); len(got) != 0 {
+		t.Errorf("post-refetch AuthGapSeqs=%v, want empty", got)
+	}
+}
+
 func TestStage_AtOrAfter(t *testing.T) {
 	cases := []struct {
 		stage  Stage
