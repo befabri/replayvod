@@ -271,6 +271,62 @@ func TestUnmarshalResumeState_InvalidJSON(t *testing.T) {
 	}
 }
 
+// TestResumeState_NoteCommittedClearsMatchingGap covers the
+// auth-refetch path: the orchestrator first records a seq as a
+// single-seq gap (GapReasonAuth) when the 401 fires, then later
+// re-commits it once the fresh URL lands. The final state must
+// show it as committed (no stale gap entry) so the resume record
+// matches what's actually on disk.
+func TestResumeState_NoteCommittedClearsMatchingGap(t *testing.T) {
+	r := NewResumeState()
+	r.NoteCommitted(1)
+	r.NoteGap(2, GapReasonAuth) // auth error — seq 2 marked as gap, frontier advances to 2
+	r.NoteCommitted(3)
+	if r.AccountedFrontierMediaSeq != 3 {
+		t.Fatalf("frontier=%d, want 3", r.AccountedFrontierMediaSeq)
+	}
+	if len(r.Gaps) != 1 {
+		t.Fatalf("Gaps=%v, want one gap at 2", r.Gaps)
+	}
+
+	// Refetch succeeds for seq 2 — NoteCommitted must clear the
+	// prior gap entry.
+	r.NoteCommitted(2)
+	if len(r.Gaps) != 0 {
+		t.Errorf("Gaps=%v, want empty after refetch commit", r.Gaps)
+	}
+	// Frontier unchanged — seq 2 was already consumed by the
+	// gap-accepted advance.
+	if r.AccountedFrontierMediaSeq != 3 {
+		t.Errorf("frontier=%d, want 3 (unchanged)", r.AccountedFrontierMediaSeq)
+	}
+}
+
+// TestResumeState_NoteCommittedLeavesRangeGapAlone guards the
+// boundary between single-seq gap removal (refetch) and range
+// gaps (window-roll). A range gap covers many seqs recorded as a
+// single entry; partial refetches of individual seqs inside that
+// range shouldn't strip the whole record.
+func TestResumeState_NoteCommittedLeavesRangeGapAlone(t *testing.T) {
+	r := NewResumeState()
+	r.StartPart(10)
+	r.NoteCommitted(10)
+	r.NoteRangeGap(11, 15, GapReasonRestartWindowRolled)
+	if len(r.Gaps) != 1 || r.Gaps[0].EndMediaSeq != 15 {
+		t.Fatalf("setup wrong: gaps=%v", r.Gaps)
+	}
+	// Pretend we somehow re-committed seq 13 (not a supported
+	// path today, but the resume-state API shouldn't silently
+	// eat the whole range if called).
+	r.NoteCommitted(13)
+	if len(r.Gaps) != 1 {
+		t.Errorf("Gaps=%v, want range gap preserved", r.Gaps)
+	}
+	if r.Gaps[0].MediaSeq != 11 || r.Gaps[0].EndMediaSeq != 15 {
+		t.Errorf("range gap altered: %+v", r.Gaps[0])
+	}
+}
+
 func TestStage_AtOrAfter(t *testing.T) {
 	cases := []struct {
 		stage  Stage

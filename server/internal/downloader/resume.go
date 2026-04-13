@@ -238,14 +238,24 @@ func (r *ResumeState) StartPart(partStart int64) {
 // NoteCommitted records a successfully-written segment, advancing
 // the frontier when possible. O(log n) insert on the sorted
 // CompletedAboveFrontier slice; amortized O(1) advance.
+//
+// Refetch path: if a prior NoteGap had already recorded this seq
+// as a single-seq gap (e.g. GapReasonAuth, pending refetch), the
+// gap entry is removed — the segment is on disk now, it's not a
+// gap anymore. Range gaps (restart_window_rolled) are NOT touched;
+// those aren't individually refetched and their range stays
+// documented. If seq is at or below the frontier we only clear
+// the gap entry and return, since frontier math already consumed
+// the seq as part of the gap-accepted advance.
 func (r *ResumeState) NoteCommitted(seq int64) {
+	r.Gaps = slices.DeleteFunc(r.Gaps, func(g Gap) bool {
+		return g.MediaSeq == seq && g.EndMediaSeq == seq
+	})
 	if seq <= r.AccountedFrontierMediaSeq {
 		return
 	}
-	if !r.resolvedAbove[seq] {
-		r.resolvedAbove[seq] = true
-		r.insertCompleted(seq)
-	}
+	r.resolvedAbove[seq] = true
+	r.insertCompleted(seq)
 	r.advance()
 }
 
