@@ -125,6 +125,12 @@ type Poller struct {
 	// (rolled off) are dropped with a warning and stay as gaps
 	// in the upstream resume state.
 	//
+	// Ownership: the Poller MUTATES this map — each emitted seq is
+	// removed on enqueue, and any remainder after the first poll
+	// is cleared. Callers must construct a fresh map per run
+	// (orchestrator.Run already does this) and not read it again
+	// after handing it off.
+	//
 	// Nil or empty means "no refetch needed" — the usual case on
 	// a fresh run or an auth-refresh-free attempt.
 	RefetchSeqs map[int64]bool
