@@ -54,6 +54,13 @@ const (
 	// escalates via ErrPlaylistAuth; this event lets resume
 	// state record which seq triggered the refresh boundary.
 	OutcomeAuth SegmentOutcome = "auth"
+
+	// OutcomeMalformedSkip: poller filtered a segment with
+	// invariant-violating metadata (EXTINF <= 0) before any
+	// fetch. Recorded as a gap with GapReasonMalformed so
+	// resume state distinguishes structural manifest defects
+	// from fetch/auth failures.
+	OutcomeMalformedSkip SegmentOutcome = "malformed_skip"
 )
 
 // SegmentEvent is one sequence-level outcome observation. Delivered
@@ -98,6 +105,18 @@ const (
 	// Structurally expected; does NOT count against MaxGapRatio.
 	// Counted in JobResult.SegmentsAdGaps.
 	SkipReasonStitchedAd SkipReason = "stitched-ad"
+
+	// SkipReasonMalformed: segment had an invariant-violating
+	// EXTINF value (Duration <= 0). Protocol-legal per RFC 8216
+	// but semantically degenerate — a zero-duration fetch produces
+	// empty/broken bytes, silently shortens the remuxed output,
+	// and isn't caught by Stage 9 corruption heal (format +
+	// stream durations come from the same file so they agree on
+	// the shortened reality). The poller skips these before any
+	// fetch; the orchestrator treats them as gaps that count
+	// against MaxGapRatio since, unlike ads, they represent real
+	// content loss.
+	SkipReasonMalformed SkipReason = "malformed"
 )
 
 // SkipEvent is the Poller's "this segment was filtered before

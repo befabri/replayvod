@@ -332,6 +332,187 @@ func TestRun_RefetchHandlesMultipleSeqs(t *testing.T) {
 	}
 }
 
+// TestRun_MalformedSegmentNotFetched is the race-stable invariant:
+// regardless of whether the malformed-skip event reaches the drain
+// before or after the worker commits for the healthy segs, the
+// Poller must never enqueue the zero-duration seg for fetch, and
+// the skip must be attributed to SegmentsGaps (not SegmentsAdGaps).
+//
+// Both policy outcomes are acceptable:
+//   a) race wins for commits → run completes, 4 done + 1 gap.
+//   b) race wins for skip → policy aborts with GapAbortError
+//      referencing malformed-segment reason.
+// What MUST hold in both: no fetch attempt on the malformed seg,
+// no mis-attribution to ad counters.
+func TestRun_MalformedSegmentNotFetched(t *testing.T) {
+	// Hand-crafted playlist with one EXTINF:0 in the middle.
+	// Four healthy segs (seqs 0,1,3,4) + one malformed (seq 2).
+	playlist := `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:2.000,
+/seg/0.ts
+#EXTINF:2.000,
+/seg/1.ts
+#EXTINF:0,
+/seg/2.ts
+#EXTINF:2.000,
+/seg/3.ts
+#EXTINF:2.000,
+/seg/4.ts
+#EXT-X-ENDLIST
+`
+	var segHits atomic.Int32
+	var seg2Hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/playlist.m3u8" {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = w.Write([]byte(playlist))
+			return
+		}
+		if r.URL.Path == "/seg/2.ts" {
+			seg2Hits.Add(1)
+		}
+		segHits.Add(1)
+		_, _ = w.Write(fmt.Appendf(nil, "seg-%s-payload", r.URL.Path))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+	// Generous ratio (50%) tolerates 1-of-5 in both race outcomes.
+	// Guard off so "malformed races ahead of commits" doesn't
+	// abort on SegmentsDone==0.
+	cfg.GapPolicy.SkipFirstContentGuard = true
+	cfg.GapPolicy.MaxGapRatio = 0.5
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	result, err := Run(ctx, cfg)
+
+	// Invariant 1: the poller NEVER enqueued the malformed seg
+	// for fetch — regardless of how the drain race played out.
+	if seg2Hits.Load() != 0 {
+		t.Errorf("/seg/2.ts fetched %d times; poller must skip malformed segs before enqueue", seg2Hits.Load())
+	}
+
+	if err != nil {
+		// Race outcome (b): drain saw the skip before enough
+		// commits; policy aborted. Must be a typed malformed
+		// abort, not some other error class.
+		var gapErr *GapAbortError
+		if !errors.As(err, &gapErr) {
+			t.Fatalf("err=%v, want *GapAbortError", err)
+		}
+		if !strings.Contains(gapErr.Reason, "malformed") {
+			t.Errorf("gap reason=%q, want reference to malformed", gapErr.Reason)
+		}
+		return
+	}
+	// Race outcome (a): commits drained first, policy passed.
+	// Final tally pins the malformed attribution.
+	if result.SegmentsDone != 4 {
+		t.Errorf("SegmentsDone=%d, want 4 (seqs 0,1,3,4)", result.SegmentsDone)
+	}
+	// Invariant 2: malformed NEVER attributed to SegmentsAdGaps.
+	if result.SegmentsAdGaps != 0 {
+		t.Errorf("SegmentsAdGaps=%d, want 0 (malformed is not an ad)", result.SegmentsAdGaps)
+	}
+	if result.SegmentsGaps != 1 {
+		t.Errorf("SegmentsGaps=%d, want 1 (the malformed seg)", result.SegmentsGaps)
+	}
+	if result.LastMediaSeq < 4 {
+		t.Errorf("LastMediaSeq=%d, want at least 4", result.LastMediaSeq)
+	}
+}
+
+// TestRun_MalformedFirstSegTripsFirstContentGuard: with the
+// default gap policy, a zero-duration segment at seq 0 must
+// abort the job — the first-content-segment guard doesn't let a
+// run "succeed" with only skipped content. Symmetric to the
+// stitched-ad preroll path but with malformed instead of ad.
+func TestRun_MalformedFirstSegTripsFirstContentGuard(t *testing.T) {
+	playlist := `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:0,
+/seg/0.ts
+#EXTINF:2.000,
+/seg/1.ts
+#EXT-X-ENDLIST
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/playlist.m3u8" {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = w.Write([]byte(playlist))
+			return
+		}
+		_, _ = w.Write(fmt.Appendf(nil, "seg-%s-payload", r.URL.Path))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, err := Run(ctx, cfg)
+	var gapErr *GapAbortError
+	if !errors.As(err, &gapErr) {
+		t.Fatalf("err=%v, want *GapAbortError for preroll-malformed guard", err)
+	}
+	if !strings.Contains(gapErr.Reason, "no content segment committed yet") {
+		t.Errorf("gap reason=%q, want first-content-guard reason", gapErr.Reason)
+	}
+}
+
+// TestRun_MalformedRatioTripsGapPolicy: three malformed segs out
+// of five exceeds the default 1% MaxGapRatio, so the job must
+// abort with a typed GapAbortError instead of silently shipping
+// a 40%-holes output.
+func TestRun_MalformedRatioTripsGapPolicy(t *testing.T) {
+	playlist := `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:2.000,
+/seg/0.ts
+#EXTINF:0,
+/seg/1.ts
+#EXTINF:0,
+/seg/2.ts
+#EXTINF:0,
+/seg/3.ts
+#EXTINF:2.000,
+/seg/4.ts
+#EXT-X-ENDLIST
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/playlist.m3u8" {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = w.Write([]byte(playlist))
+			return
+		}
+		_, _ = w.Write(fmt.Appendf(nil, "seg-%s-payload", r.URL.Path))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+	// Default 1% ratio (zero triggers the default). Three
+	// malformed of five is 60% — should trip.
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, err := Run(ctx, cfg)
+	var gapErr *GapAbortError
+	if !errors.As(err, &gapErr) {
+		t.Fatalf("err=%v, want *GapAbortError", err)
+	}
+}
+
 // TestRun_RefetchRolledOffStaysAsGap confirms that asking the
 // poller to refetch a seq the CDN window no longer serves does
 // NOT block the run or retry forever: the poller logs a warning,

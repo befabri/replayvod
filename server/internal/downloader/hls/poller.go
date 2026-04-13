@@ -337,6 +337,30 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 				delete(p.RefetchSeqs, seg.MediaSeq)
 				continue
 			}
+			if seg.Duration <= 0 {
+				// Invariant violation: EXTINF <= 0 can't represent
+				// real media, and a fetch of such a segment silently
+				// shortens the output — not caught by Stage 9 heal
+				// because format/stream durations both reflect the
+				// shortened reality. Skip before any fetch; let the
+				// orchestrator apply MaxGapRatio so a truly pathological
+				// manifest (many zero-duration segments) aborts the job.
+				log.Warn("skipping malformed segment (EXTINF <= 0)",
+					"seq", seg.MediaSeq,
+					"duration", seg.Duration)
+				if p.SkipEvents != nil {
+					select {
+					case p.SkipEvents <- SkipEvent{MediaSeq: seg.MediaSeq, Reason: SkipReasonMalformed}:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				if seg.MediaSeq > lastSeq {
+					lastSeq = seg.MediaSeq
+				}
+				delete(p.RefetchSeqs, seg.MediaSeq)
+				continue
+			}
 			job := segmentJob{
 				Segment:        seg,
 				Kind:           pl.Kind,

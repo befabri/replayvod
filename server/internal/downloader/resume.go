@@ -80,6 +80,13 @@ const (
 	// was already past the saved frontier. Covers a range
 	// [frontier+1, playlistHead-1] in a single gap entry.
 	GapReasonRestartWindowRolled GapReason = "restart_window_rolled"
+
+	// GapReasonMalformed: poller filtered a segment with
+	// invariant-violating metadata (EXTINF <= 0) before any
+	// fetch attempt. Distinct from GapReasonFetchFailure —
+	// no CDN or transport involvement; the defect is in the
+	// manifest itself. Not refetched.
+	GapReasonMalformed GapReason = "malformed"
 )
 
 // Gap is one entry in ResumeState.Gaps. Covers either a single

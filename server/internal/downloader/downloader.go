@@ -1108,6 +1108,11 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 					d.resume.NoteGap(ev.MediaSeq, GapReasonFetchFailure)
 				case hls.OutcomeAdSkipped:
 					d.resume.NoteGap(ev.MediaSeq, GapReasonStitchedAd)
+				case hls.OutcomeMalformedSkip:
+					// Structural manifest defect — distinct from
+					// fetch failures so operator review can see
+					// whether the loss was transport or metadata.
+					d.resume.NoteGap(ev.MediaSeq, GapReasonMalformed)
 				case hls.OutcomeAuth:
 					// Auth-errored seqs are gapped from the
 					// current attempt's perspective — the next

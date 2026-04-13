@@ -612,6 +612,48 @@ func drainOutcomes(
 					MediaSeq: ev.MediaSeq,
 					Outcome:  OutcomeAdSkipped,
 				})
+			case SkipReasonMalformed:
+				// Real content loss, not structurally expected.
+				// Apply the same gap policy a worker failure
+				// would: first-content-guard aborts if no
+				// content has committed yet, and the running
+				// MaxGapRatio computation aborts a truly
+				// pathological manifest (many zero-duration
+				// segments).
+				//
+				// OutcomeMalformedSkip rather than the generic
+				// OutcomeGapAccepted so resume-state consumers
+				// can attribute the gap to structural manifest
+				// defect (GapReasonMalformed) rather than a
+				// fetch failure.
+				//
+				// When already aborting (prior gap/auth), count
+				// it post-abort — the next attempt's cursor
+				// will skip past, matching the "the skip already
+				// happened" semantics of the results branch.
+				if authErr != nil || abortErr != nil {
+					result.SegmentsGaps++
+					emitEvent(cfg.OnEvent, SegmentEvent{
+						MediaSeq: ev.MediaSeq,
+						Outcome:  OutcomeMalformedSkip,
+					})
+				} else if gapErr := evaluateMalformedGap(&cfg.GapPolicy, result, ev.MediaSeq); gapErr == nil {
+					result.SegmentsGaps++
+					log.Debug("malformed segment accepted as gap", "seq", ev.MediaSeq)
+					emitEvent(cfg.OnEvent, SegmentEvent{
+						MediaSeq: ev.MediaSeq,
+						Outcome:  OutcomeMalformedSkip,
+					})
+				} else {
+					abortErr = gapErr
+					log.Warn("malformed segment aborts job",
+						"reason", abortErr.Reason,
+						"seq", ev.MediaSeq,
+						"done", result.SegmentsDone,
+						"gaps", result.SegmentsGaps)
+					cancel()
+					continue
+				}
 			default:
 				// Unknown reason — defensive fallback. Log +
 				// advance the frontier so we don't stall, but
@@ -688,6 +730,51 @@ func evaluateGap(p *GapPolicy, r *JobResult, res SegmentResult) *GapAbortError {
 			Gaps:    r.SegmentsGaps,
 			LastSeq: res.MediaSeq,
 			LastErr: res.Err,
+		}
+	}
+	return nil
+}
+
+// evaluateMalformedGap applies the gap policy to a Poller-filtered
+// malformed segment. Same shape as evaluateGap but without a
+// SegmentResult to source LastErr from — the loss happened before
+// any fetch attempt, so the "cause" is structural (bad EXTINF),
+// not a transport/auth failure. Returns non-nil when the policy
+// aborts; nil when the caller should count it as an accepted gap.
+//
+// Kept separate from evaluateGap rather than synthesizing a fake
+// SegmentResult: the two paths have different provenance and
+// lumping them would obscure log output when operators debug a
+// malformed-manifest incident.
+func evaluateMalformedGap(p *GapPolicy, r *JobResult, seq int64) *GapAbortError {
+	reason := fmt.Errorf("malformed segment: EXTINF <= 0")
+	if p.Strict {
+		return &GapAbortError{
+			Reason:  "strict mode (malformed segment)",
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: seq,
+			LastErr: reason,
+		}
+	}
+	if !p.SkipFirstContentGuard && r.SegmentsDone == 0 {
+		return &GapAbortError{
+			Reason:  "no content segment committed yet (malformed segment)",
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: seq,
+			LastErr: reason,
+		}
+	}
+	gapsAfter := r.SegmentsGaps + 1
+	total := gapsAfter + r.SegmentsDone
+	if float64(gapsAfter)/float64(total) > p.MaxGapRatio {
+		return &GapAbortError{
+			Reason:  fmt.Sprintf("gap ratio %.2f%% over ceiling %.2f%% (malformed)", 100*float64(gapsAfter)/float64(total), 100*p.MaxGapRatio),
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: seq,
+			LastErr: reason,
 		}
 	}
 	return nil
