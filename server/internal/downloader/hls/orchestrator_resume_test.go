@@ -226,6 +226,142 @@ func TestRun_AuthErrorSeqsPopulatedThenRefetched(t *testing.T) {
 	}
 }
 
+// TestRun_RefetchHandlesMultipleSeqs confirms the refetch path
+// works when more than one seq auth-errored on a prior attempt.
+// Two workers hit adjacent 403s on seqs 0 and 1 before the drain
+// latches + cancels, so both land in AuthErrorSeqs; the follow-up
+// run refetches both.
+//
+// The second attempt accepts EITHER full two-seq refetch (if both
+// 403s raced through the drain before cancel) or single-seq with
+// the other one popping up as a NEW auth error on the refetch run.
+// The invariant: across both runs combined, seqs 0 and 1 end up
+// on disk. That's the user-visible guarantee.
+func TestRun_RefetchHandlesMultipleSeqs(t *testing.T) {
+	live := &liveServer{
+		kind:         SegmentKindTS,
+		maxSegments:  5,
+		windowSize:   5,
+		baseSeq:      0,
+		tickInterval: 1,
+	}
+	// Seqs 0 AND 1 each 403 once then 200. Adjacent seqs so the
+	// two-worker pool fetches them together on iter 1 — both
+	// results land in the drain with high probability before the
+	// first latches cancel().
+	var seg0Hits, seg1Hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/seg/0.ts":
+			if seg0Hits.Add(1) == 1 {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+		case "/seg/1.ts":
+			if seg1Hits.Add(1) == 1 {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+		}
+		live.handler().ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel1()
+	result1, err := Run(ctx1, cfg)
+	if !errors.Is(err, ErrPlaylistAuth) {
+		t.Fatalf("first run err=%v, want ErrPlaylistAuth", err)
+	}
+	// At least one seq must be in AuthErrorSeqs. The other may
+	// be racing — if it's not, the refetch run will pick it up
+	// via its own auth error path.
+	if len(result1.AuthErrorSeqs) == 0 {
+		t.Fatalf("AuthErrorSeqs empty, want at least one of 0 or 1")
+	}
+
+	// Refetch run: seed whatever was observed. If only one seq
+	// came back, the other will re-fail auth on this run; loop
+	// once more to capture it.
+	cfg2 := newJob(t, srv, dir)
+	cfg2.StartMediaSeq = result1.LastMediaSeq + 1
+	cfg2.RefetchSeqs = result1.AuthErrorSeqs
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel2()
+	result2, err := Run(ctx2, cfg2)
+	if err != nil && !errors.Is(err, ErrPlaylistAuth) {
+		t.Fatalf("second run: %v", err)
+	}
+
+	// Optional third iteration covers the one-per-run race.
+	if errors.Is(err, ErrPlaylistAuth) && len(result2.AuthErrorSeqs) > 0 {
+		cfg3 := newJob(t, srv, dir)
+		cfg3.StartMediaSeq = result2.LastMediaSeq + 1
+		cfg3.RefetchSeqs = result2.AuthErrorSeqs
+		ctx3, cancel3 := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel3()
+		if _, err := Run(ctx3, cfg3); err != nil {
+			t.Fatalf("third run: %v", err)
+		}
+	}
+
+	// User-visible invariant: both seqs on disk after the
+	// refetch chain completes.
+	for _, seq := range []string{"0.ts", "1.ts"} {
+		if _, err := os.Stat(filepath.Join(dir, seq)); err != nil {
+			t.Errorf("%s missing after refetch chain: %v", seq, err)
+		}
+	}
+}
+
+// TestRun_RefetchRolledOffStaysAsGap confirms that asking the
+// poller to refetch a seq the CDN window no longer serves does
+// NOT block the run or retry forever: the poller logs a warning,
+// drops the seq, and the run completes over the remaining
+// playlist. Resume state keeps the original gap record.
+func TestRun_RefetchRolledOffStaysAsGap(t *testing.T) {
+	// Playlist head at 50, maxSegments 5 → window is [50..54].
+	// RefetchSeqs={10} requests a seq that's way out of the
+	// window — the poller must drop it.
+	live := &liveServer{
+		kind:         SegmentKindTS,
+		maxSegments:  5,
+		windowSize:   5,
+		baseSeq:      50,
+		tickInterval: 1,
+	}
+	srv := httptest.NewServer(live.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+	cfg.StartMediaSeq = 50
+	cfg.RefetchSeqs = []int64{10} // rolled off — not in playlist
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	result, err := Run(ctx, cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Run completed without getting stuck on the missing seq.
+	if result.SegmentsDone == 0 {
+		t.Error("SegmentsDone=0; run should have fetched the available window")
+	}
+	// seq 10 is NOT in AuthErrorSeqs because this Run didn't
+	// observe an auth error on it — AuthErrorSeqs is only
+	// populated by drain-time auth outcomes.
+	if slices.Contains(result.AuthErrorSeqs, 10) {
+		t.Error("AuthErrorSeqs contains rolled-off seq; should be empty")
+	}
+	// No file on disk for 10 — the CDN never served it.
+	if _, err := os.Stat(filepath.Join(dir, "10.ts")); !os.IsNotExist(err) {
+		t.Errorf("10.ts should not exist; err=%v", err)
+	}
+}
+
 // TestRun_WindowRollCallbackFiresWithLostRange validates the
 // resume-path correctness fix: when StartMediaSeq > 0 (resume
 // attempt) and the playlist head is already past it, the
