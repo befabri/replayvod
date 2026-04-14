@@ -1,27 +1,26 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { useState } from "react"
-import { DataTable } from "@/components/ui/data-table"
-import { useFetchLogs } from "@/features/system"
-import { fetchLogColumns } from "@/features/system/components/logColumns"
+import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { TitledLayout } from "@/components/layout/titled-layout";
+import { DataTable } from "@/components/ui/data-table";
+import { useFetchLogs } from "@/features/system";
+import { fetchLogColumns } from "@/features/system/components/logColumns";
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 50;
 
 export const Route = createFileRoute("/dashboard/system/logs")({
 	component: SystemLogsPage,
-})
+});
 
 function SystemLogsPage() {
-	const [page, setPage] = useState(0)
-	const { data, isLoading, error } = useFetchLogs(PAGE_SIZE, page * PAGE_SIZE)
+	const [page, setPage] = useState(0);
+	const { data, isLoading, error } = useFetchLogs(PAGE_SIZE, page * PAGE_SIZE);
 
-	const total = data?.total ?? 0
-	const logs = data?.data ?? []
-	const pageCount = Math.ceil(total / PAGE_SIZE)
+	const total = data?.total ?? 0;
+	const logs = data?.data ?? [];
+	const pageCount = Math.ceil(total / PAGE_SIZE);
 
 	return (
-		<div className="p-8">
-			<h1 className="text-3xl font-heading font-bold mb-6">API Fetch Logs</h1>
-
+		<TitledLayout title="API Fetch Logs">
 			{isLoading && <div className="text-muted-foreground">Loading…</div>}
 
 			{error && (
@@ -63,6 +62,6 @@ function SystemLogsPage() {
 					)}
 				</>
 			)}
-		</div>
-	)
+		</TitledLayout>
+	);
 }

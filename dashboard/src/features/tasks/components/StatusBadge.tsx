@@ -1,30 +1,30 @@
-import { useTranslation } from "react-i18next"
+import { useTranslation } from "react-i18next";
 
 export function StatusBadge({
 	status,
 	enabled,
 	error,
 }: {
-	status: string
-	enabled: boolean
-	error?: string
+	status: string;
+	enabled: boolean;
+	error?: string;
 }) {
-	const { t } = useTranslation()
+	const { t } = useTranslation();
 	if (!enabled) {
 		return (
 			<span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs bg-muted text-muted-foreground">
 				{t("tasks.status_paused")}
 			</span>
-		)
+		);
 	}
 	const variant =
 		{
-			success: "bg-primary/20 text-primary-foreground",
+			success: "bg-badge-green-bg text-badge-green-fg",
 			failed: "bg-destructive/20 text-destructive",
-			running: "bg-primary/20 text-primary-foreground animate-pulse",
+			running: "bg-badge-blue-bg text-badge-blue-fg animate-pulse",
 			pending: "bg-muted text-muted-foreground",
 			skipped: "bg-muted text-muted-foreground",
-		}[status] ?? "bg-muted text-muted-foreground"
+		}[status] ?? "bg-muted text-muted-foreground";
 	return (
 		<>
 			<span
@@ -41,5 +41,5 @@ export function StatusBadge({
 				</div>
 			)}
 		</>
-	)
+	);
 }

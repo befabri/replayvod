@@ -1,11 +1,19 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
-import { useTranslation } from "react-i18next"
-import { DataTable } from "@/components/ui/data-table"
-import { useEventLogs, useLiveSystemEvents } from "@/features/eventlogs"
-import { eventLogColumns } from "@/features/eventlogs/components/columns"
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { TitledLayout } from "@/components/layout/titled-layout";
+import { DataTable } from "@/components/ui/data-table";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { useEventLogs, useLiveSystemEvents } from "@/features/eventlogs";
+import { eventLogColumns } from "@/features/eventlogs/components/columns";
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 50;
 
 export const Route = createFileRoute("/dashboard/system/events")({
 	validateSearch: (search: Record<string, unknown>) => ({
@@ -13,31 +21,28 @@ export const Route = createFileRoute("/dashboard/system/events")({
 		severity: typeof search.severity === "string" ? search.severity : undefined,
 	}),
 	component: EventsPage,
-})
+});
 
 function EventsPage() {
-	const { t } = useTranslation()
-	const { domain, severity } = Route.useSearch()
-	const [page, setPage] = useState(0)
+	const { t } = useTranslation();
+	const { domain, severity } = Route.useSearch();
+	const [page, setPage] = useState(0);
 	const { data, isLoading, error } = useEventLogs({
 		limit: PAGE_SIZE,
 		offset: page * PAGE_SIZE,
 		domain,
 		severity,
-	})
+	});
 	// Mount the system.events SSE subscription — each new row
 	// invalidates the current page so operators see activity land in
 	// real time without refreshing.
-	useLiveSystemEvents()
+	useLiveSystemEvents();
 
-	const columns = useMemo(() => eventLogColumns(t), [t])
+	const columns = useMemo(() => eventLogColumns(t), [t]);
 
 	return (
-		<div className="p-8 max-w-5xl">
-			<h1 className="text-3xl font-heading font-bold mb-2">
-				{t("events.title")}
-			</h1>
-			<p className="text-sm text-muted-foreground mb-4">
+		<TitledLayout title={t("events.title")}>
+			<p className="text-muted-foreground mb-6 -mt-6">
 				{t("events.description")}
 			</p>
 
@@ -83,53 +88,61 @@ function EventsPage() {
 					</div>
 				</>
 			)}
-		</div>
-	)
+		</TitledLayout>
+	);
 }
 
-function Filters({
-	domain,
-	severity,
-}: {
-	domain?: string
-	severity?: string
-}) {
-	const navigate = Route.useNavigate()
-	const { t } = useTranslation()
+function Filters({ domain, severity }: { domain?: string; severity?: string }) {
+	const navigate = Route.useNavigate();
+	const { t } = useTranslation();
 	return (
 		<div className="flex items-center gap-2 mb-4 text-sm">
-			<select
+			<Select
 				value={domain ?? ""}
-				onChange={(e) =>
+				onValueChange={(value) =>
 					void navigate({
-						search: (s) => ({ ...s, domain: e.target.value || undefined }),
+						search: (s) => ({
+							...s,
+							domain: typeof value === "string" && value ? value : undefined,
+						}),
 					})
 				}
-				className="rounded-md border border-border bg-background px-3 py-1 text-sm"
 			>
-				<option value="">{t("events.all_domains")}</option>
-				<option value="schedule">schedule</option>
-				<option value="download">download</option>
-				<option value="eventsub">eventsub</option>
-				<option value="task">task</option>
-				<option value="auth">auth</option>
-				<option value="system">system</option>
-			</select>
-			<select
+				<SelectTrigger className="w-40">
+					<SelectValue placeholder={t("events.all_domains")} />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="">{t("events.all_domains")}</SelectItem>
+					<SelectItem value="schedule">schedule</SelectItem>
+					<SelectItem value="download">download</SelectItem>
+					<SelectItem value="eventsub">eventsub</SelectItem>
+					<SelectItem value="task">task</SelectItem>
+					<SelectItem value="auth">auth</SelectItem>
+					<SelectItem value="system">system</SelectItem>
+				</SelectContent>
+			</Select>
+			<Select
 				value={severity ?? ""}
-				onChange={(e) =>
+				onValueChange={(value) =>
 					void navigate({
-						search: (s) => ({ ...s, severity: e.target.value || undefined }),
+						search: (s) => ({
+							...s,
+							severity: typeof value === "string" && value ? value : undefined,
+						}),
 					})
 				}
-				className="rounded-md border border-border bg-background px-3 py-1 text-sm"
 			>
-				<option value="">{t("events.all_severities")}</option>
-				<option value="debug">debug</option>
-				<option value="info">info</option>
-				<option value="warn">warn</option>
-				<option value="error">error</option>
-			</select>
+				<SelectTrigger className="w-40">
+					<SelectValue placeholder={t("events.all_severities")} />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="">{t("events.all_severities")}</SelectItem>
+					<SelectItem value="debug">debug</SelectItem>
+					<SelectItem value="info">info</SelectItem>
+					<SelectItem value="warn">warn</SelectItem>
+					<SelectItem value="error">error</SelectItem>
+				</SelectContent>
+			</Select>
 		</div>
-	)
+	);
 }

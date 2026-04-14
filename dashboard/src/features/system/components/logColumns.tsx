@@ -1,5 +1,5 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import type { FetchLogEntry } from "@/features/system"
+import type { ColumnDef } from "@tanstack/react-table";
+import type { FetchLogEntry } from "@/features/system";
 
 export const fetchLogColumns: ColumnDef<FetchLogEntry>[] = [
 	{
@@ -32,18 +32,12 @@ export const fetchLogColumns: ColumnDef<FetchLogEntry>[] = [
 		header: "Status",
 		enableSorting: true,
 		cell: ({ row }) => {
-			const ok = row.original.status >= 200 && row.original.status < 300
+			const ok = row.original.status >= 200 && row.original.status < 300;
 			return (
-				<span
-					className={
-						ok
-							? "text-emerald-600 dark:text-emerald-400"
-							: "text-destructive"
-					}
-				>
+				<span className={ok ? "text-badge-green-fg" : "text-destructive"}>
 					{row.original.status}
 				</span>
-			)
+			);
 		},
 	},
 	{
@@ -66,4 +60,4 @@ export const fetchLogColumns: ColumnDef<FetchLogEntry>[] = [
 			</span>
 		),
 	},
-]
+];

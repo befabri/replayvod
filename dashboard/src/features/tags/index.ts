@@ -1,2 +1,2 @@
-export type { TagResponse } from "@/api/generated/trpc"
-export { useTags } from "./queries"
+export type { TagResponse } from "@/api/generated/trpc";
+export { useTags } from "./queries";

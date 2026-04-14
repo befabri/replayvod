@@ -1,10 +1,10 @@
-import { useTranslation } from "react-i18next"
-import { useLatestSnapshot } from "@/features/eventsub"
+import { useTranslation } from "react-i18next";
+import { useLatestSnapshot } from "@/features/eventsub";
 
 export function QuotaCard() {
-	const { t } = useTranslation()
-	const { data, isLoading } = useLatestSnapshot()
-	const snap = data?.snapshot
+	const { t } = useTranslation();
+	const { data, isLoading } = useLatestSnapshot();
+	const snap = data?.snapshot;
 
 	if (isLoading) {
 		return (
@@ -13,20 +13,20 @@ export function QuotaCard() {
 					{t("common.loading")}
 				</div>
 			</div>
-		)
+		);
 	}
 	if (!snap) {
 		return (
 			<div className="rounded-lg border border-border bg-card p-4 mb-6 text-sm text-muted-foreground">
 				{t("eventsub.no_snapshot_yet")}
 			</div>
-		)
+		);
 	}
 
 	const quotaPct =
 		snap.max_total_cost > 0
 			? Math.min(100, Math.round((snap.total_cost / snap.max_total_cost) * 100))
-			: 0
+			: 0;
 
 	return (
 		<div className="rounded-lg border border-border bg-card p-4 mb-6">
@@ -57,5 +57,5 @@ export function QuotaCard() {
 				{new Date(snap.fetched_at).toLocaleString()}
 			</div>
 		</div>
-	)
+	);
 }

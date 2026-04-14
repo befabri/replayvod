@@ -1,15 +1,15 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import type { SessionInfo } from "@/features/sessions"
-import { useRevokeSession } from "@/features/sessions"
+import type { ColumnDef } from "@tanstack/react-table";
+import type { SessionInfo } from "@/features/sessions";
+import { useRevokeSession } from "@/features/sessions";
 
 function RevokeButton({
 	hashedId,
 	isCurrent,
 }: {
-	hashedId: string
-	isCurrent: boolean
+	hashedId: string;
+	isCurrent: boolean;
 }) {
-	const revoke = useRevokeSession()
+	const revoke = useRevokeSession();
 	return (
 		<button
 			type="button"
@@ -19,7 +19,7 @@ function RevokeButton({
 		>
 			{isCurrent ? "Sign out" : "Revoke"}
 		</button>
-	)
+	);
 }
 
 export const sessionColumns: ColumnDef<SessionInfo>[] = [
@@ -29,11 +29,14 @@ export const sessionColumns: ColumnDef<SessionInfo>[] = [
 		enableSorting: false,
 		cell: ({ row }) => (
 			<div className="flex items-center gap-2">
-				<span className="text-sm truncate max-w-sm" title={row.original.user_agent}>
+				<span
+					className="text-sm truncate max-w-sm"
+					title={row.original.user_agent}
+				>
 					{row.original.user_agent || "Unknown"}
 				</span>
 				{row.original.current && (
-					<span className="text-xs px-1.5 py-0.5 rounded bg-primary/20 text-primary-foreground">
+					<span className="text-xs px-1.5 py-0.5 rounded bg-primary/20 text-foreground">
 						current
 					</span>
 				)}
@@ -83,4 +86,4 @@ export const sessionColumns: ColumnDef<SessionInfo>[] = [
 			</div>
 		),
 	},
-]
+];

@@ -1,7 +1,7 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import type { TFunction } from "i18next"
-import type { EventLogEntry } from "@/features/eventlogs"
-import { SeverityBadge } from "./SeverityBadge"
+import type { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
+import type { EventLogEntry } from "@/features/eventlogs";
+import { SeverityBadge } from "./SeverityBadge";
 
 export function eventLogColumns(t: TFunction): ColumnDef<EventLogEntry>[] {
 	return [
@@ -46,5 +46,5 @@ export function eventLogColumns(t: TFunction): ColumnDef<EventLogEntry>[] {
 				</div>
 			),
 		},
-	]
+	];
 }

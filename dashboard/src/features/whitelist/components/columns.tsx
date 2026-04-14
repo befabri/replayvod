@@ -1,9 +1,9 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import type { WhitelistEntryInfo } from "@/features/whitelist"
-import { useRemoveWhitelist } from "@/features/whitelist"
+import type { ColumnDef } from "@tanstack/react-table";
+import type { WhitelistEntryInfo } from "@/features/whitelist";
+import { useRemoveWhitelist } from "@/features/whitelist";
 
 function RemoveButton({ twitchUserId }: { twitchUserId: string }) {
-	const remove = useRemoveWhitelist()
+	const remove = useRemoveWhitelist();
 	return (
 		<button
 			type="button"
@@ -13,7 +13,7 @@ function RemoveButton({ twitchUserId }: { twitchUserId: string }) {
 		>
 			Remove
 		</button>
-	)
+	);
 }
 
 export const whitelistColumns: ColumnDef<WhitelistEntryInfo>[] = [
@@ -21,7 +21,9 @@ export const whitelistColumns: ColumnDef<WhitelistEntryInfo>[] = [
 		accessorKey: "twitch_user_id",
 		header: "Twitch User ID",
 		enableSorting: true,
-		cell: ({ row }) => <span className="font-mono">{row.original.twitch_user_id}</span>,
+		cell: ({ row }) => (
+			<span className="font-mono">{row.original.twitch_user_id}</span>
+		),
 	},
 	{
 		accessorKey: "added_at",
@@ -43,4 +45,4 @@ export const whitelistColumns: ColumnDef<WhitelistEntryInfo>[] = [
 			</div>
 		),
 	},
-]
+];

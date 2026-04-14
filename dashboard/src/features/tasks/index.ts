@@ -1,7 +1,7 @@
-export type { TaskResponse } from "@/api/generated/trpc"
+export type { TaskResponse } from "@/api/generated/trpc";
 export {
+	useLiveTaskStatus,
+	useRunTaskNow,
 	useTasks,
 	useToggleTask,
-	useRunTaskNow,
-	useLiveTaskStatus,
-} from "./queries"
+} from "./queries";

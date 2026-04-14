@@ -1,25 +1,27 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { useStore } from "@tanstack/react-store"
-import { useMemo } from "react"
-import { DataTable } from "@/components/ui/data-table"
-import { useUsers } from "@/features/users"
-import { userColumns } from "@/features/users/components/columns"
-import { authStore } from "@/stores/auth"
+import { createFileRoute } from "@tanstack/react-router";
+import { useStore } from "@tanstack/react-store";
+import { useMemo } from "react";
+import { TitledLayout } from "@/components/layout/titled-layout";
+import { DataTable } from "@/components/ui/data-table";
+import { useUsers } from "@/features/users";
+import { userColumns } from "@/features/users/components/columns";
+import { authStore } from "@/stores/auth";
 
 export const Route = createFileRoute("/dashboard/system/users")({
 	component: UsersPage,
-})
+});
 
 function UsersPage() {
-	const currentUser = useStore(authStore, (s) => s.user)
-	const { data: users, isLoading, error } = useUsers()
+	const currentUser = useStore(authStore, (s) => s.user);
+	const { data: users, isLoading, error } = useUsers();
 
-	const columns = useMemo(() => userColumns(currentUser?.id), [currentUser?.id])
+	const columns = useMemo(
+		() => userColumns(currentUser?.id),
+		[currentUser?.id],
+	);
 
 	return (
-		<div className="p-8">
-			<h1 className="text-3xl font-heading font-bold mb-6">Users</h1>
-
+		<TitledLayout title="Users">
 			{isLoading && <div className="text-muted-foreground">Loading…</div>}
 
 			{error && (
@@ -29,12 +31,8 @@ function UsersPage() {
 			)}
 
 			{users && (
-				<DataTable
-					columns={columns}
-					data={users}
-					emptyMessage="No users."
-				/>
+				<DataTable columns={columns} data={users} emptyMessage="No users." />
 			)}
-		</div>
-	)
+		</TitledLayout>
+	);
 }

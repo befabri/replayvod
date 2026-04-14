@@ -1,8 +1,8 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import type { TFunction } from "i18next"
-import type { TaskResponse } from "@/features/tasks"
-import { StatusBadge } from "./StatusBadge"
-import { TaskActions } from "./TaskActions"
+import type { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
+import type { TaskResponse } from "@/features/tasks";
+import { StatusBadge } from "./StatusBadge";
+import { TaskActions } from "./TaskActions";
 
 // Columns are a function so translations bind lazily — i18n instance is
 // pulled in by the caller's useTranslation hook, not at module load.
@@ -13,7 +13,7 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 			header: t("tasks.col_name"),
 			enableSorting: true,
 			cell: ({ row }) => {
-				const task = row.original
+				const task = row.original;
 				return (
 					<div>
 						<div className="font-mono text-xs">{task.name}</div>
@@ -27,7 +27,7 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 								: t("tasks.manual_only")}
 						</div>
 					</div>
-				)
+				);
 			},
 		},
 		{
@@ -35,7 +35,7 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 			header: t("tasks.col_status"),
 			enableSorting: true,
 			cell: ({ row }) => {
-				const task = row.original
+				const task = row.original;
 				return (
 					<div>
 						<StatusBadge
@@ -49,7 +49,7 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 							</div>
 						)}
 					</div>
-				)
+				);
 			},
 		},
 		{
@@ -57,14 +57,14 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 			header: t("tasks.col_last_run"),
 			enableSorting: true,
 			cell: ({ row }) => {
-				const task = row.original
+				const task = row.original;
 				return (
 					<span className="text-xs text-muted-foreground">
 						{task.last_run_at
 							? new Date(task.last_run_at).toLocaleString()
 							: t("tasks.never")}
 					</span>
-				)
+				);
 			},
 		},
 		{
@@ -72,14 +72,14 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 			header: t("tasks.col_next_run"),
 			enableSorting: true,
 			cell: ({ row }) => {
-				const task = row.original
+				const task = row.original;
 				return (
 					<span className="text-xs text-muted-foreground">
 						{task.next_run_at
 							? new Date(task.next_run_at).toLocaleString()
 							: "—"}
 					</span>
-				)
+				);
 			},
 		},
 		{
@@ -88,5 +88,5 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 			enableSorting: false,
 			cell: ({ row }) => <TaskActions task={row.original} />,
 		},
-	]
+	];
 }

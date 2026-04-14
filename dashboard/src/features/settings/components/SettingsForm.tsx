@@ -1,28 +1,25 @@
-import { useForm } from "@tanstack/react-form"
-import { useEffect } from "react"
-import { useTranslation } from "react-i18next"
-import type { z } from "zod"
-import { SettingsUpdateInputSchema } from "@/api/generated/zod"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { useForm } from "@tanstack/react-form";
+import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import type { z } from "zod";
+import { SettingsUpdateInputSchema } from "@/api/generated/zod";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from "@/components/ui/select"
-import {
-	type SettingsResponse,
-	useUpdateSettings,
-} from "@/features/settings"
+} from "@/components/ui/select";
+import { type SettingsResponse, useUpdateSettings } from "@/features/settings";
 
-type SettingsFormValues = z.infer<typeof SettingsUpdateInputSchema>
+type SettingsFormValues = z.infer<typeof SettingsUpdateInputSchema>;
 
 export function SettingsForm({ data }: { data: SettingsResponse }) {
-	const { t } = useTranslation()
-	const update = useUpdateSettings()
+	const { t } = useTranslation();
+	const update = useUpdateSettings();
 
 	const form = useForm({
 		defaultValues: {
@@ -34,9 +31,9 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 			onSubmit: SettingsUpdateInputSchema,
 		},
 		onSubmit: async ({ value }) => {
-			await update.mutateAsync(value)
+			await update.mutateAsync(value);
 		},
-	})
+	});
 
 	// Sync defaults into the form once settings load. Without this,
 	// the form mounts with placeholder defaults and a user submit
@@ -44,17 +41,18 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 	useEffect(() => {
 		form.reset({
 			timezone: data.timezone,
-			datetime_format: data.datetime_format as SettingsFormValues["datetime_format"],
+			datetime_format:
+				data.datetime_format as SettingsFormValues["datetime_format"],
 			language: data.language as SettingsFormValues["language"],
-		})
-	}, [data, form])
+		});
+	}, [data, form]);
 
 	return (
 		<form
 			onSubmit={(e) => {
-				e.preventDefault()
-				e.stopPropagation()
-				void form.handleSubmit()
+				e.preventDefault();
+				e.stopPropagation();
+				void form.handleSubmit();
 			}}
 			className="rounded-lg border border-border bg-card p-6 space-y-4"
 		>
@@ -80,15 +78,11 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 			<form.Field name="datetime_format">
 				{(field) => (
 					<div className="flex flex-col gap-1 max-w-xs">
-						<Label htmlFor={field.name}>
-							{t("settings.datetime_format")}
-						</Label>
+						<Label htmlFor={field.name}>{t("settings.datetime_format")}</Label>
 						<Select
 							value={field.state.value}
 							onValueChange={(v) =>
-								field.handleChange(
-									v as SettingsFormValues["datetime_format"],
-								)
+								field.handleChange(v as SettingsFormValues["datetime_format"])
 							}
 						>
 							<SelectTrigger id={field.name}>
@@ -151,5 +145,5 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 				)}
 			</form.Subscribe>
 		</form>
-	)
+	);
 }

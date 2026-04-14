@@ -1,2 +1,2 @@
-export type { SessionInfo } from "@/api/generated/trpc"
-export { useSessions, useRevokeSession } from "./queries"
+export type { SessionInfo } from "@/api/generated/trpc";
+export { useRevokeSession, useSessions } from "./queries";

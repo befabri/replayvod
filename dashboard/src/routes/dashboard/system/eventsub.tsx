@@ -1,39 +1,33 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { useMemo } from "react"
-import { useTranslation } from "react-i18next"
-import { DataTable } from "@/components/ui/data-table"
-import { subscriptionColumns } from "@/features/eventsub/components/columns"
-import { QuotaCard } from "@/features/eventsub/components/QuotaCard"
-import { SnapshotChart } from "@/features/eventsub/components/SnapshotChart"
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { TitledLayout } from "@/components/layout/titled-layout";
+import { DataTable } from "@/components/ui/data-table";
 import {
 	useSnapshotNow,
 	useSnapshots,
 	useSubscriptions,
-} from "@/features/eventsub"
+} from "@/features/eventsub";
+import { subscriptionColumns } from "@/features/eventsub/components/columns";
+import { QuotaCard } from "@/features/eventsub/components/QuotaCard";
+import { SnapshotChart } from "@/features/eventsub/components/SnapshotChart";
 
 export const Route = createFileRoute("/dashboard/system/eventsub")({
 	component: EventSubPage,
-})
+});
 
 function EventSubPage() {
-	const { t } = useTranslation()
-	const subs = useSubscriptions()
-	const snapshots = useSnapshots()
-	const poll = useSnapshotNow()
+	const { t } = useTranslation();
+	const subs = useSubscriptions();
+	const snapshots = useSnapshots();
+	const poll = useSnapshotNow();
 
-	const columns = useMemo(() => subscriptionColumns(t), [t])
+	const columns = useMemo(() => subscriptionColumns(t), [t]);
 
 	return (
-		<div className="p-8 max-w-5xl">
-			<div className="flex items-start justify-between gap-4 mb-6">
-				<div>
-					<h1 className="text-3xl font-heading font-bold mb-2">
-						{t("eventsub.title")}
-					</h1>
-					<p className="text-sm text-muted-foreground">
-						{t("eventsub.description")}
-					</p>
-				</div>
+		<TitledLayout
+			title={t("eventsub.title")}
+			actions={
 				<button
 					type="button"
 					onClick={() => poll.mutate()}
@@ -42,7 +36,11 @@ function EventSubPage() {
 				>
 					{poll.isPending ? t("eventsub.polling") : t("eventsub.poll_now")}
 				</button>
-			</div>
+			}
+		>
+			<p className="text-muted-foreground mb-6 -mt-6">
+				{t("eventsub.description")}
+			</p>
 
 			{poll.isError && (
 				<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
@@ -82,6 +80,6 @@ function EventSubPage() {
 					/>
 				)}
 			</section>
-		</div>
-	)
+		</TitledLayout>
+	);
 }

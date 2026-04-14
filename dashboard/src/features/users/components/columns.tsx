@@ -1,12 +1,12 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import type { UserInfo } from "@/features/users"
-import { useUpdateUserRole } from "@/features/users"
-import type { Role } from "@/stores/auth"
+import type { ColumnDef } from "@tanstack/react-table";
+import type { UserInfo } from "@/features/users";
+import { useUpdateUserRole } from "@/features/users";
+import type { Role } from "@/stores/auth";
 
 // RoleSelect is a thin cell component so the mutation hook mounts per
 // row — keeps each row's pending/error state isolated.
 function RoleSelect({ user, isSelf }: { user: UserInfo; isSelf: boolean }) {
-	const update = useUpdateUserRole()
+	const update = useUpdateUserRole();
 	return (
 		<select
 			value={user.role}
@@ -23,18 +23,20 @@ function RoleSelect({ user, isSelf }: { user: UserInfo; isSelf: boolean }) {
 			<option value="admin">admin</option>
 			<option value="owner">owner</option>
 		</select>
-	)
+	);
 }
 
-export function userColumns(currentUserId: string | undefined): ColumnDef<UserInfo>[] {
+export function userColumns(
+	currentUserId: string | undefined,
+): ColumnDef<UserInfo>[] {
 	return [
 		{
 			accessorKey: "display_name",
 			header: "User",
 			enableSorting: true,
 			cell: ({ row }) => {
-				const u = row.original
-				const isSelf = u.id === currentUserId
+				const u = row.original;
+				const isSelf = u.id === currentUserId;
 				return (
 					<div className="flex items-center gap-2">
 						{u.profile_image_url && (
@@ -49,7 +51,7 @@ export function userColumns(currentUserId: string | undefined): ColumnDef<UserIn
 							<span className="text-xs text-muted-foreground">(you)</span>
 						)}
 					</div>
-				)
+				);
 			},
 		},
 		{
@@ -81,5 +83,5 @@ export function userColumns(currentUserId: string | undefined): ColumnDef<UserIn
 				</span>
 			),
 		},
-	]
+	];
 }

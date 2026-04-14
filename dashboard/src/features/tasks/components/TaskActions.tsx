@@ -1,11 +1,11 @@
-import { useTranslation } from "react-i18next"
-import type { TaskResponse } from "@/features/tasks"
-import { useRunTaskNow, useToggleTask } from "@/features/tasks"
+import { useTranslation } from "react-i18next";
+import type { TaskResponse } from "@/features/tasks";
+import { useRunTaskNow, useToggleTask } from "@/features/tasks";
 
 export function TaskActions({ task }: { task: TaskResponse }) {
-	const { t } = useTranslation()
-	const toggle = useToggleTask()
-	const runNow = useRunTaskNow()
+	const { t } = useTranslation();
+	const toggle = useToggleTask();
+	const runNow = useRunTaskNow();
 	return (
 		<div className="flex flex-col items-end gap-1">
 			<button
@@ -27,5 +27,5 @@ export function TaskActions({ task }: { task: TaskResponse }) {
 				{task.is_enabled ? t("tasks.pause") : t("tasks.resume")}
 			</button>
 		</div>
-	)
+	);
 }

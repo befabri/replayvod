@@ -1,20 +1,20 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import type { TFunction } from "i18next"
-import { useUnsubscribe } from "@/features/eventsub"
+import type { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
+import { useUnsubscribe } from "@/features/eventsub";
 
 // Row shape the subscriptions query actually returns; condition is
 // json.RawMessage server-side so broadcaster_id may be absent.
 export type SubRowData = {
-	id: string
-	type: string
-	version: string
-	status: string
-	cost: number
-	broadcaster_id?: string
-}
+	id: string;
+	type: string;
+	version: string;
+	status: string;
+	cost: number;
+	broadcaster_id?: string;
+};
 
 function UnsubButton({ id, label }: { id: string; label: string }) {
-	const unsub = useUnsubscribe()
+	const unsub = useUnsubscribe();
 	return (
 		<button
 			type="button"
@@ -24,7 +24,7 @@ function UnsubButton({ id, label }: { id: string; label: string }) {
 		>
 			{label}
 		</button>
-	)
+	);
 }
 
 export function subscriptionColumns(t: TFunction): ColumnDef<SubRowData>[] {
@@ -57,7 +57,9 @@ export function subscriptionColumns(t: TFunction): ColumnDef<SubRowData>[] {
 		},
 		{
 			accessorKey: "cost",
-			header: () => <span className="text-right w-full">{t("eventsub.col_cost")}</span>,
+			header: () => (
+				<span className="text-right w-full">{t("eventsub.col_cost")}</span>
+			),
 			enableSorting: true,
 			cell: ({ row }) => <div className="text-right">{row.original.cost}</div>,
 		},
@@ -71,5 +73,5 @@ export function subscriptionColumns(t: TFunction): ColumnDef<SubRowData>[] {
 				</div>
 			),
 		},
-	]
+	];
 }
