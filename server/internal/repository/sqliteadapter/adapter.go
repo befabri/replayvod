@@ -41,6 +41,14 @@ func New(db sqlitegen.DBTX) *SQLiteAdapter {
 	return &SQLiteAdapter{queries: sqlitegen.New(db), db: db}
 }
 
+func (a *SQLiteAdapter) Ping(ctx context.Context) error {
+	var n int
+	if err := a.db.QueryRowContext(ctx, "SELECT 1").Scan(&n); err != nil {
+		return fmt.Errorf("sqlite ping: %w", err)
+	}
+	return nil
+}
+
 func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	row, err := a.queries.GetUser(ctx, id)
 	if err != nil {

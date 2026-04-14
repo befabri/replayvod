@@ -50,6 +50,13 @@ max_conn_lifetime_ms = 1800000
 max_conn_idle_time_ms = 300000
 health_check_period_ms = 30000
 
+# Exposes an unauthenticated GET /api/v1/health that pings the DB —
+# 200 on success, 503 on failure. The bundled docker-compose relies on
+# this for its healthcheck, so it's on by default; flip off on
+# deployments that don't want an unauthenticated probe.
+[health]
+enabled = true
+
 # Title tracking: capture stream-title changes during an active
 # recording. Three modes:
 #

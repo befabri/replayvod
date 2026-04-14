@@ -77,7 +77,17 @@ type AppConfig struct {
 	Logging       LoggingConfig       `toml:"logging"`
 	PostgresPool  PostgresPoolConfig  `toml:"postgres"`
 	TitleTracking TitleTrackingConfig `toml:"title_tracking"`
+	Health        HealthConfig        `toml:"health"`
 	Development   bool                `toml:"development"`
+}
+
+// HealthConfig gates the unauthenticated /api/v1/health readiness
+// endpoint. The bundled docker-compose uses it for its service
+// healthcheck, so the shipped config.toml enables it; operators who
+// don't want an unauthenticated surface can flip it off at the cost
+// of that healthcheck (and any external uptime monitor pointed at it).
+type HealthConfig struct {
+	Enabled bool `toml:"enabled"`
 }
 
 // TitleTrackingConfig controls capture of title changes during an

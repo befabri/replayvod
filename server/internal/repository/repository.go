@@ -15,6 +15,11 @@ var ErrNotFound = errors.New("repository: not found")
 // Repository is the common interface for database access.
 // Both PG and SQLite adapters implement this.
 type Repository interface {
+	// Ping verifies the underlying database connection is live. Used by
+	// the optional /api/v1/healthz readiness probe — a successful ping
+	// means the server can serve requests that touch the DB.
+	Ping(ctx context.Context) error
+
 	// Users
 	GetUser(ctx context.Context, id string) (*User, error)
 	GetUserByLogin(ctx context.Context, login string) (*User, error)

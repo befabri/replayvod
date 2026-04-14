@@ -42,6 +42,14 @@ func New(db pggen.DBTX) *PGAdapter {
 	return &PGAdapter{queries: pggen.New(db), db: db}
 }
 
+func (a *PGAdapter) Ping(ctx context.Context) error {
+	var n int
+	if err := a.db.QueryRow(ctx, "SELECT 1").Scan(&n); err != nil {
+		return fmt.Errorf("pg ping: %w", err)
+	}
+	return nil
+}
+
 // Users
 
 func (a *PGAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {

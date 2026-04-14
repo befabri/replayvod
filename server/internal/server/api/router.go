@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -53,12 +52,6 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	r.Use(middleware.Recoverer(log))
 	r.Use(middleware.CORS(cfg.App.Server.AllowedOrigins))
 
-	// Health check
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
-
 	// Pprof endpoints, dev-only. Production config.toml leaves
 	// Development=false so this never listens on a hardened deploy.
 	// Mounted directly (not under /api/) to match the default
@@ -91,6 +84,9 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, scheduleProcessor, log)
 	sessionMw := middleware.Auth(sessionMgr, repo, log)
 	r.Route("/api/v1", func(r chi.Router) {
+		if cfg.App.Health.Enabled {
+			r.Get("/health", healthHandler(repo, log))
+		}
 		authHandler.SetupRoutes(r)
 		videoStream.SetupRoutes(r, sessionMw)
 		webhookHandler.SetupRoutes(r)
@@ -217,7 +213,7 @@ func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
 		path := r.URL.Path
 
 		// Skip API and tRPC routes (already handled)
-		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/trpc/") || path == "/health" {
+		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/trpc/") {
 			http.NotFound(w, r)
 			return
 		}
