@@ -1,13 +1,13 @@
+import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import {
 	type ColumnDef,
-	type SortingState,
 	flexRender,
 	getCoreRowModel,
 	getSortedRowModel,
+	type SortingState,
 	useReactTable,
-} from "@tanstack/react-table"
-import { CaretDown, CaretUp } from "@phosphor-icons/react"
-import { useState } from "react"
+} from "@tanstack/react-table";
+import { useState } from "react";
 import {
 	Table,
 	TableBody,
@@ -15,7 +15,7 @@ import {
 	TableHead,
 	TableHeader,
 	TableRow,
-} from "./table"
+} from "./table";
 
 // DataTable is the shared TanStack Table wrapper used by the dashboard
 // system pages. Headless by design so each caller supplies its own
@@ -26,11 +26,11 @@ export function DataTable<TData, TValue>({
 	data,
 	emptyMessage,
 }: {
-	columns: ColumnDef<TData, TValue>[]
-	data: TData[]
-	emptyMessage?: string
+	columns: ColumnDef<TData, TValue>[];
+	data: TData[];
+	emptyMessage?: string;
 }) {
-	const [sorting, setSorting] = useState<SortingState>([])
+	const [sorting, setSorting] = useState<SortingState>([]);
 
 	const table = useReactTable({
 		data,
@@ -39,7 +39,7 @@ export function DataTable<TData, TValue>({
 		onSortingChange: setSorting,
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
-	})
+	});
 
 	return (
 		<Table>
@@ -47,8 +47,8 @@ export function DataTable<TData, TValue>({
 				{table.getHeaderGroups().map((headerGroup) => (
 					<TableRow key={headerGroup.id}>
 						{headerGroup.headers.map((header) => {
-							const sort = header.column.getIsSorted()
-							const canSort = header.column.getCanSort()
+							const sort = header.column.getIsSorted();
+							const canSort = header.column.getCanSort();
 							return (
 								<TableHead key={header.id}>
 									{header.isPlaceholder ? null : canSort ? (
@@ -74,7 +74,7 @@ export function DataTable<TData, TValue>({
 										)
 									)}
 								</TableHead>
-							)
+							);
 						})}
 					</TableRow>
 				))}
@@ -102,5 +102,5 @@ export function DataTable<TData, TValue>({
 				)}
 			</TableBody>
 		</Table>
-	)
+	);
 }

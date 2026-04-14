@@ -1,15 +1,17 @@
-import { Select as SelectPrimitive } from "@base-ui/react/select"
-import { CaretDown, Check } from "@phosphor-icons/react"
-import type * as React from "react"
+import { Select as SelectPrimitive } from "@base-ui/react/select";
+import { CaretDown, Check } from "@phosphor-icons/react";
+import type * as React from "react";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 function Select(props: React.ComponentProps<typeof SelectPrimitive.Root>) {
-	return <SelectPrimitive.Root data-slot="select" {...props} />
+	return <SelectPrimitive.Root data-slot="select" {...props} />;
 }
 
-function SelectValue(props: React.ComponentProps<typeof SelectPrimitive.Value>) {
-	return <SelectPrimitive.Value data-slot="select-value" {...props} />
+function SelectValue(
+	props: React.ComponentProps<typeof SelectPrimitive.Value>,
+) {
+	return <SelectPrimitive.Value data-slot="select-value" {...props} />;
 }
 
 function SelectTrigger({
@@ -34,7 +36,7 @@ function SelectTrigger({
 				<CaretDown className="size-4 opacity-50" />
 			</SelectPrimitive.Icon>
 		</SelectPrimitive.Trigger>
-	)
+	);
 }
 
 function SelectContent({
@@ -58,7 +60,7 @@ function SelectContent({
 				</SelectPrimitive.Popup>
 			</SelectPrimitive.Positioner>
 		</SelectPrimitive.Portal>
-	)
+	);
 }
 
 function SelectItem({
@@ -84,7 +86,7 @@ function SelectItem({
 			</span>
 			<SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
 		</SelectPrimitive.Item>
-	)
+	);
 }
 
-export { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
+export { Select, SelectTrigger, SelectValue, SelectContent, SelectItem };

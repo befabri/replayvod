@@ -1,8 +1,8 @@
-import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
-import { Check } from "@phosphor-icons/react"
-import type * as React from "react"
+import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox";
+import { Check } from "@phosphor-icons/react";
+import type * as React from "react";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 function Checkbox({
 	className,
@@ -24,7 +24,7 @@ function Checkbox({
 				<Check className="size-3.5" weight="bold" />
 			</CheckboxPrimitive.Indicator>
 		</CheckboxPrimitive.Root>
-	)
+	);
 }
 
-export { Checkbox }
+export { Checkbox };

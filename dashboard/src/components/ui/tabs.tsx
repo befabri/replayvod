@@ -1,10 +1,10 @@
-import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
-import type * as React from "react"
+import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
+import type * as React from "react";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 function Tabs(props: React.ComponentProps<typeof TabsPrimitive.Root>) {
-	return <TabsPrimitive.Root data-slot="tabs" {...props} />
+	return <TabsPrimitive.Root data-slot="tabs" {...props} />;
 }
 
 function TabsList({
@@ -20,7 +20,7 @@ function TabsList({
 			)}
 			{...props}
 		/>
-	)
+	);
 }
 
 function TabsTrigger({
@@ -39,7 +39,7 @@ function TabsTrigger({
 			)}
 			{...props}
 		/>
-	)
+	);
 }
 
 function TabsContent({
@@ -55,7 +55,7 @@ function TabsContent({
 			)}
 			{...props}
 		/>
-	)
+	);
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent }
+export { Tabs, TabsList, TabsTrigger, TabsContent };
