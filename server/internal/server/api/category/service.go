@@ -31,3 +31,11 @@ func (s *Service) GetByID(ctx context.Context, id string) (*repository.Category,
 func (s *Service) List(ctx context.Context) ([]repository.Category, error) {
 	return s.repo.ListCategories(ctx)
 }
+
+// Search returns categories matching query (empty matches everything),
+// ranked by match quality and capped at limit. Mirrors channel.Service.Search
+// so the schedule form's category picker shares ranking semantics with
+// the broadcaster picker.
+func (s *Service) Search(ctx context.Context, query string, limit int) ([]repository.Category, error) {
+	return s.repo.SearchCategories(ctx, query, limit)
+}

@@ -70,3 +70,29 @@ func (h *Handler) List(ctx context.Context) ([]CategoryResponse, error) {
 	}
 	return out, nil
 }
+
+// SearchInput drives category.search. Empty Query returns everything
+// up to Limit — the same endpoint backs the combobox "show all"
+// state. Query is capped at 100 chars to bound ILIKE pattern work;
+// plenty of headroom for any realistic game title.
+type SearchInput struct {
+	Query string `json:"query" validate:"max=100"`
+	Limit int    `json:"limit,omitempty" validate:"min=0,max=200"`
+}
+
+func (h *Handler) Search(ctx context.Context, input SearchInput) ([]CategoryResponse, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := h.svc.Search(ctx, input.Query, limit)
+	if err != nil {
+		h.log.Error("search categories", "error", err)
+		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to search categories")
+	}
+	out := make([]CategoryResponse, len(rows))
+	for i := range rows {
+		out[i] = toResponse(&rows[i])
+	}
+	return out, nil
+}

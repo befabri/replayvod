@@ -15,4 +15,5 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, log *slog.Log
 	h := NewHandler(New(repo, log), log)
 	trpcgo.MustQuery(tr, "category.getById", h.GetByID, viewer)
 	trpcgo.MustVoidQuery(tr, "category.list", h.List, viewer)
+	trpcgo.MustQuery(tr, "category.search", h.Search, viewer)
 }
