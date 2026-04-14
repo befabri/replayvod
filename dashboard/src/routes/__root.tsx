@@ -1,19 +1,24 @@
+import type { QueryClient } from "@tanstack/react-query";
 import {
+	createRootRouteWithContext,
 	HeadContent,
 	Scripts,
-	createRootRouteWithContext,
-} from "@tanstack/react-router"
-import type { QueryClient } from "@tanstack/react-query"
+} from "@tanstack/react-router";
+import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
-import appCss from "@/styles.css?url"
-import "@/i18n"
-import { useAuthInit } from "@/hooks/useAuthInit"
+import appCss from "@/styles.css?url";
+import "@/i18n";
+import { Toaster } from "@/components/ui/toaster";
+import { useAuthInit } from "@/hooks/useAuthInit";
 
 interface MyRouterContext {
-	queryClient: QueryClient
+	queryClient: QueryClient;
 }
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
+// Dark is the :root default; .light class opts into the light palette.
+// Also migrates the legacy v1 `darkMode` boolean key to the new `theme` key.
+const THEME_INIT_SCRIPT = `(function(){try{var ls=window.localStorage;var stored=ls.getItem('theme');if(!stored){var legacy=ls.getItem('darkMode');if(legacy==='true'){stored='dark';ls.setItem('theme','dark')}else if(legacy==='false'){stored='light';ls.setItem('theme','light')}if(legacy!==null)ls.removeItem('darkMode')}var mode=(stored==='light'||stored==='dark')?stored:'dark';var root=document.documentElement;root.classList.remove('light');if(mode==='light')root.classList.add('light');root.setAttribute('data-theme',mode);}catch(e){}})();`;
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
 	head: () => ({
@@ -30,11 +35,22 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 		],
 	}),
 	shellComponent: RootDocument,
-})
+});
 
 function RootDocument({ children }: { children: React.ReactNode }) {
 	// Hydrate auth store from session cookie on app startup
-	useAuthInit()
+	useAuthInit();
+	const { i18n } = useTranslation();
+
+	// Keep <html lang> in sync with i18n so screen readers, browser
+	// translation prompts, and :lang() CSS selectors follow the UI
+	// language. SPA mode — no SSR lang to worry about.
+	useEffect(() => {
+		const base = i18n.language.split("-")[0] || "en";
+		if (document.documentElement.lang !== base) {
+			document.documentElement.lang = base;
+		}
+	}, [i18n.language]);
 
 	return (
 		<html lang="en" suppressHydrationWarning>
@@ -44,8 +60,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			</head>
 			<body className="font-sans antialiased">
 				{children}
+				<Toaster />
 				<Scripts />
 			</body>
 		</html>
-	)
+	);
 }
