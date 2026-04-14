@@ -143,6 +143,102 @@ func (g *Generator) Generate(ctx context.Context, in Input) error {
 // fallback (channel avatar) is more useful than a blank JPEG.
 var ErrAllTriesSingleColor = errors.New("thumbnail: all retries returned single-color frames")
 
+// StripInput parameterizes a GenerateStrip call — a scrubber
+// preview sprite sheet built by tiling N evenly-spaced frames
+// into a single JPEG.
+type StripInput struct {
+	// VideoPath is the remuxed MP4 to sample from.
+	VideoPath string
+
+	// OutputPath is the sprite JPEG we write — convention is
+	// `<basename>-strip.jpg` next to the hero thumbnail.
+	OutputPath string
+
+	// DurationSeconds must be positive. The sprite's sample rate
+	// is derived as Frames / DurationSeconds so frames are
+	// evenly spread across the whole clip.
+	DurationSeconds float64
+
+	// Frames, Columns, FrameWidth, Quality default to sensible
+	// values when zero. Default grid is 4×3 at 160px wide;
+	// typical output is ~50-150 KB for a 1080p source.
+	Frames     int
+	Columns    int
+	FrameWidth int
+	Quality    int
+}
+
+// GenerateStrip builds a scrubber-preview sprite from VideoPath.
+// Single ffmpeg invocation: the fps filter downsamples to exactly
+// the frame count we want, scale normalizes dimensions, tile packs
+// the result into one grid image. Typical 4-hour VOD → <2s wall
+// time.
+//
+// Unlike Generate there's no single-color retry — the sprite
+// inherently spans the whole clip, so a monochrome frame or two
+// in the grid is cosmetically survivable. An all-slate recording
+// still produces an all-slate strip, which is honest.
+//
+// DurationSeconds <= 0 is an error: without a duration we can't
+// compute the sample rate. Caller should only invoke this after
+// Stage 7 probe has confirmed a duration.
+func (g *Generator) GenerateStrip(ctx context.Context, in StripInput) error {
+	if in.DurationSeconds <= 0 {
+		return fmt.Errorf("thumbnail strip: non-positive duration %v", in.DurationSeconds)
+	}
+	frames := in.Frames
+	if frames <= 0 {
+		frames = 12
+	}
+	cols := in.Columns
+	if cols <= 0 {
+		cols = 4
+	}
+	rows := (frames + cols - 1) / cols
+	fw := in.FrameWidth
+	if fw <= 0 {
+		fw = 160
+	}
+	q := in.Quality
+	if q <= 0 {
+		q = 3
+	}
+	runner := g.Runner
+	if runner == nil {
+		runner = execRunner{}
+	}
+	bin := g.FFmpegPath
+	if bin == "" {
+		bin = DefaultFFmpegPath
+	}
+
+	// fps = frames / duration → one frame every duration/frames
+	// seconds. ffmpeg accepts fractional fps; we hand it the
+	// ratio directly so integer rounding doesn't bias the sample
+	// toward the start on short clips.
+	filter := fmt.Sprintf("fps=%d/%.6f,scale=%d:-1,tile=%dx%d",
+		frames, in.DurationSeconds, fw, cols, rows)
+
+	args := []string{
+		"-y", "-hide_banner", "-loglevel", "error",
+		"-i", in.VideoPath,
+		"-vf", filter,
+		"-frames:v", "1",
+		"-q:v", fmt.Sprintf("%d", q),
+		"-f", "image2",
+		in.OutputPath,
+	}
+	var stderr bytes.Buffer
+	if err := runner.Run(ctx, bin, args, &stderr); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return fmt.Errorf("thumbnail strip: ffmpeg failed: %w\nstderr:\n%s",
+			err, truncate(stderr.String(), 4<<10))
+	}
+	return nil
+}
+
 // initialOffset picks the first capture timestamp: 10% of
 // duration, clamped to [5, 600]. v1 heuristic retained — a
 // 30-minute stream pulls from ~3 minutes in, a 3-hour stream
