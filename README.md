@@ -35,18 +35,28 @@ _(coming soon)_
 
 ## Quick start
 
-Bundled Docker setup spins up Postgres and the ReplayVOD server together:
+Bundled Docker setup is production-oriented: it builds the dashboard and
+serves it from the Go server. Pick a database profile — `sqlite` for the
+simplest single-container deploy, or `postgres` for a two-container setup:
 
 ```bash
 git clone https://github.com/befabri/replayvod.git
 cd replayvod
 cp server/.env.example server/.env
 $EDITOR server/.env             # fill in Twitch credentials, see below
-docker compose up -d
+docker compose --env-file server/.env --profile sqlite up -d
+# or: --profile postgres        # adds a Postgres container
 ```
 
 Open <http://localhost:8080>, sign in with your Twitch account, and the user
 listed in `OWNER_TWITCH_ID` is granted the owner role.
+
+To skip the `--profile` flag on every command, set `COMPOSE_PROFILES=sqlite`
+(or `=postgres`) in `server/.env`.
+
+For real deployments, set `PUBLIC_BASE_URL=https://your-domain` in
+`server/.env` before starting. The compose file derives the OAuth callback,
+webhook callback, and frontend redirect URLs from that base URL.
 
 ### Twitch credentials
 
@@ -68,7 +78,8 @@ SESSION_SECRET=...     # any random 32+ byte hex
 OWNER_TWITCH_ID=...    # your numeric Twitch user id
 ```
 
-For non-local deployments, change the host in the redirect URL to match.
+If you are not using Docker compose and are running the backend + Vite dev
+server separately, keep `FRONTEND_URL=http://localhost:3000` for local dev.
 
 ## Configuration
 
@@ -113,6 +124,9 @@ task build    # production builds
 
 The dashboard's Vite proxy forwards `/api/*` and `/trpc/*` to the backend, so
 the SPA works at <http://localhost:3000> during development.
+
+The bundled `docker-compose.yml` is not a live-reload dev environment; it is a
+deployment path that serves the built SPA from the backend on :8080.
 
 ```
 server/        Go backend (cmd/server, internal/api, internal/downloader, ...)

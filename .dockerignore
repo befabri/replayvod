@@ -1,0 +1,46 @@
+# Build context exclusions — keep the docker-build payload small and avoid
+# leaking local state (env, scratch downloads, IDE configs) into the image.
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Editor / IDE
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Node
+**/node_modules
+dashboard/dist
+dashboard/.tanstack
+dashboard/.vite
+dashboard/test-results
+dashboard/playwright-report
+
+# Go
+server/bin
+server/tmp
+server/data
+server/.scratch
+
+# Local env (server reads from real env at runtime via docker-compose
+# env_file, not from a baked-in copy)
+**/.env
+**/.env.local
+
+# Project meta we never need at runtime
+README.md
+LICENSE
+Taskfile.yml
+.docs
+.reference
+.claude
+.github
+docker-compose.yml
+Dockerfile
+
+# Probe captures (containing PII like user IP, even if scrubbed)
+dashboard/scripts/probes/**/capture.*.json

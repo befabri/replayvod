@@ -1,34 +1,79 @@
+# Pick a database profile:
+#   docker compose --profile postgres up -d   # postgres container + replayvod
+#   docker compose --profile sqlite   up -d   # replayvod only, SQLite on disk
+# Or set COMPOSE_PROFILES=postgres (or =sqlite) in server/.env so plain
+# `docker compose --env-file server/.env up` picks the right variant.
+
+x-replayvod-base: &replayvod-base
+  build: .
+  restart: unless-stopped
+  ports:
+    - "8080:8080"
+  env_file:
+    - server/.env
+  volumes:
+    - data:/app/data
+    - logs:/app/logs
+  # Requires [health] enabled = true in config.toml (the shipped default).
+  # When the endpoint is disabled this probe will fail and the container
+  # will be marked unhealthy — flip the config off only if you don't need
+  # the healthcheck.
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/health"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 15s
+
+x-replayvod-env: &replayvod-env
+  HOST: 0.0.0.0
+  PORT: "8080"
+  FRONTEND_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}"
+  CALLBACK_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}/api/v1/auth/twitch/callback"
+  WEBHOOK_CALLBACK_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}/api/v1/webhook/callback"
+  DASHBOARD_DIR: /app/dashboard
+  VIDEO_DIR: /app/data/videos
+  THUMBNAIL_DIR: /app/data/thumbnails
+  SCRATCH_DIR: /app/data/.scratch
+  TZ: ${TZ:-UTC}
+
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
+    profiles: ["postgres"]
     environment:
-      POSTGRES_DB: replayvod
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DATABASE:-replayvod}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DATABASE:-replayvod}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  replayvod:
-    build: .
-    ports:
-      - "8080:8080"
+  replayvod-postgres:
+    <<: *replayvod-base
+    profiles: ["postgres"]
     environment:
+      <<: *replayvod-env
       DATABASE_DRIVER: postgres
       POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DATABASE: replayvod
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      HOST: 0.0.0.0
-      PORT: 8080
-      DASHBOARD_DIR: /app/dashboard
-    volumes:
-      - data:/app/data
-      - logs:/app/logs
+      POSTGRES_PORT: "5432"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+
+  replayvod-sqlite:
+    <<: *replayvod-base
+    profiles: ["sqlite"]
+    environment:
+      <<: *replayvod-env
+      DATABASE_DRIVER: sqlite
+      SQLITE_PATH: /app/data/replayvod.db
 
 volumes:
   pgdata:

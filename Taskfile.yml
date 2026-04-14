@@ -109,3 +109,35 @@ tasks:
     dir: dashboard
     cmds:
       - npm run test
+
+  # ---- docker (production deploy) ----
+  #
+  # Compose interpolates ${VAR} from the file passed via --env-file. We
+  # pin it to server/.env so the Twitch credentials, secrets, and
+  # POSTGRES_PASSWORD that the user already filled in there are the
+  # single source of truth — no duplicate root-level .env required.
+  #
+  # The compose file is split into postgres/sqlite profiles; set
+  # `COMPOSE_PROFILES=sqlite` (or `=postgres`) in server/.env so these
+  # tasks know which variant to start, or invoke compose directly with
+  # `--profile <name>`.
+
+  docker:build:
+    desc: Build the production image (requires COMPOSE_PROFILES in server/.env)
+    cmds:
+      - docker compose --env-file server/.env build
+
+  docker:up:
+    desc: Start the stack in the background (requires COMPOSE_PROFILES in server/.env)
+    cmds:
+      - docker compose --env-file server/.env up -d
+
+  docker:down:
+    desc: Stop and remove containers (volumes preserved)
+    cmds:
+      - docker compose --env-file server/.env down
+
+  docker:logs:
+    desc: Tail logs from the active profile's services
+    cmds:
+      - docker compose --env-file server/.env logs -f
