@@ -79,12 +79,17 @@ func (r *Remuxer) Heal(ctx context.Context, inputPath, outputPath string, kind K
 // `-c:a copy` so ffmpeg doesn't complain about the missing video
 // stream; video jobs use `-c copy` (all streams) to stay
 // consistent with Run.
+//
+// `-f mp4` is explicit on both paths — same reason as ffmpegArgs:
+// the output path ends in `.part` and ffmpeg 8.1+ refuses to
+// auto-detect the muxer from that extension.
 func healArgs(inputPath, outputPath string, kind Kind) []string {
 	if kind == KindAudio {
 		return []string{
 			"-y",
 			"-i", inputPath,
 			"-c:a", "copy",
+			"-f", "mp4",
 			outputPath,
 		}
 	}
@@ -92,6 +97,7 @@ func healArgs(inputPath, outputPath string, kind Kind) []string {
 		"-y",
 		"-i", inputPath,
 		"-c", "copy",
+		"-f", "mp4",
 		outputPath,
 	}
 }

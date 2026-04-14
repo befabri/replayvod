@@ -65,6 +65,7 @@ func TestFFmpegArgs_TS(t *testing.T) {
 		"-safe", "0",
 		"-i", "/work/segments.txt",
 		"-c", "copy",
+		"-f", "mp4",
 		"/out/rec-part01.mp4.part",
 	}
 	if !reflect.DeepEqual(args, want) {
@@ -88,6 +89,7 @@ func TestFFmpegArgs_FMP4_Audio(t *testing.T) {
 		"-y",
 		"-i", "/work/media.m3u8",
 		"-c", "copy",
+		"-f", "mp4",
 		"/out/rec-part01.m4a.part",
 	}
 	if !reflect.DeepEqual(args, want) {

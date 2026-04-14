@@ -28,6 +28,27 @@ tasks:
     cmds:
       - go test -tags integration -count=1 ./...
 
+  test-live:
+    desc: |
+      Run live tests that hit real Twitch endpoints (gql.twitch.tv,
+      usher.ttvnw.net). Opt-in via //go:build live. Set
+      TWITCH_LIVE_CHANNEL to a currently-live channel; defaults to a
+      channel that was live when the test was written.
+    cmds:
+      - go test -tags live -count=1 -v -run Live ./internal/downloader/twitch/...
+
+  test-ffmpeg:
+    desc: |
+      Run tests that invoke real ffmpeg + ffprobe against synthetic
+      fragments generated at test time. Opt-in via //go:build ffmpeg
+      so CI environments without ffmpeg in PATH aren't forced to
+      install it. These tests are the only thing that catches argv
+      regressions against newer ffmpeg versions — the pure-argv
+      tests compare our output against our expectation, which is
+      worthless when both sides drift together.
+    cmds:
+      - go test -tags ffmpeg -count=1 -v -run TestReal ./internal/downloader/remux/...
+
   vet:
     desc: Run go vet
     cmds:

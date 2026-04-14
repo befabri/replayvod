@@ -151,10 +151,19 @@ func (r *Remuxer) Run(ctx context.Context, in RunInput) error {
 //
 // Flag reference:
 //   -y: overwrite output without prompting
-//   -f concat: use the concat demuxer (TS path)
+//   -f concat: input demuxer for the TS path
 //   -safe 0: allow absolute paths in concat input
 //   -i: input path
 //   -c copy: stream-copy all streams (no re-encode)
+//   -f mp4 (output side): force the output muxer. Required because
+//     the output path ends in `.part` (our atomic-rename convention)
+//     and ffmpeg 8.1 refuses to auto-detect muxer from that
+//     extension with "Unable to choose an output format for ...;
+//     use a standard extension for the filename or specify the
+//     format manually." Older ffmpeg versions happily guessed mp4
+//     from the double extension, which hid this assumption. Audio
+//     (.m4a) output is also the mp4 muxer — m4a is just an mp4
+//     container holding only audio, so one value covers both kinds.
 func ffmpegArgs(in RunInput, outputPath string) ([]string, error) {
 	switch in.Mode {
 	case ModeTS:
@@ -164,6 +173,7 @@ func ffmpegArgs(in RunInput, outputPath string) ([]string, error) {
 			"-safe", "0",
 			"-i", in.InputPath,
 			"-c", "copy",
+			"-f", "mp4",
 			outputPath,
 		}, nil
 	case ModeFMP4:
@@ -171,6 +181,7 @@ func ffmpegArgs(in RunInput, outputPath string) ([]string, error) {
 			"-y",
 			"-i", in.InputPath,
 			"-c", "copy",
+			"-f", "mp4",
 			outputPath,
 		}, nil
 	default:

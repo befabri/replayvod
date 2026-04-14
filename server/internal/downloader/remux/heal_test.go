@@ -16,6 +16,7 @@ func TestHealArgs_Video(t *testing.T) {
 		"-y",
 		"-i", "/in/rec.mp4",
 		"-c", "copy",
+		"-f", "mp4",
 		"/out/rec.healed.mp4.part",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -32,6 +33,7 @@ func TestHealArgs_AudioDropsVideoFlag(t *testing.T) {
 		"-y",
 		"-i", "/in/rec.m4a",
 		"-c:a", "copy",
+		"-f", "mp4",
 		"/out/rec.healed.m4a.part",
 	}
 	if !reflect.DeepEqual(got, want) {
