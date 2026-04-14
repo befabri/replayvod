@@ -1,7 +1,8 @@
-export type { ChannelResponse } from "./types"
 export {
+	useChannel,
+	useChannelSearch,
 	useChannels,
 	useFollowedChannels,
-	useChannel,
 	useSyncChannel,
-} from "./queries"
+} from "./queries";
+export type { ChannelResponse } from "./types";

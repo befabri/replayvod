@@ -1,88 +1,180 @@
-import { Download } from "@phosphor-icons/react";
+import { Broadcast, SortAscending } from "@phosphor-icons/react";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { TitledLayout } from "@/components/layout/titled-layout";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useChannels } from "@/features/channels";
-import { TriggerDownloadDialog } from "@/features/videos/components/TriggerDownloadDialog";
+import { useLiveSet } from "@/features/streams-live";
+
+const SORT_MODES = ["name_asc", "name_desc"] as const;
+type SortMode = (typeof SORT_MODES)[number];
+
+const FILTER_MODES = ["all", "live"] as const;
+type FilterMode = (typeof FILTER_MODES)[number];
 
 export const Route = createFileRoute("/dashboard/channels")({
+	validateSearch: (search: Record<string, unknown>) => ({
+		sort: SORT_MODES.includes(search.sort as SortMode)
+			? (search.sort as SortMode)
+			: ("name_asc" as SortMode),
+		filter: FILTER_MODES.includes(search.filter as FilterMode)
+			? (search.filter as FilterMode)
+			: ("all" as FilterMode),
+	}),
 	component: ChannelsPage,
 });
 
 function ChannelsPage() {
 	const { t } = useTranslation();
+	const { sort, filter } = Route.useSearch();
+	const navigate = Route.useNavigate();
 	const { data: channels, isLoading, error } = useChannels();
+	const liveSet = useLiveSet();
+
+	const visible = useMemo(() => {
+		if (!channels) return channels;
+		const pool =
+			filter === "live"
+				? channels.filter((c) => liveSet.has(c.broadcaster_id))
+				: channels;
+		const copy = [...pool];
+		copy.sort((a, b) => a.broadcaster_name.localeCompare(b.broadcaster_name));
+		return sort === "name_desc" ? copy.reverse() : copy;
+	}, [channels, liveSet, sort, filter]);
 
 	return (
-		<div className="p-8">
-			<h1 className="text-3xl font-heading font-bold mb-6">
-				{t("nav.channels")}
-			</h1>
-
+		<TitledLayout
+			title={t("nav.channels")}
+			actions={
+				<>
+					<FilterDropdown
+						current={filter}
+						onChange={(next) =>
+							void navigate({ search: (s) => ({ ...s, filter: next }) })
+						}
+					/>
+					<SortDropdown
+						current={sort}
+						onChange={(next) =>
+							void navigate({ search: (s) => ({ ...s, sort: next }) })
+						}
+					/>
+				</>
+			}
+		>
 			{isLoading && (
-				<div className="text-muted-foreground">Loading channels…</div>
+				<div className="text-muted-foreground">{t("common.loading")}</div>
 			)}
 
 			{error && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-					Failed to load channels: {error.message}
+				<div className="rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
+					{t("channels.failed_to_load")}: {error.message}
 				</div>
 			)}
 
-			{channels && channels.length === 0 && (
-				<div className="text-muted-foreground">
-					No channels yet. Channels will appear here as you follow broadcasters
-					or configure download schedules.
-				</div>
+			{visible && visible.length === 0 && !isLoading && !error && (
+				<div className="text-muted-foreground">{t("channels.empty")}</div>
 			)}
 
-			{channels && channels.length > 0 && (
-				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-					{channels.map((c) => (
-						<div
+			{visible && visible.length > 0 && (
+				<div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
+					{visible.map((c) => (
+						<Link
 							key={c.broadcaster_id}
-							className="rounded-lg border border-border bg-card p-4 flex flex-col gap-3"
+							// biome-ignore lint/suspicious/noExplicitAny: param route typing
+							to={"/dashboard/channels/$channelId" as any}
+							// biome-ignore lint/suspicious/noExplicitAny: param route typing
+							params={{ channelId: c.broadcaster_id } as any}
+							className="flex items-center gap-3 rounded-md bg-card px-3 py-2 shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors duration-75"
 						>
-							<Link
-								// biome-ignore lint/suspicious/noExplicitAny: param route typing
-								to={"/dashboard/channels/$channelId" as any}
-								params={{ channelId: c.broadcaster_id } as any}
-								className="flex gap-4 items-start group"
-							>
-								{c.profile_image_url && (
-									<img
-										src={c.profile_image_url}
-										alt=""
-										className="w-16 h-16 rounded-full flex-shrink-0"
-									/>
-								)}
-								<div className="flex-1 min-w-0">
-									<div className="font-semibold truncate group-hover:text-primary transition-colors">
-										{c.broadcaster_name}
-									</div>
-									<div className="text-sm text-muted-foreground truncate">
-										@{c.broadcaster_login}
-									</div>
-									{c.description && (
-										<div className="text-sm text-muted-foreground mt-2 line-clamp-2">
-											{c.description}
-										</div>
-									)}
-								</div>
-							</Link>
-							<TriggerDownloadDialog
-								broadcasterId={c.broadcaster_id}
-								broadcasterName={c.broadcaster_name}
-							>
-								<Button variant="outline" size="sm" className="self-start">
-									<Download weight="regular" />
-									{t("videos.trigger_download")}
-								</Button>
-							</TriggerDownloadDialog>
-						</div>
+							<Avatar
+								src={c.profile_image_url}
+								name={c.broadcaster_name}
+								alt={c.broadcaster_name}
+								size="md"
+								isLive={liveSet.has(c.broadcaster_id)}
+							/>
+							<span className="truncate text-sm font-medium">
+								{c.broadcaster_name}
+							</span>
+						</Link>
 					))}
 				</div>
 			)}
-		</div>
+		</TitledLayout>
+	);
+}
+
+function FilterDropdown({
+	current,
+	onChange,
+}: {
+	current: FilterMode;
+	onChange: (m: FilterMode) => void;
+}) {
+	const { t } = useTranslation();
+	const labels: Record<FilterMode, string> = {
+		all: t("channels.filter_all"),
+		live: t("channels.filter_live"),
+	};
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={(triggerProps) => (
+					<Button variant="outline" size="sm" {...triggerProps}>
+						<Broadcast className="size-4" />
+						{labels[current]}
+					</Button>
+				)}
+			/>
+			<DropdownMenuContent>
+				{FILTER_MODES.map((mode) => (
+					<DropdownMenuItem key={mode} onClick={() => onChange(mode)}>
+						{labels[mode]}
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function SortDropdown({
+	current,
+	onChange,
+}: {
+	current: SortMode;
+	onChange: (m: SortMode) => void;
+}) {
+	const { t } = useTranslation();
+	const labels: Record<SortMode, string> = {
+		name_asc: t("channels.sort_asc"),
+		name_desc: t("channels.sort_desc"),
+	};
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={(triggerProps) => (
+					<Button variant="outline" size="sm" {...triggerProps}>
+						<SortAscending className="size-4" />
+						{labels[current]}
+					</Button>
+				)}
+			/>
+			<DropdownMenuContent>
+				{SORT_MODES.map((mode) => (
+					<DropdownMenuItem key={mode} onClick={() => onChange(mode)}>
+						{labels[mode]}
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }

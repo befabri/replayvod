@@ -1,1 +1,1 @@
-export type { ChannelResponse } from "@/api/generated/trpc"
+export type { ChannelResponse } from "@/api/generated/trpc";
