@@ -1,125 +1,132 @@
-# ReplayVod
-ReplayVod is a project currently in development. 
-It allows automatic downloading of Twitch replays from live streams and organizes missed streams from the week. 
-You can schedule automatic downloads from a channel based on certain criteria. Additionally, it offers the ability to watch videos directly from the site and manage them.
+<h1 align="center">ReplayVOD</h1>
 
+<p align="center">
+  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg"></a>
+  <a href="https://go.dev/"><img alt="Go 1.26+" src="https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white"></a>
+  <a href="https://reactjs.org/"><img alt="React 19" src="https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=white"></a>
+</p>
 
-## Table of Contents
+ReplayVOD is a self-hosted Twitch VOD recorder for your homelab. It watches the
+channels you follow, automatically records the streams that match your rules,
+archives them on your own storage, and gives you a dashboard to browse and
+replay the ones you missed.
 
--   [Prerequisites](#prerequisites)
--   [Development Setup](#development-setup)
--   [Secure Session Secret](#secure-session-secret)
--   [Twitch Integration Setup](#twitch-integration-setup)
--   [License](#license)
+> Status: active development. Stable enough for personal use, expect breaking
+> changes between releases.
 
-## Prerequisites
+## Features
 
--   Node.js v21+
--   npm
--   Docker (for deployment)
--   TWITCH_CLIENT_ID / TWITCH_SECRET
+- **Auto-record** live streams from followed channels, gated by per-schedule
+  rules: quality, viewer threshold, category match, tag match
+- **Capture stream context** — title and category history are recorded
+  throughout the broadcast, plus a snapshot strip the dashboard cycles through
+  on hover
+- **Browse and watch** with category, channel and date views, then play back
+  in-browser
+- **Live indicators** — followed channels show a live dot pushed via EventSub
+  deltas, no polling
+- **Multi-language** — interface in English and French
+- **Lightweight runtime** — single Go binary, choice of Postgres or SQLite,
+  optional S3-compatible storage backend
 
-## Development Setup
-This is a monorepo that uses npm Workspaces.
+## Screenshots
 
+_(coming soon)_
 
-1. **Clone the Repository**
+## Quick start
 
-    ```bash
-    git clone https://github.com/befabri/replayvod.git
-    cd replayvod
-    ```
+Bundled Docker setup spins up Postgres and the ReplayVOD server together:
 
-2. **Install Dependencies**
+```bash
+git clone https://github.com/befabri/replayvod.git
+cd replayvod
+cp server/.env.example server/.env
+$EDITOR server/.env             # fill in Twitch credentials, see below
+docker compose up -d
+```
 
-    ```bash
-    npm install
-    ```
+Open <http://localhost:8080>, sign in with your Twitch account, and the user
+listed in `OWNER_TWITCH_ID` is granted the owner role.
 
-3. **Environment Variables**
-   You need to create a .env file in both the backend and frontend directories of the apps folder. 
-   We provide an .env.example file in each directory to illustrate the expected environment variables.
+### Twitch credentials
 
-4. **Run the Development Server**
+Register an application in the
+[Twitch developer console](https://dev.twitch.tv/console/apps) with this
+OAuth redirect URL:
 
-    To start the development server for both the Fastify backend and the React frontend, run:
-    ```bash
-    npm run dev
-    ```
+```
+http://localhost:8080/api/v1/auth/twitch/callback
+```
 
-## Secure Session Secret
+Copy the resulting Client ID and Client Secret into `server/.env`:
 
-To secure your sessions, you'll need a `secret-key` file. Follow the steps below to generate and place this key in the appropriate directory:
+```env
+TWITCH_CLIENT_ID=...
+TWITCH_SECRET=...
+HMAC_SECRET=...        # any random 32+ byte hex (openssl rand -hex 32)
+SESSION_SECRET=...     # any random 32+ byte hex
+OWNER_TWITCH_ID=...    # your numeric Twitch user id
+```
 
-1. **Generate the Secret Key**:
+For non-local deployments, change the host in the redirect URL to match.
 
-    - For most platforms:
+## Configuration
 
-        ```sh
-        npx @fastify/secure-session > secret-key
-        ```
+Two files control runtime behavior, both well-commented:
 
-    - If running in Windows Powershell:
+- **`server/.env`** — credentials, database, paths, network. Start from
+  `server/.env.example`.
+- **`server/config.toml`** — operational tuning: download quality and
+  concurrency, retry policy, polling intervals, title-tracking mode (poll /
+  webhook / off).
 
-        ```sh
-        npx @fastify/secure-session | Out-File -Encoding default -NoNewline -FilePath secret-key
-        ```
+EventSub-driven features need a publicly reachable `WEBHOOK_CALLBACK_URL`. If
+yours is not reachable, ReplayVOD falls back to polling automatically.
 
-    If you haven't previously used this module with npx, you might be prompted to install it. Note that with the output redirect, this can cause the command to wait indefinitely for input.
+## Storage
 
-    Alternatively, if you don't want to use `npx`, you can generate the `secret-key` by first installing the `@fastify/secure-session` library with your preferred package manager, and then:
+```
+data/
+├── videos/        recorded VODs
+├── thumbnails/    poster images and snapshot strips
+└── replayvod.db   SQLite (when DATABASE_DRIVER=sqlite)
+```
 
-    ```sh
-    ./node_modules/@fastify/secure-session/genkey.js > secret-key
-    ```
+Override individual paths with `VIDEO_DIR`, `THUMBNAIL_DIR`, `SQLITE_PATH` in
+`server/.env`. S3-compatible storage is wired through `[storage.s3]` in
+`server/config.toml`.
 
-2. **Place the Secret Key in the 'secret' Folder**:
+## Development
 
-    After generating the `secret-key`, move it to the `secret` directory in your project:
+Requires Go 1.26+, Node 22+, [Task](https://taskfile.dev/installation/),
+ffmpeg, and yt-dlp on `$PATH`.
 
-    ```sh
-    mv secret-key secret/secret-key
-    ```
+```bash
+task setup    # go mod download + npm install
+task dev      # server on :8080, dashboard on :3000
 
-    If you're on Windows, you can use:
+task          # list every available task
+task check    # vet + lint + typecheck
+task test     # full test suite
+task build    # production builds
+```
 
-    ```sh
-    move secret-key secret\secret-key
-    ```
+The dashboard's Vite proxy forwards `/api/*` and `/trpc/*` to the backend, so
+the SPA works at <http://localhost:3000> during development.
 
-Make sure the `secret` directory exists in your project, or create it before moving the `secret-key`.
+```
+server/        Go backend (cmd/server, internal/api, internal/downloader, ...)
+dashboard/     React SPA (TanStack Router + Query, Base UI, Tailwind v4)
+```
 
-## Twitch Integration Setup
+## Built with
 
-To integrate the backend with Twitch functionalities, you'll need to register your application with Twitch and obtain your personal `TWITCH_CLIENT_ID` and `TWITCH_SECRET`.
-Follow the steps below to set up the Twitch integration:
+ReplayVOD is built on top of a sibling project of mine:
 
-1. **Register Your Application on Twitch**
-
-    - Visit the [Twitch Developers Console](https://dev.twitch.tv/console).
-    - Click on the "Applications" tab.
-    - Select "Register Your Application".
-    - Fill in the required details. For the `OAuth Redirect URLs`, you'll need to specify the callback URL your application uses.
-
-        ```
-        http://localhost:8080/api/auth/twitch/callback
-        ```
-
-        (Adjust the above URL if you're setting up a production environment or if your local setup uses a different port or path.)
-
-    - Once registered, you'll be provided with a `Client ID` and a `Client Secret`.
-
-2. **Update Environment Variables in backend .env**
-
-    With your `Client ID` and `Client Secret` from Twitch, update the `.env` file (or create one based on the `.env.example` provided):
-
-    ```env
-    TWITCH_CLIENT_ID=your_client_id_from_twitch
-    TWITCH_SECRET=your_client_secret_from_twitch
-    CALLBACK_URL=your_callback_url
-    ```
-
+- **[trpcgo](https://github.com/befabri/trpcgo)** — tRPC server and TypeScript
+  type generator for Go. Drives every API route in `server/internal/api/` and
+  produces the typed client used by the dashboard.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. - see the [LICENSE](LICENSE) file for details.
+[GNU General Public License v3.0](LICENSE).
