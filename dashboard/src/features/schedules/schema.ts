@@ -1,5 +1,5 @@
-import { z } from "zod"
-import { CreateInputSchema } from "@/api/generated/zod"
+import { z } from "zod";
+import { CreateInputSchema } from "@/api/generated/zod";
 
 // ScheduleFormSchema picks the fields the create/edit forms expose.
 // All filter dimensions from the backend CreateInput are live now:
@@ -17,6 +17,8 @@ export const ScheduleFormSchema = CreateInputSchema.pick({
 	category_ids: true,
 	has_tags: true,
 	tag_ids: true,
+	is_delete_rediff: true,
+	time_before_delete: true,
 })
 	.extend({
 		broadcaster_id: z
@@ -30,8 +32,16 @@ export const ScheduleFormSchema = CreateInputSchema.pick({
 				code: z.ZodIssueCode.custom,
 				path: ["min_viewers"],
 				message: "min_viewers is required when has_min_viewers is enabled",
-			})
+			});
 		}
-	})
+		if (value.is_delete_rediff && value.time_before_delete == null) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["time_before_delete"],
+				message:
+					"time_before_delete is required when is_delete_rediff is enabled",
+			});
+		}
+	});
 
-export type ScheduleFormValues = z.infer<typeof ScheduleFormSchema>
+export type ScheduleFormValues = z.infer<typeof ScheduleFormSchema>;

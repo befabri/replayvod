@@ -1,9 +1,9 @@
-export type { ScheduleResponse } from "@/api/generated/trpc"
+export type { ScheduleResponse } from "@/api/generated/trpc";
 export {
-	useSchedules,
-	useMineSchedules,
 	useCreateSchedule,
-	useUpdateSchedule,
-	useToggleSchedule,
 	useDeleteSchedule,
-} from "./queries"
+	useMineSchedules,
+	useSchedules,
+	useToggleSchedule,
+	useUpdateSchedule,
+} from "./queries";

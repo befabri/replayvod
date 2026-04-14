@@ -1,7 +1,7 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import { Link } from "@tanstack/react-router"
-import type { TFunction } from "i18next"
-import type { VideoSummary } from "@/api/generated/trpc"
+import { Link } from "@tanstack/react-router";
+import type { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
+import type { VideoSummary } from "@/api/generated/trpc";
 
 export function requestColumns(t: TFunction): ColumnDef<VideoSummary>[] {
 	return [
@@ -36,5 +36,5 @@ export function requestColumns(t: TFunction): ColumnDef<VideoSummary>[] {
 				</div>
 			),
 		},
-	]
+	];
 }

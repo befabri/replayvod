@@ -1,23 +1,21 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { useTranslation } from "react-i18next"
-import { useSchedules } from "@/features/schedules"
-import { CreateForm } from "@/features/schedules/components/CreateForm"
-import { ScheduleRow } from "@/features/schedules/components/ScheduleRow"
+import { createFileRoute } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
+import { TitledLayout } from "@/components/layout/titled-layout";
+import { useSchedules } from "@/features/schedules";
+import { CreateForm } from "@/features/schedules/components/CreateForm";
+import { ScheduleRow } from "@/features/schedules/components/ScheduleRow";
 
 export const Route = createFileRoute("/dashboard/schedules")({
 	component: SchedulesPage,
-})
+});
 
 function SchedulesPage() {
-	const { t } = useTranslation()
-	const { data, isLoading, error } = useSchedules()
+	const { t } = useTranslation();
+	const { data, isLoading, error } = useSchedules();
 
 	return (
-		<div className="p-8 max-w-4xl">
-			<h1 className="text-3xl font-heading font-bold mb-2">
-				{t("schedules.title")}
-			</h1>
-			<p className="text-sm text-muted-foreground mb-6">
+		<TitledLayout title={t("schedules.title")}>
+			<p className="text-muted-foreground mb-6 -mt-6">
 				{t("schedules.description")}
 			</p>
 
@@ -27,23 +25,21 @@ function SchedulesPage() {
 				<div className="text-muted-foreground">{t("common.loading")}</div>
 			)}
 			{error && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
+				<div className="rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
 					{t("schedules.failed_to_load")}: {error.message}
 				</div>
 			)}
 			{data && data.data.length === 0 && !isLoading && !error && (
-				<div className="text-muted-foreground mt-8">
-					{t("schedules.empty")}
-				</div>
+				<div className="text-muted-foreground mt-8">{t("schedules.empty")}</div>
 			)}
 
 			{data && data.data.length > 0 && (
-				<div className="mt-8 space-y-3">
+				<div className="mt-8 grid grid-cols-1 lg:grid-cols-[repeat(auto-fit,minmax(600px,1fr))] gap-4">
 					{data.data.map((s) => (
 						<ScheduleRow key={s.id} schedule={s} />
 					))}
 				</div>
 			)}
-		</div>
-	)
+		</TitledLayout>
+	);
 }

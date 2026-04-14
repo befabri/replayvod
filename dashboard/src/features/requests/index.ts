@@ -1,1 +1,1 @@
-export { useMyRequests, useRequestVideo } from "./queries"
+export { useMyRequests, useRequestVideo } from "./queries";

@@ -1,26 +1,27 @@
-import { useForm } from "@tanstack/react-form"
-import { useTranslation } from "react-i18next"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { useForm } from "@tanstack/react-form";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from "@/components/ui/select"
-import { useCreateSchedule } from "@/features/schedules/queries"
+} from "@/components/ui/select";
+import { ChannelPicker } from "@/features/channels/components/ChannelPicker";
+import { useCreateSchedule } from "@/features/schedules/queries";
 import {
 	ScheduleFormSchema,
 	type ScheduleFormValues,
-} from "@/features/schedules/schema"
-import { FieldError } from "./FieldError"
-import { FiltersFieldset } from "./FiltersFieldset"
+} from "@/features/schedules/schema";
+import { FieldError } from "./FieldError";
+import { FiltersFieldset } from "./FiltersFieldset";
 
 export function CreateForm() {
-	const { t } = useTranslation()
-	const create = useCreateSchedule()
+	const { t } = useTranslation();
+	const create = useCreateSchedule();
 
 	const form = useForm({
 		defaultValues: {
@@ -32,35 +33,47 @@ export function CreateForm() {
 			category_ids: [],
 			has_tags: false,
 			tag_ids: [],
+			is_delete_rediff: false,
+			time_before_delete: undefined,
 		} as ScheduleFormValues,
 		validators: {
 			onSubmit: ScheduleFormSchema,
 		},
 		onSubmit: async ({ value, formApi }) => {
-			await create.mutateAsync({
-				broadcaster_id: value.broadcaster_id.trim(),
-				quality: value.quality,
-				has_min_viewers: value.has_min_viewers,
-				min_viewers: value.has_min_viewers ? value.min_viewers : undefined,
-				has_categories: value.has_categories,
-				has_tags: value.has_tags,
-				is_delete_rediff: false,
-				is_disabled: false,
-				category_ids: value.has_categories ? value.category_ids : [],
-				tag_ids: value.has_tags ? value.tag_ids : [],
-			})
-			formApi.reset()
+			try {
+				await create.mutateAsync({
+					broadcaster_id: value.broadcaster_id.trim(),
+					quality: value.quality,
+					has_min_viewers: value.has_min_viewers,
+					min_viewers: value.has_min_viewers ? value.min_viewers : undefined,
+					has_categories: value.has_categories,
+					has_tags: value.has_tags,
+					is_delete_rediff: value.is_delete_rediff,
+					time_before_delete: value.is_delete_rediff
+						? value.time_before_delete
+						: undefined,
+					is_disabled: false,
+					category_ids: value.has_categories ? value.category_ids : [],
+					tag_ids: value.has_tags ? value.tag_ids : [],
+				});
+				formApi.reset();
+				toast.success(t("schedules.create_submit"));
+			} catch (err) {
+				toast.error(
+					err instanceof Error ? err.message : t("schedules.create_failed"),
+				);
+			}
 		},
-	})
+	});
 
 	return (
 		<form
 			onSubmit={(e) => {
-				e.preventDefault()
-				e.stopPropagation()
-				void form.handleSubmit()
+				e.preventDefault();
+				e.stopPropagation();
+				void form.handleSubmit();
 			}}
-			className="rounded-lg border border-border bg-card p-4 mb-6 space-y-3"
+			className="rounded-lg bg-card p-4 mb-6 space-y-3 shadow-sm"
 		>
 			<h2 className="text-lg font-medium">{t("schedules.create_title")}</h2>
 			<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -70,14 +83,10 @@ export function CreateForm() {
 							<Label htmlFor={field.name} className="text-muted-foreground">
 								{t("schedules.broadcaster_id")}
 							</Label>
-							<Input
+							<ChannelPicker
 								id={field.name}
-								name={field.name}
-								type="text"
 								value={field.state.value}
-								onChange={(e) => field.handleChange(e.target.value)}
-								onBlur={field.handleBlur}
-								placeholder="12345"
+								onChange={(id) => field.handleChange(id)}
 								aria-invalid={
 									field.state.meta.errors.length > 0 ? true : undefined
 								}
@@ -121,7 +130,7 @@ export function CreateForm() {
 			<FiltersFieldset form={form} />
 
 			{create.isError && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+				<div className="rounded-md bg-destructive/10 p-3 text-destructive text-sm">
 					{create.error?.message ?? t("schedules.create_failed")}
 				</div>
 			)}
@@ -139,5 +148,5 @@ export function CreateForm() {
 				)}
 			</form.Subscribe>
 		</form>
-	)
+	);
 }
