@@ -173,7 +173,6 @@ func defaultAppForTest() config.AppConfig {
 			AuthRefreshAttempts:  2,
 			MaxGapRatio:          0.01,
 			MaxRestartGapSeconds: 120,
-			AudioRate:            48000,
 		},
 		Storage:  config.StorageConfig{Type: "local", LocalPath: ""},
 		Logging:  config.LoggingConfig{SampleRate: 1.0, LogLevel: "warn"},

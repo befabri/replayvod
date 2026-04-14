@@ -46,10 +46,9 @@ type Environment struct {
 	// Paths
 	VideoDir     string `env:"VIDEO_DIR" envDefault:"./data/videos"`
 	ThumbnailDir string `env:"THUMBNAIL_DIR" envDefault:"./data/thumbnails"`
-	YtdlpPath    string `env:"YTDLP_PATH" envDefault:"yt-dlp"`
 	DashboardDir string `env:"DASHBOARD_DIR"`
 
-	// ScratchDir is where subprocess downloads (yt-dlp, ffmpeg) land
+	// ScratchDir is where subprocess downloads (ffmpeg) land
 	// before being uploaded to the configured Storage backend.
 	//
 	// Default keeps scratch on the same filesystem as VideoDir. This
@@ -217,12 +216,6 @@ type DownloadConfig struct {
 	// recording into a new part. Default 120. Prevents a server
 	// outage from embedding a massive hole in one MP4.
 	MaxRestartGapSeconds int `toml:"max_restart_gap_seconds"`
-
-	// AudioRate is legacy. The native pipeline's `-c copy` remux
-	// carries Twitch's native sample rate through untouched; this
-	// field is only read by the yt-dlp shim path while the rewrite
-	// is in progress. Dropped once the native downloader ships.
-	AudioRate int `toml:"audio_rate"`
 }
 
 type StorageConfig struct {

@@ -18,7 +18,6 @@ func getDefaultAppConfig() AppConfig {
 			EnableAV1:            false,
 			DisableHEVC:          false,
 			MaxRestartGapSeconds: 120,
-			AudioRate:            48000,
 		},
 		Storage: StorageConfig{
 			Type:      "local",
@@ -88,9 +87,6 @@ func validateAppConfig(config *AppConfig) {
 	}
 	if config.Download.MaxRestartGapSeconds <= 0 {
 		config.Download.MaxRestartGapSeconds = 120
-	}
-	if config.Download.AudioRate <= 0 {
-		config.Download.AudioRate = 48000
 	}
 	if config.TitleTracking.IntervalMinutes <= 0 {
 		config.TitleTracking.IntervalMinutes = 1

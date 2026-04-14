@@ -16,7 +16,6 @@ strict = false
 enable_av1 = false
 disable_hevc = false
 max_restart_gap_seconds = 120
-audio_rate = 48000
 
 [storage]
 type = "local"

@@ -23,7 +23,7 @@ var ErrChannelNotSynced = errors.New("video: channel not synced")
 // Helix attribution, enqueue into the downloader), cancel, and
 // progress subscription.
 //
-// The actual yt-dlp/ffmpeg pipeline lives in internal/downloader.
+// The actual download/ffmpeg pipeline lives in internal/downloader.
 // This service is the operator-facing wrapper that sits between the
 // tRPC transport and that pipeline.
 type DownloadService struct {
