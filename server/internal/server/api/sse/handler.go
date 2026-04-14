@@ -41,9 +41,10 @@ func (h *Handler) SystemEvents(ctx context.Context) (<-chan eventbus.EventLogEve
 	return h.bus.EventLogs.Subscribe(ctx), nil
 }
 
-// StreamLive streams channels-went-live notifications. Viewer-level:
-// any authenticated user can see which followed channels are live;
-// filtering by follow happens client-side.
+// StreamLive streams schedule-match notifications (our "Just went
+// live AND we started a recording" feed). Viewer-level; filtering by
+// follow happens client-side. See also StreamStatus for the broader
+// online/offline delta feed.
 func (h *Handler) StreamLive(ctx context.Context) (<-chan eventbus.StreamLiveEvent, error) {
 	if h.bus == nil {
 		ch := make(chan eventbus.StreamLiveEvent)
@@ -51,6 +52,20 @@ func (h *Handler) StreamLive(ctx context.Context) (<-chan eventbus.StreamLiveEve
 		return ch, nil
 	}
 	return h.bus.StreamLive.Subscribe(ctx), nil
+}
+
+// StreamStatus streams online/offline transitions for every
+// stream.online and stream.offline EventSub webhook, regardless of
+// schedule-match. Subscribers maintain a "currently live" Set by
+// composing this feed with an initial stream.liveIds snapshot. No
+// polling required once the initial load settles.
+func (h *Handler) StreamStatus(ctx context.Context) (<-chan eventbus.StreamStatusEvent, error) {
+	if h.bus == nil {
+		ch := make(chan eventbus.StreamStatusEvent)
+		close(ch)
+		return ch, nil
+	}
+	return h.bus.StreamStatus.Subscribe(ctx), nil
 }
 
 // TaskStatus streams scheduler task lifecycle transitions. Owner-only.

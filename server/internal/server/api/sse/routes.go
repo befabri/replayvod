@@ -16,4 +16,5 @@ func RegisterRoutes(tr *trpcgo.Router, bus *eventbus.Buses, log *slog.Logger, vi
 	trpcgo.MustVoidSubscribe(tr, "system.events", h.SystemEvents, owner)
 	trpcgo.MustVoidSubscribe(tr, "task.status", h.TaskStatus, owner)
 	trpcgo.MustVoidSubscribe(tr, "stream.live", h.StreamLive, viewer)
+	trpcgo.MustVoidSubscribe(tr, "stream.status", h.StreamStatus, viewer)
 }
