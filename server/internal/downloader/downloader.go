@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -53,6 +54,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader/thumbnail"
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/storage"
 )
 
@@ -82,6 +84,23 @@ type Params struct {
 	BroadcasterID    string
 	BroadcasterLogin string
 	DisplayName      string
+	// Title is the stream title at download-start time. Caller
+	// (video.Trigger or schedule.processor) resolves it from
+	// Helix GetStreams; empty when no live stream is visible.
+	Title            string
+	// CategoryID is the Twitch game_id the broadcaster had set at
+	// download-start time. When non-empty the downloader links it
+	// to video_categories after CreateVideo so the video shows up
+	// on /dashboard/categories/$id. Empty means Twitch didn't
+	// surface a category (off-topic / "just chatting" with no game
+	// set). Mid-stream changes are captured via channel.update
+	// (webhook mode) or the metadata watcher (poll mode).
+	CategoryID       string
+	// CategoryName accompanies CategoryID for the initial upsert —
+	// Hydrator.linkVideoCategory skips the UpsertCategory when
+	// Name is empty to protect an existing good name from being
+	// clobbered.
+	CategoryName     string
 	Quality          string
 	Language         string
 	ViewerCount      int64
@@ -171,12 +190,15 @@ type Service struct {
 	storage storage.Storage
 	log     *slog.Logger
 
-	twitch  *twitch.Client
-	fetcher *hls.Fetcher
-	remuxer *remux.Remuxer
-	probe   *probe.Probe
-	thumb   *thumbnail.Generator
-	svcAcct *serviceAccount
+	twitch       *twitch.Client
+	fetcher      *hls.Fetcher
+	remuxer      *remux.Remuxer
+	probe        *probe.Probe
+	thumb        *thumbnail.Generator
+	svcAcct      *serviceAccount
+	hydrator    *streammeta.Hydrator
+	metaWatcher *streammeta.MetadataWatcher
+	channelSubs ChannelUpdateSubscriber
 
 	mu     sync.Mutex
 	active map[string]*download
@@ -218,12 +240,50 @@ type download struct {
 	// Zero until CreateVideoPart succeeds. Phase 6g ships single-
 	// part recordings; 6f grows this to an []int64 or similar.
 	videoPartID int64
+
+	// cleanupScratch gates the deferred RemoveAll in run(). Flipped
+	// true on terminal exits (success, user cancel, non-shutdown
+	// failure) and left false on shutdown interrupts so Resume can
+	// re-find the scratch segments on next boot. Mutated only from
+	// the run() goroutine and failDownload — no locking needed.
+	cleanupScratch bool
+}
+
+// ChannelUpdateSubscriber abstracts the per-recording EventSub
+// subscribe/unsubscribe pair used by webhook-mode title tracking.
+// The downloader only cares whether the call succeeded; the
+// concrete eventsub.Service returns a *repository.Subscription
+// we don't need here, so main.go passes an adapter that drops
+// the return value.
+type ChannelUpdateSubscriber interface {
+	SubscribeChannelUpdate(ctx context.Context, broadcasterID string) error
+	UnsubscribeChannelUpdate(ctx context.Context, broadcasterID, reason string) error
 }
 
 // NewService wires up the pipeline components. The twitch client,
 // fetcher, remuxer, probe, and thumbnail generator are all
 // process-lifetime singletons — they hold no per-job state.
-func NewService(cfg *config.Config, repo repository.Repository, store storage.Storage, log *slog.Logger) *Service {
+//
+// metaWatcher may be nil — polling disabled in that case, and the
+// downloader relies solely on the at-start snapshot stored on
+// videos.title. channelSubs may also be nil — webhook mode
+// disabled. The recording runs with whichever strategy is wired
+// per `cfg.App.TitleTracking.Mode`; main.go constructs only the
+// deps the mode needs.
+// NewService wires up the pipeline components.
+//
+// hydrator is used at download-start to link the opening title +
+// category onto video_titles / video_categories (via
+// LinkInitialVideoMetadata). It's the same Hydrator shared with
+// the trigger paths and the MetadataWatcher — one instance, one
+// write path, no drift between the "at-start snapshot" and the
+// "mid-stream change" writes. May be nil in tests; the initial-
+// link step becomes a no-op.
+//
+// metaWatcher polls Helix in poll mode; channelSubs does
+// channel.update EventSub subscribe/unsubscribe in webhook mode.
+// Both optional (mode=off or misconfigured → nil).
+func NewService(cfg *config.Config, repo repository.Repository, store storage.Storage, hydrator *streammeta.Hydrator, metaWatcher *streammeta.MetadataWatcher, channelSubs ChannelUpdateSubscriber, log *slog.Logger) *Service {
 	domainLog := log.With("domain", "downloader")
 
 	tw := twitch.New(twitch.Config{
@@ -251,17 +311,20 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 	}, domainLog)
 
 	s := &Service{
-		cfg:     cfg,
-		repo:    repo,
-		storage: store,
-		log:     domainLog,
-		twitch:  tw,
-		fetcher: fetcher,
-		remuxer: &remux.Remuxer{Log: domainLog},
-		probe:   &probe.Probe{Log: domainLog},
-		thumb:   &thumbnail.Generator{Log: domainLog},
-		svcAcct: newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
-		active:  make(map[string]*download),
+		cfg:          cfg,
+		repo:         repo,
+		storage:      store,
+		log:          domainLog,
+		twitch:       tw,
+		fetcher:      fetcher,
+		remuxer:      &remux.Remuxer{Log: domainLog},
+		probe:        &probe.Probe{Log: domainLog},
+		thumb:        &thumbnail.Generator{Log: domainLog},
+		svcAcct:      newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
+		hydrator:     hydrator,
+		metaWatcher:  metaWatcher,
+		channelSubs:  channelSubs,
+		active:       make(map[string]*download),
 	}
 	// Scratch-dir sweep is NOT performed here — Resume() owns that
 	// step so it can preserve the work dirs of RUNNING jobs before
@@ -385,6 +448,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		JobID:         jobID,
 		Filename:      filename,
 		DisplayName:   p.DisplayName,
+		Title:         p.Title,
 		Status:        repository.VideoStatusPending,
 		Quality:       p.Quality,
 		BroadcasterID: p.BroadcasterID,
@@ -402,6 +466,22 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	}
 	d.videoID = vid.ID
 
+	// Link initial title + category to the video so /dashboard/categories/$id
+	// and TitleHistoryButton surface the opening state immediately,
+	// without waiting for a webhook/poll-tick write. Shared helper with
+	// the channel.update path keeps both writes consistent; best-effort
+	// — a link failure logs but doesn't fail the whole pipeline.
+	if s.hydrator != nil {
+		if err := s.hydrator.LinkInitialVideoMetadata(ctx, vid.ID, streammeta.ChannelUpdateMeta{
+			Title:        p.Title,
+			CategoryID:   p.CategoryID,
+			CategoryName: p.CategoryName,
+		}); err != nil {
+			s.log.Warn("link initial video metadata",
+				"video_id", vid.ID, "error", err)
+		}
+	}
+
 	// Job row lives alongside the video row — one per download
 	// attempt. Resume-on-restart reads status IN ('PENDING',
 	// 'RUNNING') jobs at boot and drives recovery off them.
@@ -416,7 +496,9 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		// The video row is already committed. Mark it failed so
 		// it doesn't stay PENDING forever; the UI will surface
 		// the failure.
-		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("create job row: %v", err))
+		// Pre-run failure (couldn't even create the job row);
+		// no completion to report. "complete" is the inert default.
+		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("create job row: %v", err), repository.CompletionKindComplete)
 		return "", fmt.Errorf("create job row: %w", err)
 	}
 
@@ -538,7 +620,11 @@ func (s *Service) Resume(ctx context.Context) error {
 				"error", err)
 			errMsg := fmt.Sprintf("resume: %v", err)
 			_ = s.repo.MarkJobFailed(ctx, job.ID, errMsg)
-			_ = s.repo.MarkVideoFailed(ctx, job.VideoID, errMsg)
+			// Resume path failure — same "inert complete" as the
+			// pre-run failure case above. The actual recording
+			// completion_kind was set at the prior terminal
+			// transition if it got that far.
+			_ = s.repo.MarkVideoFailed(ctx, job.VideoID, errMsg, repository.CompletionKindComplete)
 		}
 	}
 	return nil
@@ -575,6 +661,7 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 		BroadcasterID:    job.BroadcasterID,
 		BroadcasterLogin: chn.BroadcasterLogin,
 		DisplayName:      vid.DisplayName,
+		Title:            vid.Title,
 		Quality:          vid.Quality,
 		Language:         vid.Language,
 		ViewerCount:      vid.ViewerCount,
@@ -670,14 +757,151 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	//   <scratch>/<jobID>/segments/   — .ts / .m4s fragments + init.mp4
 	//   <scratch>/<jobID>/<base>.mp4  — remuxed output
 	//   <scratch>/<jobID>/<base>.jpg  — thumbnail
-	// One RemoveAll at the end gets everything.
+	//
+	// Cleanup policy: remove scratch only on TERMINAL, NON-RESUMABLE
+	// exits. Specifically:
+	//
+	//   - clean success (pipeline reached Stage 11)      → delete
+	//   - explicit user Cancel()                          → delete
+	//   - shutdown interrupt (job stays RUNNING for next
+	//     process to Resume)                              → KEEP
+	//   - failure mid-pipeline (marked FAILED)            → KEEP
+	//
+	// Previously we deferred RemoveAll unconditionally, which caused
+	// a subtle data loss: a shutdown mid-recording left the job
+	// RUNNING in the DB (correct per spec — Resume() picks it up on
+	// next boot), but the defer wiped scratch → Resume() found
+	// empty segments/ and failed at PrepareInput. Job was double-
+	// failed (once on shutdown, once on resume). Keeping scratch on
+	// these two non-terminal exits lets Resume pick up where we left
+	// off. Startup sweepOrphanedTempsExcept cleans up FAILED-job
+	// scratch at next boot anyway, so nothing leaks long-term.
 	jobDir := filepath.Join(s.cfg.Env.ScratchDir, d.jobID)
 	segmentsDir := filepath.Join(jobDir, "segments")
 	if err := os.MkdirAll(segmentsDir, 0o755); err != nil {
 		s.failDownload(dbCtx, d, log, fmt.Errorf("create scratch dir: %w", err))
 		return
 	}
-	defer func() { _ = os.RemoveAll(jobDir) }()
+	defer func() {
+		if !d.cleanupScratch {
+			return
+		}
+		if err := os.RemoveAll(jobDir); err != nil {
+			log.Warn("failed to remove scratch", "path", jobDir, "error", err)
+		}
+	}()
+
+	// Media-side pollers (snapshot ticker + title watcher) run
+	// only for the duration of Stage 4 (segment fetch). They keep
+	// polling Helix every few minutes, which is pointless work
+	// during Stages 5-11 (remux, probe, thumbnail, upload,
+	// finalize) — the stream is off the wire by then. We collect
+	// their cancel funcs and call them explicitly right after the
+	// fetch loop returns. The deferred stopMediaPollers is a
+	// safety net for early-exit paths (failDownload mid-Stage-4,
+	// ctx cancel by shutdown).
+	var mediaPollerCancels []context.CancelFunc
+	stopMediaPollers := func() {
+		for _, c := range mediaPollerCancels {
+			c()
+		}
+		mediaPollerCancels = nil
+	}
+	defer stopMediaPollers()
+
+	// Live snapshot ticker: fetches Twitch's auto-refreshing
+	// preview image every ~5 minutes during recording and uploads
+	// each capture to storage at thumbnails/<base>-snapNN.jpg.
+	// Purely a UX feature — the UI uses the snapshots to animate
+	// a time-lapse hover preview while the recording is still in
+	// flight (Helix's thumbnail_url only works while the stream
+	// is live, so we stash them locally for later). Best-effort:
+	// any fetch or upload failure is logged and skipped, never
+	// fails the recording.
+	//
+	// Skipped for audio jobs — no frame to capture, and the
+	// Helix preview URL is a JPEG of the video anyway.
+	if kindFromRecordingType(recordingType) == remux.KindVideo {
+		snapCtx, cancelSnap := context.WithCancel(ctx)
+		mediaPollerCancels = append(mediaPollerCancels, cancelSnap)
+		snapper := thumbnail.NewSnapshotter(thumbnail.SnapshotterConfig{
+			Log: log,
+		})
+		snapWriter := &storageSnapshotWriter{
+			storage: s.storage,
+			base:    filepath.ToSlash(filepath.Join("thumbnails", filename)),
+			ctx:     ctx,
+		}
+		go func() {
+			count := snapper.Run(snapCtx, p.BroadcasterLogin, snapWriter)
+			log.Debug("snapshot ticker done", "captures", count)
+		}()
+	}
+
+	// Title tracking dispatches on the configured mode.
+	//
+	//   poll    — goroutine polls Helix every interval_minutes.
+	//             Runs here, cancels at Stage 4 exit.
+	//   webhook — subscribes to channel.update EventSub for this
+	//             broadcaster. The webhook handler writes titles on
+	//             push; we don't spawn any goroutine. Unsubscribe
+	//             on run() exit (via the same cancel slot so both
+	//             shutdown paths converge).
+	//   off     — neither. Only videos.title (at-start) is stored.
+	//
+	// A subscribe failure on webhook mode is logged and the
+	// recording falls back to the poller for this run rather than
+	// shipping silently-blind behavior. Operators see the warning
+	// in their log and can fix their callback URL / sub quota.
+	titleMode := s.cfg.App.TitleTracking.EffectiveMode()
+	useWebhook := titleMode == config.TitleTrackingModeWebhook && s.channelSubs != nil
+	if useWebhook {
+		// Use the recording ctx for the subscribe call so shutdown
+		// interrupts a long Helix response; if the sub doesn't land
+		// before ctx cancels we degrade to poll.
+		if err := s.channelSubs.SubscribeChannelUpdate(ctx, p.BroadcasterID); err != nil {
+			log.Warn("channel.update subscribe failed; falling back to poll for this recording",
+				"broadcaster_id", p.BroadcasterID, "error", err)
+			useWebhook = false
+		} else {
+			// Unsubscribe context policy:
+			//   - WithoutCancel(ctx): recording cancel shouldn't
+			//     abort mid-DELETE and strand the Twitch sub.
+			//   - WithTimeout(15s): Shutdown()'s outer budget is
+			//     30s; a single stuck Helix DELETE (rate limit,
+			//     Twitch 5xx hanging) must not eat all of it and
+			//     prevent other jobs' cleanup from running. After
+			//     15s we give up; next boot's
+			//     ReconcileChannelUpdateSubs sweeps the orphan.
+			defer func() {
+				unsubCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+				defer cancel()
+				if err := s.channelSubs.UnsubscribeChannelUpdate(unsubCtx, p.BroadcasterID, "recording ended"); err != nil {
+					log.Warn("channel.update unsubscribe failed; orphan sub will be swept on next boot",
+						"broadcaster_id", p.BroadcasterID, "error", err)
+				}
+			}()
+		}
+	}
+
+	if !useWebhook && titleMode == config.TitleTrackingModePoll && s.metaWatcher != nil {
+		// Poll mode (or webhook-fallback). Goroutine polls Helix
+		// during the recording and links each distinct title AND
+		// category change. The initial values were already linked
+		// via video_titles / video_categories at CreateVideo time;
+		// we pass them to the watcher as "last seen" so the first
+		// tick only records actual changes.
+		titleCtx, cancelTitle := context.WithCancel(ctx)
+		mediaPollerCancels = append(mediaPollerCancels, cancelTitle)
+		initial := streammeta.WatchInitial{
+			Title:      p.Title,
+			CategoryID: p.CategoryID,
+		}
+		go func() {
+			s.metaWatcher.Watch(titleCtx, p.BroadcasterID, d.videoID, initial)
+			log.Debug("title watcher done")
+		}()
+	}
 
 	// Stages 1-4 run inside an auth-refresh loop. On
 	// hls.ErrPlaylistAuth we re-mint a playback token, re-
@@ -739,6 +963,12 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		// before remux begins.
 		emitter.finalize()
 	}
+
+	// Stage 4 is done — stream is off the wire. Stop the
+	// Helix-side pollers now instead of waiting for run() to
+	// return via defer, which would keep them polling through
+	// Stages 5-11 (remux/probe/thumbnail/upload) for no benefit.
+	stopMediaPollers()
 
 	// Stage 5: prepare ffmpeg input. Idempotent; a crash after
 	// this but before REMUX just rebuilds the same segments.txt
@@ -847,9 +1077,13 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		}
 	}
 
-	// Stage 8: thumbnail. Audio jobs skip entirely; the UI falls
-	// back to the channel avatar.
+	// Stage 8: thumbnail + sprite strip. Audio jobs skip both —
+	// there's no frame to capture. The hero thumbnail goes on
+	// the video row; the strip is discovered by convention at
+	// <base>-strip.jpg so the UI can show a scrubber preview on
+	// hover.
 	var thumbRel string
+	var stripRel string
 	if kind == remux.KindVideo {
 		s.setResumeStage(dbCtx, d, StageThumbnail, log)
 		emitter.setStage("thumbnail")
@@ -867,10 +1101,29 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		default:
 			log.Warn("thumbnail generation failed; continuing without thumbnail", "error", err)
 		}
+
+		// Sprite strip is best-effort. A failure here (bad
+		// filter arg on a future ffmpeg, disk full, etc.)
+		// shouldn't sink a successful recording — the UI falls
+		// back to the single hero thumbnail when the strip is
+		// absent.
+		if probeResult.Duration > 0 {
+			stripPath := filepath.Join(jobDir, filename+"-strip.jpg")
+			if err := s.thumb.GenerateStrip(ctx, thumbnail.StripInput{
+				VideoPath:       remuxedPath,
+				OutputPath:      stripPath,
+				DurationSeconds: probeResult.Duration,
+			}); err != nil {
+				log.Warn("strip generation failed; continuing without strip", "error", err)
+			} else {
+				stripRel = filepath.ToSlash(filepath.Join("thumbnails", filename+"-strip.jpg"))
+			}
+		}
 	}
 
-	// Stage 10: store. Video first, then thumbnail — if the
-	// thumbnail upload fails we still want the video playable.
+	// Stage 10: store. Video first, then thumbnails — if the
+	// auxiliary thumbnails fail to upload we still want the
+	// video playable.
 	s.setResumeStage(dbCtx, d, StageStore, log)
 	videoRel := filepath.ToSlash(filepath.Join("videos", filename+kind.OutputExt()))
 	if err := s.uploadFromScratch(ctx, remuxedPath, videoRel); err != nil {
@@ -884,6 +1137,12 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 			log.Warn("thumbnail upload failed; continuing without thumbnail", "error", err)
 		} else {
 			thumbPtr = &thumbRel
+		}
+	}
+	if stripRel != "" {
+		stripPath := filepath.Join(jobDir, filename+"-strip.jpg")
+		if err := s.uploadFromScratch(ctx, stripPath, stripRel); err != nil {
+			log.Warn("strip upload failed; continuing without strip", "error", err)
 		}
 	}
 
@@ -903,7 +1162,22 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		// the terminal marks rather than dragging the whole
 		// pipeline down for a child-row update.
 	}
-	if err := s.repo.MarkVideoDone(dbCtx, d.videoID, probeResult.Duration, probeResult.Size, thumbPtr); err != nil {
+	// Completion kind at success time: any restart_window_rolled
+	// entry in resume_state.gaps means we lost data the CDN rolled
+	// past during a shutdown → "partial". Otherwise the recording
+	// is clean → "complete". Other gap reasons (stitched-ad,
+	// fetch-failure, malformed) are expected content losses that
+	// the tolerant gap policy already accepted; they're not
+	// "interrupted" in the user-visible sense and don't qualify
+	// the recording as partial.
+	completionKind := repository.CompletionKindComplete
+	for _, g := range d.resume.Gaps {
+		if g.Reason == GapReasonRestartWindowRolled {
+			completionKind = repository.CompletionKindPartial
+			break
+		}
+	}
+	if err := s.repo.MarkVideoDone(dbCtx, d.videoID, probeResult.Duration, probeResult.Size, thumbPtr, completionKind); err != nil {
 		log.Error("failed to mark video done", "error", err)
 		return
 	}
@@ -913,6 +1187,9 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		// but the video output is already committed and
 		// uploaded — no value in surfacing this to the user.
 	}
+	// Terminal success: scratch can be removed. Set the flag
+	// before the defer fires on function return.
+	d.cleanupScratch = true
 	emitter.setStage("done")
 	log.Info("download complete",
 		"duration_seconds", probeResult.Duration,
@@ -1334,6 +1611,12 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	s.mu.Unlock()
 
 	if s.shuttingDown.Load() && !userCancelled {
+		// Job stays RUNNING for next boot's Resume. Do NOT set
+		// cleanupScratch — segments on disk are what Resume
+		// needs to pick up from PrepareInput without re-
+		// downloading. sweepOrphanedTempsExcept at next boot
+		// preserves this dir via the active-RUNNING protected
+		// set.
 		log.Info("download interrupted by shutdown; leaving RUNNING for resume",
 			"error", cause,
 			"stage", d.resume.Stage,
@@ -1349,12 +1632,26 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	} else {
 		log.Error("download failed", "error", cause)
 	}
-	if err := s.repo.MarkVideoFailed(dbCtx, d.videoID, recorded.Error()); err != nil {
+	// On user-cancel the completion_kind communicates operator
+	// intent — UI renders a grey "CANCELLED" badge instead of red
+	// "FAILED". On a real crash/transport/remux failure we fall
+	// through to "complete" (inert default for FAILED rows; UI
+	// reads the error field for details).
+	failCompletionKind := repository.CompletionKindComplete
+	if userCancelled {
+		failCompletionKind = repository.CompletionKindCancelled
+	}
+	if err := s.repo.MarkVideoFailed(dbCtx, d.videoID, recorded.Error(), failCompletionKind); err != nil {
 		log.Error("failed to mark video failed", "error", err)
 	}
 	if err := s.repo.MarkJobFailed(dbCtx, d.jobID, recorded.Error()); err != nil {
 		log.Error("failed to mark job failed", "error", err)
 	}
+	// Terminal-for-this-attempt outcome: the job is now FAILED
+	// (user cancel or real failure). FAILED rows are excluded from
+	// Resume's RUNNING/PENDING query, so keeping scratch would just
+	// leak until next boot's sweep. Wipe now.
+	d.cleanupScratch = true
 }
 
 // classifyTwitchAuth wires the twitch-specific entitlement-code
@@ -1369,6 +1666,34 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 // the hot path without leaking Twitch symbols into hls/.
 func classifyTwitchAuth(status int, body []byte) bool {
 	return twitch.IsPermanent(twitch.NewAuthError(status, body))
+}
+
+// storageSnapshotWriter adapts storage.Storage to the
+// thumbnail.SnapshotWriter interface. Writes each capture to a
+// deterministic path:
+//
+//	<base>-snap00.jpg
+//	<base>-snap01.jpg
+//	...
+//
+// The UI can discover the set by listing storage with the base
+// prefix or by probing <base>-snapNN.jpg until 404.
+//
+// ctx is the recording's long-lived context (NOT the snapshotter's
+// derived ctx). An upload that starts right before the snapshotter
+// ctx cancels should still be allowed to finish — otherwise a tick
+// firing at the same moment as "recording done" would be lost.
+// The outer run() ctx + user cancel still tear everything down if
+// the whole job is canceled.
+type storageSnapshotWriter struct {
+	storage storage.Storage
+	base    string
+	ctx     context.Context
+}
+
+func (w *storageSnapshotWriter) WriteSnapshot(_ context.Context, index int, body io.Reader) error {
+	path := fmt.Sprintf("%s-snap%02d.jpg", w.base, index)
+	return w.storage.Save(w.ctx, path, body)
 }
 
 // buildFilename generates a deterministic, filesystem-safe

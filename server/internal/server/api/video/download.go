@@ -8,6 +8,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
@@ -29,15 +30,21 @@ type DownloadService struct {
 	repo       repository.Repository
 	downloader *downloader.Service
 	twitch     *twitch.Client
+	hydrator   *streammeta.Hydrator
 	log        *slog.Logger
 }
 
-// NewDownload builds the download control-plane service.
-func NewDownload(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, log *slog.Logger) *DownloadService {
+// NewDownload builds the download control-plane service. hydrator is
+// shared with the schedule processor so manual + auto triggers both
+// upsert the same streams / categories / tags / titles rows — and
+// therefore the manual path fills videos.stream_id safely, since the
+// FK-parent row is guaranteed to exist by the time CreateVideo runs.
+func NewDownload(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, log *slog.Logger) *DownloadService {
 	return &DownloadService{
 		repo:       repo,
 		downloader: dl,
 		twitch:     tc,
+		hydrator:   hydrator,
 		log:        log.With("domain", "download"),
 	}
 }
@@ -95,12 +102,51 @@ func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (Trig
 	downloadCtx := twitch.WithUserToken(ctx, input.UserAccessToken)
 	downloadCtx = twitch.WithUserID(downloadCtx, input.UserID)
 
+	// Hydrate from Helix via the shared service: persists streams +
+	// categories + tags + titles rows and returns a snapshot for the
+	// Video row's metadata. Best-effort — any Helix failure yields a
+	// nil snapshot and we proceed with empty title / no stream link.
+	// Same contract as the schedule-processor path, so manual and
+	// auto triggers leave the DB in the same shape.
+	var (
+		title        string
+		viewers      int64
+		streamID     *string
+		language     string
+		categoryID   string
+		categoryName string
+	)
+	if s.hydrator != nil {
+		if snap := s.hydrator.Hydrate(downloadCtx, ch.BroadcasterID); snap != nil {
+			title = snap.Title
+			viewers = snap.ViewerCount
+			language = snap.Language
+			categoryID = snap.GameID
+			categoryName = snap.GameName
+			if snap.StreamID != "" {
+				// streams row was upserted — safe to set the FK.
+				id := snap.StreamID
+				streamID = &id
+			}
+		}
+	}
+	// Language falls back to the channel's default only when Helix
+	// didn't give us a per-stream language.
+	if language == "" {
+		language = derefString(ch.BroadcasterLanguage)
+	}
+
 	jobID, err := s.downloader.Start(downloadCtx, downloader.Params{
 		BroadcasterID:    ch.BroadcasterID,
 		BroadcasterLogin: ch.BroadcasterLogin,
 		DisplayName:      ch.BroadcasterName,
+		Title:            title,
+		CategoryID:       categoryID,
+		CategoryName:     categoryName,
 		Quality:          quality,
-		Language:         derefString(ch.BroadcasterLanguage),
+		Language:         language,
+		ViewerCount:      viewers,
+		StreamID:         streamID,
 		RecordingType:    input.RecordingType,
 		ForceH264:        input.ForceH264,
 	})
@@ -140,3 +186,4 @@ func derefString(s *string) string {
 	}
 	return *s
 }
+

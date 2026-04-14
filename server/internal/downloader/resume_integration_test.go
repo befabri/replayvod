@@ -9,7 +9,6 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
@@ -20,7 +19,7 @@ import (
 func newTestService(t *testing.T, scratchDir string) *Service {
 	t.Helper()
 	db := testdb.NewSQLiteDB(t)
-	repo := sqliteadapter.New(sqlitegen.New(db))
+	repo := sqliteadapter.New(db)
 	store, err := storage.NewLocal(t.TempDir())
 	if err != nil {
 		t.Fatalf("storage: %v", err)
@@ -36,7 +35,7 @@ func newTestService(t *testing.T, scratchDir string) *Service {
 			},
 		},
 	}
-	return NewService(cfg, repo, store, discardLog())
+	return NewService(cfg, repo, store, nil, nil, nil, discardLog())
 }
 
 func TestResume_EmptyDBSweepsOrphans(t *testing.T) {
