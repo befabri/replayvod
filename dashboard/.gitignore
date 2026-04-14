@@ -1,0 +1,24 @@
+
+# Dependencies
+node_modules/
+
+# Build / cache
+/dist/
+/.tanstack/
+/.vite/
+
+# Alternative package manager lockfile — npm's package-lock.json is
+# the lockfile of record. Prevents bun.lock drifting against it when
+# someone accidentally runs `bun install`.
+bun.lock
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# Probe captures — even with in-script scrubbing, don't commit raw
+# waterfalls. Re-run the probe locally if you need fresh data.
+/scripts/probes/**/capture.*.json
