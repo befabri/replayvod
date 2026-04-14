@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,10 +19,11 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/scheduler"
 	"github.com/befabri/replayvod/server/internal/server"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
+	"github.com/befabri/replayvod/server/internal/service/categoryart"
+	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -89,7 +91,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		repo = sqliteadapter.New(sqlitegen.New(sqliteDB))
+		repo = sqliteadapter.New(sqliteDB)
 
 	default:
 		log.Error("Unknown database driver", "driver", cfg.Env.DatabaseDriver)
@@ -191,7 +193,69 @@ func main() {
 	// GQL path can carry Authorization: OAuth <access>. Narrow
 	// callback rather than the full client keeps
 	// internal/downloader off internal/twitch's import graph.
-	dl := downloader.NewService(cfg, repo, store, log)
+	// streammeta.Hydrator + MetadataWatcher are the shared enrichment
+	// surface: the hydrator runs at trigger/stream-online time; the
+	// watcher polls for title changes during the recording. Both
+	// read + persist the same titles / video_titles M2M rows so the
+	// UI's title-history button surfaces the full broadcast history.
+	//
+	// The title-tracking mode selects how we capture mid-stream
+	// changes:
+	//   poll    → MetadataWatcher polls Helix
+	//   webhook → channel.update EventSub per-recording
+	//   off     → only the at-start snapshot
+	// channelSubs is the narrow ChannelUpdateSubscriber interface
+	// the downloader uses; it's satisfied by eventsubSvc below, but
+	// we only pass it through when webhook mode is configured so
+	// unused deps stay nil.
+	// categoryart.Service fetches box_art_url from /helix/games. Used
+	// by the Hydrator eagerly (on first category observation) and by
+	// the scheduler's category_art_sync task as a backfill path.
+	artSvc := categoryart.New(repo, twitchClient, log)
+	hydrator := streammeta.NewHydrator(repo, twitchClient, streammeta.Config{
+		CategoryArt: artSvc,
+	}, log)
+	titleMode := cfg.App.TitleTracking.EffectiveMode()
+
+	// Webhook mode requires a publicly-reachable HTTPS callback on
+	// a standard port (443). Twitch rejects anything else with
+	// Helix 400 — if we let the server start and silently fall
+	// back to poll, the operator wouldn't notice the misconfig
+	// until they wondered why title history was empty. Hard fail
+	// instead. Covers: empty URL, http://, non-443 ports, malformed
+	// URL, missing host.
+	if titleMode == config.TitleTrackingModeWebhook && !isUsableWebhookURL(cfg.Env.WebhookCallbackURL) {
+		log.Error("title_tracking.mode=webhook requires WEBHOOK_CALLBACK_URL to be a valid HTTPS URL on port 443",
+			"callback", cfg.Env.WebhookCallbackURL)
+		os.Exit(1)
+	}
+	// Soft warning for the non-webhook-mode case: WEBHOOK_CALLBACK_URL
+	// is set but unusable. Scheduled recording + live-dot subs will
+	// fail silently (one info log per reconcile, handled in the
+	// service). Surfacing it once at startup gives the operator a
+	// clear signal before the feature silently breaks.
+	if cfg.Env.WebhookCallbackURL != "" && !isUsableWebhookURL(cfg.Env.WebhookCallbackURL) {
+		log.Warn("WEBHOOK_CALLBACK_URL is set but not a valid HTTPS endpoint — webhook-dependent features (scheduled recording, live-dot SSE) will be skipped",
+			"callback", cfg.Env.WebhookCallbackURL)
+	}
+
+	// eventsubSvc is constructed once and shared: used by the
+	// existing stream.online subscription flow AND by the new
+	// channel.update per-recording flow. The HMAC secret + callback
+	// URL are the same across both sub types.
+	eventsubSvc := eventsub.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
+
+	var metaWatcher *streammeta.MetadataWatcher
+	if titleMode == config.TitleTrackingModePoll {
+		metaWatcher = streammeta.NewMetadataWatcher(hydrator, streammeta.MetadataWatchConfig{
+			Interval: time.Duration(cfg.App.TitleTracking.IntervalMinutes) * time.Minute,
+		}, log)
+	}
+	var channelSubs downloader.ChannelUpdateSubscriber
+	if titleMode == config.TitleTrackingModeWebhook {
+		channelSubs = &channelSubsAdapter{es: eventsubSvc}
+	}
+	dl := downloader.NewService(cfg, repo, store, hydrator, metaWatcher, channelSubs, log)
 	if cfg.Env.ServiceAccountOAuthToken != "" {
 		dl.SetOAuthRefresher(func(ctx context.Context, refreshToken string) (string, time.Time, error) {
 			resp, err := twitchClient.RefreshUserToken(ctx, refreshToken)
@@ -217,6 +281,51 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Boot-time reconcile of EventSub subscriptions. Two separate
+	// sweeps, different semantics:
+	//
+	//   1. channel.update subs (title tracking, webhook mode only) —
+	//      delete orphans left by a prior process that crashed before
+	//      unsubscribe. Matches against the active-recording set.
+	//
+	//   2. stream.online/stream.offline subs (live-dot feed) — ensure
+	//      every local channel has both, delete orphans. Makes the
+	//      SSE delta feed authoritative so the frontend can keep
+	//      staleTime: Infinity without risk of drift. Runs regardless
+	//      of title-tracking mode since the live-dot is a separate
+	//      feature.
+	//
+	// Both are best-effort; failures log but don't fail startup.
+	if titleMode == config.TitleTrackingModeWebhook {
+		activeJobs, err := repo.ListRunningJobs(ctx)
+		if err != nil {
+			log.Warn("channel.update reconcile: list running jobs failed", "error", err)
+		} else {
+			active := make(map[string]bool, len(activeJobs))
+			for _, j := range activeJobs {
+				active[j.BroadcasterID] = true
+			}
+			if err := eventsubSvc.ReconcileChannelUpdateSubs(ctx, active); err != nil {
+				log.Warn("channel.update reconcile failed", "error", err)
+			}
+		}
+	}
+
+	if cfg.Env.WebhookCallbackURL != "" {
+		channels, err := repo.ListChannels(ctx)
+		if err != nil {
+			log.Warn("followed-subs reconcile: list channels failed", "error", err)
+		} else {
+			followed := make(map[string]bool, len(channels))
+			for _, ch := range channels {
+				followed[ch.BroadcasterID] = true
+			}
+			if err := eventsubSvc.ReconcileChannelSubs(ctx, followed); err != nil {
+				log.Warn("followed-subs reconcile failed", "error", err)
+			}
+		}
+	}
+
 	// SSE bus: one set of topics shared between scheduler (publishes
 	// task status), schedule processor (publishes stream.live), and
 	// event-log writer (publishes system.events). Routing handlers
@@ -230,7 +339,7 @@ func main() {
 	if cfg.App.Scheduler.Enabled {
 		esvc := eventsub.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
 		sched = scheduler.NewService(repo, log, 15*time.Second, bus)
-		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, log); err != nil {
+		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, artSvc, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
 			os.Exit(1)
 		}
@@ -250,7 +359,7 @@ func main() {
 
 	// Start server
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, bus, log)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, log)
 	go srv.Start()
 
 	// Wait for shutdown signal
@@ -263,4 +372,39 @@ func main() {
 	logger.Close()
 
 	os.Exit(0)
+}
+
+// isUsableWebhookURL mirrors eventsub.isCallbackURLUsable so the
+// startup validation matches what the service will actually accept.
+// Kept here in main so we can fail loudly before the service is
+// ever called.
+func isUsableWebhookURL(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return false
+	}
+	if u.Port() != "" && u.Port() != "443" {
+		return false
+	}
+	return true
+}
+
+// channelSubsAdapter bridges eventsub.Service's return-rich
+// SubscribeChannelUpdate (returns *repository.Subscription) to
+// the downloader's error-only ChannelUpdateSubscriber. Keeps
+// internal/downloader off the repository import graph.
+type channelSubsAdapter struct {
+	es *eventsub.Service
+}
+
+func (a *channelSubsAdapter) SubscribeChannelUpdate(ctx context.Context, broadcasterID string) error {
+	_, err := a.es.SubscribeChannelUpdate(ctx, broadcasterID)
+	return err
+}
+
+func (a *channelSubsAdapter) UnsubscribeChannelUpdate(ctx context.Context, broadcasterID, reason string) error {
+	return a.es.UnsubscribeChannelUpdate(ctx, broadcasterID, reason)
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/webhook"
 	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
+	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -42,7 +43,7 @@ import (
 
 // SetupRouter creates and configures the Chi router and returns a cleanup
 // hook for the tRPC router lifecycle.
-func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, bus *eventbus.Buses, log *slog.Logger) (*chi.Mux, func() error) {
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, log *slog.Logger) (*chi.Mux, func() error) {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -86,7 +87,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// csrfProtection group (Twitch can't provide a CSRF cookie). The
 	// schedule-service processor dispatches stream.online events to the
 	// auto-download pipeline; other event types are audit-logged only.
-	scheduleProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, bus, log)
+	scheduleProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
 	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, scheduleProcessor, log)
 	sessionMw := middleware.Auth(sessionMgr, repo, log)
 	r.Route("/api/v1", func(r chi.Router) {
@@ -96,7 +97,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	})
 
 	// tRPC router with CSRF/origin protection.
-	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, bus, authSvc, scheduleSvc, log)
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -120,11 +121,16 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 // registration to each domain's RegisterRoutes. authSvc + scheduleSvc
 // are the shared domain services constructed by SetupRouter; everything
 // else each domain owns.
-func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, log *slog.Logger) *trpcgo.Router {
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, log *slog.Logger) *trpcgo.Router {
 	opts := []trpcgo.Option{
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
 		trpcgo.WithValidator(validate.V.Struct),
 		trpcgo.WithBatching(true),
+		// Default is 10; the dashboard routinely composes 10-15
+		// parallel queries per view (videos grid + session +
+		// settings + SSE bootstraps). 50 gives 3-5× headroom over
+		// any current page without removing the abuse guardrail.
+		trpcgo.WithMaxBatchSize(50),
 		trpcgo.WithMethodOverride(true),
 		trpcgo.WithDev(cfg.App.Development),
 		trpcgo.WithErrorFormatter(func(input trpcgo.ErrorFormatterInput) any {
@@ -181,11 +187,11 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	schedule.RegisterRoutes(tr, scheduleSvc, log, viewer, admin)
 	settings.RegisterRoutes(tr, repo, log, viewer)
 	sse.RegisterRoutes(tr, bus, log, viewer, owner)
-	stream.RegisterRoutes(tr, repo, log, viewer)
+	stream.RegisterRoutes(tr, repo, twitchClient, log, viewer)
 	system.RegisterRoutes(tr, repo, log, owner)
 	tag.RegisterRoutes(tr, repo, log, viewer)
 	task.RegisterRoutes(tr, repo, log, owner)
-	video.RegisterRoutes(tr, repo, dl, twitchClient, log, viewer, admin)
+	video.RegisterRoutes(tr, repo, dl, twitchClient, hydrator, store, log, viewer, admin)
 	videorequest.RegisterRoutes(tr, repo, log, viewer)
 
 	return tr
