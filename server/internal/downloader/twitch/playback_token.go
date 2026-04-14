@@ -17,11 +17,13 @@ import (
 // public and observable; any change to Twitch's GQL schema
 // invalidates it, at which point we'd update this constant.
 //
-// NOTE: operation name is "PlaybackAccessToken" — no _Template
-// suffix. Twitch resolves hash → canned query whose stored
-// operation name is baked in; mismatch returns
-// PersistedQueryNotFound on the first live call. Verified against
-// streamlink plugins/twitch.py:519-520.
+// Operation name is "PlaybackAccessToken" — the hash above is
+// server-side registered under that bare name. The real web
+// client sends the full inline query string with operationName
+// "PlaybackAccessToken_Template", but we use the persisted-query
+// path (same as streamlink + dropsminer), so the op name must
+// match what the hash resolves to. Claiming "_Template" with this
+// hash returns `no operation with name "PlaybackAccessToken_Template"`.
 const (
 	playbackAccessTokenOp     = "PlaybackAccessToken"
 	playbackAccessTokenSHA256 = "ed230aa1e33e07eebb8928504583da78a5173989fadfb1ac94be06a04f3cdbe9"
@@ -89,25 +91,20 @@ type gqlError struct {
 // fetched here because refresh-token → access-token exchange lives
 // in the project's existing OAuth plumbing, not in this package.
 func (c *Client) PlaybackToken(ctx context.Context, login, accessToken string) (PlaybackToken, error) {
+	c.log.Debug("playback token attempt", "login", login, "authenticated", accessToken != "")
 	// First attempt — no integrity.
 	token, err := c.playbackAttempt(ctx, login, accessToken, "")
 	if err == nil && !token.Empty() {
 		return token, nil
 	}
-	// Classify the error. Only two cases warrant the integrity
-	// fallback:
-	//   - retryable auth (isAuth=true, not permanent)
-	//   - 2xx response with empty token/signature (err=nil)
-	// Everything else — permanent entitlement, transport
-	// failure, 5xx, JSON parse error — surfaces the original
-	// error. Retrying via the integrity path only burns another
-	// two round trips and swaps the caller-visible error for a
-	// less informative one ("integrity endpoint timeout").
-	permanent, isAuth := classifyAuthError(err)
+	// Any non-permanent failure on the anonymous attempt warrants
+	// the integrity retry. Twitch's anti-abuse layer commonly
+	// fast-rejects unauthenticated requests with a generic
+	// `{"errors":[{"message":"server error"}]}` at HTTP 200 — the
+	// path that integrity is specifically designed to get past.
+	// Only permanent entitlement codes short-circuit.
+	permanent, _ := classifyAuthError(err)
 	if permanent {
-		return PlaybackToken{}, err
-	}
-	if err != nil && !isAuth {
 		return PlaybackToken{}, err
 	}
 
@@ -158,8 +155,8 @@ func (c *Client) playbackAttempt(ctx context.Context, login, accessToken, integr
 			"login":      login,
 			"isVod":      false,
 			"vodID":      "",
-			"playerType": "embed",
-			"platform":   "site",
+			"playerType": "site",
+			"platform":   "web",
 		},
 		Extensions: gqlExtensions{
 			PersistedQuery: gqlPersistedRef{
@@ -217,6 +214,13 @@ func (c *Client) playbackAttempt(ctx context.Context, login, accessToken, integr
 
 	if len(parsed.Errors) > 0 {
 		msg := parsed.Errors[0].Message
+		c.log.Debug("playback token gql error",
+			"login", login,
+			"status", resp.StatusCode,
+			"message", msg,
+			"integrity", integrity != "",
+			"authenticated", accessToken != "",
+			"body", string(bodyBytes))
 		return PlaybackToken{}, &AuthError{
 			Status:  resp.StatusCode,
 			Code:    gqlMessageToCode(msg),

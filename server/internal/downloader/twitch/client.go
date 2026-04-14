@@ -23,13 +23,16 @@ const (
 	integrityURL = "https://gql.twitch.tv/integrity"
 	usherBaseURL = "https://usher.ttvnw.net"
 
-	// playerOrigin + playerReferer match what streamlink sends on
-	// its Twitch HLS requests. Not strictly required for the
-	// anonymous captures we've probed with, but aligning with a
-	// realistic browser source makes integrity-gated requests more
-	// likely to stay accepted and is cheap to carry.
-	playerOrigin  = "https://player.twitch.tv"
-	playerReferer = "https://player.twitch.tv/"
+	// playerOrigin + playerReferer match what the real Twitch web
+	// client sends (captured 2026-04-13 via Playwright against
+	// twitch.tv/tumblurr anonymously). The embed/player.twitch.tv
+	// variant that streamlink uses is the stricter anti-abuse path:
+	// anonymous requests claiming to be the embed player get
+	// `{"errors":[{"message":"server error"}]}` without a real
+	// browser-acquired integrity token. www.twitch.tv with
+	// platform=web/playerType=site works without integrity.
+	playerOrigin  = "https://www.twitch.tv"
+	playerReferer = "https://www.twitch.tv/"
 )
 
 // Client is a Twitch streaming-side client: it does NOT talk to
