@@ -21,26 +21,85 @@
 		"requests": "Demandes",
 		"sessions": "Sessions",
 		"activity_queue": "File d'attente",
-		"activity_history": "Historique"
+		"activity_history": "Historique",
+		"activity": "Activité",
+		"recording": "Enregistrement",
+		"profile_menu": "Ouvrir le menu utilisateur",
+		"language": "Langue",
+		"theme_dark": "Thème sombre",
+		"toggle_theme": "Changer de thème"
 	},
 	"auth": {
 		"login": "Se connecter avec Twitch",
-		"logout": "Déconnexion"
+		"logout": "Déconnexion",
+		"sign_in_title": "Se connecter à ReplayVOD",
+		"twitch_connect": "Connecter à Twitch",
+		"error_not_whitelisted": "Votre compte Twitch n'est pas autorisé à utiliser cette application.",
+		"error_access_denied": "Vous avez refusé l'autorisation. Veuillez réessayer.",
+		"error_invalid_state": "Session de connexion expirée. Veuillez réessayer.",
+		"error_invalid_pkce": "Session de connexion expirée. Veuillez réessayer.",
+		"error_generic": "Échec de la connexion : {{code}}"
 	},
 	"common": {
 		"loading": "Chargement…",
 		"saving": "Enregistrement…",
 		"cancel": "Annuler"
 	},
+	"categories": {
+		"title": "Catégories",
+		"empty": "Aucune catégorie. Elles apparaîtront quand des streams seront enregistrés.",
+		"failed_to_load": "Impossible de charger les catégories",
+		"view_card": "Cartes",
+		"view_grid": "Grille"
+	},
+	"channels": {
+		"title": "Chaînes",
+		"empty": "Aucune chaîne. Elles apparaîtront ici quand vous suivrez des diffuseurs ou configurerez des planifications.",
+		"failed_to_load": "Impossible de charger les chaînes",
+		"sort_asc": "Chaîne (A-Z)",
+		"sort_desc": "Chaîne (Z-A)",
+		"filter_all": "Toutes les chaînes",
+		"filter_live": "En direct",
+		"live_badge": "En direct",
+		"open_in_twitch": "Twitch"
+	},
+	"errors": {
+		"not_found_title": "Page introuvable",
+		"not_found_description": "La page que vous cherchez n'existe pas."
+	},
 	"videos": {
 		"title": "Vidéos",
 		"empty": "Aucune vidéo. Lancez un téléchargement depuis une chaîne.",
 		"failed_to_load": "Impossible de charger les vidéos",
+		"not_found": "Vidéo introuvable.",
+		"sort": {
+			"newest": "Plus récent",
+			"oldest": "Plus ancien",
+			"channel_asc": "Chaîne A → Z",
+			"channel_desc": "Chaîne Z → A",
+			"longest": "Plus long",
+			"largest": "Plus volumineux"
+		},
+		"previous": "Précédent",
+		"next": "Suivant",
+		"page": "Page {{n}}",
+		"status_filter": {
+			"all": "Tous",
+			"done": "Terminé",
+			"running": "En cours",
+			"pending": "En attente",
+			"failed": "Échoué"
+		},
+		"view": {
+			"grid": "Grille",
+			"table": "Tableau"
+		},
 		"status": {
 			"PENDING": "En attente",
 			"RUNNING": "En cours",
 			"DONE": "Terminé",
-			"FAILED": "Échoué"
+			"FAILED": "Échoué",
+			"CANCELLED": "Annulé"
 		},
 		"watch": "Regarder",
 		"triggered": "Téléchargement démarré",
@@ -60,7 +119,39 @@
 		"force_h264_tooltip": "Si la chaîne propose du HEVC, cochez pour télécharger en H.264. Le HEVC produit des fichiers plus petits ; certains appareils et navigateurs ne peuvent pas le lire.",
 		"force_h264_tooltip_aria": "À propos de Forcer H.264",
 		"duration": "Durée",
-		"size": "Taille"
+		"size": "Taille",
+		"no_thumbnail": "Aucune miniature",
+		"title_history": {
+			"badge": "Titres",
+			"tooltip": "Voir l'historique des titres",
+			"heading": "Historique des titres",
+			"description": "Tous les titres définis pendant cet enregistrement, dans l'ordre où ils ont été capturés.",
+			"empty": "Aucun historique enregistré. Activez le suivi des titres dans config.toml pour capturer les changements en cours de stream."
+		},
+		"categories_history": {
+			"badge": "Catégories",
+			"tooltip": "Voir les catégories",
+			"heading": "Catégories",
+			"description": "Chaque catégorie durant cet enregistrement.",
+			"empty": "Aucune catégorie enregistrée."
+		},
+		"categories_inline_label": "Catégories",
+		"language": "Langue",
+		"started_at": "Démarré",
+		"downloaded_at": "Téléchargé",
+		"metadata_heading": "Détails",
+		"completion": {
+			"partial": "PARTIEL",
+			"partial_tooltip": "Une partie de cet enregistrement a été perdue — le téléchargement a été interrompu et la fenêtre CDN de Twitch a dépassé l'écart avant la reprise."
+		}
+	},
+	"watch": {
+		"not_ready": "Cette vidéo n'est pas prête à être lue (statut : {{status}}).",
+		"back_to_videos": "← Retour aux vidéos",
+		"width_contained": "Limité",
+		"width_full": "Pleine largeur",
+		"switch_to_contained": "Passer en mode limité",
+		"switch_to_full": "Passer en pleine largeur"
 	},
 	"stats": {
 		"total_videos": "Vidéos",
@@ -85,13 +176,22 @@
 		"has_min_viewers": "N'enregistrer qu'au-dessus d'un seuil de viewers",
 		"has_categories": "Filtrer par catégorie",
 		"has_tags": "Filtrer par tag",
+		"is_delete_rediff": "Supprimer la vidéo si la VOD est conservée après le stream",
+		"is_delete_rediff_hint": "Définir la durée (en minutes) après la fin du stream avant suppression",
+		"time_before_delete": "Minutes après la fin du stream",
 		"categories": "Catégories",
 		"tags": "Tags",
 		"min_viewers": "Viewers minimum",
+		"min_viewers_unit": "viewers",
+		"categories_unit": "catégories",
+		"tags_unit": "tags",
 		"search_categories": "Rechercher des catégories…",
 		"no_categories": "Aucune catégorie — elles apparaissent quand les streams passent en live.",
 		"search_tags": "Rechercher des tags…",
 		"no_tags": "Aucun tag — ils apparaissent quand les streams passent en live.",
+		"search_channels": "Rechercher des chaînes…",
+		"no_channels_found": "Aucune chaîne trouvée",
+		"deleted": "Planification supprimée",
 		"coming_soon": "Bientôt",
 		"filters": "Filtres",
 		"filters_coming_soon": "Filtres",
@@ -111,7 +211,8 @@
 	},
 	"streams_live": {
 		"title": "Live en direct",
-		"matched": "{{count}} planification(s) déclenchée(s)"
+		"matched": "{{count}} planification(s) déclenchée(s)",
+		"empty": "Aucun live récent"
 	},
 	"tasks": {
 		"title": "Tâches planifiées",
@@ -134,6 +235,14 @@
 		"status_running": "en cours",
 		"status_pending": "en attente",
 		"status_skipped": "ignorée"
+	},
+	"history": {
+		"title": "Historique des téléchargements",
+		"description": "Téléchargements terminés et échoués. Filtrez par statut pour investiguer les échecs.",
+		"failed_to_load": "Impossible de charger l'historique",
+		"empty": "Aucune entrée.",
+		"filter_done": "Terminé",
+		"filter_failed": "Échoué"
 	},
 	"events": {
 		"title": "Journal d'événements",

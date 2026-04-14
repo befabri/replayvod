@@ -21,26 +21,85 @@
 		"requests": "Requests",
 		"sessions": "Sessions",
 		"activity_queue": "Queue",
-		"activity_history": "History"
+		"activity_history": "History",
+		"activity": "Activity",
+		"recording": "Recording",
+		"profile_menu": "Open user menu",
+		"language": "Language",
+		"theme_dark": "Dark theme",
+		"toggle_theme": "Toggle theme"
 	},
 	"auth": {
 		"login": "Login with Twitch",
-		"logout": "Logout"
+		"logout": "Sign out",
+		"sign_in_title": "Sign in to ReplayVOD",
+		"twitch_connect": "Twitch connect",
+		"error_not_whitelisted": "Your Twitch account is not authorized to use this app.",
+		"error_access_denied": "You declined the authorization. Please try again.",
+		"error_invalid_state": "Login session expired. Please try again.",
+		"error_invalid_pkce": "Login session expired. Please try again.",
+		"error_generic": "Login failed: {{code}}"
 	},
 	"common": {
 		"loading": "Loading…",
 		"saving": "Saving…",
 		"cancel": "Cancel"
 	},
+	"categories": {
+		"title": "Categories",
+		"empty": "No categories yet. Categories will be populated as streams are recorded.",
+		"failed_to_load": "Failed to load categories",
+		"view_card": "Cards",
+		"view_grid": "Grid"
+	},
+	"channels": {
+		"title": "Channels",
+		"empty": "No channels yet. Channels will appear here as you follow broadcasters or configure download schedules.",
+		"failed_to_load": "Failed to load channels",
+		"sort_asc": "Channel (A-Z)",
+		"sort_desc": "Channel (Z-A)",
+		"filter_all": "All channels",
+		"filter_live": "Live now",
+		"live_badge": "Live",
+		"open_in_twitch": "Twitch"
+	},
+	"errors": {
+		"not_found_title": "Page not found",
+		"not_found_description": "The page you're looking for doesn't exist."
+	},
 	"videos": {
 		"title": "Videos",
 		"empty": "No videos yet. Trigger a download from a channel page.",
 		"failed_to_load": "Failed to load videos",
+		"not_found": "Video not found.",
+		"sort": {
+			"newest": "Newest first",
+			"oldest": "Oldest first",
+			"channel_asc": "Channel A → Z",
+			"channel_desc": "Channel Z → A",
+			"longest": "Longest",
+			"largest": "Largest size"
+		},
+		"previous": "Previous",
+		"next": "Next",
+		"page": "Page {{n}}",
+		"status_filter": {
+			"all": "All",
+			"done": "Done",
+			"running": "Running",
+			"pending": "Pending",
+			"failed": "Failed"
+		},
+		"view": {
+			"grid": "Grid",
+			"table": "Table"
+		},
 		"status": {
 			"PENDING": "Pending",
 			"RUNNING": "Downloading",
 			"DONE": "Done",
-			"FAILED": "Failed"
+			"FAILED": "Failed",
+			"CANCELLED": "Cancelled"
 		},
 		"watch": "Watch",
 		"triggered": "Download started",
@@ -60,7 +119,39 @@
 		"force_h264_tooltip": "When a channel offers HEVC, check this to download H.264 instead. HEVC gives smaller files; some devices and browsers can't play it.",
 		"force_h264_tooltip_aria": "About Force H.264",
 		"duration": "Duration",
-		"size": "Size"
+		"size": "Size",
+		"no_thumbnail": "No thumbnail",
+		"title_history": {
+			"badge": "Titles",
+			"tooltip": "View title history",
+			"heading": "Title history",
+			"description": "Every title set during this recording, in the order it was captured.",
+			"empty": "No title history recorded. Enable title tracking in config.toml to capture mid-stream changes."
+		},
+		"categories_history": {
+			"badge": "Categories",
+			"tooltip": "View categories",
+			"heading": "Categories",
+			"description": "Every category the stream was set to during this recording.",
+			"empty": "No categories recorded."
+		},
+		"categories_inline_label": "Categories",
+		"language": "Language",
+		"started_at": "Started at",
+		"downloaded_at": "Downloaded at",
+		"metadata_heading": "Details",
+		"completion": {
+			"partial": "PARTIAL",
+			"partial_tooltip": "Some of this recording was lost — the download was interrupted and the Twitch CDN rolled past the gap before we resumed."
+		}
+	},
+	"watch": {
+		"not_ready": "This video is not ready to play (status: {{status}}).",
+		"back_to_videos": "← Back to videos",
+		"width_contained": "Contained",
+		"width_full": "Full width",
+		"switch_to_contained": "Switch to contained",
+		"switch_to_full": "Switch to full-width"
 	},
 	"stats": {
 		"total_videos": "Total videos",
@@ -85,13 +176,22 @@
 		"has_min_viewers": "Only record above viewer threshold",
 		"has_categories": "Match specific categories",
 		"has_tags": "Match specific tags",
+		"is_delete_rediff": "Delete the video if the VOD is kept after the stream",
+		"is_delete_rediff_hint": "Set the stream end time in minutes before the VOD is deleted",
+		"time_before_delete": "Minutes after stream end",
 		"categories": "Categories",
 		"tags": "Tags",
 		"min_viewers": "Min viewers",
+		"min_viewers_unit": "viewers",
+		"categories_unit": "categories",
+		"tags_unit": "tags",
 		"search_categories": "Search categories…",
 		"no_categories": "No categories yet — they populate as streams go live.",
 		"search_tags": "Search tags…",
 		"no_tags": "No tags yet — they populate as streams go live.",
+		"search_channels": "Search channels…",
+		"no_channels_found": "No channels found",
+		"deleted": "Schedule deleted",
 		"coming_soon": "Coming soon",
 		"filters": "Filters",
 		"filters_coming_soon": "Filters",
@@ -111,7 +211,8 @@
 	},
 	"streams_live": {
 		"title": "Just went live",
-		"matched": "{{count}} schedule(s) matched"
+		"matched": "{{count}} schedule(s) matched",
+		"empty": "No recent live streams"
 	},
 	"tasks": {
 		"title": "Scheduled tasks",
@@ -134,6 +235,14 @@
 		"status_running": "running",
 		"status_pending": "pending",
 		"status_skipped": "skipped"
+	},
+	"history": {
+		"title": "Download history",
+		"description": "Completed and failed downloads. Filter by status to investigate failures.",
+		"failed_to_load": "Failed to load history",
+		"empty": "No entries.",
+		"filter_done": "Done",
+		"filter_failed": "Failed"
 	},
 	"events": {
 		"title": "Event logs",
