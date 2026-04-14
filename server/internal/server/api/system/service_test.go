@@ -8,7 +8,6 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/server/api/system"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
@@ -21,7 +20,7 @@ import (
 func TestSearchEventLogs_SQLiteFallback(t *testing.T) {
 	ctx := context.Background()
 	db := testdb.NewSQLiteDB(t)
-	repo := sqliteadapter.New(sqlitegen.New(db))
+	repo := sqliteadapter.New(db)
 
 	// sanity: SQLite adapter MUST NOT satisfy FullTextSearcher — the
 	// whole point of the fallback is that this assertion fails.

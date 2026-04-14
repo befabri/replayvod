@@ -33,8 +33,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/server/api"
+	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/testdb"
@@ -92,12 +92,15 @@ func newTestServer(t *testing.T, d driver) *testServer {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	dl := downloader.NewService(cfg, repo, store, log)
+	dl := downloader.NewService(cfg, repo, store, nil, nil, nil, log)
 
 	// bus=nil is fine: subscription procedures return pre-closed
 	// channels when the bus is absent, which is the same contract the
-	// production server exposes when started without SSE.
-	router, closeTRPC := api.SetupRouter(cfg, repo, sessionMgr, twitchClient, store, dl, nil, log)
+	// production server exposes when started without SSE. hydrator=nil
+	// disables Helix enrichment — e2e tests don't exercise the
+	// stream-metadata path.
+	hydrator := streammeta.NewHydrator(repo, twitchClient, streammeta.Config{}, log)
+	router, closeTRPC := api.SetupRouter(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, nil, log)
 	srv := httptest.NewServer(router)
 	t.Cleanup(func() {
 		srv.Close()
@@ -122,7 +125,7 @@ func newRepo(t *testing.T, d driver) repository.Repository {
 	switch d {
 	case driverSQLite:
 		db := testdb.NewSQLiteDB(t)
-		return sqliteadapter.New(sqlitegen.New(db))
+		return sqliteadapter.New(db)
 	case driverPG:
 		pool := testdb.NewPGPool(t)
 		return pgadapter.New(pool)

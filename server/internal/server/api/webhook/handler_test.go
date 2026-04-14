@@ -17,7 +17,6 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/go-chi/chi/v5"
@@ -44,7 +43,7 @@ func (f *fakeProcessor) Process(ctx context.Context, n *twitch.EventSubNotificat
 func newTestServer(t *testing.T, proc EventProcessor) (*httptest.Server, repository.Repository) {
 	t.Helper()
 	db := testdb.NewSQLiteDB(t)
-	repo := sqliteadapter.New(sqlitegen.New(db))
+	repo := sqliteadapter.New(db)
 	h := NewHandler(repo, testSecret, proc, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := chi.NewRouter()
 	r.Route("/api/v1", func(r chi.Router) { h.SetupRoutes(r) })
