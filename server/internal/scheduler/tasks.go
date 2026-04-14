@@ -10,6 +10,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 )
 
@@ -18,7 +19,11 @@ import (
 // cfg.App.Scheduler; a zero interval skips registration so operators
 // can disable a task by zeroing the value (distinct from is_enabled,
 // which persists across the DB via the dashboard toggle).
-func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repository, esvc *eventsub.Service, log *slog.Logger) error {
+//
+// artsvc is optional: when set, the category-art backfill task runs
+// on the configured interval; when nil the eager Hydrator path is the
+// only filler for box art.
+func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repository, esvc *eventsub.Service, artsvc *categoryart.Service, log *slog.Logger) error {
 	sc := cfg.App.Scheduler
 
 	if m := sc.TokenCleanupIntervalMinutes; m > 0 {
@@ -90,6 +95,27 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 	}
 
 	if esvc != nil {
+		if m := sc.EventsubReconcileIntervalMinutes; m > 0 {
+			if err := s.Register(Task{
+				Name: "eventsub_reconcile_channels",
+				Description: "Ensure stream.online/stream.offline subs exist for every local " +
+					"channel; delete orphans + zombie subs. Keeps the SSE live-dot feed authoritative.",
+				IntervalSeconds: int64(m) * 60,
+				Run: func(ctx context.Context) error {
+					channels, err := repo.ListChannels(ctx)
+					if err != nil {
+						return fmt.Errorf("list channels: %w", err)
+					}
+					ids := make(map[string]bool, len(channels))
+					for _, ch := range channels {
+						ids[ch.BroadcasterID] = true
+					}
+					return esvc.ReconcileChannelSubs(ctx, ids)
+				},
+			}); err != nil {
+				return err
+			}
+		}
 		if m := sc.EventsubIntervalMinutes; m > 0 {
 			if err := s.Register(Task{
 				Name:            "eventsub_snapshot",
@@ -97,6 +123,25 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 				IntervalSeconds: int64(m) * 60,
 				Run: func(ctx context.Context) error {
 					_, err := esvc.Snapshot(ctx)
+					return err
+				},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	if artsvc != nil {
+		if m := sc.CategoryArtIntervalMinutes; m > 0 {
+			if err := s.Register(Task{
+				Name:            "category_art_sync",
+				Description:     "Fetch box_art_url for categories the Hydrator couldn't fill eagerly",
+				IntervalSeconds: int64(m) * 60,
+				Run: func(ctx context.Context) error {
+					synced, err := artsvc.SyncMissing(ctx)
+					if synced > 0 {
+						log.Info("category art sync: filled rows", "count", synced)
+					}
 					return err
 				},
 			}); err != nil {

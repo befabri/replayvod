@@ -14,10 +14,20 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"sync"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
+
+// ErrCallbackURLNotUsable is returned when subscribe is called with a
+// callback URL Twitch will reject (non-HTTPS, missing host, etc.).
+// Surfaced as a clean error so the reconcile loop can early-out with
+// a single "skipping, bad URL" log instead of hammering Twitch and
+// producing one 400 per channel. Typical homelab cause: running in
+// dev mode with http://localhost:8080 configured.
+var ErrCallbackURLNotUsable = errors.New("eventsub: callback URL is not a valid HTTPS endpoint")
 
 // Service manages EventSub subscriptions and snapshots. All EventSub
 // calls use the app access token (client_credentials) — EventSub is
@@ -52,11 +62,350 @@ func (s *Service) SubscribeStreamOnline(ctx context.Context, broadcasterID strin
 	return s.subscribe(ctx, "stream.online", "1", twitch.StreamOnlineCondition{BroadcasterUserID: broadcasterID}, broadcasterID)
 }
 
+// SubscribeStreamOffline creates a stream.offline v1 webhook
+// subscription for the given broadcaster. Pairs with
+// SubscribeStreamOnline: the two together make the SSE live-status
+// delta feed authoritative for a channel — without .offline, the
+// frontend's Set of live broadcasters would grow monotonically
+// until the next full refetch.
+func (s *Service) SubscribeStreamOffline(ctx context.Context, broadcasterID string) (*repository.Subscription, error) {
+	return s.subscribe(ctx, "stream.offline", "1", twitch.StreamOfflineCondition{BroadcasterUserID: broadcasterID}, broadcasterID)
+}
+
+// SubscribeChannelUpdate creates a channel.update v2 webhook subscription
+// for the given broadcaster, or returns the existing active one. Used by
+// the downloader's webhook mode to get push-based title changes instead
+// of polling. Idempotent via the existing-active-sub pre-check in
+// subscribe().
+func (s *Service) SubscribeChannelUpdate(ctx context.Context, broadcasterID string) (*repository.Subscription, error) {
+	return s.subscribe(ctx, "channel.update", "2", twitch.ChannelUpdateCondition{BroadcasterUserID: broadcasterID}, broadcasterID)
+}
+
+// isSubAlive returns true for Twitch sub statuses where events will
+// still be delivered. Anything else is a terminal-failure state that
+// looks active in our mirror (revoked_at IS NULL) but delivers zero
+// events — a "zombie" sub. The reconcile loop treats zombies as
+// absent: it deletes the dead Twitch row + local mirror entry and
+// creates a fresh sub in its place.
+//
+// Statuses that keep a sub alive:
+//   - enabled: healthy, receiving events
+//   - webhook_callback_verification_pending: transient, will become
+//     enabled once Twitch's handshake completes
+//
+// Everything else (verification_failed, notification_failures_exceeded,
+// authorization_revoked, moderator_removed, user_removed, version_removed)
+// is effectively dead.
+func isSubAlive(status string) bool {
+	return status == "enabled" || status == "webhook_callback_verification_pending"
+}
+
+// ReconcileChannelSubs ensures every broadcaster in `channelIDs` has a
+// live stream.online and stream.offline sub on Twitch, and deletes any
+// sub whose broadcaster is no longer in the set. Also sweeps zombie
+// subs — terminal-failure statuses that look active in our local
+// mirror but deliver zero events — so the next create path produces a
+// working replacement.
+//
+// Called on boot + periodically so the SSE live-dot feed stays
+// authoritative for the curated channel list — without this the
+// frontend has to choose between a polling fallback and a
+// potentially-drifting cache.
+//
+// channel.update subs are NOT touched here: those are per-recording
+// and reconciled separately via ReconcileChannelUpdateSubs.
+//
+// Best-effort per sub: a failed create/delete logs a warning and the
+// sweep continues so one bad row doesn't block the rest of the
+// reconciliation.
+func (s *Service) ReconcileChannelSubs(ctx context.Context, channelIDs map[string]bool) error {
+	// Early-out when the callback URL can't be used: without this,
+	// the create loop produces one Helix 400 per channel ×2 sub
+	// types — a ~100-channel dev setup on http://localhost:8080
+	// produces 200+ error log lines per reconcile tick. One info
+	// log makes the misconfig obvious without the spam.
+	if !isCallbackURLUsable(s.callbackURL) {
+		s.log.Info("skip channel-sub reconcile: callback URL is not a usable HTTPS endpoint",
+			"callback", s.callbackURL)
+		return nil
+	}
+	// Two sub types, fetched separately so we don't have to filter
+	// Twitch's mixed list client-side.
+	onlineSubs, _, err := s.twitch.GetEventSubSubscriptionsAll(ctx, &twitch.GetEventSubSubscriptionsParams{Type: "stream.online"})
+	if err != nil {
+		return fmt.Errorf("eventsub reconcile: list stream.online: %w", err)
+	}
+	offlineSubs, _, err := s.twitch.GetEventSubSubscriptionsAll(ctx, &twitch.GetEventSubSubscriptionsParams{Type: "stream.offline"})
+	if err != nil {
+		return fmt.Errorf("eventsub reconcile: list stream.offline: %w", err)
+	}
+
+	// First pass: delete zombies. After this, any sub still on
+	// Twitch's side for one of our broadcasters is alive; missing
+	// means we need to create.
+	zombiesSwept := s.sweepZombies(ctx, onlineSubs) + s.sweepZombies(ctx, offlineSubs)
+
+	// Re-index using only ALIVE subs. sweepZombies mutated nothing
+	// on `onlineSubs` directly, so we filter here.
+	haveOnline := subSetByBroadcasterAlive(onlineSubs)
+	haveOffline := subSetByBroadcasterAlive(offlineSubs)
+
+	var created, deleted int
+
+	// Parallelize creates: N channels × 2 sub types = 2N sequential
+	// POSTs would block boot for 10+ seconds on 50-channel setups.
+	// Cap concurrency at 10 so a large channel list can't swamp the
+	// Twitch rate limit (800 req/min = ~13 concurrent is safe; 10
+	// leaves headroom for other callers).
+	const createConcurrency = 10
+	type createReq struct{ bid, typ string }
+	reqs := make([]createReq, 0, len(channelIDs)*2)
+	for bid := range channelIDs {
+		if _, ok := haveOnline[bid]; !ok {
+			reqs = append(reqs, createReq{bid, "stream.online"})
+		}
+		if _, ok := haveOffline[bid]; !ok {
+			reqs = append(reqs, createReq{bid, "stream.offline"})
+		}
+	}
+	if len(reqs) > 0 {
+		// Circuit breaker: after N consecutive non-transient failures
+		// we stop the reconcile. The typical failure modes we want to
+		// bail on:
+		//   - Helix 400 bad callback URL (config issue; retrying never
+		//     helps — covered by the pre-check but belt-and-suspenders
+		//     catches a runtime scheme change)
+		//   - Helix 401/403 app-token rejection (token expired or
+		//     revoked; burning through N channels won't auth it)
+		//   - Helix 409 unexpected (our dedup missed something; safer
+		//     to stop and let the operator investigate)
+		// Transient 5xx / timeouts DO retry via the normal Helix
+		// backoff in twitch.Client; we just cancel the outer context
+		// to propagate stop to any in-flight goroutines.
+		const breakerThreshold = 3
+		breakerCtx, breakerCancel := context.WithCancel(ctx)
+		defer breakerCancel()
+
+		sem := make(chan struct{}, createConcurrency)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var consecutiveFailures int
+		var breakerTripped bool
+
+		for _, r := range reqs {
+			if breakerCtx.Err() != nil {
+				break
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(req createReq) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				var err error
+				switch req.typ {
+				case "stream.online":
+					_, err = s.SubscribeStreamOnline(breakerCtx, req.bid)
+				case "stream.offline":
+					_, err = s.SubscribeStreamOffline(breakerCtx, req.bid)
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					s.log.Warn("reconcile: subscribe failed",
+						"type", req.typ, "broadcaster_id", req.bid, "error", err)
+					consecutiveFailures++
+					if consecutiveFailures >= breakerThreshold && !breakerTripped {
+						breakerTripped = true
+						s.log.Error("reconcile: circuit breaker tripped; aborting remaining subscribes",
+							"threshold", breakerThreshold,
+							"remaining", len(reqs)-created-consecutiveFailures)
+						breakerCancel()
+					}
+					return
+				}
+				created++
+				consecutiveFailures = 0
+			}(r)
+		}
+		wg.Wait()
+		if breakerTripped {
+			return fmt.Errorf("eventsub reconcile: %d consecutive subscribe failures, aborted", breakerThreshold)
+		}
+	}
+
+	// Delete orphans. A broadcaster we had a sub for but is no
+	// longer in the channel set — row removed from the channels
+	// table. Sequential because deletes are cheap and shouldn't
+	// contend with creates on rate limit.
+	for bid, sub := range haveOnline {
+		if channelIDs[bid] {
+			continue
+		}
+		if err := s.Unsubscribe(ctx, sub.ID, "reconcile: broadcaster no longer in channels table"); err != nil {
+			s.log.Warn("reconcile: delete orphan stream.online failed",
+				"sub_id", sub.ID, "broadcaster_id", bid, "error", err)
+			continue
+		}
+		deleted++
+	}
+	for bid, sub := range haveOffline {
+		if channelIDs[bid] {
+			continue
+		}
+		if err := s.Unsubscribe(ctx, sub.ID, "reconcile: broadcaster no longer in channels table"); err != nil {
+			s.log.Warn("reconcile: delete orphan stream.offline failed",
+				"sub_id", sub.ID, "broadcaster_id", bid, "error", err)
+			continue
+		}
+		deleted++
+	}
+
+	if created > 0 || deleted > 0 || zombiesSwept > 0 {
+		s.log.Info("reconciled channel subs",
+			"created", created, "deleted", deleted, "zombies_swept", zombiesSwept,
+			"channels", len(channelIDs))
+	}
+	return nil
+}
+
+// sweepZombies deletes any sub in a dead status from both Twitch and
+// the local mirror so the next create path produces a working
+// replacement. Returns the count deleted for observability.
+func (s *Service) sweepZombies(ctx context.Context, subs []twitch.EventSubSubscription) int {
+	var swept int
+	for _, sub := range subs {
+		if isSubAlive(sub.Status) {
+			continue
+		}
+		if err := s.Unsubscribe(ctx, sub.ID, "reconcile: zombie sub: status="+sub.Status); err != nil {
+			s.log.Warn("reconcile: delete zombie sub failed",
+				"sub_id", sub.ID, "status", sub.Status, "error", err)
+			continue
+		}
+		swept++
+	}
+	return swept
+}
+
+// subSetByBroadcasterAlive indexes a subscription list by broadcaster
+// ID, keeping only entries in a live status. Zombies (verification
+// failed, notification failures exceeded, etc.) are excluded so the
+// reconcile caller treats them as absent and creates replacements.
+// The separate sweepZombies pass handles the Twitch-side delete.
+func subSetByBroadcasterAlive(subs []twitch.EventSubSubscription) map[string]twitch.EventSubSubscription {
+	out := make(map[string]twitch.EventSubSubscription, len(subs))
+	for _, sub := range subs {
+		if !isSubAlive(sub.Status) {
+			continue
+		}
+		bid := broadcasterIDFromSub(&sub)
+		if bid == "" {
+			continue
+		}
+		out[bid] = sub
+	}
+	return out
+}
+
+// UnsubscribeChannelUpdate revokes the channel.update sub for a
+// broadcaster. Called when a recording ends. No-op when no active
+// channel.update sub exists for the broadcaster (e.g. subscription
+// failed at record start, or already cleaned up by boot reconcile).
+func (s *Service) UnsubscribeChannelUpdate(ctx context.Context, broadcasterID, reason string) error {
+	sub, err := s.repo.GetActiveSubscriptionForBroadcasterType(ctx, broadcasterID, "channel.update")
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("eventsub: lookup channel.update sub: %w", err)
+	}
+	return s.Unsubscribe(ctx, sub.ID, reason)
+}
+
+// ReconcileChannelUpdateSubs sweeps Twitch-side channel.update subs and
+// deletes any that don't match the provided set of broadcasters with
+// active recordings. Called at boot to clean up orphans left by a
+// previous crash before the unsubscribe call landed.
+//
+// The sweep only touches channel.update subs — stream.online /
+// stream.offline subs are managed elsewhere (schedule / EventSub
+// service's own lifecycle) and would be catastrophic to revoke here.
+func (s *Service) ReconcileChannelUpdateSubs(ctx context.Context, activeBroadcasterIDs map[string]bool) error {
+	if !isCallbackURLUsable(s.callbackURL) {
+		// No point listing + diffing if we can't re-create. The
+		// service returns nil cleanly so main.go's boot reconcile
+		// doesn't log as a failure.
+		s.log.Info("skip channel.update reconcile: callback URL is not a usable HTTPS endpoint",
+			"callback", s.callbackURL)
+		return nil
+	}
+	all, _, err := s.twitch.GetEventSubSubscriptionsAll(ctx, &twitch.GetEventSubSubscriptionsParams{Type: "channel.update"})
+	if err != nil {
+		return fmt.Errorf("eventsub reconcile: list twitch subs: %w", err)
+	}
+	var swept int
+	for _, sub := range all {
+		bid := broadcasterIDFromSub(&sub)
+		if bid == "" {
+			continue
+		}
+		if activeBroadcasterIDs[bid] {
+			continue
+		}
+		// Orphan: no active recording for this broadcaster.
+		if err := s.Unsubscribe(ctx, sub.ID, "boot reconcile: no active recording"); err != nil {
+			s.log.Warn("reconcile: failed to delete orphan channel.update sub",
+				"sub_id", sub.ID, "broadcaster_id", bid, "error", err)
+			continue
+		}
+		swept++
+	}
+	if swept > 0 {
+		s.log.Info("reconciled orphan channel.update subscriptions", "deleted", swept)
+	}
+	return nil
+}
+
+// isCallbackURLUsable verifies the callback URL will be accepted by
+// Twitch's webhook transport. Twitch requires:
+//   - scheme = https
+//   - non-empty host
+//   - standard port (no ":8080" or similar)
+// Without this check, every subscribe call fails with a Helix 400 —
+// on reconcile that means one 400 per channel, which we've seen spam
+// the log in practice. A scheme check catches the most common
+// homelab misconfig (running webhook mode on localhost:8080) before
+// the Helix call happens.
+func isCallbackURLUsable(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "https" {
+		return false
+	}
+	if u.Host == "" {
+		return false
+	}
+	// Twitch insists on a standard HTTPS port. An explicit :443
+	// passes; any other port = Helix 400.
+	if u.Port() != "" && u.Port() != "443" {
+		return false
+	}
+	return true
+}
+
 // subscribe is the shared create path. It checks the local mirror first;
 // if an active row exists it's returned as-is. Otherwise we create on
 // Twitch, then mirror. If Twitch succeeds but the mirror insert fails,
 // the next Snapshot() will self-heal by discovering the orphan.
 func (s *Service) subscribe(ctx context.Context, subType, version string, cond twitch.EventSubCondition, broadcasterID string) (*repository.Subscription, error) {
+	if !isCallbackURLUsable(s.callbackURL) {
+		return nil, ErrCallbackURLNotUsable
+	}
 	existing, err := s.repo.GetActiveSubscriptionForBroadcasterType(ctx, broadcasterID, subType)
 	if err == nil {
 		return existing, nil

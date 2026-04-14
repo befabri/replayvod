@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
@@ -22,9 +22,9 @@ import (
 func TestProcess_StreamOffline_EndsLastActiveStream(t *testing.T) {
 	ctx := context.Background()
 	db := testdb.NewSQLiteDB(t)
-	repo := sqliteadapter.New(sqlitegen.New(db))
+	repo := sqliteadapter.New(db)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	p := NewEventProcessor(repo, nil, nil, nil, log)
+	p := NewEventProcessor(repo, nil, nil, nil, nil, log)
 
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
 		BroadcasterID: "b-off", BroadcasterLogin: "b", BroadcasterName: "b",
@@ -129,5 +129,112 @@ func TestHighestQuality_PicksHighRankAndBreaksTiesByID(t *testing.T) {
 				t.Errorf("got ID=%d, want %d (quality=%q)", got.ID, tc.wantID, got.Quality)
 			}
 		})
+	}
+}
+
+// TestProcess_StreamStatus_PublishedOnOfflineTransition pins the
+// delta-feed contract: every stream.offline webhook fires a
+// StreamStatusEvent so SSE subscribers can drop the broadcaster from
+// their live-set. Covers the active-stream path (ended_at stamped +
+// event published) in one flow.
+func TestProcess_StreamStatus_PublishedOnOfflineTransition(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.NewSQLiteDB(t)
+	repo := sqliteadapter.New(db)
+	bus := eventbus.New()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	p := NewEventProcessor(repo, nil, nil, nil, bus, log)
+
+	// Subscribe before the event fires so we don't miss it.
+	sub := bus.StreamStatus.Subscribe(ctx)
+
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-status", BroadcasterLogin: "bs", BroadcasterName: "BS",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	if _, err := repo.UpsertStream(ctx, &repository.StreamInput{
+		ID: "s-status", BroadcasterID: "b-status", Type: "live", Language: "en",
+		ViewerCount: 5, StartedAt: time.Now().UTC().Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("seed stream: %v", err)
+	}
+
+	n := &twitch.EventSubNotification{
+		MessageType: twitch.MsgTypeNotification,
+		Event: twitch.StreamOfflineEvent{
+			BroadcasterUserID:    "b-status",
+			BroadcasterUserLogin: "bs",
+			BroadcasterUserName:  "BS",
+		},
+	}
+	if err := p.Process(ctx, n); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Kind != eventbus.StreamStatusOffline {
+			t.Errorf("kind: got %q want %q", ev.Kind, eventbus.StreamStatusOffline)
+		}
+		if ev.BroadcasterID != "b-status" {
+			t.Errorf("broadcaster_id: got %q", ev.BroadcasterID)
+		}
+		if ev.StreamID != "s-status" {
+			t.Errorf("stream_id: got %q want s-status", ev.StreamID)
+		}
+		if ev.At.IsZero() {
+			t.Error("At timestamp should be populated")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected StreamStatus event on bus; got none")
+	}
+}
+
+// TestProcess_StreamStatus_PublishedOnOnlineTransition ensures the
+// online delta fires even when no schedule matches — the channels-list
+// live-indicator must reflect every online event, not only the ones
+// that triggered a download.
+func TestProcess_StreamStatus_PublishedOnOnlineTransition(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.NewSQLiteDB(t)
+	repo := sqliteadapter.New(db)
+	bus := eventbus.New()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// No twitch client, no downloader — we only care about the bus
+	// publication, which happens before any schedule match or hydrate.
+	p := NewEventProcessor(repo, nil, nil, nil, bus, log)
+
+	sub := bus.StreamStatus.Subscribe(ctx)
+
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-on", BroadcasterLogin: "bo", BroadcasterName: "BO",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	n := &twitch.EventSubNotification{
+		MessageType: twitch.MsgTypeNotification,
+		Event: twitch.StreamOnlineEvent{
+			ID:                   "evt-1",
+			BroadcasterUserID:    "b-on",
+			BroadcasterUserLogin: "bo",
+			BroadcasterUserName:  "BO",
+		},
+	}
+	if err := p.Process(ctx, n); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Kind != eventbus.StreamStatusOnline {
+			t.Errorf("kind: got %q want %q", ev.Kind, eventbus.StreamStatusOnline)
+		}
+		if ev.BroadcasterID != "b-on" {
+			t.Errorf("broadcaster_id: got %q", ev.BroadcasterID)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected StreamStatus online event on bus")
 	}
 }

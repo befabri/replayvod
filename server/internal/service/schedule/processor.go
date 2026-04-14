@@ -10,6 +10,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
@@ -23,15 +24,10 @@ type EventProcessor struct {
 	repo       repository.Repository
 	dl         *downloader.Service
 	twitch     *twitch.Client
+	hydrator   *streammeta.Hydrator
 	bus        *eventbus.Buses
 	log        *slog.Logger
 	defaultLng string
-	// fetchRetries / fetchRetryDelay configure the GetStreams retry
-	// loop for stream enrichment. stream.online fires before Helix
-	// necessarily reflects the live state, so per the spec we retry a
-	// few times before giving up and processing without signals.
-	fetchRetries    int
-	fetchRetryDelay time.Duration
 }
 
 // NewEventProcessor builds the webhook dispatcher. twitchClient is
@@ -41,16 +37,15 @@ type EventProcessor struct {
 // only — filtered schedules then never match, see matcher invariant).
 // bus is optional: when set, stream.live fires on every stream.online
 // dispatch so SSE subscribers see channels going live in real time.
-func NewEventProcessor(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, bus *eventbus.Buses, log *slog.Logger) *EventProcessor {
+func NewEventProcessor(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, bus *eventbus.Buses, log *slog.Logger) *EventProcessor {
 	return &EventProcessor{
-		repo:            repo,
-		dl:              dl,
-		twitch:          tc,
-		bus:             bus,
-		log:             log.With("domain", "schedule"),
-		defaultLng:      "en",
-		fetchRetries:    3,
-		fetchRetryDelay: time.Second,
+		repo:       repo,
+		dl:         dl,
+		twitch:     tc,
+		hydrator:   hydrator,
+		bus:        bus,
+		log:        log.With("domain", "schedule"),
+		defaultLng: "en",
 	}
 }
 
@@ -72,15 +67,48 @@ func (p *EventProcessor) Process(ctx context.Context, n *twitch.EventSubNotifica
 			return nil
 		}
 		return p.dispatchStreamOffline(ctx, ev)
+	case twitch.ChannelUpdateEvent:
+		// Skip only when nothing useful is attached. Gating on
+		// `ev.Title == ""` alone would drop category-only changes
+		// (streamer flips game but keeps the title) — and those
+		// are the exact events /dashboard/categories/$id depends
+		// on to list every category the recording passed through.
+		if ev.BroadcasterUserID == "" || (ev.Title == "" && ev.CategoryID == "") {
+			return nil
+		}
+		return p.dispatchChannelUpdate(ctx, ev)
 	default:
 		return nil
 	}
 }
 
+// dispatchChannelUpdate writes mid-stream title AND category changes
+// into video_titles + video_categories via the hydrator. Only runs
+// for broadcasters the downloader subscribed to on record start
+// (webhook mode); for any other broadcaster the lookup returns no
+// active recording and the call is a no-op. WithoutCancel so a
+// handler-timeout mid-write doesn't strand a partial link.
+func (p *EventProcessor) dispatchChannelUpdate(ctx context.Context, ev twitch.ChannelUpdateEvent) error {
+	if p.hydrator == nil {
+		return nil
+	}
+	persistCtx := context.WithoutCancel(ctx)
+	if err := p.hydrator.RecordChannelUpdate(persistCtx, ev.BroadcasterUserID, streammeta.ChannelUpdateMeta{
+		Title:        ev.Title,
+		CategoryID:   ev.CategoryID,
+		CategoryName: ev.CategoryName,
+	}); err != nil {
+		return fmt.Errorf("record channel.update: %w", err)
+	}
+	return nil
+}
+
 // dispatchStreamOffline stamps ended_at on the most recent active
 // stream for the broadcaster. The live downloader (if running) keeps
 // its own end-detection, so this doesn't cancel in-flight downloads —
-// it just closes the stream row for reporting.
+// it just closes the stream row for reporting. Also publishes a
+// StreamStatusEvent so SSE subscribers watching the delta feed can
+// drop this broadcaster from their live-set without polling.
 func (p *EventProcessor) dispatchStreamOffline(ctx context.Context, event twitch.StreamOfflineEvent) error {
 	// WithoutCancel so webhook timeouts don't leave ended_at unset.
 	persistCtx := context.WithoutCancel(ctx)
@@ -90,6 +118,11 @@ func (p *EventProcessor) dispatchStreamOffline(ctx context.Context, event twitch
 		if errors.Is(err, repository.ErrNotFound) {
 			p.log.Info("stream.offline with no active stream row; ignoring",
 				"broadcaster_id", event.BroadcasterUserID)
+			// Still fire the SSE delta — frontend may have learned of
+			// this channel being live via Helix poll (stream.liveIds)
+			// and needs to drop it from the Set even if we never saw
+			// the online event.
+			p.publishStatus(eventbus.StreamStatusOffline, event.BroadcasterUserID, event.BroadcasterUserLogin, event.BroadcasterUserName, "")
 			return nil
 		}
 		return fmt.Errorf("get last live stream: %w", err)
@@ -105,10 +138,34 @@ func (p *EventProcessor) dispatchStreamOffline(ctx context.Context, event twitch
 	p.log.Info("stream ended",
 		"stream_id", stream.ID,
 		"broadcaster_id", event.BroadcasterUserID)
+	p.publishStatus(eventbus.StreamStatusOffline, event.BroadcasterUserID, event.BroadcasterUserLogin, event.BroadcasterUserName, stream.ID)
 	return nil
 }
 
+// publishStatus fans a stream.online/offline transition out to the
+// SSE delta topic. Non-blocking (the bus drops when subscribers fall
+// behind); safe to call with bus == nil (tests, degraded mode).
+func (p *EventProcessor) publishStatus(kind eventbus.StreamStatusKind, broadcasterID, login, displayName, streamID string) {
+	if p.bus == nil {
+		return
+	}
+	p.bus.StreamStatus.Publish(eventbus.StreamStatusEvent{
+		Kind:             kind,
+		BroadcasterID:    broadcasterID,
+		BroadcasterLogin: login,
+		DisplayName:      displayName,
+		StreamID:         streamID,
+		At:               time.Now().UTC(),
+	})
+}
+
 func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.StreamOnlineEvent) error {
+	// Fan out the raw online signal first — StreamStatus is the delta
+	// feed for the dashboard live-indicator, independent of whether we
+	// end up triggering a schedule. Subscribers need to add this
+	// broadcaster to their live Set regardless.
+	p.publishStatus(eventbus.StreamStatusOnline, event.BroadcasterUserID, event.BroadcasterUserLogin, event.BroadcasterUserName, event.ID)
+
 	schedules, err := p.repo.ListActiveSchedulesForBroadcaster(ctx, event.BroadcasterUserID)
 	if err != nil {
 		return fmt.Errorf("list schedules for broadcaster: %w", err)
@@ -135,16 +192,13 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		login = channel.BroadcasterLogin
 	}
 
-	// Enrich from Helix per spec: retry GetStreams a few times because
-	// stream.online races ahead of the live listing by a few hundred ms.
-	// On failure we proceed with empty signals — filtered schedules won't
-	// match (that's the invariant), but unfiltered ones still fire.
-	signals, language := p.enrichStreamSignals(ctx, event)
-	if language != "" {
-		// Override the Video row's language hint when we actually have one.
-		// The struct assignment below picks this up in Start params.
-		_ = language
-	}
+	// Enrich from Helix per spec: streammeta.Hydrate retries GetStreams
+	// a few times because stream.online races ahead of the live listing
+	// by a few hundred ms. On failure we proceed with empty signals —
+	// filtered schedules won't match (that's the invariant), but
+	// unfiltered ones still fire. Persist uses context.WithoutCancel so
+	// a client drop mid-handler doesn't strand a partial write.
+	signals, language, streamTitle, categoryID, categoryName := p.hydrate(ctx, event.BroadcasterUserID)
 
 	// First pass: collect matching schedules. We need them all to pick
 	// the highest-quality one per spec (eventsub.md § stream.online). The
@@ -183,6 +237,9 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		BroadcasterID:    event.BroadcasterUserID,
 		BroadcasterLogin: login,
 		DisplayName:      displayName,
+		Title:            streamTitle,
+		CategoryID:       categoryID,
+		CategoryName:     categoryName,
 		Quality:          winner.Quality,
 		Language:         dlLanguage,
 		ViewerCount:      signals.ViewerCount,
@@ -251,127 +308,29 @@ func highestQuality(matches []*repository.DownloadSchedule) *repository.Download
 	return winner
 }
 
-// enrichStreamSignals fetches the live stream from Helix (with retry),
-// persists the stream row + category/tag links, and returns the
-// StreamSignals for the matcher plus the stream language (used as the
-// Video row's Language hint). On any failure we return empty signals
-// and defaultLng — filtered schedules won't match, which is the
-// documented degradation per spec § stream.online.
-func (p *EventProcessor) enrichStreamSignals(ctx context.Context, event twitch.StreamOnlineEvent) (StreamSignals, string) {
-	if p.twitch == nil {
-		return StreamSignals{}, ""
+// hydrate delegates to streammeta.Hydrator and pulls the pieces the
+// schedule path cares about out of the resulting Snapshot. Returns
+// (signals, language, title, categoryID, categoryName). The
+// category fields are threaded through downloader.Params so the
+// post-CreateVideo LinkInitialVideoMetadata call has everything it
+// needs for the opening video_categories link.
+func (p *EventProcessor) hydrate(ctx context.Context, broadcasterID string) (StreamSignals, string, string, string, string) {
+	if p.hydrator == nil {
+		return StreamSignals{}, "", "", "", ""
 	}
-	stream, err := p.fetchStreamWithRetry(ctx, event.BroadcasterUserID)
-	if err != nil {
-		p.log.Warn("stream enrichment failed; processing with empty signals",
-			"broadcaster_id", event.BroadcasterUserID, "error", err)
-		return StreamSignals{}, ""
-	}
-
-	// Persist the stream row. ctx.WithoutCancel so a client drop
-	// mid-handler doesn't strand a partial write.
+	// WithoutCancel so a client drop mid-handler doesn't strand a
+	// partial write. The hydrator's internal retries + upserts all
+	// run under this context.
 	persistCtx := context.WithoutCancel(ctx)
-	isMature := stream.IsMature
-	viewerCount := int64(stream.ViewerCount)
-	thumb := stream.ThumbnailURL
-	streamPtr, err := p.repo.UpsertStream(persistCtx, &repository.StreamInput{
-		ID:            stream.ID,
-		BroadcasterID: event.BroadcasterUserID,
-		Type:          stream.Type,
-		Language:      stream.Language,
-		ThumbnailURL:  stringOrNil(thumb),
-		ViewerCount:   viewerCount,
-		IsMature:      &isMature,
-		StartedAt:     stream.StartedAt,
-	})
-	if err != nil {
-		p.log.Warn("upsert stream row", "stream_id", stream.ID, "error", err)
+	snap := p.hydrator.Hydrate(persistCtx, broadcasterID)
+	if snap == nil {
+		return StreamSignals{}, "", "", "", ""
 	}
-
-	// Link category (upsert first so the category row exists).
-	var catIDs []string
-	if stream.GameID != "" {
-		if _, err := p.repo.UpsertCategory(persistCtx, &repository.Category{
-			ID:   stream.GameID,
-			Name: stream.GameName,
-		}); err != nil {
-			p.log.Warn("upsert stream category", "game_id", stream.GameID, "error", err)
-		} else if streamPtr != nil {
-			if err := p.repo.LinkStreamCategory(persistCtx, streamPtr.ID, stream.GameID); err != nil {
-				p.log.Warn("link stream category", "stream_id", streamPtr.ID, "error", err)
-			}
-			catIDs = append(catIDs, stream.GameID)
-		}
-	}
-
-	// Link tags. Helix returns tag TEXT, not IDs — upsert each name and
-	// collect the resulting int64 IDs so the matcher can compare against
-	// download_schedule_tags rows (which are FK to tags.id).
-	var tagIDs []int64
-	for _, name := range stream.Tags {
-		if name == "" {
-			continue
-		}
-		tag, err := p.repo.UpsertTag(persistCtx, name)
-		if err != nil {
-			p.log.Warn("upsert tag", "name", name, "error", err)
-			continue
-		}
-		tagIDs = append(tagIDs, tag.ID)
-		if streamPtr != nil {
-			if err := p.repo.LinkStreamTag(persistCtx, streamPtr.ID, tag.ID); err != nil {
-				p.log.Warn("link stream tag", "tag_id", tag.ID, "error", err)
-			}
-		}
-	}
-
 	return StreamSignals{
-		ViewerCount: viewerCount,
-		CategoryIDs: catIDs,
-		TagIDs:      tagIDs,
-	}, stream.Language
-}
-
-// fetchStreamWithRetry wraps GetStreams with the spec-mandated retry
-// loop. Returns ErrNotFound-shaped error if the stream still isn't
-// visible after fetchRetries attempts — caller degrades to empty
-// signals.
-func (p *EventProcessor) fetchStreamWithRetry(ctx context.Context, broadcasterID string) (*twitch.Stream, error) {
-	var lastErr error
-	for attempt := 0; attempt < p.fetchRetries; attempt++ {
-		if attempt > 0 {
-			timer := time.NewTimer(p.fetchRetryDelay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return nil, ctx.Err()
-			case <-timer.C:
-			}
-		}
-		streams, _, err := p.twitch.GetStreams(ctx, &twitch.GetStreamsParams{
-			UserID: []string{broadcasterID},
-		})
-		if err != nil {
-			// Rate-limit error or network issue — retry.
-			lastErr = err
-			continue
-		}
-		if len(streams) > 0 {
-			return &streams[0], nil
-		}
-		lastErr = errors.New("twitch returned no streams for broadcaster")
-	}
-	if lastErr == nil {
-		lastErr = errors.New("stream enrichment retries exhausted")
-	}
-	return nil, lastErr
-}
-
-func stringOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
+		ViewerCount: snap.ViewerCount,
+		CategoryIDs: snap.CategoryIDs,
+		TagIDs:      snap.TagIDs,
+	}, snap.Language, snap.Title, snap.GameID, snap.GameName
 }
 
 func (p *EventProcessor) loadFilters(ctx context.Context, schedule *repository.DownloadSchedule) (Filters, error) {

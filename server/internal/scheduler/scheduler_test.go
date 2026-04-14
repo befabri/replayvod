@@ -11,14 +11,13 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
 func newTestScheduler(t *testing.T) (*Service, repository.Repository) {
 	t.Helper()
 	db := testdb.NewSQLiteDB(t)
-	repo := sqliteadapter.New(sqlitegen.New(db))
+	repo := sqliteadapter.New(db)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s := NewService(repo, log, 20*time.Millisecond, nil)
 	t.Cleanup(s.Stop)
