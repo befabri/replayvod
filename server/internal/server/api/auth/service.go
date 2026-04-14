@@ -196,3 +196,68 @@ func stringOrNil(s string) *string {
 	}
 	return &s
 }
+
+// SyncUserFollows mirrors the user's Twitch follows into the local
+// channels + user_followed_channels tables. Uses the user's access
+// token to call GET /channels/followed (paginated), then enriches each
+// broadcaster via GET /users (batched at 100/call) so the channels row
+// carries profile image, description, etc. — not just id/login/name.
+//
+// Intended as a best-effort background sync triggered from the OAuth
+// callback: v1 did this inline on every login. Safe to call repeatedly
+// (upserts keep the mirror fresh on each subsequent login).
+func (s *Service) SyncUserFollows(ctx context.Context, userID, accessToken string) error {
+	authCtx := twitch.WithUserToken(ctx, accessToken)
+
+	follows, _, err := s.twitch.GetFollowedChannelsAll(authCtx, &twitch.GetFollowedChannelsParams{UserID: userID})
+	if err != nil {
+		return fmt.Errorf("fetch followed channels: %w", err)
+	}
+	if len(follows) == 0 {
+		return nil
+	}
+
+	ids := make([]string, len(follows))
+	for i, f := range follows {
+		ids[i] = f.BroadcasterID
+	}
+	users := make(map[string]twitch.User, len(follows))
+	for start := 0; start < len(ids); start += 100 {
+		end := min(start+100, len(ids))
+		batch, err := s.twitch.GetUsers(authCtx, &twitch.GetUsersParams{ID: ids[start:end]})
+		if err != nil {
+			return fmt.Errorf("enrich users: %w", err)
+		}
+		for _, u := range batch {
+			users[u.ID] = u
+		}
+	}
+
+	for _, f := range follows {
+		ch := &repository.Channel{
+			BroadcasterID:    f.BroadcasterID,
+			BroadcasterLogin: f.BroadcasterLogin,
+			BroadcasterName:  f.BroadcasterName,
+		}
+		if u, ok := users[f.BroadcasterID]; ok {
+			ch.ProfileImageURL = stringOrNil(u.ProfileImageURL)
+			ch.OfflineImageURL = stringOrNil(u.OfflineImageURL)
+			ch.Description = stringOrNil(u.Description)
+			ch.BroadcasterType = stringOrNil(u.BroadcasterType)
+		}
+		if _, err := s.repo.UpsertChannel(ctx, ch); err != nil {
+			return fmt.Errorf("upsert channel %s: %w", f.BroadcasterID, err)
+		}
+		if err := s.repo.UpsertUserFollow(ctx, &repository.UserFollow{
+			UserID:        userID,
+			BroadcasterID: f.BroadcasterID,
+			FollowedAt:    f.FollowedAt,
+			Followed:      true,
+		}); err != nil {
+			return fmt.Errorf("upsert user follow %s: %w", f.BroadcasterID, err)
+		}
+	}
+
+	s.log.Info("synced user follows", "user_id", userID, "count", len(follows))
+	return nil
+}

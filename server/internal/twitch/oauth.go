@@ -16,6 +16,7 @@ const (
 // DefaultScopes are the Twitch OAuth scopes ReplayVOD needs.
 var DefaultScopes = []string{
 	"user:read:email",
+	"user:read:follows",
 }
 
 // GenerateState generates a random state string for CSRF protection.

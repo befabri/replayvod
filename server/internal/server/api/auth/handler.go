@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -149,5 +151,21 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Mirror the user's Twitch follows into the local channels +
+	// user_followed_channels tables so the dashboard has something to
+	// show on first login. Runs in the background with a detached
+	// context — the redirect happens immediately, sync errors are
+	// logged but never block login.
+	userID := result.User.ID
+	accessToken := result.Tokens.AccessToken
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := h.svc.SyncUserFollows(ctx, userID, accessToken); err != nil {
+			h.log.Warn("sync user follows failed", "user_id", userID, "error", err)
+		}
+	}()
+
 	http.Redirect(w, r, h.cfg.Env.FrontendURL+"/dashboard", http.StatusTemporaryRedirect)
 }
