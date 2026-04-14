@@ -1,13 +1,13 @@
-import type { ReactNode } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createTRPCClient,
 	httpBatchLink,
 	httpSubscriptionLink,
 	splitLink,
-} from "@trpc/client"
-import { TRPCProvider, type AppRouter } from "@/api/trpc"
-import { API_URL } from "@/env"
+} from "@trpc/client";
+import type { ReactNode } from "react";
+import { type AppRouter, TRPCProvider } from "@/api/trpc";
+import { API_URL } from "@/env";
 
 // splitLink routes subscription ops (task.status, stream.live,
 // system.events, video.downloadProgress) through httpSubscriptionLink
@@ -28,12 +28,12 @@ export const trpcClient = createTRPCClient<AppRouter>({
 			false: httpBatchLink({
 				url: `${API_URL}/trpc`,
 				fetch(url, options) {
-					return fetch(url, { ...options, credentials: "include" })
+					return fetch(url, { ...options, credentials: "include" });
 				},
 			}),
 		}),
 	],
-})
+});
 
 export function getContext() {
 	const queryClient = new QueryClient({
@@ -43,19 +43,19 @@ export function getContext() {
 				staleTime: 1000 * 30,
 			},
 		},
-	})
+	});
 
-	return { queryClient }
+	return { queryClient };
 }
 
 export default function TanstackQueryProvider({
 	children,
 	context,
 }: {
-	children: ReactNode
-	context: ReturnType<typeof getContext>
+	children: ReactNode;
+	context: ReturnType<typeof getContext>;
 }) {
-	const { queryClient } = context
+	const { queryClient } = context;
 
 	return (
 		<QueryClientProvider client={queryClient}>
@@ -63,5 +63,5 @@ export default function TanstackQueryProvider({
 				{children}
 			</TRPCProvider>
 		</QueryClientProvider>
-	)
+	);
 }
