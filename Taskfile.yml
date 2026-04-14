@@ -12,6 +12,8 @@
 
 version: "3"
 
+output: prefixed
+
 tasks:
   default:
     desc: List available tasks
@@ -57,6 +59,7 @@ tasks:
   server:dev:
     dir: server
     desc: Run the Go server with live-reload via `go run`
+    prefix: server
     cmds:
       - go run ./cmd/server
 
@@ -86,6 +89,7 @@ tasks:
   dashboard:dev:
     dir: dashboard
     desc: Vite dev server on :3000 with backend proxy
+    prefix: dashboard
     cmds:
       - npm run dev
 
