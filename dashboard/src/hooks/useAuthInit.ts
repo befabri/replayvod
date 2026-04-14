@@ -1,6 +1,6 @@
-import { useEffect } from "react"
-import { trpcClient } from "@/integrations/tanstack-query/root-provider"
-import { clearUser, type Role, setUser } from "@/stores/auth"
+import { useEffect } from "react";
+import { trpcClient } from "@/integrations/tanstack-query/root-provider";
+import { clearUser, type Role, setUser } from "@/stores/auth";
 
 // useAuthInit hydrates the auth store from the server session cookie on
 // app start. Called once in __root.tsx.
@@ -11,12 +11,12 @@ import { clearUser, type Role, setUser } from "@/stores/auth"
 // simpler shape.
 export function useAuthInit() {
 	useEffect(() => {
-		const controller = new AbortController()
-		;(async () => {
+		const controller = new AbortController();
+		(async () => {
 			try {
 				const data = await trpcClient.auth.session.query(undefined, {
 					signal: controller.signal,
-				})
+				});
 				setUser({
 					id: data.user_id,
 					login: data.login,
@@ -24,13 +24,13 @@ export function useAuthInit() {
 					email: data.email ?? undefined,
 					profileImageUrl: data.profile_image_url ?? undefined,
 					role: data.role as Role,
-				})
+				});
 			} catch (err) {
 				if ((err as Error).name !== "AbortError") {
-					clearUser()
+					clearUser();
 				}
 			}
-		})()
-		return () => controller.abort()
-	}, [])
+		})();
+		return () => controller.abort();
+	}, []);
 }
