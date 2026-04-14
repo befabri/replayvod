@@ -1,11 +1,11 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import type { VideoResponse } from "@/features/videos"
-import { useCancelDownload } from "@/features/videos/queries"
-import { formatBytes, formatDuration } from "@/features/videos/format"
-import { VideoStatusBadge } from "./VideoStatusBadge"
+import type { ColumnDef } from "@tanstack/react-table";
+import type { VideoResponse } from "@/features/videos";
+import { formatBytes, formatDuration } from "@/features/videos/format";
+import { useCancelDownload } from "@/features/videos/queries";
+import { VideoStatusBadge } from "./VideoStatusBadge";
 
 function CancelButton({ jobId }: { jobId: string }) {
-	const cancel = useCancelDownload()
+	const cancel = useCancelDownload();
 	return (
 		<button
 			type="button"
@@ -15,7 +15,7 @@ function CancelButton({ jobId }: { jobId: string }) {
 		>
 			Cancel
 		</button>
-	)
+	);
 }
 
 export const queueColumns: ColumnDef<VideoResponse>[] = [
@@ -60,7 +60,7 @@ export const queueColumns: ColumnDef<VideoResponse>[] = [
 			</div>
 		),
 	},
-]
+];
 
 export const historyColumns: ColumnDef<VideoResponse>[] = [
 	{
@@ -114,4 +114,4 @@ export const historyColumns: ColumnDef<VideoResponse>[] = [
 			</span>
 		),
 	},
-]
+];

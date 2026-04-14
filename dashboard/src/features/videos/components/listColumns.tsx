@@ -1,9 +1,9 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import { Link } from "@tanstack/react-router"
-import type { TFunction } from "i18next"
-import type { VideoResponse } from "@/features/videos"
-import { formatBytes, formatDuration } from "@/features/videos/format"
-import { VideoStatusBadge } from "./VideoStatusBadge"
+import { Link } from "@tanstack/react-router";
+import type { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
+import type { VideoResponse } from "@/features/videos";
+import { formatBytes, formatDuration } from "@/features/videos/format";
+import { VideoStatusBadge } from "./VideoStatusBadge";
 
 export function videoListColumns(t: TFunction): ColumnDef<VideoResponse>[] {
 	return [
@@ -72,5 +72,5 @@ export function videoListColumns(t: TFunction): ColumnDef<VideoResponse>[] {
 					</Link>
 				) : null,
 		},
-	]
+	];
 }
