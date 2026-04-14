@@ -4,7 +4,7 @@ development = true
 allowed_origins = ["http://localhost:3000"]
 
 [download]
-max_concurrent = 2
+max_concurrent = 5
 preferred_quality = "1080"
 segment_concurrency = 4
 network_attempts = 5
@@ -33,6 +33,7 @@ secret_key = ""
 enabled = true
 thumbnail_interval_minutes = 5
 eventsub_interval_minutes = 10
+eventsub_reconcile_interval_minutes = 60
 category_art_interval_minutes = 1440
 token_cleanup_interval_minutes = 60
 
@@ -48,3 +49,19 @@ min_conns = 5
 max_conn_lifetime_ms = 1800000
 max_conn_idle_time_ms = 300000
 health_check_period_ms = 30000
+
+# Title tracking: capture stream-title changes during an active
+# recording. Three modes:
+#
+#   "poll"    — goroutine polls Helix every interval_minutes. Works
+#               on any deployment; a few Helix calls per recording.
+#   "webhook" — subscribes to channel.update EventSub per recording.
+#               Zero polling, push-based title updates. Requires
+#               WEBHOOK_CALLBACK_URL set and publicly reachable; the
+#               server refuses to start in webhook mode otherwise.
+#   "off"     — only the at-start snapshot (videos.title) is stored.
+#
+# The VideoCard's "Titles" badge opens the captured history.
+[title_tracking]
+mode = "poll"
+interval_minutes = 1

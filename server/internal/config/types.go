@@ -70,13 +70,56 @@ type Environment struct {
 
 // AppConfig contains behavior settings from config.toml — hot-reloadable.
 type AppConfig struct {
-	Server       ServerConfig       `toml:"server"`
-	Download     DownloadConfig     `toml:"download"`
-	Storage      StorageConfig      `toml:"storage"`
-	Scheduler    SchedulerConfig    `toml:"scheduler"`
-	Logging      LoggingConfig      `toml:"logging"`
-	PostgresPool PostgresPoolConfig `toml:"postgres"`
-	Development  bool               `toml:"development"`
+	Server        ServerConfig        `toml:"server"`
+	Download      DownloadConfig      `toml:"download"`
+	Storage       StorageConfig       `toml:"storage"`
+	Scheduler     SchedulerConfig     `toml:"scheduler"`
+	Logging       LoggingConfig       `toml:"logging"`
+	PostgresPool  PostgresPoolConfig  `toml:"postgres"`
+	TitleTracking TitleTrackingConfig `toml:"title_tracking"`
+	Development   bool                `toml:"development"`
+}
+
+// TitleTrackingConfig controls capture of title changes during an
+// active recording. Three modes:
+//
+//   - "poll":    goroutine polls Helix every IntervalMinutes (default).
+//                Works on any deployment, no public callback URL needed.
+//   - "webhook": creates a channel.update EventSub per active recording
+//                and writes titles on push. Zero polling. Requires
+//                WEBHOOK_CALLBACK_URL set and publicly reachable; the
+//                server refuses to start in this mode otherwise so a
+//                silent misconfig doesn't fall back to degraded behavior.
+//   - "off":     only the at-start snapshot (videos.title) is recorded.
+//
+// Legacy Enabled bool is kept for backwards compatibility: if Mode is
+// empty and Enabled is true, the effective mode is "poll"; if Enabled
+// is false, the effective mode is "off". New deployments should set
+// Mode directly.
+type TitleTrackingConfig struct {
+	Mode            string `toml:"mode"`
+	Enabled         bool   `toml:"enabled"`
+	IntervalMinutes int    `toml:"interval_minutes"`
+}
+
+// Title-tracking mode constants. Kept at package level so the
+// main, downloader, and scheduler all agree on the spelling.
+const (
+	TitleTrackingModePoll    = "poll"
+	TitleTrackingModeWebhook = "webhook"
+	TitleTrackingModeOff     = "off"
+)
+
+// EffectiveMode returns the resolved mode string, applying the
+// Enabled→Mode translation. Prefer this over reading Mode directly.
+func (c TitleTrackingConfig) EffectiveMode() string {
+	if c.Mode != "" {
+		return c.Mode
+	}
+	if c.Enabled {
+		return TitleTrackingModePoll
+	}
+	return TitleTrackingModeOff
 }
 
 type ServerConfig struct {
@@ -208,6 +251,13 @@ type SchedulerConfig struct {
 	EventsubIntervalMinutes     int  `toml:"eventsub_interval_minutes"`
 	CategoryArtIntervalMinutes  int  `toml:"category_art_interval_minutes"`
 	TokenCleanupIntervalMinutes int  `toml:"token_cleanup_interval_minutes"`
+	// EventsubReconcileIntervalMinutes periodically ensures the
+	// stream.online/stream.offline subs match the local channels
+	// table. Keeps the SSE live-dot feed authoritative — without
+	// this the frontend's live Set drifts whenever a subscription
+	// is lost (manual delete, Twitch revocation, crashed mid-create).
+	// 0 disables (not recommended).
+	EventsubReconcileIntervalMinutes int `toml:"eventsub_reconcile_interval_minutes"`
 	// FetchLogsRetentionDays prunes fetch_logs older than this on a
 	// daily interval. 0 disables the task (keep forever).
 	FetchLogsRetentionDays int `toml:"fetch_logs_retention_days"`

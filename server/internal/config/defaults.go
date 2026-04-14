@@ -28,6 +28,7 @@ func getDefaultAppConfig() AppConfig {
 			Enabled:                          true,
 			ThumbnailIntervalMinutes:         5,
 			EventsubIntervalMinutes:          10,
+			EventsubReconcileIntervalMinutes: 60,
 			CategoryArtIntervalMinutes:       1440,
 			TokenCleanupIntervalMinutes:      60,
 			FetchLogsRetentionDays:           14,
@@ -47,6 +48,10 @@ func getDefaultAppConfig() AppConfig {
 			MaxConnLifetimeMs:   1800000,
 			MaxConnIdleTimeMs:   300000,
 			HealthCheckPeriodMs: 30000,
+		},
+		TitleTracking: TitleTrackingConfig{
+			Mode:            TitleTrackingModePoll,
+			IntervalMinutes: 1,
 		},
 		Development: false,
 	}
@@ -86,6 +91,20 @@ func validateAppConfig(config *AppConfig) {
 	}
 	if config.Download.AudioRate <= 0 {
 		config.Download.AudioRate = 48000
+	}
+	if config.TitleTracking.IntervalMinutes <= 0 {
+		config.TitleTracking.IntervalMinutes = 1
+	}
+	// Normalize mode. Unknown values fall back to poll rather than
+	// off so a typo doesn't silently disable the feature; operators
+	// notice the mismatch in the startup log.
+	switch config.TitleTracking.Mode {
+	case "":
+		// Empty means "use Enabled" — EffectiveMode handles it.
+	case TitleTrackingModePoll, TitleTrackingModeWebhook, TitleTrackingModeOff:
+		// Valid.
+	default:
+		config.TitleTracking.Mode = TitleTrackingModePoll
 	}
 	if config.Logging.SampleRate <= 0 || config.Logging.SampleRate > 1 {
 		config.Logging.SampleRate = 1.0
