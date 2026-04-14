@@ -114,13 +114,37 @@ func (q *Queries) ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, 
 	return items, nil
 }
 
+const updateCategoryBoxArt = `-- name: UpdateCategoryBoxArt :exec
+UPDATE categories SET box_art_url = ?, updated_at = datetime('now') WHERE id = ?
+`
+
+type UpdateCategoryBoxArtParams struct {
+	BoxArtUrl sql.NullString `json:"box_art_url"`
+	ID        string         `json:"id"`
+}
+
+// Dedicated setter for box_art_url, the explicit "refresh art" path
+// used by categoryart.Service (both the eager Hydrator enrichment
+// and the scheduled backfill task). Separating this from
+// UpsertCategory keeps "update art" distinct from "upsert name".
+// Positional ? rather than named @ because sqlc's SQLite rewriter
+// has been flaky combining named params with SET clauses in UPDATE
+// (observed as tokens swallowing adjacent characters on generate).
+func (q *Queries) UpdateCategoryBoxArt(ctx context.Context, arg UpdateCategoryBoxArtParams) error {
+	_, err := q.db.ExecContext(ctx, updateCategoryBoxArt, arg.BoxArtUrl, arg.ID)
+	return err
+}
+
 const upsertCategory = `-- name: UpsertCategory :one
 INSERT INTO categories (id, name, box_art_url, igdb_id)
 VALUES (?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET
     name = excluded.name,
-    box_art_url = excluded.box_art_url,
-    igdb_id = excluded.igdb_id,
+    -- nullif normalizes an explicit empty-string payload to NULL
+    -- before ifnull decides, so a caller passing &"" can't wipe
+    -- the existing art any more than a nil caller can.
+    box_art_url = ifnull(nullif(excluded.box_art_url, ''), categories.box_art_url),
+    igdb_id = ifnull(nullif(excluded.igdb_id, ''), categories.igdb_id),
     updated_at = datetime('now')
 RETURNING id, name, box_art_url, igdb_id, created_at, updated_at
 `
@@ -132,6 +156,10 @@ type UpsertCategoryParams struct {
 	IgdbID    sql.NullString `json:"igdb_id"`
 }
 
+// Preserves box_art_url and igdb_id on conflict: a webhook-path
+// upsert that only knows (id, name) won't wipe values the category-
+// art sync has filled. ifnull() picks the existing row value when
+// the caller passed NULL.
 func (q *Queries) UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error) {
 	row := q.db.QueryRowContext(ctx, upsertCategory,
 		arg.ID,

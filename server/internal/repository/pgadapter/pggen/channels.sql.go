@@ -176,6 +176,65 @@ func (q *Queries) ListUserFollows(ctx context.Context, userID string) ([]Channel
 	return items, nil
 }
 
+const searchChannels = `-- name: SearchChannels :many
+SELECT broadcaster_id, broadcaster_login, broadcaster_name, broadcaster_language, profile_image_url, offline_image_url, description, broadcaster_type, view_count, created_at, updated_at FROM channels
+WHERE $1::text = ''
+   OR broadcaster_login ILIKE '%' || $1::text || '%'
+   OR broadcaster_name  ILIKE '%' || $1::text || '%'
+ORDER BY
+    CASE
+        WHEN $1::text = '' THEN 3
+        WHEN lower(broadcaster_login) = lower($1::text) THEN 0
+        WHEN lower(broadcaster_login) LIKE lower($1::text) || '%' THEN 1
+        WHEN lower(broadcaster_name)  LIKE lower($1::text) || '%' THEN 1
+        ELSE 2
+    END,
+    broadcaster_login
+LIMIT $2
+`
+
+type SearchChannelsParams struct {
+	Query    string `json:"query"`
+	RowLimit int32  `json:"row_limit"`
+}
+
+// Case-insensitive substring match on login + display name. Ranks exact
+// login match first, then prefix match, then substring match, then
+// alphabetical — so typing "sho" surfaces "shroud" before "ashotoftoast".
+// Empty query returns everything (up to row_limit), so the same endpoint
+// backs the "show all" state of a combobox without a second query.
+func (q *Queries) SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error) {
+	rows, err := q.db.Query(ctx, searchChannels, arg.Query, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channel{}
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.BroadcasterID,
+			&i.BroadcasterLogin,
+			&i.BroadcasterName,
+			&i.BroadcasterLanguage,
+			&i.ProfileImageUrl,
+			&i.OfflineImageUrl,
+			&i.Description,
+			&i.BroadcasterType,
+			&i.ViewCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const unfollowChannel = `-- name: UnfollowChannel :exec
 UPDATE user_followed_channels SET followed = FALSE WHERE user_id = $1 AND broadcaster_id = $2
 `

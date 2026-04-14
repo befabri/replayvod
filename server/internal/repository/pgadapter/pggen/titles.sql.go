@@ -68,9 +68,14 @@ const listTitlesForVideo = `-- name: ListTitlesForVideo :many
 SELECT t.id, t.name, t.created_at FROM titles t
 INNER JOIN video_titles vt ON vt.title_id = t.id
 WHERE vt.video_id = $1
-ORDER BY t.id
+ORDER BY vt.linked_at
 `
 
+// Ordered by linked_at, not titles.id — the dedup-row id reflects
+// creation order across the whole titles table, not the order a
+// specific video saw each title. Without this the history UI
+// misorders titles whenever a stream reuses a name from a prior
+// broadcast.
 func (q *Queries) ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error) {
 	rows, err := q.db.Query(ctx, listTitlesForVideo, videoID)
 	if err != nil {

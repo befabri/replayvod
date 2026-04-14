@@ -36,7 +36,7 @@ func (q *Queries) CountEventLogsByDomain(ctx context.Context, domain string) (in
 const createEventLog = `-- name: CreateEventLog :one
 INSERT INTO event_logs (domain, event_type, severity, message, actor_user_id, data)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, domain, event_type, severity, message, actor_user_id, data, created_at
+RETURNING id, domain, event_type, severity, message, actor_user_id, data, created_at, search_vector
 `
 
 type CreateEventLogParams struct {
@@ -67,6 +67,7 @@ func (q *Queries) CreateEventLog(ctx context.Context, arg CreateEventLogParams) 
 		&i.ActorUserID,
 		&i.Data,
 		&i.CreatedAt,
+		&i.SearchVector,
 	)
 	return i, err
 }
@@ -86,7 +87,7 @@ func (q *Queries) DeleteOldEventLogs(ctx context.Context, createdAt time.Time) e
 }
 
 const listEventLogs = `-- name: ListEventLogs :many
-SELECT id, domain, event_type, severity, message, actor_user_id, data, created_at FROM event_logs
+SELECT id, domain, event_type, severity, message, actor_user_id, data, created_at, search_vector FROM event_logs
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
 `
@@ -114,6 +115,7 @@ func (q *Queries) ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([
 			&i.ActorUserID,
 			&i.Data,
 			&i.CreatedAt,
+			&i.SearchVector,
 		); err != nil {
 			return nil, err
 		}
@@ -126,7 +128,7 @@ func (q *Queries) ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([
 }
 
 const listEventLogsByDomain = `-- name: ListEventLogsByDomain :many
-SELECT id, domain, event_type, severity, message, actor_user_id, data, created_at FROM event_logs
+SELECT id, domain, event_type, severity, message, actor_user_id, data, created_at, search_vector FROM event_logs
 WHERE domain = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -156,6 +158,7 @@ func (q *Queries) ListEventLogsByDomain(ctx context.Context, arg ListEventLogsBy
 			&i.ActorUserID,
 			&i.Data,
 			&i.CreatedAt,
+			&i.SearchVector,
 		); err != nil {
 			return nil, err
 		}
@@ -168,7 +171,7 @@ func (q *Queries) ListEventLogsByDomain(ctx context.Context, arg ListEventLogsBy
 }
 
 const listEventLogsBySeverity = `-- name: ListEventLogsBySeverity :many
-SELECT id, domain, event_type, severity, message, actor_user_id, data, created_at FROM event_logs
+SELECT id, domain, event_type, severity, message, actor_user_id, data, created_at, search_vector FROM event_logs
 WHERE severity = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -198,6 +201,7 @@ func (q *Queries) ListEventLogsBySeverity(ctx context.Context, arg ListEventLogs
 			&i.ActorUserID,
 			&i.Data,
 			&i.CreatedAt,
+			&i.SearchVector,
 		); err != nil {
 			return nil, err
 		}

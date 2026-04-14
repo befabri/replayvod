@@ -77,6 +77,34 @@ func (a *SQLiteAdapter) GetLastLiveStream(ctx context.Context, broadcasterID str
 	return sqliteStreamToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) ListLatestLivePerChannel(ctx context.Context, limit int) ([]repository.LatestLiveStream, error) {
+	rows, err := a.queries.ListLatestLivePerChannel(ctx, int64(limit))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list latest live per channel: %w", err)
+	}
+	out := make([]repository.LatestLiveStream, len(rows))
+	for i, r := range rows {
+		out[i] = repository.LatestLiveStream{
+			Stream: repository.Stream{
+				ID:            r.ID,
+				BroadcasterID: r.BroadcasterID,
+				Type:          r.Type,
+				Language:      r.Language,
+				ThumbnailURL:  fromNullString(r.ThumbnailUrl),
+				ViewerCount:   r.ViewerCount,
+				IsMature:      nullInt64ToBool(r.IsMature),
+				StartedAt:     parseTime(r.StartedAt),
+				EndedAt:       parseNullTime(r.EndedAt),
+				CreatedAt:     parseTime(r.CreatedAt),
+			},
+			BroadcasterLogin: r.BroadcasterLogin,
+			BroadcasterName:  r.BroadcasterName,
+			ProfileImageURL:  fromNullString(r.ProfileImageUrl),
+		}
+	}
+	return out, nil
+}
+
 func sqliteStreamToDomain(s sqlitegen.Stream) *repository.Stream {
 	return &repository.Stream{
 		ID:            s.ID,

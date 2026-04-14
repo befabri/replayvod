@@ -25,6 +25,13 @@ RETURNING *;
 -- name: ListChannels :many
 SELECT * FROM channels ORDER BY broadcaster_login;
 
+-- name: ListChannelsByIDs :many
+SELECT * FROM channels WHERE broadcaster_id IN (sqlc.slice('ids'));
+
+-- NOTE: SearchChannels is hand-rolled in
+-- internal/repository/sqliteadapter/channels.go for the same reason as
+-- ListVideos (see queries/sqlite/videos.sql).
+
 -- name: DeleteChannel :exec
 DELETE FROM channels WHERE broadcaster_id = ?;
 

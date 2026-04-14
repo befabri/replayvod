@@ -38,6 +38,7 @@ func (a *SQLiteAdapter) CreateVideo(ctx context.Context, v *repository.VideoInpu
 		JobID:         v.JobID,
 		Filename:      v.Filename,
 		DisplayName:   v.DisplayName,
+		Title:         v.Title,
 		Status:        v.Status,
 		Quality:       v.Quality,
 		BroadcasterID: v.BroadcasterID,
@@ -57,19 +58,21 @@ func (a *SQLiteAdapter) UpdateVideoStatus(ctx context.Context, id int64, status 
 	return a.queries.UpdateVideoStatus(ctx, sqlitegen.UpdateVideoStatusParams{ID: id, Status: status})
 }
 
-func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string) error {
+func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
 	return a.queries.MarkVideoDone(ctx, sqlitegen.MarkVideoDoneParams{
 		ID:              id,
 		DurationSeconds: sql.NullFloat64{Float64: durationSeconds, Valid: true},
 		SizeBytes:       sql.NullInt64{Int64: sizeBytes, Valid: true},
 		Thumbnail:       toNullString(thumbnail),
+		CompletionKind:  completionKind,
 	})
 }
 
-func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string) error {
+func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error {
 	return a.queries.MarkVideoFailed(ctx, sqlitegen.MarkVideoFailedParams{
-		ID:    id,
-		Error: sql.NullString{String: errMsg, Valid: true},
+		ID:             id,
+		Error:          sql.NullString{String: errMsg, Valid: true},
+		CompletionKind: completionKind,
 	})
 }
 
@@ -80,27 +83,84 @@ func (a *SQLiteAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbna
 	})
 }
 
-func (a *SQLiteAdapter) ListVideos(ctx context.Context, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideos(ctx, sqlitegen.ListVideosParams{
-		Limit:  int64(limit),
-		Offset: int64(offset),
-	})
+// listVideosSQL mirrors queries/postgres/videos.sql ListVideos. Hand-
+// rolled because sqlc's SQLite engine can't type-infer a ?N param whose
+// only usages are inside a CASE expression (see queries/sqlite/videos.sql).
+// Parameter positions: ?1 status_filter ("" = unfiltered), ?2 sort_key
+// ("duration-desc", "channel-asc", …; empty/unrecognized = default
+// created-desc), ?3 row_limit, ?4 row_offset. The trailing
+// start_download_at DESC is both the explicit 'created_at-desc' sort
+// and the fallthrough for empty/unrecognized sort_key values.
+const listVideosSQL = `SELECT
+    id, job_id, filename, display_name, status, quality,
+    broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+ORDER BY
+  CASE WHEN ?2 = 'duration-desc'  THEN duration_seconds  END DESC NULLS LAST,
+  CASE WHEN ?2 = 'duration-asc'   THEN duration_seconds  END ASC NULLS LAST,
+  CASE WHEN ?2 = 'size-desc'      THEN size_bytes        END DESC NULLS LAST,
+  CASE WHEN ?2 = 'size-asc'       THEN size_bytes        END ASC NULLS LAST,
+  CASE WHEN ?2 = 'channel-asc'    THEN display_name      END ASC,
+  CASE WHEN ?2 = 'channel-desc'   THEN display_name      END DESC,
+  CASE WHEN ?2 = 'created_at-asc' THEN start_download_at END ASC,
+  start_download_at DESC,
+  -- Tiebreaker direction tracks the primary sort intent; see
+  -- queries/postgres/videos.sql ListVideos for rationale. Kept in
+  -- sync between dialects so the ordering contract doesn't diverge.
+  CASE WHEN ?2 LIKE '%-asc' THEN id END ASC,
+  id DESC
+LIMIT ?3 OFFSET ?4`
+
+func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
+	rows, err := a.db.QueryContext(ctx, listVideosSQL,
+		opts.Status,
+		opts.SortKey(),
+		int64(opts.Limit),
+		int64(opts.Offset),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos: %w", err)
 	}
-	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListVideosByStatus(ctx context.Context, status string, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosByStatus(ctx, sqlitegen.ListVideosByStatusParams{
-		Status: status,
-		Limit:  int64(limit),
-		Offset: int64(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list videos by status: %w", err)
+	defer rows.Close()
+	out := []repository.Video{}
+	for rows.Next() {
+		var row sqlitegen.Video
+		if err := rows.Scan(
+			&row.ID,
+			&row.JobID,
+			&row.Filename,
+			&row.DisplayName,
+			&row.Status,
+			&row.Quality,
+			&row.BroadcasterID,
+			&row.StreamID,
+			&row.ViewerCount,
+			&row.Language,
+			&row.DurationSeconds,
+			&row.SizeBytes,
+			&row.Thumbnail,
+			&row.Error,
+			&row.StartDownloadAt,
+			&row.DownloadedAt,
+			&row.DeletedAt,
+			&row.RecordingType,
+			&row.ForceH264,
+			&row.Title,
+			&row.CompletionKind,
+		); err != nil {
+			return nil, fmt.Errorf("sqlite list videos scan: %w", err)
+		}
+		out = append(out, *sqliteVideoToDomain(row))
 	}
-	return sqliteVideosToDomain(rows), nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite list videos: %w", err)
+	}
+	return out, nil
 }
 
 func (a *SQLiteAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.Video, error) {
@@ -183,6 +243,7 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		JobID:           v.JobID,
 		Filename:        v.Filename,
 		DisplayName:     v.DisplayName,
+		Title:           v.Title,
 		Status:          v.Status,
 		Quality:         v.Quality,
 		BroadcasterID:   v.BroadcasterID,
@@ -198,6 +259,7 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		DeletedAt:       parseNullTime(v.DeletedAt),
 		RecordingType:   v.RecordingType,
 		ForceH264:       v.ForceH264 != 0,
+		CompletionKind:  v.CompletionKind,
 	}
 }
 

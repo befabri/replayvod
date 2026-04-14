@@ -140,6 +140,11 @@ type Querier interface {
 	ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
+	// Returns the most recent stream per broadcaster, newest first, joined
+	// with the channel for display metadata. DISTINCT ON requires ordering
+	// by its key first, so the inner query picks the latest per broadcaster
+	// and the outer query re-sorts globally by started_at.
+	ListLatestLivePerChannel(ctx context.Context, limit int32) ([]ListLatestLivePerChannelRow, error)
 	// On server startup: every row here is a job whose process crashed
 	// mid-execution. The downloader's resume path runs for each.
 	ListRunningJobs(ctx context.Context) ([]Job, error)
@@ -160,16 +165,27 @@ type Querier interface {
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
+	// Ordered by linked_at, not titles.id — the dedup-row id reflects
+	// creation order across the whole titles table, not the order a
+	// specific video saw each title. Without this the history UI
+	// misorders titles whenever a stream reuses a name from a prior
+	// broadcast.
 	ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error)
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
+	// Unified list query with optional status filter and enum-driven sort.
+	// @status_filter = '' disables the status filter; otherwise filters exactly.
+	// @sort_key combines column + direction ("duration-desc", "size-asc", etc.).
+	// Unmatched CASE branches evaluate to NULL uniformly across rows, so PG
+	// treats them as tied. The terminal `start_download_at DESC` is both the
+	// explicit 'created_at-desc' sort (matched by the CASE above it) and the
+	// fallthrough for empty/unrecognized sort_key values.
 	ListVideos(ctx context.Context, arg ListVideosParams) ([]Video, error)
 	ListVideosByBroadcaster(ctx context.Context, arg ListVideosByBroadcasterParams) ([]Video, error)
 	ListVideosByCategory(ctx context.Context, arg ListVideosByCategoryParams) ([]Video, error)
-	ListVideosByStatus(ctx context.Context, arg ListVideosByStatusParams) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
@@ -185,7 +201,16 @@ type Querier interface {
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
 	MarkTaskRunning(ctx context.Context, name string) error
 	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
+	// completion_kind distinguishes clean-end from partial recordings.
+	// Callers pass 'complete' for naturally-ended streams with no gaps,
+	// 'partial' when resume_state contained restart_window_rolled gaps
+	// (i.e. we lost data the CDN rolled past during shutdown).
 	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
+	// completion_kind is 'cancelled' when the operator called Cancel(),
+	// 'complete' otherwise (the default; pipeline crashed / transport
+	// exhausted / etc.). Downstream UI keys on this to render a grey
+	// "CANCELLED" badge instead of red "FAILED" for user-initiated
+	// stops.
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
 	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
@@ -193,6 +218,19 @@ type Querier interface {
 	// trigger so the dashboard can show "this schedule fired N times, last at T".
 	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	// Case-insensitive substring match on name. Ranks exact name match
+	// first, then prefix match, then substring match, then alphabetical.
+	// Mirrors queries/postgres/channels.sql SearchChannels so both
+	// combobox-backed dropdowns (schedule form channel picker + category
+	// picker) share a ranking contract. Empty query returns everything
+	// up to row_limit, so the same endpoint backs the "show all" state.
+	SearchCategories(ctx context.Context, arg SearchCategoriesParams) ([]Category, error)
+	// Case-insensitive substring match on login + display name. Ranks exact
+	// login match first, then prefix match, then substring match, then
+	// alphabetical — so typing "sho" surfaces "shroud" before "ashotoftoast".
+	// Empty query returns everything (up to row_limit), so the same endpoint
+	// backs the "show all" state of a combobox without a second query.
+	SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error)
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	// Manual "run now" path — set next_run_at to now so the scheduler picks
 	// it up on the next tick. Separate from SetTaskEnabled so the caller
@@ -206,6 +244,10 @@ type Querier interface {
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
 	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
+	// Dedicated setter for box_art_url. Used by the category-art sync
+	// task and the Hydrator's eager enrichment; separates "refresh just
+	// the art" from the broader UpsertCategory contract.
+	UpdateCategoryBoxArt(ctx context.Context, arg UpdateCategoryBoxArtParams) error
 	// Hot path: called after every segment completion, stage transition,
 	// and accepted gap. Single UPDATE keeps the write atomic with respect
 	// to the frontier-advance logic in the downloader.
@@ -217,6 +259,11 @@ type Querier interface {
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
+	// Preserves box_art_url and igdb_id on conflict: a webhook-path
+	// upsert that only knows (id, name) won't wipe values the
+	// category-art sync has filled. COALESCE picks the existing row
+	// value when the caller passed NULL. UpdateCategoryBoxArt below is
+	// the explicit path to actively change the art.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
 	// Called on first access and on every update. Defaults (UTC / ISO /

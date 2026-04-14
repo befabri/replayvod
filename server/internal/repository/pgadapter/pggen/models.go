@@ -68,14 +68,15 @@ type DownloadScheduleTag struct {
 }
 
 type EventLog struct {
-	ID          int64           `json:"id"`
-	Domain      string          `json:"domain"`
-	EventType   string          `json:"event_type"`
-	Severity    string          `json:"severity"`
-	Message     string          `json:"message"`
-	ActorUserID *string         `json:"actor_user_id"`
-	Data        json.RawMessage `json:"data"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID           int64           `json:"id"`
+	Domain       string          `json:"domain"`
+	EventType    string          `json:"event_type"`
+	Severity     string          `json:"severity"`
+	Message      string          `json:"message"`
+	ActorUserID  *string         `json:"actor_user_id"`
+	Data         json.RawMessage `json:"data"`
+	CreatedAt    time.Time       `json:"created_at"`
+	SearchVector interface{}     `json:"search_vector"`
 }
 
 type EventsubSnapshot struct {
@@ -245,6 +246,8 @@ type Video struct {
 	DeletedAt       *time.Time `json:"deleted_at"`
 	RecordingType   string     `json:"recording_type"`
 	ForceH264       bool       `json:"force_h264"`
+	Title           string     `json:"title"`
+	CompletionKind  string     `json:"completion_kind"`
 }
 
 type VideoCategory struct {
@@ -281,8 +284,9 @@ type VideoTag struct {
 }
 
 type VideoTitle struct {
-	VideoID int64 `json:"video_id"`
-	TitleID int64 `json:"title_id"`
+	VideoID  int64     `json:"video_id"`
+	TitleID  int64     `json:"title_id"`
+	LinkedAt time.Time `json:"linked_at"`
 }
 
 type WebhookEvent struct {

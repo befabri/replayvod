@@ -56,6 +56,76 @@ func (a *SQLiteAdapter) ListChannels(ctx context.Context) ([]repository.Channel,
 	return channels, nil
 }
 
+func (a *SQLiteAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]repository.Channel, error) {
+	if len(ids) == 0 {
+		return []repository.Channel{}, nil
+	}
+	rows, err := a.queries.ListChannelsByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list channels by ids: %w", err)
+	}
+	channels := make([]repository.Channel, len(rows))
+	for i, row := range rows {
+		channels[i] = *sqliteChannelToDomain(row)
+	}
+	return channels, nil
+}
+
+// searchChannelsSQL mirrors queries/postgres/channels.sql SearchChannels.
+// Hand-rolled because sqlc's SQLite engine can't type-infer a ?N param
+// whose only usages are inside a CASE expression (see the NOTE in
+// queries/sqlite/channels.sql).
+const searchChannelsSQL = `SELECT
+    broadcaster_id, broadcaster_login, broadcaster_name, broadcaster_language,
+    profile_image_url, offline_image_url, description, broadcaster_type,
+    view_count, created_at, updated_at
+FROM channels
+WHERE ?1 = ''
+   OR lower(broadcaster_login) LIKE '%' || lower(?1) || '%'
+   OR lower(broadcaster_name)  LIKE '%' || lower(?1) || '%'
+ORDER BY
+    CASE
+        WHEN ?1 = '' THEN 3
+        WHEN lower(broadcaster_login) = lower(?1) THEN 0
+        WHEN lower(broadcaster_login) LIKE lower(?1) || '%' THEN 1
+        WHEN lower(broadcaster_name)  LIKE lower(?1) || '%' THEN 1
+        ELSE 2
+    END,
+    broadcaster_login
+LIMIT ?2`
+
+func (a *SQLiteAdapter) SearchChannels(ctx context.Context, query string, limit int) ([]repository.Channel, error) {
+	rows, err := a.db.QueryContext(ctx, searchChannelsSQL, query, int64(limit))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite search channels: %w", err)
+	}
+	defer rows.Close()
+	out := []repository.Channel{}
+	for rows.Next() {
+		var row sqlitegen.Channel
+		if err := rows.Scan(
+			&row.BroadcasterID,
+			&row.BroadcasterLogin,
+			&row.BroadcasterName,
+			&row.BroadcasterLanguage,
+			&row.ProfileImageUrl,
+			&row.OfflineImageUrl,
+			&row.Description,
+			&row.BroadcasterType,
+			&row.ViewCount,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("sqlite search channels scan: %w", err)
+		}
+		out = append(out, *sqliteChannelToDomain(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite search channels: %w", err)
+	}
+	return out, nil
+}
+
 func (a *SQLiteAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
 	return a.queries.DeleteChannel(ctx, broadcasterID)
 }

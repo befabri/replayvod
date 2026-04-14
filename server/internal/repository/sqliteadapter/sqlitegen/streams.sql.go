@@ -106,6 +106,104 @@ func (q *Queries) ListActiveStreams(ctx context.Context) ([]Stream, error) {
 	return items, nil
 }
 
+const listLatestLivePerChannel = `-- name: ListLatestLivePerChannel :many
+SELECT
+    id,
+    broadcaster_id,
+    type,
+    language,
+    thumbnail_url,
+    viewer_count,
+    is_mature,
+    started_at,
+    ended_at,
+    created_at,
+    broadcaster_login,
+    broadcaster_name,
+    profile_image_url
+FROM (
+    SELECT
+        s.id,
+        s.broadcaster_id,
+        s.type,
+        s.language,
+        s.thumbnail_url,
+        s.viewer_count,
+        s.is_mature,
+        s.started_at,
+        s.ended_at,
+        s.created_at,
+        c.broadcaster_login,
+        c.broadcaster_name,
+        c.profile_image_url,
+        ROW_NUMBER() OVER (
+            PARTITION BY s.broadcaster_id
+            ORDER BY s.started_at DESC
+        ) AS rn
+    FROM streams s
+    INNER JOIN channels c ON c.broadcaster_id = s.broadcaster_id
+) ranked
+WHERE rn = 1
+ORDER BY started_at DESC
+LIMIT ?
+`
+
+type ListLatestLivePerChannelRow struct {
+	ID               string         `json:"id"`
+	BroadcasterID    string         `json:"broadcaster_id"`
+	Type             string         `json:"type"`
+	Language         string         `json:"language"`
+	ThumbnailUrl     sql.NullString `json:"thumbnail_url"`
+	ViewerCount      int64          `json:"viewer_count"`
+	IsMature         sql.NullInt64  `json:"is_mature"`
+	StartedAt        string         `json:"started_at"`
+	EndedAt          sql.NullString `json:"ended_at"`
+	CreatedAt        string         `json:"created_at"`
+	BroadcasterLogin string         `json:"broadcaster_login"`
+	BroadcasterName  string         `json:"broadcaster_name"`
+	ProfileImageUrl  sql.NullString `json:"profile_image_url"`
+}
+
+// SQLite has no DISTINCT ON; use ROW_NUMBER() to pick the most recent
+// stream per broadcaster, then filter to rn=1. Joined with channels so
+// the caller gets display metadata in one round-trip.
+func (q *Queries) ListLatestLivePerChannel(ctx context.Context, limit int64) ([]ListLatestLivePerChannelRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestLivePerChannel, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLatestLivePerChannelRow{}
+	for rows.Next() {
+		var i ListLatestLivePerChannelRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BroadcasterID,
+			&i.Type,
+			&i.Language,
+			&i.ThumbnailUrl,
+			&i.ViewerCount,
+			&i.IsMature,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.CreatedAt,
+			&i.BroadcasterLogin,
+			&i.BroadcasterName,
+			&i.ProfileImageUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStreamsByBroadcaster = `-- name: ListStreamsByBroadcaster :many
 SELECT id, broadcaster_id, type, language, thumbnail_url, viewer_count, is_mature, started_at, ended_at, created_at FROM streams WHERE broadcaster_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?
 `

@@ -29,3 +29,47 @@ SELECT * FROM streams WHERE broadcaster_id = ? ORDER BY started_at DESC LIMIT ? 
 
 -- name: GetLastLiveStream :one
 SELECT * FROM streams WHERE broadcaster_id = ? ORDER BY started_at DESC LIMIT 1;
+
+-- name: ListLatestLivePerChannel :many
+-- SQLite has no DISTINCT ON; use ROW_NUMBER() to pick the most recent
+-- stream per broadcaster, then filter to rn=1. Joined with channels so
+-- the caller gets display metadata in one round-trip.
+SELECT
+    id,
+    broadcaster_id,
+    type,
+    language,
+    thumbnail_url,
+    viewer_count,
+    is_mature,
+    started_at,
+    ended_at,
+    created_at,
+    broadcaster_login,
+    broadcaster_name,
+    profile_image_url
+FROM (
+    SELECT
+        s.id,
+        s.broadcaster_id,
+        s.type,
+        s.language,
+        s.thumbnail_url,
+        s.viewer_count,
+        s.is_mature,
+        s.started_at,
+        s.ended_at,
+        s.created_at,
+        c.broadcaster_login,
+        c.broadcaster_name,
+        c.profile_image_url,
+        ROW_NUMBER() OVER (
+            PARTITION BY s.broadcaster_id
+            ORDER BY s.started_at DESC
+        ) AS rn
+    FROM streams s
+    INNER JOIN channels c ON c.broadcaster_id = s.broadcaster_id
+) ranked
+WHERE rn = 1
+ORDER BY started_at DESC
+LIMIT ?;

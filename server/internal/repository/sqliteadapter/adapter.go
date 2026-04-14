@@ -24,13 +24,21 @@ func mapErr(err error) error {
 }
 
 // SQLiteAdapter implements repository.Repository using SQLite via sqlc-generated code.
+//
+// db is kept alongside queries because a few queries (dynamic ORDER BY
+// on ListVideos, ranked SearchChannels) use CASE expressions that sqlc's
+// SQLite engine can't type-infer — those are run as raw SQL through db
+// directly, while everything else goes through queries.
 type SQLiteAdapter struct {
 	queries *sqlitegen.Queries
+	db      sqlitegen.DBTX
 }
 
-// New creates a new SQLiteAdapter.
-func New(queries *sqlitegen.Queries) *SQLiteAdapter {
-	return &SQLiteAdapter{queries: queries}
+// New creates a new SQLiteAdapter. db is typically an *sql.DB but any
+// sqlitegen.DBTX works — the adapter retains it so the hand-rolled
+// queries can reach the raw driver without fighting sqlc.
+func New(db sqlitegen.DBTX) *SQLiteAdapter {
+	return &SQLiteAdapter{queries: sqlitegen.New(db), db: db}
 }
 
 func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {

@@ -71,9 +71,11 @@ const listTitlesForVideo = `-- name: ListTitlesForVideo :many
 SELECT t.id, t.name, t.created_at FROM titles t
 INNER JOIN video_titles vt ON vt.title_id = t.id
 WHERE vt.video_id = ?
-ORDER BY t.id
+ORDER BY vt.linked_at
 `
 
+// Ordered by linked_at, not titles.id. See postgres/titles.sql for
+// the rationale.
 func (q *Queries) ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error) {
 	rows, err := q.db.QueryContext(ctx, listTitlesForVideo, videoID)
 	if err != nil {

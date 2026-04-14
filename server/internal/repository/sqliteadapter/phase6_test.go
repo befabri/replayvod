@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
@@ -212,7 +211,7 @@ func TestSettings_Upsert_InsertThenUpdate(t *testing.T) {
 func TestSettings_UserCascadeDelete(t *testing.T) {
 	ctx := context.Background()
 	db := testdbSQLiteDB(t)
-	a := New(sqlitegen.New(db))
+	a := New(db)
 
 	if _, err := a.UpsertUser(ctx, &repository.User{
 		ID: "u-cascade", Login: "u", DisplayName: "u", Role: "viewer",

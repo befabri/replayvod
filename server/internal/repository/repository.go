@@ -48,6 +48,17 @@ type Repository interface {
 	GetChannelByLogin(ctx context.Context, login string) (*Channel, error)
 	UpsertChannel(ctx context.Context, c *Channel) (*Channel, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
+	// ListChannelsByIDs returns the subset of channels whose
+	// broadcaster_id is in ids. Empty ids returns no rows (not an
+	// error). Callers use this to de-reference a batch of Helix-
+	// reported broadcasters against our local mirror in one query.
+	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
+	// SearchChannels returns channels matching query (ILIKE/LIKE on
+	// login + name), ranked by match quality (exact → prefix →
+	// substring → alphabetical). Empty query returns everything up to
+	// limit — the same endpoint backs both the combobox "show all" and
+	// the "filter" states without a second query.
+	SearchChannels(ctx context.Context, query string, limit int) ([]Channel, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 
 	// User follows
@@ -60,7 +71,28 @@ type Repository interface {
 	GetCategoryByName(ctx context.Context, name string) (*Category, error)
 	UpsertCategory(ctx context.Context, c *Category) (*Category, error)
 	ListCategories(ctx context.Context) ([]Category, error)
+	// SearchCategories returns categories matching query (ILIKE/LIKE
+	// on name), ranked by match quality (exact → prefix → substring
+	// → alphabetical). Empty query returns everything up to limit —
+	// the same endpoint backs both the combobox "show all" and the
+	// "filter" states. Mirrors SearchChannels semantics for UI
+	// consistency between the schedule form's channel picker and
+	// category picker.
+	SearchCategories(ctx context.Context, query string, limit int) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
+	// UpdateCategoryBoxArt is the explicit "refresh just the art"
+	// path. Used by categoryart.Service both for eager on-first-
+	// observation fetches (from the streammeta Hydrator) and the
+	// scheduled backfill task. Distinct from UpsertCategory, which
+	// only refreshes the name on conflict and preserves existing
+	// box_art_url / igdb_id.
+	//
+	// boxArtURL is written as-is, including the empty string — this
+	// method is meant for writing known-good URLs, not for "clear the
+	// art". Callers that might pass empty should short-circuit at
+	// their own layer (see categoryart.Service.writeBoxArt for the
+	// service-level guard).
+	UpdateCategoryBoxArt(ctx context.Context, id string, boxArtURL string) error
 
 	// Tags
 	GetTag(ctx context.Context, id int64) (*Tag, error)
@@ -84,17 +116,25 @@ type Repository interface {
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
 	ListStreamsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]Stream, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (*Stream, error)
+	// ListLatestLivePerChannel returns the most recent stream per
+	// broadcaster, joined with channel display metadata, newest first.
+	// Backs the dashboard's "recently live" card: one round-trip
+	// instead of N stream.lastLive calls.
+	ListLatestLivePerChannel(ctx context.Context, limit int) ([]LatestLiveStream, error)
 
 	// Videos
 	GetVideo(ctx context.Context, id int64) (*Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (*Video, error)
 	CreateVideo(ctx context.Context, v *VideoInput) (*Video, error)
 	UpdateVideoStatus(ctx context.Context, id int64, status string) error
-	MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string) error
-	MarkVideoFailed(ctx context.Context, id int64, errMsg string) error
+	MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error
+	MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error
 	SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error
-	ListVideos(ctx context.Context, limit, offset int) ([]Video, error)
-	ListVideosByStatus(ctx context.Context, status string, limit, offset int) ([]Video, error)
+	// ListVideos returns a page of videos filtered by opts.Status and
+	// sorted per opts.Sort/Order. Empty Sort/Order default to
+	// created-desc at the SQL layer. Replaces the earlier ListVideos
+	// and ListVideosByStatus pair.
+	ListVideos(ctx context.Context, opts ListVideosOpts) ([]Video, error)
 	ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]Video, error)
 	ListVideosByCategory(ctx context.Context, categoryID string, limit, offset int) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)

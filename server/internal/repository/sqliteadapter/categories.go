@@ -51,6 +51,53 @@ func (a *SQLiteAdapter) ListCategories(ctx context.Context) ([]repository.Catego
 	return cats, nil
 }
 
+// searchCategoriesSQL mirrors queries/postgres/categories.sql
+// SearchCategories. Hand-rolled because sqlc's SQLite engine can't
+// type-infer a ?N param reused across WHERE and CASE branches — same
+// limitation we hit for SearchChannels and ListVideos. Keeps the
+// ranking contract identical across dialects.
+const searchCategoriesSQL = `SELECT
+    id, name, box_art_url, igdb_id, created_at, updated_at
+FROM categories
+WHERE ?1 = ''
+   OR lower(name) LIKE '%' || lower(?1) || '%'
+ORDER BY
+    CASE
+        WHEN ?1 = '' THEN 3
+        WHEN lower(name) = lower(?1) THEN 0
+        WHEN lower(name) LIKE lower(?1) || '%' THEN 1
+        ELSE 2
+    END,
+    name
+LIMIT ?2`
+
+func (a *SQLiteAdapter) SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error) {
+	rows, err := a.db.QueryContext(ctx, searchCategoriesSQL, query, int64(limit))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite search categories: %w", err)
+	}
+	defer rows.Close()
+	out := []repository.Category{}
+	for rows.Next() {
+		var row sqlitegen.Category
+		if err := rows.Scan(
+			&row.ID,
+			&row.Name,
+			&row.BoxArtUrl,
+			&row.IgdbID,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("sqlite search categories scan: %w", err)
+		}
+		out = append(out, *sqliteCategoryToDomain(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite search categories: %w", err)
+	}
+	return out, nil
+}
+
 func (a *SQLiteAdapter) ListCategoriesMissingBoxArt(ctx context.Context) ([]repository.Category, error) {
 	rows, err := a.queries.ListCategoriesMissingBoxArt(ctx)
 	if err != nil {
@@ -61,6 +108,16 @@ func (a *SQLiteAdapter) ListCategoriesMissingBoxArt(ctx context.Context) ([]repo
 		cats[i] = *sqliteCategoryToDomain(row)
 	}
 	return cats, nil
+}
+
+func (a *SQLiteAdapter) UpdateCategoryBoxArt(ctx context.Context, id, boxArtURL string) error {
+	if err := a.queries.UpdateCategoryBoxArt(ctx, sqlitegen.UpdateCategoryBoxArtParams{
+		ID:        id,
+		BoxArtUrl: toNullString(&boxArtURL),
+	}); err != nil {
+		return fmt.Errorf("sqlite update category box art %s: %w", id, err)
+	}
+	return nil
 }
 
 // Tags

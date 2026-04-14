@@ -107,13 +107,86 @@ func (q *Queries) ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, 
 	return items, nil
 }
 
+const searchCategories = `-- name: SearchCategories :many
+SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories
+WHERE $1::text = ''
+   OR name ILIKE '%' || $1::text || '%'
+ORDER BY
+    CASE
+        WHEN $1::text = '' THEN 3
+        WHEN lower(name) = lower($1::text) THEN 0
+        WHEN lower(name) LIKE lower($1::text) || '%' THEN 1
+        ELSE 2
+    END,
+    name
+LIMIT $2
+`
+
+type SearchCategoriesParams struct {
+	Query    string `json:"query"`
+	RowLimit int32  `json:"row_limit"`
+}
+
+// Case-insensitive substring match on name. Ranks exact name match
+// first, then prefix match, then substring match, then alphabetical.
+// Mirrors queries/postgres/channels.sql SearchChannels so both
+// combobox-backed dropdowns (schedule form channel picker + category
+// picker) share a ranking contract. Empty query returns everything
+// up to row_limit, so the same endpoint backs the "show all" state.
+func (q *Queries) SearchCategories(ctx context.Context, arg SearchCategoriesParams) ([]Category, error) {
+	rows, err := q.db.Query(ctx, searchCategories, arg.Query, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateCategoryBoxArt = `-- name: UpdateCategoryBoxArt :exec
+UPDATE categories SET box_art_url = $2, updated_at = NOW() WHERE id = $1
+`
+
+type UpdateCategoryBoxArtParams struct {
+	ID        string  `json:"id"`
+	BoxArtUrl *string `json:"box_art_url"`
+}
+
+// Dedicated setter for box_art_url. Used by the category-art sync
+// task and the Hydrator's eager enrichment; separates "refresh just
+// the art" from the broader UpsertCategory contract.
+func (q *Queries) UpdateCategoryBoxArt(ctx context.Context, arg UpdateCategoryBoxArtParams) error {
+	_, err := q.db.Exec(ctx, updateCategoryBoxArt, arg.ID, arg.BoxArtUrl)
+	return err
+}
+
 const upsertCategory = `-- name: UpsertCategory :one
 INSERT INTO categories (id, name, box_art_url, igdb_id)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
-    box_art_url = EXCLUDED.box_art_url,
-    igdb_id = EXCLUDED.igdb_id,
+    -- NULLIF normalizes an explicit empty-string payload to NULL
+    -- before COALESCE decides, so a caller passing &"" can't wipe
+    -- the existing art any more than a nil caller can.
+    box_art_url = COALESCE(NULLIF(EXCLUDED.box_art_url, ''), categories.box_art_url),
+    igdb_id = COALESCE(NULLIF(EXCLUDED.igdb_id, ''), categories.igdb_id),
     updated_at = NOW()
 RETURNING id, name, box_art_url, igdb_id, created_at, updated_at
 `
@@ -125,6 +198,11 @@ type UpsertCategoryParams struct {
 	IgdbID    *string `json:"igdb_id"`
 }
 
+// Preserves box_art_url and igdb_id on conflict: a webhook-path
+// upsert that only knows (id, name) won't wipe values the
+// category-art sync has filled. COALESCE picks the existing row
+// value when the caller passed NULL. UpdateCategoryBoxArt below is
+// the explicit path to actively change the art.
 func (q *Queries) UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error) {
 	row := q.db.QueryRow(ctx, upsertCategory,
 		arg.ID,

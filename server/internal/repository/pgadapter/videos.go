@@ -33,6 +33,7 @@ func (a *PGAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (
 		JobID:         v.JobID,
 		Filename:      v.Filename,
 		DisplayName:   v.DisplayName,
+		Title:         v.Title,
 		Status:        v.Status,
 		Quality:       v.Quality,
 		BroadcasterID: v.BroadcasterID,
@@ -52,19 +53,21 @@ func (a *PGAdapter) UpdateVideoStatus(ctx context.Context, id int64, status stri
 	return a.queries.UpdateVideoStatus(ctx, pggen.UpdateVideoStatusParams{ID: id, Status: status})
 }
 
-func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string) error {
+func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
 	return a.queries.MarkVideoDone(ctx, pggen.MarkVideoDoneParams{
 		ID:              id,
 		DurationSeconds: &durationSeconds,
 		SizeBytes:       &sizeBytes,
 		Thumbnail:       thumbnail,
+		CompletionKind:  completionKind,
 	})
 }
 
-func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string) error {
+func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error {
 	return a.queries.MarkVideoFailed(ctx, pggen.MarkVideoFailedParams{
-		ID:    id,
-		Error: &errMsg,
+		ID:             id,
+		Error:          &errMsg,
+		CompletionKind: completionKind,
 	})
 }
 
@@ -75,25 +78,15 @@ func (a *PGAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail s
 	})
 }
 
-func (a *PGAdapter) ListVideos(ctx context.Context, limit, offset int) ([]repository.Video, error) {
+func (a *PGAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
 	rows, err := a.queries.ListVideos(ctx, pggen.ListVideosParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
+		StatusFilter: opts.Status,
+		SortKey:      opts.SortKey(),
+		RowOffset:    int32(opts.Offset),
+		RowLimit:     int32(opts.Limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos: %w", err)
-	}
-	return pgVideosToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListVideosByStatus(ctx context.Context, status string, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosByStatus(ctx, pggen.ListVideosByStatusParams{
-		Status: status,
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list videos by status: %w", err)
 	}
 	return pgVideosToDomain(rows), nil
 }
@@ -168,6 +161,7 @@ func pgVideoToDomain(v pggen.Video) *repository.Video {
 		JobID:           v.JobID,
 		Filename:        v.Filename,
 		DisplayName:     v.DisplayName,
+		Title:           v.Title,
 		Status:          v.Status,
 		Quality:         v.Quality,
 		BroadcasterID:   v.BroadcasterID,
@@ -183,6 +177,7 @@ func pgVideoToDomain(v pggen.Video) *repository.Video {
 		DeletedAt:       v.DeletedAt,
 		RecordingType:   v.RecordingType,
 		ForceH264:       v.ForceH264,
+		CompletionKind:  v.CompletionKind,
 	}
 }
 

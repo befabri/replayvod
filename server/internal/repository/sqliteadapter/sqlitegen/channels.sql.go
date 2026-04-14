@@ -8,12 +8,17 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const deleteChannel = `-- name: DeleteChannel :exec
+
 DELETE FROM channels WHERE broadcaster_id = ?
 `
 
+// NOTE: SearchChannels is hand-rolled in
+// internal/repository/sqliteadapter/channels.go for the same reason as
+// ListVideos (see queries/sqlite/videos.sql).
 func (q *Queries) DeleteChannel(ctx context.Context, broadcasterID string) error {
 	_, err := q.db.ExecContext(ctx, deleteChannel, broadcasterID)
 	return err
@@ -71,6 +76,55 @@ SELECT broadcaster_id, broadcaster_login, broadcaster_name, broadcaster_language
 
 func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 	rows, err := q.db.QueryContext(ctx, listChannels)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channel{}
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.BroadcasterID,
+			&i.BroadcasterLogin,
+			&i.BroadcasterName,
+			&i.BroadcasterLanguage,
+			&i.ProfileImageUrl,
+			&i.OfflineImageUrl,
+			&i.Description,
+			&i.BroadcasterType,
+			&i.ViewCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChannelsByIDs = `-- name: ListChannelsByIDs :many
+SELECT broadcaster_id, broadcaster_login, broadcaster_name, broadcaster_language, profile_image_url, offline_image_url, description, broadcaster_type, view_count, created_at, updated_at FROM channels WHERE broadcaster_id IN (/*SLICE:ids*/?)
+`
+
+func (q *Queries) ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error) {
+	query := listChannelsByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}

@@ -36,6 +36,9 @@ type Querier interface {
 	CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error)
 	CreateVideoPart(ctx context.Context, arg CreateVideoPartParams) (VideoPart, error)
 	CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error)
+	// NOTE: SearchChannels is hand-rolled in
+	// internal/repository/sqliteadapter/channels.go for the same reason as
+	// ListVideos (see queries/sqlite/videos.sql).
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
@@ -94,6 +97,7 @@ type Querier interface {
 	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
+	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	ListDueTasks(ctx context.Context) ([]Task, error)
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
@@ -101,6 +105,10 @@ type Querier interface {
 	ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
+	// SQLite has no DISTINCT ON; use ROW_NUMBER() to pick the most recent
+	// stream per broadcaster, then filter to rn=1. Joined with channels so
+	// the caller gets display metadata in one round-trip.
+	ListLatestLivePerChannel(ctx context.Context, limit int64) ([]ListLatestLivePerChannelRow, error)
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
@@ -116,16 +124,22 @@ type Querier interface {
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
+	// Ordered by linked_at, not titles.id. See postgres/titles.sql for
+	// the rationale.
 	ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error)
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
-	ListVideos(ctx context.Context, arg ListVideosParams) ([]Video, error)
+	// NOTE: ListVideos is intentionally NOT declared here. The PG path
+	// uses a CASE-based dynamic ORDER BY (see queries/postgres/videos.sql),
+	// but sqlc's SQLite engine can't infer the param type of a named arg
+	// referenced only inside CASE expressions, so the equivalent query is
+	// hand-rolled against the raw *sql.DB in
+	// internal/repository/sqliteadapter/videos.go.
 	ListVideosByBroadcaster(ctx context.Context, arg ListVideosByBroadcasterParams) ([]Video, error)
 	ListVideosByCategory(ctx context.Context, arg ListVideosByCategoryParams) ([]Video, error)
-	ListVideosByStatus(ctx context.Context, arg ListVideosByStatusParams) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
@@ -138,7 +152,9 @@ type Querier interface {
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
 	MarkTaskRunning(ctx context.Context, name string) error
 	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
+	// See postgres/videos.sql MarkVideoDone for completion_kind rationale.
 	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
+	// See postgres/videos.sql MarkVideoFailed for completion_kind rationale.
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
 	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
@@ -156,6 +172,14 @@ type Querier interface {
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
 	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
+	// Dedicated setter for box_art_url, the explicit "refresh art" path
+	// used by categoryart.Service (both the eager Hydrator enrichment
+	// and the scheduled backfill task). Separating this from
+	// UpsertCategory keeps "update art" distinct from "upsert name".
+	// Positional ? rather than named @ because sqlc's SQLite rewriter
+	// has been flaky combining named params with SET clauses in UPDATE
+	// (observed as tokens swallowing adjacent characters on generate).
+	UpdateCategoryBoxArt(ctx context.Context, arg UpdateCategoryBoxArtParams) error
 	UpdateJobResumeState(ctx context.Context, arg UpdateJobResumeStateParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
@@ -164,6 +188,10 @@ type Querier interface {
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
+	// Preserves box_art_url and igdb_id on conflict: a webhook-path
+	// upsert that only knows (id, name) won't wipe values the category-
+	// art sync has filled. ifnull() picks the existing row value when
+	// the caller passed NULL.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
 	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) (Setting, error)

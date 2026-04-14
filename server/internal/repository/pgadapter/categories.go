@@ -51,6 +51,21 @@ func (a *PGAdapter) ListCategories(ctx context.Context) ([]repository.Category, 
 	return cats, nil
 }
 
+func (a *PGAdapter) SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error) {
+	rows, err := a.queries.SearchCategories(ctx, pggen.SearchCategoriesParams{
+		Query:    query,
+		RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pg search categories: %w", err)
+	}
+	cats := make([]repository.Category, len(rows))
+	for i, row := range rows {
+		cats[i] = *pgCategoryToDomain(row)
+	}
+	return cats, nil
+}
+
 func (a *PGAdapter) ListCategoriesMissingBoxArt(ctx context.Context) ([]repository.Category, error) {
 	rows, err := a.queries.ListCategoriesMissingBoxArt(ctx)
 	if err != nil {
@@ -61,6 +76,16 @@ func (a *PGAdapter) ListCategoriesMissingBoxArt(ctx context.Context) ([]reposito
 		cats[i] = *pgCategoryToDomain(row)
 	}
 	return cats, nil
+}
+
+func (a *PGAdapter) UpdateCategoryBoxArt(ctx context.Context, id, boxArtURL string) error {
+	if err := a.queries.UpdateCategoryBoxArt(ctx, pggen.UpdateCategoryBoxArtParams{
+		ID:        id,
+		BoxArtUrl: &boxArtURL,
+	}); err != nil {
+		return fmt.Errorf("pg update category box art %s: %w", id, err)
+	}
+	return nil
 }
 
 // Tags

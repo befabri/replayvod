@@ -6,6 +6,7 @@ package sqlitegen
 
 import (
 	"database/sql"
+	"time"
 )
 
 type AppAccessToken struct {
@@ -244,6 +245,8 @@ type Video struct {
 	DeletedAt       sql.NullString  `json:"deleted_at"`
 	RecordingType   string          `json:"recording_type"`
 	ForceH264       int64           `json:"force_h264"`
+	Title           string          `json:"title"`
+	CompletionKind  string          `json:"completion_kind"`
 }
 
 type VideoCategory struct {
@@ -280,8 +283,9 @@ type VideoTag struct {
 }
 
 type VideoTitle struct {
-	VideoID int64 `json:"video_id"`
-	TitleID int64 `json:"title_id"`
+	VideoID  int64     `json:"video_id"`
+	TitleID  int64     `json:"title_id"`
+	LinkedAt time.Time `json:"linked_at"`
 }
 
 type WebhookEvent struct {

@@ -199,3 +199,422 @@ func TestPGAdapter_ErrNotFound(t *testing.T) {
 		t.Errorf("expected repository.ErrNotFound, got %v", err)
 	}
 }
+
+// TestListVideos_SortDimensions pins the CASE-based dynamic ORDER BY:
+// every enum sort_key variant produces the expected ordering. Mirrors
+// the SQLite equivalent so both adapters share an assertion contract.
+func TestListVideos_SortDimensions(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-1", BroadcasterLogin: "bc", BroadcasterName: "BC",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	//                           duration  size    display_name
+	//   alpha   (a)             100        500    "Alpha"        oldest
+	//   bravo   (b)             500       5000    "Bravo"        middle
+	//   charlie (c)             300       1000    "Charlie"      newest
+	type seed struct {
+		jobID, displayName string
+		duration           float64
+		size               int64
+	}
+	seeds := []seed{
+		{"j-a", "Alpha", 100, 500},
+		{"j-b", "Bravo", 500, 5000},
+		{"j-c", "Charlie", 300, 1000},
+	}
+	ids := make(map[string]int64, len(seeds))
+	for _, s := range seeds {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID:         s.jobID,
+			Filename:      s.jobID,
+			DisplayName:   s.displayName,
+			Status:        repository.VideoStatusDone,
+			Quality:       repository.QualityHigh,
+			BroadcasterID: "bc-1",
+			ViewerCount:   0,
+			Language:      "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", s.displayName, err)
+		}
+		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, "complete"); err != nil {
+			t.Fatalf("mark done %s: %v", s.displayName, err)
+		}
+		ids[s.displayName] = v.ID
+	}
+
+	// Explicit timestamps so created_at sort direction is tested
+	// directly, not the id-DESC tiebreaker behavior.
+	base := time.Now().UTC().Truncate(time.Second)
+	for i, name := range []string{"Alpha", "Bravo", "Charlie"} {
+		if _, err := a.db.Exec(ctx,
+			"UPDATE videos SET start_download_at = $1 WHERE id = $2",
+			base.Add(time.Duration(i)*time.Minute),
+			ids[name],
+		); err != nil {
+			t.Fatalf("override start_download_at for %s: %v", name, err)
+		}
+	}
+
+	cases := []struct {
+		name      string
+		opts      repository.ListVideosOpts
+		wantOrder []string
+	}{
+		{"default (empty sort/order) = created desc", repository.ListVideosOpts{Limit: 10}, []string{"Charlie", "Bravo", "Alpha"}},
+		{"duration desc", repository.ListVideosOpts{Sort: "duration", Order: "desc", Limit: 10}, []string{"Bravo", "Charlie", "Alpha"}},
+		{"duration asc", repository.ListVideosOpts{Sort: "duration", Order: "asc", Limit: 10}, []string{"Alpha", "Charlie", "Bravo"}},
+		{"size desc", repository.ListVideosOpts{Sort: "size", Order: "desc", Limit: 10}, []string{"Bravo", "Charlie", "Alpha"}},
+		{"size asc", repository.ListVideosOpts{Sort: "size", Order: "asc", Limit: 10}, []string{"Alpha", "Charlie", "Bravo"}},
+		{"channel asc", repository.ListVideosOpts{Sort: "channel", Order: "asc", Limit: 10}, []string{"Alpha", "Bravo", "Charlie"}},
+		{"channel desc", repository.ListVideosOpts{Sort: "channel", Order: "desc", Limit: 10}, []string{"Charlie", "Bravo", "Alpha"}},
+		{"created_at asc", repository.ListVideosOpts{Sort: "created_at", Order: "asc", Limit: 10}, []string{"Alpha", "Bravo", "Charlie"}},
+		{"created_at desc = default", repository.ListVideosOpts{Sort: "created_at", Order: "desc", Limit: 10}, []string{"Charlie", "Bravo", "Alpha"}},
+		{"status filter narrows result", repository.ListVideosOpts{Status: "DONE", Limit: 10}, []string{"Charlie", "Bravo", "Alpha"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := a.ListVideos(ctx, tc.opts)
+			if err != nil {
+				t.Fatalf("ListVideos: %v", err)
+			}
+			if len(got) != len(tc.wantOrder) {
+				t.Fatalf("row count: want %d got %d", len(tc.wantOrder), len(got))
+			}
+			for i, want := range tc.wantOrder {
+				if got[i].DisplayName != want {
+					t.Errorf("row %d: want %s got %s", i, want, got[i].DisplayName)
+				}
+			}
+		})
+	}
+}
+
+// TestSearchChannels mirrors the SQLite test so the PG ILIKE-based
+// path and the SQLite lower()+LIKE path are held to the same contract.
+// Split into subtests to surface individual assertion failures clearly.
+func TestSearchChannels(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	seed := []repository.Channel{
+		{BroadcasterID: "1", BroadcasterLogin: "shroud", BroadcasterName: "shroud"},
+		{BroadcasterID: "2", BroadcasterLogin: "shoal", BroadcasterName: "Shoal"},
+		{BroadcasterID: "3", BroadcasterLogin: "ashotoftoast", BroadcasterName: "ashot"},
+		{BroadcasterID: "4", BroadcasterLogin: "unrelated", BroadcasterName: "Elsewhere"},
+		{BroadcasterID: "5", BroadcasterLogin: "percent_tester", BroadcasterName: "100% tester"},
+	}
+	for _, c := range seed {
+		ch := c
+		if _, err := a.UpsertChannel(ctx, &ch); err != nil {
+			t.Fatalf("seed %s: %v", c.BroadcasterLogin, err)
+		}
+	}
+
+	loginsOf := func(channels []repository.Channel) []string {
+		out := make([]string, len(channels))
+		for i, c := range channels {
+			out[i] = c.BroadcasterLogin
+		}
+		return out
+	}
+
+	t.Run("prefix beats substring, alphabetical within prefix", func(t *testing.T) {
+		got, err := a.SearchChannels(ctx, "sh", 10)
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		want := []string{"shoal", "shroud", "ashotoftoast"}
+		if len(got) != len(want) {
+			t.Fatalf("row count: want %d (%v) got %d (%v)", len(want), want, len(got), loginsOf(got))
+		}
+		for i, w := range want {
+			if got[i].BroadcasterLogin != w {
+				t.Errorf("row %d: want %s got %s", i, w, got[i].BroadcasterLogin)
+			}
+		}
+	})
+
+	t.Run("exact login match ranks above prefix match", func(t *testing.T) {
+		got, err := a.SearchChannels(ctx, "shroud", 10)
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		if len(got) == 0 || got[0].BroadcasterLogin != "shroud" {
+			t.Errorf("exact match should rank first, got %v", loginsOf(got))
+		}
+	})
+
+	t.Run("empty query returns all", func(t *testing.T) {
+		got, err := a.SearchChannels(ctx, "", 10)
+		if err != nil {
+			t.Fatalf("search empty: %v", err)
+		}
+		if len(got) != len(seed) {
+			t.Fatalf("want all %d seeded, got %d", len(seed), len(got))
+		}
+	})
+
+	t.Run("limit caps result rows", func(t *testing.T) {
+		got, err := a.SearchChannels(ctx, "", 2)
+		if err != nil {
+			t.Fatalf("search limit: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("limit=2 should return 2 rows, got %d", len(got))
+		}
+	})
+
+	t.Run("query matches display name via ILIKE", func(t *testing.T) {
+		// Name "100% tester" has "100" in it; login doesn't. Searching
+		// "100" returns the row via the name branch.
+		got, err := a.SearchChannels(ctx, "100", 10)
+		if err != nil {
+			t.Fatalf("search by name: %v", err)
+		}
+		if len(got) != 1 || got[0].BroadcasterID != "5" {
+			t.Errorf("expected 1 row matched via display name, got %v", loginsOf(got))
+		}
+	})
+}
+
+// TestSearchCategories mirrors the SQLite test so the PG ILIKE path
+// and the SQLite lower()+LIKE path are held to the same contract.
+// Split into subtests so an individual assertion failure doesn't
+// mask later ones.
+func TestSearchCategories(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	seed := []repository.Category{
+		{ID: "1", Name: "Valorant"},
+		{ID: "2", Name: "Valheim"},
+		{ID: "3", Name: "The Legend of Valor"},
+		{ID: "4", Name: "Celeste"},
+	}
+	for _, c := range seed {
+		cat := c
+		if _, err := a.UpsertCategory(ctx, &cat); err != nil {
+			t.Fatalf("seed %s: %v", c.Name, err)
+		}
+	}
+
+	namesOf := func(cats []repository.Category) []string {
+		out := make([]string, len(cats))
+		for i, c := range cats {
+			out[i] = c.Name
+		}
+		return out
+	}
+
+	t.Run("prefix beats substring, alphabetical within prefix", func(t *testing.T) {
+		got, err := a.SearchCategories(ctx, "val", 10)
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		want := []string{"Valheim", "Valorant", "The Legend of Valor"}
+		if len(got) != len(want) {
+			t.Fatalf("row count: want %d (%v) got %d (%v)", len(want), want, len(got), namesOf(got))
+		}
+		for i, w := range want {
+			if got[i].Name != w {
+				t.Errorf("row %d: want %s got %s", i, w, got[i].Name)
+			}
+		}
+	})
+
+	t.Run("exact name match ranks above prefix", func(t *testing.T) {
+		got, err := a.SearchCategories(ctx, "Valorant", 10)
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		if len(got) == 0 || got[0].Name != "Valorant" {
+			t.Errorf("exact match should rank first, got %v", namesOf(got))
+		}
+	})
+
+	t.Run("empty query returns all up to limit", func(t *testing.T) {
+		got, err := a.SearchCategories(ctx, "", 10)
+		if err != nil {
+			t.Fatalf("search empty: %v", err)
+		}
+		if len(got) != len(seed) {
+			t.Fatalf("want %d rows, got %d", len(seed), len(got))
+		}
+	})
+
+	t.Run("limit caps result rows", func(t *testing.T) {
+		got, err := a.SearchCategories(ctx, "", 2)
+		if err != nil {
+			t.Fatalf("search limit: %v", err)
+		}
+		if len(got) != 2 {
+			t.Errorf("limit=2 should return 2 rows, got %d", len(got))
+		}
+	})
+}
+
+// TestUpsertCategory_PreservesBoxArt mirrors the SQLite case:
+// COALESCE(EXCLUDED.*, categories.*) on box_art_url + igdb_id must
+// keep existing values when the caller upserts with only (id, name).
+func TestUpsertCategory_PreservesBoxArt(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	art := "https://cdn.example.com/art-{width}x{height}.jpg"
+	igdb := "igdb-42"
+	if _, err := a.UpsertCategory(ctx, &repository.Category{
+		ID:        "g-1",
+		Name:      "Old Name",
+		BoxArtURL: &art,
+		IGDBID:    &igdb,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := a.UpsertCategory(ctx, &repository.Category{
+		ID: "g-1", Name: "New Name",
+	}); err != nil {
+		t.Fatalf("webhook-path upsert: %v", err)
+	}
+
+	got, err := a.GetCategory(ctx, "g-1")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Name != "New Name" {
+		t.Errorf("name should update: got %q", got.Name)
+	}
+	if got.BoxArtURL == nil || *got.BoxArtURL != art {
+		t.Errorf("box_art_url was wiped: got %v, want %q", got.BoxArtURL, art)
+	}
+	if got.IGDBID == nil || *got.IGDBID != igdb {
+		t.Errorf("igdb_id was wiped: got %v, want %q", got.IGDBID, igdb)
+	}
+}
+
+func TestUpdateCategoryBoxArt(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if _, err := a.UpsertCategory(ctx, &repository.Category{ID: "g-2", Name: "G"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	art := "https://cdn.example.com/g-2-{width}x{height}.jpg"
+	if err := a.UpdateCategoryBoxArt(ctx, "g-2", art); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, err := a.GetCategory(ctx, "g-2")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.BoxArtURL == nil || *got.BoxArtURL != art {
+		t.Errorf("box_art_url: got %v, want %q", got.BoxArtURL, art)
+	}
+}
+
+// TestListChannelsByIDs pins the batch-dereference primitive used by
+// stream.followed to pre-filter Helix results against the local
+// mirror. Subtests cover: matched+missing mix, nil-input no-op,
+// duplicate IDs in input.
+func TestListChannelsByIDs(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	for _, id := range []string{"1", "2", "3"} {
+		if _, err := a.UpsertChannel(ctx, &repository.Channel{
+			BroadcasterID: id, BroadcasterLogin: "l-" + id, BroadcasterName: "n-" + id,
+		}); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+
+	t.Run("matched + missing ids", func(t *testing.T) {
+		got, err := a.ListChannelsByIDs(ctx, []string{"1", "3", "missing"})
+		if err != nil {
+			t.Fatalf("by ids: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("want 2 matched rows, got %d", len(got))
+		}
+	})
+
+	t.Run("nil ids returns empty, no error", func(t *testing.T) {
+		empty, err := a.ListChannelsByIDs(ctx, nil)
+		if err != nil {
+			t.Fatalf("by nil ids: %v", err)
+		}
+		if len(empty) != 0 {
+			t.Errorf("nil ids should return 0 rows, got %d", len(empty))
+		}
+	})
+
+	t.Run("duplicate ids deduped by set semantics", func(t *testing.T) {
+		got, err := a.ListChannelsByIDs(ctx, []string{"1", "1", "2"})
+		if err != nil {
+			t.Fatalf("by dup ids: %v", err)
+		}
+		if len(got) != 2 {
+			t.Errorf("duplicates should collapse, got %d rows", len(got))
+		}
+	})
+}
+
+func TestListLatestLivePerChannel_OnePerBroadcaster(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	profile := "https://example.com/a.png"
+	for _, c := range []repository.Channel{
+		{BroadcasterID: "ch-a", BroadcasterLogin: "a", BroadcasterName: "A", ProfileImageURL: &profile},
+		{BroadcasterID: "ch-b", BroadcasterLogin: "b", BroadcasterName: "B"},
+	} {
+		ch := c
+		if _, err := a.UpsertChannel(ctx, &ch); err != nil {
+			t.Fatalf("seed channel %s: %v", c.BroadcasterID, err)
+		}
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	streams := []struct {
+		id, bc string
+		offset time.Duration
+	}{
+		{"s-a-old", "ch-a", -4 * time.Hour},
+		{"s-a-new", "ch-a", -30 * time.Minute},
+		{"s-b-1", "ch-b", -2 * time.Hour},
+	}
+	for _, s := range streams {
+		if _, err := a.UpsertStream(ctx, &repository.StreamInput{
+			ID: s.id, BroadcasterID: s.bc, Type: "live", Language: "en",
+			ViewerCount: 1, StartedAt: now.Add(s.offset),
+		}); err != nil {
+			t.Fatalf("seed stream %s: %v", s.id, err)
+		}
+	}
+
+	got, err := a.ListLatestLivePerChannel(ctx, 10)
+	if err != nil {
+		t.Fatalf("latest live: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 rows (one per broadcaster), got %d", len(got))
+	}
+	if got[0].ID != "s-a-new" || got[0].BroadcasterID != "ch-a" {
+		t.Errorf("row 0: want s-a-new/ch-a, got %s/%s", got[0].ID, got[0].BroadcasterID)
+	}
+	if got[0].BroadcasterLogin != "a" || got[0].BroadcasterName != "A" {
+		t.Errorf("row 0 display info: got login=%q name=%q", got[0].BroadcasterLogin, got[0].BroadcasterName)
+	}
+	if got[0].ProfileImageURL == nil || *got[0].ProfileImageURL != profile {
+		t.Errorf("row 0 profile image: got %v", got[0].ProfileImageURL)
+	}
+	if got[1].ID != "s-b-1" || got[1].BroadcasterID != "ch-b" {
+		t.Errorf("row 1: want s-b-1/ch-b, got %s/%s", got[1].ID, got[1].BroadcasterID)
+	}
+}

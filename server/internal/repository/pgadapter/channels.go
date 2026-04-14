@@ -54,6 +54,36 @@ func (a *PGAdapter) ListChannels(ctx context.Context) ([]repository.Channel, err
 	return channels, nil
 }
 
+func (a *PGAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]repository.Channel, error) {
+	if len(ids) == 0 {
+		return []repository.Channel{}, nil
+	}
+	rows, err := a.queries.ListChannelsByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("pg list channels by ids: %w", err)
+	}
+	channels := make([]repository.Channel, len(rows))
+	for i, row := range rows {
+		channels[i] = *pgChannelToDomain(row)
+	}
+	return channels, nil
+}
+
+func (a *PGAdapter) SearchChannels(ctx context.Context, query string, limit int) ([]repository.Channel, error) {
+	rows, err := a.queries.SearchChannels(ctx, pggen.SearchChannelsParams{
+		Query:    query,
+		RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pg search channels: %w", err)
+	}
+	channels := make([]repository.Channel, len(rows))
+	for i, row := range rows {
+		channels[i] = *pgChannelToDomain(row)
+	}
+	return channels, nil
+}
+
 func (a *PGAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
 	return a.queries.DeleteChannel(ctx, broadcasterID)
 }

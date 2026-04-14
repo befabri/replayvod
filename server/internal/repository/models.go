@@ -144,6 +144,17 @@ type Stream struct {
 	CreatedAt     time.Time
 }
 
+// LatestLiveStream is the most recent stream for a broadcaster, flattened
+// with the channel display metadata (login, name, avatar). Returned by
+// ListLatestLivePerChannel so the dashboard can render a "recently live"
+// feed without N+1 channel lookups. Ordered newest-first by StartedAt.
+type LatestLiveStream struct {
+	Stream
+	BroadcasterLogin string
+	BroadcasterName  string
+	ProfileImageURL  *string
+}
+
 // StreamInput is the upsert payload for a stream snapshot.
 type StreamInput struct {
 	ID            string
@@ -167,6 +178,12 @@ type Video struct {
 	JobID           string
 	Filename        string
 	DisplayName     string
+	// Title is the stream title at download-start time — the thing
+	// the streamer typed as the broadcast label (e.g. "Playing ER
+	// DLC"), not the channel's display name. Empty string when
+	// Twitch didn't surface a title (rare; manual trigger against
+	// a channel that just went offline).
+	Title           string
 	Status          string
 	Quality         string
 	BroadcasterID   string
@@ -182,7 +199,23 @@ type Video struct {
 	DeletedAt       *time.Time
 	RecordingType   string
 	ForceH264       bool
+	// CompletionKind distinguishes content-completeness from
+	// pipeline success. Values: "complete" (clean end), "partial"
+	// (ended but missed data — typically a shutdown-resume gap),
+	// "cancelled" (operator called Cancel). Defaults to "complete"
+	// on insert; final value is set at terminal transitions in the
+	// downloader.
+	CompletionKind  string
 }
+
+// VideoCompletionKind enumerates the values of videos.completion_kind.
+// Pinned to constants so the downloader and handler don't drift on
+// literals.
+const (
+	CompletionKindComplete  = "complete"
+	CompletionKindPartial   = "partial"
+	CompletionKindCancelled = "cancelled"
+)
 
 // VideoInput is the creation payload for a new download row.
 // RecordingType is required ("video" or "audio"); empty defaults to "video"
@@ -191,6 +224,10 @@ type VideoInput struct {
 	JobID         string
 	Filename      string
 	DisplayName   string
+	// Title is the stream title at download-start time; pass ""
+	// when Helix didn't surface one so the row still satisfies the
+	// NOT NULL constraint.
+	Title         string
 	Status        string
 	Quality       string
 	BroadcasterID string
@@ -330,6 +367,31 @@ type VideoStatsTotals struct {
 type VideoStatsByStatus struct {
 	Status string
 	Count  int64
+}
+
+// ListVideosOpts is the filter+sort payload for ListVideos. Empty Status
+// means "all statuses". Sort/Order are enum-validated at the handler
+// boundary; the adapter falls back to created_at DESC when they are
+// empty or unrecognized. NULL size/duration rows sort to the end.
+type ListVideosOpts struct {
+	Status string // "" | "PENDING" | "RUNNING" | "DONE" | "FAILED"
+	Sort   string // "" | "created_at" | "duration" | "size" | "channel"
+	Order  string // "" | "asc" | "desc"
+	Limit  int
+	Offset int
+}
+
+// SortKey composes Sort+Order into the "sort_key" form the SQL expects
+// ("duration-desc", "channel-asc", etc.). Returns "" when either half
+// is empty — the SQL's default branch (start_download_at DESC) handles
+// that case without needing a second code path. Handlers that want
+// "desc when sort is set, default otherwise" should fill Order before
+// calling.
+func (o ListVideosOpts) SortKey() string {
+	if o.Sort == "" || o.Order == "" {
+		return ""
+	}
+	return o.Sort + "-" + o.Order
 }
 
 // WebhookMessageType enumerates the three Twitch EventSub message types.
