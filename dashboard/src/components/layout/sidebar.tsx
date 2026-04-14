@@ -1,226 +1,242 @@
-import { Link } from "@tanstack/react-router"
-import { useStore } from "@tanstack/react-store"
-import { useEffect, useState } from "react"
-import { useTranslation } from "react-i18next"
-import { authStore, hasRole, logout } from "@/stores/auth"
+import type { Icon } from "@phosphor-icons/react";
+import {
+	CaretDown,
+	Clock,
+	Desktop,
+	Gear,
+	House,
+	ListChecks,
+	Play,
+	TrayArrowDown,
+} from "@phosphor-icons/react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { useStore } from "@tanstack/react-store";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
+import { authStore, hasRole } from "@/stores/auth";
+import { closeSidebar, uiStore } from "@/stores/ui";
+
+type NavChild = { to: string; label: string; exact?: boolean };
+type NavGroup = {
+	icon: Icon;
+	label: string;
+	ownerOnly?: boolean;
+} & (
+	| { to: string; children?: undefined }
+	| { to?: undefined; children: NavChild[] }
+);
+
+function useNavGroups(): NavGroup[] {
+	const { t } = useTranslation();
+	return useMemo<NavGroup[]>(
+		() => [
+			{ icon: House, label: t("nav.dashboard"), to: "/dashboard" },
+			{
+				icon: Play,
+				label: t("nav.videos"),
+				children: [
+					{ to: "/dashboard/videos", label: t("nav.videos"), exact: true },
+					{ to: "/dashboard/categories", label: t("nav.categories") },
+					{ to: "/dashboard/channels", label: t("nav.channels") },
+				],
+			},
+			{
+				icon: TrayArrowDown,
+				label: t("nav.recording"),
+				children: [
+					{ to: "/dashboard/schedules", label: t("nav.schedules") },
+					{ to: "/dashboard/requests", label: t("nav.requests") },
+				],
+			},
+			{
+				icon: ListChecks,
+				label: t("nav.activity"),
+				children: [
+					{ to: "/dashboard/activity/queue", label: t("nav.activity_queue") },
+					{
+						to: "/dashboard/activity/history",
+						label: t("nav.activity_history"),
+					},
+				],
+			},
+			{ icon: Gear, label: t("nav.settings"), to: "/dashboard/settings" },
+			{ icon: Clock, label: t("nav.sessions"), to: "/dashboard/sessions" },
+			{
+				icon: Desktop,
+				label: t("nav.system"),
+				ownerOnly: true,
+				children: [
+					{ to: "/dashboard/system/users", label: t("nav.users") },
+					{ to: "/dashboard/system/whitelist", label: t("nav.whitelist") },
+					{ to: "/dashboard/system/eventsub", label: t("nav.eventsub") },
+					{ to: "/dashboard/system/tasks", label: t("nav.tasks") },
+					{ to: "/dashboard/system/events", label: t("nav.events") },
+					{ to: "/dashboard/system/logs", label: t("nav.logs") },
+				],
+			},
+		],
+		[t],
+	);
+}
 
 export function Sidebar() {
-	const { t } = useTranslation()
-	const user = useStore(authStore, (s) => s.user)
-	const [open, setOpen] = useState(false)
+	const { t } = useTranslation();
+	const user = useStore(authStore, (s) => s.user);
+	const open = useStore(uiStore, (s) => s.sidebarOpen);
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	const groups = useNavGroups();
 
-	// Close the drawer on Escape for keyboard parity with the backdrop click.
+	const visibleGroups = useMemo(
+		() => groups.filter((g) => !g.ownerOnly || hasRole(user, "owner")),
+		[groups, user],
+	);
+
+	const activeGroupIndex = useMemo(() => {
+		return visibleGroups.findIndex((g) =>
+			g.children?.some(
+				(c) => pathname === c.to || pathname.startsWith(`${c.to}/`),
+			),
+		);
+	}, [visibleGroups, pathname]);
+
+	const [openIndex, setOpenIndex] = useState<number | null>(activeGroupIndex);
+
 	useEffect(() => {
-		if (!open) return
+		if (activeGroupIndex >= 0) setOpenIndex(activeGroupIndex);
+	}, [activeGroupIndex]);
+
+	useEffect(() => {
+		if (!open) return;
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") setOpen(false)
-		}
-		window.addEventListener("keydown", onKey)
-		return () => window.removeEventListener("keydown", onKey)
-	}, [open])
+			if (e.key === "Escape") closeSidebar();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [open]);
 
 	return (
 		<>
-			{/* Hamburger — mobile only */}
-			<button
-				type="button"
-				onClick={() => setOpen(true)}
-				aria-label={t("nav.open_menu")}
-				className="md:hidden fixed top-3 left-3 z-40 rounded-md bg-sidebar text-sidebar-foreground border border-sidebar-border p-2 shadow-sm"
-			>
-				<HamburgerIcon />
-			</button>
-
-			{/* Backdrop — mobile only */}
 			{open && (
 				<button
 					type="button"
 					aria-label={t("nav.close_menu")}
-					onClick={() => setOpen(false)}
-					className="md:hidden fixed inset-0 z-40 bg-black/40"
+					onClick={closeSidebar}
+					className="md:hidden fixed inset-0 z-40 bg-overlay"
 				/>
 			)}
 
-			{/* Sidebar: fixed on md+, slide-in drawer below md */}
 			<aside
-				className={`fixed left-0 top-0 bottom-0 w-56 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col z-50 transition-transform md:translate-x-0 ${
-					open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-				}`}
-			>
-				<div className="p-4 border-b border-sidebar-border">
-					<Link
-						to="/dashboard"
-						className="text-xl font-heading font-bold"
-						onClick={() => setOpen(false)}
-					>
-						{t("app.name")}
-					</Link>
-				</div>
-
-				<nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-					<NavLink
-						to="/dashboard"
-						label={t("nav.dashboard")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/videos"
-						label={t("nav.videos")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/channels"
-						label={t("nav.channels")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/categories"
-						label={t("nav.categories")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/requests"
-						label={t("nav.requests")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/schedules"
-						label={t("nav.schedules")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/settings"
-						label={t("nav.settings")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/sessions"
-						label={t("nav.sessions")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/activity/queue"
-						label={t("nav.activity_queue")}
-						onNavigate={() => setOpen(false)}
-					/>
-					<NavLink
-						to="/dashboard/activity/history"
-						label={t("nav.activity_history")}
-						onNavigate={() => setOpen(false)}
-					/>
-					{user && hasRole(user, "owner") && (
-						<>
-							<div className="pt-4 pb-1 px-3 text-xs uppercase tracking-wide text-muted-foreground">
-								{t("nav.system")}
-							</div>
-							<NavLink
-								to="/dashboard/system/logs"
-								label={t("nav.logs")}
-								onNavigate={() => setOpen(false)}
-							/>
-							<NavLink
-								to="/dashboard/system/users"
-								label={t("nav.users")}
-								onNavigate={() => setOpen(false)}
-							/>
-							<NavLink
-								to="/dashboard/system/whitelist"
-								label={t("nav.whitelist")}
-								onNavigate={() => setOpen(false)}
-							/>
-							<NavLink
-								to="/dashboard/system/eventsub"
-								label={t("nav.eventsub")}
-								onNavigate={() => setOpen(false)}
-							/>
-							<NavLink
-								to="/dashboard/system/tasks"
-								label={t("nav.tasks")}
-								onNavigate={() => setOpen(false)}
-							/>
-							<NavLink
-								to="/dashboard/system/events"
-								label={t("nav.events")}
-								onNavigate={() => setOpen(false)}
-							/>
-						</>
-					)}
-				</nav>
-
-				{user && (
-					<div className="p-4 border-t border-sidebar-border">
-						<div className="flex items-center gap-2 mb-2">
-							{user.profileImageUrl && (
-								<img
-									src={user.profileImageUrl}
-									alt=""
-									className="w-8 h-8 rounded-full"
-								/>
-							)}
-							<div className="flex-1 min-w-0">
-								<div className="truncate text-sm font-medium">
-									{user.displayName}
-								</div>
-								<div className="text-xs text-muted-foreground capitalize">
-									{user.role}
-								</div>
-							</div>
-						</div>
-						<button
-							type="button"
-							onClick={() => logout()}
-							className="w-full text-left text-sm text-muted-foreground hover:text-foreground transition-colors"
-						>
-							{t("auth.logout")}
-						</button>
-					</div>
+				className={cn(
+					"fixed left-0 top-0 bottom-0 w-56 pt-16 bg-sidebar text-sidebar-foreground border-r border-sidebar-border z-40 transition-transform duration-200 md:translate-x-0",
+					open ? "translate-x-0" : "-translate-x-full",
 				)}
+			>
+				<nav className="h-full overflow-y-auto px-3 pb-4 pt-3">
+					<ul className="space-y-1">
+						{visibleGroups.map((group, idx) => (
+							<li key={group.label}>
+								{group.children ? (
+									<GroupItem
+										group={group}
+										isOpen={openIndex === idx}
+										onToggle={() =>
+											setOpenIndex((prev) => (prev === idx ? null : idx))
+										}
+									/>
+								) : (
+									<LeafLink
+										to={group.to}
+										icon={group.icon}
+										label={group.label}
+									/>
+								)}
+							</li>
+						))}
+					</ul>
+				</nav>
 			</aside>
 		</>
-	)
+	);
 }
 
-function NavLink({
-	to,
-	label,
-	onNavigate,
+function GroupItem({
+	group,
+	isOpen,
+	onToggle,
 }: {
-	to: string
-	label: string
-	onNavigate?: () => void
+	group: NavGroup & { children: NavChild[] };
+	isOpen: boolean;
+	onToggle: () => void;
+}) {
+	const Icon = group.icon;
+	return (
+		<>
+			<button
+				type="button"
+				onClick={onToggle}
+				className="group flex w-full items-center gap-3 rounded-md p-2 text-sm font-medium transition-colors duration-75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+				aria-expanded={isOpen}
+			>
+				<Icon size={20} weight="fill" />
+				<span className="flex-1 text-left truncate">{group.label}</span>
+				<CaretDown
+					size={16}
+					weight="bold"
+					className={cn(
+						"transition-transform duration-200",
+						isOpen && "rotate-180",
+					)}
+				/>
+			</button>
+			{isOpen && (
+				<ul className="mt-1 space-y-1">
+					{group.children.map((child) => (
+						<li key={child.to}>
+							<Link
+								// biome-ignore lint/suspicious/noExplicitAny: TanStack Router types don't narrow well on arbitrary string paths
+								to={child.to as any}
+								onClick={closeSidebar}
+								activeOptions={child.exact ? { exact: true } : undefined}
+								className="flex items-center rounded-md p-2 pl-11 text-sm transition-colors duration-75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground truncate"
+								activeProps={{
+									className:
+										"flex items-center rounded-md p-2 pl-11 text-sm font-medium bg-sidebar-accent text-sidebar-accent-foreground truncate",
+								}}
+							>
+								{child.label}
+							</Link>
+						</li>
+					))}
+				</ul>
+			)}
+		</>
+	);
+}
+
+function LeafLink({
+	to,
+	icon: IconCmp,
+	label,
+}: {
+	to: string;
+	icon: Icon;
+	label: string;
 }) {
 	return (
 		<Link
 			// biome-ignore lint/suspicious/noExplicitAny: TanStack Router types don't narrow well on arbitrary string paths
 			to={to as any}
-			onClick={onNavigate}
-			className="block px-3 py-2 rounded-md text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+			onClick={closeSidebar}
+			className="flex items-center gap-3 rounded-md p-2 text-sm font-medium transition-colors duration-75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
 			activeProps={{
 				className:
-					"block px-3 py-2 rounded-md text-sm bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+					"flex items-center gap-3 rounded-md p-2 text-sm font-medium bg-sidebar-accent text-sidebar-accent-foreground",
 			}}
+			activeOptions={{ exact: true }}
 		>
-			{label}
+			<IconCmp size={20} weight="fill" />
+			<span className="flex-1 truncate">{label}</span>
 		</Link>
-	)
-}
-
-function HamburgerIcon() {
-	return (
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			className="w-5 h-5"
-			aria-hidden="true"
-		>
-			<line x1="3" y1="6" x2="21" y2="6" />
-			<line x1="3" y1="12" x2="21" y2="12" />
-			<line x1="3" y1="18" x2="21" y2="18" />
-		</svg>
-	)
+	);
 }
