@@ -1,0 +1,13 @@
+-- title captures the stream's title at download-start time. This is a
+-- denormalized snapshot; the existing titles / stream_titles / video_titles
+-- M2M tables stay in place for future use (tracking title changes mid-
+-- stream) but aren't populated yet. The direct column is what the video
+-- list page reads — a JOIN per row would be wasteful for a field set once
+-- per recording and never edited.
+--
+-- NOT NULL DEFAULT '' so back-filling existing rows is trivial and the
+-- handler's VideoResponse never deals with a null-vs-empty distinction.
+-- When Helix / EventSub doesn't expose a title (manual trigger against a
+-- channel not currently live), we store '' and the UI falls back to
+-- display_name.
+ALTER TABLE videos ADD COLUMN title TEXT NOT NULL DEFAULT '';

@@ -6,40 +6,45 @@ SELECT * FROM videos WHERE job_id = ?;
 
 -- name: CreateVideo :one
 INSERT INTO videos (
-    job_id, filename, display_name, status, quality,
+    job_id, filename, display_name, title, status, quality,
     broadcaster_id, stream_id, viewer_count, language, recording_type,
     force_h264
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateVideoStatus :exec
 UPDATE videos SET status = ? WHERE id = ?;
 
 -- name: MarkVideoDone :exec
+-- See postgres/videos.sql MarkVideoDone for completion_kind rationale.
 UPDATE videos SET
     status = 'DONE',
     downloaded_at = datetime('now'),
     duration_seconds = ?,
     size_bytes = ?,
-    thumbnail = ?
+    thumbnail = ?,
+    completion_kind = ?
 WHERE id = ?;
 
 -- name: MarkVideoFailed :exec
+-- See postgres/videos.sql MarkVideoFailed for completion_kind rationale.
 UPDATE videos SET
     status = 'FAILED',
     downloaded_at = datetime('now'),
-    error = ?
+    error = ?,
+    completion_kind = ?
 WHERE id = ?;
 
 -- name: SetVideoThumbnail :exec
 UPDATE videos SET thumbnail = ? WHERE id = ?;
 
--- name: ListVideos :many
-SELECT * FROM videos WHERE deleted_at IS NULL ORDER BY start_download_at DESC LIMIT ? OFFSET ?;
-
--- name: ListVideosByStatus :many
-SELECT * FROM videos WHERE status = ? AND deleted_at IS NULL ORDER BY start_download_at DESC LIMIT ? OFFSET ?;
+-- NOTE: ListVideos is intentionally NOT declared here. The PG path
+-- uses a CASE-based dynamic ORDER BY (see queries/postgres/videos.sql),
+-- but sqlc's SQLite engine can't infer the param type of a named arg
+-- referenced only inside CASE expressions, so the equivalent query is
+-- hand-rolled against the raw *sql.DB in
+-- internal/repository/sqliteadapter/videos.go.
 
 -- name: ListVideosByBroadcaster :many
 SELECT * FROM videos

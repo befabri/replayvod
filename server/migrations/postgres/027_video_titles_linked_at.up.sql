@@ -1,0 +1,11 @@
+-- video_titles.linked_at is the load-bearing sort key for the title
+-- history UI. Without it, ListTitlesForVideo can only sort by
+-- titles.id (dedup creation order), which lies about link order
+-- whenever a stream cycles through a title that already existed in
+-- the global titles pool from a prior broadcast.
+--
+-- DEFAULT NOW() back-fills every existing row with the current
+-- timestamp. Pre-fix rows all get the same value, so existing
+-- history is collapsed to a single moment in time — accepted loss;
+-- no one shipped title tracking before this migration anyway.
+ALTER TABLE video_titles ADD COLUMN linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
