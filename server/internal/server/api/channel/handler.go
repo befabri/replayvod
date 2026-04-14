@@ -115,6 +115,87 @@ func (h *Handler) ListFollowed(ctx context.Context) ([]ChannelResponse, error) {
 	return out, nil
 }
 
+// SearchInput drives channel.search. Empty Query returns everything up
+// to Limit — the same endpoint backs the combobox "show all" state.
+// Query is capped so a malicious caller can't feed a 1 MB ILIKE
+// pattern; 100 chars comfortably covers Twitch logins (max 25) and
+// display names (max 25) with headroom.
+type SearchInput struct {
+	Query string `json:"query" validate:"max=100"`
+	Limit int    `json:"limit,omitempty" validate:"min=0,max=200"`
+}
+
+func (h *Handler) Search(ctx context.Context, input SearchInput) ([]ChannelResponse, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	channels, err := h.svc.Search(ctx, input.Query, limit)
+	if err != nil {
+		h.log.Error("search channels", "error", err)
+		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to search channels")
+	}
+	out := make([]ChannelResponse, len(channels))
+	for i := range channels {
+		out[i] = toResponse(&channels[i])
+	}
+	return out, nil
+}
+
+// LatestLiveResponse is the wire shape for one row of channel.latestLive:
+// stream snapshot + flattened broadcaster display info, so the dashboard
+// can render the card without a follow-up channel.getById per row.
+type LatestLiveResponse struct {
+	StreamID         string     `json:"stream_id"`
+	BroadcasterID    string     `json:"broadcaster_id"`
+	BroadcasterLogin string     `json:"broadcaster_login"`
+	BroadcasterName  string     `json:"broadcaster_name"`
+	ProfileImageURL  *string    `json:"profile_image_url,omitempty"`
+	Type             string     `json:"type"`
+	Language         string     `json:"language"`
+	ThumbnailURL     *string    `json:"thumbnail_url,omitempty"`
+	ViewerCount      int64      `json:"viewer_count"`
+	IsMature         *bool      `json:"is_mature,omitempty"`
+	StartedAt        time.Time  `json:"started_at"`
+	EndedAt          *time.Time `json:"ended_at,omitempty"`
+}
+
+// LatestLiveInput caps result rows. Zero Limit uses a sensible default
+// (8) — enough for a dashboard card without scrolling.
+type LatestLiveInput struct {
+	Limit int `json:"limit,omitempty" validate:"min=0,max=100"`
+}
+
+func (h *Handler) LatestLive(ctx context.Context, input LatestLiveInput) ([]LatestLiveResponse, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	rows, err := h.svc.LatestLive(ctx, limit)
+	if err != nil {
+		h.log.Error("latest live per channel", "error", err)
+		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load latest live streams")
+	}
+	out := make([]LatestLiveResponse, len(rows))
+	for i, r := range rows {
+		out[i] = LatestLiveResponse{
+			StreamID:         r.ID,
+			BroadcasterID:    r.BroadcasterID,
+			BroadcasterLogin: r.BroadcasterLogin,
+			BroadcasterName:  r.BroadcasterName,
+			ProfileImageURL:  r.ProfileImageURL,
+			Type:             r.Type,
+			Language:         r.Language,
+			ThumbnailURL:     r.ThumbnailURL,
+			ViewerCount:      r.ViewerCount,
+			IsMature:         r.IsMature,
+			StartedAt:        r.StartedAt,
+			EndedAt:          r.EndedAt,
+		}
+	}
+	return out, nil
+}
+
 type SyncFromTwitchInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 }

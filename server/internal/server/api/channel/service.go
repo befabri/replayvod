@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/befabri/replayvod/server/internal/ptr"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
@@ -45,6 +46,18 @@ func (s *Service) ListFollowedByUser(ctx context.Context, userID string) ([]repo
 	return s.repo.ListUserFollows(ctx, userID)
 }
 
+// Search returns channels matching query (empty matches everything),
+// ranked by match quality and capped at limit.
+func (s *Service) Search(ctx context.Context, query string, limit int) ([]repository.Channel, error) {
+	return s.repo.SearchChannels(ctx, query, limit)
+}
+
+// LatestLive returns the most recent stream per broadcaster (flattened
+// with channel display metadata), newest first, up to limit rows.
+func (s *Service) LatestLive(ctx context.Context, limit int) ([]repository.LatestLiveStream, error) {
+	return s.repo.ListLatestLivePerChannel(ctx, limit)
+}
+
 // SyncInput carries the caller identity for SyncFromTwitch. The
 // service attaches both to the Twitch context so rate limiting and
 // fetch-log attribution see the right actor.
@@ -78,7 +91,7 @@ func (s *Service) SyncFromTwitch(ctx context.Context, input SyncInput) (*reposit
 		s.log.Warn("fetch channel information; continuing with user-only upsert",
 			"broadcaster_id", u.ID, "error", err)
 	} else if len(chans) > 0 {
-		language = stringOrNil(chans[0].BroadcasterLanguage)
+		language = ptr.StringOrNil(chans[0].BroadcasterLanguage)
 	}
 
 	return s.repo.UpsertChannel(ctx, &repository.Channel{
@@ -86,17 +99,11 @@ func (s *Service) SyncFromTwitch(ctx context.Context, input SyncInput) (*reposit
 		BroadcasterLogin:    u.Login,
 		BroadcasterName:     u.DisplayName,
 		BroadcasterLanguage: language,
-		ProfileImageURL:     stringOrNil(u.ProfileImageURL),
-		OfflineImageURL:     stringOrNil(u.OfflineImageURL),
-		Description:         stringOrNil(u.Description),
-		BroadcasterType:     stringOrNil(u.BroadcasterType),
+		ProfileImageURL:     ptr.StringOrNil(u.ProfileImageURL),
+		OfflineImageURL:     ptr.StringOrNil(u.OfflineImageURL),
+		Description:         ptr.StringOrNil(u.Description),
+		BroadcasterType:     ptr.StringOrNil(u.BroadcasterType),
 		ViewCount:           0,
 	})
 }
 
-func stringOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
