@@ -1,0 +1,107 @@
+# Taskfile for replayvod — https://taskfile.dev
+#
+# Install task once:  brew install go-task | pacman -S go-task | scoop install task
+# Then from this repo:
+#   task              # list tasks
+#   task dev          # run server + dashboard concurrently
+#   task build        # production build of both
+#
+# The repo has two independently-buildable components:
+#   server/      — Go backend (cmd/server/main.go)
+#   dashboard/   — React frontend (Vite SPA)
+
+version: "3"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list-all
+    silent: true
+
+  setup:
+    desc: Install Go modules + dashboard npm deps
+    cmds:
+      - task: server:setup
+      - task: dashboard:setup
+
+  dev:
+    desc: Run server + dashboard concurrently (Ctrl-C stops both)
+    deps: [server:dev, dashboard:dev]
+
+  build:
+    desc: Production build of server and dashboard
+    cmds:
+      - task: server:build
+      - task: dashboard:build
+
+  check:
+    desc: Typecheck + lint everything
+    cmds:
+      - task: server:check
+      - task: dashboard:check
+
+  test:
+    desc: Run all tests (Go + Vitest)
+    cmds:
+      - task: server:test
+      - task: dashboard:test
+
+  # ---- server (Go) ----
+
+  server:setup:
+    dir: server
+    cmds:
+      - go mod download
+
+  server:dev:
+    dir: server
+    desc: Run the Go server with live-reload via `go run`
+    cmds:
+      - go run ./cmd/server
+
+  server:build:
+    dir: server
+    desc: Compile the server binary to server/bin/replayvod
+    cmds:
+      - go build -o bin/replayvod ./cmd/server
+
+  server:check:
+    dir: server
+    cmds:
+      - go vet ./...
+
+  server:test:
+    dir: server
+    cmds:
+      - go test ./...
+
+  # ---- dashboard (Vite SPA) ----
+
+  dashboard:setup:
+    dir: dashboard
+    cmds:
+      - npm install
+
+  dashboard:dev:
+    dir: dashboard
+    desc: Vite dev server on :3000 with backend proxy
+    cmds:
+      - npm run dev
+
+  dashboard:build:
+    dir: dashboard
+    cmds:
+      - npm run build
+
+  dashboard:check:
+    dir: dashboard
+    desc: Biome check + TypeScript typecheck
+    cmds:
+      - npm run check
+      - npx tsc --noEmit
+
+  dashboard:test:
+    dir: dashboard
+    cmds:
+      - npm run test
