@@ -30,6 +30,12 @@ type liveServer struct {
 	baseSeq      int
 	tickInterval int // target-duration in seconds
 
+	// goneAfter: once the cursor reaches this MediaSeq (inclusive),
+	// the playlist handler returns 404 instead of the manifest body.
+	// Used to simulate Twitch dropping the variant mid-stream. Zero
+	// disables (default behavior).
+	goneAfter int
+
 	mu     sync.Mutex
 	polls  int32
 	cursor int // highest seq served so far
@@ -104,6 +110,15 @@ func (s *liveServer) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/playlist.m3u8", func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&s.polls, 1)
+		if s.goneAfter > 0 {
+			s.mu.Lock()
+			cursor := s.cursor
+			s.mu.Unlock()
+			if cursor >= s.goneAfter {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+		}
 		body := s.playlist()
 		// Advance the window after serving — the test's tick
 		// accelerates this since each poll forces one segment
@@ -333,6 +348,38 @@ func TestRun_CtxCancelReturnsPartialResult(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("result nil on cancel — want partial tally")
+	}
+}
+
+// TestRun_PlaylistGoneBubbles pins 6f.1: a 404 on the media
+// playlist mid-stream surfaces as hls.ErrPlaylistGone, so the
+// downloader's outer loop can reclassify it as a part-split
+// signal rather than treating it as a transient fetch failure.
+func TestRun_PlaylistGoneBubbles(t *testing.T) {
+	s := &liveServer{
+		t:            t,
+		kind:         SegmentKindTS,
+		maxSegments:  20,
+		windowSize:   3,
+		baseSeq:      0,
+		tickInterval: 1,
+		goneAfter:    2, // playlist 404s once cursor >= 2
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	_, err := Run(ctx, cfg)
+	if err == nil {
+		t.Fatal("want ErrPlaylistGone, got nil")
+	}
+	if !errors.Is(err, ErrPlaylistGone) {
+		t.Errorf("err=%v, want errors.Is(ErrPlaylistGone)", err)
 	}
 }
 
