@@ -168,6 +168,30 @@ type ResumeState struct {
 	RemuxOutputPath   string `json:"remux_output_path,omitempty"`
 	FinalVideoPath    string `json:"final_video_path,omitempty"`
 
+	// PendingSplit is true between the moment fetchWithAuthRefresh
+	// signals a Phase 6f variant-loss split and the moment
+	// BeginNewPart consumes it. Persisted so a process crash mid-
+	// runPart doesn't lose the split intent: on resume, after
+	// re-running the in-flight part's Stages 5-10, the loop reads
+	// this flag to decide "advance to part N+1" vs "we're done."
+	// Without persistence, a crash during the split-trigger part's
+	// Stage 6 remux would resume, complete that part, and exit
+	// the loop — the next part would never run.
+	PendingSplit bool `json:"pending_split,omitempty"`
+
+	// HadWindowRoll tracks whether ANY part observed a CDN window-
+	// roll across the whole recording. Set after each runPart by
+	// scanning Gaps for GapReasonRestartWindowRolled before
+	// BeginNewPart wipes the per-part frontier aux state. The
+	// terminal completion_kind classifier reads this — looking at
+	// d.resume.Gaps directly would only see the LAST part's gaps.
+	//
+	// Persisted because a crash + resume mid-part-N would otherwise
+	// lose part 1..N-1's window-roll signal (re-derivation from
+	// video_parts isn't possible — that table doesn't carry the
+	// signal per-part).
+	HadWindowRoll bool `json:"had_window_roll,omitempty"`
+
 	CheckpointAt time.Time `json:"checkpoint_at"`
 
 	// resolvedAbove is an in-memory acceleration structure for
@@ -227,9 +251,12 @@ func (r *ResumeState) SetStage(s Stage) {
 // AccountedFrontierMediaSeq to partStart-1 so the first
 // NoteCommitted(partStart) advances cleanly.
 //
-// Part 1 is bootstrapped from the orchestrator's observed
-// EXT-X-MEDIA-SEQUENCE base. Subsequent parts (Phase 6f) start
-// from the new variant's first seq.
+// Called from OnFirstPoll for the FIRST observation of any part —
+// part 1 of a fresh job, part N of a 6f part-split, or any part
+// being reanchored from a fresh variant's MEDIA-SEQUENCE base.
+// Phase 6f's part-split uses BeginNewPart first to drop the
+// previous part's bootstrap state; the new variant's OnFirstPoll
+// then calls StartPart(base) to anchor.
 func (r *ResumeState) StartPart(partStart int64) {
 	r.PartStartMediaSequence = partStart
 	r.AccountedFrontierMediaSeq = partStart - 1
@@ -240,6 +267,100 @@ func (r *ResumeState) StartPart(partStart int64) {
 	} else {
 		clear(r.resolvedAbove)
 	}
+}
+
+// BeginNewPart prepares the resume state for a Phase 6f part-split:
+// the previous part has finalized its video_parts row, and the next
+// fetchWithAuthRefresh iteration must run a fresh Stage-3 selection
+// then bootstrap its frontier from the new variant's own
+// EXT-X-MEDIA-SEQUENCE base via OnFirstPoll → StartPart.
+//
+// Why this method and not StartPart(prevLast+1):
+//
+// Twitch doesn't share MEDIA-SEQUENCE counters across variants —
+// the new variant's first seq can be lower OR higher than the old
+// variant's last. Seeding PartStartMediaSequence + AccountedFrontier
+// from the old variant's last would (a) make fetchWithAuthRefresh's
+// `bootstrapped` check evaluate true so the new variant's
+// OnFirstPoll → StartPart never fires, and (b) make hls.Run's
+// StartMediaSeq filter silently drop every new-variant segment whose
+// MediaSeq is below the carried-over threshold. The recording would
+// fail at PrepareInput on an empty segments dir.
+//
+// What it preserves:
+//
+//   - Gaps: the cross-part Gaps slice is the source of truth for
+//     completion_kind classification (restart_window_rolled in any
+//     part marks the recording partial). Clearing here would silently
+//     drop earlier parts' partial signal.
+//   - CheckpointAt: SetStage refreshes it.
+//
+// What it resets:
+//
+//   - CurrentPartIndex: bumped by 1.
+//   - PartStartMediaSequence + AccountedFrontierMediaSeq: zeroed so
+//     the next OnFirstPoll re-anchors.
+//   - CompletedAboveFrontier + resolvedAbove: per-part frontier aux
+//     state, scoped to the prior part.
+//   - SelectedQuality / SelectedCodec / SegmentFormat: clearing
+//     unlocks Stage 3 to pick a different variant; the variant-lock
+//     check at fetchWithAuthRefresh would otherwise fire on the
+//     first iteration of the new part.
+//   - Stage: back to AUTH so a checkpoint mid-iteration reflects the
+//     fresh re-run rather than carrying the prior part's terminal
+//     stage.
+// MaxPartsPerVideo caps the outer split loop to bound the worst case
+// when a pathological broadcaster flips variants every few segments.
+// Real Twitch streams essentially never split — variant drops are
+// rare in practice — but a runaway would otherwise produce unbounded
+// video_parts rows. 32 is generous enough to cover every realistic
+// scenario without being absurd.
+//
+// Exported so the ShouldOpenNextPart caller and tests share one
+// constant; the production cap and the test fixture's expectation
+// can't drift apart silently.
+const MaxPartsPerVideo int32 = 32
+
+// ShouldOpenNextPart reports whether the outer part loop in
+// downloader.run should iterate to open the next part after the
+// just-finished runPart. Returns (true, nil) to continue,
+// (false, nil) when no split is pending, (false, err) when the
+// cap would be exceeded.
+//
+// The decision reads from PendingSplit on the durable resume state
+// rather than from a local variable in run() — that's the contract
+// that lets a process crash between PendingSplit's checkpoint and
+// the next BeginNewPart still re-enter the loop on resume. Without
+// the durable field, a crash mid-runPart of the splitting part
+// would resume, complete the part, and exit the loop with part N+1
+// never opened.
+//
+// maxParts is parameterized so tests can drive boundary cases
+// without standing up a 32-part recording. Production passes
+// MaxPartsPerVideo.
+func (r *ResumeState) ShouldOpenNextPart(maxParts int32) (bool, error) {
+	if !r.PendingSplit {
+		return false, nil
+	}
+	if r.CurrentPartIndex >= maxParts {
+		return false, fmt.Errorf("split loop exceeded %d parts; aborting to prevent runaway", maxParts)
+	}
+	return true, nil
+}
+
+func (r *ResumeState) BeginNewPart() {
+	r.CurrentPartIndex++
+	r.PartStartMediaSequence = 0
+	r.AccountedFrontierMediaSeq = 0
+	r.CompletedAboveFrontier = nil
+	if r.resolvedAbove != nil {
+		clear(r.resolvedAbove)
+	}
+	r.SelectedQuality = ""
+	r.SelectedCodec = ""
+	r.SegmentFormat = ""
+	r.PendingSplit = false
+	r.SetStage(StageAuth)
 }
 
 // NoteCommitted records a successfully-written segment, advancing
