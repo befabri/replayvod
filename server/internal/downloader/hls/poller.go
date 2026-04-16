@@ -187,6 +187,14 @@ var ErrPlaylistAuth = errors.New("hls poller: playlist auth error")
 // must not accidentally catch the permanent case.
 var ErrPlaylistAuthPermanent = errors.New("hls poller: playlist auth permanent")
 
+// ErrPlaylistGone signals that the media playlist URL returned
+// 404/410. Per the spec's "Variant loss mid-stream" clause, Twitch
+// surfaces a dropped variant either by removing it from the master
+// or by 404-ing the media playlist; this sentinel is the latter.
+// The downloader's outer loop reclassifies this into a part-split
+// trigger rather than treating it as a transient fetch failure.
+var ErrPlaylistGone = errors.New("hls poller: media playlist gone")
+
 // Run executes the poll loop. On the first successful fetch it
 // sends one PollResult onto first (buffered cap 1) so the
 // orchestrator can bootstrap the init segment before the pool
@@ -250,6 +258,12 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			// hand us a new URL. Retrying the old URL with the
 			// old signature won't change the outcome.
 			if errors.Is(err, ErrPlaylistAuth) {
+				return err
+			}
+			// Playlist 404/410: variant dropped mid-run. Retrying
+			// the same URL won't resurface it; the downloader's
+			// outer loop re-runs Stage 3 and opens a new part.
+			if errors.Is(err, ErrPlaylistGone) {
 				return err
 			}
 			attempt++
@@ -436,6 +450,13 @@ func (p *Poller) fetchAndParse(ctx context.Context) (*MediaPlaylist, error) {
 			return nil, fmt.Errorf("%w: status %d: %s", ErrPlaylistAuthPermanent, resp.StatusCode, truncateForLog(body))
 		}
 		return nil, fmt.Errorf("%w: status %d", ErrPlaylistAuth, resp.StatusCode)
+	}
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		// Variant dropped mid-run — Twitch no longer serves this
+		// media playlist. Distinct from an auth retry: the URL
+		// itself is dead, not expired. Outer loop opens a new
+		// part after re-running Stage 3.
+		return nil, fmt.Errorf("%w: status %d", ErrPlaylistGone, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Truncated body preview, capped at 512B — playlist
