@@ -170,7 +170,7 @@ func (c *Client) playbackAttempt(ctx context.Context, login, accessToken, integr
 		return PlaybackToken{}, fmt.Errorf("encode gql body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, gqlURL, bytes.NewReader(buf))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.gqlURL, bytes.NewReader(buf))
 	if err != nil {
 		return PlaybackToken{}, fmt.Errorf("build gql request: %w", err)
 	}

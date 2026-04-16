@@ -115,7 +115,7 @@ func (c *integrityCache) MarkBad() {
 // treated as "no cache" (token is still returned so a one-shot
 // caller can use it).
 func fetchIntegrity(ctx context.Context, client *Client) (string, time.Time, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, integrityURL, strings.NewReader(""))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, client.integrityURL, strings.NewReader(""))
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("build integrity request: %w", err)
 	}

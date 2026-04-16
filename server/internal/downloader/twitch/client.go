@@ -18,10 +18,16 @@ const DefaultClientID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 // the string in one place so we don't drift over time.
 const DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
+// defaultGQLURL / defaultIntegrityURL / defaultUsherBaseURL are the
+// production Twitch endpoints. Test harnesses can override them via
+// Config.GQLURL / IntegrityURL / UsherBaseURL — the orchestrator's
+// integration tests stand up an httptest.Server that speaks the same
+// shapes so the real Stages 1-3 code path (GQL → usher → variant
+// select) runs against a controllable edge.
 const (
-	gqlURL       = "https://gql.twitch.tv/gql"
-	integrityURL = "https://gql.twitch.tv/integrity"
-	usherBaseURL = "https://usher.ttvnw.net"
+	defaultGQLURL       = "https://gql.twitch.tv/gql"
+	defaultIntegrityURL = "https://gql.twitch.tv/integrity"
+	defaultUsherBaseURL = "https://usher.ttvnw.net"
 
 	// playerOrigin + playerReferer match what the real Twitch web
 	// client sends (captured 2026-04-13 via Playwright against
@@ -69,6 +75,13 @@ type Client struct {
 	// expiry. Acquired on demand, cached in memory, refreshed
 	// only on repeated auth failures. Never persisted to disk.
 	integrity *integrityCache
+
+	// gqlURL / integrityURL / usherBaseURL default to Twitch's
+	// production endpoints; tests override via Config to point at
+	// an httptest.Server that speaks the same shapes.
+	gqlURL       string
+	integrityURL string
+	usherBaseURL string
 }
 
 // Config carries the tunables New needs. All fields are optional;
@@ -97,6 +110,14 @@ type Config struct {
 	// when non-empty. See Config.ServiceAccountOAuthToken in the
 	// main config for operator docs.
 	ServiceAccountRefreshToken string
+
+	// GQLURL / IntegrityURL / UsherBaseURL override the production
+	// Twitch endpoints. Empty = production defaults. Tests stand up
+	// an httptest.Server and point the client at it; not used in
+	// any other context.
+	GQLURL       string
+	IntegrityURL string
+	UsherBaseURL string
 }
 
 // New creates a Twitch streaming-side client. The returned client
@@ -119,6 +140,18 @@ func New(cfg Config, log *slog.Logger) *Client {
 	if deviceID == "" {
 		deviceID = generateDeviceID()
 	}
+	gqlEndpoint := cfg.GQLURL
+	if gqlEndpoint == "" {
+		gqlEndpoint = defaultGQLURL
+	}
+	integrityEndpoint := cfg.IntegrityURL
+	if integrityEndpoint == "" {
+		integrityEndpoint = defaultIntegrityURL
+	}
+	usherEndpoint := cfg.UsherBaseURL
+	if usherEndpoint == "" {
+		usherEndpoint = defaultUsherBaseURL
+	}
 	return &Client{
 		http:                       httpClient,
 		log:                        log.With("domain", "twitch.stream"),
@@ -127,5 +160,8 @@ func New(cfg Config, log *slog.Logger) *Client {
 		deviceID:                   deviceID,
 		serviceAccountRefreshToken: cfg.ServiceAccountRefreshToken,
 		integrity:                  newIntegrityCache(),
+		gqlURL:                     gqlEndpoint,
+		integrityURL:               integrityEndpoint,
+		usherBaseURL:               usherEndpoint,
 	}
 }

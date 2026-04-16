@@ -54,7 +54,7 @@ func (c *Client) FetchMasterPlaylist(ctx context.Context, login string, token Pl
 	q.Set("sig", token.Signature)
 	q.Set("token", token.Value)
 
-	u := fmt.Sprintf("%s/api/channel/hls/%s.m3u8?%s", usherBaseURL, strings.ToLower(login), q.Encode())
+	u := fmt.Sprintf("%s/api/channel/hls/%s.m3u8?%s", c.usherBaseURL, strings.ToLower(login), q.Encode())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build usher request: %w", err)
