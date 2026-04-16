@@ -1,6 +1,7 @@
 package video
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -81,7 +82,12 @@ func (h *StreamHandler) streamVideo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Open through the storage layer so S3 Just Works alongside local.
-	relPath := videoRelPath(video)
+	relPath, err := h.videoStreamPath(ctx, video)
+	if err != nil {
+		h.log.Error("resolve video path failed", "error", err, "id", id)
+		http.Error(w, "video file unavailable", http.StatusNotFound)
+		return
+	}
 	f, err := h.storage.Open(ctx, relPath)
 	if err != nil {
 		h.log.Error("open video file failed", "error", err, "path", relPath)
@@ -149,13 +155,51 @@ func (h *StreamHandler) serveThumbnail(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, path, info.ModTime, f)
 }
 
-// videoRelPath rebuilds the storage-relative path the downloader wrote to.
-// Kept in sync with downloader.buildFilename; if you change one, change both.
-// The downloader writes to videos/<login>/<filename>.mp4 but the Video row
-// doesn't carry the login, so we'd need to join channels to rebuild the
-// full path. For now we rely on the filename being unique and search by
-// it — downloader should store the path directly on the Video row in a
-// future iteration.
-func videoRelPath(v *repository.Video) string {
-	return "videos/" + v.Filename + ".mp4"
+// videoStreamPath returns the storage-relative path of the video to
+// stream. Phase 6f stores one video_parts row per part with the
+// authoritative `<base>-partNN.mp4` filename — read it directly
+// rather than reconstructing the path from videos.filename + ".mp4".
+//
+// **Multi-part recordings serve only part 01.** The watch flow is
+// a single /videos/{id}/stream URL; the browser <video> element
+// can't iterate parts on its own, and server-side concat across
+// codec/container boundaries (the spec's reason for the part split
+// in the first place) would either fail or produce a broken file.
+//
+// The intended UX path: dashboard reads VideoResponse.Parts from
+// video.getById (Phase 6f.3) and either plays them sequentially via
+// the `ended` event or shows a part picker. That UI work isn't part
+// of 6f's server scope. Until it lands, a recording that crossed
+// a variant drop will play back truncated at the first boundary.
+//
+// Variant drops are empirically rare — most VODs have one part —
+// so this gap affects approximately zero recordings in practice.
+// We log a warning when serving a multi-part video so the operator
+// knows when (if ever) a real recording trips it.
+//
+// Pre-6f historical videos: their video_parts rows carry filenames
+// without the -partNN suffix (they predate the suffix convention).
+// The video_parts row is still authoritative — we read its Filename
+// verbatim and prepend "videos/". Old recordings keep streaming;
+// new ones use the suffixed path.
+//
+// Fallback: if no video_parts row exists at all (which shouldn't
+// happen for any DONE video — even pre-6f recordings created a
+// part row), reconstruct the legacy path from videos.filename so we
+// don't 404 on a recording that's otherwise readable.
+func (h *StreamHandler) videoStreamPath(ctx context.Context, v *repository.Video) (string, error) {
+	parts, err := h.repo.ListVideoParts(ctx, v.ID)
+	if err != nil {
+		return "", err
+	}
+	if len(parts) == 0 {
+		return "videos/" + v.Filename + ".mp4", nil
+	}
+	if len(parts) > 1 {
+		h.log.Warn("multi-part recording streamed via single-file endpoint; only part 01 will play",
+			"video_id", v.ID,
+			"part_count", len(parts),
+			"served_part", parts[0].Filename)
+	}
+	return "videos/" + parts[0].Filename, nil
 }
