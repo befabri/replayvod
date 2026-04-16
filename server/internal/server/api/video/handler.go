@@ -72,6 +72,48 @@ type VideoResponse struct {
 	Error            *string    `json:"error,omitempty"`
 	StartDownloadAt  time.Time  `json:"start_download_at"`
 	DownloadedAt     *time.Time `json:"downloaded_at,omitempty"`
+	// Parts is populated only by GetByID — Phase 6f exposes the
+	// video_parts rows so a multi-part recording's UI can iterate
+	// them. List/ByBroadcaster/ByCategory leave it unset to avoid
+	// the N+1 query on grid views; those endpoints rely on the
+	// stream handler resolving part 01's filename behind the scenes.
+	Parts []VideoPartResponse `json:"parts,omitempty"`
+}
+
+// VideoPartResponse is one entry in VideoResponse.Parts. Mirrors
+// repository.VideoPart with json tags pinned for frontend stability.
+type VideoPartResponse struct {
+	ID              int64   `json:"id"`
+	PartIndex       int32   `json:"part_index"`
+	Filename        string  `json:"filename"`
+	Quality         string  `json:"quality"`
+	Codec           string  `json:"codec"`
+	SegmentFormat   string  `json:"segment_format"`
+	DurationSeconds float64 `json:"duration_seconds"`
+	SizeBytes       int64   `json:"size_bytes"`
+	Thumbnail       *string `json:"thumbnail,omitempty"`
+	StartMediaSeq   int64   `json:"start_media_seq"`
+	EndMediaSeq     *int64  `json:"end_media_seq,omitempty"`
+}
+
+func toVideoPartResponses(parts []repository.VideoPart) []VideoPartResponse {
+	out := make([]VideoPartResponse, len(parts))
+	for i, p := range parts {
+		out[i] = VideoPartResponse{
+			ID:              p.ID,
+			PartIndex:       p.PartIndex,
+			Filename:        p.Filename,
+			Quality:         p.Quality,
+			Codec:           p.Codec,
+			SegmentFormat:   p.SegmentFormat,
+			DurationSeconds: p.DurationSeconds,
+			SizeBytes:       p.SizeBytes,
+			Thumbnail:       p.Thumbnail,
+			StartMediaSeq:   p.StartMediaSeq,
+			EndMediaSeq:     p.EndMediaSeq,
+		}
+	}
+	return out
 }
 
 func toVideoResponse(v *repository.Video, ch *repository.Channel) VideoResponse {
@@ -258,7 +300,17 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 	// wire shape matches List's — the Watch page's VideoInfo no longer
 	// needs a separate channel.getById to render the header.
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, []repository.Video{*v})
-	return toVideoResponse(v, channels[v.BroadcasterID]), nil
+	resp := toVideoResponse(v, channels[v.BroadcasterID])
+	// Multi-part recordings expose their parts here so the player
+	// can iterate them. A parts lookup failure is logged but doesn't
+	// fail the whole getById — the player's fallback is to stream
+	// part 01 by convention via the stream handler.
+	if parts, err := h.video.Parts(ctx, v.ID); err != nil {
+		h.log.Warn("list video parts", "video_id", v.ID, "error", err)
+	} else {
+		resp.Parts = toVideoPartResponses(parts)
+	}
+	return resp, nil
 }
 
 type ByBroadcasterInput struct {

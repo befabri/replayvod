@@ -136,6 +136,17 @@ func (s *Service) Categories(ctx context.Context, videoID int64) ([]repository.C
 	return s.repo.ListCategoriesForVideo(ctx, videoID)
 }
 
+// Parts returns the video_parts rows for a video, ordered by
+// part_index. Single-part recordings return one row; recordings
+// that split on a mid-run variant change return 2..N rows.
+//
+// Empty (not nil) result is also valid for very old recordings
+// that predate the video_parts schema; callers treat empty as
+// "single conceptual part, fall back to videos.filename".
+func (s *Service) Parts(ctx context.Context, videoID int64) ([]repository.VideoPart, error) {
+	return s.repo.ListVideoParts(ctx, videoID)
+}
+
 // maxSnapshotsPerVideo is the upper bound on the probe-until-404 loop
 // in ListSnapshots. Default title-tracking interval of 1-5 min over
 // a 24h recording gives 288-1440 snaps; 500 covers the common case
