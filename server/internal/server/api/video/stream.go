@@ -155,38 +155,18 @@ func (h *StreamHandler) serveThumbnail(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, path, info.ModTime, f)
 }
 
-// videoStreamPath returns the storage-relative path of the video to
-// stream. Phase 6f stores one video_parts row per part with the
-// authoritative `<base>-partNN.mp4` filename — read it directly
-// rather than reconstructing the path from videos.filename + ".mp4".
+// videoStreamPath reads from video_parts.filename — the
+// authoritative source of the on-disk path.
 //
-// **Multi-part recordings serve only part 01.** The watch flow is
-// a single /videos/{id}/stream URL; the browser <video> element
-// can't iterate parts on its own, and server-side concat across
-// codec/container boundaries (the spec's reason for the part split
-// in the first place) would either fail or produce a broken file.
+// Multi-part recordings serve only part 01: the watch flow is a
+// single URL, and server-side concat across codec/container
+// boundaries (the reason for the split) would corrupt output. The
+// dashboard needs to sequence VideoResponse.Parts client-side; that
+// work hasn't landed. Logged as a warning so any real occurrence is
+// visible — variant drops are empirically rare.
 //
-// The intended UX path: dashboard reads VideoResponse.Parts from
-// video.getById (Phase 6f.3) and either plays them sequentially via
-// the `ended` event or shows a part picker. That UI work isn't part
-// of 6f's server scope. Until it lands, a recording that crossed
-// a variant drop will play back truncated at the first boundary.
-//
-// Variant drops are empirically rare — most VODs have one part —
-// so this gap affects approximately zero recordings in practice.
-// We log a warning when serving a multi-part video so the operator
-// knows when (if ever) a real recording trips it.
-//
-// Pre-6f historical videos: their video_parts rows carry filenames
-// without the -partNN suffix (they predate the suffix convention).
-// The video_parts row is still authoritative — we read its Filename
-// verbatim and prepend "videos/". Old recordings keep streaming;
-// new ones use the suffixed path.
-//
-// Fallback: if no video_parts row exists at all (which shouldn't
-// happen for any DONE video — even pre-6f recordings created a
-// part row), reconstruct the legacy path from videos.filename so we
-// don't 404 on a recording that's otherwise readable.
+// Fallback to videos.filename + ".mp4" covers historical rows that
+// predate the video_parts schema.
 func (h *StreamHandler) videoStreamPath(ctx context.Context, v *repository.Video) (string, error) {
 	parts, err := h.repo.ListVideoParts(ctx, v.ID)
 	if err != nil {

@@ -429,40 +429,22 @@ func TestStage_AtOrAfter(t *testing.T) {
 	}
 }
 
-// TestResumeState_BeginNewPart pins the contract Phase 6f's part-
-// split path depends on. Three properties are load-bearing:
-//
-//  1. PartStartMediaSequence + AccountedFrontierMediaSeq both zero,
-//     so fetchWithAuthRefresh's `bootstrapped` check evaluates false
-//     and the new variant's OnFirstPoll re-anchors via StartPart.
-//     Carrying the prior part's last seq forward makes the poller
-//     silently filter out the new variant's segments (Twitch
-//     doesn't share seq counters across variants).
-//  2. Variant lock cleared: SelectedQuality + SelectedCodec +
-//     SegmentFormat empty so Stage 3 picks freely without the
-//     mid-run-variant-change check tripping on iteration 1.
-//  3. Gaps PRESERVED across the boundary. The video-level
-//     completion_kind classifier looks for restart_window_rolled
-//     across all parts; clearing here would silently drop earlier
-//     parts' partial signal.
+// TestResumeState_BeginNewPart: anchor zeroed (so OnFirstPoll
+// re-anchors), variant lock cleared (so Stage 3 picks freely),
+// PendingSplit cleared (so the outer loop terminates), Gaps and
+// HadWindowRoll preserved (cross-part completion_kind signal).
 func TestResumeState_BeginNewPart(t *testing.T) {
 	r := NewResumeState()
 	r.StartPart(100)
 	r.NoteCommitted(100)
 	r.NoteCommitted(101)
-	r.NoteCommitted(105) // out-of-order: lands in CompletedAboveFrontier
+	r.NoteCommitted(105)
 	r.NoteRangeGap(110, 112, GapReasonRestartWindowRolled)
 	r.SelectedQuality = "1080"
 	r.SelectedCodec = "h264"
 	r.SegmentFormat = "ts"
 	r.SetStage(StageSegments)
-	// Split is in flight (set by run() before runPart). BeginNewPart
-	// must clear it so the loop's `if !PendingSplit { break }` check
-	// terminates after the next part completes (otherwise we'd loop
-	// forever, opening empty parts).
 	r.PendingSplit = true
-	// HadWindowRoll persists across the boundary — completion_kind
-	// classification at MarkVideoDone needs the cross-part signal.
 	r.HadWindowRoll = true
 
 	priorPart := r.CurrentPartIndex
@@ -499,10 +481,10 @@ func TestResumeState_BeginNewPart(t *testing.T) {
 	if !r.HadWindowRoll {
 		t.Error("HadWindowRoll cleared — completion_kind classification would lose part 1's partial signal across the boundary")
 	}
-	// resolvedAbove cleared — verify by anchoring at a fresh seq
-	// and confirming a NoteCommitted at the new part's first seq
-	// advances cleanly without spurious "already resolved" hits.
-	r.StartPart(50) // new variant's MEDIA-SEQUENCE base, lower than prior part's
+	// resolvedAbove cleared — anchoring at a fresh seq and
+	// committing it should advance frontier without "already
+	// resolved" hits from the prior part.
+	r.StartPart(50)
 	r.NoteCommitted(50)
 	if r.AccountedFrontierMediaSeq != 50 {
 		t.Errorf("after BeginNewPart + StartPart(50) + NoteCommitted(50): frontier=%d, want 50",
@@ -510,52 +492,22 @@ func TestResumeState_BeginNewPart(t *testing.T) {
 	}
 }
 
-// TestResumeState_HadWindowRoll_SurvivesPartBoundaryCrash pins the
-// contract that protects against a subtle crash-window regression:
-//
-// Sequence under test:
-//  1. Part 1 records a restart_window_rolled gap (Gaps[0] set).
-//  2. run() captures the signal into HadWindowRoll, calls
-//     BeginNewPart, checkpoints. State on disk now has
-//     HadWindowRoll=true AND part 1's Gaps still present (BeginNewPart
-//     intentionally preserves Gaps).
-//  3. Process crashes BEFORE part 2's first hls.Run poll.
-//  4. Resume reads the JSON. HadWindowRoll=true survives.
-//  5. Part 2's first OnFirstPoll fires, calls StartPart(base) which
-//     clears Gaps (correctly — those entries were part 1's, not
-//     part 2's).
-//  6. The terminal completion_kind classifier reads HadWindowRoll,
-//     not Gaps. Recording is correctly marked partial.
-//
-// If a future change accidentally clears HadWindowRoll in StartPart
-// (the obvious "while we're at it" cleanup) or in BeginNewPart, the
-// recording in this scenario would silently mark complete instead of
-// partial. This test catches that.
+// TestResumeState_HadWindowRoll_SurvivesPartBoundaryCrash:
+// HadWindowRoll roundtrips through JSON and survives both
+// BeginNewPart and the next part's StartPart. The completion_kind
+// classifier reads the flag, not Gaps — which StartPart clears.
 func TestResumeState_HadWindowRoll_SurvivesPartBoundaryCrash(t *testing.T) {
 	r := NewResumeState()
 	r.StartPart(100)
 	r.NoteRangeGap(105, 110, GapReasonRestartWindowRolled)
 
-	// Mirror run()'s scan-and-set step before BeginNewPart.
-	hadRoll := false
-	for _, g := range r.Gaps {
-		if g.Reason == GapReasonRestartWindowRolled {
-			hadRoll = true
-			break
-		}
-	}
-	if !hadRoll {
-		t.Fatal("setup: expected Gaps to contain a window-roll entry")
-	}
-	r.HadWindowRoll = hadRoll
+	r.HadWindowRoll = true
 	r.PendingSplit = true
 	r.BeginNewPart()
 	if !r.HadWindowRoll {
-		t.Fatal("BeginNewPart cleared HadWindowRoll — partial signal lost across the boundary")
+		t.Fatal("BeginNewPart cleared HadWindowRoll")
 	}
 
-	// Simulate the crash by serializing the in-memory state and
-	// reconstructing it (what jobs.resume_state JSONB does).
 	data, err := json.Marshal(r)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -570,31 +522,17 @@ func TestResumeState_HadWindowRoll_SurvivesPartBoundaryCrash(t *testing.T) {
 
 	// Part 2's OnFirstPoll: StartPart(50) wipes Gaps (correctly —
 	// those entries belonged to part 1). HadWindowRoll must NOT be
-	// touched; that's the field run() actually reads at MarkVideoDone.
 	r2.StartPart(50)
 	if !r2.HadWindowRoll {
-		t.Error("StartPart cleared HadWindowRoll — recording would mark complete despite part 1's window roll")
+		t.Error("StartPart cleared HadWindowRoll")
 	}
 	if len(r2.Gaps) != 0 {
-		t.Errorf("StartPart left Gaps non-empty: %v (expected wipe — those were part 1's gaps)", r2.Gaps)
+		t.Errorf("StartPart left Gaps non-empty: %v", r2.Gaps)
 	}
 }
 
-// TestResumeState_ShouldOpenNextPart pins the post-runPart decision
-// the outer part loop relies on. Three properties matter:
-//
-//  1. PendingSplit=false short-circuits — the loop terminates
-//     after a single-part recording or after the final part of a
-//     multi-part recording where the last fetch returned cleanly.
-//  2. PendingSplit=true under the cap continues — the next
-//     iteration opens part N+1.
-//  3. PendingSplit=true at or over the cap returns an error so
-//     run()'s caller can fail the download with a meaningful
-//     message; without this guard a pathological variant churn
-//     would produce unbounded video_parts rows.
-//
-// Boundary checks (cap-1 / cap / cap+1) are explicit to catch a
-// future >= → > swap.
+// TestResumeState_ShouldOpenNextPart: cap-1 / cap / cap+1 boundary
+// triple guards against a future >= → > swap.
 func TestResumeState_ShouldOpenNextPart(t *testing.T) {
 	cases := []struct {
 		name             string
@@ -627,25 +565,10 @@ func TestResumeState_ShouldOpenNextPart(t *testing.T) {
 	}
 }
 
-// TestResumeState_PendingSplit_SurvivesCrashMidRunPart pins the
-// durable-flag contract that protects against the nastier crash
-// window in Phase 6f's part-split path:
-//
-// Sequence under test:
-//  1. fetchWithAuthRefresh signals a split and persists
-//     PendingSplit=true via checkpointResume.
-//  2. runPart starts Stage 5 → 10 of the just-finished part. The
-//     stream is likely still live on the new variant; the
-//     orchestrator wants to pick it up after this part finalizes.
-//  3. Process crashes mid-Stage-6 (ffmpeg killed, OOM, deploy).
-//  4. Resume reads the JSON. PendingSplit=true survives.
-//  5. The resume-skip path runs Stages 6-10 (idempotent), the part
-//     finalizes, and ShouldOpenNextPart returns true → BeginNewPart
-//     fires → part N+1 opens.
-//
-// Without persistence, the local splitAndContinue bool from the
-// first run-attempt would be lost in the crash and ShouldOpenNextPart
-// would return false → loop exits → part N+1 never runs.
+// TestResumeState_PendingSplit_SurvivesCrashMidRunPart: the durable
+// flag survives a JSON roundtrip and ShouldOpenNextPart consumes
+// it. Without persistence the loop would exit after finalizing the
+// in-flight part, leaving the next part unrun.
 func TestResumeState_PendingSplit_SurvivesCrashMidRunPart(t *testing.T) {
 	r := NewResumeState()
 	r.StartPart(100)
@@ -655,8 +578,8 @@ func TestResumeState_PendingSplit_SurvivesCrashMidRunPart(t *testing.T) {
 	r.SelectedQuality = "1080"
 	r.SelectedCodec = "h264"
 	r.SegmentFormat = "ts"
-	r.SetStage(StageRemux) // crashed mid-runPart
-	r.PendingSplit = true  // set by run() before runPart
+	r.SetStage(StageRemux)
+	r.PendingSplit = true
 
 	data, err := json.Marshal(r)
 	if err != nil {
@@ -678,18 +601,10 @@ func TestResumeState_PendingSplit_SurvivesCrashMidRunPart(t *testing.T) {
 	}
 }
 
-// TestResumeState_BeginNewPart_NewVariantLowerSeq is the regression
-// guard for the bug Phase 6f initially shipped with: BeginNewPart's
-// predecessor (StartPart with prevLast+1) made bootstrapped evaluate
-// true, so the new variant's OnFirstPoll never re-anchored, and
-// hls.Run's startSeq filtered out every segment whose MediaSeq was
-// below the carried-over threshold.
-//
-// This test simulates that scenario by checking that after
-// BeginNewPart the per-part anchor is genuinely zero, ready for the
-// new variant's first poll to set it. A future regression that puts
-// non-zero placeholder values back in PartStartMediaSequence would
-// re-introduce the silent-segment-drop bug.
+// TestResumeState_BeginNewPart_NewVariantLowerSeq: regression guard
+// against re-introducing a non-zero anchor placeholder, which would
+// make `bootstrapped` stay true and the poller silently filter out
+// the new variant's lower-seq segments.
 func TestResumeState_BeginNewPart_NewVariantLowerSeq(t *testing.T) {
 	r := NewResumeState()
 	r.StartPart(1000)

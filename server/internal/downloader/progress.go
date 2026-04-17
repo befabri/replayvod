@@ -102,23 +102,10 @@ func (p *progressEmitter) setVariant(quality, codec string) {
 	p.send(snap)
 }
 
-// setPart advances PartIndex on a part-boundary (variant/codec/
-// container switch). Quality + Codec clear so the next setVariant
-// fills them with the new variant's values; without the clear, the
-// UI would briefly show the old part's quality alongside the new
-// part's segment counters until Stage 3 completes again.
-//
-// Stage resets to "auth" because the next part re-runs Stages 1-3
-// from scratch — operators watching the SSE stream should see the
-// full re-auth → re-playlist → re-segments sequence rather than
-// jumping straight from "remux" of part N back to "segments" of
-// part N+1.
-//
-// segmentsTot resets to -1 (the "unknown total" sentinel) so the
-// percent calculation returns to the indeterminate-bar state until
-// the new part's finalize() lands. Without this, segmentsTot would
-// stay at part N's total + percent would read 100% throughout part
-// N+1's segment fetch, even as new segments stream in.
+// setPart resets all per-part fields so the SSE stream reflects a
+// fresh Stage 1-3 run for the new part. segmentsTot back to -1
+// (the "unknown total" sentinel) so percent doesn't stay pinned at
+// 100% from the prior part's finalize().
 func (p *progressEmitter) setPart(n int) {
 	p.mu.Lock()
 	p.partIndex = n

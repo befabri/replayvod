@@ -72,16 +72,12 @@ type VideoResponse struct {
 	Error            *string    `json:"error,omitempty"`
 	StartDownloadAt  time.Time  `json:"start_download_at"`
 	DownloadedAt     *time.Time `json:"downloaded_at,omitempty"`
-	// Parts is populated only by GetByID — Phase 6f exposes the
-	// video_parts rows so a multi-part recording's UI can iterate
-	// them. List/ByBroadcaster/ByCategory leave it unset to avoid
-	// the N+1 query on grid views; those endpoints rely on the
-	// stream handler resolving part 01's filename behind the scenes.
+	// Parts is populated only by GetByID — list endpoints skip it
+	// to avoid N+1 queries on grid views.
 	Parts []VideoPartResponse `json:"parts,omitempty"`
 }
 
-// VideoPartResponse is one entry in VideoResponse.Parts. Mirrors
-// repository.VideoPart with json tags pinned for frontend stability.
+// VideoPartResponse mirrors repository.VideoPart with stable JSON tags.
 type VideoPartResponse struct {
 	ID              int64   `json:"id"`
 	PartIndex       int32   `json:"part_index"`
