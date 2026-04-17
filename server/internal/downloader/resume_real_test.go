@@ -279,13 +279,14 @@ func TestResume_GapExceedsThreshold_ForcesSplit(t *testing.T) {
 	if *parts[0].EndMediaSeq < int64(opts.baseSeqA+3) {
 		t.Errorf("part 01 EndMediaSeq = %d, want ≥ %d", *parts[0].EndMediaSeq, opts.baseSeqA+3)
 	}
-	// Equality is acceptable: the cancel race can commit a few
-	// in-flight segments to part 01 before part 02 opens at the
-	// same seq. Strict failure: a value below the prior frontier
-	// would mean the new part's anchor regressed.
-	if parts[1].StartMediaSeq < *parts[0].EndMediaSeq {
-		t.Errorf("part 02 StartMediaSeq = %d, want ≥ part 01 EndMediaSeq (%d) — re-anchor regressed",
-			parts[1].StartMediaSeq, *parts[0].EndMediaSeq)
+	// Cancel race can commit a few in-flight segments to part 01
+	// after part 02's playlist served the same window — overlap
+	// up to windowA is expected. Hard failure is anything beyond
+	// that, which would mean the new part's anchor regressed.
+	if *parts[0].EndMediaSeq-parts[1].StartMediaSeq > int64(opts.windowA) {
+		t.Errorf("part 02 StartMediaSeq = %d, part 01 EndMediaSeq = %d, overlap = %d > windowA (%d)",
+			parts[1].StartMediaSeq, *parts[0].EndMediaSeq,
+			*parts[0].EndMediaSeq-parts[1].StartMediaSeq, opts.windowA)
 	}
 
 	if video.CompletionKind != repository.CompletionKindPartial {
