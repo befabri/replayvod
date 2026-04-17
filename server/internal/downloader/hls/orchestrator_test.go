@@ -351,10 +351,9 @@ func TestRun_CtxCancelReturnsPartialResult(t *testing.T) {
 	}
 }
 
-// TestRun_PlaylistGoneBubbles pins 6f.1: a 404 on the media
-// playlist mid-stream surfaces as hls.ErrPlaylistGone, so the
-// downloader's outer loop can reclassify it as a part-split
-// signal rather than treating it as a transient fetch failure.
+// TestRun_PlaylistGoneBubbles: a 404 on the media playlist
+// mid-stream surfaces as ErrPlaylistGone so the downloader can
+// treat it as a part-split signal, not a transient fetch failure.
 func TestRun_PlaylistGoneBubbles(t *testing.T) {
 	s := &liveServer{
 		t:            t,

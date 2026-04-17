@@ -585,7 +585,7 @@ func TestRun_WindowRollCallbackFiresWithLostRange(t *testing.T) {
 
 	var called atomic.Int32
 	var gotFrom, gotTo atomic.Int64
-	cfg.OnWindowRoll = func(from, to int64) {
+	cfg.OnWindowRoll = func(from, to int64, _ time.Duration) {
 		called.Add(1)
 		gotFrom.Store(from)
 		gotTo.Store(to)
@@ -629,7 +629,7 @@ func TestRun_WindowRollCallbackSkippedWhenNoRoll(t *testing.T) {
 	cfg.StartMediaSeq = 100 // lands exactly on the playlist head
 
 	var called atomic.Int32
-	cfg.OnWindowRoll = func(from, to int64) { called.Add(1) }
+	cfg.OnWindowRoll = func(from, to int64, _ time.Duration) { called.Add(1) }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -662,7 +662,7 @@ func TestRun_WindowRollCallbackSkippedOnFreshJob(t *testing.T) {
 	cfg := newJob(t, srv, dir) // StartMediaSeq = 0
 
 	var called atomic.Int32
-	cfg.OnWindowRoll = func(from, to int64) { called.Add(1) }
+	cfg.OnWindowRoll = func(from, to int64, _ time.Duration) { called.Add(1) }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

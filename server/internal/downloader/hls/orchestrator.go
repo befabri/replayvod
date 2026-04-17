@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -99,14 +100,22 @@ type JobConfig struct {
 	// OnWindowRoll, when non-nil, is invoked once when the first
 	// poll after a resume (StartMediaSeq > 0) observes that the
 	// playlist head is already past the caller's requested
-	// resume point. The lost range [from, to] is inclusive.
+	// resume point. The lost range [from, to] is inclusive;
+	// targetDuration is the playlist's EXT-X-TARGETDURATION at
+	// the same poll, so the callback can compute lost wall-clock
+	// time as (to - from + 1) * targetDuration without re-deriving
+	// it from the playlist body.
 	//
 	// Resume-state callers record this as a restart_window_rolled
 	// gap so the accounted frontier advances past the loss —
 	// without that the frontier stays stuck waiting for segments
-	// that will never be fetched. Called before OnFirstPoll +
-	// OnEvent so the gap lands before any subsequent commit.
-	OnWindowRoll func(from, to int64)
+	// that will never be fetched. Callers can also use the lost
+	// wall-clock time (to-from+1)*targetDuration to decide whether
+	// the gap is large enough to force a part boundary instead of
+	// swallowing it as a hole inside the current part. Called
+	// before OnFirstPoll + OnEvent so the gap lands (and any
+	// cancellation propagates) before any subsequent commit.
+	OnWindowRoll func(from, to int64, targetDuration time.Duration)
 
 	// ClassifyAuth, when non-nil, is forwarded to both the poller
 	// and the segment fetcher. It inspects 401/403 response bodies
@@ -391,7 +400,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	// no-op on already-bootstrapped resume state — so the
 	// ordering is conservative rather than load-bearing.
 	if cfg.OnWindowRoll != nil && pr.WindowRollFrom > 0 && pr.WindowRollTo >= pr.WindowRollFrom {
-		cfg.OnWindowRoll(pr.WindowRollFrom, pr.WindowRollTo)
+		cfg.OnWindowRoll(pr.WindowRollFrom, pr.WindowRollTo, pr.TargetDuration)
 	}
 	if cfg.OnFirstPoll != nil {
 		cfg.OnFirstPoll(pr.MediaSequenceBase)
