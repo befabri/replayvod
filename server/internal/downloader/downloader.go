@@ -19,11 +19,11 @@
 //	11. os.RemoveAll(work_dir)                — cleanup
 //
 // Durable state: jobs table (status + resume_state JSONB per attempt)
-// plus video_parts (one row per output part — Phase 6f writes 1..N
-// rows depending on whether Twitch dropped the variant mid-stream).
-// Start() creates both; run() transitions them alongside the
-// pipeline; Resume() at server boot reads RUNNING jobs and re-spawns
-// them.
+// plus video_parts (one row per output part — 1..N rows depending on
+// whether Twitch dropped the variant mid-stream or the resume gap
+// exceeded MaxRestartGapSeconds). Start() creates both; run()
+// transitions them alongside the pipeline; Resume() at server boot
+// reads RUNNING jobs and re-spawns them.
 //
 // Shutdown semantics: SIGINT/SIGTERM cancels in-flight jobs' contexts
 // but LEAVES their rows as RUNNING so the next Resume() picks them
@@ -130,9 +130,8 @@ type Progress struct {
 	JobID string `json:"job_id"`
 
 	// PartIndex is 1-based and increments on a part boundary
-	// (variant/codec/container switch — see Phase 6f's
-	// "Variant loss mid-stream"). Single-part recordings stay
-	// at 1.
+	// (variant/codec/container switch — see spec §"Variant
+	// loss mid-stream"). Single-part recordings stay at 1.
 	PartIndex int `json:"part_index"`
 
 	// Stage labels the active pipeline stage. Values:
@@ -717,14 +716,28 @@ var (
 
 	// ErrVariantChanged fires when a Stage-3 re-select inside
 	// fetchWithAuthRefresh lands on a different (quality, codec)
-	// pair than the one locked in for the current part. Phase 6f
-	// reclassifies this from a hard failure to a part-split
-	// trigger: the outer run() loop catches it alongside
-	// hls.ErrPlaylistGone, finalizes the current part, and re-
-	// enters the loop for a new variant. The error itself remains
+	// pair than the one locked in for the current part. The outer
+	// run() loop catches it alongside hls.ErrPlaylistGone as a
+	// part-split trigger, finalizes the current part, and re-
+	// enters the loop for a new variant. The error itself stays
 	// a sentinel so the inner code paths don't have to know about
 	// the part-split policy.
 	ErrVariantChanged = errors.New("downloader: selected variant changed mid-run")
+
+	// ErrRestartGapExceeded fires when a resume's first poll
+	// observes that the playlist head has rolled past the prior
+	// attempt's accounted frontier by more than
+	// cfg.Download.MaxRestartGapSeconds. Per spec §"Resume on
+	// restart" point 5, sprawling a multi-minute hole inside a
+	// single .mp4 is worse than splitting at the boundary —
+	// a player can seek across part files but won't gracefully
+	// handle a discontinuity that long inside one file.
+	//
+	// Surfaces from fetchWithAuthRefresh after the OnWindowRoll
+	// callback has set d.resume.PendingSplit + cancelled the
+	// scoped run context. Treated as a split signal by the outer
+	// loop alongside ErrPlaylistGone and ErrVariantChanged.
+	ErrRestartGapExceeded = errors.New("downloader: resume gap exceeds MaxRestartGapSeconds; forcing part split")
 )
 
 // run walks the full pipeline for one job. All DB writes use
@@ -759,7 +772,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	}
 	emitter := newProgressEmitter(d.jobID, recordingType, d.progressCh)
 
-	// Per-job scratch layout (Phase 6f):
+	// Per-job scratch layout:
 	//   <scratch>/<jobID>/part<NN>/segments/         — .ts / .m4s fragments + init.mp4 (per part)
 	//   <scratch>/<jobID>/<base>-part<NN>.mp4        — remuxed output (per part)
 	//   <scratch>/<jobID>/<base>-part<NN>.jpg        — hero thumbnail (per part)
@@ -1050,7 +1063,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 				// the loop forever. Signal + zero progress is
 				// indistinguishable from a permanently-bad
 				// variant chain → hard fail.
-				if isSplitSignal(err) && hlsResult != nil && hlsResult.SegmentsDone > 0 {
+				if isSplitSignal(err) && hasPartContent(hlsResult, d.resume) {
 					// Persist the split intent BEFORE runPart
 					// runs — a process crash mid-Stage-6 of the
 					// just-finalized part would otherwise resume
@@ -1058,11 +1071,21 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 					// and exit the loop without ever opening
 					// part N+1. The stream may still be live on
 					// the new variant; we want to pick it back up.
+					//
+					// Restart-gap splits set PendingSplit from the
+					// OnWindowRoll callback before this branch is
+					// reached; the assignment here is idempotent
+					// in that case.
 					d.resume.PendingSplit = true
 					s.checkpointResume(dbCtx, d, log)
-					log.Info("variant loss; splitting into new part",
+					var segDone int64
+					if hlsResult != nil {
+						segDone = hlsResult.SegmentsDone
+					}
+					log.Info("split triggered; opening new part",
 						"part_index", d.resume.CurrentPartIndex,
-						"segments_done", hlsResult.SegmentsDone,
+						"segments_done", segDone,
+						"prior_frontier", d.resume.AccountedFrontierMediaSeq,
 						"reason", err)
 				} else {
 					s.failDownload(dbCtx, d, log, err)
@@ -1210,20 +1233,64 @@ type partResult struct {
 	thumbRel        string // storage-relative thumbnail path; "" when none
 }
 
-// isSplitSignal reports whether err means "the variant we were
-// recording is gone; finalize this part and try a new variant."
-// Two surface forms per spec §"Variant loss mid-stream":
+// isSplitSignal reports whether err means "finalize the current
+// part and open a new one." Three surface forms:
 //
-//   - hls.ErrPlaylistGone — Twitch 404'd the media playlist URL.
-//   - ErrVariantChanged   — a Stage-3 re-select inside
+//   - hls.ErrPlaylistGone   — Twitch 404'd the media playlist
+//     URL (variant loss mid-stream, spec §"Variant loss
+//     mid-stream").
+//   - ErrVariantChanged     — a Stage-3 re-select inside
 //     fetchWithAuthRefresh resolved to a different (quality,
 //     codec) than what was locked in for the current part.
+//   - ErrRestartGapExceeded — a resume's first poll observed a
+//     window roll larger than cfg.Download.MaxRestartGapSeconds
+//     and the OnWindowRoll callback forced a part split (spec
+//     §"Resume on restart" point 5).
 //
-// run()'s outer loop combines this with a SegmentsDone>0 guard
-// before treating it as a split — otherwise a permanently-broken
+// run()'s outer loop combines this with hasPartContent() before
+// treating it as a split — otherwise a permanently-broken
 // variant chain would loop forever creating empty parts.
 func isSplitSignal(err error) bool {
-	return errors.Is(err, hls.ErrPlaylistGone) || errors.Is(err, ErrVariantChanged)
+	return errors.Is(err, hls.ErrPlaylistGone) ||
+		errors.Is(err, ErrVariantChanged) ||
+		errors.Is(err, ErrRestartGapExceeded)
+}
+
+// partEndMediaSeq picks the higher of the orchestrator's observed
+// LastMediaSeq and the durable frontier. Both are monotonic; the
+// frontier wins on threshold-triggered splits where cancel arrives
+// before any commit lands in hlsResult.
+func partEndMediaSeq(hlsResult *hls.JobResult, frontier int64) int64 {
+	last := int64(0)
+	if hlsResult != nil {
+		last = hlsResult.LastMediaSeq
+	}
+	return max(frontier, last)
+}
+
+// shouldForceSplitOnRestartGap: the lost wall-clock time of a
+// window-roll range exceeds the operator's threshold AND the
+// current part has content to finalize. thresholdSeconds == 0
+// disables (treated as "never split").
+func shouldForceSplitOnRestartGap(from, to int64, targetDuration time.Duration, thresholdSeconds int, resume *ResumeState) bool {
+	if thresholdSeconds <= 0 {
+		return false
+	}
+	lost := time.Duration(to-from+1) * targetDuration
+	threshold := time.Duration(thresholdSeconds) * time.Second
+	return lost > threshold && hasPartContent(nil, resume)
+}
+
+// hasPartContent: PartStart > 0 is the doom-loop guard. After
+// BeginNewPart the state has PartStart=frontier=0; without the
+// PartStart>0 check, frontier>=PartStart trivially holds and a
+// permanently-broken variant would loop creating empty parts.
+func hasPartContent(hlsResult *hls.JobResult, resume *ResumeState) bool {
+	if hlsResult != nil && hlsResult.SegmentsDone > 0 {
+		return true
+	}
+	return resume.PartStartMediaSequence > 0 &&
+		resume.AccountedFrontierMediaSeq >= resume.PartStartMediaSequence
 }
 
 // runPart executes Stages 5-10 for one part. Called from run()'s
@@ -1430,7 +1497,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		DurationSeconds: probeResult.Duration,
 		SizeBytes:       probeResult.Size,
 		Thumbnail:       thumbPtr,
-		EndMediaSeq:     hlsResult.LastMediaSeq,
+		EndMediaSeq:     partEndMediaSeq(hlsResult, d.resume.AccountedFrontierMediaSeq),
 	}); err != nil {
 		log.Error("failed to finalize video part",
 			"part_index", partIndex,
@@ -1545,16 +1612,16 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			// starts.
 			return agg, err
 		}
-		// Variant lock across auth-refresh iterations: a resumed
-		// pipeline must not silently change codec, container, or
-		// quality mid-stream — `ffmpeg -c copy` across those
-		// boundaries produces a broken output, and part-split
-		// mechanics are deferred to Phase 6f. If Stage 3 returns
-		// a different variant than what was already locked in
-		// (either from a prior attempt in THIS run or from a
-		// resumed ResumeState), abort with ErrVariantChanged.
-		// The operator can retry as a new job, which gets its
-		// own variant selection from scratch.
+		// Variant lock across auth-refresh iterations: an in-
+		// flight pipeline must not silently change codec,
+		// container, or quality within a part — `ffmpeg -c copy`
+		// across those boundaries produces a broken output. If
+		// Stage 3 returns a different variant than the one
+		// locked in (either from a prior auth-refresh iteration
+		// in THIS run or from a resumed ResumeState), surface
+		// ErrVariantChanged. The outer run() loop reads it as a
+		// part-split signal: finalize this part, BeginNewPart,
+		// re-run Stage 3 from scratch in the new part.
 		if d.resume.SelectedQuality != "" && d.resume.SelectedQuality != variant.Quality {
 			return agg, fmt.Errorf("%w: quality %q → %q",
 				ErrVariantChanged, d.resume.SelectedQuality, variant.Quality)
@@ -1593,7 +1660,18 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		go bridgeHLSProgress(emitter, hlsProgress)
 		emitter.setStage("segments")
 
-		result, err := hls.Run(ctx, hls.JobConfig{
+		// splitCtx lets OnWindowRoll cancel hls.Run independently
+		// of parent ctx — distinguishes a forced split from a
+		// user shutdown. thresholdSplitFired marks whether THIS
+		// attempt's callback fired the cancel; PendingSplit can't
+		// serve here (could be true at entry from a prior
+		// attempt) and the err can't (orchestrator filters
+		// context.Canceled to nil).
+		splitCtx, cancelSplit := context.WithCancel(ctx)
+		thresholdSeconds := s.cfg.App.Download.MaxRestartGapSeconds
+		var thresholdSplitFired bool
+
+		result, err := hls.Run(splitCtx, hls.JobConfig{
 			MediaPlaylistURL:   variant.URL,
 			WorkDir:            segmentsDir,
 			Fetcher:            s.fetcher,
@@ -1623,18 +1701,32 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 				d.resume.StartPart(base)
 				s.checkpointResume(dbCtx, d, log)
 			},
-			OnWindowRoll: func(from, to int64) {
-				// Resume gap: the CDN window rolled past the
-				// frontier while we were down. Record the loss
-				// so the frontier advances past it; without this
-				// the frontier would stall forever waiting for
-				// segments the edge no longer serves.
+			OnWindowRoll: func(from, to int64, targetDuration time.Duration) {
+				// Always record the gap — segments were lost,
+				// completion_kind classifier needs to see it,
+				// and the frontier advance lets the next
+				// OnFirstPoll anchor cleanly. The split decision
+				// is independent.
 				d.resume.NoteRangeGap(from, to, GapReasonRestartWindowRolled)
 				log.Warn("resume gap recorded",
 					"reason", GapReasonRestartWindowRolled,
 					"from", from,
 					"to", to,
 					"lost_segments", to-from+1)
+
+				if shouldForceSplitOnRestartGap(from, to, targetDuration, thresholdSeconds, d.resume) {
+					d.resume.PendingSplit = true
+					thresholdSplitFired = true
+					log.Info("restart gap exceeds threshold; forcing part boundary",
+						"from", from,
+						"to", to,
+						"lost_seconds", (time.Duration(to-from+1) * targetDuration).Seconds(),
+						"threshold_seconds", thresholdSeconds,
+						"part_index", d.resume.CurrentPartIndex)
+					s.checkpointResume(dbCtx, d, log)
+					cancelSplit()
+					return
+				}
 				s.checkpointResume(dbCtx, d, log)
 			},
 			OnEvent: func(ev hls.SegmentEvent) {
@@ -1666,6 +1758,16 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 				}
 			},
 		})
+		cancelSplit()
+		// Surface the forced split as an error so the outer loop
+		// catches it. parent ctx winning the race (shutdown) is
+		// safe: PendingSplit was already checkpointed inside
+		// OnWindowRoll, so the next resume picks up the intent.
+		if thresholdSplitFired && ctx.Err() == nil {
+			if err == nil || errors.Is(err, context.Canceled) {
+				err = fmt.Errorf("%w: forced part split at restart gap", ErrRestartGapExceeded)
+			}
+		}
 		// Unconditional checkpoint between attempts — captures
 		// any trailing events from the batch counter and the
 		// latest stage info before the next refresh iteration.
