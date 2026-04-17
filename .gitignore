@@ -46,6 +46,7 @@ dashboard/src/api/generated/
 # Temporary
 tmp/
 *.old
+nohup.out
 
 # Reference & docs (local only, not part of project source)
 .reference/
