@@ -29,15 +29,25 @@ type followedStreamsSource interface {
 	GetFollowedStreams(ctx context.Context, params *twitch.GetFollowedStreamsParams) ([]twitch.Stream, twitch.Pagination, error)
 }
 
+type streamRepo interface {
+	ListActiveStreams(ctx context.Context) ([]repository.Stream, error)
+	ListStreamsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.Stream, error)
+	GetLastLiveStream(ctx context.Context, broadcasterID string) (*repository.Stream, error)
+	ListChannelsByIDs(ctx context.Context, ids []string) ([]repository.Channel, error)
+	UpsertStream(ctx context.Context, s *repository.StreamInput) (*repository.Stream, error)
+	UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error)
+	GetStream(ctx context.Context, id string) (*repository.Stream, error)
+}
+
 // Service is the stream domain service.
 type Service struct {
-	repo   repository.Repository
+	repo   streamRepo
 	twitch followedStreamsSource
 	log    *slog.Logger
 }
 
 // New builds the service.
-func New(repo repository.Repository, tc followedStreamsSource, log *slog.Logger) *Service {
+func New(repo streamRepo, tc followedStreamsSource, log *slog.Logger) *Service {
 	return &Service{repo: repo, twitch: tc, log: log.With("domain", "stream")}
 }
 
@@ -61,8 +71,7 @@ func (s *Service) GetLastLive(ctx context.Context, broadcasterID string) (*repos
 // from the tRPC Input struct so the service is reusable from non-tRPC
 // entry points (e.g., a scheduled "poll live channels" task).
 type FollowedInput struct {
-	UserID          string
-	UserAccessToken string
+	UserID string
 }
 
 // FollowedStream is the service-layer shape for a currently-live
@@ -98,7 +107,6 @@ type FollowedStream struct {
 // and skipped from the upsert; sync via channel.syncFromTwitch is the
 // deliberate path to add a channel to the mirror.
 func (s *Service) Followed(ctx context.Context, input FollowedInput) ([]FollowedStream, error) {
-	ctx = twitch.WithUserToken(ctx, input.UserAccessToken)
 	ctx = twitch.WithUserID(ctx, input.UserID)
 
 	streams, err := s.fetchFollowedStreamsCapped(ctx, input.UserID)

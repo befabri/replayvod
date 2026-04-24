@@ -26,7 +26,7 @@ func getHTTPRequest(ctx context.Context) *http.Request {
 }
 
 // TRPCAuth returns tRPC middleware that validates the session cookie and injects user context.
-func TRPCAuth(sessionMgr *session.Manager, repo repository.Repository, log *slog.Logger) trpcgo.Middleware {
+func TRPCAuth(sessionMgr *session.Manager, repo repository.Repository, tokenProvider *SessionTokenProvider, log *slog.Logger) trpcgo.Middleware {
 	return func(next trpcgo.HandlerFunc) trpcgo.HandlerFunc {
 		return func(ctx context.Context, input any) (any, error) {
 			r := getHTTPRequest(ctx)
@@ -53,6 +53,7 @@ func TRPCAuth(sessionMgr *session.Manager, repo repository.Repository, log *slog
 
 			sessionMgr.UpdateActivity(ctx, sess.HashedID)
 
+			ctx = tokenProvider.Bind(ctx, sess.HashedID, tokens)
 			ctx = context.WithValue(ctx, ctxKeyUser, user)
 			ctx = context.WithValue(ctx, ctxKeySession, sess)
 			ctx = context.WithValue(ctx, ctxKeyTokens, tokens)

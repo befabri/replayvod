@@ -55,7 +55,7 @@ func discardLogger() *slog.Logger {
 // (so UpsertStream + ListChannelsByIDs exercise actual SQL) and a
 // fake Twitch source. Returns both so tests can seed channels + assert
 // mirrored state.
-func newServiceWithRepo(t *testing.T, src followedStreamsSource) (*Service, repository.Repository) {
+func newServiceWithRepo(t *testing.T, src followedStreamsSource) (*Service, streamRepo) {
 	t.Helper()
 	db := testdb.NewSQLiteDB(t)
 	repo := sqliteadapter.New(db)
@@ -87,7 +87,7 @@ func TestFollowed_EmptyHelixResult(t *testing.T) {
 	src := newFakeSource([]twitch.Stream{}) // one page, empty
 	svc, _ := newServiceWithRepo(t, src)
 
-	got, err := svc.Followed(ctx, FollowedInput{UserID: "me", UserAccessToken: "tok"})
+	got, err := svc.Followed(ctx, FollowedInput{UserID: "me"})
 	if err != nil {
 		t.Fatalf("followed: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestFollowed_MirrorsOnlyKnownBroadcasters(t *testing.T) {
 		t.Fatalf("seed channel: %v", err)
 	}
 
-	got, err := svc.Followed(ctx, FollowedInput{UserID: "me", UserAccessToken: "tok"})
+	got, err := svc.Followed(ctx, FollowedInput{UserID: "me"})
 	if err != nil {
 		t.Fatalf("followed: %v", err)
 	}
@@ -155,15 +155,15 @@ func TestFollowed_EnrichesProfileImageURL(t *testing.T) {
 
 	knownProfile := "https://example.com/known.png"
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
-		BroadcasterID:   "bc-known",
+		BroadcasterID:    "bc-known",
 		BroadcasterLogin: "k",
-		BroadcasterName: "K",
-		ProfileImageURL: &knownProfile,
+		BroadcasterName:  "K",
+		ProfileImageURL:  &knownProfile,
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
-	got, err := svc.Followed(ctx, FollowedInput{UserID: "me", UserAccessToken: "tok"})
+	got, err := svc.Followed(ctx, FollowedInput{UserID: "me"})
 	if err != nil {
 		t.Fatalf("followed: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestFollowed_MirrorsStreamFields(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	if _, err := svc.Followed(ctx, FollowedInput{UserID: "me", UserAccessToken: "tok"}); err != nil {
+	if _, err := svc.Followed(ctx, FollowedInput{UserID: "me"}); err != nil {
 		t.Fatalf("followed: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestFollowed_PaginationCap(t *testing.T) {
 	src := newFakeSource(pages...)
 	svc, _ := newServiceWithRepo(t, src)
 
-	got, err := svc.Followed(ctx, FollowedInput{UserID: "me", UserAccessToken: "tok"})
+	got, err := svc.Followed(ctx, FollowedInput{UserID: "me"})
 	if err != nil {
 		t.Fatalf("followed: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestFollowed_HelixErrorPropagates(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	_, err := svc.Followed(ctx, FollowedInput{UserID: "me", UserAccessToken: "tok"})
+	_, err := svc.Followed(ctx, FollowedInput{UserID: "me"})
 	if err == nil {
 		t.Fatal("expected error from Helix, got nil")
 	}

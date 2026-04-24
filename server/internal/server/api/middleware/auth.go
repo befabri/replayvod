@@ -25,7 +25,7 @@ type SessionData struct {
 }
 
 // Auth returns middleware that validates the session cookie and injects user context.
-func Auth(sessionMgr *session.Manager, repo repository.Repository, log *slog.Logger) func(http.Handler) http.Handler {
+func Auth(sessionMgr *session.Manager, repo repository.Repository, tokenProvider *SessionTokenProvider, log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -56,6 +56,7 @@ func Auth(sessionMgr *session.Manager, repo repository.Repository, log *slog.Log
 			sessionMgr.UpdateActivity(ctx, sess.HashedID)
 
 			// Inject into context
+			ctx = tokenProvider.Bind(ctx, sess.HashedID, tokens)
 			ctx = context.WithValue(ctx, ctxKeyUser, user)
 			ctx = context.WithValue(ctx, ctxKeySession, sess)
 			ctx = context.WithValue(ctx, ctxKeyTokens, tokens)

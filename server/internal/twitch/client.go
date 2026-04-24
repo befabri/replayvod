@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -73,6 +74,14 @@ func NewClient(clientID, clientSecret string, log *slog.Logger) *Client {
 			Timeout: 10 * time.Second,
 		},
 		log: log.With("domain", "twitch"),
+	}
+}
+
+// SetHTTPClient replaces the underlying HTTP client. Used by tests that need
+// to stub Twitch endpoints without changing the public API surface elsewhere.
+func (c *Client) SetHTTPClient(httpClient *http.Client) {
+	if httpClient != nil {
+		c.httpClient = httpClient
 	}
 }
 
@@ -191,15 +200,57 @@ func (c *Client) do(ctx context.Context, method, path string, params any, body a
 	}
 
 	start := time.Now()
-	status, err := c.doOnce(ctx, method, path, params, body, out)
+	status, err := c.doWithAuth(ctx, method, path, params, body, out)
 	c.record(ctx, method, path, status, time.Since(start), err, extractBroadcasterID(params))
 	return err
+}
+
+func (c *Client) doWithAuth(ctx context.Context, method, path string, params any, body any, out any) (int, error) {
+	provider := userTokenProviderFrom(ctx)
+	token, userScoped, err := c.authToken(ctx, provider, false)
+	if err != nil {
+		return 0, err
+	}
+	status, err := c.doOnce(ctx, method, path, params, body, out, token)
+	if err == nil || !userScoped || provider == nil {
+		return status, err
+	}
+	var helixErr *HelixError
+	if !errors.As(err, &helixErr) || (helixErr.Status != http.StatusUnauthorized && helixErr.Status != http.StatusForbidden) {
+		return status, err
+	}
+	forcedToken, _, forceErr := c.authToken(ctx, provider, true)
+	if forceErr != nil {
+		return status, forceErr
+	}
+	return c.doOnce(ctx, method, path, params, body, out, forcedToken)
+}
+
+func (c *Client) authToken(ctx context.Context, provider UserTokenProvider, force bool) (token string, userScoped bool, err error) {
+	if provider != nil {
+		token, err := provider.AccessToken(ctx, force)
+		if err != nil {
+			return "", true, err
+		}
+		if token == "" {
+			return "", true, &UserAuthError{}
+		}
+		return token, true, nil
+	}
+	if direct, ok := userTokenFrom(ctx); ok {
+		return direct, true, nil
+	}
+	token, err = c.appAccessToken(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("acquire app token: %w", err)
+	}
+	return token, false, nil
 }
 
 // doOnce performs the HTTP exchange and returns the status code even on error
 // so the caller can record it. Status is 0 when the request never reached the
 // server (e.g., encoding or network failure).
-func (c *Client) doOnce(ctx context.Context, method, path string, params any, body any, out any) (int, error) {
+func (c *Client) doOnce(ctx context.Context, method, path string, params any, body any, out any, token string) (int, error) {
 	u, err := url.Parse(helixBaseURL + path)
 	if err != nil {
 		return 0, fmt.Errorf("parse url: %w", err)
@@ -226,13 +277,6 @@ func (c *Client) doOnce(ctx context.Context, method, path string, params any, bo
 		return 0, fmt.Errorf("new request: %w", err)
 	}
 
-	token, ok := userTokenFrom(ctx)
-	if !ok {
-		token, err = c.appAccessToken(ctx)
-		if err != nil {
-			return 0, fmt.Errorf("acquire app token: %w", err)
-		}
-	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Client-Id", c.clientID)
 	if bodyReader != nil {
@@ -353,6 +397,17 @@ type TokenResponse struct {
 	TokenType    string   `json:"token_type"`
 }
 
+// TokenRequestError is returned when Twitch's OAuth token endpoint rejects a
+// token request with a non-200 response.
+type TokenRequestError struct {
+	Status int
+	Body   string
+}
+
+func (e *TokenRequestError) Error() string {
+	return fmt.Sprintf("token request error %d: %s", e.Status, e.Body)
+}
+
 // ExchangeCode exchanges an authorization code for tokens using PKCE.
 func (c *Client) ExchangeCode(ctx context.Context, code, redirectURI, codeVerifier string) (*TokenResponse, error) {
 	data := url.Values{
@@ -403,7 +458,7 @@ func (c *Client) tokenRequest(ctx context.Context, data url.Values) (*TokenRespo
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("token request error %d: %s", resp.StatusCode, string(body))
+		return nil, &TokenRequestError{Status: resp.StatusCode, Body: string(body)}
 	}
 
 	var tokenResp TokenResponse

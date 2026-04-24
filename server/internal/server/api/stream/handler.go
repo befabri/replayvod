@@ -8,6 +8,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
 )
 
@@ -190,15 +191,17 @@ func (h *Handler) LiveIds(ctx context.Context) ([]string, error) {
 // exactly — if one changes, both change.
 func (h *Handler) followedFromSession(ctx context.Context, logTag string) ([]FollowedStream, error) {
 	user := middleware.GetUser(ctx)
-	tokens := middleware.GetTokens(ctx)
-	if user == nil || tokens == nil {
+	if user == nil {
 		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
 	followed, err := h.svc.Followed(ctx, FollowedInput{
-		UserID:          user.ID,
-		UserAccessToken: tokens.AccessToken,
+		UserID: user.ID,
 	})
 	if err != nil {
+		if twitch.IsUserAuthError(err) {
+			h.log.Warn(logTag, "error", err)
+			return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "twitch session expired; sign in again")
+		}
 		h.log.Error(logTag, "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load live streams")
 	}

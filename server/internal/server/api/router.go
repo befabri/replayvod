@@ -82,7 +82,8 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// auto-download pipeline; other event types are audit-logged only.
 	scheduleProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
 	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, scheduleProcessor, log)
-	sessionMw := middleware.Auth(sessionMgr, repo, log)
+	tokenProvider := middleware.NewSessionTokenProvider(sessionMgr, twitchClient, log)
+	sessionMw := middleware.Auth(sessionMgr, repo, tokenProvider, log)
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.App.Health.Enabled {
 			r.Get("/health", healthHandler(repo, log))
@@ -93,7 +94,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	})
 
 	// tRPC router with CSRF/origin protection.
-	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, log)
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, tokenProvider, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -117,7 +118,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 // registration to each domain's RegisterRoutes. authSvc + scheduleSvc
 // are the shared domain services constructed by SetupRouter; everything
 // else each domain owns.
-func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, log *slog.Logger) *trpcgo.Router {
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, tokenProvider *middleware.SessionTokenProvider, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, log *slog.Logger) *trpcgo.Router {
 	opts := []trpcgo.Option{
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
 		trpcgo.WithValidator(validate.V.Struct),
@@ -159,7 +160,7 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// Procedure builders: authed is the base, viewer/admin/owner layer role
 	// middleware on top. Each domain's RegisterRoutes picks the ones it
 	// needs, so we pass only what's relevant per call.
-	authMw := middleware.TRPCAuth(sessionMgr, repo, log)
+	authMw := middleware.TRPCAuth(sessionMgr, repo, tokenProvider, log)
 	adminMw := middleware.TRPCRequireRole(middleware.RoleAdmin)
 	ownerMw := middleware.TRPCRequireRole(middleware.RoleOwner)
 
