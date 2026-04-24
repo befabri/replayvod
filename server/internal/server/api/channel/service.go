@@ -13,15 +13,26 @@ import (
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
+type channelRepo interface {
+	GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error)
+	GetChannelByLogin(ctx context.Context, login string) (*repository.Channel, error)
+	ListChannels(ctx context.Context) ([]repository.Channel, error)
+	ListChannelsPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error)
+	ListUserFollows(ctx context.Context, userID string) ([]repository.Channel, error)
+	SearchChannels(ctx context.Context, query string, limit int) ([]repository.Channel, error)
+	ListLatestLivePerChannel(ctx context.Context, limit int) ([]repository.LatestLiveStream, error)
+	UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error)
+}
+
 // Service is the channel domain service.
 type Service struct {
-	repo   repository.Repository
+	repo   channelRepo
 	twitch *twitch.Client
 	log    *slog.Logger
 }
 
 // New builds the service.
-func New(repo repository.Repository, tc *twitch.Client, log *slog.Logger) *Service {
+func New(repo channelRepo, tc *twitch.Client, log *slog.Logger) *Service {
 	return &Service{repo: repo, twitch: tc, log: log.With("domain", "channel")}
 }
 
@@ -39,6 +50,11 @@ func (s *Service) GetByLogin(ctx context.Context, login string) (*repository.Cha
 // List returns every mirrored channel.
 func (s *Service) List(ctx context.Context) ([]repository.Channel, error) {
 	return s.repo.ListChannels(ctx)
+}
+
+// ListPage returns a cursor-paginated slice of mirrored channels.
+func (s *Service) ListPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
+	return s.repo.ListChannelsPage(ctx, limit, sort, liveOnly, cursor)
 }
 
 // ListFollowedByUser returns the channels the given user follows.
@@ -62,9 +78,8 @@ func (s *Service) LatestLive(ctx context.Context, limit int) ([]repository.Lates
 // service attaches both to the Twitch context so rate limiting and
 // fetch-log attribution see the right actor.
 type SyncInput struct {
-	BroadcasterID   string
-	UserID          string
-	UserAccessToken string
+	BroadcasterID string
+	UserID        string
 }
 
 // SyncFromTwitch fetches the given broadcaster's Helix user data and
@@ -73,7 +88,6 @@ type SyncInput struct {
 // user upsert; callers need to tolerate BroadcasterLanguage being
 // nil even on success.
 func (s *Service) SyncFromTwitch(ctx context.Context, input SyncInput) (*repository.Channel, error) {
-	ctx = twitch.WithUserToken(ctx, input.UserAccessToken)
 	ctx = twitch.WithUserID(ctx, input.UserID)
 
 	users, err := s.twitch.GetUsers(ctx, &twitch.GetUsersParams{ID: []string{input.BroadcasterID}})
@@ -106,4 +120,3 @@ func (s *Service) SyncFromTwitch(ctx context.Context, input SyncInput) (*reposit
 		ViewCount:           0,
 	})
 }
-

@@ -8,6 +8,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
 )
 
@@ -98,6 +99,44 @@ func (h *Handler) List(ctx context.Context) ([]ChannelResponse, error) {
 	return out, nil
 }
 
+type ChannelPageCursor struct {
+	BroadcasterName string `json:"broadcaster_name" validate:"required"`
+	BroadcasterID   string `json:"broadcaster_id" validate:"required"`
+}
+
+type ChannelPageResponse struct {
+	Items      []ChannelResponse  `json:"items"`
+	NextCursor *ChannelPageCursor `json:"next_cursor,omitempty"`
+}
+
+type ListPageInput struct {
+	Limit    int                `json:"limit,omitempty" validate:"min=0,max=200"`
+	Sort     string             `json:"sort,omitempty" validate:"omitempty,oneof=name_asc name_desc"`
+	LiveOnly bool               `json:"live_only,omitempty"`
+	Cursor   *ChannelPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+}
+
+func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (ChannelPageResponse, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 60
+	}
+	sort := input.Sort
+	if sort == "" {
+		sort = "name_asc"
+	}
+	page, err := h.svc.ListPage(ctx, limit, sort, input.LiveOnly, toRepositoryChannelPageCursor(input.Cursor))
+	if err != nil {
+		h.log.Error("list channels page", "error", err)
+		return ChannelPageResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list channels")
+	}
+	out := make([]ChannelResponse, len(page.Items))
+	for i := range page.Items {
+		out[i] = toResponse(&page.Items[i])
+	}
+	return ChannelPageResponse{Items: out, NextCursor: toChannelPageCursor(page.NextCursor)}, nil
+}
+
 func (h *Handler) ListFollowed(ctx context.Context) ([]ChannelResponse, error) {
 	user := middleware.GetUser(ctx)
 	if user == nil {
@@ -113,6 +152,26 @@ func (h *Handler) ListFollowed(ctx context.Context) ([]ChannelResponse, error) {
 		out[i] = toResponse(&channels[i])
 	}
 	return out, nil
+}
+
+func toRepositoryChannelPageCursor(cursor *ChannelPageCursor) *repository.ChannelPageCursor {
+	if cursor == nil {
+		return nil
+	}
+	return &repository.ChannelPageCursor{
+		BroadcasterName: cursor.BroadcasterName,
+		BroadcasterID:   cursor.BroadcasterID,
+	}
+}
+
+func toChannelPageCursor(cursor *repository.ChannelPageCursor) *ChannelPageCursor {
+	if cursor == nil {
+		return nil
+	}
+	return &ChannelPageCursor{
+		BroadcasterName: cursor.BroadcasterName,
+		BroadcasterID:   cursor.BroadcasterID,
+	}
 }
 
 // SearchInput drives channel.search. Empty Query returns everything up
@@ -203,17 +262,19 @@ type SyncFromTwitchInput struct {
 // SyncFromTwitch uses the caller's user access token so rate-limit +
 // fetch-log attribution stays accurate.
 func (h *Handler) SyncFromTwitch(ctx context.Context, input SyncFromTwitchInput) (ChannelResponse, error) {
-	tokens := middleware.GetTokens(ctx)
 	user := middleware.GetUser(ctx)
-	if tokens == nil || user == nil {
+	if user == nil {
 		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
 	c, err := h.svc.SyncFromTwitch(ctx, SyncInput{
-		BroadcasterID:   input.BroadcasterID,
-		UserID:          user.ID,
-		UserAccessToken: tokens.AccessToken,
+		BroadcasterID: input.BroadcasterID,
+		UserID:        user.ID,
 	})
 	if err != nil {
+		if twitch.IsUserAuthError(err) {
+			h.log.Warn("sync channel", "error", err)
+			return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "twitch session expired; sign in again")
+		}
 		h.log.Error("sync channel", "error", err)
 		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to sync channel")
 	}

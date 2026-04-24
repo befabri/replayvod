@@ -2,11 +2,52 @@ package sqliteadapter
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
+
+const listChannelsPageAscSQL = `SELECT
+    c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language,
+    c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type,
+    c.view_count, c.created_at, c.updated_at
+FROM channels c
+WHERE (
+    ?1 = 0
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    ?2 IS NULL
+    OR lower(c.broadcaster_name) > lower(?2)
+    OR (lower(c.broadcaster_name) = lower(?2) AND c.broadcaster_id > ?3)
+  )
+ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
+LIMIT ?4`
+
+const listChannelsPageDescSQL = `SELECT
+    c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language,
+    c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type,
+    c.view_count, c.created_at, c.updated_at
+FROM channels c
+WHERE (
+    ?1 = 0
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    ?2 IS NULL
+    OR lower(c.broadcaster_name) < lower(?2)
+    OR (lower(c.broadcaster_name) = lower(?2) AND c.broadcaster_id < ?3)
+  )
+ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
+LIMIT ?4`
 
 // Channels
 
@@ -54,6 +95,22 @@ func (a *SQLiteAdapter) ListChannels(ctx context.Context) ([]repository.Channel,
 		channels[i] = *sqliteChannelToDomain(row)
 	}
 	return channels, nil
+}
+
+func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
+	query := listChannelsPageAscSQL
+	if sort == "name_desc" {
+		query = listChannelsPageDescSQL
+	}
+	rows, err := a.db.QueryContext(ctx, query, boolToInt(liveOnly), sqliteChannelCursorName(cursor), sqliteChannelCursorID(cursor), int64(limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list channels page: %w", err)
+	}
+	items, err := scanSQLiteChannels(rows)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list channels page: %w", err)
+	}
+	return toChannelPage(items, limit), nil
 }
 
 func (a *SQLiteAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]repository.Channel, error) {
@@ -178,4 +235,70 @@ func sqliteChannelToDomain(c sqlitegen.Channel) *repository.Channel {
 		CreatedAt:           parseTime(c.CreatedAt),
 		UpdatedAt:           parseTime(c.UpdatedAt),
 	}
+}
+
+func scanSQLiteChannels(rows *sql.Rows) ([]repository.Channel, error) {
+	defer rows.Close()
+	out := []repository.Channel{}
+	for rows.Next() {
+		var row sqlitegen.Channel
+		if err := rows.Scan(
+			&row.BroadcasterID,
+			&row.BroadcasterLogin,
+			&row.BroadcasterName,
+			&row.BroadcasterLanguage,
+			&row.ProfileImageUrl,
+			&row.OfflineImageUrl,
+			&row.Description,
+			&row.BroadcasterType,
+			&row.ViewCount,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, *sqliteChannelToDomain(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func sqliteChannelCursorName(cursor *repository.ChannelPageCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.BroadcasterName
+}
+
+func sqliteChannelCursorID(cursor *repository.ChannelPageCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	return cursor.BroadcasterID
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func toChannelPage(items []repository.Channel, limit int) *repository.ChannelPage {
+	if limit <= 0 {
+		return &repository.ChannelPage{Items: []repository.Channel{}}
+	}
+	page := &repository.ChannelPage{Items: items}
+	if len(items) <= limit {
+		return page
+	}
+	page.Items = items[:limit]
+	next := page.Items[len(page.Items)-1]
+	page.NextCursor = &repository.ChannelPageCursor{
+		BroadcasterName: next.BroadcasterName,
+		BroadcasterID:   next.BroadcasterID,
+	}
+	return page
 }
