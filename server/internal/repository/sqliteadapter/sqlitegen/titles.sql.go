@@ -7,7 +7,76 @@ package sqlitegen
 
 import (
 	"context"
+	"database/sql"
 )
+
+const closeOpenVideoTitleSpans = `-- name: CloseOpenVideoTitleSpans :exec
+UPDATE video_title_spans
+   SET ended_at = ?1,
+       duration_seconds = duration_seconds + ((julianday(?1) - julianday(started_at)) * 86400.0)
+ WHERE video_id = ?2
+   AND ended_at IS NULL
+`
+
+type CloseOpenVideoTitleSpansParams struct {
+	AtTime  sql.NullString `json:"at_time"`
+	VideoID int64          `json:"video_id"`
+}
+
+func (q *Queries) CloseOpenVideoTitleSpans(ctx context.Context, arg CloseOpenVideoTitleSpansParams) error {
+	_, err := q.db.ExecContext(ctx, closeOpenVideoTitleSpans, arg.AtTime, arg.VideoID)
+	return err
+}
+
+const closeOtherOpenVideoTitleSpans = `-- name: CloseOtherOpenVideoTitleSpans :exec
+UPDATE video_title_spans
+   SET ended_at = ?1,
+       duration_seconds = duration_seconds + ((julianday(?1) - julianday(started_at)) * 86400.0)
+ WHERE video_id = ?2
+   AND ended_at IS NULL
+   AND title_id <> ?3
+`
+
+type CloseOtherOpenVideoTitleSpansParams struct {
+	AtTime  sql.NullString `json:"at_time"`
+	VideoID int64          `json:"video_id"`
+	TitleID int64          `json:"title_id"`
+}
+
+// Paired with InsertVideoTitleSpan to emulate pg's CTE-driven upsert.
+// Called first inside the same tx as InsertVideoTitleSpan; closes only
+// the spans whose title_id differs from the new one.
+//
+// @at_time forces sqlc to type @at_time as `string`,
+// not `sql.NullTime`. The adapter pre-formats using formatTime() to
+// the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
+// modernc.org/sqlite's native time.Time binding produces RFC3339
+// with the `T` separator and `Z` suffix, which julianday() treats
+// as NULL, silently corrupting the duration sum.
+func (q *Queries) CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error {
+	_, err := q.db.ExecContext(ctx, closeOtherOpenVideoTitleSpans, arg.AtTime, arg.VideoID, arg.TitleID)
+	return err
+}
+
+const insertVideoTitleSpan = `-- name: InsertVideoTitleSpan :exec
+INSERT INTO video_title_spans (video_id, title_id, started_at)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING
+`
+
+type InsertVideoTitleSpanParams struct {
+	VideoID int64  `json:"video_id"`
+	TitleID int64  `json:"title_id"`
+	AtTime  string `json:"at_time"`
+}
+
+// The INSERT half of the upsert. The partial unique index on
+// (video_id, title_id) WHERE ended_at IS NULL keeps the same-title
+// re-enter case a no-op.
+func (q *Queries) InsertVideoTitleSpan(ctx context.Context, arg InsertVideoTitleSpanParams) error {
+	_, err := q.db.ExecContext(ctx, insertVideoTitleSpan, arg.VideoID, arg.TitleID, arg.AtTime)
+	return err
+}
 
 const linkStreamTitle = `-- name: LinkStreamTitle :exec
 INSERT INTO stream_titles (stream_id, title_id) VALUES (?, ?) ON CONFLICT DO NOTHING
@@ -35,6 +104,69 @@ type LinkVideoTitleParams struct {
 func (q *Queries) LinkVideoTitle(ctx context.Context, arg LinkVideoTitleParams) error {
 	_, err := q.db.ExecContext(ctx, linkVideoTitle, arg.VideoID, arg.TitleID)
 	return err
+}
+
+const listTitleSpansForVideo = `-- name: ListTitleSpansForVideo :many
+SELECT
+    t.id,
+    t.name,
+    t.created_at,
+    vts.started_at,
+    vts.ended_at,
+    (vts.duration_seconds + CASE
+        WHEN vts.ended_at IS NULL THEN ((julianday('now') - julianday(vts.started_at)) * 86400.0)
+        ELSE 0
+    END) AS duration_seconds
+FROM titles t
+INNER JOIN video_title_spans vts ON vts.title_id = t.id
+WHERE vts.video_id = ?
+ORDER BY vts.started_at ASC, vts.id ASC
+`
+
+type ListTitleSpansForVideoRow struct {
+	ID              int64          `json:"id"`
+	Name            string         `json:"name"`
+	CreatedAt       string         `json:"created_at"`
+	StartedAt       string         `json:"started_at"`
+	EndedAt         sql.NullString `json:"ended_at"`
+	DurationSeconds interface{}    `json:"duration_seconds"`
+}
+
+// julianday('now') is UTC per SQLite docs; matches pg's NOW() at UTC,
+// which the adapter forces in its connection setup. The
+// duration_seconds expression ends up typed `interface{}` in the
+// generated code because sqlc can't infer a REAL through the CASE
+// branches (a CAST(... AS REAL) wrapper here crashes sqlc-sqlite's
+// parser when another query in this file uses sqlc.slice). The
+// adapter asserts the scan value to float64.
+func (q *Queries) ListTitleSpansForVideo(ctx context.Context, videoID int64) ([]ListTitleSpansForVideoRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTitleSpansForVideo, videoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTitleSpansForVideoRow{}
+	for rows.Next() {
+		var i ListTitleSpansForVideoRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.DurationSeconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listTitlesForStream = `-- name: ListTitlesForStream :many
@@ -67,36 +199,34 @@ func (q *Queries) ListTitlesForStream(ctx context.Context, streamID string) ([]T
 	return items, nil
 }
 
-const listTitlesForVideo = `-- name: ListTitlesForVideo :many
-SELECT t.id, t.name, t.created_at FROM titles t
-INNER JOIN video_titles vt ON vt.title_id = t.id
-WHERE vt.video_id = ?
-ORDER BY vt.linked_at
+const resumeVideoTitleSpan = `-- name: ResumeVideoTitleSpan :exec
+INSERT INTO video_title_spans (video_id, title_id, started_at)
+SELECT ?1, latest.title_id, ?2
+FROM (
+    SELECT title_id
+    FROM video_title_spans
+    WHERE video_id = ?1
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1
+) latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM video_title_spans
+    WHERE video_id = ?1 AND ended_at IS NULL
+)
 `
 
-// Ordered by linked_at, not titles.id. See postgres/titles.sql for
-// the rationale.
-func (q *Queries) ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error) {
-	rows, err := q.db.QueryContext(ctx, listTitlesForVideo, videoID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Title{}
-	for rows.Next() {
-		var i Title
-		if err := rows.Scan(&i.ID, &i.Name, &i.CreatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type ResumeVideoTitleSpanParams struct {
+	VideoID   int64  `json:"video_id"`
+	StartedAt string `json:"started_at"`
+}
+
+// sqlc-sqlite's @-rewriter misses some @video_id occurrences when
+// the param is referenced from three clauses in the same statement,
+// leaving literal "@video_id" tokens for the driver to choke on.
+// Use positional ?1 / ?2 here to force sqlc to bind uniformly.
+func (q *Queries) ResumeVideoTitleSpan(ctx context.Context, arg ResumeVideoTitleSpanParams) error {
+	_, err := q.db.ExecContext(ctx, resumeVideoTitleSpan, arg.VideoID, arg.StartedAt)
+	return err
 }
 
 const upsertTitle = `-- name: UpsertTitle :one

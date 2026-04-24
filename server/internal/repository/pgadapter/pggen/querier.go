@@ -18,12 +18,17 @@ type Querier interface {
 	// webhook_event_payload_retention_days. The row (with audit metadata)
 	// stays; just the fat JSON column goes.
 	ClearWebhookEventPayload(ctx context.Context, receivedAt time.Time) error
+	CloseOpenVideoCategorySpans(ctx context.Context, arg CloseOpenVideoCategorySpansParams) error
+	// Stamp ended_at + add the elapsed interval to duration_seconds for
+	// every still-open title span of this video. Used when the recording
+	// terminates (clean end or cancelled) so the history shows a finite
+	// duration instead of an open-ended span.
+	CloseOpenVideoTitleSpans(ctx context.Context, arg CloseOpenVideoTitleSpansParams) error
 	CountActiveSubscriptions(ctx context.Context) (int64, error)
 	CountEventLogs(ctx context.Context) (int64, error)
 	CountEventLogsByDomain(ctx context.Context, domain string) (int64, error)
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
-	CountUserSessions(ctx context.Context, userID string) (int64, error)
 	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	CountWebhookEvents(ctx context.Context) (int64, error)
@@ -124,8 +129,8 @@ type Querier interface {
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
 	ListActiveSubscriptions(ctx context.Context, arg ListActiveSubscriptionsParams) ([]Subscription, error)
 	ListCategories(ctx context.Context) ([]Category, error)
-	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
+	ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	// Scheduler tick path: enabled tasks whose next_run_at has passed.
@@ -145,6 +150,11 @@ type Querier interface {
 	// by its key first, so the inner query picks the latest per broadcaster
 	// and the outer query re-sorts globally by started_at.
 	ListLatestLivePerChannel(ctx context.Context, limit int32) ([]ListLatestLivePerChannelRow, error)
+	// Pick the single most-played category per video, ordered within the
+	// video by total span duration then first-seen time then name. Used
+	// by the video list response to render a stable "primary category"
+	// label without round-tripping every row.
+	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
 	// On server startup: every row here is a job whose process crashed
 	// mid-execution. The downloader's resume path runs for each.
 	ListRunningJobs(ctx context.Context) ([]Job, error)
@@ -160,17 +170,15 @@ type Querier interface {
 	ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error)
 	ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID *string) ([]Subscription, error)
 	ListSubscriptionsByType(ctx context.Context, type_ string) ([]Subscription, error)
-	ListSubscriptionsForSnapshot(ctx context.Context, snapshotID int64) ([]ListSubscriptionsForSnapshotRow, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	ListTasks(ctx context.Context) ([]Task, error)
+	// One row per title span ordered by when the stream first set that
+	// title. Still-open spans expose (NOW() - started_at) as their
+	// live contribution to duration_seconds so the UI reads a live
+	// duration until the recording closes.
+	ListTitleSpansForVideo(ctx context.Context, videoID int64) ([]ListTitleSpansForVideoRow, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
-	// Ordered by linked_at, not titles.id — the dedup-row id reflects
-	// creation order across the whole titles table, not the order a
-	// specific video saw each title. Without this the history UI
-	// misorders titles whenever a stream reuses a name from a prior
-	// broadcast.
-	ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error)
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -184,8 +192,6 @@ type Querier interface {
 	// explicit 'created_at-desc' sort (matched by the CASE above it) and the
 	// fallthrough for empty/unrecognized sort_key values.
 	ListVideos(ctx context.Context, arg ListVideosParams) ([]Video, error)
-	ListVideosByBroadcaster(ctx context.Context, arg ListVideosByBroadcasterParams) ([]Video, error)
-	ListVideosByCategory(ctx context.Context, arg ListVideosByCategoryParams) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
@@ -218,6 +224,12 @@ type Querier interface {
 	// trigger so the dashboard can show "this schedule fired N times, last at T".
 	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error
+	// After CloseOpenVideoTitleSpans ran against a prior failed/
+	// suspended recording, reopen a new span starting at at_time
+	// carrying the most recent title — unless one is already open.
+	// Idempotent across retry loops.
+	ResumeVideoTitleSpan(ctx context.Context, arg ResumeVideoTitleSpanParams) error
 	// Case-insensitive substring match on name. Ranks exact name match
 	// first, then prefix match, then substring match, then alphabetical.
 	// Mirrors queries/postgres/channels.sql SearchChannels so both
@@ -289,6 +301,19 @@ type Querier interface {
 	UpsertTitle(ctx context.Context, name string) (Title, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 	UpsertUserFollow(ctx context.Context, arg UpsertUserFollowParams) error
+	// Category analogue of UpsertVideoTitleSpan; see that comment for the
+	// close-then-insert rationale.
+	UpsertVideoCategorySpan(ctx context.Context, arg UpsertVideoCategorySpanParams) error
+	// Close the currently-open span if its title differs from the new
+	// one, then insert the new span. The CTE branch never runs when the
+	// incoming title matches the open row, so the ON CONFLICT leaves
+	// the existing span untouched.
+	//
+	// Uses sqlc.arg() + ::timestamptz cast (not the @-shorthand form)
+	// because sqlc's @-rewriter mangles the SQL inside
+	// EXTRACT(EPOCH FROM (@param - column)) expressions. The cast also
+	// forces non-nullable Go types for the generated param struct.
+	UpsertVideoTitleSpan(ctx context.Context, arg UpsertVideoTitleSpanParams) error
 }
 
 var _ Querier = (*Queries)(nil)

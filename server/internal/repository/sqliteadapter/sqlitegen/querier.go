@@ -15,12 +15,28 @@ type Querier interface {
 	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
 	ClearScheduleTags(ctx context.Context, scheduleID int64) error
 	ClearWebhookEventPayload(ctx context.Context, receivedAt string) error
+	CloseOpenVideoCategorySpans(ctx context.Context, arg CloseOpenVideoCategorySpansParams) error
+	CloseOpenVideoTitleSpans(ctx context.Context, arg CloseOpenVideoTitleSpansParams) error
+	// Paired with InsertVideoCategorySpan to emulate pg's CTE-driven
+	// upsert. Called first inside the same tx as InsertVideoCategorySpan;
+	// closes only the spans whose category_id differs from the new one.
+	CloseOtherOpenVideoCategorySpans(ctx context.Context, arg CloseOtherOpenVideoCategorySpansParams) error
+	// Paired with InsertVideoTitleSpan to emulate pg's CTE-driven upsert.
+	// Called first inside the same tx as InsertVideoTitleSpan; closes only
+	// the spans whose title_id differs from the new one.
+	//
+	// @at_time forces sqlc to type @at_time as `string`,
+	// not `sql.NullTime`. The adapter pre-formats using formatTime() to
+	// the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
+	// modernc.org/sqlite's native time.Time binding produces RFC3339
+	// with the `T` separator and `Z` suffix, which julianday() treats
+	// as NULL, silently corrupting the duration sum.
+	CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error
 	CountActiveSubscriptions(ctx context.Context) (int64, error)
 	CountEventLogs(ctx context.Context) (int64, error)
 	CountEventLogsByDomain(ctx context.Context, domain string) (int64, error)
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
-	CountUserSessions(ctx context.Context, userID string) (int64, error)
 	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	CountWebhookEvents(ctx context.Context) (int64, error)
@@ -80,6 +96,13 @@ type Querier interface {
 	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
+	// @at_time: see CloseOtherOpenVideoTitleSpans for why
+	// the string cast is load-bearing.
+	InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error
+	// The INSERT half of the upsert. The partial unique index on
+	// (video_id, title_id) WHERE ended_at IS NULL keeps the same-title
+	// re-enter case a no-op.
+	InsertVideoTitleSpan(ctx context.Context, arg InsertVideoTitleSpanParams) error
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
 	LinkScheduleCategory(ctx context.Context, arg LinkScheduleCategoryParams) error
 	LinkScheduleTag(ctx context.Context, arg LinkScheduleTagParams) error
@@ -94,8 +117,8 @@ type Querier interface {
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
 	ListActiveSubscriptions(ctx context.Context, arg ListActiveSubscriptionsParams) ([]Subscription, error)
 	ListCategories(ctx context.Context) ([]Category, error)
-	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
+	ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	ListDueTasks(ctx context.Context) ([]Task, error)
@@ -109,6 +132,12 @@ type Querier interface {
 	// stream per broadcaster, then filter to rn=1. Joined with channels so
 	// the caller gets display metadata in one round-trip.
 	ListLatestLivePerChannel(ctx context.Context, limit int64) ([]ListLatestLivePerChannelRow, error)
+	// For each requested video, group spans by category and return the
+	// aggregate rows ordered so the first row per video_id is the
+	// "primary" category (most total duration, earliest first-seen,
+	// then name). The adapter takes the first row per video_id since
+	// SQLite lacks DISTINCT ON.
+	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
@@ -119,14 +148,18 @@ type Querier interface {
 	ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error)
 	ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID sql.NullString) ([]Subscription, error)
 	ListSubscriptionsByType(ctx context.Context, type_ string) ([]Subscription, error)
-	ListSubscriptionsForSnapshot(ctx context.Context, snapshotID int64) ([]ListSubscriptionsForSnapshotRow, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	ListTasks(ctx context.Context) ([]Task, error)
+	// julianday('now') is UTC per SQLite docs; matches pg's NOW() at UTC,
+	// which the adapter forces in its connection setup. The
+	// duration_seconds expression ends up typed `interface{}` in the
+	// generated code because sqlc can't infer a REAL through the CASE
+	// branches (a CAST(... AS REAL) wrapper here crashes sqlc-sqlite's
+	// parser when another query in this file uses sqlc.slice). The
+	// adapter asserts the scan value to float64.
+	ListTitleSpansForVideo(ctx context.Context, videoID int64) ([]ListTitleSpansForVideoRow, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
-	// Ordered by linked_at, not titles.id. See postgres/titles.sql for
-	// the rationale.
-	ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error)
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -138,8 +171,6 @@ type Querier interface {
 	// referenced only inside CASE expressions, so the equivalent query is
 	// hand-rolled against the raw *sql.DB in
 	// internal/repository/sqliteadapter/videos.go.
-	ListVideosByBroadcaster(ctx context.Context, arg ListVideosByBroadcasterParams) ([]Video, error)
-	ListVideosByCategory(ctx context.Context, arg ListVideosByCategoryParams) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
@@ -160,6 +191,14 @@ type Querier interface {
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
 	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	// See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
+	// uses positional ?1/?2 instead of @video_id/@at_time.
+	ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error
+	// sqlc-sqlite's @-rewriter misses some @video_id occurrences when
+	// the param is referenced from three clauses in the same statement,
+	// leaving literal "@video_id" tokens for the driver to choke on.
+	// Use positional ?1 / ?2 here to force sqlc to bind uniformly.
+	ResumeVideoTitleSpan(ctx context.Context, arg ResumeVideoTitleSpanParams) error
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	SetTaskNextRun(ctx context.Context, name string) error
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error

@@ -18,10 +18,3 @@ DELETE FROM eventsub_snapshots WHERE fetched_at < ?;
 INSERT INTO snapshot_subscriptions (snapshot_id, subscription_id, cost_at_snapshot, status_at_snapshot)
 VALUES (?, ?, ?, ?)
 ON CONFLICT DO NOTHING;
-
--- name: ListSubscriptionsForSnapshot :many
-SELECT ss.*, s.type, s.broadcaster_id
-FROM snapshot_subscriptions ss
-INNER JOIN subscriptions s ON s.id = ss.subscription_id
-WHERE ss.snapshot_id = ?
-ORDER BY s.type, s.broadcaster_id;

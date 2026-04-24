@@ -10,59 +10,44 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-const closeOpenVideoMetadataSpansSQL = `UPDATE video_title_spans
-SET ended_at = ?2,
-    duration_seconds = duration_seconds + ((julianday(?2) - julianday(started_at)) * 86400.0)
-WHERE video_id = ?1
-  AND ended_at IS NULL;
-
-UPDATE video_category_spans
-SET ended_at = ?2,
-    duration_seconds = duration_seconds + ((julianday(?2) - julianday(started_at)) * 86400.0)
-WHERE video_id = ?1
-  AND ended_at IS NULL;`
-
-const resumeVideoTitleSpansSQL = `INSERT INTO video_title_spans (video_id, title_id, started_at)
-SELECT ?1, latest.title_id, ?2
-FROM (
-    SELECT title_id
-    FROM video_title_spans
-    WHERE video_id = ?1
-    ORDER BY started_at DESC, id DESC
-    LIMIT 1
-) latest
-WHERE NOT EXISTS (
-    SELECT 1 FROM video_title_spans WHERE video_id = ?1 AND ended_at IS NULL
-)`
-
-const resumeVideoCategorySpansSQL = `INSERT INTO video_category_spans (video_id, category_id, started_at)
-SELECT ?1, latest.category_id, ?2
-FROM (
-    SELECT category_id
-    FROM video_category_spans
-    WHERE video_id = ?1
-    ORDER BY started_at DESC, id DESC
-    LIMIT 1
-) latest
-WHERE NOT EXISTS (
-    SELECT 1 FROM video_category_spans WHERE video_id = ?1 AND ended_at IS NULL
-)`
-
 func (a *SQLiteAdapter) CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
-	now := formatTime(at.UTC())
-	if _, err := a.db.ExecContext(ctx, closeOpenVideoMetadataSpansSQL, videoID, now); err != nil {
-		return fmt.Errorf("sqlite close video metadata spans: %w", err)
+	return closeOpenVideoMetadataSpansWith(ctx, a.queries, videoID, at)
+}
+
+func (a *SQLiteAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
+	ts := formatTime(at.UTC())
+	if err := a.queries.ResumeVideoTitleSpan(ctx, sqlitegen.ResumeVideoTitleSpanParams{
+		VideoID:   videoID,
+		StartedAt: ts,
+	}); err != nil {
+		return fmt.Errorf("sqlite resume video title spans: %w", err)
+	}
+	if err := a.queries.ResumeVideoCategorySpan(ctx, sqlitegen.ResumeVideoCategorySpanParams{
+		VideoID:   videoID,
+		StartedAt: ts,
+	}); err != nil {
+		return fmt.Errorf("sqlite resume video category spans: %w", err)
 	}
 	return nil
 }
 
-func (a *SQLiteAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
-	now := formatTime(at.UTC())
-	if _, err := a.db.ExecContext(ctx, resumeVideoTitleSpansSQL, videoID, now); err != nil {
-		return fmt.Errorf("sqlite resume video title spans: %w", err)
+// closeOpenVideoMetadataSpansWith runs both close queries against the
+// supplied Queries handle. Separate from the SQLiteAdapter method so
+// MarkVideoDone/MarkVideoFailed can pass their tx-scoped Queries and
+// share atomicity with the terminal video update that follows.
+func closeOpenVideoMetadataSpansWith(ctx context.Context, q *sqlitegen.Queries, videoID int64, at time.Time) error {
+	ts := sql.NullString{String: formatTime(at.UTC()), Valid: true}
+	if err := q.CloseOpenVideoTitleSpans(ctx, sqlitegen.CloseOpenVideoTitleSpansParams{
+		AtTime:  ts,
+		VideoID: videoID,
+	}); err != nil {
+		return fmt.Errorf("sqlite close video title spans: %w", err)
 	}
-	if _, err := a.db.ExecContext(ctx, resumeVideoCategorySpansSQL, videoID, now); err != nil {
-		return fmt.Errorf("sqlite resume video category spans: %w", err)
+	if err := q.CloseOpenVideoCategorySpans(ctx, sqlitegen.CloseOpenVideoCategorySpansParams{
+		AtTime:  ts,
+		VideoID: videoID,
+	}); err != nil {
+		return fmt.Errorf("sqlite close video category spans: %w", err)
 	}
 	return nil
 }
@@ -130,8 +115,8 @@ func (a *SQLiteAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64
 }
 
 func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
-	return a.inTx(ctx, func(q *sqlitegen.Queries, tx *sql.Tx) error {
-		if err := closeOpenVideoMetadataSpansTx(ctx, tx, id, time.Now().UTC()); err != nil {
+	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
+		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
 			return err
 		}
 		return q.MarkVideoDone(ctx, sqlitegen.MarkVideoDoneParams{
@@ -145,8 +130,8 @@ func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSec
 }
 
 func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error {
-	return a.inTx(ctx, func(q *sqlitegen.Queries, tx *sql.Tx) error {
-		if err := closeOpenVideoMetadataSpansTx(ctx, tx, id, time.Now().UTC()); err != nil {
+	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
+		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
 			return err
 		}
 		return q.MarkVideoFailed(ctx, sqlitegen.MarkVideoFailedParams{
@@ -155,16 +140,6 @@ func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg st
 			CompletionKind: completionKind,
 		})
 	})
-}
-
-// closeOpenVideoMetadataSpansTx runs the same close-spans SQL as
-// CloseOpenVideoMetadataSpans but on a supplied *sql.Tx so the close
-// shares atomicity with the terminal video update that follows.
-func closeOpenVideoMetadataSpansTx(ctx context.Context, tx *sql.Tx, videoID int64, at time.Time) error {
-	if _, err := tx.ExecContext(ctx, closeOpenVideoMetadataSpansSQL, videoID, formatTime(at.UTC())); err != nil {
-		return fmt.Errorf("sqlite close video metadata spans: %w", err)
-	}
-	return nil
 }
 
 func (a *SQLiteAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error {
@@ -251,128 +226,6 @@ const listVideosPageBaseSQL = `SELECT
 FROM videos
 WHERE deleted_at IS NULL
   AND (? = '' OR status = ?)`
-
-const listVideosPageCreatedDescSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND (?1 = '' OR status = ?1)
-  AND (?2 IS NULL OR start_download_at < ?2 OR (start_download_at = ?2 AND id < ?3))
-ORDER BY start_download_at DESC, id DESC
-LIMIT ?4`
-
-const listVideosPageCreatedAscSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND (?1 = '' OR status = ?1)
-  AND (?2 IS NULL OR start_download_at > ?2 OR (start_download_at = ?2 AND id > ?3))
-ORDER BY start_download_at ASC, id ASC
-LIMIT ?4`
-
-const listVideosPageChannelAscSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND (?1 = '' OR status = ?1)
-  AND (?2 IS NULL OR display_name > ?2
-    OR (display_name = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4))))
-ORDER BY display_name ASC, start_download_at DESC, id ASC
-LIMIT ?5`
-
-const listVideosPageChannelDescSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND (?1 = '' OR status = ?1)
-  AND (?2 IS NULL OR display_name < ?2
-    OR (display_name = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4))))
-ORDER BY display_name DESC, start_download_at DESC, id DESC
-LIMIT ?5`
-
-const listVideosPageDurationAscSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND (?1 = '' OR status = ?1)
-  AND (
-    ?3 IS NULL
-    OR (?2 IS NULL AND duration_seconds IS NULL AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4)))
-    OR (?2 IS NOT NULL AND (duration_seconds IS NULL OR duration_seconds > ?2 OR (duration_seconds = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4)))))
-  )
-ORDER BY duration_seconds ASC NULLS LAST, start_download_at DESC, id ASC
-LIMIT ?5`
-
-const listVideosPageDurationDescSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND (?1 = '' OR status = ?1)
-  AND (
-    ?3 IS NULL
-    OR (?2 IS NULL AND duration_seconds IS NULL AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4)))
-    OR (?2 IS NOT NULL AND (duration_seconds IS NULL OR duration_seconds < ?2 OR (duration_seconds = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4)))))
-  )
-ORDER BY duration_seconds DESC NULLS LAST, start_download_at DESC, id DESC
-LIMIT ?5`
-
-const listVideosPageSizeAscSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND (?1 = '' OR status = ?1)
-  AND (
-    ?3 IS NULL
-    OR (?2 IS NULL AND size_bytes IS NULL AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4)))
-    OR (?2 IS NOT NULL AND (size_bytes IS NULL OR size_bytes > ?2 OR (size_bytes = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4)))))
-  )
-ORDER BY size_bytes ASC NULLS LAST, start_download_at DESC, id ASC
-LIMIT ?5`
-
-const listVideosPageSizeDescSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND (?1 = '' OR status = ?1)
-  AND (
-    ?3 IS NULL
-    OR (?2 IS NULL AND size_bytes IS NULL AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4)))
-    OR (?2 IS NOT NULL AND (size_bytes IS NULL OR size_bytes < ?2 OR (size_bytes = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4)))))
-  )
-ORDER BY size_bytes DESC NULLS LAST, start_download_at DESC, id DESC
-LIMIT ?5`
 
 func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
 	rows, err := a.db.QueryContext(ctx, listVideosSQL,

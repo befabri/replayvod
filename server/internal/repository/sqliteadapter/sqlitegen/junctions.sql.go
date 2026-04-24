@@ -7,6 +7,8 @@ package sqlitegen
 
 import (
 	"context"
+	"database/sql"
+	"strings"
 )
 
 const addVideoRequest = `-- name: AddVideoRequest :exec
@@ -20,6 +22,66 @@ type AddVideoRequestParams struct {
 
 func (q *Queries) AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error {
 	_, err := q.db.ExecContext(ctx, addVideoRequest, arg.VideoID, arg.UserID)
+	return err
+}
+
+const closeOpenVideoCategorySpans = `-- name: CloseOpenVideoCategorySpans :exec
+UPDATE video_category_spans
+   SET ended_at = ?1,
+       duration_seconds = duration_seconds + ((julianday(?1) - julianday(started_at)) * 86400.0)
+ WHERE video_id = ?2
+   AND ended_at IS NULL
+`
+
+type CloseOpenVideoCategorySpansParams struct {
+	AtTime  sql.NullString `json:"at_time"`
+	VideoID int64          `json:"video_id"`
+}
+
+func (q *Queries) CloseOpenVideoCategorySpans(ctx context.Context, arg CloseOpenVideoCategorySpansParams) error {
+	_, err := q.db.ExecContext(ctx, closeOpenVideoCategorySpans, arg.AtTime, arg.VideoID)
+	return err
+}
+
+const closeOtherOpenVideoCategorySpans = `-- name: CloseOtherOpenVideoCategorySpans :exec
+UPDATE video_category_spans
+   SET ended_at = ?1,
+       duration_seconds = duration_seconds + ((julianday(?1) - julianday(started_at)) * 86400.0)
+ WHERE video_id = ?2
+   AND ended_at IS NULL
+   AND category_id <> ?3
+`
+
+type CloseOtherOpenVideoCategorySpansParams struct {
+	AtTime     sql.NullString `json:"at_time"`
+	VideoID    int64          `json:"video_id"`
+	CategoryID string         `json:"category_id"`
+}
+
+// Paired with InsertVideoCategorySpan to emulate pg's CTE-driven
+// upsert. Called first inside the same tx as InsertVideoCategorySpan;
+// closes only the spans whose category_id differs from the new one.
+func (q *Queries) CloseOtherOpenVideoCategorySpans(ctx context.Context, arg CloseOtherOpenVideoCategorySpansParams) error {
+	_, err := q.db.ExecContext(ctx, closeOtherOpenVideoCategorySpans, arg.AtTime, arg.VideoID, arg.CategoryID)
+	return err
+}
+
+const insertVideoCategorySpan = `-- name: InsertVideoCategorySpan :exec
+INSERT INTO video_category_spans (video_id, category_id, started_at)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING
+`
+
+type InsertVideoCategorySpanParams struct {
+	VideoID    int64  `json:"video_id"`
+	CategoryID string `json:"category_id"`
+	AtTime     string `json:"at_time"`
+}
+
+// @at_time: see CloseOtherOpenVideoTitleSpans for why
+// the string cast is load-bearing.
+func (q *Queries) InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error {
+	_, err := q.db.ExecContext(ctx, insertVideoCategorySpan, arg.VideoID, arg.CategoryID, arg.AtTime)
 	return err
 }
 
@@ -79,22 +141,47 @@ func (q *Queries) LinkVideoTag(ctx context.Context, arg LinkVideoTagParams) erro
 	return err
 }
 
-const listCategoriesForVideo = `-- name: ListCategoriesForVideo :many
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
-INNER JOIN video_categories vc ON vc.category_id = c.id
-WHERE vc.video_id = ?
-ORDER BY c.name
+const listCategorySpansForVideo = `-- name: ListCategorySpansForVideo :many
+SELECT
+    c.id,
+    c.name,
+    c.box_art_url,
+    c.igdb_id,
+    c.created_at,
+    c.updated_at,
+    vcs.started_at,
+    vcs.ended_at,
+    (vcs.duration_seconds + CASE
+        WHEN vcs.ended_at IS NULL THEN ((julianday('now') - julianday(vcs.started_at)) * 86400.0)
+        ELSE 0
+    END) AS duration_seconds
+FROM categories c
+INNER JOIN video_category_spans vcs ON vcs.category_id = c.id
+WHERE vcs.video_id = ?
+ORDER BY vcs.started_at ASC, vcs.id ASC
 `
 
-func (q *Queries) ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error) {
-	rows, err := q.db.QueryContext(ctx, listCategoriesForVideo, videoID)
+type ListCategorySpansForVideoRow struct {
+	ID              string         `json:"id"`
+	Name            string         `json:"name"`
+	BoxArtUrl       sql.NullString `json:"box_art_url"`
+	IgdbID          sql.NullString `json:"igdb_id"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
+	StartedAt       string         `json:"started_at"`
+	EndedAt         sql.NullString `json:"ended_at"`
+	DurationSeconds interface{}    `json:"duration_seconds"`
+}
+
+func (q *Queries) ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCategorySpansForVideo, videoID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Category{}
+	items := []ListCategorySpansForVideoRow{}
 	for rows.Next() {
-		var i Category
+		var i ListCategorySpansForVideoRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -102,6 +189,93 @@ func (q *Queries) ListCategoriesForVideo(ctx context.Context, videoID int64) ([]
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.DurationSeconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPrimaryCategoriesForVideos = `-- name: ListPrimaryCategoriesForVideos :many
+SELECT vcs.video_id,
+       c.id,
+       c.name,
+       c.box_art_url,
+       c.igdb_id,
+       c.created_at,
+       c.updated_at,
+       SUM(vcs.duration_seconds + CASE
+           WHEN vcs.ended_at IS NULL THEN ((julianday('now') - julianday(vcs.started_at)) * 86400.0)
+           ELSE 0
+       END) AS duration_seconds,
+       MIN(vcs.started_at) AS first_seen_at
+FROM video_category_spans vcs
+INNER JOIN categories c ON c.id = vcs.category_id
+WHERE vcs.video_id IN (/*SLICE:video_ids*/?)
+GROUP BY vcs.video_id, vcs.category_id, c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at
+ORDER BY
+    vcs.video_id ASC,
+    duration_seconds DESC,
+    first_seen_at ASC,
+    c.name ASC
+`
+
+type ListPrimaryCategoriesForVideosRow struct {
+	VideoID         int64           `json:"video_id"`
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	BoxArtUrl       sql.NullString  `json:"box_art_url"`
+	IgdbID          sql.NullString  `json:"igdb_id"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
+	DurationSeconds sql.NullFloat64 `json:"duration_seconds"`
+	FirstSeenAt     interface{}     `json:"first_seen_at"`
+}
+
+// For each requested video, group spans by category and return the
+// aggregate rows ordered so the first row per video_id is the
+// "primary" category (most total duration, earliest first-seen,
+// then name). The adapter takes the first row per video_id since
+// SQLite lacks DISTINCT ON.
+func (q *Queries) ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error) {
+	query := listPrimaryCategoriesForVideos
+	var queryParams []interface{}
+	if len(videoIds) > 0 {
+		for _, v := range videoIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:video_ids*/?", strings.Repeat(",?", len(videoIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:video_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPrimaryCategoriesForVideosRow{}
+	for rows.Next() {
+		var i ListPrimaryCategoriesForVideosRow
+		if err := rows.Scan(
+			&i.VideoID,
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DurationSeconds,
+			&i.FirstSeenAt,
 		); err != nil {
 			return nil, err
 		}
@@ -205,4 +379,32 @@ func (q *Queries) ListVideoRequestsForUser(ctx context.Context, arg ListVideoReq
 		return nil, err
 	}
 	return items, nil
+}
+
+const resumeVideoCategorySpan = `-- name: ResumeVideoCategorySpan :exec
+INSERT INTO video_category_spans (video_id, category_id, started_at)
+SELECT ?1, latest.category_id, ?2
+FROM (
+    SELECT category_id
+    FROM video_category_spans
+    WHERE video_id = ?1
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1
+) latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM video_category_spans
+    WHERE video_id = ?1 AND ended_at IS NULL
+)
+`
+
+type ResumeVideoCategorySpanParams struct {
+	VideoID   int64  `json:"video_id"`
+	StartedAt string `json:"started_at"`
+}
+
+// See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
+// uses positional ?1/?2 instead of @video_id/@at_time.
+func (q *Queries) ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error {
+	_, err := q.db.ExecContext(ctx, resumeVideoCategorySpan, arg.VideoID, arg.StartedAt)
+	return err
 }

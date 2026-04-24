@@ -52,19 +52,6 @@ UPDATE videos SET thumbnail = ? WHERE id = ?;
 -- hand-rolled against the raw *sql.DB in
 -- internal/repository/sqliteadapter/videos.go.
 
--- name: ListVideosByBroadcaster :many
-SELECT * FROM videos
-WHERE broadcaster_id = ? AND deleted_at IS NULL
-ORDER BY start_download_at DESC
-LIMIT ? OFFSET ?;
-
--- name: ListVideosByCategory :many
-SELECT v.* FROM videos v
-INNER JOIN video_categories vc ON vc.video_id = v.id
-WHERE vc.category_id = ? AND v.deleted_at IS NULL
-ORDER BY v.start_download_at DESC
-LIMIT ? OFFSET ?;
-
 -- name: ListVideosMissingThumbnail :many
 SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL;
 

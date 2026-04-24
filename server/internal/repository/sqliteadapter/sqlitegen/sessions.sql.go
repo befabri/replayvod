@@ -10,17 +10,6 @@ import (
 	"database/sql"
 )
 
-const countUserSessions = `-- name: CountUserSessions :one
-SELECT COUNT(*) FROM sessions WHERE user_id = ?
-`
-
-func (q *Queries) CountUserSessions(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countUserSessions, userID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const createSession = `-- name: CreateSession :exec
 INSERT INTO sessions (hashed_id, user_id, encrypted_tokens, expires_at, user_agent, ip_address)
 VALUES (?, ?, ?, ?, ?, ?)

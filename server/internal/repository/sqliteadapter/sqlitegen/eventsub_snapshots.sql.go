@@ -7,7 +7,6 @@ package sqlitegen
 
 import (
 	"context"
-	"database/sql"
 )
 
 const createSnapshot = `-- name: CreateSnapshot :one
@@ -110,53 +109,6 @@ func (q *Queries) ListSnapshots(ctx context.Context, arg ListSnapshotsParams) ([
 			&i.TotalCost,
 			&i.MaxTotalCost,
 			&i.FetchedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSubscriptionsForSnapshot = `-- name: ListSubscriptionsForSnapshot :many
-SELECT ss.snapshot_id, ss.subscription_id, ss.cost_at_snapshot, ss.status_at_snapshot, s.type, s.broadcaster_id
-FROM snapshot_subscriptions ss
-INNER JOIN subscriptions s ON s.id = ss.subscription_id
-WHERE ss.snapshot_id = ?
-ORDER BY s.type, s.broadcaster_id
-`
-
-type ListSubscriptionsForSnapshotRow struct {
-	SnapshotID       int64          `json:"snapshot_id"`
-	SubscriptionID   string         `json:"subscription_id"`
-	CostAtSnapshot   int64          `json:"cost_at_snapshot"`
-	StatusAtSnapshot string         `json:"status_at_snapshot"`
-	Type             string         `json:"type"`
-	BroadcasterID    sql.NullString `json:"broadcaster_id"`
-}
-
-func (q *Queries) ListSubscriptionsForSnapshot(ctx context.Context, snapshotID int64) ([]ListSubscriptionsForSnapshotRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSubscriptionsForSnapshot, snapshotID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListSubscriptionsForSnapshotRow{}
-	for rows.Next() {
-		var i ListSubscriptionsForSnapshotRow
-		if err := rows.Scan(
-			&i.SnapshotID,
-			&i.SubscriptionID,
-			&i.CostAtSnapshot,
-			&i.StatusAtSnapshot,
-			&i.Type,
-			&i.BroadcasterID,
 		); err != nil {
 			return nil, err
 		}

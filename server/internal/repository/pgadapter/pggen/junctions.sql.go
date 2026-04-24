@@ -7,6 +7,7 @@ package pggen
 
 import (
 	"context"
+	"time"
 )
 
 const addVideoRequest = `-- name: AddVideoRequest :exec
@@ -20,6 +21,24 @@ type AddVideoRequestParams struct {
 
 func (q *Queries) AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error {
 	_, err := q.db.Exec(ctx, addVideoRequest, arg.VideoID, arg.UserID)
+	return err
+}
+
+const closeOpenVideoCategorySpans = `-- name: CloseOpenVideoCategorySpans :exec
+UPDATE video_category_spans vcs
+   SET ended_at = $1::timestamptz,
+       duration_seconds = vcs.duration_seconds + EXTRACT(EPOCH FROM ($1::timestamptz - vcs.started_at))
+ WHERE vcs.video_id = $2
+   AND vcs.ended_at IS NULL
+`
+
+type CloseOpenVideoCategorySpansParams struct {
+	AtTime  time.Time `json:"at_time"`
+	VideoID int64     `json:"video_id"`
+}
+
+func (q *Queries) CloseOpenVideoCategorySpans(ctx context.Context, arg CloseOpenVideoCategorySpansParams) error {
+	_, err := q.db.Exec(ctx, closeOpenVideoCategorySpans, arg.AtTime, arg.VideoID)
 	return err
 }
 
@@ -79,22 +98,47 @@ func (q *Queries) LinkVideoTag(ctx context.Context, arg LinkVideoTagParams) erro
 	return err
 }
 
-const listCategoriesForVideo = `-- name: ListCategoriesForVideo :many
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
-INNER JOIN video_categories vc ON vc.category_id = c.id
-WHERE vc.video_id = $1
-ORDER BY c.name
+const listCategorySpansForVideo = `-- name: ListCategorySpansForVideo :many
+SELECT
+    c.id,
+    c.name,
+    c.box_art_url,
+    c.igdb_id,
+    c.created_at,
+    c.updated_at,
+    vcs.started_at,
+    vcs.ended_at,
+    (vcs.duration_seconds + CASE
+        WHEN vcs.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - vcs.started_at))
+        ELSE 0
+    END)::double precision AS duration_seconds
+FROM categories c
+INNER JOIN video_category_spans vcs ON vcs.category_id = c.id
+WHERE vcs.video_id = $1
+ORDER BY vcs.started_at ASC, vcs.id ASC
 `
 
-func (q *Queries) ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error) {
-	rows, err := q.db.Query(ctx, listCategoriesForVideo, videoID)
+type ListCategorySpansForVideoRow struct {
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	BoxArtUrl       *string    `json:"box_art_url"`
+	IgdbID          *string    `json:"igdb_id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	StartedAt       time.Time  `json:"started_at"`
+	EndedAt         *time.Time `json:"ended_at"`
+	DurationSeconds float64    `json:"duration_seconds"`
+}
+
+func (q *Queries) ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error) {
+	rows, err := q.db.Query(ctx, listCategorySpansForVideo, videoID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Category{}
+	items := []ListCategorySpansForVideoRow{}
 	for rows.Next() {
-		var i Category
+		var i ListCategorySpansForVideoRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -102,6 +146,84 @@ func (q *Queries) ListCategoriesForVideo(ctx context.Context, videoID int64) ([]
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.DurationSeconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPrimaryCategoriesForVideos = `-- name: ListPrimaryCategoriesForVideos :many
+SELECT DISTINCT ON (agg.video_id)
+    agg.video_id,
+    c.id,
+    c.name,
+    c.box_art_url,
+    c.igdb_id,
+    c.created_at,
+    c.updated_at,
+    agg.duration_seconds
+FROM (
+    SELECT
+        vcs.video_id,
+        vcs.category_id,
+        SUM(vcs.duration_seconds + CASE
+            WHEN vcs.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - vcs.started_at))
+            ELSE 0
+        END)::double precision AS duration_seconds,
+        MIN(vcs.started_at) AS first_seen_at
+    FROM video_category_spans vcs
+    WHERE vcs.video_id = ANY($1::bigint[])
+    GROUP BY vcs.video_id, vcs.category_id
+) agg
+INNER JOIN categories c ON c.id = agg.category_id
+ORDER BY
+    agg.video_id,
+    duration_seconds DESC,
+    agg.first_seen_at ASC,
+    c.name ASC
+`
+
+type ListPrimaryCategoriesForVideosRow struct {
+	VideoID         int64     `json:"video_id"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	BoxArtUrl       *string   `json:"box_art_url"`
+	IgdbID          *string   `json:"igdb_id"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	DurationSeconds float64   `json:"duration_seconds"`
+}
+
+// Pick the single most-played category per video, ordered within the
+// video by total span duration then first-seen time then name. Used
+// by the video list response to render a stable "primary category"
+// label without round-tripping every row.
+func (q *Queries) ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error) {
+	rows, err := q.db.Query(ctx, listPrimaryCategoriesForVideos, videoIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPrimaryCategoriesForVideosRow{}
+	for rows.Next() {
+		var i ListPrimaryCategoriesForVideosRow
+		if err := rows.Scan(
+			&i.VideoID,
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DurationSeconds,
 		); err != nil {
 			return nil, err
 		}
@@ -196,4 +318,58 @@ func (q *Queries) ListVideoRequestsForUser(ctx context.Context, arg ListVideoReq
 		return nil, err
 	}
 	return items, nil
+}
+
+const resumeVideoCategorySpan = `-- name: ResumeVideoCategorySpan :exec
+WITH latest AS (
+    SELECT category_id
+    FROM video_category_spans
+    WHERE video_id = $1
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1
+)
+INSERT INTO video_category_spans (video_id, category_id, started_at)
+SELECT $1, latest.category_id, $2::timestamptz
+FROM latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM video_category_spans
+    WHERE video_id = $1 AND ended_at IS NULL
+)
+`
+
+type ResumeVideoCategorySpanParams struct {
+	VideoID int64     `json:"video_id"`
+	AtTime  time.Time `json:"at_time"`
+}
+
+func (q *Queries) ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error {
+	_, err := q.db.Exec(ctx, resumeVideoCategorySpan, arg.VideoID, arg.AtTime)
+	return err
+}
+
+const upsertVideoCategorySpan = `-- name: UpsertVideoCategorySpan :exec
+WITH close_previous AS (
+    UPDATE video_category_spans vcs
+       SET ended_at = $3::timestamptz,
+           duration_seconds = vcs.duration_seconds + EXTRACT(EPOCH FROM ($3::timestamptz - vcs.started_at))
+     WHERE vcs.video_id = $1
+       AND vcs.ended_at IS NULL
+       AND vcs.category_id <> $2
+)
+INSERT INTO video_category_spans (video_id, category_id, started_at)
+VALUES ($1, $2, $3::timestamptz)
+ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING
+`
+
+type UpsertVideoCategorySpanParams struct {
+	VideoID    int64     `json:"video_id"`
+	CategoryID string    `json:"category_id"`
+	AtTime     time.Time `json:"at_time"`
+}
+
+// Category analogue of UpsertVideoTitleSpan; see that comment for the
+// close-then-insert rationale.
+func (q *Queries) UpsertVideoCategorySpan(ctx context.Context, arg UpsertVideoCategorySpanParams) error {
+	_, err := q.db.Exec(ctx, upsertVideoCategorySpan, arg.VideoID, arg.CategoryID, arg.AtTime)
+	return err
 }

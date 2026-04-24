@@ -7,7 +7,30 @@ package pggen
 
 import (
 	"context"
+	"time"
 )
+
+const closeOpenVideoTitleSpans = `-- name: CloseOpenVideoTitleSpans :exec
+UPDATE video_title_spans vts
+   SET ended_at = $1::timestamptz,
+       duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM ($1::timestamptz - vts.started_at))
+ WHERE vts.video_id = $2
+   AND vts.ended_at IS NULL
+`
+
+type CloseOpenVideoTitleSpansParams struct {
+	AtTime  time.Time `json:"at_time"`
+	VideoID int64     `json:"video_id"`
+}
+
+// Stamp ended_at + add the elapsed interval to duration_seconds for
+// every still-open title span of this video. Used when the recording
+// terminates (clean end or cancelled) so the history shows a finite
+// duration instead of an open-ended span.
+func (q *Queries) CloseOpenVideoTitleSpans(ctx context.Context, arg CloseOpenVideoTitleSpansParams) error {
+	_, err := q.db.Exec(ctx, closeOpenVideoTitleSpans, arg.AtTime, arg.VideoID)
+	return err
+}
 
 const linkStreamTitle = `-- name: LinkStreamTitle :exec
 INSERT INTO stream_titles (stream_id, title_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
@@ -37,6 +60,63 @@ func (q *Queries) LinkVideoTitle(ctx context.Context, arg LinkVideoTitleParams) 
 	return err
 }
 
+const listTitleSpansForVideo = `-- name: ListTitleSpansForVideo :many
+SELECT
+    t.id,
+    t.name,
+    t.created_at,
+    vts.started_at,
+    vts.ended_at,
+    (vts.duration_seconds + CASE
+        WHEN vts.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - vts.started_at))
+        ELSE 0
+    END)::double precision AS duration_seconds
+FROM titles t
+INNER JOIN video_title_spans vts ON vts.title_id = t.id
+WHERE vts.video_id = $1
+ORDER BY vts.started_at ASC, vts.id ASC
+`
+
+type ListTitleSpansForVideoRow struct {
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	CreatedAt       time.Time  `json:"created_at"`
+	StartedAt       time.Time  `json:"started_at"`
+	EndedAt         *time.Time `json:"ended_at"`
+	DurationSeconds float64    `json:"duration_seconds"`
+}
+
+// One row per title span ordered by when the stream first set that
+// title. Still-open spans expose (NOW() - started_at) as their
+// live contribution to duration_seconds so the UI reads a live
+// duration until the recording closes.
+func (q *Queries) ListTitleSpansForVideo(ctx context.Context, videoID int64) ([]ListTitleSpansForVideoRow, error) {
+	rows, err := q.db.Query(ctx, listTitleSpansForVideo, videoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTitleSpansForVideoRow{}
+	for rows.Next() {
+		var i ListTitleSpansForVideoRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.DurationSeconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTitlesForStream = `-- name: ListTitlesForStream :many
 SELECT t.id, t.name, t.created_at FROM titles t
 INNER JOIN stream_titles st ON st.title_id = t.id
@@ -64,36 +144,35 @@ func (q *Queries) ListTitlesForStream(ctx context.Context, streamID string) ([]T
 	return items, nil
 }
 
-const listTitlesForVideo = `-- name: ListTitlesForVideo :many
-SELECT t.id, t.name, t.created_at FROM titles t
-INNER JOIN video_titles vt ON vt.title_id = t.id
-WHERE vt.video_id = $1
-ORDER BY vt.linked_at
+const resumeVideoTitleSpan = `-- name: ResumeVideoTitleSpan :exec
+WITH latest AS (
+    SELECT title_id
+    FROM video_title_spans
+    WHERE video_id = $1
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1
+)
+INSERT INTO video_title_spans (video_id, title_id, started_at)
+SELECT $1, latest.title_id, $2::timestamptz
+FROM latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM video_title_spans
+    WHERE video_id = $1 AND ended_at IS NULL
+)
 `
 
-// Ordered by linked_at, not titles.id — the dedup-row id reflects
-// creation order across the whole titles table, not the order a
-// specific video saw each title. Without this the history UI
-// misorders titles whenever a stream reuses a name from a prior
-// broadcast.
-func (q *Queries) ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error) {
-	rows, err := q.db.Query(ctx, listTitlesForVideo, videoID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Title{}
-	for rows.Next() {
-		var i Title
-		if err := rows.Scan(&i.ID, &i.Name, &i.CreatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type ResumeVideoTitleSpanParams struct {
+	VideoID int64     `json:"video_id"`
+	AtTime  time.Time `json:"at_time"`
+}
+
+// After CloseOpenVideoTitleSpans ran against a prior failed/
+// suspended recording, reopen a new span starting at at_time
+// carrying the most recent title — unless one is already open.
+// Idempotent across retry loops.
+func (q *Queries) ResumeVideoTitleSpan(ctx context.Context, arg ResumeVideoTitleSpanParams) error {
+	_, err := q.db.Exec(ctx, resumeVideoTitleSpan, arg.VideoID, arg.AtTime)
+	return err
 }
 
 const upsertTitle = `-- name: UpsertTitle :one
@@ -107,4 +186,38 @@ func (q *Queries) UpsertTitle(ctx context.Context, name string) (Title, error) {
 	var i Title
 	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
 	return i, err
+}
+
+const upsertVideoTitleSpan = `-- name: UpsertVideoTitleSpan :exec
+WITH close_previous AS (
+    UPDATE video_title_spans vts
+       SET ended_at = $3::timestamptz,
+           duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM ($3::timestamptz - vts.started_at))
+     WHERE vts.video_id = $1
+       AND vts.ended_at IS NULL
+       AND vts.title_id <> $2
+)
+INSERT INTO video_title_spans (video_id, title_id, started_at)
+VALUES ($1, $2, $3::timestamptz)
+ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING
+`
+
+type UpsertVideoTitleSpanParams struct {
+	VideoID int64     `json:"video_id"`
+	TitleID int64     `json:"title_id"`
+	AtTime  time.Time `json:"at_time"`
+}
+
+// Close the currently-open span if its title differs from the new
+// one, then insert the new span. The CTE branch never runs when the
+// incoming title matches the open row, so the ON CONFLICT leaves
+// the existing span untouched.
+//
+// Uses sqlc.arg() + ::timestamptz cast (not the @-shorthand form)
+// because sqlc's @-rewriter mangles the SQL inside
+// EXTRACT(EPOCH FROM (@param - column)) expressions. The cast also
+// forces non-nullable Go types for the generated param struct.
+func (q *Queries) UpsertVideoTitleSpan(ctx context.Context, arg UpsertVideoTitleSpanParams) error {
+	_, err := q.db.Exec(ctx, upsertVideoTitleSpan, arg.VideoID, arg.TitleID, arg.AtTime)
+	return err
 }

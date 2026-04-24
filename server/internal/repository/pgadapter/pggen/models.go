@@ -257,6 +257,15 @@ type VideoCategory struct {
 	CategoryID string `json:"category_id"`
 }
 
+type VideoCategorySpan struct {
+	ID              int64      `json:"id"`
+	VideoID         int64      `json:"video_id"`
+	CategoryID      string     `json:"category_id"`
+	StartedAt       time.Time  `json:"started_at"`
+	EndedAt         *time.Time `json:"ended_at"`
+	DurationSeconds float64    `json:"duration_seconds"`
+}
+
 type VideoPart struct {
 	ID              int64     `json:"id"`
 	VideoID         int64     `json:"video_id"`
@@ -290,6 +299,15 @@ type VideoTitle struct {
 	VideoID  int64     `json:"video_id"`
 	TitleID  int64     `json:"title_id"`
 	LinkedAt time.Time `json:"linked_at"`
+}
+
+type VideoTitleSpan struct {
+	ID              int64      `json:"id"`
+	VideoID         int64      `json:"video_id"`
+	TitleID         int64      `json:"title_id"`
+	StartedAt       time.Time  `json:"started_at"`
+	EndedAt         *time.Time `json:"ended_at"`
+	DurationSeconds float64    `json:"duration_seconds"`
 }
 
 type WebhookEvent struct {

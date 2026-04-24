@@ -9,33 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-const upsertVideoTitleSpanSQL = `WITH close_previous AS (
-    UPDATE video_title_spans vts
-       SET ended_at = $3,
-           duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM ($3 - vts.started_at))
-     WHERE vts.video_id = $1
-       AND vts.ended_at IS NULL
-       AND vts.title_id <> $2
-)
-INSERT INTO video_title_spans (video_id, title_id, started_at)
-VALUES ($1, $2, $3)
-ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING`
-
-const listTitlesForVideoSQL = `SELECT
-    t.id,
-    t.name,
-    t.created_at,
-    vts.started_at,
-    vts.ended_at,
-    vts.duration_seconds + CASE
-        WHEN vts.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - vts.started_at))
-        ELSE 0
-    END AS duration_seconds
-FROM titles t
-INNER JOIN video_title_spans vts ON vts.title_id = t.id
-WHERE vts.video_id = $1
-ORDER BY vts.started_at ASC, vts.id ASC`
-
 func (a *PGAdapter) UpsertTitle(ctx context.Context, name string) (*repository.Title, error) {
 	row, err := a.queries.UpsertTitle(ctx, name)
 	if err != nil {
@@ -53,7 +26,11 @@ func (a *PGAdapter) LinkVideoTitle(ctx context.Context, videoID int64, titleID i
 }
 
 func (a *PGAdapter) UpsertVideoTitleSpan(ctx context.Context, videoID int64, titleID int64, at time.Time) error {
-	if _, err := a.db.Exec(ctx, upsertVideoTitleSpanSQL, videoID, titleID, at.UTC()); err != nil {
+	if err := a.queries.UpsertVideoTitleSpan(ctx, pggen.UpsertVideoTitleSpanParams{
+		VideoID: videoID,
+		TitleID: titleID,
+		AtTime:  at.UTC(),
+	}); err != nil {
 		return fmt.Errorf("pg upsert video title span: %w", err)
 	}
 	return nil
@@ -72,21 +49,22 @@ func (a *PGAdapter) ListTitlesForStream(ctx context.Context, streamID string) ([
 }
 
 func (a *PGAdapter) ListTitlesForVideo(ctx context.Context, videoID int64) ([]repository.TitleSpan, error) {
-	rows, err := a.db.Query(ctx, listTitlesForVideoSQL, videoID)
+	rows, err := a.queries.ListTitleSpansForVideo(ctx, videoID)
 	if err != nil {
-		return nil, fmt.Errorf("pg list titles for video: %w", err)
+		return nil, fmt.Errorf("pg list title spans for video: %w", err)
 	}
-	defer rows.Close()
-	out := []repository.TitleSpan{}
-	for rows.Next() {
-		var t repository.TitleSpan
-		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.StartedAt, &t.EndedAt, &t.DurationSeconds); err != nil {
-			return nil, fmt.Errorf("pg scan titles for video: %w", err)
+	out := make([]repository.TitleSpan, len(rows))
+	for i, r := range rows {
+		out[i] = repository.TitleSpan{
+			Title: repository.Title{
+				ID:        r.ID,
+				Name:      r.Name,
+				CreatedAt: r.CreatedAt,
+			},
+			StartedAt:       r.StartedAt,
+			EndedAt:         r.EndedAt,
+			DurationSeconds: r.DurationSeconds,
 		}
-		out = append(out, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("pg list titles for video: %w", err)
 	}
 	return out, nil
 }

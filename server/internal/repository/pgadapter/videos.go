@@ -10,46 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const closeOpenVideoTitleSpansSQL = `UPDATE video_title_spans vts
-SET ended_at = $2,
-    duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM ($2 - vts.started_at))
-WHERE vts.video_id = $1
-  AND vts.ended_at IS NULL`
-
-const closeOpenVideoCategorySpansSQL = `UPDATE video_category_spans vcs
-SET ended_at = $2,
-    duration_seconds = vcs.duration_seconds + EXTRACT(EPOCH FROM ($2 - vcs.started_at))
-WHERE vcs.video_id = $1
-  AND vcs.ended_at IS NULL`
-
-const resumeVideoTitleSpansSQL = `WITH latest AS (
-    SELECT title_id
-    FROM video_title_spans
-    WHERE video_id = $1
-    ORDER BY started_at DESC, id DESC
-    LIMIT 1
-)
-INSERT INTO video_title_spans (video_id, title_id, started_at)
-SELECT $1, latest.title_id, $2
-FROM latest
-WHERE NOT EXISTS (
-    SELECT 1 FROM video_title_spans WHERE video_id = $1 AND ended_at IS NULL
-)`
-
-const resumeVideoCategorySpansSQL = `WITH latest AS (
-    SELECT category_id
-    FROM video_category_spans
-    WHERE video_id = $1
-    ORDER BY started_at DESC, id DESC
-    LIMIT 1
-)
-INSERT INTO video_category_spans (video_id, category_id, started_at)
-SELECT $1, latest.category_id, $2
-FROM latest
-WHERE NOT EXISTS (
-    SELECT 1 FROM video_category_spans WHERE video_id = $1 AND ended_at IS NULL
-)`
-
 const listVideosByBroadcasterPageSQL = `SELECT
     id, job_id, filename, display_name, status, quality, selected_quality,
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
@@ -95,184 +55,44 @@ FROM videos
 WHERE deleted_at IS NULL
   AND ($1::text = '' OR status = $1::text)`
 
-const listVideosPageCreatedDescSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)
-  AND ($2::timestamptz IS NULL
-    OR start_download_at < $2::timestamptz
-    OR (start_download_at = $2::timestamptz AND id < $3))
-ORDER BY start_download_at DESC, id DESC
-LIMIT $4`
-
-const listVideosPageCreatedAscSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)
-  AND ($2::timestamptz IS NULL
-    OR start_download_at > $2::timestamptz
-    OR (start_download_at = $2::timestamptz AND id > $3))
-ORDER BY start_download_at ASC, id ASC
-LIMIT $4`
-
-const listVideosPageChannelAscSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)
-  AND ($2::text IS NULL
-    OR display_name > $2::text
-    OR (display_name = $2::text
-      AND (start_download_at < $3::timestamptz
-        OR (start_download_at = $3::timestamptz AND id > $4))))
-ORDER BY display_name ASC, start_download_at DESC, id ASC
-LIMIT $5`
-
-const listVideosPageChannelDescSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)
-  AND ($2::text IS NULL
-    OR display_name < $2::text
-    OR (display_name = $2::text
-      AND (start_download_at < $3::timestamptz
-        OR (start_download_at = $3::timestamptz AND id < $4))))
-ORDER BY display_name DESC, start_download_at DESC, id DESC
-LIMIT $5`
-
-const listVideosPageDurationAscSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)
-  AND (
-    $3::timestamptz IS NULL
-    OR
-    $2::double precision IS NULL
-      AND duration_seconds IS NULL
-      AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id > $4))
-    OR $2::double precision IS NOT NULL
-      AND (duration_seconds IS NULL
-        OR duration_seconds > $2::double precision
-        OR (duration_seconds = $2::double precision
-          AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id > $4))))
-  )
-ORDER BY duration_seconds ASC NULLS LAST, start_download_at DESC, id ASC
-LIMIT $5`
-
-const listVideosPageDurationDescSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)
-  AND (
-    $3::timestamptz IS NULL
-    OR
-    $2::double precision IS NULL
-      AND duration_seconds IS NULL
-      AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id < $4))
-    OR $2::double precision IS NOT NULL
-      AND (duration_seconds IS NULL
-        OR duration_seconds < $2::double precision
-        OR (duration_seconds = $2::double precision
-          AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id < $4))))
-  )
-ORDER BY duration_seconds DESC NULLS LAST, start_download_at DESC, id DESC
-LIMIT $5`
-
-const listVideosPageSizeAscSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)
-  AND (
-    $3::timestamptz IS NULL
-    OR
-    $2::bigint IS NULL
-      AND size_bytes IS NULL
-      AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id > $4))
-    OR $2::bigint IS NOT NULL
-      AND (size_bytes IS NULL
-        OR size_bytes > $2::bigint
-        OR (size_bytes = $2::bigint
-          AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id > $4))))
-  )
-ORDER BY size_bytes ASC NULLS LAST, start_download_at DESC, id ASC
-LIMIT $5`
-
-const listVideosPageSizeDescSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)
-  AND (
-    $3::timestamptz IS NULL
-    OR
-    $2::bigint IS NULL
-      AND size_bytes IS NULL
-      AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id < $4))
-    OR $2::bigint IS NOT NULL
-      AND (size_bytes IS NULL
-        OR size_bytes < $2::bigint
-        OR (size_bytes = $2::bigint
-          AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id < $4))))
-  )
-ORDER BY size_bytes DESC NULLS LAST, start_download_at DESC, id DESC
-LIMIT $5`
-
 func (a *PGAdapter) CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
-	at = at.UTC()
-	if _, err := a.db.Exec(ctx, closeOpenVideoTitleSpansSQL, videoID, at); err != nil {
-		return fmt.Errorf("pg close video title spans: %w", err)
-	}
-	if _, err := a.db.Exec(ctx, closeOpenVideoCategorySpansSQL, videoID, at); err != nil {
-		return fmt.Errorf("pg close video category spans: %w", err)
-	}
-	return nil
+	return closeOpenVideoMetadataSpansWith(ctx, a.queries, videoID, at)
 }
 
 func (a *PGAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
 	at = at.UTC()
-	if _, err := a.db.Exec(ctx, resumeVideoTitleSpansSQL, videoID, at); err != nil {
+	if err := a.queries.ResumeVideoTitleSpan(ctx, pggen.ResumeVideoTitleSpanParams{
+		VideoID: videoID,
+		AtTime:  at,
+	}); err != nil {
 		return fmt.Errorf("pg resume video title spans: %w", err)
 	}
-	if _, err := a.db.Exec(ctx, resumeVideoCategorySpansSQL, videoID, at); err != nil {
+	if err := a.queries.ResumeVideoCategorySpan(ctx, pggen.ResumeVideoCategorySpanParams{
+		VideoID: videoID,
+		AtTime:  at,
+	}); err != nil {
 		return fmt.Errorf("pg resume video category spans: %w", err)
+	}
+	return nil
+}
+
+// closeOpenVideoMetadataSpansWith runs both close queries against the
+// supplied Queries handle. Separate from the PGAdapter method so
+// MarkVideoDone/MarkVideoFailed can pass their tx-scoped Queries and
+// share atomicity with the terminal video update that follows.
+func closeOpenVideoMetadataSpansWith(ctx context.Context, q *pggen.Queries, videoID int64, at time.Time) error {
+	at = at.UTC()
+	if err := q.CloseOpenVideoTitleSpans(ctx, pggen.CloseOpenVideoTitleSpansParams{
+		VideoID: videoID,
+		AtTime:  at,
+	}); err != nil {
+		return fmt.Errorf("pg close video title spans: %w", err)
+	}
+	if err := q.CloseOpenVideoCategorySpans(ctx, pggen.CloseOpenVideoCategorySpansParams{
+		VideoID: videoID,
+		AtTime:  at,
+	}); err != nil {
+		return fmt.Errorf("pg close video category spans: %w", err)
 	}
 	return nil
 }
@@ -336,7 +156,7 @@ func (a *PGAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64, qu
 
 func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
 	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
-		if err := closeOpenVideoMetadataSpansTx(ctx, tx, id, time.Now().UTC()); err != nil {
+		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
 			return err
 		}
 		return q.MarkVideoDone(ctx, pggen.MarkVideoDoneParams{
@@ -351,7 +171,7 @@ func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds
 
 func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error {
 	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
-		if err := closeOpenVideoMetadataSpansTx(ctx, tx, id, time.Now().UTC()); err != nil {
+		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
 			return err
 		}
 		return q.MarkVideoFailed(ctx, pggen.MarkVideoFailedParams{
@@ -360,20 +180,6 @@ func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string
 			CompletionKind: completionKind,
 		})
 	})
-}
-
-// closeOpenVideoMetadataSpansTx runs the same close-spans SQL as
-// CloseOpenVideoMetadataSpans but on a supplied pgx.Tx so the close
-// shares atomicity with the terminal video update that follows.
-func closeOpenVideoMetadataSpansTx(ctx context.Context, tx pgx.Tx, videoID int64, at time.Time) error {
-	at = at.UTC()
-	if _, err := tx.Exec(ctx, closeOpenVideoTitleSpansSQL, videoID, at); err != nil {
-		return fmt.Errorf("pg close video title spans: %w", err)
-	}
-	if _, err := tx.Exec(ctx, closeOpenVideoCategorySpansSQL, videoID, at); err != nil {
-		return fmt.Errorf("pg close video category spans: %w", err)
-	}
-	return nil
 }
 
 func (a *PGAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error {

@@ -23,6 +23,3 @@ DELETE FROM sessions WHERE expires_at < NOW();
 -- name: ListUserSessions :many
 SELECT hashed_id, user_id, expires_at, last_active_at, user_agent, ip_address, created_at
 FROM sessions WHERE user_id = $1 ORDER BY last_active_at DESC;
-
--- name: CountUserSessions :one
-SELECT COUNT(*) FROM sessions WHERE user_id = $1;

@@ -8,7 +8,7 @@ PRAGMA foreign_keys=OFF;
 CREATE TABLE video_titles_new (
     video_id   INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
     title_id   INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
-    linked_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    linked_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (video_id, title_id)
 );
 

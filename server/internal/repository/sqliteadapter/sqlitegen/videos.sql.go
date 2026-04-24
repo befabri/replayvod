@@ -160,19 +160,10 @@ func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, err
 	return i, err
 }
 
-const listVideosByBroadcaster = `-- name: ListVideosByBroadcaster :many
+const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
 
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos
-WHERE broadcaster_id = ? AND deleted_at IS NULL
-ORDER BY start_download_at DESC
-LIMIT ? OFFSET ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
-
-type ListVideosByBroadcasterParams struct {
-	BroadcasterID string `json:"broadcaster_id"`
-	Limit         int64  `json:"limit"`
-	Offset        int64  `json:"offset"`
-}
 
 // NOTE: ListVideos is intentionally NOT declared here. The PG path
 // uses a CASE-based dynamic ORDER BY (see queries/postgres/videos.sql),
@@ -180,118 +171,6 @@ type ListVideosByBroadcasterParams struct {
 // referenced only inside CASE expressions, so the equivalent query is
 // hand-rolled against the raw *sql.DB in
 // internal/repository/sqliteadapter/videos.go.
-func (q *Queries) ListVideosByBroadcaster(ctx context.Context, arg ListVideosByBroadcasterParams) ([]Video, error) {
-	rows, err := q.db.QueryContext(ctx, listVideosByBroadcaster, arg.BroadcasterID, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Video{}
-	for rows.Next() {
-		var i Video
-		if err := rows.Scan(
-			&i.ID,
-			&i.JobID,
-			&i.Filename,
-			&i.DisplayName,
-			&i.Status,
-			&i.Quality,
-			&i.BroadcasterID,
-			&i.StreamID,
-			&i.ViewerCount,
-			&i.Language,
-			&i.DurationSeconds,
-			&i.SizeBytes,
-			&i.Thumbnail,
-			&i.Error,
-			&i.StartDownloadAt,
-			&i.DownloadedAt,
-			&i.DeletedAt,
-			&i.RecordingType,
-			&i.ForceH264,
-			&i.Title,
-			&i.CompletionKind,
-			&i.SelectedQuality,
-			&i.SelectedFps,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVideosByCategory = `-- name: ListVideosByCategory :many
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps FROM videos v
-INNER JOIN video_categories vc ON vc.video_id = v.id
-WHERE vc.category_id = ? AND v.deleted_at IS NULL
-ORDER BY v.start_download_at DESC
-LIMIT ? OFFSET ?
-`
-
-type ListVideosByCategoryParams struct {
-	CategoryID string `json:"category_id"`
-	Limit      int64  `json:"limit"`
-	Offset     int64  `json:"offset"`
-}
-
-func (q *Queries) ListVideosByCategory(ctx context.Context, arg ListVideosByCategoryParams) ([]Video, error) {
-	rows, err := q.db.QueryContext(ctx, listVideosByCategory, arg.CategoryID, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Video{}
-	for rows.Next() {
-		var i Video
-		if err := rows.Scan(
-			&i.ID,
-			&i.JobID,
-			&i.Filename,
-			&i.DisplayName,
-			&i.Status,
-			&i.Quality,
-			&i.BroadcasterID,
-			&i.StreamID,
-			&i.ViewerCount,
-			&i.Language,
-			&i.DurationSeconds,
-			&i.SizeBytes,
-			&i.Thumbnail,
-			&i.Error,
-			&i.StartDownloadAt,
-			&i.DownloadedAt,
-			&i.DeletedAt,
-			&i.RecordingType,
-			&i.ForceH264,
-			&i.Title,
-			&i.CompletionKind,
-			&i.SelectedQuality,
-			&i.SelectedFps,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
-`
-
 func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, error) {
 	rows, err := q.db.QueryContext(ctx, listVideosMissingThumbnail)
 	if err != nil {

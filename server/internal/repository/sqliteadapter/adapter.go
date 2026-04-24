@@ -175,6 +175,24 @@ func formatTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04:05")
 }
 
+// anyToFloat64 normalises the `interface{}` that sqlc-sqlite emits
+// for expressions whose type it can't infer (CASE branches, SUM over
+// mixed-shape CASE). modernc.org/sqlite surfaces REAL columns as
+// float64 and INTEGER columns as int64; everything else falls back
+// to the string form. Zero for unknown shapes.
+func anyToFloat64(v any) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case int64:
+		return float64(x)
+	case nil:
+		return 0
+	default:
+		return 0
+	}
+}
+
 // Sessions
 
 func (a *SQLiteAdapter) CreateSession(ctx context.Context, s *repository.Session) error {
