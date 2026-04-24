@@ -123,9 +123,10 @@ type ResumeState struct {
 	// Selected* are sticky within a part. Tracked so a restart
 	// rebuilds the right ffmpeg input shape without re-walking
 	// Stage 3.
-	SelectedQuality string `json:"selected_quality,omitempty"`
-	SelectedCodec   string `json:"selected_codec,omitempty"`
-	SegmentFormat   string `json:"segment_format,omitempty"`
+	SelectedQuality string   `json:"selected_quality,omitempty"`
+	SelectedFPS     *float64 `json:"selected_fps,omitempty"`
+	SelectedCodec   string   `json:"selected_codec,omitempty"`
+	SegmentFormat   string   `json:"segment_format,omitempty"`
 
 	// PartStartMediaSequence is the first MediaSeq of the
 	// current part — anchored from the playlist's
@@ -292,6 +293,7 @@ func (r *ResumeState) BeginNewPart() {
 		clear(r.resolvedAbove)
 	}
 	r.SelectedQuality = ""
+	r.SelectedFPS = nil
 	r.SelectedCodec = ""
 	r.SegmentFormat = ""
 	r.PendingSplit = false

@@ -125,6 +125,11 @@ type SelectedVariant struct {
 	// fallback chain. For audio jobs, literally "audio_only".
 	Quality string
 
+	// FPS is the selected variant's declared frame rate when the
+	// master playlist exposed it. Nil means "not declared" or
+	// audio_only.
+	FPS *float64
+
 	// Codec is the chosen codec: h264, h265, av1, or aac.
 	Codec string
 }

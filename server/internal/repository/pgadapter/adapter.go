@@ -50,6 +50,40 @@ func (a *PGAdapter) Ping(ctx context.Context) error {
 	return nil
 }
 
+// pgBeginner is the minimal surface the adapter needs to open a
+// transaction. *pgxpool.Pool and *pgx.Conn both satisfy it; if the
+// underlying DBTX is already a pgx.Tx the assertion fails and the
+// caller runs without its own transaction (we're already inside one).
+type pgBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// inTx runs fn inside a pgx transaction when the adapter's underlying
+// DBTX supports opening one. Commits on success, rolls back on error
+// or panic. When the DBTX is already a transaction (fn already running
+// inside an outer tx) the call falls through to fn with the existing
+// queries/db and the caller keeps responsibility for commit/rollback.
+func (a *PGAdapter) inTx(ctx context.Context, fn func(q *pggen.Queries, tx pgx.Tx) error) error {
+	beginner, ok := a.db.(pgBeginner)
+	if !ok {
+		return fmt.Errorf("pg adapter: underlying db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("pg begin tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	if err := fn(a.queries.WithTx(tx), tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("pg commit tx: %w", err)
+	}
+	return nil
+}
+
 // Users
 
 func (a *PGAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {

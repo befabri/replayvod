@@ -247,6 +247,8 @@ type Video struct {
 	ForceH264       int64           `json:"force_h264"`
 	Title           string          `json:"title"`
 	CompletionKind  string          `json:"completion_kind"`
+	SelectedQuality sql.NullString  `json:"selected_quality"`
+	SelectedFps     sql.NullFloat64 `json:"selected_fps"`
 }
 
 type VideoCategory struct {
@@ -255,20 +257,21 @@ type VideoCategory struct {
 }
 
 type VideoPart struct {
-	ID              int64          `json:"id"`
-	VideoID         int64          `json:"video_id"`
-	PartIndex       int64          `json:"part_index"`
-	Filename        string         `json:"filename"`
-	Quality         string         `json:"quality"`
-	Codec           string         `json:"codec"`
-	SegmentFormat   string         `json:"segment_format"`
-	DurationSeconds float64        `json:"duration_seconds"`
-	SizeBytes       int64          `json:"size_bytes"`
-	Thumbnail       sql.NullString `json:"thumbnail"`
-	StartMediaSeq   int64          `json:"start_media_seq"`
-	EndMediaSeq     sql.NullInt64  `json:"end_media_seq"`
-	CreatedAt       string         `json:"created_at"`
-	UpdatedAt       string         `json:"updated_at"`
+	ID              int64           `json:"id"`
+	VideoID         int64           `json:"video_id"`
+	PartIndex       int64           `json:"part_index"`
+	Filename        string          `json:"filename"`
+	Quality         string          `json:"quality"`
+	Codec           string          `json:"codec"`
+	SegmentFormat   string          `json:"segment_format"`
+	DurationSeconds float64         `json:"duration_seconds"`
+	SizeBytes       int64           `json:"size_bytes"`
+	Thumbnail       sql.NullString  `json:"thumbnail"`
+	StartMediaSeq   int64           `json:"start_media_seq"`
+	EndMediaSeq     sql.NullInt64   `json:"end_media_seq"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
+	Fps             sql.NullFloat64 `json:"fps"`
 }
 
 type VideoRequest struct {

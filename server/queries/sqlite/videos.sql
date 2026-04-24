@@ -16,6 +16,12 @@ RETURNING *;
 -- name: UpdateVideoStatus :exec
 UPDATE videos SET status = ? WHERE id = ?;
 
+-- name: UpdateVideoSelectedVariant :exec
+UPDATE videos SET
+    selected_quality = ?,
+    selected_fps = ?
+WHERE id = ?;
+
 -- name: MarkVideoDone :exec
 -- See postgres/videos.sql MarkVideoDone for completion_kind rationale.
 UPDATE videos SET

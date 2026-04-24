@@ -3,10 +3,279 @@ package pgadapter
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
+	"github.com/jackc/pgx/v5"
 )
+
+const closeOpenVideoTitleSpansSQL = `UPDATE video_title_spans vts
+SET ended_at = $2,
+    duration_seconds = vts.duration_seconds + EXTRACT(EPOCH FROM ($2 - vts.started_at))
+WHERE vts.video_id = $1
+  AND vts.ended_at IS NULL`
+
+const closeOpenVideoCategorySpansSQL = `UPDATE video_category_spans vcs
+SET ended_at = $2,
+    duration_seconds = vcs.duration_seconds + EXTRACT(EPOCH FROM ($2 - vcs.started_at))
+WHERE vcs.video_id = $1
+  AND vcs.ended_at IS NULL`
+
+const resumeVideoTitleSpansSQL = `WITH latest AS (
+    SELECT title_id
+    FROM video_title_spans
+    WHERE video_id = $1
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1
+)
+INSERT INTO video_title_spans (video_id, title_id, started_at)
+SELECT $1, latest.title_id, $2
+FROM latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM video_title_spans WHERE video_id = $1 AND ended_at IS NULL
+)`
+
+const resumeVideoCategorySpansSQL = `WITH latest AS (
+    SELECT category_id
+    FROM video_category_spans
+    WHERE video_id = $1
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1
+)
+INSERT INTO video_category_spans (video_id, category_id, started_at)
+SELECT $1, latest.category_id, $2
+FROM latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM video_category_spans WHERE video_id = $1 AND ended_at IS NULL
+)`
+
+const listVideosByBroadcasterPageSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE broadcaster_id = $1
+  AND deleted_at IS NULL
+  AND (
+    $2::timestamptz IS NULL
+    OR start_download_at < $2::timestamptz
+    OR (start_download_at = $2::timestamptz AND id < $3)
+  )
+ORDER BY start_download_at DESC, id DESC
+LIMIT $4`
+
+const listVideosByCategoryPageSQL = `SELECT
+    v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.selected_quality,
+    v.selected_fps, v.broadcaster_id, v.stream_id, v.viewer_count, v.language,
+    v.duration_seconds, v.size_bytes, v.thumbnail, v.error,
+    v.start_download_at, v.downloaded_at, v.deleted_at,
+    v.recording_type, v.force_h264, v.title, v.completion_kind
+FROM videos v
+INNER JOIN video_categories vc ON vc.video_id = v.id
+WHERE vc.category_id = $1
+  AND v.deleted_at IS NULL
+  AND (
+    $2::timestamptz IS NULL
+    OR v.start_download_at < $2::timestamptz
+    OR (v.start_download_at = $2::timestamptz AND v.id < $3)
+  )
+ORDER BY v.start_download_at DESC, v.id DESC
+LIMIT $4`
+
+const listVideosPageBaseSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)`
+
+const listVideosPageCreatedDescSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)
+  AND ($2::timestamptz IS NULL
+    OR start_download_at < $2::timestamptz
+    OR (start_download_at = $2::timestamptz AND id < $3))
+ORDER BY start_download_at DESC, id DESC
+LIMIT $4`
+
+const listVideosPageCreatedAscSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)
+  AND ($2::timestamptz IS NULL
+    OR start_download_at > $2::timestamptz
+    OR (start_download_at = $2::timestamptz AND id > $3))
+ORDER BY start_download_at ASC, id ASC
+LIMIT $4`
+
+const listVideosPageChannelAscSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)
+  AND ($2::text IS NULL
+    OR display_name > $2::text
+    OR (display_name = $2::text
+      AND (start_download_at < $3::timestamptz
+        OR (start_download_at = $3::timestamptz AND id > $4))))
+ORDER BY display_name ASC, start_download_at DESC, id ASC
+LIMIT $5`
+
+const listVideosPageChannelDescSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)
+  AND ($2::text IS NULL
+    OR display_name < $2::text
+    OR (display_name = $2::text
+      AND (start_download_at < $3::timestamptz
+        OR (start_download_at = $3::timestamptz AND id < $4))))
+ORDER BY display_name DESC, start_download_at DESC, id DESC
+LIMIT $5`
+
+const listVideosPageDurationAscSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)
+  AND (
+    $3::timestamptz IS NULL
+    OR
+    $2::double precision IS NULL
+      AND duration_seconds IS NULL
+      AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id > $4))
+    OR $2::double precision IS NOT NULL
+      AND (duration_seconds IS NULL
+        OR duration_seconds > $2::double precision
+        OR (duration_seconds = $2::double precision
+          AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id > $4))))
+  )
+ORDER BY duration_seconds ASC NULLS LAST, start_download_at DESC, id ASC
+LIMIT $5`
+
+const listVideosPageDurationDescSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)
+  AND (
+    $3::timestamptz IS NULL
+    OR
+    $2::double precision IS NULL
+      AND duration_seconds IS NULL
+      AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id < $4))
+    OR $2::double precision IS NOT NULL
+      AND (duration_seconds IS NULL
+        OR duration_seconds < $2::double precision
+        OR (duration_seconds = $2::double precision
+          AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id < $4))))
+  )
+ORDER BY duration_seconds DESC NULLS LAST, start_download_at DESC, id DESC
+LIMIT $5`
+
+const listVideosPageSizeAscSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)
+  AND (
+    $3::timestamptz IS NULL
+    OR
+    $2::bigint IS NULL
+      AND size_bytes IS NULL
+      AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id > $4))
+    OR $2::bigint IS NOT NULL
+      AND (size_bytes IS NULL
+        OR size_bytes > $2::bigint
+        OR (size_bytes = $2::bigint
+          AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id > $4))))
+  )
+ORDER BY size_bytes ASC NULLS LAST, start_download_at DESC, id ASC
+LIMIT $5`
+
+const listVideosPageSizeDescSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND ($1::text = '' OR status = $1::text)
+  AND (
+    $3::timestamptz IS NULL
+    OR
+    $2::bigint IS NULL
+      AND size_bytes IS NULL
+      AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id < $4))
+    OR $2::bigint IS NOT NULL
+      AND (size_bytes IS NULL
+        OR size_bytes < $2::bigint
+        OR (size_bytes = $2::bigint
+          AND (start_download_at < $3::timestamptz OR (start_download_at = $3::timestamptz AND id < $4))))
+  )
+ORDER BY size_bytes DESC NULLS LAST, start_download_at DESC, id DESC
+LIMIT $5`
+
+func (a *PGAdapter) CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
+	at = at.UTC()
+	if _, err := a.db.Exec(ctx, closeOpenVideoTitleSpansSQL, videoID, at); err != nil {
+		return fmt.Errorf("pg close video title spans: %w", err)
+	}
+	if _, err := a.db.Exec(ctx, closeOpenVideoCategorySpansSQL, videoID, at); err != nil {
+		return fmt.Errorf("pg close video category spans: %w", err)
+	}
+	return nil
+}
+
+func (a *PGAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
+	at = at.UTC()
+	if _, err := a.db.Exec(ctx, resumeVideoTitleSpansSQL, videoID, at); err != nil {
+		return fmt.Errorf("pg resume video title spans: %w", err)
+	}
+	if _, err := a.db.Exec(ctx, resumeVideoCategorySpansSQL, videoID, at); err != nil {
+		return fmt.Errorf("pg resume video category spans: %w", err)
+	}
+	return nil
+}
 
 func (a *PGAdapter) GetVideo(ctx context.Context, id int64) (*repository.Video, error) {
 	row, err := a.queries.GetVideo(ctx, id)
@@ -53,22 +322,58 @@ func (a *PGAdapter) UpdateVideoStatus(ctx context.Context, id int64, status stri
 	return a.queries.UpdateVideoStatus(ctx, pggen.UpdateVideoStatusParams{ID: id, Status: status})
 }
 
-func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
-	return a.queries.MarkVideoDone(ctx, pggen.MarkVideoDoneParams{
+func (a *PGAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64, quality string, fps *float64) error {
+	var qualityPtr *string
+	if quality != "" {
+		qualityPtr = &quality
+	}
+	return a.queries.UpdateVideoSelectedVariant(ctx, pggen.UpdateVideoSelectedVariantParams{
 		ID:              id,
-		DurationSeconds: &durationSeconds,
-		SizeBytes:       &sizeBytes,
-		Thumbnail:       thumbnail,
-		CompletionKind:  completionKind,
+		SelectedQuality: qualityPtr,
+		SelectedFps:     fps,
+	})
+}
+
+func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
+	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
+		if err := closeOpenVideoMetadataSpansTx(ctx, tx, id, time.Now().UTC()); err != nil {
+			return err
+		}
+		return q.MarkVideoDone(ctx, pggen.MarkVideoDoneParams{
+			ID:              id,
+			DurationSeconds: &durationSeconds,
+			SizeBytes:       &sizeBytes,
+			Thumbnail:       thumbnail,
+			CompletionKind:  completionKind,
+		})
 	})
 }
 
 func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error {
-	return a.queries.MarkVideoFailed(ctx, pggen.MarkVideoFailedParams{
-		ID:             id,
-		Error:          &errMsg,
-		CompletionKind: completionKind,
+	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
+		if err := closeOpenVideoMetadataSpansTx(ctx, tx, id, time.Now().UTC()); err != nil {
+			return err
+		}
+		return q.MarkVideoFailed(ctx, pggen.MarkVideoFailedParams{
+			ID:             id,
+			Error:          &errMsg,
+			CompletionKind: completionKind,
+		})
 	})
+}
+
+// closeOpenVideoMetadataSpansTx runs the same close-spans SQL as
+// CloseOpenVideoMetadataSpans but on a supplied pgx.Tx so the close
+// shares atomicity with the terminal video update that follows.
+func closeOpenVideoMetadataSpansTx(ctx context.Context, tx pgx.Tx, videoID int64, at time.Time) error {
+	at = at.UTC()
+	if _, err := tx.Exec(ctx, closeOpenVideoTitleSpansSQL, videoID, at); err != nil {
+		return fmt.Errorf("pg close video title spans: %w", err)
+	}
+	if _, err := tx.Exec(ctx, closeOpenVideoCategorySpansSQL, videoID, at); err != nil {
+		return fmt.Errorf("pg close video category spans: %w", err)
+	}
+	return nil
 }
 
 func (a *PGAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error {
@@ -91,28 +396,51 @@ func (a *PGAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOp
 	return pgVideosToDomain(rows), nil
 }
 
-func (a *PGAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosByBroadcaster(ctx, pggen.ListVideosByBroadcasterParams{
-		BroadcasterID: broadcasterID,
-		Limit:         int32(limit),
-		Offset:        int32(offset),
-	})
+func (a *PGAdapter) ListVideosPage(ctx context.Context, opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (*repository.VideoListPage, error) {
+	query, args := pgListVideosPageQueryAndArgs(opts, cursor)
+	rows, err := a.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("pg list videos page: %w", err)
+	}
+	items, err := scanPGVideos(rows)
+	if err != nil {
+		return nil, fmt.Errorf("pg list videos page: %w", err)
+	}
+	return toVideoListPage(items, opts), nil
+}
+
+func (a *PGAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+	rows, err := a.db.Query(ctx, listVideosByBroadcasterPageSQL,
+		broadcasterID,
+		pgCursorStartDownloadAt(cursor),
+		pgCursorID(cursor),
+		limit+1,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos by broadcaster: %w", err)
 	}
-	return pgVideosToDomain(rows), nil
+	items, err := scanPGVideos(rows)
+	if err != nil {
+		return nil, fmt.Errorf("pg list videos by broadcaster: %w", err)
+	}
+	return toVideoPage(items, limit), nil
 }
 
-func (a *PGAdapter) ListVideosByCategory(ctx context.Context, categoryID string, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosByCategory(ctx, pggen.ListVideosByCategoryParams{
-		CategoryID: categoryID,
-		Limit:      int32(limit),
-		Offset:     int32(offset),
-	})
+func (a *PGAdapter) ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+	rows, err := a.db.Query(ctx, listVideosByCategoryPageSQL,
+		categoryID,
+		pgCursorStartDownloadAt(cursor),
+		pgCursorID(cursor),
+		limit+1,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos by category: %w", err)
 	}
-	return pgVideosToDomain(rows), nil
+	items, err := scanPGVideos(rows)
+	if err != nil {
+		return nil, fmt.Errorf("pg list videos by category: %w", err)
+	}
+	return toVideoPage(items, limit), nil
 }
 
 func (a *PGAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
@@ -164,6 +492,8 @@ func pgVideoToDomain(v pggen.Video) *repository.Video {
 		Title:           v.Title,
 		Status:          v.Status,
 		Quality:         v.Quality,
+		SelectedQuality: v.SelectedQuality,
+		SelectedFPS:     v.SelectedFps,
 		BroadcasterID:   v.BroadcasterID,
 		StreamID:        v.StreamID,
 		ViewerCount:     int64(v.ViewerCount),
@@ -187,4 +517,305 @@ func pgVideosToDomain(rows []pggen.Video) []repository.Video {
 		out[i] = *pgVideoToDomain(r)
 	}
 	return out
+}
+
+func scanPGVideos(rows pgx.Rows) ([]repository.Video, error) {
+	defer rows.Close()
+	items := []repository.Video{}
+	for rows.Next() {
+		var row pggen.Video
+		if err := rows.Scan(
+			&row.ID,
+			&row.JobID,
+			&row.Filename,
+			&row.DisplayName,
+			&row.Status,
+			&row.Quality,
+			&row.SelectedQuality,
+			&row.SelectedFps,
+			&row.BroadcasterID,
+			&row.StreamID,
+			&row.ViewerCount,
+			&row.Language,
+			&row.DurationSeconds,
+			&row.SizeBytes,
+			&row.Thumbnail,
+			&row.Error,
+			&row.StartDownloadAt,
+			&row.DownloadedAt,
+			&row.DeletedAt,
+			&row.RecordingType,
+			&row.ForceH264,
+			&row.Title,
+			&row.CompletionKind,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, *pgVideoToDomain(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func pgCursorStartDownloadAt(cursor *repository.VideoPageCursor) *time.Time {
+	if cursor == nil {
+		return nil
+	}
+	start := cursor.StartDownloadAt.UTC()
+	return &start
+}
+
+func pgCursorID(cursor *repository.VideoPageCursor) int64 {
+	if cursor == nil {
+		return 0
+	}
+	return cursor.ID
+}
+
+func pgListVideosPageQueryAndArgs(opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (string, []any) {
+	sort, order := normalizeVideoListSort(opts)
+	limit := listVideosPageQueryLimit(opts.Limit)
+	args := []any{opts.Status}
+	query := listVideosPageBaseSQL + pgVideoListFiltersSQL(&args, opts)
+	appendLimit := func() string { return pgAppendArg(&args, limit) }
+	switch sort + ":" + order {
+	case "created_at:asc":
+		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
+		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
+		query += fmt.Sprintf(`
+  AND (%s::timestamptz IS NULL OR start_download_at > %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))
+ORDER BY start_download_at ASC, id ASC
+LIMIT %s`, t, t, t, id, appendLimit())
+	case "channel:asc":
+		text := pgAppendArg(&args, pgVideoListCursorText(cursor))
+		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
+		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
+		query += fmt.Sprintf(`
+  AND (%s::text IS NULL
+    OR display_name > %s::text
+    OR (display_name = %s::text
+      AND (start_download_at < %s::timestamptz
+        OR (start_download_at = %s::timestamptz AND id > %s))))
+ORDER BY display_name ASC, start_download_at DESC, id ASC
+LIMIT %s`, text, text, text, t, t, id, appendLimit())
+	case "channel:desc":
+		text := pgAppendArg(&args, pgVideoListCursorText(cursor))
+		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
+		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
+		query += fmt.Sprintf(`
+  AND (%s::text IS NULL
+    OR display_name < %s::text
+    OR (display_name = %s::text
+      AND (start_download_at < %s::timestamptz
+        OR (start_download_at = %s::timestamptz AND id < %s))))
+ORDER BY display_name DESC, start_download_at DESC, id DESC
+LIMIT %s`, text, text, text, t, t, id, appendLimit())
+	case "duration:asc":
+		n := pgAppendArg(&args, pgVideoListCursorNumber(cursor))
+		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
+		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
+		query += fmt.Sprintf(`
+  AND (
+    %s::timestamptz IS NULL
+    OR %s::double precision IS NULL
+      AND duration_seconds IS NULL
+      AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))
+    OR %s::double precision IS NOT NULL
+      AND (duration_seconds IS NULL
+        OR duration_seconds > %s::double precision
+        OR (duration_seconds = %s::double precision
+          AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))))
+  )
+ORDER BY duration_seconds ASC NULLS LAST, start_download_at DESC, id ASC
+LIMIT %s`, t, n, t, t, id, n, n, n, t, t, id, appendLimit())
+	case "duration:desc":
+		n := pgAppendArg(&args, pgVideoListCursorNumber(cursor))
+		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
+		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
+		query += fmt.Sprintf(`
+  AND (
+    %s::timestamptz IS NULL
+    OR %s::double precision IS NULL
+      AND duration_seconds IS NULL
+      AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))
+    OR %s::double precision IS NOT NULL
+      AND (duration_seconds IS NULL
+        OR duration_seconds < %s::double precision
+        OR (duration_seconds = %s::double precision
+          AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))))
+  )
+ORDER BY duration_seconds DESC NULLS LAST, start_download_at DESC, id DESC
+LIMIT %s`, t, n, t, t, id, n, n, n, t, t, id, appendLimit())
+	case "size:asc":
+		n := pgAppendArg(&args, pgVideoListCursorInt(cursor))
+		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
+		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
+		query += fmt.Sprintf(`
+  AND (
+    %s::timestamptz IS NULL
+    OR %s::bigint IS NULL
+      AND size_bytes IS NULL
+      AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))
+    OR %s::bigint IS NOT NULL
+      AND (size_bytes IS NULL
+        OR size_bytes > %s::bigint
+        OR (size_bytes = %s::bigint
+          AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))))
+  )
+ORDER BY size_bytes ASC NULLS LAST, start_download_at DESC, id ASC
+LIMIT %s`, t, n, t, t, id, n, n, n, t, t, id, appendLimit())
+	case "size:desc":
+		n := pgAppendArg(&args, pgVideoListCursorInt(cursor))
+		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
+		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
+		query += fmt.Sprintf(`
+  AND (
+    %s::timestamptz IS NULL
+    OR %s::bigint IS NULL
+      AND size_bytes IS NULL
+      AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))
+    OR %s::bigint IS NOT NULL
+      AND (size_bytes IS NULL
+        OR size_bytes < %s::bigint
+        OR (size_bytes = %s::bigint
+          AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))))
+  )
+ORDER BY size_bytes DESC NULLS LAST, start_download_at DESC, id DESC
+LIMIT %s`, t, n, t, t, id, n, n, n, t, t, id, appendLimit())
+	default:
+		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
+		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
+		query += fmt.Sprintf(`
+  AND (%s::timestamptz IS NULL OR start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))
+ORDER BY start_download_at DESC, id DESC
+LIMIT %s`, t, t, t, id, appendLimit())
+	}
+	return query, args
+}
+
+func pgVideoListFiltersSQL(args *[]any, opts repository.ListVideosOpts) string {
+	quality := pgAppendArg(args, opts.Quality)
+	broadcasterID := pgAppendArg(args, opts.BroadcasterID)
+	language := pgAppendArg(args, opts.Language)
+	durationMin := pgAppendArg(args, opts.DurationMinSeconds)
+	durationMax := pgAppendArg(args, opts.DurationMaxSeconds)
+	sizeMin := pgAppendArg(args, opts.SizeMinBytes)
+	sizeMax := pgAppendArg(args, opts.SizeMaxBytes)
+	return fmt.Sprintf(`
+  AND (%s::text = '' OR quality = %s::text OR selected_quality = %s::text OR selected_quality || 'p' = %s::text OR (selected_fps IS NOT NULL AND selected_fps > 0 AND selected_quality || 'p' || ROUND(selected_fps)::int::text = %s::text))
+  AND (%s::text = '' OR broadcaster_id = %s::text)
+  AND (%s::text = '' OR language = %s::text)
+  AND (%s::double precision IS NULL OR duration_seconds >= %s::double precision)
+  AND (%s::double precision IS NULL OR duration_seconds < %s::double precision)
+  AND (%s::bigint IS NULL OR size_bytes >= %s::bigint)
+  AND (%s::bigint IS NULL OR size_bytes < %s::bigint)`, quality, quality, quality, quality, quality, broadcasterID, broadcasterID, language, language, durationMin, durationMin, durationMax, durationMax, sizeMin, sizeMin, sizeMax, sizeMax)
+}
+
+func pgAppendArg(args *[]any, value any) string {
+	*args = append(*args, value)
+	return fmt.Sprintf("$%d", len(*args))
+}
+
+func normalizeVideoListSort(opts repository.ListVideosOpts) (string, string) {
+	sort := opts.Sort
+	order := opts.Order
+	switch sort {
+	case "created_at", "duration", "size", "channel":
+	default:
+		return "created_at", "desc"
+	}
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+	return sort, order
+}
+
+func listVideosPageQueryLimit(limit int) int {
+	if limit < 1 {
+		return 1
+	}
+	return limit + 1
+}
+
+func pgVideoListCursorTime(cursor *repository.VideoListPageCursor) *time.Time {
+	if cursor == nil {
+		return nil
+	}
+	t := cursor.StartDownloadAt.UTC()
+	return &t
+}
+
+func pgVideoListCursorID(cursor *repository.VideoListPageCursor) int64 {
+	if cursor == nil {
+		return 0
+	}
+	return cursor.ID
+}
+
+func pgVideoListCursorText(cursor *repository.VideoListPageCursor) *string {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.SortText
+}
+
+func pgVideoListCursorNumber(cursor *repository.VideoListPageCursor) *float64 {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.SortNumber
+}
+
+func pgVideoListCursorInt(cursor *repository.VideoListPageCursor) *int64 {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.SortInt
+}
+
+func toVideoListPage(items []repository.Video, opts repository.ListVideosOpts) *repository.VideoListPage {
+	if opts.Limit <= 0 {
+		return &repository.VideoListPage{Items: []repository.Video{}}
+	}
+	page := &repository.VideoListPage{Items: items}
+	if len(items) <= opts.Limit {
+		return page
+	}
+	page.Items = items[:opts.Limit]
+	last := page.Items[len(page.Items)-1]
+	page.NextCursor = videoListCursorFromVideo(&last, opts)
+	return page
+}
+
+func videoListCursorFromVideo(v *repository.Video, opts repository.ListVideosOpts) *repository.VideoListPageCursor {
+	if v == nil {
+		return nil
+	}
+	cursor := &repository.VideoListPageCursor{StartDownloadAt: v.StartDownloadAt, ID: v.ID}
+	sort, _ := normalizeVideoListSort(opts)
+	switch sort {
+	case "duration":
+		cursor.SortNumber = v.DurationSeconds
+	case "size":
+		cursor.SortInt = v.SizeBytes
+	case "channel":
+		cursor.SortText = &v.DisplayName
+	}
+	return cursor
+}
+
+func toVideoPage(items []repository.Video, limit int) *repository.VideoPage {
+	if limit <= 0 {
+		return &repository.VideoPage{Items: []repository.Video{}}
+	}
+	page := &repository.VideoPage{Items: items}
+	if len(items) <= limit {
+		return page
+	}
+	page.Items = items[:limit]
+	next := page.Items[len(page.Items)-1]
+	page.NextCursor = &repository.VideoPageCursor{StartDownloadAt: next.StartDownloadAt, ID: next.ID}
+	return page
 }

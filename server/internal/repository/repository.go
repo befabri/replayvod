@@ -53,6 +53,7 @@ type Repository interface {
 	GetChannelByLogin(ctx context.Context, login string) (*Channel, error)
 	UpsertChannel(ctx context.Context, c *Channel) (*Channel, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
+	ListChannelsPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *ChannelPageCursor) (*ChannelPage, error)
 	// ListChannelsByIDs returns the subset of channels whose
 	// broadcaster_id is in ids. Empty ids returns no rows (not an
 	// error). Callers use this to de-reference a batch of Helix-
@@ -132,6 +133,7 @@ type Repository interface {
 	GetVideoByJobID(ctx context.Context, jobID string) (*Video, error)
 	CreateVideo(ctx context.Context, v *VideoInput) (*Video, error)
 	UpdateVideoStatus(ctx context.Context, id int64, status string) error
+	UpdateVideoSelectedVariant(ctx context.Context, id int64, quality string, fps *float64) error
 	MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error
 	MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error
 	SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error
@@ -140,8 +142,9 @@ type Repository interface {
 	// created-desc at the SQL layer. Replaces the earlier ListVideos
 	// and ListVideosByStatus pair.
 	ListVideos(ctx context.Context, opts ListVideosOpts) ([]Video, error)
-	ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]Video, error)
-	ListVideosByCategory(ctx context.Context, categoryID string, limit, offset int) ([]Video, error)
+	ListVideosPage(ctx context.Context, opts ListVideosOpts, cursor *VideoListPageCursor) (*VideoListPage, error)
+	ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
+	ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	SoftDeleteVideo(ctx context.Context, id int64) error
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
@@ -178,15 +181,20 @@ type Repository interface {
 	UpsertTitle(ctx context.Context, name string) (*Title, error)
 	LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error
 	LinkVideoTitle(ctx context.Context, videoID int64, titleID int64) error
+	UpsertVideoTitleSpan(ctx context.Context, videoID int64, titleID int64, at time.Time) error
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
-	ListTitlesForVideo(ctx context.Context, videoID int64) ([]Title, error)
+	ListTitlesForVideo(ctx context.Context, videoID int64) ([]TitleSpan, error)
 
 	// Junctions (categories, tags, requests)
 	LinkStreamCategory(ctx context.Context, streamID, categoryID string) error
 	LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error
+	UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error
 	LinkStreamTag(ctx context.Context, streamID string, tagID int64) error
 	LinkVideoTag(ctx context.Context, videoID, tagID int64) error
-	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]Category, error)
+	ListPrimaryCategoriesForVideos(ctx context.Context, videoIDs []int64) (map[int64]Category, error)
+	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]CategorySpan, error)
+	CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
+	ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	AddVideoRequest(ctx context.Context, videoID int64, userID string) error
 	ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]Video, error)

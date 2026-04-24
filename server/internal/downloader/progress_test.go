@@ -61,12 +61,16 @@ func TestProgressEmitter_SetStageFiresEvent(t *testing.T) {
 func TestProgressEmitter_VariantCarriesForward(t *testing.T) {
 	ch := make(chan Progress, 16)
 	em := newProgressEmitter("job-1", "video", ch)
-	em.setVariant("1080", "h265")
+	fps := 60.0
+	em.setVariant("1080", &fps, "h265")
 	em.setStage("segments")
 
 	last, _ := drain(ch)
 	if last.Quality != "1080" {
 		t.Errorf("Quality=%q", last.Quality)
+	}
+	if last.FPS == nil || *last.FPS != fps {
+		t.Errorf("FPS=%v, want %v", last.FPS, fps)
 	}
 	if last.Codec != "h265" {
 		t.Errorf("Codec=%q", last.Codec)
@@ -205,9 +209,9 @@ func TestComputePercent(t *testing.T) {
 		done, total int64
 		want        float64
 	}{
-		{0, -1, -1},  // live
-		{0, 0, -1},   // unknown
-		{5, 10, 50},  // mid
+		{0, -1, -1}, // live
+		{0, 0, -1},  // unknown
+		{5, 10, 50}, // mid
 		{10, 10, 100},
 		{11, 10, 100}, // safety clamp
 	}

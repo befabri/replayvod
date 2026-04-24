@@ -258,6 +258,7 @@ type Querier interface {
 	UpdateStreamViewers(ctx context.Context, arg UpdateStreamViewersParams) error
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
+	UpdateVideoSelectedVariant(ctx context.Context, arg UpdateVideoSelectedVariantParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
 	// Preserves box_art_url and igdb_id on conflict: a webhook-path
 	// upsert that only knows (id, name) won't wipe values the

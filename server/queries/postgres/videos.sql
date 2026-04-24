@@ -16,6 +16,12 @@ RETURNING *;
 -- name: UpdateVideoStatus :exec
 UPDATE videos SET status = $2 WHERE id = $1;
 
+-- name: UpdateVideoSelectedVariant :exec
+UPDATE videos SET
+    selected_quality = $2,
+    selected_fps = $3
+WHERE id = $1;
+
 -- name: MarkVideoDone :exec
 -- completion_kind distinguishes clean-end from partial recordings.
 -- Callers pass 'complete' for naturally-ended streams with no gaps,

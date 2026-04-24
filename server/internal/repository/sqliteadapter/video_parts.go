@@ -10,11 +10,16 @@ import (
 )
 
 func (a *SQLiteAdapter) CreateVideoPart(ctx context.Context, input *repository.VideoPartInput) (*repository.VideoPart, error) {
+	var fps sql.NullFloat64
+	if input.FPS != nil {
+		fps = sql.NullFloat64{Float64: *input.FPS, Valid: true}
+	}
 	row, err := a.queries.CreateVideoPart(ctx, sqlitegen.CreateVideoPartParams{
 		VideoID:       input.VideoID,
 		PartIndex:     int64(input.PartIndex),
 		Filename:      input.Filename,
 		Quality:       input.Quality,
+		Fps:           fps,
 		Codec:         input.Codec,
 		SegmentFormat: input.SegmentFormat,
 		StartMediaSeq: input.StartMediaSeq,
@@ -80,12 +85,18 @@ func sqliteVideoPartToDomain(p sqlitegen.VideoPart) *repository.VideoPart {
 		v := p.EndMediaSeq.Int64
 		endMediaSeq = &v
 	}
+	var fps *float64
+	if p.Fps.Valid {
+		v := p.Fps.Float64
+		fps = &v
+	}
 	return &repository.VideoPart{
 		ID:              p.ID,
 		VideoID:         p.VideoID,
 		PartIndex:       int32(p.PartIndex),
 		Filename:        p.Filename,
 		Quality:         p.Quality,
+		FPS:             fps,
 		Codec:           p.Codec,
 		SegmentFormat:   p.SegmentFormat,
 		DurationSeconds: p.DurationSeconds,

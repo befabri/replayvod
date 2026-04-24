@@ -70,6 +70,19 @@ type Channel struct {
 	UpdatedAt           time.Time
 }
 
+// ChannelPageCursor is the stable keyset cursor for channel lists.
+// broadcaster_name is compared case-insensitively; broadcaster_id breaks ties.
+type ChannelPageCursor struct {
+	BroadcasterName string
+	BroadcasterID   string
+}
+
+// ChannelPage is one cursor-paginated slice of channels.
+type ChannelPage struct {
+	Items      []Channel
+	NextCursor *ChannelPageCursor
+}
+
 // UserFollow tracks a user's follow relationship with a channel.
 type UserFollow struct {
 	UserID        string
@@ -174,18 +187,23 @@ type StreamInput struct {
 // Stage 3 variant picker drops HEVC and AV1 variants before running
 // the quality fallback chain. Ignored when RecordingType='audio'.
 type Video struct {
-	ID              int64
-	JobID           string
-	Filename        string
-	DisplayName     string
+	ID          int64
+	JobID       string
+	Filename    string
+	DisplayName string
 	// Title is the stream title at download-start time — the thing
 	// the streamer typed as the broadcast label (e.g. "Playing ER
 	// DLC"), not the channel's display name. Empty string when
 	// Twitch didn't surface a title (rare; manual trigger against
 	// a channel that just went offline).
-	Title           string
-	Status          string
+	Title  string
+	Status string
+	// Quality is the requested operator intent at trigger time
+	// (LOW/MEDIUM/HIGH). The selected rendition that Stage 3 actually
+	// recorded lives on SelectedQuality/SelectedFPS.
 	Quality         string
+	SelectedQuality *string
+	SelectedFPS     *float64
 	BroadcasterID   string
 	StreamID        *string
 	ViewerCount     int64
@@ -205,7 +223,7 @@ type Video struct {
 	// "cancelled" (operator called Cancel). Defaults to "complete"
 	// on insert; final value is set at terminal transitions in the
 	// downloader.
-	CompletionKind  string
+	CompletionKind string
 }
 
 // VideoCompletionKind enumerates the values of videos.completion_kind.
@@ -221,9 +239,9 @@ const (
 // RecordingType is required ("video" or "audio"); empty defaults to "video"
 // at the adapter layer. ForceH264 defaults to false.
 type VideoInput struct {
-	JobID         string
-	Filename      string
-	DisplayName   string
+	JobID       string
+	Filename    string
+	DisplayName string
 	// Title is the stream title at download-start time; pass ""
 	// when Helix didn't surface one so the row still satisfies the
 	// NOT NULL constraint.
@@ -313,6 +331,7 @@ type VideoPart struct {
 	PartIndex       int32
 	Filename        string
 	Quality         string
+	FPS             *float64
 	Codec           string
 	SegmentFormat   string
 	DurationSeconds float64
@@ -332,6 +351,7 @@ type VideoPartInput struct {
 	PartIndex     int32
 	Filename      string
 	Quality       string
+	FPS           *float64
 	Codec         string
 	SegmentFormat string
 	StartMediaSeq int64
@@ -356,6 +376,23 @@ type Title struct {
 	CreatedAt time.Time
 }
 
+// TitleSpan is one concrete interval during which a video carried a title.
+// A title that appears, changes away, then appears again produces two rows.
+type TitleSpan struct {
+	Title
+	StartedAt       time.Time
+	EndedAt         *time.Time
+	DurationSeconds float64
+}
+
+// CategorySpan is one concrete interval during which a video carried a category.
+type CategorySpan struct {
+	Category
+	StartedAt       time.Time
+	EndedAt         *time.Time
+	DurationSeconds float64
+}
+
 // VideoStatsTotals is the aggregate row for video.statistics.
 type VideoStatsTotals struct {
 	Total         int64
@@ -374,11 +411,49 @@ type VideoStatsByStatus struct {
 // boundary; the adapter falls back to created_at DESC when they are
 // empty or unrecognized. NULL size/duration rows sort to the end.
 type ListVideosOpts struct {
-	Status string // "" | "PENDING" | "RUNNING" | "DONE" | "FAILED"
-	Sort   string // "" | "created_at" | "duration" | "size" | "channel"
-	Order  string // "" | "asc" | "desc"
-	Limit  int
-	Offset int
+	Status             string // "" | "PENDING" | "RUNNING" | "DONE" | "FAILED"
+	Sort               string // "" | "created_at" | "duration" | "size" | "channel"
+	Order              string // "" | "asc" | "desc"
+	Quality            string
+	BroadcasterID      string
+	Language           string
+	DurationMinSeconds *float64
+	DurationMaxSeconds *float64
+	SizeMinBytes       *int64
+	SizeMaxBytes       *int64
+	Limit              int
+	Offset             int
+}
+
+// VideoPageCursor is the stable keyset cursor for channel/category video lists.
+// start_download_at is the primary sort; id breaks same-timestamp ties.
+type VideoPageCursor struct {
+	StartDownloadAt time.Time
+	ID              int64
+}
+
+// VideoPage is one cursor-paginated slice plus the next keyset cursor.
+// NextCursor is nil when there are no more rows.
+type VideoPage struct {
+	Items      []Video
+	NextCursor *VideoPageCursor
+}
+
+// VideoListPageCursor is the stable keyset cursor for video.listPage.
+// SortNumber is used for duration sorts, SortInt for size sorts, SortText for channel sorts,
+// and StartDownloadAt always participates as a stable tie-breaker.
+type VideoListPageCursor struct {
+	SortNumber      *float64
+	SortInt         *int64
+	SortText        *string
+	StartDownloadAt time.Time
+	ID              int64
+}
+
+// VideoListPage is one cursor-paginated slice of the main videos list.
+type VideoListPage struct {
+	Items      []Video
+	NextCursor *VideoListPageCursor
 }
 
 // SortKey composes Sort+Order into the "sort_key" form the SQL expects
@@ -413,21 +488,21 @@ const (
 // DownloadSchedule is a user-defined auto-record rule matched against
 // incoming stream.online webhooks.
 type DownloadSchedule struct {
-	ID                int64
-	BroadcasterID     string
-	RequestedBy       string
-	Quality           string
-	HasMinViewers     bool
-	MinViewers        *int64
-	HasCategories     bool
-	HasTags           bool
-	IsDeleteRediff    bool
-	TimeBeforeDelete  *int64
-	IsDisabled        bool
-	LastTriggeredAt   *time.Time
-	TriggerCount      int64
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID               int64
+	BroadcasterID    string
+	RequestedBy      string
+	Quality          string
+	HasMinViewers    bool
+	MinViewers       *int64
+	HasCategories    bool
+	HasTags          bool
+	IsDeleteRediff   bool
+	TimeBeforeDelete *int64
+	IsDisabled       bool
+	LastTriggeredAt  *time.Time
+	TriggerCount     int64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // ScheduleInput captures the fields a caller supplies on create/update.
@@ -480,11 +555,11 @@ type SubscriptionInput struct {
 
 // EventSubSnapshot is a periodic snapshot of aggregate subscription cost.
 type EventSubSnapshot struct {
-	ID            int64
-	Total         int64
-	TotalCost     int64
-	MaxTotalCost  int64
-	FetchedAt     time.Time
+	ID           int64
+	Total        int64
+	TotalCost    int64
+	MaxTotalCost int64
+	FetchedAt    time.Time
 }
 
 // SnapshotSubscription pins a subscription's state at snapshot time so

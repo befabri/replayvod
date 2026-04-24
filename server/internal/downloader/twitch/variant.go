@@ -72,6 +72,7 @@ func SelectVariant(m *Manifest, opts SelectOptions) (SelectedVariant, error) {
 				return SelectedVariant{
 					URL:     v.URL,
 					Quality: "audio_only",
+					FPS:     nil,
 					Codec:   CodecAAC,
 				}, nil
 			}
@@ -117,9 +118,15 @@ func SelectVariant(m *Manifest, opts SelectOptions) (SelectedVariant, error) {
 	for _, want := range chain {
 		best := pickByCodecPreference(pool, want)
 		if best != nil {
+			var fps *float64
+			if best.FPS > 0 {
+				v := best.FPS
+				fps = &v
+			}
 			return SelectedVariant{
 				URL:     best.URL,
 				Quality: best.Quality,
+				FPS:     fps,
 				Codec:   best.Codec,
 			}, nil
 		}
@@ -189,4 +196,3 @@ func codecRank(codec string) int {
 		return -1
 	}
 }
-

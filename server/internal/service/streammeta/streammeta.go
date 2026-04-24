@@ -105,12 +105,12 @@ type CategoryArtEnricher interface {
 // Hydrator fetches + persists live-stream metadata. Shared across
 // recording jobs; holds no per-call state.
 type Hydrator struct {
-	repo     repository.Repository
-	twitch   *twitch.Client
-	art      CategoryArtEnricher
-	log      *slog.Logger
-	retries  int
-	delay    time.Duration
+	repo    repository.Repository
+	twitch  *twitch.Client
+	art     CategoryArtEnricher
+	log     *slog.Logger
+	retries int
+	delay   time.Duration
 }
 
 // Config carries the tunables. All fields have zero-value-safe defaults;
@@ -382,12 +382,16 @@ func (h *Hydrator) linkVideoTitle(ctx context.Context, videoID int64, title stri
 	if title == "" {
 		return nil
 	}
+	at := time.Now().UTC()
 	t, err := h.repo.UpsertTitle(ctx, title)
 	if err != nil {
 		return fmt.Errorf("upsert title: %w", err)
 	}
 	if err := h.repo.LinkVideoTitle(ctx, videoID, t.ID); err != nil {
 		return fmt.Errorf("link video title: %w", err)
+	}
+	if err := h.repo.UpsertVideoTitleSpan(ctx, videoID, t.ID, at); err != nil {
+		return fmt.Errorf("upsert video title span: %w", err)
 	}
 	return nil
 }
@@ -401,6 +405,7 @@ func (h *Hydrator) linkVideoCategory(ctx context.Context, videoID int64, categor
 	if categoryID == "" {
 		return nil
 	}
+	at := time.Now().UTC()
 	var cat *repository.Category
 	if categoryName != "" {
 		var err error
@@ -414,6 +419,9 @@ func (h *Hydrator) linkVideoCategory(ctx context.Context, videoID int64, categor
 	}
 	if err := h.repo.LinkVideoCategory(ctx, videoID, categoryID); err != nil {
 		return fmt.Errorf("link video category: %w", err)
+	}
+	if err := h.repo.UpsertVideoCategorySpan(ctx, videoID, categoryID, at); err != nil {
+		return fmt.Errorf("upsert video category span: %w", err)
 	}
 	// Eagerly enrich art for newly-observed categories. The enrich
 	// call is best-effort — a failure here doesn't break the link.
@@ -482,4 +490,3 @@ func (h *Hydrator) LinkInitialVideoMetadata(ctx context.Context, videoID int64, 
 		h.linkVideoCategory(ctx, videoID, meta.CategoryID, meta.CategoryName),
 	)
 }
-

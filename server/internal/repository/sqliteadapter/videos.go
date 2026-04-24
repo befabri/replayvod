@@ -4,10 +4,68 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
+
+const closeOpenVideoMetadataSpansSQL = `UPDATE video_title_spans
+SET ended_at = ?2,
+    duration_seconds = duration_seconds + ((julianday(?2) - julianday(started_at)) * 86400.0)
+WHERE video_id = ?1
+  AND ended_at IS NULL;
+
+UPDATE video_category_spans
+SET ended_at = ?2,
+    duration_seconds = duration_seconds + ((julianday(?2) - julianday(started_at)) * 86400.0)
+WHERE video_id = ?1
+  AND ended_at IS NULL;`
+
+const resumeVideoTitleSpansSQL = `INSERT INTO video_title_spans (video_id, title_id, started_at)
+SELECT ?1, latest.title_id, ?2
+FROM (
+    SELECT title_id
+    FROM video_title_spans
+    WHERE video_id = ?1
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1
+) latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM video_title_spans WHERE video_id = ?1 AND ended_at IS NULL
+)`
+
+const resumeVideoCategorySpansSQL = `INSERT INTO video_category_spans (video_id, category_id, started_at)
+SELECT ?1, latest.category_id, ?2
+FROM (
+    SELECT category_id
+    FROM video_category_spans
+    WHERE video_id = ?1
+    ORDER BY started_at DESC, id DESC
+    LIMIT 1
+) latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM video_category_spans WHERE video_id = ?1 AND ended_at IS NULL
+)`
+
+func (a *SQLiteAdapter) CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
+	now := formatTime(at.UTC())
+	if _, err := a.db.ExecContext(ctx, closeOpenVideoMetadataSpansSQL, videoID, now); err != nil {
+		return fmt.Errorf("sqlite close video metadata spans: %w", err)
+	}
+	return nil
+}
+
+func (a *SQLiteAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
+	now := formatTime(at.UTC())
+	if _, err := a.db.ExecContext(ctx, resumeVideoTitleSpansSQL, videoID, now); err != nil {
+		return fmt.Errorf("sqlite resume video title spans: %w", err)
+	}
+	if _, err := a.db.ExecContext(ctx, resumeVideoCategorySpansSQL, videoID, now); err != nil {
+		return fmt.Errorf("sqlite resume video category spans: %w", err)
+	}
+	return nil
+}
 
 func (a *SQLiteAdapter) GetVideo(ctx context.Context, id int64) (*repository.Video, error) {
 	row, err := a.queries.GetVideo(ctx, id)
@@ -58,22 +116,55 @@ func (a *SQLiteAdapter) UpdateVideoStatus(ctx context.Context, id int64, status 
 	return a.queries.UpdateVideoStatus(ctx, sqlitegen.UpdateVideoStatusParams{ID: id, Status: status})
 }
 
-func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
-	return a.queries.MarkVideoDone(ctx, sqlitegen.MarkVideoDoneParams{
+func (a *SQLiteAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64, quality string, fps *float64) error {
+	qualityNull := sql.NullString{String: quality, Valid: quality != ""}
+	var fpsNull sql.NullFloat64
+	if fps != nil {
+		fpsNull = sql.NullFloat64{Float64: *fps, Valid: true}
+	}
+	return a.queries.UpdateVideoSelectedVariant(ctx, sqlitegen.UpdateVideoSelectedVariantParams{
+		SelectedQuality: qualityNull,
+		SelectedFps:     fpsNull,
 		ID:              id,
-		DurationSeconds: sql.NullFloat64{Float64: durationSeconds, Valid: true},
-		SizeBytes:       sql.NullInt64{Int64: sizeBytes, Valid: true},
-		Thumbnail:       toNullString(thumbnail),
-		CompletionKind:  completionKind,
+	})
+}
+
+func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
+	return a.inTx(ctx, func(q *sqlitegen.Queries, tx *sql.Tx) error {
+		if err := closeOpenVideoMetadataSpansTx(ctx, tx, id, time.Now().UTC()); err != nil {
+			return err
+		}
+		return q.MarkVideoDone(ctx, sqlitegen.MarkVideoDoneParams{
+			ID:              id,
+			DurationSeconds: sql.NullFloat64{Float64: durationSeconds, Valid: true},
+			SizeBytes:       sql.NullInt64{Int64: sizeBytes, Valid: true},
+			Thumbnail:       toNullString(thumbnail),
+			CompletionKind:  completionKind,
+		})
 	})
 }
 
 func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error {
-	return a.queries.MarkVideoFailed(ctx, sqlitegen.MarkVideoFailedParams{
-		ID:             id,
-		Error:          sql.NullString{String: errMsg, Valid: true},
-		CompletionKind: completionKind,
+	return a.inTx(ctx, func(q *sqlitegen.Queries, tx *sql.Tx) error {
+		if err := closeOpenVideoMetadataSpansTx(ctx, tx, id, time.Now().UTC()); err != nil {
+			return err
+		}
+		return q.MarkVideoFailed(ctx, sqlitegen.MarkVideoFailedParams{
+			ID:             id,
+			Error:          sql.NullString{String: errMsg, Valid: true},
+			CompletionKind: completionKind,
+		})
 	})
+}
+
+// closeOpenVideoMetadataSpansTx runs the same close-spans SQL as
+// CloseOpenVideoMetadataSpans but on a supplied *sql.Tx so the close
+// shares atomicity with the terminal video update that follows.
+func closeOpenVideoMetadataSpansTx(ctx context.Context, tx *sql.Tx, videoID int64, at time.Time) error {
+	if _, err := tx.ExecContext(ctx, closeOpenVideoMetadataSpansSQL, videoID, formatTime(at.UTC())); err != nil {
+		return fmt.Errorf("sqlite close video metadata spans: %w", err)
+	}
+	return nil
 }
 
 func (a *SQLiteAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error {
@@ -92,8 +183,8 @@ func (a *SQLiteAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbna
 // start_download_at DESC is both the explicit 'created_at-desc' sort
 // and the fallthrough for empty/unrecognized sort_key values.
 const listVideosSQL = `SELECT
-    id, job_id, filename, display_name, status, quality,
-    broadcaster_id, stream_id, viewer_count, language,
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
     recording_type, force_h264, title, completion_kind
@@ -116,6 +207,173 @@ ORDER BY
   id DESC
 LIMIT ?3 OFFSET ?4`
 
+const listVideosByBroadcasterPageSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE broadcaster_id = ?1
+  AND deleted_at IS NULL
+  AND (
+    ?2 IS NULL
+    OR start_download_at < ?2
+    OR (start_download_at = ?2 AND id < ?3)
+  )
+ORDER BY start_download_at DESC, id DESC
+LIMIT ?4`
+
+const listVideosByCategoryPageSQL = `SELECT
+    v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.selected_quality,
+    v.selected_fps, v.broadcaster_id, v.stream_id, v.viewer_count, v.language,
+    v.duration_seconds, v.size_bytes, v.thumbnail, v.error,
+    v.start_download_at, v.downloaded_at, v.deleted_at,
+    v.recording_type, v.force_h264, v.title, v.completion_kind
+FROM videos v
+INNER JOIN video_categories vc ON vc.video_id = v.id
+WHERE vc.category_id = ?1
+  AND v.deleted_at IS NULL
+  AND (
+    ?2 IS NULL
+    OR v.start_download_at < ?2
+    OR (v.start_download_at = ?2 AND v.id < ?3)
+  )
+ORDER BY v.start_download_at DESC, v.id DESC
+LIMIT ?4`
+
+const listVideosPageBaseSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (? = '' OR status = ?)`
+
+const listVideosPageCreatedDescSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+  AND (?2 IS NULL OR start_download_at < ?2 OR (start_download_at = ?2 AND id < ?3))
+ORDER BY start_download_at DESC, id DESC
+LIMIT ?4`
+
+const listVideosPageCreatedAscSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+  AND (?2 IS NULL OR start_download_at > ?2 OR (start_download_at = ?2 AND id > ?3))
+ORDER BY start_download_at ASC, id ASC
+LIMIT ?4`
+
+const listVideosPageChannelAscSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+  AND (?2 IS NULL OR display_name > ?2
+    OR (display_name = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4))))
+ORDER BY display_name ASC, start_download_at DESC, id ASC
+LIMIT ?5`
+
+const listVideosPageChannelDescSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+  AND (?2 IS NULL OR display_name < ?2
+    OR (display_name = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4))))
+ORDER BY display_name DESC, start_download_at DESC, id DESC
+LIMIT ?5`
+
+const listVideosPageDurationAscSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+  AND (
+    ?3 IS NULL
+    OR (?2 IS NULL AND duration_seconds IS NULL AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4)))
+    OR (?2 IS NOT NULL AND (duration_seconds IS NULL OR duration_seconds > ?2 OR (duration_seconds = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4)))))
+  )
+ORDER BY duration_seconds ASC NULLS LAST, start_download_at DESC, id ASC
+LIMIT ?5`
+
+const listVideosPageDurationDescSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+  AND (
+    ?3 IS NULL
+    OR (?2 IS NULL AND duration_seconds IS NULL AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4)))
+    OR (?2 IS NOT NULL AND (duration_seconds IS NULL OR duration_seconds < ?2 OR (duration_seconds = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4)))))
+  )
+ORDER BY duration_seconds DESC NULLS LAST, start_download_at DESC, id DESC
+LIMIT ?5`
+
+const listVideosPageSizeAscSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+  AND (
+    ?3 IS NULL
+    OR (?2 IS NULL AND size_bytes IS NULL AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4)))
+    OR (?2 IS NOT NULL AND (size_bytes IS NULL OR size_bytes > ?2 OR (size_bytes = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id > ?4)))))
+  )
+ORDER BY size_bytes ASC NULLS LAST, start_download_at DESC, id ASC
+LIMIT ?5`
+
+const listVideosPageSizeDescSQL = `SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind
+FROM videos
+WHERE deleted_at IS NULL
+  AND (?1 = '' OR status = ?1)
+  AND (
+    ?3 IS NULL
+    OR (?2 IS NULL AND size_bytes IS NULL AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4)))
+    OR (?2 IS NOT NULL AND (size_bytes IS NULL OR size_bytes < ?2 OR (size_bytes = ?2 AND (start_download_at < ?3 OR (start_download_at = ?3 AND id < ?4)))))
+  )
+ORDER BY size_bytes DESC NULLS LAST, start_download_at DESC, id DESC
+LIMIT ?5`
+
 func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
 	rows, err := a.db.QueryContext(ctx, listVideosSQL,
 		opts.Status,
@@ -137,6 +395,8 @@ func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVide
 			&row.DisplayName,
 			&row.Status,
 			&row.Quality,
+			&row.SelectedQuality,
+			&row.SelectedFps,
 			&row.BroadcasterID,
 			&row.StreamID,
 			&row.ViewerCount,
@@ -163,28 +423,51 @@ func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVide
 	return out, nil
 }
 
-func (a *SQLiteAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosByBroadcaster(ctx, sqlitegen.ListVideosByBroadcasterParams{
-		BroadcasterID: broadcasterID,
-		Limit:         int64(limit),
-		Offset:        int64(offset),
-	})
+func (a *SQLiteAdapter) ListVideosPage(ctx context.Context, opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (*repository.VideoListPage, error) {
+	query, args := sqliteListVideosPageQueryAndArgs(opts, cursor)
+	rows, err := a.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos page: %w", err)
+	}
+	items, err := scanSQLiteVideos(rows)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos page: %w", err)
+	}
+	return toVideoListPage(items, opts), nil
+}
+
+func (a *SQLiteAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+	rows, err := a.db.QueryContext(ctx, listVideosByBroadcasterPageSQL,
+		broadcasterID,
+		sqliteCursorStartDownloadAt(cursor),
+		sqliteCursorID(cursor),
+		int64(limit+1),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos by broadcaster: %w", err)
 	}
-	return sqliteVideosToDomain(rows), nil
+	items, err := scanSQLiteVideos(rows)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos by broadcaster: %w", err)
+	}
+	return toVideoPage(items, limit), nil
 }
 
-func (a *SQLiteAdapter) ListVideosByCategory(ctx context.Context, categoryID string, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosByCategory(ctx, sqlitegen.ListVideosByCategoryParams{
-		CategoryID: categoryID,
-		Limit:      int64(limit),
-		Offset:     int64(offset),
-	})
+func (a *SQLiteAdapter) ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+	rows, err := a.db.QueryContext(ctx, listVideosByCategoryPageSQL,
+		categoryID,
+		sqliteCursorStartDownloadAt(cursor),
+		sqliteCursorID(cursor),
+		int64(limit+1),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos by category: %w", err)
 	}
-	return sqliteVideosToDomain(rows), nil
+	items, err := scanSQLiteVideos(rows)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos by category: %w", err)
+	}
+	return toVideoPage(items, limit), nil
 }
 
 func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
@@ -238,6 +521,11 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		i := v.SizeBytes.Int64
 		size = &i
 	}
+	var selectedFPS *float64
+	if v.SelectedFps.Valid {
+		f := v.SelectedFps.Float64
+		selectedFPS = &f
+	}
 	return &repository.Video{
 		ID:              v.ID,
 		JobID:           v.JobID,
@@ -246,6 +534,8 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		Title:           v.Title,
 		Status:          v.Status,
 		Quality:         v.Quality,
+		SelectedQuality: fromNullString(v.SelectedQuality),
+		SelectedFPS:     selectedFPS,
 		BroadcasterID:   v.BroadcasterID,
 		StreamID:        fromNullString(v.StreamID),
 		ViewerCount:     v.ViewerCount,
@@ -269,4 +559,298 @@ func sqliteVideosToDomain(rows []sqlitegen.Video) []repository.Video {
 		out[i] = *sqliteVideoToDomain(r)
 	}
 	return out
+}
+
+func scanSQLiteVideos(rows *sql.Rows) ([]repository.Video, error) {
+	defer rows.Close()
+	out := []repository.Video{}
+	for rows.Next() {
+		row, err := scanSQLiteVideo(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *sqliteVideoToDomain(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func scanSQLiteVideo(rows *sql.Rows) (sqlitegen.Video, error) {
+	var row sqlitegen.Video
+	err := rows.Scan(
+		&row.ID,
+		&row.JobID,
+		&row.Filename,
+		&row.DisplayName,
+		&row.Status,
+		&row.Quality,
+		&row.SelectedQuality,
+		&row.SelectedFps,
+		&row.BroadcasterID,
+		&row.StreamID,
+		&row.ViewerCount,
+		&row.Language,
+		&row.DurationSeconds,
+		&row.SizeBytes,
+		&row.Thumbnail,
+		&row.Error,
+		&row.StartDownloadAt,
+		&row.DownloadedAt,
+		&row.DeletedAt,
+		&row.RecordingType,
+		&row.ForceH264,
+		&row.Title,
+		&row.CompletionKind,
+	)
+	return row, err
+}
+
+func sqliteCursorStartDownloadAt(cursor *repository.VideoPageCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return formatTime(cursor.StartDownloadAt.UTC())
+}
+
+func sqliteCursorID(cursor *repository.VideoPageCursor) int64 {
+	if cursor == nil {
+		return 0
+	}
+	return cursor.ID
+}
+
+func sqliteListVideosPageQueryAndArgs(opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (string, []any) {
+	sort, order := normalizeVideoListSort(opts)
+	limit := int64(listVideosPageQueryLimit(opts.Limit))
+	args := []any{opts.Status, opts.Status}
+	query := listVideosPageBaseSQL + sqliteVideoListFiltersSQL(&args, opts)
+	appendLimit := func() { args = append(args, limit) }
+	switch sort + ":" + order {
+	case "created_at:asc":
+		t := sqliteVideoListCursorTime(cursor)
+		args = append(args, t, t, t, sqliteVideoListCursorID(cursor))
+		query += `
+  AND (? IS NULL OR start_download_at > ? OR (start_download_at = ? AND id > ?))
+ORDER BY start_download_at ASC, id ASC
+LIMIT ?`
+	case "channel:asc":
+		text := sqliteVideoListCursorText(cursor)
+		t := sqliteVideoListCursorTime(cursor)
+		args = append(args, text, text, text, t, t, sqliteVideoListCursorID(cursor))
+		query += `
+  AND (? IS NULL OR display_name > ?
+    OR (display_name = ? AND (start_download_at < ? OR (start_download_at = ? AND id > ?))))
+ORDER BY display_name ASC, start_download_at DESC, id ASC
+LIMIT ?`
+	case "channel:desc":
+		text := sqliteVideoListCursorText(cursor)
+		t := sqliteVideoListCursorTime(cursor)
+		args = append(args, text, text, text, t, t, sqliteVideoListCursorID(cursor))
+		query += `
+  AND (? IS NULL OR display_name < ?
+    OR (display_name = ? AND (start_download_at < ? OR (start_download_at = ? AND id < ?))))
+ORDER BY display_name DESC, start_download_at DESC, id DESC
+LIMIT ?`
+	case "duration:asc":
+		n := sqliteVideoListCursorNumber(cursor)
+		t := sqliteVideoListCursorTime(cursor)
+		id := sqliteVideoListCursorID(cursor)
+		args = append(args, t, n, t, t, id, n, n, n, t, t, id)
+		query += `
+  AND (
+    ? IS NULL
+    OR (? IS NULL AND duration_seconds IS NULL AND (start_download_at < ? OR (start_download_at = ? AND id > ?)))
+    OR (? IS NOT NULL AND (duration_seconds IS NULL OR duration_seconds > ? OR (duration_seconds = ? AND (start_download_at < ? OR (start_download_at = ? AND id > ?)))))
+  )
+ORDER BY duration_seconds ASC NULLS LAST, start_download_at DESC, id ASC
+LIMIT ?`
+	case "duration:desc":
+		n := sqliteVideoListCursorNumber(cursor)
+		t := sqliteVideoListCursorTime(cursor)
+		id := sqliteVideoListCursorID(cursor)
+		args = append(args, t, n, t, t, id, n, n, n, t, t, id)
+		query += `
+  AND (
+    ? IS NULL
+    OR (? IS NULL AND duration_seconds IS NULL AND (start_download_at < ? OR (start_download_at = ? AND id < ?)))
+    OR (? IS NOT NULL AND (duration_seconds IS NULL OR duration_seconds < ? OR (duration_seconds = ? AND (start_download_at < ? OR (start_download_at = ? AND id < ?)))))
+  )
+ORDER BY duration_seconds DESC NULLS LAST, start_download_at DESC, id DESC
+LIMIT ?`
+	case "size:asc":
+		n := sqliteVideoListCursorInt(cursor)
+		t := sqliteVideoListCursorTime(cursor)
+		id := sqliteVideoListCursorID(cursor)
+		args = append(args, t, n, t, t, id, n, n, n, t, t, id)
+		query += `
+  AND (
+    ? IS NULL
+    OR (? IS NULL AND size_bytes IS NULL AND (start_download_at < ? OR (start_download_at = ? AND id > ?)))
+    OR (? IS NOT NULL AND (size_bytes IS NULL OR size_bytes > ? OR (size_bytes = ? AND (start_download_at < ? OR (start_download_at = ? AND id > ?)))))
+  )
+ORDER BY size_bytes ASC NULLS LAST, start_download_at DESC, id ASC
+LIMIT ?`
+	case "size:desc":
+		n := sqliteVideoListCursorInt(cursor)
+		t := sqliteVideoListCursorTime(cursor)
+		id := sqliteVideoListCursorID(cursor)
+		args = append(args, t, n, t, t, id, n, n, n, t, t, id)
+		query += `
+  AND (
+    ? IS NULL
+    OR (? IS NULL AND size_bytes IS NULL AND (start_download_at < ? OR (start_download_at = ? AND id < ?)))
+    OR (? IS NOT NULL AND (size_bytes IS NULL OR size_bytes < ? OR (size_bytes = ? AND (start_download_at < ? OR (start_download_at = ? AND id < ?)))))
+  )
+ORDER BY size_bytes DESC NULLS LAST, start_download_at DESC, id DESC
+LIMIT ?`
+	default:
+		t := sqliteVideoListCursorTime(cursor)
+		args = append(args, t, t, t, sqliteVideoListCursorID(cursor))
+		query += `
+  AND (? IS NULL OR start_download_at < ? OR (start_download_at = ? AND id < ?))
+ORDER BY start_download_at DESC, id DESC
+LIMIT ?`
+	}
+	appendLimit()
+	return query, args
+}
+
+func sqliteVideoListFiltersSQL(args *[]any, opts repository.ListVideosOpts) string {
+	quality := opts.Quality
+	*args = append(*args, quality, quality, quality, quality, quality)
+	*args = append(*args, opts.BroadcasterID, opts.BroadcasterID)
+	*args = append(*args, opts.Language, opts.Language)
+	durationMin := sqliteOptionalFloat(opts.DurationMinSeconds)
+	durationMax := sqliteOptionalFloat(opts.DurationMaxSeconds)
+	sizeMin := sqliteOptionalInt(opts.SizeMinBytes)
+	sizeMax := sqliteOptionalInt(opts.SizeMaxBytes)
+	*args = append(*args, durationMin, durationMin)
+	*args = append(*args, durationMax, durationMax)
+	*args = append(*args, sizeMin, sizeMin)
+	*args = append(*args, sizeMax, sizeMax)
+	return `
+  AND (? = '' OR quality = ? OR selected_quality = ? OR selected_quality || 'p' = ? OR (selected_fps IS NOT NULL AND selected_fps > 0 AND selected_quality || 'p' || CAST(ROUND(selected_fps) AS INTEGER) = ?))
+  AND (? = '' OR broadcaster_id = ?)
+  AND (? = '' OR language = ?)
+  AND (? IS NULL OR duration_seconds >= ?)
+  AND (? IS NULL OR duration_seconds < ?)
+  AND (? IS NULL OR size_bytes >= ?)
+  AND (? IS NULL OR size_bytes < ?)`
+}
+
+func sqliteOptionalFloat(v *float64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func sqliteOptionalInt(v *int64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func sqliteVideoListCursorTime(cursor *repository.VideoListPageCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return formatTime(cursor.StartDownloadAt.UTC())
+}
+
+func sqliteVideoListCursorID(cursor *repository.VideoListPageCursor) int64 {
+	if cursor == nil {
+		return 0
+	}
+	return cursor.ID
+}
+
+func sqliteVideoListCursorText(cursor *repository.VideoListPageCursor) any {
+	if cursor == nil || cursor.SortText == nil {
+		return nil
+	}
+	return *cursor.SortText
+}
+
+func sqliteVideoListCursorNumber(cursor *repository.VideoListPageCursor) any {
+	if cursor == nil || cursor.SortNumber == nil {
+		return nil
+	}
+	return *cursor.SortNumber
+}
+
+func sqliteVideoListCursorInt(cursor *repository.VideoListPageCursor) any {
+	if cursor == nil || cursor.SortInt == nil {
+		return nil
+	}
+	return *cursor.SortInt
+}
+
+func toVideoListPage(items []repository.Video, opts repository.ListVideosOpts) *repository.VideoListPage {
+	if opts.Limit <= 0 {
+		return &repository.VideoListPage{Items: []repository.Video{}}
+	}
+	page := &repository.VideoListPage{Items: items}
+	if len(items) <= opts.Limit {
+		return page
+	}
+	page.Items = items[:opts.Limit]
+	last := page.Items[len(page.Items)-1]
+	page.NextCursor = videoListCursorFromVideo(&last, opts)
+	return page
+}
+
+func normalizeVideoListSort(opts repository.ListVideosOpts) (string, string) {
+	sort := opts.Sort
+	order := opts.Order
+	switch sort {
+	case "created_at", "duration", "size", "channel":
+	default:
+		return "created_at", "desc"
+	}
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+	return sort, order
+}
+
+func listVideosPageQueryLimit(limit int) int {
+	if limit < 1 {
+		return 1
+	}
+	return limit + 1
+}
+
+func videoListCursorFromVideo(v *repository.Video, opts repository.ListVideosOpts) *repository.VideoListPageCursor {
+	if v == nil {
+		return nil
+	}
+	cursor := &repository.VideoListPageCursor{StartDownloadAt: v.StartDownloadAt, ID: v.ID}
+	sort, _ := normalizeVideoListSort(opts)
+	switch sort {
+	case "duration":
+		cursor.SortNumber = v.DurationSeconds
+	case "size":
+		cursor.SortInt = v.SizeBytes
+	case "channel":
+		cursor.SortText = &v.DisplayName
+	}
+	return cursor
+}
+
+func toVideoPage(items []repository.Video, limit int) *repository.VideoPage {
+	if limit <= 0 {
+		return &repository.VideoPage{Items: []repository.Video{}}
+	}
+	page := &repository.VideoPage{Items: items}
+	if len(items) <= limit {
+		return page
+	}
+	page.Items = items[:limit]
+	next := page.Items[len(page.Items)-1]
+	page.NextCursor = &repository.VideoPageCursor{StartDownloadAt: next.StartDownloadAt, ID: next.ID}
+	return page
 }

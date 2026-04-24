@@ -1,11 +1,15 @@
+import { ListBullets, Play } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
 import { API_URL } from "@/env";
-import { useChannel } from "@/features/channels";
-import { useVideoSnapshots, type VideoResponse } from "@/features/videos";
-import { formatDuration } from "@/features/videos/format";
+import {
+	channelLabel,
+	useVideoSnapshots,
+	type VideoResponse,
+} from "@/features/videos";
+import { formatBytes, formatDuration } from "@/features/videos/format";
 import { CategoryHistoryButton } from "./CategoryHistoryButton";
 import { TitleHistoryButton } from "./TitleHistoryButton";
 
@@ -91,9 +95,7 @@ function InlineStatusBadge({
 					? "bg-badge-blue-bg text-badge-blue-fg"
 					: "bg-muted text-muted-foreground";
 	return (
-		<span
-			className={`px-2 py-0.5 rounded-md text-xs font-medium ${color}`}
-		>
+		<span className={`px-2 py-0.5 rounded-md text-xs font-medium ${color}`}>
 			{t(`videos.status.${status}` as const, status)}
 		</span>
 	);
@@ -127,7 +129,7 @@ function InlineCompletionBadge({
 
 function ThumbnailOverlay({ children }: { children: React.ReactNode }) {
 	return (
-		<span className="px-2 py-0.5 rounded-md text-xs font-medium bg-overlay text-white">
+		<span className="rounded-md border border-border/60 bg-background/78 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
 			{children}
 		</span>
 	);
@@ -135,7 +137,6 @@ function ThumbnailOverlay({ children }: { children: React.ReactNode }) {
 
 export function VideoCard({ video }: { video: VideoResponse }) {
 	const { t } = useTranslation();
-	const { data: channel } = useChannel(video.broadcaster_id);
 	const thumbnail = video.thumbnail
 		? `${API_URL}/api/v1/thumbnails/${video.thumbnail.replace(/^thumbnails\//, "")}`
 		: null;
@@ -172,8 +173,10 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 	);
 	const snapshotFrame = useHoverSnapshots(snapshotURLs, previewing);
 
-	const channelLabel = channel?.broadcaster_name ?? video.broadcaster_id;
+	const label = channelLabel(video);
 	const dateLabel = new Date(video.start_download_at).toLocaleDateString();
+	const sizeLabel = formatBytes(video.size_bytes);
+	const primaryCategoryLabel = video.primary_category_name?.trim() || null;
 	// Stream title is the thing the streamer typed as the broadcast
 	// label — the primary line in the card. Falls back to the
 	// channel display name when Helix didn't surface one (manual
@@ -181,13 +184,11 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 	// tracking disabled, etc.).
 	const primaryLabel = video.title?.trim() || video.display_name;
 
-	// The TitleHistoryButton is rendered as a sibling of the Link
-	// below, not inside it: the button must swallow clicks so it
-	// doesn't trigger navigation to /watch.
-	const body = (
+	const media = (
 		<>
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: hover intent drives preview loading, not button-like interaction */}
 			<div
-				className="aspect-video bg-muted flex items-center justify-center relative"
+				className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-muted"
 				onMouseEnter={() => setHovered(true)}
 				onMouseLeave={() => setHovered(false)}
 			>
@@ -202,7 +203,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 					<img
 						src={thumbnail}
 						alt=""
-						className="w-full h-full object-cover"
+						className="h-full w-full object-cover transition-transform duration-150 group-hover/video-card:scale-[1.02]"
 						loading="lazy"
 					/>
 				) : (
@@ -210,6 +211,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 						{t("videos.no_thumbnail")}
 					</div>
 				)}
+				<div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-black/5" />
 				{snapshotFrame && (
 					<>
 						{/* Previous frame stays at full opacity as the
@@ -223,7 +225,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 							<img
 								src={snapshotFrame.prev}
 								alt=""
-								className="absolute inset-0 w-full h-full object-cover"
+								className="absolute inset-0 h-full w-full object-cover"
 							/>
 						)}
 						{/* Current frame fades in on top. `key` on src
@@ -233,28 +235,26 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 							key={snapshotFrame.current}
 							src={snapshotFrame.current}
 							alt=""
-							className="absolute inset-0 w-full h-full object-cover animate-in fade-in-0 duration-300"
+							className="absolute inset-0 h-full w-full object-cover animate-in fade-in-0 duration-300"
 						/>
 					</>
 				)}
-				{/* Duration (top-left) + date (bottom-right) overlays match v1. */}
+				{/* Quality (top-left), duration (bottom-left), date (bottom-right). */}
 				<span className="absolute top-2 left-2">
-					<ThumbnailOverlay>{formatDuration(video.duration_seconds)}</ThumbnailOverlay>
+					<ThumbnailOverlay>{video.quality}</ThumbnailOverlay>
 				</span>
+				{video.duration_seconds ? (
+					<span className="absolute bottom-2 left-2">
+						<ThumbnailOverlay>
+							{formatDuration(video.duration_seconds)}
+						</ThumbnailOverlay>
+					</span>
+				) : null}
 				<span className="absolute bottom-2 right-2">
 					<ThumbnailOverlay>{dateLabel}</ThumbnailOverlay>
 				</span>
-				{/* Top-right stack: categories + titles (dialogs) +
-				    status badges. Categories and titles live on the
-				    card so users can inspect them without having to
-				    navigate into the video. */}
+				{/* Top-right stack: status badges only. */}
 				<div className="absolute top-2 right-2 flex items-center gap-1.5">
-					{video.status === "DONE" && (
-						<>
-							<CategoryHistoryButton videoId={video.id} />
-							<TitleHistoryButton videoId={video.id} />
-						</>
-					)}
 					<InlineCompletionBadge
 						status={video.status}
 						completionKind={video.completion_kind}
@@ -264,42 +264,83 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 						completionKind={video.completion_kind}
 					/>
 				</div>
-			</div>
-			<div className="p-3 flex flex-col gap-2">
-				<div
-					className="font-medium line-clamp-2 leading-snug"
-					title={primaryLabel}
-				>
-					{primaryLabel}
-				</div>
-				<div className="flex items-center gap-2 text-sm text-muted-foreground">
-					<Avatar
-						src={channel?.profile_image_url}
-						name={channelLabel}
-						alt={channelLabel}
-						size="sm"
-					/>
-					<span className="truncate">{channelLabel}</span>
+				<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+					<div className="flex size-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm opacity-0 transition-opacity duration-150 group-hover/video-card:opacity-100">
+						<Play weight="fill" className="size-4 translate-x-px" />
+					</div>
 				</div>
 			</div>
 		</>
 	);
 
-	if (video.status === "DONE") {
-		return (
+	const mediaNode =
+		video.status === "DONE" ? (
 			<Link
-				// biome-ignore lint/suspicious/noExplicitAny: param route typing
-				to={"/dashboard/watch/$videoId" as any}
-				params={{ videoId: String(video.id) } as any}
-				className="rounded-lg bg-card overflow-hidden flex flex-col shadow-sm hover:bg-accent transition-colors duration-75"
+				to="/dashboard/watch/$videoId"
+				params={{ videoId: String(video.id) }}
+				className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+				aria-label={t("videos.watch_recording", { title: primaryLabel })}
 			>
-				{body}
+				{media}
 			</Link>
+		) : (
+			media
 		);
-	}
+
 	return (
-		<div className="rounded-lg bg-card overflow-hidden flex flex-col shadow-sm">
-			{body}
+		<div className="group/video-card flex flex-col gap-3">
+			{mediaNode}
+			<div className="flex flex-col gap-2.5 p-3.5">
+				{video.status === "DONE" ? (
+					<div className="flex items-start gap-2">
+						<Link
+							to="/dashboard/watch/$videoId"
+							params={{ videoId: String(video.id) }}
+							className="min-w-0 flex-1 line-clamp-2 font-medium leading-snug text-foreground transition-colors hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+						>
+							{primaryLabel}
+						</Link>
+						<TitleHistoryButton
+							videoId={video.id}
+							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							<ListBullets className="size-4" />
+						</TitleHistoryButton>
+					</div>
+				) : (
+					<div
+						className="line-clamp-2 font-medium leading-snug"
+						title={primaryLabel}
+					>
+						{primaryLabel}
+					</div>
+				)}
+				<div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+					<Avatar
+						src={video.profile_image_url}
+						name={label}
+						alt={label}
+						size="sm"
+					/>
+					<div className="min-w-0">
+						<div className="truncate font-medium text-foreground">{label}</div>
+						<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+							<span>{sizeLabel}</span>
+							{video.status === "DONE" && primaryCategoryLabel ? (
+								<>
+									<span className="opacity-40">·</span>
+									<CategoryHistoryButton
+										videoId={video.id}
+										className="inline-flex items-center rounded-none px-0 py-0 text-xs font-medium text-primary transition-colors hover:text-link"
+									>
+										{primaryCategoryLabel}
+									</CategoryHistoryButton>
+								</>
+							) : null}
+						</div>
+					</div>
+				</div>
+			</div>
 		</div>
 	);
 }

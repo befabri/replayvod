@@ -10,6 +10,7 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { useVideoTitles } from "@/features/videos";
+import { formatDuration } from "@/features/videos/format";
 
 // TitleHistoryButton surfaces the titles captured during a recording.
 // A stream can change title mid-broadcast; the server polls Helix
@@ -23,7 +24,15 @@ import { useVideoTitles } from "@/features/videos";
 // one item in that case, which still surfaces the stream title as
 // captured, and the query is lazy (enabled toggles on open) so list
 // pages don't fan out N requests at render time.
-export function TitleHistoryButton({ videoId }: { videoId: number }) {
+export function TitleHistoryButton({
+	videoId,
+	children,
+	className,
+}: {
+	videoId: number;
+	children?: React.ReactNode;
+	className?: string;
+}) {
 	const { t } = useTranslation();
 	const [open, setOpen] = useState(false);
 	const { data: titles, isLoading } = useVideoTitles(videoId, open);
@@ -42,11 +51,19 @@ export function TitleHistoryButton({ videoId }: { videoId: number }) {
 							e.stopPropagation();
 							triggerProps.onClick?.(e);
 						}}
-						className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-overlay text-white hover:bg-black/80 transition-colors"
+						className={
+							className ??
+							"inline-flex items-center gap-1 rounded-md bg-overlay px-2 py-0.5 text-xs font-medium text-white transition-colors hover:bg-black/80"
+						}
+						aria-label={t("videos.title_history.tooltip")}
 						title={t("videos.title_history.tooltip")}
 					>
-						<ListBullets className="size-3" />
-						{t("videos.title_history.badge")}
+						{children ?? (
+							<>
+								<ListBullets className="size-3" />
+								{t("videos.title_history.badge")}
+							</>
+						)}
 					</button>
 				)}
 			/>
@@ -74,13 +91,22 @@ export function TitleHistoryButton({ videoId }: { videoId: number }) {
 					<ol className="flex flex-col gap-2 py-2">
 						{titles.map((title, idx) => (
 							<li
-								key={title.id}
+								key={`${title.id}-${title.started_at}`}
 								className="flex items-start gap-3 rounded-md bg-muted/50 px-3 py-2"
 							>
 								<span className="text-xs font-mono text-muted-foreground w-6 shrink-0 pt-0.5">
 									{idx + 1}.
 								</span>
-								<span className="text-sm leading-snug">{title.name}</span>
+								<div className="min-w-0 flex-1">
+									<div className="text-sm leading-snug">{title.name}</div>
+									<div className="text-xs text-muted-foreground">
+										{title.duration_seconds <= 0
+											? t("videos.title_history.just_switched")
+											: title.duration_seconds < 60
+												? t("videos.title_history.less_than_minute")
+												: formatDuration(title.duration_seconds)}
+									</div>
+								</div>
 							</li>
 						))}
 					</ol>

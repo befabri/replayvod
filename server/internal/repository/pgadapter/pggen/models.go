@@ -248,6 +248,8 @@ type Video struct {
 	ForceH264       bool       `json:"force_h264"`
 	Title           string     `json:"title"`
 	CompletionKind  string     `json:"completion_kind"`
+	SelectedQuality *string    `json:"selected_quality"`
+	SelectedFps     *float64   `json:"selected_fps"`
 }
 
 type VideoCategory struct {
@@ -270,6 +272,7 @@ type VideoPart struct {
 	EndMediaSeq     *int64    `json:"end_media_seq"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	Fps             *float64  `json:"fps"`
 }
 
 type VideoRequest struct {

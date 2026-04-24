@@ -22,6 +22,7 @@ type progressEmitter struct {
 	jobID         string
 	out           chan<- Progress
 	recordingType string
+	onSnapshot    func(Progress)
 
 	mu             sync.Mutex
 	stage          string
@@ -32,6 +33,7 @@ type progressEmitter struct {
 	segmentsAdGaps int64
 	segmentsTot    int64 // -1 until EXT-X-ENDLIST
 	quality        string
+	fps            *float64
 	codec          string
 
 	// Baselines captured at the start of each hls.Run invocation.
@@ -69,11 +71,16 @@ const speedWindow = 10 * time.Second
 // blocking so a slow subscriber can't throttle the pipeline,
 // and the caller is responsible for closing out when the job
 // completes.
-func newProgressEmitter(jobID, recordingType string, out chan<- Progress) *progressEmitter {
+func newProgressEmitter(jobID, recordingType string, out chan<- Progress, onSnapshot ...func(Progress)) *progressEmitter {
+	var cb func(Progress)
+	if len(onSnapshot) > 0 {
+		cb = onSnapshot[0]
+	}
 	return &progressEmitter{
 		jobID:         jobID,
 		out:           out,
 		recordingType: recordingType,
+		onSnapshot:    cb,
 		partIndex:     1,
 		segmentsTot:   -1,
 	}
@@ -93,9 +100,10 @@ func (p *progressEmitter) setStage(stage string) {
 // setVariant records the Stage 3 selection. Called once the
 // master playlist has been fetched and the variant picked. The
 // next event picks up Quality + Codec.
-func (p *progressEmitter) setVariant(quality, codec string) {
+func (p *progressEmitter) setVariant(quality string, fps *float64, codec string) {
 	p.mu.Lock()
 	p.quality = quality
+	p.fps = fps
 	p.codec = codec
 	snap := p.snapshotLocked()
 	p.mu.Unlock()
@@ -111,6 +119,7 @@ func (p *progressEmitter) setPart(n int) {
 	p.partIndex = n
 	p.stage = "auth"
 	p.quality = ""
+	p.fps = nil
 	p.codec = ""
 	p.segmentsTot = -1
 	snap := p.snapshotLocked()
@@ -189,6 +198,7 @@ func (p *progressEmitter) snapshotLocked() Progress {
 		Speed:          formatSpeed(rate, rateOK),
 		ETA:            computeETA(p.segmentsDone, p.segmentsTot, p.bytesWritten, rate, rateOK),
 		Quality:        p.quality,
+		FPS:            p.fps,
 		Codec:          p.codec,
 		RecordingType:  p.recordingType,
 	}
@@ -200,6 +210,9 @@ func (p *progressEmitter) snapshotLocked() Progress {
 // channel close (done by the caller when run exits) is the
 // authoritative terminal signal.
 func (p *progressEmitter) send(snap Progress) {
+	if p.onSnapshot != nil {
+		p.onSnapshot(snap)
+	}
 	select {
 	case p.out <- snap:
 	default:

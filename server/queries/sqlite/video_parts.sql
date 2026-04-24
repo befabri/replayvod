@@ -1,9 +1,9 @@
 -- name: CreateVideoPart :one
 INSERT INTO video_parts (
-    video_id, part_index, filename, quality, codec, segment_format,
-    start_media_seq
+    video_id, part_index, filename, quality, fps, codec,
+    segment_format, start_media_seq
 )
-VALUES (?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: FinalizeVideoPart :exec

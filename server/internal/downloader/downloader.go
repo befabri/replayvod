@@ -6,17 +6,17 @@
 //
 // Pipeline composition (spec stages 1-11):
 //
-//	1. twitch.Client.PlaybackToken            — GQL access token
-//	2. twitch.Client.FetchMasterPlaylist      — usher manifest
-//	3. twitch.SelectVariant                   — quality/codec pick
-//	4. hls.Run                                — segments → scratch
-//	5. remux.PrepareInput                     — segments.txt / media.m3u8
-//	6. remux.Remuxer.Run                      — ffmpeg → mp4/m4a
-//	7. probe.Probe.Run                        — duration + streams
-//	8. thumbnail.Generator.Generate           — jpg at 10% (video only)
-//	9. corruption check → remux.Remuxer.Heal  — if duration drifts >50s
-//	10. storage.Save                          — upload to backend
-//	11. os.RemoveAll(work_dir)                — cleanup
+//  1. twitch.Client.PlaybackToken            — GQL access token
+//  2. twitch.Client.FetchMasterPlaylist      — usher manifest
+//  3. twitch.SelectVariant                   — quality/codec pick
+//  4. hls.Run                                — segments → scratch
+//  5. remux.PrepareInput                     — segments.txt / media.m3u8
+//  6. remux.Remuxer.Run                      — ffmpeg → mp4/m4a
+//  7. probe.Probe.Run                        — duration + streams
+//  8. thumbnail.Generator.Generate           — jpg at 10% (video only)
+//  9. corruption check → remux.Remuxer.Heal  — if duration drifts >50s
+//  10. storage.Save                          — upload to backend
+//  11. os.RemoveAll(work_dir)                — cleanup
 //
 // Durable state: jobs table (status + resume_state JSONB per attempt)
 // plus video_parts (one row per output part — 1..N rows depending on
@@ -41,6 +41,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -88,7 +89,7 @@ type Params struct {
 	// Title is the stream title at download-start time. Caller
 	// (video.Trigger or schedule.processor) resolves it from
 	// Helix GetStreams; empty when no live stream is visible.
-	Title            string
+	Title string
 	// CategoryID is the Twitch game_id the broadcaster had set at
 	// download-start time. When non-empty the downloader links it
 	// to video_categories after CreateVideo so the video shows up
@@ -96,16 +97,16 @@ type Params struct {
 	// surface a category (off-topic / "just chatting" with no game
 	// set). Mid-stream changes are captured via channel.update
 	// (webhook mode) or the metadata watcher (poll mode).
-	CategoryID       string
+	CategoryID string
 	// CategoryName accompanies CategoryID for the initial upsert —
 	// Hydrator.linkVideoCategory skips the UpsertCategory when
 	// Name is empty to protect an existing good name from being
 	// clobbered.
-	CategoryName     string
-	Quality          string
-	Language         string
-	ViewerCount      int64
-	StreamID         *string
+	CategoryName string
+	Quality      string
+	Language     string
+	ViewerCount  int64
+	StreamID     *string
 
 	// RecordingType is "video" (default) or "audio". Audio jobs
 	// pick the audio_only rendition at Stage 3 and produce an
@@ -175,8 +176,9 @@ type Progress struct {
 	// Quality + Codec describe the current part's variant.
 	// Populated from the twitch.SelectedVariant once Stage 3
 	// completes; empty before.
-	Quality string `json:"quality"`
-	Codec   string `json:"codec"`
+	Quality string   `json:"quality"`
+	FPS     *float64 `json:"fps,omitempty"`
+	Codec   string   `json:"codec"`
 
 	// RecordingType mirrors the video row — "video" or "audio".
 	RecordingType string `json:"recording_type"`
@@ -191,18 +193,20 @@ type Service struct {
 	storage storage.Storage
 	log     *slog.Logger
 
-	twitch       *twitch.Client
-	fetcher      *hls.Fetcher
-	remuxer      *remux.Remuxer
-	probe        *probe.Probe
-	thumb        *thumbnail.Generator
-	svcAcct      *serviceAccount
+	twitch      *twitch.Client
+	fetcher     *hls.Fetcher
+	remuxer     *remux.Remuxer
+	probe       *probe.Probe
+	thumb       *thumbnail.Generator
+	svcAcct     *serviceAccount
 	hydrator    *streammeta.Hydrator
 	metaWatcher *streammeta.MetadataWatcher
 	channelSubs ChannelUpdateSubscriber
 
-	mu     sync.Mutex
-	active map[string]*download
+	mu              sync.Mutex
+	active          map[string]*download
+	activeSubs      map[int]chan struct{}
+	nextActiveSubID int
 
 	// wg tracks the per-job run() goroutines so Shutdown can wait
 	// for their defers (resume-state flush, progressCh close,
@@ -220,13 +224,15 @@ type Service struct {
 // a user Cancel() to every stage (playlist, fetch, remux, probe,
 // thumbnail) via one shared ctx.
 type download struct {
-	jobID         string
-	videoID       int64
-	broadcasterID string
-	cancel        context.CancelFunc
-	userCancelled bool
-	progressCh    chan Progress
-	startedAt     time.Time
+	jobID          string
+	videoID        int64
+	broadcasterID  string
+	cancel         context.CancelFunc
+	userCancelled  bool
+	progressCh     chan Progress
+	startedAt      time.Time
+	progressMu     sync.RWMutex
+	latestProgress Progress
 
 	// resume is the durable per-job checkpoint. Lives in memory
 	// alongside the running pipeline; persisted to
@@ -249,6 +255,29 @@ type download struct {
 	// re-find the scratch segments on next boot. Mutated only from
 	// the run() goroutine and failDownload — no locking needed.
 	cleanupScratch bool
+}
+
+func (d *download) setProgress(snap Progress) {
+	d.progressMu.Lock()
+	d.latestProgress = snap
+	d.progressMu.Unlock()
+}
+
+func (d *download) progressSnapshot() Progress {
+	d.progressMu.RLock()
+	defer d.progressMu.RUnlock()
+	return d.latestProgress
+}
+
+func (s *Service) notifyActiveChanged() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ch := range s.activeSubs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // ChannelUpdateSubscriber abstracts the per-recording EventSub
@@ -313,20 +342,21 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 	}, domainLog)
 
 	s := &Service{
-		cfg:          cfg,
-		repo:         repo,
-		storage:      store,
-		log:          domainLog,
-		twitch:       tw,
-		fetcher:      fetcher,
-		remuxer:      &remux.Remuxer{Log: domainLog},
-		probe:        &probe.Probe{Log: domainLog},
-		thumb:        &thumbnail.Generator{Log: domainLog},
-		svcAcct:      newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
-		hydrator:     hydrator,
-		metaWatcher:  metaWatcher,
-		channelSubs:  channelSubs,
-		active:       make(map[string]*download),
+		cfg:         cfg,
+		repo:        repo,
+		storage:     store,
+		log:         domainLog,
+		twitch:      tw,
+		fetcher:     fetcher,
+		remuxer:     &remux.Remuxer{Log: domainLog},
+		probe:       &probe.Probe{Log: domainLog},
+		thumb:       &thumbnail.Generator{Log: domainLog},
+		svcAcct:     newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
+		hydrator:    hydrator,
+		metaWatcher: metaWatcher,
+		channelSubs: channelSubs,
+		active:      make(map[string]*download),
+		activeSubs:  make(map[int]chan struct{}),
 	}
 	// Scratch-dir sweep is NOT performed here — Resume() owns that
 	// step so it can preserve the work dirs of RUNNING jobs before
@@ -508,6 +538,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	d.cancel = cancel
 
 	s.wg.Add(1)
+	s.notifyActiveChanged()
 	go s.run(runCtx, d, p, filename)
 	return jobID, nil
 }
@@ -539,6 +570,61 @@ func (s *Service) Subscribe(jobID string) <-chan Progress {
 		return d.progressCh
 	}
 	return nil
+}
+
+// SubscribeActive notifies callers whenever the aggregate active-download set
+// or any running job's latest progress snapshot changes. The payload itself is
+// not sent on this channel; callers pair it with ListActiveProgress() to build
+// a fresh snapshot list on every notification.
+func (s *Service) SubscribeActive(ctx context.Context) <-chan struct{} {
+	ch := make(chan struct{}, 1)
+
+	s.mu.Lock()
+	id := s.nextActiveSubID
+	s.nextActiveSubID++
+	s.activeSubs[id] = ch
+	s.mu.Unlock()
+
+	go func() {
+		<-ctx.Done()
+		s.mu.Lock()
+		delete(s.activeSubs, id)
+		close(ch)
+		s.mu.Unlock()
+	}()
+
+	return ch
+}
+
+// ListActiveProgress returns the latest in-memory progress snapshot for every
+// currently-running job, oldest first by in-memory start order. Backing data
+// comes from the same emitter that drives video.downloadProgress SSE, so the
+// dashboard can query a coherent snapshot without opening N subscriptions.
+func (s *Service) ListActiveProgress() []Progress {
+	s.mu.Lock()
+	active := make([]*download, 0, len(s.active))
+	for _, d := range s.active {
+		active = append(active, d)
+	}
+	s.mu.Unlock()
+
+	sort.Slice(active, func(i, j int) bool {
+		return active[i].startedAt.Before(active[j].startedAt)
+	})
+
+	out := make([]Progress, 0, len(active))
+	for _, d := range active {
+		snap := d.progressSnapshot()
+		if snap.JobID == "" {
+			snap = Progress{
+				JobID:         d.jobID,
+				PartIndex:     1,
+				SegmentsTotal: -1,
+			}
+		}
+		out = append(out, snap)
+	}
+	return out
 }
 
 // Shutdown cancels all active downloads and waits up to 30s for
@@ -681,6 +767,9 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 		resume:        state,
 	}
 
+	runCtx, cancel := context.WithCancel(context.Background())
+	d.cancel = cancel
+
 	s.mu.Lock()
 	maxConcurrent := s.cfg.App.Download.MaxConcurrent
 	if maxConcurrent <= 0 {
@@ -688,18 +777,42 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 	}
 	if len(s.active) >= maxConcurrent {
 		s.mu.Unlock()
+		cancel()
 		return fmt.Errorf("at max concurrent downloads (%d); cannot resume", maxConcurrent)
 	}
 	s.active[job.ID] = d
 	s.mu.Unlock()
 
-	runCtx, cancel := context.WithCancel(context.Background())
-	d.cancel = cancel
+	cleanupReserved := true
+	defer func() {
+		if !cleanupReserved {
+			return
+		}
+		cancel()
+		close(d.progressCh)
+		s.mu.Lock()
+		if s.active[job.ID] == d {
+			delete(s.active, job.ID)
+		}
+		s.mu.Unlock()
+		s.notifyActiveChanged()
+	}()
+
+	// Shutdown closes open metadata spans regardless of stage (see
+	// failDownload's shutdown branch). Reopen on any resume so AUTH,
+	// PLAYLIST, or post-BeginNewPart crashes don't permanently strand
+	// the prior title/category at zero live duration. The SQL is a
+	// no-op when an open span already exists.
+	if err := s.repo.ResumeVideoMetadataSpans(ctx, vid.ID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("resume video metadata spans: %w", err)
+	}
 
 	// vid.Filename is the deterministic base name chosen at
 	// original Start(); reuse it so the remuxed path is stable
 	// across restart.
 	s.wg.Add(1)
+	cleanupReserved = false
+	s.notifyActiveChanged()
 	go s.run(runCtx, d, p, vid.Filename)
 	return nil
 }
@@ -753,6 +866,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		s.mu.Lock()
 		delete(s.active, d.jobID)
 		s.mu.Unlock()
+		s.notifyActiveChanged()
 		s.wg.Done()
 	}()
 
@@ -770,7 +884,10 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	if recordingType == "" {
 		recordingType = twitch.RecordingTypeVideo
 	}
-	emitter := newProgressEmitter(d.jobID, recordingType, d.progressCh)
+	emitter := newProgressEmitter(d.jobID, recordingType, d.progressCh, func(snap Progress) {
+		d.setProgress(snap)
+		s.notifyActiveChanged()
+	})
 
 	// Scratch layout: <scratch>/<jobID>/part<NN>/segments/ for
 	// fragments + init, <scratch>/<jobID>/<base>-part<NN>.{mp4,jpg}
@@ -928,10 +1045,10 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 				"accounted_frontier", d.resume.AccountedFrontierMediaSeq,
 				"segment_format", d.resume.SegmentFormat)
 			hlsResult = &hls.JobResult{
-				Kind:           hls.SegmentKind(d.resume.SegmentFormat),
-				LastMediaSeq:   d.resume.AccountedFrontierMediaSeq,
-				SegmentsDone:   int64(len(d.resume.CompletedAboveFrontier)) + d.resume.AccountedFrontierMediaSeq - d.resume.PartStartMediaSequence + 1,
-				SegmentsGaps:   int64(len(d.resume.Gaps)),
+				Kind:         hls.SegmentKind(d.resume.SegmentFormat),
+				LastMediaSeq: d.resume.AccountedFrontierMediaSeq,
+				SegmentsDone: int64(len(d.resume.CompletedAboveFrontier)) + d.resume.AccountedFrontierMediaSeq - d.resume.PartStartMediaSequence + 1,
+				SegmentsGaps: int64(len(d.resume.Gaps)),
 			}
 		} else {
 			s.setResumeStage(dbCtx, d, StageSegments, log)
@@ -1001,7 +1118,18 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		s.checkpointResume(dbCtx, d, log)
 	}
 
+	// Live-capture metadata spans stop when segment acquisition ends,
+	// not when the later remux/upload tail finishes. Stop the poll
+	// writers first so the close-now timestamp isn't raced by a final
+	// tick that would reopen a span against the just-closed state.
+	// Webhook-delivered channel.update events still run under
+	// WithoutCancel in the event processor and can't be cancelled
+	// here — that residual race is closed by MarkVideoDone's
+	// internal span close on the terminal transition.
 	stopMediaPollers()
+	if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
+		log.Warn("close video metadata spans", "video_id", d.videoID, "error", err)
+	}
 
 	// First non-empty thumbRel wins (not just parts[0]) so a
 	// monochrome part 1 doesn't strand the video without a hero.
@@ -1078,6 +1206,24 @@ func isSplitSignal(err error) bool {
 	return errors.Is(err, hls.ErrPlaylistGone) ||
 		errors.Is(err, ErrVariantChanged) ||
 		errors.Is(err, ErrRestartGapExceeded)
+}
+
+// fpsEqual treats both-nil as equal and compares raw values otherwise.
+// Twitch advertises declared frame rates as whole numbers (30, 60) and
+// rounded decimals (29.970, 59.940); exact equality is fine for our
+// variant-lock semantics — a real FPS change crosses a clean boundary.
+func fpsEqual(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func fpsDisplay(f *float64) any {
+	if f == nil {
+		return "<none>"
+	}
+	return *f
 }
 
 // partEndMediaSeq picks the higher of the orchestrator's observed
@@ -1172,6 +1318,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 			PartIndex:     partIndex,
 			Filename:      partFilename + kind.OutputExt(),
 			Quality:       d.resume.SelectedQuality,
+			FPS:           d.resume.SelectedFPS,
 			Codec:         d.resume.SelectedCodec,
 			SegmentFormat: d.resume.SegmentFormat,
 			StartMediaSeq: d.resume.PartStartMediaSequence,
@@ -1454,14 +1601,22 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			return agg, fmt.Errorf("%w: codec %q → %q",
 				ErrVariantChanged, d.resume.SelectedCodec, variant.Codec)
 		}
+		if d.resume.SelectedFPS != nil && !fpsEqual(d.resume.SelectedFPS, variant.FPS) {
+			return agg, fmt.Errorf("%w: fps %v → %v",
+				ErrVariantChanged, *d.resume.SelectedFPS, fpsDisplay(variant.FPS))
+		}
 		emitter.setStage("playlist")
-		emitter.setVariant(variant.Quality, variant.Codec)
+		emitter.setVariant(variant.Quality, variant.FPS, variant.Codec)
+		if err := s.repo.UpdateVideoSelectedVariant(dbCtx, d.videoID, variant.Quality, variant.FPS); err != nil {
+			return agg, fmt.Errorf("persist selected variant: %w", err)
+		}
 		// Mirror the selected variant into resume state so a
 		// crash-restart between PREPARE_INPUT and STORE recovers
 		// the exact (quality, codec) pair without re-walking
 		// Stage 3. SegmentFormat lands after hls.Run returns —
 		// it's a property of the media playlist, not the master.
 		d.resume.SelectedQuality = variant.Quality
+		d.resume.SelectedFPS = variant.FPS
 		d.resume.SelectedCodec = variant.Codec
 
 		// Stage 4: segment fetch. The progress channel is
@@ -1797,6 +1952,9 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	s.mu.Unlock()
 
 	if s.shuttingDown.Load() && !userCancelled {
+		if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
+			log.Warn("close video metadata spans on shutdown", "video_id", d.videoID, "error", err)
+		}
 		// Job stays RUNNING for next boot's Resume. Do NOT set
 		// cleanupScratch — segments on disk are what Resume
 		// needs to pick up from PrepareInput without re-
@@ -1812,6 +1970,9 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	}
 
 	recorded := cause
+	if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
+		log.Warn("close video metadata spans on failure", "video_id", d.videoID, "error", err)
+	}
 	if userCancelled {
 		recorded = ErrCancelled
 		log.Info("download cancelled by user")

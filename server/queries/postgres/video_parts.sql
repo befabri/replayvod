@@ -4,10 +4,10 @@
 -- produced rows indistinguishable from zero-length recordings when a
 -- job failed before finalize.
 INSERT INTO video_parts (
-    video_id, part_index, filename, quality, codec, segment_format,
-    start_media_seq
+    video_id, part_index, filename, quality, fps, codec,
+    segment_format, start_media_seq
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: FinalizeVideoPart :exec

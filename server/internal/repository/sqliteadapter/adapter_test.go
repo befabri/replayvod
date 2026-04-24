@@ -151,6 +151,10 @@ func TestSQLiteRoundtrip(t *testing.T) {
 	}
 
 	thumb := "thumbnails/20260412-140500-testuser-abc12345.jpg"
+	selectedFPS := 59.94
+	if err := adapter.UpdateVideoSelectedVariant(ctx, vid.ID, "1080", &selectedFPS); err != nil {
+		t.Fatalf("set selected variant: %v", err)
+	}
 	if err := adapter.MarkVideoDone(ctx, vid.ID, 3600.5, 1_073_741_824, &thumb, repository.CompletionKindComplete); err != nil {
 		t.Fatalf("mark done: %v", err)
 	}
@@ -166,6 +170,12 @@ func TestSQLiteRoundtrip(t *testing.T) {
 	}
 	if done.Thumbnail == nil || *done.Thumbnail != thumb {
 		t.Errorf("thumbnail round-trip: got %v", done.Thumbnail)
+	}
+	if done.SelectedQuality == nil || *done.SelectedQuality != "1080" {
+		t.Errorf("selected quality round-trip: got %v", done.SelectedQuality)
+	}
+	if done.SelectedFPS == nil || *done.SelectedFPS != selectedFPS {
+		t.Errorf("selected fps round-trip: got %v", done.SelectedFPS)
 	}
 	if done.DownloadedAt == nil {
 		t.Errorf("DownloadedAt nil after MarkVideoDone")
@@ -245,6 +255,10 @@ func TestListVideos_ColumnRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	selectedFPS := 60.0
+	if err := a.UpdateVideoSelectedVariant(ctx, v.ID, "1080", &selectedFPS); err != nil {
+		t.Fatalf("set selected variant: %v", err)
+	}
 	thumb := "thumbnails/thumb.jpg"
 	if err := a.MarkVideoDone(ctx, v.ID, 3600.5, 1_073_741_824, &thumb, repository.CompletionKindComplete); err != nil {
 		t.Fatalf("mark done: %v", err)
@@ -274,6 +288,8 @@ func TestListVideos_ColumnRoundtrip(t *testing.T) {
 		{"DisplayName", got.DisplayName, in.DisplayName},
 		{"Status", got.Status, repository.VideoStatusDone},
 		{"Quality", got.Quality, in.Quality},
+		{"SelectedQuality", derefString(got.SelectedQuality), "1080"},
+		{"SelectedFPS", derefFloat64(got.SelectedFPS), selectedFPS},
 		{"BroadcasterID", got.BroadcasterID, in.BroadcasterID},
 		{"StreamID", derefString(got.StreamID), streamID},
 		{"ViewerCount", got.ViewerCount, in.ViewerCount},
@@ -446,9 +462,9 @@ func TestListVideos_SortDimensions(t *testing.T) {
 	}
 
 	cases := []struct {
-		name       string
-		opts       repository.ListVideosOpts
-		wantOrder  []string // display names in expected order
+		name      string
+		opts      repository.ListVideosOpts
+		wantOrder []string // display names in expected order
 	}{
 		{"default (empty sort/order) = created desc", repository.ListVideosOpts{Limit: 10}, []string{"Charlie", "Bravo", "Alpha"}},
 		{"duration desc", repository.ListVideosOpts{Sort: "duration", Order: "desc", Limit: 10}, []string{"Bravo", "Charlie", "Alpha"}},
@@ -476,6 +492,303 @@ func TestListVideos_SortDimensions(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestListChannelsPage_CursorPagination(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	channels := []repository.Channel{
+		{BroadcasterID: "1", BroadcasterLogin: "alpha", BroadcasterName: "Alpha"},
+		{BroadcasterID: "2", BroadcasterLogin: "bravo", BroadcasterName: "Bravo"},
+		{BroadcasterID: "3", BroadcasterLogin: "bravo-alt", BroadcasterName: "Bravo"},
+		{BroadcasterID: "4", BroadcasterLogin: "charlie", BroadcasterName: "Charlie"},
+	}
+	for _, c := range channels {
+		ch := c
+		if _, err := a.UpsertChannel(ctx, &ch); err != nil {
+			t.Fatalf("seed channel %s: %v", c.BroadcasterLogin, err)
+		}
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, liveID := range []string{"1", "3"} {
+		if _, err := a.UpsertStream(ctx, &repository.StreamInput{
+			ID: liveID + "-live", BroadcasterID: liveID, Type: "live", Language: "en",
+			ViewerCount: 1, StartedAt: now,
+		}); err != nil {
+			t.Fatalf("seed live stream %s: %v", liveID, err)
+		}
+	}
+
+	cases := []struct {
+		name     string
+		sort     string
+		liveOnly bool
+		want     []string
+	}{
+		{"name asc", "name_asc", false, []string{"alpha", "bravo", "bravo-alt", "charlie"}},
+		{"name desc", "name_desc", false, []string{"charlie", "bravo-alt", "bravo", "alpha"}},
+		{"live only", "name_asc", true, []string{"alpha", "bravo-alt"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := collectChannelPageLogins(t, ctx, a, 2, tc.sort, tc.liveOnly)
+			assertStringSlice(t, got, tc.want)
+		})
+	}
+}
+
+func TestListVideosPage_CursorPagination(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	seedVideoListPageFixture(t, ctx, a)
+	durationMin := 250.0
+	sizeMin := int64(2500)
+
+	cases := []struct {
+		name string
+		opts repository.ListVideosOpts
+		want []string
+	}{
+		{"created desc", repository.ListVideosOpts{Sort: "created_at", Order: "desc", Limit: 2}, []string{"job-d2", "job-d1", "job-c", "job-b", "job-a"}},
+		{"created asc", repository.ListVideosOpts{Sort: "created_at", Order: "asc", Limit: 2}, []string{"job-a", "job-b", "job-c", "job-d1", "job-d2"}},
+		{"channel asc", repository.ListVideosOpts{Sort: "channel", Order: "asc", Limit: 2}, []string{"job-a", "job-b", "job-c", "job-d1", "job-d2"}},
+		{"channel desc", repository.ListVideosOpts{Sort: "channel", Order: "desc", Limit: 2}, []string{"job-d2", "job-d1", "job-c", "job-b", "job-a"}},
+		{"duration desc", repository.ListVideosOpts{Sort: "duration", Order: "desc", Limit: 2}, []string{"job-b", "job-c", "job-d2", "job-d1", "job-a"}},
+		{"duration asc", repository.ListVideosOpts{Sort: "duration", Order: "asc", Limit: 2}, []string{"job-a", "job-d1", "job-d2", "job-c", "job-b"}},
+		{"size desc", repository.ListVideosOpts{Sort: "size", Order: "desc", Limit: 2}, []string{"job-b", "job-c", "job-d2", "job-d1", "job-a"}},
+		{"size asc", repository.ListVideosOpts{Sort: "size", Order: "asc", Limit: 2}, []string{"job-a", "job-d1", "job-d2", "job-c", "job-b"}},
+		{"duration min filter", repository.ListVideosOpts{Sort: "created_at", Order: "desc", Limit: 2, DurationMinSeconds: &durationMin}, []string{"job-c", "job-b"}},
+		{"size min filter", repository.ListVideosOpts{Sort: "created_at", Order: "desc", Limit: 2, SizeMinBytes: &sizeMin}, []string{"job-d2", "job-c", "job-b"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := collectVideoListPageJobIDs(t, ctx, a, tc.opts)
+			assertStringSlice(t, got, tc.want)
+		})
+	}
+}
+
+func TestListVideosPage_FiltersAndNullCursor(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	seedVideoListFilterFixture(t, ctx, a)
+	qualityHigh := repository.QualityHigh
+
+	cases := []struct {
+		name string
+		opts repository.ListVideosOpts
+		want []string
+	}{
+		{
+			"quality filter",
+			repository.ListVideosOpts{Sort: "created_at", Order: "desc", Limit: 2, Quality: qualityHigh},
+			[]string{"job-f-failed-b", "job-f-failed-a", "job-f-high-b", "job-f-high-a"},
+		},
+		{
+			"broadcaster filter",
+			repository.ListVideosOpts{Sort: "created_at", Order: "desc", Limit: 2, BroadcasterID: "bc-filter-a"},
+			[]string{"job-f-failed-a", "job-f-low-a", "job-f-high-a"},
+		},
+		{
+			"language filter",
+			repository.ListVideosOpts{Sort: "created_at", Order: "desc", Limit: 2, Language: "fr"},
+			[]string{"job-f-failed-b", "job-f-low-b", "job-f-high-b"},
+		},
+		{
+			"duration desc crosses into NULL",
+			repository.ListVideosOpts{Sort: "duration", Order: "desc", Limit: 2},
+			[]string{"job-f-low-b", "job-f-high-b", "job-f-low-a", "job-f-high-a", "job-f-failed-b", "job-f-failed-a"},
+		},
+		{
+			"size desc crosses into NULL",
+			repository.ListVideosOpts{Sort: "size", Order: "desc", Limit: 2},
+			[]string{"job-f-low-b", "job-f-high-b", "job-f-low-a", "job-f-high-a", "job-f-failed-b", "job-f-failed-a"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := collectVideoListPageJobIDs(t, ctx, a, tc.opts)
+			assertStringSlice(t, got, tc.want)
+		})
+	}
+}
+
+func seedVideoListFilterFixture(t *testing.T, ctx context.Context, a *SQLiteAdapter) {
+	t.Helper()
+	for _, ch := range []struct{ id, login, name string }{
+		{"bc-filter-a", "filter-a", "Filter A"},
+		{"bc-filter-b", "filter-b", "Filter B"},
+	} {
+		if _, err := a.UpsertChannel(ctx, &repository.Channel{
+			BroadcasterID: ch.id, BroadcasterLogin: ch.login, BroadcasterName: ch.name,
+		}); err != nil {
+			t.Fatalf("seed channel %s: %v", ch.id, err)
+		}
+	}
+
+	base := time.Date(2026, 4, 23, 14, 0, 0, 0, time.UTC)
+	type seed struct {
+		jobID         string
+		broadcasterID string
+		quality       string
+		language      string
+		duration      float64
+		size          int64
+		minute        int
+		failed        bool
+	}
+	seeds := []seed{
+		{"job-f-high-a", "bc-filter-a", repository.QualityHigh, "en", 100, 1000, 1, false},
+		{"job-f-high-b", "bc-filter-b", repository.QualityHigh, "fr", 400, 4000, 2, false},
+		{"job-f-low-a", "bc-filter-a", repository.QualityLow, "en", 200, 2000, 3, false},
+		{"job-f-low-b", "bc-filter-b", repository.QualityLow, "fr", 500, 5000, 4, false},
+		{"job-f-failed-a", "bc-filter-a", repository.QualityHigh, "en", 0, 0, 5, true},
+		{"job-f-failed-b", "bc-filter-b", repository.QualityHigh, "fr", 0, 0, 6, true},
+	}
+	for _, s := range seeds {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID:         s.jobID,
+			Filename:      s.jobID,
+			DisplayName:   s.jobID,
+			Status:        repository.VideoStatusDone,
+			Quality:       s.quality,
+			BroadcasterID: s.broadcasterID,
+			Language:      s.language,
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", s.jobID, err)
+		}
+		if s.failed {
+			if err := a.MarkVideoFailed(ctx, v.ID, "seed-failed", repository.CompletionKindComplete); err != nil {
+				t.Fatalf("mark failed %s: %v", s.jobID, err)
+			}
+		} else {
+			if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete); err != nil {
+				t.Fatalf("mark done %s: %v", s.jobID, err)
+			}
+		}
+		startedAt := base.Add(time.Duration(s.minute) * time.Minute)
+		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", formatTime(startedAt), v.ID); err != nil {
+			t.Fatalf("override start_download_at %s: %v", s.jobID, err)
+		}
+	}
+}
+
+func collectChannelPageLogins(t *testing.T, ctx context.Context, a *SQLiteAdapter, limit int, sort string, liveOnly bool) []string {
+	t.Helper()
+	var cursor *repository.ChannelPageCursor
+	out := []string{}
+	for pages := 0; ; pages++ {
+		if pages > 10 {
+			t.Fatal("channel pagination did not terminate")
+		}
+		page, err := a.ListChannelsPage(ctx, limit, sort, liveOnly, cursor)
+		if err != nil {
+			t.Fatalf("ListChannelsPage: %v", err)
+		}
+		if len(page.Items) > limit {
+			t.Fatalf("page size: got %d, limit %d", len(page.Items), limit)
+		}
+		for _, item := range page.Items {
+			out = append(out, item.BroadcasterLogin)
+		}
+		if page.NextCursor == nil {
+			return out
+		}
+		if len(page.Items) == 0 {
+			t.Fatal("empty channel page returned a next cursor")
+		}
+		cursor = page.NextCursor
+	}
+}
+
+func seedVideoListPageFixture(t *testing.T, ctx context.Context, a *SQLiteAdapter) {
+	t.Helper()
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-page", BroadcasterLogin: "page", BroadcasterName: "Page",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
+	seeds := []struct {
+		jobID       string
+		displayName string
+		duration    float64
+		size        int64
+		startedAt   time.Time
+	}{
+		{"job-a", "Alpha", 100, 1000, base.Add(1 * time.Minute)},
+		{"job-b", "Bravo", 400, 4000, base.Add(2 * time.Minute)},
+		{"job-c", "Charlie", 300, 3000, base.Add(3 * time.Minute)},
+		{"job-d1", "Delta", 200, 2000, base.Add(4 * time.Minute)},
+		{"job-d2", "Delta", 200, 2500, base.Add(4 * time.Minute)},
+	}
+	for _, s := range seeds {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID:         s.jobID,
+			Filename:      s.jobID,
+			DisplayName:   s.displayName,
+			Status:        repository.VideoStatusDone,
+			Quality:       repository.QualityHigh,
+			BroadcasterID: "bc-page",
+			Language:      "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", s.jobID, err)
+		}
+		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete); err != nil {
+			t.Fatalf("mark done %s: %v", s.jobID, err)
+		}
+		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", formatTime(s.startedAt), v.ID); err != nil {
+			t.Fatalf("override start_download_at %s: %v", s.jobID, err)
+		}
+	}
+}
+
+func collectVideoListPageJobIDs(t *testing.T, ctx context.Context, a *SQLiteAdapter, opts repository.ListVideosOpts) []string {
+	t.Helper()
+	var cursor *repository.VideoListPageCursor
+	out := []string{}
+	for pages := 0; ; pages++ {
+		if pages > 10 {
+			t.Fatal("video pagination did not terminate")
+		}
+		page, err := a.ListVideosPage(ctx, opts, cursor)
+		if err != nil {
+			t.Fatalf("ListVideosPage: %v", err)
+		}
+		if len(page.Items) > opts.Limit {
+			t.Fatalf("page size: got %d, limit %d", len(page.Items), opts.Limit)
+		}
+		for _, item := range page.Items {
+			out = append(out, item.JobID)
+		}
+		if page.NextCursor == nil {
+			return out
+		}
+		if len(page.Items) == 0 {
+			t.Fatal("empty video page returned a next cursor")
+		}
+		cursor = page.NextCursor
+	}
+}
+
+func assertStringSlice(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("row count: want %d (%v), got %d (%v)", len(want), want, len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("row %d: want %s, got %s (all: %v)", i, want[i], got[i], got)
+		}
 	}
 }
 
@@ -900,8 +1213,8 @@ func TestListLatestLivePerChannel_OnePerBroadcaster(t *testing.T) {
 	// Channel A: older + newer. Newest-per-channel should pick s-a-new.
 	// Channel B: one stream, older than A's newest.
 	streams := []struct {
-		id, bc   string
-		offset   time.Duration
+		id, bc string
+		offset time.Duration
 	}{
 		{"s-a-old", "ch-a", -4 * time.Hour},
 		{"s-a-new", "ch-a", -30 * time.Minute},
@@ -935,5 +1248,125 @@ func TestListLatestLivePerChannel_OnePerBroadcaster(t *testing.T) {
 	}
 	if got[1].ID != "s-b-1" || got[1].BroadcasterID != "ch-b" {
 		t.Errorf("row 1: want s-b-1/ch-b, got %s/%s", got[1].ID, got[1].BroadcasterID)
+	}
+}
+
+func TestVideoMetadataDurations_TracksHistoryAndPrimaryCategory(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-meta", BroadcasterLogin: "meta", BroadcasterName: "Meta",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	for _, c := range []repository.Category{{ID: "cat-a", Name: "Alpha"}, {ID: "cat-b", Name: "Bravo"}} {
+		cat := c
+		if _, err := a.UpsertCategory(ctx, &cat); err != nil {
+			t.Fatalf("seed category %s: %v", c.ID, err)
+		}
+	}
+	video, err := a.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-meta-1",
+		Filename:      "meta-video",
+		DisplayName:   "Meta",
+		Title:         "Opening",
+		Status:        repository.VideoStatusPending,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "bc-meta",
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("create video: %v", err)
+	}
+	titleA, err := a.UpsertTitle(ctx, "Opening")
+	if err != nil {
+		t.Fatalf("title A: %v", err)
+	}
+	titleB, err := a.UpsertTitle(ctx, "Main Run")
+	if err != nil {
+		t.Fatalf("title B: %v", err)
+	}
+	if err := a.LinkVideoTitle(ctx, video.ID, titleA.ID); err != nil {
+		t.Fatalf("link title A: %v", err)
+	}
+	if err := a.LinkVideoTitle(ctx, video.ID, titleB.ID); err != nil {
+		t.Fatalf("link title B: %v", err)
+	}
+	if err := a.LinkVideoCategory(ctx, video.ID, "cat-a"); err != nil {
+		t.Fatalf("link category A: %v", err)
+	}
+	if err := a.LinkVideoCategory(ctx, video.ID, "cat-b"); err != nil {
+		t.Fatalf("link category B: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	at1 := now.Add(-5 * time.Minute)
+	at2 := now.Add(-3 * time.Minute)
+	at3 := now.Add(-1 * time.Minute)
+	resumeAt := now.Add(30 * time.Second)
+	endAt := resumeAt.Add(30 * time.Second)
+
+	if err := a.UpsertVideoTitleSpan(ctx, video.ID, titleA.ID, at1); err != nil {
+		t.Fatalf("span title A1: %v", err)
+	}
+	if err := a.UpsertVideoCategorySpan(ctx, video.ID, "cat-a", at1); err != nil {
+		t.Fatalf("span category A1: %v", err)
+	}
+	if err := a.UpsertVideoTitleSpan(ctx, video.ID, titleB.ID, at2); err != nil {
+		t.Fatalf("span title B: %v", err)
+	}
+	if err := a.UpsertVideoCategorySpan(ctx, video.ID, "cat-b", at2); err != nil {
+		t.Fatalf("span category B: %v", err)
+	}
+	if err := a.UpsertVideoTitleSpan(ctx, video.ID, titleA.ID, at3); err != nil {
+		t.Fatalf("span title A2: %v", err)
+	}
+	if err := a.UpsertVideoCategorySpan(ctx, video.ID, "cat-a", at3); err != nil {
+		t.Fatalf("span category A2: %v", err)
+	}
+	if err := a.CloseOpenVideoMetadataSpans(ctx, video.ID, now); err != nil {
+		t.Fatalf("close spans at now: %v", err)
+	}
+	if err := a.ResumeVideoMetadataSpans(ctx, video.ID, resumeAt); err != nil {
+		t.Fatalf("resume spans: %v", err)
+	}
+	if err := a.CloseOpenVideoMetadataSpans(ctx, video.ID, endAt); err != nil {
+		t.Fatalf("close resumed spans: %v", err)
+	}
+
+	titles, err := a.ListTitlesForVideo(ctx, video.ID)
+	if err != nil {
+		t.Fatalf("list titles: %v", err)
+	}
+	if len(titles) != 4 {
+		t.Fatalf("want 4 title spans, got %d", len(titles))
+	}
+	if titles[0].Name != "Opening" || titles[1].Name != "Main Run" || titles[2].Name != "Opening" || titles[3].Name != "Opening" {
+		t.Fatalf("unexpected title span order: %+v", titles)
+	}
+	if titles[0].DurationSeconds < 119 || titles[1].DurationSeconds < 119 || titles[2].DurationSeconds < 59 || titles[3].DurationSeconds < 29 {
+		t.Fatalf("unexpected title durations: %+v", titles)
+	}
+
+	cats, err := a.ListCategoriesForVideo(ctx, video.ID)
+	if err != nil {
+		t.Fatalf("list categories: %v", err)
+	}
+	if len(cats) != 4 {
+		t.Fatalf("want 4 category spans, got %d", len(cats))
+	}
+	if cats[0].Name != "Alpha" || cats[1].Name != "Bravo" || cats[2].Name != "Alpha" || cats[3].Name != "Alpha" {
+		t.Fatalf("unexpected category span order: %+v", cats)
+	}
+	if cats[0].DurationSeconds < 119 || cats[1].DurationSeconds < 119 || cats[2].DurationSeconds < 59 || cats[3].DurationSeconds < 29 {
+		t.Fatalf("unexpected category durations: %+v", cats)
+	}
+	primary, err := a.ListPrimaryCategoriesForVideos(ctx, []int64{video.ID})
+	if err != nil {
+		t.Fatalf("primary categories: %v", err)
+	}
+	if got, ok := primary[video.ID]; !ok || got.ID != "cat-a" {
+		t.Fatalf("primary category = %+v, want cat-a", got)
 	}
 }

@@ -49,6 +49,38 @@ func (a *SQLiteAdapter) Ping(ctx context.Context) error {
 	return nil
 }
 
+// sqliteBeginner is the minimal surface the adapter needs to open a
+// transaction. *sql.DB satisfies it; when db is already a *sql.Tx the
+// assertion fails and the caller is expected to be running inside an
+// outer transaction already.
+type sqliteBeginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+}
+
+// inTx runs fn inside a database/sql transaction when the adapter's
+// underlying DBTX supports opening one. Commits on success, rolls
+// back on error or panic.
+func (a *SQLiteAdapter) inTx(ctx context.Context, fn func(q *sqlitegen.Queries, tx *sql.Tx) error) error {
+	beginner, ok := a.db.(sqliteBeginner)
+	if !ok {
+		return fmt.Errorf("sqlite adapter: underlying db does not support transactions")
+	}
+	tx, err := beginner.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("sqlite begin tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := fn(a.queries.WithTx(tx), tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqlite commit tx: %w", err)
+	}
+	return nil
+}
+
 func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
 	row, err := a.queries.GetUser(ctx, id)
 	if err != nil {

@@ -22,21 +22,22 @@ func (q *Queries) CountVideoParts(ctx context.Context, videoID int64) (int64, er
 
 const createVideoPart = `-- name: CreateVideoPart :one
 INSERT INTO video_parts (
-    video_id, part_index, filename, quality, codec, segment_format,
-    start_media_seq
+    video_id, part_index, filename, quality, fps, codec,
+    segment_format, start_media_seq
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps
 `
 
 type CreateVideoPartParams struct {
-	VideoID       int64  `json:"video_id"`
-	PartIndex     int32  `json:"part_index"`
-	Filename      string `json:"filename"`
-	Quality       string `json:"quality"`
-	Codec         string `json:"codec"`
-	SegmentFormat string `json:"segment_format"`
-	StartMediaSeq int64  `json:"start_media_seq"`
+	VideoID       int64    `json:"video_id"`
+	PartIndex     int32    `json:"part_index"`
+	Filename      string   `json:"filename"`
+	Quality       string   `json:"quality"`
+	Fps           *float64 `json:"fps"`
+	Codec         string   `json:"codec"`
+	SegmentFormat string   `json:"segment_format"`
+	StartMediaSeq int64    `json:"start_media_seq"`
 }
 
 // end_media_seq is deliberately omitted: its real value is only known
@@ -49,6 +50,7 @@ func (q *Queries) CreateVideoPart(ctx context.Context, arg CreateVideoPartParams
 		arg.PartIndex,
 		arg.Filename,
 		arg.Quality,
+		arg.Fps,
 		arg.Codec,
 		arg.SegmentFormat,
 		arg.StartMediaSeq,
@@ -69,6 +71,7 @@ func (q *Queries) CreateVideoPart(ctx context.Context, arg CreateVideoPartParams
 		&i.EndMediaSeq,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Fps,
 	)
 	return i, err
 }
@@ -112,7 +115,7 @@ func (q *Queries) FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartPa
 }
 
 const getVideoPart = `-- name: GetVideoPart :one
-SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at FROM video_parts WHERE id = $1
+SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps FROM video_parts WHERE id = $1
 `
 
 func (q *Queries) GetVideoPart(ctx context.Context, id int64) (VideoPart, error) {
@@ -133,12 +136,13 @@ func (q *Queries) GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
 		&i.EndMediaSeq,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Fps,
 	)
 	return i, err
 }
 
 const getVideoPartByIndex = `-- name: GetVideoPartByIndex :one
-SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at FROM video_parts WHERE video_id = $1 AND part_index = $2
+SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps FROM video_parts WHERE video_id = $1 AND part_index = $2
 `
 
 type GetVideoPartByIndexParams struct {
@@ -166,12 +170,13 @@ func (q *Queries) GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByInd
 		&i.EndMediaSeq,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Fps,
 	)
 	return i, err
 }
 
 const listVideoParts = `-- name: ListVideoParts :many
-SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at FROM video_parts WHERE video_id = $1 ORDER BY part_index ASC
+SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps FROM video_parts WHERE video_id = $1 ORDER BY part_index ASC
 `
 
 func (q *Queries) ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error) {
@@ -198,6 +203,7 @@ func (q *Queries) ListVideoParts(ctx context.Context, videoID int64) ([]VideoPar
 			&i.EndMediaSeq,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Fps,
 		); err != nil {
 			return nil, err
 		}
