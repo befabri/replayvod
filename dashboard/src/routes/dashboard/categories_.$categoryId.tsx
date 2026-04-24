@@ -4,10 +4,9 @@ import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { useCategory } from "@/features/categories/queries";
-import { VideoCard } from "@/features/videos/components/VideoCard";
-import { VideoGrid } from "@/features/videos/components/VideoGrid";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
+import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { useInfiniteVideosByCategory } from "@/features/videos/queries";
 
 export const Route = createFileRoute("/dashboard/categories_/$categoryId")({
@@ -85,11 +84,7 @@ function CategoryDetailPage() {
 			)}
 			{videos.data && videoItems.length > 0 && (
 				<>
-					<VideoGrid variant="wide">
-						{videoItems.map((v) => (
-							<VideoCard key={v.id} video={v} />
-						))}
-					</VideoGrid>
+					<VirtualVideoGrid videos={videoItems} variant="wide" />
 					<div ref={loadMoreRef} className="h-1" />
 					{videos.isFetchingNextPage && (
 						<VideoGridLoading count={2} variant="wide" />

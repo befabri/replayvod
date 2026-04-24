@@ -8,10 +8,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { useChannel } from "@/features/channels/queries";
 import { useLiveSet } from "@/features/streams-live";
 import { TriggerDownloadDialog } from "@/features/videos/components/TriggerDownloadDialog";
-import { VideoCard } from "@/features/videos/components/VideoCard";
-import { VideoGrid } from "@/features/videos/components/VideoGrid";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
+import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { useInfiniteVideosByBroadcaster } from "@/features/videos/queries";
 
 export const Route = createFileRoute("/dashboard/channels_/$channelId")({
@@ -117,11 +116,7 @@ function ChannelDetailPage() {
 			)}
 			{videos.data && videoItems.length > 0 && (
 				<>
-					<VideoGrid variant="wide">
-						{videoItems.map((v) => (
-							<VideoCard key={v.id} video={v} />
-						))}
-					</VideoGrid>
+					<VirtualVideoGrid videos={videoItems} variant="wide" />
 					<div ref={loadMoreRef} className="h-1" />
 					{videos.isFetchingNextPage && (
 						<VideoGridLoading count={2} variant="wide" />

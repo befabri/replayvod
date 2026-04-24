@@ -1,5 +1,6 @@
 import { Rows, SquaresFour } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { VirtualGrid } from "@/components/ui/virtual-grid";
 import type { CategoryResponse } from "@/features/categories";
 import { useCategories } from "@/features/categories";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
@@ -58,15 +60,13 @@ function CategoriesPage() {
 				<div className="text-muted-foreground">{t("categories.empty")}</div>
 			)}
 
-			{categories && categories.length > 0 && (
-				<>
-					{view === "card" ? (
-						<CardGrid categories={categories} />
-					) : (
-						<DenseGrid categories={categories} />
-					)}
-				</>
-			)}
+			{categories &&
+				categories.length > 0 &&
+				(view === "card" ? (
+					<CardGrid categories={categories} />
+				) : (
+					<DenseGrid categories={categories} />
+				))}
 		</TitledLayout>
 	);
 }
@@ -74,22 +74,36 @@ function CategoriesPage() {
 // Card grid — one row of boxed art + name below in a padded card.
 // Suits a modest library where each category deserves attention.
 function CardGrid({ categories }: { categories: CategoryResponse[] }) {
+	const getCategoryKey = useCallback(
+		(category: CategoryResponse) => category.id,
+		[],
+	);
+	const renderCategory = useCallback(
+		(category: CategoryResponse) => (
+			<Link
+				// biome-ignore lint/suspicious/noExplicitAny: param route typing
+				to={"/dashboard/categories/$categoryId" as any}
+				// biome-ignore lint/suspicious/noExplicitAny: param route typing
+				params={{ categoryId: category.id } as any}
+				className="block rounded-lg bg-card overflow-hidden shadow-sm hover:ring-2 hover:ring-primary transition-all duration-75"
+			>
+				<CategoryBoxArt url={category.box_art_url} name={category.name} />
+				<div className="p-2 text-sm font-medium truncate">{category.name}</div>
+			</Link>
+		),
+		[],
+	);
+
 	return (
-		<div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-4">
-			{categories.map((c) => (
-				<Link
-					key={c.id}
-					// biome-ignore lint/suspicious/noExplicitAny: param route typing
-					to={"/dashboard/categories/$categoryId" as any}
-					// biome-ignore lint/suspicious/noExplicitAny: param route typing
-					params={{ categoryId: c.id } as any}
-					className="rounded-lg bg-card overflow-hidden shadow-sm hover:ring-2 hover:ring-primary transition-all duration-75"
-				>
-					<CategoryBoxArt url={c.box_art_url} name={c.name} />
-					<div className="p-2 text-sm font-medium truncate">{c.name}</div>
-				</Link>
-			))}
-		</div>
+		<VirtualGrid
+			items={categories}
+			getItemKey={getCategoryKey}
+			renderItem={renderCategory}
+			minItemWidth={160}
+			estimateRowHeight={270}
+			gap={16}
+			overscan={5}
+		/>
 	);
 }
 
@@ -97,28 +111,42 @@ function CardGrid({ categories }: { categories: CategoryResponse[] }) {
 // bare box art, name as a link-styled title underneath. Maximizes the
 // number of categories on screen.
 function DenseGrid({ categories }: { categories: CategoryResponse[] }) {
+	const getCategoryKey = useCallback(
+		(category: CategoryResponse) => category.id,
+		[],
+	);
+	const renderCategory = useCallback(
+		(category: CategoryResponse) => (
+			<Link
+				// biome-ignore lint/suspicious/noExplicitAny: param route typing
+				to={"/dashboard/categories/$categoryId" as any}
+				// biome-ignore lint/suspicious/noExplicitAny: param route typing
+				params={{ categoryId: category.id } as any}
+				className="group flex flex-col gap-1.5"
+			>
+				<CategoryBoxArt
+					url={category.box_art_url}
+					name={category.name}
+					className="rounded-md border-4 border-background group-hover:border-primary transition-colors duration-75"
+				/>
+				<div className="text-sm font-medium truncate group-hover:text-link transition-colors duration-75">
+					{category.name}
+				</div>
+			</Link>
+		),
+		[],
+	);
+
 	return (
-		<div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
-			{categories.map((c) => (
-				<Link
-					key={c.id}
-					// biome-ignore lint/suspicious/noExplicitAny: param route typing
-					to={"/dashboard/categories/$categoryId" as any}
-					// biome-ignore lint/suspicious/noExplicitAny: param route typing
-					params={{ categoryId: c.id } as any}
-					className="group flex flex-col gap-1.5"
-				>
-					<CategoryBoxArt
-						url={c.box_art_url}
-						name={c.name}
-						className="rounded-md border-4 border-background group-hover:border-primary transition-colors duration-75"
-					/>
-					<div className="text-sm font-medium truncate group-hover:text-link transition-colors duration-75">
-						{c.name}
-					</div>
-				</Link>
-			))}
-		</div>
+		<VirtualGrid
+			items={categories}
+			getItemKey={getCategoryKey}
+			renderItem={renderCategory}
+			minItemWidth={140}
+			estimateRowHeight={230}
+			gap={12}
+			overscan={6}
+		/>
 	);
 }
 

@@ -1,6 +1,6 @@
 import { Broadcast, SortAscending } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Avatar } from "@/components/ui/avatar";
@@ -11,7 +11,8 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useInfiniteChannels } from "@/features/channels";
+import { VirtualGrid } from "@/components/ui/virtual-grid";
+import { type ChannelResponse, useInfiniteChannels } from "@/features/channels";
 import { useLiveSet } from "@/features/streams-live";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 
@@ -51,10 +52,59 @@ function ChannelsPage() {
 			: all;
 	}, [channels.data, filter, liveSet]);
 	const hasScrolledThroughPages = (channels.data?.pages.length ?? 0) > 1;
+	// Avoid draining every channel page when the live filter is active
+	// but the SSE live set says nobody is live.
+	const shouldLoadMore = !!(
+		channels.hasNextPage &&
+		!channels.error &&
+		(filter !== "live" || liveSet.size > 0)
+	);
+	const showEmpty = !!(
+		visible.length === 0 &&
+		!channels.isLoading &&
+		!channels.isFetchingNextPage &&
+		!channels.error &&
+		(filter !== "live" || liveSet.size === 0 || !channels.hasNextPage)
+	);
+	const showSearchingMore = !!(
+		visible.length === 0 &&
+		!channels.isLoading &&
+		!channels.error &&
+		filter === "live" &&
+		liveSet.size > 0 &&
+		(channels.isFetchingNextPage || channels.hasNextPage)
+	);
+	const getChannelKey = useCallback(
+		(channel: ChannelResponse) => channel.broadcaster_id,
+		[],
+	);
+	const renderChannel = useCallback(
+		(channel: ChannelResponse) => (
+			<Link
+				// biome-ignore lint/suspicious/noExplicitAny: param route typing
+				to={"/dashboard/channels/$channelId" as any}
+				// biome-ignore lint/suspicious/noExplicitAny: param route typing
+				params={{ channelId: channel.broadcaster_id } as any}
+				className="flex items-center gap-3 rounded-md bg-card px-3 py-2 shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors duration-75"
+			>
+				<Avatar
+					src={channel.profile_image_url}
+					name={channel.broadcaster_name}
+					alt={channel.broadcaster_name}
+					size="md"
+					isLive={liveSet.has(channel.broadcaster_id)}
+				/>
+				<span className="truncate text-sm font-medium">
+					{channel.broadcaster_name}
+				</span>
+			</Link>
+		),
+		[liveSet],
+	);
 
 	useEffect(() => {
 		const node = loadMoreRef.current;
-		if (!node || !channels.hasNextPage) {
+		if (!node || !shouldLoadMore) {
 			return;
 		}
 		const observer = new IntersectionObserver(
@@ -68,11 +118,7 @@ function ChannelsPage() {
 		);
 		observer.observe(node);
 		return () => observer.disconnect();
-	}, [
-		channels.fetchNextPage,
-		channels.hasNextPage,
-		channels.isFetchingNextPage,
-	]);
+	}, [channels.fetchNextPage, channels.isFetchingNextPage, shouldLoadMore]);
 
 	return (
 		<TitledLayout
@@ -104,43 +150,29 @@ function ChannelsPage() {
 				</div>
 			)}
 
-			{visible.length === 0 && !channels.isLoading && !channels.error && (
+			{showEmpty && (
 				<div className="text-muted-foreground">{t("channels.empty")}</div>
+			)}
+			{showSearchingMore && (
+				<div className="text-muted-foreground">{t("common.loading")}</div>
 			)}
 
 			{visible.length > 0 && (
-				<>
-					<div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
-						{visible.map((c) => (
-							<Link
-								key={c.broadcaster_id}
-								// biome-ignore lint/suspicious/noExplicitAny: param route typing
-								to={"/dashboard/channels/$channelId" as any}
-								// biome-ignore lint/suspicious/noExplicitAny: param route typing
-								params={{ channelId: c.broadcaster_id } as any}
-								className="flex items-center gap-3 rounded-md bg-card px-3 py-2 shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors duration-75"
-							>
-								<Avatar
-									src={c.profile_image_url}
-									name={c.broadcaster_name}
-									alt={c.broadcaster_name}
-									size="md"
-									isLive={liveSet.has(c.broadcaster_id)}
-								/>
-								<span className="truncate text-sm font-medium">
-									{c.broadcaster_name}
-								</span>
-							</Link>
-						))}
-					</div>
-					<div ref={loadMoreRef} className="h-1" />
-					{hasScrolledThroughPages &&
-						!channels.hasNextPage &&
-						!channels.isFetchingNextPage && (
-							<VideoGridEnd labelKey="channels.end_of_list" />
-						)}
-				</>
+				<VirtualGrid
+					items={visible}
+					getItemKey={getChannelKey}
+					renderItem={renderChannel}
+					minItemWidth={220}
+					estimateRowHeight={48}
+					gap={8}
+					overscan={8}
+				/>
 			)}
+			{shouldLoadMore && <div ref={loadMoreRef} className="h-1" />}
+			{hasScrolledThroughPages &&
+				!channels.hasNextPage &&
+				!channels.isFetchingNextPage &&
+				visible.length > 0 && <VideoGridEnd labelKey="channels.end_of_list" />}
 		</TitledLayout>
 	);
 }

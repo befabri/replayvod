@@ -12,6 +12,11 @@ export const VIDEO_GRID_CLASS = {
 	wide: "grid grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-4",
 } as const;
 
+export const VIDEO_GRID_LAYOUT = {
+	compact: { minItemWidth: 320, gap: 16, estimateRowHeight: 320 },
+	wide: { minItemWidth: 400, gap: 16, estimateRowHeight: 340 },
+} as const;
+
 export type VideoGridVariant = keyof typeof VIDEO_GRID_CLASS;
 
 export function VideoGrid({

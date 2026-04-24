@@ -27,10 +27,9 @@ import {
 	type VideoSort,
 } from "@/features/videos";
 import { videoListColumns } from "@/features/videos/components/listColumns";
-import { VideoCard } from "@/features/videos/components/VideoCard";
-import { VideoGrid } from "@/features/videos/components/VideoGrid";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
+import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { formatBytes } from "@/features/videos/format";
 import { cn } from "@/lib/utils";
 
@@ -444,16 +443,14 @@ function VideosPage() {
 
 				{filteredVideos.length > 0 &&
 					(view === "grid" ? (
-						<VideoGrid>
-							{filteredVideos.map((v) => (
-								<VideoCard key={v.id} video={v} />
-							))}
-						</VideoGrid>
+						<VirtualVideoGrid videos={filteredVideos} />
 					) : (
 						<DataTable
 							columns={columns}
 							data={filteredVideos}
 							emptyMessage={t("videos.empty")}
+							virtualizeRows
+							estimateRowHeight={84}
 						/>
 					))}
 
