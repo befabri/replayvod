@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import {
 	LastLiveStatistics,
+	RunningDownloads,
 	ScheduleStatistics,
 	VideoStatistics,
 } from "@/features/dashboard";
@@ -23,6 +24,9 @@ function DashboardHome() {
 				<ScheduleStatistics />
 			</div>
 			<LiveStreamsCard />
+			<div className="mt-6">
+				<RunningDownloads />
+			</div>
 		</TitledLayout>
 	);
 }

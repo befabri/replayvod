@@ -12,6 +12,23 @@ import (
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
+type downloadRepo interface {
+	GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error)
+	GetVideoByJobID(ctx context.Context, jobID string) (*repository.Video, error)
+}
+
+type downloadRunner interface {
+	Start(ctx context.Context, p downloader.Params) (string, error)
+	Cancel(jobID string)
+	Subscribe(jobID string) <-chan downloader.Progress
+	ListActiveProgress() []downloader.Progress
+	SubscribeActive(ctx context.Context) <-chan struct{}
+}
+
+type streamHydrator interface {
+	Hydrate(ctx context.Context, broadcasterID string) *streammeta.Snapshot
+}
+
 // ErrChannelNotSynced is returned by DownloadService.Trigger when the
 // broadcaster has no channels row. The transport layer maps this to
 // 404 with a pointer to channel.syncFromTwitch so the operator knows
@@ -27,10 +44,10 @@ var ErrChannelNotSynced = errors.New("video: channel not synced")
 // This service is the operator-facing wrapper that sits between the
 // tRPC transport and that pipeline.
 type DownloadService struct {
-	repo       repository.Repository
-	downloader *downloader.Service
+	repo       downloadRepo
+	downloader downloadRunner
 	twitch     *twitch.Client
-	hydrator   *streammeta.Hydrator
+	hydrator   streamHydrator
 	log        *slog.Logger
 }
 
@@ -62,12 +79,11 @@ func NewDownload(repo repository.Repository, dl *downloader.Service, tc *twitch.
 // survives across restarts (videos row) and affects the in-flight
 // pipeline (Params).
 type TriggerInput struct {
-	BroadcasterID   string
-	RecordingType   string
-	Quality         string
-	ForceH264       bool
-	UserID          string
-	UserAccessToken string
+	BroadcasterID string
+	RecordingType string
+	Quality       string
+	ForceH264     bool
+	UserID        string
 }
 
 // TriggerResult is what Trigger hands back. JobID is always set;
@@ -99,8 +115,7 @@ func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (Trig
 
 	// Attach user identity so Helix calls from the download flow are
 	// attributed correctly and fetch logs carry the right user.
-	downloadCtx := twitch.WithUserToken(ctx, input.UserAccessToken)
-	downloadCtx = twitch.WithUserID(downloadCtx, input.UserID)
+	downloadCtx := twitch.WithUserID(ctx, input.UserID)
 
 	// Hydrate from Helix via the shared service: persists streams +
 	// categories + tags + titles rows and returns a snapshot for the
@@ -180,10 +195,24 @@ func (s *DownloadService) Subscribe(jobID string) <-chan downloader.Progress {
 	return s.downloader.Subscribe(jobID)
 }
 
+func (s *DownloadService) ActiveProgress() []downloader.Progress {
+	return s.downloader.ListActiveProgress()
+}
+
+// VideoByJobID exposes the downloader-service's video lookup so the
+// handler can resolve the active-downloads set from in-memory job
+// IDs instead of scanning a page of RUNNING rows.
+func (s *DownloadService) VideoByJobID(ctx context.Context, jobID string) (*repository.Video, error) {
+	return s.repo.GetVideoByJobID(ctx, jobID)
+}
+
+func (s *DownloadService) SubscribeActive(ctx context.Context) <-chan struct{} {
+	return s.downloader.SubscribeActive(ctx)
+}
+
 func derefString(s *string) string {
 	if s == nil {
 		return ""
 	}
 	return *s
 }
-
