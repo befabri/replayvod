@@ -1,5 +1,6 @@
 import { Download, TwitchLogo } from "@phosphor-icons/react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Avatar } from "@/components/ui/avatar";
@@ -8,7 +9,10 @@ import { useChannel } from "@/features/channels/queries";
 import { useLiveSet } from "@/features/streams-live";
 import { TriggerDownloadDialog } from "@/features/videos/components/TriggerDownloadDialog";
 import { VideoCard } from "@/features/videos/components/VideoCard";
-import { useVideosByBroadcaster } from "@/features/videos/queries";
+import { VideoGrid } from "@/features/videos/components/VideoGrid";
+import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
+import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
+import { useInfiniteVideosByBroadcaster } from "@/features/videos/queries";
 
 export const Route = createFileRoute("/dashboard/channels_/$channelId")({
 	component: ChannelDetailPage,
@@ -18,9 +22,30 @@ function ChannelDetailPage() {
 	const { t } = useTranslation();
 	const { channelId } = Route.useParams();
 	const channel = useChannel(channelId);
-	const videos = useVideosByBroadcaster(channelId, 50, 0);
+	const videos = useInfiniteVideosByBroadcaster(channelId, 24);
 	const liveSet = useLiveSet();
 	const isLive = liveSet.has(channelId);
+	const loadMoreRef = useRef<HTMLDivElement | null>(null);
+	const videoItems = videos.data?.pages.flatMap((page) => page.items) ?? [];
+	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
+
+	useEffect(() => {
+		const node = loadMoreRef.current;
+		if (!node || !videos.hasNextPage) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (!entries[0]?.isIntersecting || videos.isFetchingNextPage) {
+					return;
+				}
+				void videos.fetchNextPage();
+			},
+			{ rootMargin: "400px 0px" },
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, [videos.fetchNextPage, videos.hasNextPage, videos.isFetchingNextPage]);
 
 	return (
 		<TitledLayout title={channel.data?.broadcaster_name ?? ""}>
@@ -86,18 +111,25 @@ function ChannelDetailPage() {
 
 			<h2 className="text-xl font-medium mb-4">{t("nav.videos")}</h2>
 
-			{videos.isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
-			)}
-			{videos.data && videos.data.length === 0 && (
+			{videos.isLoading && <VideoGridLoading className="mt-0" variant="wide" />}
+			{videos.data && videoItems.length === 0 && (
 				<div className="text-muted-foreground">{t("videos.empty")}</div>
 			)}
-			{videos.data && videos.data.length > 0 && (
-				<div className="grid grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-4">
-					{videos.data.map((v) => (
-						<VideoCard key={v.id} video={v} />
-					))}
-				</div>
+			{videos.data && videoItems.length > 0 && (
+				<>
+					<VideoGrid variant="wide">
+						{videoItems.map((v) => (
+							<VideoCard key={v.id} video={v} />
+						))}
+					</VideoGrid>
+					<div ref={loadMoreRef} className="h-1" />
+					{videos.isFetchingNextPage && (
+						<VideoGridLoading count={2} variant="wide" />
+					)}
+					{hasScrolledThroughPages &&
+						!videos.hasNextPage &&
+						!videos.isFetchingNextPage && <VideoGridEnd />}
+				</>
 			)}
 		</TitledLayout>
 	);

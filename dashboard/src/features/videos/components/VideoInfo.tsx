@@ -57,7 +57,6 @@ export function VideoInfo({ video }: { video: VideoResponse }) {
 					</>
 				) : null}
 			</div>
-
 		</div>
 	);
 }

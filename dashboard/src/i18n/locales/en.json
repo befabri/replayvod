@@ -45,6 +45,12 @@
 		"saving": "Saving…",
 		"cancel": "Cancel"
 	},
+	"dashboard": {
+		"running_now": "Running now",
+		"active_count": "{{count}} active",
+		"running_now_empty": "No active downloads.",
+		"running_now_failed": "Failed to load current downloads"
+	},
 	"categories": {
 		"title": "Categories",
 		"empty": "No categories yet. Categories will be populated as streams are recorded.",
@@ -60,6 +66,7 @@
 		"sort_desc": "Channel (Z-A)",
 		"filter_all": "All channels",
 		"filter_live": "Live now",
+		"end_of_list": "End of list",
 		"live_badge": "Live",
 		"open_in_twitch": "Twitch"
 	},
@@ -72,6 +79,31 @@
 		"empty": "No videos yet. Trigger a download from a channel page.",
 		"failed_to_load": "Failed to load videos",
 		"not_found": "Video not found.",
+		"watch_recording": "Watch {{title}}",
+		"summary": "{{count}} recordings · {{size}} · {{channels}} channels",
+		"showing": "Showing {{shown}} of {{total}}",
+		"showing_loaded": "Showing {{shown}} of {{loaded}} loaded",
+		"sort_label": "Sort",
+		"view_label": "View",
+		"scope_label": "Scope",
+		"filters": "Filters",
+		"filter_quality": "Quality",
+		"filter_channel": "Channel",
+		"filter_language": "Language",
+		"filter_duration": "Duration",
+		"filter_size": "Size",
+		"filter_any": "any",
+		"duration_any": "any",
+		"duration_short": "under 30m",
+		"duration_medium": "30m-2h",
+		"duration_long": "2h-4h",
+		"duration_marathon": "4h+",
+		"size_any": "any",
+		"size_small": "under 1 GB",
+		"size_medium": "1-4 GB",
+		"size_large": "4+ GB",
+		"no_match": "No videos match the current filters.",
+		"no_match_loaded": "No matches in loaded videos yet. More results are loading.",
 		"sort": {
 			"newest": "Newest first",
 			"oldest": "Oldest first",
@@ -102,6 +134,7 @@
 			"CANCELLED": "Cancelled"
 		},
 		"watch": "Watch",
+		"recorded": "Recorded",
 		"triggered": "Download started",
 		"trigger_download": "Download",
 		"trigger_title": "Start a download",
@@ -121,6 +154,9 @@
 		"duration": "Duration",
 		"size": "Size",
 		"no_thumbnail": "No thumbnail",
+		"end_of_list": "End of list",
+		"viewer_count_one": "{{count, number}} viewer",
+		"viewer_count_other": "{{count, number}} viewers",
 		"title_history": {
 			"badge": "Titles",
 			"tooltip": "View title history",
@@ -134,6 +170,10 @@
 			"heading": "Categories",
 			"description": "Every category the stream was set to during this recording.",
 			"empty": "No categories recorded."
+		},
+		"span_duration": {
+			"just_switched": "Just switched",
+			"less_than_minute": "Less than a minute"
 		},
 		"categories_inline_label": "Categories",
 		"language": "Language",

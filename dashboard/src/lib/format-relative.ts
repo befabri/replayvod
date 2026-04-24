@@ -34,3 +34,38 @@ export function formatRelative(iso: string, locale: string): string {
 	if (diffMonth < 12) return rtf.format(-diffMonth, "month");
 	return rtf.format(-Math.round(diffMonth / 12), "year");
 }
+
+// formatAbsolute returns a compact locale-formatted date+time — short
+// date (e.g. "4/24/26") and short time ("1:23 PM") — suitable for
+// narrow table cells. Cached per-locale for the same reason as
+// getRtf.
+const dtfCache = new Map<string, Intl.DateTimeFormat>();
+function getDtf(locale: string): Intl.DateTimeFormat {
+	let dtf = dtfCache.get(locale);
+	if (!dtf) {
+		dtf = new Intl.DateTimeFormat(locale, {
+			dateStyle: "short",
+			timeStyle: "short",
+		});
+		dtfCache.set(locale, dtf);
+	}
+	return dtf;
+}
+
+export function formatAbsolute(iso: string, locale: string): string {
+	return getDtf(locale).format(new Date(iso));
+}
+
+// formatTimestamp picks between relative and absolute: recent events
+// (<7 days) read as "2h ago" since that's how people think about
+// them; older events get a compact absolute stamp since "3 months
+// ago" is less precise than the caller usually wants. The full ISO
+// is available to the caller for `<time dateTime>` and title tooltip.
+const RELATIVE_WINDOW_MS = 7 * 24 * 3600 * 1000;
+export function formatTimestamp(iso: string, locale: string): string {
+	const then = new Date(iso).getTime();
+	if (Date.now() - then < RELATIVE_WINDOW_MS) {
+		return formatRelative(iso, locale);
+	}
+	return formatAbsolute(iso, locale);
+}

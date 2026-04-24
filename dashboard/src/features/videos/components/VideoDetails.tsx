@@ -2,10 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import type { VideoResponse } from "@/features/videos";
-import {
-	useVideoCategories,
-	useVideoTitles,
-} from "@/features/videos/queries";
+import { useVideoCategories, useVideoTitles } from "@/features/videos/queries";
 
 // VideoDetails is the Watch-page panel that lives below the player.
 // Three sections stacked:

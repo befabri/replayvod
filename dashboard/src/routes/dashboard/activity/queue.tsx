@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { DataTable } from "@/components/ui/data-table";
-import { useVideos } from "@/features/videos";
+import { useVideoListPage } from "@/features/videos";
 import { queueColumns } from "@/features/videos/components/activityColumns";
 
 export const Route = createFileRoute("/dashboard/activity/queue")({
@@ -9,10 +9,10 @@ export const Route = createFileRoute("/dashboard/activity/queue")({
 });
 
 function QueuePage() {
-	const running = useVideos(50, 0, "RUNNING");
-	const pending = useVideos(50, 0, "PENDING");
+	const running = useVideoListPage(50, "RUNNING", "created_at", "asc");
+	const pending = useVideoListPage(50, "PENDING", "created_at", "asc");
 
-	const rows = [...(running.data ?? []), ...(pending.data ?? [])];
+	const rows = [...(running.data?.items ?? []), ...(pending.data?.items ?? [])];
 	const loading = running.isLoading || pending.isLoading;
 	const error = running.error ?? pending.error;
 

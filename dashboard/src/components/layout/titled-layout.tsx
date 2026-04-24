@@ -22,19 +22,26 @@ export function PageTitle({
 
 export function TitledLayout({
 	title,
+	description,
 	actions,
 	children,
 }: {
 	title: React.ReactNode;
+	description?: React.ReactNode;
 	actions?: React.ReactNode;
 	children: React.ReactNode;
 }) {
 	return (
 		<>
-			<div className="pb-8 flex items-end justify-between gap-4 flex-wrap">
-				<PageTitle>{title}</PageTitle>
+			<div className="flex flex-col gap-4 pb-8 sm:flex-row sm:items-end sm:justify-between">
+				<div className="min-w-0 space-y-2">
+					<PageTitle>{title}</PageTitle>
+					{description ? (
+						<div className="text-sm text-muted-foreground">{description}</div>
+					) : null}
+				</div>
 				{actions ? (
-					<div className="flex items-center gap-3">{actions}</div>
+					<div className="flex flex-wrap items-center gap-3">{actions}</div>
 				) : null}
 			</div>
 			{children}

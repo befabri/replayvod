@@ -9,8 +9,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
-import { useVideoTitles } from "@/features/videos";
-import { formatDuration } from "@/features/videos/format";
+import { spanDurationLabel, useVideoTitles } from "@/features/videos";
 
 // TitleHistoryButton surfaces the titles captured during a recording.
 // A stream can change title mid-broadcast; the server polls Helix
@@ -100,11 +99,7 @@ export function TitleHistoryButton({
 								<div className="min-w-0 flex-1">
 									<div className="text-sm leading-snug">{title.name}</div>
 									<div className="text-xs text-muted-foreground">
-										{title.duration_seconds <= 0
-											? t("videos.title_history.just_switched")
-											: title.duration_seconds < 60
-												? t("videos.title_history.less_than_minute")
-												: formatDuration(title.duration_seconds)}
+										{spanDurationLabel(title.duration_seconds, t)}
 									</div>
 								</div>
 							</li>

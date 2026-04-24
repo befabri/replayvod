@@ -31,7 +31,12 @@ export const queueColumns: ColumnDef<VideoResponse>[] = [
 		accessorKey: "status",
 		header: "Status",
 		enableSorting: true,
-		cell: ({ row }) => <VideoStatusBadge status={row.original.status} />,
+		cell: ({ row }) => (
+			<VideoStatusBadge
+				status={row.original.status}
+				completionKind={row.original.completion_kind}
+			/>
+		),
 	},
 	{
 		accessorKey: "quality",
@@ -75,7 +80,12 @@ export const historyColumns: ColumnDef<VideoResponse>[] = [
 		accessorKey: "status",
 		header: "Status",
 		enableSorting: true,
-		cell: ({ row }) => <VideoStatusBadge status={row.original.status} />,
+		cell: ({ row }) => (
+			<VideoStatusBadge
+				status={row.original.status}
+				completionKind={row.original.completion_kind}
+			/>
+		),
 	},
 	{
 		accessorKey: "quality",

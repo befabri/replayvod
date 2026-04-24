@@ -11,8 +11,7 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
-import { useVideoCategories } from "@/features/videos";
-import { formatDuration } from "@/features/videos/format";
+import { spanDurationLabel, useVideoCategories } from "@/features/videos";
 
 // CategoryHistoryButton surfaces every category the stream was set
 // to during this recording. Same render contract as TitleHistoryButton:
@@ -98,11 +97,7 @@ export function CategoryHistoryButton({
 									<div className="min-w-0 flex-1">
 										<div className="truncate text-sm font-medium">{c.name}</div>
 										<div className="text-xs text-muted-foreground">
-											{c.duration_seconds <= 0
-												? t("videos.categories_history.just_switched")
-												: c.duration_seconds < 60
-													? t("videos.categories_history.less_than_minute")
-													: formatDuration(c.duration_seconds)}
+											{spanDurationLabel(c.duration_seconds, t)}
 										</div>
 									</div>
 								</Link>

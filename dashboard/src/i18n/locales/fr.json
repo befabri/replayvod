@@ -45,6 +45,12 @@
 		"saving": "Enregistrement…",
 		"cancel": "Annuler"
 	},
+	"dashboard": {
+		"running_now": "En cours",
+		"active_count": "{{count}} actives",
+		"running_now_empty": "Aucun téléchargement actif.",
+		"running_now_failed": "Impossible de charger les téléchargements en cours"
+	},
 	"categories": {
 		"title": "Catégories",
 		"empty": "Aucune catégorie. Elles apparaîtront quand des streams seront enregistrés.",
@@ -60,6 +66,7 @@
 		"sort_desc": "Chaîne (Z-A)",
 		"filter_all": "Toutes les chaînes",
 		"filter_live": "En direct",
+		"end_of_list": "Fin de la liste",
 		"live_badge": "En direct",
 		"open_in_twitch": "Twitch"
 	},
@@ -72,6 +79,31 @@
 		"empty": "Aucune vidéo. Lancez un téléchargement depuis une chaîne.",
 		"failed_to_load": "Impossible de charger les vidéos",
 		"not_found": "Vidéo introuvable.",
+		"watch_recording": "Regarder {{title}}",
+		"summary": "{{count}} enregistrements · {{size}} · {{channels}} chaînes",
+		"showing": "Affichage de {{shown}} sur {{total}}",
+		"showing_loaded": "Affichage de {{shown}} sur {{loaded}} chargées",
+		"sort_label": "Tri",
+		"view_label": "Vue",
+		"scope_label": "Portée",
+		"filters": "Filtres",
+		"filter_quality": "Qualité",
+		"filter_channel": "Chaîne",
+		"filter_language": "Langue",
+		"filter_duration": "Durée",
+		"filter_size": "Taille",
+		"filter_any": "toutes",
+		"duration_any": "toutes",
+		"duration_short": "moins de 30 min",
+		"duration_medium": "30 min-2 h",
+		"duration_long": "2 h-4 h",
+		"duration_marathon": "4 h+",
+		"size_any": "toutes",
+		"size_small": "moins de 1 Go",
+		"size_medium": "1-4 Go",
+		"size_large": "4+ Go",
+		"no_match": "Aucune vidéo ne correspond aux filtres actuels.",
+		"no_match_loaded": "Aucune correspondance parmi les vidéos chargées. D'autres résultats sont en cours de chargement.",
 		"sort": {
 			"newest": "Plus récent",
 			"oldest": "Plus ancien",
@@ -102,6 +134,7 @@
 			"CANCELLED": "Annulé"
 		},
 		"watch": "Regarder",
+		"recorded": "Enregistré",
 		"triggered": "Téléchargement démarré",
 		"trigger_download": "Télécharger",
 		"trigger_title": "Lancer un téléchargement",
@@ -121,6 +154,9 @@
 		"duration": "Durée",
 		"size": "Taille",
 		"no_thumbnail": "Aucune miniature",
+		"end_of_list": "Fin de la liste",
+		"viewer_count_one": "{{count, number}} spectateur",
+		"viewer_count_other": "{{count, number}} spectateurs",
 		"title_history": {
 			"badge": "Titres",
 			"tooltip": "Voir l'historique des titres",
@@ -134,6 +170,10 @@
 			"heading": "Catégories",
 			"description": "Chaque catégorie durant cet enregistrement.",
 			"empty": "Aucune catégorie enregistrée."
+		},
+		"span_duration": {
+			"just_switched": "Vient de changer",
+			"less_than_minute": "Moins d'une minute"
 		},
 		"categories_inline_label": "Catégories",
 		"language": "Langue",
