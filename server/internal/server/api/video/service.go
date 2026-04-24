@@ -36,19 +36,24 @@ func (s *Service) List(ctx context.Context, opts repository.ListVideosOpts) ([]r
 	return s.repo.ListVideos(ctx, opts)
 }
 
+// ListPage returns a cursor-paginated page of videos for the main library view.
+func (s *Service) ListPage(ctx context.Context, opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (*repository.VideoListPage, error) {
+	return s.repo.ListVideosPage(ctx, opts, cursor)
+}
+
 // GetByID returns a single video row or repository.ErrNotFound.
 func (s *Service) GetByID(ctx context.Context, id int64) (*repository.Video, error) {
 	return s.repo.GetVideo(ctx, id)
 }
 
-// ListByBroadcaster returns a paginated page of videos for a channel.
-func (s *Service) ListByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.Video, error) {
-	return s.repo.ListVideosByBroadcaster(ctx, broadcasterID, limit, offset)
+// ListByBroadcaster returns a cursor-paginated page of videos for a channel.
+func (s *Service) ListByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+	return s.repo.ListVideosByBroadcaster(ctx, broadcasterID, limit, cursor)
 }
 
-// ListByCategory returns a paginated page of videos tagged with a category.
-func (s *Service) ListByCategory(ctx context.Context, categoryID string, limit, offset int) ([]repository.Video, error) {
-	return s.repo.ListVideosByCategory(ctx, categoryID, limit, offset)
+// ListByCategory returns a cursor-paginated page of videos tagged with a category.
+func (s *Service) ListByCategory(ctx context.Context, categoryID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+	return s.repo.ListVideosByCategory(ctx, categoryID, limit, cursor)
 }
 
 // ChannelsByBroadcasterIDs resolves the display metadata the dashboard
@@ -96,6 +101,35 @@ func (s *Service) ChannelsByBroadcasterIDs(ctx context.Context, videos []reposit
 	return out
 }
 
+// PrimaryCategoriesByVideoIDs resolves the longest-held category per
+// video in one repo round-trip so list views can show a single stable
+// category label without N+1 history queries.
+func (s *Service) PrimaryCategoriesByVideoIDs(ctx context.Context, videos []repository.Video) map[int64]*repository.Category {
+	out := make(map[int64]*repository.Category)
+	if len(videos) == 0 {
+		return out
+	}
+	seen := make(map[int64]struct{}, len(videos))
+	ids := make([]int64, 0, len(videos))
+	for _, v := range videos {
+		if _, dup := seen[v.ID]; dup {
+			continue
+		}
+		seen[v.ID] = struct{}{}
+		ids = append(ids, v.ID)
+	}
+	cats, err := s.repo.ListPrimaryCategoriesForVideos(ctx, ids)
+	if err != nil {
+		s.log.Warn("resolve primary categories for video response", "error", err)
+		return out
+	}
+	for id, cat := range cats {
+		c := cat
+		out[id] = &c
+	}
+	return out
+}
+
 // Statistics are the aggregates shown on the dashboard home page.
 // One struct instead of two separate lookups so the transport layer
 // doesn't branch on "totals OK, buckets failed."
@@ -122,7 +156,7 @@ func (s *Service) Stats(ctx context.Context) (*Statistics, error) {
 // the title_id (which is effectively creation order of the
 // deduplicated name). Includes the initial at-download-start title
 // plus any title changes captured during the recording.
-func (s *Service) Titles(ctx context.Context, videoID int64) ([]repository.Title, error) {
+func (s *Service) Titles(ctx context.Context, videoID int64) ([]repository.TitleSpan, error) {
 	return s.repo.ListTitlesForVideo(ctx, videoID)
 }
 
@@ -132,7 +166,7 @@ func (s *Service) Titles(ctx context.Context, videoID int64) ([]repository.Title
 // Ordered by first-seen (category_id ascending, since the junction
 // row creation order maps to the ID sequence). Deduped via the
 // underlying SELECT DISTINCT.
-func (s *Service) Categories(ctx context.Context, videoID int64) ([]repository.Category, error) {
+func (s *Service) Categories(ctx context.Context, videoID int64) ([]repository.CategorySpan, error) {
 	return s.repo.ListCategoriesForVideo(ctx, videoID)
 }
 
