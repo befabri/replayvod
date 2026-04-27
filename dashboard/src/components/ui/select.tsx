@@ -1,8 +1,26 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CaretDown, Check } from "@phosphor-icons/react";
+import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 
 import { cn } from "@/lib/utils";
+
+// `chip` is the auto-width, card-surface trigger used in toolbar rows
+// (sort, view, filter chips). It drops the form-control affordances —
+// full width, input-style background, drop shadow — that would clash
+// with the surrounding chip group.
+const selectTriggerVariants = cva(
+	"flex h-9 items-center justify-between gap-2 rounded-md border border-border px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20",
+	{
+		variants: {
+			variant: {
+				default: "w-full bg-background shadow-xs",
+				chip: "w-auto bg-card",
+			},
+		},
+		defaultVariants: { variant: "default" },
+	},
+);
 
 function Select(props: React.ComponentProps<typeof SelectPrimitive.Root>) {
 	return <SelectPrimitive.Root data-slot="select" {...props} />;
@@ -16,19 +34,15 @@ function SelectValue(
 
 function SelectTrigger({
 	className,
+	variant,
 	children,
 	...props
-}: React.ComponentProps<typeof SelectPrimitive.Trigger>) {
+}: React.ComponentProps<typeof SelectPrimitive.Trigger> &
+	VariantProps<typeof selectTriggerVariants>) {
 	return (
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"
-			className={cn(
-				"flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs outline-none",
-				"focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-				"disabled:cursor-not-allowed disabled:opacity-50",
-				"aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/20",
-				className,
-			)}
+			className={cn(selectTriggerVariants({ variant }), className)}
 			{...props}
 		>
 			{children}
@@ -46,7 +60,11 @@ function SelectContent({
 }: React.ComponentProps<typeof SelectPrimitive.Popup>) {
 	return (
 		<SelectPrimitive.Portal>
-			<SelectPrimitive.Positioner sideOffset={4} className="z-50">
+			<SelectPrimitive.Positioner
+				side="bottom"
+				alignItemWithTrigger={false}
+				className="z-50"
+			>
 				<SelectPrimitive.Popup
 					data-slot="select-content"
 					className={cn(

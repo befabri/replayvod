@@ -128,7 +128,7 @@ function VideosPage() {
 		size,
 	} = Route.useSearch();
 	const navigate = Route.useNavigate();
-	const [filtersOpen, setFiltersOpen] = useState(true);
+	const [filtersOpen, setFiltersOpen] = useState(false);
 	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 	const { data: stats } = useStatistics();
 	const { data: channels } = useChannels();
@@ -359,7 +359,7 @@ function VideosPage() {
 				/>
 
 				{filtersOpen ? (
-					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+					<div className="flex animate-in flex-col gap-3 fade-in-0 slide-in-from-top-1 duration-150 sm:flex-row sm:items-center sm:justify-between">
 						<div className="flex flex-wrap items-center gap-2.5">
 							<FilterChipSelect
 								label={t("videos.filter_quality")}
@@ -520,7 +520,7 @@ function SortSelect({
 	const label = t(`videos.sort.${current}`);
 	return (
 		<Select value={current} onValueChange={(next) => onChange(next as SortKey)}>
-			<SelectTrigger className="h-10 w-auto min-w-[150px] rounded-xl border-border bg-card px-3 shadow-none">
+			<SelectTrigger variant="chip" className="min-w-[150px]">
 				<div className="flex items-center gap-2">
 					<SortAscending className="size-4 text-muted-foreground" />
 					<span className="truncate text-sm font-medium">{label}</span>
@@ -550,7 +550,7 @@ function ViewToggle({
 		{ key: "table", icon: <Rows className="size-4" /> },
 	];
 	return (
-		<fieldset className="inline-flex items-center rounded-xl border border-border bg-card p-1">
+		<fieldset className="inline-flex items-center rounded-md border border-border bg-card p-0.5">
 			<legend className="sr-only">{t("videos.view_label")}</legend>
 			{modes.map((mode) => {
 				const active = current === mode.key;
@@ -632,7 +632,7 @@ function FilterChipSelect({
 		options.find((option) => option.value === value) ?? options[0];
 	return (
 		<Select value={value} onValueChange={(next) => onChange(String(next))}>
-			<SelectTrigger className="h-10 w-auto min-w-[138px] rounded-xl border-border bg-card px-3 shadow-none">
+			<SelectTrigger variant="chip" className="min-w-[138px]">
 				<span className="truncate text-sm">
 					<span className="text-muted-foreground">{label}:</span>{" "}
 					<span className="font-medium text-foreground">{selected?.label}</span>
