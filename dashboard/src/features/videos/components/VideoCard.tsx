@@ -318,7 +318,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 						to={"/dashboard/channels/$channelId" as any}
 						// biome-ignore lint/suspicious/noExplicitAny: param route typing
 						params={{ channelId: video.broadcaster_id } as any}
-						className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+						className="inline-flex shrink-0 rounded-full ring-4 ring-transparent ring-offset-2 ring-offset-background transition-[box-shadow,--tw-ring-color] duration-150 hover:ring-accent focus-visible:outline-none focus-visible:ring-ring"
 						aria-label={label}
 					>
 						<Avatar
