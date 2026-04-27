@@ -15,7 +15,7 @@ const selectTriggerVariants = cva(
 		variants: {
 			variant: {
 				default: "w-full bg-background shadow-xs",
-				chip: "w-auto bg-card",
+				chip: "w-auto border-transparent bg-card hover:bg-accent hover:text-accent-foreground",
 			},
 		},
 		defaultVariants: { variant: "default" },

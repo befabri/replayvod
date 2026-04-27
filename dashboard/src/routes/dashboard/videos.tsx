@@ -338,9 +338,13 @@ function VideosPage() {
 						}}
 					/>
 					<Button
-						variant="outline"
+						variant="ghost"
 						onClick={() => setFiltersOpen((open) => !open)}
-						className={cn(filtersOpen && "bg-accent text-accent-foreground")}
+						className={cn(
+							"bg-card focus-visible:border-transparent focus-visible:ring-0",
+							filtersOpen &&
+								"bg-primary text-primary-foreground hover:bg-primary-hover hover:text-primary-foreground",
+						)}
 					>
 						<FunnelSimple className="size-4" />
 						{t("videos.filters")}
