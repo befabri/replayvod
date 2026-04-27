@@ -158,18 +158,14 @@
 		"viewer_count_one": "{{count, number}} viewer",
 		"viewer_count_other": "{{count, number}} viewers",
 		"title_history": {
-			"badge": "Titles",
-			"tooltip": "View title history",
-			"heading": "Title history",
-			"description": "Every title set during this recording, in the order it was captured.",
-			"empty": "No title history recorded. Enable title tracking in config.toml to capture mid-stream changes."
+			"heading": "Title history"
 		},
-		"categories_history": {
-			"badge": "Categories",
-			"tooltip": "View categories",
-			"heading": "Categories",
-			"description": "Every category the stream was set to during this recording.",
-			"empty": "No categories recorded."
+		"history": {
+			"tooltip": "View stream timeline",
+			"heading": "Stream timeline",
+			"description": "Title and category changes captured during this recording, interleaved chronologically.",
+			"empty": "No title or category history recorded. Enable title tracking in config.toml to capture mid-stream changes.",
+			"start": "Start"
 		},
 		"span_duration": {
 			"just_switched": "Just switched",

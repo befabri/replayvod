@@ -17,4 +17,5 @@ export {
 	type VideoCategory,
 	type VideoOrder,
 	type VideoSort,
+	type VideoTitle,
 } from "./queries";

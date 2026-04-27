@@ -11,10 +11,10 @@ import { useVideoCategories, useVideoTitles } from "@/features/videos/queries";
 //   3. Technical metadata grid (size, quality, language, timestamps,
 //      ids — useful for operators debugging a recording)
 //
-// The corresponding dialogs on VideoCard (CategoryHistoryButton,
-// TitleHistoryButton) are still the right fit on list views; here we
-// have room to surface all three inline so users don't have to click
-// to see context for the video they're watching.
+// The combined timeline dialog on VideoCard (StreamHistoryButton) is
+// still the right fit on list views; here we have room to surface all
+// three inline so users don't have to click to see context for the
+// video they're watching.
 export function VideoDetails({ video }: { video: VideoResponse }) {
 	const { data: categories } = useVideoCategories(video.id);
 	const { data: titles } = useVideoTitles(video.id);

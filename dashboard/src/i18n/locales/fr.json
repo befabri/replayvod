@@ -158,18 +158,14 @@
 		"viewer_count_one": "{{count, number}} spectateur",
 		"viewer_count_other": "{{count, number}} spectateurs",
 		"title_history": {
-			"badge": "Titres",
-			"tooltip": "Voir l'historique des titres",
-			"heading": "Historique des titres",
-			"description": "Tous les titres définis pendant cet enregistrement, dans l'ordre où ils ont été capturés.",
-			"empty": "Aucun historique enregistré. Activez le suivi des titres dans config.toml pour capturer les changements en cours de stream."
+			"heading": "Historique des titres"
 		},
-		"categories_history": {
-			"badge": "Catégories",
-			"tooltip": "Voir les catégories",
-			"heading": "Catégories",
-			"description": "Chaque catégorie durant cet enregistrement.",
-			"empty": "Aucune catégorie enregistrée."
+		"history": {
+			"tooltip": "Voir la chronologie du stream",
+			"heading": "Chronologie du stream",
+			"description": "Changements de titre et de catégorie capturés pendant cet enregistrement, entrelacés dans l'ordre chronologique.",
+			"empty": "Aucun historique de titre ou de catégorie enregistré. Activez le suivi des titres dans config.toml pour capturer les changements en cours de stream.",
+			"start": "Début"
 		},
 		"span_duration": {
 			"just_switched": "Vient de changer",

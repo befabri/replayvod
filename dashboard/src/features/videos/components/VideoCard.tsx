@@ -1,4 +1,4 @@
-import { ListBullets, Play } from "@phosphor-icons/react";
+import { Play } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,8 +10,7 @@ import {
 	type VideoResponse,
 } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
-import { CategoryHistoryButton } from "./CategoryHistoryButton";
-import { TitleHistoryButton } from "./TitleHistoryButton";
+import { StreamHistoryButton } from "./StreamHistoryButton";
 
 // Ms between snapshot swaps on hover. 900ms — middle-ground between
 // snappy (600ms, registered as flicker) and sedate (1200ms, felt slow):
@@ -300,12 +299,10 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 						>
 							{primaryLabel}
 						</Link>
-						<TitleHistoryButton
+						<StreamHistoryButton
 							videoId={video.id}
 							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-						>
-							<ListBullets className="size-4" />
-						</TitleHistoryButton>
+						/>
 					</div>
 				) : (
 					<div
@@ -316,25 +313,49 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 					</div>
 				)}
 				<div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-					<Avatar
-						src={video.profile_image_url}
-						name={label}
-						alt={label}
-						size="sm"
-					/>
+					<Link
+						// biome-ignore lint/suspicious/noExplicitAny: param route typing
+						to={"/dashboard/channels/$channelId" as any}
+						// biome-ignore lint/suspicious/noExplicitAny: param route typing
+						params={{ channelId: video.broadcaster_id } as any}
+						className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+						aria-label={label}
+					>
+						<Avatar
+							src={video.profile_image_url}
+							name={label}
+							alt={label}
+							size="sm"
+						/>
+					</Link>
 					<div className="min-w-0">
-						<div className="truncate font-medium text-foreground">{label}</div>
+						<Link
+							// biome-ignore lint/suspicious/noExplicitAny: param route typing
+							to={"/dashboard/channels/$channelId" as any}
+							// biome-ignore lint/suspicious/noExplicitAny: param route typing
+							params={{ channelId: video.broadcaster_id } as any}
+							className="block truncate font-medium text-foreground transition-colors hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+						>
+							{label}
+						</Link>
 						<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 							<span>{sizeLabel}</span>
 							{video.status === "DONE" && primaryCategoryLabel ? (
 								<>
 									<span className="opacity-40">·</span>
-									<CategoryHistoryButton
-										videoId={video.id}
-										className="inline-flex items-center rounded-none px-0 py-0 text-xs font-medium text-primary transition-colors hover:text-link"
-									>
-										{primaryCategoryLabel}
-									</CategoryHistoryButton>
+									{video.primary_category_id ? (
+										<Link
+											// biome-ignore lint/suspicious/noExplicitAny: param route typing
+											to={"/dashboard/categories/$categoryId" as any}
+											// biome-ignore lint/suspicious/noExplicitAny: param route typing
+											params={{ categoryId: video.primary_category_id } as any}
+											className="truncate transition-colors hover:text-foreground"
+										>
+											{primaryCategoryLabel}
+										</Link>
+									) : (
+										<span className="truncate">{primaryCategoryLabel}</span>
+									)}
 								</>
 							) : null}
 						</div>
