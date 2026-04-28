@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "replayvod-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-28",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RELAY",
+        "class_name": "RelayDO",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RelayDO"],
+    },
+  ],
+  "observability": {
+    "enabled": true,
+  },
+  // Secrets (set via `wrangler secret put`):
+  //   TOKEN_VALIDATE_URL — https://api.replayvod.com/relay/tokens/validate
+  //   RELAY_SHARED_SECRET — shared bearer secret with replayvod-cloud
+}
