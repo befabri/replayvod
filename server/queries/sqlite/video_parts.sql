@@ -29,3 +29,15 @@ SELECT COUNT(*) FROM video_parts WHERE video_id = ?;
 
 -- name: DeleteVideoParts :exec
 DELETE FROM video_parts WHERE video_id = ?;
+
+-- name: HasFinalizedVideoParts :one
+-- True when at least one part for this video has been remuxed and
+-- persisted (size_bytes > 0). Mirrors the postgres query — see
+-- queries/postgres/video_parts.sql for the rationale.
+--
+-- Single-line SELECT EXISTS form: sqlc-sqlite's engine miscompiles
+-- multi-line EXISTS bodies, corrupting the const literal AND the
+-- next query in the file (we hit both: a truncated `has_finalized`
+-- alias and a clobbered DeleteVideoParts). One-line form sidesteps
+-- the parser bug.
+SELECT EXISTS (SELECT 1 FROM video_parts WHERE video_id = ? AND size_bytes > 0) AS has_finalized;

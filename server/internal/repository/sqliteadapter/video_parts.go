@@ -75,6 +75,15 @@ func (a *SQLiteAdapter) CountVideoParts(ctx context.Context, videoID int64) (int
 	return a.queries.CountVideoParts(ctx, videoID)
 }
 
+func (a *SQLiteAdapter) HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error) {
+	// SQLite reports EXISTS as 0/1; flatten to bool at the boundary.
+	v, err := a.queries.HasFinalizedVideoParts(ctx, videoID)
+	if err != nil {
+		return false, err
+	}
+	return v != 0, nil
+}
+
 func (a *SQLiteAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
 	return a.queries.DeleteVideoParts(ctx, videoID)
 }

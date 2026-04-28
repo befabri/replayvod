@@ -170,6 +170,26 @@ func (q *Queries) GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByInd
 	return i, err
 }
 
+const hasFinalizedVideoParts = `-- name: HasFinalizedVideoParts :one
+SELECT EXISTS (SELECT 1 FROM video_parts WHERE video_id = ? AND size_bytes > 0) AS has_finaliz
+`
+
+// True when at least one part for this video has been remuxed and
+// persisted (size_bytes > 0). Mirrors the postgres query — see
+// queries/postgres/video_parts.sql for the rationale.
+//
+// Single-line SELECT EXISTS form: sqlc-sqlite's engine miscompiles
+// multi-line EXISTS bodies, corrupting the const literal AND the
+// next query in the file (we hit both: a truncated `has_finalized`
+// alias and a clobbered DeleteVideoParts). One-line form sidesteps
+// the parser bug.
+func (q *Queries) HasFinalizedVideoParts(ctx context.Context, videoID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, hasFinalizedVideoParts, videoID)
+	var has_finalized int64
+	err := row.Scan(&has_finalized)
+	return has_finalized, err
+}
+
 const listVideoParts = `-- name: ListVideoParts :many
 SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps FROM video_parts WHERE video_id = ? ORDER BY part_index ASC
 `

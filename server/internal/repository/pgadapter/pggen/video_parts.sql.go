@@ -175,6 +175,26 @@ func (q *Queries) GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByInd
 	return i, err
 }
 
+const hasFinalizedVideoParts = `-- name: HasFinalizedVideoParts :one
+SELECT EXISTS (
+    SELECT 1 FROM video_parts
+    WHERE video_id = $1 AND size_bytes > 0
+) AS has_finalized
+`
+
+// True when at least one part for this video has been remuxed and
+// persisted (size_bytes > 0). Stub rows created at PrepareInput but
+// not yet finalized at Store don't count — their files don't exist on
+// storage. Used by the failure path to distinguish "recording lost
+// before any watchable output" from "some parts saved before the run
+// failed", which becomes the partial completion_kind on the row.
+func (q *Queries) HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, hasFinalizedVideoParts, videoID)
+	var has_finalized bool
+	err := row.Scan(&has_finalized)
+	return has_finalized, err
+}
+
 const listVideoParts = `-- name: ListVideoParts :many
 SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps FROM video_parts WHERE video_id = $1 ORDER BY part_index ASC
 `

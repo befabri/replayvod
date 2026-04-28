@@ -33,5 +33,17 @@ SELECT * FROM video_parts WHERE video_id = $1 ORDER BY part_index ASC;
 -- name: CountVideoParts :one
 SELECT COUNT(*) FROM video_parts WHERE video_id = $1;
 
+-- name: HasFinalizedVideoParts :one
+-- True when at least one part for this video has been remuxed and
+-- persisted (size_bytes > 0). Stub rows created at PrepareInput but
+-- not yet finalized at Store don't count — their files don't exist on
+-- storage. Used by the failure path to distinguish "recording lost
+-- before any watchable output" from "some parts saved before the run
+-- failed", which becomes the partial completion_kind on the row.
+SELECT EXISTS (
+    SELECT 1 FROM video_parts
+    WHERE video_id = $1 AND size_bytes > 0
+) AS has_finalized;
+
 -- name: DeleteVideoParts :exec
 DELETE FROM video_parts WHERE video_id = $1;
