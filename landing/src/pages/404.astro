@@ -1,0 +1,27 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Page not found · ReplayVOD"
+  description="The requested ReplayVOD page could not be found."
+>
+  <Nav />
+  <main class="border-b border-border-soft py-32">
+    <section class="mx-auto max-w-[760px] px-8 text-center">
+      <p class="mb-4 font-mono text-[12px] uppercase tracking-[0.14em] text-primary">404</p>
+      <h1 class="text-display-2 text-balance">That page is not in the archive.</h1>
+      <p class="mx-auto mt-5 max-w-[560px] text-[17px] leading-[1.65] text-fg-muted">
+        The link may be outdated, or the page may have moved. Start from the docs or return to the
+        homepage.
+      </p>
+      <div class="mt-8 flex flex-wrap justify-center gap-3">
+        <a href="/docs/" class="btn btn-primary btn-lg">Open docs</a>
+        <a href="/" class="btn btn-lg">Back home</a>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

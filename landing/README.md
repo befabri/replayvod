@@ -92,6 +92,8 @@ Marketing components in `src/components/`:
 | `npm run dev`          | `astro dev` |
 | `npm run build`        | `astro build` to `dist/` |
 | `npm run preview`      | serve the production build locally |
+| `npm run preview:cf`   | build, then preview Workers Static Assets with Wrangler |
+| `npm run deploy`       | build, then deploy Workers Static Assets with Wrangler |
 | `npm run check`        | `astro check` (TypeScript + Astro diagnostics) |
 | `npm run format`       | Prettier write |
 | `npm run format:check` | Prettier check |
@@ -126,8 +128,22 @@ npm run test:install
 ## Deploy
 
 Pure static output; `npm run build` writes pre-rendered HTML, CSS, and JS to
-`dist/`. Drop it on Cloudflare Pages, Vercel Static, or any HTTP host. The
-configured site URL is `https://replayvod.com` (`astro.config.ts`).
+`dist/`. The production target is Cloudflare Workers Static Assets via
+`wrangler.jsonc`.
+
+Preview locally with Cloudflare's runtime:
+
+```bash
+npm run preview:cf
+```
+
+Deploy:
+
+```bash
+npm run deploy
+```
+
+The configured site URL is `https://replayvod.com` (`astro.config.ts`).
 
 ## License
 
