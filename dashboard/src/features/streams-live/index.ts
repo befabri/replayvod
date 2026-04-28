@@ -7,6 +7,7 @@ export type {
 export { LiveStreamsCard } from "./LiveStreamsCard";
 export {
 	useFollowedStreams,
+	useLastLive,
 	useLiveSet,
 	useLiveStreams,
 } from "./queries";

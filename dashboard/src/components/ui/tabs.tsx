@@ -34,7 +34,11 @@ function TabsTrigger({
 				"inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1 text-sm font-medium transition-all outline-none",
 				"focus-visible:ring-[3px] focus-visible:ring-ring/50",
 				"disabled:pointer-events-none disabled:opacity-50",
-				"data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm",
+				// Base UI's Tab primitive emits `data-active` on the
+				// selected tab — `data-selected` (the shadcn/Radix
+				// convention) never matches under @base-ui/react and
+				// the active style was silently never rendering.
+				"data-[active]:bg-background data-[active]:text-foreground data-[active]:shadow-sm",
 				className,
 			)}
 			{...props}

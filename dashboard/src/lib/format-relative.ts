@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+
 // Cache Intl.RelativeTimeFormat instances per locale. The constructor is
 // non-trivial (parses CLDR data), and formatRelative gets called once per
 // row per render — we don't want to re-create it every time.
@@ -68,4 +71,27 @@ export function formatTimestamp(iso: string, locale: string): string {
 		return formatRelative(iso, locale);
 	}
 	return formatAbsolute(iso, locale);
+}
+
+// useRelativeTime returns formatRelative(iso) and re-renders once a
+// minute so the label doesn't freeze ("2h ago" turning into "3h ago"
+// while the user keeps the page open). Mirrors the per-minute tick
+// the Timestamp component uses, but exposes the raw string so callers
+// can splice it into a translated template ("last stream {{when}}")
+// instead of rendering a <time> element directly.
+//
+// Skips the interval for stamps older than the relative-window — at
+// that point formatRelative would be replaced by a frozen absolute
+// label anyway, and the tick would be wasted.
+export function useRelativeTime(iso: string | undefined): string | undefined {
+	const { i18n } = useTranslation();
+	const [, tick] = useState(0);
+	useEffect(() => {
+		if (!iso) return;
+		const age = Date.now() - new Date(iso).getTime();
+		if (age > RELATIVE_WINDOW_MS) return;
+		const id = window.setInterval(() => tick((n) => n + 1), 60_000);
+		return () => window.clearInterval(id);
+	}, [iso]);
+	return iso ? formatRelative(iso, i18n.language) : undefined;
 }

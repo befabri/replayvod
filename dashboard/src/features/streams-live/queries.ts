@@ -14,6 +14,21 @@ export function useFollowedStreams() {
 	);
 }
 
+// useLastLive returns the most recent stream record for a broadcaster:
+// the started_at / ended_at pair from the locally-mirrored streams
+// table. Reads from the DB, not Twitch — no Helix quota cost — so it's
+// safe to fan out per video card. Empty when the broadcaster has no
+// recorded streams yet (channel was added but never seen go live).
+export function useLastLive(broadcasterId: string) {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.stream.lastLive.queryOptions(
+			{ broadcaster_id: broadcasterId },
+			{ enabled: !!broadcasterId, staleTime: 60_000 },
+		),
+	);
+}
+
 // useLiveSet maintains a live `Set<broadcaster_id>` of currently-live
 // followed channels. Bootstraps from `stream.liveIds` (one Helix-backed
 // query) and then stays in sync via the `stream.status` SSE feed — no
