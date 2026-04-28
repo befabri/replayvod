@@ -4,14 +4,30 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { API_URL } from "@/env";
 import { useVideo } from "@/features/videos";
-import { VideoDetails } from "@/features/videos/components/VideoDetails";
+import {
+	CategoryTimelineCard,
+	TitleTimelineCard,
+	VideoMetaGrid,
+} from "@/features/videos/components/VideoDetails";
 import { VideoInfo } from "@/features/videos/components/VideoInfo";
+import { WatchPlayer } from "@/features/videos/components/WatchPlayer";
 import { cn } from "@/lib/utils";
 
-type WatchWidth = "full" | "contained";
-const WIDTH_STORAGE_KEY = "watch:width";
+// Layout choice persists across visits. "aside" places the timeline
+// cards in a right column next to the player; "wide" stacks them below
+// so the player can take the full content width. Only meaningful at
+// xl+ where the aside layout is two-column — narrower viewports always
+// stack, and the toggle is hidden there.
+type WatchLayout = "aside" | "wide";
+const LAYOUT_STORAGE_KEY = "watch:layout";
 
 export const Route = createFileRoute("/dashboard/watch_/$videoId")({
 	component: WatchPage,
@@ -23,22 +39,19 @@ function WatchPage() {
 	const id = Number(videoId);
 	const { data: video, isLoading, error } = useVideo(id);
 
-	const [width, setWidth] = useState<WatchWidth>("full");
+	const [layout, setLayout] = useState<WatchLayout>("aside");
 	const hydratedRef = useRef(false);
 
-	// Hydrate from localStorage on mount only.
 	useEffect(() => {
 		hydratedRef.current = true;
-		const stored = window.localStorage.getItem(WIDTH_STORAGE_KEY);
-		if (stored === "contained" || stored === "full") setWidth(stored);
+		const stored = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+		if (stored === "aside" || stored === "wide") setLayout(stored);
 	}, []);
 
-	// Persist on change, but only after initial hydration so we don't
-	// write the just-read value back to storage on mount.
 	useEffect(() => {
 		if (!hydratedRef.current) return;
-		window.localStorage.setItem(WIDTH_STORAGE_KEY, width);
-	}, [width]);
+		window.localStorage.setItem(LAYOUT_STORAGE_KEY, layout);
+	}, [layout]);
 
 	if (isLoading) {
 		return <div className="text-muted-foreground">{t("common.loading")}</div>;
@@ -73,56 +86,69 @@ function WatchPage() {
 		);
 	}
 
-	// Credentials:"include" is set globally on the tRPC client but the
-	// <video> element has no such override, so the browser uses its default
-	// (same-origin only). When API_URL is cross-origin, CORS+Credentials on
-	// the streaming endpoint must be configured — handled in CORS middleware.
+	// credentials:"include" is set globally on the tRPC client but the
+	// <video> element has no such override, so the browser uses its
+	// default (same-origin). When API_URL is cross-origin, the streaming
+	// endpoint must opt-in via CORS+Credentials — handled in middleware.
 	const streamURL = `${API_URL}/api/v1/videos/${video.id}/stream`;
 
+	const isWide = layout === "wide";
+
 	return (
-		<div className="flex flex-col gap-6">
-			<div className="flex items-center justify-end">
-				<Button
-					variant="outline"
-					size="sm"
-					onClick={() => setWidth((w) => (w === "full" ? "contained" : "full"))}
-					aria-label={
-						width === "full"
-							? t("watch.switch_to_contained")
-							: t("watch.switch_to_full")
-					}
-				>
-					{width === "full" ? <ArrowsIn /> : <ArrowsOut />}
-					{width === "full"
-						? t("watch.width_contained")
-						: t("watch.width_full")}
-				</Button>
-			</div>
-
-			<div
-				className={cn(
-					"rounded-lg overflow-hidden bg-black shadow-sm",
-					width === "contained" && "max-w-5xl mx-auto w-full",
-				)}
-			>
-				{/* biome-ignore lint/a11y/useMediaCaption: no captions available from Twitch VODs */}
-				<video
-					controls
-					preload="metadata"
-					className="w-full aspect-video"
+		<div
+			className={cn(
+				"grid gap-8",
+				!isWide && "xl:grid-cols-[minmax(0,1fr)_360px]",
+			)}
+		>
+			<div className="flex flex-col gap-6 min-w-0">
+				<WatchPlayer
 					src={streamURL}
+					title={video.title?.trim() || video.display_name}
 				/>
+				<VideoInfo
+					video={video}
+					headerAction={
+						/* Layout toggle docks alongside the title via the
+						   VideoInfo headerAction slot. Hidden below xl —
+						   the page always stacks there regardless of the
+						   saved preference, so the button would be a no-op.
+						   Icon-only with a tooltip for the verbose label. */
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<Button
+											variant="outline"
+											size="icon-sm"
+											className="hidden xl:inline-flex"
+											onClick={() =>
+												setLayout((w) => (w === "aside" ? "wide" : "aside"))
+											}
+											aria-label={
+												isWide
+													? t("watch.switch_to_aside")
+													: t("watch.switch_to_wide")
+											}
+										>
+											{isWide ? <ArrowsIn /> : <ArrowsOut />}
+										</Button>
+									}
+								/>
+								<TooltipContent>
+									{isWide ? t("watch.layout_aside") : t("watch.layout_wide")}
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+					}
+				/>
+				<VideoMetaGrid video={video} />
 			</div>
 
-			<div
-				className={cn(
-					"flex flex-col gap-8",
-					width === "contained" && "max-w-5xl mx-auto w-full",
-				)}
-			>
-				<VideoInfo video={video} />
-				<VideoDetails video={video} />
-			</div>
+			<aside className="min-w-0 flex flex-col gap-6">
+				<CategoryTimelineCard video={video} />
+				<TitleTimelineCard video={video} />
+			</aside>
 		</div>
 	);
 }

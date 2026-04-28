@@ -1,0 +1,60 @@
+/* WatchPlayer theme overrides — pushes Vidstack's default video
+   layout toward the v1 reference look:
+   - brand color = project --primary
+   - thin scrubber (3px) with primary fill
+   - subtle white-tinted unfilled / buffered track
+   - mono numerals on the time display
+   - softer top-to-bottom gradient under the controls
+   The selectors target Vidstack's layout class so they don't leak
+   onto any future audio-only embeds.
+*/
+
+.vds-video-layout {
+	/* Variables Vidstack uses internally — overriding here cascades
+	   through buttons, sliders, focus rings, etc. */
+	--video-brand: var(--primary);
+	--video-controls-color: rgb(255 255 255 / 0.92);
+	--video-focus-ring-color: var(--primary);
+
+	/* Make the time display read with the same tabular-mono feel
+	   the rest of the watch page uses for numbers. */
+	--media-time-font-family: var(--font-sans);
+	--media-time-font-size: 12px;
+}
+
+/* Thin scrubber, matches v1's 3px reference track. */
+.vds-video-layout .vds-time-slider {
+	--media-slider-track-height: 3px;
+	--media-slider-focused-track-height: 5px;
+}
+
+/* Subtle white-tinted base + buffered area; primary fill. */
+.vds-video-layout .vds-time-slider {
+	--media-slider-track-bg: rgb(255 255 255 / 0.18);
+	--media-slider-track-progress-bg: rgb(255 255 255 / 0.28);
+	--media-slider-track-fill-bg: var(--primary);
+}
+
+/* Round handle dot tinted to brand instead of plain white. */
+.vds-video-layout .vds-time-slider {
+	--media-slider-thumb-bg: var(--primary);
+	--media-slider-thumb-border: 0;
+}
+
+/* Tighten the controls gradient so the player surface stays mostly
+   visible — the v1 reference uses a single-direction soft fade
+   only at the bottom. */
+.vds-video-layout .vds-controls[data-visible] {
+	background-image: linear-gradient(
+		to top,
+		rgb(0 0 0 / 0.7),
+		15%,
+		transparent
+	);
+}
+
+/* Volume slider gets the same brand fill so the colors don't fight. */
+.vds-video-layout .vds-volume-slider {
+	--media-slider-track-fill-bg: var(--primary);
+	--media-slider-thumb-bg: var(--primary);
+}
