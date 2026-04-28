@@ -530,7 +530,10 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		// the failure.
 		// Pre-run failure (couldn't even create the job row);
 		// no completion to report. "complete" is the inert default.
-		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("create job row: %v", err), repository.CompletionKindComplete)
+		// truncated=false: the broadcast may have still been live, but
+		// nothing was captured here — there's no recording to be
+		// truncated relative to.
+		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("create job row: %v", err), repository.CompletionKindComplete, false)
 		return "", fmt.Errorf("create job row: %w", err)
 	}
 
@@ -708,11 +711,20 @@ func (s *Service) Resume(ctx context.Context) error {
 				"error", err)
 			errMsg := fmt.Sprintf("resume: %v", err)
 			_ = s.repo.MarkJobFailed(ctx, job.ID, errMsg)
-			// Resume path failure — same "inert complete" as the
-			// pre-run failure case above. The actual recording
-			// completion_kind was set at the prior terminal
-			// transition if it got that far.
-			_ = s.repo.MarkVideoFailed(ctx, job.VideoID, errMsg, repository.CompletionKindComplete)
+			// Resume path failure — completion_kind stays "complete"
+			// (the prior terminal transition, if any, set the real
+			// value already). For truncated, mirror the run-time
+			// rule: a resume that picks up at REMUX/STORE with the
+			// playlist's ENDLIST already observed is a post-broadcast
+			// failure, not a live-recording-cut-short. Default to
+			// truncated=true if the saved resume_state is unreadable
+			// (we can't tell, and "looks incomplete" is the safer
+			// loud signal).
+			truncated := true
+			if state, perr := UnmarshalResumeState(job.ResumeState); perr == nil {
+				truncated = state.HadWindowRoll || !state.EndListSeen
+			}
+			_ = s.repo.MarkVideoFailed(ctx, job.VideoID, errMsg, repository.CompletionKindComplete, truncated)
 		}
 	}
 	return nil
@@ -1152,7 +1164,14 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	if hadWindowRoll {
 		completionKind = repository.CompletionKindPartial
 	}
-	if err := s.repo.MarkVideoDone(dbCtx, d.videoID, aggDuration, aggSize, thumbPtr, completionKind); err != nil {
+	// truncated: did the recording stop before the broadcast did? A
+	// window roll always implies yes — the CDN rolled because the
+	// stream kept going. EndListSeen=false implies yes too — the
+	// playlist never closed, so something below the broadcast level
+	// (ffmpeg cap, manual stop) ended us early. EndListSeen=true with
+	// no window roll is the only "captured the whole broadcast" path.
+	truncated := hadWindowRoll || !d.resume.EndListSeen
+	if err := s.repo.MarkVideoDone(dbCtx, d.videoID, aggDuration, aggSize, thumbPtr, completionKind, truncated); err != nil {
 		log.Error("failed to mark video done", "error", err)
 		return
 	}
@@ -1979,16 +1998,55 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	} else {
 		log.Error("download failed", "error", cause)
 	}
-	// On user-cancel the completion_kind communicates operator
-	// intent — UI renders a grey "CANCELLED" badge instead of red
-	// "FAILED". On a real crash/transport/remux failure we fall
-	// through to "complete" (inert default for FAILED rows; UI
-	// reads the error field for details).
+	// completion_kind for terminal failures, in priority order:
+	//
+	//   cancelled — operator stopped the run via Cancel(). UI shows
+	//               a grey CANCELLED badge instead of red FAILED.
+	//   partial   — at least one part has been remuxed and persisted
+	//               (size_bytes > 0 in video_parts). The recording
+	//               file exists and is watchable; the run failed
+	//               before the next part finished. Surfacing this
+	//               distinguishes "we have something for you" from
+	//               "this run produced nothing recoverable" in the
+	//               videos page Partial tab.
+	//   complete  — fallthrough for failed runs that never finalized
+	//               a part (auth failure pre-segments, immediate
+	//               playlist 404, fetch retries exhausted before any
+	//               part rolled over). FAILED with no salvage. UI
+	//               reads the error field for details.
+	//
+	// HasFinalizedVideoParts is one cheap EXISTS-on-index query —
+	// the failure path is rare enough that an extra round-trip is
+	// fine. On its own error we keep the existing safe default
+	// (complete) and log; better than mis-stamping a partial label
+	// because of a transient repo glitch.
 	failCompletionKind := repository.CompletionKindComplete
-	if userCancelled {
+	switch {
+	case userCancelled:
 		failCompletionKind = repository.CompletionKindCancelled
+	default:
+		// dbCtx is context.WithoutCancel(parentCtx) at the top of run()
+		// so a canceled parent doesn't bleed into terminal writes —
+		// any error here is a real repo failure, not the run's own
+		// cancellation. Safe-default to complete on error rather than
+		// risk mis-stamping partial.
+		hasPart, err := s.repo.HasFinalizedVideoParts(dbCtx, d.videoID)
+		if err != nil {
+			log.Warn("classify failure: check finalized parts", "video_id", d.videoID, "error", err)
+		} else if hasPart {
+			failCompletionKind = repository.CompletionKindPartial
+		}
 	}
-	if err := s.repo.MarkVideoFailed(dbCtx, d.videoID, recorded.Error(), failCompletionKind); err != nil {
+	// truncated for FAILED: same axes as the success path. Cancelled
+	// runs imply truncated (operator stopped a live recording).
+	// HadWindowRoll implies truncated (CDN advanced past us, broadcast
+	// kept going). EndListSeen=false implies truncated (playlist never
+	// closed, recorder ended early). A REMUX/STORE failure after
+	// EndListSeen=true is a *post-broadcast* failure — the artifact
+	// wasn't produced, but the recording wasn't cut short relative to
+	// the broadcast.
+	truncated := userCancelled || d.resume.HadWindowRoll || !d.resume.EndListSeen
+	if err := s.repo.MarkVideoFailed(dbCtx, d.videoID, recorded.Error(), failCompletionKind, truncated); err != nil {
 		log.Error("failed to mark video failed", "error", err)
 	}
 	if err := s.repo.MarkJobFailed(dbCtx, d.jobID, recorded.Error()); err != nil {
