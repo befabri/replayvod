@@ -43,6 +43,8 @@ export type VideoListFilters = {
 	language?: string;
 	duration?: string;
 	size?: string;
+	window?: string;
+	incompleteOnly?: boolean;
 };
 
 export function useInfiniteVideoPages(
@@ -51,6 +53,7 @@ export function useInfiniteVideoPages(
 	sort?: VideoSort,
 	order?: VideoOrder,
 	filters?: VideoListFilters,
+	options?: { enabled?: boolean },
 ) {
 	const trpc = useTRPC();
 	return useInfiniteQuery(
@@ -65,6 +68,8 @@ export function useInfiniteVideoPages(
 				language: filters?.language ?? "",
 				duration: filters?.duration ?? "",
 				size: filters?.size ?? "",
+				window: filters?.window ?? "",
+				incomplete_only: filters?.incompleteOnly ?? false,
 			},
 			{
 				getNextPageParam: (lastPage: VideoListPageResponse) =>
@@ -75,6 +80,11 @@ export function useInfiniteVideoPages(
 				// refetch rather than flashing a skeleton on every
 				// filter change.
 				placeholderData: keepPreviousData,
+				// Callers gate the query on an explicit flag for tabs
+				// that have no backend support (unwatched / favorites)
+				// — we render a "coming soon" body without firing
+				// `video.listPage` for results that wouldn't be shown.
+				enabled: options?.enabled ?? true,
 			},
 		),
 	);
@@ -100,6 +110,8 @@ export function useVideoListPage(
 			language: filters?.language ?? "",
 			duration: filters?.duration ?? "",
 			size: filters?.size ?? "",
+			window: filters?.window ?? "",
+			incomplete_only: filters?.incompleteOnly ?? false,
 			cursor,
 		}),
 	);
@@ -134,6 +146,21 @@ export function useVideoCategories(videoId: number, enabled = true) {
 	const trpc = useTRPC();
 	return useQuery(
 		trpc.video.categories.queryOptions(
+			{ video_id: videoId },
+			{ enabled: enabled && videoId > 0 },
+		),
+	);
+}
+
+// useVideoTimeline fetches the merged title + category change events
+// for a recording, ordered chronologically. Each row carries an
+// optional title and an optional category; the schema CHECK on
+// video_metadata_changes guarantees at least one is present. Empty
+// array for recordings predating migration 031.
+export function useVideoTimeline(videoId: number, enabled = true) {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.video.timeline.queryOptions(
 			{ video_id: videoId },
 			{ enabled: enabled && videoId > 0 },
 		),
@@ -197,7 +224,33 @@ export function useInfiniteVideosByCategory(categoryId: string, limit = 24) {
 
 export function useStatistics() {
 	const trpc = useTRPC();
-	return useQuery(trpc.video.statistics.queryOptions());
+	return useQuery(
+		trpc.video.statistics.queryOptions(undefined, {
+			// Refresh on a slow cadence so server-side row transitions
+			// (download completion, hourly cleanups) tick into the
+			// dashboard without the user reloading. Mutations that
+			// originate from the UI already invalidate this key
+			// directly; the interval covers the gap for events the
+			// dashboard didn't trigger.
+			refetchInterval: 30_000,
+			refetchOnWindowFocus: true,
+		}),
+	);
+}
+
+// useChannelStatistics rolls up DONE recordings for one broadcaster:
+// total count, summed bytes, summed duration. Backed by a single
+// SQL aggregate (no client-side pagination) so the watch page can
+// surface a "N recordings · X GB" line without paying for a full
+// library scan over tRPC.
+export function useChannelStatistics(broadcasterId: string) {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.video.statisticsByBroadcaster.queryOptions(
+			{ broadcaster_id: broadcasterId },
+			{ enabled: !!broadcasterId, staleTime: 30_000 },
+		),
+	);
 }
 
 export function useActiveDownloads() {
@@ -274,6 +327,9 @@ export function useTriggerDownload() {
 				queryClient.invalidateQueries({
 					queryKey: trpc.video.statistics.queryKey(),
 				});
+				queryClient.invalidateQueries({
+					queryKey: trpc.video.statisticsByBroadcaster.queryKey(),
+				});
 			},
 		}),
 	);
@@ -299,6 +355,9 @@ export function useCancelDownload() {
 				});
 				queryClient.invalidateQueries({
 					queryKey: trpc.video.statistics.queryKey(),
+				});
+				queryClient.invalidateQueries({
+					queryKey: trpc.video.statisticsByBroadcaster.queryKey(),
 				});
 			},
 		}),

@@ -65,70 +65,65 @@ function useHoverSnapshots(
 	return { current, prev: prev ?? null };
 }
 
-// InlineStatusBadge renders the primary status indicator. When the
-// video's completion_kind is "cancelled" we render a grey CANCELLED
-// badge instead of the red FAILED — operator-initiated stops aren't
-// crashes and shouldn't look like them. "partial" surfaces as a
-// separate sub-badge via InlineCompletionBadge.
-function InlineStatusBadge({
-	status,
+// IncompleteOverlayBadge marks recordings that didn't capture the
+// full broadcast. One yellow badge with three labels — same visual
+// bucket because the user-facing concept ("this isn't the whole
+// stream") is the same; the wording just clarifies *why* it isn't:
+//
+//   PARTIAL   — completion_kind='partial'. File has gaps inside it
+//               (CDN window-roll, or run failed mid-recording with
+//               only some parts saved). Highest-impact case: data
+//               is actually missing from inside the file.
+//   CANCELLED — completion_kind='cancelled'. Operator stopped the
+//               run while the broadcast was still live. File plays
+//               cleanly, but distinct user intent ("I did this on
+//               purpose") earns its own label.
+//   TRUNCATED — fallback for everything else with truncated=true:
+//               recorder ended without operator action (server
+//               restart with no resume, finalize without
+//               EXT-X-ENDLIST, etc.). File plays cleanly; the
+//               broadcast just continued past where we stopped.
+function IncompleteOverlayBadge({
 	completionKind,
+	truncated,
 }: {
-	status: string;
 	completionKind: string;
+	truncated: boolean;
 }) {
 	const { t } = useTranslation();
-	if (status === "FAILED" && completionKind === "cancelled") {
-		return (
-			<span className="px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground">
-				{t("videos.status.CANCELLED", "CANCELLED")}
-			</span>
-		);
-	}
-	const color =
-		status === "DONE"
-			? "bg-badge-green-bg text-badge-green-fg"
-			: status === "FAILED"
-				? "bg-badge-red-bg text-badge-red-fg"
-				: status === "RUNNING"
-					? "bg-badge-blue-bg text-badge-blue-fg"
-					: "bg-muted text-muted-foreground";
-	return (
-		<span className={`px-2 py-0.5 rounded-md text-xs font-medium ${color}`}>
-			{t(`videos.status.${status}` as const, status)}
-		</span>
-	);
-}
-
-// InlineCompletionBadge renders a PARTIAL sub-badge for DONE videos
-// whose content is incomplete (typically a shutdown-resume gap that
-// the CDN window rolled past). Nothing renders for clean or
-// cancelled — the primary badge carries the message there.
-function InlineCompletionBadge({
-	status,
-	completionKind,
-}: {
-	status: string;
-	completionKind: string;
-}) {
-	const { t } = useTranslation();
-	if (status !== "DONE" || completionKind !== "partial") return null;
+	const variant =
+		completionKind === "partial"
+			? "partial"
+			: completionKind === "cancelled"
+				? "cancelled"
+				: truncated
+					? "truncated"
+					: null;
+	if (!variant) return null;
 	return (
 		<span
-			className="px-2 py-0.5 rounded-md text-xs font-medium bg-badge-yellow-bg text-badge-yellow-fg"
-			title={t(
-				"videos.completion.partial_tooltip",
-				"Some of this recording was lost — the download was interrupted and the Twitch CDN rolled past the gap before we resumed.",
-			)}
+			className="rounded-md bg-badge-yellow-bg/85 px-2 py-0.5 text-xs font-medium text-badge-yellow-fg backdrop-blur-sm"
+			title={t(`videos.completion.${variant}_tooltip` as const)}
 		>
-			{t("videos.completion.partial", "PARTIAL")}
+			{t(`videos.completion.${variant}` as const)}
 		</span>
 	);
 }
 
+// ThumbnailOverlay is the neutral pill used for duration/date in the
+// thumbnail's bottom row. The quality badge in the top-left uses its
+// own accent-tinted variant via QualityOverlay below.
 function ThumbnailOverlay({ children }: { children: React.ReactNode }) {
 	return (
 		<span className="rounded-md border border-border/60 bg-background/78 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
+			{children}
+		</span>
+	);
+}
+
+function QualityOverlay({ children }: { children: React.ReactNode }) {
+	return (
+		<span className="rounded-md border border-border/60 bg-background/78 px-2 py-0.5 text-xs font-medium text-primary backdrop-blur-sm">
 			{children}
 		</span>
 	);
@@ -202,7 +197,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 					<img
 						src={thumbnail}
 						alt=""
-						className="h-full w-full object-cover transition-transform duration-150 group-hover/video-card:scale-[1.02]"
+						className="h-full w-full object-cover"
 						loading="lazy"
 					/>
 				) : (
@@ -238,10 +233,15 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 						/>
 					</>
 				)}
-				{/* Quality (top-left), duration (bottom-left), date (bottom-right). */}
-				<span className="absolute top-2 left-2">
-					<ThumbnailOverlay>{video.quality}</ThumbnailOverlay>
-				</span>
+				{/* Top-left stack: quality + (optional) PARTIAL marker.
+				    Duration sits bottom-left, date bottom-right. */}
+				<div className="absolute top-2 left-2 flex items-center gap-1.5">
+					<QualityOverlay>{video.quality}</QualityOverlay>
+					<IncompleteOverlayBadge
+						completionKind={video.completion_kind}
+						truncated={video.truncated}
+					/>
+				</div>
 				{video.duration_seconds ? (
 					<span className="absolute bottom-2 left-2">
 						<ThumbnailOverlay>
@@ -252,17 +252,6 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 				<span className="absolute bottom-2 right-2">
 					<ThumbnailOverlay>{dateLabel}</ThumbnailOverlay>
 				</span>
-				{/* Top-right stack: status badges only. */}
-				<div className="absolute top-2 right-2 flex items-center gap-1.5">
-					<InlineCompletionBadge
-						status={video.status}
-						completionKind={video.completion_kind}
-					/>
-					<InlineStatusBadge
-						status={video.status}
-						completionKind={video.completion_kind}
-					/>
-				</div>
 				<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
 					<div className="flex size-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm opacity-0 transition-opacity duration-150 group-hover/video-card:opacity-100">
 						<Play weight="fill" className="size-4 translate-x-px" />
@@ -287,9 +276,9 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 		);
 
 	return (
-		<div className="group/video-card flex flex-col gap-3">
+		<div className="group/video-card flex flex-col transition-transform duration-200 ease-out hover:-translate-y-0.5">
 			{mediaNode}
-			<div className="flex flex-col gap-2.5 p-3.5">
+			<div className="flex flex-col gap-2 px-3.5 pt-2 pb-3.5">
 				{video.status === "DONE" ? (
 					<div className="flex items-start gap-2">
 						<Link

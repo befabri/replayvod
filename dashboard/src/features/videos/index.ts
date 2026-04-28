@@ -13,6 +13,7 @@ export {
 	useVideoCategories,
 	useVideoListPage,
 	useVideoSnapshots,
+	useVideoTimeline,
 	useVideoTitles,
 	type VideoCategory,
 	type VideoOrder,

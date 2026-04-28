@@ -87,21 +87,16 @@
 		"view_label": "Vue",
 		"scope_label": "Portée",
 		"filters": "Filtres",
+		"filter_status": "Statut",
 		"filter_quality": "Qualité",
-		"filter_channel": "Chaîne",
 		"filter_language": "Langue",
 		"filter_duration": "Durée",
-		"filter_size": "Taille",
 		"filter_any": "toutes",
 		"duration_any": "toutes",
 		"duration_short": "moins de 30 min",
 		"duration_medium": "30 min-2 h",
 		"duration_long": "2 h-4 h",
 		"duration_marathon": "4 h+",
-		"size_any": "toutes",
-		"size_small": "moins de 1 Go",
-		"size_medium": "1-4 Go",
-		"size_large": "4+ Go",
 		"no_match": "Aucune vidéo ne correspond aux filtres actuels.",
 		"no_match_loaded": "Aucune correspondance parmi les vidéos chargées. D'autres résultats sont en cours de chargement.",
 		"sort": {
@@ -115,12 +110,19 @@
 		"previous": "Précédent",
 		"next": "Suivant",
 		"page": "Page {{n}}",
+		"tabs": {
+			"this_week": "Cette semaine",
+			"unwatched": "Non regardées",
+			"partial": "Partielles",
+			"favorites": "Favoris"
+		},
+		"tab_coming_soon": "Bientôt — cette vue n'est pas encore branchée.",
 		"status_filter": {
-			"all": "Tous",
-			"done": "Terminé",
-			"running": "En cours",
-			"pending": "En attente",
-			"failed": "Échoué"
+			"any": "tous",
+			"DONE": "Terminé",
+			"RUNNING": "En cours",
+			"PENDING": "En attente",
+			"FAILED": "Échoué"
 		},
 		"view": {
 			"grid": "Grille",
@@ -160,6 +162,9 @@
 		"title_history": {
 			"heading": "Historique des titres"
 		},
+		"category_history": {
+			"heading": "Historique des catégories"
+		},
 		"history": {
 			"tooltip": "Voir la chronologie du stream",
 			"heading": "Chronologie du stream",
@@ -175,19 +180,31 @@
 		"language": "Langue",
 		"started_at": "Démarré",
 		"downloaded_at": "Téléchargé",
+		"bitrate_avg": "Bitrate moy.",
+		"segments": "Segments",
 		"metadata_heading": "Détails",
 		"completion": {
 			"partial": "PARTIEL",
-			"partial_tooltip": "Une partie de cet enregistrement a été perdue — le téléchargement a été interrompu et la fenêtre CDN de Twitch a dépassé l'écart avant la reprise."
+			"partial_tooltip": "Cet enregistrement a des données manquantes — le téléchargement a été interrompu et la fenêtre CDN de Twitch a dépassé l'écart avant la reprise, ou l'exécution a échoué en cours d'enregistrement avec seulement quelques parties sauvegardées.",
+			"truncated": "TRONQUÉ",
+			"truncated_tooltip": "L'enregistreur s'est arrêté avant la fin de la diffusion — une interruption serveur, une reprise échouée ou une finalisation sans le marqueur de fin de playlist. Le fichier se lit proprement ; la diffusion s'est juste poursuivie au-delà de l'arrêt.",
+			"cancelled": "ANNULÉ",
+			"cancelled_tooltip": "Vous avez arrêté cet enregistrement manuellement pendant la diffusion."
 		}
 	},
 	"watch": {
 		"not_ready": "Cette vidéo n'est pas prête à être lue (statut : {{status}}).",
 		"back_to_videos": "← Retour aux vidéos",
-		"width_contained": "Limité",
-		"width_full": "Pleine largeur",
-		"switch_to_contained": "Passer en mode limité",
-		"switch_to_full": "Passer en pleine largeur"
+		"layout_aside": "Historique latéral",
+		"layout_wide": "Lecteur étendu",
+		"switch_to_aside": "Déplacer l'historique à côté du lecteur",
+		"switch_to_wide": "Déplacer l'historique en dessous pour étendre le lecteur",
+		"record_live": "Enregistrer le live",
+		"events_count_one": "{{count}} événement",
+		"events_count_other": "{{count}} événements",
+		"recordings_archived_one": "{{count}} enregistrement archivé",
+		"recordings_archived_other": "{{count}} enregistrements archivés",
+		"last_stream_ago": "dernier live {{when}}"
 	},
 	"stats": {
 		"total_videos": "Vidéos",

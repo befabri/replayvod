@@ -2,6 +2,7 @@ import { Info, ListBullets } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TimelineEvent } from "@/api/generated/trpc";
 import {
 	Dialog,
 	DialogContent,
@@ -17,52 +18,36 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
-import {
-	useVideoCategories,
-	useVideoTitles,
-	type VideoCategory,
-	type VideoTitle,
-} from "@/features/videos";
+import { useVideoTimeline } from "@/features/videos";
 import { formatDuration } from "@/features/videos/format";
 
-// StreamHistoryButton merges the title and category histories into a
-// single chronological timeline. Streams change title and category
-// independently — sometimes both at once, sometimes only one — so two
-// separate dialogs forced viewers to mentally interleave the lists.
-// One unified timeline grouped by `started_at` does that work for them.
-//
-// Both queries are gated on `open` (lazy-load): list pages won't fan
-// out N requests at render time.
-type TimelineGroup = {
-	startedAt: string;
-	title?: VideoTitle;
-	category?: VideoCategory;
-};
-
-function buildTimeline(
-	titles: VideoTitle[] | undefined,
-	categories: VideoCategory[] | undefined,
-): TimelineGroup[] {
-	const groups = new Map<string, TimelineGroup>();
-	const ensure = (startedAt: string): TimelineGroup => {
-		let g = groups.get(startedAt);
-		if (!g) {
-			g = { startedAt };
-			groups.set(startedAt, g);
+function dedupConsecutiveEvents(
+	events: TimelineEvent[] | undefined,
+): TimelineEvent[] | undefined {
+	if (!events) return events;
+	const out: TimelineEvent[] = [];
+	for (const event of events) {
+		const last = out[out.length - 1];
+		if (
+			last &&
+			last.category?.id === event.category?.id &&
+			last.title?.name === event.title?.name
+		) {
+			continue;
 		}
-		return g;
-	};
-	for (const title of titles ?? []) {
-		ensure(title.started_at).title = title;
+		out.push(event);
 	}
-	for (const category of categories ?? []) {
-		ensure(category.started_at).category = category;
-	}
-	return [...groups.values()].sort((a, b) =>
-		a.startedAt.localeCompare(b.startedAt),
-	);
+	return out;
 }
 
+// StreamHistoryButton renders the merged title + category timeline
+// for a recording. The backing endpoint (video.timeline) reads from
+// video_metadata_changes, where each row is one channel.update event
+// with both dimensions captured under a single occurred_at — so the
+// frontend doesn't need to interleave or group anything client-side.
+//
+// The query is gated on `open` (lazy-load): list pages won't fan out
+// N requests at render time.
 export function StreamHistoryButton({
 	videoId,
 	className,
@@ -72,19 +57,18 @@ export function StreamHistoryButton({
 }) {
 	const { t } = useTranslation();
 	const [open, setOpen] = useState(false);
-	const { data: titles, isLoading: loadingTitles } = useVideoTitles(
-		videoId,
-		open,
-	);
-	const { data: categories, isLoading: loadingCategories } = useVideoCategories(
-		videoId,
-		open,
-	);
+	const { data: rawEvents, isLoading } = useVideoTimeline(videoId, open);
 
-	const groups = buildTimeline(titles, categories);
-	const isLoading = loadingTitles || loadingCategories;
+	// Run-length dedup: collapse consecutive events whose (category,
+	// title) pair is identical to the previous row. The server emits
+	// one row per channel.update tick, so a re-fired event that didn't
+	// change anything produces a row that's a literal duplicate of its
+	// predecessor — visually noisy and not what a viewer thinks of as
+	// "history."
+	const events = dedupConsecutiveEvents(rawEvents);
+
 	const firstEpoch =
-		groups.length > 0 ? new Date(groups[0].startedAt).getTime() : 0;
+		events && events.length > 0 ? new Date(events[0].occurred_at).getTime() : 0;
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -139,28 +123,28 @@ export function StreamHistoryButton({
 					</div>
 				)}
 
-				{!isLoading && groups.length === 0 && (
+				{!isLoading && events && events.length === 0 && (
 					<div className="text-muted-foreground text-sm py-4">
 						{t("videos.history.empty")}
 					</div>
 				)}
 
-				{groups.length > 0 && (
+				{events && events.length > 0 && (
 					<ol className="flex flex-col py-2">
-						{groups.map((g, idx) => {
+						{events.map((event, idx) => {
 							const offsetSec = Math.max(
 								0,
 								Math.round(
-									(new Date(g.startedAt).getTime() - firstEpoch) / 1000,
+									(new Date(event.occurred_at).getTime() - firstEpoch) / 1000,
 								),
 							);
 							const offsetLabel =
 								idx === 0
 									? t("videos.history.start")
 									: formatDuration(offsetSec);
-							const isLast = idx === groups.length - 1;
+							const isLast = idx === events.length - 1;
 							return (
-								<li key={g.startedAt} className="flex gap-3">
+								<li key={`${event.occurred_at}-${idx}`} className="flex gap-3">
 									<div className="w-14 shrink-0 pt-1.5 text-right text-xs font-mono text-muted-foreground">
 										{offsetLabel}
 									</div>
@@ -169,28 +153,30 @@ export function StreamHistoryButton({
 										{!isLast && <span className="w-px flex-1 bg-border" />}
 									</div>
 									<div className="flex min-w-0 flex-1 flex-col gap-1.5 pb-4">
-										{g.category && (
+										{event.category && (
 											<Link
 												// biome-ignore lint/suspicious/noExplicitAny: param route typing
 												to={"/dashboard/categories/$categoryId" as any}
 												// biome-ignore lint/suspicious/noExplicitAny: param route typing
-												params={{ categoryId: g.category.id } as any}
+												params={{ categoryId: event.category.id } as any}
 												className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5 transition-colors hover:bg-accent"
 											>
 												<CategoryBoxArt
-													url={g.category.box_art_url}
-													name={g.category.name}
+													url={event.category.box_art_url}
+													name={event.category.name}
 													width={28}
 													height={36}
 													className="w-7 rounded-sm shrink-0"
 												/>
 												<span className="truncate text-sm font-medium">
-													{g.category.name}
+													{event.category.name}
 												</span>
 											</Link>
 										)}
-										{g.title && (
-											<div className="text-sm leading-snug">{g.title.name}</div>
+										{event.title && (
+											<div className="text-sm leading-snug">
+												{event.title.name}
+											</div>
 										)}
 									</div>
 								</li>

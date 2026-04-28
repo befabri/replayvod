@@ -87,21 +87,16 @@
 		"view_label": "View",
 		"scope_label": "Scope",
 		"filters": "Filters",
+		"filter_status": "Status",
 		"filter_quality": "Quality",
-		"filter_channel": "Channel",
 		"filter_language": "Language",
 		"filter_duration": "Duration",
-		"filter_size": "Size",
 		"filter_any": "any",
 		"duration_any": "any",
 		"duration_short": "under 30m",
 		"duration_medium": "30m-2h",
 		"duration_long": "2h-4h",
 		"duration_marathon": "4h+",
-		"size_any": "any",
-		"size_small": "under 1 GB",
-		"size_medium": "1-4 GB",
-		"size_large": "4+ GB",
 		"no_match": "No videos match the current filters.",
 		"no_match_loaded": "No matches in loaded videos yet. More results are loading.",
 		"sort": {
@@ -115,12 +110,19 @@
 		"previous": "Previous",
 		"next": "Next",
 		"page": "Page {{n}}",
+		"tabs": {
+			"this_week": "This week",
+			"unwatched": "Unwatched",
+			"partial": "Partial",
+			"favorites": "Favorites"
+		},
+		"tab_coming_soon": "Coming soon — this view isn't wired up yet.",
 		"status_filter": {
-			"all": "All",
-			"done": "Done",
-			"running": "Running",
-			"pending": "Pending",
-			"failed": "Failed"
+			"any": "any",
+			"DONE": "Done",
+			"RUNNING": "Running",
+			"PENDING": "Pending",
+			"FAILED": "Failed"
 		},
 		"view": {
 			"grid": "Grid",
@@ -160,6 +162,9 @@
 		"title_history": {
 			"heading": "Title history"
 		},
+		"category_history": {
+			"heading": "Category history"
+		},
 		"history": {
 			"tooltip": "View stream timeline",
 			"heading": "Stream timeline",
@@ -175,19 +180,31 @@
 		"language": "Language",
 		"started_at": "Started at",
 		"downloaded_at": "Downloaded at",
+		"bitrate_avg": "Bitrate avg",
+		"segments": "Segments",
 		"metadata_heading": "Details",
 		"completion": {
 			"partial": "PARTIAL",
-			"partial_tooltip": "Some of this recording was lost — the download was interrupted and the Twitch CDN rolled past the gap before we resumed."
+			"partial_tooltip": "This recording is missing data — the download was interrupted and the Twitch CDN rolled past the gap before we could resume, or the run failed mid-recording with only some parts saved.",
+			"truncated": "TRUNCATED",
+			"truncated_tooltip": "Recorder ended before the broadcast did — a server interruption, an unresumable run, or a finalize that never saw the playlist's end marker. The file itself plays cleanly; the broadcast just continued past where we stopped.",
+			"cancelled": "CANCELLED",
+			"cancelled_tooltip": "You stopped this recording manually while the broadcast was still live."
 		}
 	},
 	"watch": {
 		"not_ready": "This video is not ready to play (status: {{status}}).",
 		"back_to_videos": "← Back to videos",
-		"width_contained": "Contained",
-		"width_full": "Full width",
-		"switch_to_contained": "Switch to contained",
-		"switch_to_full": "Switch to full-width"
+		"layout_aside": "History aside",
+		"layout_wide": "Wide player",
+		"switch_to_aside": "Move history to the side of the player",
+		"switch_to_wide": "Move history below to make the player full-width",
+		"record_live": "Record live",
+		"events_count_one": "{{count}} event",
+		"events_count_other": "{{count}} events",
+		"recordings_archived_one": "{{count}} recording archived",
+		"recordings_archived_other": "{{count}} recordings archived",
+		"last_stream_ago": "last stream {{when}}"
 	},
 	"stats": {
 		"total_videos": "Total videos",
