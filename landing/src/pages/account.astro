@@ -287,17 +287,14 @@ const accountEnabled = site.connect.accountEnabled;
         }
       });
 
-      billingButton.addEventListener('click', async () => {
-        try {
-          const body = await api('/me/billing/portal', { method: 'POST' });
-          window.location.href = body.url;
-        } catch (err) {
-          setStatus(err instanceof Error ? err.message : 'Unable to open billing portal.', 'error');
-        }
+      billingButton.addEventListener('click', () => {
+        // The Polar plugin's portal endpoint is a redirect, so let the browser
+        // follow it directly rather than trying to JSON-parse the response.
+        window.location.href = `${apiBase}/api/auth/portal`;
       });
 
       logoutButton.addEventListener('click', async () => {
-        await api('/auth/logout', { method: 'POST' }).catch(() => null);
+        await api('/api/auth/sign-out', { method: 'POST' }).catch(() => null);
         window.location.assign('/login');
       });
 

@@ -31,7 +31,7 @@ const accountEnabled = site.connect.accountEnabled;
       <p class="mb-2 text-[16px] leading-[1.6] text-fg-muted">
         {
           paymentsEnabled
-            ? 'Enter your billing email and continue to Polar. After payment, we email a magic link for the account dashboard.'
+            ? 'You will be redirected to Polar to complete checkout. After payment, we email a magic link for the account dashboard.'
             : 'Payments are not open yet. The hosted relay is being prepared for production billing.'
         }
       </p>
@@ -44,7 +44,7 @@ const accountEnabled = site.connect.accountEnabled;
             <>
               <span data-checkout-price>$5 / month</span>
               <span aria-hidden="true" class="opacity-50">·</span>
-              <span>30-day trial</span>
+              <span data-checkout-trial>14-day trial</span>
               <span aria-hidden="true" class="opacity-50">·</span>
               <span>cancel anytime in Polar</span>
             </>
@@ -56,25 +56,9 @@ const accountEnabled = site.connect.accountEnabled;
 
       {
         paymentsEnabled ? (
-          <form id="checkout-form" class="space-y-4">
-            <label class="block">
-              <span class="mb-2 block font-mono text-[12px] uppercase tracking-[0.08em] text-fg-muted">
-                Billing email
-              </span>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autocomplete="email"
-                required
-                placeholder="you@example.com"
-                class="h-12 w-full rounded-lg border border-border bg-bg px-3.5 text-[16px] text-fg outline-none transition-colors placeholder:text-fg-dim focus:border-primary"
-              />
-            </label>
-            <button id="checkout-submit" type="submit" class="btn btn-primary btn-lg w-full">
-              Continue to Polar →
-            </button>
-          </form>
+          <button id="checkout-submit" type="button" class="btn btn-primary btn-lg w-full">
+            Continue to Polar →
+          </button>
         ) : (
           <a href="/#pricing" class="btn btn-primary btn-lg w-full">
             Back to pricing
@@ -114,8 +98,6 @@ const accountEnabled = site.connect.accountEnabled;
       if (root.dataset.paymentsEnabled !== 'true') return;
 
       const apiBase = root.dataset.apiBase;
-      const form = document.getElementById('checkout-form');
-      const email = document.getElementById('email');
       const status = document.getElementById('checkout-status');
       const submit = document.getElementById('checkout-submit');
 
@@ -133,42 +115,31 @@ const accountEnabled = site.connect.accountEnabled;
       if (priceLabel) {
         priceLabel.textContent = plan === 'yearly' ? '$50 / year' : '$5 / month';
       }
+      const trialLabel = document.querySelector('[data-checkout-trial]');
+      if (trialLabel) {
+        // Trial config lives on the Polar product side. Yearly has none; keep
+        // the copy honest so first-time visitors aren't surprised at the card
+        // form.
+        trialLabel.textContent = plan === 'yearly' ? 'no trial' : '14-day trial';
+      }
 
       // If the visitor already has a session, send them to /account instead of
       // letting them start a duplicate subscription. Best-effort: if the probe
-      // fails for any reason the form still works.
+      // fails for any reason the button still works.
       fetch(`${apiBase}/me`, { credentials: 'include' })
         .then((res) => {
           if (res.ok) window.location.replace('/account');
         })
         .catch(() => {});
 
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const value = email.value.trim();
-        if (!value) return;
-
-        const original = submit.textContent;
+      submit.addEventListener('click', () => {
         submit.disabled = true;
         submit.textContent = 'Opening Polar…';
         setStatus('Working…');
-
-        try {
-          const res = await fetch(`${apiBase}/checkout/create-session`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: value, plan }),
-          });
-          const body = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(body.error || 'request failed');
-          if (!body.url) throw new Error('checkout URL missing');
-          window.location.href = body.url;
-        } catch (err) {
-          setStatus(err instanceof Error ? err.message : 'Request failed', 'error');
-          submit.disabled = false;
-          submit.textContent = original;
-        }
+        // The Polar plugin mounts a redirect endpoint that creates a Polar
+        // checkout session and 302s to it. Plain navigation is the simplest
+        // way to follow that redirect.
+        window.location.href = `${apiBase}/api/auth/checkout/${encodeURIComponent(plan)}`;
       });
     })();
   </script>

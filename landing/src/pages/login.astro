@@ -142,14 +142,17 @@ const connectLabel = site.connect.paymentsEnabled
         setStatus('Working…');
 
         try {
-          const res = await fetch(`${apiBase}/auth/magic-link`, {
+          const res = await fetch(`${apiBase}/api/auth/sign-in/magic-link`, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: value }),
+            body: JSON.stringify({
+              email: value,
+              callbackURL: `${window.location.origin}/account`,
+            }),
           });
           const body = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(body.error || 'request failed');
+          if (!res.ok) throw new Error(body.message || body.error || 'request failed');
 
           setStatus('If that email has a Connect account, a magic link is on the way.', 'ok');
         } catch (err) {

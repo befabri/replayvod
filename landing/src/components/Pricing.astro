@@ -112,7 +112,7 @@ const connectFeatures = [
         {
           paymentsEnabled ? (
             <a data-plan-cta href={site.connect.checkoutPath} class="btn btn-primary btn-lg w-full">
-              Start 30-day trial →
+              Start 14-day trial →
             </a>
           ) : (
             <>
@@ -171,6 +171,10 @@ const connectFeatures = [
           if (plan === 'yearly') url.searchParams.set('plan', 'yearly');
           else url.searchParams.delete('plan');
           cta.setAttribute('href', url.pathname + url.search);
+          // Trial only applies to monthly. Yearly is a direct purchase, so the
+          // CTA copy on yearly should not promise a trial.
+          cta.textContent =
+            plan === 'yearly' ? 'Get Connect yearly →' : 'Start 14-day trial →';
         }
       }
 

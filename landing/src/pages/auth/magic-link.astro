@@ -93,25 +93,18 @@ const accountEnabled = site.connect.accountEnabled;
         return;
       }
 
-      submit.addEventListener('click', async () => {
+      submit.addEventListener('click', () => {
         submit.disabled = true;
         submit.textContent = 'Signing in…';
         setStatus('Verifying your one-time link…');
-        try {
-          const res = await fetch(`${root.dataset.apiBase}/auth/magic-link/verify`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token }),
-          });
-          const body = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(body.error || 'invalid or expired link');
-          window.location.replace('/account');
-        } catch (err) {
-          setStatus(err instanceof Error ? err.message : 'Unable to verify this link.', 'error');
-          submit.disabled = false;
-          submit.textContent = 'Try again →';
-        }
+        // better-auth verifies the magic link on its own GET endpoint, sets the
+        // session cookie via the redirect response, then forwards to
+        // callbackURL. Plain navigation is the simplest way to follow that
+        // chain — fetch would lose the Set-Cookie + 302 hop on most browsers.
+        const verifyURL = new URL(`${root.dataset.apiBase}/api/auth/magic-link/verify`);
+        verifyURL.searchParams.set('token', token);
+        verifyURL.searchParams.set('callbackURL', `${window.location.origin}/account`);
+        window.location.href = verifyURL.toString();
       });
     })();
   </script>
