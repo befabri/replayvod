@@ -57,6 +57,13 @@ type VideoResponse struct {
 	// replaces the FAILED badge with CANCELLED when the operator
 	// explicitly cancelled.
 	CompletionKind string `json:"completion_kind"`
+	// Truncated is true when the recording stopped before the
+	// broadcast ended — operator cancel, mid-run failure, or a clean
+	// finalize that never observed EXT-X-ENDLIST. Orthogonal to
+	// CompletionKind. The dashboard's videos page uses this to
+	// distinguish "we have the whole stream" from "we only have the
+	// part of the broadcast we recorded for."
+	Truncated bool `json:"truncated"`
 	// Quality is the display label for the selected recorded rendition
 	// when Stage 3 has picked one (e.g. 1080p60). Before that it falls
 	// back to the requested quality enum (HIGH/MEDIUM/LOW).
@@ -133,6 +140,7 @@ func toVideoResponse(v *repository.Video, ch *repository.Channel, primaryCategor
 		Title:           v.Title,
 		Status:          v.Status,
 		CompletionKind:  v.CompletionKind,
+		Truncated:       v.Truncated,
 		Quality:         formatVideoQualityLabel(v),
 		FPS:             v.SelectedFPS,
 		BroadcasterID:   v.BroadcasterID,
@@ -249,16 +257,18 @@ type VideoListPageCursor struct {
 }
 
 type ListPageInput struct {
-	Limit         int                  `json:"limit" validate:"min=0,max=200"`
-	Status        string               `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
-	Sort          string               `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel"`
-	Order         string               `json:"order,omitempty" validate:"omitempty,oneof=asc desc"`
-	Quality       string               `json:"quality,omitempty"`
-	BroadcasterID string               `json:"broadcaster_id,omitempty"`
-	Language      string               `json:"language,omitempty"`
-	Duration      string               `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
-	Size          string               `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
-	Cursor        *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+	Limit          int                  `json:"limit" validate:"min=0,max=200"`
+	Status         string               `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
+	Sort           string               `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel"`
+	Order          string               `json:"order,omitempty" validate:"omitempty,oneof=asc desc"`
+	Quality        string               `json:"quality,omitempty"`
+	BroadcasterID  string               `json:"broadcaster_id,omitempty"`
+	Language       string               `json:"language,omitempty"`
+	Duration       string               `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
+	Size           string               `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
+	Window         string               `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
+	IncompleteOnly bool                 `json:"incomplete_only,omitempty"`
+	Cursor         *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
 }
 
 type VideoListPageResponse struct {
@@ -292,6 +302,8 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		DurationMaxSeconds: durationMax,
 		SizeMinBytes:       sizeMin,
 		SizeMaxBytes:       sizeMax,
+		Window:             input.Window,
+		IncompleteOnly:     input.IncompleteOnly,
 		Limit:              limit,
 	}, cursor)
 	if err != nil {
@@ -451,6 +463,63 @@ func (h *Handler) Categories(ctx context.Context, input CategoriesInput) ([]Vide
 	return out, nil
 }
 
+// TimelineTitle is the embedded title payload on a timeline event.
+// Absent at the parent level when the originating channel.update
+// did not carry a title.
+type TimelineTitle struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// TimelineCategory is the embedded category payload on a timeline
+// event. Absent when the originating event did not carry a category.
+type TimelineCategory struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	BoxArtURL *string `json:"box_art_url,omitempty"`
+}
+
+// TimelineEvent is the wire shape for one merged title+category
+// change row. The schema-level CHECK guarantees at least one of
+// title/category is present.
+type TimelineEvent struct {
+	OccurredAt time.Time         `json:"occurred_at"`
+	Title      *TimelineTitle    `json:"title,omitempty"`
+	Category   *TimelineCategory `json:"category,omitempty"`
+}
+
+type TimelineInput struct {
+	VideoID int64 `json:"video_id" validate:"required"`
+}
+
+// Timeline returns the merged chronological list of title and
+// category change events for a video. Backed by
+// video_metadata_changes; recordings predating migration 031 return
+// empty and the dialog falls through to its empty-state copy.
+func (h *Handler) Timeline(ctx context.Context, input TimelineInput) ([]TimelineEvent, error) {
+	rows, err := h.video.Timeline(ctx, input.VideoID)
+	if err != nil {
+		h.log.Error("list video timeline", "video_id", input.VideoID, "error", err)
+		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list timeline")
+	}
+	out := make([]TimelineEvent, len(rows))
+	for i, r := range rows {
+		event := TimelineEvent{OccurredAt: r.OccurredAt}
+		if r.Title != nil {
+			event.Title = &TimelineTitle{ID: r.Title.ID, Name: r.Title.Name}
+		}
+		if r.Category != nil {
+			event.Category = &TimelineCategory{
+				ID:        r.Category.ID,
+				Name:      r.Category.Name,
+				BoxArtURL: r.Category.BoxArtURL,
+			}
+		}
+		out[i] = event
+	}
+	return out, nil
+}
+
 func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoResponse, error) {
 	v, err := h.video.GetByID(ctx, input.ID)
 	if err != nil {
@@ -584,6 +653,14 @@ type StatisticsResponse struct {
 	TotalSize     int64         `json:"total_size"`
 	TotalDuration float64       `json:"total_duration_seconds"`
 	ByStatus      []StatsBucket `json:"by_status"`
+	// ThisWeek and Incomplete drive the videos page tab counters.
+	// Incomplete spans completion_kind='partial' OR truncated rows
+	// — the same predicate as the Partial tab's server-side filter.
+	ThisWeek   int64 `json:"this_week"`
+	Incomplete int64 `json:"incomplete"`
+	// Channels is the count of distinct broadcasters represented in
+	// the videos table — used by the videos page subtitle.
+	Channels int64 `json:"channels"`
 }
 
 type ActiveDownloadResponse struct {
@@ -611,11 +688,42 @@ func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 		TotalSize:     stats.Totals.TotalSize,
 		TotalDuration: stats.Totals.TotalDuration,
 		ByStatus:      make([]StatsBucket, len(stats.ByStatus)),
+		ThisWeek:      stats.Totals.ThisWeek,
+		Incomplete:    stats.Totals.Incomplete,
+		Channels:      stats.Totals.Channels,
 	}
 	for i, b := range stats.ByStatus {
 		out.ByStatus[i] = StatsBucket{Status: b.Status, Count: b.Count}
 	}
 	return out, nil
+}
+
+// ChannelStatisticsInput scopes a per-channel aggregate query.
+type ChannelStatisticsInput struct {
+	BroadcasterID string `json:"broadcaster_id"`
+}
+
+// ChannelStatisticsResponse is the wire shape for video.statisticsByBroadcaster.
+type ChannelStatisticsResponse struct {
+	Total         int64   `json:"total"`
+	TotalSize     int64   `json:"total_size"`
+	TotalDuration float64 `json:"total_duration_seconds"`
+}
+
+func (h *Handler) StatisticsByBroadcaster(ctx context.Context, input ChannelStatisticsInput) (ChannelStatisticsResponse, error) {
+	if input.BroadcasterID == "" {
+		return ChannelStatisticsResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, "broadcaster_id is required")
+	}
+	totals, err := h.video.StatsByBroadcaster(ctx, input.BroadcasterID)
+	if err != nil {
+		h.log.Error("video statistics by broadcaster", "error", err, "broadcaster_id", input.BroadcasterID)
+		return ChannelStatisticsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load channel statistics")
+	}
+	return ChannelStatisticsResponse{
+		Total:         totals.Total,
+		TotalSize:     totals.TotalSize,
+		TotalDuration: totals.TotalDuration,
+	}, nil
 }
 
 func (h *Handler) ActiveDownloads(ctx context.Context) ([]ActiveDownloadResponse, error) {

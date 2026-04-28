@@ -152,6 +152,13 @@ func (s *Service) Stats(ctx context.Context) (*Statistics, error) {
 	return &Statistics{Totals: totals, ByStatus: buckets}, nil
 }
 
+// StatsByBroadcaster returns the per-channel rollup of finished
+// recordings (count + bytes + duration). Used by the watch page to
+// render a "N recordings · X GB" line under the channel header.
+func (s *Service) StatsByBroadcaster(ctx context.Context, broadcasterID string) (*repository.VideoStatsTotals, error) {
+	return s.repo.VideoStatsTotalsByBroadcaster(ctx, broadcasterID)
+}
+
 // Titles returns the historical title list for a video, ordered by
 // the title_id (which is effectively creation order of the
 // deduplicated name). Includes the initial at-download-start title
@@ -168,6 +175,15 @@ func (s *Service) Titles(ctx context.Context, videoID int64) ([]repository.Title
 // underlying SELECT DISTINCT.
 func (s *Service) Categories(ctx context.Context, videoID int64) ([]repository.CategorySpan, error) {
 	return s.repo.ListCategoriesForVideo(ctx, videoID)
+}
+
+// Timeline returns the merged title + category change events for a
+// video, in chronological order. Each row is one channel.update
+// observation; title or category may be nil when only one dimension
+// was carried by the originating event. Empty result for recordings
+// predating migration 031.
+func (s *Service) Timeline(ctx context.Context, videoID int64) ([]repository.VideoMetadataChange, error) {
+	return s.repo.ListVideoMetadataChanges(ctx, videoID)
 }
 
 // Parts returns the video_parts rows for a video, ordered by
