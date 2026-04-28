@@ -109,6 +109,19 @@ type Querier interface {
 	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
+	// True when at least one part for this video has been remuxed and
+	// persisted (size_bytes > 0). Stub rows created at PrepareInput but
+	// not yet finalized at Store don't count — their files don't exist on
+	// storage. Used by the failure path to distinguish "recording lost
+	// before any watchable output" from "some parts saved before the run
+	// failed", which becomes the partial completion_kind on the row.
+	HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error)
+	// Records one observed channel.update event for a recording. The
+	// caller (RecordVideoMetadataChange in the adapter) is responsible
+	// for upserting the title and category rows first inside the same
+	// transaction; this query just stamps the event with the FK ids and
+	// the shared occurred_at.
+	InsertVideoMetadataChange(ctx context.Context, arg InsertVideoMetadataChangeParams) (int64, error)
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
 	LinkScheduleCategory(ctx context.Context, arg LinkScheduleCategoryParams) error
 	LinkScheduleTag(ctx context.Context, arg LinkScheduleTagParams) error
@@ -182,6 +195,13 @@ type Querier interface {
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	// Returns the merged title + category timeline for one recording,
+	// ordered chronologically. Each row is a single event; title or
+	// category is NULL when that dimension wasn't observed in the
+	// delivering webhook. Hydrating titles + categories in this query
+	// (vs. doing a follow-up join in Go) keeps the timeline endpoint at
+	// a single round-trip.
+	ListVideoMetadataChangesForVideo(ctx context.Context, videoID int64) ([]ListVideoMetadataChangesForVideoRow, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
 	// Unified list query with optional status filter and enum-driven sort.
@@ -207,16 +227,22 @@ type Querier interface {
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
 	MarkTaskRunning(ctx context.Context, name string) error
 	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
-	// completion_kind distinguishes clean-end from partial recordings.
-	// Callers pass 'complete' for naturally-ended streams with no gaps,
-	// 'partial' when resume_state contained restart_window_rolled gaps
-	// (i.e. we lost data the CDN rolled past during shutdown).
+	// completion_kind describes the artifact: 'complete' for a clean
+	// run with no gaps, 'partial' when resume_state recorded a
+	// restart_window_rolled (CDN dropped data we couldn't recover).
+	// truncated is the orthogonal stop-boundary axis: true when the
+	// recording stopped before the broadcast did (no EXT-X-ENDLIST seen,
+	// or hadWindowRoll), false when the playlist's ENDLIST tag closed
+	// the run naturally.
 	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
-	// completion_kind is 'cancelled' when the operator called Cancel(),
-	// 'complete' otherwise (the default; pipeline crashed / transport
-	// exhausted / etc.). Downstream UI keys on this to render a grey
-	// "CANCELLED" badge instead of red "FAILED" for user-initiated
-	// stops.
+	// completion_kind: 'cancelled' for operator-initiated stops, 'partial'
+	// when at least one part was finalized before the failure (some
+	// watchable output exists), 'complete' otherwise (no salvage). UI
+	// renders a grey CANCELLED badge for cancelled, yellow PARTIAL for
+	// partial, red FAILED for complete.
+	// truncated is true for any FAILED run — the broadcast was still
+	// live when we stopped recording (otherwise the run would have
+	// transitioned to DONE via the natural ENDLIST path).
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
 	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
@@ -251,7 +277,16 @@ type Querier interface {
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
 	SoftDeleteVideo(ctx context.Context, id int64) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
+	// Library-wide rollups. Total / size / duration restrict to DONE rows
+	// (these are the user-visible numbers in the page subtitle); the two
+	// FILTER-counted columns drive the videos page tab counters and run
+	// across all non-deleted rows.
 	StatisticsTotals(ctx context.Context) (StatisticsTotalsRow, error)
+	// Per-channel rollup of finished recordings: count + summed bytes +
+	// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+	// so the watch page can render a "N recordings · X GB" line under the
+	// channel name without paginating the full library client-side.
+	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error

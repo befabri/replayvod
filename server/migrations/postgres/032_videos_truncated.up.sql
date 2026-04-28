@@ -1,0 +1,26 @@
+-- truncated tracks whether a recording stopped before the broadcast
+-- did. Orthogonal to completion_kind: completion_kind describes the
+-- artifact (clean/partial/cancelled segments), truncated describes
+-- the stop boundary (did the live stream go on past our last frame?).
+--
+-- True for: operator cancellations, runs that finalized without ever
+-- seeing EXT-X-ENDLIST in the playlist, runs that died mid-recording
+-- and never resumed. False for: clean DONE runs that observed the
+-- ENDLIST tag — those captured the whole broadcast.
+--
+-- Default false for legacy rows: we have no reliable signal to
+-- replay EndListSeen for pre-migration recordings, and silently
+-- flagging old clean recordings as TRUNCATED is more confusing than
+-- under-reporting on a few that actually were truncated. Two slices
+-- can be backfilled without guessing, both because they imply
+-- truncated by their existing column values:
+--   - completion_kind = 'partial'   — implies hadWindowRoll, which
+--                                     means the CDN advanced while
+--                                     we were down, i.e. the stream
+--                                     went on without us.
+--   - completion_kind = 'cancelled' — operator stopped the run; by
+--                                     definition the broadcast was
+--                                     still live or we wouldn't have
+--                                     been recording it.
+ALTER TABLE videos ADD COLUMN truncated BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE videos SET truncated = TRUE WHERE completion_kind IN ('partial', 'cancelled');

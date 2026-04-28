@@ -15,7 +15,7 @@ const listVideosByBroadcasterPageSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
+    recording_type, force_h264, title, completion_kind, truncated
 FROM videos
 WHERE broadcaster_id = $1
   AND deleted_at IS NULL
@@ -32,7 +32,7 @@ const listVideosByCategoryPageSQL = `SELECT
     v.selected_fps, v.broadcaster_id, v.stream_id, v.viewer_count, v.language,
     v.duration_seconds, v.size_bytes, v.thumbnail, v.error,
     v.start_download_at, v.downloaded_at, v.deleted_at,
-    v.recording_type, v.force_h264, v.title, v.completion_kind
+    v.recording_type, v.force_h264, v.title, v.completion_kind, v.truncated
 FROM videos v
 INNER JOIN video_categories vc ON vc.video_id = v.id
 WHERE vc.category_id = $1
@@ -50,7 +50,7 @@ const listVideosPageBaseSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
+    recording_type, force_h264, title, completion_kind, truncated
 FROM videos
 WHERE deleted_at IS NULL
   AND ($1::text = '' OR status = $1::text)`
@@ -154,7 +154,7 @@ func (a *PGAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64, qu
 	})
 }
 
-func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
+func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string, truncated bool) error {
 	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
 		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
 			return err
@@ -165,11 +165,12 @@ func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds
 			SizeBytes:       &sizeBytes,
 			Thumbnail:       thumbnail,
 			CompletionKind:  completionKind,
+			Truncated:       truncated,
 		})
 	})
 }
 
-func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error {
+func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool) error {
 	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
 		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
 			return err
@@ -178,6 +179,7 @@ func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string
 			ID:             id,
 			Error:          &errMsg,
 			CompletionKind: completionKind,
+			Truncated:      truncated,
 		})
 	})
 }
@@ -286,6 +288,21 @@ func (a *PGAdapter) VideoStatsTotals(ctx context.Context) (*repository.VideoStat
 		Total:         row.Total,
 		TotalSize:     row.TotalSize,
 		TotalDuration: row.TotalDuration,
+		ThisWeek:      row.ThisWeek,
+		Incomplete:    row.Incomplete,
+		Channels:      row.Channels,
+	}, nil
+}
+
+func (a *PGAdapter) VideoStatsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (*repository.VideoStatsTotals, error) {
+	row, err := a.queries.StatisticsTotalsByBroadcaster(ctx, broadcasterID)
+	if err != nil {
+		return nil, fmt.Errorf("pg video stats totals by broadcaster: %w", err)
+	}
+	return &repository.VideoStatsTotals{
+		Total:         row.Total,
+		TotalSize:     row.TotalSize,
+		TotalDuration: row.TotalDuration,
 	}, nil
 }
 
@@ -314,6 +331,7 @@ func pgVideoToDomain(v pggen.Video) *repository.Video {
 		RecordingType:   v.RecordingType,
 		ForceH264:       v.ForceH264,
 		CompletionKind:  v.CompletionKind,
+		Truncated:       v.Truncated,
 	}
 }
 
@@ -354,6 +372,7 @@ func scanPGVideos(rows pgx.Rows) ([]repository.Video, error) {
 			&row.ForceH264,
 			&row.Title,
 			&row.CompletionKind,
+			&row.Truncated,
 		); err != nil {
 			return nil, err
 		}
@@ -509,6 +528,8 @@ func pgVideoListFiltersSQL(args *[]any, opts repository.ListVideosOpts) string {
 	durationMax := pgAppendArg(args, opts.DurationMaxSeconds)
 	sizeMin := pgAppendArg(args, opts.SizeMinBytes)
 	sizeMax := pgAppendArg(args, opts.SizeMaxBytes)
+	window := pgAppendArg(args, opts.Window)
+	incompleteOnly := pgAppendArg(args, opts.IncompleteOnly)
 	return fmt.Sprintf(`
   AND (%s::text = '' OR quality = %s::text OR selected_quality = %s::text OR selected_quality || 'p' = %s::text OR (selected_fps IS NOT NULL AND selected_fps > 0 AND selected_quality || 'p' || ROUND(selected_fps)::int::text = %s::text))
   AND (%s::text = '' OR broadcaster_id = %s::text)
@@ -516,7 +537,19 @@ func pgVideoListFiltersSQL(args *[]any, opts repository.ListVideosOpts) string {
   AND (%s::double precision IS NULL OR duration_seconds >= %s::double precision)
   AND (%s::double precision IS NULL OR duration_seconds < %s::double precision)
   AND (%s::bigint IS NULL OR size_bytes >= %s::bigint)
-  AND (%s::bigint IS NULL OR size_bytes < %s::bigint)`, quality, quality, quality, quality, quality, broadcasterID, broadcasterID, language, language, durationMin, durationMin, durationMax, durationMax, sizeMin, sizeMin, sizeMax, sizeMax)
+  AND (%s::bigint IS NULL OR size_bytes < %s::bigint)
+  AND (%s::text = '' OR (%s::text = 'this_week' AND start_download_at >= now() - interval '7 days'))
+  AND (NOT %s::boolean OR completion_kind = 'partial' OR truncated)`,
+		quality, quality, quality, quality, quality,
+		broadcasterID, broadcasterID,
+		language, language,
+		durationMin, durationMin,
+		durationMax, durationMax,
+		sizeMin, sizeMin,
+		sizeMax, sizeMax,
+		window, window,
+		incompleteOnly,
+	)
 }
 
 func pgAppendArg(args *[]any, value any) string {

@@ -155,7 +155,7 @@ func TestSQLiteRoundtrip(t *testing.T) {
 	if err := adapter.UpdateVideoSelectedVariant(ctx, vid.ID, "1080", &selectedFPS); err != nil {
 		t.Fatalf("set selected variant: %v", err)
 	}
-	if err := adapter.MarkVideoDone(ctx, vid.ID, 3600.5, 1_073_741_824, &thumb, repository.CompletionKindComplete); err != nil {
+	if err := adapter.MarkVideoDone(ctx, vid.ID, 3600.5, 1_073_741_824, &thumb, repository.CompletionKindComplete, false); err != nil {
 		t.Fatalf("mark done: %v", err)
 	}
 	done, err := adapter.GetVideo(ctx, vid.ID)
@@ -260,7 +260,7 @@ func TestListVideos_ColumnRoundtrip(t *testing.T) {
 		t.Fatalf("set selected variant: %v", err)
 	}
 	thumb := "thumbnails/thumb.jpg"
-	if err := a.MarkVideoDone(ctx, v.ID, 3600.5, 1_073_741_824, &thumb, repository.CompletionKindComplete); err != nil {
+	if err := a.MarkVideoDone(ctx, v.ID, 3600.5, 1_073_741_824, &thumb, repository.CompletionKindComplete, false); err != nil {
 		t.Fatalf("mark done: %v", err)
 	}
 
@@ -440,7 +440,7 @@ func TestListVideos_SortDimensions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create %s: %v", s.displayName, err)
 		}
-		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, "complete"); err != nil {
+		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, "complete", false); err != nil {
 			t.Fatalf("mark done %s: %v", s.displayName, err)
 		}
 		ids[s.displayName] = v.ID
@@ -664,11 +664,11 @@ func seedVideoListFilterFixture(t *testing.T, ctx context.Context, a *SQLiteAdap
 			t.Fatalf("create %s: %v", s.jobID, err)
 		}
 		if s.failed {
-			if err := a.MarkVideoFailed(ctx, v.ID, "seed-failed", repository.CompletionKindComplete); err != nil {
+			if err := a.MarkVideoFailed(ctx, v.ID, "seed-failed", repository.CompletionKindComplete, true); err != nil {
 				t.Fatalf("mark failed %s: %v", s.jobID, err)
 			}
 		} else {
-			if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete); err != nil {
+			if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete, false); err != nil {
 				t.Fatalf("mark done %s: %v", s.jobID, err)
 			}
 		}
@@ -743,7 +743,7 @@ func seedVideoListPageFixture(t *testing.T, ctx context.Context, a *SQLiteAdapte
 		if err != nil {
 			t.Fatalf("create %s: %v", s.jobID, err)
 		}
-		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete); err != nil {
+		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete, false); err != nil {
 			t.Fatalf("mark done %s: %v", s.jobID, err)
 		}
 		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", formatTime(s.startedAt), v.ID); err != nil {

@@ -250,6 +250,7 @@ type Video struct {
 	CompletionKind  string     `json:"completion_kind"`
 	SelectedQuality *string    `json:"selected_quality"`
 	SelectedFps     *float64   `json:"selected_fps"`
+	Truncated       bool       `json:"truncated"`
 }
 
 type VideoCategory struct {
@@ -264,6 +265,14 @@ type VideoCategorySpan struct {
 	StartedAt       time.Time  `json:"started_at"`
 	EndedAt         *time.Time `json:"ended_at"`
 	DurationSeconds float64    `json:"duration_seconds"`
+}
+
+type VideoMetadataChange struct {
+	ID         int64     `json:"id"`
+	VideoID    int64     `json:"video_id"`
+	OccurredAt time.Time `json:"occurred_at"`
+	TitleID    *int64    `json:"title_id"`
+	CategoryID *string   `json:"category_id"`
 }
 
 type VideoPart struct {

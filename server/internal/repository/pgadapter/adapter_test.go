@@ -243,7 +243,7 @@ func TestListVideos_SortDimensions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create %s: %v", s.displayName, err)
 		}
-		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, "complete"); err != nil {
+		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, "complete", false); err != nil {
 			t.Fatalf("mark done %s: %v", s.displayName, err)
 		}
 		ids[s.displayName] = v.ID
@@ -436,7 +436,7 @@ func seedVideoListPageFixture(t *testing.T, ctx context.Context, a *PGAdapter) {
 		if err != nil {
 			t.Fatalf("create %s: %v", s.jobID, err)
 		}
-		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete); err != nil {
+		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete, false); err != nil {
 			t.Fatalf("mark done %s: %v", s.jobID, err)
 		}
 		if _, err := a.db.Exec(ctx, "UPDATE videos SET start_download_at = $1 WHERE id = $2", s.startedAt, v.ID); err != nil {
@@ -538,11 +538,11 @@ func seedVideoListFilterFixture(t *testing.T, ctx context.Context, a *PGAdapter)
 			t.Fatalf("create %s: %v", s.jobID, err)
 		}
 		if s.failed {
-			if err := a.MarkVideoFailed(ctx, v.ID, "seed-failed", repository.CompletionKindComplete); err != nil {
+			if err := a.MarkVideoFailed(ctx, v.ID, "seed-failed", repository.CompletionKindComplete, true); err != nil {
 				t.Fatalf("mark failed %s: %v", s.jobID, err)
 			}
 		} else {
-			if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete); err != nil {
+			if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete, false); err != nil {
 				t.Fatalf("mark done %s: %v", s.jobID, err)
 			}
 		}

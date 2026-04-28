@@ -321,7 +321,7 @@ func (q *Queries) ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, e
 }
 
 const listVideoRequestsForUser = `-- name: ListVideoRequestsForUser :many
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated FROM videos v
 INNER JOIN video_requests vr ON vr.video_id = v.id
 WHERE vr.user_id = ? AND v.deleted_at IS NULL
 ORDER BY vr.requested_at DESC
@@ -367,6 +367,7 @@ func (q *Queries) ListVideoRequestsForUser(ctx context.Context, arg ListVideoReq
 			&i.CompletionKind,
 			&i.SelectedQuality,
 			&i.SelectedFps,
+			&i.Truncated,
 		); err != nil {
 			return nil, err
 		}

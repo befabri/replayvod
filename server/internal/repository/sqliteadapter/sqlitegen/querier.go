@@ -96,9 +96,20 @@ type Querier interface {
 	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
+	// True when at least one part for this video has been remuxed and
+	// persisted (size_bytes > 0). Mirrors the postgres query — see
+	// queries/postgres/video_parts.sql for the rationale.
+	//
+	// Single-line SELECT EXISTS form: sqlc-sqlite's engine miscompiles
+	// multi-line EXISTS bodies, corrupting the const literal AND the
+	// next query in the file (we hit both: a truncated `has_finalized`
+	// alias and a clobbered DeleteVideoParts). One-line form sidesteps
+	// the parser bug.
+	HasFinalizedVideoParts(ctx context.Context, videoID int64) (int64, error)
 	// @at_time: see CloseOtherOpenVideoTitleSpans for why
 	// the string cast is load-bearing.
 	InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error
+	InsertVideoMetadataChange(ctx context.Context, arg InsertVideoMetadataChangeParams) (int64, error)
 	// The INSERT half of the upsert. The partial unique index on
 	// (video_id, title_id) WHERE ended_at IS NULL keeps the same-title
 	// re-enter case a no-op.
@@ -163,6 +174,7 @@ type Querier interface {
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	ListVideoMetadataChangesForVideo(ctx context.Context, videoID int64) ([]ListVideoMetadataChangesForVideoRow, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
 	// NOTE: ListVideos is intentionally NOT declared here. The PG path
@@ -183,9 +195,11 @@ type Querier interface {
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
 	MarkTaskRunning(ctx context.Context, name string) error
 	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
-	// See postgres/videos.sql MarkVideoDone for completion_kind rationale.
+	// See postgres/videos.sql MarkVideoDone for the completion_kind /
+	// truncated rationale.
 	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
-	// See postgres/videos.sql MarkVideoFailed for completion_kind rationale.
+	// See postgres/videos.sql MarkVideoFailed for the completion_kind /
+	// truncated rationale.
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
 	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
@@ -204,7 +218,24 @@ type Querier interface {
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
 	SoftDeleteVideo(ctx context.Context, id int64) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
-	StatisticsTotals(ctx context.Context) (StatisticsTotalsRow, error)
+	StatisticsChannels(ctx context.Context) (int64, error)
+	StatisticsIncomplete(ctx context.Context) (int64, error)
+	StatisticsThisWeek(ctx context.Context) (int64, error)
+	// Per-channel rollup of finished recordings: count + summed bytes +
+	// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+	// so the watch page can render a "N recordings · X GB" line under the
+	// channel name without paginating the full library client-side.
+	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
+	// StatisticsTotals is split across four atomic queries instead of
+	// one combined SELECT. The combined form (with CASE WHEN aggregates
+	// in a multi-column SELECT list) triggers a sqlc-on-SQLite codegen
+	// bug that truncates trailing chars off subsequent query consts
+	// (StatisticsTotalsByBroadcaster ends up with `IS NUL` instead of
+	// `IS NULL`). Splitting keeps each query small enough that the
+	// parser doesn't trip; the adapter combines them into a single
+	// VideoStatsTotals struct. Postgres still uses the single-query
+	// form; see queries/postgres/videos.sql.
+	StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error)
 	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
 	// between 0/1 explicitly via CASE for clarity on non-boolean-ish values.
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)

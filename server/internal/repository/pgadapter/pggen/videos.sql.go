@@ -27,7 +27,7 @@ INSERT INTO videos (
     force_h264
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps
+RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated
 `
 
 type CreateVideoParams struct {
@@ -85,12 +85,13 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		&i.CompletionKind,
 		&i.SelectedQuality,
 		&i.SelectedFps,
+		&i.Truncated,
 	)
 	return i, err
 }
 
 const getVideo = `-- name: GetVideo :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos WHERE id = $1
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE id = $1
 `
 
 func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
@@ -120,12 +121,13 @@ func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
 		&i.CompletionKind,
 		&i.SelectedQuality,
 		&i.SelectedFps,
+		&i.Truncated,
 	)
 	return i, err
 }
 
 const getVideoByJobID = `-- name: GetVideoByJobID :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos WHERE job_id = $1
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE job_id = $1
 `
 
 func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, error) {
@@ -155,12 +157,13 @@ func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, err
 		&i.CompletionKind,
 		&i.SelectedQuality,
 		&i.SelectedFps,
+		&i.Truncated,
 	)
 	return i, err
 }
 
 const listVideos = `-- name: ListVideos :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos
 WHERE deleted_at IS NULL
   AND ($1::text = '' OR status = $1::text)
 ORDER BY
@@ -236,6 +239,7 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 			&i.CompletionKind,
 			&i.SelectedQuality,
 			&i.SelectedFps,
+			&i.Truncated,
 		); err != nil {
 			return nil, err
 		}
@@ -248,7 +252,7 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 }
 
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
 
 func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, error) {
@@ -284,6 +288,7 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 			&i.CompletionKind,
 			&i.SelectedQuality,
 			&i.SelectedFps,
+			&i.Truncated,
 		); err != nil {
 			return nil, err
 		}
@@ -302,7 +307,8 @@ UPDATE videos SET
     duration_seconds = $2,
     size_bytes = $3,
     thumbnail = $4,
-    completion_kind = $5
+    completion_kind = $5,
+    truncated = $6
 WHERE id = $1
 `
 
@@ -312,12 +318,16 @@ type MarkVideoDoneParams struct {
 	SizeBytes       *int64   `json:"size_bytes"`
 	Thumbnail       *string  `json:"thumbnail"`
 	CompletionKind  string   `json:"completion_kind"`
+	Truncated       bool     `json:"truncated"`
 }
 
-// completion_kind distinguishes clean-end from partial recordings.
-// Callers pass 'complete' for naturally-ended streams with no gaps,
-// 'partial' when resume_state contained restart_window_rolled gaps
-// (i.e. we lost data the CDN rolled past during shutdown).
+// completion_kind describes the artifact: 'complete' for a clean
+// run with no gaps, 'partial' when resume_state recorded a
+// restart_window_rolled (CDN dropped data we couldn't recover).
+// truncated is the orthogonal stop-boundary axis: true when the
+// recording stopped before the broadcast did (no EXT-X-ENDLIST seen,
+// or hadWindowRoll), false when the playlist's ENDLIST tag closed
+// the run naturally.
 func (q *Queries) MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error {
 	_, err := q.db.Exec(ctx, markVideoDone,
 		arg.ID,
@@ -325,6 +335,7 @@ func (q *Queries) MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) er
 		arg.SizeBytes,
 		arg.Thumbnail,
 		arg.CompletionKind,
+		arg.Truncated,
 	)
 	return err
 }
@@ -334,7 +345,8 @@ UPDATE videos SET
     status = 'FAILED',
     downloaded_at = NOW(),
     error = $2,
-    completion_kind = $3
+    completion_kind = $3,
+    truncated = $4
 WHERE id = $1
 `
 
@@ -342,15 +354,24 @@ type MarkVideoFailedParams struct {
 	ID             int64   `json:"id"`
 	Error          *string `json:"error"`
 	CompletionKind string  `json:"completion_kind"`
+	Truncated      bool    `json:"truncated"`
 }
 
-// completion_kind is 'cancelled' when the operator called Cancel(),
-// 'complete' otherwise (the default; pipeline crashed / transport
-// exhausted / etc.). Downstream UI keys on this to render a grey
-// "CANCELLED" badge instead of red "FAILED" for user-initiated
-// stops.
+// completion_kind: 'cancelled' for operator-initiated stops, 'partial'
+// when at least one part was finalized before the failure (some
+// watchable output exists), 'complete' otherwise (no salvage). UI
+// renders a grey CANCELLED badge for cancelled, yellow PARTIAL for
+// partial, red FAILED for complete.
+// truncated is true for any FAILED run — the broadcast was still
+// live when we stopped recording (otherwise the run would have
+// transitioned to DONE via the natural ENDLIST path).
 func (q *Queries) MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error {
-	_, err := q.db.Exec(ctx, markVideoFailed, arg.ID, arg.Error, arg.CompletionKind)
+	_, err := q.db.Exec(ctx, markVideoFailed,
+		arg.ID,
+		arg.Error,
+		arg.CompletionKind,
+		arg.Truncated,
+	)
 	return err
 }
 
@@ -408,21 +429,71 @@ func (q *Queries) StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusR
 
 const statisticsTotals = `-- name: StatisticsTotals :one
 SELECT
-    COUNT(*)::BIGINT AS total,
-    COALESCE(SUM(size_bytes), 0)::BIGINT AS total_size,
-    COALESCE(SUM(duration_seconds), 0)::DOUBLE PRECISION AS total_duration
-FROM videos WHERE status = 'DONE' AND deleted_at IS NULL
+    COUNT(*) FILTER (WHERE status = 'DONE')::BIGINT AS total,
+    COALESCE(SUM(size_bytes) FILTER (WHERE status = 'DONE'), 0)::BIGINT AS total_size,
+    COALESCE(SUM(duration_seconds) FILTER (WHERE status = 'DONE'), 0)::DOUBLE PRECISION AS total_duration,
+    COUNT(*) FILTER (WHERE start_download_at >= now() - interval '7 days')::BIGINT AS this_week,
+    -- Mirrors the videos page Partial tab predicate exactly: any
+    -- recording that didn't capture the full broadcast, whether
+    -- the file has interior gaps (completion_kind='partial') or
+    -- the recorder ended before the broadcast did (truncated).
+    COUNT(*) FILTER (WHERE completion_kind = 'partial' OR truncated)::BIGINT AS incomplete,
+    -- Distinct channels recorded — feeds the page subtitle. Folded
+    -- into this aggregate so the videos route doesn't need a
+    -- separate full-channels-list fetch just to surface a count.
+    COUNT(DISTINCT broadcaster_id)::BIGINT AS channels
+FROM videos WHERE deleted_at IS NULL
 `
 
 type StatisticsTotalsRow struct {
 	Total         int64   `json:"total"`
 	TotalSize     int64   `json:"total_size"`
 	TotalDuration float64 `json:"total_duration"`
+	ThisWeek      int64   `json:"this_week"`
+	Incomplete    int64   `json:"incomplete"`
+	Channels      int64   `json:"channels"`
 }
 
+// Library-wide rollups. Total / size / duration restrict to DONE rows
+// (these are the user-visible numbers in the page subtitle); the two
+// FILTER-counted columns drive the videos page tab counters and run
+// across all non-deleted rows.
 func (q *Queries) StatisticsTotals(ctx context.Context) (StatisticsTotalsRow, error) {
 	row := q.db.QueryRow(ctx, statisticsTotals)
 	var i StatisticsTotalsRow
+	err := row.Scan(
+		&i.Total,
+		&i.TotalSize,
+		&i.TotalDuration,
+		&i.ThisWeek,
+		&i.Incomplete,
+		&i.Channels,
+	)
+	return i, err
+}
+
+const statisticsTotalsByBroadcaster = `-- name: StatisticsTotalsByBroadcaster :one
+SELECT
+    COUNT(*)::BIGINT AS total,
+    COALESCE(SUM(size_bytes), 0)::BIGINT AS total_size,
+    COALESCE(SUM(duration_seconds), 0)::DOUBLE PRECISION AS total_duration
+FROM videos
+WHERE broadcaster_id = $1 AND status = 'DONE' AND deleted_at IS NULL
+`
+
+type StatisticsTotalsByBroadcasterRow struct {
+	Total         int64   `json:"total"`
+	TotalSize     int64   `json:"total_size"`
+	TotalDuration float64 `json:"total_duration"`
+}
+
+// Per-channel rollup of finished recordings: count + summed bytes +
+// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+// so the watch page can render a "N recordings · X GB" line under the
+// channel name without paginating the full library client-side.
+func (q *Queries) StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error) {
+	row := q.db.QueryRow(ctx, statisticsTotalsByBroadcaster, broadcasterID)
+	var i StatisticsTotalsByBroadcasterRow
 	err := row.Scan(&i.Total, &i.TotalSize, &i.TotalDuration)
 	return i, err
 }

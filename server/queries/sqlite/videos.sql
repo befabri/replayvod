@@ -23,23 +23,27 @@ UPDATE videos SET
 WHERE id = ?;
 
 -- name: MarkVideoDone :exec
--- See postgres/videos.sql MarkVideoDone for completion_kind rationale.
+-- See postgres/videos.sql MarkVideoDone for the completion_kind /
+-- truncated rationale.
 UPDATE videos SET
     status = 'DONE',
     downloaded_at = datetime('now'),
     duration_seconds = ?,
     size_bytes = ?,
     thumbnail = ?,
-    completion_kind = ?
+    completion_kind = ?,
+    truncated = ?
 WHERE id = ?;
 
 -- name: MarkVideoFailed :exec
--- See postgres/videos.sql MarkVideoFailed for completion_kind rationale.
+-- See postgres/videos.sql MarkVideoFailed for the completion_kind /
+-- truncated rationale.
 UPDATE videos SET
     status = 'FAILED',
     downloaded_at = datetime('now'),
     error = ?,
-    completion_kind = ?
+    completion_kind = ?,
+    truncated = ?
 WHERE id = ?;
 
 -- name: SetVideoThumbnail :exec
@@ -64,9 +68,46 @@ SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL;
 -- name: StatisticsByStatus :many
 SELECT status, COUNT(*) AS count FROM videos WHERE deleted_at IS NULL GROUP BY status;
 
--- name: StatisticsTotals :one
+-- StatisticsTotals is split across four atomic queries instead of
+-- one combined SELECT. The combined form (with CASE WHEN aggregates
+-- in a multi-column SELECT list) triggers a sqlc-on-SQLite codegen
+-- bug that truncates trailing chars off subsequent query consts
+-- (StatisticsTotalsByBroadcaster ends up with `IS NUL` instead of
+-- `IS NULL`). Splitting keeps each query small enough that the
+-- parser doesn't trip; the adapter combines them into a single
+-- VideoStatsTotals struct. Postgres still uses the single-query
+-- form; see queries/postgres/videos.sql.
+
+-- name: StatisticsTotalsDoneOnly :one
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,
     CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
     CAST(COALESCE(SUM(duration_seconds), 0) AS REAL) AS total_duration
 FROM videos WHERE status = 'DONE' AND deleted_at IS NULL;
+
+-- name: StatisticsThisWeek :one
+SELECT CAST(COUNT(*) AS INTEGER) AS this_week
+FROM videos
+WHERE deleted_at IS NULL AND start_download_at >= datetime('now', '-7 days');
+
+-- name: StatisticsIncomplete :one
+SELECT CAST(COUNT(*) AS INTEGER) AS incomplete
+FROM videos
+WHERE deleted_at IS NULL AND (completion_kind = 'partial' OR truncated);
+
+-- name: StatisticsChannels :one
+SELECT CAST(COUNT(DISTINCT broadcaster_id) AS INTEGER) AS channels
+FROM videos
+WHERE deleted_at IS NULL;
+
+-- name: StatisticsTotalsByBroadcaster :one
+-- Per-channel rollup of finished recordings: count + summed bytes +
+-- summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+-- so the watch page can render a "N recordings · X GB" line under the
+-- channel name without paginating the full library client-side.
+SELECT
+    CAST(COUNT(*) AS INTEGER) AS total,
+    CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
+    CAST(COALESCE(SUM(duration_seconds), 0) AS REAL) AS total_duration
+FROM videos
+WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NULL;

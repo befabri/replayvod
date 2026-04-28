@@ -114,7 +114,7 @@ func (a *SQLiteAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64
 	})
 }
 
-func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error {
+func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string, truncated bool) error {
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
 			return err
@@ -125,11 +125,12 @@ func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSec
 			SizeBytes:       sql.NullInt64{Int64: sizeBytes, Valid: true},
 			Thumbnail:       toNullString(thumbnail),
 			CompletionKind:  completionKind,
+			Truncated:       sqliteBool(truncated),
 		})
 	})
 }
 
-func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error {
+func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool) error {
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
 			return err
@@ -138,8 +139,19 @@ func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg st
 			ID:             id,
 			Error:          sql.NullString{String: errMsg, Valid: true},
 			CompletionKind: completionKind,
+			Truncated:      sqliteBool(truncated),
 		})
 	})
+}
+
+// sqliteBool encodes a Go bool as the int64 0/1 SQLite uses for the
+// truncated column. Pairs with the int64 → bool flatten in
+// sqliteVideoToDomain so the adapter's interface stays plain bool.
+func sqliteBool(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func (a *SQLiteAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error {
@@ -162,7 +174,7 @@ const listVideosSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
+    recording_type, force_h264, title, completion_kind, truncated
 FROM videos
 WHERE deleted_at IS NULL
   AND (?1 = '' OR status = ?1)
@@ -187,7 +199,7 @@ const listVideosByBroadcasterPageSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
+    recording_type, force_h264, title, completion_kind, truncated
 FROM videos
 WHERE broadcaster_id = ?1
   AND deleted_at IS NULL
@@ -204,7 +216,7 @@ const listVideosByCategoryPageSQL = `SELECT
     v.selected_fps, v.broadcaster_id, v.stream_id, v.viewer_count, v.language,
     v.duration_seconds, v.size_bytes, v.thumbnail, v.error,
     v.start_download_at, v.downloaded_at, v.deleted_at,
-    v.recording_type, v.force_h264, v.title, v.completion_kind
+    v.recording_type, v.force_h264, v.title, v.completion_kind, v.truncated
 FROM videos v
 INNER JOIN video_categories vc ON vc.video_id = v.id
 WHERE vc.category_id = ?1
@@ -222,7 +234,7 @@ const listVideosPageBaseSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind
+    recording_type, force_h264, title, completion_kind, truncated
 FROM videos
 WHERE deleted_at IS NULL
   AND (? = '' OR status = ?)`
@@ -265,6 +277,7 @@ func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVide
 			&row.ForceH264,
 			&row.Title,
 			&row.CompletionKind,
+			&row.Truncated,
 		); err != nil {
 			return nil, fmt.Errorf("sqlite list videos scan: %w", err)
 		}
@@ -351,10 +364,42 @@ func (a *SQLiteAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.Vi
 	return out, nil
 }
 
+// VideoStatsTotals issues four atomic aggregate queries and combines
+// them. The PG path uses one SELECT with FILTER clauses; sqlc's
+// SQLite engine miscompiles that shape (truncates the const string
+// and bleeds chars into adjacent queries), so the SQLite side is
+// hand-composed from queries that codegen cleanly.
 func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context) (*repository.VideoStatsTotals, error) {
-	row, err := a.queries.StatisticsTotals(ctx)
+	doneRow, err := a.queries.StatisticsTotalsDoneOnly(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats totals: %w", err)
+		return nil, fmt.Errorf("sqlite video stats totals (done): %w", err)
+	}
+	thisWeek, err := a.queries.StatisticsThisWeek(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats totals (this_week): %w", err)
+	}
+	incomplete, err := a.queries.StatisticsIncomplete(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats totals (incomplete): %w", err)
+	}
+	channels, err := a.queries.StatisticsChannels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats totals (channels): %w", err)
+	}
+	return &repository.VideoStatsTotals{
+		Total:         doneRow.Total,
+		TotalSize:     doneRow.TotalSize,
+		TotalDuration: doneRow.TotalDuration,
+		ThisWeek:      thisWeek,
+		Incomplete:    incomplete,
+		Channels:      channels,
+	}, nil
+}
+
+func (a *SQLiteAdapter) VideoStatsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (*repository.VideoStatsTotals, error) {
+	row, err := a.queries.StatisticsTotalsByBroadcaster(ctx, broadcasterID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats totals by broadcaster: %w", err)
 	}
 	return &repository.VideoStatsTotals{
 		Total:         row.Total,
@@ -403,6 +448,7 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		RecordingType:   v.RecordingType,
 		ForceH264:       v.ForceH264 != 0,
 		CompletionKind:  v.CompletionKind,
+		Truncated:       v.Truncated != 0,
 	}
 }
 
@@ -456,6 +502,7 @@ func scanSQLiteVideo(rows *sql.Rows) (sqlitegen.Video, error) {
 		&row.ForceH264,
 		&row.Title,
 		&row.CompletionKind,
+		&row.Truncated,
 	)
 	return row, err
 }
@@ -583,6 +630,8 @@ func sqliteVideoListFiltersSQL(args *[]any, opts repository.ListVideosOpts) stri
 	*args = append(*args, durationMax, durationMax)
 	*args = append(*args, sizeMin, sizeMin)
 	*args = append(*args, sizeMax, sizeMax)
+	*args = append(*args, opts.Window, opts.Window)
+	*args = append(*args, sqliteBool(opts.IncompleteOnly))
 	return `
   AND (? = '' OR quality = ? OR selected_quality = ? OR selected_quality || 'p' = ? OR (selected_fps IS NOT NULL AND selected_fps > 0 AND selected_quality || 'p' || CAST(ROUND(selected_fps) AS INTEGER) = ?))
   AND (? = '' OR broadcaster_id = ?)
@@ -590,7 +639,9 @@ func sqliteVideoListFiltersSQL(args *[]any, opts repository.ListVideosOpts) stri
   AND (? IS NULL OR duration_seconds >= ?)
   AND (? IS NULL OR duration_seconds < ?)
   AND (? IS NULL OR size_bytes >= ?)
-  AND (? IS NULL OR size_bytes < ?)`
+  AND (? IS NULL OR size_bytes < ?)
+  AND (? = '' OR (? = 'this_week' AND start_download_at >= datetime('now', '-7 days')))
+  AND (? = 0 OR completion_kind = 'partial' OR truncated = 1)`
 }
 
 func sqliteOptionalFloat(v *float64) any {

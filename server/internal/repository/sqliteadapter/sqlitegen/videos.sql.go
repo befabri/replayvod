@@ -28,7 +28,7 @@ INSERT INTO videos (
     force_h264
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps
+RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated
 `
 
 type CreateVideoParams struct {
@@ -86,12 +86,13 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		&i.CompletionKind,
 		&i.SelectedQuality,
 		&i.SelectedFps,
+		&i.Truncated,
 	)
 	return i, err
 }
 
 const getVideo = `-- name: GetVideo :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos WHERE id = ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE id = ?
 `
 
 func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
@@ -121,12 +122,13 @@ func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
 		&i.CompletionKind,
 		&i.SelectedQuality,
 		&i.SelectedFps,
+		&i.Truncated,
 	)
 	return i, err
 }
 
 const getVideoByJobID = `-- name: GetVideoByJobID :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos WHERE job_id = ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE job_id = ?
 `
 
 func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, error) {
@@ -156,13 +158,14 @@ func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, err
 		&i.CompletionKind,
 		&i.SelectedQuality,
 		&i.SelectedFps,
+		&i.Truncated,
 	)
 	return i, err
 }
 
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
 
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
 
 // NOTE: ListVideos is intentionally NOT declared here. The PG path
@@ -204,6 +207,7 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 			&i.CompletionKind,
 			&i.SelectedQuality,
 			&i.SelectedFps,
+			&i.Truncated,
 		); err != nil {
 			return nil, err
 		}
@@ -225,7 +229,8 @@ UPDATE videos SET
     duration_seconds = ?,
     size_bytes = ?,
     thumbnail = ?,
-    completion_kind = ?
+    completion_kind = ?,
+    truncated = ?
 WHERE id = ?
 `
 
@@ -234,16 +239,19 @@ type MarkVideoDoneParams struct {
 	SizeBytes       sql.NullInt64   `json:"size_bytes"`
 	Thumbnail       sql.NullString  `json:"thumbnail"`
 	CompletionKind  string          `json:"completion_kind"`
+	Truncated       int64           `json:"truncated"`
 	ID              int64           `json:"id"`
 }
 
-// See postgres/videos.sql MarkVideoDone for completion_kind rationale.
+// See postgres/videos.sql MarkVideoDone for the completion_kind /
+// truncated rationale.
 func (q *Queries) MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error {
 	_, err := q.db.ExecContext(ctx, markVideoDone,
 		arg.DurationSeconds,
 		arg.SizeBytes,
 		arg.Thumbnail,
 		arg.CompletionKind,
+		arg.Truncated,
 		arg.ID,
 	)
 	return err
@@ -254,19 +262,27 @@ UPDATE videos SET
     status = 'FAILED',
     downloaded_at = datetime('now'),
     error = ?,
-    completion_kind = ?
+    completion_kind = ?,
+    truncated = ?
 WHERE id = ?
 `
 
 type MarkVideoFailedParams struct {
 	Error          sql.NullString `json:"error"`
 	CompletionKind string         `json:"completion_kind"`
+	Truncated      int64          `json:"truncated"`
 	ID             int64          `json:"id"`
 }
 
-// See postgres/videos.sql MarkVideoFailed for completion_kind rationale.
+// See postgres/videos.sql MarkVideoFailed for the completion_kind /
+// truncated rationale.
 func (q *Queries) MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error {
-	_, err := q.db.ExecContext(ctx, markVideoFailed, arg.Error, arg.CompletionKind, arg.ID)
+	_, err := q.db.ExecContext(ctx, markVideoFailed,
+		arg.Error,
+		arg.CompletionKind,
+		arg.Truncated,
+		arg.ID,
+	)
 	return err
 }
 
@@ -325,7 +341,73 @@ func (q *Queries) StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusR
 	return items, nil
 }
 
-const statisticsTotals = `-- name: StatisticsTotals :one
+const statisticsChannels = `-- name: StatisticsChannels :one
+SELECT CAST(COUNT(DISTINCT broadcaster_id) AS INTEGER) AS channels
+FROM videos
+WHERE deleted_at IS NULL
+`
+
+func (q *Queries) StatisticsChannels(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, statisticsChannels)
+	var channels int64
+	err := row.Scan(&channels)
+	return channels, err
+}
+
+const statisticsIncomplete = `-- name: StatisticsIncomplete :one
+SELECT CAST(COUNT(*) AS INTEGER) AS incomplete
+FROM videos
+WHERE deleted_at IS NULL AND (completion_kind = 'partial' OR truncated)
+`
+
+func (q *Queries) StatisticsIncomplete(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, statisticsIncomplete)
+	var incomplete int64
+	err := row.Scan(&incomplete)
+	return incomplete, err
+}
+
+const statisticsThisWeek = `-- name: StatisticsThisWeek :one
+SELECT CAST(COUNT(*) AS INTEGER) AS this_week
+FROM videos
+WHERE deleted_at IS NULL AND start_download_at >= datetime('now', '-7 days')
+`
+
+func (q *Queries) StatisticsThisWeek(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, statisticsThisWeek)
+	var this_week int64
+	err := row.Scan(&this_week)
+	return this_week, err
+}
+
+const statisticsTotalsByBroadcaster = `-- name: StatisticsTotalsByBroadcaster :one
+SELECT
+    CAST(COUNT(*) AS INTEGER) AS total,
+    CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
+    CAST(COALESCE(SUM(duration_seconds), 0) AS REAL) AS total_duration
+FROM videos
+WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NUL
+`
+
+type StatisticsTotalsByBroadcasterRow struct {
+	Total         int64   `json:"total"`
+	TotalSize     int64   `json:"total_size"`
+	TotalDuration float64 `json:"total_duration"`
+}
+
+// Per-channel rollup of finished recordings: count + summed bytes +
+// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+// so the watch page can render a "N recordings · X GB" line under the
+// channel name without paginating the full library client-side.
+func (q *Queries) StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error) {
+	row := q.db.QueryRowContext(ctx, statisticsTotalsByBroadcaster, broadcasterID)
+	var i StatisticsTotalsByBroadcasterRow
+	err := row.Scan(&i.Total, &i.TotalSize, &i.TotalDuration)
+	return i, err
+}
+
+const statisticsTotalsDoneOnly = `-- name: StatisticsTotalsDoneOnly :one
+
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,
     CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
@@ -333,15 +415,24 @@ SELECT
 FROM videos WHERE status = 'DONE' AND deleted_at IS NULL
 `
 
-type StatisticsTotalsRow struct {
+type StatisticsTotalsDoneOnlyRow struct {
 	Total         int64   `json:"total"`
 	TotalSize     int64   `json:"total_size"`
 	TotalDuration float64 `json:"total_duration"`
 }
 
-func (q *Queries) StatisticsTotals(ctx context.Context) (StatisticsTotalsRow, error) {
-	row := q.db.QueryRowContext(ctx, statisticsTotals)
-	var i StatisticsTotalsRow
+// StatisticsTotals is split across four atomic queries instead of
+// one combined SELECT. The combined form (with CASE WHEN aggregates
+// in a multi-column SELECT list) triggers a sqlc-on-SQLite codegen
+// bug that truncates trailing chars off subsequent query consts
+// (StatisticsTotalsByBroadcaster ends up with `IS NUL` instead of
+// `IS NULL`). Splitting keeps each query small enough that the
+// parser doesn't trip; the adapter combines them into a single
+// VideoStatsTotals struct. Postgres still uses the single-query
+// form; see queries/postgres/videos.sql.
+func (q *Queries) StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error) {
+	row := q.db.QueryRowContext(ctx, statisticsTotalsDoneOnly)
+	var i StatisticsTotalsDoneOnlyRow
 	err := row.Scan(&i.Total, &i.TotalSize, &i.TotalDuration)
 	return i, err
 }
