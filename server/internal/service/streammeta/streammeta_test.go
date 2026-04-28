@@ -199,3 +199,198 @@ func TestHydrator_EnricherErrorLoggedNotReturned(t *testing.T) {
 		t.Errorf("expected 1 enrich attempt, got %d", len(art.calls))
 	}
 }
+
+// seedRecording creates the channel + video rows that
+// LinkInitialVideoMetadata expects to find, and returns the new
+// video id. Used by the metadata-change tests below.
+func seedRecording(t *testing.T, ctx context.Context, repo repository.Repository) int64 {
+	t.Helper()
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-1", BroadcasterLogin: "b", BroadcasterName: "B",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	video, err := repo.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-1",
+		Filename:      "rec-1.mp4",
+		DisplayName:   "B",
+		Status:        repository.VideoStatusRunning,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "b-1",
+		Language:      "en",
+		RecordingType: repository.RecordingTypeVideo,
+	})
+	if err != nil {
+		t.Fatalf("create video: %v", err)
+	}
+	return video.ID
+}
+
+// TestHydrator_LinkInitialVideoMetadata_BothDimensionsShareTimestamp
+// pins the design that drove the video_metadata_changes table: one
+// channel.update event delivering both title and category produces a
+// single timeline row, and the title span / category span share that
+// row's occurred_at exactly. Two time.Now() calls (the old shape)
+// would split the dashboard timeline into two stacked entries.
+func TestHydrator_LinkInitialVideoMetadata_BothDimensionsShareTimestamp(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHydrator(t, nil)
+	videoID := seedRecording(t, ctx, repo)
+
+	if err := h.LinkInitialVideoMetadata(ctx, videoID, ChannelUpdateMeta{
+		Title:        "Just chatting",
+		CategoryID:   "game-42",
+		CategoryName: "Game 42",
+	}); err != nil {
+		t.Fatalf("link initial: %v", err)
+	}
+
+	events, err := repo.ListVideoMetadataChanges(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected exactly one event row, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.Title == nil {
+		t.Fatalf("event title should be hydrated")
+	}
+	if ev.Title.Name != "Just chatting" {
+		t.Errorf("event title: got %q, want %q", ev.Title.Name, "Just chatting")
+	}
+	if ev.Category == nil || ev.Category.ID != "game-42" {
+		t.Fatalf("event category: got %+v", ev.Category)
+	}
+
+	// The title span and category span must share the event's
+	// occurred_at — that's the structural guarantee the events
+	// table replaced timestamp-coincidence grouping with.
+	titles, err := repo.ListTitlesForVideo(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list titles: %v", err)
+	}
+	if len(titles) != 1 {
+		t.Fatalf("expected one title span, got %d", len(titles))
+	}
+	if !titles[0].StartedAt.Equal(ev.OccurredAt) {
+		t.Errorf("title span started_at %v != event occurred_at %v", titles[0].StartedAt, ev.OccurredAt)
+	}
+	categories, err := repo.ListCategoriesForVideo(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list categories: %v", err)
+	}
+	if len(categories) != 1 {
+		t.Fatalf("expected one category span, got %d", len(categories))
+	}
+	if !categories[0].StartedAt.Equal(ev.OccurredAt) {
+		t.Errorf("category span started_at %v != event occurred_at %v", categories[0].StartedAt, ev.OccurredAt)
+	}
+}
+
+// TestHydrator_LinkInitialVideoMetadata_TitleOnly verifies a partial
+// channel.update (title without category) produces an event row with
+// title_id set and category_id NULL. Mirrors the wire shape of a
+// real Helix payload that touches only one dimension.
+func TestHydrator_LinkInitialVideoMetadata_TitleOnly(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHydrator(t, nil)
+	videoID := seedRecording(t, ctx, repo)
+
+	if err := h.LinkInitialVideoMetadata(ctx, videoID, ChannelUpdateMeta{
+		Title: "title-only",
+	}); err != nil {
+		t.Fatalf("link initial: %v", err)
+	}
+
+	events, err := repo.ListVideoMetadataChanges(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one event row, got %d", len(events))
+	}
+	if events[0].Title == nil || events[0].Title.Name != "title-only" {
+		t.Errorf("title not hydrated: %+v", events[0].Title)
+	}
+	if events[0].Category != nil {
+		t.Errorf("category should be nil, got %+v", events[0].Category)
+	}
+}
+
+// TestHydrator_LinkInitialVideoMetadata_CategoryOnly is the inverse:
+// category alone produces an event row with title_id NULL.
+func TestHydrator_LinkInitialVideoMetadata_CategoryOnly(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHydrator(t, nil)
+	videoID := seedRecording(t, ctx, repo)
+
+	if err := h.LinkInitialVideoMetadata(ctx, videoID, ChannelUpdateMeta{
+		CategoryID:   "game-42",
+		CategoryName: "Game 42",
+	}); err != nil {
+		t.Fatalf("link initial: %v", err)
+	}
+
+	events, err := repo.ListVideoMetadataChanges(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one event row, got %d", len(events))
+	}
+	if events[0].Title != nil {
+		t.Errorf("title should be nil, got %+v", events[0].Title)
+	}
+	if events[0].Category == nil || events[0].Category.ID != "game-42" {
+		t.Errorf("category not hydrated: %+v", events[0].Category)
+	}
+}
+
+// TestHydrator_LinkInitialVideoMetadata_OrdersByOccurredAt walks two
+// successive change events and asserts ListVideoMetadataChanges
+// returns them in chronological order. The dialog's offset-from-first
+// timeline labels rely on this ordering.
+func TestHydrator_LinkInitialVideoMetadata_OrdersByOccurredAt(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHydrator(t, nil)
+	videoID := seedRecording(t, ctx, repo)
+
+	if err := h.LinkInitialVideoMetadata(ctx, videoID, ChannelUpdateMeta{
+		Title:        "first",
+		CategoryID:   "game-1",
+		CategoryName: "First Game",
+	}); err != nil {
+		t.Fatalf("first link: %v", err)
+	}
+	// Sleep one second so SQLite's text-time format (second-
+	// resolution) records distinct occurred_at values. The fix
+	// upstream (RecordChannelUpdate hoisting `at` to a single
+	// time.Now() per event) doesn't help across separate calls —
+	// these are genuinely two events.
+	time.Sleep(1100 * time.Millisecond)
+	if err := h.LinkInitialVideoMetadata(ctx, videoID, ChannelUpdateMeta{
+		Title:        "second",
+		CategoryID:   "game-2",
+		CategoryName: "Second Game",
+	}); err != nil {
+		t.Fatalf("second link: %v", err)
+	}
+
+	events, err := repo.ListVideoMetadataChanges(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].Title == nil || events[0].Title.Name != "first" {
+		t.Errorf("first event title: got %+v", events[0].Title)
+	}
+	if events[1].Title == nil || events[1].Title.Name != "second" {
+		t.Errorf("second event title: got %+v", events[1].Title)
+	}
+	if !events[1].OccurredAt.After(events[0].OccurredAt) {
+		t.Errorf("event order: second %v not after first %v", events[1].OccurredAt, events[0].OccurredAt)
+	}
+}

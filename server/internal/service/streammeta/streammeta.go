@@ -368,67 +368,44 @@ type ChannelUpdateMeta struct {
 	CategoryName string
 }
 
-// linkVideoTitle upserts a title and links it to a video. Idempotent
-// via ON CONFLICT DO NOTHING on video_titles; the upsert is harmless
-// on already-present title rows. Private helper shared by
-// RecordChannelUpdate (webhook + poll path) and LinkInitialVideoMetadata
-// (download-trigger path) so both write paths use identical shape.
+// recordVideoMetadata runs the title + category + event-row writes
+// atomically via the repository's RecordVideoMetadataChange. The
+// repo handles the inTx bracket; this helper is the service-layer
+// seam for the eager box-art enrich, which intentionally lives
+// outside the tx (Helix call, slow, best-effort).
 //
 // Kept log-free: callers know whether this is "a new change" vs a
-// retry/dedup case and log accordingly. Emitting "title change
+// retry/dedup case and log accordingly. Emitting "metadata change
 // recorded" from here would spam on webhook retries where the DB
 // state didn't actually move.
-func (h *Hydrator) linkVideoTitle(ctx context.Context, videoID int64, title string) error {
-	if title == "" {
-		return nil
-	}
-	at := time.Now().UTC()
-	t, err := h.repo.UpsertTitle(ctx, title)
+func (h *Hydrator) recordVideoMetadata(ctx context.Context, videoID int64, meta ChannelUpdateMeta, at time.Time) error {
+	result, err := h.repo.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{
+		VideoID:      videoID,
+		OccurredAt:   at,
+		Title:        meta.Title,
+		CategoryID:   meta.CategoryID,
+		CategoryName: meta.CategoryName,
+	})
 	if err != nil {
-		return fmt.Errorf("upsert title: %w", err)
-	}
-	if err := h.repo.LinkVideoTitle(ctx, videoID, t.ID); err != nil {
-		return fmt.Errorf("link video title: %w", err)
-	}
-	if err := h.repo.UpsertVideoTitleSpan(ctx, videoID, t.ID, at); err != nil {
-		return fmt.Errorf("upsert video title span: %w", err)
-	}
-	return nil
-}
-
-// linkVideoCategory upserts a category (when name is provided) and
-// links it to a video. Idempotent via ON CONFLICT on both writes.
-// Name-empty-guard prevents UpsertCategory's SET name = EXCLUDED.name
-// from clobbering an existing good name. Also drives the box-art
-// enrichment for first-observation games.
-func (h *Hydrator) linkVideoCategory(ctx context.Context, videoID int64, categoryID, categoryName string) error {
-	if categoryID == "" {
-		return nil
-	}
-	at := time.Now().UTC()
-	var cat *repository.Category
-	if categoryName != "" {
-		var err error
-		cat, err = h.repo.UpsertCategory(ctx, &repository.Category{
-			ID:   categoryID,
-			Name: categoryName,
-		})
-		if err != nil {
-			return fmt.Errorf("upsert category: %w", err)
+		// ErrNoMetadataObserved means the caller passed an empty
+		// payload. The outer guards in RecordChannelUpdate /
+		// LinkInitialVideoMetadata already prevent this, but
+		// returning a clean nil if it slips through is friendlier
+		// than surfacing a sentinel as an error.
+		if errors.Is(err, repository.ErrNoMetadataObserved) {
+			return nil
 		}
-	}
-	if err := h.repo.LinkVideoCategory(ctx, videoID, categoryID); err != nil {
-		return fmt.Errorf("link video category: %w", err)
-	}
-	if err := h.repo.UpsertVideoCategorySpan(ctx, videoID, categoryID, at); err != nil {
-		return fmt.Errorf("upsert video category span: %w", err)
+		return fmt.Errorf("record video metadata change: %w", err)
 	}
 	// Eagerly enrich art for newly-observed categories. The enrich
-	// call is best-effort — a failure here doesn't break the link.
-	if h.art != nil && (cat == nil || cat.BoxArtURL == nil || *cat.BoxArtURL == "") {
-		if err := h.art.Enrich(ctx, categoryID); err != nil {
+	// call is best-effort and lives outside the tx because it hits
+	// Helix — a slow/failed Helix call must not roll back the event
+	// write.
+	if h.art != nil && result != nil && result.Category != nil &&
+		(result.Category.BoxArtURL == nil || *result.Category.BoxArtURL == "") {
+		if err := h.art.Enrich(ctx, result.Category.ID); err != nil {
 			h.log.Warn("enrich category box art",
-				"game_id", categoryID, "error", err)
+				"game_id", result.Category.ID, "error", err)
 		}
 	}
 	return nil
@@ -440,12 +417,6 @@ func (h *Hydrator) linkVideoCategory(ctx context.Context, videoID int64, categor
 // the metadata watcher (poll mode). Best-effort: a change delivered
 // when no recording is active is a no-op; DB errors return so the
 // webhook handler can decide whether to NACK for Twitch retry.
-//
-// Title and category writes are independent: errors.Join lets a
-// transient failure on one not mask work done (or worth retrying)
-// on the other. Callers inspect the joined error to decide whether
-// to retry; Twitch's webhook retry policy is at-least-once so a
-// return of nil-or-partial is safer than returning early.
 //
 // Only video_* links are touched here — the stream-level M2M
 // (stream_categories, stream_titles) is intentionally a snapshot
@@ -466,16 +437,13 @@ func (h *Hydrator) RecordChannelUpdate(ctx context.Context, broadcasterID string
 		}
 		return err
 	}
-	return errors.Join(
-		h.linkVideoTitle(ctx, job.VideoID, meta.Title),
-		h.linkVideoCategory(ctx, job.VideoID, meta.CategoryID, meta.CategoryName),
-	)
+	return h.recordVideoMetadata(ctx, job.VideoID, meta, time.Now().UTC())
 }
 
 // LinkInitialVideoMetadata is the download-trigger companion to
 // RecordChannelUpdate. The downloader just created the video row
-// and knows its ID, so we skip the active-job lookup and link
-// directly. Same idempotent helpers; callers can retry safely.
+// and knows its ID, so we skip the active-job lookup and call the
+// repo directly. Same atomic write; callers can retry safely.
 //
 // The title and category fields are the at-download-start snapshot
 // from Hydrator.Hydrate; passing them in here is what makes the
@@ -485,8 +453,5 @@ func (h *Hydrator) LinkInitialVideoMetadata(ctx context.Context, videoID int64, 
 	if videoID == 0 || (meta.Title == "" && meta.CategoryID == "") {
 		return nil
 	}
-	return errors.Join(
-		h.linkVideoTitle(ctx, videoID, meta.Title),
-		h.linkVideoCategory(ctx, videoID, meta.CategoryID, meta.CategoryName),
-	)
+	return h.recordVideoMetadata(ctx, videoID, meta, time.Now().UTC())
 }
