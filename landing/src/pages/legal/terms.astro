@@ -1,0 +1,142 @@
+---
+import Legal from '../../layouts/Legal.astro';
+import { site } from '../../config';
+---
+
+<Legal title="Terms of Service">
+  <p>
+    These Terms of Service ("Terms") govern your use of ReplayVOD Connect, a hosted webhook relay for the
+    open-source ReplayVOD project, operated by
+    <strong>{site.operator.legalName}</strong> ("we", "us", "ReplayVOD"). By creating a Connect account or paying
+    a Connect subscription, you agree to these Terms.
+  </p>
+
+  <p>
+    The self-hosted ReplayVOD software is licensed separately under the GNU General Public License v3.0 (the
+    webhook relay component, which Connect uses, is MIT-licensed). The open-source code is not subject to
+    these Terms — these Terms cover only the paid Connect cloud service.
+  </p>
+
+  <h2>1. What Connect provides</h2>
+  <p>
+    Connect is a webhook relay service. It receives signed webhook deliveries on a public URL we provide and
+    forwards them to your self-hosted ReplayVOD instance over a long-lived WebSocket connection. The relay
+    does not parse, log, or persist webhook payload contents beyond a short reconnect buffer (currently five
+    minutes). It does not store your video recordings, user accounts, or Twitch credentials. Your videos
+    and database remain on the hardware you operate.
+  </p>
+
+  <h2>2. Your obligations</h2>
+  <p>You agree that:</p>
+  <ul>
+    <li>
+      You will register and maintain your own Twitch developer application and comply with the Twitch
+      Developer Services Agreement and Twitch Terms of Service. You are the Twitch developer; we are not.
+    </li>
+    <li>
+      You will only use Connect to relay webhooks for channels you own or for which you have explicit
+      permission from the broadcaster.
+    </li>
+    <li>
+      You will not use Connect to relay traffic that violates applicable law, infringes third-party rights, or
+      attempts to circumvent the technical or contractual protections of any platform.
+    </li>
+    <li>
+      You will keep your relay token confidential. Anyone who possesses your token can post events to your
+      relay endpoint.
+    </li>
+  </ul>
+
+  <h2>3. Subscription, billing, and refunds</h2>
+  <p>
+    Connect is sold as a recurring subscription billed through Polar (the merchant of record). By subscribing
+    you authorize Polar to charge your payment method on the subscription's renewal cadence until you cancel.
+  </p>
+  <p>
+    You may cancel at any time from the customer billing portal. Cancellation stops future renewals; access
+    continues through the end of the current billing period.
+  </p>
+  <p>
+    <strong>Refunds.</strong> Within fourteen (14) days of your initial subscription, you may request a full refund
+    by emailing
+    <a href={`mailto:${site.contact.email}`}>{site.contact.email}</a>. After fourteen days, monthly
+    subscriptions are non-refundable; annual subscriptions are refundable on a pro-rated basis for unused
+    full months. Polar processing fees (typically a few percent) are not refundable.
+  </p>
+
+  <h2>4. Service availability and platform risk</h2>
+  <p>
+    Connect depends on third-party platforms — including Cloudflare for infrastructure, Polar for billing,
+    and the Twitch platform for the events we relay. We do not control these platforms. Twitch may at any
+    time, in its sole discretion and without notice, change its developer policies in a way that affects
+    Connect, or terminate the developer accounts of users of this service.
+  </p>
+  <p>
+    If Twitch (or any other upstream platform) takes action that requires us to suspend or shut down Connect,
+    we will notify subscribers by email and refund the unused pro-rated portion of any prepaid period. <strong
+      >Continued operation of Connect is not guaranteed.</strong
+    >
+  </p>
+
+  <h2>5. Suspension and termination</h2>
+  <p>We may suspend or terminate your Connect account, with or without notice, if:</p>
+  <ul>
+    <li>You materially breach these Terms or our usage policies.</li>
+    <li>Your payment method fails and is not corrected within seven (7) days.</li>
+    <li>
+      Your usage poses a security, abuse, or rate-limit risk to our infrastructure or to upstream platforms.
+    </li>
+    <li>We are required to do so by law, regulation, or upstream platform.</li>
+  </ul>
+  <p>
+    On termination, we will revoke your relay tokens and delete your account data within thirty (30) days,
+    subject to legal retention obligations.
+  </p>
+
+  <h2>6. No warranty</h2>
+  <p>
+    Connect is provided "as is" and "as available." We make no warranties, express or implied, including but
+    not limited to merchantability, fitness for a particular purpose, uninterrupted operation, or compliance
+    with any specific third-party platform policy. You assume all risk associated with your use of Connect,
+    including risk associated with your separate compliance with the Twitch Developer Services Agreement.
+  </p>
+
+  <h2>7. Limitation of liability</h2>
+  <p>
+    To the maximum extent permitted by applicable law, our aggregate liability for any claim arising from or
+    related to your use of Connect is limited to the amounts you paid us in the twelve (12) months preceding
+    the claim. We are not liable for indirect, incidental, consequential, or special damages, including lost
+    profits, lost data, or loss of business, even if we have been advised of the possibility.
+  </p>
+
+  <h2>8. Trademark and affiliation</h2>
+  <p>
+    "Twitch" and the Twitch logo are trademarks of Twitch Interactive, Inc. ReplayVOD and Connect are
+    independent and not affiliated with, endorsed by, or sponsored by Twitch Interactive, Inc. References to
+    Twitch in our documentation are descriptive (nominative use) and do not imply any endorsement.
+  </p>
+
+  <h2>9. Changes to these Terms</h2>
+  <p>
+    We may modify these Terms by posting an updated version on this page. The "Last updated" date at the top
+    reflects the most recent change. Material changes that affect existing subscriptions will be announced by
+    email at least fourteen (14) days before they take effect. Your continued use of Connect after the
+    effective date constitutes acceptance of the modified Terms.
+  </p>
+
+  <h2>10. Governing law and disputes</h2>
+  <p>
+    These Terms are governed by the laws of <strong>{site.operator.jurisdiction}</strong>, without regard to
+    conflict-of-laws principles. Any dispute arising from these Terms or your use of Connect will be brought
+    exclusively in the competent courts of that jurisdiction, except where applicable consumer-protection law
+    provides otherwise.
+  </p>
+
+  <h2>11. Contact</h2>
+  <p>
+    Questions about these Terms or about Connect should be sent to
+    <a href={`mailto:${site.contact.legal}`}>{site.contact.legal}</a>. Operator address: <strong
+      >{site.operator.address}</strong
+    >.
+  </p>
+</Legal>

@@ -1,0 +1,55 @@
+---
+import '@fontsource-variable/figtree';
+import '@fontsource-variable/figtree/wght-italic.css';
+import '@fontsource-variable/outfit';
+import '@fontsource-variable/jetbrains-mono';
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'ReplayVOD · Self-hosted Twitch VOD recorder',
+  description = 'Self-hosted Twitch VOD recorder with auto-record schedules, full metadata, and a clean dashboard. Twitch wipes regular VODs after 14 days. Yours stays as long as your disk does.',
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title}</title>
+    <slot name="head" />
+  </head>
+  <body class="bg-bg text-fg font-sans text-[16px] leading-[1.6] antialiased">
+    <slot />
+
+    <script is:inline>
+      (() => {
+        const els = document.querySelectorAll('[data-reveal]');
+        if (!('IntersectionObserver' in window)) {
+          els.forEach((el) => el.setAttribute('data-revealed', 'true'));
+          return;
+        }
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) {
+              if (e.isIntersecting) {
+                e.target.setAttribute('data-revealed', 'true');
+                io.unobserve(e.target);
+              }
+            }
+          },
+          { rootMargin: '0px 0px -10% 0px', threshold: 0.05 },
+        );
+        els.forEach((el) => io.observe(el));
+      })();
+    </script>
+  </body>
+</html>

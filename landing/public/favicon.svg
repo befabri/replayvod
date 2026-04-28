@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ReplayVOD">
+  <rect width="64" height="64" rx="14" fill="#0E0D19"/>
+  <rect x="14" y="14" width="36" height="36" rx="8" fill="#8390FA"/>
+  <path d="M24 21v22l18-11z" fill="#0E0D19"/>
+  <path d="M14 14h36L14 50z" fill="#fff" opacity="0.18"/>
+</svg>

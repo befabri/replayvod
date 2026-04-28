@@ -1,0 +1,122 @@
+---
+title: Architecture
+description: How ReplayVOD is built — the contributor view of the recorder, dashboard, and relay.
+---
+
+import { Card, CardGrid, FileTree } from '@astrojs/starlight/components';
+
+Three deployable pieces.
+
+<CardGrid>
+  <Card title="server (Go)">
+    Single binary. HTTP API, recorder, EventSub manager, scheduler, SSE bus.
+  </Card>
+  <Card title="dashboard (React)">
+    Single-page app. Vite build; the recorder serves the bundle in production.
+  </Card>
+  <Card title="relay (Cloudflare Worker)">
+    Optional public webhook ingress. Stateless fan-out backed by a Durable Object buffer.
+  </Card>
+</CardGrid>
+
+## Server
+
+The server is one Go process. Postgres and SQLite are both supported behind one repository interface. `ffmpeg` and `ffprobe` are required at runtime.
+
+### Source layout
+
+<FileTree>
+
+- server/
+  - cmd/server/ entrypoint
+  - internal/
+    - api/ HTTP routes (Chi) + tRPC mount
+    - server/ HTTP lifecycle and router wiring
+    - auth/ Twitch OAuth handler
+    - session/ encrypted token store, cookie sessions
+    - config/ TOML + env loader
+    - database/ pgx pool / sqlite open + migrate runner
+    - repository/
+      - pgadapter/ Postgres adapter (sqlc-generated)
+      - sqliteadapter/ SQLite adapter (sqlc-generated)
+    - twitch/ Helix client + generated EventSub types
+    - service/
+      - eventsub/ subscriptions, quotas, reconcile
+      - streammeta/ title/category hydration + watcher
+      - categoryart/ box-art backfill
+      - schedule/ scheduled-recording rules
+    - downloader/
+      - hls/ segment fetcher
+      - remux/ ffmpeg wrapper
+      - probe/ ffprobe wrapper
+      - thumbnail/ JPEG generator
+    - scheduler/ task runner with DB-persisted state
+    - eventbus/ generic Topic[T] pub/sub for SSE
+    - relayclient/ WebSocket agent for Connect
+    - storage/ local + S3 backend
+    - logger/ slog setup
+  - migrations/ versioned .up/.down SQL pairs
+  - queries/ sqlc query files
+  - tools/twitch-api-gen/ generator for Helix + EventSub types
+  - config.toml operational config
+  - .env.example credentials and paths
+
+</FileTree>
+
+### Boot sequence
+
+`cmd/server/main.go` wires everything in this order:
+
+1. Load `config.toml` and `.env`. Set up the slog logger.
+2. Open the database (pgx pool or SQLite via `database/sql`) and run embedded migrations.
+3. Build the matching `Repository` adapter.
+4. Construct the Twitch Helix client, encrypted session manager, and storage backend.
+5. Construct the downloader and call `Resume()` to pick up jobs left in `RUNNING` by a previous process.
+6. Open the SSE event bus and start the HTTP server in a goroutine.
+7. If `RELAY_SUBSCRIBE_URL` is set, dial the Connect relay and start the replay agent.
+8. Reconcile EventSub subscriptions against the current channel set.
+9. Register tasks and start the scheduler.
+10. Block on SIGINT/SIGTERM, then stop the scheduler, HTTP server, and logger in reverse order.
+
+### Database
+
+Postgres and SQLite share one `Repository` interface in `internal/repository/`. [sqlc](https://sqlc.dev/) turns the SQL files in `queries/{postgres,sqlite}/` into typed Go in `pgadapter/pggen/` and `sqliteadapter/sqlitegen/`.
+
+Migrations live in `migrations/{postgres,sqlite}/` as numbered `NNN_name.up.sql` / `NNN_name.down.sql` pairs and are embedded into the binary. They run automatically on start; the `schema_migrations` table tracks applied versions.
+
+### Background work
+
+| Component        | Where                          | What it does |
+| ---------------- | ------------------------------ | ------------ |
+| Downloader       | `internal/downloader/`         | HLS pull → segment fetch with retry → ffmpeg remux → ffprobe → thumbnail → upload. State in DB so crashes resume cleanly. |
+| EventSub manager | `internal/service/eventsub/`   | Boot reconcile (delete orphans, create missing) and per-call quota snapshots. |
+| Scheduler        | `internal/scheduler/`          | One ticker, 15 s cadence. Each task has its own row with `next_run_at`, `is_enabled`, `last_error`. |
+| Standard tasks   | `internal/scheduler/tasks.go`  | EventSub reconcile, quota snapshot, category-art sync, retention sweeps for fetch/event logs and webhook payloads, session and app-token cleanup. |
+
+## Dashboard
+
+React 19 SPA, Vite-built. TanStack Router for file-based routes, TanStack Query plus a tRPC v11 client (HTTP batching + SSE on the same client). UI is Base UI v1 scaffolded with shadcn v4; styling is Tailwind v4. i18n is i18next with English and French; a parity test prevents missing keys.
+
+In dev, Vite proxies `/api/*` and `/trpc/*` to the recorder on port 8080. In production, the recorder serves the prebuilt `dist/` directory directly so the SPA and API share an origin.
+
+Types and Zod schemas come from the Go side via `task trpcgen` and are committed under `dashboard/src/api/generated/`.
+
+## Relay
+
+Cloudflare Worker plus a Durable Object. Two endpoints:
+
+- `POST /u/{token}` — accepts arbitrary bytes, fans out to subscribers, replies `202` (or echoes a synchronous response for EventSub challenges).
+- `GET /u/{token}/subscribe` — WebSocket. Replays the 5-minute buffer, then streams new events.
+
+Stateless except for the Durable Object's per-token buffer. No Twitch credentials, no payload inspection. See [Relay protocol](/docs/contributing/relay-protocol/) for the wire format.
+
+## External integrations
+
+| Integration       | Where                                | Notes |
+| ----------------- | ------------------------------------ | ----- |
+| Twitch Helix      | `internal/twitch/client.go`          | OAuth, streams, games, users, follows, GQL playback tokens. |
+| Twitch EventSub   | `internal/service/eventsub/`         | REST CRUD over generated bindings. |
+| Generated types   | `tools/twitch-api-gen/`              | Parses Twitch HTML docs. Snapshots committed; CI checks drift. |
+| Connect relay     | `internal/relayclient/`              | Outbound WebSocket; replays signed EventSub frames to a local handler. |
+| tRPC              | [`befabri/trpcgo`](https://github.com/befabri/trpcgo) | Server side. `task trpcgen` emits the dashboard's TypeScript client + Zod schemas. |
+| ffmpeg / ffprobe  | `internal/downloader/{remux,probe}/` | Required at runtime. |

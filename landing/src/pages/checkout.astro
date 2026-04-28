@@ -1,0 +1,175 @@
+---
+import AuthLayout from '../layouts/AuthLayout.astro';
+import { site } from '../config';
+
+const apiBase = site.connect.apiBase;
+const paymentsEnabled = site.connect.paymentsEnabled;
+const accountEnabled = site.connect.accountEnabled;
+---
+
+<AuthLayout
+  title="Start Connect · ReplayVOD"
+  description="Start a ReplayVOD Connect subscription."
+>
+  <section
+    data-checkout-app
+    data-api-base={apiBase}
+    data-payments-enabled={String(paymentsEnabled)}
+    class="w-full max-w-[440px]"
+  >
+    <div
+      class="rounded-2xl border border-border bg-surface p-9 shadow-[0_30px_60px_-20px_rgba(0,0,0,0.5),0_0_0_1px_rgba(131,144,250,0.04)]"
+    >
+      <p class="mb-3 font-mono text-[12px] uppercase tracking-[0.14em] text-primary">
+        {paymentsEnabled ? 'Polar checkout' : 'Coming soon'}
+      </p>
+
+      <h1 class="mb-3 text-[34px] font-medium leading-[1.1] tracking-[-0.02em]">
+        {paymentsEnabled ? 'Start Connect.' : 'Connect subscriptions are coming soon.'}
+      </h1>
+
+      <p class="mb-2 text-[16px] leading-[1.6] text-fg-muted">
+        {
+          paymentsEnabled
+            ? 'Enter your billing email and continue to Polar. After payment, we email a magic link for the account dashboard.'
+            : 'Payments are not open yet. The hosted relay is being prepared for production billing.'
+        }
+      </p>
+
+      <p
+        class="mb-7 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12.5px] uppercase tracking-[0.06em] text-fg-muted"
+      >
+        {
+          paymentsEnabled ? (
+            <>
+              <span data-checkout-price>$5 / month</span>
+              <span aria-hidden="true" class="opacity-50">·</span>
+              <span>30-day trial</span>
+              <span aria-hidden="true" class="opacity-50">·</span>
+              <span>cancel anytime in Polar</span>
+            </>
+          ) : (
+            <span>No checkout available yet</span>
+          )
+        }
+      </p>
+
+      {
+        paymentsEnabled ? (
+          <form id="checkout-form" class="space-y-4">
+            <label class="block">
+              <span class="mb-2 block font-mono text-[12px] uppercase tracking-[0.08em] text-fg-muted">
+                Billing email
+              </span>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autocomplete="email"
+                required
+                placeholder="you@example.com"
+                class="h-12 w-full rounded-lg border border-border bg-bg px-3.5 text-[16px] text-fg outline-none transition-colors placeholder:text-fg-dim focus:border-primary"
+              />
+            </label>
+            <button id="checkout-submit" type="submit" class="btn btn-primary btn-lg w-full">
+              Continue to Polar →
+            </button>
+          </form>
+        ) : (
+          <a href="/#pricing" class="btn btn-primary btn-lg w-full">
+            Back to pricing
+          </a>
+        )
+      }
+
+      <p
+        id="checkout-status"
+        class="mt-5 min-h-[1.5rem] text-[14.5px] leading-[1.55] text-fg-muted"
+        aria-live="polite"
+      >
+      </p>
+
+      {
+        accountEnabled && (
+          <div class="mt-6 border-t border-border-soft pt-5 text-[14px] leading-relaxed text-fg-muted">
+            <a href="/login" class="text-primary underline underline-offset-2 hover:text-primary-dark">
+              Already subscribed? Sign in instead.
+            </a>
+          </div>
+        )
+      }
+    </div>
+
+    <p class="mt-6 text-center text-[13px] text-fg-muted">
+      By continuing you agree to the
+      <a href="/legal/terms" class="underline underline-offset-2 hover:text-fg">Terms</a> and
+      <a href="/legal/privacy" class="underline underline-offset-2 hover:text-fg">Privacy</a> policy.
+    </p>
+  </section>
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector('[data-checkout-app]');
+      if (!root) return;
+      if (root.dataset.paymentsEnabled !== 'true') return;
+
+      const apiBase = root.dataset.apiBase;
+      const form = document.getElementById('checkout-form');
+      const email = document.getElementById('email');
+      const status = document.getElementById('checkout-status');
+      const submit = document.getElementById('checkout-submit');
+
+      function setStatus(message, tone = 'muted') {
+        status.textContent = message;
+        status.className =
+          'mt-5 min-h-[1.5rem] text-[14.5px] leading-[1.55] ' +
+          (tone === 'error' ? 'text-danger' : tone === 'ok' ? 'text-live' : 'text-fg-muted');
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const plan = params.get('plan') === 'yearly' ? 'yearly' : 'monthly';
+
+      const priceLabel = document.querySelector('[data-checkout-price]');
+      if (priceLabel) {
+        priceLabel.textContent = plan === 'yearly' ? '$50 / year' : '$5 / month';
+      }
+
+      // If the visitor already has a session, send them to /account instead of
+      // letting them start a duplicate subscription. Best-effort: if the probe
+      // fails for any reason the form still works.
+      fetch(`${apiBase}/me`, { credentials: 'include' })
+        .then((res) => {
+          if (res.ok) window.location.replace('/account');
+        })
+        .catch(() => {});
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const value = email.value.trim();
+        if (!value) return;
+
+        const original = submit.textContent;
+        submit.disabled = true;
+        submit.textContent = 'Opening Polar…';
+        setStatus('Working…');
+
+        try {
+          const res = await fetch(`${apiBase}/checkout/create-session`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: value, plan }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(body.error || 'request failed');
+          if (!body.url) throw new Error('checkout URL missing');
+          window.location.href = body.url;
+        } catch (err) {
+          setStatus(err instanceof Error ? err.message : 'Request failed', 'error');
+          submit.disabled = false;
+          submit.textContent = original;
+        }
+      });
+    })();
+  </script>
+</AuthLayout>

@@ -1,0 +1,49 @@
+---
+title: Updating
+description: Update an existing ReplayVOD install.
+---
+
+import { TabItem, Tabs } from '@astrojs/starlight/components';
+
+ReplayVOD updates in place. Migrations run automatically on start.
+
+<Tabs syncKey="install-path">
+  <TabItem label="Docker Compose">
+
+  ```bash
+  cd ~/replayvod
+  git pull --ff-only
+  docker compose --env-file server/.env --profile sqlite up -d --build
+  ```
+
+  Use `--profile postgres` if your install runs Postgres.
+
+  </TabItem>
+  <TabItem label="Windows (native)">
+
+  Re-run the installer when a new Windows release is published:
+
+  ```powershell
+  irm https://replayvod.com/install.ps1 | iex
+  ```
+
+  </TabItem>
+  <TabItem label="Build from source">
+
+  ```bash
+  cd replayvod
+  git pull --ff-only
+  task build
+  ```
+
+  </TabItem>
+</Tabs>
+
+## After updating
+
+- Visit the dashboard once and confirm the **Schedules** and **Live** pages still render.
+- If you bumped between major versions, skim the GitHub release notes for breaking changes to `server/.env` or `server/config.toml`.
+
+## Rollback
+
+The recorder rolls back by checking out the previous tag and rebuilding. Database migrations are reversible (`.down.sql` pairs ship in the binary), but stepping the schema down is a manual operation; in practice rollbacks are easier to do by restoring from a [backup](/docs/backup/) than by reverting migrations.

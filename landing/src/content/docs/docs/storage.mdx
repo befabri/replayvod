@@ -1,0 +1,72 @@
+---
+title: Storage
+description: Choose where ReplayVOD writes recordings — local filesystem or S3-compatible.
+---
+
+import { Aside, TabItem, Tabs } from '@astrojs/starlight/components';
+
+ReplayVOD writes one MP4 per recording, plus thumbnails and a snapshot strip. The storage backend is selected in `server/config.toml`; paths come from `server/.env`.
+
+## Backends
+
+<Tabs syncKey="storage">
+  <TabItem label="Local filesystem">
+
+  ```toml
+  # server/config.toml
+  [storage]
+  type = "local"
+  local_path = "./data"
+  ```
+
+  Paths from `server/.env`:
+
+  ```text
+  VIDEO_DIR=./data/videos
+  THUMBNAIL_DIR=./data/thumbnails
+  SCRATCH_DIR=./data/.scratch
+  ```
+
+  Recordings land in `VIDEO_DIR/<channel>/<id>.mp4`. Thumbnails go in `THUMBNAIL_DIR`. The scratch directory holds in-progress segments before remux.
+
+  <Aside type="caution" title="Keep SCRATCH_DIR on the same filesystem as VIDEO_DIR">
+    The recorder finalises a video by `os.Rename`-ing from scratch to the destination. Cross-device renames silently turn into a full byte-for-byte copy and can fail mid-way on space pressure.
+  </Aside>
+
+  </TabItem>
+  <TabItem label="S3-compatible">
+
+  ```toml
+  # server/config.toml
+  [storage]
+  type = "s3"
+
+  [storage.s3]
+  endpoint   = "https://s3.example.com"
+  bucket     = "replayvod"
+  region     = "us-east-1"
+  access_key = "..."
+  secret_key = "..."
+  ```
+
+  Works with AWS S3, [Garage](https://garagehq.deuxfleurs.fr/), Backblaze B2, MinIO, Cloudflare R2, and any other S3-compatible store.
+
+  Custom endpoints default to path-style addressing. The recorder still uses `SCRATCH_DIR` locally during recording and uploads on completion.
+
+  </TabItem>
+</Tabs>
+
+## Disk sizing
+
+A 1080p stream typically lands around 4–6 GB per hour. ReplayVOD does not transcode — what Twitch served is what gets stored. Plan disk for the channels and retention you want.
+
+## Recommended layout
+
+```
+data/
+├── videos/        recorded VODs
+├── thumbnails/    poster images and snapshot strips
+└── replayvod.db   SQLite (when DATABASE_DRIVER=sqlite)
+```
+
+Override individual paths with `VIDEO_DIR`, `THUMBNAIL_DIR`, and `SQLITE_PATH` in `server/.env`.

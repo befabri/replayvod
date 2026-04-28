@@ -1,0 +1,71 @@
+---
+title: How it works
+description: The mental model behind ReplayVOD — recordings, schedules, live detection, and the relay.
+---
+
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+
+## The pieces
+
+<CardGrid>
+  <Card title="Recorder">
+    A single Go binary. Subscribes to followed channels, evaluates schedules, pulls HLS segments, and remuxes finished recordings to MP4.
+  </Card>
+  <Card title="Dashboard">
+    React SPA served by the same Go binary. Login, schedules, live indicators, recording queue, playback.
+  </Card>
+  <Card title="Database">
+    SQLite or Postgres. Holds schedules, videos, segment state, sessions, and scheduled-task state.
+  </Card>
+  <Card title="Storage">
+    Local filesystem or S3-compatible. Holds the actual MP4s and thumbnails.
+  </Card>
+  <Card title="Connect relay">
+    Optional Cloudflare Worker that gives you a public EventSub callback without router-port forwarding.
+  </Card>
+</CardGrid>
+
+## Schedules
+
+A **schedule** is a rule. When a followed channel goes live, ReplayVOD evaluates every schedule and records the stream if any of them match. Filters available: channel, category, tag, viewer threshold, quality. See [Schedules & title tracking](/docs/schedules/) for the full reference.
+
+## Live detection
+
+ReplayVOD subscribes to Twitch EventSub and acts on `stream.online` deliveries the moment they arrive. EventSub requires a publicly reachable HTTPS callback — direct ([EventSub](/docs/eventsub/)) or via the [Connect relay](/docs/connect/).
+
+## Title tracking
+
+Stream titles and categories often change mid-broadcast. ReplayVOD captures that history while a recording is active. Three modes — see [Schedules & title tracking](/docs/schedules/) for the full table.
+
+## The recording pipeline
+
+Once a stream matches a schedule:
+
+1. Fetch a Twitch playback token (anonymous by default; authenticated if `TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN` is set).
+2. Pull the HLS master playlist; pick a variant per `[download]` policy.
+3. Download segments in parallel with retry and gap detection.
+4. Remux to MP4 with `ffmpeg`; probe with `ffprobe`.
+5. Generate a thumbnail and snapshot strip.
+6. Hand the finished file to the storage backend (local move or S3 upload).
+
+Job and segment state lives in the database, so a crash mid-record resumes cleanly on the next start.
+
+## Connect
+
+Twitch EventSub needs a public HTTPS endpoint. Many homelabs don't have one. Connect is a small Cloudflare Worker that:
+
+- Gives you a public ingest URL Twitch posts to.
+- Forwards each signed POST to your recorder over an outbound WebSocket.
+- Holds no Twitch credentials and never inspects payloads — your recorder still verifies the HMAC locally.
+
+You don't need Connect if you can already expose `/api/v1/webhook/callback` over public HTTPS. See [Connect relay](/docs/connect/) for setup.
+
+<Aside type="note" title="Connect is a strict relay">
+  Connect only forwards EventSub webhooks. It does not store recordings, tunnel arbitrary HTTP, or proxy your dashboard.
+</Aside>
+
+## What's next
+
+- [Install](/docs/install/) — install paths in detail.
+- [Configuration](/docs/configuration/) — the two config files.
+- [Architecture](/docs/contributing/architecture/) — the contributor view.

@@ -1,0 +1,71 @@
+---
+const faqs = [
+  {
+    q: 'Is this affiliated with Twitch?',
+    a: 'No. ReplayVOD is independent and open-source. You register your own Twitch developer app — we never hold your credentials.',
+    open: true,
+  },
+  {
+    q: 'What is Connect, exactly?',
+    a: "A webhook relay on Cloudflare Workers. Twitch's EventSub needs a public HTTPS endpoint; Connect gives you one and forwards bytes to your home machine over an outbound WebSocket. We don't parse or log payloads, don't store videos, don't hold Twitch credentials. Source is public.",
+  },
+  {
+    q: 'Do I need a Twitch developer account?',
+    a: 'Yes — register your own app at dev.twitch.tv. Two-minute setup. Applies whether you use Connect or self-host alone.',
+  },
+  {
+    q: 'Where are my videos stored?',
+    a: 'On your hardware. Connect only relays webhooks; videos never leave your machine.',
+  },
+  {
+    q: 'What happens to my recordings if I cancel Connect?',
+    a: 'Nothing breaks. Your recorder and recordings keep working — you just lose the public webhook URL.',
+  },
+  {
+    q: 'Is Connect open source too?',
+    a: 'Relay daemon is MIT-licensed; recorder is GPLv3. Billing/account glue is closed because it touches Polar secrets. You can self-host the relay; we just charge for running it.',
+  },
+  {
+    q: 'What if Twitch changes its API?',
+    a: "We update; you pull the release. If Twitch ever forces Connect to shut down, subscribers get notified and a pro-rated refund.",
+  },
+  {
+    q: 'How much storage do I need?',
+    a: '~3.5 GB per hour of 1080p60. Dashboard shows live sizes — monitor free disk yourself.',
+  },
+  {
+    q: 'Synology, TrueNAS, Unraid, Raspberry Pi?',
+    a: 'Docker Compose is the supported path. The arm64 build runs on a Pi 5 with external storage; concurrency depends on network and disk.',
+  },
+  {
+    q: 'Is there a CLI?',
+    a: 'Not yet. The dashboard is the supported operator interface.',
+  },
+];
+---
+
+<section data-reveal class="border-b border-border-soft py-32">
+  <div class="mx-auto max-w-[920px] px-8">
+    <div class="mb-16">
+      <h2 class="text-display-2 text-balance">The honest questions first.</h2>
+    </div>
+
+    <div class="border-t border-border-soft">
+      {
+        faqs.map((faq) => (
+          <details class="group border-b border-border-soft" open={faq.open || undefined}>
+            <summary class="flex cursor-pointer items-center justify-between py-[22px] font-heading text-[19px] font-medium tracking-[-0.01em] text-fg">
+              {faq.q}
+              <span class="flex-none text-[16px] text-fg-muted transition-transform duration-200 group-open:rotate-45 group-open:text-primary">
+                +
+              </span>
+            </summary>
+            <div class="pb-[22px] text-[17.5px] leading-relaxed text-fg">
+              {faq.a}
+            </div>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>

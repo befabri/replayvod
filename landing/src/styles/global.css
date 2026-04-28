@@ -1,0 +1,288 @@
+@import 'tailwindcss';
+
+/* Palette mirrors dashboard/src/styles.css (v1 hex). Token names kept landing-side
+   so existing utilities (bg-bg, text-fg-muted, border-border-soft, etc.) keep working. */
+@theme {
+  /* Surfaces */
+  --color-bg: #0e0d19; /* dashboard: --background (custom_black) */
+  --color-bg-deep: #08071a; /* slightly deeper than bg, for terminal/code blocks */
+  --color-surface: #1c1a31; /* dashboard: --card (custom_lightblue) */
+  --color-surface-raised: #262444; /* dashboard: --popover (custom_space_cadet) */
+  --color-deep: #08071a; /* alias of bg-deep */
+  --color-deep-2: #262444; /* dashboard: --popover */
+
+  /* Borders */
+  --color-border: #33305e; /* dashboard: --accent (custom_space_cadet_bis) */
+  --color-border-soft: #1c1a31; /* dashboard: --border (matches card for seamless surfaces) */
+
+  /* Text */
+  --color-fg: #cccce4; /* dashboard: --foreground (soft lavender-white) */
+  --color-fg-muted: #9ca3af; /* dashboard: --muted-foreground */
+  --color-fg-dim: #6b6885; /* between muted-fg and ring-muted */
+
+  /* Brand */
+  --color-primary: #8390fa; /* dashboard: --primary (custom_vista_blue) */
+  --color-primary-dark: #6b78e0; /* dashboard: --primary-hover */
+
+  /* Status */
+  --color-live: #a7f3d0; /* dashboard: --badge-emerald-fg */
+  --color-pending: #fef08a; /* dashboard: --badge-yellow-fg */
+  --color-danger: #ef4444; /* dashboard: --destructive */
+
+  /* Fonts (self-hosted via @fontsource-variable, imported in Layout.astro) */
+  --font-sans: 'Figtree Variable', system-ui, sans-serif;
+  --font-heading: 'Outfit Variable', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  /* Wire the brand fonts into Tailwind v4's preflight so <html> and <code>/<pre>
+     default to Figtree/JetBrains Mono without depending on a body class. */
+  --default-font-family: var(--font-sans);
+  --default-mono-font-family: var(--font-mono);
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  details > summary {
+    list-style: none;
+  }
+
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  /* Reveal-on-scroll. Elements with [data-reveal] start hidden and slid 12px down,
+     fade up to their final position when the IntersectionObserver in Layout flips
+     [data-revealed="true"]. Reduced-motion disables the transform/transition entirely. */
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity 0.7s ease-out,
+      transform 0.7s ease-out;
+    will-change: opacity, transform;
+  }
+
+  [data-reveal][data-revealed='true'] {
+    opacity: 1;
+    transform: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-reveal] {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+}
+
+@layer components {
+  /* Responsive display sizes. Single source of truth for the page's headlines —
+     scale fluidly via clamp(min, vw, max) so we don't need per-breakpoint overrides. */
+  .text-display-1 {
+    font-size: clamp(2.25rem, 6vw, 3.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+  }
+  .text-display-2 {
+    font-size: clamp(1.875rem, 5vw, 2.75rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+  }
+  .text-display-3 {
+    font-size: clamp(1.875rem, 4.5vw, 2.625rem);
+    line-height: 1;
+    letter-spacing: -0.025em;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.5rem;
+    padding: 0 1.125rem;
+    border-radius: 0.5rem;
+    font-size: 0.96875rem;
+    font-weight: 600;
+    color: var(--color-fg-muted);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    transition: all 0.15s cubic-bezier(0.22, 0.61, 0.36, 1);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    font-family: inherit;
+  }
+
+  .btn:hover {
+    color: var(--color-fg);
+    border-color: var(--color-surface-raised);
+    background: var(--color-surface);
+  }
+
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.62;
+  }
+
+  .btn:disabled:hover,
+  .btn[aria-disabled='true']:hover {
+    color: var(--color-fg-muted);
+    background: transparent;
+    border-color: var(--color-border);
+  }
+
+  .btn-primary {
+    background: var(--color-primary);
+    color: var(--color-bg);
+    border-color: var(--color-primary);
+  }
+
+  .btn-primary:hover {
+    background: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
+    color: var(--color-bg);
+  }
+
+  .btn-primary:disabled:hover,
+  .btn-primary[aria-disabled='true']:hover {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-bg);
+  }
+
+  .btn-lg {
+    height: 3rem;
+    padding: 0 1.5rem;
+    font-size: 1.0625rem;
+  }
+
+  .btn-ghost {
+    border-color: transparent;
+  }
+
+  .btn-ghost:hover {
+    background: var(--color-surface);
+    border-color: transparent;
+  }
+
+  /* Architecture diagram: gradient pulse clipped to line track, arrow head flashes on arrival,
+     live dot breathes on the EventSub icon. All three loop on the same 2.6s cycle so the pulse
+     and arrow flash stay in lockstep visually. */
+  @keyframes arch-pulse-flow {
+    0% {
+      left: -30%;
+      opacity: 0;
+    }
+    10% {
+      opacity: 1;
+    }
+    65% {
+      left: 100%;
+      opacity: 1;
+    }
+    72%,
+    100% {
+      left: 100%;
+      opacity: 0;
+    }
+  }
+
+  @keyframes arch-arrow-flash {
+    0%,
+    58% {
+      color: var(--color-primary);
+      transform: scale(1);
+      filter: none;
+    }
+    68%,
+    78% {
+      color: #ffffff;
+      transform: scale(1.3);
+      filter: drop-shadow(0 0 8px var(--color-primary));
+    }
+    92%,
+    100% {
+      color: var(--color-primary);
+      transform: scale(1);
+      filter: none;
+    }
+  }
+
+  @keyframes live-breath {
+    0%,
+    100% {
+      opacity: 0.45;
+      transform: scale(0.9);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.1);
+    }
+  }
+
+  .arch-track {
+    position: relative;
+    height: 1px;
+    width: 6rem;
+    overflow: hidden;
+  }
+
+  .arch-pulse {
+    position: absolute;
+    top: 0;
+    left: -30%;
+    height: 100%;
+    width: 30%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--color-primary) 50%,
+      transparent
+    );
+    animation: arch-pulse-flow 2.6s linear infinite;
+  }
+
+  .arch-arrow {
+    display: inline-block;
+    transform-origin: center;
+    animation: arch-arrow-flash 2.6s linear infinite;
+  }
+
+  .arch-pulse-delayed,
+  .arch-arrow-delayed {
+    animation-delay: 1.3s;
+  }
+
+  .live-dot {
+    animation: live-breath 1.8s ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .arch-pulse,
+    .arch-arrow,
+    .live-dot {
+      animation: none;
+    }
+    .arch-arrow {
+      color: var(--color-primary);
+    }
+  }
+}

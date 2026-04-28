@@ -1,0 +1,56 @@
+---
+title: Introduction
+description: ReplayVOD is a self-hosted Twitch VOD recorder for your homelab.
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+ReplayVOD watches the Twitch channels you follow, records the streams that match your rules, archives them on storage you control, and gives you a dashboard to browse and replay them.
+
+## What's in the box
+
+<CardGrid>
+  <Card title="Recorder">
+    Auto-records live streams from followed channels, gated by per-schedule rules: quality, viewer threshold, category match, tag match.
+  </Card>
+  <Card title="Dashboard">
+    Browser UI for login, schedules, live status, the recording queue, playback, users, and system pages.
+  </Card>
+  <Card title="Database">
+    SQLite for single-container installs, Postgres for multi-container deployments. Equivalent schema, same features.
+  </Card>
+  <Card title="Connect relay">
+    Optional public EventSub ingress when your network can't expose a public HTTPS callback. Forwards signed webhooks over an outbound WebSocket.
+  </Card>
+</CardGrid>
+
+## Get started
+
+<CardGrid>
+  <LinkCard
+    title="Quickstart"
+    href="/docs/quickstart/"
+    description="One command to a running recorder on macOS, Linux, or Windows."
+  />
+  <LinkCard
+    title="How it works"
+    href="/docs/concepts/"
+    description="Recording, schedules, EventSub, and the optional Connect relay in plain language."
+  />
+  <LinkCard
+    title="Install"
+    href="/docs/install/"
+    description="Docker, manual Docker, and build-from-source paths."
+  />
+  <LinkCard
+    title="Configuration"
+    href="/docs/configuration/"
+    description="The two config files and the precedence between them."
+  />
+</CardGrid>
+
+## Project links
+
+- [GitHub repository](https://github.com/befabri/replayvod)
+- [Twitch trademark notice](/legal/twitch/)
+- [Terms](/legal/terms/) and [Privacy](/legal/privacy/)

@@ -1,0 +1,47 @@
+---
+import Legal from '../../layouts/Legal.astro';
+---
+
+<Legal title="Twitch trademark notice">
+  <p>
+    <strong>ReplayVOD is not affiliated with, endorsed by, or sponsored by Twitch Interactive, Inc.</strong>
+  </p>
+
+  <p>
+    "Twitch" and the Twitch logo are trademarks of Twitch Interactive, Inc. References to Twitch on this site,
+    in our documentation, and in our open-source code are nominative — they identify the platform our software
+    is designed to interoperate with — and do not imply any endorsement, sponsorship, or business
+    relationship.
+  </p>
+
+  <h2>How we interact with Twitch</h2>
+  <p>
+    The self-hosted ReplayVOD application uses the public Twitch Helix API and EventSub webhooks. To use
+    ReplayVOD with Twitch, you must register your own Twitch developer application at
+    <a href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener">dev.twitch.tv</a>
+    and accept the Twitch Developer Services Agreement. We are not your Twitch developer; you are.
+  </p>
+
+  <h2>How Connect interacts with Twitch</h2>
+  <p>
+    Our paid Connect service is a generic webhook relay. It does not hold a Twitch developer application, does
+    not authenticate to Twitch, and is not a Twitch API integration. It forwards HTTP request bytes from a
+    public URL to a long-lived WebSocket without inspecting their contents. The webhook delivery you configure
+    in Twitch's developer console points at the public URL we provide; the bytes Twitch sends are forwarded
+    verbatim to your self-hosted instance, which performs the HMAC verification using your own EventSub
+    secret.
+  </p>
+
+  <h2>Your responsibility</h2>
+  <p>
+    You are solely responsible for ensuring that your use of the Twitch API and of any Twitch-derived data
+    complies with the Twitch Developer Services Agreement and Twitch's Terms of Service. We make no
+    representation that Connect or ReplayVOD is approved by Twitch.
+  </p>
+
+  <h2>Reporting</h2>
+  <p>
+    If you are an authorized representative of Twitch Interactive, Inc. and have concerns about our use of the
+    Twitch name or our service architecture, please contact us — we will respond promptly.
+  </p>
+</Legal>

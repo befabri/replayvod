@@ -1,0 +1,92 @@
+---
+title: Configuration
+description: How ReplayVOD is configured — the two files, what each one is for, and precedence.
+---
+
+import { Aside, Card, CardGrid, FileTree } from '@astrojs/starlight/components';
+
+ReplayVOD has two configuration files.
+
+<CardGrid>
+  <Card title="server/.env">
+    Credentials, database selection, public URLs, local paths, Connect relay URLs. Treat as secret.
+  </Card>
+  <Card title="server/config.toml">
+    Operational behaviour: download policy, scheduler intervals, logging, storage backend, health endpoint, title-tracking mode.
+  </Card>
+</CardGrid>
+
+<FileTree>
+
+- replayvod/
+  - server/
+    - .env             secrets, paths, network
+    - .env.example     committed template — every supported var is listed and commented here
+    - config.toml      tuning
+  - docker-compose.yml
+  - data/
+
+</FileTree>
+
+## Precedence
+
+`server/.env` always wins. The Go process reads the env file first, then the TOML file. If a setting is exposed in both (rare), the env value takes precedence so containerised deployments can override TOML without rebuilding the image.
+
+The Docker Compose file reads `server/.env` directly. A few `PUBLIC_*` variables are Compose-only — they shape what gets passed into the container without changing the stored values.
+
+## Required values
+
+```text
+TWITCH_CLIENT_ID=...
+TWITCH_SECRET=...
+HMAC_SECRET=...
+SESSION_SECRET=...
+OWNER_TWITCH_ID=...
+```
+
+The installer generates `HMAC_SECRET` and `SESSION_SECRET`. For manual installs, run `openssl rand -hex 32` for each.
+
+## Public URLs
+
+For Compose deployments, set `PUBLIC_BASE_URL` and let Compose derive everything:
+
+```text
+PUBLIC_BASE_URL=https://replayvod.example
+```
+
+For separate services or manual runtime, set each URL directly:
+
+```text
+CALLBACK_URL=https://replayvod.example/api/v1/auth/twitch/callback
+WEBHOOK_CALLBACK_URL=https://replayvod.example/api/v1/webhook/callback
+FRONTEND_URL=https://replayvod.example
+```
+
+## By area
+
+<CardGrid>
+  <Card title="Storage">
+    Local filesystem or S3-compatible — see [Storage](/docs/storage/).
+  </Card>
+  <Card title="Recording">
+    Quality, codecs, retries, gap tolerance — see [Recording](/docs/recording/).
+  </Card>
+  <Card title="Schedules & title tracking">
+    Recording rules and `[title_tracking]` modes — see [Schedules](/docs/schedules/).
+  </Card>
+  <Card title="EventSub">
+    Direct EventSub setup — see [EventSub](/docs/eventsub/).
+  </Card>
+  <Card title="Connect relay">
+    Pointing the recorder at a hosted relay — see [Connect relay](/docs/connect/).
+  </Card>
+</CardGrid>
+
+For a flat lookup of every variable or TOML key, see the reference:
+
+- [Environment variables](/docs/reference/env/)
+- [config.toml](/docs/reference/config-toml/)
+
+<Aside type="caution" title="Don't lose server/.env">
+  `server/.env` contains the secrets used to encrypt sessions and verify webhook HMACs. Losing it invalidates sessions and can break EventSub verification.
+</Aside>

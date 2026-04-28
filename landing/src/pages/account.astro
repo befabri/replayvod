@@ -1,0 +1,307 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import { site } from '../config';
+
+const apiBase = site.connect.apiBase;
+const accountEnabled = site.connect.accountEnabled;
+---
+
+<Layout
+  title="Connect dashboard · ReplayVOD"
+  description="Manage ReplayVOD Connect relay tokens and copy setup environment variables."
+>
+  <Nav minimal />
+  <main class="border-b border-border-soft py-16">
+    <section
+      data-account-app
+      data-api-base={apiBase}
+      data-account-enabled={String(accountEnabled)}
+      class="mx-auto max-w-[1120px] px-8"
+    >
+      <div
+        class="mb-10 flex flex-col gap-5 border-b border-border-soft pb-8 lg:flex-row lg:items-end lg:justify-between"
+      >
+        <div>
+          <p class="mb-3 font-mono text-[11px] uppercase tracking-[0.12em] text-primary">ReplayVOD Connect</p>
+          <h1 class="text-display-2">{accountEnabled ? 'Account dashboard.' : 'Account access is coming soon.'}</h1>
+          <p id="account-subtitle" class="mt-3 max-w-[640px] text-[15.5px] leading-[1.65] text-fg">
+            {
+              accountEnabled
+                ? 'Loading your relay tokens and subscription state.'
+                : 'The hosted relay dashboard is not open on the public site yet.'
+            }
+          </p>
+        </div>
+        {
+          accountEnabled && (
+            <div class="flex flex-wrap gap-3">
+              <button id="billing-button" class="btn" type="button">Billing portal</button>
+              <button id="logout-button" class="btn btn-ghost" type="button">Sign out</button>
+            </div>
+          )
+        }
+      </div>
+
+      <div id="account-status" class="rounded-xl border border-border bg-surface p-6 text-[15px] text-fg">
+        {
+          accountEnabled ? (
+            'Loading…'
+          ) : (
+            <>
+              Connect account access is not open yet. <a
+                href="/#pricing"
+                class="text-primary underline underline-offset-2 hover:text-primary-dark">Back to pricing</a
+              >.
+            </>
+          )
+        }
+      </div>
+
+      <div id="account-content" class="mt-8 hidden grid-cols-1 gap-8 lg:grid-cols-[1fr_0.9fr]">
+        <section class="rounded-xl border border-border bg-surface p-7">
+          <div class="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-[22px] font-medium tracking-[-0.02em]">Setup</h2>
+              <p class="mt-2 text-[14.5px] leading-[1.6] text-fg">
+                Paste these values into `server/.env`, then restart your self-hosted ReplayVOD server.
+              </p>
+            </div>
+            <button id="copy-env-button" class="btn" type="button">Copy env</button>
+          </div>
+          <pre
+            class="overflow-x-auto rounded-lg border border-border-soft bg-bg p-4 font-mono text-[12.5px] leading-[1.7] text-fg"><code id="env-snippet">No active token yet.</code></pre>
+        </section>
+
+        <aside class="rounded-xl border border-border bg-surface p-7">
+          <h2 class="text-[22px] font-medium tracking-[-0.02em]">Subscription</h2>
+          <dl class="mt-5 grid grid-cols-[8rem_1fr] gap-y-3 text-[14.5px]">
+            <dt class="font-mono text-[11px] uppercase tracking-[0.08em] text-fg-muted">Email</dt>
+            <dd id="account-email" class="text-fg"></dd>
+            <dt class="font-mono text-[11px] uppercase tracking-[0.08em] text-fg-muted">Status</dt>
+            <dd id="subscription-status" class="text-fg"></dd>
+            <dt class="font-mono text-[11px] uppercase tracking-[0.08em] text-fg-muted">Renews</dt>
+            <dd id="subscription-renews" class="text-fg"></dd>
+          </dl>
+        </aside>
+
+        <section class="rounded-xl border border-border bg-surface p-7 lg:col-span-2">
+          <div class="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 class="text-[22px] font-medium tracking-[-0.02em]">Relay tokens</h2>
+              <p class="mt-2 text-[14.5px] text-fg">Each token owns one ingest URL and one subscribe URL.</p>
+            </div>
+            <button id="create-token-button" class="btn btn-primary" type="button">Create token</button>
+          </div>
+          <div id="token-list" class="grid gap-3"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <Footer />
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector('[data-account-app]');
+      if (!root) return;
+      if (root.dataset.accountEnabled !== 'true') return;
+      const apiBase = root.dataset.apiBase;
+
+      const status = document.getElementById('account-status');
+      const content = document.getElementById('account-content');
+      const subtitle = document.getElementById('account-subtitle');
+      const email = document.getElementById('account-email');
+      const subscriptionStatus = document.getElementById('subscription-status');
+      const subscriptionRenews = document.getElementById('subscription-renews');
+      const envSnippet = document.getElementById('env-snippet');
+      const tokenList = document.getElementById('token-list');
+      const copyEnvButton = document.getElementById('copy-env-button');
+      const createTokenButton = document.getElementById('create-token-button');
+      const billingButton = document.getElementById('billing-button');
+      const logoutButton = document.getElementById('logout-button');
+
+      let currentEnv = '';
+
+      function ingestURL(subscribeURL) {
+        const url = new URL(subscribeURL);
+        url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+        url.pathname = url.pathname.replace(/\/subscribe$/, '');
+        url.search = '';
+        return url.toString();
+      }
+
+      function envForToken(token) {
+        const ingest = ingestURL(token.subscribe_url);
+        return [
+          '# Docker Compose reads this and injects WEBHOOK_CALLBACK_URL into the container',
+          `PUBLIC_WEBHOOK_CALLBACK_URL=${ingest}`,
+          '# Direct server installs can use this instead',
+          `WEBHOOK_CALLBACK_URL=${ingest}`,
+          `RELAY_SUBSCRIBE_URL=${token.subscribe_url}`,
+          '# Optional: only set this if your local API is not on 127.0.0.1:8080',
+          '# RELAY_LOCAL_CALLBACK_URL=http://127.0.0.1:8080/api/v1/webhook/callback',
+        ].join('\n');
+      }
+
+      function formatDate(value) {
+        if (!value) return 'n/a';
+        const ms = value < 100000000000 ? value * 1000 : value;
+        return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(ms));
+      }
+
+      function setStatus(message, tone = 'muted') {
+        status.textContent = message;
+        status.className = `rounded-xl border p-6 text-[15px] ${tone === 'error' ? 'border-danger/40 bg-danger/10 text-danger' : 'border-border bg-surface text-fg'}`;
+      }
+
+      function render(data) {
+        status.classList.add('hidden');
+        content.classList.remove('hidden');
+        content.classList.add('grid');
+
+        subtitle.textContent = `Signed in as ${data.user.email}.`;
+        email.textContent = data.user.email;
+        subscriptionStatus.textContent = data.subscription?.status || 'none';
+        subscriptionRenews.textContent = formatDate(data.subscription?.current_period_end);
+        createTokenButton.disabled = !data.subscription?.active;
+
+        const tokens = data.tokens || [];
+        if (!data.subscription?.active) {
+          currentEnv = '';
+          envSnippet.textContent =
+            'Your subscription is not active. Open the billing portal to restore relay access.';
+        } else if (tokens.length > 0) {
+          currentEnv = envForToken(tokens[0]);
+          envSnippet.textContent = currentEnv;
+        } else {
+          currentEnv = '';
+          envSnippet.textContent = 'No token yet. Create one to generate your relay URLs.';
+        }
+
+        tokenList.innerHTML = '';
+        if (tokens.length === 0) {
+          const empty = document.createElement('p');
+          empty.className = 'rounded-lg border border-border-soft bg-bg p-4 text-[14.5px] text-fg-muted';
+          empty.textContent = 'No active relay tokens.';
+          tokenList.append(empty);
+          return;
+        }
+
+        for (const token of tokens) {
+          const item = document.createElement('div');
+          item.className = 'rounded-lg border border-border-soft bg-bg p-4';
+
+          const head = document.createElement('div');
+          head.className = 'mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between';
+
+          const meta = document.createElement('div');
+          const label = document.createElement('div');
+          label.className = 'font-heading text-[16px] font-medium text-fg';
+          label.textContent = token.label || 'relay token';
+          const created = document.createElement('div');
+          created.className = 'mt-1 font-mono text-[11px] text-fg-muted';
+          created.textContent = `created ${formatDate(token.created_at)}`;
+          meta.append(label, created);
+
+          const revoke = document.createElement('button');
+          revoke.className = 'btn revoke-token';
+          revoke.type = 'button';
+          revoke.dataset.token = token.token;
+          revoke.textContent = 'Revoke';
+          head.append(meta, revoke);
+
+          const urls = document.createElement('div');
+          urls.className = 'grid gap-2 font-mono text-[12px] text-fg-muted';
+          for (const value of [ingestURL(token.subscribe_url), token.subscribe_url]) {
+            const row = document.createElement('div');
+            row.className = 'overflow-x-auto rounded border border-border-soft p-2';
+            row.textContent = value;
+            urls.append(row);
+          }
+
+          item.append(head, urls);
+          tokenList.append(item);
+        }
+      }
+
+      async function api(path, init = {}) {
+        const res = await fetch(`${apiBase}${path}`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
+          ...init,
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const err = new Error(body.error || 'request failed');
+          err.status = res.status;
+          throw err;
+        }
+        return body;
+      }
+
+      async function load() {
+        try {
+          const data = await api('/me');
+          render(data);
+        } catch (err) {
+          if (err.status === 401) {
+            setStatus('You are not signed in. Redirecting to login…');
+            window.setTimeout(() => window.location.assign('/login'), 600);
+            return;
+          }
+          setStatus(err instanceof Error ? err.message : 'Unable to load account.', 'error');
+        }
+      }
+
+      copyEnvButton.addEventListener('click', async () => {
+        if (!currentEnv) return;
+        await navigator.clipboard.writeText(currentEnv);
+        copyEnvButton.textContent = 'Copied';
+        window.setTimeout(() => (copyEnvButton.textContent = 'Copy env'), 1200);
+      });
+
+      createTokenButton.addEventListener('click', async () => {
+        createTokenButton.disabled = true;
+        try {
+          await api('/me/tokens', { method: 'POST', body: JSON.stringify({ label: 'default' }) });
+          await load();
+        } catch (err) {
+          setStatus(err instanceof Error ? err.message : 'Unable to create token.', 'error');
+        } finally {
+          createTokenButton.disabled = false;
+        }
+      });
+
+      tokenList.addEventListener('click', async (event) => {
+        if (!(event.target instanceof Element)) return;
+        const button = event.target.closest('.revoke-token');
+        if (!button) return;
+        button.disabled = true;
+        try {
+          await api(`/me/tokens/${encodeURIComponent(button.dataset.token)}`, { method: 'DELETE' });
+          await load();
+        } catch (err) {
+          setStatus(err instanceof Error ? err.message : 'Unable to revoke token.', 'error');
+          button.disabled = false;
+        }
+      });
+
+      billingButton.addEventListener('click', async () => {
+        try {
+          const body = await api('/me/billing/portal', { method: 'POST' });
+          window.location.href = body.url;
+        } catch (err) {
+          setStatus(err instanceof Error ? err.message : 'Unable to open billing portal.', 'error');
+        }
+      });
+
+      logoutButton.addEventListener('click', async () => {
+        await api('/auth/logout', { method: 'POST' }).catch(() => null);
+        window.location.assign('/login');
+      });
+
+      load();
+    })();
+  </script>
+</Layout>

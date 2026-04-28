@@ -1,0 +1,93 @@
+---
+title: Troubleshooting
+description: Common issues and how to resolve them.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Each entry is **symptom → likely cause → fix**.
+
+## Recorder won't start
+
+### "WEBHOOK_CALLBACK_URL not reachable"
+
+The recorder refuses to start in `webhook` title-tracking mode if it can't reach its own callback.
+
+- **Cause** — `[title_tracking].mode = "webhook"` but `WEBHOOK_CALLBACK_URL` is unset, points at a private address, or has no valid TLS.
+- **Fix** — switch `[title_tracking].mode` to `"poll"` or `"off"`, or set up a reachable callback (direct or via the [Connect relay](/docs/connect/)).
+
+### "database is locked"
+
+SQLite-only. Two processes are trying to write to the same file.
+
+- **Cause** — leftover container from a previous run, or a backup tool holding a write lock.
+- **Fix** — `docker compose down`, confirm no stray `replayvod` process is running, then start again.
+
+### "can't find ffmpeg"
+
+Native (non-Docker) install only. The Docker image bundles `ffmpeg`.
+
+- **Cause** — `ffmpeg` isn't on `PATH`.
+- **Fix** — install `ffmpeg` system-wide, or set `PATH` for the recorder's user.
+
+## Twitch sign-in fails
+
+### Redirect loop after clicking "Sign in with Twitch"
+
+- **Cause** — the OAuth redirect URL on the Twitch app doesn't match what the recorder advertises.
+- **Fix** — open [dev.twitch.tv/console/apps](https://dev.twitch.tv/console/apps), edit your app, set the OAuth redirect to exactly `${PUBLIC_BASE_URL}/api/v1/auth/twitch/callback`.
+
+### "user not allowed"
+
+- **Cause** — `WHITELIST_ENABLED=true` and the Twitch user isn't in `WHITELISTED_USER_IDS` or `OWNER_TWITCH_ID`.
+- **Fix** — add the user's numeric Twitch ID to `WHITELISTED_USER_IDS` (comma-separated) and restart.
+
+## Streams aren't being recorded
+
+Walk this list in order:
+
+1. **Is the channel followed by your owner account?** ReplayVOD only watches channels followed by users known to it.
+2. **Does any schedule match?** Open **Schedules** in the dashboard. A rule with no filters matches everything; if you have only restrictive rules, nothing matches the live stream.
+3. **Is live detection working?** Open the **System** tab. Either EventSub subscriptions are present, or the polling task is running (depending on whether `WEBHOOK_CALLBACK_URL` is reachable). If neither, the recorder isn't being told about the live event.
+4. **Is the recorder under-provisioned?** Check `[download].max_concurrent` — running recordings are visible in the **Live** tab.
+
+## EventSub not delivering
+
+### Subscriptions stuck in `webhook_callback_verification_pending`
+
+- **Cause** — Twitch couldn't verify your callback within a few seconds. Most often a wrong URL, an unreachable host, or HTTP instead of HTTPS.
+- **Fix** — confirm `curl https://your-domain.example/api/v1/webhook/callback` returns 200 from a public host (not just from inside your network). Then restart the recorder; reconcile re-creates the subscriptions.
+
+### Subscriptions stuck in `webhook_callback_verification_failed`
+
+- **Cause** — verification reached your endpoint but the challenge string in the response body wasn't echoed back verbatim.
+- **Fix** — the recorder handles verification automatically. If you've put a reverse proxy in front of it, ensure the proxy forwards the raw body without modification or rewriting.
+
+## Recordings come out broken
+
+### "incomplete" badge on a recording
+
+- **Cause** — segment loss exceeded `[download].max_gap_ratio`. The video plays; the badge is a heads-up.
+- **Fix** — investigate network or CDN issues during the broadcast. If routine, raise `max_gap_ratio` (default `0.01`).
+
+### Recording stops mid-stream
+
+- **Cause** — the recorder considered the stream offline. Common when the broadcaster's connection drops.
+- **Fix** — `[download].max_restart_gap_seconds` controls how long the recorder waits before splitting into two VODs. Raise it if you'd rather get one file with a gap.
+
+## Logs
+
+Enable file logging in `server/config.toml`:
+
+```toml
+[logging]
+log_to_file = true
+log_dir     = "./logs"
+log_level   = "info"
+```
+
+`debug` is verbose enough to track down most issues.
+
+<Aside type="tip" title="Still stuck?">
+  Open an issue on [GitHub](https://github.com/befabri/replayvod/issues) with the recorder version, the relevant `[storage]` and `[download]` settings, and the matching log lines.
+</Aside>

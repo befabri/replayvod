@@ -1,0 +1,130 @@
+<section id="how" data-reveal class="border-b border-border-soft py-32">
+  <div class="mx-auto max-w-[1320px] px-8">
+    <div class="mb-12 max-w-[760px]">
+      <h2 class="text-display-2 text-balance">
+        Webhook in.<span class="text-fg-muted"> MP4 out.</span>
+      </h2>
+    </div>
+
+    <div
+      role="img"
+      aria-label="Architecture diagram. Twitch sends a stream.online webhook to your recorder, which fetches the live stream and writes a source-quality MP4 to your disk."
+      class="rounded-xl border border-border bg-surface px-6 py-12 shadow-[0_24px_56px_rgba(0,0,0,0.35),0_0_0_1px_rgba(131,144,250,0.04)] md:px-12 md:py-14"
+    >
+      <div class="grid grid-cols-1 items-center gap-y-12 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:gap-x-6">
+        <!-- Node 1: Twitch EventSub -->
+        <div class="flex flex-col items-center text-center">
+          <div
+            class="relative mb-5 grid h-14 w-14 place-items-center rounded-xl border border-border bg-deep text-primary shadow-[inset_0_0_0_1px_rgba(131,144,250,0.08)]"
+          >
+            <svg
+              aria-hidden="true"
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M2 8.5a16 16 0 0 1 20 0"></path>
+              <path d="M5 12.5a11 11 0 0 1 14 0"></path>
+              <path d="M8.5 16a6 6 0 0 1 7 0"></path>
+              <circle cx="12" cy="19.5" r="1" fill="currentColor"></circle>
+            </svg>
+            <span
+              class="live-dot absolute right-[-3px] top-[-3px] h-2.5 w-2.5 rounded-full bg-live shadow-[0_0_8px_var(--color-live)]"
+              aria-hidden="true"
+            ></span>
+          </div>
+          <div class="font-mono text-[13px] uppercase tracking-[0.1em] text-fg-muted">Twitch EventSub</div>
+          <div class="mt-2 text-[16.5px] text-fg">stream.online webhook</div>
+        </div>
+
+        <!-- Arrow 1 -->
+        <div class="hidden flex-col items-center md:flex" aria-hidden="true">
+          <span class="mb-2 font-mono text-[11px] uppercase tracking-[0.1em] text-fg-muted">webhook</span>
+          <div class="flex items-center gap-1">
+            <div class="arch-track">
+              <span class="absolute inset-0 bg-gradient-to-r from-border via-primary/40 to-border"></span>
+              <span class="arch-pulse"></span>
+            </div>
+            <span class="arch-arrow font-mono text-[16px] leading-none text-primary">▸</span>
+          </div>
+        </div>
+
+        <!-- Node 2: Your recorder -->
+        <div class="flex flex-col items-center text-center">
+          <div
+            class="mb-5 grid h-14 w-14 place-items-center rounded-xl border border-primary/40 bg-primary/[0.07] text-primary shadow-[0_0_24px_rgba(131,144,250,0.18)]"
+          >
+            <svg
+              aria-hidden="true"
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2.5" y="3" width="19" height="7" rx="1.5"></rect>
+              <rect x="2.5" y="14" width="19" height="7" rx="1.5"></rect>
+              <line x1="6" y1="6.5" x2="6.01" y2="6.5"></line>
+              <line x1="6" y1="17.5" x2="6.01" y2="17.5"></line>
+              <line x1="10" y1="6.5" x2="14" y2="6.5"></line>
+              <line x1="10" y1="17.5" x2="14" y2="17.5"></line>
+            </svg>
+          </div>
+          <div class="font-mono text-[13px] uppercase tracking-[0.1em] text-primary">Your recorder</div>
+          <div class="mt-2 text-[16.5px] text-fg">filter, fetch, finalize</div>
+        </div>
+
+        <!-- Arrow 2 -->
+        <div class="hidden flex-col items-center md:flex" aria-hidden="true">
+          <span class="mb-2 font-mono text-[11px] uppercase tracking-[0.1em] text-fg-muted">video stream</span>
+          <div class="flex items-center gap-1">
+            <div class="arch-track">
+              <span class="absolute inset-0 bg-gradient-to-r from-border via-primary/40 to-border"></span>
+              <span class="arch-pulse arch-pulse-delayed"></span>
+            </div>
+            <span class="arch-arrow arch-arrow-delayed font-mono text-[16px] leading-none text-primary">▸</span>
+          </div>
+        </div>
+
+        <!-- Node 3: Disk -->
+        <div class="flex flex-col items-center text-center">
+          <div
+            class="mb-5 grid h-14 w-14 place-items-center rounded-xl border border-border bg-deep text-primary shadow-[inset_0_0_0_1px_rgba(131,144,250,0.08)]"
+          >
+            <svg
+              aria-hidden="true"
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+              <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"></path>
+              <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"></path>
+            </svg>
+          </div>
+          <div class="font-mono text-[13px] uppercase tracking-[0.1em] text-fg-muted">Disk</div>
+          <div class="mt-2 text-[16.5px] text-fg">source-quality MP4</div>
+          <div class="mt-2 font-mono text-[12px] text-fg-muted">pixelforge_2026-04-28.mp4</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="mx-auto mt-8 max-w-[760px] text-[16.5px] leading-[1.6] text-fg-muted">
+      Twitch tells your recorder when a stream goes live. The recorder fetches the source video and writes a
+      finalized MP4 to your disk. Nothing else sits in the path.
+    </p>
+  </div>
+</section>

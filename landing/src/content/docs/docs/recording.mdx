@@ -1,0 +1,73 @@
+---
+title: Recording
+description: Tune what ReplayVOD records and how aggressively it retries.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `[download]` section in `server/config.toml` controls how the recorder pulls a stream.
+
+```toml
+[download]
+max_concurrent          = 5
+preferred_quality       = "1080"
+segment_concurrency     = 4
+network_attempts        = 5
+server_error_attempts   = 5
+cdn_lag_attempts        = 3
+auth_refresh_attempts   = 2
+max_gap_ratio           = 0.01
+strict                  = false
+enable_av1              = false
+disable_hevc            = false
+max_restart_gap_seconds = 120
+```
+
+## Concurrency
+
+| Key                   | What it does |
+| --------------------- | ------------ |
+| `max_concurrent`      | Cap on parallel recordings across the whole server. |
+| `segment_concurrency` | Parallel HLS segment fetches inside a single recording. |
+
+Bump `max_concurrent` if you record many channels at once and have the disk + network for it. Bump `segment_concurrency` only if a single recording is bottlenecked on download throughput.
+
+## Quality
+
+`preferred_quality` is a target. The recorder picks the closest variant the channel offers. Common values:
+
+- `"1080"` — 1080p60 if the channel ladder includes it, else next best.
+- `"720"`, `"480"`, `"360"` — same logic.
+- `"audio_only"` — record audio only.
+
+## Codecs
+
+| Key            | Default | Effect |
+| -------------- | ------- | ------ |
+| `enable_av1`   | `false` | Allow AV1 variants when the channel ladder includes them. |
+| `disable_hevc` | `false` | Refuse HEVC variants even when offered. |
+
+HEVC and AV1 are gated behind authenticated playback on some channels. Set `TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN` in `server/.env` to a Twitch refresh token if you want those variants on those channels.
+
+## Retries
+
+| Key                     | When it applies |
+| ----------------------- | --------------- |
+| `network_attempts`      | Generic network failures (TCP reset, DNS, etc.). |
+| `server_error_attempts` | Twitch returned 5xx for a segment. |
+| `cdn_lag_attempts`      | Segment isn't on the CDN yet. |
+| `auth_refresh_attempts` | Playback token expired and needs refresh. |
+
+Retry budgets are per-segment, not per-recording. The recorder gives up on a segment after exhausting its budget; it does not give up on the recording.
+
+## Gaps and resumes
+
+| Key                       | Default | Effect |
+| ------------------------- | ------- | ------ |
+| `max_gap_ratio`           | `0.01`  | Tolerated fraction of dropped segments before the recording is marked incomplete. |
+| `strict`                  | `false` | If `true`, any gap fails the recording. If `false`, gaps under the ratio are auto-healed. |
+| `max_restart_gap_seconds` | `120`   | If the stream drops and comes back within this window, the recorder appends to the same VOD instead of starting a new one. |
+
+<Aside type="tip" title="Why the recording shows 'incomplete'">
+  Recordings whose realised duration is meaningfully shorter than expected (i.e. exceed `max_gap_ratio`) get an "incomplete" badge in the dashboard. The video still plays — the badge is a heads-up, not an error.
+</Aside>

@@ -1,0 +1,164 @@
+---
+import AuthLayout from '../layouts/AuthLayout.astro';
+import { site } from '../config';
+
+const apiBase = site.connect.apiBase;
+const accountEnabled = site.connect.accountEnabled;
+const connectHref = site.connect.paymentsEnabled ? site.connect.checkoutPath : '/#pricing';
+const connectLabel = site.connect.paymentsEnabled
+  ? 'Need Connect? Start a subscription.'
+  : 'Need Connect? Subscriptions are coming soon.';
+---
+
+<AuthLayout
+  title={accountEnabled ? 'Sign in · ReplayVOD Connect' : 'Connect account access coming soon · ReplayVOD'}
+  description={
+    accountEnabled
+      ? 'Sign in to your ReplayVOD Connect account.'
+      : 'ReplayVOD Connect account access is not open yet.'
+  }
+>
+  <section
+    data-login-app
+    data-api-base={apiBase}
+    data-account-enabled={String(accountEnabled)}
+    class="w-full max-w-[440px]"
+  >
+    <div
+      class="rounded-2xl border border-border bg-surface p-9 shadow-[0_30px_60px_-20px_rgba(0,0,0,0.5),0_0_0_1px_rgba(131,144,250,0.04)]"
+    >
+      <p class="mb-3 font-mono text-[12px] uppercase tracking-[0.14em] text-primary">
+        {accountEnabled ? 'Account access' : 'Coming soon'}
+      </p>
+
+      <h1 class="mb-3 text-[34px] font-medium leading-[1.1] tracking-[-0.02em]">
+        {accountEnabled ? 'Sign in with email.' : 'Connect account access is not open yet.'}
+      </h1>
+
+      <p class="mb-7 text-[16px] leading-[1.6] text-fg-muted">
+        {
+          accountEnabled
+            ? 'Enter the email on your Connect subscription. We send a one-time magic link. No password.'
+            : 'The hosted relay dashboard will open when Connect billing and account access are ready.'
+        }
+      </p>
+
+      {
+        accountEnabled ? (
+          <form id="login-form" class="space-y-4">
+            <label class="block">
+              <span class="mb-2 block font-mono text-[12px] uppercase tracking-[0.08em] text-fg-muted">
+                Email
+              </span>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autocomplete="email"
+                required
+                placeholder="you@example.com"
+                class="h-12 w-full rounded-lg border border-border bg-bg px-3.5 text-[16px] text-fg outline-none transition-colors placeholder:text-fg-dim focus:border-primary"
+              />
+            </label>
+            <button id="login-submit" type="submit" class="btn btn-primary btn-lg w-full">
+              Send magic link →
+            </button>
+          </form>
+        ) : (
+          <a href="/#pricing" class="btn btn-primary btn-lg w-full">
+            Back to pricing
+          </a>
+        )
+      }
+
+      <p
+        id="login-status"
+        class="mt-5 min-h-[1.5rem] text-[14.5px] leading-[1.55] text-fg-muted"
+        aria-live="polite"
+      >
+      </p>
+
+      <div class="mt-6 border-t border-border-soft pt-5 text-[14px] leading-relaxed text-fg-muted">
+        {
+          accountEnabled ? (
+            <a href={connectHref} class="text-primary underline underline-offset-2 hover:text-primary-dark">
+              {connectLabel}
+            </a>
+          ) : (
+            <span>Sign-in will open with the Connect launch.</span>
+          )
+        }
+      </div>
+    </div>
+
+    {
+      accountEnabled && (
+        <p class="mt-6 text-center text-[13px] text-fg-muted">
+          By signing in you agree to the
+          <a href="/legal/terms" class="underline underline-offset-2 hover:text-fg">Terms</a> and
+          <a href="/legal/privacy" class="underline underline-offset-2 hover:text-fg">Privacy</a> policy.
+        </p>
+      )
+    }
+  </section>
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector('[data-login-app]');
+      if (!root) return;
+      if (root.dataset.accountEnabled !== 'true') return;
+
+      const apiBase = root.dataset.apiBase;
+      const params = new URLSearchParams(window.location.search);
+      const fromCheckout = params.get('from') === 'checkout';
+
+      const form = document.getElementById('login-form');
+      const email = document.getElementById('email');
+      const status = document.getElementById('login-status');
+      const submit = document.getElementById('login-submit');
+
+      function setStatus(message, tone = 'muted') {
+        status.textContent = message;
+        status.className =
+          'mt-5 min-h-[1.5rem] text-[14.5px] leading-[1.55] ' +
+          (tone === 'error' ? 'text-danger' : tone === 'ok' ? 'text-live' : 'text-fg-muted');
+      }
+
+      if (fromCheckout) {
+        setStatus(
+          'Payment completed. Check your email for a magic link, or enter your billing email here to send a fresh one.',
+          'ok',
+        );
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const value = email.value.trim();
+        if (!value) return;
+
+        const original = submit.textContent;
+        submit.disabled = true;
+        submit.textContent = 'Sending…';
+        setStatus('Working…');
+
+        try {
+          const res = await fetch(`${apiBase}/auth/magic-link`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: value }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(body.error || 'request failed');
+
+          setStatus('If that email has a Connect account, a magic link is on the way.', 'ok');
+        } catch (err) {
+          setStatus(err instanceof Error ? err.message : 'Request failed', 'error');
+        } finally {
+          submit.disabled = false;
+          submit.textContent = original;
+        }
+      });
+    })();
+  </script>
+</AuthLayout>

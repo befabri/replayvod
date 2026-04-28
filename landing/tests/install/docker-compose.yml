@@ -1,0 +1,10 @@
+services:
+  install-tests:
+    build:
+      context: .
+    working_dir: /workspace
+    volumes:
+      - ../../..:/workspace:ro
+    environment:
+      INSTALL_SCRIPT: /workspace/landing/public/install.sh
+    command: sh /workspace/landing/tests/install/run.sh

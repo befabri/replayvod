@@ -1,0 +1,131 @@
+---
+title: Development
+description: Set up a local dev environment, run tests, regenerate code.
+---
+
+import { TabItem, Tabs } from '@astrojs/starlight/components';
+
+## Prerequisites
+
+- Go 1.26+
+- Node 22+
+- [Task](https://taskfile.dev/installation/)
+- `ffmpeg` and `ffprobe` on `PATH`
+
+## Setup
+
+```bash
+git clone https://github.com/befabri/replayvod.git
+cd replayvod
+task setup    # go mod download + npm install
+```
+
+## Run
+
+```bash
+task dev      # server on :8080, dashboard on :3000
+```
+
+Vite proxies `/api/*` and `/trpc/*` to the Go server, so the SPA works at [http://localhost:3000](http://localhost:3000) against a backend on `:8080`.
+
+## Build
+
+```bash
+task build    # production builds
+```
+
+The recorder lands at `server/bin/replayvod`; the SPA is bundled to `dashboard/dist/`.
+
+## Tasks
+
+```bash
+task          # list every task
+task check    # go vet + biome + tsc --noEmit
+task test     # full test suite
+```
+
+## Code generation
+
+Three generators, all driven from the Taskfile. Generated files are committed; CI runs the `:check` variants to fail on drift.
+
+```bash
+task sqlc           # queries/*.sql      → pggen / sqlitegen
+task trpcgen        # tRPC procedures    → dashboard/src/api/generated/
+task twitch-api-gen # Twitch HTML docs   → internal/twitch + eventsub
+task gen            # all of the above
+```
+
+After adding a query in `server/queries/{postgres,sqlite}/`, run `task sqlc` to regenerate the typed Go. After adding a tRPC procedure in `server/internal/api/`, run `task trpcgen` to push types and Zod schemas to the dashboard.
+
+## Testing
+
+Test suites are gated by build tags so the default run stays fast and dependency-free.
+
+| Command                  | Tag                       | What it covers |
+| ------------------------ | ------------------------- | -------------- |
+| `task test`              | _(none)_                  | unit tests |
+| `task test-integration`  | `//go:build integration`  | Docker-backed (Garage S3, Postgres testcontainer) |
+| `task test-ffmpeg`       | `//go:build ffmpeg`       | real `ffmpeg` / `ffprobe` |
+| `task test-live`         | `//go:build live`         | real Twitch endpoints (opt-in) |
+
+Container fixtures for integration tests live in `server/internal/testdb/`.
+
+## Dashboard
+
+Inside `dashboard/`:
+
+```bash
+npm run dev       # Vite dev server on :3000
+npm run build     # bundle to dist/
+npm test          # vitest unit tests
+npx playwright test
+npm run lint      # biome
+npm run routes    # regenerate routeTree.gen.ts
+```
+
+Either Bun or npm works; both lockfiles are committed.
+
+## Relay
+
+Inside `relay/`:
+
+```bash
+npm install
+npm run dev       # wrangler dev
+npm run deploy    # wrangler deploy
+```
+
+You need a Cloudflare account and `wrangler` installed.
+
+## Project layout
+
+<Tabs syncKey="component">
+  <TabItem label="server/">
+
+  See [Architecture → Server](/docs/contributing/architecture/#server) for the package-by-package map.
+
+  </TabItem>
+  <TabItem label="dashboard/">
+
+  ```
+  src/
+    routes/          file-based routes
+    api/             tRPC client + generated types
+    components/      React components (ui/ from shadcn)
+    features/        domain modules
+    hooks/ stores/ lib/ integrations/ i18n/
+    routeTree.gen.ts (generated)
+  ```
+
+  </TabItem>
+  <TabItem label="relay/">
+
+  ```
+  src/
+    index.ts          Worker entrypoint and routing
+    relay-do.ts       Durable Object (buffer, fan-out, alarm)
+  wrangler.jsonc      Worker + DO bindings
+  ```
+
+  </TabItem>
+</Tabs>

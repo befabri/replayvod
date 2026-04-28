@@ -1,0 +1,82 @@
+---
+import { site } from '../config';
+
+type FooterLink = { label: string; href: string; external?: boolean };
+type FooterCol = { head: string; links: FooterLink[] };
+
+const sha = (import.meta.env.PUBLIC_GIT_SHA as string | undefined) ?? 'dev';
+const date = (import.meta.env.PUBLIC_GIT_DATE as string | undefined) ?? '';
+const accountEnabled = site.connect.accountEnabled;
+
+const cols: FooterCol[] = [
+  {
+    head: 'Product',
+    links: [
+      { label: 'Features', href: '#features' },
+      { label: 'How it works', href: '#how' },
+      { label: 'Pricing', href: '#pricing' },
+      { label: 'Docs', href: '/docs/' },
+      { label: 'Installation', href: '/docs/install/' },
+      ...(accountEnabled ? [{ label: 'Connect account', href: '/account' }] : []),
+    ],
+  },
+  {
+    head: 'Community',
+    links: [{ label: 'GitHub', href: site.github, external: true }],
+  },
+  {
+    head: 'Legal',
+    links: [
+      { label: 'Terms', href: '/legal/terms' },
+      { label: 'Privacy', href: '/legal/privacy' },
+      { label: 'Twitch trademark', href: '/legal/twitch' },
+    ],
+  },
+];
+---
+
+<footer class="py-12 pb-9">
+  <div class="mx-auto max-w-[1320px] px-8">
+    <!-- Grid -->
+    <div
+      class="mb-9 grid grid-cols-2 gap-10 border-b border-border-soft pb-9 lg:grid-cols-[1.4fr_repeat(3,1fr)]"
+    >
+      <!-- Brand blurb -->
+      <div class="col-span-2 md:col-span-1">
+        <div class="mb-3 font-heading text-[19px] tracking-[-0.04em]">
+          <span class="font-semibold">Replay</span><span class="font-bold text-primary">VOD</span><span
+            class="text-primary">.</span>
+        </div>
+        <p class="max-w-[300px] text-[16px] leading-[1.55] text-fg">
+          Self-hosted Twitch VOD recorder. Independent open-source project — not affiliated with, endorsed by,
+          or sponsored by Twitch Interactive, Inc.
+        </p>
+      </div>
+
+      <!-- Link columns -->
+      {
+        cols.map((col) => (
+          <div>
+            <div class="mb-3.5 font-mono text-[13px] uppercase tracking-[0.06em] text-fg-muted">{col.head}</div>
+            {col.links.map((link) => (
+              <a
+                href={link.href}
+                class="block py-[5px] text-[16px] text-fg-muted transition-colors duration-150 hover:text-fg"
+                target={link.external ? '_blank' : undefined}
+                rel={link.external ? 'noopener noreferrer' : undefined}
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        ))
+      }
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="flex items-center justify-between font-mono text-[14px] text-fg-muted">
+      <span>© 2026 ReplayVOD · GPLv3 licensed</span>
+      <span>{sha}{date ? ` · ${date}` : ''}</span>
+    </div>
+  </div>
+</footer>

@@ -1,0 +1,91 @@
+---
+import Layout from './Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import { site } from '../config';
+
+interface Props {
+  title: string;
+  updated?: string;
+}
+
+const { title, updated = site.lastUpdated } = Astro.props;
+---
+
+<Layout title={`${title} — ReplayVOD`}>
+  <Nav />
+  <main class="mx-auto max-w-[760px] px-8 py-16">
+    <header class="mb-10 border-b border-border-soft pb-6">
+      <h1 class="text-3xl font-semibold tracking-[-0.01em]">{title}</h1>
+      <p class="mt-2 font-mono text-[12px] uppercase tracking-[0.06em] text-fg-muted">
+        Last updated {updated}
+      </p>
+    </header>
+    <article class="prose-legal">
+      <slot />
+    </article>
+  </main>
+  <Footer />
+</Layout>
+
+<style is:global>
+  .prose-legal {
+    color: var(--color-fg);
+    font-size: 15.5px;
+    line-height: 1.7;
+  }
+  .prose-legal h2 {
+    color: var(--color-fg);
+    font-family: var(--font-heading);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-top: 2.25rem;
+    margin-bottom: 0.75rem;
+  }
+  .prose-legal h3 {
+    color: var(--color-fg);
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .prose-legal p {
+    margin-bottom: 0.85rem;
+  }
+  .prose-legal ul,
+  .prose-legal ol {
+    margin-bottom: 0.85rem;
+    padding-left: 1.25rem;
+  }
+  .prose-legal li {
+    margin-bottom: 0.4rem;
+    list-style: disc;
+  }
+  .prose-legal ol li {
+    list-style: decimal;
+  }
+  .prose-legal a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .prose-legal a:hover {
+    text-decoration: none;
+  }
+  .prose-legal strong {
+    color: var(--color-fg);
+    font-weight: 600;
+  }
+  .prose-legal hr {
+    border-color: var(--color-border-soft);
+    margin: 2rem 0;
+  }
+  .prose-legal code {
+    background: var(--color-surface);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+</style>

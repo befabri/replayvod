@@ -1,0 +1,107 @@
+---
+title: config.toml
+description: Every key in server/config.toml, in one table.
+---
+
+Reference for `server/config.toml`. Grouped by section.
+
+## Top level
+
+| Key            | Default | Notes |
+| -------------- | ------- | ----- |
+| `development`  | `true`  | Enables `/debug` pprof endpoints and looser timeouts. Set `false` in production. |
+
+## `[server]`
+
+| Key               | Default                       | Notes |
+| ----------------- | ----------------------------- | ----- |
+| `allowed_origins` | `["http://localhost:3000"]`   | CORS allow-list. Add the dashboard origin for cross-origin deployments. |
+
+## `[download]`
+
+Recording behaviour. See [Recording](/docs/recording/) for narrative.
+
+| Key                       | Default  | Notes |
+| ------------------------- | -------- | ----- |
+| `max_concurrent`          | `5`      | Cap on parallel recordings across the server. |
+| `preferred_quality`       | `"1080"` | Target HLS variant. `"1080"`, `"720"`, `"480"`, `"360"`, `"audio_only"`. |
+| `segment_concurrency`     | `4`      | Parallel HLS segment fetches per recording. |
+| `network_attempts`        | `5`      | Retry budget for generic network failures. |
+| `server_error_attempts`   | `5`      | Retry budget for Twitch 5xx. |
+| `cdn_lag_attempts`        | `3`      | Retry budget when a segment isn't on the CDN yet. |
+| `auth_refresh_attempts`   | `2`      | Retry budget for expired playback tokens. |
+| `max_gap_ratio`           | `0.01`   | Tolerated fraction of dropped segments before "incomplete" badge. |
+| `strict`                  | `false`  | If `true`, any gap fails the recording. |
+| `enable_av1`              | `false`  | Allow AV1 variants. |
+| `disable_hevc`            | `false`  | Refuse HEVC variants. |
+| `max_restart_gap_seconds` | `120`    | Stream-drop window for appending to the same VOD. |
+
+## `[storage]`
+
+| Key          | Default   | Notes |
+| ------------ | --------- | ----- |
+| `type`       | `"local"` | `"local"` or `"s3"`. |
+| `local_path` | `"./data"`| Used when `type = "local"`. |
+
+## `[storage.s3]`
+
+Used only when `[storage].type = "s3"`.
+
+| Key              | Default | Notes |
+| ---------------- | ------- | ----- |
+| `endpoint`       | _(empty)_ | S3-compatible endpoint URL. Empty means AWS S3. |
+| `bucket`         | _(empty)_ | |
+| `region`         | _(empty)_ | |
+| `access_key`     | _(empty)_ | |
+| `secret_key`     | _(empty)_ | |
+| `use_path_style` | _(unset)_ | Force path-style addressing. Custom endpoints default to path-style. |
+
+## `[scheduler]`
+
+| Key                                       | Default | Notes |
+| ----------------------------------------- | ------- | ----- |
+| `enabled`                                 | `true`  | Master switch for the scheduled-task runner. |
+| `eventsub_interval_minutes`               | `10`    | EventSub quota-snapshot cadence. |
+| `eventsub_reconcile_interval_minutes`     | `60`    | Periodic full reconcile of EventSub subscriptions. |
+| `category_art_interval_minutes`           | `1440`  | Backfill `box_art_url` on categories from Helix `/games`. |
+| `token_cleanup_interval_minutes`          | `60`    | Drop expired Twitch app tokens. |
+| `session_cleanup_interval_minutes`        | `120`   | Drop expired user session tokens. |
+| `fetch_logs_retention_days`               | `14`    | Retention sweep for the Helix fetch-log table. |
+| `webhook_event_payload_retention_days`    | `7`     | Trims the stored EventSub payload column. |
+| `event_logs_retention_days`               | `14`    | Retention sweep for `debug` + `info` event-log rows. |
+
+## `[logging]`
+
+| Key            | Default    | Notes |
+| -------------- | ---------- | ----- |
+| `log_to_file`  | `false`    | Mirror logs to a file in `log_dir` in addition to stderr. |
+| `log_dir`      | `"./logs"` | Directory for log files. Created on first write. |
+| `log_level`    | `"debug"`  | `debug`, `info`, `warn`, `error`. |
+| `sample_rate`  | `1.0`      | Fraction of high-volume events to record (`0.0`–`1.0`). |
+
+## `[postgres]`
+
+Pool tuning. Used only when `DATABASE_DRIVER=postgres`.
+
+| Key                       | Default     | Notes |
+| ------------------------- | ----------- | ----- |
+| `max_conns`               | `25`        | |
+| `min_conns`               | `5`         | |
+| `max_conn_lifetime_ms`    | `1800000`   | 30 min. |
+| `max_conn_idle_time_ms`   | `300000`    | 5 min. |
+| `health_check_period_ms`  | `30000`     | 30 s. |
+
+## `[health]`
+
+| Key       | Default | Notes |
+| --------- | ------- | ----- |
+| `enabled` | `true`  | Exposes unauthenticated `GET /api/v1/health` (200 on DB ping success, 503 on failure). The bundled Docker healthcheck depends on this. |
+
+## `[title_tracking]`
+
+See [Schedules & title tracking](/docs/schedules/).
+
+| Key                | Default  | Notes |
+| ------------------ | -------- | ----- |
+| `mode`             | `"poll"` | `"poll"`, `"webhook"`, or `"off"`. |
+| `interval_minutes` | `1`      | Poll interval. Ignored in `webhook` and `off` modes. |

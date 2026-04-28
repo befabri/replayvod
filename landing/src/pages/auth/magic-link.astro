@@ -1,0 +1,118 @@
+---
+import AuthLayout from '../../layouts/AuthLayout.astro';
+import { site } from '../../config';
+
+const apiBase = site.connect.apiBase;
+const accountEnabled = site.connect.accountEnabled;
+---
+
+<AuthLayout
+  title={accountEnabled ? 'Confirm sign-in · ReplayVOD Connect' : 'Connect sign-in coming soon · ReplayVOD'}
+  description={
+    accountEnabled
+      ? 'Confirm your ReplayVOD Connect magic link.'
+      : 'ReplayVOD Connect sign-in is not open yet.'
+  }
+>
+  <section
+    data-magic-link-app
+    data-api-base={apiBase}
+    data-account-enabled={String(accountEnabled)}
+    class="w-full max-w-[440px]"
+  >
+    <div
+      class="rounded-2xl border border-border bg-surface p-9 shadow-[0_30px_60px_-20px_rgba(0,0,0,0.5),0_0_0_1px_rgba(131,144,250,0.04)]"
+    >
+      <p class="mb-3 font-mono text-[12px] uppercase tracking-[0.14em] text-primary">
+        {accountEnabled ? 'Confirm sign-in' : 'Coming soon'}
+      </p>
+
+      <h1 class="mb-3 text-[34px] font-medium leading-[1.1] tracking-[-0.02em]">
+        {accountEnabled ? 'Finish signing in.' : 'Connect sign-in is not open yet.'}
+      </h1>
+
+      <p
+        id="magic-link-status"
+        class="mb-7 text-[16px] leading-[1.6] text-fg-muted"
+        aria-live="polite"
+      >
+        {
+          accountEnabled
+            ? 'Click below to confirm your one-time link. This step keeps email scanners from using the link first.'
+            : 'The hosted relay dashboard will open when Connect account access is ready.'
+        }
+      </p>
+
+      {
+        accountEnabled ? (
+          <button id="magic-link-submit" type="button" class="btn btn-primary btn-lg w-full">
+            Sign in →
+          </button>
+        ) : (
+          <a href="/#pricing" class="btn btn-primary btn-lg w-full">
+            Back to pricing
+          </a>
+        )
+      }
+
+      {
+        accountEnabled && (
+          <div class="mt-6 border-t border-border-soft pt-5 text-[14px] leading-relaxed text-fg-muted">
+            <a href="/login" class="text-primary underline underline-offset-2 hover:text-primary-dark">
+              Need a new link? Request one.
+            </a>
+          </div>
+        )
+      }
+    </div>
+  </section>
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector('[data-magic-link-app]');
+      const status = document.getElementById('magic-link-status');
+      const submit = document.getElementById('magic-link-submit');
+      if (!root || !status) return;
+      if (root.dataset.accountEnabled !== 'true') return;
+      if (!submit) return;
+
+      function setStatus(message, tone = 'muted') {
+        status.textContent = message;
+        status.className =
+          'mb-7 text-[16px] leading-[1.6] ' +
+          (tone === 'error' ? 'text-danger' : tone === 'ok' ? 'text-live' : 'text-fg-muted');
+      }
+
+      const token = new URLSearchParams(window.location.search).get('token');
+      if (!token) {
+        setStatus(
+          'This sign-in link is missing its token. Request a new link from the sign-in page.',
+          'error',
+        );
+        submit.classList.add('hidden');
+        return;
+      }
+
+      submit.addEventListener('click', async () => {
+        submit.disabled = true;
+        submit.textContent = 'Signing in…';
+        setStatus('Verifying your one-time link…');
+        try {
+          const res = await fetch(`${root.dataset.apiBase}/auth/magic-link/verify`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(body.error || 'invalid or expired link');
+          window.location.replace('/account');
+        } catch (err) {
+          setStatus(err instanceof Error ? err.message : 'Unable to verify this link.', 'error');
+          submit.disabled = false;
+          submit.textContent = 'Try again →';
+        }
+      });
+    })();
+  </script>
+</AuthLayout>

@@ -1,0 +1,32 @@
+---
+const stats = [
+  { label: 'Bitrate', value: '8 Mb/s', desc: 'Original 1080p60 source — no re-encode.' },
+  { label: 'Lag', value: '< 4s', desc: 'EventSub → first segment captured.' },
+  { label: 'Concurrency', value: '32', desc: 'Parallel recordings on a single 4-core host.' },
+  { label: 'Memory', value: '~ 240 MB', desc: 'Idle footprint of the full stack.' },
+];
+---
+
+<section data-reveal class="border-b border-border-soft py-32">
+  <div class="mx-auto grid max-w-[1320px] grid-cols-1 px-8 sm:grid-cols-2 lg:grid-cols-4">
+    {
+      stats.map((s, i) => (
+        <div
+          class:list={[
+            'relative py-5 lg:py-0 lg:px-8',
+            i > 0 && 'border-t border-border-soft lg:border-t-0 lg:border-l lg:border-border-soft',
+            i === 0 && 'lg:pl-0',
+            i === stats.length - 1 && 'lg:pr-0',
+          ]}
+        >
+          <div class="mb-3 flex items-center gap-2 font-mono text-[13px] uppercase tracking-[0.08em] text-fg-muted">
+            <span class="h-1 w-1 rounded-full bg-primary" />
+            {s.label}
+          </div>
+          <div class="mb-2 font-heading text-display-3 font-normal tabular-nums">{s.value}</div>
+          <div class="text-[16px] leading-[1.55] text-fg">{s.desc}</div>
+        </div>
+      ))
+    }
+  </div>
+</section>

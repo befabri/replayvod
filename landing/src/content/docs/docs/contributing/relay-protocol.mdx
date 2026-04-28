@@ -1,0 +1,132 @@
+---
+title: Relay protocol
+description: The wire format and self-host instructions for the Connect webhook relay.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The Connect relay is a small Cloudflare Worker that takes HTTPS `POST` events on one side and fans them out to subscribed WebSocket clients on the other. It runs on Workers + Durable Objects, holds no Twitch credentials, and never inspects the bodies it forwards.
+
+If you just want to point the recorder at a hosted relay, see [Connect relay](/docs/connect/) instead.
+
+## What it does
+
+- Accepts HTTPS `POST` at `/u/{token}` with an arbitrary body.
+- Forwards bytes to every open WebSocket on `/u/{token}/subscribe`.
+- Buffers events for up to five minutes so a brief client reconnect doesn't drop them.
+- Echoes a synchronous response back to the original `POST` for webhook verification challenges.
+
+## What it doesn't
+
+- Verify, parse, or log payload bodies. Your client verifies the HMAC.
+- Store events to disk beyond the 5-minute buffer.
+- Hold any Twitch credentials.
+- Tunnel arbitrary HTTP. Only `POST` → WebSocket fan-out.
+- Provide encryption beyond standard HTTPS / WebSocket transport.
+
+## Tokens
+
+Tokens namespace a Durable Object — each token gets its own buffer and connection set. Multiple clients may subscribe to the same token. Tokens must match `[a-zA-Z0-9_-]{16,128}`.
+
+## Ingest
+
+```http
+POST /u/{token}
+Content-Type: application/json
+
+<body>
+```
+
+Normal async deliveries return `202 Accepted` immediately. For Twitch EventSub verification challenges, the relay waits for the subscribed client to replay the request locally and returns the local handler's response to Twitch.
+
+## Subscribe
+
+```http
+GET /u/{token}/subscribe?cursor={last_cursor}
+Upgrade: websocket
+```
+
+On connect, the relay replays any buffered events with a monotonic cursor newer than `cursor`, then streams new events as they arrive.
+
+### Frames the relay sends
+
+```json
+{
+  "id": "uuid",
+  "cursor": 42,
+  "ts": 1714291200000,
+  "headers": { "twitch-eventsub-message-id": "...", "...": "..." },
+  "body": "<base64-encoded body>",
+  "requires_response": false
+}
+```
+
+Headers are forwarded verbatim with lower-cased keys, so the receiving client can reconstruct the original request and verify HMAC signatures itself. The relay does not parse, validate, or filter headers.
+
+### Frames the subscriber sends back
+
+After replaying a frame locally, the subscriber posts:
+
+```json
+{
+  "type": "dispatch_result",
+  "id": "uuid",
+  "status": 200,
+  "headers": { "content-type": "text/plain; charset=utf-8" },
+  "body": "<base64-encoded response body>"
+}
+```
+
+For normal async deliveries, a non-2xx/3xx dispatch result causes the relay to close that subscriber so it reconnects and replays from the last acknowledged cursor.
+
+When `requires_response` is `true`, the relay returns the response to the original HTTP caller. This is required for Twitch EventSub verification challenges.
+
+<Aside type="tip" title="Buffer pruning">
+  Expired buffered events are pruned by a Durable Object alarm, not only by later traffic, so the 5-minute buffer doesn't linger indefinitely during quiet periods.
+</Aside>
+
+## Token validation
+
+Self-hosted deployments can leave token validation unset and use any token matching the pattern above.
+
+The hosted Connect deployment validates every ingest and subscribe request against the cloud Worker, so revoked tokens and inactive subscriptions are rejected before reaching the Durable Object:
+
+```sh
+TOKEN_VALIDATE_URL=https://api.replayvod.com/relay/tokens/validate
+RELAY_SHARED_SECRET=...
+```
+
+## Self-host
+
+The relay is MIT-licensed and intended to be self-hostable. You need a Cloudflare account and `wrangler` installed.
+
+<Steps>
+
+1. Install dependencies.
+
+   ```sh
+   cd relay
+   npm install
+   ```
+
+2. Develop locally.
+
+   ```sh
+   npm run dev
+   ```
+
+3. Deploy to your own Workers account.
+
+   ```sh
+   npm run deploy
+   ```
+
+</Steps>
+
+<Aside type="note" title="Cost">
+  Workers Free tier handles a few hundred light users. Workers Paid ($5/mo) handles thousands. Durable Object storage is billed by usage; with a 5-minute TTL the buffer rarely exceeds a few KB per active user.
+</Aside>
+
+## License
+
+The relay is MIT-licensed; the recorder, dashboard, and supporting code are GPL-3.0.

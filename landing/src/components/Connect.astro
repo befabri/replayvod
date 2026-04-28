@@ -1,0 +1,51 @@
+---
+const cards = [
+  {
+    label: 'No router config',
+    body: 'Outbound WebSocket from your machine. Works behind CGNAT, dynamic IPs, IPv6-only ISPs.',
+  },
+  {
+    label: 'Transparent relay',
+    body: 'The relay forwards bytes without parsing or logging webhook bodies. Source code is public.',
+  },
+  {
+    label: 'Cancel anytime',
+    body: 'Subscription via Polar. Your self-hosted recorder keeps working — you just lose the public URL.',
+  },
+];
+---
+
+<section data-reveal class="border-b border-border-soft py-32">
+  <div class="mx-auto max-w-[1320px] px-8">
+    <div class="mb-10 flex items-center gap-3">
+      <span
+        class="rounded-full border border-primary/25 bg-primary/10 px-2.5 py-0.5
+                   font-mono text-[12px] uppercase tracking-[0.08em] text-primary"
+      >
+        Optional relay
+      </span>
+      <span class="font-mono text-[13px] uppercase tracking-[0.08em] text-fg-muted"> replayvod connect </span>
+    </div>
+
+    <h2 class="mb-6 max-w-[820px] text-display-2 text-balance">
+      Live notifications without <span class="text-fg-muted">touching your router.</span>
+    </h2>
+
+    <p class="mb-12 max-w-[640px] text-[18px] leading-[1.55] text-fg">
+      Twitch's EventSub needs a public HTTPS endpoint. Most home connections don't have one. Connect gives
+      your recorder one through an outbound WebSocket — encrypted in transit, and we
+      <strong class="text-fg">never see your video files or your Twitch credentials</strong>.
+    </p>
+
+    <div class="grid gap-px overflow-hidden rounded-xl border border-border bg-border-soft md:grid-cols-3">
+      {
+        cards.map((c) => (
+          <div class="bg-bg p-7">
+            <div class="mb-2 font-mono text-[13px] uppercase tracking-[0.08em] text-primary">{c.label}</div>
+            <p class="m-0 text-[16px] leading-[1.55] text-fg">{c.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

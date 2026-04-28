@@ -1,0 +1,50 @@
+---
+title: Schedules & title tracking
+description: Recording rules and how stream titles are captured during a recording.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A **schedule** is a rule that decides whether a live stream gets recorded. Title tracking is a separate feature that records title and category changes _during_ an active recording.
+
+## Schedules
+
+Schedules are managed from the dashboard, not from a config file. Open **Schedules** and create a rule.
+
+A rule can match on:
+
+| Filter   | What it does |
+| -------- | ------------ |
+| Channel  | Restrict the rule to specific followed channels. |
+| Category | Match by Twitch category / game ID. |
+| Tag      | Match if the broadcaster set a given tag. |
+| Viewers  | Minimum viewer count threshold. |
+| Quality  | Preferred HLS variant for streams matching this rule (overrides global default for this rule). |
+
+Rules are independent. Multiple matching rules don't multiply the recording — one stream produces one VOD.
+
+A rule with no filters matches every live stream from every followed channel; useful as a "record everything" rule.
+
+## Title tracking
+
+Streams often change title and category mid-broadcast. ReplayVOD captures that history while a recording is active and shows it in the **Titles** badge on the video card.
+
+Configured in `server/config.toml`:
+
+```toml
+[title_tracking]
+mode             = "poll"   # "poll" | "webhook" | "off"
+interval_minutes = 1
+```
+
+| Mode      | How it works |
+| --------- | ------------ |
+| `poll`    | Goroutine polls Helix every `interval_minutes`. Works on any deployment. Uses a few Helix calls per minute per active recording. |
+| `webhook` | Subscribes to `channel.update` EventSub per recording. Push-based, zero polling. Requires a publicly reachable `WEBHOOK_CALLBACK_URL`. |
+| `off`     | Only the at-start title and category are stored. |
+
+<Aside type="caution" title="Webhook mode requires a public callback">
+  In `webhook` mode, the server refuses to start if `WEBHOOK_CALLBACK_URL` is unreachable. Use `poll` if you don't have a public HTTPS endpoint, or set up the [Connect relay](/docs/connect/) and switch to webhook mode.
+</Aside>
+
+`interval_minutes` only applies to `poll` mode. In `webhook` mode it's ignored.

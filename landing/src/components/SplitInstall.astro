@@ -1,0 +1,121 @@
+---
+type Line =
+  | { kind: 'comment'; text: string }
+  | { kind: 'cmd'; prompt: '$' | 'PS>'; text: string }
+  | { kind: 'blank' }
+  | { kind: 'status'; tag: string; value: string };
+
+const lines: Line[] = [
+  { kind: 'comment', text: '# 1. Install' },
+  { kind: 'comment', text: '#    macOS / Linux' },
+  { kind: 'cmd', prompt: '$', text: 'curl -fsSL https://replayvod.com/install.sh | sh' },
+  { kind: 'blank' },
+  { kind: 'comment', text: '#    Windows (PowerShell + Docker Desktop)' },
+  { kind: 'cmd', prompt: 'PS>', text: 'irm https://replayvod.com/install.ps1 | iex' },
+  { kind: 'blank' },
+  { kind: 'comment', text: '# 2. Open the dashboard' },
+  { kind: 'cmd', prompt: '$', text: 'open http://localhost:8080' },
+  { kind: 'blank' },
+  { kind: 'comment', text: '# 3. Done' },
+  { kind: 'status', tag: 'replayvod', value: 'listening on :8080' },
+  { kind: 'status', tag: 'eventsub', value: 'subscribed · 8 channels' },
+];
+---
+
+<section id="install" data-reveal class="border-b border-border-soft py-32">
+  <div class="mx-auto grid max-w-[1320px] grid-cols-1 items-center gap-20 px-8 lg:grid-cols-2">
+    <!-- Terminal block (first on mobile, second on desktop via order) -->
+    <div
+      role="img"
+      aria-label="Sample terminal session showing macOS, Linux, and Windows install commands."
+      class="order-2 lg:order-1 overflow-hidden rounded-xl border border-border bg-deep font-mono text-[14px] shadow-[0_24px_56px_rgba(0,0,0,0.4),0_0_0_1px_rgba(131,144,250,0.04)]"
+    >
+      <!-- Window chrome -->
+      <div class="flex items-center border-b border-border-soft px-4 py-2.5">
+        <div class="flex gap-1.5">
+          <span class="h-[10px] w-[10px] rounded-full bg-[#ff5f57]/70"></span>
+          <span class="h-[10px] w-[10px] rounded-full bg-[#febc2e]/70"></span>
+          <span class="h-[10px] w-[10px] rounded-full bg-[#28c840]/70"></span>
+        </div>
+        <span class="flex-1 text-center text-[13px] tracking-[0.04em] text-fg-muted">~/replayvod · zsh</span>
+        <span class="font-mono text-[11.5px] uppercase tracking-[0.1em] text-fg-muted">90s</span>
+      </div>
+
+      <!-- Body: line gutter + content rendered from one source so numbers always match -->
+      <div class="grid grid-cols-[2.75rem_1fr] py-4 leading-[1.75]">
+        <div class="select-none border-r border-border-soft pr-3 text-right text-[12.5px] text-fg-dim/70 tabular-nums">
+          {lines.map((_, i) => <div>{i + 1}</div>)}
+        </div>
+
+        <div class="overflow-x-auto pl-4 pr-5">
+          {
+            lines.map((line) => {
+              if (line.kind === 'blank') return <div>&nbsp;</div>;
+              if (line.kind === 'comment')
+                return <div class="text-fg-muted">{line.text}</div>;
+              if (line.kind === 'cmd')
+                return (
+                  <div class="text-fg">
+                    <span class="text-primary/80">{line.prompt}</span>{' '}
+                    <span>{line.text}</span>
+                  </div>
+                );
+              return (
+                <div class="grid grid-cols-[1.25rem_6rem_1fr] items-center">
+                  <span class="text-live drop-shadow-[0_0_4px_var(--color-live)]">●</span>
+                  <span class="text-fg">{line.tag}</span>
+                  <span class="text-fg-muted">{line.value}</span>
+                </div>
+              );
+            })
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Text -->
+    <div class="order-1 lg:order-2">
+      <h3 class="mb-4 text-[34px] leading-[1.15] tracking-[-0.02em]">
+        Up in 90 seconds. On your hardware. Forever.
+      </h3>
+      <p class="mb-6 text-[17.5px] leading-[1.6] text-fg">
+        One Docker Compose file, one Twitch app credential, one volume mount. Single binary with embedded
+        SQLite. Zero phone-home.
+      </p>
+      <a href="/docs/install/" class="mb-6 inline-flex text-sm font-medium text-primary hover:underline">
+        Read full installation docs →
+      </a>
+      <ul class="m-0 list-none p-0">
+        {
+          [
+            {
+              label: 'Docker / Compose',
+              detail: 'macOS, Linux, Windows, NAS, or homelab rack.',
+            },
+            {
+              label: 'Reverse-proxy ready',
+              detail: 'Caddy, Nginx, or Traefik. Bring your own TLS.',
+            },
+            {
+              label: 'SQLite by default',
+              detail: 'Switch to Postgres when you want it.',
+            },
+          ].map((item, i, arr) => (
+            <li
+              class:list={[
+                'flex gap-3 items-start py-2.5',
+                i < arr.length - 1 && 'border-b border-border-soft',
+              ]}
+            >
+              <span class="mt-px flex-none text-live">✓</span>
+              <div>
+                <strong class="text-[17px] text-fg">{item.label}</strong>
+                <small class="mt-0.5 block text-[15.5px] text-fg-muted">{item.detail}</small>
+              </div>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</section>

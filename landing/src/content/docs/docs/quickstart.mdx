@@ -1,0 +1,72 @@
+---
+title: Quickstart
+description: Get a running ReplayVOD instance in a few minutes.
+---
+
+import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
+
+## 1. Install
+
+<Tabs syncKey="platform">
+  <TabItem label="macOS / Linux">
+
+  ```bash
+  curl -fsSL https://replayvod.com/install.sh | sh
+  ```
+
+  </TabItem>
+  <TabItem label="Windows (Docker Desktop)">
+
+  ```powershell
+  $env:REPLAYVOD_INSTALL_MODE = "docker"
+  irm https://replayvod.com/install.ps1 | iex
+  ```
+
+  </TabItem>
+</Tabs>
+
+The installer creates a directory, writes a `.env` from the example, generates secrets, prompts for your Twitch credentials, then starts the stack.
+
+## 2. Register a Twitch app
+
+Create an application in the [Twitch developer console](https://dev.twitch.tv/console/apps) with this OAuth redirect URL:
+
+```
+http://localhost:8080/api/v1/auth/twitch/callback
+```
+
+Copy the resulting **Client ID** and **Client Secret** when the installer asks.
+
+## 3. Sign in
+
+<Steps>
+
+1. Open [http://localhost:8080](http://localhost:8080).
+
+2. Sign in with Twitch.
+
+3. The user listed in `OWNER_TWITCH_ID` is granted the owner role.
+
+</Steps>
+
+## 4. Record your first VOD
+
+<Steps>
+
+1. Follow the channels you want to record on Twitch.
+
+2. In the dashboard, open **Schedules** and create a rule (quality, optional category or tag filter).
+
+3. The next time a matching stream goes live, ReplayVOD records it.
+
+</Steps>
+
+<Aside type="tip" title="No public IP?">
+  EventSub needs a public HTTPS callback. If you can't expose one, set up the [Connect relay](/docs/connect/) — it gives you a public ingest URL without router-port forwarding.
+</Aside>
+
+## Where to next
+
+- [How it works](/docs/concepts/) — the mental model.
+- [Configuration](/docs/configuration/) — what `server/.env` and `server/config.toml` actually control.
+- [Troubleshooting](/docs/troubleshooting/) — when something doesn't.

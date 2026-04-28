@@ -1,0 +1,70 @@
+---
+title: Connect relay
+description: Use ReplayVOD Connect when Twitch can't reach your home network directly.
+---
+
+import { Card, CardGrid, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
+
+Twitch EventSub needs a public HTTPS endpoint. Connect gives your self-hosted recorder a public relay URL without opening router ports.
+
+Connect forwards signed EventSub request bytes. The recorder still verifies Twitch's HMAC locally — the relay holds no Twitch credentials and no HMAC secret. For the protocol details and self-host instructions, see [Relay protocol](/docs/contributing/relay-protocol/).
+
+## What you get
+
+When you sign up for Connect (or self-host the relay), you get two URLs:
+
+<CardGrid>
+  <Card title="Ingest URL">
+    Public HTTPS URL Twitch posts EventSub deliveries to. Goes into `WEBHOOK_CALLBACK_URL` (or `PUBLIC_WEBHOOK_CALLBACK_URL` for Compose).
+  </Card>
+  <Card title="Subscribe URL">
+    WebSocket URL the recorder dials outbound. Goes into `RELAY_SUBSCRIBE_URL`.
+  </Card>
+</CardGrid>
+
+## Configure
+
+<Tabs syncKey="install-path">
+  <TabItem label="Docker Compose">
+
+  ```text
+  PUBLIC_BASE_URL=https://your-replayvod.example
+  PUBLIC_WEBHOOK_CALLBACK_URL=https://relay.replayvod.com/u/<token>
+  RELAY_SUBSCRIBE_URL=wss://relay.replayvod.com/u/<token>/subscribe
+  ```
+
+  `PUBLIC_BASE_URL` stays your recorder's URL. `PUBLIC_WEBHOOK_CALLBACK_URL` overrides only the EventSub callback registered with Twitch — OAuth and frontend URLs are unaffected.
+
+  </TabItem>
+  <TabItem label="Manual runtime">
+
+  ```text
+  WEBHOOK_CALLBACK_URL=https://relay.replayvod.com/u/<token>
+  RELAY_SUBSCRIBE_URL=wss://relay.replayvod.com/u/<token>/subscribe
+  RELAY_LOCAL_CALLBACK_URL=http://127.0.0.1:8080/api/v1/webhook/callback
+  ```
+
+  `RELAY_LOCAL_CALLBACK_URL` defaults to `http://127.0.0.1:${PORT}/api/v1/webhook/callback` and only needs setting if you've moved the recorder off the default port.
+
+  </TabItem>
+</Tabs>
+
+## Setup flow
+
+<Steps>
+
+1. Create or retrieve your Connect relay token.
+
+2. Put the ingest URL into `PUBLIC_WEBHOOK_CALLBACK_URL` (Compose) or `WEBHOOK_CALLBACK_URL` (manual).
+
+3. Put the WebSocket URL into `RELAY_SUBSCRIBE_URL`.
+
+4. Restart ReplayVOD.
+
+5. Confirm the logs show `Relay client started` and that EventSub subscriptions become enabled.
+
+</Steps>
+
+## When you don't need Connect
+
+Skip Connect if your recorder already has a stable public HTTPS endpoint and you're comfortable exposing `/api/v1/webhook/callback` directly. See [EventSub](/docs/eventsub/) for that setup.

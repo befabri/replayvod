@@ -1,0 +1,163 @@
+---
+import Legal from '../../layouts/Legal.astro';
+import { site } from '../../config';
+---
+
+<Legal title="Privacy Policy">
+  <p>
+    This Privacy Policy describes how <strong>{site.operator.legalName}</strong>
+    collects, uses, and protects your information when you use ReplayVOD Connect. The self-hosted ReplayVOD software
+    runs entirely on your hardware and is not covered by this policy — it never sends your data to us.
+  </p>
+
+  <h2>What we collect</h2>
+  <p>To operate Connect, we collect and store the following:</p>
+  <ul>
+    <li>
+      <strong>Account email.</strong> Provided by you (via Polar checkout) and used to send your magic-link sign-in
+      emails and service notifications.
+    </li>
+    <li>
+      <strong>Polar customer ID.</strong> Provided by Polar after a successful checkout. Used to look up your
+      subscription state and to redirect you to the Polar-hosted customer portal.
+    </li>
+    <li>
+      <strong>Subscription state.</strong> Status, current period end, and relevant lifecycle events received from
+      Polar webhooks.
+    </li>
+    <li>
+      <strong>Relay tokens.</strong> Random opaque tokens we issue to identify your relay endpoint. Tokens are scoped
+      to your account and revocable.
+    </li>
+    <li>
+      <strong>Session cookies.</strong> A single HTTP-only cookie (<code>rv_session</code>) is set when you
+      sign in, scoped to our API domain.
+    </li>
+    <li>
+      <strong>Service logs.</strong> Cloudflare Workers automatically logs request metadata (IP address, user agent,
+      status, timing). Logs are retained briefly for operational purposes.
+    </li>
+  </ul>
+
+  <h2>What we do not collect</h2>
+  <ul>
+    <li>
+      <strong>Webhook payload contents.</strong> The relay forwards bytes verbatim to your self-hosted instance.
+      Payloads are buffered briefly (currently five minutes) only so that a brief reconnect does not lose events.
+      We do not parse, log, or persist them long-term.
+    </li>
+    <li>
+      <strong>Video recordings.</strong> Video files stay on your hardware. We never receive or store them.
+    </li>
+    <li>
+      <strong>Twitch credentials.</strong> The relay does not authenticate to Twitch on your behalf. You hold your
+      own Twitch developer application's keys.
+    </li>
+    <li>
+      <strong>Payment-card information.</strong> Card data is handled by Polar (and its underlying processor) and never reaches our servers.
+    </li>
+  </ul>
+
+  <h2>How we use information</h2>
+  <ul>
+    <li>To provision and operate your relay tokens.</li>
+    <li>To send transactional email (magic-link sign-in, service notices).</li>
+    <li>To process subscription billing and payments (via Polar).</li>
+    <li>To investigate abuse, fraud, or operational issues.</li>
+    <li>To comply with legal obligations.</li>
+  </ul>
+  <p>
+    We do not sell your personal information. We do not use it for advertising or marketing to third parties.
+  </p>
+
+  <h2>Third-party processors</h2>
+  <p>We rely on the following processors. Each has its own privacy policy.</p>
+  <ul>
+    <li>
+      <strong>Polar</strong> — merchant of record, payment processing, billing, customer portal.
+      <a href="https://polar.sh/legal/privacy" target="_blank" rel="noopener">polar.sh/legal/privacy</a>
+    </li>
+    <li>
+      <strong>Cloudflare</strong> — Workers (compute), D1 (database), R2/Pages (static hosting), DNS.
+      <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener"
+        >cloudflare.com/privacypolicy</a
+      >
+    </li>
+    <li>
+      <strong>Resend</strong> — transactional email delivery.
+      <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener"
+        >resend.com/legal/privacy-policy</a
+      >
+    </li>
+  </ul>
+
+  <h2>Cookies</h2>
+  <p>
+    We set one cookie: <code>rv_session</code>, an HTTP-only, Secure session cookie used to keep you signed
+    in. It expires thirty (30) days after sign-in and is deleted on logout. We do not use third-party cookies,
+    advertising cookies, or analytics cookies on the marketing site.
+  </p>
+
+  <h2>Data retention</h2>
+  <ul>
+    <li>
+      <strong>Account data</strong> (email, Polar customer ID, tokens, subscription state) is kept for as long
+      as your account is active.
+    </li>
+    <li>
+      <strong>Closed-account data</strong> is deleted within thirty (30) days of cancellation, except for records
+      we are legally required to retain (Polar maintains its own retention separately).
+    </li>
+    <li>
+      <strong>Magic-link tokens</strong> expire fifteen (15) minutes after issuance and are marked used immediately
+      on consumption.
+    </li>
+    <li>
+      <strong>Webhook payload buffer</strong> is purged on a five-minute TTL.
+    </li>
+  </ul>
+
+  <h2>Your rights</h2>
+  <p>Depending on your jurisdiction (notably the EU/EEA, UK, and California), you may have the right to:</p>
+  <ul>
+    <li>Access the personal data we hold about you</li>
+    <li>Correct inaccurate data</li>
+    <li>Delete your account and associated data</li>
+    <li>Export your data in a portable format</li>
+    <li>Object to or restrict certain processing</li>
+    <li>Withdraw consent where processing is based on consent</li>
+  </ul>
+  <p>
+    To exercise these rights, email
+    <a href={`mailto:${site.contact.legal}`}>{site.contact.legal}</a> from the address associated with your account.
+    We respond within thirty (30) days.
+  </p>
+
+  <h2>International transfers</h2>
+  <p>
+    Our processors operate global infrastructure. Your data may be processed in countries other than the one
+    you reside in. We rely on the contractual and technical protections each processor provides, including
+    standard contractual clauses where applicable.
+  </p>
+
+  <h2>Children</h2>
+  <p>
+    Connect is not intended for users under sixteen (16). We do not knowingly collect personal information
+    from children. If you believe a child has created an account, contact us and we will delete it.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    We may update this Privacy Policy by posting an updated version. Material changes will be announced by
+    email to active subscribers.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Privacy questions or requests:
+    <a href={`mailto:${site.contact.legal}`}>{site.contact.legal}</a>. Operator: <strong
+      >{site.operator.legalName}</strong
+    >,
+    <strong>{site.operator.address}</strong>.
+  </p>
+</Legal>

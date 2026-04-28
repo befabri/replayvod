@@ -1,0 +1,53 @@
+---
+const { siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="site-title sl-flex">
+  <span class="word">
+    <span class="rep">Replay</span><span class="vod">VOD</span><span class="dot">.</span>
+  </span>
+  <span class="kicker">Docs</span>
+</a>
+
+<style>
+  @layer starlight.core {
+    .site-title {
+      align-items: baseline;
+      gap: 0.5rem;
+      font-family: 'Outfit Variable', sans-serif;
+      font-size: 1.1875rem;
+      letter-spacing: -0.04em;
+      text-decoration: none;
+      white-space: nowrap;
+      min-width: 0;
+      color: var(--sl-color-text);
+    }
+    .word {
+      display: inline-flex;
+      align-items: baseline;
+    }
+    .rep {
+      font-weight: 600;
+    }
+    .vod {
+      font-weight: 700;
+      color: #8390fa;
+    }
+    .dot {
+      font-weight: 700;
+      color: #8390fa;
+    }
+    .kicker {
+      font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+      font-size: 0.625rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--sl-color-gray-3);
+      font-weight: 500;
+      padding: 0.15rem 0.4rem;
+      border: 1px solid var(--sl-color-gray-5);
+      border-radius: 4px;
+      align-self: center;
+    }
+  }
+</style>

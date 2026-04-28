@@ -1,0 +1,9 @@
+@import '@fontsource-variable/figtree';
+@import '@fontsource-variable/figtree/wght-italic.css';
+@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/jetbrains-mono';
+
+:root {
+  --sl-font: 'Figtree Variable';
+  --sl-font-mono: 'JetBrains Mono Variable';
+}

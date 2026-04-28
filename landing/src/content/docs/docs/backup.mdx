@@ -1,0 +1,64 @@
+---
+title: Backup & restore
+description: What to back up and how to restore a ReplayVOD install.
+---
+
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+
+A ReplayVOD install has three things worth backing up.
+
+<CardGrid>
+  <Card title="server/.env">
+    Secrets used to encrypt sessions and verify webhook HMACs. Tiny, irreplaceable.
+  </Card>
+  <Card title="Database">
+    SQLite file or Postgres DB. Holds schedules, video metadata, segment state, sessions.
+  </Card>
+  <Card title="Media">
+    `VIDEO_DIR` and `THUMBNAIL_DIR`. Usually the largest data set.
+  </Card>
+</CardGrid>
+
+## Database
+
+### SQLite
+
+Stop the recorder before copying the file — SQLite write-ahead-log files don't copy atomically with `cp`.
+
+```bash
+docker compose stop replayvod
+cp data/replayvod.db /backup/replayvod-$(date +%F).db
+docker compose start replayvod
+```
+
+Or use [Litestream](https://litestream.io/) for continuous replication without stopping the recorder.
+
+### Postgres
+
+Use your normal Postgres tooling:
+
+```bash
+pg_dump -h localhost -U postgres replayvod > /backup/replayvod-$(date +%F).sql
+```
+
+## Media
+
+`VIDEO_DIR` and `THUMBNAIL_DIR` are plain files. Any file-level backup tool works ([restic](https://restic.net/), `rsync`, your filesystem snapshot tool, etc.).
+
+Recordings are immutable once finalised, so incremental backups are efficient — only newly-finished VODs change between runs.
+
+If you store media in S3, the bucket itself is your backup; replicate it to a second region or provider if you want belt-and-braces.
+
+## Restore
+
+To restore a full install on a new host:
+
+1. Re-run the [installer](/docs/install/) on the new host to lay down the directory structure.
+2. Copy the saved `server/.env` over the freshly-generated one.
+3. Restore the database (`cp` the SQLite file, or `psql < dump.sql`).
+4. Restore `VIDEO_DIR` and `THUMBNAIL_DIR`.
+5. Start the stack — migrations will no-op against an already-current schema.
+
+<Aside type="caution" title="Don't lose server/.env">
+  Sessions can be recovered by signing in again, but `HMAC_SECRET` cannot. EventSub subscriptions created with the old secret will start failing verification — you'll need to delete and re-create them with a fresh secret. Restart the recorder after restoring the file; the boot reconcile recreates whatever is missing.
+</Aside>
