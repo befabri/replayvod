@@ -12,6 +12,12 @@ import (
 // errors to this sentinel so services can branch on it portably.
 var ErrNotFound = errors.New("repository: not found")
 
+// ErrNoMetadataObserved is returned by RecordVideoMetadataChange when
+// neither a title nor a category was provided. Callers can branch on
+// it (vs. a real DB error) when an upstream poll/webhook delivers an
+// empty payload.
+var ErrNoMetadataObserved = errors.New("repository: no metadata observed")
+
 // Repository is the common interface for database access.
 // Both PG and SQLite adapters implement this.
 type Repository interface {
@@ -134,8 +140,8 @@ type Repository interface {
 	CreateVideo(ctx context.Context, v *VideoInput) (*Video, error)
 	UpdateVideoStatus(ctx context.Context, id int64, status string) error
 	UpdateVideoSelectedVariant(ctx context.Context, id int64, quality string, fps *float64) error
-	MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string) error
-	MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string) error
+	MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string, truncated bool) error
+	MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool) error
 	SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error
 	// ListVideos returns a page of videos filtered by opts.Status and
 	// sorted per opts.Sort/Order. Empty Sort/Order default to
@@ -150,6 +156,10 @@ type Repository interface {
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	VideoStatsByStatus(ctx context.Context) ([]VideoStatsByStatus, error)
 	VideoStatsTotals(ctx context.Context) (*VideoStatsTotals, error)
+	// VideoStatsTotalsByBroadcaster returns the same totals shape as
+	// VideoStatsTotals but scoped to one broadcaster. Used by the
+	// watch page to surface a "N recordings · X GB" line per channel.
+	VideoStatsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (*VideoStatsTotals, error)
 
 	// Jobs — durable record of a download execution. Broadcaster-level
 	// idempotency + resume-on-restart live here. See models.go Job for
@@ -175,6 +185,13 @@ type Repository interface {
 	GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*VideoPart, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
+	// HasFinalizedVideoParts reports whether any part for the video
+	// has been remuxed to storage (size_bytes > 0). The downloader
+	// uses this on the failure path to decide between completion
+	// kinds: a failed run with at least one finalized part is
+	// "partial" (some watchable output exists), with none it's just a
+	// failed run with no recoverable artifact.
+	HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error)
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 
 	// Titles
@@ -195,6 +212,19 @@ type Repository interface {
 	ListCategoriesForVideo(ctx context.Context, videoID int64) ([]CategorySpan, error)
 	CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
 	ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
+
+	// RecordVideoMetadataChange runs the title + category + event
+	// writes for one channel.update observation in a single
+	// transaction so the dashboard timeline never sees a partial
+	// event. Empty Title and CategoryID return ErrNoMetadataObserved
+	// without opening a tx. The returned result lets the caller
+	// drive post-tx side effects (currently the category-art enrich)
+	// without re-querying.
+	RecordVideoMetadataChange(ctx context.Context, input VideoMetadataChangeInput) (*VideoMetadataChangeResult, error)
+	// ListVideoMetadataChanges returns the merged chronological
+	// timeline for one recording, with title and category rows
+	// hydrated. Used by the video.timeline tRPC endpoint.
+	ListVideoMetadataChanges(ctx context.Context, videoID int64) ([]VideoMetadataChange, error)
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 	AddVideoRequest(ctx context.Context, videoID int64, userID string) error
 	ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]Video, error)

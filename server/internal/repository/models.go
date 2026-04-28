@@ -224,6 +224,15 @@ type Video struct {
 	// on insert; final value is set at terminal transitions in the
 	// downloader.
 	CompletionKind string
+	// Truncated is the orthogonal stop-boundary axis: true when the
+	// recording stopped before the broadcast did (operator cancel,
+	// failed mid-run, or finalized without ever observing
+	// EXT-X-ENDLIST). False for clean DONE recordings that captured
+	// up to the playlist's natural end. Independent of
+	// CompletionKind: a recording can be both partial AND truncated
+	// (CDN rolled past us, then we stopped while live), or complete
+	// AND truncated (file is whole but the broadcast went on).
+	Truncated bool
 }
 
 // VideoCompletionKind enumerates the values of videos.completion_kind.
@@ -393,11 +402,60 @@ type CategorySpan struct {
 	DurationSeconds float64
 }
 
+// VideoMetadataChange is one observed channel.update event tied to a
+// recording: at OccurredAt, the stream had Title and/or Category set
+// to these values. Each event captures every dimension observed in
+// that update — usually both, sometimes only one.
+//
+// Title and Category are nil when that dimension wasn't part of the
+// triggering event (not "the stream had no title", just "this event
+// didn't carry one"). The CHECK constraint on the table forbids
+// rows where both are nil.
+type VideoMetadataChange struct {
+	ID         int64
+	VideoID    int64
+	OccurredAt time.Time
+	Title      *Title
+	Category   *Category
+}
+
+// VideoMetadataChangeInput carries one channel.update observation
+// (or LinkInitialVideoMetadata download-trigger snapshot). Title and
+// CategoryID empty mean "not observed in this event"; the adapter
+// short-circuits and returns ErrNoMetadataObserved without writing.
+// CategoryName is the optional companion to CategoryID — empty means
+// "don't refresh categories.name" so an existing good name isn't
+// clobbered by a partial Helix payload.
+type VideoMetadataChangeInput struct {
+	VideoID      int64
+	OccurredAt   time.Time
+	Title        string
+	CategoryID   string
+	CategoryName string
+}
+
+// VideoMetadataChangeResult exposes the upserted title row and the
+// category row (when written) so the caller can drive post-tx side
+// effects — currently just the box-art enrich on first observation
+// of a category — without re-querying.
+type VideoMetadataChangeResult struct {
+	Title    *Title
+	Category *Category
+}
+
 // VideoStatsTotals is the aggregate row for video.statistics.
+// Total/TotalSize/TotalDuration are DONE-only rollups (the user-
+// visible "N recordings · X GB" subtitle). ThisWeek and Incomplete
+// run across all non-deleted rows and feed the videos page tab
+// counters. Incomplete = completion_kind='partial' OR truncated,
+// matching the Partial tab's broader server-side filter.
 type VideoStatsTotals struct {
 	Total         int64
 	TotalSize     int64
 	TotalDuration float64
+	ThisWeek      int64
+	Incomplete    int64
+	Channels      int64
 }
 
 // VideoStatsByStatus is one bucket of the status histogram.
@@ -421,8 +479,18 @@ type ListVideosOpts struct {
 	DurationMaxSeconds *float64
 	SizeMinBytes       *int64
 	SizeMaxBytes       *int64
-	Limit              int
-	Offset             int
+	// Window is a coarse recency filter resolved to a server-side
+	// `start_download_at >= now() - <interval>` predicate. "" means
+	// "no recency filter". The dashboard tab system uses "this_week".
+	Window string // "" | "this_week"
+	// IncompleteOnly narrows the result to "anything that didn't
+	// capture the full broadcast" — completion_kind='partial' OR
+	// truncated. Powers the dashboard's Partial tab, which buckets
+	// gap-rooted partial files alongside cancelled and truncated
+	// recordings under one user-facing concept.
+	IncompleteOnly bool
+	Limit          int
+	Offset         int
 }
 
 // VideoPageCursor is the stable keyset cursor for channel/category video lists.
