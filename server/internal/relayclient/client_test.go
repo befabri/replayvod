@@ -1,10 +1,13 @@
 package relayclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -458,4 +461,155 @@ func readDispatchResult(t *testing.T, resultCh <-chan []byte) dispatchResult {
 
 func websocketURL(raw string) string {
 	return "ws" + strings.TrimPrefix(raw, "http")
+}
+
+func TestHandleFrameAccumulatesStaleFramesIntoSummary(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	c, err := New(Config{
+		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:            srv.URL,
+		AllowUnsafeCallbackURL: true,
+		Logger:                 slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	for i := range 2 {
+		f := frame{
+			ID:     fmt.Sprintf("frame-%d", i),
+			Cursor: int64(i + 1),
+			TS:     1234, // 1970 — guaranteed stale
+			Headers: map[string]string{
+				"Twitch-Eventsub-Message-Type":      "notification",
+				"Twitch-Eventsub-Subscription-Type": "stream.online",
+			},
+			Body: base64.StdEncoding.EncodeToString([]byte("{}")),
+		}
+		data, err := json.Marshal(f)
+		if err != nil {
+			t.Fatalf("marshal frame: %v", err)
+		}
+		if err := c.handleFrame(context.Background(), nil, data); err != nil {
+			t.Fatalf("handleFrame: %v", err)
+		}
+	}
+
+	if strings.Contains(buf.String(), "webhook relayed") {
+		t.Fatalf("backlog frames should not emit per-frame logs: %s", buf.String())
+	}
+
+	c.finalizeFlush()
+
+	out := buf.String()
+	if !strings.Contains(out, "relay backlog flushed") {
+		t.Fatalf("expected backlog summary in output: %s", out)
+	}
+	if !strings.Contains(out, `"count":2`) {
+		t.Fatalf("expected count=2 in summary: %s", out)
+	}
+	if !strings.Contains(out, `"stream.online":2`) {
+		t.Fatalf("expected by_sub_type stream.online:2 in summary: %s", out)
+	}
+	if !strings.Contains(out, `"notification":2`) {
+		t.Fatalf("expected by_msg_type notification:2 in summary: %s", out)
+	}
+}
+
+func TestHandleFrameVerificationChallengeBypassesFlush(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("challenge"))
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	c, err := New(Config{
+		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:            srv.URL,
+		AllowUnsafeCallbackURL: true,
+		Logger:                 slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	f := frame{
+		ID:               "verify-1",
+		TS:               1234, // stale: would normally be classified as backlog
+		RequiresResponse: true,
+		Headers: map[string]string{
+			"Twitch-Eventsub-Message-Type": "webhook_callback_verification",
+		},
+		Body: base64.StdEncoding.EncodeToString([]byte("{}")),
+	}
+	data, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal frame: %v", err)
+	}
+	if err := c.handleFrame(context.Background(), nil, data); err != nil {
+		t.Fatalf("handleFrame: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "webhook relayed") {
+		t.Fatalf("verification frame should log per-frame even when stale: %s", out)
+	}
+	if strings.Contains(out, "relay backlog flushed") {
+		t.Fatalf("verification frame should not enter the flush summary: %s", out)
+	}
+}
+
+func TestIsBacklogUsesReceiveTime(t *testing.T) {
+	now := time.Now()
+	fresh := now.Add(-1 * time.Second).UnixMilli()
+
+	if isBacklog(fresh, now) {
+		t.Fatal("frame received 1s after relay-side TS should classify as live, not backlog")
+	}
+	if !isBacklog(fresh, time.UnixMilli(fresh).Add(flushStaleness+time.Second)) {
+		t.Fatal("frame received well past flushStaleness should classify as backlog")
+	}
+	if isBacklog(0, now) {
+		t.Fatal("TS=0 must never classify as backlog regardless of receive time")
+	}
+}
+
+func TestDispatchSetsRelaySentinelHeader(t *testing.T) {
+	var gotSentinel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSentinel = r.Header.Get(RelayDispatchHeader)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{
+		SubscribeURL:           "wss://relay.example/u/token-token-token/subscribe",
+		CallbackURL:            srv.URL,
+		AllowUnsafeCallbackURL: true,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	f := frame{
+		ID:   "frame-1",
+		TS:   time.Now().UnixMilli(),
+		Body: base64.StdEncoding.EncodeToString([]byte("{}")),
+	}
+	data, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal frame: %v", err)
+	}
+	if err := c.handleFrame(context.Background(), nil, data); err != nil {
+		t.Fatalf("handleFrame: %v", err)
+	}
+	if gotSentinel == "" {
+		t.Fatalf("expected %s header to be set on dispatch", RelayDispatchHeader)
+	}
 }

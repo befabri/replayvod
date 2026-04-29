@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,7 +30,15 @@ import (
 	"github.com/coder/websocket"
 )
 
-const responseBodyLimit = 64 << 10
+const (
+	responseBodyLimit = 64 << 10
+	// RelayDispatchHeader is set on every loopback POST the relay client
+	// makes to /api/v1/webhook/callback. The request-logger middleware
+	// suppresses its own access log only when this header is present, so
+	// non-relay callers (manual curl, integration tests, transitional
+	// direct deliveries) still get a normal access log line.
+	RelayDispatchHeader = "X-Replayvod-Relay"
+)
 
 // Config describes a relay client.
 //
@@ -60,7 +69,32 @@ type Client struct {
 	lastCursor atomic.Int64
 	ready      chan struct{}
 	readyOnce  sync.Once
+	// flushMu guards flush. It is contended only between the session read
+	// loop (which accumulates and finalizes) and the idle watcher (which
+	// finalizes when no frame has arrived for flushIdleTimeout).
+	flushMu sync.Mutex
+	flush   *flushState
 }
+
+// flushState aggregates a backlog replay so we emit one summary instead of
+// one log line per frame. A frame is treated as backlog if its relay-side
+// timestamp is more than flushStaleness behind wall-clock at receive time.
+type flushState struct {
+	count          int
+	started        time.Time
+	firstTS        int64
+	lastTS         int64
+	lastSeen       time.Time
+	lagAtLastFrame time.Duration
+	bySubType      map[string]int
+	byMsgType      map[string]int
+}
+
+const (
+	flushStaleness   = 5 * time.Second
+	flushIdleTimeout = 2 * time.Second
+	flushIdleTick    = 500 * time.Millisecond
+)
 
 // New validates the config and returns a Client.
 func New(cfg Config) (*Client, error) {
@@ -172,7 +206,12 @@ func (c *Client) session(ctx context.Context) error {
 		return fmt.Errorf("dial: %w", err)
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "shutdown")
+	defer c.finalizeFlush()
 	conn.SetReadLimit(1 << 20) // 1 MiB; EventSub payloads are kilobytes
+
+	watchCtx, cancelWatch := context.WithCancel(ctx)
+	defer cancelWatch()
+	go c.watchFlushIdle(watchCtx)
 
 	c.readyOnce.Do(func() { close(c.ready) })
 	c.log.Info("relay connected", "subscribe_host", urlHost(c.cfg.SubscribeURL))
@@ -214,47 +253,176 @@ type dispatchResult struct {
 }
 
 func (c *Client) handleFrame(ctx context.Context, conn *websocket.Conn, data []byte) error {
-	var f frame
-	if err := json.Unmarshal(data, &f); err != nil {
-		return fmt.Errorf("decode frame: %w", err)
-	}
-	body, err := base64.StdEncoding.DecodeString(f.Body)
+	f, body, err := decodeFrame(data)
 	if err != nil {
-		return fmt.Errorf("decode body: %w", err)
+		return err
 	}
 
+	// Classify backlog vs live against receive time, not post-dispatch time:
+	// a slow local callback could otherwise misclassify a fresh frame as
+	// backlog and silently swallow it into a flush summary.
+	recvAt := time.Now()
 	resp, dispatchErr := c.dispatch(ctx, &f, body)
+	duration := time.Since(recvAt)
+
 	if conn != nil {
 		if err := c.sendDispatchResult(ctx, conn, f.ID, resp, dispatchErr); err != nil {
 			return err
 		}
 	}
+
 	if dispatchErr != nil {
+		c.logFrame(&f, resp.status, duration, dispatchErr)
 		return dispatchErr
 	}
-
 	if resp.status >= 400 {
-		return fmt.Errorf("local callback returned %d", resp.status)
+		statusErr := fmt.Errorf("local callback returned %d", resp.status)
+		c.logFrame(&f, resp.status, duration, statusErr)
+		return statusErr
 	}
 
 	// Track the relay's monotonic cursor only for frames the local handler
 	// accepted. A failed local callback should replay after reconnect; the
 	// webhook handler dedupes on Twitch-Eventsub-Message-Id (see
 	// internal/server/api/webhook/handler.go) so a replay is a no-op.
-	if f.Cursor > 0 {
-		for {
-			prev := c.lastCursor.Load()
-			if f.Cursor <= prev {
-				break
-			}
-			if c.lastCursor.CompareAndSwap(prev, f.Cursor) {
-				break
-			}
+	c.advanceCursor(f.Cursor)
+
+	// Verification challenges are synchronous handshakes; never absorb them
+	// into a flush summary, always log per-frame.
+	if !f.RequiresResponse && isBacklog(f.TS, recvAt) {
+		c.accumulateFlush(&f, recvAt)
+		return nil
+	}
+	c.finalizeFlush()
+	c.logFrame(&f, resp.status, duration, nil)
+	return nil
+}
+
+func decodeFrame(data []byte) (frame, []byte, error) {
+	var f frame
+	if err := json.Unmarshal(data, &f); err != nil {
+		return f, nil, fmt.Errorf("decode frame: %w", err)
+	}
+	body, err := base64.StdEncoding.DecodeString(f.Body)
+	if err != nil {
+		return f, nil, fmt.Errorf("decode body: %w", err)
+	}
+	return f, body, nil
+}
+
+func (c *Client) advanceCursor(cursor int64) {
+	if cursor <= 0 {
+		return
+	}
+	for {
+		prev := c.lastCursor.Load()
+		if cursor <= prev {
+			return
+		}
+		if c.lastCursor.CompareAndSwap(prev, cursor) {
+			return
 		}
 	}
-	c.log.Debug("frame dispatched",
-		"id", f.ID, "cursor", f.Cursor, "ts", f.TS, "status", resp.status)
-	return nil
+}
+
+func isBacklog(ts int64, recvAt time.Time) bool {
+	return ts > 0 && recvAt.Sub(time.UnixMilli(ts)) > flushStaleness
+}
+
+func (c *Client) logFrame(f *frame, status int, duration time.Duration, err error) {
+	args := []any{
+		"id", f.ID,
+		"cursor", f.Cursor,
+		"status", status,
+		"duration", duration.String(),
+		"msg_type", headerLookup(f.Headers, "Twitch-Eventsub-Message-Type"),
+		"sub_type", headerLookup(f.Headers, "Twitch-Eventsub-Subscription-Type"),
+	}
+	if err != nil {
+		c.log.Warn("webhook relay failed", append(slices.Clone(args), "error", err.Error())...)
+		return
+	}
+	c.log.Info("webhook relayed", args...)
+}
+
+func (c *Client) accumulateFlush(f *frame, recvAt time.Time) {
+	c.flushMu.Lock()
+	defer c.flushMu.Unlock()
+	if c.flush == nil {
+		c.flush = &flushState{
+			started:   recvAt,
+			firstTS:   f.TS,
+			bySubType: map[string]int{},
+			byMsgType: map[string]int{},
+		}
+	}
+	c.flush.count++
+	c.flush.lastTS = f.TS
+	c.flush.lastSeen = recvAt
+	c.flush.lagAtLastFrame = recvAt.Sub(time.UnixMilli(f.TS))
+	if sub := headerLookup(f.Headers, "Twitch-Eventsub-Subscription-Type"); sub != "" {
+		c.flush.bySubType[sub]++
+	}
+	if msg := headerLookup(f.Headers, "Twitch-Eventsub-Message-Type"); msg != "" {
+		c.flush.byMsgType[msg]++
+	}
+}
+
+func (c *Client) finalizeFlush() {
+	c.flushMu.Lock()
+	defer c.flushMu.Unlock()
+	c.finalizeFlushLocked()
+}
+
+func (c *Client) finalizeFlushLocked() {
+	if c.flush == nil {
+		return
+	}
+	span := time.Duration(c.flush.lastTS-c.flush.firstTS) * time.Millisecond
+	c.log.Info("relay backlog flushed",
+		"count", c.flush.count,
+		"duration", time.Since(c.flush.started).String(),
+		"span", span.String(),
+		"lag_last_frame", c.flush.lagAtLastFrame.String(),
+		"idle_for", time.Since(c.flush.lastSeen).String(),
+		"by_sub_type", c.flush.bySubType,
+		"by_msg_type", c.flush.byMsgType,
+	)
+	c.flush = nil
+}
+
+// watchFlushIdle finalizes the in-progress flush summary if no backlog frame
+// has been accumulated for flushIdleTimeout. It exits when ctx is cancelled
+// (i.e., on session shutdown), at which point the deferred finalizeFlush in
+// session() emits any remaining summary.
+func (c *Client) watchFlushIdle(ctx context.Context) {
+	t := time.NewTicker(flushIdleTick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			c.flushMu.Lock()
+			if c.flush != nil && time.Since(c.flush.lastSeen) >= flushIdleTimeout {
+				c.finalizeFlushLocked()
+			}
+			c.flushMu.Unlock()
+		}
+	}
+}
+
+func headerLookup(h map[string]string, name string) string {
+	if v, ok := h[name]; ok {
+		return v
+	}
+	lower := strings.ToLower(name)
+	for k, v := range h {
+		if strings.ToLower(k) == lower {
+			return v
+		}
+	}
+	return ""
 }
 
 func (c *Client) dispatch(ctx context.Context, f *frame, body []byte) (localResponse, error) {
@@ -270,6 +438,7 @@ func (c *Client) dispatch(ctx context.Context, f *frame, body []byte) (localResp
 		}
 		req.Header.Set(k, v)
 	}
+	req.Header.Set(RelayDispatchHeader, "1")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
