@@ -10,20 +10,14 @@ const cards = [
   },
   {
     label: 'Cancel anytime',
-    body: 'Subscription via Polar. Your self-hosted recorder keeps working — you just lose the public URL.',
+    body: 'Cancel at any time. Your self-hosted recorder keeps working. You just lose the public endpoint URL.',
   },
 ];
 ---
 
 <section data-reveal class="border-b border-border-soft py-32">
   <div class="mx-auto max-w-[1320px] px-8">
-    <div class="mb-10 flex items-center gap-3">
-      <span
-        class="rounded-full border border-primary/25 bg-primary/10 px-2.5 py-0.5
-                   font-mono text-[12px] uppercase tracking-[0.08em] text-primary"
-      >
-        Optional relay
-      </span>
+    <div class="mb-10">
       <span class="font-mono text-[13px] uppercase tracking-[0.08em] text-fg-muted"> replayvod connect </span>
     </div>
 
@@ -32,8 +26,9 @@ const cards = [
     </h2>
 
     <p class="mb-12 max-w-[640px] text-[18px] leading-[1.55] text-fg">
-      Twitch's EventSub needs a public HTTPS endpoint. Most home connections don't have one. Connect gives
-      your recorder one through an outbound WebSocket — encrypted in transit, and we
+      Twitch's EventSub needs a public HTTPS endpoint. Getting one at home means port forwarding, a static
+      IP or dynamic DNS, and certificate management. Connect handles all of that through an outbound
+      connection from your machine, so there's nothing to configure, and we
       <strong class="text-fg">never see your video files or your Twitch credentials</strong>.
     </p>
 

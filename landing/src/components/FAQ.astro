@@ -11,7 +11,7 @@ const faqs = [
   },
   {
     q: 'Do I need a Twitch developer account?',
-    a: 'Yes — register your own app at dev.twitch.tv. Two-minute setup. Applies whether you use Connect or self-host alone.',
+    a: 'Yes. Register your own app at dev.twitch.tv. Takes about two minutes, whether you use Connect or self-host alone.',
   },
   {
     q: 'Where are my videos stored?',
@@ -19,27 +19,20 @@ const faqs = [
   },
   {
     q: 'What happens to my recordings if I cancel Connect?',
-    a: 'Nothing breaks. Your recorder and recordings keep working — you just lose the public webhook URL.',
+    a: 'Nothing breaks. Your recorder and recordings keep working. You just lose the public webhook URL.',
   },
-  {
-    q: 'Is Connect open source too?',
-    a: 'Relay daemon is MIT-licensed; recorder is GPLv3. Billing/account glue is closed because it touches Polar secrets. You can self-host the relay; we just charge for running it.',
-  },
+
   {
     q: 'What if Twitch changes its API?',
     a: "We update; you pull the release. If Twitch ever forces Connect to shut down, subscribers get notified and a pro-rated refund.",
   },
   {
     q: 'How much storage do I need?',
-    a: '~3.5 GB per hour of 1080p60. Dashboard shows live sizes — monitor free disk yourself.',
+    a: '~3.5 GB per hour of 1080p60. Dashboard shows live sizes. Monitor free disk yourself.',
   },
   {
     q: 'Synology, TrueNAS, Unraid, Raspberry Pi?',
     a: 'Docker Compose is the supported path. The arm64 build runs on a Pi 5 with external storage; concurrency depends on network and disk.',
-  },
-  {
-    q: 'Is there a CLI?',
-    a: 'Not yet. The dashboard is the supported operator interface.',
   },
 ];
 ---
