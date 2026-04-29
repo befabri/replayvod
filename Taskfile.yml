@@ -110,6 +110,47 @@ tasks:
     cmds:
       - npm run test
 
+  # ---- hosted Connect stack (landing + cloud + relay) ----
+  #
+  # Runs the marketing site, the private auth/billing worker, and the
+  # webhook relay together so the Connect dashboard at /account works
+  # end to end against local services. See cloud/.dev.vars and
+  # landing/.env for configuration.
+  #   landing  → http://localhost:4322
+  #   cloud    → http://localhost:8787
+  #   relay    → http://localhost:8788
+
+  dev:hosted:
+    desc: Run landing + cloud + relay concurrently (Ctrl-C stops all)
+    deps: [landing:dev, cloud:dev, relay:dev]
+
+  landing:dev:
+    dir: landing
+    desc: Astro dev server on :4322
+    prefix: landing
+    cmds:
+      - npm run dev -- --port 4322
+
+  cloud:dev:
+    dir: cloud
+    desc: Cloud worker on :8787 (wrangler dev)
+    prefix: cloud
+    cmds:
+      - npm run dev
+
+  relay:dev:
+    dir: relay
+    desc: Relay worker on :8788 (wrangler dev)
+    prefix: relay
+    cmds:
+      - npm run dev
+
+  verify:relay:
+    dir: relay
+    desc: Run end-to-end synthetic-Twitch checks against the deployed relay (RELAY_TOKEN required)
+    cmds:
+      - npm run verify:prod
+
   # ---- docker (production deploy) ----
   #
   # Compose interpolates ${VAR} from the file passed via --env-file. We

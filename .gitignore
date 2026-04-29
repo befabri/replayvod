@@ -61,5 +61,10 @@ nohup.out
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+landing/test-results/
+landing/playwright-report/
+
+# Server local backups
+server/.env.backup-*
 
 cloud/
