@@ -23,19 +23,21 @@ const connectFeatures = [
       </h2>
     </div>
 
-    <div class="overflow-hidden rounded-xl border border-border grid grid-cols-1 lg:grid-cols-2">
+    <div class="overflow-hidden rounded-xl border border-[#2a2740] grid grid-cols-1 lg:grid-cols-2 shadow-[0_18px_44px_rgba(0,0,0,0.35)]">
       <!-- Self-host -->
-      <div class="flex flex-col border-b border-border bg-surface p-9 lg:border-b-0 lg:border-r">
-        <div class="mb-2 font-heading text-[17px] font-medium">Self-host</div>
-        <div class="mb-1 font-heading text-[44px] font-normal leading-none tracking-[-0.02em]">
-          Free<span class="ml-1.5 text-[16px] font-normal text-fg-muted">forever</span>
+      <div class="flex flex-col border-b border-primary bg-[#1c1a2e] p-9 lg:border-b-0 lg:border-r">
+        <div class="mb-5 flex items-baseline justify-between gap-4">
+          <h3 class="text-[26px] font-medium tracking-[-0.01em]">Self-host</h3>
+          <div class="font-heading text-[26px] leading-none tracking-[-0.01em] tabular-nums">
+            $0<span class="ml-1 font-mono text-[12px] uppercase tracking-[0.1em] text-primary">/forever</span>
+          </div>
         </div>
-        <div class="mb-6 text-[16.5px] text-fg">Your hardware. GPLv3.</div>
+        <p class="mb-6 font-mono text-[14px] leading-[1.55] text-fg-muted">Your hardware. GPLv3.</p>
         <ul class="mb-6 flex flex-1 flex-col gap-2.5 list-none p-0 m-0">
           {
             freeFeatures.map((f) => (
-              <li class="flex gap-2.5 text-[16.5px] text-fg">
-                <span class="flex-none text-live">✓</span>
+              <li class="flex gap-2.5 font-mono text-[14px] leading-[1.55] text-fg">
+                <span class="flex-none text-primary">✓</span>
                 {f}
               </li>
             ))
@@ -45,63 +47,64 @@ const connectFeatures = [
       </div>
 
       <!-- Connect -->
-      <div data-pricing-connect class="relative flex flex-col bg-deep-2 p-9">
+      <div data-pricing-connect class="relative flex flex-col bg-[#1f1d33] p-9">
 
-        <div class="mb-3 font-heading text-[17px] font-medium">Connect</div>
-
-        <!-- Plan toggle -->
-        <div
-          role="tablist"
-          aria-label="Connect billing period"
-          class="mb-4 inline-flex w-fit gap-5 font-mono text-[12px] uppercase tracking-[0.06em]"
-        >
-          <button
-            type="button"
-            role="tab"
-            data-plan-tab="monthly"
-            aria-selected="true"
-            class="border-b border-transparent pb-1 text-fg-muted transition-colors aria-selected:border-primary aria-selected:text-primary"
-          >
-            Monthly
-          </button>
-          <button
-            type="button"
-            role="tab"
-            data-plan-tab="yearly"
-            aria-selected="false"
-            class="flex items-center gap-1.5 border-b border-transparent pb-1 text-fg-muted transition-colors aria-selected:border-primary aria-selected:text-primary"
-          >
-            Yearly
-            <span class="rounded-sm bg-live/15 px-1 py-px font-mono text-[9.5px] tracking-[0.04em] text-live">
-              save 17%
-            </span>
-          </button>
+        <div class="mb-5 flex items-start justify-between gap-4">
+          <h3 class="text-[26px] font-medium leading-[1.1] tracking-[-0.01em]">Connect</h3>
+          <div class="flex flex-col items-end gap-2">
+            <!-- Plan toggle sits above the price on the right -->
+            <div
+              role="tablist"
+              aria-label="Connect billing period"
+              class="inline-flex gap-3 font-mono text-[10.5px] uppercase tracking-[0.08em] text-fg-dim"
+            >
+              <button
+                type="button"
+                role="tab"
+                data-plan-tab="monthly"
+                aria-selected="true"
+                class="transition-colors hover:text-fg-muted aria-selected:text-fg"
+              >
+                Monthly
+              </button>
+              <span aria-hidden="true" class="text-fg-dim/60">·</span>
+              <button
+                type="button"
+                role="tab"
+                data-plan-tab="yearly"
+                aria-selected="false"
+                class="transition-colors hover:text-fg-muted aria-selected:text-fg"
+              >
+                Yearly
+              </button>
+            </div>
+            <div class="font-heading text-[26px] leading-none tracking-[-0.01em] tabular-nums">
+              <span data-plan-show="monthly">$5</span><span data-plan-show="yearly">$50</span><span
+                class="ml-1 font-mono text-[12px] uppercase tracking-[0.1em] text-primary"
+              >
+                <span data-plan-show="monthly">/month</span>
+                <span data-plan-show="yearly">/year</span>
+              </span>
+            </div>
+          </div>
         </div>
 
-        <div class="mb-1 font-heading text-[44px] font-normal leading-none tracking-[-0.02em]">
-          <span data-plan-show="monthly">$5</span><span data-plan-show="yearly">$50</span><span
-            class="ml-1.5 text-[16px] font-normal text-fg-muted"
-          >
-            <span data-plan-show="monthly">/ month</span>
-            <span data-plan-show="yearly">/ year</span>
-          </span>
-        </div>
-        <div class="mb-6 text-[16.5px] text-fg">
+        <p class="mb-6 font-mono text-[14px] leading-[1.55] text-fg-muted">
           <span data-plan-show="monthly">Self-host the recorder. We handle the annoying parts.</span>
           <span data-plan-show="yearly">$4.17 / month, billed once a year.</span>
-        </div>
+        </p>
 
         <ul class="mb-6 flex flex-1 flex-col gap-2.5 list-none p-0 m-0">
           {
             connectFeatures.map((f) => (
-              <li class="flex gap-2.5 text-[16.5px] text-fg">
-                <span class="flex-none text-live">✓</span>
+              <li class="flex gap-2.5 font-mono text-[14px] leading-[1.55] text-fg">
+                <span class="flex-none text-primary">✓</span>
                 {f}
               </li>
             ))
           }
         </ul>
-        <p class="mb-4 text-[15.5px] italic leading-relaxed text-fg-muted">
+        <p class="mb-4 font-mono text-[13px] italic leading-[1.55] text-fg-muted">
           Webhook relay only. Videos stay on your hardware.
         </p>
         {

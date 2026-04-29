@@ -11,11 +11,11 @@
       aria-label="Architecture diagram. Twitch sends a stream.online webhook to your recorder, which fetches the live stream and writes a source-quality MP4 to your disk."
       class="rounded-xl border border-border bg-surface px-6 py-12 shadow-[0_24px_56px_rgba(0,0,0,0.35),0_0_0_1px_rgba(131,144,250,0.04)] md:px-12 md:py-14"
     >
-      <div class="grid grid-cols-1 items-center gap-y-12 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:gap-x-6">
+      <div class="grid grid-cols-1 items-start gap-y-12 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:gap-x-6">
         <!-- Node 1: Twitch EventSub -->
         <div class="flex flex-col items-center text-center">
           <div
-            class="relative mb-5 grid h-14 w-14 place-items-center rounded-xl border border-border bg-deep text-primary shadow-[inset_0_0_0_1px_rgba(131,144,250,0.08)]"
+            class="mb-5 grid h-14 w-14 place-items-center rounded-xl border border-primary/40 bg-primary/[0.07] text-primary"
           >
             <svg
               aria-hidden="true"
@@ -38,8 +38,9 @@
           <div class="mt-2 text-[16.5px] text-fg">stream.online webhook</div>
         </div>
 
-        <!-- Arrow 1 -->
-        <div class="hidden flex-col items-center md:flex" aria-hidden="true">
+        <!-- Arrow 1. self-center keeps the arrow column centered in the row (parent box) while
+             the node columns use items-start so all three icons share the same top edge. -->
+        <div class="hidden flex-col items-center self-center md:flex" aria-hidden="true">
           <span class="mb-2 font-mono text-[11px] uppercase tracking-[0.1em] text-fg-muted">webhook</span>
           <div class="flex items-center gap-1">
             <div class="arch-track">
@@ -78,8 +79,9 @@
           <div class="mt-2 text-[16.5px] text-fg">filter, fetch, finalize</div>
         </div>
 
-        <!-- Arrow 2 -->
-        <div class="hidden flex-col items-center md:flex" aria-hidden="true">
+        <!-- Arrow 2. self-center keeps the arrow column centered in the row (parent box) while
+             the node columns use items-start so all three icons share the same top edge. -->
+        <div class="hidden flex-col items-center self-center md:flex" aria-hidden="true">
           <span class="mb-2 font-mono text-[11px] uppercase tracking-[0.1em] text-fg-muted">video stream</span>
           <div class="flex items-center gap-1">
             <div class="arch-track">
@@ -93,7 +95,7 @@
         <!-- Node 3: Disk -->
         <div class="flex flex-col items-center text-center">
           <div
-            class="mb-5 grid h-14 w-14 place-items-center rounded-xl border border-border bg-deep text-primary shadow-[inset_0_0_0_1px_rgba(131,144,250,0.08)]"
+            class="mb-5 grid h-14 w-14 place-items-center rounded-xl border border-primary/40 bg-primary/[0.07] text-primary"
           >
             <svg
               aria-hidden="true"
@@ -118,9 +120,9 @@
       </div>
     </div>
 
-    <p class="mx-auto mt-8 max-w-[760px] text-[16.5px] leading-[1.6] text-fg-muted">
+    <p class="mt-8 max-w-[680px] text-[16.5px] leading-[1.6] text-fg-muted">
       Twitch tells your recorder when a stream goes live. The recorder fetches the source video and writes a
-      finalized MP4 to your disk. Nothing else sits in the path.
+      finalized MP4 to your disk. <span class="text-white">Nothing else sits in the path.</span>
     </p>
   </div>
 </section>

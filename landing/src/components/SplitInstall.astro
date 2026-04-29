@@ -1,20 +1,21 @@
 ---
+type Part = { t: string; w?: true };
 type Line =
   | { kind: 'comment'; text: string }
-  | { kind: 'cmd'; prompt: '$' | 'PS>'; text: string }
+  | { kind: 'cmd'; prompt: '$' | 'PS>'; parts: Part[] }
   | { kind: 'blank' }
   | { kind: 'status'; tag: string; value: string };
 
 const lines: Line[] = [
   { kind: 'comment', text: '# 1. Install' },
   { kind: 'comment', text: '#    macOS / Linux' },
-  { kind: 'cmd', prompt: '$', text: 'curl -fsSL https://replayvod.com/install.sh | sh' },
+  { kind: 'cmd', prompt: '$', parts: [{ t: 'curl -fsSL ', w: true }, { t: 'https://replayvod.com/install.sh' }, { t: ' | sh', w: true }] },
   { kind: 'blank' },
   { kind: 'comment', text: '#    Windows (PowerShell + Docker Desktop)' },
-  { kind: 'cmd', prompt: 'PS>', text: 'irm https://replayvod.com/install.ps1 | iex' },
+  { kind: 'cmd', prompt: 'PS>', parts: [{ t: 'irm ', w: true }, { t: 'https://replayvod.com/install.ps1' }, { t: ' | iex', w: true }] },
   { kind: 'blank' },
   { kind: 'comment', text: '# 2. Open the dashboard' },
-  { kind: 'cmd', prompt: '$', text: 'open http://localhost:8080' },
+  { kind: 'cmd', prompt: '$', parts: [{ t: 'open ', w: true }, { t: 'http://localhost:8080' }] },
   { kind: 'blank' },
   { kind: 'comment', text: '# 3. Done' },
   { kind: 'status', tag: 'replayvod', value: 'listening on :8080' },
@@ -24,26 +25,24 @@ const lines: Line[] = [
 
 <section id="install" data-reveal class="border-b border-border-soft py-32">
   <div class="mx-auto grid max-w-[1320px] grid-cols-1 items-center gap-20 px-8 lg:grid-cols-2">
-    <!-- Terminal block (first on mobile, second on desktop via order) -->
+    <!-- Terminal block (first on mobile, second on desktop via order).
+         Flat Catppuccin-Macchiato-flavored palette: project primary for prompts,
+         peach for commands, mint for status. No window-chrome traffic lights — the
+         flat title bar carries the path and elapsed-time hint instead. -->
     <div
       role="img"
       aria-label="Sample terminal session showing macOS, Linux, and Windows install commands."
-      class="order-2 lg:order-1 overflow-hidden rounded-xl border border-border bg-deep font-mono text-[14px] shadow-[0_24px_56px_rgba(0,0,0,0.4),0_0_0_1px_rgba(131,144,250,0.04)]"
+      class="order-2 lg:order-1 overflow-hidden rounded-xl border border-[#2a2740] bg-[#1c1a2e] font-mono text-[14px] shadow-[0_18px_44px_rgba(0,0,0,0.35)]"
     >
-      <!-- Window chrome -->
-      <div class="flex items-center border-b border-border-soft px-4 py-2.5">
-        <div class="flex gap-1.5">
-          <span class="h-[10px] w-[10px] rounded-full bg-[#ff5f57]/70"></span>
-          <span class="h-[10px] w-[10px] rounded-full bg-[#febc2e]/70"></span>
-          <span class="h-[10px] w-[10px] rounded-full bg-[#28c840]/70"></span>
-        </div>
-        <span class="flex-1 text-center text-[13px] tracking-[0.04em] text-fg-muted">~/replayvod · zsh</span>
-        <span class="font-mono text-[11.5px] uppercase tracking-[0.1em] text-fg-muted">90s</span>
+      <!-- Flat title bar -->
+      <div class="flex items-center border-b border-[#2a2740] px-5 py-3">
+        <span class="text-[12px] uppercase tracking-[0.14em] text-[#8c8fa1]">~/replayvod · zsh</span>
+        <span class="ml-auto text-[11px] uppercase tracking-[0.2em] text-[#8c8fa1]/70">90s</span>
       </div>
 
       <!-- Body: line gutter + content rendered from one source so numbers always match -->
-      <div class="grid grid-cols-[2.75rem_1fr] py-4 leading-[1.75]">
-        <div class="select-none border-r border-border-soft pr-3 text-right text-[12.5px] text-fg-dim/70 tabular-nums">
+      <div class="grid grid-cols-[2.75rem_1fr] py-5 leading-[1.85]">
+        <div class="select-none border-r border-[#2a2740] pr-3 text-right text-[12px] text-[#5b5b7a]/80 tabular-nums">
           {lines.map((_, i) => <div>{i + 1}</div>)}
         </div>
 
@@ -52,19 +51,19 @@ const lines: Line[] = [
             lines.map((line) => {
               if (line.kind === 'blank') return <div>&nbsp;</div>;
               if (line.kind === 'comment')
-                return <div class="text-fg-muted">{line.text}</div>;
+                return <div class="text-[#7a7c98]">{line.text}</div>;
               if (line.kind === 'cmd')
                 return (
-                  <div class="text-fg">
-                    <span class="text-primary/80">{line.prompt}</span>{' '}
-                    <span>{line.text}</span>
+                  <div class="text-[#f5a97f]">
+                    <span class="text-primary">{line.prompt}</span>{' '}
+                    {line.parts.map((p) => <span class={p.w ? 'text-white' : ''}>{p.t}</span>)}
                   </div>
                 );
               return (
                 <div class="grid grid-cols-[1.25rem_6rem_1fr] items-center">
-                  <span class="text-live drop-shadow-[0_0_4px_var(--color-live)]">●</span>
-                  <span class="text-fg">{line.tag}</span>
-                  <span class="text-fg-muted">{line.value}</span>
+                  <span class="text-[#a6da95]">●</span>
+                  <span class="text-[#a6da95]">{line.tag}</span>
+                  <span class="text-[#a6da95]/70">{line.value}</span>
                 </div>
               );
             })
@@ -76,13 +75,13 @@ const lines: Line[] = [
     <!-- Text -->
     <div class="order-1 lg:order-2">
       <h3 class="mb-4 text-[34px] leading-[1.15] tracking-[-0.02em]">
-        Up in 90 seconds. On your hardware. Forever.
+        Up in <span class="text-primary">90</span>s. On your hardware.<span class="text-fg-muted"> Forever.</span>
       </h3>
       <p class="mb-6 text-[17.5px] leading-[1.6] text-fg">
         One Docker Compose file, one Twitch app credential, one volume mount. Single binary with embedded
         SQLite. Zero phone-home.
       </p>
-      <a href="/docs/install/" class="mb-6 inline-flex text-sm font-medium text-primary hover:underline">
+      <a href="/docs/install/" class="mb-6 inline-flex text-sm font-medium text-primary underline">
         Read full installation docs →
       </a>
       <ul class="m-0 list-none p-0">

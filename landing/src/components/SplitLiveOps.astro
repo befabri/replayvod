@@ -38,7 +38,7 @@ const channels: Channel[] = [
     ],
   },
   { name: 'asterfox', status: 'idle', segments: [{ l: '30%', w: '20%' }] },
-  { name: 'mechworks', status: 'error', segments: [{ l: '14%', w: '6%', danger: true }] },
+  { name: 'mechworks', status: 'idle', segments: [{ l: '14%', w: '6%' }] },
   { name: 'cinderhex', status: 'idle', segments: [{ l: '56%', w: '8%' }] },
 ];
 
@@ -50,7 +50,7 @@ const liveCount = channels.filter((c) => c.status === 'live').length;
     <!-- Text -->
     <div>
       <h3 class="mb-4 text-[34px] leading-[1.15] tracking-[-0.02em]">
-        Watch what's happening, not just what happened.
+        Watch what's <span class="text-primary">happening</span>, not just what happened.
       </h3>
       <p class="mb-6 text-[17.5px] leading-[1.6] text-fg">
         Built for operators, not screenshots. Live state stays in sync through EventSub and SSE.
@@ -77,7 +77,7 @@ const liveCount = channels.filter((c) => c.status === 'live').length;
                 i < arr.length - 1 && 'border-b border-border-soft',
               ]}
             >
-              <span class="mt-px flex-none text-live">✓</span>
+              <span class="mt-px flex-none text-primary">→</span>
               <div>
                 <strong class="text-[17px] text-fg">{item.label}</strong>
                 <small class="mt-0.5 block text-[15.5px] text-fg-muted">{item.detail}</small>
@@ -88,32 +88,34 @@ const liveCount = channels.filter((c) => c.status === 'live').length;
       </ul>
     </div>
 
-    <!-- Radar visual -->
+    <!-- Radar visual. Flat Catppuccin-Macchiato palette matched to the install
+         terminal: warm purple-tinted base, project primary for the NOW marker,
+         peach for the running-recording bar, mint for completed live segments. -->
     <div
       role="img"
       aria-label="Sample live status panel showing followed channel state for seven channels."
-      class="rounded-xl border border-border bg-surface p-5 font-mono text-[14px] shadow-[0_24px_56px_rgba(0,0,0,0.35)]"
+      class="rounded-xl border border-[#2a2740] bg-[#1c1a2e] p-5 font-mono text-[14px] shadow-[0_18px_44px_rgba(0,0,0,0.35)]"
     >
       <!-- Header -->
       <div
-        class="mb-3 flex items-center justify-between border-b border-border-soft pb-3 text-[13px] uppercase tracking-[0.06em] text-fg-muted"
+        class="mb-3 flex items-center justify-between border-b border-[#2a2740] pb-3 text-[12px] uppercase tracking-[0.14em] text-[#8c8fa1]"
       >
-        <span>live status · followed channels</span>
-        <span class="flex items-center gap-1.5 normal-case tracking-normal">
-          <span class="h-1.5 w-1.5 rounded-full bg-live"></span>
-          <span class="text-live">{liveCount} recording</span>
+        <span>[ stream.status feed ]</span>
+        <span class="flex items-center gap-1.5">
+          <span class="h-1.5 w-1.5 rounded-full bg-primary"></span>
+          <span>{liveCount} active</span>
         </span>
       </div>
 
       <!-- Hour scale -->
       <div class="mb-2 grid grid-cols-[88px_1fr] gap-3.5">
         <div></div>
-        <div class="relative h-3 text-[11.5px] tracking-[0.04em] text-fg-muted">
+        <div class="relative h-3 text-[11px] tracking-[0.06em] text-[#7a7c98]">
           <span class="absolute left-0">−24h</span>
           <span class="absolute left-1/4 -translate-x-1/2">−18h</span>
           <span class="absolute left-1/2 -translate-x-1/2">−12h</span>
           <span class="absolute left-3/4 -translate-x-1/2">−6h</span>
-          <span class="absolute right-0 text-primary">NOW</span>
+          <span class="absolute right-0">NOW</span>
         </div>
       </div>
 
@@ -121,31 +123,35 @@ const liveCount = channels.filter((c) => c.status === 'live').length;
       {
         channels.map((ch) => (
           <div class="mb-1.5 grid h-[22px] grid-cols-[88px_1fr] items-center gap-3.5">
-            <div class="flex items-center gap-2 text-[13px] text-fg-muted">
+            <div class="flex items-center gap-2 text-[13px] text-[#8c8fa1]">
               <span
                 class:list={[
                   'h-1.5 w-1.5 flex-none rounded-full',
-                  ch.status === 'live' && 'bg-live',
-                  ch.status === 'idle' && 'bg-fg-dim/60',
+                  ch.status === 'live' && 'bg-primary',
+                  ch.status === 'idle' && 'bg-[#5b5b7a]',
                   ch.status === 'error' && 'bg-danger',
                 ]}
               />
               <span class="truncate">{ch.name}</span>
             </div>
-            <div class="relative h-2 overflow-hidden rounded-sm bg-deep">
-              <span class="absolute top-0 bottom-0 left-1/4 w-px bg-border-soft" />
-              <span class="absolute top-0 bottom-0 left-1/2 w-px bg-border-soft" />
-              <span class="absolute top-0 bottom-0 left-3/4 w-px bg-border-soft" />
+            <div class="relative h-2 overflow-hidden rounded-sm bg-[#15131f]">
+              <span class="absolute top-0 bottom-0 left-1/4 w-px bg-[#2a2740]" />
+              <span class="absolute top-0 bottom-0 left-1/2 w-px bg-[#2a2740]" />
+              <span class="absolute top-0 bottom-0 left-3/4 w-px bg-[#2a2740]" />
               {ch.segments.map((seg) => (
                 <span
                   class:list={[
                     'absolute top-0 bottom-0 rounded-sm',
-                    seg.danger ? 'bg-danger opacity-80' : seg.live ? 'bg-live' : 'bg-fg-dim opacity-40',
+                    seg.danger
+                      ? 'bg-danger opacity-80'
+                      : seg.live
+                        ? 'bg-[#f5a97f]'
+                        : 'bg-[#a6da95]/55',
                   ]}
                   style={`left: ${seg.l}; width: ${seg.w}`}
                 />
               ))}
-              <span class="absolute inset-y-[-3px] right-0 w-px bg-primary shadow-[0_0_6px_var(--color-primary)]" />
+              <span class="absolute inset-y-[-3px] right-0 w-px bg-primary" />
             </div>
           </div>
         ))

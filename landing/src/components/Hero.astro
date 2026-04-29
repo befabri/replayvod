@@ -46,25 +46,27 @@ import { site } from '../config';
       </p>
     </div>
 
-    <!-- Right: mini dashboard visual -->
+    <!-- Right: mini dashboard visual. Flat Catppuccin-Macchiato palette matched to
+         the install terminal and live-status panel. -->
     <div
       role="img"
       aria-label="Sample preview of the ReplayVOD dashboard showing live recordings, weekly count, used storage, and current throughput."
-      class="rounded-xl border border-border bg-surface p-[18px] shadow-[0_24px_56px_rgba(0,0,0,0.4),0_0_0_1px_rgba(131,144,250,0.04)]"
+      class="rounded-xl border border-[#2a2740] bg-[#1c1a2e] p-[18px] shadow-[0_18px_44px_rgba(0,0,0,0.35)]"
     >
-      <!-- Window chrome -->
-      <div class="mb-[14px] flex items-center justify-between border-b border-border-soft pb-[14px]">
-        <div class="flex gap-1.5">
-          <span class="h-[9px] w-[9px] rounded-full bg-surface-raised"></span>
-          <span class="h-[9px] w-[9px] rounded-full bg-surface-raised"></span>
-          <span class="h-[9px] w-[9px] rounded-full bg-surface-raised"></span>
-        </div>
-        <span class="font-mono text-[13px] text-fg-muted">replayvod.local · live</span>
+      <!-- Flat title bar -->
+      <div
+        class="mb-[14px] flex items-center justify-between border-b border-[#2a2740] pb-[14px] text-[12px] uppercase tracking-[0.14em] text-[#8c8fa1]"
+      >
+        <span>[ replayvod.local ]</span>
+        <span class="flex items-center gap-1.5">
+          <span class="h-1.5 w-1.5 rounded-full bg-primary"></span>
+          <span>live</span>
+        </span>
       </div>
 
       <!-- Stats strip -->
       <div
-        class="mb-[14px] grid grid-cols-2 gap-y-3 border-b border-border-soft py-3 sm:grid-cols-4 sm:gap-y-0"
+        class="mb-[14px] grid grid-cols-2 gap-y-3 border-b border-[#2a2740] py-3 sm:grid-cols-4 sm:gap-y-0"
       >
         {
           [
@@ -75,7 +77,7 @@ import { site } from '../config';
           ].map((stat, i) => (
             <div
               class:list={[
-                'px-[14px] border-r border-border-soft',
+                'px-[14px] border-r border-[#2a2740]',
                 i === 0 && 'pl-0',
                 i === 1 && 'border-r-0 sm:border-r',
                 i === 2 && 'pl-0 sm:pl-[14px]',
@@ -97,16 +99,16 @@ import { site } from '../config';
       <!-- Recording rows -->
       {
         [
-          { init: 'P', name: 'pixelforge', meta: 'voxel engine — day 47 · 1080p60', pct: 42, live: true },
+          { init: 'P', name: 'pixelforge', meta: 'voxel engine, day 47 · 1080p60', pct: 42, live: true },
           { init: 'N', name: 'neon_arena', meta: 'ranked diamond · 22.1 MB/s', pct: 68, live: true },
           { init: 'C', name: 'cartographer', meta: 'remux stage · 1080p30', pct: 84, live: true },
           { init: 'A', name: 'asterfox', meta: 'queued · schedule match', pct: 3, live: false },
         ].map((row) => (
-          <div class="grid grid-cols-[24px_1fr_auto_auto] items-center gap-2.5 border-b border-border-soft py-[9px] text-[14px] last:border-b-0">
+          <div class="grid grid-cols-[24px_1fr_auto_auto] items-center gap-2.5 border-b border-[#2a2740] py-[9px] text-[14px] last:border-b-0">
             <div
               class:list={[
-                'grid h-[22px] w-[22px] place-items-center rounded-full bg-surface-raised font-heading text-[12px] font-semibold text-fg-muted',
-                row.live && 'shadow-[inset_0_0_0_1px_var(--color-live)]',
+                'grid h-[22px] w-[22px] place-items-center rounded-full bg-[#2a2740] font-heading text-[12px] font-semibold text-fg-muted',
+                row.live && 'shadow-[inset_0_0_0_1px_var(--color-primary)]',
               ]}
             >
               {row.init}
@@ -115,7 +117,7 @@ import { site } from '../config';
               <div class="font-medium">{row.name}</div>
               <div class="font-mono text-[12px] text-fg-muted">{row.meta}</div>
             </div>
-            <div class="relative h-[3px] w-[70px] overflow-hidden rounded-sm bg-surface-raised">
+            <div class="relative h-[3px] w-[70px] overflow-hidden rounded-sm bg-[#15131f]">
               <span class="absolute inset-y-0 left-0 rounded-sm bg-primary" style={`width: ${row.pct}%`} />
             </div>
             <div class="min-w-[28px] text-right font-mono text-[12px] text-fg-muted">{row.pct}%</div>
