@@ -302,7 +302,12 @@ const accountEnabled = site.connect.accountEnabled;
       });
 
       logoutButton.addEventListener('click', async () => {
-        await api('/api/auth/sign-out', { method: 'POST' }).catch(() => null);
+        // better-auth rejects a Content-Type: application/json POST with no
+        // body (Unexpected end of JSON input → 500). Send an empty object so
+        // the parser is happy.
+        await api('/api/auth/sign-out', { method: 'POST', body: '{}' }).catch(
+          () => null,
+        );
         window.location.assign('/login');
       });
 

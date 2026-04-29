@@ -28,6 +28,7 @@
     "@fontsource-variable/figtree": "^5.2.10",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/outfit": "^5.2.8",
+    "@playwright/test": "^1.59.1",
     "@types/node": "^25.6.0",
     "prettier": "^3.8.3",
     "prettier-plugin-astro": "^0.14.1",
