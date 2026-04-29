@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "replayvod",
+  "account_id": "b2b732b35569e1f7d1c3a840e95d7060",
   "compatibility_date": "2026-04-29",
   "assets": {
     "directory": "./dist",

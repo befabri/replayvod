@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "replayvod-relay",
+  "account_id": "b2b732b35569e1f7d1c3a840e95d7060",
   "main": "src/index.ts",
   "compatibility_date": "2026-04-28",
   "durable_objects": {
