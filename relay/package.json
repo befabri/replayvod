@@ -2,10 +2,11 @@
   "name": "relay",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --port 8788 --inspector-port 9230",
     "deploy": "wrangler deploy --minify",
     "pretest": "wrangler types --env-interface CloudflareBindings",
     "test": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit && node --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "verify:prod": "tsx scripts/verify-prod.ts",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
   },
   "dependencies": {
