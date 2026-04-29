@@ -23,41 +23,18 @@ ReplayVOD ships as a Docker Compose stack today. Native Windows `.exe` is suppor
   curl -fsSL https://replayvod.com/install.sh | sh
   ```
 
-  </TabItem>
-  <TabItem label="Windows (Docker)">
+  The installer:
 
-  ```powershell
-  $env:REPLAYVOD_INSTALL_MODE = "docker"
-  irm https://replayvod.com/install.ps1 | iex
-  ```
+  <Steps>
 
-  </TabItem>
-  <TabItem label="Windows (native, preview)">
+  1. Creates `~/replayvod/`.
+  2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
+  3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
+  4. Starts ReplayVOD with `docker compose up -d --build`.
 
-  ```powershell
-  irm https://replayvod.com/install.ps1 | iex
-  ```
+  </Steps>
 
-  Native mode requires published release archives or `REPLAYVOD_WINDOWS_URL` pointing at a test build.
-
-  </TabItem>
-</Tabs>
-
-The installer:
-
-<Steps>
-
-1. Creates an install directory (`~/replayvod` on macOS/Linux, `%LOCALAPPDATA%\ReplayVOD` on Windows).
-2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
-3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
-4. Starts ReplayVOD: `docker compose up -d --build` for Docker, `replayvod.exe` for native Windows.
-
-</Steps>
-
-### Installer overrides
-
-<Tabs syncKey="platform">
-  <TabItem label="macOS / Linux">
+  **Overrides**
 
   Pick a different directory or database profile:
 
@@ -77,6 +54,26 @@ The installer:
 
   ```powershell
   $env:REPLAYVOD_INSTALL_MODE = "docker"
+  irm https://replayvod.com/install.ps1 | iex
+  ```
+
+  The installer:
+
+  <Steps>
+
+  1. Creates `%LOCALAPPDATA%\ReplayVOD\`.
+  2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
+  3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
+  4. Starts ReplayVOD with `docker compose up -d --build`.
+
+  </Steps>
+
+  **Overrides**
+
+  Use a different database profile:
+
+  ```powershell
+  $env:REPLAYVOD_INSTALL_MODE = "docker"
   $env:REPLAYVOD_PROFILE = "postgres"
   irm https://replayvod.com/install.ps1 | iex
   ```
@@ -84,7 +81,26 @@ The installer:
   </TabItem>
   <TabItem label="Windows (native, preview)">
 
-  Use a specific archive before official Windows artifacts exist:
+  ```powershell
+  irm https://replayvod.com/install.ps1 | iex
+  ```
+
+  Native mode requires published release archives or `REPLAYVOD_WINDOWS_URL` pointing at a test build.
+
+  The installer:
+
+  <Steps>
+
+  1. Creates `%LOCALAPPDATA%\ReplayVOD\`.
+  2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
+  3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
+  4. Starts `replayvod.exe`.
+
+  </Steps>
+
+  **Overrides**
+
+  Use a specific archive before official Windows artifacts are published:
 
   ```powershell
   $env:REPLAYVOD_WINDOWS_URL = "https://example.com/replayvod-windows-amd64.zip"
