@@ -43,6 +43,20 @@ type Environment struct {
 	WebhookCallbackURL string `env:"WEBHOOK_CALLBACK_URL" envDefault:"http://localhost:8080/api/v1/webhook/callback"`
 	FrontendURL        string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
 
+	// RelaySubscribeURL points the optional Connect agent at a hosted
+	// relay's WebSocket endpoint, e.g.
+	// "wss://relay.replayvod.com/u/<token>/subscribe". When set, the
+	// agent connects to the relay and replays each ingested EventSub
+	// frame to RelayLocalCallbackURL. Empty disables the agent.
+	RelaySubscribeURL string `env:"RELAY_SUBSCRIBE_URL"`
+
+	// RelayLocalCallbackURL is the local webhook handler the optional
+	// relay agent replays frames into. Leave empty for the default
+	// http://127.0.0.1:<PORT>/api/v1/webhook/callback. This is separate
+	// from WebhookCallbackURL: WebhookCallbackURL is the public HTTPS URL
+	// Twitch sends to, while this URL stays on the local machine.
+	RelayLocalCallbackURL string `env:"RELAY_LOCAL_CALLBACK_URL"`
+
 	// Paths
 	VideoDir     string `env:"VIDEO_DIR" envDefault:"./data/videos"`
 	ThumbnailDir string `env:"THUMBNAIL_DIR" envDefault:"./data/thumbnails"`
@@ -93,12 +107,12 @@ type HealthConfig struct {
 // active recording. Three modes:
 //
 //   - "poll":    goroutine polls Helix every IntervalMinutes (default).
-//                Works on any deployment, no public callback URL needed.
+//     Works on any deployment, no public callback URL needed.
 //   - "webhook": creates a channel.update EventSub per active recording
-//                and writes titles on push. Zero polling. Requires
-//                WEBHOOK_CALLBACK_URL set and publicly reachable; the
-//                server refuses to start in this mode otherwise so a
-//                silent misconfig doesn't fall back to degraded behavior.
+//     and writes titles on push. Zero polling. Requires
+//     WEBHOOK_CALLBACK_URL set and publicly reachable; the
+//     server refuses to start in this mode otherwise so a
+//     silent misconfig doesn't fall back to degraded behavior.
 //   - "off":     only the at-start snapshot (videos.title) is recorded.
 //
 // Legacy Enabled bool is kept for backwards compatibility: if Mode is

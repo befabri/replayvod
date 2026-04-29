@@ -39,12 +39,30 @@ Bundled Docker setup is production-oriented: it builds the dashboard and
 serves it from the Go server. Pick a database profile — `sqlite` for the
 simplest single-container deploy, or `postgres` for a two-container setup:
 
+macOS / Linux:
+
+```bash
+curl -fsSL https://replayvod.com/install.sh | sh
+```
+
+Windows PowerShell with Docker Desktop:
+
+```powershell
+$env:REPLAYVOD_INSTALL_MODE = "docker"
+irm https://replayvod.com/install.ps1 | iex
+```
+
+Native Windows `.exe` installs are supported by the installer once release
+archives are published. Until then, use the Docker Desktop path above.
+
+Or install manually:
+
 ```bash
 git clone https://github.com/befabri/replayvod.git
 cd replayvod
 cp server/.env.example server/.env
 $EDITOR server/.env             # fill in Twitch credentials, see below
-docker compose --env-file server/.env --profile sqlite up -d
+docker compose --env-file server/.env --profile sqlite up -d --build
 # or: --profile postgres        # adds a Postgres container
 ```
 
@@ -93,6 +111,28 @@ Two files control runtime behavior, both well-commented:
 
 EventSub-driven features need a publicly reachable `WEBHOOK_CALLBACK_URL`. If
 yours is not reachable, ReplayVOD falls back to polling automatically.
+
+ReplayVOD Connect supplies that public callback without port forwarding. In that
+mode, `WEBHOOK_CALLBACK_URL` stays public and points at the relay ingest URL,
+while `RELAY_SUBSCRIBE_URL` is the outbound WebSocket URL your self-hosted
+server dials. The local replay target is separate and defaults to
+`http://127.0.0.1:8080/api/v1/webhook/callback`:
+
+```env
+WEBHOOK_CALLBACK_URL=https://relay.replayvod.com/u/<token>
+RELAY_SUBSCRIBE_URL=wss://relay.replayvod.com/u/<token>/subscribe
+# Optional override only if the local API is not on 127.0.0.1:8080
+RELAY_LOCAL_CALLBACK_URL=http://127.0.0.1:8080/api/v1/webhook/callback
+```
+
+`RELAY_LOCAL_CALLBACK_URL` must be a loopback URL ending in
+`/api/v1/webhook/callback`; it is intentionally not a general-purpose local
+forwarding target. The public ingest URL and subscribe URL must use the same
+relay host and token, and the subscribe URL must use `wss://`.
+
+With Docker Compose, use `PUBLIC_WEBHOOK_CALLBACK_URL` for the relay ingest URL;
+the compose file maps it into `WEBHOOK_CALLBACK_URL` without changing the OAuth
+or frontend URLs derived from `PUBLIC_BASE_URL`.
 
 ## Storage
 
@@ -143,4 +183,10 @@ ReplayVOD is built on top of a sibling project of mine:
 
 ## License
 
-[GNU General Public License v3.0](LICENSE).
+The recorder, dashboard, and supporting code in this repository are licensed
+under the [GNU General Public License v3.0](LICENSE).
+
+The webhook relay in [`relay/`](relay/) is licensed separately under the
+[MIT License](relay/LICENSE) — it's a small piece of generic infrastructure
+licensed permissively so it can be audited, self-hosted, or embedded in
+unrelated projects without copyleft obligations.

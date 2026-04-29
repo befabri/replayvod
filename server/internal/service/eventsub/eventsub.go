@@ -126,7 +126,7 @@ func (s *Service) ReconcileChannelSubs(ctx context.Context, channelIDs map[strin
 	// log makes the misconfig obvious without the spam.
 	if !isCallbackURLUsable(s.callbackURL) {
 		s.log.Info("skip channel-sub reconcile: callback URL is not a usable HTTPS endpoint",
-			"callback", s.callbackURL)
+			"callback_host", urlHost(s.callbackURL))
 		return nil
 	}
 	// Two sub types, fetched separately so we don't have to filter
@@ -336,7 +336,7 @@ func (s *Service) ReconcileChannelUpdateSubs(ctx context.Context, activeBroadcas
 		// service returns nil cleanly so main.go's boot reconcile
 		// doesn't log as a failure.
 		s.log.Info("skip channel.update reconcile: callback URL is not a usable HTTPS endpoint",
-			"callback", s.callbackURL)
+			"callback_host", urlHost(s.callbackURL))
 		return nil
 	}
 	all, _, err := s.twitch.GetEventSubSubscriptionsAll(ctx, &twitch.GetEventSubSubscriptionsParams{Type: "channel.update"})
@@ -371,6 +371,7 @@ func (s *Service) ReconcileChannelUpdateSubs(ctx context.Context, activeBroadcas
 //   - scheme = https
 //   - non-empty host
 //   - standard port (no ":8080" or similar)
+//
 // Without this check, every subscribe call fails with a Helix 400 —
 // on reconcile that means one 400 per channel, which we've seen spam
 // the log in practice. A scheme check catches the most common
@@ -396,6 +397,14 @@ func isCallbackURLUsable(raw string) bool {
 		return false
 	}
 	return true
+}
+
+func urlHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 // subscribe is the shared create path. It checks the local mirror first;

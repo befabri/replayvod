@@ -123,12 +123,15 @@ const accountEnabled = site.connect.accountEnabled;
         trialLabel.textContent = plan === 'yearly' ? 'no trial' : '14-day trial';
       }
 
-      // If the visitor already has a session, send them to /account instead of
-      // letting them start a duplicate subscription. Best-effort: if the probe
-      // fails for any reason the button still works.
+      // If the visitor already has an active subscription, send them to
+      // /account instead of letting them start a duplicate subscription.
+      // Signed-in users without an active sub can continue; checkout will be
+      // tied to their existing account via Polar externalCustomerId.
       fetch(`${apiBase}/me`, { credentials: 'include' })
-        .then((res) => {
-          if (res.ok) window.location.replace('/account');
+        .then(async (res) => {
+          if (!res.ok) return;
+          const data = await res.json().catch(() => null);
+          if (data?.subscription?.active) window.location.replace('/account');
         })
         .catch(() => {});
 
@@ -136,9 +139,8 @@ const accountEnabled = site.connect.accountEnabled;
         submit.disabled = true;
         submit.textContent = 'Opening Polar…';
         setStatus('Working…');
-        // The Polar plugin mounts a redirect endpoint that creates a Polar
-        // checkout session and 302s to it. Plain navigation is the simplest
-        // way to follow that redirect.
+        // The cloud checkout endpoint creates the Polar session and redirects.
+        // Plain navigation is the simplest way to follow that redirect.
         window.location.href = `${apiBase}/api/auth/checkout/${encodeURIComponent(plan)}`;
       });
     })();

@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -16,20 +19,19 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/logger"
+	"github.com/befabri/replayvod/server/internal/relayclient"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/scheduler"
 	"github.com/befabri/replayvod/server/internal/server"
-	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
+	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/replayvod/server/migrations"
-
-	"time"
 )
 
 func main() {
@@ -226,7 +228,14 @@ func main() {
 	// URL, missing host.
 	if titleMode == config.TitleTrackingModeWebhook && !isUsableWebhookURL(cfg.Env.WebhookCallbackURL) {
 		log.Error("title_tracking.mode=webhook requires WEBHOOK_CALLBACK_URL to be a valid HTTPS URL on port 443",
-			"callback", cfg.Env.WebhookCallbackURL)
+			"callback_host", urlHost(cfg.Env.WebhookCallbackURL))
+		os.Exit(1)
+	}
+	if err := validateRelayURLs(cfg.Env.WebhookCallbackURL, cfg.Env.RelaySubscribeURL); err != nil {
+		log.Error("relay URL validation failed",
+			"error", err,
+			"callback_host", urlHost(cfg.Env.WebhookCallbackURL),
+			"subscribe_host", urlHost(cfg.Env.RelaySubscribeURL))
 		os.Exit(1)
 	}
 	// Soft warning for the non-webhook-mode case: WEBHOOK_CALLBACK_URL
@@ -236,7 +245,7 @@ func main() {
 	// clear signal before the feature silently breaks.
 	if cfg.Env.WebhookCallbackURL != "" && !isUsableWebhookURL(cfg.Env.WebhookCallbackURL) {
 		log.Warn("WEBHOOK_CALLBACK_URL is set but not a valid HTTPS endpoint — webhook-dependent features (scheduled recording, live-dot SSE) will be skipped",
-			"callback", cfg.Env.WebhookCallbackURL)
+			"callback_host", urlHost(cfg.Env.WebhookCallbackURL))
 	}
 
 	// eventsubSvc is constructed once and shared: used by the
@@ -279,6 +288,75 @@ func main() {
 	if err := dl.Resume(ctx); err != nil {
 		log.Error("Failed to resume in-flight downloads", "error", err)
 		os.Exit(1)
+	}
+
+	// Setup graceful shutdown before starting background goroutines.
+	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// SSE bus: one set of topics shared between scheduler (publishes
+	// task status), schedule processor (publishes stream.live), and
+	// event-log writer (publishes system.events). Routing handlers
+	// subscribe per-client.
+	bus := eventbus.New()
+
+	// Start the local HTTP server before creating or reconciling EventSub
+	// subscriptions. Twitch verification challenges must be able to reach the
+	// local callback immediately, especially when routed through Connect relay.
+	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, log)
+	serverReady := make(chan error, 1)
+	go srv.Start(serverReady)
+	if err := <-serverReady; err != nil {
+		log.Error("Failed to start server", "error", err)
+		logger.Close()
+		os.Exit(1)
+	}
+	log.Info("Server started", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
+
+	// Optional Connect relay agent. WEBHOOK_CALLBACK_URL remains the
+	// public HTTPS URL registered with Twitch (the relay ingest URL), while
+	// RELAY_LOCAL_CALLBACK_URL is where this agent replays frames locally.
+	// The HMAC is still verified by webhook.Handler — the relay never holds
+	// the secret.
+	if cfg.Env.RelaySubscribeURL != "" {
+		localCallbackURL := relayLocalCallbackURL(cfg)
+		if sameURL(localCallbackURL, cfg.Env.WebhookCallbackURL) {
+			log.Error("RELAY_LOCAL_CALLBACK_URL must not equal WEBHOOK_CALLBACK_URL; local replay would loop back into the public relay",
+				"callback_host", urlHost(localCallbackURL))
+			srv.Stop()
+			logger.Close()
+			os.Exit(1)
+		}
+		rc, err := relayclient.New(relayclient.Config{
+			SubscribeURL: cfg.Env.RelaySubscribeURL,
+			CallbackURL:  localCallbackURL,
+			Logger:       log,
+		})
+		if err != nil {
+			log.Error("Failed to start relay client", "error", err)
+			srv.Stop()
+			logger.Close()
+			os.Exit(1)
+		}
+		go rc.Run(signalCtx)
+		select {
+		case <-rc.Ready():
+			log.Info("Relay client started",
+				"subscribe_host", urlHost(cfg.Env.RelaySubscribeURL),
+				"local_callback", localCallbackURL,
+			)
+		case <-time.After(15 * time.Second):
+			log.Error("Relay client did not connect before startup timeout",
+				"subscribe_host", urlHost(cfg.Env.RelaySubscribeURL))
+			srv.Stop()
+			logger.Close()
+			os.Exit(1)
+		case <-signalCtx.Done():
+			srv.Stop()
+			logger.Close()
+			os.Exit(0)
+		}
 	}
 
 	// Boot-time reconcile of EventSub subscriptions. Two separate
@@ -326,12 +404,6 @@ func main() {
 		}
 	}
 
-	// SSE bus: one set of topics shared between scheduler (publishes
-	// task status), schedule processor (publishes stream.live), and
-	// event-log writer (publishes system.events). Routing handlers
-	// subscribe per-client.
-	bus := eventbus.New()
-
 	// Scheduler: wire the EventSub manager first so the snapshot task
 	// has something to call. Skip entirely if cfg.App.Scheduler.Enabled
 	// is false — useful for one-off CLI invocations or tests.
@@ -341,26 +413,20 @@ func main() {
 		sched = scheduler.NewService(repo, log, 15*time.Second, bus)
 		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, artSvc, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
+			srv.Stop()
+			logger.Close()
 			os.Exit(1)
 		}
 		if err := sched.Start(ctx); err != nil {
 			log.Error("Failed to start scheduler", "error", err)
+			srv.Stop()
+			logger.Close()
 			os.Exit(1)
 		}
 		log.Info("Scheduler started")
 	} else {
 		log.Info("Scheduler disabled by config")
 	}
-
-
-	// Setup graceful shutdown
-	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	// Start server
-	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, log)
-	go srv.Start()
 
 	// Wait for shutdown signal
 	<-signalCtx.Done()
@@ -372,6 +438,101 @@ func main() {
 	logger.Close()
 
 	os.Exit(0)
+}
+
+func relayLocalCallbackURL(cfg *config.Config) string {
+	if cfg.Env.RelayLocalCallbackURL != "" {
+		return cfg.Env.RelayLocalCallbackURL
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d/api/v1/webhook/callback", cfg.Env.Port)
+}
+
+// validateRelayURLs enforces the startup-time invariants that tie the optional
+// Connect relay to the local server. Twitch posts to WEBHOOK_CALLBACK_URL, while
+// the local agent dials RELAY_SUBSCRIBE_URL; both must address the same relay
+// host and /u/<token> Durable Object or verification challenges will miss the
+// subscriber.
+func validateRelayURLs(webhookCallbackURL, subscribeURL string) error {
+	if subscribeURL == "" {
+		return nil
+	}
+	if !isUsableWebhookURL(webhookCallbackURL) {
+		return fmt.Errorf("RELAY_SUBSCRIBE_URL requires WEBHOOK_CALLBACK_URL to be the public HTTPS relay ingest URL")
+	}
+	ingest, err := url.Parse(webhookCallbackURL)
+	if err != nil {
+		return fmt.Errorf("parse WEBHOOK_CALLBACK_URL: %w", err)
+	}
+	subscribe, err := url.Parse(subscribeURL)
+	if err != nil {
+		return fmt.Errorf("parse RELAY_SUBSCRIBE_URL: %w", err)
+	}
+	if subscribe.Scheme != "wss" {
+		return fmt.Errorf("RELAY_SUBSCRIBE_URL must use wss://")
+	}
+	if !strings.EqualFold(ingest.Host, subscribe.Host) {
+		return fmt.Errorf("WEBHOOK_CALLBACK_URL and RELAY_SUBSCRIBE_URL must use the same relay host")
+	}
+	ingestToken, ok := relayIngestToken(ingest.Path)
+	if !ok {
+		return fmt.Errorf("WEBHOOK_CALLBACK_URL must use /u/<token>")
+	}
+	subscribeToken, ok := relaySubscribeToken(subscribe.Path)
+	if !ok {
+		return fmt.Errorf("RELAY_SUBSCRIBE_URL must use /u/<token>/subscribe")
+	}
+	if ingestToken != subscribeToken {
+		return fmt.Errorf("WEBHOOK_CALLBACK_URL and RELAY_SUBSCRIBE_URL must use the same relay token")
+	}
+	return nil
+}
+
+func relayIngestToken(path string) (string, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 2 || parts[0] != "u" || !isRelayToken(parts[1]) {
+		return "", false
+	}
+	return parts[1], true
+}
+
+func relaySubscribeToken(path string) (string, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 3 || parts[0] != "u" || parts[2] != "subscribe" || !isRelayToken(parts[1]) {
+		return "", false
+	}
+	return parts[1], true
+}
+
+func isRelayToken(value string) bool {
+	if len(value) < 16 || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func urlHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+func sameURL(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) &&
+		strings.EqualFold(ua.Host, ub.Host) &&
+		ua.Path == ub.Path
 }
 
 // isUsableWebhookURL mirrors eventsub.isCallbackURLUsable so the

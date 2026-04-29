@@ -30,7 +30,7 @@ x-replayvod-env: &replayvod-env
   PORT: "8080"
   FRONTEND_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}"
   CALLBACK_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}/api/v1/auth/twitch/callback"
-  WEBHOOK_CALLBACK_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}/api/v1/webhook/callback"
+  WEBHOOK_CALLBACK_URL: "${PUBLIC_WEBHOOK_CALLBACK_URL:-${PUBLIC_BASE_URL:-http://localhost:8080}/api/v1/webhook/callback}"
   DASHBOARD_DIR: /app/dashboard
   VIDEO_DIR: /app/data/videos
   THUMBNAIL_DIR: /app/data/thumbnails

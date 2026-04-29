@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -51,21 +52,40 @@ func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *sessi
 	}
 }
 
-// Start begins serving HTTP requests.
-func (s *Server) Start() {
+// Start begins serving HTTP requests. If ready is non-nil, it receives nil
+// after the TCP listener is bound or an error if the server cannot listen.
+func (s *Server) Start(ready chan<- error) {
 	router, closeTRPC := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.hydrator, s.bus, s.log)
 	s.closeTRPC = closeTRPC
+	addr := fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		notifyReady(ready, err)
+		s.log.Error("Server listen error", "error", err)
+		return
+	}
 
 	s.httpServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port),
+		Addr:         addr,
 		Handler:      router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	notifyReady(ready, nil)
+	if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 		s.log.Error("Server error", "error", err)
+	}
+}
+
+func notifyReady(ready chan<- error, err error) {
+	if ready == nil {
+		return
+	}
+	select {
+	case ready <- err:
+	default:
 	}
 }
 
