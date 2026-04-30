@@ -1,8 +1,11 @@
 import { defineConfig } from 'astro/config';
 import { execSync } from 'node:child_process';
 import starlight from '@astrojs/starlight';
+import sitemap from '@astrojs/sitemap';
 
 import tailwindcss from '@tailwindcss/vite';
+
+const SITEMAP_EXCLUDE = /\/(account|checkout|login|auth)(\/|$)/;
 
 function safeExec(cmd: string): string {
   try {
@@ -25,6 +28,9 @@ export default defineConfig({
     defaultStrategy: 'viewport',
   },
   integrations: [
+    sitemap({
+      filter: (page) => !SITEMAP_EXCLUDE.test(new URL(page).pathname),
+    }),
     starlight({
       title: 'ReplayVOD Docs',
       description: 'Install and operate ReplayVOD, the self-hosted Twitch VOD recorder.',

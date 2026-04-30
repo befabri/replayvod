@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /account/
+Disallow: /auth/
+Disallow: /checkout/
+Disallow: /login/
+
+Sitemap: https://replayvod.com/sitemap-index.xml
