@@ -16,13 +16,6 @@ import { site } from '../config';
   >
     <!-- Left: copy -->
     <div>
-      <div
-        class="mb-6 flex items-center gap-3 font-mono text-[13px] uppercase tracking-[0.12em] text-fg-muted"
-      >
-        <span class="h-px w-6 bg-primary"></span>
-        Built for homelabs
-      </div>
-
       <h1 class="mb-5 text-display-1 font-medium text-balance lg:max-w-[14em]">
         Record your <span class="text-primary">Twitch streams</span>. Keep them forever.
       </h1>
@@ -106,10 +99,7 @@ import { site } from '../config';
         ].map((row) => (
           <div class="grid grid-cols-[24px_1fr_auto_auto] items-center gap-2.5 border-b border-[#2a2740] py-[9px] text-[14px] last:border-b-0">
             <div
-              class:list={[
-                'grid h-[22px] w-[22px] place-items-center rounded-full bg-[#2a2740] font-heading text-[12px] font-semibold text-fg-muted',
-                row.live && 'shadow-[inset_0_0_0_1px_var(--color-primary)]',
-              ]}
+              class="grid h-[22px] w-[22px] place-items-center rounded-full bg-[#2a2740] font-heading text-[12px] font-semibold text-fg-muted"
             >
               {row.init}
             </div>
