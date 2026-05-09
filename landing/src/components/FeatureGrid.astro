@@ -1,36 +1,30 @@
 ---
-type Feature = { tag: string; title: string; body: string };
+type Feature = { title: string; body: string };
 
 const features: Feature[] = [
   {
-    tag: 'schedule.add',
-    title: 'Auto-record schedules',
-    body: 'Add a channel. Pick rules: quality, category, tag filters, viewer floor.',
+    title: 'Event-driven, not polling',
+    body: 'Subscribes to Twitch EventSub. First segment hits disk within ~4s of stream.online. No 30-second poll loop missing the start.',
   },
   {
-    tag: 'video.meta',
-    title: 'Full metadata',
-    body: 'Title, category, stream ID, viewer count, language, thumbnails. Indexed next to each recording.',
+    title: 'Source-quality, no re-encode',
+    body: '1080p60 at the original bitrate, written straight to MP4. CPU stays idle; ffmpeg only runs to remux.',
   },
   {
-    tag: 'task.resume',
-    title: 'Resumable captures',
-    body: 'Network drops, host reboots, transient failures. Segments resume from the last good point.',
+    title: 'Resumable',
+    body: 'Network drops, host reboots, ISP blips. Segments resume from the last good point — no half-broken files.',
   },
   {
-    tag: 'stream.copy',
-    title: 'Source-quality output',
-    body: '1080p60 at the original bitrate. No re-encode between Twitch and your disk.',
+    title: 'Per-channel rules',
+    body: 'Quality, category, tag filters, viewer floor, retention window. Configure once per channel and forget.',
   },
   {
-    tag: 'ui.live',
-    title: 'Clean dashboard',
-    body: 'Live status, running jobs, schedules, EventSub health, task logs, playback.',
+    title: 'Indexed metadata',
+    body: 'Title, category, stream ID, viewer count, language, thumbnails — stored next to each MP4 and queryable from the dashboard.',
   },
   {
-    tag: 'storage.policy',
-    title: 'Disk-aware storage',
-    body: 'Local disk or S3-compatible. Per-schedule retention rules.',
+    title: 'Local or S3',
+    body: 'Mount any volume the kernel can see (NAS, ZFS pool, USB) or write to S3-compatible storage. Per-schedule retention rules clean up old recordings.',
   },
 ];
 ---
@@ -39,19 +33,20 @@ const features: Feature[] = [
   <div class="mx-auto max-w-[1320px] px-8">
     <div class="mb-16 max-w-[760px]">
       <h2 class="text-display-2 text-balance">
-        Six things it does well.<span class="text-fg-muted"> Nothing more.</span>
+        What it does.<span class="text-fg-muted"> Honest list.</span>
       </h2>
+      <p class="mt-5 max-w-[640px] text-[17.5px] leading-[1.55] text-fg-muted">
+        Single Go binary, embedded SQLite by default, optional Postgres. Runs in one container next to whatever
+        else is on your stack.
+      </p>
     </div>
 
     <div class="grid grid-cols-1 border-l border-t border-border-soft md:grid-cols-2">
       {
         features.map((f) => (
-          <div class="grid grid-cols-1 gap-3 border-b border-r border-border-soft p-8 md:grid-cols-[140px_1fr] md:gap-8">
-            <div class="font-mono text-[13px] text-primary">{f.tag}</div>
-            <div>
-              <h3 class="mb-2 text-[19px] font-medium">{f.title}</h3>
-              <p class="m-0 text-[17px] leading-[1.6] text-fg-muted">{f.body}</p>
-            </div>
+          <div class="border-b border-r border-border-soft p-8">
+            <h3 class="mb-2 text-[19px] font-medium">{f.title}</h3>
+            <p class="m-0 text-[17px] leading-[1.6] text-fg-muted">{f.body}</p>
           </div>
         ))
       }

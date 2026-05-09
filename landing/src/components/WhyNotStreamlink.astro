@@ -1,0 +1,92 @@
+---
+type Seg = { t: string; code?: boolean; emph?: boolean };
+type Row = { axis: string; rolled: Seg[]; replayvod: Seg[] };
+
+const rows: Row[] = [
+  {
+    axis: 'Trigger',
+    rolled: [{ t: '30s polling or a minute-cron on the helix API' }],
+    replayvod: [{ t: 'EventSub', emph: true }, { t: ' webhook, ~4s lag' }],
+  },
+  {
+    axis: 'Resume after disconnect',
+    rolled: [{ t: 'ffmpeg', code: true }, { t: ' restarts from byte 0' }],
+    replayvod: [{ t: 'Resumes from the last good chunk' }],
+  },
+  {
+    axis: 'Per-channel rules',
+    rolled: [{ t: 'Separate cron entries or a Python wrapper' }],
+    replayvod: [{ t: 'Quality, category, tags, viewer floor' }],
+  },
+  {
+    axis: 'Metadata',
+    rolled: [{ t: 'Filename, plus a JSON sidecar you remember to write' }],
+    replayvod: [{ t: 'Title, category, viewers, language, thumbnails' }],
+  },
+  {
+    axis: 'Retention',
+    rolled: [{ t: 'A second cron with ' }, { t: 'find -mtime +N -delete', code: true }],
+    replayvod: [{ t: 'Per-schedule retention rules', emph: true }],
+  },
+  {
+    axis: 'Visibility',
+    rolled: [{ t: 'tail -f', code: true }, { t: ' the journal and hope' }],
+    replayvod: [{ t: 'Tagged event log, live job progress', emph: true }],
+  },
+];
+---
+
+<section data-reveal class="border-b border-border-soft py-32">
+  <div class="mx-auto max-w-[1320px] px-8">
+    <div class="mb-10 max-w-[760px]">
+      <h2 class="text-display-2 text-balance">
+        Why not just <span class="text-primary">Streamlink</span> + cron?
+      </h2>
+      <p class="mt-5 text-[17.5px] leading-[1.55] text-fg">
+        Most of us got here from a <code class="rounded-md border border-border-soft bg-surface/60 px-2 py-0.5 font-mono text-[14.5px] text-fg">streamlink twitch.tv/foo best -o vod.mp4</code> in a cron. ReplayVOD is what falls out the day you find yourself hand-rolling resume logic and a metadata sidecar.
+      </p>
+    </div>
+
+    <div class="overflow-hidden rounded-xl border border-border-soft">
+      <div class="grid grid-cols-2 border-b border-border-soft bg-surface/40 font-mono text-[12px] uppercase tracking-[0.08em] text-fg-muted">
+        <div class="px-6 py-3">Streamlink + cron</div>
+        <div class="border-l border-border-soft px-6 py-3 text-primary">ReplayVOD</div>
+      </div>
+      {
+        rows.map((row, i) => (
+          <div
+            class:list={[
+              'px-6 py-5',
+              i < rows.length - 1 && 'border-b border-border-soft',
+            ]}
+          >
+            <div class="mb-3 font-mono text-[11.5px] uppercase tracking-[0.1em] text-fg">
+              {row.axis}
+            </div>
+            <div class="grid grid-cols-1 gap-4 text-[15.5px] leading-[1.55] md:grid-cols-2 md:gap-0">
+              <div class="text-fg-muted md:pr-8">
+                {row.rolled.map((s) =>
+                  s.code ? (
+                    <code class="rounded border border-border-soft bg-surface/60 px-1.5 py-0.5 font-mono text-[13.5px] text-fg">{s.t}</code>
+                  ) : (
+                    <span>{s.t}</span>
+                  )
+                )}
+              </div>
+              <div class="text-fg md:border-l md:border-border-soft md:pl-8">
+                {row.replayvod.map((s) =>
+                  s.emph ? <strong class="font-semibold text-fg">{s.t}</strong> : <span>{s.t}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+
+    <p class="mt-6 max-w-[700px] text-[15.5px] leading-[1.55] text-fg-muted">
+      Streamlink + a cron is fine for one channel. ReplayVOD pays off the second you want multiple channels,
+      indexed recordings, or to sleep without checking on it.
+    </p>
+  </div>
+</section>

@@ -13,6 +13,13 @@ const cards = [
     body: 'Cancel at any time. Your self-hosted recorder keeps working. You just lose the public endpoint URL.',
   },
 ];
+
+const alternatives = [
+  { name: 'Cloudflare Tunnel', detail: 'free, outbound, terminates TLS for you' },
+  { name: 'Tailscale Funnel', detail: 'one command if you already run Tailscale' },
+  { name: 'Caddy + DuckDNS', detail: 'classic if you have port 80/443 open' },
+  { name: 'Reverse SSH to a VPS', detail: 'a $4 box and an autossh unit file' },
+];
 ---
 
 <section data-reveal class="border-b border-border-soft py-32">
@@ -32,7 +39,7 @@ const cards = [
       <strong class="text-fg">never see your video files or your Twitch credentials</strong>.
     </p>
 
-    <div class="grid gap-px overflow-hidden rounded-xl border border-border bg-border-soft md:grid-cols-3">
+    <div class="mb-10 grid gap-px overflow-hidden rounded-xl border border-border bg-border-soft md:grid-cols-3">
       {
         cards.map((c) => (
           <div class="bg-bg p-7">
@@ -41,6 +48,25 @@ const cards = [
           </div>
         ))
       }
+    </div>
+
+    <div class="rounded-xl border border-border-soft bg-surface/40 p-6">
+      <div class="mb-3 font-mono text-[12px] uppercase tracking-[0.08em] text-fg-muted">
+        Self-host alternatives — all documented in the install guide
+      </div>
+      <ul class="m-0 grid list-none gap-x-8 gap-y-2 p-0 sm:grid-cols-2">
+        {
+          alternatives.map((a) => (
+            <li class="flex gap-3 text-[15.5px] leading-[1.55] text-fg">
+              <span class="mt-px flex-none text-primary">→</span>
+              <div>
+                <strong class="font-medium">{a.name}</strong>
+                <span class="ml-2 text-fg-muted">{a.detail}</span>
+              </div>
+            </li>
+          ))
+        }
+      </ul>
     </div>
   </div>
 </section>

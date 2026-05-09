@@ -24,7 +24,7 @@ const faqs = [
 
   {
     q: 'What if Twitch changes its API?',
-    a: "We update; you pull the release. If Twitch ever forces Connect to shut down, subscribers get notified and a pro-rated refund.",
+    a: "We update; you pull the release. If Twitch ever forces Connect to shut down, subscribers get notified and a pro-rated refund. The recorder itself is unaffected.",
   },
   {
     q: 'How much storage do I need?',
@@ -33,6 +33,14 @@ const faqs = [
   {
     q: 'Synology, TrueNAS, Unraid, Raspberry Pi?',
     a: 'Docker Compose is the supported path. The arm64 build runs on a Pi 5 with external storage; concurrency depends on network and disk.',
+  },
+  {
+    q: 'Why not just Streamlink + cron?',
+    a: "It works for one channel until it doesn't. EventSub triggers in ~4 s instead of waiting for the next poll, captures resume from the last good chunk after a network blip, metadata is indexed instead of guessed from the filename, and you get per-channel rules + retention without a second cron. If you have one channel and a forgiving uplink, Streamlink is fine. The dedicated tool just stops being annoying past two.",
+  },
+  {
+    q: 'Plays nice with Jellyfin / Plex / the *arr stack?',
+    a: 'Yes. Recordings land in a folder structure your media server can scan (configurable). The dashboard sits behind whatever reverse proxy you already run — Caddy, Nginx, Traefik, HAProxy — and respects forward-auth headers from Authelia or Authentik.',
   },
 ];
 ---

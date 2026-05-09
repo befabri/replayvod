@@ -50,25 +50,26 @@ const liveCount = channels.filter((c) => c.status === 'live').length;
     <!-- Text -->
     <div>
       <h3 class="mb-4 text-[34px] leading-[1.15] tracking-[-0.02em]">
-        Watch what's <span class="text-primary">happening</span>, not just what happened.
+        Live status, <span class="text-primary">not log diving</span>.
       </h3>
       <p class="mb-6 text-[17.5px] leading-[1.6] text-fg">
-        Built for operators, not screenshots. Live state stays in sync through EventSub and SSE.
+        The dashboard shows current channel status, active jobs with progress and ETA, and a tagged event
+        log.
       </p>
       <ul class="m-0 list-none p-0">
         {
           [
             {
-              label: 'Live channel status',
-              detail: 'Followed channels stay in sync through the stream.status SSE feed.',
+              label: 'stream.status SSE feed',
+              detail: 'Followed channels go live → row turns purple within a second of the EventSub callback.',
             },
             {
-              label: 'Running job progress',
-              detail: 'Active downloads show stage, bytes written, speed, ETA, and completion percent.',
+              label: 'Per-job progress',
+              detail: 'Stage (downloading / remuxing / finalizing), bytes written, MB/s, ETA, percent complete.',
             },
             {
-              label: 'Event log stream',
-              detail: 'Tagged events for recorder, EventSub, scheduler, remuxer, and storage.',
+              label: 'Tagged event log',
+              detail: 'recorder, eventsub, scheduler, remuxer, storage. Filterable. Persisted to the same DB.',
             },
           ].map((item, i, arr) => (
             <li

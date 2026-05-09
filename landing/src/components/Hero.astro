@@ -17,26 +17,25 @@ import { site } from '../config';
     <!-- Left: copy -->
     <div>
       <h1 class="mb-5 text-display-1 font-medium text-balance lg:max-w-[14em]">
-        Record your <span class="text-primary">Twitch streams</span>. Keep them forever.
+        Self-hosted <span class="text-primary">Twitch VOD recorder</span>.
       </h1>
 
-      <p class="mb-7 max-w-[480px] text-[19px] leading-[1.55] text-fg">
-        Self-hosted VOD recorder. Twitch wipes VODs after 14 days — yours stays as long as your disk does.
+      <p class="mb-7 max-w-[520px] text-[19px] leading-[1.55] text-fg">
+        Twitch deletes VODs after 14 days. ReplayVOD records the source stream to your disk so they don't
+        disappear. One container, embedded SQLite, runs on a Pi 5.
       </p>
 
       <div class="mb-7 flex flex-wrap items-center gap-3">
-        <a href="#install" class="btn btn-primary btn-lg">Get started — it's free →</a>
+        <a href="#install" class="btn btn-primary btn-lg">Read the install →</a>
         <a href={site.github} class="btn btn-lg" target="_blank" rel="noopener noreferrer">View on GitHub</a>
       </div>
 
-      <div class="flex gap-[22px] font-mono text-[13px] text-fg-muted">
-        <span class="flex items-center gap-1.5"><span class="text-live">●</span> GPLv3 licensed</span>
-        <span>self-hosted · zero telemetry</span>
+      <div class="flex flex-wrap gap-x-[22px] gap-y-2 font-mono text-[13px] text-fg-muted">
+        <span>GPLv3</span>
+        <span>zero telemetry</span>
+        <span>amd64 · arm64</span>
+        <span>SQLite or Postgres</span>
       </div>
-
-      <p class="mt-5 font-mono text-[12px] tracking-[0.04em] text-fg-muted">
-        Not affiliated with Twitch Interactive, Inc. "Twitch" is their trademark.
-      </p>
     </div>
 
     <!-- Right: mini dashboard visual. Flat Catppuccin-Macchiato palette matched to

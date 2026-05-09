@@ -1,32 +1,40 @@
 ---
+// Spec strip. The numbers homelabbers actually filter on before adding another
+// container to the stack: storage cost, RAM idle/load, CPU under load, arch,
+// and reverse-proxy compat. Concurrency stays in because it's the hot question.
 const stats = [
-  { label: 'Bitrate', value: '8 Mb/s', desc: 'Original 1080p60 source. No re-encode.' },
-  { label: 'Lag', value: '< 4s', desc: 'EventSub → first segment captured.' },
-  { label: 'Concurrency', value: '32', desc: 'Parallel recordings on a single 4-core host.' },
-  { label: 'Memory', value: '~ 240 MB', desc: 'Idle footprint of the full stack.' },
+  { label: 'Disk per hour', value: '~ 3.5 GB', desc: '1080p60 source bitrate. No re-encode.' },
+  { label: 'EventSub → first byte', value: '< 4 s', desc: 'stream.online callback to first segment on disk.' },
+  { label: 'Concurrency', value: '32', desc: 'Parallel recordings on a 4-core host.' },
+  { label: 'RAM idle / under load', value: '~ 240 MB', desc: '~ 320 MB with eight live recordings.' },
+  { label: 'Architectures', value: 'amd64 · arm64', desc: 'Multi-arch image. Pi 5 with external storage works.' },
+  { label: 'Reverse proxy', value: 'any', desc: 'Caddy, Nginx, Traefik, HAProxy. Bring your own TLS.' },
 ];
 ---
 
-<section data-reveal class="border-b border-border-soft py-32">
-  <div class="mx-auto grid max-w-[1320px] grid-cols-1 px-8 sm:grid-cols-2 lg:grid-cols-4">
-    {
-      stats.map((s, i) => (
-        <div
-          class:list={[
-            'relative py-5 lg:py-0 lg:px-8',
-            i > 0 && 'border-t border-border-soft lg:border-t-0 lg:border-l lg:border-border-soft',
-            i === 0 && 'lg:pl-0',
-            i === stats.length - 1 && 'lg:pr-0',
-          ]}
-        >
-          <div class="mb-3 flex items-center gap-2 font-mono text-[13px] uppercase tracking-[0.08em] text-fg-muted">
-            <span class="h-1 w-1 rounded-full bg-primary" />
-            {s.label}
+<section data-reveal class="border-y border-border-soft py-20">
+  <div class="mx-auto max-w-[1320px] px-8">
+    <div class="mb-10 max-w-[640px]">
+      <span class="mb-3 inline-block font-mono text-[12px] uppercase tracking-[0.1em] text-fg-muted">
+        Cost of adding ReplayVOD to your stack
+      </span>
+      <h2 class="text-[26px] font-medium leading-[1.2] tracking-[-0.02em] text-balance">
+        The numbers, at a glance.
+      </h2>
+    </div>
+    <div class="grid grid-cols-1 border-l border-t border-border-soft sm:grid-cols-2 lg:grid-cols-3">
+      {
+        stats.map((s) => (
+          <div class="border-b border-r border-border-soft p-7">
+            <div class="mb-3 flex items-center gap-2 font-mono text-[12.5px] uppercase tracking-[0.08em] text-fg-muted">
+              <span class="h-1 w-1 rounded-full bg-primary" />
+              {s.label}
+            </div>
+            <div class="mb-1.5 font-heading text-[30px] font-normal leading-[1.05] tabular-nums">{s.value}</div>
+            <div class="text-[15.5px] leading-[1.55] text-fg-muted">{s.desc}</div>
           </div>
-          <div class="mb-2 font-heading text-display-3 font-normal tabular-nums">{s.value}</div>
-          <div class="text-[16px] leading-[1.55] text-fg">{s.desc}</div>
-        </div>
-      ))
-    }
+        ))
+      }
+    </div>
   </div>
 </section>

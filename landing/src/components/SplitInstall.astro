@@ -1,23 +1,27 @@
 ---
-type Part = { t: string; w?: true };
 type Line =
   | { kind: 'comment'; text: string }
-  | { kind: 'cmd'; prompt: '$' | 'PS>'; parts: Part[] }
+  | { kind: 'yaml'; indent: number; text: string }
   | { kind: 'blank' }
+  | { kind: 'shell'; text: string }
   | { kind: 'status'; tag: string; value: string };
 
+// What runs once you `docker compose up`. This is the real artifact, trimmed
+// to the SQLite path so the panel stays scannable. The full compose with the
+// Postgres profile is in the install docs.
 const lines: Line[] = [
-  { kind: 'comment', text: '# 1. Install' },
-  { kind: 'comment', text: '#    macOS / Linux' },
-  { kind: 'cmd', prompt: '$', parts: [{ t: 'curl -fsSL ', w: true }, { t: 'https://replayvod.com/install.sh' }, { t: ' | sh', w: true }] },
+  { kind: 'comment', text: '# docker-compose.yml' },
+  { kind: 'yaml', indent: 0, text: 'services:' },
+  { kind: 'yaml', indent: 1, text: 'replayvod:' },
+  { kind: 'yaml', indent: 2, text: 'image: ghcr.io/befabri/replayvod:latest' },
+  { kind: 'yaml', indent: 2, text: 'restart: unless-stopped' },
+  { kind: 'yaml', indent: 2, text: 'ports: ["8080:8080"]' },
+  { kind: 'yaml', indent: 2, text: 'env_file: [./server/.env]' },
+  { kind: 'yaml', indent: 2, text: 'volumes:' },
+  { kind: 'yaml', indent: 3, text: '- ./data:/app/data       # videos + SQLite' },
+  { kind: 'yaml', indent: 3, text: '- ./logs:/app/logs' },
   { kind: 'blank' },
-  { kind: 'comment', text: '#    Windows (PowerShell + Docker Desktop)' },
-  { kind: 'cmd', prompt: 'PS>', parts: [{ t: 'irm ', w: true }, { t: 'https://replayvod.com/install.ps1' }, { t: ' | iex', w: true }] },
-  { kind: 'blank' },
-  { kind: 'comment', text: '# 2. Open the dashboard' },
-  { kind: 'cmd', prompt: '$', parts: [{ t: 'open ', w: true }, { t: 'http://localhost:8080' }] },
-  { kind: 'blank' },
-  { kind: 'comment', text: '# 3. Done' },
+  { kind: 'shell', text: '$ docker compose up -d' },
   { kind: 'status', tag: 'replayvod', value: 'listening on :8080' },
   { kind: 'status', tag: 'eventsub', value: 'subscribed · 8 channels' },
 ];
@@ -25,19 +29,18 @@ const lines: Line[] = [
 
 <section id="install" data-reveal class="border-b border-border-soft py-32">
   <div class="mx-auto grid max-w-[1320px] grid-cols-1 items-center gap-20 px-8 lg:grid-cols-2">
-    <!-- Terminal block (first on mobile, second on desktop via order).
-         Flat Catppuccin-Macchiato-flavored palette: project primary for prompts,
-         peach for commands, mint for status. No window-chrome traffic lights — the
-         flat title bar carries the path and elapsed-time hint instead. -->
+    <!-- Compose block (first on mobile, second on desktop via order). Restrained
+         palette: dimmed comments, default fg for YAML, project primary for the
+         shell line, mint only on the status output so it reads as runtime. -->
     <div
       role="img"
-      aria-label="Sample terminal session showing macOS, Linux, and Windows install commands."
+      aria-label="Sample docker-compose.yml for ReplayVOD with the SQLite profile."
       class="order-2 lg:order-1 overflow-hidden rounded-xl border border-[#2a2740] bg-[#1c1a2e] font-mono text-[14px] shadow-[0_18px_44px_rgba(0,0,0,0.35)]"
     >
       <!-- Flat title bar -->
       <div class="flex items-center border-b border-[#2a2740] px-5 py-3">
-        <span class="text-[12px] uppercase tracking-[0.14em] text-[#8c8fa1]">~/replayvod · zsh</span>
-        <span class="ml-auto text-[11px] uppercase tracking-[0.2em] text-[#8c8fa1]/70">90s</span>
+        <span class="text-[12px] uppercase tracking-[0.14em] text-[#8c8fa1]">~/replayvod · docker-compose.yml</span>
+        <span class="ml-auto text-[11px] uppercase tracking-[0.2em] text-[#8c8fa1]/70">sqlite</span>
       </div>
 
       <!-- Body: line gutter + content rendered from one source so numbers always match -->
@@ -52,17 +55,22 @@ const lines: Line[] = [
               if (line.kind === 'blank') return <div>&nbsp;</div>;
               if (line.kind === 'comment')
                 return <div class="text-[#7a7c98]">{line.text}</div>;
-              if (line.kind === 'cmd')
+              if (line.kind === 'yaml')
                 return (
-                  <div class="text-[#f5a97f]">
-                    <span class="text-primary">{line.prompt}</span>{' '}
-                    {line.parts.map((p) => <span class={p.w ? 'text-white' : ''}>{p.t}</span>)}
+                  <div class="text-[#cdd6f4]">
+                    <span>{' '.repeat(line.indent * 2)}</span>{line.text}
+                  </div>
+                );
+              if (line.kind === 'shell')
+                return (
+                  <div class="text-primary">
+                    {line.text}
                   </div>
                 );
               return (
-                <div class="grid grid-cols-[1.25rem_6rem_1fr] items-center">
-                  <span class="text-[#a6da95]">●</span>
-                  <span class="text-[#a6da95]">{line.tag}</span>
+                <div class="grid grid-cols-[1.25rem_6rem_1fr] items-center text-[#a6da95]">
+                  <span>●</span>
+                  <span>{line.tag}</span>
                   <span class="text-[#a6da95]/70">{line.value}</span>
                 </div>
               );
@@ -75,15 +83,16 @@ const lines: Line[] = [
     <!-- Text -->
     <div class="order-1 lg:order-2">
       <h3 class="mb-4 text-[34px] leading-[1.15] tracking-[-0.02em]">
-        Up in <span class="text-primary">90</span>s. On your hardware.<span class="text-fg-muted"> Forever.</span>
+        One <span class="text-primary">container</span>. Your hardware.
       </h3>
       <p class="mb-6 text-[17.5px] leading-[1.6] text-fg">
-        One Docker Compose file, one Twitch app credential, one volume mount. Single binary with embedded
-        SQLite. Zero phone-home.
+        One Docker Compose file, one Twitch dev app, one volume mount. Single binary with embedded SQLite.
+        Zero phone-home.
       </p>
       <a href="/docs/install/" class="mb-6 inline-flex text-sm font-medium text-primary underline">
         Read full installation docs →
       </a>
+
       <ul class="m-0 list-none p-0">
         {
           [
@@ -115,6 +124,7 @@ const lines: Line[] = [
           ))
         }
       </ul>
+
     </div>
   </div>
 </section>
