@@ -2,10 +2,7 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"go/format"
 	"log/slog"
@@ -62,43 +59,6 @@ func Generate(defs []EndpointDef, opts GenerateOptions) error {
 		}
 	}
 	return nil
-}
-
-func computeSourceHash(sourceURL string, defs []EndpointDef, eventSubRef *EventSubReference, eventSubSubs []EventSubSubscriptionType) (string, error) {
-	sortedDefs := make([]EndpointDef, len(defs))
-	copy(sortedDefs, defs)
-	slices.SortFunc(sortedDefs, func(a, b EndpointDef) int {
-		return strings.Compare(a.ID, b.ID)
-	})
-
-	sortedEventSubSubs := make([]EventSubSubscriptionType, len(eventSubSubs))
-	copy(sortedEventSubSubs, eventSubSubs)
-	slices.SortFunc(sortedEventSubSubs, func(a, b EventSubSubscriptionType) int {
-		if c := strings.Compare(a.Type, b.Type); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Version, b.Version)
-	})
-
-	payload := struct {
-		Version           int
-		SourceURL         string
-		Endpoints         []EndpointDef
-		EventSubReference *EventSubReference
-		EventSubSubs      []EventSubSubscriptionType
-	}{
-		Version:           1,
-		SourceURL:         sourceURL,
-		Endpoints:         sortedDefs,
-		EventSubReference: eventSubRef,
-		EventSubSubs:      sortedEventSubSubs,
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal source hash payload: %w", err)
-	}
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:]), nil
 }
 
 func renderAndWrite(tmplName, outPath string, data any) error {

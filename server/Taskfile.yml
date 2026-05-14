@@ -81,12 +81,12 @@ tasks:
       - cp ./tmp/reference.html ./tools/twitch-api-gen/testdata/reference-snapshot.html
       - cp ./tmp/eventsub-reference.html ./tools/twitch-api-gen/testdata/eventsub-reference-snapshot.html
       - cp ./tmp/eventsub-subscription-types.html ./tools/twitch-api-gen/testdata/eventsub-subscription-types-snapshot.html
-      - go run ./tools/twitch-api-gen -out ./tools/twitch-api-gen/testdata/expected -cache ./tools/twitch-api-gen/testdata/reference-snapshot.html -eventsub-ref-cache ./tools/twitch-api-gen/testdata/eventsub-reference-snapshot.html -eventsub-types-cache ./tools/twitch-api-gen/testdata/eventsub-subscription-types-snapshot.html
+      - go run ./tools/twitch-api-gen -out ./tools/twitch-api-gen/testdata/expected -schema-out ./tools/twitch-api-gen/testdata/normalized-schema.json -cache ./tools/twitch-api-gen/testdata/reference-snapshot.html -eventsub-ref-cache ./tools/twitch-api-gen/testdata/eventsub-reference-snapshot.html -eventsub-types-cache ./tools/twitch-api-gen/testdata/eventsub-subscription-types-snapshot.html
 
   twitch-api-gen:check:
     desc: CI gate — fails (exit 2) when committed internal/twitch/generated_*.go is out of sync with the generator; exit 1 on infra errors
     cmds:
-      - go run ./tools/twitch-api-gen -check -out ./internal/twitch/ -cache ./tools/twitch-api-gen/testdata/reference-snapshot.html -eventsub-ref-cache ./tools/twitch-api-gen/testdata/eventsub-reference-snapshot.html -eventsub-types-cache ./tools/twitch-api-gen/testdata/eventsub-subscription-types-snapshot.html
+      - go run ./tools/twitch-api-gen -check -out ./internal/twitch/ -schema-in ./tools/twitch-api-gen/testdata/normalized-schema.json
 
   gen:
     desc: Run all code generation (sqlc + trpcgen)

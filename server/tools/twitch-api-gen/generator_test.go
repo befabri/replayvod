@@ -34,32 +34,29 @@ func silentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// snapshotPipeline runs the full scraper → generator flow against committed
-// fixtures and returns the output directory.
+func loadNormalizedSchema(t *testing.T) normalizedSchema {
+	t.Helper()
+	schema, err := readNormalizedSchema(filepath.Join("testdata", "normalized-schema.json"))
+	if err != nil {
+		t.Fatalf("read normalized schema: %v", err)
+	}
+	return schema
+}
+
+// snapshotPipeline runs the generator against the committed normalized scraper
+// output and returns the output directory. TestScraperSnapshot_matchesNormalizedSchema
+// separately verifies the scraper still produces that JSON from the HTML fixtures.
 func snapshotPipeline(t *testing.T) string {
 	t.Helper()
 	log := silentLogger()
-
-	ref := loadSnapshot(t)
-	Normalize(ref, log)
-	defs, err := ParseAll(ref, endpoints, log)
-	if err != nil {
-		t.Fatalf("parse all: %v", err)
-	}
-
-	evRef := loadDoc(t, "eventsub-reference-snapshot.html")
-	evTypes := loadDoc(t, "eventsub-subscription-types-snapshot.html")
-	esRef, esSubs, err := ParseEventSubReference(evRef, evTypes, log)
-	if err != nil {
-		t.Fatalf("parse eventsub: %v", err)
-	}
+	schema := loadNormalizedSchema(t)
 
 	outDir := t.TempDir()
-	if err := Generate(defs, GenerateOptions{
+	if err := Generate(schema.Endpoints, GenerateOptions{
 		OutDir:            outDir,
-		SourceURL:         "https://dev.twitch.tv/docs/api/reference/",
-		EventSubReference: esRef,
-		EventSubSubs:      esSubs,
+		SourceURL:         schema.SourceURL,
+		EventSubReference: schema.EventSubReference,
+		EventSubSubs:      schema.EventSubSubscriptions,
 		Log:               log,
 	}); err != nil {
 		t.Fatalf("generate: %v", err)
@@ -80,8 +77,8 @@ func parseSnapshotEndpointDefs(t *testing.T, filter []string) []EndpointDef {
 }
 
 func TestBuildModel_queryParamSemantics(t *testing.T) {
-	defs := parseSnapshotEndpointDefs(t, endpoints)
-	model, err := buildModel(defs, "https://dev.twitch.tv/docs/api/reference/", "test-source-hash", silentLogger())
+	schema := loadNormalizedSchema(t)
+	model, err := buildModel(schema.Endpoints, schema.SourceURL, "test-source-hash", silentLogger())
 	if err != nil {
 		t.Fatalf("build model: %v", err)
 	}
@@ -166,6 +163,37 @@ func TestSnapshot_generatesExpectedOutput(t *testing.T) {
 			_ = os.WriteFile(filepath.Join(outDir, name+".got"), got, 0o644)
 			t.Logf("got output saved to %s", filepath.Join(outDir, name+".got"))
 		}
+	}
+}
+
+func TestScraperSnapshot_matchesNormalizedSchema(t *testing.T) {
+	log := silentLogger()
+	ref := loadSnapshot(t)
+	Normalize(ref, log)
+	defs, err := ParseAll(ref, endpoints, log)
+	if err != nil {
+		t.Fatalf("parse all: %v", err)
+	}
+
+	evRef := loadDoc(t, "eventsub-reference-snapshot.html")
+	evTypes := loadDoc(t, "eventsub-subscription-types-snapshot.html")
+	esRef, esSubs, err := ParseEventSubReference(evRef, evTypes, log)
+	if err != nil {
+		t.Fatalf("parse eventsub: %v", err)
+	}
+
+	got, err := marshalNormalizedSchema(buildNormalizedSchema("https://dev.twitch.tv/docs/api/reference/", defs, esRef, esSubs))
+	if err != nil {
+		t.Fatalf("marshal normalized schema: %v", err)
+	}
+	want, err := os.ReadFile(filepath.Join("testdata", "normalized-schema.json"))
+	if err != nil {
+		t.Fatalf("read normalized schema fixture: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		outPath := filepath.Join(t.TempDir(), "normalized-schema.got.json")
+		_ = os.WriteFile(outPath, got, 0o644)
+		t.Fatalf("scraper output differs from testdata/normalized-schema.json; got saved to %s", outPath)
 	}
 }
 

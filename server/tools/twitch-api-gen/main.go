@@ -38,6 +38,9 @@ func main() {
 	flag.BoolVar(&debugDumpFields, "debug-fields", false, "dump response field trees to stdout")
 	var genFixtures bool
 	flag.BoolVar(&genFixtures, "gen-fixtures", false, "regenerate testdata/normalize/*.{input,expected}.html pairs from the snapshot and exit")
+	var schemaInPath, schemaOutPath string
+	flag.StringVar(&schemaInPath, "schema-in", "", "read normalized scraper JSON instead of fetching/parsing docs")
+	flag.StringVar(&schemaOutPath, "schema-out", "", "write normalized scraper JSON for review")
 	var checkCommitted bool
 	flag.BoolVar(&checkCommitted, "check", false, "run pipeline to a tempdir and fail if output differs from committed files in -out (CI gate)")
 	var explain bool
@@ -84,10 +87,60 @@ func main() {
 		outDir = tmpDir
 	}
 
+	schema, err := loadOrParseSchema(ctx, schemaInPath, referenceURL, cachePath, eventSubRefURL, eventSubTypesURL, eventSubRefCache, eventSubTypesCache, endpointsFile, refresh, log)
+	if err != nil {
+		log.Error("load normalized schema", "err", err)
+		os.Exit(1)
+	}
+	if schemaOutPath != "" {
+		if err := writeNormalizedSchema(schemaOutPath, schema); err != nil {
+			log.Error("write normalized schema", "err", err)
+			os.Exit(1)
+		}
+		log.Info("wrote normalized schema", "path", schemaOutPath)
+	}
+
+	if err := Generate(schema.Endpoints, GenerateOptions{
+		OutDir:            outDir,
+		SourceURL:         schema.SourceURL,
+		EventSubReference: schema.EventSubReference,
+		EventSubSubs:      schema.EventSubSubscriptions,
+		Log:               log,
+	}); err != nil {
+		log.Error("generate", "err", err)
+		os.Exit(1)
+	}
+	log.Info("generated", "out", outDir)
+
+	if checkCommitted {
+		if err := checkAgainstCommitted(outDir, committedOutDir, log); err != nil {
+			log.Error("check", "err", err)
+			if errors.Is(err, ErrGeneratedFilesStale) {
+				os.Exit(2)
+			}
+			os.Exit(1)
+		}
+	}
+}
+
+func loadOrParseSchema(
+	ctx context.Context,
+	schemaInPath, referenceURL, cachePath, eventSubRefURL, eventSubTypesURL, eventSubRefCache, eventSubTypesCache, endpointsFile string,
+	refresh bool,
+	log *slog.Logger,
+) (normalizedSchema, error) {
+	if schemaInPath != "" {
+		schema, err := readNormalizedSchema(schemaInPath)
+		if err != nil {
+			return normalizedSchema{}, err
+		}
+		log.Info("loaded normalized schema", "path", schemaInPath, "endpoints", len(schema.Endpoints), "eventsub_subscriptions", len(schema.EventSubSubscriptions))
+		return schema, nil
+	}
+
 	filter, err := loadEndpointFilter(endpointsFile)
 	if err != nil {
-		log.Error("load endpoint filter", "err", err)
-		os.Exit(1)
+		return normalizedSchema{}, fmt.Errorf("load endpoint filter: %w", err)
 	}
 	log.Info("endpoint filter loaded", "count", len(filter))
 
@@ -99,8 +152,7 @@ func main() {
 		Log:       log,
 	})
 	if err != nil {
-		log.Error("fetch reference html", "err", err)
-		os.Exit(1)
+		return normalizedSchema{}, fmt.Errorf("fetch reference html: %w", err)
 	}
 	Normalize(doc, log)
 	log.Info("normalized reference html")
@@ -113,8 +165,7 @@ func main() {
 		Log:       log,
 	})
 	if err != nil {
-		log.Error("fetch eventsub reference", "err", err)
-		os.Exit(1)
+		return normalizedSchema{}, fmt.Errorf("fetch eventsub reference: %w", err)
 	}
 	eventSubTypesDoc, err := Fetch(ctx, FetchOptions{
 		URL:       eventSubTypesURL,
@@ -124,14 +175,12 @@ func main() {
 		Log:       log,
 	})
 	if err != nil {
-		log.Error("fetch eventsub subscription types", "err", err)
-		os.Exit(1)
+		return normalizedSchema{}, fmt.Errorf("fetch eventsub subscription types: %w", err)
 	}
 
 	eventSubRef, eventSubSubs, err := ParseEventSubReference(eventSubRefDoc, eventSubTypesDoc, log)
 	if err != nil {
-		log.Error("parse eventsub reference", "err", err)
-		os.Exit(1)
+		return normalizedSchema{}, fmt.Errorf("parse eventsub reference: %w", err)
 	}
 	log.Info("parsed eventsub",
 		"conditions", len(eventSubRef.Conditions),
@@ -142,8 +191,7 @@ func main() {
 
 	defs, err := ParseAll(doc, filter, log)
 	if err != nil {
-		log.Error("parse endpoints", "err", err)
-		os.Exit(1)
+		return normalizedSchema{}, fmt.Errorf("parse endpoints: %w", err)
 	}
 	for _, ep := range defs {
 		log.Info("parsed endpoint",
@@ -162,28 +210,7 @@ func main() {
 			dumpFields(ep.Response, 0)
 		}
 	}
-
-	if err := Generate(defs, GenerateOptions{
-		OutDir:            outDir,
-		SourceURL:         referenceURL,
-		EventSubReference: eventSubRef,
-		EventSubSubs:      eventSubSubs,
-		Log:               log,
-	}); err != nil {
-		log.Error("generate", "err", err)
-		os.Exit(1)
-	}
-	log.Info("generated", "out", outDir)
-
-	if checkCommitted {
-		if err := checkAgainstCommitted(outDir, committedOutDir, log); err != nil {
-			log.Error("check", "err", err)
-			if errors.Is(err, ErrGeneratedFilesStale) {
-				os.Exit(2)
-			}
-			os.Exit(1)
-		}
-	}
+	return buildNormalizedSchema(referenceURL, defs, eventSubRef, eventSubSubs), nil
 }
 
 // debugDumpFields toggles a prettyprint of the parsed field tree per endpoint.
