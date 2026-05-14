@@ -1,19 +1,4 @@
 ---
-const cards = [
-  {
-    label: 'No router config',
-    body: 'Outbound WebSocket from your machine. Works behind CGNAT, dynamic IPs, IPv6-only ISPs.',
-  },
-  {
-    label: 'Transparent relay',
-    body: 'The relay forwards bytes without parsing or logging webhook bodies. Source code is public.',
-  },
-  {
-    label: 'Cancel anytime',
-    body: 'Cancel at any time. Your self-hosted recorder keeps working. You just lose the public endpoint URL.',
-  },
-];
-
 const alternatives = [
   { name: 'Cloudflare Tunnel', detail: 'free, outbound, terminates TLS for you' },
   { name: 'Tailscale Funnel', detail: 'one command if you already run Tailscale' },
@@ -39,22 +24,11 @@ const alternatives = [
       <strong class="text-fg">never see your video files or your Twitch credentials</strong>.
     </p>
 
-    <div class="mb-10 grid gap-px overflow-hidden rounded-xl border border-border bg-border-soft md:grid-cols-3">
-      {
-        cards.map((c) => (
-          <div class="bg-bg p-7">
-            <div class="mb-2 font-mono text-[13px] uppercase tracking-[0.08em] text-primary">{c.label}</div>
-            <p class="m-0 text-[16px] leading-[1.55] text-fg">{c.body}</p>
-          </div>
-        ))
-      }
-    </div>
-
-    <div class="rounded-xl border border-border-soft bg-surface/40 p-6">
-      <div class="mb-3 font-mono text-[12px] uppercase tracking-[0.08em] text-fg-muted">
-        Self-host alternatives — all documented in the install guide
+    <div class="rounded-xl border border-border bg-bg p-7">
+      <div class="mb-4 font-mono text-[13px] uppercase tracking-[0.08em] text-primary">
+        Self-host alternatives, all documented in the install guide
       </div>
-      <ul class="m-0 grid list-none gap-x-8 gap-y-2 p-0 sm:grid-cols-2">
+      <ul class="m-0 grid list-none gap-x-8 gap-y-2.5 p-0 sm:grid-cols-2">
         {
           alternatives.map((a) => (
             <li class="flex gap-3 text-[15.5px] leading-[1.55] text-fg">
