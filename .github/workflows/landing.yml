@@ -64,3 +64,4 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
       - run: go test ./...
+      - run: go run ./tools/twitch-api-gen -check -out ./internal/twitch/ -cache ./tools/twitch-api-gen/testdata/reference-snapshot.html -eventsub-ref-cache ./tools/twitch-api-gen/testdata/eventsub-reference-snapshot.html -eventsub-types-cache ./tools/twitch-api-gen/testdata/eventsub-subscription-types-snapshot.html
