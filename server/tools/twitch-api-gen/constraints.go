@@ -67,7 +67,19 @@ var (
 func ExtractConstraints(f FieldSchema) (base, dive string) {
 	desc := f.Description
 	isArrayField := strings.HasSuffix(f.Type, "[]") || IsArrayParam(desc)
+	return extractConstraints(f, isArrayField)
+}
 
+// ExtractConstraintsForArrayParam is the endpoint-aware query-param variant of
+// ExtractConstraints. Some Twitch repeated query parameters are identified by
+// explicit endpoint/field metadata rather than prose, so callers can force
+// array-level routing for constraints after resolving that metadata.
+func ExtractConstraintsForArrayParam(f FieldSchema) (base, dive string) {
+	return extractConstraints(f, true)
+}
+
+func extractConstraints(f FieldSchema, isArrayField bool) (base, dive string) {
+	desc := f.Description
 	var baseParts, diveParts []string
 
 	// String max: applies to element-level for arrays, to the field for scalars.
@@ -151,8 +163,8 @@ func formatEnumOneof(values []any) string {
 
 // isNumericType reports whether the Twitch-written type is integer-or-float-like.
 func isNumericType(t string) bool {
-	switch t {
-	case "Integer", "Unsigned Integer", "Int64", "Float", "float":
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "integer", "int", "unsigned integer", "int64", "float":
 		return true
 	}
 	return false

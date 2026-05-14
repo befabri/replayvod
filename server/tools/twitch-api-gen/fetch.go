@@ -20,6 +20,7 @@ type FetchOptions struct {
 	CachePath string
 	MaxAge    time.Duration
 	Refresh   bool
+	Client    *http.Client
 	Log       *slog.Logger
 }
 
@@ -40,7 +41,7 @@ func Fetch(ctx context.Context, opts FetchOptions) (*goquery.Document, error) {
 	}
 
 	opts.Log.Info("fetching reference html", "url", opts.URL)
-	body, err := download(ctx, opts.URL)
+	body, err := download(ctx, opts.URL, opts.Client)
 	if err != nil {
 		return nil, err
 	}
@@ -76,14 +77,16 @@ func writeCache(path string, body []byte) error {
 	return os.WriteFile(path, body, 0o644)
 }
 
-func download(ctx context.Context, url string) ([]byte, error) {
+func download(ctx context.Context, url string, client *http.Client) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("User-Agent", "replayvod-twitch-api-gen/0.1 (+https://github.com/befabri/replayvod)")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http do: %w", err)

@@ -62,7 +62,7 @@ func GoType(f FieldSchema, nestedName string) string {
 	base := translate(f.Type, nestedName)
 
 	// Timestamp detection: RFC3339 string → time.Time.
-	if isStringType(f.Type) && (strings.HasSuffix(f.Name, "_at") || strings.Contains(f.Description, "RFC3339")) {
+	if isStringType(f.Type) && isTimestampString(f) {
 		base = "time.Time"
 	}
 
@@ -71,6 +71,14 @@ func GoType(f FieldSchema, nestedName string) string {
 		base = "*" + base
 	}
 	return base
+}
+
+func isTimestampString(f FieldSchema) bool {
+	desc := strings.ToLower(f.Description)
+	if strings.Contains(desc, "unix") || strings.Contains(desc, "epoch") {
+		return false
+	}
+	return strings.HasSuffix(f.Name, "_at") || strings.Contains(f.Description, "RFC3339")
 }
 
 func translate(rawType, nestedName string) string {
@@ -154,4 +162,53 @@ func IsArrayParam(description string) bool {
 		return true
 	}
 	return false
+}
+
+// repeatedQueryParams is the explicit source of truth for Helix query
+// parameters that should be encoded as repeated values (`?id=A&id=B`). The old
+// prose matcher remains useful for endpoint-agnostic constraint extraction, but
+// generated API shape should not depend on Twitch's exact wording.
+var repeatedQueryParams = map[string]map[string]bool{
+	// ?broadcaster_id=A&broadcaster_id=B, max 100.
+	"get-channel-information": {
+		"broadcaster_id": true,
+	},
+	// ?id=A&id=B, max 100 schedule segments.
+	"get-channel-stream-schedule": {
+		"id": true,
+	},
+	// ?id=A&id=B, max 100 clips.
+	"get-clips": {
+		"id": true,
+	},
+	// ?segment=viewer&segment=broadcaster; docs say include segment per segment.
+	"get-extension-configuration-segment": {
+		"segment": true,
+	},
+	// ?id=A&id=B / ?name=A&name=B / ?igdb_id=A&igdb_id=B, max 100 for IDs.
+	"get-games": {
+		"id":      true,
+		"name":    true,
+		"igdb_id": true,
+	},
+	// ?user_id=A&user_id=B etc.; docs allow multiple filters, IDs max 100.
+	"get-streams": {
+		"user_id":    true,
+		"user_login": true,
+		"game_id":    true,
+		"language":   true,
+	},
+	// ?id=A&id=B / ?login=A&login=B, max 100.
+	"get-users": {
+		"id":    true,
+		"login": true,
+	},
+	// ?id=A&id=B, max 100 videos.
+	"get-videos": {
+		"id": true,
+	},
+}
+
+func IsRepeatedQueryParam(endpointID, name string) bool {
+	return repeatedQueryParams[endpointID][name]
 }

@@ -209,6 +209,55 @@ func TestDecodeEventSubWebhook_notificationKnownType(t *testing.T) {
 	}
 }
 
+func TestDecodeEventSubWebhook_notificationCustomPowerUpRedemptionAddBeta(t *testing.T) {
+	body := []byte(`{
+		"subscription": {
+			"id": "sub-power-up",
+			"status": "enabled",
+			"type": "channel.custom_power_up_redemption.add",
+			"version": "beta",
+			"condition": {"broadcaster_user_id": "12345", "reward_id": "reward-1"},
+			"transport": {"method": "webhook", "callback": "https://example/cb"},
+			"created_at": "2026-04-12T00:00:00Z",
+			"cost": 1
+		},
+		"event": {
+			"id": "redemption-1",
+			"broadcaster_user_id": "12345",
+			"broadcaster_user_login": "coolstreamer",
+			"broadcaster_user_name": "CoolStreamer",
+			"user_id": "67890",
+			"user_login": "viewer",
+			"user_name": "Viewer",
+			"user_input": "make it sparkle",
+			"status": "unfulfilled",
+			"custom_power_up": {
+				"id": "power-up-1",
+				"title": "Sparkle",
+				"bits": 100,
+				"prompt": "Say something"
+			},
+			"redeemed_at": "2026-04-12T00:05:00Z"
+		}
+	}`)
+	h := http.Header{}
+	h.Set(EventSubHeaderMessageType, string(MsgTypeNotification))
+	n, err := DecodeEventSubWebhook(h, body)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	ev, ok := n.Event.(*ChannelCustomPowerUpRedemptionAddEvent)
+	if !ok {
+		t.Fatalf("Event = %T; want *ChannelCustomPowerUpRedemptionAddEvent", n.Event)
+	}
+	if ev.CustomPowerUp.ID != "power-up-1" || ev.CustomPowerUp.Title != "Sparkle" || ev.CustomPowerUp.Bits != 100 {
+		t.Errorf("CustomPowerUp decoded incorrectly: %+v", ev.CustomPowerUp)
+	}
+	if ev.UserInput != "make it sparkle" || ev.Status != "unfulfilled" {
+		t.Errorf("event fields decoded incorrectly: %+v", ev)
+	}
+}
+
 func TestDecodeEventSubWebhook_notificationUnknownType(t *testing.T) {
 	logBuf, restore := captureDefaultLogger(t)
 	defer restore()

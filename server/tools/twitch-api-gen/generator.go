@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"go/format"
 	"log/slog"
@@ -11,7 +14,6 @@ import (
 	"slices"
 	"strings"
 	"text/template"
-	"time"
 )
 
 //go:embed templates/*.tmpl
@@ -21,10 +23,6 @@ var templatesFS embed.FS
 type GenerateOptions struct {
 	OutDir    string
 	SourceURL string
-	// Timestamp is the value used in the generated-file header. When zero, uses
-	// the current UTC time. Tests and snapshot-driven runs should pass a fixed
-	// value (e.g. the cache file mtime) so the output is reproducible.
-	Timestamp time.Time
 	// Optional EventSub scraper output; when present, the generator emits
 	// generated_eventsub.go with typed Condition/Event overlays and rewires
 	// the Condition field on EventSubSubscription / CreateEventSubSubscriptionBody.
@@ -38,11 +36,11 @@ func Generate(defs []EndpointDef, opts GenerateOptions) error {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	ts := opts.Timestamp
-	if ts.IsZero() {
-		ts = time.Now().UTC()
+	sourceHash, err := computeSourceHash(opts.SourceURL, defs, opts.EventSubReference, opts.EventSubSubs)
+	if err != nil {
+		return err
 	}
-	model, err := buildModel(defs, opts.SourceURL, ts, opts.Log)
+	model, err := buildModel(defs, opts.SourceURL, sourceHash, opts.Log)
 	if err != nil {
 		return err
 	}
@@ -64,6 +62,43 @@ func Generate(defs []EndpointDef, opts GenerateOptions) error {
 		}
 	}
 	return nil
+}
+
+func computeSourceHash(sourceURL string, defs []EndpointDef, eventSubRef *EventSubReference, eventSubSubs []EventSubSubscriptionType) (string, error) {
+	sortedDefs := make([]EndpointDef, len(defs))
+	copy(sortedDefs, defs)
+	slices.SortFunc(sortedDefs, func(a, b EndpointDef) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+
+	sortedEventSubSubs := make([]EventSubSubscriptionType, len(eventSubSubs))
+	copy(sortedEventSubSubs, eventSubSubs)
+	slices.SortFunc(sortedEventSubSubs, func(a, b EventSubSubscriptionType) int {
+		if c := strings.Compare(a.Type, b.Type); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Version, b.Version)
+	})
+
+	payload := struct {
+		Version           int
+		SourceURL         string
+		Endpoints         []EndpointDef
+		EventSubReference *EventSubReference
+		EventSubSubs      []EventSubSubscriptionType
+	}{
+		Version:           1,
+		SourceURL:         sourceURL,
+		Endpoints:         sortedDefs,
+		EventSubReference: eventSubRef,
+		EventSubSubs:      sortedEventSubSubs,
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal source hash payload: %w", err)
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func renderAndWrite(tmplName, outPath string, data any) error {
@@ -89,7 +124,7 @@ func renderAndWrite(tmplName, outPath string, data any) error {
 
 type templateModel struct {
 	SourceURL          string
-	Timestamp          string
+	SourceHash         string
 	ImportTime         bool
 	Types              []typeModel
 	ParamTypes         []typeModel
@@ -212,10 +247,10 @@ type endpointModel struct {
 	ErrReturn    string
 }
 
-func buildModel(defs []EndpointDef, sourceURL string, timestamp time.Time, log *slog.Logger) (*templateModel, error) {
+func buildModel(defs []EndpointDef, sourceURL, sourceHash string, log *slog.Logger) (*templateModel, error) {
 	model := &templateModel{
-		SourceURL: sourceURL,
-		Timestamp: timestamp.UTC().Format(time.RFC3339),
+		SourceURL:  sourceURL,
+		SourceHash: sourceHash,
 	}
 
 	// Sort defs by ID for deterministic output.
@@ -475,13 +510,15 @@ func toParamFieldModel(endpointID string, f FieldSchema, log *slog.Logger) (fiel
 	if goType == "any" || goType == "[]any" {
 		log.Warn("generator: unknown param type", "name", f.Name, "type", f.Type)
 	}
-	isArray := IsArrayParam(f.Description)
+	isArray := strings.HasPrefix(goType, "[]") || IsRepeatedQueryParam(endpointID, f.Name)
 	omitEmpty := true
+	validate, validateDive := f.Validate, f.ValidateDive
 	if isArray {
 		if !strings.HasPrefix(goType, "[]") {
 			goType = "[]" + goType
 		}
 		omitEmpty = false
+		validate, validateDive = ExtractConstraintsForArrayParam(f)
 	}
 	required := f.Required != nil && *f.Required
 	if mutuallyExclusiveParamEndpoints[endpointID] {
@@ -493,9 +530,9 @@ func toParamFieldModel(endpointID string, f FieldSchema, log *slog.Logger) (fiel
 		JSONName:     f.Name,
 		OmitEmpty:    omitEmpty,
 		Required:     required,
-		Validate:     f.Validate,
-		ValidateDive: f.ValidateDive,
-		ValidateTag:  composeValidateTag(true, required, goType, f.Validate, f.ValidateDive),
+		Validate:     validate,
+		ValidateDive: validateDive,
+		ValidateTag:  composeValidateTag(true, required, goType, validate, validateDive),
 	}, nil
 }
 
@@ -536,13 +573,15 @@ func hasJSONField(fields []fieldModel, name string) bool {
 	return false
 }
 
-// singularize strips a trailing 's' (but not 'ss') or 'ies' → 'y'. Mechanical
-// English-only heuristic sufficient for Twitch's field naming.
+// singularize strips a trailing plural 's' or 'ies' → 'y'. It deliberately
+// avoids common singular endings like status/focus (-us), analysis (-is), and
+// access (-ss), because producing a slightly longer nested type name is safer
+// than silently generating malformed words like Statu.
 func singularize(name string) string {
 	if strings.HasSuffix(name, "ies") {
 		return strings.TrimSuffix(name, "ies") + "y"
 	}
-	if strings.HasSuffix(name, "ss") {
+	if strings.HasSuffix(name, "ss") || strings.HasSuffix(name, "us") || strings.HasSuffix(name, "is") {
 		return name
 	}
 	if strings.HasSuffix(name, "s") {

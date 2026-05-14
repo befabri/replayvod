@@ -38,8 +38,8 @@ func TestReStringRange(t *testing.T) {
 		"from 3 to 50 characters",
 	}
 	neg := []string{
-		"between 1 and 100 IDs",     // wrong noun
-		"Range: 0 - 900",            // numeric keyword, not chars
+		"between 1 and 100 IDs", // wrong noun
+		"Range: 0 - 900",        // numeric keyword, not chars
 	}
 	for _, s := range pos {
 		if reStringRange.FindStringSubmatch(s) == nil {
@@ -57,7 +57,7 @@ func TestReNumericRange(t *testing.T) {
 	pos := []string{
 		"Range: 0 - 900",
 		"Range: 3 - 120",
-		"range:  1 – 99",                // en-dash
+		"range:  1 – 99", // en-dash
 	}
 	neg := []string{
 		"The maximum delay is 900 seconds.",
@@ -278,6 +278,22 @@ func TestExtractConstraints(t *testing.T) {
 				Description: "The maximum delay is 900 seconds (15 minutes).",
 			},
 			wantBase: "max=900",
+		},
+		{
+			name: "numeric max in prose on lowercase int field",
+			field: FieldSchema{
+				Name: "delay", Type: "int",
+				Description: "The maximum delay is 900 seconds (15 minutes).",
+			},
+			wantBase: "max=900",
+		},
+		{
+			name: "positive integer on lowercase integer field",
+			field: FieldSchema{
+				Name: "cost", Type: "integer", Required: &bTrue,
+				Description: "The cost. Must be a positive integer.",
+			},
+			wantBase: "min=1",
 		},
 		{
 			name: "numeric max phrase does not fire on String type",

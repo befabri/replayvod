@@ -37,6 +37,20 @@ func (okRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
+type captureRoundTripper struct {
+	req *http.Request
+}
+
+func (c *captureRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.req = req.Clone(req.Context())
+	return &http.Response{
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(`{"data":[]}`)),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
+
 func newNoNetworkClient(t *testing.T) *Client {
 	t.Helper()
 	c := NewClient("test-client-id", "test-secret", slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -79,6 +93,43 @@ func TestClient_InvalidParams_FailsBeforeWire(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ID") {
 		t.Errorf("error should name the offending field ID; got %q", err.Error())
+	}
+}
+
+func TestClient_GetStreamsUserIDMax_FailsBeforeWire(t *testing.T) {
+	c := newNoNetworkClient(t)
+	params := &GetStreamsParams{UserID: make([]string, 101)}
+	for i := range params.UserID {
+		params.UserID[i] = "x"
+	}
+
+	_, _, err := c.GetStreams(context.Background(), params)
+	if err == nil {
+		t.Fatal("expected validation error; got nil")
+	}
+	var vErrs validator.ValidationErrors
+	if !errors.As(err, &vErrs) {
+		t.Fatalf("expected wrapped validator.ValidationErrors; got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "UserID") {
+		t.Errorf("error should name the offending field UserID; got %q", err.Error())
+	}
+}
+
+func TestClient_GetStreamsParams_EncodesRepeatedUserID(t *testing.T) {
+	rt := &captureRoundTripper{}
+	c := newRecordingClient(t)
+	c.httpClient = &http.Client{Transport: rt}
+
+	_, _, err := c.GetStreams(context.Background(), &GetStreamsParams{UserID: []string{"1", "2"}})
+	if err != nil {
+		t.Fatalf("GetStreams: %v", err)
+	}
+	if rt.req == nil {
+		t.Fatal("expected request to be captured")
+	}
+	if got := rt.req.URL.RawQuery; got != "user_id=1&user_id=2" {
+		t.Errorf("RawQuery = %q; want user_id=1&user_id=2", got)
 	}
 }
 

@@ -18,6 +18,7 @@ func TestSchemaGoName(t *testing.T) {
 		{"image", "Image"},
 		{"product", "Product"},
 		{"message", "Message"},
+		{"status", "Status"},
 
 		// Anchors in the singularAnchors override: ends in 's' but already singular.
 		{"max_per_stream", "MaxPerStream"},
@@ -66,9 +67,9 @@ func TestNamedSchemaResolver_resolve(t *testing.T) {
 	r := &namedSchemaResolver{ref: ref, reached: map[string]bool{}}
 
 	cases := []struct {
-		typeStr  string
-		want     string
-		wantOK   bool
+		typeStr string
+		want    string
+		wantOK  bool
 	}{
 		{"outcomes", "[]Outcome", true},
 		{"Outcomes", "[]Outcome", true}, // case-insensitive
@@ -146,6 +147,31 @@ func TestReachability_Cycle(t *testing.T) {
 		counts[tm.AnchorID]++
 	}
 	for _, a := range []string{"alpha", "beta"} {
+		if counts[a] != 1 {
+			t.Errorf("anchor %q emitted %d times; want 1", a, counts[a])
+		}
+	}
+}
+
+// TestReachability_Diamond asserts a shared dependency reached through two
+// paths is emitted once, not once per parent branch.
+func TestReachability_Diamond(t *testing.T) {
+	ref := &EventSubReference{
+		NamedSchemas: map[string]EventSubSchema{
+			"alpha":  {AnchorID: "alpha", Fields: []FieldSchema{{Name: "b_ref", Type: "beta"}, {Name: "g_ref", Type: "gamma"}}},
+			"beta":   {AnchorID: "beta", Fields: []FieldSchema{{Name: "shared_ref", Type: "shared"}}},
+			"gamma":  {AnchorID: "gamma", Fields: []FieldSchema{{Name: "shared_ref", Type: "shared"}}},
+			"shared": {AnchorID: "shared", Fields: []FieldSchema{{Name: "v", Type: "String"}}},
+		},
+	}
+	resolver := &namedSchemaResolver{ref: ref, reached: map[string]bool{"alpha": true}}
+	out := emitReachedNamedSchemas(ref, resolver, &templateModel{}, silentLogger())
+
+	counts := map[string]int{}
+	for _, tm := range out {
+		counts[tm.AnchorID]++
+	}
+	for _, a := range []string{"alpha", "beta", "gamma", "shared"} {
 		if counts[a] != 1 {
 			t.Errorf("anchor %q emitted %d times; want 1", a, counts[a])
 		}

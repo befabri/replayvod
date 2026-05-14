@@ -21,16 +21,17 @@ var ErrGeneratedFilesStale = errors.New("generated files out of date")
 var checkedFiles = []string{"generated_client.go", "generated_eventsub.go", "generated_types.go"}
 
 // checkAgainstCommitted compares the freshly-generated files in generatedDir
-// to the committed copies in committedDir, ignoring the `// Generated:`
-// timestamp line. Returns ErrGeneratedFilesStale wrapped with the list of
-// stale filenames when output drifts from the committed state; returns a
-// plain error for I/O failures.
+// to the committed copies in committedDir. Returns ErrGeneratedFilesStale
+// wrapped with the list of stale filenames when output drifts from the
+// committed state; returns a plain error for I/O failures.
 //
 // A missing committed file is treated as drift, not an I/O error — a new
 // generator output without a committed counterpart is real missing work.
 func checkAgainstCommitted(generatedDir, committedDir string, log *slog.Logger) error {
 	var stale []string
+	checked := make(map[string]bool, len(checkedFiles))
 	for _, name := range checkedFiles {
+		checked[name] = true
 		gen, err := os.ReadFile(filepath.Join(generatedDir, name))
 		if err != nil {
 			return fmt.Errorf("read generated %s: %w", name, err)
@@ -41,8 +42,21 @@ func checkAgainstCommitted(generatedDir, committedDir string, log *slog.Logger) 
 			stale = append(stale, name+" (committed file missing)")
 			continue
 		}
-		if !bytes.Equal(stripTimestampLine(gen), stripTimestampLine(committed)) {
+		if !bytes.Equal(gen, committed) {
 			stale = append(stale, name)
+		}
+	}
+	entries, err := os.ReadDir(committedDir)
+	if err != nil {
+		return fmt.Errorf("read committed dir: %w", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || checked[name] {
+			continue
+		}
+		if strings.HasPrefix(name, "generated_") && strings.HasSuffix(name, ".go") {
+			stale = append(stale, name+" (orphan committed file)")
 		}
 	}
 	if len(stale) > 0 {
@@ -50,21 +64,4 @@ func checkAgainstCommitted(generatedDir, committedDir string, log *slog.Logger) 
 	}
 	log.Info("check: generated files up to date", "dir", committedDir, "files", len(checkedFiles))
 	return nil
-}
-
-// stripTimestampLine rewrites the `// Generated: …` header line to a stable
-// sentinel so `-check` tolerates wall-clock regen timestamps. Scans the whole
-// file for the prefix — the earlier SplitN-into-4 bound was a perf
-// micro-optimisation that would silently false-positive if the header ever
-// grew past four lines.
-func stripTimestampLine(b []byte) []byte {
-	const prefix = "// Generated:"
-	lines := bytes.Split(b, []byte{'\n'})
-	for i, line := range lines {
-		if bytes.HasPrefix(line, []byte(prefix)) {
-			lines[i] = []byte("// Generated: <stripped>")
-			break
-		}
-	}
-	return bytes.Join(lines, []byte{'\n'})
 }

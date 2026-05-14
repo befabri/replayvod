@@ -36,8 +36,6 @@ func main() {
 	flag.StringVar(&eventSubRefCache, "eventsub-ref-cache", "./tmp/eventsub-reference.html", "path to cache the EventSub reference HTML")
 	flag.StringVar(&eventSubTypesCache, "eventsub-types-cache", "./tmp/eventsub-subscription-types.html", "path to cache the EventSub subscription types HTML")
 	flag.BoolVar(&debugDumpFields, "debug-fields", false, "dump response field trees to stdout")
-	var timestampOverride string
-	flag.StringVar(&timestampOverride, "timestamp", "", "RFC3339 timestamp for generated header; overrides cache file mtime")
 	var genFixtures bool
 	flag.BoolVar(&genFixtures, "gen-fixtures", false, "regenerate testdata/normalize/*.{input,expected}.html pairs from the snapshot and exit")
 	var checkCommitted bool
@@ -165,21 +163,9 @@ func main() {
 		}
 	}
 
-	var ts time.Time
-	if timestampOverride != "" {
-		t, err := time.Parse(time.RFC3339, timestampOverride)
-		if err != nil {
-			log.Error("parse timestamp override", "err", err)
-			os.Exit(1)
-		}
-		ts = t.UTC()
-	} else if fi, err := os.Stat(cachePath); err == nil {
-		ts = fi.ModTime().UTC()
-	}
 	if err := Generate(defs, GenerateOptions{
 		OutDir:            outDir,
 		SourceURL:         referenceURL,
-		Timestamp:         ts,
 		EventSubReference: eventSubRef,
 		EventSubSubs:      eventSubSubs,
 		Log:               log,

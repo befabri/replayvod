@@ -7,14 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
-
-// snapshotTimestamp is used when rendering the snapshot-test fixtures so the
-// `// Generated:` header in testdata/expected/ stays stable.
-var snapshotTimestamp = time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
 
 func loadDoc(t *testing.T, name string) *goquery.Document {
 	t.Helper()
@@ -63,7 +58,6 @@ func snapshotPipeline(t *testing.T) string {
 	if err := Generate(defs, GenerateOptions{
 		OutDir:            outDir,
 		SourceURL:         "https://dev.twitch.tv/docs/api/reference/",
-		Timestamp:         snapshotTimestamp,
 		EventSubReference: esRef,
 		EventSubSubs:      esSubs,
 		Log:               log,
@@ -71,6 +65,82 @@ func snapshotPipeline(t *testing.T) string {
 		t.Fatalf("generate: %v", err)
 	}
 	return outDir
+}
+
+func parseSnapshotEndpointDefs(t *testing.T, filter []string) []EndpointDef {
+	t.Helper()
+	log := silentLogger()
+	doc := loadSnapshot(t)
+	Normalize(doc, log)
+	defs, err := ParseAll(doc, filter, log)
+	if err != nil {
+		t.Fatalf("parse all: %v", err)
+	}
+	return defs
+}
+
+func TestBuildModel_queryParamSemantics(t *testing.T) {
+	defs := parseSnapshotEndpointDefs(t, endpoints)
+	model, err := buildModel(defs, "https://dev.twitch.tv/docs/api/reference/", "test-source-hash", silentLogger())
+	if err != nil {
+		t.Fatalf("build model: %v", err)
+	}
+
+	params := findTypeModel(t, model.ParamTypes, "GetStreamsParams")
+	userID := findFieldModel(t, params.Fields, "UserID")
+	if userID.GoType != "[]string" {
+		t.Errorf("GetStreamsParams.UserID GoType = %q; want []string", userID.GoType)
+	}
+	if userID.OmitEmpty {
+		t.Errorf("GetStreamsParams.UserID OmitEmpty = true; want false for repeated query params")
+	}
+	if userID.ValidateTag != "omitempty,max=100" {
+		t.Errorf("GetStreamsParams.UserID validate = %q; want omitempty,max=100", userID.ValidateTag)
+	}
+
+	typeField := findFieldModel(t, params.Fields, "Type")
+	if typeField.GoType != "string" {
+		t.Errorf("GetStreamsParams.Type GoType = %q; want string", typeField.GoType)
+	}
+	if !typeField.OmitEmpty {
+		t.Errorf("GetStreamsParams.Type OmitEmpty = false; want true for scalar query params")
+	}
+	if typeField.ValidateTag != "omitempty,oneof=all live" {
+		t.Errorf("GetStreamsParams.Type validate = %q; want omitempty,oneof=all live", typeField.ValidateTag)
+	}
+
+	first := findFieldModel(t, params.Fields, "First")
+	if first.GoType != "int" {
+		t.Errorf("GetStreamsParams.First GoType = %q; want int", first.GoType)
+	}
+	if !first.OmitEmpty {
+		t.Errorf("GetStreamsParams.First OmitEmpty = false; want true for scalar query params")
+	}
+	if first.ValidateTag != "" {
+		t.Errorf("GetStreamsParams.First validate = %q; want no validate tag", first.ValidateTag)
+	}
+}
+
+func findTypeModel(t *testing.T, types []typeModel, name string) typeModel {
+	t.Helper()
+	for _, typ := range types {
+		if typ.Name == name {
+			return typ
+		}
+	}
+	t.Fatalf("type %s not found", name)
+	return typeModel{}
+}
+
+func findFieldModel(t *testing.T, fields []fieldModel, name string) fieldModel {
+	t.Helper()
+	for _, field := range fields {
+		if field.GoName == name {
+			return field
+		}
+	}
+	t.Fatalf("field %s not found", name)
+	return fieldModel{}
 }
 
 // generatedFilenames lists every file Generate produces when EventSub input is present.
