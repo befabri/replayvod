@@ -35,8 +35,8 @@ const faqs = [
     a: 'Docker Compose is the supported path. The arm64 build runs on a Pi 5 with external storage; concurrency depends on network and disk.',
   },
   {
-    q: 'Why not just Streamlink + cron?',
-    a: "It works for one channel until it doesn't. EventSub triggers in ~4 s instead of waiting for the next poll, captures resume from the last good chunk after a network blip, metadata is indexed instead of guessed from the filename, and you get per-channel rules + retention without a second cron. If you have one channel and a forgiving uplink, Streamlink is fine. The dedicated tool just stops being annoying past two.",
+    q: 'Why not just Streamlink/yt-dlp + cron?',
+    a: "It works for one channel until it doesn't. EventSub triggers in ~4 s instead of waiting for the next poll, captures resume from the last good chunk after a network blip, metadata is indexed instead of guessed from the filename, and you get per-channel rules + retention without a second cron. If you have one channel and a forgiving uplink, either CLI is fine. The dedicated tool just stops being annoying past two.",
   },
   {
     q: 'Plays nice with Jellyfin / Plex / the *arr stack?',

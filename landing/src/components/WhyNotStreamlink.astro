@@ -40,16 +40,16 @@ const rows: Row[] = [
   <div class="mx-auto max-w-[1320px] px-8">
     <div class="mb-10 max-w-[760px]">
       <h2 class="text-display-2 text-balance">
-        Why not just <span class="text-primary">Streamlink</span> + cron?
+        Why not just <span class="text-primary">Streamlink</span>/<span class="text-primary">yt-dlp</span> + cron?
       </h2>
       <p class="mt-5 text-[17.5px] leading-[1.55] text-fg">
-        Most of us got here from a <code class="rounded-md border border-border-soft bg-surface/60 px-2 py-0.5 font-mono text-[14.5px] text-fg">streamlink twitch.tv/foo best -o vod.mp4</code> in a cron. ReplayVOD is what falls out the day you find yourself hand-rolling resume logic and a metadata sidecar.
+        Most of us got here from a <code class="rounded-md border border-border-soft bg-surface/60 px-2 py-0.5 font-mono text-[14.5px] text-fg">streamlink twitch.tv/foo best -o vod.mp4</code> or a <code class="rounded-md border border-border-soft bg-surface/60 px-2 py-0.5 font-mono text-[14.5px] text-fg">yt-dlp</code> one-liner in a cron. ReplayVOD is what falls out the day you find yourself hand-rolling resume logic and a metadata sidecar.
       </p>
     </div>
 
     <div class="overflow-hidden rounded-xl border border-border-soft">
       <div class="grid grid-cols-2 border-b border-border-soft bg-surface/40 font-mono text-[12px] uppercase tracking-[0.08em] text-fg-muted">
-        <div class="px-6 py-3">Streamlink + cron</div>
+        <div class="px-6 py-3">Streamlink/yt-dlp + cron</div>
         <div class="border-l border-border-soft px-6 py-3 text-primary">ReplayVOD</div>
       </div>
       {
@@ -85,7 +85,7 @@ const rows: Row[] = [
     </div>
 
     <p class="mt-6 max-w-[700px] text-[15.5px] leading-[1.55] text-fg-muted">
-      Streamlink + a cron is fine for one channel. ReplayVOD pays off the second you want multiple channels,
+      Streamlink or yt-dlp in a cron is fine for one channel. ReplayVOD pays off the second you want multiple channels,
       indexed recordings, or to sleep without checking on it.
     </p>
   </div>
