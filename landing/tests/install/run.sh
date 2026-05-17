@@ -2,7 +2,6 @@
 set -eu
 
 INSTALL_SCRIPT=${INSTALL_SCRIPT:-/workspace/landing/public/install.sh}
-INSTALL_PS1=${INSTALL_PS1:-/workspace/landing/public/install.ps1}
 BASE=${TMPDIR:-/tmp}/replayvod-install-tests.$$
 
 pass_count=0
@@ -341,20 +340,11 @@ test_docker_compose_v1_fallback() {
 
 test_public_installer_assets() {
   [ -f "$INSTALL_SCRIPT" ] || fail "missing install.sh"
-  [ -f "$INSTALL_PS1" ] || fail "missing install.ps1"
+  [ ! -e /workspace/landing/public/install.ps1 ] || fail "install.ps1 should not exist; Windows uses manual docker compose"
 
   assert_file_contains "$INSTALL_SCRIPT" 'REPLAYVOD_PROFILE' 'unix installer profile override'
   assert_file_contains "$INSTALL_SCRIPT" 'prompt_secret_env TWITCH_SECRET' 'unix secret prompt'
-  assert_file_contains "$INSTALL_PS1" 'REPLAYVOD_PROFILE' 'windows installer profile override'
-  assert_file_contains "$INSTALL_PS1" 'REPLAYVOD_INSTALL_MODE' 'windows installer mode switch'
-  assert_file_contains "$INSTALL_PS1" 'Install-Native' 'windows native install mode'
-  assert_file_contains "$INSTALL_PS1" 'Install-Docker' 'windows docker fallback mode'
-  assert_file_contains "$INSTALL_PS1" 'replayvod.exe' 'windows native executable path'
-  assert_file_contains "$INSTALL_PS1" 'REPLAYVOD_WINDOWS_URL' 'windows custom binary URL override'
-  assert_file_contains "$INSTALL_PS1" 'Read-Host.*-AsSecureString' 'windows secret prompt'
-  assert_file_contains "$INSTALL_PS1" 'docker compose' 'windows compose plugin support'
-  assert_file_contains "$INSTALL_PS1" 'docker-compose' 'windows compose fallback support'
-  pass 'public macOS/Linux and Windows installer assets exist'
+  pass 'public macOS/Linux installer asset exists; no Windows installer ships'
 }
 
 mkdir -p "$BASE"
