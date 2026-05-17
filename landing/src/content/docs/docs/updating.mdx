@@ -7,8 +7,8 @@ import { TabItem, Tabs } from '@astrojs/starlight/components';
 
 ReplayVOD updates in place. Migrations run automatically on start.
 
-<Tabs syncKey="install-path">
-  <TabItem label="Docker Compose">
+<Tabs syncKey="platform">
+  <TabItem label="macOS / Linux">
 
   ```bash
   cd ~/replayvod
@@ -19,13 +19,17 @@ ReplayVOD updates in place. Migrations run automatically on start.
   Use `--profile postgres` if your install runs Postgres.
 
   </TabItem>
-  <TabItem label="Windows (native)">
+  <TabItem label="Windows">
 
-  Re-run the installer when a new Windows release is published:
+  Run from wherever you cloned the repo:
 
   ```powershell
-  irm https://replayvod.com/install.ps1 | iex
+  Set-Location replayvod
+  git pull --ff-only
+  docker compose --env-file server/.env --profile sqlite up -d --build
   ```
+
+  Use `--profile postgres` if your install runs Postgres.
 
   </TabItem>
   <TabItem label="Build from source">

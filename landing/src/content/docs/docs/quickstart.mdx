@@ -14,18 +14,25 @@ import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
   curl -fsSL https://replayvod.com/install.sh | sh
   ```
 
+  The installer creates `~/replayvod`, writes `server/.env` from the example, generates secrets, prompts for your Twitch credentials, then starts the stack.
+
   </TabItem>
-  <TabItem label="Windows (Docker Desktop)">
+  <TabItem label="Windows">
+
+  Install Docker Desktop, then in PowerShell:
 
   ```powershell
-  $env:REPLAYVOD_INSTALL_MODE = "docker"
-  irm https://replayvod.com/install.ps1 | iex
+  git clone https://github.com/befabri/replayvod.git
+  Set-Location replayvod
+  Copy-Item server/.env.example server/.env
+  notepad server/.env
+  docker compose --env-file server/.env --profile sqlite up -d --build
   ```
+
+  Fill in `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, `OWNER_TWITCH_ID`, `HMAC_SECRET`, and `SESSION_SECRET` in `server/.env` before the `docker compose` step.
 
   </TabItem>
 </Tabs>
-
-The installer creates a directory, writes a `.env` from the example, generates secrets, prompts for your Twitch credentials, then starts the stack.
 
 ## 2. Register a Twitch app
 

@@ -45,23 +45,24 @@ macOS / Linux:
 curl -fsSL https://replayvod.com/install.sh | sh
 ```
 
-Windows PowerShell with Docker Desktop:
-
-```powershell
-$env:REPLAYVOD_INSTALL_MODE = "docker"
-irm https://replayvod.com/install.ps1 | iex
-```
-
-Native Windows `.exe` installs are supported by the installer once release
-archives are published. Until then, use the Docker Desktop path above.
-
-Or install manually:
+Or clone the repo and run Docker Compose yourself:
 
 ```bash
 git clone https://github.com/befabri/replayvod.git
 cd replayvod
 cp server/.env.example server/.env
 $EDITOR server/.env             # fill in Twitch credentials, see below
+docker compose --env-file server/.env --profile sqlite up -d --build
+# or: --profile postgres        # adds a Postgres container
+```
+
+Windows (Docker Desktop, PowerShell):
+
+```powershell
+git clone https://github.com/befabri/replayvod.git
+Set-Location replayvod
+Copy-Item server/.env.example server/.env
+notepad server/.env             # fill in Twitch credentials, see below
 docker compose --env-file server/.env --profile sqlite up -d --build
 # or: --profile postgres        # adds a Postgres container
 ```

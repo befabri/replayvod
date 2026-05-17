@@ -3,124 +3,79 @@ title: Install
 description: Install ReplayVOD on macOS, Linux, or Windows.
 ---
 
-import { Aside, FileTree, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
+import { FileTree, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
 
-ReplayVOD ships as a Docker Compose stack today. Native Windows `.exe` is supported by the installer once release archives are published; until then, use the Docker Desktop path on Windows.
+ReplayVOD ships as a Docker Compose stack. On macOS and Linux a one-line installer wraps the same steps; on Windows, clone the repo and run Docker Compose yourself.
 
 ## Requirements
 
 - A Twitch developer application (for `TWITCH_CLIENT_ID` and `TWITCH_SECRET`).
 - Your numeric Twitch user ID (for `OWNER_TWITCH_ID`).
 - Docker (Docker Desktop on Windows).
-- `ffmpeg` is bundled in the Docker image. Native Windows installs need `ffmpeg` on `PATH` unless the release archive includes it.
+- `ffmpeg` is bundled in the Docker image.
 
-## Installer
+## Installer (macOS / Linux)
+
+```bash
+curl -fsSL https://replayvod.com/install.sh | sh
+```
+
+The installer:
+
+<Steps>
+
+1. Creates `~/replayvod/`.
+2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
+3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
+4. Starts ReplayVOD with `docker compose up -d --build`.
+
+</Steps>
+
+**Overrides**
+
+Pick a different directory or database profile:
+
+```bash
+curl -fsSL https://replayvod.com/install.sh | \
+  REPLAYVOD_DIR=/srv/replayvod REPLAYVOD_PROFILE=postgres sh
+```
+
+Configure without starting containers:
+
+```bash
+curl -fsSL https://replayvod.com/install.sh | REPLAYVOD_NO_START=1 sh
+```
+
+## Manual Docker
+
+Clone the repo and run Docker Compose. This is the only path on Windows, and works on macOS and Linux if you want full control.
 
 <Tabs syncKey="platform">
   <TabItem label="macOS / Linux">
 
   ```bash
-  curl -fsSL https://replayvod.com/install.sh | sh
-  ```
-
-  The installer:
-
-  <Steps>
-
-  1. Creates `~/replayvod/`.
-  2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
-  3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
-  4. Starts ReplayVOD with `docker compose up -d --build`.
-
-  </Steps>
-
-  **Overrides**
-
-  Pick a different directory or database profile:
-
-  ```bash
-  curl -fsSL https://replayvod.com/install.sh | \
-    REPLAYVOD_DIR=/srv/replayvod REPLAYVOD_PROFILE=postgres sh
-  ```
-
-  Configure without starting containers:
-
-  ```bash
-  curl -fsSL https://replayvod.com/install.sh | REPLAYVOD_NO_START=1 sh
+  git clone https://github.com/befabri/replayvod.git
+  cd replayvod
+  cp server/.env.example server/.env
+  $EDITOR server/.env
+  docker compose --env-file server/.env --profile sqlite up -d --build
   ```
 
   </TabItem>
-  <TabItem label="Windows (Docker)">
+  <TabItem label="Windows">
 
   ```powershell
-  $env:REPLAYVOD_INSTALL_MODE = "docker"
-  irm https://replayvod.com/install.ps1 | iex
-  ```
-
-  The installer:
-
-  <Steps>
-
-  1. Creates `%LOCALAPPDATA%\ReplayVOD\`.
-  2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
-  3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
-  4. Starts ReplayVOD with `docker compose up -d --build`.
-
-  </Steps>
-
-  **Overrides**
-
-  Use a different database profile:
-
-  ```powershell
-  $env:REPLAYVOD_INSTALL_MODE = "docker"
-  $env:REPLAYVOD_PROFILE = "postgres"
-  irm https://replayvod.com/install.ps1 | iex
-  ```
-
-  </TabItem>
-  <TabItem label="Windows (native, preview)">
-
-  ```powershell
-  irm https://replayvod.com/install.ps1 | iex
-  ```
-
-  Native mode requires published release archives or `REPLAYVOD_WINDOWS_URL` pointing at a test build.
-
-  The installer:
-
-  <Steps>
-
-  1. Creates `%LOCALAPPDATA%\ReplayVOD\`.
-  2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
-  3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
-  4. Starts `replayvod.exe`.
-
-  </Steps>
-
-  **Overrides**
-
-  Use a specific archive before official Windows artifacts are published:
-
-  ```powershell
-  $env:REPLAYVOD_WINDOWS_URL = "https://example.com/replayvod-windows-amd64.zip"
-  irm https://replayvod.com/install.ps1 | iex
+  git clone https://github.com/befabri/replayvod.git
+  Set-Location replayvod
+  Copy-Item server/.env.example server/.env
+  notepad server/.env
+  docker compose --env-file server/.env --profile sqlite up -d --build
   ```
 
   </TabItem>
 </Tabs>
 
-## Manual Docker
-
-If you prefer to clone and run yourself:
-
-```bash
-git clone https://github.com/befabri/replayvod.git
-cd replayvod
-cp server/.env.example server/.env
-$EDITOR server/.env
-docker compose --env-file server/.env --profile sqlite up -d --build
-```
+Fill `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` in `server/.env` before starting, and generate `HMAC_SECRET` and `SESSION_SECRET` (any 32-byte hex string, e.g. `openssl rand -hex 32`).
 
 Use `--profile postgres` to run against Postgres instead.
 
@@ -153,25 +108,13 @@ task build    # production builds
   </FileTree>
 
   </TabItem>
-  <TabItem label="Windows (native)">
+  <TabItem label="Windows">
+
+  Same layout, wherever you cloned the repo (typically `%USERPROFILE%\replayvod\`):
 
   <FileTree>
 
-  - %LOCALAPPDATA%\\ReplayVOD\\
-    - replayvod.exe
-    - server/
-      - .env
-    - data/
-    - dashboard/
-
-  </FileTree>
-
-  </TabItem>
-  <TabItem label="Windows (Docker)">
-
-  <FileTree>
-
-  - %LOCALAPPDATA%\\ReplayVOD\\
+  - replayvod/
     - server/
       - .env
       - config.toml
@@ -191,8 +134,8 @@ After install, fill these in `server/.env`:
 TWITCH_CLIENT_ID=...
 TWITCH_SECRET=...
 OWNER_TWITCH_ID=...
-HMAC_SECRET=...      # generated by installers
-SESSION_SECRET=...   # generated by installers
+HMAC_SECRET=...      # installer generates this, or: openssl rand -hex 32
+SESSION_SECRET=...   # installer generates this, or: openssl rand -hex 32
 ```
 
 For a public deployment also set:
