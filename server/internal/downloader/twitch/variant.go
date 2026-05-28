@@ -62,28 +62,49 @@ type SelectOptions struct {
 // Ordering inside SelectOptions doesn't matter — the filter is
 // commutative.
 func SelectVariant(m *Manifest, opts SelectOptions) (SelectedVariant, error) {
-	if m == nil || len(m.Variants) == 0 {
+	if m.isEmpty() {
 		return SelectedVariant{}, ErrNoAcceptableVariant
 	}
-
 	if opts.RecordingType == RecordingTypeAudio {
-		for _, v := range m.Variants {
-			if v.IsAudioOnly() {
-				return SelectedVariant{
-					URL:     v.URL,
-					Quality: "audio_only",
-					FPS:     nil,
-					Codec:   CodecAAC,
-				}, nil
-			}
-		}
-		return SelectedVariant{}, ErrNoAudioRendition
+		return selectAudioVariant(m)
 	}
+	pool := acceptableVariants(m, opts)
+	if len(pool) == 0 {
+		return SelectedVariant{}, ErrNoAcceptableVariant
+	}
+	for _, want := range fallbackChain(opts.Quality) {
+		if best := pickByCodecPreference(pool, want); best != nil {
+			return selectedFrom(best), nil
+		}
+	}
+	return SelectedVariant{}, ErrNoAcceptableVariant
+}
 
-	// Strip audio_only from the pool — it's a manifest-shape
-	// fixture (allow_audio_only=true keeps the response matching
-	// what Twitch normally ships the web player). Video jobs
-	// never pick it.
+func (m *Manifest) isEmpty() bool {
+	return m == nil || len(m.Variants) == 0
+}
+
+// selectAudioVariant returns the audio_only rendition, or ErrNoAudioRendition
+// when the manifest carries none.
+func selectAudioVariant(m *Manifest) (SelectedVariant, error) {
+	for _, v := range m.Variants {
+		if v.IsAudioOnly() {
+			return SelectedVariant{
+				URL:     v.URL,
+				Quality: "audio_only",
+				FPS:     nil,
+				Codec:   CodecAAC,
+			}, nil
+		}
+	}
+	return SelectedVariant{}, ErrNoAudioRendition
+}
+
+// acceptableVariants drops the renditions a video job can never pick: audio_only
+// (a manifest-shape fixture that keeps the response matching what Twitch ships
+// the web player), codecs the options exclude, and any whose height is unknown
+// and so has no place on the fallback chain.
+func acceptableVariants(m *Manifest, opts SelectOptions) []Variant {
 	pool := make([]Variant, 0, len(m.Variants))
 	for _, v := range m.Variants {
 		if v.IsAudioOnly() {
@@ -93,45 +114,40 @@ func SelectVariant(m *Manifest, opts SelectOptions) (SelectedVariant, error) {
 			continue
 		}
 		if v.Quality == "" {
-			// Unknown height — can't place it on the fallback
-			// chain. Skip rather than guessing.
 			continue
 		}
 		pool = append(pool, v)
 	}
-	if len(pool) == 0 {
-		return SelectedVariant{}, ErrNoAcceptableVariant
-	}
+	return pool
+}
 
-	requested := opts.Quality
+// fallbackChain resolves a requested quality to its highest-to-lowest search
+// order. An empty request defaults to 1080; a non-standard one (e.g. "1440")
+// borrows the 1080 chain, the search order Twitch actually supports.
+func fallbackChain(requested string) []string {
 	if requested == "" {
 		requested = "1080"
 	}
-	chain, ok := qualityFallbackChain[requested]
-	if !ok {
-		// Non-standard quality request (e.g. "1440"). Fall back
-		// to the 1080 chain since that's the highest-to-lowest
-		// search order Twitch actually supports.
-		chain = qualityFallbackChain["1080"]
+	if chain, ok := qualityFallbackChain[requested]; ok {
+		return chain
 	}
+	return qualityFallbackChain["1080"]
+}
 
-	for _, want := range chain {
-		best := pickByCodecPreference(pool, want)
-		if best != nil {
-			var fps *float64
-			if best.FPS > 0 {
-				v := best.FPS
-				fps = &v
-			}
-			return SelectedVariant{
-				URL:     best.URL,
-				Quality: best.Quality,
-				FPS:     fps,
-				Codec:   best.Codec,
-			}, nil
-		}
+// selectedFrom builds the result for a chosen variant, reporting frame rate by
+// pointer only when it is known (positive).
+func selectedFrom(best *Variant) SelectedVariant {
+	var fps *float64
+	if best.FPS > 0 {
+		v := best.FPS
+		fps = &v
 	}
-	return SelectedVariant{}, ErrNoAcceptableVariant
+	return SelectedVariant{
+		URL:     best.URL,
+		Quality: best.Quality,
+		FPS:     fps,
+		Codec:   best.Codec,
+	}
 }
 
 // codecAllowed applies the three codec filters in one place. HEVC
@@ -145,11 +161,10 @@ func codecAllowed(codec string, opts SelectOptions) bool {
 		return !opts.DisableHEVC && !opts.ForceH264
 	case CodecAV1:
 		return opts.EnableAV1 && !opts.ForceH264
-	default:
-		// Unknown codec → drop. The manifest capability gate in
-		// Stage 4 does the same thing for unsupported containers.
-		return false
 	}
+	// Unknown codec → drop. The manifest capability gate in Stage 4 does the
+	// same thing for unsupported containers.
+	return false
 }
 
 // pickByCodecPreference finds the best variant for a target

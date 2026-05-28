@@ -209,6 +209,99 @@ func TestSelectVariant_AV1GatedByFlag(t *testing.T) {
 	}
 }
 
+func TestSelectVariant_NilOrEmptyManifest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		m    *Manifest
+	}{
+		{name: "nil manifest", m: nil},
+		{name: "no variants", m: &Manifest{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := SelectVariant(tc.m, SelectOptions{RecordingType: RecordingTypeVideo, Quality: "1080"})
+			if !errors.Is(err, ErrNoAcceptableVariant) {
+				t.Fatalf("err=%v, want ErrNoAcceptableVariant", err)
+			}
+		})
+	}
+}
+
+// TestSelectVariant_FPS pins the FPS pointer rule: a positive frame rate is
+// reported by pointer, while a zero/absent one stays nil rather than a pointer
+// to 0. The boundary matters because the field distinguishes "unknown" (nil)
+// from a real value.
+func TestSelectVariant_FPS(t *testing.T) {
+	pick := func(fps float64) *float64 {
+		m := &Manifest{Variants: []Variant{{URL: "v", Quality: "1080", Codec: CodecH264, GroupID: "1080p", FPS: fps}}}
+		got, err := SelectVariant(m, SelectOptions{RecordingType: RecordingTypeVideo, Quality: "1080"})
+		if err != nil {
+			t.Fatalf("select(fps=%v): %v", fps, err)
+		}
+		return got.FPS
+	}
+	if got := pick(0); got != nil {
+		t.Errorf("FPS=0 reported as %v, want nil", *got)
+	}
+	if got := pick(0.5); got == nil || *got != 0.5 {
+		t.Errorf("FPS=0.5 reported as %v, want pointer to 0.5", got)
+	}
+	if got := pick(60); got == nil || *got != 60 {
+		t.Errorf("FPS=60 reported as %v, want pointer to 60", got)
+	}
+}
+
+// TestSelectVariant_FirstWinsAtEqualCodecAndQuality pins that, among variants
+// tied on both quality and codec, the first in manifest order is kept, so the
+// pick is stable rather than order-of-last.
+func TestSelectVariant_FirstWinsAtEqualCodecAndQuality(t *testing.T) {
+	m := &Manifest{Variants: []Variant{
+		{URL: "first", Quality: "1080", Codec: CodecH264, GroupID: "1080p60"},
+		{URL: "second", Quality: "1080", Codec: CodecH264, GroupID: "1080p60-alt"},
+	}}
+	got, err := SelectVariant(m, SelectOptions{RecordingType: RecordingTypeVideo, Quality: "1080"})
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if got.URL != "first" {
+		t.Errorf("URL=%q, want first (manifest order wins on a tie)", got.URL)
+	}
+}
+
+func TestCodecRank(t *testing.T) {
+	cases := map[string]int{CodecH265: 3, CodecAV1: 2, CodecH264: 1, "vp9": -1, "": -1}
+	for codec, want := range cases {
+		if got := codecRank(codec); got != want {
+			t.Errorf("codecRank(%q) = %d, want %d", codec, got, want)
+		}
+	}
+}
+
+func TestCodecAllowed(t *testing.T) {
+	cases := []struct {
+		name  string
+		codec string
+		opts  SelectOptions
+		want  bool
+	}{
+		{name: "h264 always allowed", codec: CodecH264, opts: SelectOptions{}, want: true},
+		{name: "h264 allowed even when forced", codec: CodecH264, opts: SelectOptions{ForceH264: true}, want: true},
+		{name: "hevc allowed by default", codec: CodecH265, opts: SelectOptions{}, want: true},
+		{name: "hevc dropped when disabled", codec: CodecH265, opts: SelectOptions{DisableHEVC: true}, want: false},
+		{name: "hevc dropped when forced h264", codec: CodecH265, opts: SelectOptions{ForceH264: true}, want: false},
+		{name: "av1 gated off by default", codec: CodecAV1, opts: SelectOptions{}, want: false},
+		{name: "av1 allowed when enabled", codec: CodecAV1, opts: SelectOptions{EnableAV1: true}, want: true},
+		{name: "av1 dropped when forced h264", codec: CodecAV1, opts: SelectOptions{EnableAV1: true, ForceH264: true}, want: false},
+		{name: "unknown codec dropped", codec: "vp9", opts: SelectOptions{}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codecAllowed(tc.codec, tc.opts); got != tc.want {
+				t.Errorf("codecAllowed(%q, %+v) = %v, want %v", tc.codec, tc.opts, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSelectVariant_EmptyQualityDefaults1080(t *testing.T) {
 	got, err := SelectVariant(makeManifest(), SelectOptions{
 		RecordingType: RecordingTypeVideo,
