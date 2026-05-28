@@ -840,6 +840,255 @@ func TestSnapshotSelfHealsUntrackedSubscription(t *testing.T) {
 	}
 }
 
+// TestPlanChannelSubCreates exercises the pure desired-vs-actual diff: given the
+// curated channel set and the alive subs already on Twitch, it must emit a
+// create for exactly the missing (broadcaster, type) pairs. Asserted as a set
+// because map iteration makes the slice order nondeterministic.
+func TestPlanChannelSubCreates(t *testing.T) {
+	have := func(ids ...string) map[string]twitch.EventSubSubscription {
+		m := make(map[string]twitch.EventSubSubscription, len(ids))
+		for _, id := range ids {
+			m[id] = twitch.EventSubSubscription{}
+		}
+		return m
+	}
+	cases := []struct {
+		name        string
+		channelIDs  map[string]bool
+		haveOnline  map[string]twitch.EventSubSubscription
+		haveOffline map[string]twitch.EventSubSubscription
+		want        map[createReq]bool
+	}{
+		{
+			name:        "missing both types",
+			channelIDs:  map[string]bool{"a": true},
+			haveOnline:  have(),
+			haveOffline: have(),
+			want: map[createReq]bool{
+				{broadcasterID: "a", subType: "stream.online"}:  true,
+				{broadcasterID: "a", subType: "stream.offline"}: true,
+			},
+		},
+		{
+			name:        "only offline missing",
+			channelIDs:  map[string]bool{"a": true},
+			haveOnline:  have("a"),
+			haveOffline: have(),
+			want:        map[createReq]bool{{broadcasterID: "a", subType: "stream.offline"}: true},
+		},
+		{
+			name:        "fully satisfied creates nothing",
+			channelIDs:  map[string]bool{"a": true},
+			haveOnline:  have("a"),
+			haveOffline: have("a"),
+			want:        map[createReq]bool{},
+		},
+		{
+			name:        "no channels creates nothing",
+			channelIDs:  map[string]bool{},
+			haveOnline:  have("a"),
+			haveOffline: have("a"),
+			want:        map[createReq]bool{},
+		},
+		{
+			name:        "mixed gaps across broadcasters",
+			channelIDs:  map[string]bool{"a": true, "b": true},
+			haveOnline:  have("b"), // a needs online; b already has it
+			haveOffline: have("a"), // b needs offline; a already has it
+			want: map[createReq]bool{
+				{broadcasterID: "a", subType: "stream.online"}:  true,
+				{broadcasterID: "b", subType: "stream.offline"}: true,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := planChannelSubCreates(tc.channelIDs, tc.haveOnline, tc.haveOffline)
+			if len(got) != len(tc.want) {
+				t.Fatalf("planChannelSubCreates() = %d reqs %+v, want %d", len(got), got, len(tc.want))
+			}
+			seen := make(map[createReq]bool, len(got))
+			for _, r := range got {
+				if seen[r] {
+					t.Fatalf("duplicate create req %+v", r)
+				}
+				seen[r] = true
+				if !tc.want[r] {
+					t.Fatalf("unexpected create req %+v", r)
+				}
+			}
+		})
+	}
+}
+
+// TestClassifyChannelUpdateSub pins the pure per-sub reconcile verdict for every
+// branch: skip (no broadcaster), zombie delete, stale-callback delete, keep, and
+// orphan delete, plus that the two alive statuses both count as alive. The
+// blockOnFail flag must be set for zombie/stale (Twitch still holds the sub) but
+// not for orphans (their broadcaster isn't in the active set anyway).
+func TestClassifyChannelUpdateSub(t *testing.T) {
+	const callback = "https://replayvod.example/api/v1/webhook/callback"
+	cuSub := func(bid, status, cb string) *twitch.EventSubSubscription {
+		return &twitch.EventSubSubscription{
+			ID:        "cu-" + bid,
+			Status:    status,
+			Type:      "channel.update",
+			Condition: twitch.ChannelUpdateCondition{BroadcasterUserID: bid},
+			Transport: twitch.WebhookTransport{Method: "webhook", Callback: cb},
+		}
+	}
+	active := map[string]bool{"recording": true}
+
+	cases := []struct {
+		name       string
+		sub        *twitch.EventSubSubscription
+		wantBID    string
+		wantKeep   bool
+		wantDelete bool
+		wantBlock  bool
+		reasonHas  string
+	}{
+		{
+			name: "condition without broadcaster is skipped",
+			sub: &twitch.EventSubSubscription{
+				ID:        "drop",
+				Status:    "enabled",
+				Condition: twitch.DropEntitlementGrantCondition{OrganizationID: "org"},
+				Transport: twitch.WebhookTransport{Method: "webhook", Callback: callback},
+			},
+			wantBID: "",
+		},
+		{
+			name:       "dead status is a zombie delete that blocks recreate",
+			sub:        cuSub("recording", "authorization_revoked", callback),
+			wantBID:    "recording",
+			wantDelete: true,
+			wantBlock:  true,
+			reasonHas:  "status=authorization_revoked",
+		},
+		{
+			name:       "stale callback delete blocks recreate",
+			sub:        cuSub("recording", "enabled", "https://old.example/api/v1/webhook/callback"),
+			wantBID:    "recording",
+			wantDelete: true,
+			wantBlock:  true,
+			reasonHas:  "callback URL changed",
+		},
+		{
+			name:     "alive correct callback active recording is kept",
+			sub:      cuSub("recording", "enabled", callback),
+			wantBID:  "recording",
+			wantKeep: true,
+		},
+		{
+			name:     "verification pending counts as alive and is kept",
+			sub:      cuSub("recording", "webhook_callback_verification_pending", callback),
+			wantBID:  "recording",
+			wantKeep: true,
+		},
+		{
+			name:       "alive correct callback without recording is an orphan delete",
+			sub:        cuSub("ended", "enabled", callback),
+			wantBID:    "ended",
+			wantDelete: true,
+			wantBlock:  false,
+			reasonHas:  "no active recording",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyChannelUpdateSub(tc.sub, callback, active)
+			if got.bid != tc.wantBID {
+				t.Fatalf("bid = %q, want %q", got.bid, tc.wantBID)
+			}
+			if got.isKeep != tc.wantKeep {
+				t.Fatalf("isKeep = %v, want %v", got.isKeep, tc.wantKeep)
+			}
+			if got.isDelete != tc.wantDelete {
+				t.Fatalf("isDelete = %v, want %v", got.isDelete, tc.wantDelete)
+			}
+			if got.blockOnFail != tc.wantBlock {
+				t.Fatalf("blockOnFail = %v, want %v", got.blockOnFail, tc.wantBlock)
+			}
+			if tc.wantDelete && got.reason == "" {
+				t.Fatal("isDelete set but reason is empty")
+			}
+			if tc.reasonHas != "" && !strings.Contains(got.reason, tc.reasonHas) {
+				t.Fatalf("reason = %q, want substring %q", got.reason, tc.reasonHas)
+			}
+		})
+	}
+}
+
+// TestSubscribeByTypeRejectsUnknownType pins the dispatch guard: a create req for
+// a type the reconcile loop never plans must error instead of silently no-oping
+// (which would have the caller count a success and never create the sub).
+func TestSubscribeByTypeRejectsUnknownType(t *testing.T) {
+	svc := New(nil, nil, "https://replayvod.example/api/v1/webhook/callback", "secret", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	err := svc.subscribeByType(context.Background(), createReq{broadcasterID: "b", subType: "channel.follow"})
+	if err == nil {
+		t.Fatal("subscribeByType() = nil, want error for an unknown sub type")
+	}
+	if !strings.Contains(err.Error(), "unknown sub type") {
+		t.Fatalf("error = %v, want an unknown-sub-type error", err)
+	}
+}
+
+// TestReconcileChannelSubsDeletesOrphanWhenBroadcasterLeavesSet pins the orphan
+// path: an alive sub on the current callback whose broadcaster is no longer in
+// the channel set is revoked, and nothing is created.
+func TestReconcileChannelSubsDeletesOrphanWhenBroadcasterLeavesSet(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	const newCallback = "https://replayvod.example/api/v1/webhook/callback"
+	seedSubscriptionChannel(t, ctx, repo, "b-orphan")
+	createTestSubscriptionWithTypeCallback(t, ctx, repo, "on-orphan", "b-orphan", "stream.online", newCallback)
+
+	calls := &reconcileCalls{deleted: map[string]bool{}, created: map[string]string{}}
+	tc := twitch.NewClient("client-id", "client-secret", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tc.SetHTTPClient(&http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case req.Host == "id.twitch.tv" && req.URL.Path == "/oauth2/token":
+				return textResponse(http.StatusOK, `{"access_token":"app-token","expires_in":3600,"token_type":"bearer"}`), nil
+			case req.Method == http.MethodGet && req.URL.Path == "/helix/eventsub/subscriptions":
+				switch req.URL.Query().Get("type") {
+				case "stream.online":
+					return textResponse(http.StatusOK, eventSubListOf(eventSubSubJSONWithStatus("on-orphan", "stream.online", "1", "b-orphan", newCallback, "enabled"))), nil
+				default:
+					return textResponse(http.StatusOK, eventSubListOf()), nil
+				}
+			case req.Method == http.MethodDelete && req.URL.Path == "/helix/eventsub/subscriptions":
+				calls.mu.Lock()
+				calls.deleted[req.URL.Query().Get("id")] = true
+				calls.mu.Unlock()
+				return textResponse(http.StatusNoContent, ""), nil
+			case req.Method == http.MethodPost && req.URL.Path == "/helix/eventsub/subscriptions":
+				t.Fatalf("unexpected create: an empty channel set must not create any sub")
+				return nil, nil
+			default:
+				t.Fatalf("unexpected Twitch request: %s %s", req.Method, req.URL.String())
+				return nil, nil
+			}
+		}),
+	})
+	svc := New(repo, tc, newCallback, "0123456789abcdef", slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := svc.ReconcileChannelSubs(ctx, map[string]bool{}); err != nil {
+		t.Fatalf("ReconcileChannelSubs() = %v, want nil", err)
+	}
+	if !calls.deletedID("on-orphan") {
+		t.Fatal("orphan stream.online sub was not deleted on Twitch")
+	}
+	sub, err := repo.GetSubscription(ctx, "on-orphan")
+	if err != nil {
+		t.Fatalf("GetSubscription(on-orphan): %v", err)
+	}
+	if sub.RevokedAt == nil {
+		t.Fatal("on-orphan RevokedAt = nil, want revoked after the broadcaster left the channel set")
+	}
+}
+
 func seedSubscriptionChannel(t *testing.T, ctx context.Context, repo repository.Repository, broadcasterID string) {
 	t.Helper()
 	if _, err := repo.UpsertUser(ctx, &repository.User{

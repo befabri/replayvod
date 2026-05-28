@@ -156,115 +156,16 @@ func (s *Service) ReconcileChannelSubs(ctx context.Context, channelIDs map[strin
 	haveOnline := subSetByBroadcasterAliveForCallback(onlineSubs, s.callbackURL, staleOnlineBlocked)
 	haveOffline := subSetByBroadcasterAliveForCallback(offlineSubs, s.callbackURL, staleOfflineBlocked)
 
-	var created, deleted int
-
-	// Parallelize creates: N channels × 2 sub types = 2N sequential
-	// POSTs would block boot for 10+ seconds on 50-channel setups.
-	// Cap concurrency at 10 so a large channel list can't swamp the
-	// Twitch rate limit (800 req/min = ~13 concurrent is safe; 10
-	// leaves headroom for other callers).
-	const createConcurrency = 10
-	type createReq struct{ bid, typ string }
-	reqs := make([]createReq, 0, len(channelIDs)*2)
-	for bid := range channelIDs {
-		if _, ok := haveOnline[bid]; !ok {
-			reqs = append(reqs, createReq{bid, "stream.online"})
-		}
-		if _, ok := haveOffline[bid]; !ok {
-			reqs = append(reqs, createReq{bid, "stream.offline"})
-		}
-	}
-	if len(reqs) > 0 {
-		// Circuit breaker: after N consecutive non-transient failures
-		// we stop the reconcile. The typical failure modes we want to
-		// bail on:
-		//   - Helix 400 bad callback URL (config issue; retrying never
-		//     helps — covered by the pre-check but belt-and-suspenders
-		//     catches a runtime scheme change)
-		//   - Helix 401/403 app-token rejection (token expired or
-		//     revoked; burning through N channels won't auth it)
-		//   - Helix 409 unexpected (our dedup missed something; safer
-		//     to stop and let the operator investigate)
-		// Transient 5xx / timeouts DO retry via the normal Helix
-		// backoff in twitch.Client; we just cancel the outer context
-		// to propagate stop to any in-flight goroutines.
-		const breakerThreshold = 3
-		breakerCtx, breakerCancel := context.WithCancel(ctx)
-		defer breakerCancel()
-
-		sem := make(chan struct{}, createConcurrency)
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		var consecutiveFailures int
-		var breakerTripped bool
-
-		for _, r := range reqs {
-			if breakerCtx.Err() != nil {
-				break
-			}
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(req createReq) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				var err error
-				switch req.typ {
-				case "stream.online":
-					_, err = s.SubscribeStreamOnline(breakerCtx, req.bid)
-				case "stream.offline":
-					_, err = s.SubscribeStreamOffline(breakerCtx, req.bid)
-				}
-				mu.Lock()
-				defer mu.Unlock()
-				if err != nil {
-					s.log.Warn("reconcile: subscribe failed",
-						"type", req.typ, "broadcaster_id", req.bid, "error", err)
-					consecutiveFailures++
-					if consecutiveFailures >= breakerThreshold && !breakerTripped {
-						breakerTripped = true
-						s.log.Error("reconcile: circuit breaker tripped; aborting remaining subscribes",
-							"threshold", breakerThreshold,
-							"remaining", len(reqs)-created-consecutiveFailures)
-						breakerCancel()
-					}
-					return
-				}
-				created++
-				consecutiveFailures = 0
-			}(r)
-		}
-		wg.Wait()
-		if breakerTripped {
-			return fmt.Errorf("eventsub reconcile: %d consecutive subscribe failures, aborted", breakerThreshold)
-		}
+	created, err := s.createChannelSubs(ctx, planChannelSubCreates(channelIDs, haveOnline, haveOffline))
+	if err != nil {
+		return err
 	}
 
-	// Delete orphans. A broadcaster we had a sub for but is no
-	// longer in the channel set — row removed from the channels
-	// table. Sequential because deletes are cheap and shouldn't
-	// contend with creates on rate limit.
-	for bid, sub := range haveOnline {
-		if channelIDs[bid] {
-			continue
-		}
-		if err := s.Unsubscribe(ctx, sub.ID, "reconcile: broadcaster no longer in channels table"); err != nil {
-			s.log.Warn("reconcile: delete orphan stream.online failed",
-				"sub_id", sub.ID, "broadcaster_id", bid, "error", err)
-			continue
-		}
-		deleted++
-	}
-	for bid, sub := range haveOffline {
-		if channelIDs[bid] {
-			continue
-		}
-		if err := s.Unsubscribe(ctx, sub.ID, "reconcile: broadcaster no longer in channels table"); err != nil {
-			s.log.Warn("reconcile: delete orphan stream.offline failed",
-				"sub_id", sub.ID, "broadcaster_id", bid, "error", err)
-			continue
-		}
-		deleted++
-	}
+	// Delete orphans: broadcasters we had a sub for but are no longer in the
+	// channel set (row removed from the channels table). Sequential because
+	// deletes are cheap and shouldn't contend with creates on the rate limit.
+	deleted := s.deleteOrphanedSubs(ctx, haveOnline, channelIDs, "stream.online") +
+		s.deleteOrphanedSubs(ctx, haveOffline, channelIDs, "stream.offline")
 
 	if created > 0 || deleted > 0 || zombiesSwept > 0 || staleCallbacksSwept > 0 {
 		s.log.Info("reconciled channel subs",
@@ -273,6 +174,136 @@ func (s *Service) ReconcileChannelSubs(ctx context.Context, channelIDs map[strin
 			"channels", len(channelIDs))
 	}
 	return nil
+}
+
+// createReq is one planned subscription create: a (broadcaster, sub type) pair
+// the reconcile pass found missing on Twitch.
+type createReq struct {
+	broadcasterID string
+	subType       string
+}
+
+// planChannelSubCreates returns the creates needed to bring Twitch in line with
+// channelIDs: a stream.online and/or stream.offline create for every broadcaster
+// missing a live sub of that type. Pure given the have-sets, so the desired-vs-
+// actual diff is unit-testable without touching Twitch.
+func planChannelSubCreates(channelIDs map[string]bool, haveOnline, haveOffline map[string]twitch.EventSubSubscription) []createReq {
+	reqs := make([]createReq, 0, len(channelIDs)*2)
+	for bid := range channelIDs {
+		if _, ok := haveOnline[bid]; !ok {
+			reqs = append(reqs, createReq{broadcasterID: bid, subType: "stream.online"})
+		}
+		if _, ok := haveOffline[bid]; !ok {
+			reqs = append(reqs, createReq{broadcasterID: bid, subType: "stream.offline"})
+		}
+	}
+	return reqs
+}
+
+// createChannelSubs issues the planned subscribe calls concurrently and returns
+// the number created.
+//
+// Parallelize creates: N channels × 2 sub types = 2N sequential POSTs would
+// block boot for 10+ seconds on 50-channel setups. Cap concurrency at 10 so a
+// large channel list can't swamp the Twitch rate limit (800 req/min = ~13
+// concurrent is safe; 10 leaves headroom for other callers).
+//
+// Circuit breaker: after breakerThreshold consecutive non-transient failures we
+// stop the reconcile and return an error. The failure modes we want to bail on:
+//   - Helix 400 bad callback URL (config issue; retrying never helps — covered
+//     by the pre-check but belt-and-suspenders catches a runtime scheme change)
+//   - Helix 401/403 app-token rejection (token expired or revoked; burning
+//     through N channels won't auth it)
+//   - Helix 409 unexpected (our dedup missed something; safer to stop and let
+//     the operator investigate)
+//
+// Transient 5xx / timeouts DO retry via the normal Helix backoff in
+// twitch.Client; we just cancel the outer context to propagate stop to any
+// in-flight goroutines.
+func (s *Service) createChannelSubs(ctx context.Context, reqs []createReq) (int, error) {
+	if len(reqs) == 0 {
+		return 0, nil
+	}
+	const (
+		createConcurrency = 10
+		breakerThreshold  = 3
+	)
+	breakerCtx, breakerCancel := context.WithCancel(ctx)
+	defer breakerCancel()
+
+	sem := make(chan struct{}, createConcurrency)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var created, consecutiveFailures int
+	var breakerTripped bool
+
+	for _, r := range reqs {
+		if breakerCtx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(req createReq) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			err := s.subscribeByType(breakerCtx, req)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				s.log.Warn("reconcile: subscribe failed",
+					"type", req.subType, "broadcaster_id", req.broadcasterID, "error", err)
+				consecutiveFailures++
+				if consecutiveFailures >= breakerThreshold && !breakerTripped {
+					breakerTripped = true
+					s.log.Error("reconcile: circuit breaker tripped; aborting remaining subscribes",
+						"threshold", breakerThreshold,
+						"remaining", len(reqs)-created-consecutiveFailures)
+					breakerCancel()
+				}
+				return
+			}
+			created++
+			consecutiveFailures = 0
+		}(r)
+	}
+	wg.Wait()
+	if breakerTripped {
+		return created, fmt.Errorf("eventsub reconcile: %d consecutive subscribe failures, aborted", breakerThreshold)
+	}
+	return created, nil
+}
+
+// subscribeByType dispatches a planned create to the matching Subscribe* call.
+func (s *Service) subscribeByType(ctx context.Context, req createReq) error {
+	switch req.subType {
+	case "stream.online":
+		_, err := s.SubscribeStreamOnline(ctx, req.broadcasterID)
+		return err
+	case "stream.offline":
+		_, err := s.SubscribeStreamOffline(ctx, req.broadcasterID)
+		return err
+	default:
+		return fmt.Errorf("eventsub reconcile: unknown sub type %q", req.subType)
+	}
+}
+
+// deleteOrphanedSubs revokes every sub in have whose broadcaster is no longer in
+// channelIDs. Best-effort: a failed delete logs a warning and the sweep
+// continues so one bad row doesn't block the rest. Returns the number deleted.
+func (s *Service) deleteOrphanedSubs(ctx context.Context, have map[string]twitch.EventSubSubscription, channelIDs map[string]bool, subType string) int {
+	var deleted int
+	for bid, sub := range have {
+		if channelIDs[bid] {
+			continue
+		}
+		if err := s.Unsubscribe(ctx, sub.ID, "reconcile: broadcaster no longer in channels table"); err != nil {
+			s.log.Warn("reconcile: delete orphan sub failed",
+				"type", subType, "sub_id", sub.ID, "broadcaster_id", bid, "error", err)
+			continue
+		}
+		deleted++
+	}
+	return deleted
 }
 
 // sweepZombies deletes any sub in a dead status from both Twitch and
@@ -374,47 +405,95 @@ func (s *Service) ReconcileChannelUpdateSubs(ctx context.Context, activeBroadcas
 		return fmt.Errorf("eventsub reconcile: list twitch subs: %w", err)
 	}
 
-	current := make(map[string]bool, len(activeBroadcasterIDs))
-	blocked := make(map[string]bool)
-	var deleted, created int
-	for _, sub := range all {
-		bid := broadcasterIDFromSub(&sub)
-		if bid == "" {
-			continue
-		}
-		if !isSubAlive(sub.Status) {
-			if err := s.Unsubscribe(ctx, sub.ID, "boot reconcile: zombie sub: status="+sub.Status); err != nil {
-				s.log.Warn("reconcile: failed to delete zombie channel.update sub",
-					"sub_id", sub.ID, "broadcaster_id", bid, "status", sub.Status, "error", err)
-				blocked[bid] = true
-				continue
-			}
-			deleted++
-			continue
-		}
-		if !subUsesCallback(&sub, s.callbackURL) {
-			if err := s.Unsubscribe(ctx, sub.ID, "boot reconcile: callback URL changed"); err != nil {
-				s.log.Warn("reconcile: failed to delete stale-callback channel.update sub",
-					"sub_id", sub.ID, "broadcaster_id", bid, "callback_host", urlHost(subCallbackURL(&sub)), "error", err)
-				blocked[bid] = true
-				continue
-			}
-			deleted++
-			continue
-		}
-		if activeBroadcasterIDs[bid] {
-			current[bid] = true
-			continue
-		}
-		// Orphan: no active recording for this broadcaster.
-		if err := s.Unsubscribe(ctx, sub.ID, "boot reconcile: no active recording"); err != nil {
-			s.log.Warn("reconcile: failed to delete orphan channel.update sub",
-				"sub_id", sub.ID, "broadcaster_id", bid, "error", err)
-			continue
-		}
-		deleted++
-	}
+	current, blocked, deleted := s.reconcileExistingChannelUpdateSubs(ctx, all, activeBroadcasterIDs)
+	created := s.createMissingChannelUpdateSubs(ctx, activeBroadcasterIDs, current, blocked)
 
+	if deleted > 0 || created > 0 {
+		s.log.Info("reconciled channel.update subscriptions", "deleted", deleted, "created", created)
+	}
+	return nil
+}
+
+// cuDecision is the reconcile verdict for one Twitch-side channel.update sub.
+// A zero value (bid == "") means "not one of ours, skip it". Otherwise exactly
+// one of isKeep / isDelete is set.
+type cuDecision struct {
+	bid         string // broadcaster the sub is scoped to, "" when none
+	isKeep      bool   // alive, on the current callback, recording still active
+	isDelete    bool   // should be revoked on Twitch
+	reason      string // revoke reason, set when isDelete
+	blockOnFail bool   // if the delete fails, skip recreating bid this pass
+}
+
+// classifyChannelUpdateSub decides what to do with one listed channel.update sub
+// without performing any IO, so the branching is unit-testable in isolation:
+//
+//   - no broadcaster on the condition -> skip (not a per-channel sub)
+//   - dead status -> delete as a zombie, block recreate until Twitch confirms
+//   - wrong callback -> delete the stale transport, block recreate
+//   - active recording on this callback -> keep
+//   - otherwise -> delete as an orphan (recording already ended)
+//
+// blockOnFail is set for zombie/stale deletes because Twitch still holds the old
+// sub until the delete lands; recreating in the same pass would 409 or
+// duplicate. Orphans don't block: their broadcaster isn't in the active set, so
+// the create pass skips it anyway.
+func classifyChannelUpdateSub(sub *twitch.EventSubSubscription, callbackURL string, activeBroadcasterIDs map[string]bool) cuDecision {
+	bid := broadcasterIDFromSub(sub)
+	if bid == "" {
+		return cuDecision{}
+	}
+	if !isSubAlive(sub.Status) {
+		return cuDecision{bid: bid, isDelete: true, blockOnFail: true, reason: "boot reconcile: zombie sub: status=" + sub.Status}
+	}
+	if !subUsesCallback(sub, callbackURL) {
+		return cuDecision{bid: bid, isDelete: true, blockOnFail: true, reason: "boot reconcile: callback URL changed"}
+	}
+	if activeBroadcasterIDs[bid] {
+		return cuDecision{bid: bid, isKeep: true}
+	}
+	return cuDecision{bid: bid, isDelete: true, reason: "boot reconcile: no active recording"}
+}
+
+// reconcileExistingChannelUpdateSubs classifies every Twitch-side channel.update
+// sub and acts on the verdict: keepers are recorded in current, deletes are
+// revoked. A broadcaster whose delete failed is added to blocked so the create
+// pass leaves it for the next reconcile. Returns (current, blocked, deleted).
+func (s *Service) reconcileExistingChannelUpdateSubs(ctx context.Context, all []twitch.EventSubSubscription, activeBroadcasterIDs map[string]bool) (current, blocked map[string]bool, deleted int) {
+	current = make(map[string]bool, len(activeBroadcasterIDs))
+	blocked = make(map[string]bool)
+	for i := range all {
+		d := classifyChannelUpdateSub(&all[i], s.callbackURL, activeBroadcasterIDs)
+		switch {
+		case d.isKeep:
+			current[d.bid] = true
+		case d.isDelete:
+			if s.revokeReconciledSub(ctx, all[i].ID, d) {
+				deleted++
+			} else if d.blockOnFail {
+				blocked[d.bid] = true
+			}
+		}
+	}
+	return current, blocked, deleted
+}
+
+// revokeReconciledSub revokes one sub the reconcile pass decided to drop,
+// returning whether the Twitch + mirror delete succeeded.
+func (s *Service) revokeReconciledSub(ctx context.Context, id string, d cuDecision) bool {
+	if err := s.Unsubscribe(ctx, id, d.reason); err != nil {
+		s.log.Warn("reconcile: failed to delete channel.update sub",
+			"sub_id", id, "broadcaster_id", d.bid, "reason", d.reason, "error", err)
+		return false
+	}
+	return true
+}
+
+// createMissingChannelUpdateSubs subscribes every active-recording broadcaster
+// that has no current sub and isn't blocked by a failed delete this pass.
+// Returns the number created.
+func (s *Service) createMissingChannelUpdateSubs(ctx context.Context, activeBroadcasterIDs, current, blocked map[string]bool) int {
+	var created int
 	for bid := range activeBroadcasterIDs {
 		if current[bid] || blocked[bid] {
 			continue
@@ -426,11 +505,7 @@ func (s *Service) ReconcileChannelUpdateSubs(ctx context.Context, activeBroadcas
 		}
 		created++
 	}
-
-	if deleted > 0 || created > 0 {
-		s.log.Info("reconciled channel.update subscriptions", "deleted", deleted, "created", created)
-	}
-	return nil
+	return created
 }
 
 // isCallbackURLUsable verifies the callback URL will be accepted by
