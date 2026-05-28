@@ -14,9 +14,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"sync"
 
+	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
@@ -140,15 +140,21 @@ func (s *Service) ReconcileChannelSubs(ctx context.Context, channelIDs map[strin
 		return fmt.Errorf("eventsub reconcile: list stream.offline: %w", err)
 	}
 
-	// First pass: delete zombies. After this, any sub still on
-	// Twitch's side for one of our broadcasters is alive; missing
-	// means we need to create.
+	// First pass: delete zombies and alive subs that point at an old
+	// callback. After this, any sub still on Twitch's side for one of our
+	// broadcasters is alive and uses this process's callback; missing means
+	// we need to create.
 	zombiesSwept := s.sweepZombies(ctx, onlineSubs) + s.sweepZombies(ctx, offlineSubs)
+	staleOnlineSwept, staleOnlineBlocked := s.sweepStaleCallbacks(ctx, onlineSubs)
+	staleOfflineSwept, staleOfflineBlocked := s.sweepStaleCallbacks(ctx, offlineSubs)
+	staleCallbacksSwept := staleOnlineSwept + staleOfflineSwept
 
-	// Re-index using only ALIVE subs. sweepZombies mutated nothing
-	// on `onlineSubs` directly, so we filter here.
-	haveOnline := subSetByBroadcasterAlive(onlineSubs)
-	haveOffline := subSetByBroadcasterAlive(offlineSubs)
+	// Re-index using only ALIVE subs on the current callback. The sweep calls
+	// mutated nothing on the source slices directly, so we filter here. Stale
+	// subs whose delete failed stay in the set so we do not create duplicates
+	// while Twitch still has the old transport.
+	haveOnline := subSetByBroadcasterAliveForCallback(onlineSubs, s.callbackURL, staleOnlineBlocked)
+	haveOffline := subSetByBroadcasterAliveForCallback(offlineSubs, s.callbackURL, staleOfflineBlocked)
 
 	var created, deleted int
 
@@ -260,9 +266,10 @@ func (s *Service) ReconcileChannelSubs(ctx context.Context, channelIDs map[strin
 		deleted++
 	}
 
-	if created > 0 || deleted > 0 || zombiesSwept > 0 {
+	if created > 0 || deleted > 0 || zombiesSwept > 0 || staleCallbacksSwept > 0 {
 		s.log.Info("reconciled channel subs",
 			"created", created, "deleted", deleted, "zombies_swept", zombiesSwept,
+			"stale_callbacks_swept", staleCallbacksSwept,
 			"channels", len(channelIDs))
 	}
 	return nil
@@ -287,12 +294,31 @@ func (s *Service) sweepZombies(ctx context.Context, subs []twitch.EventSubSubscr
 	return swept
 }
 
-// subSetByBroadcasterAlive indexes a subscription list by broadcaster
-// ID, keeping only entries in a live status. Zombies (verification
-// failed, notification failures exceeded, etc.) are excluded so the
-// reconcile caller treats them as absent and creates replacements.
-// The separate sweepZombies pass handles the Twitch-side delete.
-func subSetByBroadcasterAlive(subs []twitch.EventSubSubscription) map[string]twitch.EventSubSubscription {
+func (s *Service) sweepStaleCallbacks(ctx context.Context, subs []twitch.EventSubSubscription) (int, map[string]bool) {
+	blocked := make(map[string]bool)
+	var swept int
+	for _, sub := range subs {
+		if !isSubAlive(sub.Status) || subUsesCallback(&sub, s.callbackURL) {
+			continue
+		}
+		if err := s.Unsubscribe(ctx, sub.ID, "reconcile: callback URL changed"); err != nil {
+			s.log.Warn("reconcile: delete stale-callback sub failed",
+				"sub_id", sub.ID, "callback_host", urlHost(subCallbackURL(&sub)), "error", err)
+			blocked[sub.ID] = true
+			continue
+		}
+		swept++
+	}
+	return swept, blocked
+}
+
+// subSetByBroadcasterAliveForCallback indexes a subscription list by
+// broadcaster ID, keeping only entries in a live status and on this process's
+// callback URL. Zombies (verification failed, notification failures exceeded,
+// etc.) and stale callback transports are excluded so the reconcile caller treats
+// them as absent and creates replacements. The separate sweep passes handle the
+// Twitch-side delete.
+func subSetByBroadcasterAliveForCallback(subs []twitch.EventSubSubscription, callbackURL string, keepStale map[string]bool) map[string]twitch.EventSubSubscription {
 	out := make(map[string]twitch.EventSubSubscription, len(subs))
 	for _, sub := range subs {
 		if !isSubAlive(sub.Status) {
@@ -300,6 +326,9 @@ func subSetByBroadcasterAlive(subs []twitch.EventSubSubscription) map[string]twi
 		}
 		bid := broadcasterIDFromSub(&sub)
 		if bid == "" {
+			continue
+		}
+		if !subUsesCallback(&sub, callbackURL) && !keepStale[sub.ID] {
 			continue
 		}
 		out[bid] = sub
@@ -322,10 +351,11 @@ func (s *Service) UnsubscribeChannelUpdate(ctx context.Context, broadcasterID, r
 	return s.Unsubscribe(ctx, sub.ID, reason)
 }
 
-// ReconcileChannelUpdateSubs sweeps Twitch-side channel.update subs and
-// deletes any that don't match the provided set of broadcasters with
-// active recordings. Called at boot to clean up orphans left by a
-// previous crash before the unsubscribe call landed.
+// ReconcileChannelUpdateSubs sweeps Twitch-side channel.update subs, deletes
+// any that don't match the provided set of broadcasters with active recordings,
+// and recreates active-recording subs that were tied to an old callback. Called
+// at boot to clean up orphans left by a previous crash before the unsubscribe
+// call landed.
 //
 // The sweep only touches channel.update subs — stream.online /
 // stream.offline subs are managed elsewhere (schedule / EventSub
@@ -343,13 +373,37 @@ func (s *Service) ReconcileChannelUpdateSubs(ctx context.Context, activeBroadcas
 	if err != nil {
 		return fmt.Errorf("eventsub reconcile: list twitch subs: %w", err)
 	}
-	var swept int
+
+	current := make(map[string]bool, len(activeBroadcasterIDs))
+	blocked := make(map[string]bool)
+	var deleted, created int
 	for _, sub := range all {
 		bid := broadcasterIDFromSub(&sub)
 		if bid == "" {
 			continue
 		}
+		if !isSubAlive(sub.Status) {
+			if err := s.Unsubscribe(ctx, sub.ID, "boot reconcile: zombie sub: status="+sub.Status); err != nil {
+				s.log.Warn("reconcile: failed to delete zombie channel.update sub",
+					"sub_id", sub.ID, "broadcaster_id", bid, "status", sub.Status, "error", err)
+				blocked[bid] = true
+				continue
+			}
+			deleted++
+			continue
+		}
+		if !subUsesCallback(&sub, s.callbackURL) {
+			if err := s.Unsubscribe(ctx, sub.ID, "boot reconcile: callback URL changed"); err != nil {
+				s.log.Warn("reconcile: failed to delete stale-callback channel.update sub",
+					"sub_id", sub.ID, "broadcaster_id", bid, "callback_host", urlHost(subCallbackURL(&sub)), "error", err)
+				blocked[bid] = true
+				continue
+			}
+			deleted++
+			continue
+		}
 		if activeBroadcasterIDs[bid] {
+			current[bid] = true
 			continue
 		}
 		// Orphan: no active recording for this broadcaster.
@@ -358,53 +412,55 @@ func (s *Service) ReconcileChannelUpdateSubs(ctx context.Context, activeBroadcas
 				"sub_id", sub.ID, "broadcaster_id", bid, "error", err)
 			continue
 		}
-		swept++
+		deleted++
 	}
-	if swept > 0 {
-		s.log.Info("reconciled orphan channel.update subscriptions", "deleted", swept)
+
+	for bid := range activeBroadcasterIDs {
+		if current[bid] || blocked[bid] {
+			continue
+		}
+		if _, err := s.SubscribeChannelUpdate(ctx, bid); err != nil {
+			s.log.Warn("reconcile: failed to create missing channel.update sub",
+				"broadcaster_id", bid, "error", err)
+			continue
+		}
+		created++
+	}
+
+	if deleted > 0 || created > 0 {
+		s.log.Info("reconciled channel.update subscriptions", "deleted", deleted, "created", created)
 	}
 	return nil
 }
 
 // isCallbackURLUsable verifies the callback URL will be accepted by
-// Twitch's webhook transport. Twitch requires:
-//   - scheme = https
-//   - non-empty host
-//   - standard port (no ":8080" or similar)
+// Twitch's webhook transport (HTTPS, non-loopback host, standard port).
 //
 // Without this check, every subscribe call fails with a Helix 400 —
 // on reconcile that means one 400 per channel, which we've seen spam
-// the log in practice. A scheme check catches the most common
-// homelab misconfig (running webhook mode on localhost:8080) before
-// the Helix call happens.
+// the log in practice. Catching the most common homelab misconfig
+// (running webhook mode on localhost:8080) before the Helix call
+// happens keeps the log clean.
+//
+// The rule itself lives in config.IsUsableWebhookURL so startup
+// validation and this runtime guard cannot drift; this is a thin alias
+// kept for the local call sites.
 func isCallbackURLUsable(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	if u.Scheme != "https" {
-		return false
-	}
-	if u.Host == "" {
-		return false
-	}
-	// Twitch insists on a standard HTTPS port. An explicit :443
-	// passes; any other port = Helix 400.
-	if u.Port() != "" && u.Port() != "443" {
-		return false
-	}
-	return true
+	return config.IsUsableWebhookURL(raw)
 }
 
 func urlHost(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-	return u.Host
+	return config.URLHost(raw)
+}
+
+func subUsesCallback(sub *twitch.EventSubSubscription, callbackURL string) bool {
+	method, callback := transportFields(sub.Transport)
+	return method == "webhook" && config.SameURL(callback, callbackURL)
+}
+
+func subCallbackURL(sub *twitch.EventSubSubscription) string {
+	_, callback := transportFields(sub.Transport)
+	return callback
 }
 
 // subscribe is the shared create path. It checks the local mirror first;
@@ -417,9 +473,14 @@ func (s *Service) subscribe(ctx context.Context, subType, version string, cond t
 	}
 	existing, err := s.repo.GetActiveSubscriptionForBroadcasterType(ctx, broadcasterID, subType)
 	if err == nil {
-		return existing, nil
+		if config.SameURL(existing.TransportCallback, s.callbackURL) {
+			return existing, nil
+		}
+		if err := s.Unsubscribe(ctx, existing.ID, "callback URL changed"); err != nil {
+			return nil, fmt.Errorf("eventsub: revoke stale callback sub: %w", err)
+		}
 	}
-	if !errors.Is(err, repository.ErrNotFound) {
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
 		return nil, fmt.Errorf("eventsub: lookup active sub: %w", err)
 	}
 
@@ -501,6 +562,60 @@ func (s *Service) Unsubscribe(ctx context.Context, id, reason string) error {
 		return fmt.Errorf("eventsub: mark revoked: %w", err)
 	}
 	return nil
+}
+
+// RevokeAllActive deletes every locally active EventSub subscription from
+// Twitch and marks the local mirrors revoked. Used after the process boots with
+// an EventSub runtime that does not create Twitch subscriptions, so
+// subscriptions from a previous enabled runtime do not keep consuming quota or
+// delivering webhook notifications to an old callback.
+//
+// It attempts every subscription exactly once and returns the count revoked
+// plus the joined errors for any that failed. A subscription whose revoke keeps
+// failing (e.g. a Helix 5xx) therefore does not block the others: cleanup is
+// best-effort and the next non-subscription runtime startup can retry the
+// stragglers.
+func (s *Service) RevokeAllActive(ctx context.Context, reason string) (int, error) {
+	const batchSize = 100
+
+	// Snapshot the active IDs first by paging read-only. Revoking while paging
+	// would shift offsets, and re-listing from offset 0 each pass would
+	// re-encounter any subscription whose revoke keeps failing — one
+	// un-revocable sub would then stall cleanup of every other sub.
+	//
+	// ListActiveSubscriptions uses a stable created_at/id order so tied DB
+	// timestamps do not reshuffle page boundaries. The offset paging is still
+	// not strictly consistent: a concurrent insert/revoke between page reads
+	// could skip a sub. That is acceptable here — disabling is owner-initiated
+	// and rare, and the next non-subscription runtime startup can retry any sub
+	// this pass misses.
+	var ids []string
+	for offset := 0; ; offset += batchSize {
+		subs, err := s.repo.ListActiveSubscriptions(ctx, batchSize, offset)
+		if err != nil {
+			return 0, fmt.Errorf("eventsub: list active subscriptions: %w", err)
+		}
+		for i := range subs {
+			ids = append(ids, subs[i].ID)
+		}
+		if len(subs) < batchSize {
+			break
+		}
+	}
+
+	revoked := 0
+	var revokeErrs []error
+	for _, id := range ids {
+		if err := s.Unsubscribe(ctx, id, reason); err != nil {
+			revokeErrs = append(revokeErrs, fmt.Errorf("%s: %w", id, err))
+			continue
+		}
+		revoked++
+	}
+	if len(revokeErrs) > 0 {
+		return revoked, errors.Join(revokeErrs...)
+	}
+	return revoked, nil
 }
 
 // Snapshot polls Twitch for all app subscriptions, records an eventsub_snapshots

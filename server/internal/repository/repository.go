@@ -300,6 +300,10 @@ type Repository interface {
 	GetSettings(ctx context.Context, userID string) (*Settings, error)
 	UpsertSettings(ctx context.Context, s *Settings) (*Settings, error)
 
+	// Server settings — process-wide settings configured by the owner UI.
+	GetServerSettings(ctx context.Context) (*ServerSettings, error)
+	UpsertServerSettings(ctx context.Context, s *ServerSettings) (*ServerSettings, error)
+
 	// Webhook events — audit log with state machine + retention.
 	CreateWebhookEvent(ctx context.Context, input *WebhookEventInput) (*WebhookEvent, error)
 	GetWebhookEvent(ctx context.Context, id int64) (*WebhookEvent, error)

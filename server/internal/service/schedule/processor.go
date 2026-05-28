@@ -14,6 +14,14 @@ import (
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
+// StreamDownloader is the slice of the downloader the processor needs to start
+// a recording. Narrowing it to an interface keeps the dispatch path unit-
+// testable with a fake that returns downloader.ErrBusy. *downloader.Service
+// satisfies it.
+type StreamDownloader interface {
+	Start(ctx context.Context, p downloader.Params) (string, error)
+}
+
 // EventProcessor implements routes/webhook.EventProcessor. On a
 // stream.online webhook it enriches the event with full stream data
 // from Helix, runs every active schedule through Match, picks the
@@ -22,7 +30,7 @@ import (
 // every schedule that fired, even non-winners.
 type EventProcessor struct {
 	repo       repository.Repository
-	dl         *downloader.Service
+	dl         StreamDownloader
 	twitch     *twitch.Client
 	hydrator   *streammeta.Hydrator
 	bus        *eventbus.Buses
@@ -37,7 +45,7 @@ type EventProcessor struct {
 // only — filtered schedules then never match, see matcher invariant).
 // bus is optional: when set, stream.live fires on every stream.online
 // dispatch so SSE subscribers see channels going live in real time.
-func NewEventProcessor(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, bus *eventbus.Buses, log *slog.Logger) *EventProcessor {
+func NewEventProcessor(repo repository.Repository, dl StreamDownloader, tc *twitch.Client, hydrator *streammeta.Hydrator, bus *eventbus.Buses, log *slog.Logger) *EventProcessor {
 	return &EventProcessor{
 		repo:       repo,
 		dl:         dl,
@@ -56,30 +64,48 @@ func NewEventProcessor(repo repository.Repository, dl *downloader.Service, tc *t
 func (p *EventProcessor) Process(ctx context.Context, n *twitch.EventSubNotification) error {
 	switch ev := n.Event.(type) {
 	case twitch.StreamOnlineEvent:
-		if ev.BroadcasterUserID == "" {
-			p.log.Warn("stream.online event missing broadcaster_user_id", "event_id", ev.ID)
+		return p.processStreamOnlineEvent(ctx, ev)
+	case *twitch.StreamOnlineEvent:
+		if ev == nil {
 			return nil
 		}
-		return p.dispatchStreamOnline(ctx, ev)
+		return p.processStreamOnlineEvent(ctx, *ev)
 	case twitch.StreamOfflineEvent:
-		if ev.BroadcasterUserID == "" {
-			p.log.Warn("stream.offline event missing broadcaster_user_id")
+		return p.processStreamOfflineEvent(ctx, ev)
+	case *twitch.StreamOfflineEvent:
+		if ev == nil {
 			return nil
 		}
-		return p.dispatchStreamOffline(ctx, ev)
+		return p.processStreamOfflineEvent(ctx, *ev)
 	case twitch.ChannelUpdateEvent:
-		// Skip only when nothing useful is attached. Gating on
-		// `ev.Title == ""` alone would drop category-only changes
-		// (streamer flips game but keeps the title) — and those
-		// are the exact events /dashboard/categories/$id depends
-		// on to list every category the recording passed through.
-		if ev.BroadcasterUserID == "" || (ev.Title == "" && ev.CategoryID == "") {
+		return p.processChannelUpdateEvent(ctx, ev)
+	case *twitch.ChannelUpdateEvent:
+		if ev == nil {
 			return nil
 		}
-		return p.dispatchChannelUpdate(ctx, ev)
+		return p.processChannelUpdateEvent(ctx, *ev)
 	default:
 		return nil
 	}
+}
+
+func (p *EventProcessor) processStreamOnlineEvent(ctx context.Context, ev twitch.StreamOnlineEvent) error {
+	return p.DispatchStreamOnline(ctx, ev)
+}
+
+func (p *EventProcessor) processStreamOfflineEvent(ctx context.Context, ev twitch.StreamOfflineEvent) error {
+	return p.DispatchStreamOffline(ctx, ev)
+}
+
+func (p *EventProcessor) processChannelUpdateEvent(ctx context.Context, ev twitch.ChannelUpdateEvent) error {
+	// Skip only when nothing useful is attached. Gating on `ev.Title == ""`
+	// alone would drop category-only changes (streamer flips game but keeps the
+	// title), and those are the exact events /dashboard/categories/$id depends
+	// on to list every category the recording passed through.
+	if ev.BroadcasterUserID == "" || (ev.Title == "" && ev.CategoryID == "") {
+		return nil
+	}
+	return p.dispatchChannelUpdate(ctx, ev)
 }
 
 // dispatchChannelUpdate writes mid-stream title AND category changes
@@ -103,13 +129,18 @@ func (p *EventProcessor) dispatchChannelUpdate(ctx context.Context, ev twitch.Ch
 	return nil
 }
 
-// dispatchStreamOffline stamps ended_at on the most recent active
+// DispatchStreamOffline stamps ended_at on the most recent active
 // stream for the broadcaster. The live downloader (if running) keeps
 // its own end-detection, so this doesn't cancel in-flight downloads —
 // it just closes the stream row for reporting. Also publishes a
 // StreamStatusEvent so SSE subscribers watching the delta feed can
 // drop this broadcaster from their live-set without polling.
-func (p *EventProcessor) dispatchStreamOffline(ctx context.Context, event twitch.StreamOfflineEvent) error {
+func (p *EventProcessor) DispatchStreamOffline(ctx context.Context, event twitch.StreamOfflineEvent) error {
+	if event.BroadcasterUserID == "" {
+		p.log.Warn("stream.offline event missing broadcaster_user_id")
+		return nil
+	}
+
 	// WithoutCancel so webhook timeouts don't leave ended_at unset.
 	persistCtx := context.WithoutCancel(ctx)
 
@@ -142,6 +173,35 @@ func (p *EventProcessor) dispatchStreamOffline(ctx context.Context, event twitch
 	return nil
 }
 
+// CloseStaleStream stamps ended_at on the broadcaster's currently-open stream
+// row WITHOUT publishing an SSE offline. The live poller calls it when a
+// broadcaster stays live under a new stream ID (a rerun, or an offline/online
+// blip that spanned a poll interval): the superseded streams row must be closed
+// so it doesn't leak as perpetually live, but the channel never actually left
+// the live set, so emitting offline would make the dashboard live-dot flicker
+// off and back on. Idempotent: a missing or already-ended row is a no-op.
+func (p *EventProcessor) CloseStaleStream(ctx context.Context, broadcasterID string) error {
+	if broadcasterID == "" {
+		return nil
+	}
+	persistCtx := context.WithoutCancel(ctx)
+	stream, err := p.repo.GetLastLiveStream(persistCtx, broadcasterID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("get last live stream: %w", err)
+	}
+	if stream.EndedAt != nil {
+		return nil
+	}
+	if err := p.repo.EndStream(persistCtx, stream.ID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("end stale stream: %w", err)
+	}
+	p.log.Info("closed superseded stream", "stream_id", stream.ID, "broadcaster_id", broadcasterID)
+	return nil
+}
+
 // publishStatus fans a stream.online/offline transition out to the
 // SSE delta topic. Non-blocking (the bus drops when subscribers fall
 // behind); safe to call with bus == nil (tests, degraded mode).
@@ -159,7 +219,39 @@ func (p *EventProcessor) publishStatus(kind eventbus.StreamStatusKind, broadcast
 	})
 }
 
-func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.StreamOnlineEvent) error {
+func (p *EventProcessor) DispatchStreamOnline(ctx context.Context, event twitch.StreamOnlineEvent) error {
+	return p.dispatchStreamOnline(ctx, event, nil)
+}
+
+// DispatchStreamOnlineFromStream is the poll-mode entry point. The caller has
+// already fetched the live stream from Helix, so enrichment reuses it instead
+// of issuing a second GetStreams. The webhook entry (DispatchStreamOnline) only
+// has the EventSub payload, which carries no title/category/viewer data, so it
+// must re-fetch.
+func (p *EventProcessor) DispatchStreamOnlineFromStream(ctx context.Context, stream twitch.Stream) error {
+	return p.dispatchStreamOnline(ctx, streamOnlineEventFromStream(stream), &stream)
+}
+
+func streamOnlineEventFromStream(s twitch.Stream) twitch.StreamOnlineEvent {
+	return twitch.StreamOnlineEvent{
+		ID:                   s.ID,
+		BroadcasterUserID:    s.UserID,
+		BroadcasterUserLogin: s.UserLogin,
+		BroadcasterUserName:  s.UserName,
+		Type:                 s.Type,
+		StartedAt:            s.StartedAt,
+	}
+}
+
+// dispatchStreamOnline is the shared path. prefetched is the already-polled live
+// stream in poll mode, or nil in webhook mode (where hydrate re-fetches from
+// Helix).
+func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.StreamOnlineEvent, prefetched *twitch.Stream) error {
+	if event.BroadcasterUserID == "" {
+		p.log.Warn("stream.online event missing broadcaster_user_id", "event_id", event.ID)
+		return nil
+	}
+
 	// Fan out the raw online signal first — StreamStatus is the delta
 	// feed for the dashboard live-indicator, independent of whether we
 	// end up triggering a schedule. Subscribers need to add this
@@ -198,7 +290,7 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 	// filtered schedules won't match (that's the invariant), but
 	// unfiltered ones still fire. Persist uses context.WithoutCancel so
 	// a client drop mid-handler doesn't strand a partial write.
-	signals, language, streamTitle, categoryID, categoryName := p.hydrate(ctx, event.BroadcasterUserID)
+	signals, language, streamTitle, categoryID, categoryName := p.hydrate(ctx, event.BroadcasterUserID, prefetched)
 
 	// First pass: collect matching schedules. We need them all to pick
 	// the highest-quality one per spec (eventsub.md § stream.online). The
@@ -245,6 +337,14 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		ViewerCount:      signals.ViewerCount,
 	})
 	if startErr != nil {
+		if errors.Is(startErr, downloader.ErrBusy) {
+			// The broadcaster already has an active download, so the online
+			// intent is already satisfied. Treat as an idempotent no-op:
+			// repeated signals (a poll re-detect, a Twitch retry, or a manual
+			// record already in flight) must not surface as an error, or the
+			// live poller would re-dispatch this broadcaster every tick.
+			return nil
+		}
 		p.log.Warn("auto-download start failed",
 			"schedule_id", winner.ID, "broadcaster_id", event.BroadcasterUserID,
 			"error", startErr)
@@ -314,7 +414,7 @@ func highestQuality(matches []*repository.DownloadSchedule) *repository.Download
 // category fields are threaded through downloader.Params so the
 // post-CreateVideo LinkInitialVideoMetadata call has everything it
 // needs for the opening video_categories link.
-func (p *EventProcessor) hydrate(ctx context.Context, broadcasterID string) (StreamSignals, string, string, string, string) {
+func (p *EventProcessor) hydrate(ctx context.Context, broadcasterID string, prefetched *twitch.Stream) (StreamSignals, string, string, string, string) {
 	if p.hydrator == nil {
 		return StreamSignals{}, "", "", "", ""
 	}
@@ -322,7 +422,14 @@ func (p *EventProcessor) hydrate(ctx context.Context, broadcasterID string) (Str
 	// partial write. The hydrator's internal retries + upserts all
 	// run under this context.
 	persistCtx := context.WithoutCancel(ctx)
-	snap := p.hydrator.Hydrate(persistCtx, broadcasterID)
+	// Poll mode already polled the live stream, so enrich from it directly;
+	// the webhook path has no stream data and must fetch from Helix.
+	var snap *streammeta.Snapshot
+	if prefetched != nil {
+		snap = p.hydrator.HydrateFromStream(persistCtx, prefetched)
+	} else {
+		snap = p.hydrator.Hydrate(persistCtx, broadcasterID)
+	}
 	if snap == nil {
 		return StreamSignals{}, "", "", "", ""
 	}

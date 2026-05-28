@@ -14,11 +14,23 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 )
 
-// RegisterStandardTasks wires the default scheduled jobs against a
-// scheduler Service. Each task reads its interval from
-// cfg.App.Scheduler; a zero interval skips registration so operators
-// can disable a task by zeroing the value (distinct from is_enabled,
-// which persists across the DB via the dashboard toggle).
+const (
+	taskEventSubReconcileChannels = "eventsub_reconcile_channels"
+	taskEventSubSnapshot          = "eventsub_snapshot"
+)
+
+// RegisterStandardTasks wires the default scheduled jobs against a scheduler
+// Service. Each task reads its interval from cfg.App.Scheduler; a task whose
+// interval is zero (or whose backing service is unavailable) is simply left
+// unregistered.
+//
+// The EventSub tasks are the exception. Their delivery is toggled at runtime
+// from the dashboard, so when it is off they are still persisted with a zero
+// interval (registerDisabledTask) instead of being left unregistered. That
+// neutralizes a stale row from an older direct/relay config — a zero-interval
+// row is never "due" (ListDueTasks filters interval_seconds > 0) — so tick()
+// stops warning, every poll, about a due task with no runner. The other tasks
+// are config-only and do not get this treatment.
 //
 // artsvc is optional: when set, the category-art backfill task runs
 // on the configured interval; when nil the eager Hydrator path is the
@@ -94,41 +106,43 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 		}
 	}
 
-	if esvc != nil {
-		if m := sc.EventsubReconcileIntervalMinutes; m > 0 {
-			if err := s.Register(Task{
-				Name: "eventsub_reconcile_channels",
-				Description: "Ensure stream.online/stream.offline subs exist for every local " +
-					"channel; delete orphans + zombie subs. Keeps the SSE live-dot feed authoritative.",
-				IntervalSeconds: int64(m) * 60,
-				Run: func(ctx context.Context) error {
-					channels, err := repo.ListChannels(ctx)
-					if err != nil {
-						return fmt.Errorf("list channels: %w", err)
-					}
-					ids := make(map[string]bool, len(channels))
-					for _, ch := range channels {
-						ids[ch.BroadcasterID] = true
-					}
-					return esvc.ReconcileChannelSubs(ctx, ids)
-				},
-			}); err != nil {
-				return err
-			}
+	if esvc != nil && sc.EventsubReconcileIntervalMinutes > 0 {
+		if err := s.Register(Task{
+			Name: taskEventSubReconcileChannels,
+			Description: "Ensure stream.online/stream.offline subs exist for every local " +
+				"channel; delete orphans + zombie subs. Keeps the SSE live-dot feed authoritative.",
+			IntervalSeconds: int64(sc.EventsubReconcileIntervalMinutes) * 60,
+			Run: func(ctx context.Context) error {
+				channels, err := repo.ListChannels(ctx)
+				if err != nil {
+					return fmt.Errorf("list channels: %w", err)
+				}
+				ids := make(map[string]bool, len(channels))
+				for _, ch := range channels {
+					ids[ch.BroadcasterID] = true
+				}
+				return esvc.ReconcileChannelSubs(ctx, ids)
+			},
+		}); err != nil {
+			return err
 		}
-		if m := sc.EventsubIntervalMinutes; m > 0 {
-			if err := s.Register(Task{
-				Name:            "eventsub_snapshot",
-				Description:     "Poll Twitch EventSub subscriptions + record quota snapshot",
-				IntervalSeconds: int64(m) * 60,
-				Run: func(ctx context.Context) error {
-					_, err := esvc.Snapshot(ctx)
-					return err
-				},
-			}); err != nil {
+	} else if err := registerDisabledTask(s, taskEventSubReconcileChannels, "EventSub channel subscription reconcile disabled"); err != nil {
+		return err
+	}
+	if esvc != nil && sc.EventsubIntervalMinutes > 0 {
+		if err := s.Register(Task{
+			Name:            taskEventSubSnapshot,
+			Description:     "Poll Twitch EventSub subscriptions + record quota snapshot",
+			IntervalSeconds: int64(sc.EventsubIntervalMinutes) * 60,
+			Run: func(ctx context.Context) error {
+				_, err := esvc.Snapshot(ctx)
 				return err
-			}
+			},
+		}); err != nil {
+			return err
 		}
+	} else if err := registerDisabledTask(s, taskEventSubSnapshot, "EventSub quota snapshot disabled"); err != nil {
+		return err
 	}
 
 	if artsvc != nil {
@@ -152,6 +166,19 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 
 	log.Info("scheduler standard tasks registered")
 	return nil
+}
+
+func registerDisabledTask(s *Service, name, description string) error {
+	// Keep the row registered but unscheduled. UpsertTask preserves is_enabled,
+	// so an operator's dashboard pause/resume choice is not overwritten.
+	return s.Register(Task{
+		Name:            name,
+		Description:     description,
+		IntervalSeconds: 0,
+		Run: func(context.Context) error {
+			return nil
+		},
+	})
 }
 
 // EmitEventLog is a convenience for tasks to append a structured row

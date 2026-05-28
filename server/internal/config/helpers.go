@@ -31,8 +31,16 @@ func (c *Config) RedactedConfig() Config {
 	redacted.Env.HMACSecret = "[REDACTED]"
 	redacted.Env.ServiceAccountOAuthToken = "[REDACTED]"
 	redacted.Env.RelaySubscribeURL = "[REDACTED]"
+	redacted.Env.RelayIngestURL = redactRelayURLToken(redacted.Env.RelayIngestURL)
 	redacted.Env.WebhookCallbackURL = redactRelayURLToken(redacted.Env.WebhookCallbackURL)
+	redacted.ServerMode.RelaySubscribeURL = "[REDACTED]"
+	redacted.ServerMode.RelayIngestURL = redactRelayURLToken(redacted.ServerMode.RelayIngestURL)
+	redacted.ServerMode.WebhookCallbackURL = redactRelayURLToken(redacted.ServerMode.WebhookCallbackURL)
 	return redacted
+}
+
+func (c *Config) ServerModeCallbackURL() string {
+	return c.ServerMode.CallbackURL()
 }
 
 func redactRelayURLToken(raw string) string {

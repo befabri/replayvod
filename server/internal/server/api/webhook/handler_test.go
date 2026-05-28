@@ -200,6 +200,36 @@ func TestWebhook_Notification_DedupsOnMessageIDRetry(t *testing.T) {
 	}
 }
 
+func TestWebhook_NotificationWithoutProcessorAuditsAndMarksProcessed(t *testing.T) {
+	srv, repo := newTestServer(t, nil)
+	body := []byte(notificationBody("12345", "sub-disabled", "event-disabled"))
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/webhook/callback", strings.NewReader(string(body)))
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	req.Header.Set(twitch.EventSubHeaderMessageType, string(twitch.MsgTypeNotification))
+	signRequest(req, "disabled-msg", ts, body, testSecret)
+
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+
+	stored, err := repo.GetWebhookEventByEventID(context.Background(), "disabled-msg")
+	if err != nil {
+		t.Fatalf("audit lookup: %v", err)
+	}
+	if stored.Status != repository.WebhookStatusProcessed {
+		t.Fatalf("Status = %q, want %q", stored.Status, repository.WebhookStatusProcessed)
+	}
+	if stored.ProcessedAt == nil {
+		t.Fatal("ProcessedAt must be set for audit-only notifications")
+	}
+}
+
 // TestWebhook_ReplayOutsideWindow_Returns403 guards the replay-attack boundary.
 // Twitch documents a 10-minute window; anything older must be rejected before
 // we touch the DB, because an attacker with a recorded signed body could

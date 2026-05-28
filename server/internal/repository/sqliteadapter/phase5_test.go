@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -121,6 +122,59 @@ func TestSubscription_Revoke_KeepsRowForAudit(t *testing.T) {
 	for _, s := range active {
 		if s.ID == sub.ID {
 			t.Errorf("revoked subscription %q must NOT appear in ListActiveSubscriptions", sub.ID)
+		}
+	}
+}
+
+func TestSubscription_ListActiveSubscriptions_StableWithTiedCreatedAt(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	for i := 1; i <= 3; i++ {
+		broadcasterID := fmt.Sprintf("b-order-%03d", i)
+		seedUserChannel(t, ctx, a, broadcasterID, broadcasterID)
+
+		_, err := a.CreateSubscription(ctx, &repository.SubscriptionInput{
+			ID:                fmt.Sprintf("sub-order-%03d", i),
+			Status:            "enabled",
+			Type:              "stream.online",
+			Version:           "1",
+			Cost:              1,
+			Condition:         []byte(`{"broadcaster_user_id":"` + broadcasterID + `"}`),
+			BroadcasterID:     &broadcasterID,
+			TransportMethod:   "webhook",
+			TransportCallback: "https://example/cb",
+			TwitchCreatedAt:   time.Now().UTC(),
+		})
+		if err != nil {
+			t.Fatalf("create subscription %d: %v", i, err)
+		}
+	}
+
+	if _, err := a.db.ExecContext(ctx, `UPDATE subscriptions SET created_at = ?`, "2026-01-01 00:00:00"); err != nil {
+		t.Fatalf("force tied created_at: %v", err)
+	}
+
+	page1, err := a.ListActiveSubscriptions(ctx, 2, 0)
+	if err != nil {
+		t.Fatalf("list active page 1: %v", err)
+	}
+	page2, err := a.ListActiveSubscriptions(ctx, 2, 2)
+	if err != nil {
+		t.Fatalf("list active page 2: %v", err)
+	}
+
+	got := make([]string, 0, len(page1)+len(page2))
+	for _, sub := range append(page1, page2...) {
+		got = append(got, sub.ID)
+	}
+	want := []string{"sub-order-003", "sub-order-002", "sub-order-001"}
+	if len(got) != len(want) {
+		t.Fatalf("paged IDs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("paged IDs = %v, want %v", got, want)
 		}
 	}
 }

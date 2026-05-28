@@ -481,10 +481,8 @@ func newHarnessServiceWithOpts(t *testing.T, edgeURL string, opts harnessOpts) *
 				MaxGapRatio:          0.5,
 				MaxRestartGapSeconds: maxRestartGap,
 			},
-			TitleTracking: config.TitleTrackingConfig{
-				Mode: config.TitleTrackingModeOff,
-			},
 		},
+		ServerMode: config.ServerModeConfig{Mode: config.ServerModeOff},
 	}
 
 	logSink := io.Discard

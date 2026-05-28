@@ -3,6 +3,7 @@ package sqliteadapter
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +55,171 @@ func TestTimeRoundtrip_DropsSubsecond(t *testing.T) {
 	want := withNs.Truncate(time.Second)
 	if !got.Equal(want) {
 		t.Errorf("expected truncation to second precision: want %v, got %v", want, got)
+	}
+}
+
+func TestServerSettings_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+
+	_, err := adapter.GetServerSettings(ctx)
+	if !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("GetServerSettings before insert = %v, want ErrNotFound", err)
+	}
+
+	// Set every URL column, including the webhook callback, so a per-column
+	// mapping bug in the SQLite query or scan is caught here. The adapter is
+	// a dumb store (sanitization lives in the service), so persisting a
+	// webhook URL alongside relay delivery is the right thing to exercise.
+	want := &repository.ServerSettings{
+		ServerMode:                    "relay",
+		EventSubWebhookCallbackURL:    "https://replayvod.example/api/v1/webhook/callback",
+		EventSubRelayIngestURL:        "https://relay.replayvod.com/u/AAAAAAAAAAAAAAAA",
+		EventSubRelaySubscribeURL:     "wss://relay.replayvod.com/u/AAAAAAAAAAAAAAAA/subscribe",
+		EventSubRelayLocalCallbackURL: "http://127.0.0.1:8080/api/v1/webhook/callback",
+	}
+	saved, err := adapter.UpsertServerSettings(ctx, want)
+	if err != nil {
+		t.Fatalf("UpsertServerSettings: %v", err)
+	}
+	if saved.ServerMode != want.ServerMode {
+		t.Fatalf("ServerMode = %q, want %q", saved.ServerMode, want.ServerMode)
+	}
+	if saved.CreatedAt.IsZero() || saved.UpdatedAt.IsZero() {
+		t.Fatalf("timestamps not populated: created=%v updated=%v", saved.CreatedAt, saved.UpdatedAt)
+	}
+
+	reloaded, err := adapter.GetServerSettings(ctx)
+	if err != nil {
+		t.Fatalf("GetServerSettings after insert: %v", err)
+	}
+	if reloaded.EventSubWebhookCallbackURL != want.EventSubWebhookCallbackURL {
+		t.Fatalf("WebhookCallbackURL = %q, want %q", reloaded.EventSubWebhookCallbackURL, want.EventSubWebhookCallbackURL)
+	}
+	if reloaded.EventSubRelayIngestURL != want.EventSubRelayIngestURL {
+		t.Fatalf("RelayIngestURL = %q, want %q", reloaded.EventSubRelayIngestURL, want.EventSubRelayIngestURL)
+	}
+	if reloaded.EventSubRelaySubscribeURL != want.EventSubRelaySubscribeURL {
+		t.Fatalf("RelaySubscribeURL = %q, want %q", reloaded.EventSubRelaySubscribeURL, want.EventSubRelaySubscribeURL)
+	}
+	if reloaded.EventSubRelayLocalCallbackURL != want.EventSubRelayLocalCallbackURL {
+		t.Fatalf("RelayLocalCallbackURL = %q, want %q", reloaded.EventSubRelayLocalCallbackURL, want.EventSubRelayLocalCallbackURL)
+	}
+
+	updated, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{
+		ServerMode:                 "direct",
+		EventSubWebhookCallbackURL: "https://new.example/api/v1/webhook/callback",
+	})
+	if err != nil {
+		t.Fatalf("second UpsertServerSettings: %v", err)
+	}
+	if updated.ServerMode != "direct" {
+		t.Fatalf("updated ServerMode = %q, want direct", updated.ServerMode)
+	}
+	if updated.EventSubWebhookCallbackURL != "https://new.example/api/v1/webhook/callback" {
+		t.Fatalf("updated WebhookCallbackURL = %q", updated.EventSubWebhookCallbackURL)
+	}
+	if updated.EventSubRelayIngestURL != "" {
+		t.Fatalf("updated RelayIngestURL = %q, want empty", updated.EventSubRelayIngestURL)
+	}
+	if updated.EventSubRelaySubscribeURL != "" {
+		t.Fatalf("updated RelaySubscribeURL = %q, want empty", updated.EventSubRelaySubscribeURL)
+	}
+	if updated.EventSubRelayLocalCallbackURL != "" {
+		t.Fatalf("updated RelayLocalCallbackURL = %q, want empty", updated.EventSubRelayLocalCallbackURL)
+	}
+
+	var rowCount int
+	if err := adapter.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM server_settings").Scan(&rowCount); err != nil {
+		t.Fatalf("count server_settings rows: %v", err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("server_settings row count = %d, want 1", rowCount)
+	}
+}
+
+// TestServerSettings_InsertStoresEmptyURLColumns pins the fresh-INSERT path with
+// no URLs (the round-trip test only exercises insert-with-URLs then reset-to-
+// empty): an off config persists and reads back with all four URL columns empty.
+func TestServerSettings_InsertStoresEmptyURLColumns(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+
+	saved, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "off"})
+	if err != nil {
+		t.Fatalf("UpsertServerSettings(off): %v", err)
+	}
+	for _, c := range []struct {
+		name, got string
+	}{
+		{"webhook", saved.EventSubWebhookCallbackURL},
+		{"ingest", saved.EventSubRelayIngestURL},
+		{"subscribe", saved.EventSubRelaySubscribeURL},
+		{"local", saved.EventSubRelayLocalCallbackURL},
+	} {
+		if c.got != "" {
+			t.Fatalf("fresh insert returned non-empty %s URL = %q", c.name, c.got)
+		}
+	}
+	reloaded, err := adapter.GetServerSettings(ctx)
+	if err != nil {
+		t.Fatalf("GetServerSettings: %v", err)
+	}
+	if reloaded.ServerMode != "off" || reloaded.EventSubRelayIngestURL != "" {
+		t.Fatalf("reloaded = %#v, want off with empty URLs", reloaded)
+	}
+}
+
+// TestServerSettings_UpsertWrapsDriverError pins the upsert error wrap: a driver
+// failure surfaces with the adapter's context prefix rather than a bare pgx/sql
+// error, which is what operators see in logs.
+func TestServerSettings_UpsertWrapsDriverError(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.NewSQLiteDB(t)
+	adapter := New(db)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	_, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "off"})
+	if err == nil {
+		t.Fatal("UpsertServerSettings on a closed db = nil, want a wrapped driver error")
+	}
+	if !strings.Contains(err.Error(), "sqlite upsert server settings") {
+		t.Fatalf("error = %v, want the adapter context prefix", err)
+	}
+}
+
+// TestServerSettings_UpsertPreservesCreatedAtAndAdvancesUpdatedAt pins the
+// upsert's timestamp contract: the UPDATE branch must leave created_at untouched
+// and bump updated_at. Both are easy to break (omit updated_at = datetime('now'),
+// or accidentally clobber created_at), and a same-second round-trip would mask
+// it, so we backdate the row and assert the UPDATE moves only updated_at.
+func TestServerSettings_UpsertPreservesCreatedAtAndAdvancesUpdatedAt(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+
+	if _, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "poll"}); err != nil {
+		t.Fatalf("seed upsert: %v", err)
+	}
+	// Backdate both timestamps so the next upsert's datetime('now') is
+	// unambiguously later than created_at, without a real-time sleep.
+	const backdated = "2000-01-01 00:00:00"
+	old := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := adapter.db.ExecContext(ctx,
+		"UPDATE server_settings SET created_at = ?, updated_at = ? WHERE id = 1", backdated, backdated); err != nil {
+		t.Fatalf("backdate timestamps: %v", err)
+	}
+
+	updated, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "off"})
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if !updated.CreatedAt.Equal(old) {
+		t.Fatalf("created_at = %v, want preserved at %v across upsert", updated.CreatedAt, old)
+	}
+	if !updated.UpdatedAt.After(old) {
+		t.Fatalf("updated_at = %v, want advanced past %v on upsert", updated.UpdatedAt, old)
 	}
 }
 

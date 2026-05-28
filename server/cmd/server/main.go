@@ -3,12 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"errors"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -27,6 +25,9 @@ import (
 	"github.com/befabri/replayvod/server/internal/server"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
+	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
+	"github.com/befabri/replayvod/server/internal/service/livepoll"
+	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -98,6 +99,36 @@ func main() {
 	default:
 		log.Error("Unknown database driver", "driver", cfg.Env.DatabaseDriver)
 		os.Exit(1)
+	}
+
+	resolvedMode, resolveErr := eventsubconfig.Resolve(ctx, repo, cfg)
+	finalMode, fatalResolve := resolveOrDegrade(resolvedMode, resolveErr)
+	cfg.ServerMode = finalMode
+	if resolveErr != nil {
+		if fatalResolve {
+			log.Error("Server mode config invalid",
+				"error", resolveErr,
+				"mode", resolvedMode.Mode,
+				"source", resolvedMode.Source,
+				"callback_host", config.URLHost(resolvedMode.CallbackURL()),
+				"subscribe_host", config.URLHost(resolvedMode.RelaySubscribeURL))
+			os.Exit(1)
+		}
+		log.Warn("Saved server mode config invalid; continuing with setup required",
+			"error", resolveErr,
+			"mode", resolvedMode.Mode,
+			"source", resolvedMode.Source,
+			"callback_host", config.URLHost(resolvedMode.CallbackURL()),
+			"subscribe_host", config.URLHost(resolvedMode.RelaySubscribeURL))
+	}
+	if cfg.ServerMode.SetupRequired() {
+		log.Warn("Server mode is not configured; owner onboarding is required before live automation can run")
+	} else {
+		log.Info("Server mode configured",
+			"source", cfg.ServerMode.Source,
+			"mode", cfg.ServerMode.Mode,
+			"callback_host", config.URLHost(cfg.ServerMode.CallbackURL()),
+			"subscribe_host", config.URLHost(cfg.ServerMode.RelaySubscribeURL))
 	}
 
 	// Create Twitch client. Audit every Helix call into the fetch_logs
@@ -201,15 +232,9 @@ func main() {
 	// read + persist the same titles / video_titles M2M rows so the
 	// UI's title-history button surfaces the full broadcast history.
 	//
-	// The title-tracking mode selects how we capture mid-stream
-	// changes:
-	//   poll    → MetadataWatcher polls Helix
-	//   webhook → channel.update EventSub per-recording
-	//   off     → only the at-start snapshot
-	// channelSubs is the narrow ChannelUpdateSubscriber interface
-	// the downloader uses; it's satisfied by eventsubSvc below, but
-	// we only pass it through when webhook mode is configured so
-	// unused deps stay nil.
+	// Server mode selects how we detect live channels and mid-stream title
+	// changes: poll uses Helix polling; direct/relay use EventSub push; off
+	// stores only the at-start title snapshot.
 	// categoryart.Service fetches box_art_url from /helix/games. Used
 	// by the Hydrator eagerly (on first category observation) and by
 	// the scheduler's category_art_sync task as a backfill path.
@@ -217,51 +242,25 @@ func main() {
 	hydrator := streammeta.NewHydrator(repo, twitchClient, streammeta.Config{
 		CategoryArt: artSvc,
 	}, log)
-	titleMode := cfg.App.TitleTracking.EffectiveMode()
-
-	// Webhook mode requires a publicly-reachable HTTPS callback on
-	// a standard port (443). Twitch rejects anything else with
-	// Helix 400 — if we let the server start and silently fall
-	// back to poll, the operator wouldn't notice the misconfig
-	// until they wondered why title history was empty. Hard fail
-	// instead. Covers: empty URL, http://, non-443 ports, malformed
-	// URL, missing host.
-	if titleMode == config.TitleTrackingModeWebhook && !isUsableWebhookURL(cfg.Env.WebhookCallbackURL) {
-		log.Error("title_tracking.mode=webhook requires WEBHOOK_CALLBACK_URL to be a valid HTTPS URL on port 443",
-			"callback_host", urlHost(cfg.Env.WebhookCallbackURL))
-		os.Exit(1)
-	}
-	if err := validateRelayURLs(cfg.Env.WebhookCallbackURL, cfg.Env.RelaySubscribeURL); err != nil {
-		log.Error("relay URL validation failed",
-			"error", err,
-			"callback_host", urlHost(cfg.Env.WebhookCallbackURL),
-			"subscribe_host", urlHost(cfg.Env.RelaySubscribeURL))
-		os.Exit(1)
-	}
-	// Soft warning for the non-webhook-mode case: WEBHOOK_CALLBACK_URL
-	// is set but unusable. Scheduled recording + live-dot subs will
-	// fail silently (one info log per reconcile, handled in the
-	// service). Surfacing it once at startup gives the operator a
-	// clear signal before the feature silently breaks.
-	if cfg.Env.WebhookCallbackURL != "" && !isUsableWebhookURL(cfg.Env.WebhookCallbackURL) {
-		log.Warn("WEBHOOK_CALLBACK_URL is set but not a valid HTTPS endpoint — webhook-dependent features (scheduled recording, live-dot SSE) will be skipped",
-			"callback_host", urlHost(cfg.Env.WebhookCallbackURL))
-	}
+	eventSubCallbackURL := cfg.ServerModeCallbackURL()
 
 	// eventsubSvc is constructed once and shared: used by the
 	// existing stream.online subscription flow AND by the new
 	// channel.update per-recording flow. The HMAC secret + callback
 	// URL are the same across both sub types.
-	eventsubSvc := eventsub.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
+	eventsubSvc := eventsub.New(repo, twitchClient, eventSubCallbackURL, cfg.Env.HMACSecret, log)
+	if err := eventsubconfig.CleanupNonSubscriptionRuntime(ctx, cfg.ServerMode, eventsubSvc, log); err != nil {
+		log.Error("Failed to clean up stale EventSub subscriptions; continuing startup", "error", err)
+	}
 
 	var metaWatcher *streammeta.MetadataWatcher
-	if titleMode == config.TitleTrackingModePoll {
+	if cfg.ServerMode.TracksTitlesViaPoll() {
 		metaWatcher = streammeta.NewMetadataWatcher(hydrator, streammeta.MetadataWatchConfig{
-			Interval: time.Duration(cfg.App.TitleTracking.IntervalMinutes) * time.Minute,
+			Interval: time.Duration(cfg.App.Server.PollIntervalMinutes) * time.Minute,
 		}, log)
 	}
 	var channelSubs downloader.ChannelUpdateSubscriber
-	if titleMode == config.TitleTrackingModeWebhook {
+	if cfg.ServerMode.TracksTitlesViaWebhook() {
 		channelSubs = &channelSubsAdapter{es: eventsubSvc}
 	}
 	dl := downloader.NewService(cfg, repo, store, hydrator, metaWatcher, channelSubs, log)
@@ -299,12 +298,13 @@ func main() {
 	// event-log writer (publishes system.events). Routing handlers
 	// subscribe per-client.
 	bus := eventbus.New()
+	eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
 
 	// Start the local HTTP server before creating or reconciling EventSub
 	// subscriptions. Twitch verification challenges must be able to reach the
 	// local callback immediately, especially when routed through Connect relay.
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, log)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, eventProcessor, log)
 	serverReady := make(chan error, 1)
 	go srv.Start(serverReady)
 	if err := <-serverReady; err != nil {
@@ -314,22 +314,32 @@ func main() {
 	}
 	log.Info("Server started", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
 
-	// Optional Connect relay agent. WEBHOOK_CALLBACK_URL remains the
-	// public HTTPS URL registered with Twitch (the relay ingest URL), while
+	var livePollDone chan struct{}
+	if cfg.ServerMode.PollsHelix() {
+		lp := livepoll.New(repo, twitchClient, eventProcessor, time.Duration(cfg.App.Server.PollIntervalMinutes)*time.Minute, log)
+		livePollDone = make(chan struct{})
+		go func() {
+			defer close(livePollDone)
+			lp.Run(signalCtx)
+		}()
+	}
+
+	// Optional Connect relay agent. RelayIngestURL remains the public HTTPS
+	// URL registered with Twitch, while
 	// RELAY_LOCAL_CALLBACK_URL is where this agent replays frames locally.
 	// The HMAC is still verified by webhook.Handler — the relay never holds
 	// the secret.
-	if cfg.Env.RelaySubscribeURL != "" {
-		localCallbackURL := relayLocalCallbackURL(cfg)
-		if sameURL(localCallbackURL, cfg.Env.WebhookCallbackURL) {
-			log.Error("RELAY_LOCAL_CALLBACK_URL must not equal WEBHOOK_CALLBACK_URL; local replay would loop back into the public relay",
-				"callback_host", urlHost(localCallbackURL))
+	if cfg.ServerMode.UsesRelayAgent() {
+		localCallbackURL := cfg.ServerMode.RelayLocalCallbackURLOrDefault(cfg.Env.Port)
+		if config.SameURL(localCallbackURL, eventSubCallbackURL) {
+			log.Error("RELAY_LOCAL_CALLBACK_URL must not equal the EventSub relay ingest URL; local replay would loop back into the public relay",
+				"callback_host", config.URLHost(localCallbackURL))
 			srv.Stop()
 			logger.Close()
 			os.Exit(1)
 		}
 		rc, err := relayclient.New(relayclient.Config{
-			SubscribeURL: cfg.Env.RelaySubscribeURL,
+			SubscribeURL: cfg.ServerMode.RelaySubscribeURL,
 			CallbackURL:  localCallbackURL,
 			Logger:       log,
 		})
@@ -343,12 +353,12 @@ func main() {
 		select {
 		case <-rc.Ready():
 			log.Info("Relay client started",
-				"subscribe_host", urlHost(cfg.Env.RelaySubscribeURL),
+				"subscribe_host", config.URLHost(cfg.ServerMode.RelaySubscribeURL),
 				"local_callback", localCallbackURL,
 			)
 		case <-time.After(15 * time.Second):
 			log.Error("Relay client did not connect before startup timeout",
-				"subscribe_host", urlHost(cfg.Env.RelaySubscribeURL))
+				"subscribe_host", config.URLHost(cfg.ServerMode.RelaySubscribeURL))
 			srv.Stop()
 			logger.Close()
 			os.Exit(1)
@@ -374,7 +384,7 @@ func main() {
 	//      feature.
 	//
 	// Both are best-effort; failures log but don't fail startup.
-	if titleMode == config.TitleTrackingModeWebhook {
+	if cfg.ServerMode.TracksTitlesViaWebhook() {
 		activeJobs, err := repo.ListRunningJobs(ctx)
 		if err != nil {
 			log.Warn("channel.update reconcile: list running jobs failed", "error", err)
@@ -389,7 +399,7 @@ func main() {
 		}
 	}
 
-	if cfg.Env.WebhookCallbackURL != "" {
+	if cfg.ServerMode.CreatesTwitchSubscriptions() {
 		channels, err := repo.ListChannels(ctx)
 		if err != nil {
 			log.Warn("followed-subs reconcile: list channels failed", "error", err)
@@ -409,7 +419,10 @@ func main() {
 	// is false — useful for one-off CLI invocations or tests.
 	var sched *scheduler.Service
 	if cfg.App.Scheduler.Enabled {
-		esvc := eventsub.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
+		var esvc *eventsub.Service
+		if cfg.ServerMode.CreatesTwitchSubscriptions() {
+			esvc = eventsubSvc
+		}
 		sched = scheduler.NewService(repo, log, 15*time.Second, bus)
 		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, artSvc, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
@@ -434,123 +447,47 @@ func main() {
 	if sched != nil {
 		sched.Stop()
 	}
+	// Wait for an in-flight live-poll tick to finish so we don't os.Exit
+	// mid-dispatch (after a video/job row is written). signalCtx is already
+	// cancelled, so Run returns once the current tick completes; bound the
+	// wait so a stuck Helix call can't hang shutdown indefinitely.
+	awaitLivePollShutdown(livePollDone, 5*time.Second, log)
 	srv.Stop()
 	logger.Close()
 
 	os.Exit(0)
 }
 
-func relayLocalCallbackURL(cfg *config.Config) string {
-	if cfg.Env.RelayLocalCallbackURL != "" {
-		return cfg.Env.RelayLocalCallbackURL
+// awaitLivePollShutdown blocks until the live poller's goroutine signals it has
+// stopped, or the grace period elapses, so an in-flight tick finishes before
+// os.Exit (avoiding a mid-dispatch kill) without letting a stuck Helix call hang
+// shutdown indefinitely. A nil channel means the poller was never started.
+func awaitLivePollShutdown(done <-chan struct{}, grace time.Duration, log *slog.Logger) {
+	if done == nil {
+		return
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d/api/v1/webhook/callback", cfg.Env.Port)
+	select {
+	case <-done:
+	case <-time.After(grace):
+		log.Warn("live poller did not stop within shutdown grace period")
+	}
 }
 
-// validateRelayURLs enforces the startup-time invariants that tie the optional
-// Connect relay to the local server. Twitch posts to WEBHOOK_CALLBACK_URL, while
-// the local agent dials RELAY_SUBSCRIBE_URL; both must address the same relay
-// host and /u/<token> Durable Object or verification challenges will miss the
-// subscriber.
-func validateRelayURLs(webhookCallbackURL, subscribeURL string) error {
-	if subscribeURL == "" {
-		return nil
+// resolveOrDegrade decides how boot reacts to eventsubconfig.Resolve's outcome,
+// split out from main so the policy is unit-testable. A clean resolve is used
+// as-is. An invalid *app-managed* config degrades to setup-required so the owner
+// can re-onboard from the dashboard instead of the process refusing to boot.
+// Anything else is fatal: an invalid *env-managed* config is an operator mistake
+// that must be fixed at the source, and a non-ErrInvalid error (e.g. the DB read
+// failed) means no resolution can be trusted. The caller logs and exits on fatal.
+func resolveOrDegrade(resolved config.ServerModeConfig, err error) (final config.ServerModeConfig, fatal bool) {
+	if err == nil {
+		return resolved, false
 	}
-	if !isUsableWebhookURL(webhookCallbackURL) {
-		return fmt.Errorf("RELAY_SUBSCRIBE_URL requires WEBHOOK_CALLBACK_URL to be the public HTTPS relay ingest URL")
+	if errors.Is(err, eventsubconfig.ErrInvalid) && !resolved.EnvManaged() {
+		return config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset}, false
 	}
-	ingest, err := url.Parse(webhookCallbackURL)
-	if err != nil {
-		return fmt.Errorf("parse WEBHOOK_CALLBACK_URL: %w", err)
-	}
-	subscribe, err := url.Parse(subscribeURL)
-	if err != nil {
-		return fmt.Errorf("parse RELAY_SUBSCRIBE_URL: %w", err)
-	}
-	if subscribe.Scheme != "wss" {
-		return fmt.Errorf("RELAY_SUBSCRIBE_URL must use wss://")
-	}
-	if !strings.EqualFold(ingest.Host, subscribe.Host) {
-		return fmt.Errorf("WEBHOOK_CALLBACK_URL and RELAY_SUBSCRIBE_URL must use the same relay host")
-	}
-	ingestToken, ok := relayIngestToken(ingest.Path)
-	if !ok {
-		return fmt.Errorf("WEBHOOK_CALLBACK_URL must use /u/<token>")
-	}
-	subscribeToken, ok := relaySubscribeToken(subscribe.Path)
-	if !ok {
-		return fmt.Errorf("RELAY_SUBSCRIBE_URL must use /u/<token>/subscribe")
-	}
-	if ingestToken != subscribeToken {
-		return fmt.Errorf("WEBHOOK_CALLBACK_URL and RELAY_SUBSCRIBE_URL must use the same relay token")
-	}
-	return nil
-}
-
-func relayIngestToken(path string) (string, bool) {
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 2 || parts[0] != "u" || !isRelayToken(parts[1]) {
-		return "", false
-	}
-	return parts[1], true
-}
-
-func relaySubscribeToken(path string) (string, bool) {
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 3 || parts[0] != "u" || parts[2] != "subscribe" || !isRelayToken(parts[1]) {
-		return "", false
-	}
-	return parts[1], true
-}
-
-func isRelayToken(value string) bool {
-	if len(value) < 16 || len(value) > 128 {
-		return false
-	}
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func urlHost(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-	return u.Host
-}
-
-func sameURL(a, b string) bool {
-	ua, errA := url.Parse(a)
-	ub, errB := url.Parse(b)
-	if errA != nil || errB != nil {
-		return false
-	}
-	return strings.EqualFold(ua.Scheme, ub.Scheme) &&
-		strings.EqualFold(ua.Host, ub.Host) &&
-		ua.Path == ub.Path
-}
-
-// isUsableWebhookURL mirrors eventsub.isCallbackURLUsable so the
-// startup validation matches what the service will actually accept.
-// Kept here in main so we can fail loudly before the service is
-// ever called.
-func isUsableWebhookURL(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return false
-	}
-	if u.Port() != "" && u.Port() != "443" {
-		return false
-	}
-	return true
+	return resolved, true
 }
 
 // channelSubsAdapter bridges eventsub.Service's return-rich

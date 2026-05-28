@@ -3,7 +3,8 @@ package config
 func getDefaultAppConfig() AppConfig {
 	return AppConfig{
 		Server: ServerConfig{
-			AllowedOrigins: []string{"http://localhost:3000"},
+			AllowedOrigins:      []string{"http://localhost:3000"},
+			PollIntervalMinutes: 1,
 		},
 		Download: DownloadConfig{
 			MaxConcurrent:        2,
@@ -48,15 +49,14 @@ func getDefaultAppConfig() AppConfig {
 			MaxConnIdleTimeMs:   300000,
 			HealthCheckPeriodMs: 30000,
 		},
-		TitleTracking: TitleTrackingConfig{
-			Mode:            TitleTrackingModePoll,
-			IntervalMinutes: 1,
-		},
 		Development: false,
 	}
 }
 
 func validateAppConfig(config *AppConfig) {
+	if config.Server.PollIntervalMinutes <= 0 {
+		config.Server.PollIntervalMinutes = 1
+	}
 	if config.Download.MaxConcurrent <= 0 {
 		config.Download.MaxConcurrent = 2
 	}
@@ -87,20 +87,6 @@ func validateAppConfig(config *AppConfig) {
 	}
 	if config.Download.MaxRestartGapSeconds <= 0 {
 		config.Download.MaxRestartGapSeconds = 120
-	}
-	if config.TitleTracking.IntervalMinutes <= 0 {
-		config.TitleTracking.IntervalMinutes = 1
-	}
-	// Normalize mode. Unknown values fall back to poll rather than
-	// off so a typo doesn't silently disable the feature; operators
-	// notice the mismatch in the startup log.
-	switch config.TitleTracking.Mode {
-	case "":
-		// Empty means "use Enabled" — EffectiveMode handles it.
-	case TitleTrackingModePoll, TitleTrackingModeWebhook, TitleTrackingModeOff:
-		// Valid.
-	default:
-		config.TitleTracking.Mode = TitleTrackingModePoll
 	}
 	if config.Logging.SampleRate <= 0 || config.Logging.SampleRate > 1 {
 		config.Logging.SampleRate = 1.0

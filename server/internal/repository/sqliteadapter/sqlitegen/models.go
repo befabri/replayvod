@@ -109,6 +109,17 @@ type Job struct {
 	UpdatedAt     string         `json:"updated_at"`
 }
 
+type ServerSetting struct {
+	ID                            int64  `json:"id"`
+	ServerMode                    string `json:"server_mode"`
+	EventsubWebhookCallbackUrl    string `json:"eventsub_webhook_callback_url"`
+	EventsubRelayIngestUrl        string `json:"eventsub_relay_ingest_url"`
+	EventsubRelaySubscribeUrl     string `json:"eventsub_relay_subscribe_url"`
+	EventsubRelayLocalCallbackUrl string `json:"eventsub_relay_local_callback_url"`
+	CreatedAt                     string `json:"created_at"`
+	UpdatedAt                     string `json:"updated_at"`
+}
+
 type Session struct {
 	HashedID        string         `json:"hashed_id"`
 	UserID          string         `json:"user_id"`

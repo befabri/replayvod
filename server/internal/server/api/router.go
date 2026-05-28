@@ -28,6 +28,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/webhook"
 	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
+	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -42,7 +43,7 @@ import (
 
 // SetupRouter creates and configures the Chi router and returns a cleanup
 // hook for the tRPC router lifecycle.
-func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, log *slog.Logger) (*chi.Mux, func() error) {
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, log *slog.Logger) (*chi.Mux, func() error) {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -77,11 +78,15 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	videoStream := video.NewStreamHandler(repo, store, log)
 	// The webhook handler needs the raw body for HMAC verification, so it
 	// must live on the Chi side (no tRPC JSON middleware) and outside the
-	// csrfProtection group (Twitch can't provide a CSRF cookie). The
-	// schedule-service processor dispatches stream.online events to the
-	// auto-download pipeline; other event types are audit-logged only.
-	scheduleProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
-	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, scheduleProcessor, log)
+	// csrfProtection group (Twitch can't provide a CSRF cookie). Only wire the
+	// notification processor when this process is configured to receive
+	// EventSub; stale Twitch deliveries after EventSub is turned off should be
+	// audited, not dispatched into the recording pipeline.
+	var webhookProcessor webhook.EventProcessor
+	if cfg.ServerMode.ProcessesWebhookNotifications() {
+		webhookProcessor = eventProcessor
+	}
+	webhookHandler := webhook.NewHandler(repo, cfg.Env.HMACSecret, webhookProcessor, log)
 	tokenProvider := middleware.NewSessionTokenProvider(sessionMgr, twitchClient, log)
 	sessionMw := middleware.Auth(sessionMgr, repo, tokenProvider, log)
 	r.Route("/api/v1", func(r chi.Router) {
@@ -169,18 +174,18 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	admin := authed.Use(adminMw)
 	owner := authed.Use(ownerMw)
 
-	// EventSub domain service — the tRPC handler shares it with the
-	// scheduler cron task. Constructed here rather than in cmd/server
-	// because the tRPC side is where it's consumed, but main.go also
-	// builds its own copy for the scheduler (see main.go).
-	eventsubMgr := eventsubsvc.New(repo, twitchClient, cfg.Env.WebhookCallbackURL, cfg.Env.HMACSecret, log)
+	// EventSub domain service — the tRPC handler uses the same domain service
+	// type as the scheduler, but main.go builds a separate boot-time instance
+	// for background jobs.
+	eventsubMgr := eventsubsvc.New(repo, twitchClient, cfg.ServerModeCallbackURL(), cfg.Env.HMACSecret, log)
+	eventsubConfigSvc := eventsubconfig.New(repo, cfg, log)
 
 	// Dispatch to each domain. Keeps this function stable when a domain
 	// adds a new procedure — the change lives in that domain's routes.go.
 	auth.RegisterTRPC(tr, authSvc, sessionMgr, log, authed)
 	category.RegisterRoutes(tr, repo, log, viewer)
 	channel.RegisterRoutes(tr, repo, twitchClient, log, viewer, owner)
-	eventsub.RegisterRoutes(tr, eventsubMgr, log, owner)
+	eventsub.RegisterRoutes(tr, eventsubMgr, eventsubConfigSvc, log, owner)
 	schedule.RegisterRoutes(tr, scheduleSvc, log, viewer, admin)
 	settings.RegisterRoutes(tr, repo, log, viewer)
 	sse.RegisterRoutes(tr, bus, log, viewer, owner)

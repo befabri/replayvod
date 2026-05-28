@@ -207,6 +207,20 @@ func (h *Hydrator) Hydrate(ctx context.Context, broadcasterID string) *Snapshot 
 	return h.persist(ctx, broadcasterID, stream)
 }
 
+// HydrateFromStream runs the same enrichment as Hydrate but against an
+// already-fetched stream, skipping the Helix GetStreams call entirely. The live
+// poller polls the full stream itself, so it uses this to avoid a second
+// GetStreams on every online transition (and to avoid the failure mode where a
+// redundant re-fetch comes back empty and category/tag-filtered schedules then
+// silently can't match). Returns nil for a nil stream or one missing its
+// broadcaster ID.
+func (h *Hydrator) HydrateFromStream(ctx context.Context, stream *twitch.Stream) *Snapshot {
+	if stream == nil || stream.UserID == "" {
+		return nil
+	}
+	return h.persist(ctx, stream.UserID, stream)
+}
+
 // persist upserts the stream row and every linked child row, returning
 // the Snapshot. Split from Hydrate so tests can feed a synthetic
 // *twitch.Stream without stubbing the Helix client.

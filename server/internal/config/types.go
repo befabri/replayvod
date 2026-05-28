@@ -40,21 +40,39 @@ type Environment struct {
 
 	// URLs
 	CallbackURL        string `env:"CALLBACK_URL" envDefault:"http://localhost:8080/api/v1/auth/twitch/callback"`
-	WebhookCallbackURL string `env:"WEBHOOK_CALLBACK_URL" envDefault:"http://localhost:8080/api/v1/webhook/callback"`
+	WebhookCallbackURL string `env:"WEBHOOK_CALLBACK_URL"`
 	FrontendURL        string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
+
+	// ServerMode selects how this recorder detects live channels and title
+	// updates: "off" disables automation, "poll" polls Helix, "direct" uses
+	// WebhookCallbackURL, and "relay" uses RelayIngestURL + RelaySubscribeURL.
+	// Empty means server mode is app-managed and should be configured through
+	// the owner onboarding UI.
+	ServerMode string `env:"SERVER_MODE"`
+
+	// ServerModeEnvConfigured is derived from SERVER_MODE after parsing.
+	// It is not itself an environment variable.
+	ServerModeEnvConfigured bool `env:"-"`
+
+	// RelayIngestURL is the public HTTPS URL Twitch posts to when
+	// ServerMode is "relay", e.g. "https://relay.replayvod.com/u/<token>".
+	// It is intentionally separate from WebhookCallbackURL so direct and relay
+	// delivery modes do not reuse the same knob for different meanings.
+	RelayIngestURL string `env:"RELAY_INGEST_URL"`
 
 	// RelaySubscribeURL points the optional Connect agent at a hosted
 	// relay's WebSocket endpoint, e.g.
 	// "wss://relay.replayvod.com/u/<token>/subscribe". When set, the
 	// agent connects to the relay and replays each ingested EventSub
-	// frame to RelayLocalCallbackURL. Empty disables the agent.
+	// frame to RelayLocalCallbackURL. It is required when ServerMode is
+	// "relay".
 	RelaySubscribeURL string `env:"RELAY_SUBSCRIBE_URL"`
 
 	// RelayLocalCallbackURL is the local webhook handler the optional
 	// relay agent replays frames into. Leave empty for the default
 	// http://127.0.0.1:<PORT>/api/v1/webhook/callback. This is separate
-	// from WebhookCallbackURL: WebhookCallbackURL is the public HTTPS URL
-	// Twitch sends to, while this URL stays on the local machine.
+	// from RelayIngestURL: RelayIngestURL is the public URL Twitch sends to,
+	// while this URL stays on the local machine.
 	RelayLocalCallbackURL string `env:"RELAY_LOCAL_CALLBACK_URL"`
 
 	// Paths
@@ -83,15 +101,14 @@ type Environment struct {
 
 // AppConfig contains behavior settings from config.toml — hot-reloadable.
 type AppConfig struct {
-	Server        ServerConfig        `toml:"server"`
-	Download      DownloadConfig      `toml:"download"`
-	Storage       StorageConfig       `toml:"storage"`
-	Scheduler     SchedulerConfig     `toml:"scheduler"`
-	Logging       LoggingConfig       `toml:"logging"`
-	PostgresPool  PostgresPoolConfig  `toml:"postgres"`
-	TitleTracking TitleTrackingConfig `toml:"title_tracking"`
-	Health        HealthConfig        `toml:"health"`
-	Development   bool                `toml:"development"`
+	Server       ServerConfig       `toml:"server"`
+	Download     DownloadConfig     `toml:"download"`
+	Storage      StorageConfig      `toml:"storage"`
+	Scheduler    SchedulerConfig    `toml:"scheduler"`
+	Logging      LoggingConfig      `toml:"logging"`
+	PostgresPool PostgresPoolConfig `toml:"postgres"`
+	Health       HealthConfig       `toml:"health"`
+	Development  bool               `toml:"development"`
 }
 
 // HealthConfig gates the unauthenticated /api/v1/health readiness
@@ -103,50 +120,9 @@ type HealthConfig struct {
 	Enabled bool `toml:"enabled"`
 }
 
-// TitleTrackingConfig controls capture of title changes during an
-// active recording. Three modes:
-//
-//   - "poll":    goroutine polls Helix every IntervalMinutes (default).
-//     Works on any deployment, no public callback URL needed.
-//   - "webhook": creates a channel.update EventSub per active recording
-//     and writes titles on push. Zero polling. Requires
-//     WEBHOOK_CALLBACK_URL set and publicly reachable; the
-//     server refuses to start in this mode otherwise so a
-//     silent misconfig doesn't fall back to degraded behavior.
-//   - "off":     only the at-start snapshot (videos.title) is recorded.
-//
-// Legacy Enabled bool is kept for backwards compatibility: if Mode is
-// empty and Enabled is true, the effective mode is "poll"; if Enabled
-// is false, the effective mode is "off". New deployments should set
-// Mode directly.
-type TitleTrackingConfig struct {
-	Mode            string `toml:"mode"`
-	Enabled         bool   `toml:"enabled"`
-	IntervalMinutes int    `toml:"interval_minutes"`
-}
-
-// Title-tracking mode constants. Kept at package level so the
-// main, downloader, and scheduler all agree on the spelling.
-const (
-	TitleTrackingModePoll    = "poll"
-	TitleTrackingModeWebhook = "webhook"
-	TitleTrackingModeOff     = "off"
-)
-
-// EffectiveMode returns the resolved mode string, applying the
-// Enabled→Mode translation. Prefer this over reading Mode directly.
-func (c TitleTrackingConfig) EffectiveMode() string {
-	if c.Mode != "" {
-		return c.Mode
-	}
-	if c.Enabled {
-		return TitleTrackingModePoll
-	}
-	return TitleTrackingModeOff
-}
-
 type ServerConfig struct {
-	AllowedOrigins []string `toml:"allowed_origins"`
+	AllowedOrigins      []string `toml:"allowed_origins"`
+	PollIntervalMinutes int      `toml:"poll_interval_minutes"`
 }
 
 // DownloadConfig controls the native Go HLS downloader. Field docs
@@ -305,6 +281,7 @@ type PostgresPoolConfig struct {
 
 // Config is the combined configuration.
 type Config struct {
-	App AppConfig
-	Env Environment
+	App        AppConfig
+	Env        Environment
+	ServerMode ServerModeConfig
 }

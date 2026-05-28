@@ -145,7 +145,7 @@ func (q *Queries) GetSubscription(ctx context.Context, id string) (Subscription,
 const listActiveSubscriptions = `-- name: ListActiveSubscriptions :many
 SELECT id, status, type, version, cost, condition, broadcaster_id, transport_method, transport_callback, twitch_created_at, created_at, revoked_at, revoked_reason FROM subscriptions
 WHERE revoked_at IS NULL
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT ? OFFSET ?
 `
 

@@ -180,9 +180,12 @@ func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context,
 	}
 
 	if h.processor == nil {
-		// No processor wired — the event is recorded but no-one acts on
-		// it. Treat as success so Twitch doesn't retry; dashboard surfaces
-		// the row in the audit log. This is the bootstrap-phase state.
+		// No processor wired — the event is audit-only and no domain side effect
+		// should run. Mark it processed so the stuck-events query remains a true
+		// crash detector instead of paging on intentionally ignored notifications.
+		if err := h.repo.MarkWebhookEventProcessed(ctx, event.ID); err != nil {
+			h.log.Error("failed to mark audit-only webhook processed", "error", err, "id", event.ID)
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

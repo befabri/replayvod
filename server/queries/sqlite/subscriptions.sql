@@ -34,7 +34,7 @@ WHERE broadcaster_id = ? AND type = ? AND revoked_at IS NULL;
 -- name: ListActiveSubscriptions :many
 SELECT * FROM subscriptions
 WHERE revoked_at IS NULL
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT ? OFFSET ?;
 
 -- name: ListSubscriptionsByBroadcaster :many

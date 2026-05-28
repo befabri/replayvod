@@ -172,6 +172,78 @@ func TestHydrator_NilEnricherIsNoOp(t *testing.T) {
 	}
 }
 
+// TestHydrator_HydrateFromStream_NoHelixFetch pins the poll-mode fix: enrichment
+// runs off the already-polled stream with no GetStreams call. newTestHydrator
+// wires a nil Twitch client, so any re-fetch would panic — reaching here proves
+// HydrateFromStream uses the supplied stream. The streams row + category persist
+// and the snapshot carries the signals the schedule matcher needs.
+func TestHydrator_HydrateFromStream_NoHelixFetch(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHydrator(t, nil)
+
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-1", BroadcasterLogin: "b", BroadcasterName: "B",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	snap := h.HydrateFromStream(ctx, synthStream("s-1", "b-1", "game-42", "Game 42"))
+	if snap == nil || snap.StreamID != "s-1" {
+		t.Fatalf("HydrateFromStream snapshot = %+v, want StreamID s-1", snap)
+	}
+	if snap.GameID != "game-42" || snap.ViewerCount != 1 || snap.Language != "en" {
+		t.Fatalf("snapshot signals = %+v, want game-42/viewers 1/lang en", snap)
+	}
+	if _, err := repo.GetStream(ctx, "s-1"); err != nil {
+		t.Fatalf("streams row not persisted: %v", err)
+	}
+
+	if got := h.HydrateFromStream(ctx, nil); got != nil {
+		t.Fatalf("HydrateFromStream(nil) = %+v, want nil", got)
+	}
+	// The other half of the guard: a stream with no UserID can't be keyed to a
+	// broadcaster, so it must short-circuit rather than persist under "".
+	if got := h.HydrateFromStream(ctx, &twitch.Stream{ID: "s-x", UserID: ""}); got != nil {
+		t.Fatalf("HydrateFromStream(empty UserID) = %+v, want nil", got)
+	}
+}
+
+// TestHydrator_HydrateFromStream_PersistsTags pins the tag path through the
+// prefetched-stream entry: each non-empty Helix tag name is upserted, collected
+// into snap.TagIDs, and linked in stream_tags. The empty-name entry is skipped.
+func TestHydrator_HydrateFromStream_PersistsTags(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.NewSQLiteDB(t)
+	repo := sqliteadapter.New(db)
+	h := NewHydrator(repo, nil, Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-1", BroadcasterLogin: "b", BroadcasterName: "B",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	stream := synthStream("s-tags", "b-1", "game-42", "Game 42")
+	stream.Tags = []string{"English", "", "Speedrun"}
+
+	snap := h.HydrateFromStream(ctx, stream)
+	if snap == nil {
+		t.Fatal("HydrateFromStream returned nil")
+	}
+	if len(snap.TagIDs) != 2 {
+		t.Fatalf("snap.TagIDs = %v, want 2 ids (empty tag name skipped)", snap.TagIDs)
+	}
+
+	// The links must actually land in stream_tags for the recording's tag history.
+	var linked int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM stream_tags WHERE stream_id = ?", "s-tags").Scan(&linked); err != nil {
+		t.Fatalf("count stream_tags: %v", err)
+	}
+	if linked != 2 {
+		t.Fatalf("stream_tags rows = %d, want 2", linked)
+	}
+}
+
 // TestHydrator_EnricherErrorLoggedNotReturned pins that a Helix
 // failure in the enricher doesn't fail persist. The snapshot still
 // flows through to the caller; the category row exists (without art)

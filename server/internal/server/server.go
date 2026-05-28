@@ -13,6 +13,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api"
+	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -29,6 +30,7 @@ type Server struct {
 	downloader   *downloader.Service
 	hydrator     *streammeta.Hydrator
 	bus          *eventbus.Buses
+	processor    *schedulesvc.EventProcessor
 	log          *slog.Logger
 	httpServer   *http.Server
 	closeTRPC    func() error
@@ -38,7 +40,7 @@ type Server struct {
 // feeds — the subscription procedures then return pre-closed channels.
 // hydrator is shared with the downloader's MetadataWatcher so routes and
 // internal polling agree on the Helix-derived view.
-func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, log *slog.Logger) *Server {
+func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, processor *schedulesvc.EventProcessor, log *slog.Logger) *Server {
 	return &Server{
 		cfg:          cfg,
 		repo:         repo,
@@ -48,6 +50,7 @@ func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *sessi
 		downloader:   dl,
 		hydrator:     hydrator,
 		bus:          bus,
+		processor:    processor,
 		log:          log,
 	}
 }
@@ -55,7 +58,7 @@ func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *sessi
 // Start begins serving HTTP requests. If ready is non-nil, it receives nil
 // after the TCP listener is bound or an error if the server cannot listen.
 func (s *Server) Start(ready chan<- error) {
-	router, closeTRPC := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.hydrator, s.bus, s.log)
+	router, closeTRPC := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.hydrator, s.bus, s.processor, s.log)
 	s.closeTRPC = closeTRPC
 	addr := fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port)
 	listener, err := net.Listen("tcp", addr)

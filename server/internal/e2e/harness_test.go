@@ -100,7 +100,10 @@ func newTestServer(t *testing.T, d driver) *testServer {
 	// disables Helix enrichment — e2e tests don't exercise the
 	// stream-metadata path.
 	hydrator := streammeta.NewHydrator(repo, twitchClient, streammeta.Config{}, log)
-	router, closeTRPC := api.SetupRouter(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, nil, log)
+	// eventProcessor=nil: the e2e suite drives tRPC procedures directly and
+	// doesn't exercise the webhook notification path (which is gated off unless
+	// ServerMode processes webhooks anyway).
+	router, closeTRPC := api.SetupRouter(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, nil, nil, log)
 	srv := httptest.NewServer(router)
 	t.Cleanup(func() {
 		srv.Close()
@@ -174,8 +177,8 @@ func defaultAppForTest() config.AppConfig {
 			MaxGapRatio:          0.01,
 			MaxRestartGapSeconds: 120,
 		},
-		Storage:  config.StorageConfig{Type: "local", LocalPath: ""},
-		Logging:  config.LoggingConfig{SampleRate: 1.0, LogLevel: "warn"},
+		Storage: config.StorageConfig{Type: "local", LocalPath: ""},
+		Logging: config.LoggingConfig{SampleRate: 1.0, LogLevel: "warn"},
 		PostgresPool: config.PostgresPoolConfig{
 			MaxConns: 25, MinConns: 5,
 			MaxConnLifetimeMs: 1800000, MaxConnIdleTimeMs: 300000,
@@ -318,4 +321,3 @@ func decodeEnvelope(t *testing.T, procedure string, raw []byte, dst any) {
 		}
 	}
 }
-

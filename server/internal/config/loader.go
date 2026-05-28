@@ -25,8 +25,15 @@ func LoadConfig(path string) *Config {
 		tomlPath = path
 		config := &Config{}
 
+		if err := validateDotenvNoDuplicateKeys(".env"); err != nil {
+			slog.Error("Failed to validate .env file", "error", err)
+			os.Exit(1)
+		}
 		if err := godotenv.Load(); err == nil {
 			slog.Info("Loaded environment from .env file")
+		} else if !os.IsNotExist(err) {
+			slog.Error("Failed to load .env file", "error", err)
+			os.Exit(1)
 		}
 
 		config.App = getDefaultAppConfig()
@@ -39,6 +46,11 @@ func LoadConfig(path string) *Config {
 			slog.Error("Failed to parse environment config", "error", err)
 			os.Exit(1)
 		}
+		if err := validateEnvironment(&config.Env); err != nil {
+			slog.Error("Failed to validate environment config", "error", err)
+			os.Exit(1)
+		}
+		config.ServerMode = ServerModeConfigFromEnv(config.Env)
 
 		validateAppConfig(&config.App)
 		configPtr.Store(config)
@@ -64,8 +76,9 @@ func ReloadAppConfig() error {
 	validateAppConfig(&newApp)
 
 	newConfig := &Config{
-		App: newApp,
-		Env: current.Env,
+		App:        newApp,
+		Env:        current.Env,
+		ServerMode: current.ServerMode,
 	}
 
 	configPtr.Store(newConfig)

@@ -81,6 +81,7 @@ type Querier interface {
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
 	GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error)
+	GetServerSettings(ctx context.Context) (ServerSetting, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
 	GetSettings(ctx context.Context, userID string) (Setting, error)
 	GetStream(ctx context.Context, id string) (Stream, error)
@@ -265,6 +266,7 @@ type Querier interface {
 	// the caller passed NULL.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
+	UpsertServerSettings(ctx context.Context, arg UpsertServerSettingsParams) (ServerSetting, error)
 	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) (Setting, error)
 	UpsertStream(ctx context.Context, arg UpsertStreamParams) (Stream, error)
 	// Self-heal path; see postgres variant.

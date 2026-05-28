@@ -200,7 +200,7 @@ type Service struct {
 	thumb       *thumbnail.Generator
 	svcAcct     *serviceAccount
 	hydrator    *streammeta.Hydrator
-	metaWatcher *streammeta.MetadataWatcher
+	metaWatcher titleWatcher
 	channelSubs ChannelUpdateSubscriber
 
 	mu              sync.Mutex
@@ -291,6 +291,13 @@ type ChannelUpdateSubscriber interface {
 	UnsubscribeChannelUpdate(ctx context.Context, broadcasterID, reason string) error
 }
 
+// titleWatcher abstracts the poll-mode mid-stream title watcher so the
+// title-tracking decision is unit-testable without a live Helix poller.
+// *streammeta.MetadataWatcher satisfies it.
+type titleWatcher interface {
+	Watch(ctx context.Context, broadcasterID string, videoID int64, initial streammeta.WatchInitial)
+}
+
 // NewService wires up the pipeline components. The twitch client,
 // fetcher, remuxer, probe, and thumbnail generator are all
 // process-lifetime singletons — they hold no per-job state.
@@ -299,8 +306,7 @@ type ChannelUpdateSubscriber interface {
 // downloader relies solely on the at-start snapshot stored on
 // videos.title. channelSubs may also be nil — webhook mode
 // disabled. The recording runs with whichever strategy is wired
-// per `cfg.App.TitleTracking.Mode`; main.go constructs only the
-// deps the mode needs.
+// per `cfg.ServerMode`; main.go constructs only the deps the mode needs.
 // NewService wires up the pipeline components.
 //
 // hydrator is used at download-start to link the opening title +
@@ -353,10 +359,15 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		thumb:       &thumbnail.Generator{Log: domainLog},
 		svcAcct:     newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
 		hydrator:    hydrator,
-		metaWatcher: metaWatcher,
 		channelSubs: channelSubs,
 		active:      make(map[string]*download),
 		activeSubs:  make(map[int]chan struct{}),
+	}
+	// Only assign the watcher when non-nil: storing a typed-nil
+	// *MetadataWatcher into the titleWatcher interface field would make
+	// s.metaWatcher != nil true and panic on Watch in poll mode.
+	if metaWatcher != nil {
+		s.metaWatcher = metaWatcher
 	}
 	// Scratch-dir sweep is NOT performed here — Resume() owns that
 	// step so it can preserve the work dirs of RUNNING jobs before
@@ -865,6 +876,57 @@ var (
 	ErrRestartGapExceeded = errors.New("downloader: resume gap exceeds MaxRestartGapSeconds; forcing part split")
 )
 
+// startTitleTracking begins mid-stream title/category tracking for a recording
+// according to the server mode, returning a cleanup func (never nil) the caller
+// must defer.
+//
+// Webhook mode (direct/relay) subscribes to channel.update; the returned cleanup
+// unsubscribes. If the subscribe fails there is no poll fallback — poll-mode
+// title tracking only exists in poll mode, so the recording keeps just its
+// at-start title snapshot. Poll mode launches the Helix-polling watcher and
+// registers its cancel via registerPoller so it is torn down with the other
+// media pollers after the part loop (the returned cleanup is then a no-op). Off
+// mode, or a missing dependency for the active mode, is a no-op.
+func (s *Service) startTitleTracking(ctx context.Context, p Params, videoID int64, log *slog.Logger, registerPoller func(context.CancelFunc)) func() {
+	noop := func() {}
+
+	if s.cfg.ServerMode.TracksTitlesViaWebhook() && s.channelSubs != nil {
+		if err := s.channelSubs.SubscribeChannelUpdate(ctx, p.BroadcasterID); err != nil {
+			log.Warn("channel.update subscribe failed; recording keeps only its at-start title",
+				"broadcaster_id", p.BroadcasterID, "error", err)
+			return noop
+		}
+		// Unsubscribe under WithoutCancel so a recording cancel doesn't strand
+		// the Twitch sub; 15s timeout caps a single stuck DELETE so it can't eat
+		// Shutdown's 30s budget. Orphans get swept by ReconcileChannelUpdateSubs.
+		return func() {
+			unsubCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+			defer cancel()
+			if err := s.channelSubs.UnsubscribeChannelUpdate(unsubCtx, p.BroadcasterID, "recording ended"); err != nil {
+				log.Warn("channel.update unsubscribe failed; orphan sub will be swept on next boot",
+					"broadcaster_id", p.BroadcasterID, "error", err)
+			}
+		}
+	}
+
+	if s.cfg.ServerMode.TracksTitlesViaPoll() && s.metaWatcher != nil {
+		// Initial title + category were already linked at CreateVideo; the
+		// watcher gets them as "last seen" so only actual changes record.
+		titleCtx, cancelTitle := context.WithCancel(ctx)
+		registerPoller(cancelTitle)
+		initial := streammeta.WatchInitial{
+			Title:      p.Title,
+			CategoryID: p.CategoryID,
+		}
+		go func() {
+			s.metaWatcher.Watch(titleCtx, p.BroadcasterID, videoID, initial)
+			log.Debug("title watcher done")
+		}()
+	}
+
+	return noop
+}
+
 // run walks the full pipeline for one job. All DB writes use
 // dbCtx (derived from context.WithoutCancel) instead of the
 // runtime ctx so a user Cancel() still lets the "mark failed"
@@ -957,47 +1019,14 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	}
 
 	// Title tracking: webhook subscribes to channel.update EventSub
-	// (handler writes on push); poll runs a Helix-polling
-	// goroutine; off stores only the at-start title. Webhook
-	// subscribe failure falls back to poll for this recording.
-	titleMode := s.cfg.App.TitleTracking.EffectiveMode()
-	useWebhook := titleMode == config.TitleTrackingModeWebhook && s.channelSubs != nil
-	if useWebhook {
-		if err := s.channelSubs.SubscribeChannelUpdate(ctx, p.BroadcasterID); err != nil {
-			log.Warn("channel.update subscribe failed; falling back to poll for this recording",
-				"broadcaster_id", p.BroadcasterID, "error", err)
-			useWebhook = false
-		} else {
-			// Unsubscribe under WithoutCancel so a recording cancel
-			// doesn't strand the Twitch sub; 15s timeout caps a
-			// single stuck DELETE so it can't eat Shutdown's 30s
-			// budget. Orphans get swept by ReconcileChannelUpdateSubs.
-			defer func() {
-				unsubCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-				defer cancel()
-				if err := s.channelSubs.UnsubscribeChannelUpdate(unsubCtx, p.BroadcasterID, "recording ended"); err != nil {
-					log.Warn("channel.update unsubscribe failed; orphan sub will be swept on next boot",
-						"broadcaster_id", p.BroadcasterID, "error", err)
-				}
-			}()
-		}
-	}
-
-	if !useWebhook && titleMode == config.TitleTrackingModePoll && s.metaWatcher != nil {
-		// Initial title + category were already linked at
-		// CreateVideo; the watcher gets them as "last seen" so
-		// only actual changes record.
-		titleCtx, cancelTitle := context.WithCancel(ctx)
-		mediaPollerCancels = append(mediaPollerCancels, cancelTitle)
-		initial := streammeta.WatchInitial{
-			Title:      p.Title,
-			CategoryID: p.CategoryID,
-		}
-		go func() {
-			s.metaWatcher.Watch(titleCtx, p.BroadcasterID, d.videoID, initial)
-			log.Debug("title watcher done")
-		}()
-	}
+	// (handler writes on push); poll runs a Helix-polling goroutine; off stores
+	// only the at-start title. The poll watcher's cancel is registered with the
+	// media pollers so it's torn down after the part loop; the webhook
+	// unsubscribe is returned and deferred to run's exit.
+	stopTitleTracking := s.startTitleTracking(ctx, p, d.videoID, log, func(cancel context.CancelFunc) {
+		mediaPollerCancels = append(mediaPollerCancels, cancel)
+	})
+	defer stopTitleTracking()
 
 	selectOpts := twitch.SelectOptions{
 		RecordingType: recordingType,

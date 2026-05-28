@@ -9,26 +9,144 @@ package eventsub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/service/eventsub"
+	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
+	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 	"github.com/befabri/trpcgo"
 )
 
 // Handler is the tRPC adapter around the eventsub domain service.
 type Handler struct {
-	svc *eventsub.Service
-	log *slog.Logger
+	svc       *eventsubsvc.Service
+	configSvc *eventsubconfig.Service
+	log       *slog.Logger
 }
 
 // NewHandler creates a new eventsub tRPC handler.
-func NewHandler(svc *eventsub.Service, log *slog.Logger) *Handler {
+func NewHandler(svc *eventsubsvc.Service, configSvc *eventsubconfig.Service, log *slog.Logger) *Handler {
 	return &Handler{
-		svc: svc,
-		log: log.With("domain", "eventsub-api"),
+		svc:       svc,
+		configSvc: configSvc,
+		log:       log.With("domain", "eventsub-api"),
 	}
+}
+
+// ConfigResponse is the owner-facing EventSub setup state.
+//
+// The top-level fields describe the SAVED/desired config: what the dashboard
+// form edits and what the process will run after a restart. When EnvManaged is
+// true, environment variables own that config and app updates are rejected.
+//
+// Active describes the config the process is running RIGHT NOW. It diverges
+// from the saved config when RestartRequired is true (e.g. relay was just saved
+// onto a process that booted unconfigured). Live operations — creating Twitch
+// subscriptions — are gated on Active, not the saved config, so a client can
+// tell what actually works before the owner restarts.
+type ConfigResponse struct {
+	Source                     string        `json:"source"`
+	Mode                       string        `json:"mode"`
+	EnvManaged                 bool          `json:"env_managed"`
+	SetupRequired              bool          `json:"setup_required"`
+	RestartRequired            bool          `json:"restart_required"`
+	CreatesTwitchSubscriptions bool          `json:"creates_twitch_subscriptions"`
+	UsesRelayAgent             bool          `json:"uses_relay_agent"`
+	PollsHelix                 bool          `json:"polls_helix"`
+	WebhookCallbackURL         string        `json:"webhook_callback_url,omitempty"`
+	RelayIngestURL             string        `json:"relay_ingest_url,omitempty"`
+	RelaySubscribeURL          string        `json:"relay_subscribe_url,omitempty"`
+	RelayLocalCallbackURL      string        `json:"relay_local_callback_url,omitempty"`
+	Active                     ActiveRuntime `json:"active"`
+}
+
+// ActiveRuntime is the EventSub config the server is running now. Its capability
+// flags reflect what the live process can do, which is what SubscribeStreamOnline
+// gates on — distinct from the saved config's flags when a restart is pending.
+type ActiveRuntime struct {
+	Source                     string `json:"source"`
+	Mode                       string `json:"mode"`
+	CreatesTwitchSubscriptions bool   `json:"creates_twitch_subscriptions"`
+	UsesRelayAgent             bool   `json:"uses_relay_agent"`
+	PollsHelix                 bool   `json:"polls_helix"`
+}
+
+func stateToResponse(state eventsubconfig.State) ConfigResponse {
+	saved := state.Saved
+	active := state.Active
+	saved.Normalize()
+	active.Normalize()
+	// URL fields are emitted directly: saved configs are URL-cleared per
+	// mode by ServerModeConfigFromApp, and env configs are validated, so the
+	// fields a mode does not use are already empty (omitempty drops
+	// them). No per-mode switch needed here — that rule lives only in
+	// config.ServerModeConfig.ClearURLsForDelivery.
+	return ConfigResponse{
+		Source:                     saved.Source,
+		Mode:                       saved.Mode,
+		EnvManaged:                 saved.EnvManaged(),
+		SetupRequired:              saved.SetupRequired(),
+		RestartRequired:            state.RestartRequired,
+		CreatesTwitchSubscriptions: saved.CreatesTwitchSubscriptions(),
+		UsesRelayAgent:             saved.UsesRelayAgent(),
+		PollsHelix:                 saved.PollsHelix(),
+		WebhookCallbackURL:         saved.WebhookCallbackURL,
+		RelayIngestURL:             saved.RelayIngestURL,
+		RelaySubscribeURL:          saved.RelaySubscribeURL,
+		RelayLocalCallbackURL:      saved.RelayLocalCallbackURL,
+		Active: ActiveRuntime{
+			Source:                     active.Source,
+			Mode:                       active.Mode,
+			CreatesTwitchSubscriptions: active.CreatesTwitchSubscriptions(),
+			UsesRelayAgent:             active.UsesRelayAgent(),
+			PollsHelix:                 active.PollsHelix(),
+		},
+	}
+}
+
+// Config returns the effective EventSub setup state. Env-managed settings win;
+// otherwise it reports the app-saved server_settings row, if any.
+func (h *Handler) Config(ctx context.Context) (ConfigResponse, error) {
+	state, err := h.configSvc.State(ctx)
+	if err != nil {
+		h.log.Error("get eventsub config", "error", err)
+		return ConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load EventSub config")
+	}
+	return stateToResponse(state), nil
+}
+
+type UpdateConfigInput struct {
+	Mode                  string `json:"mode" validate:"required,oneof=off poll direct relay"`
+	WebhookCallbackURL    string `json:"webhook_callback_url,omitempty"`
+	RelayIngestURL        string `json:"relay_ingest_url,omitempty"`
+	RelaySubscribeURL     string `json:"relay_subscribe_url,omitempty"`
+	RelayLocalCallbackURL string `json:"relay_local_callback_url,omitempty"`
+}
+
+// UpdateConfig writes app-managed EventSub setup. It does not rewrite env
+// variables and does not restart background relay/scheduler goroutines; callers
+// should restart the server when RestartRequired is returned.
+func (h *Handler) UpdateConfig(ctx context.Context, input UpdateConfigInput) (ConfigResponse, error) {
+	state, err := h.configSvc.Update(ctx, eventsubconfig.UpdateInput{
+		Mode:                  input.Mode,
+		WebhookCallbackURL:    input.WebhookCallbackURL,
+		RelayIngestURL:        input.RelayIngestURL,
+		RelaySubscribeURL:     input.RelaySubscribeURL,
+		RelayLocalCallbackURL: input.RelayLocalCallbackURL,
+	})
+	if err != nil {
+		if errors.Is(err, eventsubconfig.ErrEnvManaged) {
+			return ConfigResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, "Server mode is managed by environment variables")
+		}
+		if errors.Is(err, eventsubconfig.ErrInvalid) {
+			return ConfigResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, err.Error())
+		}
+		h.log.Error("update eventsub config", "error", err)
+		return ConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to save server mode config")
+	}
+	return stateToResponse(state), nil
 }
 
 // SubscriptionResponse is the wire shape for a Subscription row.
@@ -171,6 +289,9 @@ type SubscribeInput struct {
 // channel. Dedups via the local mirror, so repeated calls with the same
 // broadcaster return the existing sub rather than burning quota.
 func (h *Handler) SubscribeStreamOnline(ctx context.Context, input SubscribeInput) (SubscriptionResponse, error) {
+	if !h.configSvc.Active().CreatesTwitchSubscriptions() {
+		return SubscriptionResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, "Server mode is not configured for Twitch subscriptions")
+	}
 	sub, err := h.svc.SubscribeStreamOnline(ctx, input.BroadcasterID)
 	if err != nil {
 		h.log.Error("subscribe stream.online", "broadcaster", input.BroadcasterID, "error", err)

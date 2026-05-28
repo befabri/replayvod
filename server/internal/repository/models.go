@@ -743,3 +743,15 @@ type Settings struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
+
+// ServerSettings stores process-wide settings that are configured through the
+// owner UI rather than environment variables.
+type ServerSettings struct {
+	ServerMode                    string
+	EventSubWebhookCallbackURL    string
+	EventSubRelayIngestURL        string
+	EventSubRelaySubscribeURL     string
+	EventSubRelayLocalCallbackURL string
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
+}
