@@ -16,6 +16,7 @@ Reference for `server/config.toml`. Grouped by section.
 | Key               | Default                       | Notes |
 | ----------------- | ----------------------------- | ----- |
 | `allowed_origins` | `["http://localhost:3000"]`   | CORS allow-list. Add the dashboard origin for cross-origin deployments. |
+| `poll_interval_minutes` | `1` | Helix poll interval used by `SERVER_MODE=poll` for live detection and title tracking. |
 
 ## `[download]`
 
@@ -96,12 +97,3 @@ Pool tuning. Used only when `DATABASE_DRIVER=postgres`.
 | Key       | Default | Notes |
 | --------- | ------- | ----- |
 | `enabled` | `true`  | Exposes unauthenticated `GET /api/v1/health` (200 on DB ping success, 503 on failure). The bundled Docker healthcheck depends on this. |
-
-## `[title_tracking]`
-
-See [Schedules & title tracking](/docs/schedules/).
-
-| Key                | Default  | Notes |
-| ------------------ | -------- | ----- |
-| `mode`             | `"poll"` | `"poll"`, `"webhook"`, or `"off"`. |
-| `interval_minutes` | `1`      | Poll interval. Ignored in `webhook` and `off` modes. |

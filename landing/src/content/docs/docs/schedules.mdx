@@ -5,7 +5,7 @@ description: Recording rules and how stream titles are captured during a recordi
 
 import { Aside } from '@astrojs/starlight/components';
 
-A **schedule** is a rule that decides whether a live stream gets recorded. Title tracking is a separate feature that records title and category changes _during_ an active recording.
+A **schedule** is a rule that decides whether a live stream gets recorded. Title tracking records title and category changes _during_ an active recording; its behavior is derived from server mode.
 
 ## Schedules
 
@@ -29,22 +29,17 @@ A rule with no filters matches every live stream from every followed channel; us
 
 Streams often change title and category mid-broadcast. ReplayVOD captures that history while a recording is active and shows it in the **Titles** badge on the video card.
 
-Configured in `server/config.toml`:
+Configured in **System → EventSub** or with `SERVER_MODE`:
 
-```toml
-[title_tracking]
-mode             = "poll"   # "poll" | "webhook" | "off"
-interval_minutes = 1
-```
+| Server mode | Title behavior |
+| ----------- | -------------- |
+| `poll`      | Polls Helix every `[server].poll_interval_minutes`. Works on any deployment. |
+| `direct`    | Subscribes to `channel.update` EventSub per recording through your public `WEBHOOK_CALLBACK_URL`. |
+| `relay`     | Subscribes to `channel.update` EventSub per recording through the Connect relay URLs. |
+| `off`       | Only the at-start title and category are stored. |
 
-| Mode      | How it works |
-| --------- | ------------ |
-| `poll`    | Goroutine polls Helix every `interval_minutes`. Works on any deployment. Uses a few Helix calls per minute per active recording. |
-| `webhook` | Subscribes to `channel.update` EventSub per recording. Push-based, zero polling. Requires a publicly reachable `WEBHOOK_CALLBACK_URL`. |
-| `off`     | Only the at-start title and category are stored. |
-
-<Aside type="caution" title="Webhook mode requires a public callback">
-  In `webhook` mode, the server refuses to start if `WEBHOOK_CALLBACK_URL` is unreachable. Use `poll` if you don't have a public HTTPS endpoint, or set up the [Connect relay](/docs/connect/) and switch to webhook mode.
+<Aside type="tip" title="No callback needed for polling">
+  Use `poll` if you do not have a public HTTPS endpoint. Use `direct` or `relay` when you want EventSub push delivery for live detection and title changes.
 </Aside>
 
-`interval_minutes` only applies to `poll` mode. In `webhook` mode it's ignored.
+`[server].poll_interval_minutes` only applies to `poll` mode.

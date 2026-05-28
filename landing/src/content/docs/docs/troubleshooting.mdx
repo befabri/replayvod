@@ -9,12 +9,12 @@ Each entry is **symptom → likely cause → fix**.
 
 ## Recorder won't start
 
-### "WEBHOOK_CALLBACK_URL not reachable"
+### "Server mode config invalid"
 
-The recorder refuses to start in `webhook` title-tracking mode if it can't reach its own callback.
+The recorder refuses to start when env-managed server mode settings are mixed or incomplete. Dashboard-saved invalid settings degrade to setup-required mode so the UI remains reachable.
 
-- **Cause** — `[title_tracking].mode = "webhook"` but `WEBHOOK_CALLBACK_URL` is unset, points at a private address, or has no valid TLS.
-- **Fix** — switch `[title_tracking].mode` to `"poll"` or `"off"`, or set up a reachable callback (direct or via the [Connect relay](/docs/connect/)).
+- **Cause** — `SERVER_MODE` is `direct` without a public HTTPS `WEBHOOK_CALLBACK_URL`, `relay` without matching `RELAY_INGEST_URL` / `RELAY_SUBSCRIBE_URL`, or relay URLs were set without a server mode.
+- **Fix** — leave `SERVER_MODE` empty and configure server mode in the dashboard, set `SERVER_MODE=poll`, configure direct EventSub correctly, or set up the [Connect relay](/docs/connect/).
 
 ### "database is locked"
 
@@ -48,7 +48,7 @@ Walk this list in order:
 
 1. **Is the channel followed by your owner account?** ReplayVOD only watches channels followed by users known to it.
 2. **Does any schedule match?** Open **Schedules** in the dashboard. A rule with no filters matches everything; if you have only restrictive rules, nothing matches the live stream.
-3. **Is live detection working?** Open the **System** tab. Either EventSub subscriptions are present, or the polling task is running (depending on whether `WEBHOOK_CALLBACK_URL` is reachable). If neither, the recorder isn't being told about the live event.
+3. **Is live detection working?** Open **System → EventSub**. Server mode should be `poll`, `direct`, or `relay` and active. If setup required or restart required is shown, finish setup or restart the server so the recorder can receive live events.
 4. **Is the recorder under-provisioned?** Check `[download].max_concurrent` — running recordings are visible in the **Live** tab.
 
 ## EventSub not delivering

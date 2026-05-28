@@ -30,7 +30,7 @@ ReplayVOD has two configuration files.
 
 ## Precedence
 
-`server/.env` always wins. The Go process reads the env file first, then the TOML file. If a setting is exposed in both (rare), the env value takes precedence so containerised deployments can override TOML without rebuilding the image.
+`server/.env` always wins. The Go process reads the env file first, then the TOML file. For live/title behavior, a complete `SERVER_MODE` env config also wins over app-managed server settings and skips onboarding. If `SERVER_MODE` is empty, the owner dashboard stores server mode setup in the database, and mode or URL changes are applied on the next server start.
 
 The Docker Compose file reads `server/.env` directly. A few `PUBLIC_*` variables are Compose-only — they shape what gets passed into the container without changing the stored values.
 
@@ -58,9 +58,11 @@ For separate services or manual runtime, set each URL directly:
 
 ```text
 CALLBACK_URL=https://replayvod.example/api/v1/auth/twitch/callback
-WEBHOOK_CALLBACK_URL=https://replayvod.example/api/v1/webhook/callback
 FRONTEND_URL=https://replayvod.example
 ```
+
+Direct EventSub env setup is optional; leaving `SERVER_MODE` empty lets the
+owner configure live/title behavior in the dashboard.
 
 ## By area
 
@@ -72,7 +74,7 @@ FRONTEND_URL=https://replayvod.example
     Quality, codecs, retries, gap tolerance — see [Recording](/docs/recording/).
   </Card>
   <Card title="Schedules & title tracking">
-    Recording rules and `[title_tracking]` modes — see [Schedules](/docs/schedules/).
+    Recording rules and server modes — see [Schedules](/docs/schedules/).
   </Card>
   <Card title="EventSub">
     Direct EventSub setup — see [EventSub](/docs/eventsub/).

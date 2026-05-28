@@ -9,7 +9,7 @@ EventSub is Twitch's webhook protocol. When a stream goes live, Twitch posts to 
 
 - `stream.online` — drives live indicators and triggers recordings.
 - `stream.offline` — finalises recordings.
-- `channel.update` — feeds [title tracking](/docs/schedules/) (only when `[title_tracking].mode = "webhook"`).
+- `channel.update` — feeds [title tracking](/docs/schedules/) in `direct` and `relay` server modes.
 
 If your recorder can't be reached over public HTTPS, see the [Connect relay](/docs/connect/) instead.
 
@@ -21,16 +21,27 @@ If your recorder can't be reached over public HTTPS, see the [Connect relay](/do
 
 ## Configure
 
-Set the public callback in `server/.env`:
+Use **System → EventSub** in the owner dashboard, or set a complete env config.
+Env config wins over the dashboard when both exist.
+
+Dashboard changes are saved as the desired server mode config. If the dashboard
+shows a restart is required, the current server keeps using the mode it booted
+with until you restart it.
+
+For direct env setup:
 
 ```text
+SERVER_MODE=direct
 WEBHOOK_CALLBACK_URL=https://your-domain.example/api/v1/webhook/callback
 ```
 
-For Compose deployments, setting `PUBLIC_BASE_URL` derives the callback automatically:
+For Compose deployments, `PUBLIC_BASE_URL` still configures OAuth/frontend URLs;
+direct EventSub also needs its callback set explicitly:
 
 ```text
 PUBLIC_BASE_URL=https://your-domain.example
+SERVER_MODE=direct
+WEBHOOK_CALLBACK_URL=https://your-domain.example/api/v1/webhook/callback
 ```
 
 No subscription IDs go in the config. The recorder creates and manages subscriptions itself, and reconciles them on every start.
@@ -53,8 +64,8 @@ This means it's safe to add or remove followed channels at any time; the next re
 
 Twitch enforces an EventSub subscription quota per app. ReplayVOD tracks current usage in the **System** dashboard tab. If you bump the quota, the dashboard surfaces it.
 
-<Aside type="caution" title="EventSub is required for live detection">
-  ReplayVOD relies on `stream.online` webhooks to start recordings. Without a working public callback (direct or via the [Connect relay](/docs/connect/)) the recorder won't be told that streams are live. There is no Helix-polling fallback for live detection.
+<Aside type="tip" title="Polling is available without a callback">
+  Use `SERVER_MODE=poll` if you do not have a working public callback. ReplayVOD will poll Helix for live detection and title changes instead of creating EventSub subscriptions.
 </Aside>
 
 ## Verifying it works

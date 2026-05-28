@@ -107,20 +107,33 @@ Two files control runtime behavior, both well-commented:
 - **`server/.env`** — credentials, database, paths, network. Start from
   `server/.env.example`.
 - **`server/config.toml`** — operational tuning: download quality and
-  concurrency, retry policy, polling intervals, title-tracking mode (poll /
-  webhook / off).
+  concurrency, retry policy, scheduler intervals, and server-mode poll interval.
 
-EventSub-driven features need a publicly reachable `WEBHOOK_CALLBACK_URL`. If
-yours is not reachable, ReplayVOD falls back to polling automatically.
+Live detection and title tracking are configured by the owner-facing server
+mode. Environment variables are still supported for Docker/ops workflows: when
+`SERVER_MODE` is set and complete, env wins and onboarding is skipped. When it
+is empty, the dashboard asks the owner to configure the mode. Dashboard-saved
+mode changes are applied on the next server start; restart when the dashboard
+reports that a restart is required.
+
+Server modes:
+
+- `off` — no live detection, live-dot feed, or mid-stream title tracking.
+- `poll` — poll Helix for live detection and mid-stream title changes.
+- `direct` — Twitch posts directly to your public
+  `WEBHOOK_CALLBACK_URL`.
+- `relay` — Twitch posts to the Cloudflare relay and this server dials the
+  relay over `RELAY_SUBSCRIBE_URL`.
 
 ReplayVOD Connect supplies that public callback without port forwarding. In that
-mode, `WEBHOOK_CALLBACK_URL` stays public and points at the relay ingest URL,
-while `RELAY_SUBSCRIBE_URL` is the outbound WebSocket URL your self-hosted
-server dials. The local replay target is separate and defaults to
+mode, `RELAY_INGEST_URL` is the public HTTPS URL Twitch posts to, while
+`RELAY_SUBSCRIBE_URL` is the outbound WebSocket URL your self-hosted server
+dials. The local replay target is separate and defaults to
 `http://127.0.0.1:8080/api/v1/webhook/callback`:
 
 ```env
-WEBHOOK_CALLBACK_URL=https://relay.replayvod.com/u/<token>
+SERVER_MODE=relay
+RELAY_INGEST_URL=https://relay.replayvod.com/u/<token>
 RELAY_SUBSCRIBE_URL=wss://relay.replayvod.com/u/<token>/subscribe
 # Optional override only if the local API is not on 127.0.0.1:8080
 RELAY_LOCAL_CALLBACK_URL=http://127.0.0.1:8080/api/v1/webhook/callback
@@ -130,10 +143,6 @@ RELAY_LOCAL_CALLBACK_URL=http://127.0.0.1:8080/api/v1/webhook/callback
 `/api/v1/webhook/callback`; it is intentionally not a general-purpose local
 forwarding target. The public ingest URL and subscribe URL must use the same
 relay host and token, and the subscribe URL must use `wss://`.
-
-With Docker Compose, use `PUBLIC_WEBHOOK_CALLBACK_URL` for the relay ingest URL;
-the compose file maps it into `WEBHOOK_CALLBACK_URL` without changing the OAuth
-or frontend URLs derived from `PUBLIC_BASE_URL`.
 
 ## Storage
 

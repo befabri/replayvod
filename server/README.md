@@ -91,16 +91,21 @@ server/
 2. Open the database (pgx pool or `database/sql` with modernc.org/sqlite) and
    run embedded migrations.
 3. Build the matching `Repository` adapter.
-4. Construct the Twitch Helix client, encrypted session manager, storage
-   backend.
-5. Construct the downloader service and call `Resume()` to pick up jobs left
+4. Resolve server mode from env or app-managed server settings.
+5. Construct the Twitch Helix client, encrypted session manager, storage
+   backend, and EventSub service.
+6. If the resolved server mode cannot create Twitch subscriptions (`off` or
+   `poll`), revoke locally active Twitch EventSub subscriptions left from a
+   previous enabled runtime.
+7. Construct the downloader service and call `Resume()` to pick up jobs left
    in the `RUNNING` state by a previous process.
-6. Open the SSE event bus and start the HTTP server in a goroutine.
-7. If `RELAY_SUBSCRIBE_URL` is set, dial the Connect relay and start the
-   replay agent.
-8. Reconcile EventSub subscriptions against the live channel set.
-9. Register and start the scheduler.
-10. Block on SIGINT / SIGTERM, then stop the scheduler, HTTP server, and
+8. Open the SSE event bus and start the HTTP server in a goroutine.
+9. If server mode is `relay`, dial the Connect relay and start the replay
+   agent.
+10. Reconcile EventSub subscriptions against the live channel set, or start the
+    Helix live poller in `poll` mode.
+11. Register and start the scheduler.
+12. Block on SIGINT / SIGTERM, then stop the scheduler, HTTP server, and
     logger in reverse order.
 
 ## Configuration
@@ -118,24 +123,29 @@ Grouped by purpose:
 | HTTP        | `HOST`, `PORT`, `CALLBACK_URL`, `WEBHOOK_CALLBACK_URL`, `FRONTEND_URL` |
 | Security    | `SESSION_SECRET`, `WHITELIST_ENABLED`, `WHITELISTED_USER_IDS`, `OWNER_TWITCH_ID` |
 | Storage     | `VIDEO_DIR`, `THUMBNAIL_DIR`, `SCRATCH_DIR`, `DASHBOARD_DIR` |
-| Connect     | `RELAY_SUBSCRIBE_URL`, `RELAY_LOCAL_CALLBACK_URL` |
-| Compose     | `PUBLIC_BASE_URL`, `PUBLIC_WEBHOOK_CALLBACK_URL`, `COMPOSE_PROFILES` |
+| Server mode | `SERVER_MODE` |
+| Connect     | `RELAY_INGEST_URL`, `RELAY_SUBSCRIBE_URL`, `RELAY_LOCAL_CALLBACK_URL` |
+| Compose     | `PUBLIC_BASE_URL`, `COMPOSE_PROFILES` |
 
 `.env.example` is the source of truth — every supported variable is listed and
 commented there.
+
+Leave `SERVER_MODE` empty to configure server mode in the owner dashboard. Set
+it to a complete `off`, `poll`, `direct`, or `relay` env config when the
+deployment should be managed by environment variables instead. Dashboard mode
+changes are saved to `server_settings` and applied on the next server start.
 
 ### `config.toml` — operational tuning
 
 | Section            | Controls |
 | ------------------ | -------- |
-| `[server]`         | CORS allow-list |
+| `[server]`         | CORS allow-list and Helix poll interval |
 | `[download]`       | concurrency caps, preferred quality, retry budgets, gap tolerance, codec policy (AV1/HEVC) |
 | `[storage]`        | `local` vs `s3`; S3 endpoint / bucket / region / keys / path-style |
 | `[scheduler]`      | enabled flag and per-task intervals |
 | `[logging]`        | log level, file output, sample rate |
 | `[postgres]`       | pool sizing and lifetimes |
 | `[health]`         | `/api/v1/health` probe |
-| `[title_tracking]` | `poll` / `webhook` / `off` and poll interval |
 
 ## Database
 

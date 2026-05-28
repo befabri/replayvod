@@ -73,8 +73,8 @@ The server is one Go process. Postgres and SQLite are both supported behind one 
 4. Construct the Twitch Helix client, encrypted session manager, and storage backend.
 5. Construct the downloader and call `Resume()` to pick up jobs left in `RUNNING` by a previous process.
 6. Open the SSE event bus and start the HTTP server in a goroutine.
-7. If `RELAY_SUBSCRIBE_URL` is set, dial the Connect relay and start the replay agent.
-8. Reconcile EventSub subscriptions against the current channel set.
+7. If `SERVER_MODE=relay`, dial the Connect relay and start the replay agent.
+8. Reconcile EventSub subscriptions against the current channel set, or start the Helix live poller when `SERVER_MODE=poll`.
 9. Register tasks and start the scheduler.
 10. Block on SIGINT/SIGTERM, then stop the scheduler, HTTP server, and logger in reverse order.
 
