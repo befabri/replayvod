@@ -2,6 +2,7 @@ package streammeta
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"log/slog"
@@ -269,6 +270,397 @@ func TestHydrator_EnricherErrorLoggedNotReturned(t *testing.T) {
 	// Enrich was still attempted exactly once.
 	if len(art.calls) != 1 {
 		t.Errorf("expected 1 enrich attempt, got %d", len(art.calls))
+	}
+}
+
+// newTestHydratorDB is newTestHydrator plus the raw *sql.DB handle, for
+// tests that assert the M2M link rows (stream_categories /
+// stream_titles) directly the way the existing tag test reads
+// stream_tags.
+func newTestHydratorDB(t *testing.T, art CategoryArtEnricher) (*Hydrator, repository.Repository, *sql.DB) {
+	t.Helper()
+	db := testdb.NewSQLiteDB(t)
+	repo := sqliteadapter.New(db)
+	h := NewHydrator(repo, nil, Config{CategoryArt: art}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return h, repo, db
+}
+
+// seedChannel inserts the broadcaster row that streams.broadcaster_id
+// FK-references, so a subsequent UpsertStream lands instead of failing
+// the FK check.
+func seedChannel(t *testing.T, ctx context.Context, repo repository.Repository) {
+	t.Helper()
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-1", BroadcasterLogin: "b", BroadcasterName: "B",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+}
+
+func countRows(t *testing.T, ctx context.Context, db *sql.DB, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&n); err != nil {
+		t.Fatalf("count (%s): %v", query, err)
+	}
+	return n
+}
+
+// TestHydrator_Persist_MapsAllFieldsAndWritesLinks feeds a fully
+// populated Helix stream and pins the field-by-field mapping persist
+// performs: every Snapshot field comes off the stream, the streams row
+// carries the optional columns (type, thumbnail, is_mature), and the
+// category + title M2M edges land. This is the happy-path complement to
+// the existing tag-link test, covering the title write path that no
+// other test exercises.
+func TestHydrator_Persist_MapsAllFieldsAndWritesLinks(t *testing.T) {
+	ctx := context.Background()
+	h, repo, db := newTestHydratorDB(t, nil)
+	seedChannel(t, ctx, repo)
+
+	startedAt := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	thumb := "https://thumb.example/{width}x{height}.jpg"
+	stream := &twitch.Stream{
+		ID:           "s-full",
+		UserID:       "b-1",
+		Type:         "live",
+		Language:     "fr",
+		Title:        "Full send",
+		ViewerCount:  4321,
+		GameID:       "game-7",
+		GameName:     "Game 7",
+		StartedAt:    startedAt,
+		ThumbnailURL: thumb,
+		IsMature:     true,
+		Tags:         []string{"English", "Speedrun"},
+	}
+
+	snap := h.persist(ctx, "b-1", stream)
+	if snap == nil {
+		t.Fatal("persist returned nil")
+	}
+
+	// Snapshot mirrors the live response one field at a time.
+	if snap.StreamID != "s-full" {
+		t.Errorf("StreamID = %q, want s-full", snap.StreamID)
+	}
+	if snap.Title != "Full send" || snap.Language != "fr" || snap.ViewerCount != 4321 {
+		t.Errorf("snapshot scalars = %+v, want title/lang/viewers Full send/fr/4321", snap)
+	}
+	if snap.GameID != "game-7" || snap.GameName != "Game 7" {
+		t.Errorf("snapshot game = %q/%q, want game-7/Game 7", snap.GameID, snap.GameName)
+	}
+	if !snap.StartedAt.Equal(startedAt) {
+		t.Errorf("snapshot StartedAt = %v, want %v", snap.StartedAt, startedAt)
+	}
+	if len(snap.CategoryIDs) != 1 || snap.CategoryIDs[0] != "game-7" {
+		t.Errorf("snapshot CategoryIDs = %v, want [game-7]", snap.CategoryIDs)
+	}
+	if len(snap.TagIDs) != 2 {
+		t.Errorf("snapshot TagIDs = %v, want 2", snap.TagIDs)
+	}
+
+	// The streams row carries the optional columns persist maps through.
+	row, err := repo.GetStream(ctx, "s-full")
+	if err != nil {
+		t.Fatalf("get stream: %v", err)
+	}
+	if row.Type != "live" || row.Language != "fr" || row.ViewerCount != 4321 {
+		t.Errorf("stream row scalars = %+v, want live/fr/4321", row)
+	}
+	if row.ThumbnailURL == nil || *row.ThumbnailURL != thumb {
+		t.Errorf("stream row ThumbnailURL = %v, want %q", row.ThumbnailURL, thumb)
+	}
+	if row.IsMature == nil || !*row.IsMature {
+		t.Errorf("stream row IsMature = %v, want true", row.IsMature)
+	}
+	if !row.StartedAt.Equal(startedAt) {
+		t.Errorf("stream row StartedAt = %v, want %v", row.StartedAt, startedAt)
+	}
+
+	// Category and title edges both land in their junction tables.
+	if got := countRows(t, ctx, db, "SELECT COUNT(*) FROM stream_categories WHERE stream_id = ?", "s-full"); got != 1 {
+		t.Errorf("stream_categories rows = %d, want 1", got)
+	}
+	if got := countRows(t, ctx, db, "SELECT COUNT(*) FROM stream_titles WHERE stream_id = ?", "s-full"); got != 1 {
+		t.Errorf("stream_titles rows = %d, want 1", got)
+	}
+}
+
+// TestHydrator_Persist_OmitsEmptyOptionalFields pins the null-handling
+// side: a live response with no game, no title and no thumbnail still
+// upserts the streams row, but skips the category and title writes
+// entirely and persists the thumbnail as NULL rather than an empty
+// string. This is the branch the dashboard relies on to tell "Twitch
+// had no title" apart from "title was blank".
+func TestHydrator_Persist_OmitsEmptyOptionalFields(t *testing.T) {
+	ctx := context.Background()
+	h, repo, db := newTestHydratorDB(t, nil)
+	seedChannel(t, ctx, repo)
+
+	stream := &twitch.Stream{
+		ID:          "s-bare",
+		UserID:      "b-1",
+		Type:        "live",
+		Language:    "en",
+		ViewerCount: 0,
+		StartedAt:   time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC),
+		// GameID, Title, ThumbnailURL all empty; no Tags.
+	}
+
+	snap := h.persist(ctx, "b-1", stream)
+	if snap == nil || snap.StreamID != "s-bare" {
+		t.Fatalf("persist snapshot = %+v, want StreamID s-bare", snap)
+	}
+	if len(snap.CategoryIDs) != 0 {
+		t.Errorf("CategoryIDs = %v, want empty (no game id)", snap.CategoryIDs)
+	}
+	if len(snap.TagIDs) != 0 {
+		t.Errorf("TagIDs = %v, want empty (no tags)", snap.TagIDs)
+	}
+	if snap.Title != "" {
+		t.Errorf("Title = %q, want empty", snap.Title)
+	}
+
+	row, err := repo.GetStream(ctx, "s-bare")
+	if err != nil {
+		t.Fatalf("get stream: %v", err)
+	}
+	if row.ThumbnailURL != nil {
+		t.Errorf("empty thumbnail must persist as NULL, got %q", *row.ThumbnailURL)
+	}
+
+	if got := countRows(t, ctx, db, "SELECT COUNT(*) FROM stream_categories WHERE stream_id = ?", "s-bare"); got != 0 {
+		t.Errorf("stream_categories rows = %d, want 0", got)
+	}
+	if got := countRows(t, ctx, db, "SELECT COUNT(*) FROM stream_titles WHERE stream_id = ?", "s-bare"); got != 0 {
+		t.Errorf("stream_titles rows = %d, want 0", got)
+	}
+}
+
+// TestHydrator_Persist_StreamUpsertFailureStillReportsLiveSignals pins
+// the partial-snapshot guarantee in the package doc: when the streams
+// row can't be written (here: an unseeded broadcaster trips the FK),
+// persist still returns the live signals the schedule matcher needs.
+// CategoryIDs is reported off the Helix response even though no
+// stream_categories edge can be created without a stream row.
+func TestHydrator_Persist_StreamUpsertFailureStillReportsLiveSignals(t *testing.T) {
+	ctx := context.Background()
+	// No seedChannel: the broadcaster row is absent, so UpsertStream
+	// fails the streams.broadcaster_id foreign key.
+	h, repo, db := newTestHydratorDB(t, nil)
+
+	startedAt := time.Date(2024, 9, 9, 9, 9, 9, 0, time.UTC)
+	stream := &twitch.Stream{
+		ID:          "s-orphan",
+		UserID:      "b-missing",
+		Type:        "live",
+		Language:    "de",
+		Title:       "still live",
+		ViewerCount: 12,
+		GameID:      "game-9",
+		GameName:    "Game 9",
+		StartedAt:   startedAt,
+		Tags:        []string{"English"},
+	}
+
+	snap := h.persist(ctx, "b-missing", stream)
+	if snap == nil {
+		t.Fatal("persist must return a partial snapshot, got nil")
+	}
+	if snap.StreamID != "" {
+		t.Errorf("StreamID = %q, want empty (stream row not persisted)", snap.StreamID)
+	}
+	// Live signals survive the upsert failure.
+	if snap.Title != "still live" || snap.Language != "de" || snap.ViewerCount != 12 {
+		t.Errorf("live signals lost: %+v", snap)
+	}
+	if snap.GameID != "game-9" || snap.GameName != "Game 9" || !snap.StartedAt.Equal(startedAt) {
+		t.Errorf("live game/time signals lost: %+v", snap)
+	}
+	// The matcher reads CategoryIDs off the response even without a row.
+	if len(snap.CategoryIDs) != 1 || snap.CategoryIDs[0] != "game-9" {
+		t.Errorf("CategoryIDs = %v, want [game-9] reported from live data", snap.CategoryIDs)
+	}
+	if len(snap.TagIDs) != 1 {
+		t.Errorf("TagIDs = %v, want 1 (tags upsert independently of the stream row)", snap.TagIDs)
+	}
+
+	// No stream row, and therefore no link rows.
+	if _, err := repo.GetStream(ctx, "s-orphan"); !errors.Is(err, repository.ErrNotFound) {
+		t.Errorf("GetStream err = %v, want ErrNotFound", err)
+	}
+	if got := countRows(t, ctx, db, "SELECT COUNT(*) FROM stream_categories WHERE stream_id = ?", "s-orphan"); got != 0 {
+		t.Errorf("stream_categories rows = %d, want 0 (no stream to link)", got)
+	}
+	if got := countRows(t, ctx, db, "SELECT COUNT(*) FROM stream_tags WHERE stream_id = ?", "s-orphan"); got != 0 {
+		t.Errorf("stream_tags rows = %d, want 0 (no stream to link)", got)
+	}
+	// The dedup rows themselves still exist for the next, FK-clean write.
+	if _, err := repo.GetCategory(ctx, "game-9"); err != nil {
+		t.Errorf("category row should still be upserted: %v", err)
+	}
+}
+
+// faultRepo wraps a real repository and forces exactly one child-row
+// method to return an error, leaving every other call to delegate to
+// the backing store. It exercises the best-effort "log and continue"
+// branches in persist without a hand-rolled stub: the surrounding
+// writes still land, so assertions can read back the rest.
+type faultRepo struct {
+	repository.Repository
+	failOn string
+	err    error
+}
+
+func (f *faultRepo) UpsertCategory(ctx context.Context, c *repository.Category) (*repository.Category, error) {
+	if f.failOn == "UpsertCategory" {
+		return nil, f.err
+	}
+	return f.Repository.UpsertCategory(ctx, c)
+}
+
+func (f *faultRepo) LinkStreamCategory(ctx context.Context, streamID, categoryID string) error {
+	if f.failOn == "LinkStreamCategory" {
+		return f.err
+	}
+	return f.Repository.LinkStreamCategory(ctx, streamID, categoryID)
+}
+
+func (f *faultRepo) UpsertTag(ctx context.Context, name string) (*repository.Tag, error) {
+	if f.failOn == "UpsertTag" {
+		return nil, f.err
+	}
+	return f.Repository.UpsertTag(ctx, name)
+}
+
+func (f *faultRepo) LinkStreamTag(ctx context.Context, streamID string, tagID int64) error {
+	if f.failOn == "LinkStreamTag" {
+		return f.err
+	}
+	return f.Repository.LinkStreamTag(ctx, streamID, tagID)
+}
+
+func (f *faultRepo) UpsertTitle(ctx context.Context, name string) (*repository.Title, error) {
+	if f.failOn == "UpsertTitle" {
+		return nil, f.err
+	}
+	return f.Repository.UpsertTitle(ctx, name)
+}
+
+func (f *faultRepo) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
+	if f.failOn == "LinkStreamTitle" {
+		return f.err
+	}
+	return f.Repository.LinkStreamTitle(ctx, streamID, titleID)
+}
+
+// TestHydrator_Persist_ChildWriteFailuresAreBestEffort walks every
+// child-row write persist makes and forces it to fail in turn. The
+// contract the package doc promises is that none of these can nil the
+// snapshot or lose the (successful) stream row: the failure is logged
+// and the remaining writes proceed. Two cases also pin the subtle
+// difference between an upsert failing (the id never reaches the
+// snapshot) and a link failing (the id is still reported).
+func TestHydrator_Persist_ChildWriteFailuresAreBestEffort(t *testing.T) {
+	injected := errors.New("injected repo failure")
+	cases := []struct {
+		name   string
+		failOn string
+	}{
+		{"category upsert", "UpsertCategory"},
+		{"category link", "LinkStreamCategory"},
+		{"tag upsert", "UpsertTag"},
+		{"tag link", "LinkStreamTag"},
+		{"title upsert", "UpsertTitle"},
+		{"title link", "LinkStreamTitle"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			db := testdb.NewSQLiteDB(t)
+			real := sqliteadapter.New(db)
+			repo := &faultRepo{Repository: real, failOn: tc.failOn, err: injected}
+			h := NewHydrator(repo, nil, Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			seedChannel(t, ctx, real)
+
+			stream := synthStream("s-1", "b-1", "game-42", "Game 42")
+			stream.Title = "a title"
+			stream.Tags = []string{"English"}
+
+			snap := h.persist(ctx, "b-1", stream)
+			if snap == nil {
+				t.Fatal("child-row failure must not nil the snapshot")
+			}
+			// The stream row write itself was untouched, so it must
+			// still be reported regardless of which child failed.
+			if snap.StreamID != "s-1" {
+				t.Fatalf("StreamID = %q, want s-1 (child failure must not lose the stream row)", snap.StreamID)
+			}
+
+			switch tc.failOn {
+			case "UpsertCategory":
+				// The id is appended only after a successful upsert.
+				if len(snap.CategoryIDs) != 0 {
+					t.Errorf("CategoryIDs = %v, want empty when the upsert failed", snap.CategoryIDs)
+				}
+			case "LinkStreamCategory":
+				// The link failed but the id is still reported to the matcher.
+				if len(snap.CategoryIDs) != 1 {
+					t.Errorf("CategoryIDs = %v, want [game-42] even when the link failed", snap.CategoryIDs)
+				}
+			case "UpsertTag":
+				if len(snap.TagIDs) != 0 {
+					t.Errorf("TagIDs = %v, want empty when the upsert failed", snap.TagIDs)
+				}
+			case "LinkStreamTag":
+				if len(snap.TagIDs) != 1 {
+					t.Errorf("TagIDs = %v, want 1 even when the link failed", snap.TagIDs)
+				}
+			}
+		})
+	}
+}
+
+// TestNewMetadataWatcher_DefaultsInterval pins the zero-value-safe
+// default: an unset interval falls back to DefaultMetadataWatchInterval,
+// while an explicit value is honored verbatim.
+func TestNewMetadataWatcher_DefaultsInterval(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h, _ := newTestHydrator(t, nil)
+
+	def := NewMetadataWatcher(h, MetadataWatchConfig{}, log)
+	if def.interval != DefaultMetadataWatchInterval {
+		t.Errorf("default interval = %v, want %v", def.interval, DefaultMetadataWatchInterval)
+	}
+	custom := NewMetadataWatcher(h, MetadataWatchConfig{Interval: 5 * time.Second}, log)
+	if custom.interval != 5*time.Second {
+		t.Errorf("custom interval = %v, want 5s", custom.interval)
+	}
+}
+
+// TestMetadataWatcher_WatchStopsOnContextCancel pins that Watch honors
+// its context: an already-canceled ctx makes the poll loop return
+// promptly rather than block on the ticker. The interval is set far
+// past the test timeout so a return can only come from the ctx.Done
+// branch, not a tick.
+func TestMetadataWatcher_WatchStopsOnContextCancel(t *testing.T) {
+	h, _ := newTestHydrator(t, nil)
+	w := NewMetadataWatcher(h, MetadataWatchConfig{Interval: time.Hour}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		w.Watch(ctx, "b-1", 1, WatchInitial{})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Watch did not return after context cancel")
 	}
 }
 
