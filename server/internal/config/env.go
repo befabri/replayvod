@@ -20,7 +20,7 @@ func validateEnvironment(env *Environment) error {
 		// Server mode is app-managed through the owner dashboard. The URL knobs
 		// only mean something paired with SERVER_MODE, so reject a
 		// half-set env instead of silently ignoring it.
-		if env.WebhookCallbackURL != "" || env.RelayIngestURL != "" || env.RelaySubscribeURL != "" || env.RelayLocalCallbackURL != "" {
+		if env.hasEventSubURLs() {
 			return fmt.Errorf("EventSub URL env vars require SERVER_MODE to be set (off, poll, direct, or relay); unset them to manage server mode from the dashboard")
 		}
 	case ServerModeOff, ServerModePoll, ServerModeDirect, ServerModeRelay:
@@ -30,6 +30,12 @@ func validateEnvironment(env *Environment) error {
 			ServerModeOff, ServerModePoll, ServerModeDirect, ServerModeRelay)
 	}
 	return nil
+}
+
+// hasEventSubURLs reports whether any EventSub callback or relay URL env var is
+// set. They are meaningful only when paired with SERVER_MODE.
+func (env *Environment) hasEventSubURLs() bool {
+	return env.WebhookCallbackURL != "" || env.RelayIngestURL != "" || env.RelaySubscribeURL != "" || env.RelayLocalCallbackURL != ""
 }
 
 func validateDotenvNoDuplicateKeys(path string) error {
@@ -42,44 +48,48 @@ func validateDotenvNoDuplicateKeys(path string) error {
 	}
 	defer f.Close()
 
-	seen := map[string]int{}
+	scan := dotenvDupScan{seen: map[string]int{}}
 	scanner := bufio.NewScanner(f)
-	lineNo := 0
-	// openQuote is the quote character of a multi-line value we are still
-	// inside, or 0 at the top level. godotenv folds the physical lines of a
-	// double- or single-quoted value into one assignment, so their interiors
-	// must not be mistaken for new keys (which would refuse boot on a valid
-	// .env).
-	var openQuote byte
-	for scanner.Scan() {
-		lineNo++
+	for lineNo := 1; scanner.Scan(); lineNo++ {
 		line := scanner.Text()
 		if lineNo == 1 {
 			line = strings.TrimPrefix(line, "\ufeff") // editors may prepend a UTF-8 BOM
 		}
-
-		if openQuote != 0 {
-			if containsUnescapedQuote(line, openQuote) {
-				openQuote = 0
-			}
-			continue
+		if err := scan.observe(path, lineNo, line); err != nil {
+			return err
 		}
-
-		key, value, ok := dotenvKey(line)
-		if !ok {
-			continue
-		}
-		if q, multiline := multilineValueQuote(value); multiline {
-			openQuote = q
-		}
-		if firstLine, exists := seen[key]; exists {
-			return fmt.Errorf("%s contains duplicate key %s on lines %d and %d", path, key, firstLine, lineNo)
-		}
-		seen[key] = lineNo
 	}
-	if err := scanner.Err(); err != nil {
-		return err
+	return scanner.Err()
+}
+
+// dotenvDupScan carries duplicate-key detection state across the physical lines
+// of a .env file. openQuote is the quote character of a multi-line value we are
+// still inside, or 0 at the top level: godotenv folds the physical lines of a
+// double- or single-quoted value into one assignment, so their interiors must
+// not be mistaken for new keys (which would refuse boot on a valid .env).
+type dotenvDupScan struct {
+	seen      map[string]int
+	openQuote byte
+}
+
+func (s *dotenvDupScan) observe(path string, lineNo int, line string) error {
+	if s.openQuote != 0 {
+		if containsUnescapedQuote(line, s.openQuote) {
+			s.openQuote = 0
+		}
+		return nil
 	}
+	key, value, ok := dotenvKey(line)
+	if !ok {
+		return nil
+	}
+	if q, multiline := multilineValueQuote(value); multiline {
+		s.openQuote = q
+	}
+	if firstLine, exists := s.seen[key]; exists {
+		return fmt.Errorf("%s contains duplicate key %s on lines %d and %d", path, key, firstLine, lineNo)
+	}
+	s.seen[key] = lineNo
 	return nil
 }
 
@@ -88,11 +98,7 @@ func dotenvKey(line string) (key, value string, ok bool) {
 	if line == "" || strings.HasPrefix(line, "#") {
 		return "", "", false
 	}
-	// godotenv strips an "export" prefix separated by any whitespace; an
-	// "exportFOO" with no separator is a normal key and is left untouched.
-	if rest, found := strings.CutPrefix(line, "export"); found && rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
-		line = strings.TrimLeft(rest, " \t")
-	}
+	line = stripExportPrefix(line)
 	idx := strings.IndexByte(line, '=')
 	if idx <= 0 {
 		return "", "", false
@@ -102,6 +108,16 @@ func dotenvKey(line string) (key, value string, ok bool) {
 		return "", "", false
 	}
 	return key, line[idx+1:], true
+}
+
+// stripExportPrefix removes a leading "export" separated from the key by
+// whitespace, matching godotenv; an "exportFOO" with no separator is a normal
+// key and is returned unchanged.
+func stripExportPrefix(line string) string {
+	if rest, found := strings.CutPrefix(line, "export"); found && rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
+		return strings.TrimLeft(rest, " \t")
+	}
+	return line
 }
 
 // multilineValueQuote reports the opening quote of a value whose closing quote

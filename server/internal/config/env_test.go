@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	envparse "github.com/caarlos0/env/v11"
@@ -17,6 +18,14 @@ func TestValidateDotenvNoDuplicateKeysRejectsDuplicate(t *testing.T) {
 
 	if err := validateDotenvNoDuplicateKeys(path); err == nil {
 		t.Fatal("validateDotenvNoDuplicateKeys(duplicate) = nil, want error")
+	}
+}
+
+// TestValidateDotenvNoDuplicateKeysAllowsMissingFile pins that a missing .env is
+// not an error: the check is best-effort and only fires when a file exists.
+func TestValidateDotenvNoDuplicateKeysAllowsMissingFile(t *testing.T) {
+	if err := validateDotenvNoDuplicateKeys(filepath.Join(t.TempDir(), "does-not-exist.env")); err != nil {
+		t.Fatalf("validateDotenvNoDuplicateKeys(missing) = %v, want nil", err)
 	}
 }
 
@@ -179,5 +188,36 @@ func TestValidateEnvironmentRejectsUnknownServerMode(t *testing.T) {
 
 	if err := validateEnvironment(env); err == nil {
 		t.Fatal("validateEnvironment(unknown mode) = nil, want error")
+	}
+}
+
+// TestValidateDotenvNoDuplicateKeysDetectsDuplicateAfterClosedMultiline pins
+// that the multi-line tracker is reset to the top level once a quoted value
+// closes: keys after a closed multi-line value must still be checked, so a real
+// duplicate below one is caught rather than swallowed as value interior.
+func TestValidateDotenvNoDuplicateKeysDetectsDuplicateAfterClosedMultiline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	content := "PASSWORD=\"first\nsecond\"\nFOO=a\nFOO=b\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := validateDotenvNoDuplicateKeys(path); err == nil {
+		t.Fatal("validateDotenvNoDuplicateKeys(duplicate after closed multiline) = nil, want error")
+	}
+}
+
+// TestValidateDotenvNoDuplicateKeysPropagatesScannerError pins that a scanner
+// failure (here a line past bufio's max token size) surfaces as an error rather
+// than being read as a clean, duplicate-free file.
+func TestValidateDotenvNoDuplicateKeysPropagatesScannerError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	content := "X=" + strings.Repeat("a", 70000) // single line over bufio.MaxScanTokenSize (64KiB)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := validateDotenvNoDuplicateKeys(path); err == nil {
+		t.Fatal("validateDotenvNoDuplicateKeys(oversized line) = nil, want scanner error")
 	}
 }

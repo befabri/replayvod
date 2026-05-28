@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -174,41 +175,58 @@ func ValidateServerMode(cfg ServerModeConfig) error {
 	cfg.Normalize()
 	switch cfg.Mode {
 	case "":
-		if cfg.WebhookCallbackURL != "" || cfg.RelayIngestURL != "" || cfg.RelaySubscribeURL != "" || cfg.RelayLocalCallbackURL != "" {
-			return fmt.Errorf("callback and relay URLs require a server mode")
-		}
-		return nil
+		return validateModeWithoutURLs(cfg, "callback and relay URLs require a server mode")
 	case ServerModeOff, ServerModePoll:
-		if cfg.WebhookCallbackURL != "" || cfg.RelayIngestURL != "" || cfg.RelaySubscribeURL != "" || cfg.RelayLocalCallbackURL != "" {
-			return fmt.Errorf("server mode %s does not use any callback or relay URLs", cfg.Mode)
-		}
-		return nil
+		return validateModeWithoutURLs(cfg, fmt.Sprintf("server mode %s does not use any callback or relay URLs", cfg.Mode))
 	case ServerModeDirect:
-		if cfg.RelayIngestURL != "" || cfg.RelaySubscribeURL != "" || cfg.RelayLocalCallbackURL != "" {
-			return fmt.Errorf("direct mode does not use relay URLs")
-		}
-		if !IsUsableWebhookURL(cfg.WebhookCallbackURL) {
-			return fmt.Errorf("direct mode requires a public HTTPS callback URL on port 443")
-		}
-		return nil
+		return validateDirectMode(cfg)
 	case ServerModeRelay:
-		if cfg.WebhookCallbackURL != "" {
-			return fmt.Errorf("relay mode does not use a webhook callback URL; it uses the relay ingest URL")
-		}
-		if cfg.RelayIngestURL == "" {
-			return fmt.Errorf("relay mode requires a relay ingest URL")
-		}
-		if cfg.RelaySubscribeURL == "" {
-			return fmt.Errorf("relay mode requires a relay subscribe URL")
-		}
-		if err := ValidateRelayURLs(cfg.RelayIngestURL, cfg.RelaySubscribeURL); err != nil {
-			return err
-		}
-		return validateRelayLocalCallbackURL(cfg.RelayLocalCallbackURL)
+		return validateRelayMode(cfg)
 	default:
 		return fmt.Errorf("server mode must be one of %q, %q, %q, or %q",
 			ServerModeOff, ServerModePoll, ServerModeDirect, ServerModeRelay)
 	}
+}
+
+// hasDeliveryURLs reports whether any callback or relay URL field is set. The
+// no-URL modes (unset, off, poll) reject a config when this is true.
+func (c ServerModeConfig) hasDeliveryURLs() bool {
+	return c.WebhookCallbackURL != "" || c.RelayIngestURL != "" || c.RelaySubscribeURL != "" || c.RelayLocalCallbackURL != ""
+}
+
+// validateModeWithoutURLs rejects any callback or relay URL for the modes that
+// use none; msg is the mode-specific rejection message.
+func validateModeWithoutURLs(cfg ServerModeConfig, msg string) error {
+	if cfg.hasDeliveryURLs() {
+		return errors.New(msg)
+	}
+	return nil
+}
+
+func validateDirectMode(cfg ServerModeConfig) error {
+	if cfg.RelayIngestURL != "" || cfg.RelaySubscribeURL != "" || cfg.RelayLocalCallbackURL != "" {
+		return fmt.Errorf("direct mode does not use relay URLs")
+	}
+	if !IsUsableWebhookURL(cfg.WebhookCallbackURL) {
+		return fmt.Errorf("direct mode requires a public HTTPS callback URL on port 443")
+	}
+	return nil
+}
+
+func validateRelayMode(cfg ServerModeConfig) error {
+	if cfg.WebhookCallbackURL != "" {
+		return fmt.Errorf("relay mode does not use a webhook callback URL; it uses the relay ingest URL")
+	}
+	if cfg.RelayIngestURL == "" {
+		return fmt.Errorf("relay mode requires a relay ingest URL")
+	}
+	if cfg.RelaySubscribeURL == "" {
+		return fmt.Errorf("relay mode requires a relay subscribe URL")
+	}
+	if err := ValidateRelayURLs(cfg.RelayIngestURL, cfg.RelaySubscribeURL); err != nil {
+		return err
+	}
+	return validateRelayLocalCallbackURL(cfg.RelayLocalCallbackURL)
 }
 
 func ValidateServerModeHMACSecret(cfg ServerModeConfig, hmacSecret string) error {
@@ -282,11 +300,11 @@ func validateRelayLocalCallbackURL(raw string) error {
 	if raw == "" {
 		return nil
 	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return fmt.Errorf("local callback URL must be a URL")
+	u, err := parseLocalCallbackURL(raw)
+	if err != nil {
+		return err
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if !isHTTPScheme(u) {
 		return fmt.Errorf("local callback URL must use http:// or https://")
 	}
 	if !isLoopbackHostname(u.Hostname()) {
@@ -296,6 +314,20 @@ func validateRelayLocalCallbackURL(raw string) error {
 		return fmt.Errorf("local callback URL must use /api/v1/webhook/callback")
 	}
 	return nil
+}
+
+// parseLocalCallbackURL parses raw and requires a non-empty host, the first rule
+// a relay local callback URL must satisfy.
+func parseLocalCallbackURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return nil, fmt.Errorf("local callback URL must be a URL")
+	}
+	return u, nil
+}
+
+func isHTTPScheme(u *url.URL) bool {
+	return u.Scheme == "http" || u.Scheme == "https"
 }
 
 func isLoopbackHostname(host string) bool {
@@ -370,8 +402,11 @@ func IsUsableWebhookURL(raw string) bool {
 	if isLoopbackHostname(u.Hostname()) {
 		return false
 	}
-	if u.Port() != "" && u.Port() != "443" {
-		return false
-	}
-	return true
+	return !hasNonStandardPort(u)
+}
+
+// hasNonStandardPort reports whether u carries an explicit port other than the
+// HTTPS default 443.
+func hasNonStandardPort(u *url.URL) bool {
+	return u.Port() != "" && u.Port() != "443"
 }

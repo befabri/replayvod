@@ -153,6 +153,27 @@ func TestValidateServerModeHMACSecret(t *testing.T) {
 			cfg:    ServerModeConfig{Mode: ServerModeDirect},
 			secret: "0123456789abcdef",
 		},
+		{
+			name:   "direct accepts secret at min length",
+			cfg:    ServerModeConfig{Mode: ServerModeDirect},
+			secret: "0123456789", // exactly 10 bytes
+		},
+		{
+			name:   "direct accepts secret at max length",
+			cfg:    ServerModeConfig{Mode: ServerModeDirect},
+			secret: strings.Repeat("a", 100),
+		},
+		{
+			name:    "direct rejects secret over max length",
+			cfg:     ServerModeConfig{Mode: ServerModeDirect},
+			secret:  strings.Repeat("a", 101),
+			wantErr: true,
+		},
+		{
+			name:   "direct accepts DEL as the highest ASCII rune",
+			cfg:    ServerModeConfig{Mode: ServerModeDirect},
+			secret: "012345678\x7f", // 10 bytes, all <= 127
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -423,5 +444,97 @@ func TestRelayLocalCallbackURLOrDefault(t *testing.T) {
 	explicit := ServerModeConfig{Mode: ServerModeRelay, RelayLocalCallbackURL: "http://localhost:1234/api/v1/webhook/callback"}
 	if got := explicit.RelayLocalCallbackURLOrDefault(9000); got != "http://localhost:1234/api/v1/webhook/callback" {
 		t.Fatalf("explicit local callback = %q, want it kept over the default", got)
+	}
+}
+
+// TestValidateServerMode_RejectsEachForeignURLFieldAlone pins that, for the
+// no-URL modes, each of the four URL fields is rejected on its own. The
+// existing foreign-URL test sets one field per mode, which leaves the "any URL
+// set" boolean chain free to collapse to a single field without any test
+// noticing. Setting one field at a time forces every term of the chain to
+// matter.
+func TestValidateServerMode_RejectsEachForeignURLFieldAlone(t *testing.T) {
+	const (
+		webhookURL   = "https://replayvod.example/api/v1/webhook/callback"
+		ingestURL    = "https://relay.replayvod.com/u/AAAAAAAAAAAAAAAA"
+		subscribeURL = "wss://relay.replayvod.com/u/AAAAAAAAAAAAAAAA/subscribe"
+		localURL     = "http://127.0.0.1:8080/api/v1/webhook/callback"
+	)
+	fields := []struct {
+		name string
+		set  func(*ServerModeConfig)
+	}{
+		{name: "webhook", set: func(c *ServerModeConfig) { c.WebhookCallbackURL = webhookURL }},
+		{name: "ingest", set: func(c *ServerModeConfig) { c.RelayIngestURL = ingestURL }},
+		{name: "subscribe", set: func(c *ServerModeConfig) { c.RelaySubscribeURL = subscribeURL }},
+		{name: "local", set: func(c *ServerModeConfig) { c.RelayLocalCallbackURL = localURL }},
+	}
+	for _, mode := range []string{"", ServerModeOff, ServerModePoll} {
+		for _, f := range fields {
+			t.Run("mode="+mode+"/"+f.name, func(t *testing.T) {
+				cfg := ServerModeConfig{Mode: mode}
+				f.set(&cfg)
+				if err := ValidateServerMode(cfg); err == nil {
+					t.Fatalf("ValidateServerMode(mode=%q, %s set) = nil, want error", mode, f.name)
+				}
+			})
+		}
+	}
+}
+
+// TestValidateServerMode_RelayPropagatesPairError pins that relay mode surfaces
+// an error from the ingest/subscribe pairing check rather than swallowing it.
+// Without this, the err-propagation branch could be inverted and a mismatched
+// relay pair would validate.
+func TestValidateServerMode_RelayPropagatesPairError(t *testing.T) {
+	cfg := ServerModeConfig{
+		Mode:              ServerModeRelay,
+		RelayIngestURL:    "https://relay-a.example/u/AAAAAAAAAAAAAAAA",
+		RelaySubscribeURL: "wss://relay-b.example/u/AAAAAAAAAAAAAAAA/subscribe", // host mismatch
+	}
+	if err := ValidateServerMode(cfg); err == nil {
+		t.Fatal("ValidateServerMode(relay with mismatched ingest/subscribe host) = nil, want error")
+	}
+}
+
+// TestValidateServerModeRuntimeConfig pins that the runtime wrapper runs both
+// legs: the mode/URL validation and the HMAC-secret check. An invalid mode must
+// fail even with a good secret, and a good config must fail on a bad secret.
+func TestValidateServerModeRuntimeConfig(t *testing.T) {
+	const (
+		validSecret   = "0123456789abcdef"
+		directWebhook = "https://replayvod.example/api/v1/webhook/callback"
+	)
+	cases := []struct {
+		name    string
+		cfg     ServerModeConfig
+		secret  string
+		wantErr bool
+	}{
+		{
+			name:    "invalid mode fails despite valid secret",
+			cfg:     ServerModeConfig{Mode: "bogus"},
+			secret:  validSecret,
+			wantErr: true,
+		},
+		{
+			name:   "valid direct config with valid secret",
+			cfg:    ServerModeConfig{Mode: ServerModeDirect, WebhookCallbackURL: directWebhook},
+			secret: validSecret,
+		},
+		{
+			name:    "valid direct config with short secret fails",
+			cfg:     ServerModeConfig{Mode: ServerModeDirect, WebhookCallbackURL: directWebhook},
+			secret:  "short",
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateServerModeRuntimeConfig(tc.cfg, tc.secret)
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("ValidateServerModeRuntimeConfig(%s) err = %v, wantErr %v", tc.name, err, tc.wantErr)
+			}
+		})
 	}
 }

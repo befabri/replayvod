@@ -66,10 +66,17 @@ func isRelayToken(value string) bool {
 		return false
 	}
 	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-			continue
+		if !isRelayTokenChar(r) {
+			return false
 		}
-		return false
 	}
 	return true
+}
+
+// relayTokenAlphabet is the exact character set a relay token may contain:
+// ASCII letters, digits, underscore, and hyphen.
+const relayTokenAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+
+func isRelayTokenChar(r rune) bool {
+	return strings.ContainsRune(relayTokenAlphabet, r)
 }

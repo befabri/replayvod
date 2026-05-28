@@ -19,43 +19,57 @@ var (
 	once      sync.Once
 )
 
-// LoadConfig loads configuration from TOML file and environment variables.
+// LoadConfig loads configuration from the TOML file and environment variables.
+// It runs once; a failure is fatal because the process cannot start without it.
 func LoadConfig(path string) *Config {
 	once.Do(func() {
+		config, err := loadConfig(path)
+		if err != nil {
+			slog.Error("Failed to load configuration", "error", err)
+			os.Exit(1)
+		}
 		tomlPath = path
-		config := &Config{}
-
-		if err := validateDotenvNoDuplicateKeys(".env"); err != nil {
-			slog.Error("Failed to validate .env file", "error", err)
-			os.Exit(1)
-		}
-		if err := godotenv.Load(); err == nil {
-			slog.Info("Loaded environment from .env file")
-		} else if !os.IsNotExist(err) {
-			slog.Error("Failed to load .env file", "error", err)
-			os.Exit(1)
-		}
-
-		config.App = getDefaultAppConfig()
-		if err := loadTOML(tomlPath, &config.App); err != nil {
-			slog.Error("Failed to load config.toml", "error", err)
-			os.Exit(1)
-		}
-
-		if err := env.Parse(&config.Env); err != nil {
-			slog.Error("Failed to parse environment config", "error", err)
-			os.Exit(1)
-		}
-		if err := validateEnvironment(&config.Env); err != nil {
-			slog.Error("Failed to validate environment config", "error", err)
-			os.Exit(1)
-		}
-		config.ServerMode = ServerModeConfigFromEnv(config.Env)
-
-		validateAppConfig(&config.App)
 		configPtr.Store(config)
 	})
 	return configPtr.Load()
+}
+
+// loadConfig assembles the configuration from .env, the TOML file, and the
+// environment. It returns an error rather than exiting so it can be tested and
+// reused by the once-guarded LoadConfig.
+func loadConfig(path string) (*Config, error) {
+	if err := loadDotenv(); err != nil {
+		return nil, err
+	}
+	config := &Config{App: getDefaultAppConfig()}
+	if err := loadTOML(path, &config.App); err != nil {
+		return nil, fmt.Errorf("load config.toml: %w", err)
+	}
+	if err := env.Parse(&config.Env); err != nil {
+		return nil, fmt.Errorf("parse environment config: %w", err)
+	}
+	if err := validateEnvironment(&config.Env); err != nil {
+		return nil, fmt.Errorf("validate environment config: %w", err)
+	}
+	config.ServerMode = ServerModeConfigFromEnv(config.Env)
+	validateAppConfig(&config.App)
+	return config, nil
+}
+
+// loadDotenv loads .env into the process environment when present, first
+// rejecting duplicate keys (godotenv silently keeps the last value, which would
+// hide a misconfiguration). A missing .env is not an error.
+func loadDotenv() error {
+	if err := validateDotenvNoDuplicateKeys(".env"); err != nil {
+		return fmt.Errorf("validate .env file: %w", err)
+	}
+	switch err := godotenv.Load(); {
+	case err == nil:
+		slog.Info("Loaded environment from .env file")
+	case !os.IsNotExist(err):
+		return fmt.Errorf("load .env file: %w", err)
+	}
+	return nil
 }
 
 // ReloadAppConfig reloads config.toml without restarting.
@@ -99,10 +113,8 @@ func loadTOML(path string, config *AppConfig) error {
 
 	slog.Info("Loaded config.toml", "path", path)
 
-	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
-		for _, key := range undecoded {
-			slog.Warn("Unknown config key (typo?)", "key", key.String())
-		}
+	for _, key := range meta.Undecoded() {
+		slog.Warn("Unknown config key (typo?)", "key", key.String())
 	}
 
 	return nil

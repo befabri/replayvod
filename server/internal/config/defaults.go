@@ -1,5 +1,7 @@
 package config
 
+import "cmp"
+
 func getDefaultAppConfig() AppConfig {
 	return AppConfig{
 		Server: ServerConfig{
@@ -53,31 +55,27 @@ func getDefaultAppConfig() AppConfig {
 	}
 }
 
+// orDefault returns def when v is at or below its type's zero value (<= 0 for
+// numbers, "" for strings). It collapses the "reset an unset or non-positive
+// field to its default" guard, which validateAppConfig applies to most fields,
+// to a single expression.
+func orDefault[T cmp.Ordered](v, def T) T {
+	var zero T
+	if v <= zero {
+		return def
+	}
+	return v
+}
+
 func validateAppConfig(config *AppConfig) {
-	if config.Server.PollIntervalMinutes <= 0 {
-		config.Server.PollIntervalMinutes = 1
-	}
-	if config.Download.MaxConcurrent <= 0 {
-		config.Download.MaxConcurrent = 2
-	}
-	if config.Download.PreferredQuality == "" {
-		config.Download.PreferredQuality = "1080"
-	}
-	if config.Download.SegmentConcurrency <= 0 {
-		config.Download.SegmentConcurrency = 4
-	}
-	if config.Download.NetworkAttempts <= 0 {
-		config.Download.NetworkAttempts = 5
-	}
-	if config.Download.ServerErrorAttempts <= 0 {
-		config.Download.ServerErrorAttempts = 5
-	}
-	if config.Download.CDNLagAttempts <= 0 {
-		config.Download.CDNLagAttempts = 3
-	}
-	if config.Download.AuthRefreshAttempts <= 0 {
-		config.Download.AuthRefreshAttempts = 2
-	}
+	config.Server.PollIntervalMinutes = orDefault(config.Server.PollIntervalMinutes, 1)
+	config.Download.MaxConcurrent = orDefault(config.Download.MaxConcurrent, 2)
+	config.Download.PreferredQuality = orDefault(config.Download.PreferredQuality, "1080")
+	config.Download.SegmentConcurrency = orDefault(config.Download.SegmentConcurrency, 4)
+	config.Download.NetworkAttempts = orDefault(config.Download.NetworkAttempts, 5)
+	config.Download.ServerErrorAttempts = orDefault(config.Download.ServerErrorAttempts, 5)
+	config.Download.CDNLagAttempts = orDefault(config.Download.CDNLagAttempts, 3)
+	config.Download.AuthRefreshAttempts = orDefault(config.Download.AuthRefreshAttempts, 2)
 	// MaxGapRatio must be in [0, 1). 0 = no tolerance (all gaps fail);
 	// >=1 would accept any number of gaps and is nonsensical. Negative
 	// or > 1 silently reset to the default rather than panicking at
@@ -85,16 +83,11 @@ func validateAppConfig(config *AppConfig) {
 	if config.Download.MaxGapRatio < 0 || config.Download.MaxGapRatio >= 1 {
 		config.Download.MaxGapRatio = 0.01
 	}
-	if config.Download.MaxRestartGapSeconds <= 0 {
-		config.Download.MaxRestartGapSeconds = 120
-	}
+	config.Download.MaxRestartGapSeconds = orDefault(config.Download.MaxRestartGapSeconds, 120)
+	// SampleRate must be in (0, 1]; reset anything outside to full sampling.
 	if config.Logging.SampleRate <= 0 || config.Logging.SampleRate > 1 {
 		config.Logging.SampleRate = 1.0
 	}
-	if config.PostgresPool.MaxConns <= 0 {
-		config.PostgresPool.MaxConns = 25
-	}
-	if config.PostgresPool.MinConns <= 0 {
-		config.PostgresPool.MinConns = 5
-	}
+	config.PostgresPool.MaxConns = orDefault(config.PostgresPool.MaxConns, 25)
+	config.PostgresPool.MinConns = orDefault(config.PostgresPool.MinConns, 5)
 }
