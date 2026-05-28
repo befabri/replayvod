@@ -133,15 +133,14 @@ const accountEnabled = site.connect.accountEnabled;
 
       function envForToken(token) {
         const ingest = ingestURL(token.subscribe_url);
-        return [
-          '# Docker Compose reads this and injects WEBHOOK_CALLBACK_URL into the container',
-          `PUBLIC_WEBHOOK_CALLBACK_URL=${ingest}`,
-          '# Direct server installs can use this instead',
-          `WEBHOOK_CALLBACK_URL=${ingest}`,
+        const lines = [
+          'SERVER_MODE=relay',
+          `RELAY_INGEST_URL=${ingest}`,
           `RELAY_SUBSCRIBE_URL=${token.subscribe_url}`,
           '# Optional: only set this if your local API is not on 127.0.0.1:8080',
           '# RELAY_LOCAL_CALLBACK_URL=http://127.0.0.1:8080/api/v1/webhook/callback',
-        ].join('\n');
+        ];
+        return lines.join('\n');
       }
 
       function formatDate(value) {

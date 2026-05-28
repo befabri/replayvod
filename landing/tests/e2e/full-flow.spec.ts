@@ -118,7 +118,8 @@ test("full flow: active sub → /account create token → server receives webhoo
     ingestURL,
     "",
     "=== server/.env values for this token ===",
-    `WEBHOOK_CALLBACK_URL=${prodIngestURL}`,
+    "SERVER_MODE=relay",
+    `RELAY_INGEST_URL=${prodIngestURL}`,
     `RELAY_SUBSCRIBE_URL=wss://relay.replayvod.com/u/${relayToken}/subscribe`,
     "",
   ].join("\n");

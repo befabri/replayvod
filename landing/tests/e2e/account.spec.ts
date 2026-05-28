@@ -36,6 +36,9 @@ test("seeded subscriber can issue and revoke a token from /account", async ({
 
   await page.locator("#create-token-button").click();
   await expect(page.locator("#token-list")).toContainText(/created/i);
+  await expect(page.locator("#env-snippet")).toContainText(
+    "SERVER_MODE=relay",
+  );
 
   // The relay subscribe URL rendered for the new token must be reachable
   // and validated through cloud (relay → cloud /relay/tokens/validate).
