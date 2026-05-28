@@ -107,6 +107,32 @@ func TestResolve_EnvManagedWinsOverSaved(t *testing.T) {
 	}
 }
 
+// TestResolve_EnvManagedInvalidReturnsFatalInvalidError pins the boot boundary:
+// env-managed config is authoritative, but if it is invalid Resolve must return
+// ErrInvalid instead of degrading to setup-required or falling back to a saved
+// app row. main.resolveOrDegrade treats this branch as fatal.
+func TestResolve_EnvManagedInvalidReturnsFatalInvalidError(t *testing.T) {
+	ctx := context.Background()
+	_, repo, cfg := newTestService(t, config.ServerModeConfig{
+		Source: config.ServerModeConfigSourceEnv,
+		Mode:   config.ServerModeDirect,
+		// Missing WebhookCallbackURL makes the env runtime invalid.
+	})
+	if _, err := repo.UpsertServerSettings(ctx, &repository.ServerSettings{
+		ServerMode: config.ServerModeOff,
+	}); err != nil {
+		t.Fatalf("UpsertServerSettings: %v", err)
+	}
+
+	got, err := Resolve(ctx, repo, cfg)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Resolve() error = %v, want ErrInvalid", err)
+	}
+	if got.Source != config.ServerModeConfigSourceEnv || got.Mode != config.ServerModeDirect {
+		t.Fatalf("Resolve() runtime = %+v, want the invalid env config returned for diagnostics", got)
+	}
+}
+
 func TestResolve_AppManagedRelayRequiresHMACSecret(t *testing.T) {
 	ctx := context.Background()
 	_, repo, cfg := newTestService(t, config.ServerModeConfig{

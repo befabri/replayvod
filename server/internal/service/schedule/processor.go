@@ -380,7 +380,7 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		"broadcaster_id", event.BroadcasterUserID,
 		"job_id", jobID,
 		"quality", winner.Quality)
-	return anyErr
+	return nil
 }
 
 // qualityRank orders the three legal values so HIGH wins ties over

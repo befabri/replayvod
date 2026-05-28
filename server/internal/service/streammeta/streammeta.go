@@ -102,11 +102,15 @@ type CategoryArtEnricher interface {
 	Enrich(ctx context.Context, categoryID string) error
 }
 
+type streamFetcher interface {
+	GetStreams(ctx context.Context, params *twitch.GetStreamsParams) ([]twitch.Stream, twitch.Pagination, error)
+}
+
 // Hydrator fetches + persists live-stream metadata. Shared across
 // recording jobs; holds no per-call state.
 type Hydrator struct {
 	repo    repository.Repository
-	twitch  *twitch.Client
+	twitch  streamFetcher
 	art     CategoryArtEnricher
 	log     *slog.Logger
 	retries int
@@ -142,9 +146,13 @@ func NewHydrator(repo repository.Repository, tc *twitch.Client, cfg Config, log 
 	if delay <= 0 {
 		delay = DefaultRetryDelay
 	}
+	var fetcher streamFetcher
+	if tc != nil {
+		fetcher = tc
+	}
 	return &Hydrator{
 		repo:    repo,
-		twitch:  tc,
+		twitch:  fetcher,
 		art:     nilSafeEnricher(cfg.CategoryArt),
 		log:     log.With("domain", "streammeta"),
 		retries: retries,

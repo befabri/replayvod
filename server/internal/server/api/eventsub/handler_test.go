@@ -2,17 +2,22 @@ package eventsub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 	"github.com/befabri/replayvod/server/internal/testdb"
+	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
 )
 
@@ -49,6 +54,45 @@ func newConfigHandler(t *testing.T, eventSub config.ServerModeConfig, developmen
 	return NewHandler(nil, configSvc, log), repo, cfg
 }
 
+type apiRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f apiRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func apiTextResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func apiEventSubCreateResponse(id, typ, version, broadcasterID, callbackURL string) string {
+	return fmt.Sprintf(`{"data":[{"id":%q,"status":"enabled","type":%q,"version":%q,"condition":{"broadcaster_user_id":%q},"created_at":"2026-01-01T00:00:00Z","transport":{"method":"webhook","callback":%q},"cost":1}]}`,
+		id, typ, version, broadcasterID, callbackURL)
+}
+
+type failingServerSettingsRepo struct {
+	repository.Repository
+	getErr    error
+	upsertErr error
+}
+
+func (r *failingServerSettingsRepo) GetServerSettings(ctx context.Context) (*repository.ServerSettings, error) {
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
+	return r.Repository.GetServerSettings(ctx)
+}
+
+func (r *failingServerSettingsRepo) UpsertServerSettings(ctx context.Context, settings *repository.ServerSettings) (*repository.ServerSettings, error) {
+	if r.upsertErr != nil {
+		return nil, r.upsertErr
+	}
+	return r.Repository.UpsertServerSettings(ctx, settings)
+}
+
 func TestConfig_AppManagedWithoutSettingsRequiresSetup(t *testing.T) {
 	ctx := context.Background()
 	h, _, _ := newConfigHandler(t, config.ServerModeConfig{
@@ -71,6 +115,21 @@ func TestConfig_AppManagedWithoutSettingsRequiresSetup(t *testing.T) {
 	if got.CreatesTwitchSubscriptions {
 		t.Fatal("CreatesTwitchSubscriptions = true, want false")
 	}
+}
+
+func TestConfig_RepoErrorMapsToInternal(t *testing.T) {
+	ctx := context.Background()
+	base := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	repo := &failingServerSettingsRepo{Repository: base, getErr: errors.New("db down")}
+	cfg := &config.Config{
+		Env:        config.Environment{HMACSecret: "0123456789abcdef"},
+		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewHandler(nil, eventsubconfig.New(repo, cfg, log), log)
+
+	_, err := h.Config(ctx)
+	requireTRPCCode(t, err, trpcgo.CodeInternalServerError)
 }
 
 func TestUpdateConfig_OffClearsURLsAndRequiresRestartFromSetup(t *testing.T) {
@@ -163,6 +222,21 @@ func TestUpdateConfig_PersistsRelayAndReportsRestartRequired(t *testing.T) {
 	}
 }
 
+func TestUpdateConfig_RepoErrorMapsToInternal(t *testing.T) {
+	ctx := context.Background()
+	base := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	repo := &failingServerSettingsRepo{Repository: base, upsertErr: errors.New("db down")}
+	cfg := &config.Config{
+		Env:        config.Environment{HMACSecret: "0123456789abcdef"},
+		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewHandler(nil, eventsubconfig.New(repo, cfg, log), log)
+
+	_, err := h.UpdateConfig(ctx, UpdateConfigInput{Mode: config.ServerModeOff})
+	requireTRPCCode(t, err, trpcgo.CodeInternalServerError)
+}
+
 // TestConfig_SavedCapabilitiesDoNotLeakIntoActiveRuntime pins the saved-vs-
 // active split. After saving relay onto a process that booted unconfigured, the
 // saved config advertises subscription creation, but the active runtime — what
@@ -224,6 +298,86 @@ func TestSubscribeStreamOnlineRejectsWhenSavedCanCreateButActiveCannot(t *testin
 	}
 	if !strings.Contains(err.Error(), "not configured for Twitch subscriptions") {
 		t.Fatalf("SubscribeStreamOnline() error = %v, want active-runtime rejection", err)
+	}
+}
+
+func TestSubscribeStreamOnline_HappyPathCreatesSubscription(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	const (
+		callbackURL   = "https://replayvod.example/api/v1/webhook/callback"
+		hmacSecret    = "0123456789abcdef"
+		broadcasterID = "12345"
+	)
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID:    broadcasterID,
+		BroadcasterLogin: "chan",
+		BroadcasterName:  "Chan",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	var created bool
+	tc := twitch.NewClient("client-id", "client-secret", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tc.SetHTTPClient(&http.Client{
+		Transport: apiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case req.Host == "id.twitch.tv" && req.URL.Path == "/oauth2/token":
+				return apiTextResponse(http.StatusOK, `{"access_token":"app-token","expires_in":3600,"token_type":"bearer"}`), nil
+			case req.Host == "api.twitch.tv" && req.Method == http.MethodPost && req.URL.Path == "/helix/eventsub/subscriptions":
+				var body struct {
+					Type      string `json:"type"`
+					Version   string `json:"version"`
+					Condition struct {
+						BroadcasterUserID string `json:"broadcaster_user_id"`
+					} `json:"condition"`
+					Transport struct {
+						Callback string `json:"callback"`
+						Secret   string `json:"secret"`
+					} `json:"transport"`
+				}
+				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+					t.Fatalf("decode create body: %v", err)
+				}
+				if body.Type != "stream.online" || body.Version != "1" || body.Condition.BroadcasterUserID != broadcasterID {
+					t.Fatalf("create body = %+v, want stream.online v1 for %s", body, broadcasterID)
+				}
+				if body.Transport.Callback != callbackURL || body.Transport.Secret != hmacSecret {
+					t.Fatalf("transport = %+v, want configured callback and secret", body.Transport)
+				}
+				created = true
+				return apiTextResponse(http.StatusAccepted, apiEventSubCreateResponse("sub-online", body.Type, body.Version, broadcasterID, callbackURL)), nil
+			default:
+				t.Fatalf("unexpected Twitch request: %s %s", req.Method, req.URL.String())
+				return nil, nil
+			}
+		}),
+	})
+	cfg := &config.Config{
+		Env: config.Environment{HMACSecret: hmacSecret},
+		ServerMode: config.ServerModeConfig{
+			Source:             config.ServerModeConfigSourceApp,
+			Mode:               config.ServerModeDirect,
+			WebhookCallbackURL: callbackURL,
+		},
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	configSvc := eventsubconfig.New(repo, cfg, log)
+	svc := eventsubsvc.New(repo, tc, callbackURL, hmacSecret, log)
+	h := NewHandler(svc, configSvc, log)
+
+	got, err := h.SubscribeStreamOnline(ctx, SubscribeInput{BroadcasterID: broadcasterID})
+	if err != nil {
+		t.Fatalf("SubscribeStreamOnline() error = %v, want nil", err)
+	}
+	if !created {
+		t.Fatal("Twitch create was not called")
+	}
+	if got.ID != "sub-online" || got.Type != "stream.online" || got.BroadcasterID == nil || *got.BroadcasterID != broadcasterID {
+		t.Fatalf("SubscribeStreamOnline() = %+v, want mirrored stream.online sub", got)
+	}
+	if _, err := repo.GetSubscription(ctx, "sub-online"); err != nil {
+		t.Fatalf("subscription was not mirrored locally: %v", err)
 	}
 }
 

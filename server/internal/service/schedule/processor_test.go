@@ -31,6 +31,19 @@ func (f *fakeDownloader) Start(_ context.Context, p downloader.Params) (string, 
 	return "job-fake", f.startErr
 }
 
+type categoryFilterFailRepo struct {
+	repository.Repository
+	scheduleID int64
+	err        error
+}
+
+func (r *categoryFilterFailRepo) ListScheduleCategories(ctx context.Context, scheduleID int64) ([]repository.Category, error) {
+	if scheduleID == r.scheduleID {
+		return nil, r.err
+	}
+	return r.Repository.ListScheduleCategories(ctx, scheduleID)
+}
+
 // TestProcess_StreamOffline_EndsLastActiveStream confirms the Phase 5
 // follow-up from the spec: on stream.offline, find the broadcaster's
 // most recent active stream row and stamp ended_at. Idempotent on
@@ -585,5 +598,72 @@ func TestDispatchStreamOnline_MultiMatchTriggersOnlyWinnerButCountsAll(t *testin
 		if got.LastTriggeredAt == nil {
 			t.Fatalf("%s schedule last_triggered_at = nil, want stamped", want.name)
 		}
+	}
+}
+
+// TestDispatchStreamOnline_FilterLoadErrorDoesNotPoisonSuccessfulDispatch pins
+// the webhook/poller contract: once at least one schedule matches and the
+// download starts successfully, an unrelated schedule's filter-load failure is
+// only a logged best-effort error. Returning it would make the webhook record a
+// false FAILED event and make the live poller re-dispatch the same stream every
+// tick because lastLive never advances.
+func TestDispatchStreamOnline_FilterLoadErrorDoesNotPoisonSuccessfulDispatch(t *testing.T) {
+	ctx := context.Background()
+	realRepo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	for _, id := range []string{"u-winner", "u-broken"} {
+		if _, err := realRepo.UpsertUser(ctx, &repository.User{ID: id, Login: id, DisplayName: id, Role: "owner"}); err != nil {
+			t.Fatalf("seed user %s: %v", id, err)
+		}
+	}
+	if _, err := realRepo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	winner, err := realRepo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-1",
+		RequestedBy:   "u-winner",
+		Quality:       repository.QualityHigh,
+	})
+	if err != nil {
+		t.Fatalf("seed winner schedule: %v", err)
+	}
+	broken, err := realRepo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-1",
+		RequestedBy:   "u-broken",
+		Quality:       repository.QualityLow,
+		HasCategories: true,
+	})
+	if err != nil {
+		t.Fatalf("seed broken schedule: %v", err)
+	}
+
+	filterErr := errors.New("category lookup failed")
+	repo := &categoryFilterFailRepo{Repository: realRepo, scheduleID: broken.ID, err: filterErr}
+	dl := &fakeDownloader{}
+	p := NewEventProcessor(repo, dl, nil, nil, nil, log)
+
+	err = p.DispatchStreamOnline(ctx, twitch.StreamOnlineEvent{
+		ID: "s-1", BroadcasterUserID: "b-1", BroadcasterUserLogin: "b1", BroadcasterUserName: "B1", Type: "live",
+	})
+	if err != nil {
+		t.Fatalf("DispatchStreamOnline() error = %v, want nil after successful download start", err)
+	}
+	if dl.calls != 1 {
+		t.Fatalf("dl.Start calls = %d, want 1", dl.calls)
+	}
+	gotWinner, err := realRepo.GetSchedule(ctx, winner.ID)
+	if err != nil {
+		t.Fatalf("GetSchedule(winner): %v", err)
+	}
+	if gotWinner.TriggerCount != 1 {
+		t.Fatalf("winner trigger_count = %d, want 1", gotWinner.TriggerCount)
+	}
+	gotBroken, err := realRepo.GetSchedule(ctx, broken.ID)
+	if err != nil {
+		t.Fatalf("GetSchedule(broken): %v", err)
+	}
+	if gotBroken.TriggerCount != 0 {
+		t.Fatalf("broken schedule trigger_count = %d, want 0 because its filters did not load", gotBroken.TriggerCount)
 	}
 }

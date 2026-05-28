@@ -99,9 +99,16 @@ type fakeProcessor struct {
 	onlineErr     error
 	offlineErr    error
 	closeStaleErr error
+
+	onlineErrByID     map[string]error
+	offlineErrByID    map[string]error
+	closeStaleErrByID map[string]error
 }
 
 func (p *fakeProcessor) DispatchStreamOnlineFromStream(_ context.Context, stream twitch.Stream) error {
+	if err := p.onlineErrByID[stream.UserID]; err != nil {
+		return err
+	}
 	if p.onlineErr != nil {
 		return p.onlineErr
 	}
@@ -110,6 +117,9 @@ func (p *fakeProcessor) DispatchStreamOnlineFromStream(_ context.Context, stream
 }
 
 func (p *fakeProcessor) DispatchStreamOffline(_ context.Context, event twitch.StreamOfflineEvent) error {
+	if err := p.offlineErrByID[event.BroadcasterUserID]; err != nil {
+		return err
+	}
 	if p.offlineErr != nil {
 		return p.offlineErr
 	}
@@ -118,6 +128,9 @@ func (p *fakeProcessor) DispatchStreamOffline(_ context.Context, event twitch.St
 }
 
 func (p *fakeProcessor) CloseStaleStream(_ context.Context, broadcasterID string) error {
+	if err := p.closeStaleErrByID[broadcasterID]; err != nil {
+		return err
+	}
 	if p.closeStaleErr != nil {
 		return p.closeStaleErr
 	}
@@ -349,6 +362,69 @@ func TestTickCloseStaleStreamFailureKeepsLastLive(t *testing.T) {
 	}
 	if got := svc.lastLive["b-1"].streamID; got != "s-old" {
 		t.Fatalf("lastLive[b-1].streamID = %q, want s-old preserved for retry", got)
+	}
+}
+
+// TestTickOnlineDispatchErrorDoesNotSkipOtherBroadcasters pins the
+// per-broadcaster isolation contract: one failed stream.online dispatch is
+// returned from tick, but other newly-live broadcasters still dispatch and
+// advance lastLive.
+func TestTickOnlineDispatchErrorDoesNotSkipOtherBroadcasters(t *testing.T) {
+	ctx := context.Background()
+	started := time.Now().UTC()
+	repo := &fakeRepo{channels: []repository.Channel{channel("b-1"), channel("b-2")}}
+	tw := &fakeTwitch{streams: []twitch.Stream{
+		stream("s-1", "b-1", started),
+		stream("s-2", "b-2", started),
+	}}
+	boom := errors.New("online failed")
+	proc := &fakeProcessor{onlineErrByID: map[string]error{"b-1": boom}}
+	svc := New(repo, tw, proc, time.Minute, nil)
+
+	err := svc.tick(ctx)
+	if !errors.Is(err, boom) {
+		t.Fatalf("tick = %v, want joined online error", err)
+	}
+	if len(proc.online) != 1 || proc.online[0].UserID != "b-2" {
+		t.Fatalf("online dispatches = %+v, want only b-2 success", proc.online)
+	}
+	if _, ok := svc.lastLive["b-1"]; ok {
+		t.Fatal("lastLive contains failed b-1 online dispatch; want retry next tick")
+	}
+	if got := svc.lastLive["b-2"].streamID; got != "s-2" {
+		t.Fatalf("lastLive[b-2].streamID = %q, want s-2", got)
+	}
+}
+
+// TestTickOfflineDispatchErrorDoesNotSkipOtherBroadcasters is the offline
+// mirror: a failed offline dispatch leaves that broadcaster in lastLive for a
+// retry, while other offline broadcasters are removed after a successful
+// dispatch.
+func TestTickOfflineDispatchErrorDoesNotSkipOtherBroadcasters(t *testing.T) {
+	ctx := context.Background()
+	repo := &fakeRepo{
+		channels: []repository.Channel{channel("b-1"), channel("b-2")},
+		activeStreams: []repository.Stream{
+			{ID: "s-1", BroadcasterID: "b-1"},
+			{ID: "s-2", BroadcasterID: "b-2"},
+		},
+	}
+	boom := errors.New("offline failed")
+	proc := &fakeProcessor{offlineErrByID: map[string]error{"b-1": boom}}
+	svc := New(repo, &fakeTwitch{}, proc, time.Minute, nil)
+
+	err := svc.tick(ctx)
+	if !errors.Is(err, boom) {
+		t.Fatalf("tick = %v, want joined offline error", err)
+	}
+	if len(proc.offline) != 1 || proc.offline[0].BroadcasterUserID != "b-2" {
+		t.Fatalf("offline dispatches = %+v, want only b-2 success", proc.offline)
+	}
+	if got := svc.lastLive["b-1"].streamID; got != "s-1" {
+		t.Fatalf("lastLive[b-1].streamID = %q, want s-1 retained for retry", got)
+	}
+	if _, ok := svc.lastLive["b-2"]; ok {
+		t.Fatal("lastLive still contains b-2 after successful offline dispatch")
 	}
 }
 

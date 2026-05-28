@@ -28,6 +28,35 @@ func (r *recordingEnricher) Enrich(_ context.Context, categoryID string) error {
 	return r.err
 }
 
+type fakeStreamFetcher struct {
+	calls  int
+	seen   []twitch.GetStreamsParams
+	pages  [][]twitch.Stream
+	errs   []error
+	called chan int
+}
+
+func (f *fakeStreamFetcher) GetStreams(_ context.Context, params *twitch.GetStreamsParams) ([]twitch.Stream, twitch.Pagination, error) {
+	f.calls++
+	call := f.calls
+	if params != nil {
+		f.seen = append(f.seen, *params)
+	}
+	if f.called != nil {
+		select {
+		case f.called <- call:
+		default:
+		}
+	}
+	if call <= len(f.errs) && f.errs[call-1] != nil {
+		return nil, twitch.Pagination{}, f.errs[call-1]
+	}
+	if call <= len(f.pages) {
+		return f.pages[call-1], twitch.Pagination{}, nil
+	}
+	return nil, twitch.Pagination{}, nil
+}
+
 // newTestHydrator builds a Hydrator backed by a fresh SQLite repo and
 // the supplied enricher. Skips the Twitch client (nil) — persist
 // takes a synthetic *twitch.Stream directly so we don't exercise
@@ -55,6 +84,109 @@ func synthStream(streamID, broadcasterID, gameID, gameName string) *twitch.Strea
 		GameID:      gameID,
 		GameName:    gameName,
 		StartedAt:   time.Now().UTC().Truncate(time.Second),
+	}
+}
+
+func newFetchRetryHydrator(fetcher streamFetcher, retries int, delay time.Duration) *Hydrator {
+	return &Hydrator{
+		twitch:  fetcher,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		retries: retries,
+		delay:   delay,
+	}
+}
+
+func TestFetchWithRetry_RetriesEmptyStreamListThenReturnsStream(t *testing.T) {
+	want := synthStream("s-1", "b-1", "game-42", "Game 42")
+	fetcher := &fakeStreamFetcher{
+		pages: [][]twitch.Stream{
+			nil,
+			{*want},
+		},
+	}
+	h := newFetchRetryHydrator(fetcher, 3, time.Millisecond)
+
+	got, err := h.fetchWithRetry(context.Background(), "b-1")
+	if err != nil {
+		t.Fatalf("fetchWithRetry() error = %v, want nil", err)
+	}
+	if got == nil || got.ID != "s-1" {
+		t.Fatalf("fetchWithRetry() stream = %+v, want s-1", got)
+	}
+	if fetcher.calls != 2 {
+		t.Fatalf("GetStreams calls = %d, want 2 (empty first page must retry)", fetcher.calls)
+	}
+	if len(fetcher.seen) != 2 || len(fetcher.seen[0].UserID) != 1 || fetcher.seen[0].UserID[0] != "b-1" || fetcher.seen[0].First != 1 {
+		t.Fatalf("GetStreams params = %+v, want UserID [b-1] and First 1", fetcher.seen)
+	}
+}
+
+func TestFetchWithRetry_ExhaustsRetriesReturningLastError(t *testing.T) {
+	firstErr := errors.New("helix 500")
+	lastErr := errors.New("helix 503")
+	fetcher := &fakeStreamFetcher{errs: []error{firstErr, lastErr}}
+	h := newFetchRetryHydrator(fetcher, 2, time.Millisecond)
+
+	got, err := h.fetchWithRetry(context.Background(), "b-1")
+	if got != nil {
+		t.Fatalf("fetchWithRetry() stream = %+v, want nil", got)
+	}
+	if !errors.Is(err, lastErr) {
+		t.Fatalf("fetchWithRetry() error = %v, want last error %v", err, lastErr)
+	}
+	if fetcher.calls != 2 {
+		t.Fatalf("GetStreams calls = %d, want retries exhausted after 2 attempts", fetcher.calls)
+	}
+}
+
+func TestFetchWithRetry_ExhaustsEmptyStreamRetries(t *testing.T) {
+	fetcher := &fakeStreamFetcher{pages: [][]twitch.Stream{nil, nil}}
+	h := newFetchRetryHydrator(fetcher, 2, time.Millisecond)
+
+	got, err := h.fetchWithRetry(context.Background(), "b-1")
+	if got != nil {
+		t.Fatalf("fetchWithRetry() stream = %+v, want nil", got)
+	}
+	if err == nil {
+		t.Fatal("fetchWithRetry() error = nil, want retries-exhausted error")
+	}
+	if fetcher.calls != 2 {
+		t.Fatalf("GetStreams calls = %d, want 2 empty-stream attempts", fetcher.calls)
+	}
+}
+
+func TestFetchWithRetry_ContextCancelDuringRetryDelay(t *testing.T) {
+	fetcher := &fakeStreamFetcher{
+		pages:  [][]twitch.Stream{nil, {*synthStream("s-1", "b-1", "game-42", "Game 42")}},
+		called: make(chan int, 1),
+	}
+	h := newFetchRetryHydrator(fetcher, 2, time.Hour)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := h.fetchWithRetry(ctx, "b-1")
+		errCh <- err
+	}()
+
+	select {
+	case <-fetcher.called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("GetStreams was not called")
+	}
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("fetchWithRetry() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("fetchWithRetry() did not return after context cancellation during retry delay")
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("GetStreams calls = %d, want no second attempt after cancellation", fetcher.calls)
 	}
 }
 
@@ -662,6 +794,61 @@ func TestMetadataWatcher_WatchStopsOnContextCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Watch did not return after context cancel")
 	}
+}
+
+func TestMetadataWatcher_WatchRecordsChangedMetadataOnTick(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.NewSQLiteDB(t)
+	repo := sqliteadapter.New(db)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewHydrator(repo, nil, Config{Retries: 1, RetryDelay: time.Millisecond}, log)
+	videoID := seedRecording(t, ctx, repo)
+	if _, err := repo.CreateJob(ctx, &repository.JobInput{
+		ID:            "job-1",
+		VideoID:       videoID,
+		BroadcasterID: "b-1",
+	}); err != nil {
+		t.Fatalf("seed active job: %v", err)
+	}
+	live := synthStream("s-watch", "b-1", "game-new", "Game New")
+	live.Title = "New Title"
+	h.twitch = &fakeStreamFetcher{pages: [][]twitch.Stream{{*live}}}
+	w := NewMetadataWatcher(h, MetadataWatchConfig{Interval: 10 * time.Millisecond}, log)
+
+	watchCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		w.Watch(watchCtx, "b-1", videoID, WatchInitial{Title: "Old Title", CategoryID: "game-old"})
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Watch did not stop after cancellation")
+		}
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		changes, err := repo.ListVideoMetadataChanges(ctx, videoID)
+		if err != nil {
+			t.Fatalf("ListVideoMetadataChanges: %v", err)
+		}
+		if len(changes) == 1 {
+			change := changes[0]
+			if change.Title == nil || change.Title.Name != "New Title" {
+				t.Fatalf("metadata title = %+v, want New Title", change.Title)
+			}
+			if change.Category == nil || change.Category.ID != "game-new" || change.Category.Name != "Game New" {
+				t.Fatalf("metadata category = %+v, want game-new/Game New", change.Category)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("Watch did not record changed metadata on a tick")
 }
 
 // seedRecording creates the channel + video rows that

@@ -1,12 +1,18 @@
 package scheduler
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
+	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -58,6 +64,76 @@ func categoryArtService(t *testing.T) *categoryart.Service {
 	_, repo := newTestScheduler(t)
 	// tc may be nil; we never run the task body, only assert registration.
 	return categoryart.New(repo, nil, log)
+}
+
+type taskBodyRepo struct {
+	repository.Repository
+	calls []string
+	err   error
+}
+
+func (r *taskBodyRepo) record(name string) error {
+	r.calls = append(r.calls, name)
+	return r.err
+}
+
+func (r *taskBodyRepo) DeleteExpiredAppTokens(context.Context) error {
+	return r.record("DeleteExpiredAppTokens")
+}
+
+func (r *taskBodyRepo) DeleteExpiredSessions(context.Context) error {
+	return r.record("DeleteExpiredSessions")
+}
+
+func (r *taskBodyRepo) DeleteOldFetchLogs(context.Context, time.Time) error {
+	return r.record("DeleteOldFetchLogs")
+}
+
+func (r *taskBodyRepo) ClearWebhookEventPayload(context.Context, time.Time) error {
+	return r.record("ClearWebhookEventPayload")
+}
+
+func (r *taskBodyRepo) DeleteOldEventLogs(context.Context, time.Time) error {
+	return r.record("DeleteOldEventLogs")
+}
+
+func (r *taskBodyRepo) ListChannels(ctx context.Context) ([]repository.Channel, error) {
+	if r.err != nil {
+		r.calls = append(r.calls, "ListChannels")
+		return nil, r.err
+	}
+	return r.Repository.ListChannels(ctx)
+}
+
+type schedulerRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f schedulerRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func schedulerTextResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+type schedulerFakeGames struct {
+	calls [][]string
+	byID  map[string]string
+}
+
+func (f *schedulerFakeGames) GetGames(_ context.Context, params *twitch.GetGamesParams) ([]twitch.Game, error) {
+	ids := append([]string(nil), params.ID...)
+	f.calls = append(f.calls, ids)
+	out := make([]twitch.Game, 0, len(ids))
+	for _, id := range ids {
+		if art, ok := f.byID[id]; ok {
+			out = append(out, twitch.Game{ID: id, Name: "Game " + id, BoxArtURL: art})
+		}
+	}
+	return out, nil
 }
 
 // TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet pins the
@@ -268,5 +344,155 @@ func TestRegisterStandardTasks_EventSubConditionsAreIndependent(t *testing.T) {
 				t.Fatalf("%s interval = %d, want %d", taskEventSubSnapshot, got[taskEventSubSnapshot], tc.wantSnapshot)
 			}
 		})
+	}
+}
+
+// TestRegisterStandardTasks_ConfigTaskBodiesCallExpectedRepoMethods invokes the
+// registered Run closures for the repository-backed tasks. Registration-only
+// tests would miss a crossed wire where the task name/interval is right but the
+// closure calls the wrong repository method.
+func TestRegisterStandardTasks_ConfigTaskBodiesCallExpectedRepoMethods(t *testing.T) {
+	s, baseRepo := newTestScheduler(t)
+	sentinel := errors.New("sentinel task body error")
+	repo := &taskBodyRepo{Repository: baseRepo, err: sentinel}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Scheduler: config.SchedulerConfig{
+				TokenCleanupIntervalMinutes:      60,
+				SessionCleanupIntervalMinutes:    60,
+				FetchLogsRetentionDays:           14,
+				WebhookEventPayloadRetentionDays: 7,
+				EventLogsRetentionDays:           30,
+			},
+		},
+	}
+	if err := RegisterStandardTasks(s, cfg, repo, nil, nil, log); err != nil {
+		t.Fatalf("RegisterStandardTasks: %v", err)
+	}
+
+	cases := []struct {
+		taskName string
+		method   string
+	}{
+		{"app_token_cleanup", "DeleteExpiredAppTokens"},
+		{"session_cleanup", "DeleteExpiredSessions"},
+		{"fetch_logs_retention", "DeleteOldFetchLogs"},
+		{"webhook_payload_trim", "ClearWebhookEventPayload"},
+		{"event_logs_retention", "DeleteOldEventLogs"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.taskName, func(t *testing.T) {
+			task, ok := s.tasks[tc.taskName]
+			if !ok {
+				t.Fatalf("%s was not registered", tc.taskName)
+			}
+			repo.calls = nil
+			err := task.Run(context.Background())
+			if !errors.Is(err, sentinel) {
+				t.Fatalf("%s Run() error = %v, want sentinel from %s", tc.taskName, err, tc.method)
+			}
+			if !reflect.DeepEqual(repo.calls, []string{tc.method}) {
+				t.Fatalf("%s calls = %v, want [%s]", tc.taskName, repo.calls, tc.method)
+			}
+		})
+	}
+}
+
+func TestRegisterStandardTasks_EventSubReconcileTaskListsChannels(t *testing.T) {
+	s, baseRepo := newTestScheduler(t)
+	sentinel := errors.New("list channels failed")
+	repo := &taskBodyRepo{Repository: baseRepo, err: sentinel}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Scheduler: config.SchedulerConfig{EventsubReconcileIntervalMinutes: 15},
+		},
+	}
+	if err := RegisterStandardTasks(s, cfg, repo, eventsubService(t), nil, log); err != nil {
+		t.Fatalf("RegisterStandardTasks: %v", err)
+	}
+
+	task := s.tasks[taskEventSubReconcileChannels]
+	err := task.Run(context.Background())
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("reconcile Run() error = %v, want ListChannels sentinel", err)
+	}
+	if !reflect.DeepEqual(repo.calls, []string{"ListChannels"}) {
+		t.Fatalf("calls = %v, want [ListChannels]", repo.calls)
+	}
+}
+
+func TestRegisterStandardTasks_EventSubSnapshotTaskRunsSnapshot(t *testing.T) {
+	s, repo := newTestScheduler(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	tc := twitch.NewClient("client-id", "client-secret", log)
+	tc.SetHTTPClient(&http.Client{
+		Transport: schedulerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case req.Host == "id.twitch.tv" && req.URL.Path == "/oauth2/token":
+				return schedulerTextResponse(http.StatusOK, `{"access_token":"app-token","expires_in":3600,"token_type":"bearer"}`), nil
+			case req.Host == "api.twitch.tv" && req.Method == http.MethodGet && req.URL.Path == "/helix/eventsub/subscriptions":
+				return schedulerTextResponse(http.StatusOK, `{"data":[],"pagination":{},"total":0,"total_cost":0,"max_total_cost":10000}`), nil
+			default:
+				t.Fatalf("unexpected Twitch request: %s %s", req.Method, req.URL.String())
+				return nil, nil
+			}
+		}),
+	})
+	esvc := eventsub.New(repo, tc, "https://replayvod.example/api/v1/webhook/callback", "0123456789abcdef", log)
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Scheduler: config.SchedulerConfig{EventsubIntervalMinutes: 10},
+		},
+	}
+	if err := RegisterStandardTasks(s, cfg, repo, esvc, nil, log); err != nil {
+		t.Fatalf("RegisterStandardTasks: %v", err)
+	}
+
+	if err := s.tasks[taskEventSubSnapshot].Run(context.Background()); err != nil {
+		t.Fatalf("snapshot Run(): %v", err)
+	}
+	snap, err := repo.GetLatestEventSubSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("GetLatestEventSubSnapshot: %v", err)
+	}
+	if snap.MaxTotalCost != 10000 {
+		t.Fatalf("snapshot = %+v, want max_total_cost 10000 from fake Twitch response", snap)
+	}
+}
+
+func TestRegisterStandardTasks_CategoryArtTaskRunsSyncMissing(t *testing.T) {
+	s, repo := newTestScheduler(t)
+	ctx := context.Background()
+	if _, err := repo.UpsertCategory(ctx, &repository.Category{ID: "game-42", Name: "Game 42"}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	fakeGames := &schedulerFakeGames{
+		byID: map[string]string{"game-42": "https://static-cdn.jtvnw.net/ttv-boxart/game-42-{width}x{height}.jpg"},
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	artsvc := categoryart.New(repo, fakeGames, log)
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Scheduler: config.SchedulerConfig{CategoryArtIntervalMinutes: 45},
+		},
+	}
+	if err := RegisterStandardTasks(s, cfg, repo, nil, artsvc, log); err != nil {
+		t.Fatalf("RegisterStandardTasks: %v", err)
+	}
+
+	if err := s.tasks["category_art_sync"].Run(ctx); err != nil {
+		t.Fatalf("category_art_sync Run(): %v", err)
+	}
+	if len(fakeGames.calls) != 1 || !reflect.DeepEqual(fakeGames.calls[0], []string{"game-42"}) {
+		t.Fatalf("GetGames calls = %v, want [[game-42]]", fakeGames.calls)
+	}
+	cat, err := repo.GetCategory(ctx, "game-42")
+	if err != nil {
+		t.Fatalf("GetCategory: %v", err)
+	}
+	if cat.BoxArtURL == nil || *cat.BoxArtURL != "https://static-cdn.jtvnw.net/ttv-boxart/game-42-{width}x{height}.jpg" {
+		t.Fatalf("BoxArtURL = %v, want fake art URL", cat.BoxArtURL)
 	}
 }
