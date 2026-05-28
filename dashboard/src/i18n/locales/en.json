@@ -18,6 +18,8 @@
 		"events": "Events",
 		"open_menu": "Open menu",
 		"close_menu": "Close menu",
+		"collapse_sidebar": "Collapse",
+		"expand_sidebar": "Expand",
 		"requests": "Requests",
 		"sessions": "Sessions",
 		"activity_queue": "Queue",

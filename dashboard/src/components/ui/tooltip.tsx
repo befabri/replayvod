@@ -22,13 +22,19 @@ function TooltipTrigger(
 function TooltipContent({
 	className,
 	sideOffset = 4,
+	side,
 	...props
 }: React.ComponentProps<typeof TooltipPrimitive.Popup> & {
 	sideOffset?: number;
+	side?: React.ComponentProps<typeof TooltipPrimitive.Positioner>["side"];
 }) {
 	return (
 		<TooltipPrimitive.Portal>
-			<TooltipPrimitive.Positioner sideOffset={sideOffset} className="z-50">
+			<TooltipPrimitive.Positioner
+				side={side}
+				sideOffset={sideOffset}
+				className="z-50"
+			>
 				<TooltipPrimitive.Popup
 					data-slot="tooltip-content"
 					className={cn(

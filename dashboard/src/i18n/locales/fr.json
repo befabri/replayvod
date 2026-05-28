@@ -18,6 +18,8 @@
 		"events": "Événements",
 		"open_menu": "Ouvrir le menu",
 		"close_menu": "Fermer le menu",
+		"collapse_sidebar": "Réduire",
+		"expand_sidebar": "Agrandir",
 		"requests": "Demandes",
 		"sessions": "Sessions",
 		"activity_queue": "File d'attente",
