@@ -238,6 +238,37 @@ func TestTickBatchesGetStreamsAtHundredBroadcasters(t *testing.T) {
 	}
 }
 
+// TestCollectBroadcastersDedupesAndSkipsBlankIDs pins the channel-set reduction
+// that feeds the Helix query: rows without a broadcaster ID are dropped, a
+// repeated ID keeps the first channel seen and is queried only once, and the ID
+// list preserves first-seen order.
+func TestCollectBroadcastersDedupesAndSkipsBlankIDs(t *testing.T) {
+	channels := []repository.Channel{
+		{BroadcasterID: "b-1", BroadcasterLogin: "first"},
+		{BroadcasterID: ""}, // no ID: must be skipped, not queried as ""
+		{BroadcasterID: "b-2", BroadcasterLogin: "two"},
+		{BroadcasterID: "b-1", BroadcasterLogin: "dup"}, // duplicate: first wins, not re-listed
+	}
+
+	byID, ids := collectBroadcasters(channels)
+
+	want := []string{"b-1", "b-2"}
+	if len(ids) != len(want) {
+		t.Fatalf("ids = %v, want %v", ids, want)
+	}
+	for i, id := range want {
+		if ids[i] != id {
+			t.Fatalf("ids = %v, want %v (first-seen order)", ids, want)
+		}
+	}
+	if _, ok := byID[""]; ok {
+		t.Fatal("blank broadcaster ID leaked into the lookup")
+	}
+	if byID["b-1"].BroadcasterLogin != "first" {
+		t.Fatalf("byID[b-1].login = %q, want first (first channel wins on dup)", byID["b-1"].BroadcasterLogin)
+	}
+}
+
 // TestFetchLiveDrainsPaginationAcrossPages pins that a single 100-ID batch with
 // more simultaneously-live broadcasters than fit on one Helix page is fully
 // drained via the cursor. Without First=100 + cursor draining only the first

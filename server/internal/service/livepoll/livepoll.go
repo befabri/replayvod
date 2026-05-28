@@ -108,28 +108,61 @@ func (s *Service) runOnce(ctx context.Context) {
 	}
 }
 
+// tick is one poll iteration: make sure we have a live baseline, fetch who is
+// live now, then diff that against lastLive to emit the went-live and
+// went-offline transitions. Each step is its own method so this stays a flat
+// orchestrator rather than a single high-complexity loop nest.
 func (s *Service) tick(ctx context.Context) error {
-	if !s.seeded {
-		if err := s.seedActiveStreams(ctx); err != nil {
-			s.seedFailures++
-			// Deliberate fail-safe: without a baseline of who was already live
-			// we cannot tell "still live" from "newly live", so proceeding would
-			// dispatch a spurious stream.online for every live broadcaster. Skip
-			// the whole tick and retry seeding next interval. Escalate past a few
-			// failures so a persistently unreadable store is not silent.
-			if s.seedFailures >= seedFailureEscalation {
-				s.log.Error("live poller cannot seed active streams; live/offline detection is stalled until the store recovers",
-					"consecutive_failures", s.seedFailures, "error", err)
-			}
-			return err
-		}
-		s.seedFailures = 0
+	if err := s.ensureSeeded(ctx); err != nil {
+		return err
 	}
 
 	channels, err := s.repo.ListChannels(ctx)
 	if err != nil {
 		return fmt.Errorf("list channels: %w", err)
 	}
+	channelByID, ids := collectBroadcasters(channels)
+
+	liveNow, err := s.fetchLive(ctx, ids)
+	if err != nil {
+		return err
+	}
+
+	// Online must run before offline: it mutates lastLive (closing stale rows,
+	// recording newly-live broadcasters), and the offline pass reads the result
+	// to decide who has truly left the live set.
+	return errors.Join(
+		s.dispatchOnline(ctx, liveNow),
+		s.dispatchOffline(ctx, liveNow, channelByID),
+	)
+}
+
+// ensureSeeded loads the baseline of already-live broadcasters once, before the
+// first diff. Until it succeeds tick must not proceed: without a baseline we
+// cannot tell "still live" from "newly live", so every live broadcaster would
+// get a spurious stream.online. A seed failure is returned so the tick aborts
+// and retries next interval; repeated failures escalate past warn so a
+// persistently unreadable store is not silent.
+func (s *Service) ensureSeeded(ctx context.Context) error {
+	if s.seeded {
+		return nil
+	}
+	if err := s.seedActiveStreams(ctx); err != nil {
+		s.seedFailures++
+		if s.seedFailures >= seedFailureEscalation {
+			s.log.Error("live poller cannot seed active streams; live/offline detection is stalled until the store recovers",
+				"consecutive_failures", s.seedFailures, "error", err)
+		}
+		return err
+	}
+	s.seedFailures = 0
+	return nil
+}
+
+// collectBroadcasters builds the broadcaster-ID lookup and the deduplicated ID
+// list to query Helix with, skipping rows without a broadcaster ID and keeping
+// the first channel seen per ID.
+func collectBroadcasters(channels []repository.Channel) (map[string]repository.Channel, []string) {
 	channelByID := make(map[string]repository.Channel, len(channels))
 	ids := make([]string, 0, len(channels))
 	for _, ch := range channels {
@@ -142,12 +175,13 @@ func (s *Service) tick(ctx context.Context) error {
 		channelByID[ch.BroadcasterID] = ch
 		ids = append(ids, ch.BroadcasterID)
 	}
+	return channelByID, ids
+}
 
-	liveNow, err := s.fetchLive(ctx, ids)
-	if err != nil {
-		return err
-	}
-
+// dispatchOnline emits stream.online for broadcasters that are live now under a
+// stream ID we have not recorded, recording each into lastLive. Errors are
+// joined rather than fatal so one broadcaster's failure does not skip the rest.
+func (s *Service) dispatchOnline(ctx context.Context, liveNow map[string]twitch.Stream) error {
 	var dispatchErr error
 	for broadcasterID, stream := range liveNow {
 		prev, wasLive := s.lastLive[broadcasterID]
@@ -173,7 +207,14 @@ func (s *Service) tick(ctx context.Context) error {
 		}
 		s.lastLive[broadcasterID] = liveStream{streamID: stream.ID, login: stream.UserLogin, name: stream.UserName}
 	}
+	return dispatchErr
+}
 
+// dispatchOffline emits stream.offline for broadcasters in lastLive that are no
+// longer live, removing each from lastLive. Errors are joined so one failure
+// does not skip the rest.
+func (s *Service) dispatchOffline(ctx context.Context, liveNow map[string]twitch.Stream, channelByID map[string]repository.Channel) error {
+	var dispatchErr error
 	for broadcasterID, prev := range s.lastLive {
 		if _, stillLive := liveNow[broadcasterID]; stillLive {
 			continue
@@ -197,7 +238,6 @@ func (s *Service) tick(ctx context.Context) error {
 		}
 		delete(s.lastLive, broadcasterID)
 	}
-
 	return dispatchErr
 }
 
