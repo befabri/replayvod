@@ -2,6 +2,14 @@ version: "3"
 
 vars:
   BINARY_NAME: server
+  # Ratchet ceiling for `task crap:gate`. No function in internal/ may exceed
+  # this CRAP score. It only goes down: as you cover/refactor the worst
+  # offenders, run `task crap` to see the new max and lower this toward 6.0.
+  CRAP_CEILING: "1579.4"
+  # Package names excluded from the CRAP report and gate (regex on the package
+  # column). Generated code can't be refactored, so it doesn't belong in a
+  # quality ratchet. Add to this pipe-separated list if needed.
+  CRAP_EXCLUDE: "sqlitegen|pggen"
 
 tasks:
   build:
@@ -18,6 +26,69 @@ tasks:
     desc: Run all tests
     cmds:
       - go test ./...
+
+  cover:
+    desc: |
+      Write a cross-package coverage profile to target/coverage/coverage.out.
+      Uses -coverpkg=./... so coverage from sibling-package tests counts (a
+      handler test exercising a service in another package, etc). Plain
+      per-package coverage would report that service as untested. Required by
+      the crap and mutate targets.
+    cmds:
+      - mkdir -p target/coverage
+      - go test -coverpkg=./... -coverprofile=target/coverage/coverage.out ./...
+
+  crap:
+    desc: |
+      CRAP report (cyclomatic complexity x coverage) for internal/, worst
+      first. CRAP = CC^2 * (1 - coverage)^3 + CC, so a function needs more
+      coverage the more complex it is, and a CC>=7 function can never drop to
+      6.0 without being simplified. Prints the current max next to the gate
+      ceiling so you know how far CRAP_CEILING can be lowered.
+    cmds:
+      - task: cover
+      - |
+        go tool goqual crap internal/ --reuse-coverage \
+          | awk -v ceil={{.CRAP_CEILING}} -v excl='{{.CRAP_EXCLUDE}}' '
+              NR<=4 { print; next }
+              $NF !~ /^[0-9.]+$/ { print; next }
+              excl != "" && $2 ~ excl { next }
+              { print; n++; v=$NF+0; if (v>max) max=v; if (v>6.0) o6++ }
+              END { printf "\n%d functions | max %.1f | over 6.0: %d | gate ceiling %s\n", n, max, o6, ceil }'
+
+  crap:gate:
+    desc: |
+      Ratchet gate: fail if any internal/ function exceeds CRAP_CEILING.
+      The ceiling only moves down. After covering or simplifying the worst
+      offenders, run `task crap`, then lower CRAP_CEILING in this file toward
+      6.0 so the improvement is locked in. Generated packages (CRAP_EXCLUDE)
+      are skipped.
+    cmds:
+      - task: cover
+      - |
+        go tool goqual crap internal/ --reuse-coverage \
+          | awk -v ceil={{.CRAP_CEILING}} -v excl='{{.CRAP_EXCLUDE}}' '
+              NR<=4 { next }
+              $NF !~ /^[0-9.]+$/ { next }
+              excl != "" && $2 ~ excl { next }
+              { v=$NF+0; if (v>max) max=v;
+                if (v > ceil+0.05) { over++; printf "  OVER %s: %-34s (%s) CRAP=%s\n", ceil, $1, $2, $NF } }
+              END { printf "current max CRAP: %.1f  (ceiling %s)\n", max, ceil;
+                    if (over>0) { printf "FAIL: %d function(s) over the ceiling\n", over; exit 1 }
+                    print "OK: nothing over the ceiling" }'
+
+  mutate:
+    desc: |
+      Mutation-test one source file: flips one operator/literal/bool at a time
+      (+/-, >/>=, ==/!=, &&/||, true/false, 0/1), reruns tests, and reports
+      survivors. A survivor means the line runs under test but nothing asserts
+      on it. Reuses the profile from `task cover`, so run that first.
+      Usage:
+        task cover
+        task mutate -- internal/config/helpers.go
+        task mutate -- internal/config/helpers.go --strict   # fail on survived/uncovered
+    cmds:
+      - go tool goqual mutate {{.CLI_ARGS}} --reuse-coverage
 
   test-integration:
     desc: |

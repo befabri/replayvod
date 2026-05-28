@@ -49,6 +49,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.15 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10 // indirect
+	github.com/befabri/goqual v0.0.0-20260525184413-c7c46b3bfcfb // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
@@ -115,4 +116,7 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-tool github.com/befabri/trpcgo/cmd/trpcgo
+tool (
+	github.com/befabri/goqual/cmd/goqual
+	github.com/befabri/trpcgo/cmd/trpcgo
+)

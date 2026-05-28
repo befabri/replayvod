@@ -10,6 +10,9 @@ server/twitch-api-gen
 server/tools/twitch-api-gen/twitch-api-gen
 server/bin/
 
+# goqual analysis output (CRAP reports, mutation results)
+server/target/
+
 # Environment
 .env
 .env.local
