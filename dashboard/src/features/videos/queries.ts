@@ -171,7 +171,7 @@ export function useVideoTimeline(videoId: number, enabled = true) {
 // paths captured during a recording (one per live-preview tick).
 // The VideoCard's hover effect cycles through these — the backend
 // probes storage, so an empty result means either no snapshots
-// (title_tracking disabled, too-short recording) or the recording
+// (server mode off, too-short recording) or the recording
 // predates the snapshotter. `enabled` is a lazy-load gate: list
 // queries shouldn't fire for every card, only for ones currently
 // under hover.

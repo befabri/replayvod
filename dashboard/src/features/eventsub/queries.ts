@@ -1,6 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/api/trpc";
 
+export function useEventSubConfig(options?: { enabled?: boolean }) {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.eventsub.config.queryOptions(undefined, {
+			enabled: options?.enabled ?? true,
+		}),
+	);
+}
+
+export function useUpdateEventSubConfig() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.eventsub.updateConfig.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({
+					queryKey: trpc.eventsub.config.queryKey(),
+				});
+			},
+		}),
+	);
+}
+
 export function useSubscriptions(limit = 50, offset = 0) {
 	const trpc = useTRPC();
 	return useQuery(

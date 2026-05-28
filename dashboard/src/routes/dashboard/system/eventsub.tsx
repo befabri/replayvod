@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { DataTable } from "@/components/ui/data-table";
 import {
+	EventSubSetupCard,
+	useEventSubConfig,
 	useSnapshotNow,
 	useSnapshots,
 	useSubscriptions,
@@ -21,6 +23,7 @@ function EventSubPage() {
 	const subs = useSubscriptions();
 	const snapshots = useSnapshots();
 	const poll = useSnapshotNow();
+	const config = useEventSubConfig();
 
 	const columns = useMemo(() => subscriptionColumns(t), [t]);
 
@@ -41,6 +44,20 @@ function EventSubPage() {
 			<p className="text-muted-foreground mb-6 -mt-6">
 				{t("eventsub.description")}
 			</p>
+
+			{config.isLoading && (
+				<div className="mb-4 text-muted-foreground">{t("common.loading")}</div>
+			)}
+			{config.isError && (
+				<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+					{config.error?.message ?? t("eventsub.config_load_failed")}
+				</div>
+			)}
+			{config.data && (
+				<div className="mb-6">
+					<EventSubSetupCard data={config.data} />
+				</div>
+			)}
 
 			{poll.isError && (
 				<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
