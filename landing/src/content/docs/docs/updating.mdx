@@ -12,11 +12,12 @@ ReplayVOD updates in place. Migrations run automatically on start.
 
   ```bash
   cd ~/replayvod
-  git pull --ff-only
-  docker compose --env-file server/.env --profile sqlite up -d --build
+  git pull --ff-only   # pick up compose / config changes
+  docker compose --env-file server/.env --profile sqlite pull
+  docker compose --env-file server/.env --profile sqlite up -d
   ```
 
-  Use `--profile postgres` if your install runs Postgres.
+  This pulls the newest published image. Use `--profile postgres` if your install runs Postgres, or add `--build` to the `up` step to rebuild from source instead of pulling.
 
   </TabItem>
   <TabItem label="Windows">
@@ -25,11 +26,12 @@ ReplayVOD updates in place. Migrations run automatically on start.
 
   ```powershell
   Set-Location replayvod
-  git pull --ff-only
-  docker compose --env-file server/.env --profile sqlite up -d --build
+  git pull --ff-only   # pick up compose / config changes
+  docker compose --env-file server/.env --profile sqlite pull
+  docker compose --env-file server/.env --profile sqlite up -d
   ```
 
-  Use `--profile postgres` if your install runs Postgres.
+  This pulls the newest published image. Use `--profile postgres` if your install runs Postgres, or add `--build` to the `up` step to rebuild from source instead of pulling.
 
   </TabItem>
   <TabItem label="Build from source">

@@ -35,9 +35,11 @@ _(coming soon)_
 
 ## Quick start
 
-Bundled Docker setup is production-oriented: it builds the dashboard and
-serves it from the Go server. Pick a database profile — `sqlite` for the
-simplest single-container deploy, or `postgres` for a two-container setup:
+The bundled Docker Compose stack pulls a prebuilt multi-arch image
+(`ghcr.io/befabri/replayvod:latest`, linux/amd64 and linux/arm64) and serves
+the dashboard from the Go server on one origin. Pick a database profile:
+`sqlite` for the simplest single-container deploy, or `postgres` for a
+two-container setup:
 
 macOS / Linux:
 
@@ -52,8 +54,9 @@ git clone https://github.com/befabri/replayvod.git
 cd replayvod
 cp server/.env.example server/.env
 $EDITOR server/.env             # fill in Twitch credentials, see below
-docker compose --env-file server/.env --profile sqlite up -d --build
-# or: --profile postgres        # adds a Postgres container
+docker compose --env-file server/.env --profile sqlite up -d
+# pulls ghcr.io/befabri/replayvod:latest. Add --build to build from source,
+# or --profile postgres to add a Postgres container.
 ```
 
 Windows (Docker Desktop, PowerShell):
@@ -63,8 +66,9 @@ git clone https://github.com/befabri/replayvod.git
 Set-Location replayvod
 Copy-Item server/.env.example server/.env
 notepad server/.env             # fill in Twitch credentials, see below
-docker compose --env-file server/.env --profile sqlite up -d --build
-# or: --profile postgres        # adds a Postgres container
+docker compose --env-file server/.env --profile sqlite up -d
+# pulls ghcr.io/befabri/replayvod:latest. Add --build to build from source,
+# or --profile postgres to add a Postgres container.
 ```
 
 Open <http://localhost:8080>, sign in with your Twitch account, and the user
@@ -72,6 +76,13 @@ listed in `OWNER_TWITCH_ID` is granted the owner role.
 
 To skip the `--profile` flag on every command, set `COMPOSE_PROFILES=sqlite`
 (or `=postgres`) in `server/.env`.
+
+Update later by pulling the newest published image:
+
+```bash
+docker compose --env-file server/.env --profile sqlite pull
+docker compose --env-file server/.env --profile sqlite up -d
+```
 
 For real deployments, set `PUBLIC_BASE_URL=https://your-domain` in
 `server/.env` before starting. The compose file derives the OAuth callback,

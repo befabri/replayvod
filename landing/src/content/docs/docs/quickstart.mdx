@@ -26,10 +26,10 @@ import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
   Set-Location replayvod
   Copy-Item server/.env.example server/.env
   notepad server/.env
-  docker compose --env-file server/.env --profile sqlite up -d --build
+  docker compose --env-file server/.env --profile sqlite up -d
   ```
 
-  Fill in `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, `OWNER_TWITCH_ID`, `HMAC_SECRET`, and `SESSION_SECRET` in `server/.env` before the `docker compose` step.
+  This pulls the prebuilt `ghcr.io/befabri/replayvod:latest` image (add `--build` to build from source). Fill in `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, `OWNER_TWITCH_ID`, `HMAC_SECRET`, and `SESSION_SECRET` in `server/.env` before the `docker compose` step.
 
   </TabItem>
 </Tabs>
