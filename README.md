@@ -103,7 +103,6 @@ Copy the resulting Client ID and Client Secret into `server/.env`:
 ```env
 TWITCH_CLIENT_ID=...
 TWITCH_SECRET=...
-HMAC_SECRET=...        # any random 32+ byte hex (openssl rand -hex 32)
 SESSION_SECRET=...     # any random 32+ byte hex
 OWNER_TWITCH_ID=...    # your numeric Twitch user id
 ```

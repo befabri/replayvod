@@ -123,7 +123,6 @@ test("full flow on prod: real login → /account token → prod relay round-trip
     `RELAY_INGEST_URL=${ingestURL}`,
     `RELAY_SUBSCRIBE_URL=${PROD_RELAY_WS}/u/${relayToken}/subscribe`,
     "# RELAY_LOCAL_CALLBACK_URL=  (defaults to http://127.0.0.1:8080/api/v1/webhook/callback)",
-    "HMAC_SECRET=<random 32+ byte hex; same value you give Twitch when creating the EventSub subscription>",
     "",
     "Register the EventSub subscription against the URL above. The prod relay",
     "now validates tokens against api.replayvod.com so this token is the only",

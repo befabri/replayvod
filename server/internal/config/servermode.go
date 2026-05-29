@@ -234,15 +234,24 @@ func ValidateServerModeHMACSecret(cfg ServerModeConfig, hmacSecret string) error
 	if !cfg.ProcessesWebhookNotifications() {
 		return nil
 	}
-	if len(hmacSecret) < 10 || len(hmacSecret) > 100 {
-		return fmt.Errorf("webhook delivery requires an EventSub HMAC secret between 10 and 100 ASCII characters; set HMAC_SECRET and restart")
-	}
-	for _, r := range hmacSecret {
-		if r > 127 {
-			return fmt.Errorf("webhook delivery requires an EventSub HMAC secret between 10 and 100 ASCII characters; set HMAC_SECRET and restart")
-		}
+	if !ValidHMACSecret(hmacSecret) {
+		return fmt.Errorf("webhook delivery requires an EventSub HMAC secret between 10 and 100 ASCII characters")
 	}
 	return nil
+}
+
+// ValidHMACSecret reports whether s meets Twitch's EventSub secret rule:
+// 10-100 ASCII characters.
+func ValidHMACSecret(s string) bool {
+	if len(s) < 10 || len(s) > 100 {
+		return false
+	}
+	for _, r := range s {
+		if r > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func ValidateServerModeRuntimeConfig(cfg ServerModeConfig, hmacSecret string) error {

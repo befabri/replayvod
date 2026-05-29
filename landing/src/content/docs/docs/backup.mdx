@@ -60,5 +60,5 @@ To restore a full install on a new host:
 5. Start the stack — migrations will no-op against an already-current schema.
 
 <Aside type="caution" title="Don't lose server/.env">
-  Sessions can be recovered by signing in again, but `HMAC_SECRET` cannot. EventSub subscriptions created with the old secret will start failing verification — you'll need to delete and re-create them with a fresh secret. Restart the recorder after restoring the file; the boot reconcile recreates whatever is missing.
+  Sessions can be recovered by signing in again. The EventSub HMAC secret lives in the database (`server_settings`), so it travels with a database backup and existing subscriptions keep verifying after a restore. Restart the recorder after restoring; the boot reconcile recreates whatever is missing.
 </Aside>

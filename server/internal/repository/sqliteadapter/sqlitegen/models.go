@@ -118,6 +118,7 @@ type ServerSetting struct {
 	EventsubRelayLocalCallbackUrl string `json:"eventsub_relay_local_callback_url"`
 	CreatedAt                     string `json:"created_at"`
 	UpdatedAt                     string `json:"updated_at"`
+	HmacSecret                    string `json:"hmac_secret"`
 }
 
 type Session struct {

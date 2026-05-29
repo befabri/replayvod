@@ -215,9 +215,6 @@ else
   chmod 600 server/.env
 fi
 
-if [ -z "$(get_env HMAC_SECRET)" ]; then
-  set_env HMAC_SECRET "$(secret)"
-fi
 if [ -z "$(get_env SESSION_SECRET)" ]; then
   set_env SESSION_SECRET "$(secret)"
 fi

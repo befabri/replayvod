@@ -304,6 +304,13 @@ type Repository interface {
 	GetServerSettings(ctx context.Context) (*ServerSettings, error)
 	UpsertServerSettings(ctx context.Context, s *ServerSettings) (*ServerSettings, error)
 
+	// GetServerHMACSecret returns the stored EventSub HMAC secret, or "" when
+	// none has been generated yet. EnsureServerHMACSecret persists one only if
+	// the slot is still empty (compare-and-swap), so it is safe to call from
+	// concurrent boots.
+	GetServerHMACSecret(ctx context.Context) (string, error)
+	EnsureServerHMACSecret(ctx context.Context, secret string) error
+
 	// Webhook events — audit log with state machine + retention.
 	CreateWebhookEvent(ctx context.Context, input *WebhookEventInput) (*WebhookEvent, error)
 	GetWebhookEvent(ctx context.Context, id int64) (*WebhookEvent, error)

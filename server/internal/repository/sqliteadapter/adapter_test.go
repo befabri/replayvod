@@ -1536,3 +1536,33 @@ func TestVideoMetadataDurations_TracksHistoryAndPrimaryCategory(t *testing.T) {
 		t.Fatalf("primary category = %+v, want cat-a", got)
 	}
 }
+
+func TestServerHMACSecret_PreservedAcrossUpsert(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+
+	// A missing row reads as "" (not an error), which is what the resolver
+	// keys on to decide it must seed.
+	if got, err := adapter.GetServerHMACSecret(ctx); err != nil || got != "" {
+		t.Fatalf("GetServerHMACSecret on empty = (%q, %v), want (\"\", nil)", got, err)
+	}
+
+	// Compare-and-swap seeds an empty slot, then refuses to overwrite it.
+	if err := adapter.EnsureServerHMACSecret(ctx, "secret-one"); err != nil {
+		t.Fatalf("EnsureServerHMACSecret: %v", err)
+	}
+	if err := adapter.EnsureServerHMACSecret(ctx, "secret-two"); err != nil {
+		t.Fatalf("EnsureServerHMACSecret (second): %v", err)
+	}
+	if got, _ := adapter.GetServerHMACSecret(ctx); got != "secret-one" {
+		t.Fatalf("hmac after second Ensure = %q, want secret-one (CAS must not overwrite)", got)
+	}
+
+	// Saving server settings from the owner UI must not wipe the secret.
+	if _, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "poll"}); err != nil {
+		t.Fatalf("UpsertServerSettings: %v", err)
+	}
+	if got, _ := adapter.GetServerHMACSecret(ctx); got != "secret-one" {
+		t.Fatalf("hmac after UpsertServerSettings = %q, want secret-one (UI save must preserve it)", got)
+	}
+}

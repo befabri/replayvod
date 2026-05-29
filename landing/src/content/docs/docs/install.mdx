@@ -25,7 +25,7 @@ The installer:
 <Steps>
 
 1. Clones the latest release tag into `~/replayvod/` (falls back to `main` before the first release).
-2. Writes `server/.env` from the example and generates `HMAC_SECRET` plus `SESSION_SECRET` locally.
+2. Writes `server/.env` from the example and generates `SESSION_SECRET` locally.
 3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
 4. Starts ReplayVOD with `docker compose up -d`, which pulls the prebuilt image.
 
@@ -81,7 +81,7 @@ Clone the repo and run Docker Compose. This is the only path on Windows, and wor
   </TabItem>
 </Tabs>
 
-Fill `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` in `server/.env` before starting, and generate `HMAC_SECRET` and `SESSION_SECRET` (any 32-byte hex string, e.g. `openssl rand -hex 32`).
+Fill `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` in `server/.env` before starting, and generate `SESSION_SECRET` (any 32-byte hex string, e.g. `openssl rand -hex 32`). The EventSub HMAC secret is generated and stored in the database automatically.
 
 `docker compose up -d` pulls the prebuilt image `ghcr.io/befabri/replayvod:latest` (linux/amd64 and linux/arm64); add `--build` to build from the local source instead. Use `--profile postgres` to run against Postgres.
 
@@ -140,7 +140,6 @@ After install, fill these in `server/.env`:
 TWITCH_CLIENT_ID=...
 TWITCH_SECRET=...
 OWNER_TWITCH_ID=...
-HMAC_SECRET=...      # installer generates this, or: openssl rand -hex 32
 SESSION_SECRET=...   # installer generates this, or: openssl rand -hex 32
 ```
 

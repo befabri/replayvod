@@ -19,3 +19,18 @@ SET server_mode                       = excluded.server_mode,
     eventsub_relay_local_callback_url = excluded.eventsub_relay_local_callback_url,
     updated_at                        = datetime('now')
 RETURNING *;
+
+-- name: GetServerHMACSecret :one
+SELECT hmac_secret FROM server_settings WHERE id = 1;
+
+-- EnsureServerHMACSecret persists secret only when none is stored yet
+-- (compare-and-swap on the empty string), so concurrent boots converge on a
+-- single value and an already-set secret is never overwritten. It also creates
+-- the row if EventSub config has not been saved yet.
+-- name: EnsureServerHMACSecret :exec
+INSERT INTO server_settings (id, hmac_secret)
+VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE
+SET hmac_secret = excluded.hmac_secret,
+    updated_at  = datetime('now')
+WHERE hmac_secret = '';

@@ -83,9 +83,6 @@ make_fixture_repo() {
     printf 'OWNER_TWITCH_ID='
     if [ "$creds" = with-creds ]; then printf '123456'; fi
     printf '\n'
-    printf 'HMAC_SECRET='
-    if [ "$creds" = with-creds ]; then printf 'existing-hmac'; fi
-    printf '\n'
     printf 'SESSION_SECRET='
     if [ "$creds" = with-creds ]; then printf 'existing-session'; fi
     printf '\n'
@@ -204,7 +201,7 @@ test_missing_credentials_non_interactive() {
   assert_eq "$status" 1 'missing credentials status'
   assert_env_private "$app/server/.env"
   assert_env_value "$app/server/.env" COMPOSE_PROFILES sqlite
-  assert_file_contains "$app/server/.env" '^HMAC_SECRET=[0-9a-f]{64}$' 'generated HMAC secret'
+  assert_file_not_contains "$app/server/.env" '^HMAC_SECRET=' 'no HMAC_SECRET written to env'
   assert_file_contains "$app/server/.env" '^SESSION_SECRET=[0-9a-f]{64}$' 'generated session secret'
   assert_file_contains "$dir/stderr" 'Fill these values' 'missing credentials guidance'
   assert_file_not_contains "$dir/docker.log" 'up -d' 'no start on incomplete config'
@@ -223,7 +220,6 @@ test_preserves_postgres_profile_no_start() {
   assert_eq "$status" 0 'no-start status'
   assert_env_private "$app/server/.env"
   assert_env_value "$app/server/.env" COMPOSE_PROFILES postgres
-  assert_env_value "$app/server/.env" HMAC_SECRET existing-hmac
   assert_env_value "$app/server/.env" SESSION_SECRET existing-session
   assert_file_contains "$dir/stderr" '--profile postgres' 'postgres start command'
   assert_file_not_contains "$dir/docker.log" 'up -d' 'no docker start with no-start flag'

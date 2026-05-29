@@ -70,6 +70,11 @@ type Querier interface {
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
+	// EnsureServerHMACSecret persists secret only when none is stored yet
+	// (compare-and-swap on the empty string), so concurrent boots converge on a
+	// single value and an already-set secret is never overwritten. It also creates
+	// the row if EventSub config has not been saved yet.
+	EnsureServerHMACSecret(ctx context.Context, hmacSecret string) error
 	FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartParams) error
 	// Broadcaster-level idempotency check. Returns PENDING or RUNNING
 	// only — terminal rows don't block a new job.
@@ -92,6 +97,7 @@ type Querier interface {
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
 	GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error)
+	GetServerHMACSecret(ctx context.Context) (string, error)
 	GetServerSettings(ctx context.Context) (ServerSetting, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
 	GetSettings(ctx context.Context, userID string) (Setting, error)

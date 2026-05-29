@@ -17,7 +17,7 @@ If your recorder can't be reached over public HTTPS, see the [Connect relay](/do
 
 - A publicly reachable HTTPS URL pointing at the recorder's `/api/v1/webhook/callback`.
 - A valid TLS certificate. Twitch refuses self-signed.
-- An `HMAC_SECRET` shared between the recorder and Twitch (the recorder generates this on first run).
+- An EventSub HMAC secret shared between the recorder and Twitch. The recorder generates one on first run and stores it in the database; no configuration needed.
 
 ## Configure
 

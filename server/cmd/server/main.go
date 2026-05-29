@@ -22,6 +22,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/scheduler"
+	"github.com/befabri/replayvod/server/internal/secrets"
 	"github.com/befabri/replayvod/server/internal/server"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
@@ -99,6 +100,24 @@ func main() {
 	default:
 		log.Error("Unknown database driver", "driver", cfg.Env.DatabaseDriver)
 		os.Exit(1)
+	}
+
+	// Resolve the EventSub HMAC secret before anything reads it (server-mode
+	// resolution below validates it; the webhook handler and EventSub service
+	// verify/sign with it). The database is the source of truth; an empty slot
+	// is seeded once from HMAC_SECRET if set, otherwise generated. Write the
+	// resolved value back so every reader of cfg.Env.HMACSecret sees it.
+	hmacSecret, hmacSource, hmacErr := secrets.ResolveHMAC(ctx, repo, cfg.Env.HMACSecret)
+	if hmacErr != nil {
+		log.Error("Failed to resolve EventSub HMAC secret", "error", hmacErr)
+		os.Exit(1)
+	}
+	cfg.Env.HMACSecret = hmacSecret
+	switch hmacSource {
+	case secrets.FromEnv:
+		log.Info("Seeded EventSub HMAC secret from HMAC_SECRET into the database")
+	case secrets.Generated:
+		log.Info("Generated EventSub HMAC secret and stored it in the database")
 	}
 
 	resolvedMode, resolveErr := eventsubconfig.Resolve(ctx, repo, cfg)

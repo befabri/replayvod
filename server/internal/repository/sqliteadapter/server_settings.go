@@ -2,6 +2,8 @@ package sqliteadapter
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -28,6 +30,24 @@ func (a *SQLiteAdapter) UpsertServerSettings(ctx context.Context, s *repository.
 		return nil, fmt.Errorf("sqlite upsert server settings: %w", err)
 	}
 	return sqliteServerSettingsToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetServerHMACSecret(ctx context.Context) (string, error) {
+	secret, err := a.queries.GetServerHMACSecret(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", mapErr(err)
+	}
+	return secret, nil
+}
+
+func (a *SQLiteAdapter) EnsureServerHMACSecret(ctx context.Context, secret string) error {
+	if err := a.queries.EnsureServerHMACSecret(ctx, secret); err != nil {
+		return fmt.Errorf("sqlite ensure server hmac secret: %w", err)
+	}
+	return nil
 }
 
 func sqliteServerSettingsToDomain(s sqlitegen.ServerSetting) *repository.ServerSettings {

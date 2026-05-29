@@ -9,8 +9,37 @@ import (
 	"context"
 )
 
+const ensureServerHMACSecret = `-- name: EnsureServerHMACSecret :exec
+INSERT INTO server_settings (id, hmac_secret)
+VALUES (1, $1)
+ON CONFLICT (id) DO UPDATE
+SET hmac_secret = EXCLUDED.hmac_secret,
+    updated_at  = NOW()
+WHERE server_settings.hmac_secret = ''
+`
+
+// EnsureServerHMACSecret persists secret only when none is stored yet
+// (compare-and-swap on the empty string), so concurrent boots converge on a
+// single value and an already-set secret is never overwritten. It also creates
+// the row if EventSub config has not been saved yet.
+func (q *Queries) EnsureServerHMACSecret(ctx context.Context, hmacSecret string) error {
+	_, err := q.db.Exec(ctx, ensureServerHMACSecret, hmacSecret)
+	return err
+}
+
+const getServerHMACSecret = `-- name: GetServerHMACSecret :one
+SELECT hmac_secret FROM server_settings WHERE id = 1
+`
+
+func (q *Queries) GetServerHMACSecret(ctx context.Context) (string, error) {
+	row := q.db.QueryRow(ctx, getServerHMACSecret)
+	var hmac_secret string
+	err := row.Scan(&hmac_secret)
+	return hmac_secret, err
+}
+
 const getServerSettings = `-- name: GetServerSettings :one
-SELECT id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at FROM server_settings WHERE id = 1
+SELECT id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret FROM server_settings WHERE id = 1
 `
 
 func (q *Queries) GetServerSettings(ctx context.Context) (ServerSetting, error) {
@@ -25,6 +54,7 @@ func (q *Queries) GetServerSettings(ctx context.Context) (ServerSetting, error) 
 		&i.EventsubRelayLocalCallbackUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HmacSecret,
 	)
 	return i, err
 }
@@ -46,7 +76,7 @@ SET server_mode                       = EXCLUDED.server_mode,
     eventsub_relay_subscribe_url      = EXCLUDED.eventsub_relay_subscribe_url,
     eventsub_relay_local_callback_url = EXCLUDED.eventsub_relay_local_callback_url,
     updated_at                        = NOW()
-RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret
 `
 
 type UpsertServerSettingsParams struct {
@@ -75,6 +105,7 @@ func (q *Queries) UpsertServerSettings(ctx context.Context, arg UpsertServerSett
 		&i.EventsubRelayLocalCallbackUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HmacSecret,
 	)
 	return i, err
 }
