@@ -2,7 +2,7 @@
 set -eu
 
 REPO_URL=${REPLAYVOD_REPO:-${REPLAYVOD_REPO_URL:-https://github.com/befabri/replayvod.git}}
-BRANCH=${REPLAYVOD_BRANCH:-main}
+REF_OVERRIDE=${REPLAYVOD_REF:-${REPLAYVOD_BRANCH:-}}
 INSTALL_DIR=${REPLAYVOD_DIR:-${HOME:-.}/replayvod}
 TTY_STTY=
 
@@ -121,6 +121,12 @@ prompt_secret_env() {
   fi
 }
 
+resolve_latest_tag() {
+  # Highest-versioned v* tag on the remote, or empty if none exist yet.
+  git ls-remote --tags --refs --sort=-v:refname "$REPO_URL" 2>/dev/null \
+    | awk -F/ '$NF ~ /^v[0-9]/ { print $NF; exit }'
+}
+
 origin_is_replayvod() {
   origin=$1
   case "$origin" in
@@ -151,9 +157,9 @@ compose_run() {
 
 compose_command_text() {
   if [ "$COMPOSE_BIN" = docker-compose ]; then
-    printf 'docker-compose --env-file server/.env --profile %s up -d --build' "$PROFILE"
+    printf 'docker-compose --env-file server/.env --profile %s up -d' "$PROFILE"
   else
-    printf 'docker compose --env-file server/.env --profile %s up -d --build' "$PROFILE"
+    printf 'docker compose --env-file server/.env --profile %s up -d' "$PROFILE"
   fi
 }
 
@@ -169,25 +175,35 @@ else
   exit 1
 fi
 
+# Track the latest release tag by default so the cloned source matches the
+# published :latest image. Falls back to main until the first tag is cut, and
+# REPLAYVOD_REF (or REPLAYVOD_BRANCH) pins a specific tag or branch.
+REF=$REF_OVERRIDE
+if [ -z "$REF" ]; then
+  REF=$(resolve_latest_tag)
+fi
+if [ -z "$REF" ]; then
+  REF=main
+  printf 'replayvod install: no release tags found; using %s.\n' "$REF" >&2
+fi
+
 if [ -d "$INSTALL_DIR/.git" ]; then
   origin=$(git -C "$INSTALL_DIR" remote get-url origin 2>/dev/null || true)
   if ! origin_is_replayvod "$origin"; then
     printf 'replayvod install: existing checkout origin is not ReplayVOD: %s\n' "$origin" >&2
     exit 1
   fi
-  current_branch=$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-  if [ "$current_branch" != "$BRANCH" ]; then
-    printf 'replayvod install: existing checkout is on branch %s; skipping pull for requested branch %s.\n' "$current_branch" "$BRANCH" >&2
-  elif [ -z "$(git -C "$INSTALL_DIR" status --porcelain)" ]; then
-    git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH"
+  if [ -n "$(git -C "$INSTALL_DIR" status --porcelain)" ]; then
+    printf 'replayvod install: existing checkout has local changes; skipping update to %s.\n' "$REF" >&2
   else
-    printf 'replayvod install: existing checkout has local changes; skipping pull.\n' >&2
+    git -C "$INSTALL_DIR" fetch --depth=1 origin "$REF"
+    git -C "$INSTALL_DIR" checkout --quiet --detach FETCH_HEAD
   fi
 elif [ -e "$INSTALL_DIR" ]; then
   printf 'replayvod install: %s exists and is not a git checkout.\n' "$INSTALL_DIR" >&2
   exit 1
 else
-  git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+  git clone --depth=1 --branch "$REF" "$REPO_URL" "$INSTALL_DIR"
 fi
 
 cd "$INSTALL_DIR"
@@ -247,7 +263,7 @@ if ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 
-compose_run --env-file server/.env --profile "$PROFILE" up -d --build
+compose_run --env-file server/.env --profile "$PROFILE" up -d
 base_url=$(get_env PUBLIC_BASE_URL)
 if [ -z "$base_url" ]; then
   base_url=http://localhost:8080
