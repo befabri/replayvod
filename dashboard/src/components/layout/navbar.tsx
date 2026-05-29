@@ -1,5 +1,5 @@
 import { List } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useStore } from "@tanstack/react-store";
 import i18n from "i18next";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,7 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuSubmenu,
 	DropdownMenuSubmenuTrigger,
@@ -20,6 +21,7 @@ import { openSidebar } from "@/stores/ui";
 
 export function Navbar() {
 	const { t } = useTranslation();
+	const navigate = useNavigate();
 	const user = useStore(authStore, (s) => s.user);
 	const theme = useStore(themeStore, (s) => s.theme);
 
@@ -57,6 +59,10 @@ export function Navbar() {
 							/>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent>
+							<DropdownMenuLabel className="truncate">
+								{user.displayName}
+							</DropdownMenuLabel>
+							<DropdownMenuSeparator />
 							<DropdownMenuSubmenu>
 								<DropdownMenuSubmenuTrigger>
 									{t("nav.language")}
@@ -85,6 +91,16 @@ export function Navbar() {
 								/>
 							</DropdownMenuItem>
 							<DropdownMenuSeparator />
+							<DropdownMenuItem
+								onClick={() => void navigate({ to: "/dashboard/settings" })}
+							>
+								{t("nav.settings")}
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={() => void navigate({ to: "/dashboard/sessions" })}
+							>
+								{t("nav.sessions")}
+							</DropdownMenuItem>
 							<DropdownMenuItem onClick={() => void logout()}>
 								{t("auth.logout")}
 							</DropdownMenuItem>

@@ -35,16 +35,25 @@ export function eventLogColumns(t: TFunction): ColumnDef<EventLogEntry>[] {
 			id: "message",
 			header: t("events.col_message"),
 			enableSorting: false,
-			cell: ({ row }) => (
-				<div>
-					<div>{row.original.message}</div>
-					{row.original.data !== undefined && row.original.data !== null && (
-						<pre className="text-xs text-muted-foreground mt-1 overflow-x-auto">
-							{JSON.stringify(row.original.data as unknown, null, 2)}
-						</pre>
-					)}
-				</div>
-			),
+			cell: ({ row }) => {
+				const meta =
+					row.original.data !== undefined && row.original.data !== null
+						? JSON.stringify(row.original.data as unknown)
+						: null;
+				return (
+					<div className="min-w-0 max-w-md">
+						<div className="truncate">{row.original.message}</div>
+						{meta && (
+							<code
+								title={meta}
+								className="mt-0.5 block truncate font-mono text-xs text-muted-foreground"
+							>
+								{meta}
+							</code>
+						)}
+					</div>
+				);
+			},
 		},
 	];
 }

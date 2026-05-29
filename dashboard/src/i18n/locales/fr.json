@@ -4,13 +4,16 @@
 	},
 	"nav": {
 		"dashboard": "Tableau de bord",
+		"library": "Bibliothèque",
+		"recordings": "Enregistrements",
+		"security": "Sécurité",
 		"videos": "Vidéos",
 		"channels": "Chaînes",
 		"categories": "Catégories",
 		"schedules": "Planifications",
 		"settings": "Paramètres",
 		"system": "Système",
-		"logs": "Logs API",
+		"logs": "Logs",
 		"users": "Utilisateurs",
 		"whitelist": "Liste d'accès",
 		"eventsub": "EventSub",
@@ -314,6 +317,15 @@
 		"next": "Suiv.",
 		"page": "Page {{n}}",
 		"total": "au total"
+	},
+	"logs": {
+		"title": "Logs",
+		"description": "Événements système et appels API sortants au même endroit.",
+		"source": "Source",
+		"source_events": "Événements système",
+		"source_api": "Appels API",
+		"api_failed": "Échec du chargement des logs API",
+		"api_empty": "Aucun appel API enregistré pour l'instant."
 	},
 	"settings": {
 		"title": "Paramètres",

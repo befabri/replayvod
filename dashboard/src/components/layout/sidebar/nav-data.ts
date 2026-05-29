@@ -1,12 +1,10 @@
 import type { Icon } from "@phosphor-icons/react";
 import {
-	Clock,
 	Desktop,
-	Gear,
+	DownloadSimple,
+	FilmReel,
 	House,
-	ListChecks,
-	Play,
-	TrayArrowDown,
+	ShieldCheck,
 } from "@phosphor-icons/react";
 import { useStore } from "@tanstack/react-store";
 import { useMemo } from "react";
@@ -30,26 +28,20 @@ export function useNavGroups(): NavGroup[] {
 		() => [
 			{ icon: House, label: t("nav.dashboard"), to: "/dashboard" },
 			{
-				icon: Play,
-				label: t("nav.videos"),
+				icon: FilmReel,
+				label: t("nav.library"),
 				children: [
 					{ to: "/dashboard/videos", label: t("nav.videos"), exact: true },
-					{ to: "/dashboard/categories", label: t("nav.categories") },
 					{ to: "/dashboard/channels", label: t("nav.channels") },
+					{ to: "/dashboard/categories", label: t("nav.categories") },
 				],
 			},
 			{
-				icon: TrayArrowDown,
-				label: t("nav.recording"),
+				icon: DownloadSimple,
+				label: t("nav.recordings"),
 				children: [
 					{ to: "/dashboard/schedules", label: t("nav.schedules") },
 					{ to: "/dashboard/requests", label: t("nav.requests") },
-				],
-			},
-			{
-				icon: ListChecks,
-				label: t("nav.activity"),
-				children: [
 					{ to: "/dashboard/activity/queue", label: t("nav.activity_queue") },
 					{
 						to: "/dashboard/activity/history",
@@ -57,18 +49,22 @@ export function useNavGroups(): NavGroup[] {
 					},
 				],
 			},
-			{ icon: Gear, label: t("nav.settings"), to: "/dashboard/settings" },
-			{ icon: Clock, label: t("nav.sessions"), to: "/dashboard/sessions" },
+			{
+				icon: ShieldCheck,
+				label: t("nav.security"),
+				ownerOnly: true,
+				children: [
+					{ to: "/dashboard/system/users", label: t("nav.users") },
+					{ to: "/dashboard/system/whitelist", label: t("nav.whitelist") },
+				],
+			},
 			{
 				icon: Desktop,
 				label: t("nav.system"),
 				ownerOnly: true,
 				children: [
-					{ to: "/dashboard/system/users", label: t("nav.users") },
-					{ to: "/dashboard/system/whitelist", label: t("nav.whitelist") },
 					{ to: "/dashboard/system/eventsub", label: t("nav.eventsub") },
 					{ to: "/dashboard/system/tasks", label: t("nav.tasks") },
-					{ to: "/dashboard/system/events", label: t("nav.events") },
 					{ to: "/dashboard/system/logs", label: t("nav.logs") },
 				],
 			},

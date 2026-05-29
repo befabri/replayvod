@@ -4,13 +4,16 @@
 	},
 	"nav": {
 		"dashboard": "Dashboard",
+		"library": "Library",
+		"recordings": "Recordings",
+		"security": "Security",
 		"videos": "Videos",
 		"channels": "Channels",
 		"categories": "Categories",
 		"schedules": "Schedules",
 		"settings": "Settings",
 		"system": "System",
-		"logs": "API Logs",
+		"logs": "Logs",
 		"users": "Users",
 		"whitelist": "Whitelist",
 		"eventsub": "EventSub",
@@ -314,6 +317,15 @@
 		"next": "Next",
 		"page": "Page {{n}}",
 		"total": "total"
+	},
+	"logs": {
+		"title": "Logs",
+		"description": "System events and outbound API calls in one place.",
+		"source": "Source",
+		"source_events": "System events",
+		"source_api": "API calls",
+		"api_failed": "Failed to load API logs",
+		"api_empty": "No API calls logged yet."
 	},
 	"settings": {
 		"title": "Settings",
