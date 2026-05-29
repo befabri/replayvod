@@ -5,6 +5,9 @@
 # `docker compose --env-file server/.env up` picks the right variant.
 
 x-replayvod-base: &replayvod-base
+  # Pulls the published multi-arch image by default. Add `--build` to build
+  # from the local source instead; the build context is tagged as this image.
+  image: ghcr.io/befabri/replayvod:latest
   build: .
   restart: unless-stopped
   ports:
