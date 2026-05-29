@@ -53,7 +53,18 @@ func loadConfig(path string) (*Config, error) {
 	}
 	config.ServerMode = ServerModeConfigFromEnv(config.Env)
 	validateAppConfig(&config.App)
+	applyEnvOverrides(&config.App, config.Env)
 	return config, nil
+}
+
+// applyEnvOverrides lets specific environment variables win over config.toml.
+// Today only DEVELOPMENT: the Docker image sets it false so the published image
+// runs in production mode regardless of the baked config.toml, while local runs
+// (no env var) keep the config.toml value.
+func applyEnvOverrides(app *AppConfig, env Environment) {
+	if env.DevelopmentOverride != nil {
+		app.Development = *env.DevelopmentOverride
+	}
 }
 
 // loadDotenv loads .env into the process environment when present, first
@@ -88,6 +99,7 @@ func ReloadAppConfig() error {
 	}
 
 	validateAppConfig(&newApp)
+	applyEnvOverrides(&newApp, current.Env)
 
 	newConfig := &Config{
 		App:        newApp,

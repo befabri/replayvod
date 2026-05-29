@@ -16,7 +16,13 @@ type Environment struct {
 	// Twitch
 	TwitchClientID string `env:"TWITCH_CLIENT_ID"`
 	TwitchSecret   string `env:"TWITCH_SECRET"`
-	HMACSecret     string `env:"HMAC_SECRET"`
+
+	// HMACSecret is the EventSub webhook signing secret. The database is the
+	// source of truth (see internal/secrets); this optional env var only seeds
+	// an empty slot on first boot and is ignored afterward. At startup the
+	// resolved value is written back here so the webhook handler and EventSub
+	// service share a single in-memory value.
+	HMACSecret string `env:"HMAC_SECRET"`
 
 	// ServiceAccountOAuthToken is an optional Twitch user refresh token
 	// (not an access token) used for authenticated playback — unlocks
@@ -31,6 +37,13 @@ type Environment struct {
 	// Server
 	Host string `env:"HOST" envDefault:"0.0.0.0"`
 	Port int    `env:"PORT" envDefault:"8080"`
+
+	// DevelopmentOverride, when set, forces AppConfig.Development regardless of
+	// config.toml. The Docker image sets DEVELOPMENT=false so the published
+	// image always runs in production mode (no pprof, no tRPC dev watcher),
+	// while config.toml stays the local-dev default. Pointer so unset (nil)
+	// leaves the config.toml value alone.
+	DevelopmentOverride *bool `env:"DEVELOPMENT"`
 
 	// Security
 	SessionSecret      string `env:"SESSION_SECRET"`
