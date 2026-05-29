@@ -207,7 +207,7 @@ test_missing_credentials_non_interactive() {
   assert_file_contains "$app/server/.env" '^HMAC_SECRET=[0-9a-f]{64}$' 'generated HMAC secret'
   assert_file_contains "$app/server/.env" '^SESSION_SECRET=[0-9a-f]{64}$' 'generated session secret'
   assert_file_contains "$dir/stderr" 'Fill these values' 'missing credentials guidance'
-  assert_file_not_contains "$dir/docker.log" 'up -d --build' 'no start on incomplete config'
+  assert_file_not_contains "$dir/docker.log" 'up -d' 'no start on incomplete config'
   pass 'non-interactive missing credentials fails cleanly'
 }
 
@@ -226,7 +226,7 @@ test_preserves_postgres_profile_no_start() {
   assert_env_value "$app/server/.env" HMAC_SECRET existing-hmac
   assert_env_value "$app/server/.env" SESSION_SECRET existing-session
   assert_file_contains "$dir/stderr" '--profile postgres' 'postgres start command'
-  assert_file_not_contains "$dir/docker.log" 'up -d --build' 'no docker start with no-start flag'
+  assert_file_not_contains "$dir/docker.log" 'up -d' 'no docker start with no-start flag'
   pass 'preserves existing postgres profile and secrets'
 }
 
@@ -241,7 +241,7 @@ test_starts_with_default_sqlite_profile() {
 
   assert_eq "$status" 0 'start status'
   assert_env_value "$app/server/.env" COMPOSE_PROFILES sqlite
-  assert_file_contains "$dir/docker.log" '--profile sqlite up -d --build' 'sqlite compose start'
+  assert_file_contains "$dir/docker.log" '--profile sqlite up -d' 'sqlite compose start'
   pass 'starts complete install with default sqlite profile'
 }
 
@@ -256,7 +256,7 @@ test_profile_override() {
 
   assert_eq "$status" 0 'profile override status'
   assert_env_value "$app/server/.env" COMPOSE_PROFILES postgres
-  assert_file_contains "$dir/docker.log" '--profile postgres up -d --build' 'postgres compose start'
+  assert_file_contains "$dir/docker.log" '--profile postgres up -d' 'postgres compose start'
   pass 'REPLAYVOD_PROFILE overrides default profile'
 }
 
@@ -271,7 +271,7 @@ test_invalid_profile_fails_before_start() {
 
   assert_eq "$status" 1 'invalid profile status'
   assert_file_contains "$dir/stderr" "COMPOSE_PROFILES must be 'sqlite' or 'postgres'" 'invalid profile error'
-  assert_file_not_contains "$dir/docker.log" 'up -d --build' 'no start on invalid profile'
+  assert_file_not_contains "$dir/docker.log" 'up -d' 'no start on invalid profile'
   pass 'invalid profile fails before start'
 }
 
@@ -287,7 +287,7 @@ test_wrong_existing_checkout_fails() {
 
   assert_eq "$status" 1 'wrong checkout status'
   assert_file_contains "$dir/stderr" 'origin is not ReplayVOD' 'wrong checkout error'
-  assert_file_not_contains "$dir/docker.log" 'up -d --build' 'no start on wrong checkout'
+  assert_file_not_contains "$dir/docker.log" 'up -d' 'no start on wrong checkout'
   pass 'refuses existing checkout with wrong origin'
 }
 
@@ -304,8 +304,8 @@ test_dirty_existing_checkout_skips_pull_and_starts() {
   status=$(run_installer "$dir" "$repo" "$app")
 
   assert_eq "$status" 0 'dirty checkout status'
-  assert_file_contains "$dir/stderr" 'local changes; skipping pull' 'dirty checkout message'
-  assert_file_contains "$dir/docker.log" '--profile sqlite up -d --build' 'dirty checkout start'
+  assert_file_contains "$dir/stderr" 'local changes; skipping update' 'dirty checkout message'
+  assert_file_contains "$dir/docker.log" '--profile sqlite up -d' 'dirty checkout start'
   pass 'dirty existing checkout skips pull and still starts'
 }
 
@@ -320,7 +320,7 @@ test_docker_daemon_unreachable_does_not_start() {
 
   assert_eq "$status" 0 'docker info fail status'
   assert_file_contains "$dir/stderr" 'daemon is not reachable' 'docker daemon guidance'
-  assert_file_not_contains "$dir/docker.log" 'up -d --build' 'no start without daemon'
+  assert_file_not_contains "$dir/docker.log" 'up -d' 'no start without daemon'
   pass 'docker daemon unavailable prints start command without starting'
 }
 
@@ -334,7 +334,7 @@ test_docker_compose_v1_fallback() {
   status=$(run_installer "$dir" "$repo" "$app" FAKE_COMPOSE_PLUGIN=0 FAKE_COMPOSE_V1=1)
 
   assert_eq "$status" 0 'compose v1 status'
-  assert_file_contains "$dir/docker.log" '^docker-compose --env-file server/.env --profile sqlite up -d --build$' 'docker-compose fallback'
+  assert_file_contains "$dir/docker.log" '^docker-compose --env-file server/.env --profile sqlite up -d$' 'docker-compose fallback'
   pass 'falls back to docker-compose when compose plugin is unavailable'
 }
 
