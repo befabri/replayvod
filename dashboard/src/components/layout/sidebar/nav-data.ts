@@ -64,6 +64,7 @@ export function useNavGroups(): NavGroup[] {
 				ownerOnly: true,
 				children: [
 					{ to: "/dashboard/system/eventsub", label: t("nav.eventsub") },
+					{ to: "/dashboard/system/webhook", label: t("nav.webhook") },
 					{ to: "/dashboard/system/tasks", label: t("nav.tasks") },
 					{ to: "/dashboard/system/logs", label: t("nav.logs") },
 				],
