@@ -10,10 +10,10 @@ import "testing"
 // write outside the configured bucket prefix.
 func TestObjectKey_RejectsEscapesAndNormalizes(t *testing.T) {
 	cases := []struct {
-		name      string
-		input     string
-		wantErr   bool
-		wantKey   string
+		name    string
+		input   string
+		wantErr bool
+		wantKey string
 	}{
 		{"normal", "videos/foo.mp4", false, "videos/foo.mp4"},
 		{"nested", "videos/2026/foo.mp4", false, "videos/2026/foo.mp4"},

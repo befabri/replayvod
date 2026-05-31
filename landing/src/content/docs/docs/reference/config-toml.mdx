@@ -36,6 +36,7 @@ Recording behaviour. See [Recording](/docs/recording/) for narrative.
 | `enable_av1`              | `false`  | Allow AV1 variants. |
 | `disable_hevc`            | `false`  | Refuse HEVC variants. |
 | `max_restart_gap_seconds` | `120`    | Stream-drop window for appending to the same VOD. |
+| `signed_url_ttl_hours`    | `168`    | Maximum lifetime of the signed per-part `download_url` in [recording-webhook](/docs/webhook/) payloads; enabled recording auto-delete can cap it sooner. `0` disables signed download URLs. |
 
 ## `[storage]`
 
@@ -70,6 +71,8 @@ Used only when `[storage].type = "s3"`.
 | `fetch_logs_retention_days`               | `14`    | Retention sweep for the Helix fetch-log table. |
 | `webhook_event_payload_retention_days`    | `7`     | Trims the stored EventSub payload column. |
 | `event_logs_retention_days`               | `14`    | Retention sweep for `debug` + `info` event-log rows. |
+| `recordings_retention_interval_minutes`   | `60`    | Cadence of the per-schedule auto-delete sweep (`time_before_delete`). `0` disables. |
+| `recording_webhook_delivery_retention_days` | `30`  | Prunes terminal (delivered/rejected/failed) [recording-webhook](/docs/webhook/) outbox rows. `0` disables. |
 
 ## `[logging]`
 

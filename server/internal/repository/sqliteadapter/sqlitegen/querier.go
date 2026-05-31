@@ -12,6 +12,7 @@ import (
 type Querier interface {
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
 	AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error
+	ClaimDueRecordingWebhookDelivery(ctx context.Context, now sql.NullString) (RecordingWebhookDelivery, error)
 	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
 	ClearScheduleTags(ctx context.Context, scheduleID int64) error
 	ClearWebhookEventPayload(ctx context.Context, receivedAt string) error
@@ -42,9 +43,16 @@ type Querier interface {
 	CountWebhookEvents(ctx context.Context) (int64, error)
 	CountWebhookEventsByType(ctx context.Context, eventType sql.NullString) (int64, error)
 	CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error)
+	// Insert a delivery already CLAIMED (status 'delivering', one attempt counted)
+	// for the synchronous send path (SendTest). Not 'pending', so the poller's
+	// ClaimDueRecordingWebhookDelivery never selects it and cannot double-send it;
+	// ResetStaleRecordingWebhookDeliveries recovers it if the caller crashes.
+	CreateClaimedRecordingWebhookDelivery(ctx context.Context, arg CreateClaimedRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
 	CreateEventLog(ctx context.Context, arg CreateEventLogParams) (EventLog, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
+	CreateRecordingWebhookDelivery(ctx context.Context, arg CreateRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
+	CreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, arg CreateRecordingWebhookDeliveryIfEnabledParams) (RecordingWebhookDelivery, error)
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (DownloadSchedule, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) (EventsubSnapshot, error)
@@ -60,6 +68,12 @@ type Querier interface {
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteOldEventLogs(ctx context.Context, createdAt string) error
 	DeleteOldFetchLogs(ctx context.Context, fetchedAt string) error
+	// Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) whose
+	// latest terminal update is before the cutoff. pending/delivering rows are never
+	// deleted regardless of age so a queued or in-flight delivery is never lost.
+	// Uses updated_at instead of created_at so a long-retrying row keeps a recent
+	// outcome.
+	DeleteOldRecordingWebhookDeliveries(ctx context.Context, cutoff string) error
 	DeleteOldSnapshots(ctx context.Context, fetchedAt string) error
 	DeleteSchedule(ctx context.Context, id int64) error
 	DeleteSession(ctx context.Context, hashedID string) error
@@ -67,6 +81,11 @@ type Querier interface {
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
+	// EnsureRecordingWebhookSecret seeds the signing secret only when none is stored
+	// yet (compare-and-swap on the empty string), exactly like EnsureServerHMACSecret.
+	// The config service calls it when the webhook is first enabled, so an
+	// already-set key is never overwritten and concurrent saves converge.
+	EnsureRecordingWebhookSecret(ctx context.Context, recordingWebhookSecret string) error
 	// EnsureServerHMACSecret persists secret only when none is stored yet
 	// (compare-and-swap on the empty string), so concurrent boots converge on a
 	// single value and an already-set secret is never overwritten. It also creates
@@ -146,6 +165,16 @@ type Querier interface {
 	ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
+	// Terminal, not-yet-tombstoned recordings whose creation-time retention policy
+	// snapshot is due at @now. DONE rows own watchable artifacts; FAILED
+	// partial/cancelled rows may own finalized parts, thumbnails, strips, and
+	// snapshots. FAILED rows without salvage are excluded so retention does not
+	// erase error-only diagnostics. Recordings without retention_window_hours are
+	// explicitly outside retention, even if the same broadcaster currently has a
+	// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
+	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
+	// agree on "exactly at the deadline is still retained".
+	ListFinishedVideosForRetention(ctx context.Context, now sql.NullString) ([]ListFinishedVideosForRetentionRow, error)
 	// SQLite has no DISTINCT ON; use ROW_NUMBER() to pick the most recent
 	// stream per broadcaster, then filter to rn=1. Joined with channels so
 	// the caller gets display metadata in one round-trip.
@@ -156,6 +185,7 @@ type Querier interface {
 	// then name). The adapter takes the first row per video_id since
 	// SQLite lacks DISTINCT ON.
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
+	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int64) ([]RecordingWebhookDelivery, error)
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
@@ -198,6 +228,8 @@ type Querier interface {
 	MarkJobDone(ctx context.Context, id string) error
 	MarkJobFailed(ctx context.Context, arg MarkJobFailedParams) error
 	MarkJobRunning(ctx context.Context, id string) error
+	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, arg MarkRecordingWebhookDeliveryDeliveredParams) error
+	MarkRecordingWebhookDeliveryFinal(ctx context.Context, arg MarkRecordingWebhookDeliveryFinalParams) error
 	MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
 	MarkTaskRunning(ctx context.Context, name string) error
@@ -212,6 +244,7 @@ type Querier interface {
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
 	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	ResetStaleRecordingWebhookDeliveries(ctx context.Context, arg ResetStaleRecordingWebhookDeliveriesParams) error
 	// See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
 	// uses positional ?1/?2 instead of @video_id/@at_time.
 	ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error
@@ -220,6 +253,20 @@ type Querier interface {
 	// leaving literal "@video_id" tokens for the driver to choke on.
 	// Use positional ?1 / ?2 here to force sqlc to bind uniformly.
 	ResumeVideoTitleSpan(ctx context.Context, arg ResumeVideoTitleSpanParams) error
+	// Manual re-queue of a terminal delivery, constrained to failed/rejected (a
+	// pending row is already queued; resetting a delivered/delivering row would
+	// duplicate-send). attempts is reset for a fresh budget. A non-matching id
+	// returns no row, which the adapter maps to ErrNotFound.
+	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
+	// Freeze the part metadata on the first delivery build, while the video's parts
+	// still exist, so a later retry rebuilds the real part list even after retention
+	// has deleted those parts. Signed download URLs are re-minted per attempt and
+	// capped by retention, not stored here. See
+	// dispatcher.bodyForDelivery.
+	SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, arg SetRecordingWebhookDeliveryFrozenPartsParams) error
+	// SetRecordingWebhookSecret rotates the signing secret unconditionally, for the
+	// owner's explicit "regenerate secret" action.
+	SetRecordingWebhookSecret(ctx context.Context, recordingWebhookSecret string) error
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	SetTaskNextRun(ctx context.Context, name string) error
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
@@ -272,6 +319,12 @@ type Querier interface {
 	// the caller passed NULL.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
+	// UpsertRecordingWebhookConfig writes ONLY the recording-webhook config columns
+	// (enabled, url, events), leaving server_mode, the EventSub URLs, hmac_secret,
+	// AND the recording webhook secret untouched. The secret is managed by its own
+	// two queries below so this config write can never clobber, truncate, or race
+	// the signing key. Mirrors EnsureServerHMACSecret's single-concern style.
+	UpsertRecordingWebhookConfig(ctx context.Context, arg UpsertRecordingWebhookConfigParams) (ServerSetting, error)
 	UpsertServerSettings(ctx context.Context, arg UpsertServerSettingsParams) (ServerSetting, error)
 	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) (Setting, error)
 	UpsertStream(ctx context.Context, arg UpsertStreamParams) (Stream, error)

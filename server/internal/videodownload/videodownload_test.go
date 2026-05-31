@@ -98,6 +98,32 @@ func TestPartURL_shape(t *testing.T) {
 	}
 }
 
+func TestPartURLUntil_capsExpiry(t *testing.T) {
+	s := NewSigner(testSecret, "https://app.example", 24*time.Hour)
+	now := time.Unix(1_000, 0)
+	s.now = func() time.Time { return now }
+	capAt := now.Add(time.Hour)
+
+	u, err := url.Parse(s.PartURLUntil(7, 2, &capAt))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := u.Query().Get(ParamExpires); got != "4600" {
+		t.Fatalf("exp = %q, want capped deadline 4600", got)
+	}
+}
+
+func TestPartURLUntil_omitsWhenCapReached(t *testing.T) {
+	s := NewSigner(testSecret, "https://app.example", time.Hour)
+	now := time.Unix(1_000, 0)
+	s.now = func() time.Time { return now }
+	capAt := now
+
+	if got := s.PartURLUntil(7, 2, &capAt); got != "" {
+		t.Fatalf("PartURLUntil with reached cap = %q, want empty", got)
+	}
+}
+
 // TestDeriveKey_domainSeparated guards the security property that the download
 // signing key is NOT the raw HMAC secret: a signature minted here must not equal
 // one computed directly under the server secret over the same logical message,

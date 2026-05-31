@@ -14,9 +14,9 @@ import (
 
 // FileInfo is a minimal metadata view of a stored object.
 type FileInfo struct {
-	Size      int64
-	ModTime   time.Time
-	IsDir     bool
+	Size    int64
+	ModTime time.Time
+	IsDir   bool
 }
 
 // Storage is the common interface for all backends.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
@@ -75,7 +76,7 @@ func TestSetupRouter_ServerModeControlsWebhookProcessor(t *testing.T) {
 			t.Cleanup(cancelStatus)
 			statusCh := bus.StreamStatus.Subscribe(statusCtx)
 
-			router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, log)
+			router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, nil, log)
 			if closeTRPC != nil {
 				t.Cleanup(func() {
 					if err := closeTRPC(); err != nil {
@@ -150,7 +151,7 @@ func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, log)
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -202,6 +203,94 @@ func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 	}
 	if got := do(http.MethodPost, "/trpc/eventsub.subscribeStreamOnline", `{"broadcaster_id":"12345"}`, viewer); got != http.StatusForbidden {
 		t.Fatalf("eventsub.subscribeStreamOnline as viewer = %d, want 403", got)
+	}
+}
+
+// TestRecordingWebhookProceduresAreOwnerGated is the route-level regression
+// guard for the custom outbound webhook surface. Handler unit tests do not catch
+// a route accidentally registered with `viewer`/`admin`; this drives the real
+// tRPC router so the signing-secret read path and egress-triggering mutations
+// stay owner-only.
+func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sessionMgr, err := session.NewManager(repo, "recording-webhook-gate-session-secret-0123456789", false, log)
+	if err != nil {
+		t.Fatalf("session.NewManager: %v", err)
+	}
+	cfg := &config.Config{
+		Env: config.Environment{
+			HMACSecret:  routerWebhookSecret,
+			CallbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
+			FrontendURL: "http://localhost:3000",
+		},
+		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
+	}
+	bus := eventbus.New()
+	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
+	dispatcher := recordingwebhook.NewDispatcher(repo, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, dispatcher, log)
+	if closeTRPC != nil {
+		t.Cleanup(func() {
+			if err := closeTRPC(); err != nil {
+				t.Errorf("close tRPC router: %v", err)
+			}
+		})
+	}
+
+	viewer := mintSessionCookie(t, repo, sessionMgr, "rw-viewer-1", "viewer")
+	admin := mintSessionCookie(t, repo, sessionMgr, "rw-admin-1", "admin")
+	owner := mintSessionCookie(t, repo, sessionMgr, "rw-owner-1", "owner")
+
+	do := func(method, path, body string, cookie *http.Cookie) int {
+		var rdr io.Reader
+		if body != "" {
+			rdr = bytes.NewReader([]byte(body))
+		}
+		req := httptest.NewRequest(method, path, rdr)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	cases := []struct {
+		name      string
+		method    string
+		path      string
+		body      string
+		ownerWant int
+	}{
+		{name: "config", method: http.MethodGet, path: "/trpc/recordingWebhook.config", ownerWant: http.StatusOK},
+		{name: "deliveries", method: http.MethodGet, path: "/trpc/recordingWebhook.deliveries", ownerWant: http.StatusOK},
+		{name: "updateConfig", method: http.MethodPost, path: "/trpc/recordingWebhook.updateConfig", body: `{"enabled":false,"url":"","events":[]}`, ownerWant: http.StatusOK},
+		{name: "regenerateSecret", method: http.MethodPost, path: "/trpc/recordingWebhook.regenerateSecret", ownerWant: http.StatusOK},
+		{name: "testDelivery", method: http.MethodPost, path: "/trpc/recordingWebhook.testDelivery", ownerWant: http.StatusOK},
+		// Missing id is the handler's expected owner-visible result here. The
+		// important assertion is that viewer/admin are stopped at the role gate
+		// before the handler can even inspect the id.
+		{name: "retryDelivery", method: http.MethodPost, path: "/trpc/recordingWebhook.retryDelivery", body: `{"id":123}`, ownerWant: http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := do(tc.method, tc.path, tc.body, nil); got != http.StatusUnauthorized {
+				t.Fatalf("%s without a session = %d, want 401", tc.path, got)
+			}
+			if got := do(tc.method, tc.path, tc.body, viewer); got != http.StatusForbidden {
+				t.Fatalf("%s as viewer = %d, want 403", tc.path, got)
+			}
+			if got := do(tc.method, tc.path, tc.body, admin); got != http.StatusForbidden {
+				t.Fatalf("%s as admin = %d, want 403 (owner-only, not merely admin)", tc.path, got)
+			}
+			if got := do(tc.method, tc.path, tc.body, owner); got != tc.ownerWant {
+				t.Fatalf("%s as owner = %d, want %d", tc.path, got, tc.ownerWant)
+			}
+		})
 	}
 }
 

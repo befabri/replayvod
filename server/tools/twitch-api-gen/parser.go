@@ -78,7 +78,7 @@ func parseMasterTable(doc *goquery.Document) map[string]EndpointMeta {
 	return out
 }
 
-// scopeRegex matches `**scope:name**` (bold) and `` `scope:name` `` (inline code)
+// scopeRegex matches `**scope:name**` (bold) and “ `scope:name` “ (inline code)
 // anywhere in the authentication/authorization description paragraphs.
 // After decoding, only tokens containing ':' are retained.
 var scopeRegex = regexp.MustCompile(`\*\*([a-z:_\\]+)\*\*|` + "`" + `([a-z:_]+)` + "`")

@@ -181,5 +181,16 @@ func sqliteRecordingWebhookDeliveryToDomain(d sqlitegen.RecordingWebhookDelivery
 		DeliveredAt:   parseNullTime(d.DeliveredAt),
 		CreatedAt:     parseTime(d.CreatedAt),
 		UpdatedAt:     parseTime(d.UpdatedAt),
+		FrozenParts:   d.FrozenParts,
 	}
+}
+
+func (a *SQLiteAdapter) SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error {
+	if err := a.queries.SetRecordingWebhookDeliveryFrozenParts(ctx, sqlitegen.SetRecordingWebhookDeliveryFrozenPartsParams{
+		ID:          id,
+		FrozenParts: frozenParts,
+	}); err != nil {
+		return fmt.Errorf("sqlite set recording webhook delivery frozen parts: %w", err)
+	}
+	return nil
 }

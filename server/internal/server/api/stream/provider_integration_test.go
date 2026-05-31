@@ -36,7 +36,9 @@ func (fakeStreamRepo) ListChannelsByIDs(context.Context, []string) ([]repository
 func (fakeStreamRepo) UpsertChannel(context.Context, *repository.Channel) (*repository.Channel, error) {
 	return nil, nil
 }
-func (fakeStreamRepo) GetStream(context.Context, string) (*repository.Stream, error) { return nil, repository.ErrNotFound }
+func (fakeStreamRepo) GetStream(context.Context, string) (*repository.Stream, error) {
+	return nil, repository.ErrNotFound
+}
 func (fakeStreamRepo) UpsertStream(context.Context, *repository.StreamInput) (*repository.Stream, error) {
 	return nil, nil
 }

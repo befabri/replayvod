@@ -125,6 +125,7 @@ type RecordingWebhookDelivery struct {
 	DeliveredAt   sql.NullString `json:"delivered_at"`
 	CreatedAt     string         `json:"created_at"`
 	UpdatedAt     string         `json:"updated_at"`
+	FrozenParts   string         `json:"frozen_parts"`
 }
 
 type ServerSetting struct {
@@ -259,30 +260,33 @@ type UserFollowedChannel struct {
 }
 
 type Video struct {
-	ID              int64           `json:"id"`
-	JobID           string          `json:"job_id"`
-	Filename        string          `json:"filename"`
-	DisplayName     string          `json:"display_name"`
-	Status          string          `json:"status"`
-	Quality         string          `json:"quality"`
-	BroadcasterID   string          `json:"broadcaster_id"`
-	StreamID        sql.NullString  `json:"stream_id"`
-	ViewerCount     int64           `json:"viewer_count"`
-	Language        string          `json:"language"`
-	DurationSeconds sql.NullFloat64 `json:"duration_seconds"`
-	SizeBytes       sql.NullInt64   `json:"size_bytes"`
-	Thumbnail       sql.NullString  `json:"thumbnail"`
-	Error           sql.NullString  `json:"error"`
-	StartDownloadAt string          `json:"start_download_at"`
-	DownloadedAt    sql.NullString  `json:"downloaded_at"`
-	DeletedAt       sql.NullString  `json:"deleted_at"`
-	RecordingType   string          `json:"recording_type"`
-	ForceH264       int64           `json:"force_h264"`
-	Title           string          `json:"title"`
-	CompletionKind  string          `json:"completion_kind"`
-	SelectedQuality sql.NullString  `json:"selected_quality"`
-	SelectedFps     sql.NullFloat64 `json:"selected_fps"`
-	Truncated       int64           `json:"truncated"`
+	ID                        int64           `json:"id"`
+	JobID                     string          `json:"job_id"`
+	Filename                  string          `json:"filename"`
+	DisplayName               string          `json:"display_name"`
+	Status                    string          `json:"status"`
+	Quality                   string          `json:"quality"`
+	BroadcasterID             string          `json:"broadcaster_id"`
+	StreamID                  sql.NullString  `json:"stream_id"`
+	ViewerCount               int64           `json:"viewer_count"`
+	Language                  string          `json:"language"`
+	DurationSeconds           sql.NullFloat64 `json:"duration_seconds"`
+	SizeBytes                 sql.NullInt64   `json:"size_bytes"`
+	Thumbnail                 sql.NullString  `json:"thumbnail"`
+	Error                     sql.NullString  `json:"error"`
+	StartDownloadAt           string          `json:"start_download_at"`
+	DownloadedAt              sql.NullString  `json:"downloaded_at"`
+	DeletedAt                 sql.NullString  `json:"deleted_at"`
+	RecordingType             string          `json:"recording_type"`
+	ForceH264                 int64           `json:"force_h264"`
+	Title                     string          `json:"title"`
+	CompletionKind            string          `json:"completion_kind"`
+	SelectedQuality           sql.NullString  `json:"selected_quality"`
+	SelectedFps               sql.NullFloat64 `json:"selected_fps"`
+	Truncated                 int64           `json:"truncated"`
+	TriggerScheduleID         sql.NullInt64   `json:"trigger_schedule_id"`
+	RetentionSourceScheduleID sql.NullInt64   `json:"retention_source_schedule_id"`
+	RetentionWindowHours      sql.NullInt64   `json:"retention_window_hours"`
 }
 
 type VideoCategory struct {

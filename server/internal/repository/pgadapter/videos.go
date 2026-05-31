@@ -15,7 +15,8 @@ const listVideosByBroadcasterPageSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind, truncated
+    recording_type, force_h264, title, completion_kind, truncated,
+    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
 FROM videos
 WHERE broadcaster_id = $1
   AND deleted_at IS NULL
@@ -32,7 +33,8 @@ const listVideosByCategoryPageSQL = `SELECT
     v.selected_fps, v.broadcaster_id, v.stream_id, v.viewer_count, v.language,
     v.duration_seconds, v.size_bytes, v.thumbnail, v.error,
     v.start_download_at, v.downloaded_at, v.deleted_at,
-    v.recording_type, v.force_h264, v.title, v.completion_kind, v.truncated
+    v.recording_type, v.force_h264, v.title, v.completion_kind, v.truncated,
+    v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours
 FROM videos v
 INNER JOIN video_categories vc ON vc.video_id = v.id
 WHERE vc.category_id = $1
@@ -50,7 +52,8 @@ const listVideosPageBaseSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind, truncated
+    recording_type, force_h264, title, completion_kind, truncated,
+    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
 FROM videos
 WHERE deleted_at IS NULL
   AND ($1::text = '' OR status = $1::text)`
@@ -119,18 +122,21 @@ func (a *PGAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (
 		rt = repository.RecordingTypeVideo
 	}
 	row, err := a.queries.CreateVideo(ctx, pggen.CreateVideoParams{
-		JobID:         v.JobID,
-		Filename:      v.Filename,
-		DisplayName:   v.DisplayName,
-		Title:         v.Title,
-		Status:        v.Status,
-		Quality:       v.Quality,
-		BroadcasterID: v.BroadcasterID,
-		StreamID:      v.StreamID,
-		ViewerCount:   int32(v.ViewerCount),
-		Language:      v.Language,
-		RecordingType: rt,
-		ForceH264:     v.ForceH264,
+		JobID:                     v.JobID,
+		Filename:                  v.Filename,
+		DisplayName:               v.DisplayName,
+		Title:                     v.Title,
+		Status:                    v.Status,
+		Quality:                   v.Quality,
+		BroadcasterID:             v.BroadcasterID,
+		StreamID:                  v.StreamID,
+		ViewerCount:               int32(v.ViewerCount),
+		Language:                  v.Language,
+		RecordingType:             rt,
+		ForceH264:                 v.ForceH264,
+		TriggerScheduleID:         v.TriggerScheduleID,
+		RetentionSourceScheduleID: v.RetentionSourceScheduleID,
+		RetentionWindowHours:      int64PtrToInt32Ptr(v.RetentionWindowHours),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg create video: %w", err)
@@ -170,6 +176,25 @@ func (a *PGAdapter) MarkVideoDone(ctx context.Context, id int64, durationSeconds
 	})
 }
 
+func (a *PGAdapter) MarkVideoDoneAndEnqueueRecordingWebhook(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string, truncated bool, delivery *repository.RecordingWebhookDeliveryInput) error {
+	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
+		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
+			return err
+		}
+		if err := q.MarkVideoDone(ctx, pggen.MarkVideoDoneParams{
+			ID:              id,
+			DurationSeconds: &durationSeconds,
+			SizeBytes:       &sizeBytes,
+			Thumbnail:       thumbnail,
+			CompletionKind:  completionKind,
+			Truncated:       truncated,
+		}); err != nil {
+			return err
+		}
+		return pgCreateRecordingWebhookDeliveryIfEnabled(ctx, q, delivery)
+	})
+}
+
 func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool) error {
 	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
 		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
@@ -181,6 +206,23 @@ func (a *PGAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string
 			CompletionKind: completionKind,
 			Truncated:      truncated,
 		})
+	})
+}
+
+func (a *PGAdapter) MarkVideoFailedAndEnqueueRecordingWebhook(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, delivery *repository.RecordingWebhookDeliveryInput) error {
+	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
+		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
+			return err
+		}
+		if err := q.MarkVideoFailed(ctx, pggen.MarkVideoFailedParams{
+			ID:             id,
+			Error:          &errMsg,
+			CompletionKind: completionKind,
+			Truncated:      truncated,
+		}); err != nil {
+			return err
+		}
+		return pgCreateRecordingWebhookDeliveryIfEnabled(ctx, q, delivery)
 	})
 }
 
@@ -263,6 +305,35 @@ func (a *PGAdapter) SoftDeleteVideo(ctx context.Context, id int64) error {
 	return a.queries.SoftDeleteVideo(ctx, id)
 }
 
+func (a *PGAdapter) ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]repository.RetentionVideo, error) {
+	rows, err := a.queries.ListFinishedVideosForRetention(ctx, now)
+	if err != nil {
+		return nil, fmt.Errorf("pg list finished videos for retention: %w", err)
+	}
+	out := make([]repository.RetentionVideo, len(rows))
+	for i, r := range rows {
+		out[i] = repository.RetentionVideo{
+			VideoID:              r.ID,
+			BroadcasterID:        r.BroadcasterID,
+			DownloadedAt:         r.DownloadedAt,
+			RetentionWindowHours: int32PtrToInt64Ptr(r.RetentionWindowHours),
+		}
+	}
+	return out, nil
+}
+
+func (a *PGAdapter) FinalizeRetentionDelete(ctx context.Context, videoID int64) error {
+	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
+		if err := q.SoftDeleteVideo(ctx, videoID); err != nil {
+			return fmt.Errorf("pg retention tombstone video: %w", err)
+		}
+		if err := q.DeleteVideoParts(ctx, videoID); err != nil {
+			return fmt.Errorf("pg retention delete parts: %w", err)
+		}
+		return nil
+	})
+}
+
 func (a *PGAdapter) CountVideosByStatus(ctx context.Context, status string) (int64, error) {
 	return a.queries.CountVideosByStatus(ctx, status)
 }
@@ -308,30 +379,33 @@ func (a *PGAdapter) VideoStatsTotalsByBroadcaster(ctx context.Context, broadcast
 
 func pgVideoToDomain(v pggen.Video) *repository.Video {
 	return &repository.Video{
-		ID:              v.ID,
-		JobID:           v.JobID,
-		Filename:        v.Filename,
-		DisplayName:     v.DisplayName,
-		Title:           v.Title,
-		Status:          v.Status,
-		Quality:         v.Quality,
-		SelectedQuality: v.SelectedQuality,
-		SelectedFPS:     v.SelectedFps,
-		BroadcasterID:   v.BroadcasterID,
-		StreamID:        v.StreamID,
-		ViewerCount:     int64(v.ViewerCount),
-		Language:        v.Language,
-		DurationSeconds: v.DurationSeconds,
-		SizeBytes:       v.SizeBytes,
-		Thumbnail:       v.Thumbnail,
-		Error:           v.Error,
-		StartDownloadAt: v.StartDownloadAt,
-		DownloadedAt:    v.DownloadedAt,
-		DeletedAt:       v.DeletedAt,
-		RecordingType:   v.RecordingType,
-		ForceH264:       v.ForceH264,
-		CompletionKind:  v.CompletionKind,
-		Truncated:       v.Truncated,
+		ID:                        v.ID,
+		JobID:                     v.JobID,
+		Filename:                  v.Filename,
+		DisplayName:               v.DisplayName,
+		Title:                     v.Title,
+		Status:                    v.Status,
+		Quality:                   v.Quality,
+		SelectedQuality:           v.SelectedQuality,
+		SelectedFPS:               v.SelectedFps,
+		BroadcasterID:             v.BroadcasterID,
+		StreamID:                  v.StreamID,
+		ViewerCount:               int64(v.ViewerCount),
+		Language:                  v.Language,
+		DurationSeconds:           v.DurationSeconds,
+		SizeBytes:                 v.SizeBytes,
+		Thumbnail:                 v.Thumbnail,
+		Error:                     v.Error,
+		StartDownloadAt:           v.StartDownloadAt,
+		DownloadedAt:              v.DownloadedAt,
+		DeletedAt:                 v.DeletedAt,
+		RecordingType:             v.RecordingType,
+		ForceH264:                 v.ForceH264,
+		TriggerScheduleID:         v.TriggerScheduleID,
+		RetentionSourceScheduleID: v.RetentionSourceScheduleID,
+		RetentionWindowHours:      int32PtrToInt64Ptr(v.RetentionWindowHours),
+		CompletionKind:            v.CompletionKind,
+		Truncated:                 v.Truncated,
 	}
 }
 
@@ -373,6 +447,9 @@ func scanPGVideos(rows pgx.Rows) ([]repository.Video, error) {
 			&row.Title,
 			&row.CompletionKind,
 			&row.Truncated,
+			&row.TriggerScheduleID,
+			&row.RetentionSourceScheduleID,
+			&row.RetentionWindowHours,
 		); err != nil {
 			return nil, err
 		}

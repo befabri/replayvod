@@ -23,7 +23,7 @@ WHERE id = (
     ORDER BY next_attempt_at ASC, id ASC
     LIMIT 1
 )
-RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at
+RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at, frozen_parts
 `
 
 func (q *Queries) ClaimDueRecordingWebhookDelivery(ctx context.Context, now sql.NullString) (RecordingWebhookDelivery, error) {
@@ -45,6 +45,7 @@ func (q *Queries) ClaimDueRecordingWebhookDelivery(ctx context.Context, now sql.
 		&i.DeliveredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FrozenParts,
 	)
 	return i, err
 }
@@ -56,7 +57,7 @@ INSERT INTO recording_webhook_deliveries (
 VALUES (?1, ?2, ?3, ?4, ?5, 'delivering', 1, ?6, ?6)
 ON CONFLICT (dedupe_key) DO UPDATE
 SET dedupe_key = excluded.dedupe_key
-RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at
+RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at, frozen_parts
 `
 
 type CreateClaimedRecordingWebhookDeliveryParams struct {
@@ -98,6 +99,7 @@ func (q *Queries) CreateClaimedRecordingWebhookDelivery(ctx context.Context, arg
 		&i.DeliveredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FrozenParts,
 	)
 	return i, err
 }
@@ -109,7 +111,7 @@ INSERT INTO recording_webhook_deliveries (
 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
 ON CONFLICT (dedupe_key) DO UPDATE
 SET dedupe_key = excluded.dedupe_key
-RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at
+RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at, frozen_parts
 `
 
 type CreateRecordingWebhookDeliveryParams struct {
@@ -147,6 +149,7 @@ func (q *Queries) CreateRecordingWebhookDelivery(ctx context.Context, arg Create
 		&i.DeliveredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FrozenParts,
 	)
 	return i, err
 }
@@ -167,7 +170,7 @@ WHERE id = 1
   )
 ON CONFLICT (dedupe_key) DO UPDATE
 SET dedupe_key = excluded.dedupe_key
-RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at
+RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at, frozen_parts
 `
 
 type CreateRecordingWebhookDeliveryIfEnabledParams struct {
@@ -203,26 +206,29 @@ func (q *Queries) CreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, a
 		&i.DeliveredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FrozenParts,
 	)
 	return i, err
 }
 
 const deleteOldRecordingWebhookDeliveries = `-- name: DeleteOldRecordingWebhookDeliveries :exec
 DELETE FROM recording_webhook_deliveries
-WHERE created_at < ?1
+WHERE updated_at < ?1
   AND status IN ('delivered', 'rejected', 'failed')
 `
 
-// Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) created
-// before the cutoff. pending/delivering rows are never deleted regardless of age
-// so a queued or in-flight delivery is never lost.
+// Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) whose
+// latest terminal update is before the cutoff. pending/delivering rows are never
+// deleted regardless of age so a queued or in-flight delivery is never lost.
+// Uses updated_at instead of created_at so a long-retrying row keeps a recent
+// outcome.
 func (q *Queries) DeleteOldRecordingWebhookDeliveries(ctx context.Context, cutoff string) error {
 	_, err := q.db.ExecContext(ctx, deleteOldRecordingWebhookDeliveries, cutoff)
 	return err
 }
 
 const listRecordingWebhookDeliveries = `-- name: ListRecordingWebhookDeliveries :many
-SELECT id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at FROM recording_webhook_deliveries
+SELECT id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at, frozen_parts FROM recording_webhook_deliveries
 ORDER BY created_at DESC, id DESC
 LIMIT ?1
 `
@@ -252,6 +258,7 @@ func (q *Queries) ListRecordingWebhookDeliveries(ctx context.Context, rowLimit i
 			&i.DeliveredAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FrozenParts,
 		); err != nil {
 			return nil, err
 		}
@@ -347,7 +354,7 @@ SET status = 'pending',
     updated_at = ?1
 WHERE id = ?2
   AND status IN ('failed', 'rejected')
-RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at
+RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at, frozen_parts
 `
 
 type RetryRecordingWebhookDeliveryParams struct {
@@ -378,6 +385,28 @@ func (q *Queries) RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRe
 		&i.DeliveredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FrozenParts,
 	)
 	return i, err
+}
+
+const setRecordingWebhookDeliveryFrozenParts = `-- name: SetRecordingWebhookDeliveryFrozenParts :exec
+UPDATE recording_webhook_deliveries
+SET frozen_parts = ?1
+WHERE id = ?2
+`
+
+type SetRecordingWebhookDeliveryFrozenPartsParams struct {
+	FrozenParts string `json:"frozen_parts"`
+	ID          int64  `json:"id"`
+}
+
+// Freeze the part metadata on the first delivery build, while the video's parts
+// still exist, so a later retry rebuilds the real part list even after retention
+// has deleted those parts. Signed download URLs are re-minted per attempt and
+// capped by retention, not stored here. See
+// dispatcher.bodyForDelivery.
+func (q *Queries) SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, arg SetRecordingWebhookDeliveryFrozenPartsParams) error {
+	_, err := q.db.ExecContext(ctx, setRecordingWebhookDeliveryFrozenParts, arg.FrozenParts, arg.ID)
+	return err
 }

@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	CookieName     = "session_id"
-	SessionMaxAge  = 30 * 24 * time.Hour // 30 days
+	CookieName    = "session_id"
+	SessionMaxAge = 30 * 24 * time.Hour // 30 days
 )
 
 // TwitchTokens holds the user's Twitch OAuth tokens (encrypted at rest in DB).
@@ -25,10 +25,10 @@ type TwitchTokens struct {
 
 // Manager handles session creation, lookup, and cookie management.
 type Manager struct {
-	repo       repository.Repository
-	encKey     []byte
+	repo         repository.Repository
+	encKey       []byte
 	secureCookie bool
-	log        *slog.Logger
+	log          *slog.Logger
 }
 
 // NewManager creates a new session manager.

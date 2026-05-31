@@ -38,6 +38,7 @@ type fakeRepo struct {
 
 	nextDeliveryID int64
 	deliveries     []repository.RecordingWebhookDelivery
+	freezePartsErr error
 }
 
 type upsertCall struct {
@@ -233,6 +234,20 @@ func (f *fakeRepo) MarkRecordingWebhookDeliveryFinal(_ context.Context, id int64
 	f.deliveries[i].LastError = errMsg
 	f.deliveries[i].NextAttemptAt = nextAttemptAt
 	f.deliveries[i].UpdatedAt = now
+	return nil
+}
+
+func (f *fakeRepo) SetRecordingWebhookDeliveryFrozenParts(_ context.Context, id int64, frozenParts string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	i, err := f.deliveryIndex(id)
+	if err != nil {
+		return err
+	}
+	if f.freezePartsErr != nil {
+		return f.freezePartsErr
+	}
+	f.deliveries[i].FrozenParts = frozenParts
 	return nil
 }
 

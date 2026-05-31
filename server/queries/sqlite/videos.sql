@@ -8,9 +8,10 @@ SELECT * FROM videos WHERE job_id = ?;
 INSERT INTO videos (
     job_id, filename, display_name, title, status, quality,
     broadcaster_id, stream_id, viewer_count, language, recording_type,
-    force_h264
+    force_h264, trigger_schedule_id, retention_source_schedule_id,
+    retention_window_hours
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateVideoStatus :exec
@@ -61,6 +62,34 @@ SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at 
 
 -- name: SoftDeleteVideo :exec
 UPDATE videos SET deleted_at = datetime('now') WHERE id = ?;
+
+-- name: ListFinishedVideosForRetention :many
+-- Terminal, not-yet-tombstoned recordings whose creation-time retention policy
+-- snapshot is due at @now. DONE rows own watchable artifacts; FAILED
+-- partial/cancelled rows may own finalized parts, thumbnails, strips, and
+-- snapshots. FAILED rows without salvage are excluded so retention does not
+-- erase error-only diagnostics. Recordings without retention_window_hours are
+-- explicitly outside retention, even if the same broadcaster currently has a
+-- delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
+-- keep both comparisons in lockstep so the SQL prefilter and Go invariant check
+-- agree on "exactly at the deadline is still retained".
+SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
+WHERE deleted_at IS NULL
+  AND downloaded_at IS NOT NULL
+  AND retention_window_hours IS NOT NULL
+  AND datetime(downloaded_at, '+' || retention_window_hours || ' hours') < @now
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND completion_kind IN ('partial', 'cancelled'))
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM recording_webhook_deliveries rwd
+    WHERE rwd.video_id = videos.id
+      AND rwd.test = 0
+      AND rwd.status IN ('pending', 'delivering')
+      AND rwd.frozen_parts = ''
+  );
 
 -- name: CountVideosByStatus :one
 SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL;

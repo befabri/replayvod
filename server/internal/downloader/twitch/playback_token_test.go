@@ -270,4 +270,3 @@ func TestPlaybackToken_GQLPayloadShape(t *testing.T) {
 		t.Fatalf("PlaybackToken: %v", err)
 	}
 }
-

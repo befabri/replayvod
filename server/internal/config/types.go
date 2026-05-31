@@ -56,6 +56,16 @@ type Environment struct {
 	WebhookCallbackURL string `env:"WEBHOOK_CALLBACK_URL"`
 	FrontendURL        string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
 
+	// PublicBaseURL is the absolute scheme://host the API is publicly
+	// reachable at. It is used to build absolute URLs handed to external
+	// consumers, specifically the recording webhook's signed part-download
+	// links. Optional: when empty the origin is derived from CallbackURL,
+	// which is correct for the common single-origin deployment (the dashboard,
+	// streaming routes, and OAuth callback all share one host). Set it
+	// explicitly only when the public streaming host differs from the OAuth
+	// callback host (split-host or reverse-proxy setups).
+	PublicBaseURL string `env:"PUBLIC_BASE_URL"`
+
 	// ServerMode selects how this recorder detects live channels and title
 	// updates: "off" disables automation, "poll" polls Helix, "direct" uses
 	// WebhookCallbackURL, and "relay" uses RelayIngestURL + RelaySubscribeURL.
@@ -219,6 +229,16 @@ type DownloadConfig struct {
 	// recording into a new part. Default 120. Prevents a server
 	// outage from embedding a massive hole in one MP4.
 	MaxRestartGapSeconds int `toml:"max_restart_gap_seconds"`
+
+	// SignedURLTTLHours is the maximum lifetime for a signed part-download URL
+	// handed to a recording-webhook consumer. The webhook payload embeds one
+	// signed, unauthenticated, expiring URL per recorded part so an external
+	// service can fetch the bytes over plain HTTP without a session. When
+	// recording auto-delete is enabled, recordings with retention cap each URL
+	// at the recording's retention deadline. Default 168 (7 days). 0 disables
+	// signed download URLs entirely (the payload then omits them, leaving only
+	// the storage-relative paths).
+	SignedURLTTLHours int `toml:"signed_url_ttl_hours"`
 }
 
 type StorageConfig struct {
@@ -273,8 +293,22 @@ type SchedulerConfig struct {
 	// EventLogsRetentionDays prunes debug+info event_logs older than
 	// this. warn+error rows have a longer retention managed below.
 	EventLogsRetentionDays int `toml:"event_logs_retention_days"`
+	// RecordingWebhookDeliveryRetentionDays prunes terminal
+	// (delivered/rejected/failed) rows from the recording_webhook_deliveries
+	// outbox older than this. pending/delivering rows are never pruned, so a
+	// queued or in-flight delivery is never lost. Mirrors the other log-table
+	// retention windows; 0 disables the sweep.
+	RecordingWebhookDeliveryRetentionDays int `toml:"recording_webhook_delivery_retention_days"`
 	// SessionCleanupIntervalMinutes sweeps expired sessions.
 	SessionCleanupIntervalMinutes int `toml:"session_cleanup_interval_minutes"`
+	// RecordingsRetentionIntervalMinutes is how often the per-schedule
+	// auto-delete sweep runs. Unlike the *RetentionDays knobs above, this
+	// is a poll cadence, not a window: each schedule carries its own
+	// time_before_delete (hours), and the sweep deletes recordings past
+	// it. Default hourly so an hours-granularity window is honored within
+	// the hour. 0 disables the task (no recording is ever auto-deleted,
+	// regardless of is_delete_rediff).
+	RecordingsRetentionIntervalMinutes int `toml:"recordings_retention_interval_minutes"`
 }
 
 type LoggingConfig struct {

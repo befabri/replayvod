@@ -141,4 +141,3 @@ func (sa *serviceAccount) Token(ctx context.Context) string {
 
 	return flight.token
 }
-

@@ -45,6 +45,7 @@ type deliveryStore interface {
 	ClaimDueRecordingWebhookDeliveries(ctx context.Context, now time.Time, limit int) ([]repository.RecordingWebhookDelivery, error)
 	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, status int, now time.Time) error
 	MarkRecordingWebhookDeliveryFinal(ctx context.Context, id int64, status string, httpStatus int, errMsg string, nextAttemptAt time.Time, now time.Time) error
+	SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error
 	ResetStaleRecordingWebhookDeliveries(ctx context.Context, before time.Time, now time.Time) error
 	RetryRecordingWebhookDelivery(ctx context.Context, id int64, now time.Time) (*repository.RecordingWebhookDelivery, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, limit int) ([]repository.RecordingWebhookDelivery, error)
@@ -61,6 +62,8 @@ type Dispatcher struct {
 	client  *http.Client
 	log     *slog.Logger
 	signURL partURLSigner
+
+	capDownloadURLsAtRetention bool
 
 	sem    chan struct{}
 	wg     sync.WaitGroup
@@ -87,7 +90,7 @@ func NewDispatcher(repo repository.Repository, signer *videodownload.Signer, log
 	}
 	var signURL partURLSigner
 	if signer != nil {
-		signURL = signer.PartURL
+		signURL = signer.PartURLUntil
 	}
 	return &Dispatcher{
 		svc:     New(repo, log),
@@ -97,6 +100,8 @@ func NewDispatcher(repo repository.Repository, signer *videodownload.Signer, log
 		signURL: signURL,
 		sem:     make(chan struct{}, defaultConcurrency),
 
+		capDownloadURLsAtRetention: true,
+
 		attempts:     defaultAttempts,
 		timeout:      defaultTimeout,
 		backoff:      defaultBackoff,
@@ -105,6 +110,14 @@ func NewDispatcher(repo repository.Repository, signer *videodownload.Signer, log
 		staleTimeout: defaultStaleTimeout,
 		drainTimeout: defaultDrainTimeout,
 	}
+}
+
+// SetRetentionDownloadURLCapEnabled controls whether completed recording
+// payloads cap signed URL expiry to the recording's retention deadline. Main
+// disables this when the retention sweep task itself is disabled, because the
+// bytes will not be auto-deleted at that schedule deadline.
+func (d *Dispatcher) SetRetentionDownloadURLCapEnabled(enabled bool) {
+	d.capDownloadURLsAtRetention = enabled
 }
 
 // newDeliveryClient builds the HTTP client used for every delivery. It refuses
@@ -274,16 +287,12 @@ func (d *Dispatcher) Wait() {
 }
 
 func (d *Dispatcher) deliverClaimed(ctx context.Context, row repository.RecordingWebhookDelivery) {
-	cfg, err := d.svc.Get(ctx)
-	if err != nil {
-		d.retryOrFail(ctx, row, 0, fmt.Errorf("load webhook config: %w", err))
-		return
-	}
-	if cfg.URL == "" || cfg.Secret == "" || (!row.Test && !cfg.Enabled) {
-		d.markFinal(ctx, row, repository.RecordingWebhookDeliveryFailed, 0, "webhook disabled or incomplete before delivery", time.Now().UTC())
-		return
-	}
-
+	// Build (and freeze) the body BEFORE the config gate. A delivery whose
+	// webhook config is disabled or incomplete at this first attempt is marked
+	// failed below, but the snapshot still captures its parts, so a later manual
+	// retry (after the operator fixes the config) resends the real part list even
+	// if retention has since deleted the parts. bodyForDelivery needs the store
+	// and signer, not the config, so it is safe to run first.
 	body, eventID, err := d.bodyForDelivery(ctx, row)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -291,6 +300,16 @@ func (d *Dispatcher) deliverClaimed(ctx context.Context, row repository.Recordin
 			return
 		}
 		d.retryOrFail(ctx, row, 0, err)
+		return
+	}
+
+	cfg, err := d.svc.Get(ctx)
+	if err != nil {
+		d.retryOrFail(ctx, row, 0, fmt.Errorf("load webhook config: %w", err))
+		return
+	}
+	if cfg.URL == "" || cfg.Secret == "" || (!row.Test && !cfg.Enabled) {
+		d.markFinal(ctx, row, repository.RecordingWebhookDeliveryFailed, 0, "webhook disabled or incomplete before delivery", time.Now().UTC())
 		return
 	}
 	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
@@ -304,9 +323,33 @@ func (d *Dispatcher) bodyForDelivery(ctx context.Context, row repository.Recordi
 		body, err := json.Marshal(Payload{Version: PayloadVersion, Event: EventTest, Test: true, Parts: []PayloadPart{}})
 		return body, EventTest, err
 	}
-	payload, err := buildPayload(ctx, d.store, d.signURL, row.Event, row.VideoID)
+	// Part metadata is frozen on the first build, while the video's parts still
+	// exist. Later attempts rebuild from the frozen list, so a receiver that
+	// recovers after retention deleted the parts still gets the real part list;
+	// the signed download URLs are re-minted fresh each attempt, so a late retry
+	// never ships a URL that expired at enqueue time.
+	var frozen []PayloadPart
+	if row.FrozenParts != "" {
+		if err := json.Unmarshal([]byte(row.FrozenParts), &frozen); err != nil {
+			return nil, row.Event, fmt.Errorf("decode frozen parts for delivery %d: %w", row.ID, err)
+		}
+	}
+	payload, err := buildPayload(ctx, d.store, d.signURL, row.Event, row.VideoID, frozen, d.capDownloadURLsAtRetention)
 	if err != nil {
 		return nil, row.Event, err
+	}
+	if row.FrozenParts == "" {
+		// First build: snapshot the part metadata (URLs stripped) for retries before
+		// any POST can escape. If the snapshot cannot be saved, fail this attempt so
+		// a later retry can freeze parts while they still exist instead of widening
+		// the retention race.
+		raw, merr := json.Marshal(stripPartURLs(payload.Parts))
+		if merr != nil {
+			return nil, row.Event, fmt.Errorf("marshal frozen parts for delivery %d: %w", row.ID, merr)
+		}
+		if err := d.store.SetRecordingWebhookDeliveryFrozenParts(ctx, row.ID, string(raw)); err != nil {
+			return nil, row.Event, fmt.Errorf("persist frozen parts for delivery %d: %w", row.ID, err)
+		}
 	}
 	body, err := json.Marshal(payload)
 	return body, row.Event, err

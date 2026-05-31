@@ -12,6 +12,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
+	"github.com/befabri/replayvod/server/internal/service/retention"
 )
 
 const (
@@ -35,7 +36,11 @@ const (
 // artsvc is optional: when set, the category-art backfill task runs
 // on the configured interval; when nil the eager Hydrator path is the
 // only filler for box art.
-func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repository, esvc *eventsub.Service, artsvc *categoryart.Service, log *slog.Logger) error {
+//
+// retentionsvc is optional in the same way: when set (a storage backend is
+// up) the per-schedule recordings auto-delete task runs on the configured
+// interval; when nil that task is left unregistered.
+func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repository, esvc *eventsub.Service, artsvc *categoryart.Service, retentionsvc *retention.Service, log *slog.Logger) error {
 	sc := cfg.App.Scheduler
 
 	if m := sc.TokenCleanupIntervalMinutes; m > 0 {
@@ -70,8 +75,7 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 			Description:     fmt.Sprintf("Delete fetch_logs older than %d day(s)", d),
 			IntervalSeconds: 24 * 60 * 60, // daily
 			Run: func(ctx context.Context) error {
-				cutoff := time.Now().AddDate(0, 0, -d)
-				return repo.DeleteOldFetchLogs(ctx, cutoff)
+				return repo.DeleteOldFetchLogs(ctx, retentionCutoff(time.Now(), d))
 			},
 		}); err != nil {
 			return err
@@ -84,8 +88,7 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 			Description:     fmt.Sprintf("Null payload on webhook_events older than %d day(s)", d),
 			IntervalSeconds: 24 * 60 * 60, // daily
 			Run: func(ctx context.Context) error {
-				cutoff := time.Now().AddDate(0, 0, -d)
-				return repo.ClearWebhookEventPayload(ctx, cutoff)
+				return repo.ClearWebhookEventPayload(ctx, retentionCutoff(time.Now(), d))
 			},
 		}); err != nil {
 			return err
@@ -98,8 +101,20 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 			Description:     fmt.Sprintf("Delete debug/info event_logs older than %d day(s)", d),
 			IntervalSeconds: 24 * 60 * 60,
 			Run: func(ctx context.Context) error {
-				cutoff := time.Now().AddDate(0, 0, -d)
-				return repo.DeleteOldEventLogs(ctx, cutoff)
+				return repo.DeleteOldEventLogs(ctx, retentionCutoff(time.Now(), d))
+			},
+		}); err != nil {
+			return err
+		}
+	}
+
+	if d := sc.RecordingWebhookDeliveryRetentionDays; d > 0 {
+		if err := s.Register(Task{
+			Name:            "recording_webhook_deliveries_retention",
+			Description:     fmt.Sprintf("Delete terminal recording-webhook deliveries older than %d day(s)", d),
+			IntervalSeconds: 24 * 60 * 60,
+			Run: func(ctx context.Context) error {
+				return repo.DeleteOldRecordingWebhookDeliveries(ctx, retentionCutoff(time.Now(), d))
 			},
 		}); err != nil {
 			return err
@@ -164,8 +179,38 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 		}
 	}
 
+	if retentionsvc != nil {
+		if m := sc.RecordingsRetentionIntervalMinutes; m > 0 {
+			if err := s.Register(Task{
+				Name:            "recordings_retention",
+				Description:     "Delete recordings past their schedule's auto-delete window (is_delete_rediff)",
+				IntervalSeconds: int64(m) * 60,
+				Run: func(ctx context.Context) error {
+					deleted, err := retentionsvc.Sweep(ctx, time.Now())
+					if deleted > 0 {
+						log.Info("recordings retention: deleted expired recordings", "count", deleted)
+					}
+					return err
+				},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
 	log.Info("scheduler standard tasks registered")
 	return nil
+}
+
+// retentionCutoff returns the instant `days` days before now; every daily
+// retention task deletes or trims rows older than it. Pulled out of the task
+// closures so the day-subtraction is asserted once (TestRetentionCutoff)
+// instead of re-derived inline in each, and so the closures hand their clock to
+// a tested unit the same way recordings_retention hands time.Now() to Sweep. A
+// flipped sign (a future cutoff that purges live rows) or a wrong unit would be
+// a quiet data-loss bug, so the arithmetic earns its own test.
+func retentionCutoff(now time.Time, days int) time.Time {
+	return now.AddDate(0, 0, -days)
 }
 
 func registerDisabledTask(s *Service, name, description string) error {

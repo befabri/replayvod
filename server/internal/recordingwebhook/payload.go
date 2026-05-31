@@ -76,7 +76,8 @@ type PayloadPart struct {
 	// bytes over plain HTTP with no session required, for a remote consumer.
 	// Empty when signed URLs are disabled or no public origin is resolvable, in
 	// which case a consumer falls back to Path. The URL's lifetime is the
-	// operator's Download.SignedURLTTLHours.
+	// operator's Download.SignedURLTTLHours, capped by the recording's retention
+	// deadline when recording auto-delete is enabled and a retention policy applies.
 	DownloadURL string `json:"download_url,omitempty"`
 }
 
@@ -90,34 +91,52 @@ type payloadStore interface {
 }
 
 // partURLSigner mints a signed, expiring, unauthenticated download URL for one
-// recorded part, or "" when signed URLs are disabled. It is the videodownload
-// Signer's PartURL, injected as a function so this package stays off the
-// videodownload import (and the dispatcher can pass a no-op in tests).
-type partURLSigner func(videoID int64, partIndex int32) string
+// recorded part, capped at notAfter when provided, or "" when signed URLs are
+// disabled or already expired. It is the videodownload Signer's PartURLUntil,
+// injected as a function so this package stays off the videodownload import.
+type partURLSigner func(videoID int64, partIndex int32, notAfter *time.Time) string
 
 // buildPayload assembles the delivery body for one terminal event. The video
 // and its parts are load-bearing (a delivery without them is meaningless, so
 // their errors propagate and the delivery is abandoned); the channel and
 // category are decorative and resolved best-effort.
 //
-// Signed download URLs are stamped onto parts only for recording.completed: the
-// signed-download route serves only DONE videos, so a download_url on a
-// recording.failed payload (the video is FAILED) would 404. A failed payload
-// still lists its parts (paths, sizes) without a download_url.
-func buildPayload(ctx context.Context, store payloadStore, signURL partURLSigner, eventID string, videoID int64) (*Payload, error) {
+// Signed download URLs are stamped onto parts only for recording.completed while
+// the video is still visible: the signed-download route serves only DONE,
+// non-deleted videos, so a download_url on a recording.failed or retained
+// payload would be immediately broken. A failed or retained payload still lists
+// its parts (paths, sizes) without a download_url.
+func buildPayload(ctx context.Context, store payloadStore, signURL partURLSigner, eventID string, videoID int64, frozenParts []PayloadPart, capDownloadURLsAtRetention bool) (*Payload, error) {
 	video, err := store.GetVideo(ctx, videoID)
 	if err != nil {
 		return nil, fmt.Errorf("load video %d: %w", videoID, err)
 	}
-	parts, err := store.ListVideoParts(ctx, videoID)
-	if err != nil {
-		return nil, fmt.Errorf("load parts for video %d: %w", videoID, err)
+
+	// Only a completed, non-retained recording has a servable file behind its
+	// signed URL. When a retention policy applies, cap the URL expiry to the
+	// recording's deletion deadline so the URL does not outlive the bytes.
+	partSigner := signURL
+	var downloadURLNotAfter *time.Time
+	if capDownloadURLsAtRetention {
+		downloadURLNotAfter = retentionDownloadDeadline(video)
+	}
+	if eventID != EventCompleted || video.DeletedAt != nil {
+		partSigner = nil
 	}
 
-	// Only a completed recording has a servable file behind its signed URL.
-	partSigner := signURL
-	if eventID != EventCompleted {
-		partSigner = nil
+	// frozenParts is the snapshot captured on the first attempt, before retention
+	// could delete the parts. When present, rebuild from it and mint fresh URLs;
+	// otherwise read the live parts. Video/channel/category always come from the
+	// current rows; retention tombstones the video row and deletes only its parts.
+	var parts []PayloadPart
+	if frozenParts != nil {
+		parts = stampPartURLs(video.ID, frozenParts, partSigner, downloadURLNotAfter)
+	} else {
+		raw, err := store.ListVideoParts(ctx, videoID)
+		if err != nil {
+			return nil, fmt.Errorf("load parts for video %d: %w", videoID, err)
+		}
+		parts = partsPayload(video.ID, raw, partSigner, downloadURLNotAfter)
 	}
 
 	p := &Payload{
@@ -134,7 +153,7 @@ func buildPayload(ctx context.Context, store payloadStore, signURL partURLSigner
 		DurationSeconds: video.DurationSeconds,
 		TotalSizeBytes:  video.SizeBytes,
 		Error:           video.Error,
-		Parts:           partsPayload(video.ID, parts, partSigner),
+		Parts:           parts,
 	}
 
 	// Channel + category are decorative: a missing local mirror row must not
@@ -153,7 +172,7 @@ func buildPayload(ctx context.Context, store payloadStore, signURL partURLSigner
 
 // partsPayload maps repository parts to the wire shape, preserving order, and
 // stamps each with a signed download URL when signURL is provided.
-func partsPayload(videoID int64, parts []repository.VideoPart, signURL partURLSigner) []PayloadPart {
+func partsPayload(videoID int64, parts []repository.VideoPart, signURL partURLSigner, notAfter *time.Time) []PayloadPart {
 	out := make([]PayloadPart, len(parts))
 	for i, part := range parts {
 		pp := PayloadPart{
@@ -163,8 +182,48 @@ func partsPayload(videoID int64, parts []repository.VideoPart, signURL partURLSi
 			DurationSeconds: part.DurationSeconds,
 		}
 		if signURL != nil {
-			pp.DownloadURL = signURL(videoID, part.PartIndex)
+			pp.DownloadURL = signURL(videoID, part.PartIndex, notAfter)
 		}
+		out[i] = pp
+	}
+	return out
+}
+
+// stampPartURLs returns a copy of the frozen parts with a freshly minted signed
+// download URL on each (or none when signURL is nil). Only the time-limited URL
+// is regenerated; the frozen metadata (path, size, index, duration) is immutable,
+// so a late retry ships a current URL rather than a stale one frozen at enqueue.
+func stampPartURLs(videoID int64, parts []PayloadPart, signURL partURLSigner, notAfter *time.Time) []PayloadPart {
+	out := make([]PayloadPart, len(parts))
+	for i, pp := range parts {
+		pp.DownloadURL = ""
+		if signURL != nil {
+			pp.DownloadURL = signURL(videoID, pp.PartIndex, notAfter)
+		}
+		out[i] = pp
+	}
+	return out
+}
+
+func retentionDownloadDeadline(video *repository.Video) *time.Time {
+	if video == nil || video.RetentionWindowHours == nil || video.DownloadedAt == nil {
+		return nil
+	}
+	hours := *video.RetentionWindowHours
+	if hours <= 0 || hours > repository.MaxRetentionWindowHours {
+		alreadyExpired := time.Unix(0, 0).UTC()
+		return &alreadyExpired
+	}
+	deadline := video.DownloadedAt.Add(time.Duration(hours) * time.Hour)
+	return &deadline
+}
+
+// stripPartURLs returns a copy with download URLs cleared: the shape frozen onto
+// the delivery row. URLs are re-minted per attempt (stampPartURLs), never stored.
+func stripPartURLs(parts []PayloadPart) []PayloadPart {
+	out := make([]PayloadPart, len(parts))
+	for i, pp := range parts {
+		pp.DownloadURL = ""
 		out[i] = pp
 	}
 	return out

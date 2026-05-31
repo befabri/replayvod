@@ -93,10 +93,25 @@ func (s *Signer) Enabled() bool {
 // PartURL returns an absolute, signed, expiring download URL for one video part,
 // or "" when the Signer is disabled.
 func (s *Signer) PartURL(videoID int64, partIndex int32) string {
+	return s.PartURLUntil(videoID, partIndex, nil)
+}
+
+// PartURLUntil returns a signed part URL whose expiry is capped at notAfter when
+// provided. If that cap is already reached, it returns "" rather than minting a
+// URL that advertises access beyond the recording's retention deadline.
+func (s *Signer) PartURLUntil(videoID int64, partIndex int32, notAfter *time.Time) string {
 	if !s.Enabled() {
 		return ""
 	}
-	exp := s.now().Add(s.ttl).Unix()
+	now := s.now()
+	expAt := now.Add(s.ttl)
+	if notAfter != nil && notAfter.Before(expAt) {
+		expAt = *notAfter
+	}
+	if !expAt.After(now) {
+		return ""
+	}
+	exp := expAt.Unix()
 	sig := computeSig(s.key, videoID, partIndex, exp)
 	return fmt.Sprintf("%s/api/v1/videos/%d/parts/%d/download?%s=%d&%s=%s",
 		s.baseURL, videoID, partIndex, ParamExpires, exp, ParamSignature, sig)

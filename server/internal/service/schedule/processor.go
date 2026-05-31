@@ -299,13 +299,13 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 	// would work today but races on cold-start (first-caller wins might
 	// be the lowest quality).
 	var matches []*repository.DownloadSchedule
-	var anyErr error
+	var filterErrs []error
 	for i := range schedules {
 		schedule := &schedules[i]
 		filters, err := p.loadFilters(ctx, schedule)
 		if err != nil {
 			p.log.Error("load schedule filters", "schedule_id", schedule.ID, "error", err)
-			anyErr = err
+			filterErrs = append(filterErrs, fmt.Errorf("schedule %d filters: %w", schedule.ID, err))
 			continue
 		}
 		if Match(schedule, filters, signals) {
@@ -313,28 +313,33 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		}
 	}
 	if len(matches) == 0 {
-		return anyErr
+		return errors.Join(filterErrs...)
 	}
 
 	// Pick highest-quality match deterministically. Ties break by
 	// schedule ID so repeated firings of the same event converge on the
 	// same winner.
 	winner := highestQuality(matches)
+	winnerID := winner.ID
+	retention := effectiveRetentionPolicy(matches)
 
 	dlLanguage := p.defaultLng
 	if language != "" {
 		dlLanguage = language
 	}
 	jobID, startErr := p.dl.Start(ctx, downloader.Params{
-		BroadcasterID:    event.BroadcasterUserID,
-		BroadcasterLogin: login,
-		DisplayName:      displayName,
-		Title:            streamTitle,
-		CategoryID:       categoryID,
-		CategoryName:     categoryName,
-		Quality:          winner.Quality,
-		Language:         dlLanguage,
-		ViewerCount:      signals.ViewerCount,
+		BroadcasterID:             event.BroadcasterUserID,
+		BroadcasterLogin:          login,
+		DisplayName:               displayName,
+		Title:                     streamTitle,
+		CategoryID:                categoryID,
+		CategoryName:              categoryName,
+		Quality:                   winner.Quality,
+		Language:                  dlLanguage,
+		ViewerCount:               signals.ViewerCount,
+		TriggerScheduleID:         &winnerID,
+		RetentionSourceScheduleID: retention.SourceScheduleID,
+		RetentionWindowHours:      retention.WindowHours,
 	})
 	if startErr != nil {
 		if errors.Is(startErr, downloader.ErrBusy) {
@@ -390,6 +395,36 @@ var qualityRank = map[string]int{
 	repository.QualityLow:    1,
 	repository.QualityMedium: 2,
 	repository.QualityHigh:   3,
+}
+
+type retentionPolicySnapshot struct {
+	SourceScheduleID *int64
+	WindowHours      *int64
+}
+
+// effectiveRetentionPolicy snapshots the delete policy that applies to this
+// recording from the schedules that actually matched it. The shortest enabled
+// window wins; ties pick the lower schedule ID so retries converge. Manual
+// recordings do not call this path, and schedule recordings with no matched
+// delete policy return nil fields.
+func effectiveRetentionPolicy(matches []*repository.DownloadSchedule) retentionPolicySnapshot {
+	var out retentionPolicySnapshot
+	for _, s := range matches {
+		if s == nil || !s.IsDeleteRediff || s.IsDisabled || s.TimeBeforeDelete == nil {
+			continue
+		}
+		hours := *s.TimeBeforeDelete
+		if hours <= 0 || hours > repository.MaxRetentionWindowHours {
+			continue
+		}
+		if out.WindowHours == nil || hours < *out.WindowHours || (hours == *out.WindowHours && s.ID < *out.SourceScheduleID) {
+			id := s.ID
+			window := hours
+			out.SourceScheduleID = &id
+			out.WindowHours = &window
+		}
+	}
+	return out
 }
 
 // highestQuality returns the schedule with the highest quality rank.

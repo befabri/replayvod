@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRedactedConfigRedactsSensitiveEnvironmentFields(t *testing.T) {
@@ -201,6 +202,159 @@ func TestIsRelayToken(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := isRelayToken(tc.value); got != tc.want {
 				t.Fatalf("isRelayToken(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseOrigin covers the scheme+host extraction that gates whether a signed
+// download URL can be built at all: a "" result means "no usable origin, omit
+// the URL". The error/empty branches are the load-bearing ones — a regression
+// returning a partial or wrong origin would emit broken links to an external
+// consumer.
+func TestParseOrigin(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"empty", "", ""},
+		{"scheme and host only", "https://api.example.com", "https://api.example.com"},
+		{"strips path query fragment", "https://api.example.com/a/b?c=d#e", "https://api.example.com"},
+		{"keeps explicit port", "https://h:8443/cb", "https://h:8443"},
+		{"derives from callback path", "http://localhost:8080/api/v1/auth/twitch/callback", "http://localhost:8080"},
+		{"missing scheme", "//host/x", ""},
+		{"missing host", "mailto:a@b.com", ""},
+		{"scheme no host", "https:///just/path", ""},
+		{"unparseable", "https://[", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseOrigin(tc.raw); got != tc.want {
+				t.Errorf("parseOrigin(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPublicAPIBaseURL pins the precedence the signed-URL feature depends on:
+// an explicit PUBLIC_BASE_URL wins, app-managed/env direct mode can provide the
+// public webhook callback origin, then OAuth CallbackURL is the fallback.
+func TestPublicAPIBaseURL(t *testing.T) {
+	cases := []struct {
+		name        string
+		publicBase  string
+		callbackURL string
+		serverMode  ServerModeConfig
+		want        string
+	}{
+		{
+			name:        "public base url wins over callback",
+			publicBase:  "https://cdn.example.com",
+			callbackURL: "https://api.example.com/cb",
+			serverMode:  ServerModeConfig{Mode: ServerModeDirect, WebhookCallbackURL: "https://direct.example.com/api/v1/webhook/callback"},
+			want:        "https://cdn.example.com",
+		},
+		{
+			name:        "direct mode callback wins over oauth callback",
+			publicBase:  "",
+			callbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
+			serverMode:  ServerModeConfig{Mode: ServerModeDirect, WebhookCallbackURL: "https://direct.example.com/api/v1/webhook/callback"},
+			want:        "https://direct.example.com",
+		},
+		{
+			name:        "falls back to callback origin when public base empty",
+			publicBase:  "",
+			callbackURL: "https://api.example.com/api/v1/auth/twitch/callback",
+			want:        "https://api.example.com",
+		},
+		{
+			name:        "falls through unusable public base and direct callback to oauth callback",
+			publicBase:  "not-a-url",
+			callbackURL: "https://api.example.com/cb",
+			serverMode:  ServerModeConfig{Mode: ServerModeDirect, WebhookCallbackURL: "not-a-url"},
+			want:        "https://api.example.com",
+		},
+		{
+			name:        "relay ingest is not used as the public api origin",
+			publicBase:  "",
+			callbackURL: "https://api.example.com/cb",
+			serverMode:  ServerModeConfig{Mode: ServerModeRelay, RelayIngestURL: "https://relay.example.com/u/token"},
+			want:        "https://api.example.com",
+		},
+		{
+			name:        "empty when neither yields a usable origin",
+			publicBase:  "",
+			callbackURL: "",
+			want:        "",
+		},
+		{
+			name:        "derives loopback default callback (documented dev behavior)",
+			publicBase:  "",
+			callbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
+			want:        "http://localhost:8080",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{}
+			c.Env.PublicBaseURL = tc.publicBase
+			c.Env.CallbackURL = tc.callbackURL
+			c.ServerMode = tc.serverMode
+			if got := c.PublicAPIBaseURL(); got != tc.want {
+				t.Errorf("PublicAPIBaseURL() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestOriginIsLoopback covers the safety check that warns when signed download
+// links would point at localhost. Loopback hosts (and the localhost literal)
+// must be flagged; a real public host and an empty/unparseable origin must not.
+func TestOriginIsLoopback(t *testing.T) {
+	cases := []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{"localhost literal", "http://localhost:8080", true},
+		{"127.0.0.1", "http://127.0.0.1:8080", true},
+		{"127.x loopback range", "http://127.9.9.9", true},
+		{"ipv6 loopback", "http://[::1]:8080", true},
+		{"public host", "https://api.example.com", false},
+		{"lan ip is not loopback", "http://192.168.1.10:8080", false},
+		{"empty", "", false},
+		{"unparseable", "https://[", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := OriginIsLoopback(tc.origin); got != tc.want {
+				t.Errorf("OriginIsLoopback(%q) = %v, want %v", tc.origin, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSignedDownloadURLTTL pins the disable-at-non-positive contract: 0 or a
+// negative hour count means "signed downloads off" (the signer reports not
+// enabled), and a positive count converts to the matching duration.
+func TestSignedDownloadURLTTL(t *testing.T) {
+	cases := []struct {
+		name  string
+		hours int
+		want  time.Duration
+	}{
+		{"negative disables", -1, 0},
+		{"zero disables", 0, 0},
+		{"one hour", 1, time.Hour},
+		{"default 168h", 168, 168 * time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{}
+			c.App.Download.SignedURLTTLHours = tc.hours
+			if got := c.SignedDownloadURLTTL(); got != tc.want {
+				t.Errorf("SignedDownloadURLTTL() with %dh = %v, want %v", tc.hours, got, tc.want)
 			}
 		})
 	}

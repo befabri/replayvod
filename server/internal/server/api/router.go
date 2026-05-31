@@ -11,12 +11,14 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/auth"
 	"github.com/befabri/replayvod/server/internal/server/api/category"
 	"github.com/befabri/replayvod/server/internal/server/api/channel"
 	"github.com/befabri/replayvod/server/internal/server/api/eventsub"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	recordingwebhookapi "github.com/befabri/replayvod/server/internal/server/api/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/server/api/schedule"
 	"github.com/befabri/replayvod/server/internal/server/api/settings"
 	"github.com/befabri/replayvod/server/internal/server/api/sse"
@@ -35,6 +37,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/replayvod/server/internal/validate"
+	"github.com/befabri/replayvod/server/internal/videodownload"
 	"github.com/befabri/trpcgo"
 	"github.com/befabri/trpcgo/trpc"
 	"github.com/go-chi/chi/v5"
@@ -43,7 +46,7 @@ import (
 
 // SetupRouter creates and configures the Chi router and returns a cleanup
 // hook for the tRPC router lifecycle.
-func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, log *slog.Logger) (*chi.Mux, func() error) {
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, log *slog.Logger) (*chi.Mux, func() error) {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -75,7 +78,11 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// Video/thumbnail routes reuse the session middleware — auth required
 	// for both, and we want the same context population the tRPC side gets.
 	authHandler := auth.NewHandler(cfg, twitchClient, sessionMgr, authSvc, log)
-	videoStream := video.NewStreamHandler(repo, store, log)
+	// The video stream handler also serves signed, unauthenticated per-part
+	// download URLs (handed to recording-webhook consumers). The verifier shares
+	// the server HMAC secret; the route is registered outside the session
+	// middleware below since the signature, not a cookie, authorizes it.
+	videoStream := video.NewStreamHandler(repo, store, videodownload.NewVerifier(cfg.Env.HMACSecret), log)
 	// The webhook handler needs the raw body for HMAC verification, so it
 	// must live on the Chi side (no tRPC JSON middleware) and outside the
 	// csrfProtection group (Twitch can't provide a CSRF cookie). Only wire the
@@ -95,11 +102,14 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		}
 		authHandler.SetupRoutes(r)
 		videoStream.SetupRoutes(r, sessionMw)
+		// Signed per-part download route: no session middleware — the URL's
+		// HMAC signature and expiry are the authorization.
+		videoStream.SetupSignedRoutes(r)
 		webhookHandler.SetupRoutes(r)
 	})
 
 	// tRPC router with CSRF/origin protection.
-	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, tokenProvider, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, log)
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, tokenProvider, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, webhookDispatcher, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range cfg.App.Server.AllowedOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -123,7 +133,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 // registration to each domain's RegisterRoutes. authSvc + scheduleSvc
 // are the shared domain services constructed by SetupRouter; everything
 // else each domain owns.
-func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, tokenProvider *middleware.SessionTokenProvider, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, log *slog.Logger) *trpcgo.Router {
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, tokenProvider *middleware.SessionTokenProvider, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, webhookDispatcher *recordingwebhook.Dispatcher, log *slog.Logger) *trpcgo.Router {
 	opts := []trpcgo.Option{
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
 		trpcgo.WithValidator(validate.V.Struct),
@@ -186,6 +196,7 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	category.RegisterRoutes(tr, repo, log, viewer)
 	channel.RegisterRoutes(tr, repo, twitchClient, log, viewer, owner)
 	eventsub.RegisterRoutes(tr, eventsubMgr, eventsubConfigSvc, log, owner)
+	recordingwebhookapi.RegisterRoutes(tr, repo, webhookDispatcher, log, owner)
 	schedule.RegisterRoutes(tr, scheduleSvc, log, viewer, admin)
 	settings.RegisterRoutes(tr, repo, log, viewer)
 	sse.RegisterRoutes(tr, bus, log, viewer, owner)

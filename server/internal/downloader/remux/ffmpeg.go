@@ -150,20 +150,21 @@ func (r *Remuxer) Run(ctx context.Context, in RunInput) error {
 // success; tests pass whatever they want to assert.
 //
 // Flag reference:
-//   -y: overwrite output without prompting
-//   -f concat: input demuxer for the TS path
-//   -safe 0: allow absolute paths in concat input
-//   -i: input path
-//   -c copy: stream-copy all streams (no re-encode)
-//   -f mp4 (output side): force the output muxer. Required because
-//     the output path ends in `.part` (our atomic-rename convention)
-//     and ffmpeg 8.1 refuses to auto-detect muxer from that
-//     extension with "Unable to choose an output format for ...;
-//     use a standard extension for the filename or specify the
-//     format manually." Older ffmpeg versions happily guessed mp4
-//     from the double extension, which hid this assumption. Audio
-//     (.m4a) output is also the mp4 muxer — m4a is just an mp4
-//     container holding only audio, so one value covers both kinds.
+//
+//	-y: overwrite output without prompting
+//	-f concat: input demuxer for the TS path
+//	-safe 0: allow absolute paths in concat input
+//	-i: input path
+//	-c copy: stream-copy all streams (no re-encode)
+//	-f mp4 (output side): force the output muxer. Required because
+//	  the output path ends in `.part` (our atomic-rename convention)
+//	  and ffmpeg 8.1 refuses to auto-detect muxer from that
+//	  extension with "Unable to choose an output format for ...;
+//	  use a standard extension for the filename or specify the
+//	  format manually." Older ffmpeg versions happily guessed mp4
+//	  from the double extension, which hid this assumption. Audio
+//	  (.m4a) output is also the mp4 muxer — m4a is just an mp4
+//	  container holding only audio, so one value covers both kinds.
 func ffmpegArgs(in RunInput, outputPath string) ([]string, error) {
 	switch in.Mode {
 	case ModeTS:

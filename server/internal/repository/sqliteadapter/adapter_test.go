@@ -404,18 +404,20 @@ func TestListVideos_ColumnRoundtrip(t *testing.T) {
 		t.Fatalf("seed stream: %v", err)
 	}
 	streamID := "stream-rt"
+	retentionWindow := int64(72)
 	in := &repository.VideoInput{
-		JobID:         "job-rt",
-		Filename:      "filename-rt",
-		DisplayName:   "Display Name RT",
-		Status:        repository.VideoStatusDone,
-		Quality:       repository.QualityHigh,
-		BroadcasterID: "bc-rt",
-		StreamID:      &streamID,
-		ViewerCount:   1234,
-		Language:      "en",
-		RecordingType: repository.RecordingTypeVideo,
-		ForceH264:     true,
+		JobID:                "job-rt",
+		Filename:             "filename-rt",
+		DisplayName:          "Display Name RT",
+		Status:               repository.VideoStatusDone,
+		Quality:              repository.QualityHigh,
+		BroadcasterID:        "bc-rt",
+		StreamID:             &streamID,
+		ViewerCount:          1234,
+		Language:             "en",
+		RecordingType:        repository.RecordingTypeVideo,
+		ForceH264:            true,
+		RetentionWindowHours: &retentionWindow,
 	}
 	v, err := a.CreateVideo(ctx, in)
 	if err != nil {
@@ -465,6 +467,7 @@ func TestListVideos_ColumnRoundtrip(t *testing.T) {
 		{"Thumbnail", derefString(got.Thumbnail), thumb},
 		{"RecordingType", got.RecordingType, in.RecordingType},
 		{"ForceH264", got.ForceH264, in.ForceH264},
+		{"RetentionWindowHours", derefInt64(got.RetentionWindowHours), retentionWindow},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -1565,4 +1568,443 @@ func TestServerHMACSecret_PreservedAcrossUpsert(t *testing.T) {
 	if got, _ := adapter.GetServerHMACSecret(ctx); got != "secret-one" {
 		t.Fatalf("hmac after UpsertServerSettings = %q, want secret-one (UI save must preserve it)", got)
 	}
+}
+
+func TestRecordingWebhookConfig_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+
+	saved, err := adapter.UpsertRecordingWebhookConfig(ctx, true,
+		"https://hooks.example/recordings", "recording.completed,recording.failed")
+	if err != nil {
+		t.Fatalf("UpsertRecordingWebhookConfig: %v", err)
+	}
+	if !saved.RecordingWebhookEnabled {
+		t.Fatal("enabled should round-trip as true")
+	}
+	if saved.RecordingWebhookURL != "https://hooks.example/recordings" {
+		t.Fatalf("url = %q", saved.RecordingWebhookURL)
+	}
+	if saved.RecordingWebhookEvents != "recording.completed,recording.failed" {
+		t.Fatalf("events = %q", saved.RecordingWebhookEvents)
+	}
+	if saved.RecordingWebhookSecret != "" {
+		t.Fatalf("config upsert must not set a secret, got %q", saved.RecordingWebhookSecret)
+	}
+
+	// Re-read through GetServerSettings (SELECT *) to confirm the columns are
+	// readable by the path the config service and dispatcher actually use, and
+	// that the enabled bool maps back from INTEGER 0/1.
+	row, err := adapter.GetServerSettings(ctx)
+	if err != nil {
+		t.Fatalf("GetServerSettings: %v", err)
+	}
+	if !row.RecordingWebhookEnabled || row.RecordingWebhookURL != "https://hooks.example/recordings" {
+		t.Fatalf("GetServerSettings did not reflect webhook config: %+v", row)
+	}
+
+	// Disabling round-trips the bool the other way.
+	disabled, err := adapter.UpsertRecordingWebhookConfig(ctx, false, "", "")
+	if err != nil {
+		t.Fatalf("UpsertRecordingWebhookConfig (disable): %v", err)
+	}
+	if disabled.RecordingWebhookEnabled {
+		t.Fatal("enabled should round-trip as false")
+	}
+}
+
+// TestRecordingWebhookSecret_EnsureIsCASSetIsUnconditional pins the two secret
+// writes against the SQLite adapter: ensure seeds only an empty slot, set
+// rotates unconditionally, and a config save preserves whatever is stored.
+func TestRecordingWebhookSecret_EnsureIsCASSetIsUnconditional(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+
+	if err := adapter.EnsureRecordingWebhookSecret(ctx, "first"); err != nil {
+		t.Fatalf("EnsureRecordingWebhookSecret: %v", err)
+	}
+	if row, _ := adapter.GetServerSettings(ctx); row.RecordingWebhookSecret != "first" {
+		t.Fatalf("ensure should seed an empty slot, got %q", row.RecordingWebhookSecret)
+	}
+	if err := adapter.EnsureRecordingWebhookSecret(ctx, "second"); err != nil {
+		t.Fatalf("EnsureRecordingWebhookSecret (2): %v", err)
+	}
+	if row, _ := adapter.GetServerSettings(ctx); row.RecordingWebhookSecret != "first" {
+		t.Fatalf("ensure must not overwrite an existing secret, got %q", row.RecordingWebhookSecret)
+	}
+	if err := adapter.SetRecordingWebhookSecret(ctx, "rotated"); err != nil {
+		t.Fatalf("SetRecordingWebhookSecret: %v", err)
+	}
+	if row, _ := adapter.GetServerSettings(ctx); row.RecordingWebhookSecret != "rotated" {
+		t.Fatalf("set should rotate, got %q", row.RecordingWebhookSecret)
+	}
+	if _, err := adapter.UpsertRecordingWebhookConfig(ctx, false, "", ""); err != nil {
+		t.Fatalf("UpsertRecordingWebhookConfig: %v", err)
+	}
+	if row, _ := adapter.GetServerSettings(ctx); row.RecordingWebhookSecret != "rotated" {
+		t.Fatalf("config save wiped the secret, got %q", row.RecordingWebhookSecret)
+	}
+}
+
+// TestRecordingWebhookConfig_PreservedAcrossServerModeUpsert is the shared-row
+// guarantee: the server-mode form, the webhook config, and the webhook secret
+// write disjoint columns, so none clobbers the others (nor the HMAC secret).
+func TestRecordingWebhookConfig_PreservedAcrossServerModeUpsert(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+
+	if err := adapter.EnsureServerHMACSecret(ctx, "hmac-keep"); err != nil {
+		t.Fatalf("EnsureServerHMACSecret: %v", err)
+	}
+	if _, err := adapter.UpsertRecordingWebhookConfig(ctx, true, "https://hooks.example/x", "recording.failed"); err != nil {
+		t.Fatalf("UpsertRecordingWebhookConfig: %v", err)
+	}
+	if err := adapter.EnsureRecordingWebhookSecret(ctx, "webhook-keep"); err != nil {
+		t.Fatalf("EnsureRecordingWebhookSecret: %v", err)
+	}
+
+	// Saving server mode must not touch the webhook columns or the secret.
+	if _, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "poll"}); err != nil {
+		t.Fatalf("UpsertServerSettings: %v", err)
+	}
+	row, _ := adapter.GetServerSettings(ctx)
+	if !row.RecordingWebhookEnabled || row.RecordingWebhookURL != "https://hooks.example/x" || row.RecordingWebhookSecret != "webhook-keep" {
+		t.Fatalf("server-mode save clobbered webhook config: %+v", row)
+	}
+
+	// And saving the webhook config must not touch server mode or the secret.
+	if _, err := adapter.UpsertRecordingWebhookConfig(ctx, true, "https://hooks.example/y", ""); err != nil {
+		t.Fatalf("UpsertRecordingWebhookConfig (2): %v", err)
+	}
+	row, _ = adapter.GetServerSettings(ctx)
+	if row.ServerMode != "poll" {
+		t.Fatalf("webhook save clobbered server_mode: %q", row.ServerMode)
+	}
+	if row.RecordingWebhookSecret != "webhook-keep" {
+		t.Fatalf("webhook config save clobbered the webhook secret: %q", row.RecordingWebhookSecret)
+	}
+	if got, _ := adapter.GetServerHMACSecret(ctx); got != "hmac-keep" {
+		t.Fatalf("webhook save clobbered hmac secret: %q", got)
+	}
+}
+
+func TestRecordingWebhookDelivery_OutboxLifecycle(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	created, err := adapter.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+		MessageID:     "msg-1",
+		DedupeKey:     "recording.completed:42",
+		Event:         "recording.completed",
+		VideoID:       42,
+		NextAttemptAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
+	}
+	if created.Status != repository.RecordingWebhookDeliveryPending {
+		t.Fatalf("status = %q, want pending", created.Status)
+	}
+
+	claimed, err := adapter.ClaimDueRecordingWebhookDeliveries(ctx, now, 1)
+	if err != nil {
+		t.Fatalf("ClaimDueRecordingWebhookDeliveries: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].Attempts != 1 || claimed[0].Status != repository.RecordingWebhookDeliveryDelivering {
+		t.Fatalf("unexpected claim: %+v", claimed)
+	}
+
+	next := now.Add(time.Minute)
+	if err := adapter.MarkRecordingWebhookDeliveryFinal(ctx, created.ID, repository.RecordingWebhookDeliveryPending, 503, "HTTP 503 after 1 attempts", next, now); err != nil {
+		t.Fatalf("MarkRecordingWebhookDeliveryFinal: %v", err)
+	}
+	claimed, err = adapter.ClaimDueRecordingWebhookDeliveries(ctx, now.Add(30*time.Second), 1)
+	if err != nil {
+		t.Fatalf("Claim before next due: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("delivery should not be due before backoff, got %+v", claimed)
+	}
+
+	claimed, err = adapter.ClaimDueRecordingWebhookDeliveries(ctx, next, 1)
+	if err != nil {
+		t.Fatalf("Claim after next due: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].Attempts != 2 {
+		t.Fatalf("second claim should increment attempts, got %+v", claimed)
+	}
+	if err := adapter.MarkRecordingWebhookDeliveryDelivered(ctx, created.ID, 204, next); err != nil {
+		t.Fatalf("MarkRecordingWebhookDeliveryDelivered: %v", err)
+	}
+	rows, err := adapter.ListRecordingWebhookDeliveries(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRecordingWebhookDeliveries: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Status != repository.RecordingWebhookDeliveryDelivered || rows[0].LastStatus != 204 || rows[0].DeliveredAt == nil {
+		t.Fatalf("unexpected final row: %+v", rows)
+	}
+}
+
+// TestCreateClaimedRecordingWebhookDelivery_NotClaimable pins the SendTest
+// double-delivery fix: a row created via CreateClaimedRecordingWebhookDelivery
+// starts in 'delivering' (one attempt) and is therefore NOT picked up by the
+// poller's claim, which only selects 'pending' — so the synchronous test send
+// can't be re-delivered. A plain (pending) row is still claimable, by contrast.
+func TestCreateClaimedRecordingWebhookDelivery_NotClaimable(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	claimed, err := adapter.CreateClaimedRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+		MessageID: "test-msg", DedupeKey: "test:abc", Event: "recording.test", Test: true, NextAttemptAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateClaimedRecordingWebhookDelivery: %v", err)
+	}
+	if claimed.Status != repository.RecordingWebhookDeliveryDelivering || claimed.Attempts != 1 {
+		t.Fatalf("claimed row = %+v, want status=delivering attempts=1", claimed)
+	}
+	got, err := adapter.ClaimDueRecordingWebhookDeliveries(ctx, now, 10)
+	if err != nil {
+		t.Fatalf("ClaimDueRecordingWebhookDeliveries: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("a pre-claimed row must not be claimable by the poller, got %+v", got)
+	}
+
+	// Contrast: a pending row is claimable.
+	if _, err := adapter.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+		MessageID: "pending-msg", DedupeKey: "recording.completed:7", Event: "recording.completed", VideoID: 7, NextAttemptAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
+	}
+	got, err = adapter.ClaimDueRecordingWebhookDeliveries(ctx, now, 10)
+	if err != nil {
+		t.Fatalf("ClaimDueRecordingWebhookDeliveries (2): %v", err)
+	}
+	if len(got) != 1 || got[0].VideoID != 7 {
+		t.Fatalf("only the pending row should be claimable, got %+v", got)
+	}
+}
+
+// TestDeleteOldRecordingWebhookDeliveries_PrunesTerminalKeepsActive pins the
+// retention sweep: terminal rows whose latest terminal update is older than the
+// cutoff are pruned, while recent terminal outcomes plus pending/delivering rows
+// are kept so a queued, in-flight, or just-finished delivery is not lost.
+func TestDeleteOldRecordingWebhookDeliveries_PrunesTerminalKeepsActive(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	old := now.Add(-48 * time.Hour)
+	cutoff := now.Add(-24 * time.Hour)
+
+	mkPending := func(dk string, vid int64) *repository.RecordingWebhookDelivery {
+		row, err := adapter.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: dk, DedupeKey: dk, Event: "recording.completed", VideoID: vid, NextAttemptAt: now,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", dk, err)
+		}
+		return row
+	}
+
+	// delivered (terminal): create pending, claim, mark delivered.
+	d1 := mkPending("recording.completed:1", 1)
+	if _, err := adapter.ClaimDueRecordingWebhookDeliveries(ctx, now, 1); err != nil {
+		t.Fatalf("claim d1: %v", err)
+	}
+	if err := adapter.MarkRecordingWebhookDeliveryDelivered(ctx, d1.ID, 200, now); err != nil {
+		t.Fatalf("mark delivered: %v", err)
+	}
+	if _, err := adapter.db.ExecContext(ctx,
+		"UPDATE recording_webhook_deliveries SET created_at = ?, updated_at = ?, delivered_at = ? WHERE id = ?",
+		formatTime(old), formatTime(old), formatTime(old), d1.ID); err != nil {
+		t.Fatalf("backdate delivered row: %v", err)
+	}
+	// failed (terminal), created old but updated recently: must survive.
+	d2 := mkPending("recording.completed:2", 2)
+	if err := adapter.MarkRecordingWebhookDeliveryFinal(ctx, d2.ID, repository.RecordingWebhookDeliveryFailed, 500, "boom", now, now); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+	if _, err := adapter.db.ExecContext(ctx,
+		"UPDATE recording_webhook_deliveries SET created_at = ? WHERE id = ?",
+		formatTime(old), d2.ID); err != nil {
+		t.Fatalf("backdate failed row created_at: %v", err)
+	}
+	// pending (active) and delivering (active) — must survive.
+	pending := mkPending("recording.completed:3", 3)
+	if _, err := adapter.db.ExecContext(ctx,
+		"UPDATE recording_webhook_deliveries SET created_at = ?, updated_at = ? WHERE id = ?",
+		formatTime(old), formatTime(old), pending.ID); err != nil {
+		t.Fatalf("backdate pending row: %v", err)
+	}
+	delivering, err := adapter.CreateClaimedRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+		MessageID: "test:x", DedupeKey: "test:x", Event: "recording.test", Test: true, NextAttemptAt: now,
+	})
+	if err != nil {
+		t.Fatalf("create claimed: %v", err)
+	}
+	if _, err := adapter.db.ExecContext(ctx,
+		"UPDATE recording_webhook_deliveries SET created_at = ?, updated_at = ? WHERE id = ?",
+		formatTime(old), formatTime(old), delivering.ID); err != nil {
+		t.Fatalf("backdate delivering row: %v", err)
+	}
+
+	if err := adapter.DeleteOldRecordingWebhookDeliveries(ctx, cutoff); err != nil {
+		t.Fatalf("DeleteOldRecordingWebhookDeliveries: %v", err)
+	}
+	rows, err := adapter.ListRecordingWebhookDeliveries(ctx, 50)
+	if err != nil {
+		t.Fatalf("ListRecordingWebhookDeliveries: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("want 3 surviving (recent terminal + pending + delivering), got %d: %+v", len(rows), rows)
+	}
+	seenRecentTerminal := false
+	for _, r := range rows {
+		if r.ID == d1.ID {
+			t.Fatalf("old delivered row survived retention: %+v", r)
+		}
+		if r.ID == d2.ID {
+			seenRecentTerminal = true
+		}
+		if r.Status != repository.RecordingWebhookDeliveryPending &&
+			r.Status != repository.RecordingWebhookDeliveryDelivering &&
+			r.ID != d2.ID {
+			t.Fatalf("retention kept an unexpected terminal row or deleted an active one: %+v", r)
+		}
+	}
+	if !seenRecentTerminal {
+		t.Fatalf("recent terminal row was pruned even though updated_at is after cutoff")
+	}
+}
+
+// TestRetryRecordingWebhookDelivery_OnlyFailedOrRejected pins the manual-retry
+// constraint: only failed/rejected rows re-queue (with a reset attempt budget);
+// a delivered or missing row yields ErrNotFound and is left untouched, so a
+// direct API caller can't reset a delivered/in-flight row into a duplicate send.
+func TestRetryRecordingWebhookDelivery_OnlyFailedOrRejected(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	mk := func(dk string, vid int64) *repository.RecordingWebhookDelivery {
+		row, err := adapter.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: dk, DedupeKey: dk, Event: "recording.completed", VideoID: vid, NextAttemptAt: now,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", dk, err)
+		}
+		return row
+	}
+
+	// Delivered → not retryable.
+	d1 := mk("recording.completed:1", 1)
+	if _, err := adapter.ClaimDueRecordingWebhookDeliveries(ctx, now, 1); err != nil {
+		t.Fatalf("claim d1: %v", err)
+	}
+	if err := adapter.MarkRecordingWebhookDeliveryDelivered(ctx, d1.ID, 200, now); err != nil {
+		t.Fatalf("deliver d1: %v", err)
+	}
+	if _, err := adapter.RetryRecordingWebhookDelivery(ctx, d1.ID, now); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("retry of a delivered row = %v, want ErrNotFound", err)
+	}
+
+	// Failed → retryable: back to pending, attempts and last_status reset.
+	d2 := mk("recording.completed:2", 2)
+	if _, err := adapter.ClaimDueRecordingWebhookDeliveries(ctx, now, 1); err != nil {
+		t.Fatalf("claim d2: %v", err)
+	}
+	if err := adapter.MarkRecordingWebhookDeliveryFinal(ctx, d2.ID, repository.RecordingWebhookDeliveryFailed, 500, "boom", now, now); err != nil {
+		t.Fatalf("fail d2: %v", err)
+	}
+	retried, err := adapter.RetryRecordingWebhookDelivery(ctx, d2.ID, now)
+	if err != nil {
+		t.Fatalf("retry of a failed row: %v", err)
+	}
+	if retried.Status != repository.RecordingWebhookDeliveryPending || retried.Attempts != 0 || retried.LastStatus != 0 {
+		t.Fatalf("retry should reset to pending/attempts=0/last_status=0, got %+v", retried)
+	}
+
+	// Missing id → ErrNotFound.
+	if _, err := adapter.RetryRecordingWebhookDelivery(ctx, 999999, now); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("retry of a missing id = %v, want ErrNotFound", err)
+	}
+}
+
+func TestMarkVideoDoneAndEnqueueRecordingWebhook_ConditionalAndDedupe(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+	if _, err := adapter.UpsertRecordingWebhookConfig(ctx, true, "https://hooks.example/x", "recording.completed"); err != nil {
+		t.Fatalf("UpsertRecordingWebhookConfig: %v", err)
+	}
+	if err := adapter.EnsureRecordingWebhookSecret(ctx, "secret"); err != nil {
+		t.Fatalf("EnsureRecordingWebhookSecret: %v", err)
+	}
+	video := createWebhookOutboxVideo(t, adapter, "job-webhook-done")
+	input := &repository.RecordingWebhookDeliveryInput{
+		MessageID:     "msg-terminal",
+		DedupeKey:     "recording.completed:1",
+		Event:         "recording.completed",
+		VideoID:       video.ID,
+		NextAttemptAt: time.Now().UTC(),
+	}
+	if err := adapter.MarkVideoDoneAndEnqueueRecordingWebhook(ctx, video.ID, 60, 1024, nil, repository.CompletionKindComplete, false, input); err != nil {
+		t.Fatalf("MarkVideoDoneAndEnqueueRecordingWebhook: %v", err)
+	}
+	if err := adapter.MarkVideoDoneAndEnqueueRecordingWebhook(ctx, video.ID, 60, 1024, nil, repository.CompletionKindComplete, false, input); err != nil {
+		t.Fatalf("MarkVideoDoneAndEnqueueRecordingWebhook duplicate: %v", err)
+	}
+	rows, err := adapter.ListRecordingWebhookDeliveries(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRecordingWebhookDeliveries: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Event != "recording.completed" || rows[0].VideoID != video.ID {
+		t.Fatalf("expected one deduped completed delivery, got %+v", rows)
+	}
+
+	failedVideo := createWebhookOutboxVideo(t, adapter, "job-webhook-failed")
+	failedInput := &repository.RecordingWebhookDeliveryInput{
+		MessageID:     "msg-failed",
+		DedupeKey:     "recording.failed:2",
+		Event:         "recording.failed",
+		VideoID:       failedVideo.ID,
+		NextAttemptAt: time.Now().UTC(),
+	}
+	if err := adapter.MarkVideoFailedAndEnqueueRecordingWebhook(ctx, failedVideo.ID, "boom", repository.CompletionKindComplete, true, failedInput); err != nil {
+		t.Fatalf("MarkVideoFailedAndEnqueueRecordingWebhook: %v", err)
+	}
+	rows, err = adapter.ListRecordingWebhookDeliveries(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRecordingWebhookDeliveries: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("failed event outside allowlist should not enqueue, got %+v", rows)
+	}
+}
+
+func createWebhookOutboxVideo(t *testing.T, adapter *SQLiteAdapter, jobID string) *repository.Video {
+	t.Helper()
+	if _, err := adapter.UpsertChannel(context.Background(), &repository.Channel{
+		BroadcasterID:    "broadcaster",
+		BroadcasterLogin: "streamer",
+		BroadcasterName:  "Streamer",
+	}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+	v, err := adapter.CreateVideo(context.Background(), &repository.VideoInput{
+		JobID:         jobID,
+		Filename:      jobID + ".mp4",
+		DisplayName:   "Streamer",
+		Status:        repository.VideoStatusRunning,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "broadcaster",
+		ViewerCount:   1,
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("CreateVideo: %v", err)
+	}
+	return v
 }

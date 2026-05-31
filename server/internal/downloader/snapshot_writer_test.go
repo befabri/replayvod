@@ -64,9 +64,9 @@ func (f *fakeStorage) Stat(_ context.Context, _ string) (storage.FileInfo, error
 func TestStorageSnapshotWriter_PathTemplate(t *testing.T) {
 	fs := newFakeStorage()
 	w := &storageSnapshotWriter{
-		storage: fs,
-		base:    "thumbnails/20260413-rec-abc12345",
-		ctx:     context.Background(),
+		storage:  fs,
+		filename: "20260413-rec-abc12345",
+		ctx:      context.Background(),
 	}
 
 	// Three writes: snap00, snap01, snap02. The zero-padded
@@ -100,9 +100,9 @@ func TestStorageSnapshotWriter_PathTemplate(t *testing.T) {
 func TestStorageSnapshotWriter_TwoDigitIndex(t *testing.T) {
 	fs := newFakeStorage()
 	w := &storageSnapshotWriter{
-		storage: fs,
-		base:    "thumbnails/long-rec",
-		ctx:     context.Background(),
+		storage:  fs,
+		filename: "long-rec",
+		ctx:      context.Background(),
 	}
 
 	for _, idx := range []int{0, 9, 10, 47, 99} {
@@ -135,9 +135,9 @@ func TestStorageSnapshotWriter_PropagatesStorageError(t *testing.T) {
 		"thumbnails/rec-snap00.jpg": wantErr,
 	}
 	w := &storageSnapshotWriter{
-		storage: fs,
-		base:    "thumbnails/rec",
-		ctx:     context.Background(),
+		storage:  fs,
+		filename: "rec",
+		ctx:      context.Background(),
 	}
 	err := w.WriteSnapshot(context.Background(), 0, strings.NewReader("bytes"))
 	if !errors.Is(err, wantErr) {
@@ -165,9 +165,9 @@ func TestStorageSnapshotWriter_UsesConfiguredCtxNotCall(t *testing.T) {
 		seenVal = ctx.Value(ctxKey{})
 	}}
 	w := &storageSnapshotWriter{
-		storage: fs,
-		base:    "thumbnails/rec",
-		ctx:     recordingCtx,
+		storage:  fs,
+		filename: "rec",
+		ctx:      recordingCtx,
 	}
 	if err := w.WriteSnapshot(callCtx, 0, strings.NewReader("")); err != nil {
 		t.Fatalf("WriteSnapshot: %v", err)

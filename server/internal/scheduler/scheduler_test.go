@@ -170,7 +170,7 @@ func TestRegisterStandardTasks_EventSubOffNeutralizesPreviouslyRegisteredTasks(t
 		},
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if err := RegisterStandardTasks(s, cfg, repo, nil, nil, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, nil, nil, nil, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 	if err := s.Start(ctx); err != nil {
@@ -238,7 +238,7 @@ func TestRegisterStandardTasks_EventSubOffNeutralizesStaleEnabledTask(t *testing
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// esvc == nil drives the registerDisabledTask branch.
-	if err := RegisterStandardTasks(s, cfg, repo, nil, nil, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, nil, nil, nil, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 	if err := s.Start(ctx); err != nil {
@@ -288,7 +288,7 @@ func TestRegisterStandardTasks_EventSubActiveRegistersIntervaledTasks(t *testing
 		ServerMode: config.ServerModeConfig{Mode: config.ServerModeDirect},
 	}
 
-	if err := RegisterStandardTasks(s, cfg, repo, esvc, nil, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, esvc, nil, nil, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 

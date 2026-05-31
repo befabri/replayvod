@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/multi-select-picker";
 import { CategoryMultiPicker } from "@/features/categories/components/CategoryMultiPicker";
 import { useTags } from "@/features/tags";
+import { MAX_RETENTION_WINDOW_HOURS } from "../schema";
 import { FieldError } from "./FieldError";
 
 // FiltersFieldset renders the shared filter controls used by both the
@@ -65,6 +66,7 @@ export function FiltersFieldset({ form }: { form: any }) {
 									onChange={(v) => field.handleChange(v)}
 									disabled={!enabled}
 									min={1}
+									max={MAX_RETENTION_WINDOW_HOURS}
 									errors={field.state.meta.errors}
 								/>
 							)}
@@ -207,6 +209,7 @@ function NumberInputRow({
 	onChange,
 	disabled,
 	min,
+	max,
 	errors,
 }: {
 	id: string;
@@ -215,6 +218,7 @@ function NumberInputRow({
 	onChange: (next: number | undefined) => void;
 	disabled?: boolean;
 	min: number;
+	max?: number;
 	errors: unknown[];
 }) {
 	return (
@@ -228,6 +232,7 @@ function NumberInputRow({
 				id={id}
 				type="number"
 				min={min}
+				max={max}
 				disabled={disabled}
 				value={value ?? ""}
 				onChange={(e: React.ChangeEvent<HTMLInputElement>) =>

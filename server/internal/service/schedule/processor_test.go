@@ -256,6 +256,64 @@ func TestHighestQuality_PicksHighRankAndBreaksTiesByID(t *testing.T) {
 	}
 }
 
+func TestEffectiveRetentionPolicy_UsesShortestMatchedDeleteWindow(t *testing.T) {
+	h12 := int64(12)
+	h48 := int64(48)
+	h0 := int64(0)
+
+	got := effectiveRetentionPolicy([]*repository.DownloadSchedule{
+		{ID: 3, IsDeleteRediff: true, TimeBeforeDelete: &h48},
+		{ID: 2, IsDeleteRediff: false, TimeBeforeDelete: &h0},
+		{ID: 5, IsDeleteRediff: true, TimeBeforeDelete: &h12},
+		{ID: 1, IsDeleteRediff: true, TimeBeforeDelete: &h12},
+	})
+	if got.WindowHours == nil || *got.WindowHours != 12 {
+		t.Fatalf("window = %v, want 12", got.WindowHours)
+	}
+	if got.SourceScheduleID == nil || *got.SourceScheduleID != 1 {
+		t.Fatalf("source schedule = %v, want lower-ID tie winner 1", got.SourceScheduleID)
+	}
+
+	none := effectiveRetentionPolicy([]*repository.DownloadSchedule{
+		{ID: 9, IsDeleteRediff: false, TimeBeforeDelete: nil},
+	})
+	if none.WindowHours != nil || none.SourceScheduleID != nil {
+		t.Fatalf("no delete policy = %+v, want nil fields", none)
+	}
+}
+
+// TestEffectiveRetentionPolicy_SkipsInvalidWindows pins the per-schedule guards
+// at processor.go: a window that overflows the duration ceiling, is <= 0, or
+// belongs to a disabled schedule is skipped, so a longer-but-valid sibling
+// governs instead. The exactly-at-ceiling value is the boundary and is kept.
+func TestEffectiveRetentionPolicy_SkipsInvalidWindows(t *testing.T) {
+	overMax := repository.MaxRetentionWindowHours + 1
+	atMax := repository.MaxRetentionWindowHours
+	neg := int64(-1)
+	h24 := int64(24)
+
+	got := effectiveRetentionPolicy([]*repository.DownloadSchedule{
+		{ID: 1, IsDeleteRediff: true, TimeBeforeDelete: &overMax},               // skip: > ceiling
+		{ID: 2, IsDeleteRediff: true, TimeBeforeDelete: &neg},                   // skip: <= 0
+		{ID: 3, IsDeleteRediff: true, IsDisabled: true, TimeBeforeDelete: &h24}, // skip: disabled
+		{ID: 4, IsDeleteRediff: true, TimeBeforeDelete: &atMax},                 // keep: exactly at ceiling
+	})
+	if got.WindowHours == nil || *got.WindowHours != atMax {
+		t.Fatalf("window = %v, want %d (at-ceiling kept; over-ceiling/negative/disabled skipped)", got.WindowHours, atMax)
+	}
+	if got.SourceScheduleID == nil || *got.SourceScheduleID != 4 {
+		t.Fatalf("source schedule = %v, want 4", got.SourceScheduleID)
+	}
+
+	none := effectiveRetentionPolicy([]*repository.DownloadSchedule{
+		{ID: 1, IsDeleteRediff: true, TimeBeforeDelete: &overMax},
+		{ID: 2, IsDeleteRediff: true, IsDisabled: true, TimeBeforeDelete: &h24},
+	})
+	if none.WindowHours != nil || none.SourceScheduleID != nil {
+		t.Fatalf("all-invalid = %+v, want nil fields", none)
+	}
+}
+
 // TestProcess_StreamStatus_PublishedOnOfflineTransition pins the
 // delta-feed contract: every stream.offline webhook fires a
 // StreamStatusEvent so SSE subscribers can drop the broadcaster from
@@ -560,7 +618,14 @@ func TestDispatchStreamOnline_MultiMatchTriggersOnlyWinnerButCountsAll(t *testin
 	// Two unfiltered schedules (match any online) of different quality. LOW is
 	// created first so a "first caller wins" bug would pick it; the winner must
 	// be HIGH regardless of order.
-	low, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-low", Quality: repository.QualityLow})
+	lowRetention := int64(12)
+	low, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID:    "b-1",
+		RequestedBy:      "u-low",
+		Quality:          repository.QualityLow,
+		IsDeleteRediff:   true,
+		TimeBeforeDelete: &lowRetention,
+	})
 	if err != nil {
 		t.Fatalf("seed low schedule: %v", err)
 	}
@@ -582,6 +647,15 @@ func TestDispatchStreamOnline_MultiMatchTriggersOnlyWinnerButCountsAll(t *testin
 	}
 	if dl.lastParams.Quality != repository.QualityHigh {
 		t.Fatalf("winner quality reaching Start = %q, want HIGH", dl.lastParams.Quality)
+	}
+	if dl.lastParams.TriggerScheduleID == nil || *dl.lastParams.TriggerScheduleID != high.ID {
+		t.Fatalf("trigger schedule id = %v, want high schedule %d", dl.lastParams.TriggerScheduleID, high.ID)
+	}
+	if dl.lastParams.RetentionSourceScheduleID == nil || *dl.lastParams.RetentionSourceScheduleID != low.ID {
+		t.Fatalf("retention source schedule id = %v, want low delete schedule %d", dl.lastParams.RetentionSourceScheduleID, low.ID)
+	}
+	if dl.lastParams.RetentionWindowHours == nil || *dl.lastParams.RetentionWindowHours != lowRetention {
+		t.Fatalf("retention window = %v, want %d", dl.lastParams.RetentionWindowHours, lowRetention)
 	}
 
 	for _, want := range []struct {
@@ -658,6 +732,55 @@ func TestDispatchStreamOnline_FilterLoadErrorDoesNotPoisonSuccessfulDispatch(t *
 	}
 	if gotWinner.TriggerCount != 1 {
 		t.Fatalf("winner trigger_count = %d, want 1", gotWinner.TriggerCount)
+	}
+	gotBroken, err := realRepo.GetSchedule(ctx, broken.ID)
+	if err != nil {
+		t.Fatalf("GetSchedule(broken): %v", err)
+	}
+	if gotBroken.TriggerCount != 0 {
+		t.Fatalf("broken schedule trigger_count = %d, want 0 because its filters did not load", gotBroken.TriggerCount)
+	}
+}
+
+// TestDispatchStreamOnline_FilterLoadErrorWithoutMatchesReturnsError covers the
+// no-match twin of TestDispatchStreamOnline_FilterLoadErrorDoesNotPoisonSuccessfulDispatch.
+// When every potential match is blocked by a filter-load failure, the processor
+// must return that error so the webhook audit records a failed processing attempt
+// and poll mode does not silently advance past a stream it could not evaluate.
+func TestDispatchStreamOnline_FilterLoadErrorWithoutMatchesReturnsError(t *testing.T) {
+	ctx := context.Background()
+	realRepo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if _, err := realRepo.UpsertUser(ctx, &repository.User{ID: "u-broken", Login: "u-broken", DisplayName: "u-broken", Role: "owner"}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := realRepo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	broken, err := realRepo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-1",
+		RequestedBy:   "u-broken",
+		Quality:       repository.QualityHigh,
+		HasCategories: true,
+	})
+	if err != nil {
+		t.Fatalf("seed broken schedule: %v", err)
+	}
+
+	filterErr := errors.New("category lookup failed")
+	repo := &categoryFilterFailRepo{Repository: realRepo, scheduleID: broken.ID, err: filterErr}
+	dl := &fakeDownloader{}
+	p := NewEventProcessor(repo, dl, nil, nil, nil, log)
+
+	err = p.DispatchStreamOnline(ctx, twitch.StreamOnlineEvent{
+		ID: "s-1", BroadcasterUserID: "b-1", BroadcasterUserLogin: "b1", BroadcasterUserName: "B1", Type: "live",
+	})
+	if !errors.Is(err, filterErr) {
+		t.Fatalf("DispatchStreamOnline() error = %v, want filter error %v", err, filterErr)
+	}
+	if dl.calls != 0 {
+		t.Fatalf("dl.Start calls = %d, want 0 when filters fail and no schedules match", dl.calls)
 	}
 	gotBroken, err := realRepo.GetSchedule(ctx, broken.ID)
 	if err != nil {

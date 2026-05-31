@@ -178,5 +178,16 @@ func pgRecordingWebhookDeliveryToDomain(d pggen.RecordingWebhookDelivery) *repos
 		DeliveredAt:   d.DeliveredAt,
 		CreatedAt:     d.CreatedAt,
 		UpdatedAt:     d.UpdatedAt,
+		FrozenParts:   d.FrozenParts,
 	}
+}
+
+func (a *PGAdapter) SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error {
+	if err := a.queries.SetRecordingWebhookDeliveryFrozenParts(ctx, pggen.SetRecordingWebhookDeliveryFrozenPartsParams{
+		ID:          id,
+		FrozenParts: frozenParts,
+	}); err != nil {
+		return fmt.Errorf("pg set recording webhook delivery frozen parts: %w", err)
+	}
+	return nil
 }

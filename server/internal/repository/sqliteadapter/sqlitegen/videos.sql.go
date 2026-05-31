@@ -25,25 +25,29 @@ const createVideo = `-- name: CreateVideo :one
 INSERT INTO videos (
     job_id, filename, display_name, title, status, quality,
     broadcaster_id, stream_id, viewer_count, language, recording_type,
-    force_h264
+    force_h264, trigger_schedule_id, retention_source_schedule_id,
+    retention_window_hours
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours
 `
 
 type CreateVideoParams struct {
-	JobID         string         `json:"job_id"`
-	Filename      string         `json:"filename"`
-	DisplayName   string         `json:"display_name"`
-	Title         string         `json:"title"`
-	Status        string         `json:"status"`
-	Quality       string         `json:"quality"`
-	BroadcasterID string         `json:"broadcaster_id"`
-	StreamID      sql.NullString `json:"stream_id"`
-	ViewerCount   int64          `json:"viewer_count"`
-	Language      string         `json:"language"`
-	RecordingType string         `json:"recording_type"`
-	ForceH264     int64          `json:"force_h264"`
+	JobID                     string         `json:"job_id"`
+	Filename                  string         `json:"filename"`
+	DisplayName               string         `json:"display_name"`
+	Title                     string         `json:"title"`
+	Status                    string         `json:"status"`
+	Quality                   string         `json:"quality"`
+	BroadcasterID             string         `json:"broadcaster_id"`
+	StreamID                  sql.NullString `json:"stream_id"`
+	ViewerCount               int64          `json:"viewer_count"`
+	Language                  string         `json:"language"`
+	RecordingType             string         `json:"recording_type"`
+	ForceH264                 int64          `json:"force_h264"`
+	TriggerScheduleID         sql.NullInt64  `json:"trigger_schedule_id"`
+	RetentionSourceScheduleID sql.NullInt64  `json:"retention_source_schedule_id"`
+	RetentionWindowHours      sql.NullInt64  `json:"retention_window_hours"`
 }
 
 func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error) {
@@ -60,6 +64,9 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		arg.Language,
 		arg.RecordingType,
 		arg.ForceH264,
+		arg.TriggerScheduleID,
+		arg.RetentionSourceScheduleID,
+		arg.RetentionWindowHours,
 	)
 	var i Video
 	err := row.Scan(
@@ -87,12 +94,15 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		&i.SelectedQuality,
 		&i.SelectedFps,
 		&i.Truncated,
+		&i.TriggerScheduleID,
+		&i.RetentionSourceScheduleID,
+		&i.RetentionWindowHours,
 	)
 	return i, err
 }
 
 const getVideo = `-- name: GetVideo :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE id = ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours FROM videos WHERE id = ?
 `
 
 func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
@@ -123,12 +133,15 @@ func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
 		&i.SelectedQuality,
 		&i.SelectedFps,
 		&i.Truncated,
+		&i.TriggerScheduleID,
+		&i.RetentionSourceScheduleID,
+		&i.RetentionWindowHours,
 	)
 	return i, err
 }
 
 const getVideoByJobID = `-- name: GetVideoByJobID :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE job_id = ?
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours FROM videos WHERE job_id = ?
 `
 
 func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, error) {
@@ -159,13 +172,80 @@ func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, err
 		&i.SelectedQuality,
 		&i.SelectedFps,
 		&i.Truncated,
+		&i.TriggerScheduleID,
+		&i.RetentionSourceScheduleID,
+		&i.RetentionWindowHours,
 	)
 	return i, err
 }
 
+const listFinishedVideosForRetention = `-- name: ListFinishedVideosForRetention :many
+SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
+WHERE deleted_at IS NULL
+  AND downloaded_at IS NOT NULL
+  AND retention_window_hours IS NOT NULL
+  AND datetime(downloaded_at, '+' || retention_window_hours || ' hours') < ?1
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND completion_kind IN ('partial', 'cancelled'))
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM recording_webhook_deliveries rwd
+    WHERE rwd.video_id = videos.id
+      AND rwd.test = 0
+      AND rwd.status IN ('pending', 'delivering')
+      AND rwd.frozen_parts = ''
+  )
+`
+
+type ListFinishedVideosForRetentionRow struct {
+	ID                   int64          `json:"id"`
+	BroadcasterID        string         `json:"broadcaster_id"`
+	DownloadedAt         sql.NullString `json:"downloaded_at"`
+	RetentionWindowHours sql.NullInt64  `json:"retention_window_hours"`
+}
+
+// Terminal, not-yet-tombstoned recordings whose creation-time retention policy
+// snapshot is due at @now. DONE rows own watchable artifacts; FAILED
+// partial/cancelled rows may own finalized parts, thumbnails, strips, and
+// snapshots. FAILED rows without salvage are excluded so retention does not
+// erase error-only diagnostics. Recordings without retention_window_hours are
+// explicitly outside retention, even if the same broadcaster currently has a
+// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
+// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
+// agree on "exactly at the deadline is still retained".
+func (q *Queries) ListFinishedVideosForRetention(ctx context.Context, now sql.NullString) ([]ListFinishedVideosForRetentionRow, error) {
+	rows, err := q.db.QueryContext(ctx, listFinishedVideosForRetention, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFinishedVideosForRetentionRow{}
+	for rows.Next() {
+		var i ListFinishedVideosForRetentionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BroadcasterID,
+			&i.DownloadedAt,
+			&i.RetentionWindowHours,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
 
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
 
 // NOTE: ListVideos is intentionally NOT declared here. The PG path
@@ -208,6 +288,9 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 			&i.SelectedQuality,
 			&i.SelectedFps,
 			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
 		); err != nil {
 			return nil, err
 		}

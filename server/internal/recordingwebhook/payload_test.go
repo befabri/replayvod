@@ -11,7 +11,7 @@ import (
 
 // testSignURL is a deterministic stand-in for the real videodownload signer, so
 // payload tests can assert the per-part URL wiring without HMAC noise.
-func testSignURL(videoID int64, partIndex int32) string {
+func testSignURL(videoID int64, partIndex int32, _ *time.Time) string {
 	return fmt.Sprintf("https://app.example/dl/%d/%d", videoID, partIndex)
 }
 
@@ -37,14 +37,14 @@ func TestBuildPayload_completedIncludesPerPartDownloadURLsAndDecoration(t *testi
 	store := &fakeRepo{
 		video: sampleVideo(),
 		parts: []repository.VideoPart{
-			{PartIndex: 0, Filename: "vod-42-01.mp4", SizeBytes: 600, DurationSeconds: 1800},
-			{PartIndex: 1, Filename: "vod-42-02.mp4", SizeBytes: 424, DurationSeconds: 1800},
+			{PartIndex: 1, Filename: "vod-42-01.mp4", SizeBytes: 600, DurationSeconds: 1800},
+			{PartIndex: 2, Filename: "vod-42-02.mp4", SizeBytes: 424, DurationSeconds: 1800},
 		},
 		channel:    &repository.Channel{BroadcasterLogin: "speedy", BroadcasterName: "Speedy"},
 		categories: map[int64]repository.Category{42: {ID: "12", Name: "Celeste"}},
 	}
 
-	p, err := buildPayload(context.Background(), store, testSignURL, EventCompleted, 42)
+	p, err := buildPayload(context.Background(), store, testSignURL, EventCompleted, 42, nil, true)
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestBuildPayload_completedIncludesPerPartDownloadURLsAndDecoration(t *testi
 	if len(p.Parts) != 2 || p.Parts[0].Path != "videos/vod-42-01.mp4" || p.Parts[1].SizeBytes != 424 {
 		t.Fatalf("parts wrong: %+v", p.Parts)
 	}
-	if p.Parts[0].DownloadURL != "https://app.example/dl/42/0" || p.Parts[1].DownloadURL != "https://app.example/dl/42/1" {
+	if p.Parts[0].DownloadURL != "https://app.example/dl/42/1" || p.Parts[1].DownloadURL != "https://app.example/dl/42/2" {
 		t.Fatalf("per-part download URLs wrong: %+v", p.Parts)
 	}
 }
@@ -82,7 +82,7 @@ func TestBuildPayload_failedCarriesErrorAndNoParts(t *testing.T) {
 	v.Error = &errMsg
 
 	store := &fakeRepo{video: v}
-	p, err := buildPayload(context.Background(), store, testSignURL, EventFailed, 42)
+	p, err := buildPayload(context.Background(), store, testSignURL, EventFailed, 42, nil, true)
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
 	}
@@ -108,10 +108,10 @@ func TestBuildPayload_failedOmitsDownloadURLs(t *testing.T) {
 	store := &fakeRepo{
 		video: v,
 		parts: []repository.VideoPart{
-			{PartIndex: 0, Filename: "vod-42-01.mp4", SizeBytes: 600, DurationSeconds: 1800},
+			{PartIndex: 1, Filename: "vod-42-01.mp4", SizeBytes: 600, DurationSeconds: 1800},
 		},
 	}
-	p, err := buildPayload(context.Background(), store, testSignURL, EventFailed, 42)
+	p, err := buildPayload(context.Background(), store, testSignURL, EventFailed, 42, nil, true)
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
 	}
@@ -127,14 +127,99 @@ func TestBuildPayload_failedOmitsDownloadURLs(t *testing.T) {
 	}
 }
 
+func TestBuildPayload_completedCapsDownloadURLToRetentionDeadline(t *testing.T) {
+	v := sampleVideo()
+	retentionHours := int64(2)
+	v.RetentionWindowHours = &retentionHours
+	store := &fakeRepo{
+		video: v,
+		parts: []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.mp4"}},
+	}
+	var gotDeadline *time.Time
+	signURL := func(videoID int64, partIndex int32, notAfter *time.Time) string {
+		if notAfter != nil {
+			copied := *notAfter
+			gotDeadline = &copied
+		}
+		return fmt.Sprintf("https://app.example/dl/%d/%d", videoID, partIndex)
+	}
+
+	p, err := buildPayload(context.Background(), store, signURL, EventCompleted, 42, nil, true)
+	if err != nil {
+		t.Fatalf("buildPayload: %v", err)
+	}
+	if len(p.Parts) != 1 || p.Parts[0].DownloadURL == "" {
+		t.Fatalf("expected capped download URL, got %+v", p.Parts)
+	}
+	wantDeadline := v.DownloadedAt.Add(2 * time.Hour)
+	if gotDeadline == nil || !gotDeadline.Equal(wantDeadline) {
+		t.Fatalf("download deadline = %v, want %v", gotDeadline, wantDeadline)
+	}
+}
+
+func TestBuildPayload_completedDoesNotCapDownloadURLWhenRetentionCapDisabled(t *testing.T) {
+	v := sampleVideo()
+	retentionHours := int64(2)
+	v.RetentionWindowHours = &retentionHours
+	store := &fakeRepo{
+		video: v,
+		parts: []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.mp4"}},
+	}
+	calls := 0
+	signURL := func(videoID int64, partIndex int32, notAfter *time.Time) string {
+		calls++
+		if notAfter != nil {
+			t.Fatalf("notAfter = %v, want nil when retention cap is disabled", notAfter)
+		}
+		return fmt.Sprintf("https://app.example/dl/%d/%d", videoID, partIndex)
+	}
+
+	p, err := buildPayload(context.Background(), store, signURL, EventCompleted, 42, nil, false)
+	if err != nil {
+		t.Fatalf("buildPayload: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("signer calls = %d, want 1", calls)
+	}
+	if len(p.Parts) != 1 || p.Parts[0].DownloadURL != "https://app.example/dl/42/1" {
+		t.Fatalf("expected uncapped download URL, got %+v", p.Parts)
+	}
+}
+
+func TestBuildPayload_completedDeletedVideoOmitsDownloadURLs(t *testing.T) {
+	v := sampleVideo()
+	deletedAt := time.Date(2026, 5, 30, 14, 0, 0, 0, time.UTC)
+	v.DeletedAt = &deletedAt
+	store := &fakeRepo{
+		video: v,
+		parts: []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.mp4"}},
+	}
+	calls := 0
+	signURL := func(videoID int64, partIndex int32, notAfter *time.Time) string {
+		calls++
+		return fmt.Sprintf("https://app.example/dl/%d/%d", videoID, partIndex)
+	}
+
+	p, err := buildPayload(context.Background(), store, signURL, EventCompleted, 42, nil, true)
+	if err != nil {
+		t.Fatalf("buildPayload: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("signer called %d times for a deleted video, want 0", calls)
+	}
+	if len(p.Parts) != 1 || p.Parts[0].DownloadURL != "" {
+		t.Fatalf("deleted video must not carry a download URL, got %+v", p.Parts)
+	}
+}
+
 func TestBuildPayload_nilSignerOmitsDownloadURLs(t *testing.T) {
 	store := &fakeRepo{
 		video: sampleVideo(),
-		parts: []repository.VideoPart{{PartIndex: 0, Filename: "vod-42-01.mp4"}},
+		parts: []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.mp4"}},
 	}
 	// A nil signer (signed URLs disabled or no resolvable origin) leaves the
 	// part's download URL empty; the storage path is still present.
-	p, err := buildPayload(context.Background(), store, nil, EventCompleted, 42)
+	p, err := buildPayload(context.Background(), store, nil, EventCompleted, 42, nil, true)
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
 	}
@@ -151,7 +236,7 @@ func TestBuildPayload_missingChannelIsBestEffort(t *testing.T) {
 		video:      sampleVideo(),
 		channelErr: repository.ErrNotFound,
 	}
-	p, err := buildPayload(context.Background(), store, nil, EventCompleted, 42)
+	p, err := buildPayload(context.Background(), store, nil, EventCompleted, 42, nil, true)
 	if err != nil {
 		t.Fatalf("a missing channel must not abandon the delivery: %v", err)
 	}
@@ -162,7 +247,7 @@ func TestBuildPayload_missingChannelIsBestEffort(t *testing.T) {
 
 func TestBuildPayload_videoLoadErrorPropagates(t *testing.T) {
 	store := &fakeRepo{videoErr: repository.ErrNotFound}
-	if _, err := buildPayload(context.Background(), store, nil, EventCompleted, 7); err == nil {
+	if _, err := buildPayload(context.Background(), store, nil, EventCompleted, 7, nil, true); err == nil {
 		t.Fatal("a missing video must abandon the delivery")
 	}
 }

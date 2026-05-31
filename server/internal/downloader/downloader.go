@@ -55,9 +55,12 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader/remux"
 	"github.com/befabri/replayvod/server/internal/downloader/thumbnail"
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
+	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/storage"
+	"github.com/befabri/replayvod/server/internal/storagekeys"
 )
 
 // qualityToHeight maps the repository's coarse Quality enum (LOW /
@@ -117,6 +120,13 @@ type Params struct {
 	// quality-fallback chain. Operator-exposed per the spec's
 	// "User codec preference" section.
 	ForceH264 bool
+
+	// Schedule-triggered recordings snapshot their retention policy at
+	// creation time. Manual recordings leave these nil so later schedule
+	// edits cannot retroactively delete them.
+	TriggerScheduleID         *int64
+	RetentionSourceScheduleID *int64
+	RetentionWindowHours      *int64
 }
 
 // Progress is the per-segment cumulative snapshot pushed to the
@@ -218,6 +228,13 @@ type Service struct {
 	// job interrupted by shutdown stays RUNNING so Resume() on
 	// the next boot picks it back up per spec line 615.
 	shuttingDown atomic.Bool
+
+	// bus, when set via SetEventBus, receives a RecordingTerminal wake-up hint
+	// after each terminal transition (success or non-shutdown failure). The
+	// durable recording-webhook row is written in the same DB transaction as the
+	// terminal video update; this bus only nudges the dispatcher to poll now
+	// instead of waiting for its next interval.
+	bus *eventbus.Buses
 }
 
 // download is the per-job state kept in memory. cancel propagates
@@ -394,6 +411,36 @@ func (s *Service) SetOAuthRefresher(r TokenRefresher) {
 	}
 }
 
+// SetEventBus wires in the eventbus so terminal transitions publish a
+// RecordingTerminal event for the outbound webhook dispatcher. Optional, like
+// SetOAuthRefresher: leave it unset (e.g. in tests) to disable publishing.
+func (s *Service) SetEventBus(bus *eventbus.Buses) {
+	s.bus = bus
+}
+
+// publishRecordingTerminal fans a terminal-recording wake-up hint out to the
+// bus. Non-blocking and nil-safe by contract (Topic.Publish drops on a full
+// subscriber buffer); durable delivery no longer depends on this event.
+func (s *Service) publishRecordingTerminal(videoID int64, kind eventbus.RecordingTerminalKind) {
+	if s.bus == nil || s.bus.RecordingTerminal == nil {
+		return
+	}
+	s.bus.RecordingTerminal.Publish(eventbus.RecordingTerminalEvent{
+		VideoID: videoID,
+		Kind:    kind,
+	})
+}
+
+// recordingWebhookDelivery builds the durable outbox payload enqueued in the
+// same transaction as a terminal video transition. It can't fail: the message
+// id is derived deterministically from (event, video) rather than drawn from the
+// RNG, so a terminal transition always has a non-nil row to enqueue. There is no
+// path where the video commits DONE/FAILED while its webhook is silently
+// dropped.
+func (s *Service) recordingWebhookDelivery(videoID int64, event string) *repository.RecordingWebhookDeliveryInput {
+	return recordingwebhook.NewTerminalDeliveryInput(event, videoID, time.Now().UTC())
+}
+
 // sweepOrphanedTempsExcept removes leftover per-job work
 // directories from a previous crash or hard kill. Directories
 // whose name (the jobID) is in `protected` are left in place so
@@ -488,18 +535,21 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	s.mu.Unlock()
 
 	vid, err := s.repo.CreateVideo(ctx, &repository.VideoInput{
-		JobID:         jobID,
-		Filename:      filename,
-		DisplayName:   p.DisplayName,
-		Title:         p.Title,
-		Status:        repository.VideoStatusPending,
-		Quality:       p.Quality,
-		BroadcasterID: p.BroadcasterID,
-		StreamID:      p.StreamID,
-		ViewerCount:   p.ViewerCount,
-		Language:      p.Language,
-		RecordingType: p.RecordingType,
-		ForceH264:     p.ForceH264,
+		JobID:                     jobID,
+		Filename:                  filename,
+		DisplayName:               p.DisplayName,
+		Title:                     p.Title,
+		Status:                    repository.VideoStatusPending,
+		Quality:                   p.Quality,
+		BroadcasterID:             p.BroadcasterID,
+		StreamID:                  p.StreamID,
+		ViewerCount:               p.ViewerCount,
+		Language:                  p.Language,
+		RecordingType:             p.RecordingType,
+		ForceH264:                 p.ForceH264,
+		TriggerScheduleID:         p.TriggerScheduleID,
+		RetentionSourceScheduleID: p.RetentionSourceScheduleID,
+		RetentionWindowHours:      p.RetentionWindowHours,
 	})
 	if err != nil {
 		s.mu.Lock()
@@ -722,20 +772,35 @@ func (s *Service) Resume(ctx context.Context) error {
 				"error", err)
 			errMsg := fmt.Sprintf("resume: %v", err)
 			_ = s.repo.MarkJobFailed(ctx, job.ID, errMsg)
-			// Resume path failure — completion_kind stays "complete"
-			// (the prior terminal transition, if any, set the real
-			// value already). For truncated, mirror the run-time
-			// rule: a resume that picks up at REMUX/STORE with the
-			// playlist's ENDLIST already observed is a post-broadcast
-			// failure, not a live-recording-cut-short. Default to
-			// truncated=true if the saved resume_state is unreadable
-			// (we can't tell, and "looks incomplete" is the safer
-			// loud signal).
+			// For truncated, mirror the run-time rule: a resume that picks up at
+			// REMUX/STORE with the playlist's ENDLIST already observed is a
+			// post-broadcast failure, not a live-recording-cut-short. Default to
+			// truncated=true if the saved resume_state is unreadable (we can't
+			// tell, and "looks incomplete" is the safer loud signal).
 			truncated := true
 			if state, perr := UnmarshalResumeState(job.ResumeState); perr == nil {
 				truncated = state.HadWindowRoll || !state.EndListSeen
 			}
-			_ = s.repo.MarkVideoFailed(ctx, job.VideoID, errMsg, repository.CompletionKindComplete, truncated)
+			// completion_kind mirrors the run-time failure path: a job that
+			// already finalized parts before this failed restart owns
+			// reclaimable objects, so stamp it "partial" to keep it inside the
+			// retention sweep (which only sees DONE plus FAILED partial/cancelled).
+			// Leaving it "complete" would strand those uploaded parts. A repo
+			// error keeps the safe "complete" default rather than mis-stamping.
+			failKind := repository.CompletionKindComplete
+			if hasPart, herr := s.repo.HasFinalizedVideoParts(ctx, job.VideoID); herr != nil {
+				s.log.Warn("resume failure: check finalized parts", "video_id", job.VideoID, "error", herr)
+			} else if hasPart {
+				failKind = repository.CompletionKindPartial
+			}
+			// A recording that was RUNNING from a prior process and can't be
+			// resumed is terminating in failure — exactly what a
+			// recording.failed consumer expects to hear. Enqueue the webhook in
+			// the same transaction as the FAILED transition (as failDownload
+			// does), then wake the dispatcher.
+			delivery := s.recordingWebhookDelivery(job.VideoID, recordingwebhook.EventFailed)
+			_ = s.repo.MarkVideoFailedAndEnqueueRecordingWebhook(ctx, job.VideoID, errMsg, failKind, truncated, delivery)
+			s.publishRecordingTerminal(job.VideoID, eventbus.RecordingFailed)
 		}
 	}
 	return nil
@@ -1008,9 +1073,9 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 			Log: log,
 		})
 		snapWriter := &storageSnapshotWriter{
-			storage: s.storage,
-			base:    filepath.ToSlash(filepath.Join("thumbnails", filename)),
-			ctx:     ctx,
+			storage:  s.storage,
+			filename: filename,
+			ctx:      ctx,
 		}
 		go func() {
 			count := snapper.Run(snapCtx, p.BroadcasterLogin, snapWriter)
@@ -1200,7 +1265,8 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// (ffmpeg cap, manual stop) ended us early. EndListSeen=true with
 	// no window roll is the only "captured the whole broadcast" path.
 	truncated := hadWindowRoll || !d.resume.EndListSeen
-	if err := s.repo.MarkVideoDone(dbCtx, d.videoID, aggDuration, aggSize, thumbPtr, completionKind, truncated); err != nil {
+	delivery := s.recordingWebhookDelivery(d.videoID, recordingwebhook.EventCompleted)
+	if err := s.repo.MarkVideoDoneAndEnqueueRecordingWebhook(dbCtx, d.videoID, aggDuration, aggSize, thumbPtr, completionKind, truncated, delivery); err != nil {
 		log.Error("failed to mark video done", "error", err)
 		return
 	}
@@ -1219,6 +1285,9 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		"duration_seconds", aggDuration,
 		"size_bytes", aggSize,
 	)
+	// Terminal success: wake the webhook dispatcher after the durable outbox row
+	// is committed. A dropped publish only delays polling.
+	s.publishRecordingTerminal(d.videoID, eventbus.RecordingCompleted)
 }
 
 // partResult carries the per-part bookkeeping that runPart hands
@@ -1458,7 +1527,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		})
 		switch {
 		case err == nil:
-			thumbRel = filepath.ToSlash(filepath.Join("thumbnails", partFilename+".jpg"))
+			thumbRel = storagekeys.Thumbnail(partFilename)
 		case errors.Is(err, thumbnail.ErrAllTriesSingleColor):
 			log.Info("thumbnail: all frames monochrome; leaving unset")
 		default:
@@ -1479,7 +1548,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 			}); err != nil {
 				log.Warn("strip generation failed; continuing without strip", "error", err)
 			} else {
-				stripRel = filepath.ToSlash(filepath.Join("thumbnails", partFilename+"-strip.jpg"))
+				stripRel = storagekeys.Strip(partFilename)
 			}
 		}
 	}
@@ -1488,7 +1557,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	// auxiliary thumbnails fail to upload we still want the
 	// video playable.
 	s.setResumeStage(dbCtx, d, StageStore, log)
-	videoRel := filepath.ToSlash(filepath.Join("videos", partFilename+kind.OutputExt()))
+	videoRel := storagekeys.Video(partFilename + kind.OutputExt())
 	if err := s.uploadFromScratch(ctx, remuxedPath, videoRel); err != nil {
 		return nil, fmt.Errorf("upload video: %w", err)
 	}
@@ -2075,7 +2144,8 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	// wasn't produced, but the recording wasn't cut short relative to
 	// the broadcast.
 	truncated := userCancelled || d.resume.HadWindowRoll || !d.resume.EndListSeen
-	if err := s.repo.MarkVideoFailed(dbCtx, d.videoID, recorded.Error(), failCompletionKind, truncated); err != nil {
+	delivery := s.recordingWebhookDelivery(d.videoID, recordingwebhook.EventFailed)
+	if err := s.repo.MarkVideoFailedAndEnqueueRecordingWebhook(dbCtx, d.videoID, recorded.Error(), failCompletionKind, truncated, delivery); err != nil {
 		log.Error("failed to mark video failed", "error", err)
 	}
 	if err := s.repo.MarkJobFailed(dbCtx, d.jobID, recorded.Error()); err != nil {
@@ -2086,6 +2156,10 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	// Resume's RUNNING/PENDING query, so keeping scratch would just
 	// leak until next boot's sweep. Wipe now.
 	d.cleanupScratch = true
+	// Wake the webhook dispatcher. Only real failures and cancels reach here —
+	// the shutdown branch returned early above, so an interrupted recording that
+	// stays RUNNING for resume never queues or wakes a webhook.
+	s.publishRecordingTerminal(d.videoID, eventbus.RecordingFailed)
 }
 
 // classifyTwitchAuth wires the twitch-specific entitlement-code
@@ -2103,15 +2177,15 @@ func classifyTwitchAuth(status int, body []byte) bool {
 }
 
 // storageSnapshotWriter adapts storage.Storage to the
-// thumbnail.SnapshotWriter interface. Writes each capture to a
-// deterministic path:
+// thumbnail.SnapshotWriter interface. Writes each capture to the
+// deterministic key storagekeys.Snapshot builds:
 //
-//	<base>-snap00.jpg
-//	<base>-snap01.jpg
+//	thumbnails/<filename>-snap00.jpg
+//	thumbnails/<filename>-snap01.jpg
 //	...
 //
-// The UI can discover the set by listing storage with the base
-// prefix or by probing <base>-snapNN.jpg until 404.
+// The UI and retention discover the set by probing those keys (via
+// storagekeys.Snapshot) until the first gap.
 //
 // ctx is the recording's long-lived context (NOT the snapshotter's
 // derived ctx). An upload that starts right before the snapshotter
@@ -2120,14 +2194,13 @@ func classifyTwitchAuth(status int, body []byte) bool {
 // The outer run() ctx + user cancel still tear everything down if
 // the whole job is canceled.
 type storageSnapshotWriter struct {
-	storage storage.Storage
-	base    string
-	ctx     context.Context
+	storage  storage.Storage
+	filename string
+	ctx      context.Context
 }
 
 func (w *storageSnapshotWriter) WriteSnapshot(_ context.Context, index int, body io.Reader) error {
-	path := fmt.Sprintf("%s-snap%02d.jpg", w.base, index)
-	return w.storage.Save(w.ctx, path, body)
+	return w.storage.Save(w.ctx, storagekeys.Snapshot(w.filename, index), body)
 }
 
 // buildFilename generates a deterministic, filesystem-safe

@@ -17,6 +17,14 @@ strict = false
 enable_av1 = false
 disable_hevc = false
 max_restart_gap_seconds = 120
+# Maximum lifetime for a signed part-download URL handed to a recording-webhook
+# consumer. When the recording auto-delete task is enabled, retention caps URLs
+# at the recording's retention deadline. The webhook payload embeds one signed,
+# unauthenticated, expiring URL per recorded part so an external service can fetch
+# the bytes over plain HTTP without a dashboard session. Default 168 (7 days).
+# Set to 0 to disable signed download URLs entirely (the payload then carries
+# only storage paths).
+signed_url_ttl_hours = 168
 
 [storage]
 type = "local"
@@ -36,6 +44,14 @@ eventsub_interval_minutes = 10
 eventsub_reconcile_interval_minutes = 60
 category_art_interval_minutes = 1440
 token_cleanup_interval_minutes = 60
+# How often to sweep for recordings past their schedule's auto-delete
+# window (time_before_delete, in hours). This is a poll cadence, not a
+# retention window. 0 disables auto-delete entirely.
+recordings_retention_interval_minutes = 60
+# Prune terminal (delivered/rejected/failed) rows from the recording-webhook
+# delivery outbox older than this many days. Queued/in-flight rows are never
+# pruned. 0 disables the sweep (the table then grows unbounded).
+recording_webhook_delivery_retention_days = 30
 
 [logging]
 log_to_file = false

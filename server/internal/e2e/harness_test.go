@@ -103,7 +103,8 @@ func newTestServer(t *testing.T, d driver) *testServer {
 	// eventProcessor=nil: the e2e suite drives tRPC procedures directly and
 	// doesn't exercise the webhook notification path (which is gated off unless
 	// ServerMode processes webhooks anyway).
-	router, closeTRPC := api.SetupRouter(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, nil, nil, log)
+	// webhookDispatcher=nil: the e2e suite doesn't exercise outbound webhooks.
+	router, closeTRPC := api.SetupRouter(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, nil, nil, nil, log)
 	srv := httptest.NewServer(router)
 	t.Cleanup(func() {
 		srv.Close()

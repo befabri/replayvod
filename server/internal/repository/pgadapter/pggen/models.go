@@ -127,6 +127,7 @@ type RecordingWebhookDelivery struct {
 	DeliveredAt   *time.Time `json:"delivered_at"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+	FrozenParts   string     `json:"frozen_parts"`
 }
 
 type ServerSetting struct {
@@ -261,30 +262,33 @@ type UserFollowedChannel struct {
 }
 
 type Video struct {
-	ID              int64      `json:"id"`
-	JobID           string     `json:"job_id"`
-	Filename        string     `json:"filename"`
-	DisplayName     string     `json:"display_name"`
-	Status          string     `json:"status"`
-	Quality         string     `json:"quality"`
-	BroadcasterID   string     `json:"broadcaster_id"`
-	StreamID        *string    `json:"stream_id"`
-	ViewerCount     int32      `json:"viewer_count"`
-	Language        string     `json:"language"`
-	DurationSeconds *float64   `json:"duration_seconds"`
-	SizeBytes       *int64     `json:"size_bytes"`
-	Thumbnail       *string    `json:"thumbnail"`
-	Error           *string    `json:"error"`
-	StartDownloadAt time.Time  `json:"start_download_at"`
-	DownloadedAt    *time.Time `json:"downloaded_at"`
-	DeletedAt       *time.Time `json:"deleted_at"`
-	RecordingType   string     `json:"recording_type"`
-	ForceH264       bool       `json:"force_h264"`
-	Title           string     `json:"title"`
-	CompletionKind  string     `json:"completion_kind"`
-	SelectedQuality *string    `json:"selected_quality"`
-	SelectedFps     *float64   `json:"selected_fps"`
-	Truncated       bool       `json:"truncated"`
+	ID                        int64      `json:"id"`
+	JobID                     string     `json:"job_id"`
+	Filename                  string     `json:"filename"`
+	DisplayName               string     `json:"display_name"`
+	Status                    string     `json:"status"`
+	Quality                   string     `json:"quality"`
+	BroadcasterID             string     `json:"broadcaster_id"`
+	StreamID                  *string    `json:"stream_id"`
+	ViewerCount               int32      `json:"viewer_count"`
+	Language                  string     `json:"language"`
+	DurationSeconds           *float64   `json:"duration_seconds"`
+	SizeBytes                 *int64     `json:"size_bytes"`
+	Thumbnail                 *string    `json:"thumbnail"`
+	Error                     *string    `json:"error"`
+	StartDownloadAt           time.Time  `json:"start_download_at"`
+	DownloadedAt              *time.Time `json:"downloaded_at"`
+	DeletedAt                 *time.Time `json:"deleted_at"`
+	RecordingType             string     `json:"recording_type"`
+	ForceH264                 bool       `json:"force_h264"`
+	Title                     string     `json:"title"`
+	CompletionKind            string     `json:"completion_kind"`
+	SelectedQuality           *string    `json:"selected_quality"`
+	SelectedFps               *float64   `json:"selected_fps"`
+	Truncated                 bool       `json:"truncated"`
+	TriggerScheduleID         *int64     `json:"trigger_schedule_id"`
+	RetentionSourceScheduleID *int64     `json:"retention_source_schedule_id"`
+	RetentionWindowHours      *int32     `json:"retention_window_hours"`
 }
 
 type VideoCategory struct {

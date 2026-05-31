@@ -17,6 +17,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/logger"
+	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/relayclient"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter"
@@ -28,11 +29,13 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 	"github.com/befabri/replayvod/server/internal/service/livepoll"
+	"github.com/befabri/replayvod/server/internal/service/retention"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
+	"github.com/befabri/replayvod/server/internal/videodownload"
 	"github.com/befabri/replayvod/server/migrations"
 )
 
@@ -294,36 +297,69 @@ func main() {
 		})
 	}
 
-	// Resume in-flight downloads from the previous process
-	// lifetime. Must run after SetOAuthRefresher (resumed jobs
-	// may hit the service-account refresh path) and before the
-	// HTTP server accepts requests (a concurrent Start would
-	// race resume over the active map + concurrency cap).
-	//
-	// Sweeps orphaned scratch dirs as a side effect; on a clean
-	// boot with no RUNNING jobs this is the only place the
-	// sweep runs.
-	if err := dl.Resume(ctx); err != nil {
-		log.Error("Failed to resume in-flight downloads", "error", err)
-		os.Exit(1)
-	}
-
 	// Setup graceful shutdown before starting background goroutines.
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	// SSE bus: one set of topics shared between scheduler (publishes
-	// task status), schedule processor (publishes stream.live), and
-	// event-log writer (publishes system.events). Routing handlers
+	// task status), schedule processor (publishes stream.live), the
+	// event-log writer (publishes system.events), and the recording-webhook
+	// dispatcher (subscribes to terminal-recording wake-ups). Routing handlers
 	// subscribe per-client.
+	//
+	// Wire the bus and webhook dispatcher BEFORE Resume. Resume() spawns
+	// recording goroutines immediately; if one finalizes during boot, the
+	// terminal path commits a durable webhook row and publishes a wake-up. A
+	// dropped wake-up no longer loses the webhook, but wiring first still avoids
+	// delaying resumed completions until the next poll interval.
 	bus := eventbus.New()
+	dl.SetEventBus(bus)
+
+	// Outbound recording webhook: POST a signed payload when a recording
+	// reaches a terminal state. Terminal paths persist an outbox row in the same
+	// transaction as the video state change; this dispatcher polls due rows with
+	// persisted retry/backoff state. The signer mints the signed per-part
+	// download URLs embedded in each payload.
+	//
+	// Construct it now (the API handlers need it for test-send / history /
+	// retry), but Start it only AFTER the HTTP listener is bound (below): a
+	// payload's signed download_url points at this server's /videos/.../download
+	// route, so delivering before the listener is up could hand a receiver a URL
+	// that 404s. Durability makes the deferral safe — terminal rows are already
+	// persisted, so the first poll after Start drains anything enqueued meanwhile.
+	publicAPIBaseURL := cfg.PublicAPIBaseURL()
+	webhookSigner := videodownload.NewSigner(cfg.Env.HMACSecret, publicAPIBaseURL, cfg.SignedDownloadURLTTL())
+	if webhookSigner.Enabled() && config.OriginIsLoopback(publicAPIBaseURL) {
+		// Signed downloads are on but the public origin is loopback (usually the
+		// localhost CallbackURL default). An external recording-webhook consumer
+		// would receive part-download links it can't reach; surface it loudly so
+		// the operator sets PUBLIC_BASE_URL or a real callback origin.
+		log.Warn("signed recording-webhook download URLs derive from a loopback origin; set PUBLIC_BASE_URL to a publicly reachable host or external consumers will receive unreachable links",
+			"origin", publicAPIBaseURL)
+	}
+	webhookDispatcher := recordingwebhook.NewDispatcher(repo, webhookSigner, log)
+	webhookDispatcher.SetRetentionDownloadURLCapEnabled(cfg.App.Scheduler.RecordingsRetentionIntervalMinutes > 0)
+
+	// Resume in-flight downloads from the previous process lifetime. Must run
+	// after SetOAuthRefresher (resumed jobs may hit the service-account refresh
+	// path), after the eventbus + webhook dispatcher are wired (above), and
+	// before the HTTP server accepts requests (a concurrent Start would race
+	// resume over the active map + concurrency cap).
+	//
+	// Sweeps orphaned scratch dirs as a side effect; on a clean boot with no
+	// RUNNING jobs this is the only place the sweep runs.
+	if err := dl.Resume(ctx); err != nil {
+		log.Error("Failed to resume in-flight downloads", "error", err)
+		os.Exit(1)
+	}
+
 	eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
 
 	// Start the local HTTP server before creating or reconciling EventSub
 	// subscriptions. Twitch verification challenges must be able to reach the
 	// local callback immediately, especially when routed through Connect relay.
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, eventProcessor, log)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, eventProcessor, webhookDispatcher, log)
 	serverReady := make(chan error, 1)
 	go srv.Start(serverReady)
 	if err := <-serverReady; err != nil {
@@ -332,6 +368,27 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("Server started", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
+
+	// Now that the HTTP listener is bound, start draining the webhook outbox.
+	// Any rows enqueued during Resume above are picked up on the first poll.
+	webhookDispatcher.Start(signalCtx, bus)
+
+	// shutdown tears down in the same order the normal exit path does, so a fatal
+	// boot error after the dispatcher has started can't kill an in-flight
+	// delivery mid-POST. os.Exit skips deferreds, so the drain must be explicit:
+	// cancel the signal context (the dispatcher's poll/wake loops watch it, which
+	// is what lets Wait return), drain in-flight deliveries (bounded by the
+	// dispatcher's own drain timeout), then stop the listener and flush logs.
+	// webhookDispatcher.Wait is a no-op if Start never ran, and stop is
+	// idempotent, so this is safe to call from every branch below including the
+	// normal shutdown.
+	shutdown := func(code int) {
+		stop()
+		webhookDispatcher.Wait()
+		srv.Stop()
+		logger.Close()
+		os.Exit(code)
+	}
 
 	var livePollDone chan struct{}
 	if cfg.ServerMode.PollsHelix() {
@@ -353,9 +410,7 @@ func main() {
 		if config.SameURL(localCallbackURL, eventSubCallbackURL) {
 			log.Error("RELAY_LOCAL_CALLBACK_URL must not equal the EventSub relay ingest URL; local replay would loop back into the public relay",
 				"callback_host", config.URLHost(localCallbackURL))
-			srv.Stop()
-			logger.Close()
-			os.Exit(1)
+			shutdown(1)
 		}
 		rc, err := relayclient.New(relayclient.Config{
 			SubscribeURL: cfg.ServerMode.RelaySubscribeURL,
@@ -364,9 +419,7 @@ func main() {
 		})
 		if err != nil {
 			log.Error("Failed to start relay client", "error", err)
-			srv.Stop()
-			logger.Close()
-			os.Exit(1)
+			shutdown(1)
 		}
 		go rc.Run(signalCtx)
 		select {
@@ -378,13 +431,9 @@ func main() {
 		case <-time.After(15 * time.Second):
 			log.Error("Relay client did not connect before startup timeout",
 				"subscribe_host", config.URLHost(cfg.ServerMode.RelaySubscribeURL))
-			srv.Stop()
-			logger.Close()
-			os.Exit(1)
+			shutdown(1)
 		case <-signalCtx.Done():
-			srv.Stop()
-			logger.Close()
-			os.Exit(0)
+			shutdown(0)
 		}
 	}
 
@@ -443,17 +492,16 @@ func main() {
 			esvc = eventsubSvc
 		}
 		sched = scheduler.NewService(repo, log, 15*time.Second, bus)
-		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, artSvc, log); err != nil {
+		// store is always non-nil by here (selected/validated above), so
+		// the per-schedule recordings auto-delete sweep is always wired.
+		retentionSvc := retention.New(repo, store, log)
+		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, artSvc, retentionSvc, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
-			srv.Stop()
-			logger.Close()
-			os.Exit(1)
+			shutdown(1)
 		}
 		if err := sched.Start(ctx); err != nil {
 			log.Error("Failed to start scheduler", "error", err)
-			srv.Stop()
-			logger.Close()
-			os.Exit(1)
+			shutdown(1)
 		}
 		log.Info("Scheduler started")
 	} else {
@@ -471,10 +519,12 @@ func main() {
 	// cancelled, so Run returns once the current tick completes; bound the
 	// wait so a stuck Helix call can't hang shutdown indefinitely.
 	awaitLivePollShutdown(livePollDone, 5*time.Second, log)
-	srv.Stop()
-	logger.Close()
-
-	os.Exit(0)
+	// Drain in-flight webhook deliveries (bounded) and stop the listener via the
+	// shared shutdown path, so the normal and fatal exits stay symmetric: the
+	// poll loop already stopped on signalCtx, so this lets a POST that was mid-
+	// flight finish and record its durable result rather than being killed by
+	// os.Exit.
+	shutdown(0)
 }
 
 // awaitLivePollShutdown blocks until the live poller's goroutine signals it has

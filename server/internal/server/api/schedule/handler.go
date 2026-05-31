@@ -184,14 +184,19 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (ScheduleResp
 // corresponding value present; surfacing a tight 400 at the tRPC boundary
 // keeps the UI simpler than wrapping driver-level constraint errors.
 type CreateInput struct {
-	BroadcasterID    string   `json:"broadcaster_id" validate:"required"`
-	Quality          string   `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH"`
-	HasMinViewers    bool     `json:"has_min_viewers"`
-	MinViewers       *int64   `json:"min_viewers,omitempty" validate:"omitempty,min=0"`
-	HasCategories    bool     `json:"has_categories"`
-	HasTags          bool     `json:"has_tags"`
-	IsDeleteRediff   bool     `json:"is_delete_rediff"`
-	TimeBeforeDelete *int64   `json:"time_before_delete,omitempty" validate:"omitempty,min=1"`
+	BroadcasterID  string `json:"broadcaster_id" validate:"required"`
+	Quality        string `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH"`
+	HasMinViewers  bool   `json:"has_min_viewers"`
+	MinViewers     *int64 `json:"min_viewers,omitempty" validate:"omitempty,min=0"`
+	HasCategories  bool   `json:"has_categories"`
+	HasTags        bool   `json:"has_tags"`
+	IsDeleteRediff bool   `json:"is_delete_rediff"`
+	// No struct-tag bound: time_before_delete is only meaningful when
+	// is_delete_rediff is set, so the schedule service validates it
+	// conditionally (validateFilterConsistency), matching the DB CHECK. An
+	// unconditional tag here would reject a stale value on a non-delete schedule
+	// that the service and DB both allow.
+	TimeBeforeDelete *int64   `json:"time_before_delete,omitempty"`
 	IsDisabled       bool     `json:"is_disabled"`
 	CategoryIDs      []string `json:"category_ids"`
 	TagIDs           []int64  `json:"tag_ids"`
@@ -228,14 +233,19 @@ func (h *Handler) Create(ctx context.Context, input CreateInput) (ScheduleRespon
 // changing broadcaster_id — that would effectively move the schedule to
 // another channel and should be a delete+create instead.
 type UpdateInput struct {
-	ID               int64    `json:"id" validate:"required"`
-	Quality          string   `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH"`
-	HasMinViewers    bool     `json:"has_min_viewers"`
-	MinViewers       *int64   `json:"min_viewers,omitempty" validate:"omitempty,min=0"`
-	HasCategories    bool     `json:"has_categories"`
-	HasTags          bool     `json:"has_tags"`
-	IsDeleteRediff   bool     `json:"is_delete_rediff"`
-	TimeBeforeDelete *int64   `json:"time_before_delete,omitempty" validate:"omitempty,min=1"`
+	ID             int64  `json:"id" validate:"required"`
+	Quality        string `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH"`
+	HasMinViewers  bool   `json:"has_min_viewers"`
+	MinViewers     *int64 `json:"min_viewers,omitempty" validate:"omitempty,min=0"`
+	HasCategories  bool   `json:"has_categories"`
+	HasTags        bool   `json:"has_tags"`
+	IsDeleteRediff bool   `json:"is_delete_rediff"`
+	// No struct-tag bound: time_before_delete is only meaningful when
+	// is_delete_rediff is set, so the schedule service validates it
+	// conditionally (validateFilterConsistency), matching the DB CHECK. An
+	// unconditional tag here would reject a stale value on a non-delete schedule
+	// that the service and DB both allow.
+	TimeBeforeDelete *int64   `json:"time_before_delete,omitempty"`
 	IsDisabled       bool     `json:"is_disabled"`
 	CategoryIDs      []string `json:"category_ids"`
 	TagIDs           []int64  `json:"tag_ids"`

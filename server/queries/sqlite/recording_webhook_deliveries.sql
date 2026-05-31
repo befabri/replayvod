@@ -101,9 +101,21 @@ ORDER BY created_at DESC, id DESC
 LIMIT @row_limit;
 
 -- name: DeleteOldRecordingWebhookDeliveries :exec
--- Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) created
--- before the cutoff. pending/delivering rows are never deleted regardless of age
--- so a queued or in-flight delivery is never lost.
+-- Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) whose
+-- latest terminal update is before the cutoff. pending/delivering rows are never
+-- deleted regardless of age so a queued or in-flight delivery is never lost.
+-- Uses updated_at instead of created_at so a long-retrying row keeps a recent
+-- outcome.
 DELETE FROM recording_webhook_deliveries
-WHERE created_at < @cutoff
+WHERE updated_at < @cutoff
   AND status IN ('delivered', 'rejected', 'failed');
+
+-- name: SetRecordingWebhookDeliveryFrozenParts :exec
+-- Freeze the part metadata on the first delivery build, while the video's parts
+-- still exist, so a later retry rebuilds the real part list even after retention
+-- has deleted those parts. Signed download URLs are re-minted per attempt and
+-- capped by retention, not stored here. See
+-- dispatcher.bodyForDelivery.
+UPDATE recording_webhook_deliveries
+SET frozen_parts = @frozen_parts
+WHERE id = @id;

@@ -142,6 +142,8 @@ type Repository interface {
 	UpdateVideoSelectedVariant(ctx context.Context, id int64, quality string, fps *float64) error
 	MarkVideoDone(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string, truncated bool) error
 	MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool) error
+	MarkVideoDoneAndEnqueueRecordingWebhook(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string, truncated bool, delivery *RecordingWebhookDeliveryInput) error
+	MarkVideoFailedAndEnqueueRecordingWebhook(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, delivery *RecordingWebhookDeliveryInput) error
 	SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error
 	// ListVideos returns a page of videos filtered by opts.Status and
 	// sorted per opts.Sort/Order. Empty Sort/Order default to
@@ -153,6 +155,14 @@ type Repository interface {
 	ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	SoftDeleteVideo(ctx context.Context, id int64) error
+	// ListFinishedVideosForRetention returns the terminal, not-yet-tombstoned
+	// recordings that own a snapshotted retention policy, can have reclaimable
+	// objects, and are already due at now.
+	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]RetentionVideo, error)
+	// FinalizeRetentionDelete is the DB commit marker after object purge:
+	// tombstone the video and remove its parts in one transaction so readers
+	// never see a visible row whose part rows were already deleted.
+	FinalizeRetentionDelete(ctx context.Context, videoID int64) error
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	VideoStatsByStatus(ctx context.Context) ([]VideoStatsByStatus, error)
 	VideoStatsTotals(ctx context.Context) (*VideoStatsTotals, error)
@@ -322,12 +332,18 @@ type Repository interface {
 	// terminal-path variant). CreateClaimedRecordingWebhookDelivery inserts a
 	// 'delivering' row for the synchronous SendTest path, so the poller never
 	// also claims it. DeleteOldRecordingWebhookDeliveries is the retention sweep
-	// (terminal rows only), mirroring the other log-table retention queries.
+	// (terminal rows only, by updated_at), mirroring the other log-table
+	// retention queries.
 	CreateRecordingWebhookDelivery(ctx context.Context, input *RecordingWebhookDeliveryInput) (*RecordingWebhookDelivery, error)
 	CreateClaimedRecordingWebhookDelivery(ctx context.Context, input *RecordingWebhookDeliveryInput) (*RecordingWebhookDelivery, error)
 	ClaimDueRecordingWebhookDeliveries(ctx context.Context, now time.Time, limit int) ([]RecordingWebhookDelivery, error)
 	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, status int, now time.Time) error
 	MarkRecordingWebhookDeliveryFinal(ctx context.Context, id int64, status string, httpStatus int, errMsg string, nextAttemptAt time.Time, now time.Time) error
+	// SetRecordingWebhookDeliveryFrozenParts freezes the part metadata on the
+	// first delivery build so a retry rebuilds the real part list after retention
+	// deletes the video's parts. URLs are re-minted per attempt, capped by
+	// retention, and not stored.
+	SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error
 	ResetStaleRecordingWebhookDeliveries(ctx context.Context, before time.Time, now time.Time) error
 	RetryRecordingWebhookDelivery(ctx context.Context, id int64, now time.Time) (*RecordingWebhookDelivery, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, limit int) ([]RecordingWebhookDelivery, error)

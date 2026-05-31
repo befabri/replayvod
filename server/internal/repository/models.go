@@ -217,6 +217,13 @@ type Video struct {
 	DeletedAt       *time.Time
 	RecordingType   string
 	ForceH264       bool
+	// TriggerScheduleID is the highest-quality schedule that caused this
+	// recording. RetentionSourceScheduleID is the matched delete-enabled
+	// schedule whose shortest window was snapshotted onto the recording.
+	// Both are nil for manual recordings.
+	TriggerScheduleID         *int64
+	RetentionSourceScheduleID *int64
+	RetentionWindowHours      *int64
 	// CompletionKind distinguishes content-completeness from
 	// pipeline success. Values: "complete" (clean end), "partial"
 	// (ended but missed data — typically a shutdown-resume gap),
@@ -244,6 +251,10 @@ const (
 	CompletionKindCancelled = "cancelled"
 )
 
+// MaxRetentionWindowHours is the largest time_before_delete value that can be
+// converted to a time.Duration without overflowing nanoseconds.
+const MaxRetentionWindowHours int64 = int64(1<<63-1) / int64(time.Hour)
+
 // VideoInput is the creation payload for a new download row.
 // RecordingType is required ("video" or "audio"); empty defaults to "video"
 // at the adapter layer. ForceH264 defaults to false.
@@ -263,6 +274,12 @@ type VideoInput struct {
 	Language      string
 	RecordingType string
 	ForceH264     bool
+	// Retention fields are set only by schedule-triggered recordings
+	// whose matched schedules include an enabled delete policy. Manual
+	// recordings leave them nil and are outside automatic retention.
+	TriggerScheduleID         *int64
+	RetentionSourceScheduleID *int64
+	RetentionWindowHours      *int64
 }
 
 // RecordingType enumerates the two recording modes. Stored on
@@ -462,6 +479,18 @@ type VideoStatsTotals struct {
 type VideoStatsByStatus struct {
 	Status string
 	Count  int64
+}
+
+// RetentionVideo is a terminal, still-present recording with a snapshotted
+// retention window. DONE recordings plus FAILED rows that produced a partial or
+// cancelled artifact can own reclaimable objects. DownloadedAt and
+// RetentionWindowHours are filtered NOT NULL by the query, so nil values here
+// are invariant breaches.
+type RetentionVideo struct {
+	VideoID              int64
+	BroadcasterID        string
+	DownloadedAt         *time.Time
+	RetentionWindowHours *int64
 }
 
 // ListVideosOpts is the filter+sort payload for ListVideos. Empty Status
@@ -700,6 +729,12 @@ type RecordingWebhookDelivery struct {
 	DeliveredAt   *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	// FrozenParts is the serialized part metadata (paths, sizes, indices; no
+	// URLs), snapshotted on the first delivery build so a retry rebuilds the real
+	// part list even after retention deletes the video's parts. Signed download
+	// URLs are re-minted per attempt, not stored here. Empty until the first
+	// attempt snapshots it.
+	FrozenParts string
 }
 
 // RecordingWebhookDeliveryInput creates a pending delivery. DedupeKey is unique

@@ -172,12 +172,12 @@ func TestInitialOffset(t *testing.T) {
 		duration float64
 		want     float64
 	}{
-		{0, 5},      // fallback when duration unknown
-		{10, 5},     // 10% = 1s → clamped to 5s floor
-		{100, 10},   // 10% = 10s → in range
-		{3000, 300}, // 10% = 300s → in range
+		{0, 5},       // fallback when duration unknown
+		{10, 5},      // 10% = 1s → clamped to 5s floor
+		{100, 10},    // 10% = 10s → in range
+		{3000, 300},  // 10% = 300s → in range
 		{10000, 600}, // 10% = 1000s → clamped to 10min ceiling
-		{-10, 5},    // negative treated as unknown
+		{-10, 5},     // negative treated as unknown
 	}
 	for _, c := range cases {
 		got := initialOffset(c.duration)

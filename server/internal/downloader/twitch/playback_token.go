@@ -35,10 +35,10 @@ const (
 // (login + isLive etc. for playback token); Extensions.PersistedQuery
 // is the hash lookup that tells Twitch which canned query to run.
 type gqlPersistedQuery struct {
-	OperationName string            `json:"operationName"`
-	Variables     map[string]any    `json:"variables"`
-	Extensions    gqlExtensions     `json:"extensions"`
-	Query         string            `json:"query,omitempty"`
+	OperationName string         `json:"operationName"`
+	Variables     map[string]any `json:"variables"`
+	Extensions    gqlExtensions  `json:"extensions"`
+	Query         string         `json:"query,omitempty"`
 }
 
 type gqlExtensions struct {
@@ -54,7 +54,7 @@ type gqlPersistedRef struct {
 // The real payload has more fields (cached channelTitle etc.) but
 // we only need value + signature.
 type gqlPlaybackResponse struct {
-	Errors []gqlError            `json:"errors,omitempty"`
+	Errors []gqlError               `json:"errors,omitempty"`
 	Data   *gqlPlaybackResponseData `json:"data,omitempty"`
 }
 

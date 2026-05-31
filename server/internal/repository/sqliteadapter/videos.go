@@ -78,18 +78,21 @@ func (a *SQLiteAdapter) CreateVideo(ctx context.Context, v *repository.VideoInpu
 		force = 1
 	}
 	row, err := a.queries.CreateVideo(ctx, sqlitegen.CreateVideoParams{
-		JobID:         v.JobID,
-		Filename:      v.Filename,
-		DisplayName:   v.DisplayName,
-		Title:         v.Title,
-		Status:        v.Status,
-		Quality:       v.Quality,
-		BroadcasterID: v.BroadcasterID,
-		StreamID:      toNullString(v.StreamID),
-		ViewerCount:   v.ViewerCount,
-		Language:      v.Language,
-		RecordingType: rt,
-		ForceH264:     force,
+		JobID:                     v.JobID,
+		Filename:                  v.Filename,
+		DisplayName:               v.DisplayName,
+		Title:                     v.Title,
+		Status:                    v.Status,
+		Quality:                   v.Quality,
+		BroadcasterID:             v.BroadcasterID,
+		StreamID:                  toNullString(v.StreamID),
+		ViewerCount:               v.ViewerCount,
+		Language:                  v.Language,
+		RecordingType:             rt,
+		ForceH264:                 force,
+		TriggerScheduleID:         int64PtrToNullInt64(v.TriggerScheduleID),
+		RetentionSourceScheduleID: int64PtrToNullInt64(v.RetentionSourceScheduleID),
+		RetentionWindowHours:      int64PtrToNullInt64(v.RetentionWindowHours),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create video: %w", err)
@@ -130,6 +133,25 @@ func (a *SQLiteAdapter) MarkVideoDone(ctx context.Context, id int64, durationSec
 	})
 }
 
+func (a *SQLiteAdapter) MarkVideoDoneAndEnqueueRecordingWebhook(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string, truncated bool, delivery *repository.RecordingWebhookDeliveryInput) error {
+	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
+		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
+			return err
+		}
+		if err := q.MarkVideoDone(ctx, sqlitegen.MarkVideoDoneParams{
+			ID:              id,
+			DurationSeconds: sql.NullFloat64{Float64: durationSeconds, Valid: true},
+			SizeBytes:       sql.NullInt64{Int64: sizeBytes, Valid: true},
+			Thumbnail:       toNullString(thumbnail),
+			CompletionKind:  completionKind,
+			Truncated:       sqliteBool(truncated),
+		}); err != nil {
+			return err
+		}
+		return sqliteCreateRecordingWebhookDeliveryIfEnabled(ctx, q, delivery)
+	})
+}
+
 func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool) error {
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
@@ -141,6 +163,23 @@ func (a *SQLiteAdapter) MarkVideoFailed(ctx context.Context, id int64, errMsg st
 			CompletionKind: completionKind,
 			Truncated:      sqliteBool(truncated),
 		})
+	})
+}
+
+func (a *SQLiteAdapter) MarkVideoFailedAndEnqueueRecordingWebhook(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, delivery *repository.RecordingWebhookDeliveryInput) error {
+	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
+		if err := closeOpenVideoMetadataSpansWith(ctx, q, id, time.Now().UTC()); err != nil {
+			return err
+		}
+		if err := q.MarkVideoFailed(ctx, sqlitegen.MarkVideoFailedParams{
+			ID:             id,
+			Error:          sql.NullString{String: errMsg, Valid: true},
+			CompletionKind: completionKind,
+			Truncated:      sqliteBool(truncated),
+		}); err != nil {
+			return err
+		}
+		return sqliteCreateRecordingWebhookDeliveryIfEnabled(ctx, q, delivery)
 	})
 }
 
@@ -174,7 +213,8 @@ const listVideosSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind, truncated
+    recording_type, force_h264, title, completion_kind, truncated,
+    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
 FROM videos
 WHERE deleted_at IS NULL
   AND (?1 = '' OR status = ?1)
@@ -199,7 +239,8 @@ const listVideosByBroadcasterPageSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind, truncated
+    recording_type, force_h264, title, completion_kind, truncated,
+    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
 FROM videos
 WHERE broadcaster_id = ?1
   AND deleted_at IS NULL
@@ -216,7 +257,8 @@ const listVideosByCategoryPageSQL = `SELECT
     v.selected_fps, v.broadcaster_id, v.stream_id, v.viewer_count, v.language,
     v.duration_seconds, v.size_bytes, v.thumbnail, v.error,
     v.start_download_at, v.downloaded_at, v.deleted_at,
-    v.recording_type, v.force_h264, v.title, v.completion_kind, v.truncated
+    v.recording_type, v.force_h264, v.title, v.completion_kind, v.truncated,
+    v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours
 FROM videos v
 INNER JOIN video_categories vc ON vc.video_id = v.id
 WHERE vc.category_id = ?1
@@ -234,7 +276,8 @@ const listVideosPageBaseSQL = `SELECT
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind, truncated
+    recording_type, force_h264, title, completion_kind, truncated,
+    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
 FROM videos
 WHERE deleted_at IS NULL
   AND (? = '' OR status = ?)`
@@ -278,6 +321,9 @@ func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVide
 			&row.Title,
 			&row.CompletionKind,
 			&row.Truncated,
+			&row.TriggerScheduleID,
+			&row.RetentionSourceScheduleID,
+			&row.RetentionWindowHours,
 		); err != nil {
 			return nil, fmt.Errorf("sqlite list videos scan: %w", err)
 		}
@@ -346,6 +392,35 @@ func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repos
 
 func (a *SQLiteAdapter) SoftDeleteVideo(ctx context.Context, id int64) error {
 	return a.queries.SoftDeleteVideo(ctx, id)
+}
+
+func (a *SQLiteAdapter) ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]repository.RetentionVideo, error) {
+	rows, err := a.queries.ListFinishedVideosForRetention(ctx, sql.NullString{String: formatTime(now), Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list finished videos for retention: %w", err)
+	}
+	out := make([]repository.RetentionVideo, len(rows))
+	for i, r := range rows {
+		out[i] = repository.RetentionVideo{
+			VideoID:              r.ID,
+			BroadcasterID:        r.BroadcasterID,
+			DownloadedAt:         parseNullTime(r.DownloadedAt),
+			RetentionWindowHours: nullInt64ToInt64Ptr(r.RetentionWindowHours),
+		}
+	}
+	return out, nil
+}
+
+func (a *SQLiteAdapter) FinalizeRetentionDelete(ctx context.Context, videoID int64) error {
+	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
+		if err := q.SoftDeleteVideo(ctx, videoID); err != nil {
+			return fmt.Errorf("sqlite retention tombstone video: %w", err)
+		}
+		if err := q.DeleteVideoParts(ctx, videoID); err != nil {
+			return fmt.Errorf("sqlite retention delete parts: %w", err)
+		}
+		return nil
+	})
 }
 
 func (a *SQLiteAdapter) CountVideosByStatus(ctx context.Context, status string) (int64, error) {
@@ -425,30 +500,33 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		selectedFPS = &f
 	}
 	return &repository.Video{
-		ID:              v.ID,
-		JobID:           v.JobID,
-		Filename:        v.Filename,
-		DisplayName:     v.DisplayName,
-		Title:           v.Title,
-		Status:          v.Status,
-		Quality:         v.Quality,
-		SelectedQuality: fromNullString(v.SelectedQuality),
-		SelectedFPS:     selectedFPS,
-		BroadcasterID:   v.BroadcasterID,
-		StreamID:        fromNullString(v.StreamID),
-		ViewerCount:     v.ViewerCount,
-		Language:        v.Language,
-		DurationSeconds: duration,
-		SizeBytes:       size,
-		Thumbnail:       fromNullString(v.Thumbnail),
-		Error:           fromNullString(v.Error),
-		StartDownloadAt: parseTime(v.StartDownloadAt),
-		DownloadedAt:    parseNullTime(v.DownloadedAt),
-		DeletedAt:       parseNullTime(v.DeletedAt),
-		RecordingType:   v.RecordingType,
-		ForceH264:       v.ForceH264 != 0,
-		CompletionKind:  v.CompletionKind,
-		Truncated:       v.Truncated != 0,
+		ID:                        v.ID,
+		JobID:                     v.JobID,
+		Filename:                  v.Filename,
+		DisplayName:               v.DisplayName,
+		Title:                     v.Title,
+		Status:                    v.Status,
+		Quality:                   v.Quality,
+		SelectedQuality:           fromNullString(v.SelectedQuality),
+		SelectedFPS:               selectedFPS,
+		BroadcasterID:             v.BroadcasterID,
+		StreamID:                  fromNullString(v.StreamID),
+		ViewerCount:               v.ViewerCount,
+		Language:                  v.Language,
+		DurationSeconds:           duration,
+		SizeBytes:                 size,
+		Thumbnail:                 fromNullString(v.Thumbnail),
+		Error:                     fromNullString(v.Error),
+		StartDownloadAt:           parseTime(v.StartDownloadAt),
+		DownloadedAt:              parseNullTime(v.DownloadedAt),
+		DeletedAt:                 parseNullTime(v.DeletedAt),
+		RecordingType:             v.RecordingType,
+		ForceH264:                 v.ForceH264 != 0,
+		TriggerScheduleID:         nullInt64ToInt64Ptr(v.TriggerScheduleID),
+		RetentionSourceScheduleID: nullInt64ToInt64Ptr(v.RetentionSourceScheduleID),
+		RetentionWindowHours:      nullInt64ToInt64Ptr(v.RetentionWindowHours),
+		CompletionKind:            v.CompletionKind,
+		Truncated:                 v.Truncated != 0,
 	}
 }
 
@@ -503,6 +581,9 @@ func scanSQLiteVideo(rows *sql.Rows) (sqlitegen.Video, error) {
 		&row.Title,
 		&row.CompletionKind,
 		&row.Truncated,
+		&row.TriggerScheduleID,
+		&row.RetentionSourceScheduleID,
+		&row.RetentionWindowHours,
 	)
 	return row, err
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -27,19 +28,20 @@ import (
 
 func newTestDispatcher(store *fakeRepo) *Dispatcher {
 	return &Dispatcher{
-		svc:          New(store, nil),
-		store:        store,
-		client:       newDeliveryClient(),
-		log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
-		signURL:      videodownload.NewSigner("test-hmac-secret", "https://app.example", time.Hour).PartURL,
-		sem:          make(chan struct{}, defaultConcurrency),
-		attempts:     3,
-		timeout:      200 * time.Millisecond,
-		backoff:      time.Millisecond,
-		maxBackoff:   20 * time.Millisecond,
-		pollInterval: time.Hour,
-		staleTimeout: time.Minute,
-		drainTimeout: time.Second,
+		svc:                        New(store, nil),
+		store:                      store,
+		client:                     newDeliveryClient(),
+		log:                        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		signURL:                    videodownload.NewSigner("test-hmac-secret", "https://app.example", time.Hour).PartURLUntil,
+		capDownloadURLsAtRetention: true,
+		sem:                        make(chan struct{}, defaultConcurrency),
+		attempts:                   3,
+		timeout:                    200 * time.Millisecond,
+		backoff:                    time.Millisecond,
+		maxBackoff:                 20 * time.Millisecond,
+		pollInterval:               time.Hour,
+		staleTimeout:               time.Minute,
+		drainTimeout:               time.Second,
 	}
 }
 
@@ -47,7 +49,7 @@ func completedStore() *fakeRepo {
 	return &fakeRepo{
 		video: sampleVideo(),
 		parts: []repository.VideoPart{
-			{PartIndex: 0, Filename: "vod-42-01.mp4", SizeBytes: 600, DurationSeconds: 1800},
+			{PartIndex: 1, Filename: "vod-42-01.mp4", SizeBytes: 600, DurationSeconds: 1800},
 		},
 		channel: &repository.Channel{BroadcasterLogin: "speedy", BroadcasterName: "Speedy"},
 	}
@@ -138,7 +140,10 @@ func TestNewDispatcher_setsProductionDefaultsAndOptionalSigner(t *testing.T) {
 	if withSigner.signURL == nil {
 		t.Fatal("non-nil signer should wire part URL signing")
 	}
-	if got := withSigner.signURL(42, 0); !strings.HasPrefix(got, "https://app.example/api/v1/videos/42/parts/0/download?") {
+	if !withSigner.capDownloadURLsAtRetention {
+		t.Fatal("retention URL cap should default on")
+	}
+	if got := withSigner.signURL(42, 1, nil); !strings.HasPrefix(got, "https://app.example/api/v1/videos/42/parts/1/download?") {
 		t.Fatalf("signed part URL = %q", got)
 	}
 }
@@ -194,7 +199,7 @@ func TestDeliverClaimed_signsRawBodySendsShapeAndPersistsDelivered(t *testing.T)
 	if len(got.payload.Parts) != 1 {
 		t.Fatalf("want 1 part, got %d", len(got.payload.Parts))
 	}
-	wantPrefix := "https://app.example/api/v1/videos/42/parts/0/download?"
+	wantPrefix := "https://app.example/api/v1/videos/42/parts/1/download?"
 	if dl := got.payload.Parts[0].DownloadURL; !strings.HasPrefix(dl, wantPrefix) {
 		t.Fatalf("part download URL = %q, want prefix %q", dl, wantPrefix)
 	}
@@ -248,6 +253,147 @@ func TestDeliverClaimed_retriesWithDurableBackoffThenSucceeds(t *testing.T) {
 	recent, _ = d.RecentDeliveries(context.Background())
 	if calls.Load() != 2 || recent[0].Outcome != OutcomeDelivered || recent[0].Attempts != 2 {
 		t.Fatalf("second attempt should deliver, calls=%d recent=%+v", calls.Load(), recent[0])
+	}
+}
+
+// TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry pins the
+// whole retention-race design: the part metadata is frozen on the first attempt
+// while the parts exist, so a retry after retention deleted those parts still
+// carries the real part (frozen metadata survives), AND the signed download URL
+// is re-minted per attempt rather than frozen, so a late retry never ships a
+// stale URL. The signer here stamps a monotonically advancing token so a frozen
+// URL is observably distinct from a regenerated one.
+func TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry(t *testing.T) {
+	var calls atomic.Int32
+	var mu sync.Mutex
+	var bodies []Payload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var p Payload
+		_ = json.Unmarshal(body, &p)
+		mu.Lock()
+		bodies = append(bodies, p)
+		mu.Unlock()
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError) // fail first so it retries
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	store := completedStore()
+	store.settings = &repository.ServerSettings{
+		RecordingWebhookEnabled: true,
+		RecordingWebhookURL:     srv.URL,
+		RecordingWebhookSecret:  "s",
+	}
+	d := newTestDispatcher(store)
+	d.backoff = 5 * time.Millisecond
+	var token atomic.Int64
+	d.signURL = func(videoID int64, partIndex int32, _ *time.Time) string {
+		return fmt.Sprintf("https://app.example/v/%d/p/%d?tok=%d", videoID, partIndex, token.Add(1))
+	}
+	row := enqueueTerminal(t, store, EventCompleted, 42, time.Now().UTC())
+
+	// First attempt fails, but freezes the part metadata while the part exists.
+	d.deliverClaimed(context.Background(), claimOne(t, store))
+	if deliverySnapshot(t, store, row.ID).FrozenParts == "" {
+		t.Fatal("first attempt did not freeze the part metadata onto the delivery row")
+	}
+
+	// Retention deletes the recording's parts before the receiver recovers.
+	store.mu.Lock()
+	store.parts = nil
+	store.mu.Unlock()
+
+	stored := deliverySnapshot(t, store, row.ID)
+	if wait := time.Until(stored.NextAttemptAt.Add(time.Millisecond)); wait > 0 {
+		time.Sleep(wait)
+	}
+	d.deliverClaimed(context.Background(), claimOne(t, store))
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) != 2 {
+		t.Fatalf("captured %d bodies, want 2", len(bodies))
+	}
+	// Both attempts carry the real part (frozen metadata survives retention)...
+	for i, b := range bodies {
+		if len(b.Parts) != 1 {
+			t.Fatalf("attempt %d parts = %d, want 1 (a live rebuild after retention would send 0)", i+1, len(b.Parts))
+		}
+		if b.Parts[0].SizeBytes != 600 || b.Parts[0].PartIndex != 1 {
+			t.Fatalf("attempt %d part = %+v, want the frozen index-1/600-byte part", i+1, b.Parts[0])
+		}
+		if b.Parts[0].DownloadURL == "" {
+			t.Fatalf("attempt %d part has no download_url; URL must be regenerated from the frozen part", i+1)
+		}
+	}
+	// ...but the URL is regenerated per attempt, not frozen (distinct token).
+	if bodies[0].Parts[0].DownloadURL == bodies[1].Parts[0].DownloadURL {
+		t.Fatalf("download_url frozen across attempts (%q); want re-minted per attempt", bodies[0].Parts[0].DownloadURL)
+	}
+}
+
+// TestDeliverClaimed_freezesPayloadBeforeConfigGate pins that the snapshot runs
+// before the disabled/incomplete-config gate. A delivery whose webhook is
+// disabled at its first attempt is still failed, but its body must already be
+// frozen so a later manual retry (after the operator fixes the config) resends
+// the real parts instead of rebuilding from parts retention may have deleted.
+func TestDeliverClaimed_freezesPayloadBeforeConfigGate(t *testing.T) {
+	store := completedStore()
+	store.settings = &repository.ServerSettings{
+		RecordingWebhookEnabled: false, // disabled at this first attempt
+		RecordingWebhookURL:     "https://receiver.example",
+		RecordingWebhookSecret:  "s",
+	}
+	d := newTestDispatcher(store)
+	row := enqueueTerminal(t, store, EventCompleted, 42, time.Now().UTC())
+
+	d.deliverClaimed(context.Background(), claimOne(t, store))
+
+	snap := deliverySnapshot(t, store, row.ID)
+	if snap.Status != repository.RecordingWebhookDeliveryFailed {
+		t.Fatalf("status = %q, want failed for a disabled webhook", snap.Status)
+	}
+	if snap.FrozenParts == "" {
+		t.Fatal("parts not frozen before the config gate; a disabled-config delivery would lose its parts on a later retry")
+	}
+}
+
+func TestDeliverClaimed_freezePersistFailureRetriesWithoutPost(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	store := completedStore()
+	store.freezePartsErr = errors.New("db unavailable")
+	store.settings = &repository.ServerSettings{
+		RecordingWebhookEnabled: true,
+		RecordingWebhookURL:     srv.URL,
+		RecordingWebhookSecret:  "s",
+	}
+	d := newTestDispatcher(store)
+	row := enqueueTerminal(t, store, EventCompleted, 42, time.Now().UTC())
+
+	d.deliverClaimed(context.Background(), claimOne(t, store))
+
+	if calls.Load() != 0 {
+		t.Fatalf("delivery POSTed despite failing to persist frozen parts, calls=%d", calls.Load())
+	}
+	snap := deliverySnapshot(t, store, row.ID)
+	if snap.Status != repository.RecordingWebhookDeliveryPending {
+		t.Fatalf("status = %q, want pending retry after frozen-parts persist failure", snap.Status)
+	}
+	if snap.FrozenParts != "" {
+		t.Fatalf("frozen_parts = %q, want empty after injected persist failure", snap.FrozenParts)
+	}
+	if !strings.Contains(snap.LastError, "persist frozen parts") {
+		t.Fatalf("last_error = %q, want frozen-parts persist cause", snap.LastError)
 	}
 }
 

@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
+	"time"
 )
 
 func (c *Config) GetAddress() string {
@@ -41,6 +43,75 @@ func (c *Config) RedactedConfig() Config {
 
 func (c *Config) ServerModeCallbackURL() string {
 	return c.ServerMode.CallbackURL()
+}
+
+// PublicAPIBaseURL returns the scheme://host the API is reachable at from
+// outside the process. An explicit PUBLIC_BASE_URL wins when set. Otherwise,
+// direct EventSub mode uses its webhook callback origin, because that is the
+// public URL Twitch already reaches for this server. The OAuth CallbackURL is the
+// final fallback for the common single-origin login/dashboard/API deployment.
+// Relay mode deliberately does not use the relay ingest origin: that host
+// receives EventSub frames, but it is not the ReplayVOD API serving video bytes.
+// Returns "" when none yields a usable scheme+host, in which case callers omit
+// any absolute URL.
+func (c *Config) PublicAPIBaseURL() string {
+	if base := parseOrigin(c.Env.PublicBaseURL); base != "" {
+		return base
+	}
+	if c.ServerMode.Mode == ServerModeDirect {
+		if base := parseOrigin(c.ServerMode.WebhookCallbackURL); base != "" {
+			return base
+		}
+	}
+	return parseOrigin(c.Env.CallbackURL)
+}
+
+// parseOrigin returns the scheme://host of raw, or "" when raw is empty,
+// unparseable, or missing a scheme or host.
+func parseOrigin(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// OriginIsLoopback reports whether the host of origin (a scheme://host as
+// returned by PublicAPIBaseURL) is loopback: the literal "localhost" or an IP in
+// 127.0.0.0/8 or ::1. A signed part-download URL built on a loopback origin is
+// useless to an external recording-webhook consumer, so main warns when signed
+// downloads are enabled but the derived public origin is loopback — typically
+// the localhost CallbackURL default an operator forgot to override with a real
+// PUBLIC_BASE_URL. An empty or unparseable origin is not loopback (there is no
+// link to mislead anyone with).
+func OriginIsLoopback(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
+// SignedDownloadURLTTL is the maximum recording-webhook signed part-download URL
+// lifetime from Download.SignedURLTTLHours. Per-recording retention can cap it
+// further. A non-positive value yields a zero duration, which the URL signer
+// reports as "not enabled".
+func (c *Config) SignedDownloadURLTTL() time.Duration {
+	h := c.App.Download.SignedURLTTLHours
+	if h <= 0 {
+		return 0
+	}
+	return time.Duration(h) * time.Hour
 }
 
 func redactRelayURLToken(raw string) string {

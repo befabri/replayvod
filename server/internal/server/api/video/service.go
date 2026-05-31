@@ -11,6 +11,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
+	"github.com/befabri/replayvod/server/internal/storagekeys"
 )
 
 // Service owns video-domain reads: pagination, filtering by
@@ -229,9 +230,8 @@ func (s *Service) ListSnapshots(ctx context.Context, store storage.Storage, vide
 		return nil, err
 	}
 	out := make([]string, 0, 24)
-	base := "thumbnails/" + v.Filename + "-snap"
-	for i := 0; i < maxSnapshotsPerVideo; i++ {
-		path := fmt.Sprintf("%s%02d.jpg", base, i)
+	for i := range maxSnapshotsPerVideo {
+		path := storagekeys.Snapshot(v.Filename, i)
 		ok, err := store.Exists(ctx, path)
 		if err != nil {
 			return nil, fmt.Errorf("probe snapshot %s: %w", path, err)

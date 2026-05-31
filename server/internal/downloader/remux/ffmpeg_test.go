@@ -17,12 +17,12 @@ import (
 // writes an empty file at args[len(args)-1] before returning so
 // Run's .part → final rename step has something to rename.
 type mockRunner struct {
-	lastName        string
-	lastArgs        []string
-	stderrOut       string
-	returnErr       error
-	returnDelay     time.Duration
-	emulateSuccess  bool
+	lastName       string
+	lastArgs       []string
+	stderrOut      string
+	returnErr      error
+	returnDelay    time.Duration
+	emulateSuccess bool
 }
 
 func (m *mockRunner) Run(ctx context.Context, name string, args []string, stderr io.Writer) error {

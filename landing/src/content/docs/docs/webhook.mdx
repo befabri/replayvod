@@ -85,11 +85,11 @@ and a per-delivery **retry** for failed/rejected ones.
   "error": "auth failed",              // present only on recording.failed
   "parts": [
     {
-      "part_index": 0,
+      "part_index": 1,
       "path": "videos/vod-42-01.mp4",   // storage-relative; useful to a co-located consumer
       "size_bytes": 600,
       "duration_seconds": 1800.0,
-      "download_url": "https://your-host/api/v1/videos/42/parts/0/download?exp=...&sig=..."
+      "download_url": "https://your-host/api/v1/videos/42/parts/1/download?exp=...&sig=..."
     }
   ]
 }
@@ -130,14 +130,19 @@ on `Replayvod-Webhook-Id`.
 
 ## Fetching the files
 
-Each part of a completed recording carries a `download_url`: an absolute,
-signed, **unauthenticated** link that streams that part's bytes (HTTP range
-supported) with no dashboard session required. Its lifetime is the operator's
-[`download.signed_url_ttl_hours`](/docs/reference/config-toml/) (default 7 days;
-`0` disables signed URLs, leaving only `path`). The origin is taken from
-`PUBLIC_BASE_URL` when set, otherwise derived from `CALLBACK_URL` — set
-`PUBLIC_BASE_URL` if your public streaming host differs from the OAuth callback
-host. A consumer that shares ReplayVOD's storage volume can use `path` directly.
+Each part of a completed, non-retained recording carries a `download_url`: an
+absolute, signed, **unauthenticated** link that streams that part's bytes (HTTP
+range supported) with no dashboard session required. Its maximum lifetime is the
+operator's [`download.signed_url_ttl_hours`](/docs/reference/config-toml/)
+(default 7 days; `0` disables signed URLs, leaving only `path`). When the
+recording auto-delete task is enabled, retention caps the URL at the recording's
+retention deadline; after a recording has been retained, retry payloads keep the
+part metadata but omit `download_url`.
+The origin is taken from `PUBLIC_BASE_URL` when set, otherwise from the direct
+EventSub callback origin when direct mode is active, otherwise from
+`CALLBACK_URL`. Set `PUBLIC_BASE_URL` if your public streaming host differs from
+those callback hosts. A consumer that shares ReplayVOD's storage volume can use
+`path` directly.
 
 <Aside type="caution">
 A `download_url` is a capability URL: anyone who holds it can fetch that part

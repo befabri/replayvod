@@ -379,7 +379,7 @@ func (r *s3ReadSeeker) openRange(abs int64) error {
 
 // assert interface satisfaction at compile time.
 var (
-	_ Storage         = (*S3Storage)(nil)
+	_ Storage           = (*S3Storage)(nil)
 	_ io.ReadSeekCloser = (*s3ReadSeeker)(nil)
-	_                 = bytes.NewReader // avoid unused import if above patterns change
+	_                   = bytes.NewReader // avoid unused import if above patterns change
 )

@@ -279,5 +279,12 @@ func validateFilterConsistency(hasMinViewers bool, minViewers *int64, isDeleteRe
 	if isDeleteRediff && (timeBeforeDelete == nil || *timeBeforeDelete <= 0) {
 		return fmt.Errorf("%w: is_delete_rediff=true requires time_before_delete > 0", ErrInvalidFilter)
 	}
+	// Bound the window only when delete is enabled, matching the schema CHECK
+	// (which gates the ceiling on is_delete_rediff). A non-delete schedule's
+	// stale time_before_delete is never read, so rejecting it would be stricter
+	// than the DB.
+	if isDeleteRediff && timeBeforeDelete != nil && *timeBeforeDelete > repository.MaxRetentionWindowHours {
+		return fmt.Errorf("%w: time_before_delete must be <= %d hours", ErrInvalidFilter, repository.MaxRetentionWindowHours)
+	}
 	return nil
 }
