@@ -6,19 +6,21 @@ import "time"
 // to services and subscription handlers so we have a single source
 // of truth for "what live feeds exist."
 type Buses struct {
-	EventLogs    *Topic[EventLogEvent]
-	StreamLive   *Topic[StreamLiveEvent]
-	StreamStatus *Topic[StreamStatusEvent]
-	TaskStatus   *Topic[TaskStatusEvent]
+	EventLogs         *Topic[EventLogEvent]
+	StreamLive        *Topic[StreamLiveEvent]
+	StreamStatus      *Topic[StreamStatusEvent]
+	TaskStatus        *Topic[TaskStatusEvent]
+	RecordingTerminal *Topic[RecordingTerminalEvent]
 }
 
 // New constructs a bus set with sensible buffer sizes.
 func New() *Buses {
 	return &Buses{
-		EventLogs:    NewTopic[EventLogEvent](32),
-		StreamLive:   NewTopic[StreamLiveEvent](16),
-		StreamStatus: NewTopic[StreamStatusEvent](32),
-		TaskStatus:   NewTopic[TaskStatusEvent](32),
+		EventLogs:         NewTopic[EventLogEvent](32),
+		StreamLive:        NewTopic[StreamLiveEvent](16),
+		StreamStatus:      NewTopic[StreamStatusEvent](32),
+		TaskStatus:        NewTopic[TaskStatusEvent](32),
+		RecordingTerminal: NewTopic[RecordingTerminalEvent](16),
 	}
 }
 
@@ -78,6 +80,29 @@ type StreamStatusEvent struct {
 	DisplayName      string           `json:"display_name,omitempty"`
 	StreamID         string           `json:"stream_id,omitempty"`
 	At               time.Time        `json:"at"`
+}
+
+// RecordingTerminalKind enumerates the two terminal recording outcomes that can
+// wake the durable outbound-webhook dispatcher.
+type RecordingTerminalKind string
+
+const (
+	// RecordingCompleted is published from the downloader's MarkVideoDone path
+	// (a recording that finalized at least to DONE). Maps to recording.completed.
+	RecordingCompleted RecordingTerminalKind = "completed"
+	// RecordingFailed is published from the downloader's failDownload path on a
+	// real failure or operator cancel (NOT a shutdown interrupt, which stays
+	// RUNNING for resume). Maps to recording.failed.
+	RecordingFailed RecordingTerminalKind = "failed"
+)
+
+// RecordingTerminalEvent fires when a recording reaches a terminal state. The
+// durable webhook row has already been committed by the downloader; this event
+// only wakes the dispatcher so it can poll immediately. Best-effort like every
+// other topic: a dropped wake-up only waits for the next poll interval.
+type RecordingTerminalEvent struct {
+	VideoID int64                 `json:"video_id"`
+	Kind    RecordingTerminalKind `json:"kind"`
 }
 
 // TaskStatusEvent fires on every scheduler task transition (start,

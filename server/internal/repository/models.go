@@ -671,6 +671,49 @@ type WebhookEventInput struct {
 	Payload          json.RawMessage
 }
 
+const (
+	RecordingWebhookDeliveryPending    = "pending"
+	RecordingWebhookDeliveryDelivering = "delivering"
+	RecordingWebhookDeliveryDelivered  = "delivered"
+	RecordingWebhookDeliveryRejected   = "rejected"
+	RecordingWebhookDeliveryFailed     = "failed"
+)
+
+// RecordingWebhookDelivery is the durable outbox row for the owner-configured
+// outbound recording webhook. A terminal recording transition inserts a pending
+// row; the dispatcher claims due rows, POSTs the signed payload, and records the
+// final or retry state here. Delivery is at-least-once: a crash after the POST
+// but before marking delivered can resend the same message_id.
+type RecordingWebhookDelivery struct {
+	ID            int64
+	MessageID     string
+	DedupeKey     string
+	Event         string
+	VideoID       int64
+	Status        string
+	Attempts      int
+	LastStatus    int
+	LastError     string
+	Test          bool
+	NextAttemptAt time.Time
+	LastAttemptAt *time.Time
+	DeliveredAt   *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// RecordingWebhookDeliveryInput creates a pending delivery. DedupeKey is unique
+// so retrying the terminal transition for the same recording outcome returns the
+// original row instead of creating a duplicate.
+type RecordingWebhookDeliveryInput struct {
+	MessageID     string
+	DedupeKey     string
+	Event         string
+	VideoID       int64
+	Test          bool
+	NextAttemptAt time.Time
+}
+
 // TaskStatus enumerates the lifecycle values for scheduled tasks.
 // Stored on tasks.last_status with a CHECK constraint matching these.
 const (
@@ -752,6 +795,15 @@ type ServerSettings struct {
 	EventSubRelayIngestURL        string
 	EventSubRelaySubscribeURL     string
 	EventSubRelayLocalCallbackURL string
-	CreatedAt                     time.Time
-	UpdatedAt                     time.Time
+	// RecordingWebhook* configure the generic outbound webhook fired when a
+	// recording reaches a terminal state. Enabled gates dispatch; URL is the
+	// receiver; Secret signs each delivery (empty until the owner UI generates
+	// one, exactly like the EventSub HMAC secret); Events is a comma-separated
+	// subset of {recording.completed, recording.failed} where empty means all.
+	RecordingWebhookEnabled bool
+	RecordingWebhookURL     string
+	RecordingWebhookSecret  string
+	RecordingWebhookEvents  string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }

@@ -33,6 +33,32 @@ func (a *PGAdapter) UpsertServerSettings(ctx context.Context, s *repository.Serv
 	return pgServerSettingsToDomain(row), nil
 }
 
+func (a *PGAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enabled bool, url, events string) (*repository.ServerSettings, error) {
+	row, err := a.queries.UpsertRecordingWebhookConfig(ctx, pggen.UpsertRecordingWebhookConfigParams{
+		RecordingWebhookEnabled: enabled,
+		RecordingWebhookUrl:     url,
+		RecordingWebhookEvents:  events,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert recording webhook config: %w", err)
+	}
+	return pgServerSettingsToDomain(row), nil
+}
+
+func (a *PGAdapter) EnsureRecordingWebhookSecret(ctx context.Context, secret string) error {
+	if err := a.queries.EnsureRecordingWebhookSecret(ctx, secret); err != nil {
+		return fmt.Errorf("pg ensure recording webhook secret: %w", err)
+	}
+	return nil
+}
+
+func (a *PGAdapter) SetRecordingWebhookSecret(ctx context.Context, secret string) error {
+	if err := a.queries.SetRecordingWebhookSecret(ctx, secret); err != nil {
+		return fmt.Errorf("pg set recording webhook secret: %w", err)
+	}
+	return nil
+}
+
 func (a *PGAdapter) GetServerHMACSecret(ctx context.Context) (string, error) {
 	secret, err := a.queries.GetServerHMACSecret(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -58,6 +84,10 @@ func pgServerSettingsToDomain(s pggen.ServerSetting) *repository.ServerSettings 
 		EventSubRelayIngestURL:        s.EventsubRelayIngestUrl,
 		EventSubRelaySubscribeURL:     s.EventsubRelaySubscribeUrl,
 		EventSubRelayLocalCallbackURL: s.EventsubRelayLocalCallbackUrl,
+		RecordingWebhookEnabled:       s.RecordingWebhookEnabled,
+		RecordingWebhookURL:           s.RecordingWebhookUrl,
+		RecordingWebhookSecret:        s.RecordingWebhookSecret,
+		RecordingWebhookEvents:        s.RecordingWebhookEvents,
 		CreatedAt:                     s.CreatedAt,
 		UpdatedAt:                     s.UpdatedAt,
 	}

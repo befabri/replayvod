@@ -32,6 +32,36 @@ func (a *SQLiteAdapter) UpsertServerSettings(ctx context.Context, s *repository.
 	return sqliteServerSettingsToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enabled bool, url, events string) (*repository.ServerSettings, error) {
+	var enabledInt int64
+	if enabled {
+		enabledInt = 1
+	}
+	row, err := a.queries.UpsertRecordingWebhookConfig(ctx, sqlitegen.UpsertRecordingWebhookConfigParams{
+		RecordingWebhookEnabled: enabledInt,
+		RecordingWebhookUrl:     url,
+		RecordingWebhookEvents:  events,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert recording webhook config: %w", err)
+	}
+	return sqliteServerSettingsToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) EnsureRecordingWebhookSecret(ctx context.Context, secret string) error {
+	if err := a.queries.EnsureRecordingWebhookSecret(ctx, secret); err != nil {
+		return fmt.Errorf("sqlite ensure recording webhook secret: %w", err)
+	}
+	return nil
+}
+
+func (a *SQLiteAdapter) SetRecordingWebhookSecret(ctx context.Context, secret string) error {
+	if err := a.queries.SetRecordingWebhookSecret(ctx, secret); err != nil {
+		return fmt.Errorf("sqlite set recording webhook secret: %w", err)
+	}
+	return nil
+}
+
 func (a *SQLiteAdapter) GetServerHMACSecret(ctx context.Context) (string, error) {
 	secret, err := a.queries.GetServerHMACSecret(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -57,6 +87,10 @@ func sqliteServerSettingsToDomain(s sqlitegen.ServerSetting) *repository.ServerS
 		EventSubRelayIngestURL:        s.EventsubRelayIngestUrl,
 		EventSubRelaySubscribeURL:     s.EventsubRelaySubscribeUrl,
 		EventSubRelayLocalCallbackURL: s.EventsubRelayLocalCallbackUrl,
+		RecordingWebhookEnabled:       s.RecordingWebhookEnabled != 0,
+		RecordingWebhookURL:           s.RecordingWebhookUrl,
+		RecordingWebhookSecret:        s.RecordingWebhookSecret,
+		RecordingWebhookEvents:        s.RecordingWebhookEvents,
 		CreatedAt:                     parseTime(s.CreatedAt),
 		UpdatedAt:                     parseTime(s.UpdatedAt),
 	}

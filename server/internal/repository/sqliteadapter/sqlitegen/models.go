@@ -109,6 +109,24 @@ type Job struct {
 	UpdatedAt     string         `json:"updated_at"`
 }
 
+type RecordingWebhookDelivery struct {
+	ID            int64          `json:"id"`
+	MessageID     string         `json:"message_id"`
+	DedupeKey     string         `json:"dedupe_key"`
+	Event         string         `json:"event"`
+	VideoID       int64          `json:"video_id"`
+	Status        string         `json:"status"`
+	Attempts      int64          `json:"attempts"`
+	LastStatus    int64          `json:"last_status"`
+	LastError     string         `json:"last_error"`
+	Test          int64          `json:"test"`
+	NextAttemptAt string         `json:"next_attempt_at"`
+	LastAttemptAt sql.NullString `json:"last_attempt_at"`
+	DeliveredAt   sql.NullString `json:"delivered_at"`
+	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
+}
+
 type ServerSetting struct {
 	ID                            int64  `json:"id"`
 	ServerMode                    string `json:"server_mode"`
@@ -119,6 +137,10 @@ type ServerSetting struct {
 	CreatedAt                     string `json:"created_at"`
 	UpdatedAt                     string `json:"updated_at"`
 	HmacSecret                    string `json:"hmac_secret"`
+	RecordingWebhookEnabled       int64  `json:"recording_webhook_enabled"`
+	RecordingWebhookUrl           string `json:"recording_webhook_url"`
+	RecordingWebhookSecret        string `json:"recording_webhook_secret"`
+	RecordingWebhookEvents        string `json:"recording_webhook_events"`
 }
 
 type Session struct {

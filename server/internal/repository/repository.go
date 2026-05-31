@@ -304,6 +304,35 @@ type Repository interface {
 	GetServerSettings(ctx context.Context) (*ServerSettings, error)
 	UpsertServerSettings(ctx context.Context, s *ServerSettings) (*ServerSettings, error)
 
+	// UpsertRecordingWebhookConfig persists only the recording-webhook config
+	// columns of server_settings (enabled, url, events), leaving server mode,
+	// the HMAC secret, AND the recording webhook signing secret untouched. The
+	// signing secret has its own two methods so a config save can never clobber
+	// or race it. EnsureRecordingWebhookSecret seeds one only when the slot is
+	// empty (compare-and-swap, like EnsureServerHMACSecret);
+	// SetRecordingWebhookSecret rotates it unconditionally for the owner's
+	// explicit regenerate action.
+	UpsertRecordingWebhookConfig(ctx context.Context, enabled bool, url, events string) (*ServerSettings, error)
+	EnsureRecordingWebhookSecret(ctx context.Context, secret string) error
+	SetRecordingWebhookSecret(ctx context.Context, secret string) error
+
+	// Recording webhook deliveries — durable at-least-once outbox.
+	// CreateRecordingWebhookDelivery inserts a 'pending' row (the generic
+	// enqueue; CreateRecordingWebhookDeliveryIfEnabled is its config-gated
+	// terminal-path variant). CreateClaimedRecordingWebhookDelivery inserts a
+	// 'delivering' row for the synchronous SendTest path, so the poller never
+	// also claims it. DeleteOldRecordingWebhookDeliveries is the retention sweep
+	// (terminal rows only), mirroring the other log-table retention queries.
+	CreateRecordingWebhookDelivery(ctx context.Context, input *RecordingWebhookDeliveryInput) (*RecordingWebhookDelivery, error)
+	CreateClaimedRecordingWebhookDelivery(ctx context.Context, input *RecordingWebhookDeliveryInput) (*RecordingWebhookDelivery, error)
+	ClaimDueRecordingWebhookDeliveries(ctx context.Context, now time.Time, limit int) ([]RecordingWebhookDelivery, error)
+	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, status int, now time.Time) error
+	MarkRecordingWebhookDeliveryFinal(ctx context.Context, id int64, status string, httpStatus int, errMsg string, nextAttemptAt time.Time, now time.Time) error
+	ResetStaleRecordingWebhookDeliveries(ctx context.Context, before time.Time, now time.Time) error
+	RetryRecordingWebhookDelivery(ctx context.Context, id int64, now time.Time) (*RecordingWebhookDelivery, error)
+	ListRecordingWebhookDeliveries(ctx context.Context, limit int) ([]RecordingWebhookDelivery, error)
+	DeleteOldRecordingWebhookDeliveries(ctx context.Context, before time.Time) error
+
 	// GetServerHMACSecret returns the stored EventSub HMAC secret, or "" when
 	// none has been generated yet. EnsureServerHMACSecret persists one only if
 	// the slot is still empty (compare-and-swap), so it is safe to call from
