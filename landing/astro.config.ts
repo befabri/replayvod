@@ -71,6 +71,7 @@ export default defineConfig({
             { label: 'Recording', slug: 'docs/recording' },
             { label: 'Schedules & title tracking', slug: 'docs/schedules' },
             { label: 'EventSub', slug: 'docs/eventsub' },
+            { label: 'Recording webhook', slug: 'docs/webhook' },
             { label: 'Connect relay', slug: 'docs/connect' },
           ],
         },

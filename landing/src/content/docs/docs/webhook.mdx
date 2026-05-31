@@ -1,0 +1,160 @@
+---
+title: Recording webhook
+description: Fire a signed HTTP POST to your own endpoint when a recording finishes or fails.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The recording webhook is ReplayVOD's outbound "react to something" primitive:
+when a recording reaches a terminal state, the recorder POSTs a signed JSON
+event to an endpoint you choose. Point it at a notifier, a media-server refresh,
+a NAS, or a post-processing/upload script, with zero ReplayVOD-specific code on
+the other end. The server never knows or cares what is on the receiving side.
+
+It is owner-configured (the config holds a signing secret and a server-side
+egress URL) and delivered from a durable, at-least-once outbox, so a terminal
+event survives a restart and a brief receiver outage.
+
+<Aside type="tip" title="EventSub-compatible signatures">
+Deliveries are signed `HMAC-SHA256(secret, id‖timestamp‖body)` — byte-for-byte
+the scheme Twitch EventSub uses. A receiver that already verifies Twitch
+deliveries verifies these with the same code, just reading the
+`Replayvod-Webhook-*` header names.
+</Aside>
+
+## Configure
+
+Use **System → Webhook** in the owner dashboard:
+
+<Steps>
+
+1. Enable the webhook and set the **endpoint URL**. Use `https` for a public
+   host; `http` is allowed for `localhost` or a private/LAN address (e.g.
+   `http://192.168.1.50:8096`). Link-local / cloud-metadata addresses
+   (`169.254.0.0/16`) are rejected.
+2. Choose which events fire (at least one is required while enabled).
+3. Copy the **signing secret** (auto-generated on first enable; rotate it with a
+   confirm dialog). Configure it on your receiver to verify deliveries.
+4. **Send test** posts a one-off signed `recording.test` delivery so you can
+   confirm connectivity and signature before a real recording.
+
+</Steps>
+
+The page also shows a **recent delivery log** (outcome, HTTP status, attempts)
+and a per-delivery **retry** for failed/rejected ones.
+
+## Events
+
+| Event                 | When |
+| --------------------- | ---- |
+| `recording.completed` | A recording finalized to `DONE`. |
+| `recording.failed`    | A recording failed or was cancelled (not a shutdown interrupt, which stays `RUNNING` for resume). |
+| `recording.test`      | Sent only by the dashboard "Send test" button (`"test": true`). |
+
+## Request
+
+`POST <your-url>` with `Content-Type: application/json` and:
+
+| Header                        | Meaning |
+| ----------------------------- | ------- |
+| `Replayvod-Webhook-Id`        | Unique per delivery. Use it for idempotency. |
+| `Replayvod-Webhook-Timestamp` | RFC3339 (nanosecond) send time. |
+| `Replayvod-Webhook-Event`     | The event id (also in the body; the body is authoritative). |
+| `Replayvod-Webhook-Signature` | `sha256=<hex HMAC>` (see [Verifying](#verifying-the-signature)). |
+| `User-Agent`                  | `ReplayVOD-Webhook/1` |
+
+### Body
+
+```jsonc
+{
+  "version": 1,
+  "event": "recording.completed",
+  "video_id": 42,
+  "status": "DONE",              // videos.status: DONE | FAILED
+  "completion_kind": "complete", // complete | partial | cancelled
+  "truncated": false,            // stopped before the broadcast ended
+  "broadcaster_id": "12345",
+  "broadcaster_login": "speedy",
+  "broadcaster_name": "Speedy",
+  "title": "Any% PB attempts",
+  "category": "Celeste",
+  "started_at": "2026-05-30T12:00:00Z",
+  "ended_at": "2026-05-30T13:00:00Z",  // omitted for a failure that never finalized
+  "duration_seconds": 3600.0,
+  "total_size_bytes": 1048576,
+  "error": "auth failed",              // present only on recording.failed
+  "parts": [
+    {
+      "part_index": 0,
+      "path": "videos/vod-42-01.mp4",   // storage-relative; useful to a co-located consumer
+      "size_bytes": 600,
+      "duration_seconds": 1800.0,
+      "download_url": "https://your-host/api/v1/videos/42/parts/0/download?exp=...&sig=..."
+    }
+  ]
+}
+```
+
+`parts` is always a JSON array (never `null`), one entry per recorded part, each
+with its own `download_url`. `version` is the payload schema version; branch on
+it if it ever changes.
+
+<Aside type="note">
+`recording.failed` payloads omit `download_url` (a failed recording has no
+servable file, so the signed route would 404). The `path` is still present.
+</Aside>
+
+## Verifying the signature
+
+```
+expected = "sha256=" + lowercase_hex(HMAC_SHA256(secret, id + timestamp + body))
+```
+
+`secret` is the dashboard signing secret; `id` and `timestamp` are the header
+values; `body` is the **raw request body bytes** (verify before parsing).
+Compare in constant time. Example (Python):
+
+```python
+import hashlib, hmac
+
+def verify(secret: str, headers, raw_body: bytes) -> bool:
+    msg = (headers["Replayvod-Webhook-Id"].encode()
+           + headers["Replayvod-Webhook-Timestamp"].encode()
+           + raw_body)
+    expected = "sha256=" + hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, headers["Replayvod-Webhook-Signature"])
+```
+
+Reject deliveries whose timestamp is too old to blunt replay, and de-duplicate
+on `Replayvod-Webhook-Id`.
+
+## Fetching the files
+
+Each part of a completed recording carries a `download_url`: an absolute,
+signed, **unauthenticated** link that streams that part's bytes (HTTP range
+supported) with no dashboard session required. Its lifetime is the operator's
+[`download.signed_url_ttl_hours`](/docs/reference/config-toml/) (default 7 days;
+`0` disables signed URLs, leaving only `path`). The origin is taken from
+`PUBLIC_BASE_URL` when set, otherwise derived from `CALLBACK_URL` — set
+`PUBLIC_BASE_URL` if your public streaming host differs from the OAuth callback
+host. A consumer that shares ReplayVOD's storage volume can use `path` directly.
+
+<Aside type="caution">
+A `download_url` is a capability URL: anyone who holds it can fetch that part
+until it expires. If your receiver logs full payload bodies, treat those logs
+accordingly, or shorten `signed_url_ttl_hours`.
+</Aside>
+
+## Delivery semantics
+
+- Respond `2xx` to acknowledge. `429` and `5xx` are retried with exponential
+  backoff; other `4xx`/`3xx` are permanent rejections (redirects are **not**
+  followed). Deliveries are persisted in a durable outbox and survive restarts,
+  so delivery is at-least-once — keep handlers idempotent on
+  `Replayvod-Webhook-Id`.
+- The dashboard's delivery log is the recent (durable) history; old terminal
+  rows are pruned by
+  [`recording_webhook_delivery_retention_days`](/docs/reference/config-toml/).
+- Beyond the URL rules above the target is not IP-restricted, because it is
+  owner-configured. Don't expose the config surface to anyone you wouldn't trust
+  with server egress.
