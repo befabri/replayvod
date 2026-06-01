@@ -91,7 +91,6 @@ func TestResume_CrashMidStream_ResumesCleanly(t *testing.T) {
 
 	video := waitForVideoStatus(t, resumed.repo, videoID, repository.VideoStatusDone, 60*time.Second)
 
-
 	parts, err := resumed.repo.ListVideoParts(context.Background(), videoID)
 	if err != nil {
 		t.Fatalf("list parts: %v", err)
@@ -168,8 +167,8 @@ func TestResume_GapExceedsThreshold_ForcesSplit(t *testing.T) {
 	opts.tsCount = 20
 	opts.windowA = 3
 	opts.dropAfterServed = 0
-	opts.aEndlist = 20         // ENDLIST after all segments served
-	opts.fmp4Count = 0         // single variant — split is purely the gap threshold, not codec
+	opts.aEndlist = 20 // ENDLIST after all segments served
+	opts.fmp4Count = 0 // single variant — split is purely the gap threshold, not codec
 	opts.baseSeqA = 100
 	opts.postRestartSeqJump = 10 // post-jump start lands above frontier; lost > 2s threshold
 	// Note: tsCount must exceed pre-shutdown cursor + jump so the
@@ -294,6 +293,15 @@ func TestResume_GapExceedsThreshold_ForcesSplit(t *testing.T) {
 			video.CompletionKind, repository.CompletionKindPartial)
 	}
 
+	// A window roll means the CDN dropped segments because the broadcast
+	// outran our capture, so the recording is truncated regardless of whether
+	// the tail eventually reached ENDLIST. This is the end-to-end negative of
+	// the not-truncated ENDLIST case: it proves truncated genuinely tracks the
+	// stop boundary rather than being pinned to one value.
+	if !video.Truncated {
+		t.Error("video.Truncated=false on a window-rolled recording, want true")
+	}
+
 	if video.DurationSeconds == nil || video.SizeBytes == nil {
 		t.Fatalf("video duration/size unset: dur=%v size=%v", video.DurationSeconds, video.SizeBytes)
 	}
@@ -404,7 +412,7 @@ func TestResume_PendingSplitTrue_OpensPartNPlusOne(t *testing.T) {
 	}
 
 	// BeginNewPart must consume PendingSplit; otherwise the loop
-	// runs forever (capped by MaxPartsPerVideo, which would make
+	// runs forever (capped by MaxDiscontinuityPartsPerVideo, which would make
 	// this assertion fire as len(parts) > 2 instead).
 	job, err = resumed.repo.GetJob(context.Background(), jobID)
 	if err != nil {

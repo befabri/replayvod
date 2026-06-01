@@ -85,8 +85,8 @@ func (e *UnsupportedManifestError) Is(target error) bool {
 // Check against the lowercase form so a manifest that uppercases
 // the value doesn't sneak past.
 var drmKeyformats = map[string]struct{}{
-	"com.apple.streamingkeydelivery": {},
-	"com.microsoft.playready":        {},
+	"com.apple.streamingkeydelivery":                {},
+	"com.microsoft.playready":                       {},
 	"urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed": {}, // Widevine system ID
 }
 

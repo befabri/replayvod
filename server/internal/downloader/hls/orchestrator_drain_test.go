@@ -1,8 +1,10 @@
 package hls
 
 import (
+	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync/atomic"
 	"testing"
 )
@@ -57,7 +59,7 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 		authErr  error
 	})
 	go func() {
-		abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, slog.New(slog.DiscardHandler))
+		abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, nil, slog.New(slog.DiscardHandler))
 		done <- struct {
 			abortErr *GapAbortError
 			authErr  error
@@ -139,5 +141,87 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 		t.Error("missing gap_accepted event for seq 13")
 	} else if ev.Outcome != OutcomeGapAccepted || ev.Err == nil {
 		t.Errorf("seq 13 event=%+v, want gap_accepted with non-nil Err", ev)
+	}
+}
+
+func TestDrainOutcomes_ContextCanceledFetchDoesNotResolveSegment(t *testing.T) {
+	cfg := &JobConfig{}
+	result := &JobResult{LastMediaSeq: 99}
+	results := make(chan SegmentResult, 1)
+	skipEvents := make(chan SkipEvent)
+	close(skipEvents)
+
+	var events []SegmentEvent
+	cfg.OnEvent = func(ev SegmentEvent) { events = append(events, ev) }
+	var cancelCalled atomic.Int32
+	cancel := func() { cancelCalled.Add(1) }
+
+	results <- SegmentResult{MediaSeq: 100, Err: context.Canceled}
+	close(results)
+
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, func() bool { return true }, slog.New(slog.DiscardHandler))
+	if authErr != nil {
+		t.Fatalf("authErr=%v, want nil for parent/scoped context cancellation", authErr)
+	}
+	if abortErr != nil {
+		t.Fatalf("abortErr=%v, want nil; canceled fetches must not trip gap policy", abortErr)
+	}
+	if result.LastMediaSeq != 99 {
+		t.Fatalf("LastMediaSeq=%d, want 99; canceled seq 100 is not durable/resolved work", result.LastMediaSeq)
+	}
+	if result.SegmentsDone != 0 || result.SegmentsGaps != 0 || result.BytesWritten != 0 {
+		t.Fatalf("canceled fetch changed counters: done=%d gaps=%d bytes=%d",
+			result.SegmentsDone, result.SegmentsGaps, result.BytesWritten)
+	}
+	if result.SegmentsCanceled != 1 {
+		t.Fatalf("SegmentsCanceled=%d, want 1", result.SegmentsCanceled)
+	}
+	if !slices.Equal(result.CanceledSeqs, []int64{100}) {
+		t.Fatalf("CanceledSeqs=%v, want [100]", result.CanceledSeqs)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events=%+v, want none for canceled unresolved segment", events)
+	}
+	if cancelCalled.Load() != 0 {
+		t.Fatalf("cancel called %d times, want 0", cancelCalled.Load())
+	}
+}
+
+func TestDrainOutcomes_ContextCanceledAfterPlaylistGoneIsGap(t *testing.T) {
+	cfg := &JobConfig{GapPolicy: GapPolicy{MaxGapRatio: 1}}
+	result := &JobResult{LastMediaSeq: 100, SegmentsDone: 10}
+	results := make(chan SegmentResult, 1)
+	skipEvents := make(chan SkipEvent)
+	close(skipEvents)
+
+	var events []SegmentEvent
+	cfg.OnEvent = func(ev SegmentEvent) { events = append(events, ev) }
+	var cancelCalled atomic.Int32
+	cancel := func() { cancelCalled.Add(1) }
+
+	results <- SegmentResult{MediaSeq: 101, Err: context.Canceled}
+	close(results)
+
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, func() bool { return false }, slog.New(slog.DiscardHandler))
+	if authErr != nil {
+		t.Fatalf("authErr=%v, want nil", authErr)
+	}
+	if abortErr != nil {
+		t.Fatalf("abortErr=%v, want nil; canceled old-variant segment should be accounted as tolerated gap", abortErr)
+	}
+	if result.LastMediaSeq != 101 {
+		t.Fatalf("LastMediaSeq=%d, want 101", result.LastMediaSeq)
+	}
+	if result.SegmentsGaps != 1 {
+		t.Fatalf("SegmentsGaps=%d, want 1", result.SegmentsGaps)
+	}
+	if result.SegmentsCanceled != 0 {
+		t.Fatalf("SegmentsCanceled=%d, want 0; playlist-gone canceled segment is accounted as old-variant gap", result.SegmentsCanceled)
+	}
+	if len(events) != 1 || events[0].MediaSeq != 101 || events[0].Outcome != OutcomeGapAccepted {
+		t.Fatalf("events=%+v, want one gap_accepted event for seq 101", events)
+	}
+	if cancelCalled.Load() != 0 {
+		t.Fatalf("cancel called %d times, want 0", cancelCalled.Load())
 	}
 }

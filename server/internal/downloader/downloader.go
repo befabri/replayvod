@@ -41,7 +41,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -939,6 +941,19 @@ var (
 	// scoped run context. Treated as a split signal by the outer
 	// loop alongside ErrPlaylistGone and ErrVariantChanged.
 	ErrRestartGapExceeded = errors.New("downloader: resume gap exceeds MaxRestartGapSeconds; forcing part split")
+
+	// ErrPartThresholdExceeded fires when the current part's
+	// accumulated committed bytes or segment duration crosses the
+	// operator's MaxPartBytes / MaxPartSeconds ceiling. Unlike the
+	// other split signals it is NOT a loss or a variant change — the
+	// stream is healthy and continues into the next part at the very
+	// next media sequence. The OnEvent accumulator sets
+	// PendingSplit + PendingThresholdSplit and cancels the scoped run
+	// context (exactly like OnWindowRoll), so the cut lands on a clean
+	// segment boundary. isSplitSignal classifies it and the run()
+	// loop finalizes the part and opens the next via ContinuePart
+	// (seq-continuous), not BeginNewPart (re-anchored).
+	ErrPartThresholdExceeded = errors.New("downloader: part exceeded size/duration ceiling; forcing part split")
 )
 
 // startTitleTracking begins mid-stream title/category tracking for a recording
@@ -1138,24 +1153,37 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 			s.failDownload(dbCtx, d, log, fmt.Errorf("create part scratch dir: %w", err))
 			return
 		}
+		if recoverLegacySeqZeroPartStarted(segmentsDir, d.resume) {
+			log.Info("resume: recovered legacy seq-0 part bootstrap from segment file",
+				"part_index", d.resume.CurrentPartIndex,
+				"segment_format", d.resume.SegmentFormat)
+			s.checkpointResume(dbCtx, d, log)
+		}
 
 		// Resume past SEGMENTS skips the fetch entirely: playback
 		// tokens have rolled, the stream may be off the wire,
-		// and the ENDLIST poll would race the fetch. Synthesize
-		// hlsResult from the checkpoint and jump to PrepareInput.
+		// and the ENDLIST poll would race the fetch. A persisted
+		// PendingSplit while still in SEGMENTS is also a completed
+		// fetch for this part: the split decision and boundary were
+		// already checkpointed before the crash, so re-entering HLS
+		// would append into the part that should be sealed.
+		// Synthesize hlsResult from the checkpoint and jump to
+		// PrepareInput.
 		var hlsResult *hls.JobResult
-		if d.resume.Stage.AtOrAfter(StagePrepareInput) {
+		if shouldSkipSegmentFetch(d.resume) {
+			kind := segmentKindForResume(segmentsDir, d.resume)
+			if d.resume.SegmentFormat == "" {
+				d.resume.SegmentFormat = string(kind)
+				s.checkpointResume(dbCtx, d, log)
+			}
 			log.Info("resume: skipping segment fetch, checkpoint past SEGMENTS",
 				"stage", d.resume.Stage,
 				"part_index", d.resume.CurrentPartIndex,
 				"accounted_frontier", d.resume.AccountedFrontierMediaSeq,
-				"segment_format", d.resume.SegmentFormat)
-			hlsResult = &hls.JobResult{
-				Kind:         hls.SegmentKind(d.resume.SegmentFormat),
-				LastMediaSeq: d.resume.AccountedFrontierMediaSeq,
-				SegmentsDone: int64(len(d.resume.CompletedAboveFrontier)) + d.resume.AccountedFrontierMediaSeq - d.resume.PartStartMediaSequence + 1,
-				SegmentsGaps: int64(len(d.resume.Gaps)),
-			}
+				"segment_format", d.resume.SegmentFormat,
+				"pending_split", d.resume.PendingSplit,
+				"pending_threshold_split", d.resume.PendingThresholdSplit)
+			hlsResult = synthesizeHLSResultFromResume(d.resume, kind)
 		} else {
 			s.setResumeStage(dbCtx, d, StageSegments, log)
 			var err error
@@ -1181,12 +1209,103 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 						"segments_done", segDone,
 						"prior_frontier", d.resume.AccountedFrontierMediaSeq,
 						"reason", err)
+				} else if shouldAcceptEmptySplitSignal(len(parts), hlsResult, err) {
+					d.resume.PendingSplit = true
+					s.checkpointResume(dbCtx, d, log)
+					log.Info("split triggered on empty continuation; opening next part without remux",
+						"part_index", d.resume.CurrentPartIndex,
+						"parts", len(parts),
+						"reason", err)
 				} else {
 					s.failDownload(dbCtx, d, log, err)
 					return
 				}
 			}
 			emitter.finalize()
+		}
+
+		// Persist ENDLIST only when it proves the whole recording is
+		// durably owned by finalized/current parts. A threshold split
+		// may observe ENDLIST while concurrent workers have already
+		// fetched post-boundary tail segments that this part will prune
+		// and the continuation must refetch. In that case EndListSeen
+		// stays false until the continuation captures that tail.
+		resumeChanged := false
+		if hlsResult != nil && hlsResult.EndList {
+			if thresholdSplitEndListAtBoundary(d.resume, hlsResult) && !d.resume.PendingSplitEndListAtBoundary {
+				d.resume.PendingSplitEndListAtBoundary = true
+				resumeChanged = true
+			}
+			if shouldPersistEndListSeen(d.resume, hlsResult) && !d.resume.EndListSeen {
+				d.resume.EndListSeen = true
+				resumeChanged = true
+			}
+		}
+
+		if captureHadWindowRoll(d.resume, &hadWindowRoll) {
+			resumeChanged = true
+		}
+
+		// The empty-continuation guards decide whether the current part
+		// holds real media. They key off currentPartHasCommittedMedia,
+		// which consults BOTH this attempt's commits and the durable
+		// resume state — so a resumed part whose media was captured before
+		// the crash (this run sees only ENDLIST/gaps, SegmentsDone==0) is
+		// finalized rather than dropped, and a sealed threshold split (its
+		// folded committed bytes show as durable media) needs no special
+		// case here. Only a genuinely empty interval reaches a guard.
+		sealedThresholdSplit := d.resume.PendingThresholdSplit && d.resume.PendingSplitBoundarySet
+
+		// A continuation part (opened after a split) that captured no
+		// segments means the stream ended exactly at the split boundary —
+		// e.g. a size/duration ceiling that fired on the final committed
+		// segment, or a window roll right as the broadcast closed. The
+		// earlier parts already hold the whole recording, so finalize with
+		// them. Without this guard the empty trailing part reaches remux,
+		// which fails on "no .ts segments" and sinks the entire recording
+		// even though every byte was captured. Guarded on len(parts) > 0 so
+		// a genuinely empty recording (nothing captured at all) still fails
+		// loudly through runPart as before.
+		if shouldFinalizeEmptyContinuation(len(parts), hlsResult, d.resume) {
+			d.resume.SetStage(StagePrepareInput)
+			s.checkpointResume(dbCtx, d, log)
+			log.Info("continuation part captured no segments (stream ended at split boundary); finalizing recording",
+				"part_index", d.resume.CurrentPartIndex,
+				"parts", len(parts))
+			break
+		}
+		if resumeChanged {
+			s.checkpointResume(dbCtx, d, log)
+		}
+		if shouldSkipEmptySplitPart(len(parts), hlsResult, d.resume) {
+			log.Info("split continuation resolved no media; opening next part without remux",
+				"part_index", d.resume.CurrentPartIndex,
+				"parts", len(parts),
+				"pending_threshold_split", d.resume.PendingThresholdSplit)
+			advanced, err := s.reanchorCurrentPartAfterEmptySplit(dbCtx, d, emitter, log)
+			if err != nil {
+				s.failDownload(dbCtx, d, log, err)
+				return
+			}
+			if !advanced {
+				break
+			}
+			continue
+		}
+		if len(parts) > 0 && !currentPartHasCommittedMedia(hlsResult, d.resume) {
+			cause := ctx.Err()
+			if cause == nil {
+				cause = errors.New("continuation part captured no segments before ENDLIST")
+			}
+			s.failDownload(dbCtx, d, log, cause)
+			return
+		}
+
+		if sealedThresholdSplit {
+			if err := pruneSegmentsAfterBoundary(segmentsDir, hlsResult.Kind, d.resume.PendingSplitBoundaryMediaSeq); err != nil {
+				s.failDownload(dbCtx, d, log, fmt.Errorf("prune threshold split tail: %w", err))
+				return
+			}
 		}
 
 		pr, err := s.runPart(ctx, dbCtx, d, p, filename, segmentsDir, hlsResult, emitter, log)
@@ -1196,32 +1315,20 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		}
 		parts = append(parts, *pr)
 
-		// Capture window-roll signal before BeginNewPart wipes
-		// per-part Gaps; mirror to resume_state so a crash
-		// preserves it.
-		if !hadWindowRoll {
-			for _, g := range d.resume.Gaps {
-				if g.Reason == GapReasonRestartWindowRolled {
-					hadWindowRoll = true
-					break
-				}
-			}
+		if pendingSplitEndedAtBoundary(d.resume, hlsResult) {
+			d.resume.ClearPendingSplit()
+			s.checkpointResume(dbCtx, d, log)
+			break
 		}
-		d.resume.HadWindowRoll = hadWindowRoll
 
-		shouldContinue, err := d.resume.ShouldOpenNextPart(MaxPartsPerVideo)
+		advanced, err := s.continueAfterPendingSplit(dbCtx, d, emitter, log)
 		if err != nil {
 			s.failDownload(dbCtx, d, log, err)
 			return
 		}
-		if !shouldContinue {
+		if !advanced {
 			break
 		}
-
-		d.resume.BeginNewPart()
-		d.videoPartID = 0
-		emitter.setPart(int(d.resume.CurrentPartIndex))
-		s.checkpointResume(dbCtx, d, log)
 	}
 
 	// Live-capture metadata spans stop when segment acquisition ends,
@@ -1302,6 +1409,54 @@ type partResult struct {
 	thumbRel        string // storage-relative thumbnail path; "" when none
 }
 
+func (s *Service) continueAfterPendingSplit(dbCtx context.Context, d *download, emitter *progressEmitter, log *slog.Logger) (bool, error) {
+	shouldContinue, err := d.resume.ShouldOpenNextPart(
+		MaxDiscontinuityPartsPerVideo,
+		thresholdPartCap(s.cfg.App.Download.MaxPartCount),
+	)
+	if err != nil {
+		return false, err
+	}
+	if !shouldContinue {
+		return false, nil
+	}
+
+	// A size/duration split is a clean cut in one continuous
+	// stream, so the next part continues the same MEDIA-SEQUENCE
+	// space (ContinuePart: frontier carried to endSeq+1, variant
+	// lock kept). Every other split is a genuine discontinuity —
+	// a new variant or a rolled window owning an independent
+	// counter — so it re-anchors from scratch (BeginNewPart).
+	if d.resume.PendingThresholdSplit {
+		d.resume.ContinuePart()
+	} else {
+		d.resume.BeginNewPart()
+	}
+	d.videoPartID = 0
+	emitter.setPart(int(d.resume.CurrentPartIndex))
+	s.checkpointResume(dbCtx, d, log)
+	return true, nil
+}
+
+func (s *Service) reanchorCurrentPartAfterEmptySplit(dbCtx context.Context, d *download, emitter *progressEmitter, log *slog.Logger) (bool, error) {
+	shouldContinue, err := d.resume.ShouldOpenNextPart(
+		MaxDiscontinuityPartsPerVideo,
+		thresholdPartCap(s.cfg.App.Download.MaxPartCount),
+	)
+	if err != nil {
+		return false, err
+	}
+	if !shouldContinue {
+		return false, nil
+	}
+
+	d.resume.ReanchorCurrentPartAfterEmptySplit()
+	d.videoPartID = 0
+	emitter.setPart(int(d.resume.CurrentPartIndex))
+	s.checkpointResume(dbCtx, d, log)
+	return true, nil
+}
+
 // isSplitSignal reports whether err means "finalize the current
 // part and open a new one." Three surface forms:
 //
@@ -1322,7 +1477,40 @@ type partResult struct {
 func isSplitSignal(err error) bool {
 	return errors.Is(err, hls.ErrPlaylistGone) ||
 		errors.Is(err, ErrVariantChanged) ||
-		errors.Is(err, ErrRestartGapExceeded)
+		errors.Is(err, ErrRestartGapExceeded) ||
+		errors.Is(err, ErrPartThresholdExceeded)
+}
+
+// mapForcedSplitErr translates an in-attempt split callback into a
+// split sentinel. OnWindowRoll and threshold OnEvent both set their
+// `fired` flag and cancel the scoped run context; hls.Run then often
+// returns nil or context.Canceled.
+//
+// The parent-ctx guard comes first: a parent-ctx cancel means shutdown
+// or user-cancel won the race, and the split intent was already
+// checkpointed for resume — so the sentinel must NOT be synthesized, or
+// it would mask the real teardown.
+//
+// boundarySealed is the discriminator between the two split kinds, keyed
+// on the actual invariant rather than the sentinel's identity. A
+// size/duration threshold seals an EXACT, fully-resolved frontier
+// boundary: every seq <= boundary is durable, so any residual error is
+// the scoped cancel or above-boundary worker/auth/gap work the
+// continuation refetches — the sentinel wins unconditionally. A
+// restart-gap (window-roll) split has no sealed boundary and only proves
+// the scoped cancel won, so a genuine non-cancel error there is real and
+// must surface. Keying on boundarySealed (not "is this the threshold
+// sentinel") means a future threshold path that ever fires WITHOUT
+// sealing degrades safely to the conservative cancel-only rule instead
+// of silently masking a real failure.
+func mapForcedSplitErr(ctx context.Context, err error, fired, boundarySealed bool, sentinel error, msg string) error {
+	if !fired || ctx.Err() != nil {
+		return err
+	}
+	if boundarySealed || err == nil || errors.Is(err, context.Canceled) {
+		return fmt.Errorf("%w: %s", sentinel, msg)
+	}
+	return err
 }
 
 // fpsEqual treats both-nil as equal and compares raw values otherwise.
@@ -1343,16 +1531,257 @@ func fpsDisplay(f *float64) any {
 	return *f
 }
 
-// partEndMediaSeq picks the higher of the orchestrator's observed
-// LastMediaSeq and the durable frontier. Both are monotonic; the
-// frontier wins on threshold-triggered splits where cancel arrives
-// before any commit lands in hlsResult.
-func partEndMediaSeq(hlsResult *hls.JobResult, frontier int64) int64 {
+// partEndMediaSeq returns the media-sequence boundary that belongs to
+// the finalized part. Threshold splits persist an exact boundary and
+// ignore/prune any above-boundary in-flight results, so that boundary
+// wins over hlsResult.LastMediaSeq. Other paths keep the historical
+// max(last, frontier) behavior.
+func partEndMediaSeq(hlsResult *hls.JobResult, resume *ResumeState) int64 {
+	if resume.PendingThresholdSplit && resume.PendingSplitBoundarySet {
+		return resume.PendingSplitBoundaryMediaSeq
+	}
 	last := int64(0)
 	if hlsResult != nil {
 		last = hlsResult.LastMediaSeq
 	}
-	return max(frontier, last)
+	return max(resume.AccountedFrontierMediaSeq, last)
+}
+
+func synthesizeHLSResultFromResume(resume *ResumeState, kind hls.SegmentKind) *hls.JobResult {
+	last := resume.AccountedFrontierMediaSeq
+	if resume.PendingThresholdSplit && resume.PendingSplitBoundarySet {
+		last = resume.PendingSplitBoundaryMediaSeq
+	}
+	done := int64(0)
+	if resume.PartStarted && last >= resume.PartStartMediaSequence {
+		done = last - resume.PartStartMediaSequence + 1 - gapSeqCount(resume.Gaps)
+	}
+	if done < 0 {
+		done = 0
+	}
+	endList := resume.EndListSeen
+	if resume.PendingThresholdSplit && resume.PendingSplitBoundarySet && !resume.PendingSplitEndListAtBoundary {
+		endList = false
+	}
+	return &hls.JobResult{
+		Kind:         kind,
+		LastMediaSeq: last,
+		SegmentsDone: done,
+		SegmentsGaps: gapSeqCount(resume.Gaps),
+		EndList:      endList,
+	}
+}
+
+func shouldSkipSegmentFetch(resume *ResumeState) bool {
+	return resume.Stage.AtOrAfter(StagePrepareInput) || resume.PendingSplit
+}
+
+func gapSeqCount(gaps []Gap) int64 {
+	var n int64
+	for _, g := range gaps {
+		end := max(g.EndMediaSeq, g.MediaSeq)
+		if end >= g.MediaSeq {
+			n += end - g.MediaSeq + 1
+		}
+	}
+	return n
+}
+
+func segmentKindForResume(segmentsDir string, resume *ResumeState) hls.SegmentKind {
+	switch hls.SegmentKind(resume.SegmentFormat) {
+	case hls.SegmentKindTS, hls.SegmentKindFMP4:
+		return hls.SegmentKind(resume.SegmentFormat)
+	}
+	if hasSegmentExt(segmentsDir, ".m4s") {
+		return hls.SegmentKindFMP4
+	}
+	return hls.SegmentKindTS
+}
+
+func hasSegmentExt(dir, ext string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func recoverLegacySeqZeroPartStarted(segmentsDir string, resume *ResumeState) bool {
+	if resume.PartStarted ||
+		resume.Stage != StageSegments ||
+		resume.PartStartMediaSequence != 0 ||
+		resume.AccountedFrontierMediaSeq != 0 ||
+		len(resume.CompletedAboveFrontier) > 0 ||
+		len(resume.Gaps) > 0 {
+		return false
+	}
+	if hasSegmentFile(segmentsDir, "0.ts") {
+		resume.PartStarted = true
+		if resume.SegmentFormat == "" {
+			resume.SegmentFormat = string(hls.SegmentKindTS)
+		}
+		return true
+	}
+	if hasSegmentFile(segmentsDir, "0.m4s") {
+		resume.PartStarted = true
+		if resume.SegmentFormat == "" {
+			resume.SegmentFormat = string(hls.SegmentKindFMP4)
+		}
+		return true
+	}
+	return false
+}
+
+func hasSegmentFile(dir, name string) bool {
+	info, err := os.Stat(filepath.Join(dir, name))
+	return err == nil && info.Mode().IsRegular()
+}
+
+func shouldFinalizeEmptyContinuation(priorParts int, hlsResult *hls.JobResult, resume *ResumeState) bool {
+	return priorParts > 0 &&
+		hlsResult != nil &&
+		hlsResult.EndList &&
+		!currentPartHasCommittedMedia(hlsResult, resume)
+}
+
+func shouldSkipEmptySplitPart(priorParts int, hlsResult *hls.JobResult, resume *ResumeState) bool {
+	// "Empty" means the current part holds no real media — neither this
+	// attempt NOR the durable resume state. A sealed threshold split or a
+	// resumed part with prior on-disk segments reports committed media via
+	// currentPartHasCommittedMedia and finalizes through runPart; only an
+	// ad-only / window-roll-only interval (frontier advanced purely by
+	// gaps) is a true empty split that re-anchors without remux.
+	return priorParts > 0 &&
+		resume.PendingSplit &&
+		!currentPartHasCommittedMedia(hlsResult, resume)
+}
+
+func shouldAcceptEmptySplitSignal(priorParts int, hlsResult *hls.JobResult, err error) bool {
+	return priorParts > 0 &&
+		isSplitSignal(err) &&
+		!hasCommittedMedia(hlsResult)
+}
+
+func hasCommittedMedia(hlsResult *hls.JobResult) bool {
+	return hlsResult != nil && hlsResult.SegmentsDone > 0
+}
+
+// resumePartHasCommittedMedia reports whether the durable resume state
+// already holds at least one committed (non-gap) segment for the current
+// part — media on disk even when THIS hls attempt committed nothing new
+// (SegmentsDone==0 on a resume whose poll saw ENDLIST or only gaps after
+// the crash). An ad-only / window-roll-only interval advances the
+// frontier purely through gaps, so span == gap count and this reports
+// false; the empty-continuation guards then still treat it as empty.
+func resumePartHasCommittedMedia(resume *ResumeState) bool {
+	if len(resume.CompletedAboveFrontier) > 0 {
+		return true
+	}
+	if !resume.PartStarted || resume.AccountedFrontierMediaSeq < resume.PartStartMediaSequence {
+		return false
+	}
+	span := resume.AccountedFrontierMediaSeq - resume.PartStartMediaSequence + 1
+	return span > gapSeqCount(resume.Gaps)
+}
+
+// currentPartHasCommittedMedia is the resume-aware "this part holds real
+// media" check the empty-continuation guards use: true when either this
+// attempt committed a segment OR the durable state already does. Keying
+// the guards off only hlsResult.SegmentsDone drops a resumed part whose
+// media was captured before the crash (and lets scratch cleanup delete
+// it). It also subsumes the sealed-threshold special case — a sealed
+// threshold split always folded committed bytes, so it reports true.
+func currentPartHasCommittedMedia(hlsResult *hls.JobResult, resume *ResumeState) bool {
+	return hasCommittedMedia(hlsResult) || resumePartHasCommittedMedia(resume)
+}
+
+func captureHadWindowRoll(resume *ResumeState, hadWindowRoll *bool) bool {
+	before := resume.HadWindowRoll
+	if !*hadWindowRoll {
+		for _, g := range resume.Gaps {
+			if g.Reason == GapReasonRestartWindowRolled {
+				*hadWindowRoll = true
+				break
+			}
+		}
+	}
+	if *hadWindowRoll {
+		resume.HadWindowRoll = true
+	}
+	return resume.HadWindowRoll != before
+}
+
+func thresholdSplitEndListAtBoundary(resume *ResumeState, hlsResult *hls.JobResult) bool {
+	return hlsResult != nil &&
+		hlsResult.EndList &&
+		resume.PendingThresholdSplit &&
+		resume.PendingSplitBoundarySet &&
+		hlsResult.LastMediaSeq <= resume.PendingSplitBoundaryMediaSeq
+}
+
+func shouldPersistEndListSeen(resume *ResumeState, hlsResult *hls.JobResult) bool {
+	if hlsResult == nil || !hlsResult.EndList {
+		return false
+	}
+	if resume.PendingThresholdSplit &&
+		resume.PendingSplitBoundarySet &&
+		hlsResult.LastMediaSeq > resume.PendingSplitBoundaryMediaSeq {
+		return false
+	}
+	return true
+}
+
+func pendingSplitEndedAtBoundary(resume *ResumeState, hlsResult *hls.JobResult) bool {
+	if !resume.PendingSplit || !resume.EndListSeen || hlsResult == nil || !hlsResult.EndList {
+		return false
+	}
+	if !resume.PendingThresholdSplit || !resume.PendingSplitBoundarySet {
+		return true
+	}
+	if !resume.PendingSplitEndListAtBoundary {
+		return false
+	}
+	return hlsResult.LastMediaSeq <= resume.PendingSplitBoundaryMediaSeq
+}
+
+func pruneSegmentsAfterBoundary(dir string, kind hls.SegmentKind, boundary int64) error {
+	ext := ".ts"
+	if kind == hls.SegmentKindFMP4 {
+		ext = ".m4s"
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read segments dir: %w", err)
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ext) {
+			continue
+		}
+		seqText := strings.TrimSuffix(e.Name(), ext)
+		seq, err := strconv.ParseInt(seqText, 10, 64)
+		if err != nil {
+			continue
+		}
+		if seq <= boundary {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove post-boundary segment %s: %w", e.Name(), err)
+		}
+	}
+	return nil
+}
+
+func thresholdPartCap(configured int32) int32 {
+	if configured <= 0 {
+		return DefaultMaxThresholdPartsPerVideo
+	}
+	return configured
 }
 
 // shouldForceSplitOnRestartGap: the lost wall-clock time of a
@@ -1368,15 +1797,15 @@ func shouldForceSplitOnRestartGap(from, to int64, targetDuration time.Duration, 
 	return lost > threshold && hasPartContent(nil, resume)
 }
 
-// hasPartContent: PartStart > 0 is the doom-loop guard. After
-// BeginNewPart the state has PartStart=frontier=0; without the
-// PartStart>0 check, frontier>=PartStart trivially holds and a
-// permanently-broken variant would loop creating empty parts.
+// hasPartContent: PartStarted is the doom-loop guard. HLS media
+// sequences can legitimately start at 0, so PartStartMediaSequence
+// cannot double as a presence bit; after BeginNewPart PartStarted is
+// false until OnFirstPoll anchors the new part.
 func hasPartContent(hlsResult *hls.JobResult, resume *ResumeState) bool {
 	if hlsResult != nil && hlsResult.SegmentsDone > 0 {
 		return true
 	}
-	return resume.PartStartMediaSequence > 0 &&
+	return resume.PartStarted &&
 		resume.AccountedFrontierMediaSeq >= resume.PartStartMediaSequence
 }
 
@@ -1585,7 +2014,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		DurationSeconds: probeResult.Duration,
 		SizeBytes:       probeResult.Size,
 		Thumbnail:       thumbPtr,
-		EndMediaSeq:     partEndMediaSeq(hlsResult, d.resume.AccountedFrontierMediaSeq),
+		EndMediaSeq:     partEndMediaSeq(hlsResult, d.resume),
 	}); err != nil {
 		log.Error("failed to finalize video part",
 			"part_index", partIndex,
@@ -1636,6 +2065,64 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 // attempt 2 starts its own first-content guard and MaxGapRatio
 // check from zero. This is deliberate: a new signed URL is a
 // fresh starting point for "has Twitch let us capture anything
+// partThresholdAccountant funnels every frontier-advancing outcome
+// through one place that records the durable per-part accounting AND
+// evaluates the size/duration ceiling in the same call. Routing all
+// advances through it is the structural guard against the missed-split
+// class of bug (both the window-roll fold and a forgotten OnEvent case):
+// a new advance path physically cannot record progress via commit/gap/
+// recordRangeGap without the ceiling check riding along. The lone
+// exception is authGap, which is deliberately ceiling-free.
+//
+// commit and gap seal eagerly (OnEvent has no competing split). The
+// window-roll path uses recordRangeGap + sealIfCrossed split apart,
+// because a restart-gap discontinuity split takes precedence and must be
+// weighed between recording the gap and sealing a threshold cut.
+type partThresholdAccountant struct {
+	resume     *ResumeState
+	maxBytes   int64
+	maxSeconds int
+	// onSeal fires the forced-split side effects (mark fired, log,
+	// checkpoint, cancel the scoped run ctx) once a boundary is sealed.
+	onSeal func(boundary int64)
+}
+
+func (a *partThresholdAccountant) commit(seq, bytes int64, dur float64) {
+	a.sealIfCrossed(a.resume.NoteCommittedSegmentUntilThreshold(seq, bytes, dur, a.maxBytes, a.maxSeconds))
+}
+
+func (a *partThresholdAccountant) gap(seq int64, reason GapReason) {
+	a.sealIfCrossed(a.resume.NoteGapUntilThreshold(seq, reason, a.maxBytes, a.maxSeconds))
+}
+
+// authGap records an auth-errored seq as a plain resume gap WITHOUT the
+// ceiling check. Auth seqs carry no bytes/duration of their own and the
+// next auth-refresh attempt refetches them; a size/duration cut here
+// would seal them below a boundary (permanent hole) instead of letting
+// the refresh fill them. The deliberate exception to the chokepoint.
+func (a *partThresholdAccountant) authGap(seq int64) {
+	a.resume.NoteGap(seq, GapReasonAuth)
+}
+
+// recordRangeGap fills a lost range (window roll), folding any buffered
+// above-frontier commits, and returns the crossing boundary WITHOUT
+// sealing — the caller weighs the restart-gap split first, then calls
+// sealIfCrossed.
+func (a *partThresholdAccountant) recordRangeGap(from, to int64, reason GapReason) (int64, bool) {
+	return a.resume.NoteRangeGapUntilThreshold(from, to, reason, a.maxBytes, a.maxSeconds)
+}
+
+func (a *partThresholdAccountant) sealIfCrossed(boundary int64, crossed bool) bool {
+	if !crossed || a.resume.PendingSplit || !hasPartContent(nil, a.resume) {
+		return false
+	}
+	a.resume.PendingSplit = true
+	a.resume.PendingThresholdSplit = true
+	a.resume.SealThresholdSplitBoundary(boundary)
+	a.onSeal(boundary)
+	return true
+}
+
 // real yet" — it doesn't inherit attempt 1's success/gap ratio.
 // Aggregate counters on the returned JobResult are for the
 // caller's reporting, not for policy decisions.
@@ -1647,6 +2134,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 
 	agg := &hls.JobResult{}
 	var authAttempts int
+	unresolvedCanceled := map[int64]bool{}
 
 	// refetchSeqs carries forward the prior attempt's auth-errored
 	// seqs so the next Poller re-emits them under the fresh URL.
@@ -1667,7 +2155,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 	// attempts, so a refresh mid-stream doesn't reset the part.
 	// A resumed job enters already bootstrapped from its prior
 	// attempt's state; fresh jobs bootstrap on the first poll.
-	bootstrapped := d.resume.PartStartMediaSequence != 0 || d.resume.AccountedFrontierMediaSeq != 0
+	bootstrapped := d.resume.PartStarted
 
 	// Seed startSeq from the resume frontier when we're picking
 	// up a prior attempt — the first hls.Run call then skips
@@ -1765,7 +2253,28 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		// context.Canceled to nil).
 		splitCtx, cancelSplit := context.WithCancel(ctx)
 		thresholdSeconds := s.cfg.App.Download.MaxRestartGapSeconds
+		maxPartBytes := s.cfg.App.Download.MaxPartBytes
+		maxPartSeconds := s.cfg.App.Download.MaxPartSeconds
 		var thresholdSplitFired bool
+		var partThresholdFired bool
+
+		acct := &partThresholdAccountant{
+			resume:     d.resume,
+			maxBytes:   maxPartBytes,
+			maxSeconds: maxPartSeconds,
+			onSeal: func(boundary int64) {
+				partThresholdFired = true
+				log.Info("part reached size/duration ceiling; forcing part boundary",
+					"part_index", d.resume.CurrentPartIndex,
+					"boundary_media_seq", boundary,
+					"part_bytes", d.resume.PartBytes,
+					"part_seconds", d.resume.PartDurationSeconds,
+					"max_part_bytes", maxPartBytes,
+					"max_part_seconds", maxPartSeconds)
+				s.checkpointResume(dbCtx, d, log)
+				cancelSplit()
+			},
+		}
 
 		result, err := hls.Run(splitCtx, hls.JobConfig{
 			MediaPlaylistURL:   variant.URL,
@@ -1789,12 +2298,16 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 				Strict:      s.cfg.App.Download.Strict,
 				MaxGapRatio: s.cfg.App.Download.MaxGapRatio,
 			},
-			OnFirstPoll: func(base int64) {
+			OnFirstPoll: func(first hls.PollResult) {
+				if d.resume.SegmentFormat == "" {
+					d.resume.SegmentFormat = string(first.Kind)
+				}
 				if bootstrapped {
+					s.checkpointResume(dbCtx, d, log)
 					return
 				}
 				bootstrapped = true
-				d.resume.StartPart(base)
+				d.resume.StartPart(first.MediaSequenceBase)
 				s.checkpointResume(dbCtx, d, log)
 			},
 			OnWindowRoll: func(from, to int64, targetDuration time.Duration) {
@@ -1803,7 +2316,15 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 				// and the frontier advance lets the next
 				// OnFirstPoll anchor cleanly. The split decision
 				// is independent.
-				d.resume.NoteRangeGap(from, to, GapReasonRestartWindowRolled)
+				//
+				// Threshold-aware: filling the lost range can make
+				// buffered above-frontier commits (carried across a
+				// crash) contiguous, folding their bytes/duration into
+				// the part totals. Capture the first seq that crosses
+				// the size/duration ceiling so a small window roll that
+				// tips the part over its limit seals a clean boundary
+				// here instead of overshooting max_part_*.
+				boundary, thresholdReached := acct.recordRangeGap(from, to, GapReasonRestartWindowRolled)
 				log.Warn("resume gap recorded",
 					"reason", GapReasonRestartWindowRolled,
 					"from", from,
@@ -1823,21 +2344,44 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 					cancelSplit()
 					return
 				}
+				// A restart gap large enough to force a discontinuity
+				// split (above) takes precedence and re-anchors; this
+				// runs only for a smaller roll whose folded bytes still
+				// crossed the size/duration ceiling, where a contiguous
+				// threshold cut is correct. sealIfCrossed checkpoints +
+				// cancels when it fires.
+				if acct.sealIfCrossed(boundary, thresholdReached) {
+					return
+				}
 				s.checkpointResume(dbCtx, d, log)
 			},
 			OnEvent: func(ev hls.SegmentEvent) {
+				if d.resume.PendingThresholdSplit &&
+					d.resume.PendingSplitBoundarySet &&
+					ev.MediaSeq > d.resume.PendingSplitBoundaryMediaSeq {
+					return
+				}
 				switch ev.Outcome {
 				case hls.OutcomeCommitted:
-					d.resume.NoteCommitted(ev.MediaSeq)
+					// Size/duration part split: fold this committed
+					// segment's bytes + EXTINF into the durable
+					// per-part totals only when it reaches the
+					// contiguous frontier, then cut at the first
+					// frontier sequence that reaches the ceiling.
+					// Above-boundary in-flight results are ignored/
+					// pruned and refetched by the next part, which
+					// preserves the no gap/no duplicate invariant
+					// under concurrent workers.
+					acct.commit(ev.MediaSeq, ev.BytesWritten, ev.DurationSeconds)
 				case hls.OutcomeGapAccepted:
-					d.resume.NoteGap(ev.MediaSeq, GapReasonFetchFailure)
+					acct.gap(ev.MediaSeq, GapReasonFetchFailure)
 				case hls.OutcomeAdSkipped:
-					d.resume.NoteGap(ev.MediaSeq, GapReasonStitchedAd)
+					acct.gap(ev.MediaSeq, GapReasonStitchedAd)
 				case hls.OutcomeMalformedSkip:
 					// Structural manifest defect — distinct from
 					// fetch failures so operator review can see
 					// whether the loss was transport or metadata.
-					d.resume.NoteGap(ev.MediaSeq, GapReasonMalformed)
+					acct.gap(ev.MediaSeq, GapReasonMalformed)
 				case hls.OutcomeAuth:
 					// Auth-errored seqs are gapped from the
 					// current attempt's perspective — the next
@@ -1845,7 +2389,8 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 					// past via LastMediaSeq+1. Recording as a
 					// resume gap preserves that decision across
 					// a crash-restart within the refresh window.
-					d.resume.NoteGap(ev.MediaSeq, GapReasonAuth)
+					// Ceiling-free on purpose (see authGap).
+					acct.authGap(ev.MediaSeq)
 				}
 				eventsSinceCheckpoint++
 				if eventsSinceCheckpoint >= checkpointEveryEvents {
@@ -1855,30 +2400,29 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			},
 		})
 		cancelSplit()
-		// Surface the forced split as an error so the outer loop
-		// catches it. parent ctx winning the race (shutdown) is
-		// safe: PendingSplit was already checkpointed inside
-		// OnWindowRoll, so the next resume picks up the intent.
-		if thresholdSplitFired && ctx.Err() == nil {
-			if err == nil || errors.Is(err, context.Canceled) {
-				err = fmt.Errorf("%w: forced part split at restart gap", ErrRestartGapExceeded)
-			}
-		}
+		// Translate a scoped-context cancel from either in-attempt
+		// split callback into its sentinel so the outer loop treats it
+		// as a split. Both callbacks checkpointed PendingSplit before
+		// cancelSplit, so a parent-ctx cancel (shutdown) racing ahead
+		// still resumes down the right path — mapForcedSplitErr leaves
+		// err untouched in that case.
+		// A restart-gap split has no sealed boundary; a threshold split
+		// always sealed one (maybeForcePartThreshold seals before setting
+		// partThresholdFired), so PendingSplitBoundarySet is the durable
+		// proof.
+		err = mapForcedSplitErr(ctx, err, thresholdSplitFired, false, ErrRestartGapExceeded, "forced part split at restart gap")
+		err = mapForcedSplitErr(ctx, err, partThresholdFired, d.resume.PendingSplitBoundarySet, ErrPartThresholdExceeded,
+			fmt.Sprintf("part %d reached size/duration ceiling", d.resume.CurrentPartIndex))
 		// Unconditional checkpoint between attempts — captures
 		// any trailing events from the batch counter and the
 		// latest stage info before the next refresh iteration.
 		s.checkpointResume(dbCtx, d, log)
 		eventsSinceCheckpoint = 0
 
-		// Refresh the refetch list from the attempt's observed
-		// auth-errored seqs. Replace (don't append): a successful
-		// refetch drops the seq off, a repeated auth failure on
-		// the same seq shows up again. Permanent auth stays out
-		// of this list by construction (orchestrator filters it).
+		// Refetch list is rebuilt below, after the fold updates the
+		// unresolved-canceled set. Replace (don't append): a successful
+		// refetch drops the seq off, a repeat failure shows up again.
 		refetchSeqs = nil
-		if result != nil {
-			refetchSeqs = result.AuthErrorSeqs
-		}
 
 		// Fold this attempt's counters into the running total.
 		// Done/Gaps are SEEDED into each hls.Run (per-part gap
@@ -1892,19 +2436,11 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		// flip between attempts for the same variant, but if
 		// it does the final value wins.
 		if result != nil {
-			agg.SegmentsDone = result.SegmentsDone
-			agg.SegmentsGaps = result.SegmentsGaps
-			agg.SegmentsAdGaps += result.SegmentsAdGaps
-			agg.BytesWritten += result.BytesWritten
-			if result.Kind != "" {
-				agg.Kind = result.Kind
-			}
-			if result.InitURI != "" {
-				agg.InitURI = result.InitURI
-			}
-			if result.LastMediaSeq > agg.LastMediaSeq {
-				agg.LastMediaSeq = result.LastMediaSeq
-			}
+			foldHLSAttemptResult(agg, result, d.resume, unresolvedCanceled)
+			// Auth-errored seqs (fresh token) PLUS any still-unresolved
+			// canceled in-flight fetches — the latter sit below the
+			// advanced startSeq and would otherwise never be re-emitted.
+			refetchSeqs = refetchSeqsForNextAttempt(result.AuthErrorSeqs, unresolvedCanceled)
 			startSeq = agg.LastMediaSeq + 1
 		}
 
@@ -1924,6 +2460,61 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			"attempt", authAttempts,
 			"budget", maxAuthAttempts,
 			"resume_from_seq", startSeq)
+	}
+}
+
+// refetchSeqsForNextAttempt unions the auth-errored seqs (which need a
+// fresh playback token) with the still-unresolved canceled seqs
+// (in-flight fetches the orchestrator dropped when the run was canceled,
+// left below the advanced startSeq). Both must be re-emitted on the next
+// attempt: a canceled seq carries through orchestrator.SegmentsCanceled
+// but is neither an auth seq nor >= startSeq, so without re-listing it as
+// a refetch the poller never re-emits it — a permanent hole below
+// LastMediaSeq that stalls the frontier and pins EndList false. Sorted
+// for a deterministic refetch order.
+func refetchSeqsForNextAttempt(authErrorSeqs []int64, unresolvedCanceled map[int64]bool) []int64 {
+	out := append([]int64(nil), authErrorSeqs...)
+	for seq := range unresolvedCanceled {
+		if !slices.Contains(out, seq) {
+			out = append(out, seq)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func foldHLSAttemptResult(agg, result *hls.JobResult, resume *ResumeState, unresolvedCanceled map[int64]bool) {
+	for _, seq := range result.CanceledSeqs {
+		if !resume.ShouldSkip(seq) {
+			unresolvedCanceled[seq] = true
+		}
+	}
+	for seq := range unresolvedCanceled {
+		if resume.ShouldSkip(seq) {
+			delete(unresolvedCanceled, seq)
+		}
+	}
+
+	agg.SegmentsDone = result.SegmentsDone
+	agg.SegmentsGaps = result.SegmentsGaps
+	agg.SegmentsAdGaps += result.SegmentsAdGaps
+	agg.SegmentsCanceled += result.SegmentsCanceled
+	agg.BytesWritten += result.BytesWritten
+	if result.Kind != "" {
+		agg.Kind = result.Kind
+	}
+	if result.InitURI != "" {
+		agg.InitURI = result.InitURI
+	}
+	if result.LastMediaSeq > agg.LastMediaSeq {
+		agg.LastMediaSeq = result.LastMediaSeq
+	}
+	// ENDLIST is sticky across attempts only after every previously
+	// canceled same-sequence retry has been durably resolved. Without
+	// this, an auth-refresh attempt can skip over an ignored canceled
+	// final segment and later mark the aggregate complete.
+	if result.EndList && len(unresolvedCanceled) == 0 {
+		agg.EndList = true
 	}
 }
 

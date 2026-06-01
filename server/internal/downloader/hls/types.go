@@ -85,6 +85,13 @@ type SegmentEvent struct {
 	// byte count of the finalized file on disk.
 	BytesWritten int64
 
+	// DurationSeconds is the segment's EXTINF, set only for
+	// OutcomeCommitted. Lets durable-accounting consumers sum a
+	// part's wall-clock duration at commit time (e.g. the
+	// size/duration part-split threshold) without re-parsing the
+	// playlist. Zero for every non-committed outcome.
+	DurationSeconds float64
+
 	// Err carries the underlying cause for OutcomeGapAccepted
 	// and OutcomeAuth. Nil for Committed + AdSkipped.
 	Err error

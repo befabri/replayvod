@@ -104,6 +104,17 @@ type Gap struct {
 	Reason      GapReason `json:"reason"`
 }
 
+// CompletedSegmentAccounting carries byte/duration metadata for a
+// committed segment that finished above the contiguous frontier. The
+// seq itself is still listed in CompletedAboveFrontier for the
+// historical resume contract; this parallel field lets threshold
+// accounting add bytes/seconds only when that seq becomes contiguous.
+type CompletedSegmentAccounting struct {
+	MediaSeq        int64   `json:"media_seq"`
+	Bytes           int64   `json:"bytes"`
+	DurationSeconds float64 `json:"duration_seconds,omitempty"`
+}
+
 // ResumeState is the durable per-job checkpoint stored in
 // jobs.resume_state as JSON. Serialized verbatim; on restart the
 // downloader reads one row, unmarshals into ResumeState, calls
@@ -120,6 +131,13 @@ type ResumeState struct {
 	// variant/codec/container split.
 	CurrentPartIndex int32 `json:"current_part_index"`
 
+	// EmptySplitReanchors counts split signals that occurred after a
+	// prior real part but before the current part committed any media.
+	// Those intervals do not get video_parts rows, so CurrentPartIndex
+	// intentionally stays dense; this counter still makes repeated
+	// no-output discontinuities advance toward the runaway split cap.
+	EmptySplitReanchors int32 `json:"empty_split_reanchors,omitempty"`
+
 	// Selected* are sticky within a part. Tracked so a restart
 	// rebuilds the right ffmpeg input shape without re-walking
 	// Stage 3.
@@ -133,6 +151,12 @@ type ResumeState struct {
 	// EXT-X-MEDIA-SEQUENCE base on the first poll.
 	PartStartMediaSequence int64 `json:"part_start_media_sequence"`
 
+	// PartStarted distinguishes a real HLS part anchored at media
+	// sequence 0 from the zero-valued post-BeginNewPart state. HLS
+	// playlists commonly start at 0, so PartStartMediaSequence alone
+	// cannot be used as a presence bit.
+	PartStarted bool `json:"part_started,omitempty"`
+
 	// AccountedFrontierMediaSeq: every seq in
 	// [PartStartMediaSequence, this] is resolved — either on
 	// disk (in CompletedAboveFrontier's consumed history) or
@@ -145,6 +169,14 @@ type ResumeState struct {
 	// frontier advances past them, they get trimmed. Kept
 	// sorted ascending.
 	CompletedAboveFrontier []int64 `json:"completed_above_frontier,omitempty"`
+
+	// CompletedAboveFrontierAccounting is the serialized form of
+	// completedAccounting. It is rebuilt from the map during
+	// MarshalJSON and is not maintained on the segment hot path.
+	// Older checkpoints may have CompletedAboveFrontier without this
+	// detail; those entries resume safely with zero metric contribution
+	// instead of re-triggering a split at a non-contiguous boundary.
+	CompletedAboveFrontierAccounting []CompletedSegmentAccounting `json:"completed_above_frontier_accounting,omitempty"`
 
 	// EndListSeen is true once the playlist returned
 	// EXT-X-ENDLIST. On resume with EndListSeen=true + stage=
@@ -181,6 +213,49 @@ type ResumeState struct {
 	// parts 1..N-1.
 	HadWindowRoll bool `json:"had_window_roll,omitempty"`
 
+	// PartBytes and PartDurationSeconds accumulate the current
+	// part's committed segment bytes and EXTINF seconds. They drive
+	// the size/duration part-split threshold (Download.MaxPartBytes /
+	// MaxPartSeconds). Durable so a crash mid-part resumes with the
+	// ceiling intact rather than restarting the count from zero and
+	// overshooting it — committed work before the crash still counts
+	// toward the boundary. Reset to zero on every part boundary
+	// (StartPart, BeginNewPart, ContinuePart).
+	PartBytes           int64   `json:"part_bytes,omitempty"`
+	PartDurationSeconds float64 `json:"part_duration_seconds,omitempty"`
+
+	// PendingThresholdSplit qualifies PendingSplit: it marks that the
+	// pending split was triggered by the size/duration ceiling rather
+	// than a variant loss. The two open the next part differently —
+	// a threshold split is a clean cut in ONE continuous stream, so
+	// ContinuePart carries the frontier forward (part N+1 starts at
+	// endSeq+1, no gap, no re-fetch, variant lock retained); a
+	// variant / playlist-gone / window-roll split re-anchors from
+	// scratch (BeginNewPart) because the new variant owns an
+	// independent MEDIA-SEQUENCE counter. Durable so a crash between
+	// the split checkpoint and the next part's open resumes down the
+	// right path.
+	PendingThresholdSplit bool `json:"pending_threshold_split,omitempty"`
+
+	// PendingSplitBoundaryMediaSeq is set for PendingThresholdSplit
+	// and records the exact final media sequence that belongs to the
+	// current part. It is persisted at the same checkpoint as
+	// PendingSplit so a crash while still in SEGMENTS can skip fetch,
+	// prune any above-boundary in-flight segment files, finalize this
+	// part, and continue at boundary+1.
+	PendingSplitBoundaryMediaSeq int64 `json:"pending_split_boundary_media_seq,omitempty"`
+	PendingSplitBoundarySet      bool  `json:"pending_split_boundary_set,omitempty"`
+
+	// PendingSplitEndListAtBoundary is set only when an actual HLS run
+	// observed EXT-X-ENDLIST and its final observed media sequence was
+	// not beyond PendingSplitBoundaryMediaSeq. It is the durable proof
+	// that a pending threshold split ended exactly at the boundary. A
+	// bare EndListSeen=true is not enough for threshold resumes because
+	// older checkpoints could have recorded ENDLIST while post-boundary
+	// tail segments still needed to be refetched by the continuation
+	// part.
+	PendingSplitEndListAtBoundary bool `json:"pending_split_endlist_at_boundary,omitempty"`
+
 	CheckpointAt time.Time `json:"checkpoint_at"`
 
 	// resolvedAbove is an in-memory acceleration structure for
@@ -188,16 +263,23 @@ type ResumeState struct {
 	// resolved (committed or gapped). Rebuilt from the
 	// serialized fields by Init() after Unmarshal.
 	resolvedAbove map[int64]bool
+
+	// completedAccounting is the in-memory map form of
+	// CompletedAboveFrontierAccounting. Rebuilt by Init and serialized
+	// by MarshalJSON; kept off the exported slice while running so
+	// segment events avoid a second sorted-slice insert/delete.
+	completedAccounting map[int64]CompletedSegmentAccounting
 }
 
 // NewResumeState returns a fresh checkpoint ready for a Stage-1
 // start. Callers set Stage via SetStage once pipeline work begins.
 func NewResumeState() *ResumeState {
 	return &ResumeState{
-		Stage:            StageAuth,
-		CurrentPartIndex: 1,
-		CheckpointAt:     time.Now().UTC(),
-		resolvedAbove:    map[int64]bool{},
+		Stage:               StageAuth,
+		CurrentPartIndex:    1,
+		CheckpointAt:        time.Now().UTC(),
+		resolvedAbove:       map[int64]bool{},
+		completedAccounting: map[int64]CompletedSegmentAccounting{},
 	}
 }
 
@@ -208,6 +290,14 @@ func NewResumeState() *ResumeState {
 // Idempotent: safe to call repeatedly, safe to call on a
 // fresh-constructed state.
 func (r *ResumeState) Init() {
+	if !r.PartStarted &&
+		(r.PartStartMediaSequence != 0 ||
+			r.AccountedFrontierMediaSeq != 0 ||
+			len(r.CompletedAboveFrontier) > 0 ||
+			len(r.Gaps) > 0 ||
+			r.Stage.AtOrAfter(StagePrepareInput)) {
+		r.PartStarted = true
+	}
 	if r.resolvedAbove == nil {
 		r.resolvedAbove = map[int64]bool{}
 	} else {
@@ -218,6 +308,21 @@ func (r *ResumeState) Init() {
 			r.resolvedAbove[s] = true
 		}
 	}
+	if r.completedAccounting == nil {
+		r.completedAccounting = map[int64]CompletedSegmentAccounting{}
+	} else {
+		clear(r.completedAccounting)
+	}
+	for _, m := range r.CompletedAboveFrontierAccounting {
+		if m.MediaSeq <= r.AccountedFrontierMediaSeq {
+			continue
+		}
+		if _, found := slices.BinarySearch(r.CompletedAboveFrontier, m.MediaSeq); !found {
+			continue
+		}
+		r.completedAccounting[m.MediaSeq] = m
+	}
+	r.CompletedAboveFrontierAccounting = nil
 	for _, g := range r.Gaps {
 		end := max(g.EndMediaSeq, g.MediaSeq)
 		for s := g.MediaSeq; s <= end; s++ {
@@ -241,32 +346,50 @@ func (r *ResumeState) SetStage(s Stage) {
 // any part — fresh job, post-BeginNewPart re-anchor, etc.
 func (r *ResumeState) StartPart(partStart int64) {
 	r.PartStartMediaSequence = partStart
+	r.PartStarted = true
 	r.AccountedFrontierMediaSeq = partStart - 1
-	r.CompletedAboveFrontier = nil
+	r.resetPerPartAccounting()
 	r.Gaps = nil
-	if r.resolvedAbove == nil {
-		r.resolvedAbove = map[int64]bool{}
-	} else {
-		clear(r.resolvedAbove)
-	}
+	r.PendingSplitBoundaryMediaSeq = 0
+	r.PendingSplitBoundarySet = false
+	r.PendingSplitEndListAtBoundary = false
 }
 
-// MaxPartsPerVideo bounds a runaway split loop. Real Twitch streams
-// essentially never split, but a pathological broadcaster flipping
-// variants every few segments would otherwise produce unbounded
-// video_parts rows. Exported so tests share the constant.
-const MaxPartsPerVideo int32 = 32
+// MaxDiscontinuityPartsPerVideo bounds a runaway discontinuity split
+// loop. Real Twitch streams essentially never flip variants this
+// often, but a pathological broadcaster/CDN loop could otherwise
+// produce unbounded video_parts rows. Threshold splits use their own
+// higher operator-facing cap because max_part_seconds/max_part_bytes
+// intentionally create many parts for long recordings.
+const MaxDiscontinuityPartsPerVideo int32 = 32
+
+// DefaultMaxThresholdPartsPerVideo is the default cap for intentional
+// size/duration splitting. It is high enough for documented
+// hour-sized chunks across multi-week recordings while still bounding
+// accidental one-segment-per-part configurations.
+const DefaultMaxThresholdPartsPerVideo int32 = 1024
 
 // ShouldOpenNextPart drives the outer part loop's continue/exit
 // decision off PendingSplit. Reading the durable flag (not a local)
 // is the contract that lets a process crash between PendingSplit's
 // checkpoint and the next BeginNewPart still re-enter the loop.
-func (r *ResumeState) ShouldOpenNextPart(maxParts int32) (bool, error) {
+func (r *ResumeState) ShouldOpenNextPart(maxDiscontinuityParts, maxThresholdParts int32) (bool, error) {
 	if !r.PendingSplit {
 		return false, nil
 	}
-	if r.CurrentPartIndex >= maxParts {
-		return false, fmt.Errorf("split loop exceeded %d parts; aborting to prevent runaway", maxParts)
+	maxParts := maxDiscontinuityParts
+	if r.PendingThresholdSplit {
+		maxParts = maxThresholdParts
+	}
+	if maxParts <= 0 {
+		return true, nil
+	}
+	attemptIndex := r.CurrentPartIndex
+	if !r.PendingThresholdSplit {
+		attemptIndex += r.EmptySplitReanchors
+	}
+	if attemptIndex >= maxParts {
+		return false, fmt.Errorf("split loop exceeded %d part attempts; aborting to prevent runaway", maxParts)
 	}
 	return true, nil
 }
@@ -287,17 +410,101 @@ func (r *ResumeState) ShouldOpenNextPart(maxParts int32) (bool, error) {
 func (r *ResumeState) BeginNewPart() {
 	r.CurrentPartIndex++
 	r.PartStartMediaSequence = 0
+	r.PartStarted = false
 	r.AccountedFrontierMediaSeq = 0
-	r.CompletedAboveFrontier = nil
-	if r.resolvedAbove != nil {
-		clear(r.resolvedAbove)
-	}
+	r.resetPerPartAccounting()
 	r.SelectedQuality = ""
 	r.SelectedFPS = nil
 	r.SelectedCodec = ""
 	r.SegmentFormat = ""
-	r.PendingSplit = false
+	// Opening a fresh discontinuity part means the broadcast is still
+	// going (a new variant/window), so a stale ENDLIST observation from
+	// the part just sealed must not leak forward and mark the recording
+	// complete. Mirrors ContinuePart's conditional reset (which keeps it
+	// only when the threshold split provably ended at the boundary).
+	r.EndListSeen = false
+	r.ClearPendingSplit()
 	r.SetStage(StageAuth)
+}
+
+// ReanchorCurrentPartAfterEmptySplit prepares the current part for a
+// fresh variant/window after a split signal produced no committed
+// media and therefore no video_parts row. It is BeginNewPart's
+// "no output was persisted" twin: reset the HLS anchor and variant
+// lock, count one skipped no-output attempt, consume the pending split,
+// but do NOT increment CurrentPartIndex. The next successful run owns
+// the same part number.
+func (r *ResumeState) ReanchorCurrentPartAfterEmptySplit() {
+	r.EmptySplitReanchors++
+	r.PartStartMediaSequence = 0
+	r.PartStarted = false
+	r.AccountedFrontierMediaSeq = 0
+	r.resetPerPartAccounting()
+	r.Gaps = nil
+	r.SelectedQuality = ""
+	r.SelectedFPS = nil
+	r.SelectedCodec = ""
+	r.SegmentFormat = ""
+	// Same as BeginNewPart: re-anchoring for a fresh variant/window
+	// means the broadcast continues, so drop any stale ENDLIST marker.
+	r.EndListSeen = false
+	r.ClearPendingSplit()
+	r.SetStage(StageAuth)
+}
+
+// ContinuePart opens the next part after a size/duration-threshold
+// split. Unlike BeginNewPart, the stream itself is unchanged: the
+// same variant keeps publishing into one continuous MEDIA-SEQUENCE
+// space, so part N+1 must pick up at part N's last accounted seq + 1
+// — no re-anchor, no gap, no re-fetch.
+//
+// Carrying the frontier forward (rather than zeroing it like
+// BeginNewPart) is load-bearing twice over: it keeps
+// fetchWithAuthRefresh's `bootstrapped` check true so the next
+// hls.Run resumes at frontier+1 instead of re-emitting the whole
+// CDN window (which would duplicate the segments part N already
+// committed), and it makes part N+1's StartMediaSeq land exactly one
+// past part N's EndMediaSeq — contiguous, no hole.
+//
+// The variant lock (SelectedQuality/FPS/Codec/SegmentFormat) is
+// retained on purpose: the re-resolved signed URL must resolve to the
+// same variant, and a genuine variant change at the same instant
+// surfaces as ErrVariantChanged on the next resolve. Per-part
+// accounting (Gaps, the byte/duration accumulators) resets;
+// cross-part signals (HadWindowRoll) are left untouched.
+func (r *ResumeState) ContinuePart() {
+	end := r.AccountedFrontierMediaSeq
+	if r.PendingThresholdSplit && r.PendingSplitBoundarySet {
+		end = r.PendingSplitBoundaryMediaSeq
+	}
+	r.CurrentPartIndex++
+	r.PartStartMediaSequence = end + 1
+	r.PartStarted = true
+	r.AccountedFrontierMediaSeq = end
+	r.resetPerPartAccounting()
+	r.Gaps = nil
+	if r.PendingThresholdSplit && !r.PendingSplitEndListAtBoundary {
+		r.EndListSeen = false
+	}
+	r.ClearPendingSplit()
+	r.SetStage(StageAuth)
+}
+
+func (r *ResumeState) resetPerPartAccounting() {
+	r.CompletedAboveFrontier = nil
+	r.CompletedAboveFrontierAccounting = nil
+	r.PartBytes = 0
+	r.PartDurationSeconds = 0
+	if r.resolvedAbove == nil {
+		r.resolvedAbove = map[int64]bool{}
+	} else {
+		clear(r.resolvedAbove)
+	}
+	if r.completedAccounting == nil {
+		r.completedAccounting = map[int64]CompletedSegmentAccounting{}
+	} else {
+		clear(r.completedAccounting)
+	}
 }
 
 // NoteCommitted records a successfully-written segment, advancing
@@ -313,22 +520,71 @@ func (r *ResumeState) BeginNewPart() {
 // the gap entry and return, since frontier math already consumed
 // the seq as part of the gap-accepted advance.
 func (r *ResumeState) NoteCommitted(seq int64) {
-	r.Gaps = slices.DeleteFunc(r.Gaps, func(g Gap) bool {
-		return g.MediaSeq == seq && g.EndMediaSeq == seq
-	})
+	r.NoteCommittedSegment(seq, 0, 0)
+}
+
+// NoteCommittedSegment is NoteCommitted plus byte/duration accounting
+// for threshold splits. Bytes and duration are only added to
+// PartBytes/PartDurationSeconds when the committed seq becomes part of
+// the contiguous frontier. This prevents an out-of-order worker from
+// tripping a split at seq N+k while lower seqs are still unresolved.
+func (r *ResumeState) NoteCommittedSegment(seq int64, bytes int64, durationSeconds float64) {
+	r.noteCommittedSegmentUntilThreshold(seq, bytes, durationSeconds, 0, 0)
+}
+
+// NoteCommittedSegmentUntilThreshold is NoteCommittedSegment with an
+// additional threshold-aware frontier stop. If consuming this commit
+// makes one or more previously out-of-order commits contiguous, it
+// advances only through the first sequence whose cumulative
+// byte/duration total reaches the configured ceiling and returns that
+// media sequence as the boundary. Higher contiguous commits remain
+// above-frontier so SealThresholdSplitBoundary can drop them from this
+// part and the continuation can refetch them.
+func (r *ResumeState) NoteCommittedSegmentUntilThreshold(seq int64, bytes int64, durationSeconds float64, maxBytes int64, maxSeconds int) (int64, bool) {
+	return r.noteCommittedSegmentUntilThreshold(seq, bytes, durationSeconds, maxBytes, maxSeconds)
+}
+
+func (r *ResumeState) noteCommittedSegmentUntilThreshold(seq int64, bytes int64, durationSeconds float64, maxBytes int64, maxSeconds int) (int64, bool) {
+	removedGap := r.deleteSingleGap(seq)
 	if seq <= r.AccountedFrontierMediaSeq {
-		return
+		if removedGap {
+			r.PartBytes += bytes
+			r.PartDurationSeconds += durationSeconds
+			if thresholdLimitReached(r.PartBytes, r.PartDurationSeconds, maxBytes, maxSeconds) {
+				return r.AccountedFrontierMediaSeq, true
+			}
+		}
+		return 0, false
 	}
 	r.resolvedAbove[seq] = true
 	r.insertCompleted(seq)
-	r.advance()
+	r.recordCompletedAccounting(CompletedSegmentAccounting{
+		MediaSeq:        seq,
+		Bytes:           bytes,
+		DurationSeconds: durationSeconds,
+	})
+	return r.advanceUntilThreshold(maxBytes, maxSeconds)
 }
 
 // NoteGap records an accepted gap at a single mediaSeq, advancing
 // the frontier. reason is persisted verbatim in the Gap entry.
 func (r *ResumeState) NoteGap(seq int64, reason GapReason) {
+	r.noteGapUntilThreshold(seq, reason, 0, 0)
+}
+
+// NoteGapUntilThreshold is NoteGap with threshold-aware frontier
+// advancement. This matters when a lower sequence is skipped after
+// higher sequences have already committed out-of-order: consuming the
+// gap can make those higher commits contiguous, and the split boundary
+// must be the first contiguous commit that reaches the ceiling rather
+// than the end of the buffered run.
+func (r *ResumeState) NoteGapUntilThreshold(seq int64, reason GapReason, maxBytes int64, maxSeconds int) (int64, bool) {
+	return r.noteGapUntilThreshold(seq, reason, maxBytes, maxSeconds)
+}
+
+func (r *ResumeState) noteGapUntilThreshold(seq int64, reason GapReason, maxBytes int64, maxSeconds int) (int64, bool) {
 	if seq <= r.AccountedFrontierMediaSeq {
-		return
+		return 0, false
 	}
 	if !r.resolvedAbove[seq] {
 		r.resolvedAbove[seq] = true
@@ -338,7 +594,7 @@ func (r *ResumeState) NoteGap(seq int64, reason GapReason) {
 			Reason:      reason,
 		})
 	}
-	r.advance()
+	return r.advanceUntilThreshold(maxBytes, maxSeconds)
 }
 
 // NoteRangeGap records an inclusive [start, end] gap and advances
@@ -350,14 +606,30 @@ func (r *ResumeState) NoteGap(seq int64, reason GapReason) {
 // required; a range that overlaps the already-accounted history
 // has its overlap trimmed.
 func (r *ResumeState) NoteRangeGap(start, end int64, reason GapReason) {
+	r.noteRangeGapUntilThreshold(start, end, reason, 0, 0)
+}
+
+// NoteRangeGapUntilThreshold is NoteRangeGap with threshold-aware
+// frontier advancement. A resume window roll fills a whole lost range
+// in one shot; if that fill makes buffered above-frontier commits
+// (carried across a crash) contiguous, their bytes/duration fold into
+// the part totals and can cross the size/duration ceiling. Returning
+// the first crossing sequence lets OnWindowRoll seal a clean threshold
+// boundary here instead of silently overshooting max_part_* until the
+// next committed segment trips it (or never, if the part ends first).
+func (r *ResumeState) NoteRangeGapUntilThreshold(start, end int64, reason GapReason, maxBytes int64, maxSeconds int) (int64, bool) {
+	return r.noteRangeGapUntilThreshold(start, end, reason, maxBytes, maxSeconds)
+}
+
+func (r *ResumeState) noteRangeGapUntilThreshold(start, end int64, reason GapReason, maxBytes int64, maxSeconds int) (int64, bool) {
 	if end < start {
-		return
+		return 0, false
 	}
 	if start <= r.AccountedFrontierMediaSeq {
 		start = r.AccountedFrontierMediaSeq + 1
 	}
 	if end < start {
-		return
+		return 0, false
 	}
 	r.Gaps = append(r.Gaps, Gap{
 		MediaSeq:    start,
@@ -367,24 +639,46 @@ func (r *ResumeState) NoteRangeGap(start, end int64, reason GapReason) {
 	for s := start; s <= end; s++ {
 		r.resolvedAbove[s] = true
 	}
-	r.advance()
+	return r.advanceUntilThreshold(maxBytes, maxSeconds)
 }
 
-// advance moves AccountedFrontierMediaSeq forward as far as the
-// resolved-above set allows, trimming CompletedAboveFrontier as
-// the frontier consumes entries.
-func (r *ResumeState) advance() {
+// advanceUntilThreshold moves AccountedFrontierMediaSeq forward as far
+// as the resolved-above set allows, trimming CompletedAboveFrontier and
+// folding each newly-contiguous commit's bytes/duration into the part
+// totals. It stops and returns (boundary, true) at the first sequence
+// whose cumulative total reaches the size/duration ceiling; with both
+// maxes 0 (disabled) it advances the whole contiguous run and returns
+// (0, false).
+func (r *ResumeState) advanceUntilThreshold(maxBytes int64, maxSeconds int) (int64, bool) {
 	for {
 		next := r.AccountedFrontierMediaSeq + 1
 		if !r.resolvedAbove[next] {
-			return
+			return 0, false
 		}
 		delete(r.resolvedAbove, next)
 		if i, found := slices.BinarySearch(r.CompletedAboveFrontier, next); found {
+			if m, ok := r.completedAccounting[next]; ok {
+				r.PartBytes += m.Bytes
+				r.PartDurationSeconds += m.DurationSeconds
+			}
+			r.deleteCompletedAccounting(next)
 			r.CompletedAboveFrontier = slices.Delete(r.CompletedAboveFrontier, i, i+1)
 		}
 		r.AccountedFrontierMediaSeq = next
+		if thresholdLimitReached(r.PartBytes, r.PartDurationSeconds, maxBytes, maxSeconds) {
+			return next, true
+		}
 	}
+}
+
+func thresholdLimitReached(bytes int64, seconds float64, maxBytes int64, maxSeconds int) bool {
+	if maxBytes > 0 && bytes >= maxBytes {
+		return true
+	}
+	if maxSeconds > 0 && seconds >= float64(maxSeconds) {
+		return true
+	}
+	return false
 }
 
 // insertCompleted adds seq to CompletedAboveFrontier while
@@ -396,6 +690,82 @@ func (r *ResumeState) insertCompleted(seq int64) {
 		return
 	}
 	r.CompletedAboveFrontier = slices.Insert(r.CompletedAboveFrontier, i, seq)
+}
+
+func (r *ResumeState) deleteSingleGap(seq int64) bool {
+	removed := false
+	r.Gaps = slices.DeleteFunc(r.Gaps, func(g Gap) bool {
+		if g.MediaSeq == seq && g.EndMediaSeq == seq {
+			removed = true
+			return true
+		}
+		return false
+	})
+	return removed
+}
+
+func (r *ResumeState) recordCompletedAccounting(m CompletedSegmentAccounting) {
+	if r.completedAccounting == nil {
+		r.completedAccounting = map[int64]CompletedSegmentAccounting{}
+	}
+	r.completedAccounting[m.MediaSeq] = m
+}
+
+func (r *ResumeState) deleteCompletedAccounting(seq int64) {
+	if r.completedAccounting != nil {
+		delete(r.completedAccounting, seq)
+	}
+}
+
+// SealThresholdSplitBoundary records the exact boundary selected by
+// a size/duration split and drops any above-boundary accounting from
+// the current part. Segment files above this boundary are handled by
+// the downloader before remux; the next part refetches them from
+// boundary+1 instead of treating them as already resolved.
+func (r *ResumeState) SealThresholdSplitBoundary(boundary int64) {
+	r.PendingSplitBoundaryMediaSeq = boundary
+	r.PendingSplitBoundarySet = true
+	r.CompletedAboveFrontier = slices.DeleteFunc(r.CompletedAboveFrontier, func(seq int64) bool {
+		if seq > boundary {
+			delete(r.resolvedAbove, seq)
+			r.deleteCompletedAccounting(seq)
+			return true
+		}
+		return false
+	})
+	r.Gaps = trimGapsToBoundary(r.Gaps, boundary)
+	for seq := range r.resolvedAbove {
+		if seq > boundary {
+			delete(r.resolvedAbove, seq)
+			r.deleteCompletedAccounting(seq)
+		}
+	}
+}
+
+// ClearPendingSplit consumes a pending split intent without otherwise
+// changing part accounting. Used when ENDLIST proves there is no
+// follow-up part to open and by BeginNewPart/ContinuePart after they
+// have applied the split.
+func (r *ResumeState) ClearPendingSplit() {
+	r.PendingSplit = false
+	r.PendingThresholdSplit = false
+	r.PendingSplitBoundaryMediaSeq = 0
+	r.PendingSplitBoundarySet = false
+	r.PendingSplitEndListAtBoundary = false
+}
+
+func trimGapsToBoundary(gaps []Gap, boundary int64) []Gap {
+	out := gaps[:0]
+	for _, g := range gaps {
+		if g.MediaSeq > boundary {
+			continue
+		}
+		if g.EndMediaSeq > boundary {
+			g.EndMediaSeq = boundary
+		}
+		out = append(out, g)
+	}
+	return out
 }
 
 // AuthGapSeqs returns the MediaSeq values currently in Gaps with
@@ -470,12 +840,22 @@ func (r *ResumeState) ShouldSkip(seq int64) bool {
 }
 
 // MarshalJSON emits the fresh CheckpointAt timestamp along with
-// the serialized state. Wraps the default marshal rather than
-// replacing it — custom logic is limited to the timestamp refresh.
+// the serialized state. CompletedAboveFrontierAccounting is derived
+// from the hot-path map here, keeping checkpoint JSON complete without
+// maintaining a parallel sorted slice on every segment event.
 func (r *ResumeState) MarshalJSON() ([]byte, error) {
 	r.CheckpointAt = time.Now().UTC()
 	type shadow ResumeState
-	return json.Marshal((*shadow)(r))
+	out := shadow(*r)
+	out.CompletedAboveFrontierAccounting = nil
+	if len(r.completedAccounting) > 0 {
+		for _, seq := range r.CompletedAboveFrontier {
+			if m, ok := r.completedAccounting[seq]; ok {
+				out.CompletedAboveFrontierAccounting = append(out.CompletedAboveFrontierAccounting, m)
+			}
+		}
+	}
+	return json.Marshal(out)
 }
 
 // UnmarshalResumeState decodes a resume_state JSONB blob and

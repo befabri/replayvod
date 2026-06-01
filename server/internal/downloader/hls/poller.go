@@ -140,6 +140,14 @@ type Poller struct {
 	// Nil or empty means "no refetch needed" — the usual case on
 	// a fresh run or an auth-refresh-free attempt.
 	RefetchSeqs map[int64]bool
+
+	// endListSeen is set true by Run when the playlist returns
+	// EXT-X-ENDLIST — the broadcast ended naturally, as opposed to a
+	// ctx cancel (shutdown, user stop, forced split) or a window roll.
+	// The orchestrator reads it after the poll goroutine joins to stamp
+	// JobResult.EndList, which is what ultimately distinguishes a complete
+	// recording from a truncated one. Output field, not config.
+	endListSeen bool
 }
 
 // PollResult carries metadata observed on the first successful
@@ -410,6 +418,7 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 
 		if pl.EndList {
 			log.Debug("playlist endlist — poller done")
+			p.endListSeen = true
 			return nil
 		}
 

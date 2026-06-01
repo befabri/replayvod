@@ -205,6 +205,11 @@ func TestRun_TSLiveCompletesOnEndlist(t *testing.T) {
 	if result.SegmentsGaps != 0 {
 		t.Errorf("SegmentsGaps=%d, want 0", result.SegmentsGaps)
 	}
+	// A run that terminated on EXT-X-ENDLIST captured the whole broadcast;
+	// EndList must report it so the downloader marks the video not-truncated.
+	if !result.EndList {
+		t.Error("result.EndList=false after natural ENDLIST completion, want true")
+	}
 	// Each segment file must be on disk with the expected payload.
 	for seq := 100; seq < 105; seq++ {
 		path := filepath.Join(dir, fmt.Sprintf("%d.ts", seq))
@@ -348,6 +353,68 @@ func TestRun_CtxCancelReturnsPartialResult(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("result nil on cancel — want partial tally")
+	}
+	// A mid-flight cancel is NOT a natural broadcast end; EndList must stay
+	// false so the downloader marks the recording truncated.
+	if result.EndList {
+		t.Error("result.EndList=true after a mid-flight cancel, want false")
+	}
+}
+
+func TestRun_EndListFalseWhenPoolCanceledBeforeFinalCommit(t *testing.T) {
+	segStarted := make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/playlist.m3u8":
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = io.WriteString(w, "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1.000,\n/seg/0.ts\n#EXT-X-ENDLIST\n")
+		case "/seg/0.ts":
+			once.Do(func() { close(segStarted) })
+			<-r.Context().Done()
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := newJob(t, srv, dir)
+	cfg.SegmentConcurrency = 1
+
+	ctx, cancel := context.WithCancel(context.Background())
+	type outcome struct {
+		result *JobResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := Run(ctx, cfg)
+		done <- outcome{result: result, err: err}
+	}()
+
+	select {
+	case <-segStarted:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("segment fetch did not start")
+	}
+	cancel()
+
+	var out outcome
+	select {
+	case out = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+	if out.err != nil {
+		t.Fatalf("Run err=%v, want nil ctx-cancel partial result", out.err)
+	}
+	if out.result == nil {
+		t.Fatal("result nil")
+	}
+	if out.result.EndList {
+		t.Fatal("EndList=true even though pool was canceled before final segment committed")
 	}
 }
 

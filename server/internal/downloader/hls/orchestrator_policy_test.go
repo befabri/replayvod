@@ -270,4 +270,3 @@ func TestRun_GapPolicy_AbortCancelsPoller(t *testing.T) {
 		t.Errorf("segment fetches kept firing after abort: before=%d after=%d", segsBefore, got)
 	}
 }
-

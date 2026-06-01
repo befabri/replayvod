@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -87,15 +89,15 @@ type JobConfig struct {
 	// so it does not need to be thread-safe internally.
 	OnEvent func(SegmentEvent)
 
-	// OnFirstPoll, when non-nil, is invoked once with the
-	// MediaSequenceBase from the first successful playlist fetch
-	// — before any segment outcome flows through OnEvent.
+	// OnFirstPoll, when non-nil, is invoked once with the first
+	// successful playlist fetch metadata — before any segment outcome
+	// flows through OnEvent.
 	// Resume-state callers use it to seed the accounted-frontier
-	// anchor so out-of-order worker completions at the manifest
-	// head don't get silently dropped as "below frontier." Runs
-	// on the Run goroutine, so callbacks must be fast and not
-	// block; write to a channel if you need async work.
-	OnFirstPoll func(mediaSequenceBase int64)
+	// anchor and persist the segment kind so a crash in SEGMENTS can
+	// finalize without polling again. Runs on the Run goroutine, so
+	// callbacks must be fast and not block; write to a channel if you
+	// need async work.
+	OnFirstPoll func(PollResult)
 
 	// OnWindowRoll, when non-nil, is invoked once when the first
 	// poll after a resume (StartMediaSeq > 0) observes that the
@@ -229,10 +231,19 @@ type JobResult struct {
 	// poller. Excluded from MaxGapRatio — Twitch-injected
 	// content isn't a CDN or transport failure.
 	SegmentsAdGaps int64
-	BytesWritten   int64
-	Kind           SegmentKind
-	InitURI        string // empty for ts jobs
-	LastMediaSeq   int64
+	// SegmentsCanceled counts segment fetches canceled before commit
+	// and intentionally left unresolved for a same-sequence retry.
+	// If ENDLIST was seen in the same run, any non-zero value means
+	// the pool did not durably capture every queued final segment.
+	SegmentsCanceled int64
+	// CanceledSeqs lists the unresolved media sequences counted by
+	// SegmentsCanceled. The outer auth-refresh aggregate uses this to
+	// keep EndList=false until a later attempt durably resolves them.
+	CanceledSeqs []int64
+	BytesWritten int64
+	Kind         SegmentKind
+	InitURI      string // empty for ts jobs
+	LastMediaSeq int64
 
 	// AuthErrorSeqs lists MediaSeqs that failed with a 401/403
 	// during this run. The auth-refresh caller feeds them back as
@@ -241,6 +252,14 @@ type JobResult struct {
 	// mid-stream token expiry leaves a hole in the output at the
 	// seq that tripped the refresh.
 	AuthErrorSeqs []int64
+
+	// EndList is true when the run terminated because the playlist
+	// returned EXT-X-ENDLIST — the broadcast ended naturally. False when
+	// the run stopped for any other reason (ctx cancel on shutdown/user
+	// stop/forced split, init failure, auth/abort). The downloader folds
+	// this into resume.EndListSeen, which drives the video's truncated
+	// flag: a recording that saw ENDLIST captured the whole broadcast.
+	EndList bool
 }
 
 // GapAbortError is the typed error returned when the gap policy
@@ -248,11 +267,11 @@ type JobResult struct {
 // operator logs / UI can distinguish "first content never
 // succeeded" from "1.5% gap ratio exceeded 1% ceiling."
 type GapAbortError struct {
-	Reason   string
-	Done     int64
-	Gaps     int64
-	LastSeq  int64
-	LastErr  error
+	Reason  string
+	Done    int64
+	Gaps    int64
+	LastSeq int64
+	LastErr error
 }
 
 func (e *GapAbortError) Error() string {
@@ -270,11 +289,11 @@ func (e *GapAbortError) Unwrap() error { return e.LastErr }
 //
 // Lifecycle:
 //
-//	1. Poll the playlist once to learn Kind + Init + TargetDuration.
-//	2. If fmp4, fetch init.mp4 synchronously before any segment.
-//	3. Start the poller and the pool under an errgroup.
-//	4. Drain results, emitting Progress events, until the pool
-//	   closes its result chan. Return the final tally.
+//  1. Poll the playlist once to learn Kind + Init + TargetDuration.
+//  2. If fmp4, fetch init.mp4 synchronously before any segment.
+//  3. Start the poller and the pool under an errgroup.
+//  4. Drain results, emitting Progress events, until the pool
+//     closes its result chan. Return the final tally.
 //
 // Auth refresh is NOT handled here — Phase 4d wraps Run with an
 // outer retry that re-runs Stages 1-3 on ErrPlaylistAuth / on
@@ -348,6 +367,20 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	defer cancel()
 	g, gctx := errgroup.WithContext(runCtx)
 
+	var pollerErrMu sync.Mutex
+	var pollerErr error
+	recordPollerErr := func(err error) {
+		pollerErrMu.Lock()
+		pollerErr = err
+		pollerErrMu.Unlock()
+	}
+	shouldIgnoreCanceledSegment := func() bool {
+		pollerErrMu.Lock()
+		err := pollerErr
+		pollerErrMu.Unlock()
+		return !errors.Is(err, ErrPlaylistGone)
+	}
+
 	g.Go(func() error {
 		// Poller closes jobs via its defer; we close skipEvents
 		// here in lock-step so the drain loop's select picks up
@@ -355,14 +388,20 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		// Run return path.
 		defer close(skipEvents)
 		err := poller.Run(gctx, first, jobs)
+		recordPollerErr(err)
 		// ENDLIST + ctx.Canceled both arrive as nil/ctx.Err;
 		// the errgroup won't cancel siblings on nil. We do
 		// NOT treat ENDLIST as an error.
 		return err
 	})
 
+	var poolCompletedClean atomic.Bool
 	g.Go(func() error {
-		return pool.Run(gctx, jobs, results)
+		err := pool.Run(gctx, jobs, results)
+		if err == nil {
+			poolCompletedClean.Store(true)
+		}
+		return err
 	})
 
 	// Bootstrap: wait for the first PollResult before looking
@@ -403,7 +442,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		cfg.OnWindowRoll(pr.WindowRollFrom, pr.WindowRollTo, pr.TargetDuration)
 	}
 	if cfg.OnFirstPoll != nil {
-		cfg.OnFirstPoll(pr.MediaSequenceBase)
+		cfg.OnFirstPoll(pr)
 	}
 	if pr.Init != nil {
 		result.InitURI = pr.Init.URI
@@ -420,7 +459,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		}
 	}
 
-	abortErr, authErr := drainOutcomes(&cfg, result, results, skipEvents, cancel, log)
+	abortErr, authErr := drainOutcomes(&cfg, result, results, skipEvents, cancel, shouldIgnoreCanceledSegment, log)
 
 	if authErr != nil {
 		_ = g.Wait()
@@ -441,6 +480,12 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		!errors.Is(err, context.DeadlineExceeded) {
 		return result, err
 	}
+	// The poll goroutine has joined via g.Wait, so reading its
+	// endListSeen is race-free. ENDLIST only represents a fully
+	// captured broadcast when the worker pool also drained cleanly;
+	// a parent cancel after the poller saw ENDLIST but before queued
+	// final segments committed must stay EndList=false.
+	result.EndList = poller.endListSeen && poolCompletedClean.Load() && result.SegmentsCanceled == 0
 	return result, nil
 }
 
@@ -481,6 +526,7 @@ func drainOutcomes(
 	results <-chan SegmentResult,
 	skipEvents <-chan SkipEvent,
 	cancel context.CancelFunc,
+	ignoreCanceledSegment func() bool,
 	log *slog.Logger,
 ) (*GapAbortError, error) {
 	var abortErr *GapAbortError
@@ -493,6 +539,15 @@ func drainOutcomes(
 		case res, ok := <-resultsCh:
 			if !ok {
 				resultsCh = nil
+				continue
+			}
+			if res.Err != nil && isCanceledSegmentResult(res.Err) &&
+				(ignoreCanceledSegment == nil || ignoreCanceledSegment()) {
+				result.SegmentsCanceled++
+				result.CanceledSeqs = append(result.CanceledSeqs, res.MediaSeq)
+				log.Debug("segment fetch canceled before commit; leaving unresolved for retry",
+					"seq", res.MediaSeq,
+					"error", res.Err)
 				continue
 			}
 			// LastMediaSeq advances on every outcome — success,
@@ -591,9 +646,10 @@ func drainOutcomes(
 				result.SegmentsDone++
 				result.BytesWritten += res.BytesWritten
 				emitEvent(cfg.OnEvent, SegmentEvent{
-					MediaSeq:     res.MediaSeq,
-					Outcome:      OutcomeCommitted,
-					BytesWritten: res.BytesWritten,
+					MediaSeq:        res.MediaSeq,
+					Outcome:         OutcomeCommitted,
+					BytesWritten:    res.BytesWritten,
+					DurationSeconds: res.DurationSeconds,
 				})
 			}
 			emitProgress(cfg.Progress, result)
@@ -696,6 +752,10 @@ func emitProgress(ch chan<- Progress, r *JobResult) {
 	}:
 	default:
 	}
+}
+
+func isCanceledSegmentResult(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // evaluateGap applies the gap policy to a failed segment result.

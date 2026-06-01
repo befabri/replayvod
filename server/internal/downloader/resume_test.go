@@ -6,6 +6,116 @@ import (
 	"testing"
 )
 
+// TestContinuePart pins the size/duration-split continuation: unlike
+// BeginNewPart (which zeroes the anchor for a new variant's
+// independent counter), ContinuePart carries the frontier forward so
+// part N+1 picks up at endSeq+1 in the SAME media-sequence space —
+// no gap, no re-fetch — while keeping the variant lock and resetting
+// per-part accounting. The marshal round-trip half is the crash-mid-
+// split contract: a resumed process must skip the already-committed
+// seqs rather than re-download them.
+func TestContinuePart(t *testing.T) {
+	fps := 30.0
+	r := &ResumeState{
+		CurrentPartIndex:             1,
+		PartStarted:                  true,
+		PartStartMediaSequence:       100,
+		AccountedFrontierMediaSeq:    142,
+		CompletedAboveFrontier:       []int64{145},
+		Gaps:                         []Gap{{MediaSeq: 130, EndMediaSeq: 130, Reason: GapReasonFetchFailure}},
+		SelectedQuality:              "720",
+		SelectedFPS:                  &fps,
+		SelectedCodec:                "avc1.4d401f",
+		SegmentFormat:                "ts",
+		PartBytes:                    5_000_000,
+		PartDurationSeconds:          42.5,
+		PendingSplit:                 true,
+		PendingThresholdSplit:        true,
+		PendingSplitBoundaryMediaSeq: 142,
+		PendingSplitBoundarySet:      true,
+		HadWindowRoll:                true,
+		EndListSeen:                  true,
+	}
+	r.Init()
+
+	r.ContinuePart()
+
+	if r.CurrentPartIndex != 2 {
+		t.Errorf("CurrentPartIndex = %d, want 2", r.CurrentPartIndex)
+	}
+	// Seq-continuous: part N+1 anchors exactly one past part N's end,
+	// frontier sits at the boundary so the first NoteCommitted of
+	// PartStart advances cleanly.
+	if r.PartStartMediaSequence != 143 {
+		t.Errorf("PartStartMediaSequence = %d, want 143 (endSeq+1)", r.PartStartMediaSequence)
+	}
+	if !r.PartStarted {
+		t.Error("PartStarted=false after ContinuePart, want true")
+	}
+	if r.AccountedFrontierMediaSeq != 142 {
+		t.Errorf("AccountedFrontierMediaSeq = %d, want 142 (carried, == endSeq)", r.AccountedFrontierMediaSeq)
+	}
+	// Per-part accounting resets.
+	if r.CompletedAboveFrontier != nil {
+		t.Errorf("CompletedAboveFrontier = %v, want nil", r.CompletedAboveFrontier)
+	}
+	if len(r.Gaps) != 0 {
+		t.Errorf("Gaps = %v, want empty", r.Gaps)
+	}
+	if r.PartBytes != 0 || r.PartDurationSeconds != 0 {
+		t.Errorf("accumulators not reset: bytes=%d seconds=%v", r.PartBytes, r.PartDurationSeconds)
+	}
+	// Split flags consumed.
+	if r.PendingSplit || r.PendingThresholdSplit {
+		t.Errorf("split flags not consumed: PendingSplit=%v PendingThresholdSplit=%v", r.PendingSplit, r.PendingThresholdSplit)
+	}
+	if r.PendingSplitBoundarySet || r.PendingSplitBoundaryMediaSeq != 0 {
+		t.Errorf("split boundary not cleared: set=%v boundary=%d", r.PendingSplitBoundarySet, r.PendingSplitBoundaryMediaSeq)
+	}
+	// Variant lock RETAINED — same stream continues into the next part.
+	if r.SelectedQuality != "720" || r.SelectedCodec != "avc1.4d401f" || r.SegmentFormat != "ts" ||
+		r.SelectedFPS == nil || *r.SelectedFPS != 30.0 {
+		t.Errorf("variant lock not retained: q=%q codec=%q fmt=%q fps=%v",
+			r.SelectedQuality, r.SelectedCodec, r.SegmentFormat, r.SelectedFPS)
+	}
+	// Cross-part loss signal preserved, but a threshold continuation
+	// means the full broadcast is not yet durably owned by finalized
+	// parts. A stale EndListSeen from an older checkpoint must be
+	// cleared so failures in the continuation still report truncated.
+	if !r.HadWindowRoll {
+		t.Error("HadWindowRoll cleared; must persist across parts")
+	}
+	if r.EndListSeen {
+		t.Error("EndListSeen=true after ContinuePart without boundary ENDLIST proof; want false")
+	}
+	if r.Stage != StageAuth {
+		t.Errorf("Stage = %q, want %q", r.Stage, StageAuth)
+	}
+
+	// Crash-mid-split contract: after a checkpoint round-trip the
+	// resumed state still anchors at 143/142, so the resume path skips
+	// the committed [100..142] and resumes at 143 — committed segments
+	// are never re-fetched.
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got, err := UnmarshalResumeState(data)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.PartStartMediaSequence != 143 || got.AccountedFrontierMediaSeq != 142 {
+		t.Errorf("post-roundtrip anchor: partStart=%d frontier=%d, want 143/142",
+			got.PartStartMediaSequence, got.AccountedFrontierMediaSeq)
+	}
+	if !got.ShouldSkip(120) || !got.ShouldSkip(142) {
+		t.Error("resumed state must skip already-accounted seqs <= 142 (no re-fetch)")
+	}
+	if got.ShouldSkip(143) {
+		t.Error("resumed state must NOT skip the continuation seq 143")
+	}
+}
+
 func TestResumeState_NoteCommitted_InOrder(t *testing.T) {
 	r := NewResumeState()
 	for _, seq := range []int64{1, 2, 3, 4, 5} {
@@ -41,6 +151,231 @@ func TestResumeState_NoteCommitted_OutOfOrder(t *testing.T) {
 	}
 	if len(r.CompletedAboveFrontier) != 0 {
 		t.Errorf("CompletedAboveFrontier=%v, want empty", r.CompletedAboveFrontier)
+	}
+}
+
+func TestResumeState_NoteCommittedSegment_AccountsOnlyContiguousFrontier(t *testing.T) {
+	r := NewResumeState()
+	r.StartPart(100)
+
+	r.NoteCommittedSegment(103, 30, 1)
+	if r.PartBytes != 0 || r.PartDurationSeconds != 0 {
+		t.Fatalf("out-of-order commit was counted early: bytes=%d seconds=%v", r.PartBytes, r.PartDurationSeconds)
+	}
+	if !slices.Equal(r.CompletedAboveFrontier, []int64{103}) {
+		t.Fatalf("CompletedAboveFrontier=%v, want [103]", r.CompletedAboveFrontier)
+	}
+
+	r.NoteCommittedSegment(100, 10, 1)
+	if r.AccountedFrontierMediaSeq != 100 {
+		t.Fatalf("frontier=%d, want 100", r.AccountedFrontierMediaSeq)
+	}
+	if r.PartBytes != 10 || r.PartDurationSeconds != 1 {
+		t.Fatalf("contiguous seq 100 not counted: bytes=%d seconds=%v", r.PartBytes, r.PartDurationSeconds)
+	}
+
+	r.NoteCommittedSegment(101, 11, 1)
+	r.NoteCommittedSegment(102, 12, 1)
+	if r.AccountedFrontierMediaSeq != 103 {
+		t.Fatalf("frontier=%d, want 103 after consuming above-frontier seq", r.AccountedFrontierMediaSeq)
+	}
+	if r.PartBytes != 63 || r.PartDurationSeconds != 4 {
+		t.Fatalf("contiguous accounting = %d/%v, want 63/4", r.PartBytes, r.PartDurationSeconds)
+	}
+	if len(r.CompletedAboveFrontier) != 0 || len(r.CompletedAboveFrontierAccounting) != 0 {
+		t.Fatalf("above-frontier state not consumed: seqs=%v accounting=%v", r.CompletedAboveFrontier, r.CompletedAboveFrontierAccounting)
+	}
+}
+
+func TestResumeState_NoteCommittedSegmentUntilThreshold_StopsAtFirstCrossing(t *testing.T) {
+	r := NewResumeState()
+	r.StartPart(0)
+
+	for _, seq := range []int64{1, 2, 3} {
+		boundary, crossed := r.NoteCommittedSegmentUntilThreshold(seq, 10, 1, 15, 0)
+		if crossed {
+			t.Fatalf("seq %d crossed early at boundary %d", seq, boundary)
+		}
+	}
+	if r.AccountedFrontierMediaSeq != -1 {
+		t.Fatalf("frontier=%d, want -1 while seq 0 is unresolved", r.AccountedFrontierMediaSeq)
+	}
+
+	boundary, crossed := r.NoteCommittedSegmentUntilThreshold(0, 10, 1, 15, 0)
+	if !crossed || boundary != 1 {
+		t.Fatalf("boundary=%d crossed=%v, want 1/true", boundary, crossed)
+	}
+	if r.AccountedFrontierMediaSeq != 1 {
+		t.Fatalf("frontier=%d, want boundary 1", r.AccountedFrontierMediaSeq)
+	}
+	if r.PartBytes != 20 || r.PartDurationSeconds != 2 {
+		t.Fatalf("part accounting=%d/%v, want 20/2 at boundary", r.PartBytes, r.PartDurationSeconds)
+	}
+	if !slices.Equal(r.CompletedAboveFrontier, []int64{2, 3}) {
+		t.Fatalf("CompletedAboveFrontier=%v, want [2 3] left for boundary pruning", r.CompletedAboveFrontier)
+	}
+
+	r.SealThresholdSplitBoundary(boundary)
+	if len(r.CompletedAboveFrontier) != 0 || len(r.CompletedAboveFrontierAccounting) != 0 {
+		t.Fatalf("above-boundary state survived seal: seqs=%v accounting=%v", r.CompletedAboveFrontier, r.CompletedAboveFrontierAccounting)
+	}
+	if r.ShouldSkip(2) || r.ShouldSkip(3) {
+		t.Fatalf("above-boundary seqs should be refetched by continuation")
+	}
+}
+
+func TestResumeState_CompletedAccountingSerializesFromMap(t *testing.T) {
+	r := NewResumeState()
+	r.StartPart(100)
+
+	r.NoteCommittedSegment(101, 11, 1)
+	if len(r.CompletedAboveFrontierAccounting) != 0 {
+		t.Fatalf("runtime CompletedAboveFrontierAccounting=%v, want empty; map is the hot-path source of truth", r.CompletedAboveFrontierAccounting)
+	}
+
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	restored, err := UnmarshalResumeState(data)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	restored.NoteCommittedSegment(100, 10, 1)
+	if restored.AccountedFrontierMediaSeq != 101 {
+		t.Fatalf("frontier=%d, want 101 after serialized above-frontier accounting is consumed", restored.AccountedFrontierMediaSeq)
+	}
+	if restored.PartBytes != 21 || restored.PartDurationSeconds != 2 {
+		t.Fatalf("part accounting=%d/%v, want 21/2 from seq 100 plus serialized seq 101", restored.PartBytes, restored.PartDurationSeconds)
+	}
+}
+
+func TestResumeState_NoteGapUntilThreshold_StopsAtFirstCrossingAfterLowerGap(t *testing.T) {
+	r := NewResumeState()
+	r.StartPart(0)
+
+	r.NoteCommittedSegmentUntilThreshold(1, 10, 1, 10, 0)
+	r.NoteCommittedSegmentUntilThreshold(2, 10, 1, 10, 0)
+
+	boundary, crossed := r.NoteGapUntilThreshold(0, GapReasonStitchedAd, 10, 0)
+	if !crossed || boundary != 1 {
+		t.Fatalf("boundary=%d crossed=%v, want 1/true", boundary, crossed)
+	}
+	if r.AccountedFrontierMediaSeq != 1 {
+		t.Fatalf("frontier=%d, want boundary 1", r.AccountedFrontierMediaSeq)
+	}
+	if r.PartBytes != 10 || r.PartDurationSeconds != 1 {
+		t.Fatalf("part accounting=%d/%v, want 10/1 at boundary", r.PartBytes, r.PartDurationSeconds)
+	}
+	if !slices.Equal(r.CompletedAboveFrontier, []int64{2}) {
+		t.Fatalf("CompletedAboveFrontier=%v, want [2] left for boundary pruning", r.CompletedAboveFrontier)
+	}
+}
+
+// TestResumeState_NoteRangeGapUntilThreshold_SealsBoundaryOnWindowRollFold
+// is the window-roll analogue of the single-gap threshold test. A crash
+// can leave committed segments buffered above an unfilled hole; on resume
+// the playlist has rolled past the missing lower seqs, so OnWindowRoll
+// fills the whole range at once. That fold makes the buffered commits
+// contiguous and can push the part over max_part_*. The range-gap path
+// must seal the first crossing seq exactly like the single-gap path,
+// rather than advancing the frontier with the ceiling disabled and
+// silently overshooting.
+func TestResumeState_NoteRangeGapUntilThreshold_SealsBoundaryOnWindowRollFold(t *testing.T) {
+	r := NewResumeState()
+	r.StartPart(100)
+
+	// Concurrent workers committed 103..105 before the lower seqs, then
+	// the process crashed. 100..102 are still missing, so the frontier
+	// can't advance and nothing folds into the part totals yet.
+	for _, seq := range []int64{103, 104, 105} {
+		r.NoteCommittedSegment(seq, 10, 1)
+	}
+	if r.AccountedFrontierMediaSeq != 99 {
+		t.Fatalf("frontier=%d, want 99 while 100..102 unresolved", r.AccountedFrontierMediaSeq)
+	}
+	if r.PartBytes != 0 || r.PartDurationSeconds != 0 {
+		t.Fatalf("buffered above-frontier commits counted early: bytes=%d seconds=%v", r.PartBytes, r.PartDurationSeconds)
+	}
+
+	// On resume the window rolled past 100..102; the fill makes 103..105
+	// contiguous and folds their bytes. A 15-byte ceiling is crossed at
+	// 104 (10+10), so the cut seals there with 105 left above for refetch.
+	boundary, crossed := r.NoteRangeGapUntilThreshold(100, 102, GapReasonRestartWindowRolled, 15, 0)
+	if !crossed {
+		t.Fatal("crossed=false; a window-roll fold over the ceiling must report a boundary")
+	}
+	if boundary != 104 {
+		t.Fatalf("boundary=%d, want 104 (first seq crossing the 15-byte ceiling)", boundary)
+	}
+	if r.AccountedFrontierMediaSeq != 104 {
+		t.Fatalf("frontier=%d, want 104 (stopped at the boundary, not the end of the buffered run)", r.AccountedFrontierMediaSeq)
+	}
+	if r.PartBytes != 20 || r.PartDurationSeconds != 2 {
+		t.Fatalf("part totals at boundary = %d/%v, want 20/2", r.PartBytes, r.PartDurationSeconds)
+	}
+	if !slices.Equal(r.CompletedAboveFrontier, []int64{105}) {
+		t.Fatalf("CompletedAboveFrontier=%v, want [105] left for the continuation", r.CompletedAboveFrontier)
+	}
+
+	// Sealing drops the above-boundary commit so the continuation
+	// refetches 105 from boundary+1 instead of treating it as
+	// already-owned current-part work.
+	r.SealThresholdSplitBoundary(boundary)
+	if len(r.CompletedAboveFrontier) != 0 || len(r.CompletedAboveFrontierAccounting) != 0 {
+		t.Fatalf("above-boundary state survived seal: seqs=%v accounting=%v",
+			r.CompletedAboveFrontier, r.CompletedAboveFrontierAccounting)
+	}
+	if r.ShouldSkip(105) {
+		t.Fatal("seq 105 must be refetched by the continuation, not skipped")
+	}
+	if !r.ShouldSkip(104) {
+		t.Fatal("seq 104 is at/below the boundary and already owned by this part")
+	}
+}
+
+// TestResumeState_NoteRangeGap_DisabledThresholdUnchanged pins that the
+// 0/0 wrapper still advances the whole contiguous run (no boundary) so
+// the non-threshold window-roll path is byte-for-byte the prior behavior.
+func TestResumeState_NoteRangeGap_DisabledThresholdUnchanged(t *testing.T) {
+	r := NewResumeState()
+	r.StartPart(100)
+	for _, seq := range []int64{103, 104, 105} {
+		r.NoteCommittedSegment(seq, 10, 1)
+	}
+
+	r.NoteRangeGap(100, 102, GapReasonRestartWindowRolled)
+
+	if r.AccountedFrontierMediaSeq != 105 {
+		t.Fatalf("frontier=%d, want 105 (disabled ceiling advances the whole run)", r.AccountedFrontierMediaSeq)
+	}
+	if r.PartBytes != 30 || r.PartDurationSeconds != 3 {
+		t.Fatalf("part totals = %d/%v, want 30/3 (all buffered commits folded)", r.PartBytes, r.PartDurationSeconds)
+	}
+	if len(r.CompletedAboveFrontier) != 0 {
+		t.Fatalf("CompletedAboveFrontier=%v, want empty after full advance", r.CompletedAboveFrontier)
+	}
+}
+
+func TestResumeState_SealThresholdSplitBoundary_DropsAboveBoundaryAccounting(t *testing.T) {
+	r := NewResumeState()
+	r.StartPart(100)
+	r.NoteCommittedSegment(103, 30, 1)
+	r.NoteCommittedSegment(100, 10, 1)
+
+	r.PendingSplit = true
+	r.PendingThresholdSplit = true
+	r.SealThresholdSplitBoundary(r.AccountedFrontierMediaSeq)
+
+	if !r.PendingSplitBoundarySet || r.PendingSplitBoundaryMediaSeq != 100 {
+		t.Fatalf("boundary = %d set=%v, want 100/true", r.PendingSplitBoundaryMediaSeq, r.PendingSplitBoundarySet)
+	}
+	if len(r.CompletedAboveFrontier) != 0 || len(r.CompletedAboveFrontierAccounting) != 0 {
+		t.Fatalf("above-boundary accounting survived seal: seqs=%v accounting=%v", r.CompletedAboveFrontier, r.CompletedAboveFrontierAccounting)
+	}
+	if r.ShouldSkip(103) {
+		t.Fatal("seq 103 should be refetched by the next part, not skipped as current-part work")
 	}
 }
 
@@ -245,6 +580,30 @@ func TestResumeState_JSONRoundtrip(t *testing.T) {
 	}
 }
 
+func TestUnmarshalResumeState_PrepareInputSeqZeroInfersPartStarted(t *testing.T) {
+	raw := []byte(`{
+		"stage": "PREPARE_INPUT",
+		"current_part_index": 1,
+		"part_start_media_sequence": 0,
+		"accounted_frontier_media_seq": 0
+	}`)
+
+	r, err := UnmarshalResumeState(raw)
+	if err != nil {
+		t.Fatalf("UnmarshalResumeState: %v", err)
+	}
+
+	// PREPARE_INPUT and later are unambiguously post-fetch, so legacy
+	// seq-0 checkpoints at these stages must infer PartStarted even
+	// without the modern explicit field.
+	if !r.PartStarted {
+		t.Fatal("PartStarted=false for legacy PREPARE_INPUT checkpoint at media seq 0; want inferred true")
+	}
+	if !hasPartContent(nil, r) {
+		t.Fatal("hasPartContent=false for legacy seq-0 checkpoint; want true so resume does not re-bootstrap")
+	}
+}
+
 func TestUnmarshalResumeState_EmptyInput(t *testing.T) {
 	for _, in := range []string{"", "{}"} {
 		r, err := UnmarshalResumeState([]byte(in))
@@ -446,17 +805,28 @@ func TestResumeState_BeginNewPart(t *testing.T) {
 	r.SetStage(StageSegments)
 	r.PendingSplit = true
 	r.HadWindowRoll = true
+	r.EndListSeen = true // stale broadcast-ended marker from the sealed part
 
 	priorPart := r.CurrentPartIndex
 	priorGapsLen := len(r.Gaps)
 
 	r.BeginNewPart()
 
+	// A discontinuity part means the broadcast continues, so the prior
+	// part's ENDLIST observation must not leak forward (else the new
+	// part's failure would mis-report the recording as complete).
+	if r.EndListSeen {
+		t.Error("EndListSeen=true after BeginNewPart; a new discontinuity part must clear the stale broadcast-ended marker")
+	}
+
 	if r.CurrentPartIndex != priorPart+1 {
 		t.Errorf("CurrentPartIndex=%d, want %d", r.CurrentPartIndex, priorPart+1)
 	}
 	if r.PartStartMediaSequence != 0 {
 		t.Errorf("PartStartMediaSequence=%d, want 0 (next OnFirstPoll re-anchors)", r.PartStartMediaSequence)
+	}
+	if r.PartStarted {
+		t.Error("PartStarted=true after BeginNewPart, want false until OnFirstPoll re-anchors")
 	}
 	if r.AccountedFrontierMediaSeq != 0 {
 		t.Errorf("AccountedFrontierMediaSeq=%d, want 0 (next OnFirstPoll re-anchors)", r.AccountedFrontierMediaSeq)
@@ -489,6 +859,70 @@ func TestResumeState_BeginNewPart(t *testing.T) {
 	if r.AccountedFrontierMediaSeq != 50 {
 		t.Errorf("after BeginNewPart + StartPart(50) + NoteCommitted(50): frontier=%d, want 50",
 			r.AccountedFrontierMediaSeq)
+	}
+}
+
+func TestResumeState_ReanchorCurrentPartAfterEmptySplit_ReusesPartIndex(t *testing.T) {
+	r := NewResumeState()
+	r.CurrentPartIndex = 2
+	r.StartPart(200)
+	r.NoteRangeGap(200, 205, GapReasonRestartWindowRolled)
+	r.SelectedQuality = "720"
+	r.SelectedCodec = "h264"
+	r.SegmentFormat = "ts"
+	r.PartBytes = 1234
+	r.PartDurationSeconds = 5
+	r.PendingSplit = true
+	r.HadWindowRoll = true
+	r.EndListSeen = true // stale broadcast-ended marker
+	r.SetStage(StageSegments)
+
+	r.ReanchorCurrentPartAfterEmptySplit()
+
+	if r.EndListSeen {
+		t.Error("EndListSeen=true after ReanchorCurrentPartAfterEmptySplit; re-anchoring for a fresh window must clear the stale broadcast-ended marker")
+	}
+
+	if r.CurrentPartIndex != 2 {
+		t.Fatalf("CurrentPartIndex=%d, want 2; empty skipped part must not consume a video_parts index", r.CurrentPartIndex)
+	}
+	if r.EmptySplitReanchors != 1 {
+		t.Fatalf("EmptySplitReanchors=%d, want 1; skipped empty attempts must count toward split-loop cap", r.EmptySplitReanchors)
+	}
+	if r.PartStarted || r.PartStartMediaSequence != 0 || r.AccountedFrontierMediaSeq != 0 {
+		t.Fatalf("part anchor not reset: started=%v start=%d frontier=%d",
+			r.PartStarted, r.PartStartMediaSequence, r.AccountedFrontierMediaSeq)
+	}
+	if r.PendingSplit || r.PendingThresholdSplit {
+		t.Fatalf("pending split not consumed: pending=%v threshold=%v", r.PendingSplit, r.PendingThresholdSplit)
+	}
+	if len(r.Gaps) != 0 {
+		t.Fatalf("Gaps=%v, want empty; empty interval is not a persisted part", r.Gaps)
+	}
+	if r.SelectedQuality != "" || r.SelectedCodec != "" || r.SegmentFormat != "" {
+		t.Fatalf("variant lock not cleared: quality=%q codec=%q format=%q", r.SelectedQuality, r.SelectedCodec, r.SegmentFormat)
+	}
+	if r.PartBytes != 0 || r.PartDurationSeconds != 0 {
+		t.Fatalf("part accounting not reset: bytes=%d seconds=%v", r.PartBytes, r.PartDurationSeconds)
+	}
+	if r.Stage != StageAuth {
+		t.Fatalf("Stage=%q, want %q", r.Stage, StageAuth)
+	}
+	if !r.HadWindowRoll {
+		t.Fatal("HadWindowRoll was cleared; completion classification must survive the skipped empty interval")
+	}
+
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	restored, err := UnmarshalResumeState(data)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if restored.EmptySplitReanchors != 1 || restored.CurrentPartIndex != 2 {
+		t.Fatalf("roundtrip counters: EmptySplitReanchors=%d CurrentPartIndex=%d, want 1/2",
+			restored.EmptySplitReanchors, restored.CurrentPartIndex)
 	}
 }
 
@@ -537,24 +971,36 @@ func TestResumeState_ShouldOpenNextPart(t *testing.T) {
 	cases := []struct {
 		name             string
 		pendingSplit     bool
+		thresholdSplit   bool
+		endListSeen      bool
 		currentPartIndex int32
-		maxParts         int32
+		emptyReanchors   int32
+		maxDiscontinuity int32
+		maxThreshold     int32
 		wantContinue     bool
 		wantErr          bool
 	}{
-		{"no split pending — terminate", false, 1, 32, false, false},
-		{"no split pending even past cap — terminate", false, 100, 32, false, false},
-		{"split pending under cap — continue", true, 5, 32, true, false},
-		{"split pending one below cap — continue", true, 31, 32, true, false},
-		{"split pending exactly at cap — fail", true, 32, 32, false, true},
-		{"split pending past cap — fail", true, 33, 32, false, true},
+		{"no split pending — terminate", false, false, false, 1, 0, 32, 1024, false, false},
+		{"no split pending even past cap — terminate", false, false, false, 100, 0, 32, 1024, false, false},
+		{"discontinuity split pending under cap — continue", true, false, false, 5, 0, 32, 1024, true, false},
+		{"discontinuity split pending one below cap — continue", true, false, false, 31, 0, 32, 1024, true, false},
+		{"discontinuity split pending exactly at cap — fail", true, false, false, 32, 0, 32, 1024, false, true},
+		{"empty reanchors one below discontinuity cap — continue", true, false, false, 2, 29, 32, 1024, true, false},
+		{"empty reanchors exactly at discontinuity cap — fail", true, false, false, 2, 30, 32, 1024, false, true},
+		{"threshold split ignores discontinuity cap", true, true, false, 32, 0, 32, 1024, true, false},
+		{"threshold split ignores empty discontinuity reanchors", true, true, false, 32, 900, 32, 1024, true, false},
+		{"threshold split pending exactly at threshold cap — fail", true, true, false, 1024, 0, 32, 1024, false, true},
+		{"ENDLIST is handled by run boundary logic, not cap helper", true, true, true, 1024, 0, 32, 1024, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := NewResumeState()
 			r.PendingSplit = tc.pendingSplit
+			r.PendingThresholdSplit = tc.thresholdSplit
+			r.EndListSeen = tc.endListSeen
 			r.CurrentPartIndex = tc.currentPartIndex
-			got, err := r.ShouldOpenNextPart(tc.maxParts)
+			r.EmptySplitReanchors = tc.emptyReanchors
+			got, err := r.ShouldOpenNextPart(tc.maxDiscontinuity, tc.maxThreshold)
 			if got != tc.wantContinue {
 				t.Errorf("continue = %v, want %v", got, tc.wantContinue)
 			}
@@ -592,7 +1038,7 @@ func TestResumeState_PendingSplit_SurvivesCrashMidRunPart(t *testing.T) {
 	if !r2.PendingSplit {
 		t.Fatal("PendingSplit didn't roundtrip — split intent lost on resume; part N+1 would never run")
 	}
-	cont, err := r2.ShouldOpenNextPart(MaxPartsPerVideo)
+	cont, err := r2.ShouldOpenNextPart(MaxDiscontinuityPartsPerVideo, DefaultMaxThresholdPartsPerVideo)
 	if err != nil {
 		t.Fatalf("ShouldOpenNextPart: %v", err)
 	}
@@ -616,9 +1062,9 @@ func TestResumeState_BeginNewPart_NewVariantLowerSeq(t *testing.T) {
 
 	// Both anchor fields zero — the next OnFirstPoll's StartPart(50)
 	// will work even though 50 < 1002.
-	if r.PartStartMediaSequence != 0 || r.AccountedFrontierMediaSeq != 0 {
-		t.Fatalf("BeginNewPart left bootstrap state non-zero: PartStart=%d Frontier=%d — fetchWithAuthRefresh would skip the re-anchor and the poller would filter out the new variant's segments",
-			r.PartStartMediaSequence, r.AccountedFrontierMediaSeq)
+	if r.PartStarted || r.PartStartMediaSequence != 0 || r.AccountedFrontierMediaSeq != 0 {
+		t.Fatalf("BeginNewPart left bootstrap state set: PartStarted=%v PartStart=%d Frontier=%d — fetchWithAuthRefresh would skip the re-anchor and the poller would filter out the new variant's segments",
+			r.PartStarted, r.PartStartMediaSequence, r.AccountedFrontierMediaSeq)
 	}
 
 	// Re-anchor at a lower seq (the new variant's base).

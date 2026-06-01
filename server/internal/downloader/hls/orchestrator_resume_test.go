@@ -339,9 +339,11 @@ func TestRun_RefetchHandlesMultipleSeqs(t *testing.T) {
 // the skip must be attributed to SegmentsGaps (not SegmentsAdGaps).
 //
 // Both policy outcomes are acceptable:
-//   a) race wins for commits → run completes, 4 done + 1 gap.
-//   b) race wins for skip → policy aborts with GapAbortError
-//      referencing malformed-segment reason.
+//
+//	a) race wins for commits → run completes, 4 done + 1 gap.
+//	b) race wins for skip → policy aborts with GapAbortError
+//	   referencing malformed-segment reason.
+//
 // What MUST hold in both: no fetch attempt on the malformed seg,
 // no mis-attribution to ad counters.
 func TestRun_MalformedSegmentNotFetched(t *testing.T) {

@@ -18,7 +18,12 @@ type SegmentResult struct {
 	MediaSeq     int64
 	FinalName    string
 	BytesWritten int64
-	Err          error // nil on success
+	// DurationSeconds is the segment's EXTINF, carried through from
+	// the segmentJob so the orchestrator can surface per-segment
+	// duration on the committed SegmentEvent. Only meaningful on
+	// success (Err == nil); a failed fetch never wrote any media.
+	DurationSeconds float64
+	Err             error // nil on success
 }
 
 // Pool fans N workers over a bounded channel of segmentJobs. One
@@ -136,5 +141,6 @@ func (p *Pool) runOne(ctx context.Context, log *slog.Logger, job segmentJob) Seg
 		return result
 	}
 	result.BytesWritten = n
+	result.DurationSeconds = job.Segment.Duration
 	return result
 }

@@ -17,11 +17,11 @@ func TestBackoff_WithinWindow(t *testing.T) {
 		attempt int
 		window  time.Duration
 	}{
-		{0, base},              // 100ms
-		{3, base << 3},         // 800ms
-		{10, cap},              // capped
-		{100, cap},             // capped (clamped)
-		{-5, base},             // negative clamped to 0 → base window
+		{0, base},      // 100ms
+		{3, base << 3}, // 800ms
+		{10, cap},      // capped
+		{100, cap},     // capped (clamped)
+		{-5, base},     // negative clamped to 0 → base window
 	} {
 		for range 20 {
 			got := Backoff(tc.attempt, base, cap)

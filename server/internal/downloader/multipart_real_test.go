@@ -140,3 +140,69 @@ func TestMultipart_VariantDropSplitsIntoTwoParts(t *testing.T) {
 		t.Errorf("part 1 filename = %q, want suffix \"-part01.mp4\"", parts[0].Filename)
 	}
 }
+
+func TestMultipart_EmptyContinuationVariantChangeReusesPartIndex(t *testing.T) {
+	requireFFmpegHarness(t)
+
+	opts := defaultEdgeOpts()
+	opts.tsCount = 2
+	opts.fmp4Count = 1
+	opts.windowA = 1
+	opts.windowB = 1
+	opts.dropAfterServed = 1
+	opts.baseSeqA = 100
+	opts.baseSeqB = 50
+	edge := newTwitchEdge(t, opts)
+
+	h := newHarnessService(t, edge.URL())
+	defer h.svc.Shutdown()
+	// Cut variant A after its first segment. The next continuation still
+	// holds A's variant lock, but the master has already dropped A, so it
+	// observes ErrVariantChanged before committing media. That empty interval
+	// must be discarded without consuming part_index 2; B's real output should
+	// become part02, not part03.
+	h.svc.cfg.App.Download.MaxPartBytes = 1
+
+	if _, err := h.repo.UpsertChannel(context.Background(), &repository.Channel{
+		BroadcasterID:    "test-bid",
+		BroadcasterLogin: "harness_empty_boundary",
+		BroadcasterName:  "Harness Empty Boundary",
+	}); err != nil {
+		t.Fatalf("upsert channel: %v", err)
+	}
+
+	jobID, err := h.svc.Start(context.Background(), Params{
+		BroadcasterID:    "test-bid",
+		BroadcasterLogin: "harness_empty_boundary",
+		DisplayName:      "Harness Empty Boundary",
+		Quality:          repository.QualityHigh,
+		RecordingType:    twitch.RecordingTypeVideo,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	job, err := h.repo.GetJob(context.Background(), jobID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+
+	waitForVideoStatus(t, h.repo, job.VideoID, repository.VideoStatusDone, 60*time.Second)
+
+	parts, err := h.repo.ListVideoParts(context.Background(), job.VideoID)
+	if err != nil {
+		t.Fatalf("list parts: %v", err)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("video_parts count = %d, want 2 (empty boundary continuation must not create or skip a row; parts: %+v)",
+			len(parts), parts)
+	}
+	if parts[0].PartIndex != 1 || parts[1].PartIndex != 2 {
+		t.Fatalf("part_index ordering = [%d, %d], want [1, 2]", parts[0].PartIndex, parts[1].PartIndex)
+	}
+	if parts[0].Quality != "480" || parts[0].SegmentFormat != "ts" {
+		t.Fatalf("part 1 variant = %s/%s, want 480/ts", parts[0].Quality, parts[0].SegmentFormat)
+	}
+	if parts[1].Quality != "360" || parts[1].SegmentFormat != "fmp4" {
+		t.Fatalf("part 2 variant = %s/%s, want 360/fmp4", parts[1].Quality, parts[1].SegmentFormat)
+	}
+}
