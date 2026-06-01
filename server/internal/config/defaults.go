@@ -21,6 +21,7 @@ func getDefaultAppConfig() AppConfig {
 			EnableAV1:            false,
 			DisableHEVC:          false,
 			MaxRestartGapSeconds: 120,
+			MaxPartCount:         1024,
 			SignedURLTTLHours:    168,
 		},
 		Storage: StorageConfig{
@@ -87,6 +88,13 @@ func validateAppConfig(config *AppConfig) {
 		config.Download.MaxGapRatio = 0.01
 	}
 	config.Download.MaxRestartGapSeconds = orDefault(config.Download.MaxRestartGapSeconds, 120)
+	if config.Download.MaxPartBytes < 0 {
+		config.Download.MaxPartBytes = 0
+	}
+	if config.Download.MaxPartSeconds < 0 {
+		config.Download.MaxPartSeconds = 0
+	}
+	config.Download.MaxPartCount = orDefault(config.Download.MaxPartCount, 1024)
 	// SampleRate must be in (0, 1]; reset anything outside to full sampling.
 	if config.Logging.SampleRate <= 0 || config.Logging.SampleRate > 1 {
 		config.Logging.SampleRate = 1.0

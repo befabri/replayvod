@@ -17,13 +17,17 @@ strict = false
 enable_av1 = false
 disable_hevc = false
 max_restart_gap_seconds = 120
-# Maximum lifetime for a signed part-download URL handed to a recording-webhook
-# consumer. When the recording auto-delete task is enabled, retention caps URLs
-# at the recording's retention deadline. The webhook payload embeds one signed,
-# unauthenticated, expiring URL per recorded part so an external service can fetch
-# the bytes over plain HTTP without a dashboard session. Default 168 (7 days).
-# Set to 0 to disable signed download URLs entirely (the payload then carries
-# only storage paths).
+# Optional recording part limits.
+# Start a new part when either the size or duration limit is reached.
+# Splits happen between segments, so none are lost or duplicated.
+# Defaults to 0 = disabled; negative values are treated as 0.
+# max_part_bytes = 4000000000
+# max_part_seconds = 3600
+# max_part_count = 1024
+# Lifetime, in hours, for signed part-download URLs sent in recording webhooks.
+# Capped by the recording retention deadline when auto-delete is enabled.
+# Set to 0 to omit URLs and send storage paths only.
+# Default: 168 (7 days).
 signed_url_ttl_hours = 168
 
 [storage]

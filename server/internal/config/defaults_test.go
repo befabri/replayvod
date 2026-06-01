@@ -52,6 +52,7 @@ func TestGetDefaultAppConfig(t *testing.T) {
 			EnableAV1:            false,
 			DisableHEVC:          false,
 			MaxRestartGapSeconds: 120,
+			MaxPartCount:         1024,
 			SignedURLTTLHours:    168,
 		},
 		Storage: StorageConfig{
@@ -118,6 +119,9 @@ func validBaseline() AppConfig {
 	cfg.Download.AuthRefreshAttempts = 4
 	cfg.Download.MaxGapRatio = 0.5
 	cfg.Download.MaxRestartGapSeconds = 200
+	cfg.Download.MaxPartBytes = 4_000_000_000
+	cfg.Download.MaxPartSeconds = 3600
+	cfg.Download.MaxPartCount = 2048
 	cfg.Logging.SampleRate = 0.5
 	cfg.PostgresPool.MaxConns = 40
 	cfg.PostgresPool.MinConns = 8
@@ -203,6 +207,22 @@ func TestValidateAppConfigFieldRules(t *testing.T) {
 		{"max restart gap zero clamps", func(c *AppConfig) { c.Download.MaxRestartGapSeconds = 0 }, func(c *AppConfig) any { return c.Download.MaxRestartGapSeconds }, 120},
 		{"max restart gap negative clamps", func(c *AppConfig) { c.Download.MaxRestartGapSeconds = -10 }, func(c *AppConfig) any { return c.Download.MaxRestartGapSeconds }, 120},
 		{"max restart gap one stays", func(c *AppConfig) { c.Download.MaxRestartGapSeconds = 1 }, func(c *AppConfig) any { return c.Download.MaxRestartGapSeconds }, 1},
+
+		// MaxPartBytes / MaxPartSeconds: 0 disables splitting; negative
+		// values are typos and clamp to disabled rather than silently
+		// relying on downloader guards.
+		{"max part bytes negative clamps to disabled", func(c *AppConfig) { c.Download.MaxPartBytes = -1 }, func(c *AppConfig) any { return c.Download.MaxPartBytes }, int64(0)},
+		{"max part bytes zero stays disabled", func(c *AppConfig) { c.Download.MaxPartBytes = 0 }, func(c *AppConfig) any { return c.Download.MaxPartBytes }, int64(0)},
+		{"max part bytes one stays", func(c *AppConfig) { c.Download.MaxPartBytes = 1 }, func(c *AppConfig) any { return c.Download.MaxPartBytes }, int64(1)},
+		{"max part seconds negative clamps to disabled", func(c *AppConfig) { c.Download.MaxPartSeconds = -1 }, func(c *AppConfig) any { return c.Download.MaxPartSeconds }, 0},
+		{"max part seconds zero stays disabled", func(c *AppConfig) { c.Download.MaxPartSeconds = 0 }, func(c *AppConfig) any { return c.Download.MaxPartSeconds }, 0},
+		{"max part seconds one stays", func(c *AppConfig) { c.Download.MaxPartSeconds = 1 }, func(c *AppConfig) any { return c.Download.MaxPartSeconds }, 1},
+
+		// MaxPartCount: threshold split cap, separate from the internal
+		// discontinuity cap.
+		{"max part count zero clamps", func(c *AppConfig) { c.Download.MaxPartCount = 0 }, func(c *AppConfig) any { return c.Download.MaxPartCount }, int32(1024)},
+		{"max part count negative clamps", func(c *AppConfig) { c.Download.MaxPartCount = -1 }, func(c *AppConfig) any { return c.Download.MaxPartCount }, int32(1024)},
+		{"max part count one stays", func(c *AppConfig) { c.Download.MaxPartCount = 1 }, func(c *AppConfig) any { return c.Download.MaxPartCount }, int32(1)},
 
 		// SampleRate: valid range is (0, 1]; clamp outside to 1.0.
 		{"sample rate zero clamps", func(c *AppConfig) { c.Logging.SampleRate = 0 }, func(c *AppConfig) any { return c.Logging.SampleRate }, 1.0},

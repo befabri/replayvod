@@ -230,6 +230,34 @@ type DownloadConfig struct {
 	// outage from embedding a massive hole in one MP4.
 	MaxRestartGapSeconds int `toml:"max_restart_gap_seconds"`
 
+	// MaxPartBytes splits the recording into a new part once the
+	// current part's committed segment bytes cross this ceiling. The
+	// cut lands on a segment boundary (never mid-segment); part N+1
+	// resumes at the next media sequence with no dropped or
+	// duplicated segments. 0 (the default) disables size-based
+	// splitting, preserving single-file behavior; negative values are
+	// clamped to 0 on load. Useful for per-file ceilings (FAT32's 4 GiB
+	// limit, upload chunk sizes) and faster seeking. Independent of
+	// MaxPartSeconds — whichever ceiling the part hits first triggers
+	// the split.
+	MaxPartBytes int64 `toml:"max_part_bytes"`
+
+	// MaxPartSeconds splits the recording into a new part once the
+	// current part's accumulated segment duration crosses this many
+	// seconds. Like MaxPartBytes the cut is on a segment boundary and
+	// the next part is contiguous. 0 (the default) disables
+	// duration-based splitting; negative values are clamped to 0 on
+	// load. Independent of MaxPartBytes.
+	MaxPartSeconds int `toml:"max_part_seconds"`
+
+	// MaxPartCount caps the number of parts produced by intentional
+	// MaxPartBytes / MaxPartSeconds splitting. Default 1024. This is
+	// separate from the downloader's lower internal discontinuity cap:
+	// configured chunking is an operator choice and must allow long
+	// recordings, while variant/window-roll split loops still need
+	// tighter runaway protection.
+	MaxPartCount int32 `toml:"max_part_count"`
+
 	// SignedURLTTLHours is the maximum lifetime for a signed part-download URL
 	// handed to a recording-webhook consumer. The webhook payload embeds one
 	// signed, unauthenticated, expiring URL per recorded part so an external

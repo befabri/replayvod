@@ -36,6 +36,9 @@ Recording behaviour. See [Recording](/docs/recording/) for narrative.
 | `enable_av1`              | `false`  | Allow AV1 variants. |
 | `disable_hevc`            | `false`  | Refuse HEVC variants. |
 | `max_restart_gap_seconds` | `120`    | Stream-drop window for appending to the same VOD. |
+| `max_part_bytes`          | `0`      | Split into a new part once the current part reaches this many bytes (segment boundary). `0` disables; negative values clamp to `0`. |
+| `max_part_seconds`        | `0`      | Split into a new part once the current part reaches this many seconds. `0` disables; negative values clamp to `0`. |
+| `max_part_count`          | `1024`   | Maximum parts produced by configured size/duration splitting. |
 | `signed_url_ttl_hours`    | `168`    | Maximum lifetime of the signed per-part `download_url` in [recording-webhook](/docs/webhook/) payloads; enabled recording auto-delete can cap it sooner. `0` disables signed download URLs. |
 
 ## `[storage]`
