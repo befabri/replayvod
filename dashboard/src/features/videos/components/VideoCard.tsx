@@ -1,6 +1,6 @@
 import { Play } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
 import { API_URL } from "@/env";
@@ -41,8 +41,6 @@ function useHoverSnapshots(
 ): { current: string; prev: string | null } | null {
 	const [index, setIndex] = useState(0);
 	const [hasTicked, setHasTicked] = useState(false);
-	const activeRef = useRef(active);
-	activeRef.current = active;
 
 	useEffect(() => {
 		if (!active || urls.length === 0) {
@@ -266,6 +264,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 			<Link
 				to="/dashboard/watch/$videoId"
 				params={{ videoId: String(video.id) }}
+				search={{ t: undefined }}
 				className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 				aria-label={t("videos.watch_recording", { title: primaryLabel })}
 			>
@@ -284,12 +283,14 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 						<Link
 							to="/dashboard/watch/$videoId"
 							params={{ videoId: String(video.id) }}
+							search={{ t: undefined }}
 							className="min-w-0 flex-1 line-clamp-2 font-medium leading-snug text-foreground transition-colors hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 						>
 							{primaryLabel}
 						</Link>
 						<StreamHistoryButton
 							videoId={video.id}
+							videoStartDownloadAt={video.start_download_at}
 							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 						/>
 					</div>
@@ -303,10 +304,8 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 				)}
 				<div className="flex items-center gap-2.5 text-sm text-muted-foreground">
 					<Link
-						// biome-ignore lint/suspicious/noExplicitAny: param route typing
-						to={"/dashboard/channels/$channelId" as any}
-						// biome-ignore lint/suspicious/noExplicitAny: param route typing
-						params={{ channelId: video.broadcaster_id } as any}
+						to="/dashboard/channels/$channelId"
+						params={{ channelId: video.broadcaster_id }}
 						className="inline-flex shrink-0 rounded-full ring-4 ring-transparent ring-offset-2 ring-offset-background transition-[box-shadow,--tw-ring-color] duration-150 hover:ring-accent focus-visible:outline-none focus-visible:ring-ring"
 						aria-label={label}
 					>
@@ -319,10 +318,8 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 					</Link>
 					<div className="min-w-0">
 						<Link
-							// biome-ignore lint/suspicious/noExplicitAny: param route typing
-							to={"/dashboard/channels/$channelId" as any}
-							// biome-ignore lint/suspicious/noExplicitAny: param route typing
-							params={{ channelId: video.broadcaster_id } as any}
+							to="/dashboard/channels/$channelId"
+							params={{ channelId: video.broadcaster_id }}
 							className="block truncate font-medium text-foreground transition-colors hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 						>
 							{label}
@@ -334,10 +331,8 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 									<span className="opacity-40">·</span>
 									{video.primary_category_id ? (
 										<Link
-											// biome-ignore lint/suspicious/noExplicitAny: param route typing
-											to={"/dashboard/categories/$categoryId" as any}
-											// biome-ignore lint/suspicious/noExplicitAny: param route typing
-											params={{ categoryId: video.primary_category_id } as any}
+											to="/dashboard/categories/$categoryId"
+											params={{ categoryId: video.primary_category_id }}
 											className="truncate transition-colors hover:text-foreground"
 										>
 											{primaryCategoryLabel}

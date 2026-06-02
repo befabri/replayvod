@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { videoStatusLabel } from "@/features/videos/labels";
 
 export function VideoStatusBadge({
 	status,
@@ -19,8 +20,8 @@ export function VideoStatusBadge({
 				PENDING: "bg-muted text-muted-foreground",
 			}[status] ?? "bg-muted text-muted-foreground");
 	const label = isCancelled
-		? t("videos.status.CANCELLED", "CANCELLED")
-		: t(`videos.status.${status}` as const, status);
+		? videoStatusLabel(t, "CANCELLED")
+		: videoStatusLabel(t, status);
 
 	return (
 		<span className="inline-flex flex-wrap items-center gap-1.5">

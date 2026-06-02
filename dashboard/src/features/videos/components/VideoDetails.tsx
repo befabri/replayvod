@@ -231,10 +231,8 @@ function TimelineRow({
 function CategoryEvent({ category }: { category: VideoCategory }) {
 	return (
 		<Link
-			// biome-ignore lint/suspicious/noExplicitAny: param route typing
-			to={"/dashboard/categories/$categoryId" as any}
-			// biome-ignore lint/suspicious/noExplicitAny: param route typing
-			params={{ categoryId: category.id } as any}
+			to="/dashboard/categories/$categoryId"
+			params={{ categoryId: category.id }}
 			className="flex items-center gap-2.5 rounded-md hover:bg-accent/50 -mx-1 px-1 py-0.5 transition-colors"
 		>
 			<CategoryBoxArt

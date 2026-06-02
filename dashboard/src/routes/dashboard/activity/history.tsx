@@ -1,6 +1,6 @@
 import { FunnelSimple } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
@@ -18,12 +18,13 @@ const PAGE_SIZE = 50;
 type StatusKey = "DONE" | "FAILED";
 const STATUS_KEYS: StatusKey[] = ["DONE", "FAILED"];
 
+function isStatusKey(value: unknown): value is StatusKey {
+	return value === "DONE" || value === "FAILED";
+}
+
 export const Route = createFileRoute("/dashboard/activity/history")({
 	validateSearch: (search: Record<string, unknown>) => ({
-		status:
-			search.status === "FAILED" || search.status === "DONE"
-				? (search.status as StatusKey)
-				: ("DONE" as const),
+		status: isStatusKey(search.status) ? search.status : "DONE",
 	}),
 	component: HistoryPage,
 });
@@ -41,6 +42,7 @@ function HistoryPage() {
 	const videos = useInfiniteVideoPages(PAGE_SIZE, status, "created_at", "desc");
 	const pages = videos.data?.pages ?? [];
 	const currentPage = pages[page]?.items ?? [];
+	const columns = useMemo(() => historyColumns(t), [t]);
 	const canGoPrev = page > 0;
 	const canGoNext = page < pages.length - 1 || !!videos.hasNextPage;
 
@@ -79,7 +81,7 @@ function HistoryPage() {
 			{!videos.isLoading && !videos.error && (
 				<>
 					<DataTable
-						columns={historyColumns}
+						columns={columns}
 						data={currentPage}
 						emptyMessage={t("history.empty")}
 					/>

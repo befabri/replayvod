@@ -7,6 +7,7 @@ import { Timestamp } from "@/components/ui/timestamp";
 import { API_URL } from "@/env";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { StreamHistoryButton } from "./StreamHistoryButton";
 import { VideoStatusBadge } from "./VideoStatusBadge";
 
 export function videoListColumns(t: TFunction): ColumnDef<VideoResponse>[] {
@@ -83,13 +84,21 @@ export function videoListColumns(t: TFunction): ColumnDef<VideoResponse>[] {
 			enableSorting: false,
 			cell: ({ row }) =>
 				row.original.status === "DONE" ? (
-					<Link
-						to="/dashboard/watch/$videoId"
-						params={{ videoId: String(row.original.id) }}
-						className="text-primary text-xs hover:underline"
-					>
-						{t("videos.watch")}
-					</Link>
+					<div className="flex items-center justify-end gap-1.5">
+						<StreamHistoryButton
+							videoId={row.original.id}
+							videoStartDownloadAt={row.original.start_download_at}
+							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						/>
+						<Link
+							to="/dashboard/watch/$videoId"
+							params={{ videoId: String(row.original.id) }}
+							search={{ t: undefined }}
+							className="text-primary text-xs hover:underline"
+						>
+							{t("videos.watch")}
+						</Link>
+					</div>
 				) : null,
 		},
 	];
@@ -149,6 +158,7 @@ function VideoTitleCell({ row, t }: { row: VideoResponse; t: TFunction }) {
 		<Link
 			to="/dashboard/watch/$videoId"
 			params={{ videoId: String(row.id) }}
+			search={{ t: undefined }}
 			className="block hover:text-link"
 		>
 			{body}

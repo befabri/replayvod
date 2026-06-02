@@ -1,6 +1,6 @@
 import { CaretDoubleLeft, CaretDown } from "@phosphor-icons/react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useStore } from "@tanstack/react-store";
+import { useSelector } from "@tanstack/react-store";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -18,9 +18,11 @@ import {
 } from "@/stores/ui";
 import {
 	activeGroupIndex,
+	isChildActive,
 	isGroupActive,
 	type NavChild,
 	type NavGroup,
+	type StaticRoute,
 	useVisibleNavGroups,
 } from "./nav-data";
 
@@ -47,8 +49,8 @@ function useIsDesktop() {
 
 export function Sidebar() {
 	const { t } = useTranslation();
-	const open = useStore(uiStore, (s) => s.sidebarOpen);
-	const collapsed = useStore(uiStore, (s) => s.sidebarCollapsed);
+	const open = useSelector(uiStore, (s) => s.sidebarOpen);
+	const collapsed = useSelector(uiStore, (s) => s.sidebarCollapsed);
 	const groups = useVisibleNavGroups();
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const isDesktop = useIsDesktop();
@@ -154,6 +156,9 @@ export function Sidebar() {
 const rowBase =
 	"group/row relative flex h-9 items-center rounded-lg text-sm font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring";
 
+const SIDEBAR_ICON_SIZE = 18;
+const SIDEBAR_CONTROL_ICON_SIZE = 16;
+
 const indicator =
 	"before:absolute before:-left-3 before:top-1/2 before:h-0 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-primary before:opacity-0 before:transition-all before:duration-200";
 
@@ -163,15 +168,14 @@ function LeafRow({
 	label,
 	compact,
 }: {
-	to: string;
+	to: StaticRoute;
 	icon: NavGroup["icon"];
 	label: string;
 	compact: boolean;
 }) {
 	const link = (
 		<Link
-			// biome-ignore lint/suspicious/noExplicitAny: router string paths don't narrow
-			to={to as any}
+			to={to}
 			onClick={closeSidebar}
 			activeOptions={{ exact: true }}
 			aria-label={compact ? label : undefined}
@@ -182,7 +186,7 @@ function LeafRow({
 				compact ? "w-11 justify-center" : "gap-3 px-3",
 			)}
 		>
-			<Icon size={20} className="shrink-0" />
+			<Icon size={SIDEBAR_ICON_SIZE} className="shrink-0" />
 			{!compact && <span className="truncate">{label}</span>}
 		</Link>
 	);
@@ -232,7 +236,7 @@ function GroupRow({
 						: "text-sidebar-foreground/75",
 				)}
 			>
-				<Icon size={20} className="shrink-0" />
+				<Icon size={SIDEBAR_ICON_SIZE} className="shrink-0" />
 			</button>
 		);
 		return (
@@ -260,7 +264,7 @@ function GroupRow({
 				)}
 			>
 				<Icon
-					size={20}
+					size={SIDEBAR_ICON_SIZE}
 					className={cn("shrink-0 transition-colors", active && "text-primary")}
 				/>
 				<span className="flex-1 truncate text-left">{group.label}</span>
@@ -295,18 +299,20 @@ function GroupRow({
 }
 
 function ChildRow({ child }: { child: NavChild }) {
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	const active = isChildActive(pathname, child);
+
 	return (
 		<Link
-			// biome-ignore lint/suspicious/noExplicitAny: router string paths don't narrow
-			to={child.to as any}
+			to={child.to}
 			onClick={closeSidebar}
 			activeOptions={child.exact ? { exact: true } : undefined}
+			data-active={active ? "" : undefined}
 			className={cn(
 				"relative flex h-8 items-center rounded-md pl-3 pr-3 text-sm transition-colors duration-150",
 				"text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
-				"before:absolute before:-left-3 before:top-1/2 before:h-0 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-primary before:opacity-0 before:transition-all before:duration-200",
 				"data-[status=active]:font-medium data-[status=active]:text-sidebar-accent-foreground",
-				"data-[status=active]:before:h-4 data-[status=active]:before:opacity-100",
+				"data-[active]:font-medium data-[active]:text-sidebar-accent-foreground",
 			)}
 		>
 			<span className="truncate">{child.label}</span>
@@ -328,7 +334,7 @@ function CollapseToggle({ compact }: { compact: boolean }) {
 			)}
 		>
 			<CaretDoubleLeft
-				size={18}
+				size={SIDEBAR_CONTROL_ICON_SIZE}
 				className={cn(
 					"shrink-0 transition-transform duration-300",
 					compact && "rotate-180",

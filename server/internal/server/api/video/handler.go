@@ -764,6 +764,17 @@ type ActiveDownloadResponse struct {
 	MediaOffsetSeconds *float64      `json:"media_offset_seconds,omitempty"`
 }
 
+// DownloadCapacityResponse reports the service-wide concurrent-download cap so
+// the dashboard can render an "active / max" readout.
+type DownloadCapacityResponse struct {
+	MaxConcurrent int `json:"max_concurrent"`
+}
+
+// DownloadCapacity returns the static concurrent-download cap.
+func (h *Handler) DownloadCapacity(ctx context.Context) (DownloadCapacityResponse, error) {
+	return DownloadCapacityResponse{MaxConcurrent: h.download.MaxConcurrent()}, nil
+}
+
 func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 	stats, err := h.video.Stats(ctx)
 	if err != nil {

@@ -1,6 +1,6 @@
 import { ArrowsIn, ArrowsOut } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { API_URL } from "@/env";
-import { useVideo } from "@/features/videos";
+import { useMergedTimeline, useVideo } from "@/features/videos";
 import {
 	CategoryTimelineCard,
 	TitleTimelineCard,
@@ -19,6 +19,8 @@ import {
 } from "@/features/videos/components/VideoDetails";
 import { VideoInfo } from "@/features/videos/components/VideoInfo";
 import { WatchPlayer } from "@/features/videos/components/WatchPlayer";
+import { buildRecordingPlaylist } from "@/features/videos/playback";
+import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { cn } from "@/lib/utils";
 
 // Layout choice persists across visits. "aside" places the timeline
@@ -28,37 +30,46 @@ import { cn } from "@/lib/utils";
 // stack, and the toggle is hidden there.
 type WatchLayout = "aside" | "wide";
 const LAYOUT_STORAGE_KEY = "watch:layout";
+const parseWatchLayout = (raw: string): WatchLayout | null =>
+	raw === "aside" || raw === "wide" ? raw : null;
+const serializeWatchLayout = (value: WatchLayout) => value;
 
 export const Route = createFileRoute("/dashboard/watch_/$videoId")({
+	validateSearch: (search: Record<string, unknown>) => ({
+		t: parseSeekParam(search.t),
+	}),
 	component: WatchPage,
 });
 
 function WatchPage() {
-	const { t } = useTranslation();
+	const { t: translate } = useTranslation();
 	const { videoId } = Route.useParams();
+	const { t: initialOffsetSeconds } = Route.useSearch();
 	const id = Number(videoId);
 	const { data: video, isLoading, error } = useVideo(id);
+	const timelineEnabled = !!video && video.status === "DONE";
+	const { data: timelineEvents } = useMergedTimeline(id, timelineEnabled);
+	const playlist = useMemo(
+		() =>
+			video ? buildRecordingPlaylist(video, timelineEvents, API_URL) : null,
+		[video, timelineEvents],
+	);
 
-	const [layout, setLayout] = useState<WatchLayout>("aside");
-	const hydratedRef = useRef(false);
-
-	useEffect(() => {
-		hydratedRef.current = true;
-		const stored = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
-		if (stored === "aside" || stored === "wide") setLayout(stored);
-	}, []);
-
-	useEffect(() => {
-		if (!hydratedRef.current) return;
-		window.localStorage.setItem(LAYOUT_STORAGE_KEY, layout);
-	}, [layout]);
+	const [layout, setLayout] = useLocalStorageState<WatchLayout>(
+		LAYOUT_STORAGE_KEY,
+		"aside",
+		parseWatchLayout,
+		serializeWatchLayout,
+	);
 
 	if (isLoading) {
-		return <div className="text-muted-foreground">{t("common.loading")}</div>;
+		return (
+			<div className="text-muted-foreground">{translate("common.loading")}</div>
+		);
 	}
 	if (error) {
 		return (
-			<TitledLayout title={t("videos.failed_to_load")}>
+			<TitledLayout title={translate("videos.failed_to_load")}>
 				<div className="rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
 					{error.message}
 				</div>
@@ -66,31 +77,37 @@ function WatchPage() {
 		);
 	}
 	if (!video) {
-		return <div className="text-muted-foreground">{t("videos.not_found")}</div>;
+		return (
+			<div className="text-muted-foreground">
+				{translate("videos.not_found")}
+			</div>
+		);
 	}
 
 	if (video.status !== "DONE") {
 		return (
 			<TitledLayout title={video.title?.trim() || video.display_name}>
 				<p className="text-muted-foreground">
-					{t("watch.not_ready", { status: video.status })}
+					{translate("watch.not_ready", { status: video.status })}
 				</p>
 				<Link
-					// biome-ignore lint/suspicious/noExplicitAny: static route typing
-					to={"/dashboard/videos" as any}
+					to="/dashboard/videos"
+					search={{
+						tab: "all",
+						status: undefined,
+						view: "grid",
+						sort: "newest",
+						quality: undefined,
+						language: undefined,
+						duration: undefined,
+					}}
 					className="inline-block mt-4 text-link hover:underline"
 				>
-					{t("watch.back_to_videos")}
+					{translate("watch.back_to_videos")}
 				</Link>
 			</TitledLayout>
 		);
 	}
-
-	// credentials:"include" is set globally on the tRPC client but the
-	// <video> element has no such override, so the browser uses its
-	// default (same-origin). When API_URL is cross-origin, the streaming
-	// endpoint must opt-in via CORS+Credentials — handled in middleware.
-	const streamURL = `${API_URL}/api/v1/videos/${video.id}/stream`;
 
 	const isWide = layout === "wide";
 
@@ -102,10 +119,13 @@ function WatchPage() {
 			)}
 		>
 			<div className="flex flex-col gap-6 min-w-0">
-				<WatchPlayer
-					src={streamURL}
-					title={video.title?.trim() || video.display_name}
-				/>
+				{playlist && (
+					<WatchPlayer
+						key={playlist.videoId}
+						playlist={playlist}
+						initialOffsetSeconds={initialOffsetSeconds}
+					/>
+				)}
 				<VideoInfo
 					video={video}
 					headerAction={
@@ -122,13 +142,11 @@ function WatchPage() {
 											variant="outline"
 											size="icon-sm"
 											className="hidden xl:inline-flex"
-											onClick={() =>
-												setLayout((w) => (w === "aside" ? "wide" : "aside"))
-											}
+											onClick={() => setLayout(isWide ? "aside" : "wide")}
 											aria-label={
 												isWide
-													? t("watch.switch_to_aside")
-													: t("watch.switch_to_wide")
+													? translate("watch.switch_to_aside")
+													: translate("watch.switch_to_wide")
 											}
 										>
 											{isWide ? <ArrowsIn /> : <ArrowsOut />}
@@ -136,7 +154,9 @@ function WatchPage() {
 									}
 								/>
 								<TooltipContent>
-									{isWide ? t("watch.layout_aside") : t("watch.layout_wide")}
+									{isWide
+										? translate("watch.layout_aside")
+										: translate("watch.layout_wide")}
 								</TooltipContent>
 							</Tooltip>
 						</TooltipProvider>
@@ -151,4 +171,10 @@ function WatchPage() {
 			</aside>
 		</div>
 	);
+}
+
+function parseSeekParam(raw: unknown): number | undefined {
+	if (typeof raw !== "string" && typeof raw !== "number") return undefined;
+	const n = Number(raw);
+	return Number.isFinite(n) && n >= 0 ? n : undefined;
 }

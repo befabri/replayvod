@@ -2,6 +2,40 @@ import type { TFunction } from "i18next";
 import type { VideoResponse } from "@/api/generated/trpc";
 import { formatDuration } from "./format";
 
+type VideoStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED" | "CANCELLED";
+type VideoStatusLabelKey =
+	| "videos.status.PENDING"
+	| "videos.status.RUNNING"
+	| "videos.status.DONE"
+	| "videos.status.FAILED"
+	| "videos.status.CANCELLED";
+
+const VIDEO_STATUSES: readonly VideoStatus[] = [
+	"PENDING",
+	"RUNNING",
+	"DONE",
+	"FAILED",
+	"CANCELLED",
+];
+
+const VIDEO_STATUS_LABEL_KEYS: Record<VideoStatus, VideoStatusLabelKey> = {
+	PENDING: "videos.status.PENDING",
+	RUNNING: "videos.status.RUNNING",
+	DONE: "videos.status.DONE",
+	FAILED: "videos.status.FAILED",
+	CANCELLED: "videos.status.CANCELLED",
+};
+
+function isVideoStatus(status: string): status is VideoStatus {
+	return VIDEO_STATUSES.some((known) => known === status);
+}
+
+export function videoStatusLabel(t: TFunction, status: string): string {
+	return isVideoStatus(status)
+		? t(VIDEO_STATUS_LABEL_KEYS[status], status)
+		: status;
+}
+
 // channelLabel returns the best human-readable channel name for a
 // video row: broadcaster_name if populated, otherwise login,
 // otherwise the raw id. Kept as a shared helper so card, table and

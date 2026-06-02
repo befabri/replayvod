@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { DataTable } from "@/components/ui/data-table";
 import { useVideoListPage } from "@/features/videos";
@@ -9,30 +11,34 @@ export const Route = createFileRoute("/dashboard/activity/queue")({
 });
 
 function QueuePage() {
+	const { t } = useTranslation();
 	const running = useVideoListPage(50, "RUNNING", "created_at", "asc");
 	const pending = useVideoListPage(50, "PENDING", "created_at", "asc");
+	const columns = useMemo(() => queueColumns(t), [t]);
 
 	const rows = [...(running.data?.items ?? []), ...(pending.data?.items ?? [])];
 	const loading = running.isLoading || pending.isLoading;
 	const error = running.error ?? pending.error;
 
 	return (
-		<TitledLayout title="Download queue">
+		<TitledLayout title={t("queue.title")}>
 			<p className="text-muted-foreground mb-6 -mt-6">
-				Downloads currently running or waiting to start.
+				{t("queue.description")}
 			</p>
 
-			{loading && <div className="text-muted-foreground">Loading…</div>}
+			{loading && (
+				<div className="text-muted-foreground">{t("common.loading")}</div>
+			)}
 			{error && (
 				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-					Failed to load queue: {error.message}
+					{t("queue.failed_to_load")}: {error.message}
 				</div>
 			)}
 			{!loading && !error && (
 				<DataTable
-					columns={queueColumns}
+					columns={columns}
 					data={rows}
-					emptyMessage="No downloads in progress."
+					emptyMessage={t("queue.empty")}
 				/>
 			)}
 		</TitledLayout>

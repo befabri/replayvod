@@ -2,23 +2,35 @@ import type { Icon } from "@phosphor-icons/react";
 import {
 	Desktop,
 	DownloadSimple,
-	FilmReel,
 	House,
+	Play,
 	ShieldCheck,
 } from "@phosphor-icons/react";
-import { useStore } from "@tanstack/react-store";
+import { useSelector } from "@tanstack/react-store";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import type { FileRouteTypes } from "@/routeTree.gen";
 import { authStore, hasRole } from "@/stores/auth";
 
-export type NavChild = { to: string; label: string; exact?: boolean };
+// StaticRoute is the subset of router paths that take no params (no `$`
+// segment). The sidebar only links to param-free destinations, so typing
+// `to` against this lets `<Link to={...}>` type-check without params and
+// without an `as any` cast — a renamed/removed route breaks the build here.
+export type StaticRoute = Exclude<FileRouteTypes["to"], `${string}$${string}`>;
+
+export type NavChild = {
+	to: StaticRoute;
+	label: string;
+	exact?: boolean;
+	activePrefixes?: string[];
+};
 
 export type NavGroup = {
 	icon: Icon;
 	label: string;
 	ownerOnly?: boolean;
 } & (
-	| { to: string; children?: undefined }
+	| { to: StaticRoute; children?: undefined }
 	| { to?: undefined; children: NavChild[] }
 );
 
@@ -28,10 +40,15 @@ export function useNavGroups(): NavGroup[] {
 		() => [
 			{ icon: House, label: t("nav.dashboard"), to: "/dashboard" },
 			{
-				icon: FilmReel,
+				icon: Play,
 				label: t("nav.library"),
 				children: [
-					{ to: "/dashboard/videos", label: t("nav.videos"), exact: true },
+					{
+						to: "/dashboard/videos",
+						label: t("nav.videos"),
+						exact: true,
+						activePrefixes: ["/dashboard/watch"],
+					},
 					{ to: "/dashboard/channels", label: t("nav.channels") },
 					{ to: "/dashboard/categories", label: t("nav.categories") },
 				],
@@ -65,6 +82,7 @@ export function useNavGroups(): NavGroup[] {
 				children: [
 					{ to: "/dashboard/system/eventsub", label: t("nav.eventsub") },
 					{ to: "/dashboard/system/webhook", label: t("nav.webhook") },
+					{ to: "/dashboard/system/playback", label: t("nav.playback") },
 					{ to: "/dashboard/system/tasks", label: t("nav.tasks") },
 					{ to: "/dashboard/system/logs", label: t("nav.logs") },
 				],
@@ -75,7 +93,7 @@ export function useNavGroups(): NavGroup[] {
 }
 
 export function useVisibleNavGroups(): NavGroup[] {
-	const user = useStore(authStore, (s) => s.user);
+	const user = useSelector(authStore, (s) => s.user);
 	const groups = useNavGroups();
 	return useMemo(
 		() => groups.filter((g) => !g.ownerOnly || hasRole(user, "owner")),
@@ -85,6 +103,13 @@ export function useVisibleNavGroups(): NavGroup[] {
 
 /** True when the route is exactly `child.to` or nested below it. */
 export function isChildActive(pathname: string, child: NavChild): boolean {
+	if (
+		child.activePrefixes?.some(
+			(prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+		)
+	) {
+		return true;
+	}
 	if (child.exact) return pathname === child.to;
 	return pathname === child.to || pathname.startsWith(`${child.to}/`);
 }

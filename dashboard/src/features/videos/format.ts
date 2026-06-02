@@ -40,3 +40,7 @@ export function formatDuration(seconds: number | undefined | null): string {
 	}
 	return `${m}:${s.toString().padStart(2, "0")}`;
 }
+
+export function formatPlaybackTime(seconds: number | undefined | null): string {
+	return seconds != null && seconds > 0 ? formatDuration(seconds) : "0:00";
+}

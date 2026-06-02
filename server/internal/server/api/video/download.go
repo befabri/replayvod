@@ -44,11 +44,19 @@ var ErrChannelNotSynced = errors.New("video: channel not synced")
 // This service is the operator-facing wrapper that sits between the
 // tRPC transport and that pipeline.
 type DownloadService struct {
-	repo       downloadRepo
-	downloader downloadRunner
-	twitch     *twitch.Client
-	hydrator   streamHydrator
-	log        *slog.Logger
+	repo          downloadRepo
+	downloader    downloadRunner
+	twitch        *twitch.Client
+	hydrator      streamHydrator
+	maxConcurrent int
+	log           *slog.Logger
+}
+
+// MaxConcurrent reports the service-wide in-flight download cap captured at
+// construction (the downloader's static config). Zero when no downloader is
+// wired (read-only server modes).
+func (s *DownloadService) MaxConcurrent() int {
+	return s.maxConcurrent
 }
 
 // NewDownload builds the download control-plane service. hydrator is
@@ -57,12 +65,17 @@ type DownloadService struct {
 // therefore the manual path fills videos.stream_id safely, since the
 // FK-parent row is guaranteed to exist by the time CreateVideo runs.
 func NewDownload(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, log *slog.Logger) *DownloadService {
+	maxConcurrent := 0
+	if dl != nil {
+		maxConcurrent = dl.MaxConcurrent()
+	}
 	return &DownloadService{
-		repo:       repo,
-		downloader: dl,
-		twitch:     tc,
-		hydrator:   hydrator,
-		log:        log.With("domain", "download"),
+		repo:          repo,
+		downloader:    dl,
+		twitch:        tc,
+		hydrator:      hydrator,
+		maxConcurrent: maxConcurrent,
+		log:           log.With("domain", "download"),
 	}
 }
 

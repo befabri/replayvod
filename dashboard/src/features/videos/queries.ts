@@ -1,19 +1,23 @@
 import {
 	keepPreviousData,
+	type QueryClient,
 	useInfiniteQuery,
 	useMutation,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type {
 	ActiveDownloadResponse,
+	TimelineEvent,
 	VideoListPageCursor,
 	VideoListPageResponse,
 	VideoPageResponse,
 } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
+import { timelineEventsWithSpanFallback } from "@/features/videos/timeline";
+import { withSessionProbe } from "@/stores/auth";
 
 // VideoCategory is the row shape for a category attached to a video
 // recording. `duration_seconds` is the total tracked time the stream
@@ -33,6 +37,11 @@ export type VideoTitle = {
 	started_at: string;
 	ended_at?: string | null;
 	duration_seconds: number;
+};
+
+export type VideoTimelineQueryOptions = {
+	refetchInterval?: number;
+	staleTime?: number;
 };
 
 export type VideoSort = "created_at" | "duration" | "size" | "channel";
@@ -119,7 +128,41 @@ export function useVideoListPage(
 
 export function useVideo(id: number) {
 	const trpc = useTRPC();
-	return useQuery(trpc.video.getById.queryOptions({ id }, { enabled: id > 0 }));
+	return useQuery(
+		trpc.video.getById.queryOptions(
+			{ id },
+			{
+				enabled: id > 0,
+				// The single-file playback artifact is built lazily — the first time
+				// this recording is played (the server kicks it when a part is
+				// streamed). So a multi-part recording opened for the first time has
+				// no artifact row yet; it appears as "building" and then "ready" over
+				// the next seconds/minutes. Poll while a finished multi-part recording
+				// has no ready artifact so the player upgrades from the part sequencer
+				// to the continuous file the moment the build lands, then stop.
+				//
+				// Stop once the artifact reaches any terminal state: "ready" (the
+				// player swaps to it), or "failed"/"unavailable" (won't become ready
+				// without another play). Keep polling only while it's absent or
+				// "building". A recording too big for the cache cap is left with no
+				// row, so it keeps polling while its watch page is open — bounded to
+				// the session, since the query unmounts on navigate.
+				refetchInterval: (query) => {
+					const v = query.state.data;
+					if (!v || v.status !== "DONE") return false;
+					const status = v.playback_artifact?.status;
+					if (
+						status === "ready" ||
+						status === "failed" ||
+						status === "unavailable"
+					) {
+						return false;
+					}
+					return (v.parts?.length ?? 0) >= 2 ? 4000 : false;
+				},
+			},
+		),
+	);
 }
 
 // useVideoTitles fetches the full title history for a video. Empty
@@ -157,14 +200,58 @@ export function useVideoCategories(videoId: number, enabled = true) {
 // optional title and an optional category; the schema CHECK on
 // video_metadata_changes guarantees at least one is present. Empty
 // array for recordings predating migration 031.
-export function useVideoTimeline(videoId: number, enabled = true) {
+export function useVideoTimeline(
+	videoId: number,
+	enabled = true,
+	options?: VideoTimelineQueryOptions,
+) {
 	const trpc = useTRPC();
 	return useQuery(
 		trpc.video.timeline.queryOptions(
 			{ video_id: videoId },
-			{ enabled: enabled && videoId > 0 },
+			{
+				enabled: enabled && videoId > 0,
+				refetchInterval: options?.refetchInterval,
+				staleTime: options?.staleTime,
+			},
 		),
 	);
+}
+
+export function useMergedTimeline(
+	videoId: number,
+	enabled = true,
+	options?: VideoTimelineQueryOptions,
+): {
+	data: TimelineEvent[];
+	rawEvents: TimelineEvent[] | undefined;
+	titleSpans: VideoTitle[] | undefined;
+	categorySpans: VideoCategory[] | undefined;
+	isLoading: boolean;
+} {
+	const timelineQuery = useVideoTimeline(videoId, enabled, options);
+	const titleSpansQuery = useVideoTitles(videoId, enabled);
+	const categorySpansQuery = useVideoCategories(videoId, enabled);
+	const data = useMemo(
+		() =>
+			timelineEventsWithSpanFallback(
+				timelineQuery.data,
+				titleSpansQuery.data,
+				categorySpansQuery.data,
+			),
+		[timelineQuery.data, titleSpansQuery.data, categorySpansQuery.data],
+	);
+
+	return {
+		data,
+		rawEvents: timelineQuery.data,
+		titleSpans: titleSpansQuery.data,
+		categorySpans: categorySpansQuery.data,
+		isLoading:
+			timelineQuery.isLoading ||
+			titleSpansQuery.isLoading ||
+			categorySpansQuery.isLoading,
+	};
 }
 
 // useVideoSnapshots returns the ordered list of snapshot storage
@@ -253,12 +340,13 @@ export function useChannelStatistics(broadcasterId: string) {
 	);
 }
 
-export function useActiveDownloads() {
+// useDownloadCapacity reads the service-wide concurrent-download cap. It's
+// static server config, so it's fetched once and kept indefinitely.
+export function useDownloadCapacity() {
 	const trpc = useTRPC();
 	return useQuery(
-		trpc.video.activeDownloads.queryOptions(undefined, {
-			refetchInterval: 2_000,
-			staleTime: 1_000,
+		trpc.video.downloadCapacity.queryOptions(undefined, {
+			staleTime: Number.POSITIVE_INFINITY,
 		}),
 	);
 }
@@ -280,7 +368,7 @@ export function useLiveActiveDownloads() {
 	const queryKey = trpc.video.activeDownloads.queryKey();
 	const [error, setError] = useState<Error | null>(null);
 
-	const { data } = useQuery(
+	const { data, dataUpdatedAt } = useQuery(
 		trpc.video.activeDownloads.queryOptions(undefined, {
 			enabled: false,
 			staleTime: Number.POSITIVE_INFINITY,
@@ -293,17 +381,41 @@ export function useLiveActiveDownloads() {
 			queryClient.setQueryData(queryKey, rows);
 			setError(null);
 		},
-		onError: (err: unknown) => {
+		onError: withSessionProbe((err) => {
 			setError(err instanceof Error ? err : new Error("subscription failed"));
-		},
+		}),
 	});
 
 	return {
 		data,
+		// Wall-clock time of the latest SSE sample, so consumers can extrapolate
+		// live counters (elapsed clock) forward between pushes.
+		dataUpdatedAt,
 		isLoading: data === undefined && error == null,
 		isError: error != null,
 		error,
 	};
+}
+
+// invalidateVideoCaches refetches every cache a download mutation can
+// shift: the paged list, the per-broadcaster and per-category grids,
+// the single-video record, and both statistics rollups. triggerDownload
+// and cancel both move rows across this set, so it lives in one place
+// rather than drifting apart between the two call sites.
+function invalidateVideoCaches(
+	queryClient: QueryClient,
+	trpc: ReturnType<typeof useTRPC>,
+) {
+	for (const queryKey of [
+		trpc.video.listPage.queryKey(),
+		trpc.video.byBroadcaster.queryKey(),
+		trpc.video.byCategory.queryKey(),
+		trpc.video.getById.queryKey(),
+		trpc.video.statistics.queryKey(),
+		trpc.video.statisticsByBroadcaster.queryKey(),
+	]) {
+		queryClient.invalidateQueries({ queryKey });
+	}
 }
 
 export function useTriggerDownload() {
@@ -311,26 +423,7 @@ export function useTriggerDownload() {
 	const queryClient = useQueryClient();
 	return useMutation(
 		trpc.video.triggerDownload.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.listPage.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.byBroadcaster.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.byCategory.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.getById.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.statistics.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.statisticsByBroadcaster.queryKey(),
-				});
-			},
+			onSuccess: () => invalidateVideoCaches(queryClient, trpc),
 		}),
 	);
 }
@@ -340,26 +433,7 @@ export function useCancelDownload() {
 	const queryClient = useQueryClient();
 	return useMutation(
 		trpc.video.cancel.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.listPage.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.byBroadcaster.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.byCategory.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.getById.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.statistics.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.video.statisticsByBroadcaster.queryKey(),
-				});
-			},
+			onSuccess: () => invalidateVideoCaches(queryClient, trpc),
 		}),
 	);
 }

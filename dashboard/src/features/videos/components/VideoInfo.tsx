@@ -5,9 +5,16 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useChannel } from "@/features/channels";
-import { useLastLive } from "@/features/streams-live";
+import { useLastLive, useLiveSet } from "@/features/streams-live";
 import type { VideoResponse } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import {
+	isMultipartVideo,
+	recordingDurationSeconds,
+	recordingQualitySummary,
+	recordingSizeBytes,
+	videoPartCount,
+} from "@/features/videos/metadata";
 import {
 	useChannelStatistics,
 	useVideoCategories,
@@ -35,10 +42,21 @@ export function VideoInfo({
 	const { data: categories } = useVideoCategories(video.id);
 	const { data: stats } = useChannelStatistics(video.broadcaster_id);
 	const { data: lastLive } = useLastLive(video.broadcaster_id);
+	// SSE-backed set of currently-live broadcasters — drives the live ring on
+	// the channel avatar so the watch page reflects on/offline in real time.
+	const isLive = useLiveSet().has(video.broadcaster_id);
 
 	const channelLabel = channel?.broadcaster_name ?? video.broadcaster_id;
 	const titleLabel = video.title?.trim() || video.display_name;
 	const recordedDate = video.downloaded_at ?? video.start_download_at;
+	const partCount = videoPartCount(video);
+	const showParts = isMultipartVideo(video);
+	const durationSeconds = recordingDurationSeconds(video);
+	const sizeBytes = recordingSizeBytes(video);
+	const qualityLabel = recordingQualitySummary(
+		video,
+		t("videos.mixed_quality"),
+	);
 
 	// "Last stream" anchors on ended_at (broadcast finished) and falls
 	// back to started_at (still mid-broadcast in the local mirror).
@@ -81,7 +99,7 @@ export function VideoInfo({
 			</div>
 
 			<div className="mt-3 flex flex-wrap items-center gap-2">
-				<Badge variant="default">{video.quality}</Badge>
+				<Badge variant="default">{qualityLabel}</Badge>
 				{video.language ? (
 					<Badge variant="muted" className="uppercase tracking-wide">
 						{video.language}
@@ -89,17 +107,20 @@ export function VideoInfo({
 				) : null}
 				{topCategory ? (
 					<Link
-						// biome-ignore lint/suspicious/noExplicitAny: param route typing
-						to={"/dashboard/categories/$categoryId" as any}
-						// biome-ignore lint/suspicious/noExplicitAny: param route typing
-						params={{ categoryId: topCategory.id } as any}
+						to="/dashboard/categories/$categoryId"
+						params={{ categoryId: topCategory.id }}
 						className="rounded-md hover:opacity-80 transition-opacity"
 					>
 						<Badge variant="muted">{topCategory.name}</Badge>
 					</Link>
 				) : null}
-				<Badge variant="muted">{formatDuration(video.duration_seconds)}</Badge>
-				<Badge variant="muted">{formatBytes(video.size_bytes)}</Badge>
+				<Badge variant="muted">{formatDuration(durationSeconds)}</Badge>
+				<Badge variant="muted">{formatBytes(sizeBytes)}</Badge>
+				{showParts ? (
+					<Badge variant="muted">
+						{t("videos.parts_count", { count: partCount })}
+					</Badge>
+				) : null}
 				<Badge variant="muted">
 					{t("videos.recorded")} {new Date(recordedDate).toLocaleDateString()}
 				</Badge>
@@ -107,10 +128,8 @@ export function VideoInfo({
 
 			<div className="mt-5 flex items-center gap-4 border-y border-foreground/10 py-4">
 				<Link
-					// biome-ignore lint/suspicious/noExplicitAny: dynamic param route
-					to={"/dashboard/channels/$channelId" as any}
-					// biome-ignore lint/suspicious/noExplicitAny: dynamic param route
-					params={{ channelId: video.broadcaster_id } as any}
+					to="/dashboard/channels/$channelId"
+					params={{ channelId: video.broadcaster_id }}
 					className="flex flex-1 items-center gap-3 min-w-0 hover:text-link transition-colors duration-75"
 				>
 					<Avatar
@@ -118,6 +137,8 @@ export function VideoInfo({
 						name={channelLabel}
 						alt={channelLabel}
 						size="lg"
+						isLive={isLive}
+						liveRingClass="ring-background"
 					/>
 					<div className="flex flex-col min-w-0">
 						<span className="font-medium truncate">{channelLabel}</span>

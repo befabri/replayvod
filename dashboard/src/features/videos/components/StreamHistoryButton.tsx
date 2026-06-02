@@ -20,6 +20,10 @@ import {
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { useVideoTimeline } from "@/features/videos";
 import { formatDuration } from "@/features/videos/format";
+import {
+	timelineEventKey,
+	timelineEventOffsetSeconds,
+} from "@/features/videos/timeline";
 
 function dedupConsecutiveEvents(
 	events: TimelineEvent[] | undefined,
@@ -48,11 +52,18 @@ function dedupConsecutiveEvents(
 //
 // The query is gated on `open` (lazy-load): list pages won't fan out
 // N requests at render time.
+//
+// `videoStartDownloadAt` is the recording's start instant. Each event's
+// occurred_at is turned into a seconds offset from it, which is both the
+// label and the deep-link target into the player (?t=offset) — clicking
+// a row's timestamp jumps the watch page to that moment.
 export function StreamHistoryButton({
 	videoId,
+	videoStartDownloadAt,
 	className,
 }: {
 	videoId: number;
+	videoStartDownloadAt: string;
 	className?: string;
 }) {
 	const { t } = useTranslation();
@@ -66,9 +77,6 @@ export function StreamHistoryButton({
 	// predecessor — visually noisy and not what a viewer thinks of as
 	// "history."
 	const events = dedupConsecutiveEvents(rawEvents);
-
-	const firstEpoch =
-		events && events.length > 0 ? new Date(events[0].occurred_at).getTime() : 0;
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -132,22 +140,35 @@ export function StreamHistoryButton({
 				{events && events.length > 0 && (
 					<ol className="flex flex-col py-2">
 						{events.map((event, idx) => {
+							// Use the same offset resolver the player seeks through
+							// (media_offset_seconds when present, else wall-clock from the
+							// recording start), so the timestamp link lands on the marker the
+							// player shows — not ~the gap-length past it on a recording with
+							// ad-break / dropped-segment gaps. Clamp the unparseable sentinel.
 							const offsetSec = Math.max(
 								0,
-								Math.round(
-									(new Date(event.occurred_at).getTime() - firstEpoch) / 1000,
-								),
+								timelineEventOffsetSeconds(event, videoStartDownloadAt),
 							);
+							// "Start" only when the change is actually at the recording's
+							// start (offset 0). Keying on idx mislabelled the first row when
+							// the earliest tracked change happened mid-recording.
 							const offsetLabel =
-								idx === 0
+								offsetSec === 0
 									? t("videos.history.start")
 									: formatDuration(offsetSec);
 							const isLast = idx === events.length - 1;
 							return (
-								<li key={`${event.occurred_at}-${idx}`} className="flex gap-3">
-									<div className="w-14 shrink-0 pt-1.5 text-right text-xs font-mono text-muted-foreground">
+								<li key={timelineEventKey(event)} className="flex gap-3">
+									{/* Timestamp deep-links into the player at this offset. */}
+									<Link
+										to="/dashboard/watch/$videoId"
+										params={{ videoId: String(videoId) }}
+										search={{ t: offsetSec }}
+										onClick={() => setOpen(false)}
+										className="w-14 shrink-0 pt-1.5 text-right text-xs font-mono text-muted-foreground transition-colors hover:text-link"
+									>
 										{offsetLabel}
-									</div>
+									</Link>
 									<div className="relative flex shrink-0 flex-col items-center">
 										<span className="mt-2 size-2 rounded-full bg-primary" />
 										{!isLast && <span className="w-px flex-1 bg-border" />}
@@ -155,10 +176,8 @@ export function StreamHistoryButton({
 									<div className="flex min-w-0 flex-1 flex-col gap-1.5 pb-4">
 										{event.category && (
 											<Link
-												// biome-ignore lint/suspicious/noExplicitAny: param route typing
-												to={"/dashboard/categories/$categoryId" as any}
-												// biome-ignore lint/suspicious/noExplicitAny: param route typing
-												params={{ categoryId: event.category.id } as any}
+												to="/dashboard/categories/$categoryId"
+												params={{ categoryId: event.category.id }}
 												className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5 transition-colors hover:bg-accent"
 											>
 												<CategoryBoxArt

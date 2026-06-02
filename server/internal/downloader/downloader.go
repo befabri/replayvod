@@ -576,6 +576,16 @@ func (s *Service) sweepOrphanedTempsExcept(protected map[string]bool) {
 // scan of s.active (fast path, covers the common case) and a DB
 // query against jobs.status IN ('PENDING','RUNNING') (survives a
 // process restart that dropped the in-memory map).
+// MaxConcurrent is the service-wide cap on in-flight downloads
+// (download.max_concurrent, default 2). Exposed so the dashboard can show how
+// many of the available slots are in use.
+func (s *Service) MaxConcurrent() int {
+	if s.cfg.App.Download.MaxConcurrent <= 0 {
+		return 2
+	}
+	return s.cfg.App.Download.MaxConcurrent
+}
+
 func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	s.mu.Lock()
 	for _, existing := range s.active {
@@ -584,10 +594,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 			return "", ErrBusy
 		}
 	}
-	maxConcurrent := s.cfg.App.Download.MaxConcurrent
-	if maxConcurrent <= 0 {
-		maxConcurrent = 2
-	}
+	maxConcurrent := s.MaxConcurrent()
 	if len(s.active) >= maxConcurrent {
 		s.mu.Unlock()
 		return "", fmt.Errorf("downloader: at max concurrent downloads (%d)", maxConcurrent)
@@ -955,10 +962,7 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 	d.cancel = cancel
 
 	s.mu.Lock()
-	maxConcurrent := s.cfg.App.Download.MaxConcurrent
-	if maxConcurrent <= 0 {
-		maxConcurrent = 2
-	}
+	maxConcurrent := s.MaxConcurrent()
 	if len(s.active) >= maxConcurrent {
 		s.mu.Unlock()
 		cancel()
