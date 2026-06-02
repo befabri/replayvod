@@ -323,6 +323,7 @@ func objectsFor() []string {
 		"thumbnails/rec-part02-strip.jpg",
 		"thumbnails/rec-snap00.jpg",
 		"thumbnails/rec-snap01.jpg",
+		"videos/rec-playback.mp4",
 	}
 }
 
@@ -353,6 +354,22 @@ func seedRecordingWithObjects(t *testing.T, ctx context.Context, repo repository
 	thumb := "thumbnails/rec-part01.jpg"
 	if err := repo.MarkVideoDone(ctx, v.ID, 60, 1024, &thumb, repository.CompletionKindComplete, false); err != nil {
 		t.Fatalf("mark done: %v", err)
+	}
+	playbackName := "rec-playback.mp4"
+	playbackMime := "video/mp4"
+	dur, size := 60.0, int64(2048)
+	at := time.Now().UTC()
+	if _, err := repo.UpsertVideoPlaybackAsset(ctx, &repository.VideoPlaybackAssetInput{
+		VideoID:         v.ID,
+		Status:          repository.PlaybackAssetStatusReady,
+		Filename:        &playbackName,
+		MimeType:        &playbackMime,
+		DurationSeconds: &dur,
+		SizeBytes:       &size,
+		GeneratedAt:     &at,
+		LastAccessedAt:  &at,
+	}); err != nil {
+		t.Fatalf("seed playback asset: %v", err)
 	}
 	for _, p := range objectsFor() {
 		if err := store.Save(ctx, p, strings.NewReader("data")); err != nil {
@@ -469,6 +486,9 @@ func TestSweep_DeletesExpiredRecording(t *testing.T) {
 	}
 	if len(parts) != 0 {
 		t.Fatalf("part rows = %d, want 0", len(parts))
+	}
+	if _, err := repo.GetVideoPlaybackAsset(ctx, v.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("playback asset row still present after sweep: err = %v", err)
 	}
 	got, err := repo.GetVideo(ctx, v.ID)
 	if err != nil {

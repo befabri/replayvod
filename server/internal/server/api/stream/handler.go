@@ -202,6 +202,13 @@ func (h *Handler) followedFromSession(ctx context.Context, logTag string) ([]Fol
 			h.log.Warn(logTag, "error", err)
 			return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "twitch session expired; sign in again")
 		}
+		if errors.Is(err, context.Canceled) {
+			return nil, trpcgo.NewError(trpcgo.CodeClientClosed, "request canceled")
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			h.log.Warn(logTag, "error", err)
+			return nil, trpcgo.NewError(trpcgo.CodeTimeout, "request timed out")
+		}
 		h.log.Error(logTag, "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load live streams")
 	}

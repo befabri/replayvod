@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 	"github.com/befabri/replayvod/server/internal/service/livepoll"
+	"github.com/befabri/replayvod/server/internal/service/playbackcache"
 	"github.com/befabri/replayvod/server/internal/service/retention"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
@@ -158,11 +160,13 @@ func main() {
 	// the repository, and repository stays unaware of twitch.
 	twitchClient := twitch.NewClient(cfg.Env.TwitchClientID, cfg.Env.TwitchSecret, log)
 	twitchClient.SetFetchLogRecorder(twitch.RecorderFunc(func(ctx context.Context, e twitch.FetchLogEntry) {
+		logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
 		var errStr *string
 		if e.Error != "" {
 			errStr = &e.Error
 		}
-		if err := repo.CreateFetchLog(ctx, &repository.FetchLogInput{
+		if err := repo.CreateFetchLog(logCtx, &repository.FetchLogInput{
 			UserID:        e.UserID,
 			FetchType:     e.FetchType,
 			BroadcasterID: e.BroadcasterID,
@@ -286,6 +290,8 @@ func main() {
 		channelSubs = &channelSubsAdapter{es: eventsubSvc}
 	}
 	dl := downloader.NewService(cfg, repo, store, hydrator, metaWatcher, channelSubs, log)
+	playbackCache := playbackcache.New(repo, store, filepath.Join(cfg.Env.ScratchDir, "playback-cache"), "", log)
+	hydrator.SetMediaOffsetResolver(dl)
 	if cfg.Env.ServiceAccountOAuthToken != "" {
 		dl.SetOAuthRefresher(func(ctx context.Context, refreshToken string) (string, time.Time, error) {
 			resp, err := twitchClient.RefreshUserToken(ctx, refreshToken)
@@ -359,7 +365,7 @@ func main() {
 	// subscriptions. Twitch verification challenges must be able to reach the
 	// local callback immediately, especially when routed through Connect relay.
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, eventProcessor, webhookDispatcher, log)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, eventProcessor, webhookDispatcher, playbackCache, log)
 	serverReady := make(chan error, 1)
 	go srv.Start(serverReady)
 	if err := <-serverReady; err != nil {
@@ -386,6 +392,9 @@ func main() {
 		stop()
 		webhookDispatcher.Wait()
 		srv.Stop()
+		// Cancel any in-flight playback-artifact build so its ffmpeg child is
+		// killed rather than orphaned; the reconciler rebuilds it next boot.
+		playbackCache.Close()
 		logger.Close()
 		os.Exit(code)
 	}
@@ -497,6 +506,20 @@ func main() {
 		retentionSvc := retention.New(repo, store, log)
 		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, artSvc, retentionSvc, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
+			shutdown(1)
+		}
+		// The playback-cache reconciler keeps the cache within its size budget:
+		// it prunes least-recently-used artifacts so a lowered cap reclaims space.
+		// It does NOT build — artifacts are generated lazily the first time a
+		// recording is played. It is a no-op when the cache is disabled. The first
+		// scheduler tick after boot doubles as the startup prune.
+		if err := sched.Register(scheduler.Task{
+			Name:            "playback_cache_reconcile",
+			Description:     "Prune the playback-artifact cache to its size cap",
+			IntervalSeconds: 5 * 60,
+			Run:             playbackCache.Reconcile,
+		}); err != nil {
+			log.Error("Failed to register playback cache reconcile task", "error", err)
 			shutdown(1)
 		}
 		if err := sched.Start(ctx); err != nil {

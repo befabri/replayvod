@@ -139,7 +139,7 @@ tasks:
   trpcgen:
     desc: Generate TypeScript + Zod types from tRPC procedures
     cmds:
-      - go tool trpcgo generate -o ../dashboard/src/api/generated/trpc.ts --zod ../dashboard/src/api/generated/zod.ts ./...
+      - go tool trpcgo generate -o ../dashboard/src/api/generated/trpc.ts --zod ../dashboard/src/api/generated/zod.ts ./internal/server/api/...
 
   twitch-api-gen:
     desc: Regenerate Twitch API types and client from docs

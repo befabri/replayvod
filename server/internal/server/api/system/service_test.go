@@ -2,6 +2,7 @@ package system_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -103,4 +104,25 @@ func TestSearchEventLogs_SQLiteFallback(t *testing.T) {
 				all.Results[1].ID, page.Results[0].ID)
 		}
 	})
+}
+
+// TestUpdatePlaybackCacheConfig_RejectsZeroPercent pins that 0% is denied: an
+// enabled cache at 0% does nothing (active() needs maxPercent > 0), so the
+// service must reject it rather than save a silent no-op config. Valid percents
+// round-trip.
+func TestUpdatePlaybackCacheConfig_RejectsZeroPercent(t *testing.T) {
+	ctx := context.Background()
+	svc := system.New(sqliteadapter.New(testdb.NewSQLiteDB(t)), slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if _, err := svc.UpdatePlaybackCacheConfig(ctx, system.PlaybackCacheConfig{Enabled: true, MaxPercent: 0, AutoGenerate: true}); !errors.Is(err, system.ErrInvalidPlaybackCacheConfig) {
+		t.Fatalf("UpdatePlaybackCacheConfig(0%%) err = %v, want ErrInvalidPlaybackCacheConfig", err)
+	}
+
+	got, err := svc.UpdatePlaybackCacheConfig(ctx, system.PlaybackCacheConfig{Enabled: true, MaxPercent: 25, AutoGenerate: true})
+	if err != nil {
+		t.Fatalf("UpdatePlaybackCacheConfig(25%%): %v", err)
+	}
+	if !got.Enabled || got.MaxPercent != 25 || !got.AutoGenerate {
+		t.Fatalf("config = %+v, want enabled/25/auto", got)
+	}
 }

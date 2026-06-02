@@ -17,6 +17,8 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, log *slog.Log
 	trpcgo.MustVoidQuery(tr, "system.listWhitelist", h.ListWhitelist, owner)
 	trpcgo.MustMutation(tr, "system.addWhitelist", h.AddWhitelist, owner)
 	trpcgo.MustMutation(tr, "system.removeWhitelist", h.RemoveWhitelist, owner)
+	trpcgo.MustVoidQuery(tr, "system.playbackCacheConfig", h.PlaybackCacheConfig, owner)
+	trpcgo.MustMutation(tr, "system.updatePlaybackCacheConfig", h.UpdatePlaybackCacheConfig, owner)
 
 	// Event logs — separate from ListEventLogs because the output shape
 	// differs (ranked + rank field) and the UI handles them in distinct

@@ -74,6 +74,12 @@ type RunInput struct {
 	// orchestrator's `<base>-part<NN>` form. Extension is
 	// appended from Kind.
 	OutputBasename string
+
+	// Faststart appends `-movflags +faststart` so the moov atom is
+	// relocated to the front of the file. Recording parts don't need
+	// it (they're downloaded whole), but the playback-cache artifact
+	// does so browsers can start playing before the full download.
+	Faststart bool
 }
 
 // OutputPath computes the final file path ffmpeg will land at
@@ -166,28 +172,29 @@ func (r *Remuxer) Run(ctx context.Context, in RunInput) error {
 //	  (.m4a) output is also the mp4 muxer — m4a is just an mp4
 //	  container holding only audio, so one value covers both kinds.
 func ffmpegArgs(in RunInput, outputPath string) ([]string, error) {
+	var args []string
 	switch in.Mode {
 	case ModeTS:
-		return []string{
+		args = []string{
 			"-y",
 			"-f", "concat",
 			"-safe", "0",
 			"-i", in.InputPath,
 			"-c", "copy",
-			"-f", "mp4",
-			outputPath,
-		}, nil
+		}
 	case ModeFMP4:
-		return []string{
+		args = []string{
 			"-y",
 			"-i", in.InputPath,
 			"-c", "copy",
-			"-f", "mp4",
-			outputPath,
-		}, nil
+		}
 	default:
 		return nil, fmt.Errorf("remux: unknown mode %q", in.Mode)
 	}
+	if in.Faststart {
+		args = append(args, "-movflags", "+faststart")
+	}
+	return append(args, "-f", "mp4", outputPath), nil
 }
 
 // Internal shortcut helpers so Run and Heal don't repeat the

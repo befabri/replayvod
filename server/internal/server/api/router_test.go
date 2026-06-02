@@ -76,7 +76,7 @@ func TestSetupRouter_ServerModeControlsWebhookProcessor(t *testing.T) {
 			t.Cleanup(cancelStatus)
 			statusCh := bus.StreamStatus.Subscribe(statusCtx)
 
-			router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, nil, log)
+			router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
 			if closeTRPC != nil {
 				t.Cleanup(func() {
 					if err := closeTRPC(); err != nil {
@@ -151,7 +151,7 @@ func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -229,7 +229,7 @@ func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
 	dispatcher := recordingwebhook.NewDispatcher(repo, nil, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, dispatcher, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, dispatcher, nil, log)
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {

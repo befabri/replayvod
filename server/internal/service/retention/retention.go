@@ -149,6 +149,12 @@ func (s *Service) deleteRecording(ctx context.Context, videoID int64) error {
 	if err := s.purgeObjects(ctx, v, parts); err != nil {
 		return err
 	}
+	// FinalizeRetentionDelete soft-deletes the video row, so the
+	// video_playback_assets ON DELETE CASCADE never fires. Drop the row
+	// explicitly or a stale ready row would dangle past every retention pass.
+	if err := s.repo.DeleteVideoPlaybackAsset(ctx, videoID); err != nil {
+		return fmt.Errorf("delete playback asset row: %w", err)
+	}
 	if err := s.repo.FinalizeRetentionDelete(ctx, videoID); err != nil {
 		return fmt.Errorf("finalize db delete: %w", err)
 	}
@@ -194,6 +200,18 @@ func (s *Service) purgeObjects(ctx context.Context, v *repository.Video, parts [
 	if v.Thumbnail != nil {
 		if err := s.store.Delete(ctx, *v.Thumbnail); err != nil {
 			return fmt.Errorf("delete object %s: %w", *v.Thumbnail, err)
+		}
+	}
+	// The playback-cache artifact is derived deterministically from the
+	// recording's first part (storagekeys.PlaybackName is the shared authority),
+	// so deleting it here keeps retention in lockstep with playbackcache without
+	// consulting the asset row (which may be building/failed with a NULL filename
+	// yet a stale file on disk). Only multi-part recordings ever get an artifact
+	// (canCopyConcat requires >= 2 parts), so single-part rows are skipped.
+	if len(parts) > 1 {
+		artifact := storagekeys.PlaybackName(v.Filename, parts[0].Filename)
+		if err := s.store.Delete(ctx, storagekeys.Video(artifact)); err != nil {
+			return fmt.Errorf("delete object %s: %w", artifact, err)
 		}
 	}
 	return s.purgeSnapshots(ctx, v.Filename)

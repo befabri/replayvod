@@ -314,6 +314,164 @@ func TestReal_Run_FMP4_Video(t *testing.T) {
 	}
 }
 
+// genMP4Part generates a finished, self-contained MP4 part (H.264 + AAC), the
+// shape the playback cache concatenates. -movflags +faststart matches what the
+// recording pipeline produces for a part.
+func genMP4Part(t *testing.T, path string, dur float64) {
+	t.Helper()
+	durStr := strconv.FormatFloat(dur, 'f', 2, 64)
+	cmd := exec.Command("ffmpeg",
+		"-y", "-hide_banner", "-loglevel", "error",
+		"-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration="+durStr,
+		"-f", "lavfi", "-i", "sine=frequency=440:duration="+durStr,
+		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+		// B-frames (DTS != PTS) + a fixed GOP are the realistic case for recorded
+		// H.264 and the classic trigger for non-monotonic DTS at concat joins —
+		// ultrafast would otherwise disable them and make the test pass trivially.
+		"-bf", "2", "-g", "15",
+		"-c:a", "aac",
+		"-movflags", "+faststart",
+		"-f", "mp4",
+		path,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("gen mp4 part: %v\n%s", err, out)
+	}
+}
+
+// genM4APart is the audio-only counterpart: AAC in an MP4 container (.m4a).
+func genM4APart(t *testing.T, path string, dur float64) {
+	t.Helper()
+	durStr := strconv.FormatFloat(dur, 'f', 2, 64)
+	cmd := exec.Command("ffmpeg",
+		"-y", "-hide_banner", "-loglevel", "error",
+		"-f", "lavfi", "-i", "sine=frequency=440:duration="+durStr,
+		"-c:a", "aac",
+		"-movflags", "+faststart",
+		"-f", "mp4",
+		path,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("gen m4a part: %v\n%s", err, out)
+	}
+}
+
+// decodeClean re-decodes the whole file and fails if ffmpeg emits ANY error/
+// warning. This is the load-bearing check for concatenation correctness: a
+// stream-copy concat of already-muxed parts is a known source of non-monotonic
+// DTS / A-V drift at the joins, and ffmpeg surfaces exactly that here
+// ("Non-monotonous DTS", "non monotonically increasing dts", etc.). A clean,
+// empty stderr means the joins decode without timestamp anomalies.
+func decodeClean(t *testing.T, path string) {
+	t.Helper()
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-v", "error", "-i", path, "-f", "null", "-")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("decode %s: %v\nstderr: %s", path, err, stderr.String())
+	}
+	if s := strings.TrimSpace(stderr.String()); s != "" {
+		t.Fatalf("decoding %s produced warnings/errors (timestamp/A-V anomaly at a join?):\n%s", path, s)
+	}
+}
+
+// concatParts runs the exact playback-cache concat path: write the demuxer list
+// with WriteConcatListFile, then Remuxer.Run(ModeTS, Faststart) — mirroring
+// playbackcache.remuxRunner.Concat. Returns the output path.
+func concatParts(t *testing.T, kind Kind, parts []string) string {
+	t.Helper()
+	workDir := t.TempDir()
+	outputDir := t.TempDir()
+	listPath := filepath.Join(workDir, "parts.txt")
+	if err := WriteConcatListFile(listPath, parts); err != nil {
+		t.Fatalf("WriteConcatListFile: %v", err)
+	}
+	r := &Remuxer{}
+	if err := r.Run(context.Background(), RunInput{
+		Mode:           ModeTS,
+		Kind:           kind,
+		Faststart:      true,
+		InputPath:      listPath,
+		OutputDir:      outputDir,
+		OutputBasename: "playback",
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	return filepath.Join(outputDir, "playback"+kind.OutputExt())
+}
+
+func probeDurationSeconds(t *testing.T, p probeResult) float64 {
+	t.Helper()
+	d, err := strconv.ParseFloat(p.Format.Duration, 64)
+	if err != nil {
+		t.Fatalf("parse probed duration %q: %v", p.Format.Duration, err)
+	}
+	return d
+}
+
+// TestReal_Concat_MP4Parts is the validation the reviewer asked for: feed real,
+// finished multi-part MP4s through the playback-cache concat path and assert the
+// artifact decodes cleanly (no non-monotonic DTS at the joins), carries both
+// streams, and runs the full summed duration.
+func TestReal_Concat_MP4Parts(t *testing.T) {
+	requireFFmpeg(t)
+
+	dir := t.TempDir()
+	const partDur = 1.0
+	const nParts = 3
+	parts := make([]string, nParts)
+	for i := range parts {
+		parts[i] = filepath.Join(dir, fmt.Sprintf("part%02d.mp4", i+1))
+		genMP4Part(t, parts[i], partDur)
+	}
+
+	out := concatParts(t, KindVideo, parts)
+
+	decodeClean(t, out)
+	p := probeOutput(t, out)
+	if !strings.Contains(p.Format.FormatName, "mp4") {
+		t.Errorf("format_name=%q, want mp4 variant", p.Format.FormatName)
+	}
+	if !hasStream(p, "video") || !hasStream(p, "audio") {
+		t.Errorf("concatenated artifact missing a stream: %+v", p.Streams)
+	}
+	if got, want := probeDurationSeconds(t, p), partDur*nParts; got < want-0.5 || got > want+0.5 {
+		t.Errorf("duration = %.2fs, want ~%.2fs (sum of parts)", got, want)
+	}
+}
+
+// TestReal_Concat_M4AParts covers the audio-only path the reviewer specifically
+// called out — .m4a parts are the likeliest to expose timestamp drift at joins.
+func TestReal_Concat_M4AParts(t *testing.T) {
+	requireFFmpeg(t)
+
+	dir := t.TempDir()
+	const partDur = 1.0
+	const nParts = 3
+	parts := make([]string, nParts)
+	for i := range parts {
+		parts[i] = filepath.Join(dir, fmt.Sprintf("part%02d.m4a", i+1))
+		genM4APart(t, parts[i], partDur)
+	}
+
+	out := concatParts(t, KindAudio, parts)
+
+	decodeClean(t, out)
+	p := probeOutput(t, out)
+	if !strings.Contains(p.Format.FormatName, "mp4") {
+		t.Errorf("format_name=%q, want mp4 variant", p.Format.FormatName)
+	}
+	if hasStream(p, "video") {
+		t.Error("audio-only concat produced a video stream")
+	}
+	if !hasStream(p, "audio") {
+		t.Error("audio-only concat missing audio stream")
+	}
+	if got, want := probeDurationSeconds(t, p), partDur*nParts; got < want-0.5 || got > want+0.5 {
+		t.Errorf("duration = %.2fs, want ~%.2fs (sum of parts)", got, want)
+	}
+}
+
 // TestReal_Heal_Video runs the Stage 9 heal pass against a real
 // MP4. The heal argv shares the `-f mp4` trap with Run, and the
 // `-c copy` vs `-c:a copy` split matters once a real ffmpeg sees

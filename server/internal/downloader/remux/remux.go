@@ -133,20 +133,41 @@ func prepareTSConcat(absDir string) (string, error) {
 		return "", fmt.Errorf("remux: no .ts segments in %q", absDir)
 	}
 
-	var b strings.Builder
-	// ffmpeg's concat demuxer escapes single-quote-in-path by
-	// doubling; none of our paths contain quotes (we control
-	// the scratch dir), but wrap conservatively anyway.
-	for _, s := range segs {
-		p := filepath.Join(absDir, s.filename)
-		fmt.Fprintf(&b, "file '%s'\n", strings.ReplaceAll(p, "'", "'\\''"))
+	paths := make([]string, len(segs))
+	for i, s := range segs {
+		paths[i] = filepath.Join(absDir, s.filename)
 	}
 
 	outPath := filepath.Join(absDir, "segments.txt")
-	if err := os.WriteFile(outPath, []byte(b.String()), 0o644); err != nil {
-		return "", fmt.Errorf("remux: write segments.txt: %w", err)
+	if err := WriteConcatListFile(outPath, paths); err != nil {
+		return "", err
 	}
 	return outPath, nil
+}
+
+// ConcatList renders the body of an ffmpeg concat-demuxer list: one
+// `file '<path>'` line per input, in order. The concat demuxer escapes
+// single quotes by closing, escaping, and reopening the quote; none of
+// our paths contain quotes (we control the scratch dir) but we wrap
+// conservatively anyway. The ordering is load-bearing — ffmpeg walks the
+// list as written and never re-sorts.
+func ConcatList(paths []string) string {
+	var b strings.Builder
+	for _, p := range paths {
+		fmt.Fprintf(&b, "file '%s'\n", strings.ReplaceAll(p, "'", "'\\''"))
+	}
+	return b.String()
+}
+
+// WriteConcatListFile writes a concat-demuxer list (see ConcatList) to path.
+// Pair it with RunInput{Mode: ModeTS, InputPath: path} to stream-copy a set of
+// already-muxed files (e.g. finished recording parts) into one container,
+// rather than raw HLS segments scanned from a directory.
+func WriteConcatListFile(path string, paths []string) error {
+	if err := os.WriteFile(path, []byte(ConcatList(paths)), 0o644); err != nil {
+		return fmt.Errorf("remux: write concat list %s: %w", path, err)
+	}
+	return nil
 }
 
 // prepareFMP4Playlist writes media.m3u8 referencing the local

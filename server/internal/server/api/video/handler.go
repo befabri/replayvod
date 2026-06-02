@@ -35,6 +35,20 @@ func NewHandler(video *Service, download *DownloadService, store storage.Storage
 	}
 }
 
+// clientClosed maps a request the client abandoned (canceled context or
+// deadline) to tRPC's client-closed code. The dashboard fires many parallel
+// reads per view and cancels in-flight ones on navigation; without this they
+// surface as ERROR + 500 server faults. The router's WithOnError hook
+// deliberately skips logging CodeClientClosed, so returning it both drops the
+// 500 and silences the log line. Returns nil when err isn't a cancellation, so
+// callers fall through to their normal log-and-500 path.
+func clientClosed(err error) *trpcgo.Error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return trpcgo.NewError(trpcgo.CodeClientClosed, "request canceled")
+	}
+	return nil
+}
+
 // VideoResponse is the wire shape for a video record. broadcaster_*
 // and profile_image_url come from a JOIN-equivalent channel lookup
 // that the service layer does in bulk once per response — the frontend
@@ -92,6 +106,10 @@ type VideoResponse struct {
 	// Parts is populated only by GetByID — list endpoints skip it
 	// to avoid N+1 queries on grid views.
 	Parts []VideoPartResponse `json:"parts,omitempty"`
+	// PlaybackArtifact is populated only by GetByID. Ready means the watch page
+	// can use /api/v1/videos/{id}/playback/stream; building/failed/unavailable
+	// keep the client-side part sequencer as the fallback.
+	PlaybackArtifact *VideoPlaybackAssetResponse `json:"playback_artifact,omitempty"`
 }
 
 // VideoPartResponse mirrors repository.VideoPart with stable JSON tags.
@@ -108,6 +126,35 @@ type VideoPartResponse struct {
 	Thumbnail       *string  `json:"thumbnail,omitempty"`
 	StartMediaSeq   int64    `json:"start_media_seq"`
 	EndMediaSeq     *int64   `json:"end_media_seq,omitempty"`
+}
+
+type VideoPlaybackAssetResponse struct {
+	Status          string     `json:"status"`
+	Filename        *string    `json:"filename,omitempty"`
+	MimeType        *string    `json:"mime_type,omitempty"`
+	DurationSeconds *float64   `json:"duration_seconds,omitempty"`
+	SizeBytes       *int64     `json:"size_bytes,omitempty"`
+	Error           *string    `json:"error,omitempty"`
+	GeneratedAt     *time.Time `json:"generated_at,omitempty"`
+	LastAccessedAt  *time.Time `json:"last_accessed_at,omitempty"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+func toVideoPlaybackAssetResponse(asset *repository.VideoPlaybackAsset) *VideoPlaybackAssetResponse {
+	if asset == nil {
+		return nil
+	}
+	return &VideoPlaybackAssetResponse{
+		Status:          asset.Status,
+		Filename:        asset.Filename,
+		MimeType:        asset.MimeType,
+		DurationSeconds: asset.DurationSeconds,
+		SizeBytes:       asset.SizeBytes,
+		Error:           asset.Error,
+		GeneratedAt:     asset.GeneratedAt,
+		LastAccessedAt:  asset.LastAccessedAt,
+		UpdatedAt:       asset.UpdatedAt,
+	}
 }
 
 func toVideoPartResponses(parts []repository.VideoPart) []VideoPartResponse {
@@ -242,6 +289,9 @@ func (h *Handler) List(ctx context.Context, input ListInput) ([]VideoResponse, e
 		Offset: input.Offset,
 	})
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return nil, e
+		}
 		h.log.Error("list videos", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
 	}
@@ -307,6 +357,9 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		Limit:              limit,
 	}, cursor)
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return VideoListPageResponse{}, e
+		}
 		h.log.Error("list video page", "error", err)
 		return VideoListPageResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
 	}
@@ -416,6 +469,9 @@ func (h *Handler) Snapshots(ctx context.Context, input SnapshotsInput) ([]string
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, trpcgo.NewError(trpcgo.CodeNotFound, "video not found")
 		}
+		if e := clientClosed(err); e != nil {
+			return nil, e
+		}
 		h.log.Error("list snapshots", "video_id", input.VideoID, "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list snapshots")
 	}
@@ -429,6 +485,9 @@ func (h *Handler) Snapshots(ctx context.Context, input SnapshotsInput) ([]string
 func (h *Handler) Titles(ctx context.Context, input TitlesInput) ([]TitleItem, error) {
 	rows, err := h.video.Titles(ctx, input.VideoID)
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return nil, e
+		}
 		h.log.Error("list titles for video", "video_id", input.VideoID, "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list titles")
 	}
@@ -446,6 +505,9 @@ func (h *Handler) Titles(ctx context.Context, input TitlesInput) ([]TitleItem, e
 func (h *Handler) Categories(ctx context.Context, input CategoriesInput) ([]VideoCategory, error) {
 	rows, err := h.video.Categories(ctx, input.VideoID)
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return nil, e
+		}
 		h.log.Error("list categories for video", "video_id", input.VideoID, "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list categories")
 	}
@@ -483,9 +545,10 @@ type TimelineCategory struct {
 // change row. The schema-level CHECK guarantees at least one of
 // title/category is present.
 type TimelineEvent struct {
-	OccurredAt time.Time         `json:"occurred_at"`
-	Title      *TimelineTitle    `json:"title,omitempty"`
-	Category   *TimelineCategory `json:"category,omitempty"`
+	OccurredAt         time.Time         `json:"occurred_at"`
+	MediaOffsetSeconds *float64          `json:"media_offset_seconds,omitempty"`
+	Title              *TimelineTitle    `json:"title,omitempty"`
+	Category           *TimelineCategory `json:"category,omitempty"`
 }
 
 type TimelineInput struct {
@@ -499,12 +562,18 @@ type TimelineInput struct {
 func (h *Handler) Timeline(ctx context.Context, input TimelineInput) ([]TimelineEvent, error) {
 	rows, err := h.video.Timeline(ctx, input.VideoID)
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return nil, e
+		}
 		h.log.Error("list video timeline", "video_id", input.VideoID, "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list timeline")
 	}
 	out := make([]TimelineEvent, len(rows))
 	for i, r := range rows {
-		event := TimelineEvent{OccurredAt: r.OccurredAt}
+		event := TimelineEvent{
+			OccurredAt:         r.OccurredAt,
+			MediaOffsetSeconds: r.MediaOffsetSeconds,
+		}
 		if r.Title != nil {
 			event.Title = &TimelineTitle{ID: r.Title.ID, Name: r.Title.Name}
 		}
@@ -526,6 +595,9 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 		if errors.Is(err, repository.ErrNotFound) {
 			return VideoResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "video not found")
 		}
+		if e := clientClosed(err); e != nil {
+			return VideoResponse{}, e
+		}
 		h.log.Error("get video", "error", err)
 		return VideoResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get video")
 	}
@@ -544,6 +616,13 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 	} else {
 		resp.Parts = toVideoPartResponses(parts)
 	}
+	if asset, err := h.video.PlaybackAsset(ctx, v.ID); err != nil {
+		if !errors.Is(err, repository.ErrNotFound) {
+			h.log.Warn("get video playback artifact", "video_id", v.ID, "error", err)
+		}
+	} else {
+		resp.PlaybackArtifact = toVideoPlaybackAssetResponse(asset)
+	}
 	return resp, nil
 }
 
@@ -560,6 +639,9 @@ func (h *Handler) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (
 	}
 	page, err := h.video.ListByBroadcaster(ctx, input.BroadcasterID, limit, toRepositoryVideoPageCursor(input.Cursor))
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return VideoPageResponse{}, e
+		}
 		h.log.Error("list videos by broadcaster", "error", err)
 		return VideoPageResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
 	}
@@ -582,6 +664,9 @@ func (h *Handler) ByCategory(ctx context.Context, input ByCategoryInput) (VideoP
 	}
 	page, err := h.video.ListByCategory(ctx, input.CategoryID, limit, toRepositoryVideoPageCursor(input.Cursor))
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return VideoPageResponse{}, e
+		}
 		h.log.Error("list videos by category", "error", err)
 		return VideoPageResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
 	}
@@ -664,22 +749,27 @@ type StatisticsResponse struct {
 }
 
 type ActiveDownloadResponse struct {
-	Video          VideoResponse `json:"video"`
-	Stage          string        `json:"stage"`
-	BytesWritten   int64         `json:"bytes_written"`
-	SegmentsDone   int64         `json:"segments_done"`
-	SegmentsGaps   int64         `json:"segments_gaps"`
-	SegmentsAdGaps int64         `json:"segments_ad_gaps"`
-	SegmentsTotal  int64         `json:"segments_total"`
-	Percent        float64       `json:"percent"`
-	Speed          string        `json:"speed,omitempty"`
-	ETA            string        `json:"eta,omitempty"`
-	RecordingType  string        `json:"recording_type,omitempty"`
+	Video              VideoResponse `json:"video"`
+	PartIndex          int           `json:"part_index"`
+	Stage              string        `json:"stage"`
+	BytesWritten       int64         `json:"bytes_written"`
+	SegmentsDone       int64         `json:"segments_done"`
+	SegmentsGaps       int64         `json:"segments_gaps"`
+	SegmentsAdGaps     int64         `json:"segments_ad_gaps"`
+	SegmentsTotal      int64         `json:"segments_total"`
+	Percent            float64       `json:"percent"`
+	Speed              string        `json:"speed,omitempty"`
+	ETA                string        `json:"eta,omitempty"`
+	RecordingType      string        `json:"recording_type,omitempty"`
+	MediaOffsetSeconds *float64      `json:"media_offset_seconds,omitempty"`
 }
 
 func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 	stats, err := h.video.Stats(ctx)
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return StatisticsResponse{}, e
+		}
 		h.log.Error("video statistics", "error", err)
 		return StatisticsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load statistics")
 	}
@@ -716,6 +806,9 @@ func (h *Handler) StatisticsByBroadcaster(ctx context.Context, input ChannelStat
 	}
 	totals, err := h.video.StatsByBroadcaster(ctx, input.BroadcasterID)
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return ChannelStatisticsResponse{}, e
+		}
 		h.log.Error("video statistics by broadcaster", "error", err, "broadcaster_id", input.BroadcasterID)
 		return ChannelStatisticsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load channel statistics")
 	}
@@ -729,6 +822,9 @@ func (h *Handler) StatisticsByBroadcaster(ctx context.Context, input ChannelStat
 func (h *Handler) ActiveDownloads(ctx context.Context) ([]ActiveDownloadResponse, error) {
 	rows, err := h.activeDownloadsSnapshot(ctx)
 	if err != nil {
+		if e := clientClosed(err); e != nil {
+			return nil, e
+		}
 		h.log.Error("list active downloads", "error", err)
 		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list active downloads")
 	}
@@ -761,6 +857,19 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context) ([]ActiveDownload
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vids)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vids)
 
+	// Batch the per-video part lookup: this snapshot runs on every dashboard
+	// poll and every active-downloads SSE wake, so one query for the whole set
+	// beats one ListVideoParts per running recording.
+	videoIDs := make([]int64, 0, len(vids))
+	for i := range vids {
+		videoIDs = append(videoIDs, vids[i].ID)
+	}
+	partsByVideo, err := h.video.PartsForVideos(ctx, videoIDs)
+	if err != nil {
+		h.log.Warn("list active video parts", "error", err)
+		partsByVideo = nil
+	}
+
 	out := make([]ActiveDownloadResponse, 0, len(progress))
 	for _, snap := range progress {
 		v, ok := byJob[snap.JobID]
@@ -772,18 +881,21 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context) ([]ActiveDownload
 			resp.Quality = formatQualityLabel(snap.Quality, snap.FPS)
 			resp.FPS = snap.FPS
 		}
+		resp.Parts = toVideoPartResponses(partsByVideo[v.ID])
 		out = append(out, ActiveDownloadResponse{
-			Video:          resp,
-			Stage:          snap.Stage,
-			BytesWritten:   snap.BytesWritten,
-			SegmentsDone:   snap.SegmentsDone,
-			SegmentsGaps:   snap.SegmentsGaps,
-			SegmentsAdGaps: snap.SegmentsAdGaps,
-			SegmentsTotal:  snap.SegmentsTotal,
-			Percent:        snap.Percent,
-			Speed:          snap.Speed,
-			ETA:            snap.ETA,
-			RecordingType:  snap.RecordingType,
+			Video:              resp,
+			PartIndex:          snap.PartIndex,
+			Stage:              snap.Stage,
+			BytesWritten:       snap.BytesWritten,
+			SegmentsDone:       snap.SegmentsDone,
+			SegmentsGaps:       snap.SegmentsGaps,
+			SegmentsAdGaps:     snap.SegmentsAdGaps,
+			SegmentsTotal:      snap.SegmentsTotal,
+			Percent:            snap.Percent,
+			Speed:              snap.Speed,
+			ETA:                snap.ETA,
+			RecordingType:      snap.RecordingType,
+			MediaOffsetSeconds: snap.MediaOffsetSeconds,
 		})
 	}
 	return out, nil
@@ -904,21 +1016,22 @@ type DownloadProgressInput struct {
 // so subscribers that miss intermediate events (slow render, SSE
 // reconnect) stay consistent once they receive the next one.
 type ProgressEvent struct {
-	JobID          string   `json:"job_id"`
-	PartIndex      int      `json:"part_index"`
-	Stage          string   `json:"stage"`
-	BytesWritten   int64    `json:"bytes_written"`
-	SegmentsDone   int64    `json:"segments_done"`
-	SegmentsGaps   int64    `json:"segments_gaps"`
-	SegmentsAdGaps int64    `json:"segments_ad_gaps"`
-	SegmentsTotal  int64    `json:"segments_total"`
-	Percent        float64  `json:"percent"`
-	Speed          string   `json:"speed,omitempty"`
-	ETA            string   `json:"eta,omitempty"`
-	Quality        string   `json:"quality,omitempty"`
-	FPS            *float64 `json:"fps,omitempty"`
-	Codec          string   `json:"codec,omitempty"`
-	RecordingType  string   `json:"recording_type,omitempty"`
+	JobID              string   `json:"job_id"`
+	PartIndex          int      `json:"part_index"`
+	Stage              string   `json:"stage"`
+	BytesWritten       int64    `json:"bytes_written"`
+	SegmentsDone       int64    `json:"segments_done"`
+	SegmentsGaps       int64    `json:"segments_gaps"`
+	SegmentsAdGaps     int64    `json:"segments_ad_gaps"`
+	SegmentsTotal      int64    `json:"segments_total"`
+	Percent            float64  `json:"percent"`
+	Speed              string   `json:"speed,omitempty"`
+	ETA                string   `json:"eta,omitempty"`
+	Quality            string   `json:"quality,omitempty"`
+	FPS                *float64 `json:"fps,omitempty"`
+	Codec              string   `json:"codec,omitempty"`
+	RecordingType      string   `json:"recording_type,omitempty"`
+	MediaOffsetSeconds *float64 `json:"media_offset_seconds,omitempty"`
 }
 
 // DownloadProgress streams Progress events for a running download
@@ -952,21 +1065,22 @@ func (h *Handler) DownloadProgress(ctx context.Context, input DownloadProgressIn
 				}
 				select {
 				case out <- ProgressEvent{
-					JobID:          p.JobID,
-					PartIndex:      p.PartIndex,
-					Stage:          p.Stage,
-					BytesWritten:   p.BytesWritten,
-					SegmentsDone:   p.SegmentsDone,
-					SegmentsGaps:   p.SegmentsGaps,
-					SegmentsAdGaps: p.SegmentsAdGaps,
-					SegmentsTotal:  p.SegmentsTotal,
-					Percent:        p.Percent,
-					Speed:          p.Speed,
-					ETA:            p.ETA,
-					Quality:        formatQualityLabel(p.Quality, p.FPS),
-					FPS:            p.FPS,
-					Codec:          p.Codec,
-					RecordingType:  p.RecordingType,
+					JobID:              p.JobID,
+					PartIndex:          p.PartIndex,
+					Stage:              p.Stage,
+					BytesWritten:       p.BytesWritten,
+					SegmentsDone:       p.SegmentsDone,
+					SegmentsGaps:       p.SegmentsGaps,
+					SegmentsAdGaps:     p.SegmentsAdGaps,
+					SegmentsTotal:      p.SegmentsTotal,
+					Percent:            p.Percent,
+					Speed:              p.Speed,
+					ETA:                p.ETA,
+					Quality:            formatQualityLabel(p.Quality, p.FPS),
+					FPS:                p.FPS,
+					Codec:              p.Codec,
+					RecordingType:      p.RecordingType,
+					MediaOffsetSeconds: p.MediaOffsetSeconds,
 				}:
 				case <-ctx.Done():
 					return

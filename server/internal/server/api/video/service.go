@@ -198,6 +198,25 @@ func (s *Service) Parts(ctx context.Context, videoID int64) ([]repository.VideoP
 	return s.repo.ListVideoParts(ctx, videoID)
 }
 
+// PartsForVideos batches part lookups for a set of videos into one query,
+// grouped by video ID. Used by the active-downloads snapshot so it doesn't
+// fan out one Parts query per running recording on every dashboard poll.
+func (s *Service) PartsForVideos(ctx context.Context, videoIDs []int64) (map[int64][]repository.VideoPart, error) {
+	parts, err := s.repo.ListVideoPartsForVideos(ctx, videoIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64][]repository.VideoPart, len(videoIDs))
+	for _, part := range parts {
+		out[part.VideoID] = append(out[part.VideoID], part)
+	}
+	return out, nil
+}
+
+func (s *Service) PlaybackAsset(ctx context.Context, videoID int64) (*repository.VideoPlaybackAsset, error) {
+	return s.repo.GetVideoPlaybackAsset(ctx, videoID)
+}
+
 // maxSnapshotsPerVideo is the upper bound on the probe-until-404 loop
 // in ListSnapshots. Default title-tracking interval of 1-5 min over
 // a 24h recording gives 288-1440 snaps; 500 covers the common case

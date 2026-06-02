@@ -14,6 +14,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api"
+	"github.com/befabri/replayvod/server/internal/service/playbackcache"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -23,45 +24,47 @@ import (
 
 // Server represents the HTTP server.
 type Server struct {
-	cfg          *config.Config
-	repo         repository.Repository
-	sessionMgr   *session.Manager
-	twitchClient *twitch.Client
-	storage      storage.Storage
-	downloader   *downloader.Service
-	hydrator     *streammeta.Hydrator
-	bus          *eventbus.Buses
-	processor    *schedulesvc.EventProcessor
-	webhook      *recordingwebhook.Dispatcher
-	log          *slog.Logger
-	httpServer   *http.Server
-	closeTRPC    func() error
+	cfg           *config.Config
+	repo          repository.Repository
+	sessionMgr    *session.Manager
+	twitchClient  *twitch.Client
+	storage       storage.Storage
+	downloader    *downloader.Service
+	hydrator      *streammeta.Hydrator
+	bus           *eventbus.Buses
+	processor     *schedulesvc.EventProcessor
+	webhook       *recordingwebhook.Dispatcher
+	playbackCache *playbackcache.Service
+	log           *slog.Logger
+	httpServer    *http.Server
+	closeTRPC     func() error
 }
 
 // NewServer creates a new server. bus may be nil to disable SSE
 // feeds — the subscription procedures then return pre-closed channels.
 // hydrator is shared with the downloader's MetadataWatcher so routes and
 // internal polling agree on the Helix-derived view.
-func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, processor *schedulesvc.EventProcessor, webhook *recordingwebhook.Dispatcher, log *slog.Logger) *Server {
+func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, processor *schedulesvc.EventProcessor, webhook *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger) *Server {
 	return &Server{
-		cfg:          cfg,
-		repo:         repo,
-		sessionMgr:   sessionMgr,
-		twitchClient: twitchClient,
-		storage:      store,
-		downloader:   dl,
-		hydrator:     hydrator,
-		bus:          bus,
-		processor:    processor,
-		webhook:      webhook,
-		log:          log,
+		cfg:           cfg,
+		repo:          repo,
+		sessionMgr:    sessionMgr,
+		twitchClient:  twitchClient,
+		storage:       store,
+		downloader:    dl,
+		hydrator:      hydrator,
+		bus:           bus,
+		processor:     processor,
+		webhook:       webhook,
+		playbackCache: playbackCache,
+		log:           log,
 	}
 }
 
 // Start begins serving HTTP requests. If ready is non-nil, it receives nil
 // after the TCP listener is bound or an error if the server cannot listen.
 func (s *Server) Start(ready chan<- error) {
-	router, closeTRPC := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.hydrator, s.bus, s.processor, s.webhook, s.log)
+	router, closeTRPC := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.hydrator, s.bus, s.processor, s.webhook, s.playbackCache, s.log)
 	s.closeTRPC = closeTRPC
 	addr := fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port)
 	listener, err := net.Listen("tcp", addr)

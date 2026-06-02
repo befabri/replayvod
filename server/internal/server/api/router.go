@@ -31,6 +31,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/webhook"
 	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
+	"github.com/befabri/replayvod/server/internal/service/playbackcache"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -46,7 +47,7 @@ import (
 
 // SetupRouter creates and configures the Chi router and returns a cleanup
 // hook for the tRPC router lifecycle.
-func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, log *slog.Logger) (*chi.Mux, func() error) {
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger) (*chi.Mux, func() error) {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -82,7 +83,16 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// download URLs (handed to recording-webhook consumers). The verifier shares
 	// the server HMAC secret; the route is registered outside the session
 	// middleware below since the signature, not a cookie, authorizes it.
-	videoStream := video.NewStreamHandler(repo, store, videodownload.NewVerifier(cfg.Env.HMACSecret), log)
+	videoStream := video.NewStreamHandler(
+		repo,
+		store,
+		videodownload.NewVerifier(cfg.Env.HMACSecret),
+		log,
+		// Lazily build the single-file playback artifact the first time a part is
+		// streamed (i.e. someone actually watches), instead of eagerly on every
+		// recording's completion.
+		video.WithPlaybackBuilder(playbackCache),
+	)
 	// The webhook handler needs the raw body for HMAC verification, so it
 	// must live on the Chi side (no tRPC JSON middleware) and outside the
 	// csrfProtection group (Twitch can't provide a CSRF cookie). Only wire the
@@ -155,7 +165,7 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 			}
 		}),
 		trpcgo.WithOnError(func(ctx context.Context, err *trpcgo.Error, path string) {
-			if err.Code == trpcgo.CodeUnauthorized || err.Code == trpcgo.CodeBadRequest {
+			if err.Code == trpcgo.CodeUnauthorized || err.Code == trpcgo.CodeBadRequest || err.Code == trpcgo.CodeClientClosed {
 				return
 			}
 			log.Error("tRPC error", "path", path, "code", trpcgo.NameFromCode(err.Code), "message", err.Message)

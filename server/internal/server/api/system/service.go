@@ -18,6 +18,8 @@ import (
 // get locked out of every owner-gated procedure.
 var ErrCannotDemoteSelf = errors.New("system: cannot demote yourself")
 
+var ErrInvalidPlaybackCacheConfig = errors.New("system: invalid playback cache config")
+
 // Service is the system/admin domain service.
 type Service struct {
 	repo repository.Repository
@@ -60,6 +62,44 @@ func (s *Service) AddToWhitelist(ctx context.Context, twitchUserID string) error
 // RemoveFromWhitelist is idempotent — missing entries return nil.
 func (s *Service) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
 	return s.repo.RemoveFromWhitelist(ctx, twitchUserID)
+}
+
+type PlaybackCacheConfig struct {
+	Enabled      bool
+	MaxPercent   int
+	AutoGenerate bool
+}
+
+func (s *Service) GetPlaybackCacheConfig(ctx context.Context) (*PlaybackCacheConfig, error) {
+	settings, err := s.repo.GetServerSettings(ctx)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return &PlaybackCacheConfig{MaxPercent: 10}, nil
+		}
+		return nil, err
+	}
+	return &PlaybackCacheConfig{
+		Enabled:      settings.PlaybackCacheEnabled,
+		MaxPercent:   settings.PlaybackCacheMaxPercent,
+		AutoGenerate: settings.PlaybackCacheAutoGenerate,
+	}, nil
+}
+
+func (s *Service) UpdatePlaybackCacheConfig(ctx context.Context, cfg PlaybackCacheConfig) (*PlaybackCacheConfig, error) {
+	// Reject 0%: with the cache enabled it would silently do nothing (active()
+	// requires maxPercent > 0). The Enabled flag is the off switch.
+	if cfg.MaxPercent < 1 || cfg.MaxPercent > 100 {
+		return nil, ErrInvalidPlaybackCacheConfig
+	}
+	settings, err := s.repo.UpsertPlaybackCacheConfig(ctx, cfg.Enabled, cfg.MaxPercent, cfg.AutoGenerate)
+	if err != nil {
+		return nil, err
+	}
+	return &PlaybackCacheConfig{
+		Enabled:      settings.PlaybackCacheEnabled,
+		MaxPercent:   settings.PlaybackCacheMaxPercent,
+		AutoGenerate: settings.PlaybackCacheAutoGenerate,
+	}, nil
 }
 
 // FetchLogsFilter carries the paginate-and-filter args for a fetch

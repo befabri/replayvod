@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -164,6 +165,12 @@ func (m *Manager) ClearCookie() *http.Cookie {
 // UpdateActivity updates the session's last_active_at timestamp.
 func (m *Manager) UpdateActivity(ctx context.Context, hashedID string) {
 	if err := m.repo.UpdateSessionActivity(ctx, hashedID); err != nil {
+		// A client that aborts its request (a video player canceling overlapping
+		// Range GETs on every seek, say) cancels this same context mid-write.
+		// That's the client's doing, not a write failure worth a warning.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
 		m.log.Warn("failed to update session activity", "error", err)
 	}
 }

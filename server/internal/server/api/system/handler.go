@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -14,6 +15,57 @@ import (
 type Handler struct {
 	svc *Service
 	log *slog.Logger
+}
+
+type PlaybackCacheConfigResponse struct {
+	Enabled      bool `json:"enabled"`
+	MaxPercent   int  `json:"max_percent"`
+	AutoGenerate bool `json:"auto_generate"`
+}
+
+type UpdatePlaybackCacheConfigInput struct {
+	Enabled bool `json:"enabled"`
+	// min=1: 0% with the cache enabled would be a silent no-op (active() needs
+	// maxPercent > 0). The enabled flag is the off switch; the percentage is
+	// always 1-100.
+	MaxPercent   int  `json:"max_percent" validate:"min=1,max=100"`
+	AutoGenerate bool `json:"auto_generate"`
+}
+
+func playbackCacheConfigResponse(cfg *PlaybackCacheConfig) PlaybackCacheConfigResponse {
+	if cfg == nil {
+		return PlaybackCacheConfigResponse{MaxPercent: 10}
+	}
+	return PlaybackCacheConfigResponse{
+		Enabled:      cfg.Enabled,
+		MaxPercent:   cfg.MaxPercent,
+		AutoGenerate: cfg.AutoGenerate,
+	}
+}
+
+func (h *Handler) PlaybackCacheConfig(ctx context.Context) (PlaybackCacheConfigResponse, error) {
+	cfg, err := h.svc.GetPlaybackCacheConfig(ctx)
+	if err != nil {
+		h.log.Error("load playback cache config", "error", err)
+		return PlaybackCacheConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load playback cache config")
+	}
+	return playbackCacheConfigResponse(cfg), nil
+}
+
+func (h *Handler) UpdatePlaybackCacheConfig(ctx context.Context, input UpdatePlaybackCacheConfigInput) (PlaybackCacheConfigResponse, error) {
+	cfg, err := h.svc.UpdatePlaybackCacheConfig(ctx, PlaybackCacheConfig{
+		Enabled:      input.Enabled,
+		MaxPercent:   input.MaxPercent,
+		AutoGenerate: input.AutoGenerate,
+	})
+	if err != nil {
+		if errors.Is(err, ErrInvalidPlaybackCacheConfig) {
+			return PlaybackCacheConfigResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, "invalid playback cache config")
+		}
+		h.log.Error("update playback cache config", "error", err)
+		return PlaybackCacheConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to update playback cache config")
+	}
+	return playbackCacheConfigResponse(cfg), nil
 }
 
 // NewHandler wires a handler around a system Service.
