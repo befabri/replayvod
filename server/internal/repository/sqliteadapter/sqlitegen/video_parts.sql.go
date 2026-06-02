@@ -8,6 +8,7 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const countVideoParts = `-- name: CountVideoParts :one
@@ -196,6 +197,61 @@ SELECT id, video_id, part_index, filename, quality, codec, segment_format, durat
 
 func (q *Queries) ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error) {
 	rows, err := q.db.QueryContext(ctx, listVideoParts, videoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VideoPart{}
+	for rows.Next() {
+		var i VideoPart
+		if err := rows.Scan(
+			&i.ID,
+			&i.VideoID,
+			&i.PartIndex,
+			&i.Filename,
+			&i.Quality,
+			&i.Codec,
+			&i.SegmentFormat,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.StartMediaSeq,
+			&i.EndMediaSeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Fps,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVideoPartsForVideos = `-- name: ListVideoPartsForVideos :many
+SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps FROM video_parts
+WHERE video_id IN (/*SLICE:video_ids*/?)
+ORDER BY video_id ASC, part_index ASC
+`
+
+func (q *Queries) ListVideoPartsForVideos(ctx context.Context, videoIds []int64) ([]VideoPart, error) {
+	query := listVideoPartsForVideos
+	var queryParams []interface{}
+	if len(videoIds) > 0 {
+		for _, v := range videoIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:video_ids*/?", strings.Repeat(",?", len(videoIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:video_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}

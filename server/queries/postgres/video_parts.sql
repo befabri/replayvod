@@ -30,6 +30,11 @@ SELECT * FROM video_parts WHERE video_id = $1 AND part_index = $2;
 -- name: ListVideoParts :many
 SELECT * FROM video_parts WHERE video_id = $1 ORDER BY part_index ASC;
 
+-- name: ListVideoPartsForVideos :many
+SELECT * FROM video_parts
+WHERE video_id = ANY(@video_ids::bigint[])
+ORDER BY video_id ASC, part_index ASC;
+
 -- name: CountVideoParts :one
 SELECT COUNT(*) FROM video_parts WHERE video_id = $1;
 

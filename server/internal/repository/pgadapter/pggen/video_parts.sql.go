@@ -234,3 +234,45 @@ func (q *Queries) ListVideoParts(ctx context.Context, videoID int64) ([]VideoPar
 	}
 	return items, nil
 }
+
+const listVideoPartsForVideos = `-- name: ListVideoPartsForVideos :many
+SELECT id, video_id, part_index, filename, quality, codec, segment_format, duration_seconds, size_bytes, thumbnail, start_media_seq, end_media_seq, created_at, updated_at, fps FROM video_parts
+WHERE video_id = ANY($1::bigint[])
+ORDER BY video_id ASC, part_index ASC
+`
+
+func (q *Queries) ListVideoPartsForVideos(ctx context.Context, videoIds []int64) ([]VideoPart, error) {
+	rows, err := q.db.Query(ctx, listVideoPartsForVideos, videoIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VideoPart{}
+	for rows.Next() {
+		var i VideoPart
+		if err := rows.Scan(
+			&i.ID,
+			&i.VideoID,
+			&i.PartIndex,
+			&i.Filename,
+			&i.Quality,
+			&i.Codec,
+			&i.SegmentFormat,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.StartMediaSeq,
+			&i.EndMediaSeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Fps,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

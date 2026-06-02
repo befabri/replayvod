@@ -194,6 +194,10 @@ type Repository interface {
 	GetVideoPart(ctx context.Context, id int64) (*VideoPart, error)
 	GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*VideoPart, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
+	// ListVideoPartsForVideos batches part lookups across a set of video IDs
+	// (rows ordered by video_id then part_index) so callers iterating active
+	// downloads don't fan out one ListVideoParts query per video.
+	ListVideoPartsForVideos(ctx context.Context, videoIDs []int64) ([]VideoPart, error)
 	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
 	// HasFinalizedVideoParts reports whether any part for the video
 	// has been remuxed to storage (size_bytes > 0). The downloader
@@ -203,6 +207,15 @@ type Repository interface {
 	// failed run with no recoverable artifact.
 	HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error)
 	DeleteVideoParts(ctx context.Context, videoID int64) error
+
+	// Video playback assets — optional playback-optimized artifacts generated
+	// after the durable video_parts have been stored. A ready asset is a single
+	// source the watch page can use without client-side part switching.
+	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (*VideoPlaybackAsset, error)
+	UpsertVideoPlaybackAsset(ctx context.Context, input *VideoPlaybackAssetInput) (*VideoPlaybackAsset, error)
+	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
+	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
+	DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error
 
 	// Titles
 	UpsertTitle(ctx context.Context, name string) (*Title, error)
@@ -313,6 +326,7 @@ type Repository interface {
 	// Server settings — process-wide settings configured by the owner UI.
 	GetServerSettings(ctx context.Context) (*ServerSettings, error)
 	UpsertServerSettings(ctx context.Context, s *ServerSettings) (*ServerSettings, error)
+	UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*ServerSettings, error)
 
 	// UpsertRecordingWebhookConfig persists only the recording-webhook config
 	// columns of server_settings (enabled, url, events), leaving server mode,

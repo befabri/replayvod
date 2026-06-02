@@ -45,6 +45,18 @@ func (a *PGAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enabled bo
 	return pgServerSettingsToDomain(row), nil
 }
 
+func (a *PGAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*repository.ServerSettings, error) {
+	row, err := a.queries.UpsertPlaybackCacheConfig(ctx, pggen.UpsertPlaybackCacheConfigParams{
+		PlaybackCacheEnabled:      enabled,
+		PlaybackCacheMaxPercent:   int32(maxPercent),
+		PlaybackCacheAutoGenerate: autoGenerate,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pg upsert playback cache config: %w", err)
+	}
+	return pgServerSettingsToDomain(row), nil
+}
+
 func (a *PGAdapter) EnsureRecordingWebhookSecret(ctx context.Context, secret string) error {
 	if err := a.queries.EnsureRecordingWebhookSecret(ctx, secret); err != nil {
 		return fmt.Errorf("pg ensure recording webhook secret: %w", err)
@@ -88,6 +100,9 @@ func pgServerSettingsToDomain(s pggen.ServerSetting) *repository.ServerSettings 
 		RecordingWebhookURL:           s.RecordingWebhookUrl,
 		RecordingWebhookSecret:        s.RecordingWebhookSecret,
 		RecordingWebhookEvents:        s.RecordingWebhookEvents,
+		PlaybackCacheEnabled:          s.PlaybackCacheEnabled,
+		PlaybackCacheMaxPercent:       int(s.PlaybackCacheMaxPercent),
+		PlaybackCacheAutoGenerate:     s.PlaybackCacheAutoGenerate,
 		CreatedAt:                     s.CreatedAt,
 		UpdatedAt:                     s.UpdatedAt,
 	}

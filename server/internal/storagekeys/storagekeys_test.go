@@ -53,3 +53,25 @@ func TestBase(t *testing.T) {
 		t.Errorf("Thumbnail(Base(%q)) = %q, want thumbnails/rec-part01.jpg", name, Thumbnail(Base(name)))
 	}
 }
+
+func TestPlaybackName(t *testing.T) {
+	cases := []struct {
+		videoFilename string
+		partFilename  string
+		want          string
+	}{
+		{"rec", "rec-part01.mp4", "rec-playback.mp4"},
+		{"rec", "rec-part01.m4a", "rec-playback.m4a"},
+		{"rec", "rec-part01.MP4", "rec-playback.mp4"}, // extension lowercased
+	}
+	for _, tc := range cases {
+		if got := PlaybackName(tc.videoFilename, tc.partFilename); got != tc.want {
+			t.Errorf("PlaybackName(%q, %q) = %q, want %q", tc.videoFilename, tc.partFilename, got, tc.want)
+		}
+	}
+	// playbackcache builds the artifact and retention deletes it; both must agree
+	// on the storage key. Pin that PlaybackName feeds Video() to the expected key.
+	if Video(PlaybackName("rec", "rec-part01.mp4")) != "videos/rec-playback.mp4" {
+		t.Errorf("Video(PlaybackName(...)) = %q, want videos/rec-playback.mp4", Video(PlaybackName("rec", "rec-part01.mp4")))
+	}
+}

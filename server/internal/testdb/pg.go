@@ -91,13 +91,14 @@ func SetupPG(m *testing.M) int {
 	return m.Run()
 }
 
-// NewPGPool creates a fresh database inside the shared container, applies
-// migrations, and returns a pgxpool scoped to it. The DB is dropped on
-// t.Cleanup. SetupPG must have been called from the package's TestMain.
-func NewPGPool(t *testing.T) *pgxpool.Pool {
+// NewUnmigratedPGPool creates a fresh database inside the shared container and
+// returns a pgxpool scoped to it without applying migrations. It is intended for
+// migration tests that need to construct a legacy schema by hand. Most tests
+// should use NewPGPool instead.
+func NewUnmigratedPGPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	if sharedPG == nil {
-		t.Fatal("testdb.NewPGPool: SetupPG must be called from TestMain")
+		t.Fatal("testdb.NewUnmigratedPGPool: SetupPG must be called from TestMain")
 	}
 	ctx := context.Background()
 
@@ -127,12 +128,6 @@ func NewPGPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("testdb: open test pool: %v", err)
 	}
 
-	if err := database.MigratePostgres(ctx, pool, migrations.Postgres()); err != nil {
-		pool.Close()
-		_, _ = admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE "%s" WITH (FORCE)`, dbName))
-		t.Fatalf("testdb: apply migrations: %v", err)
-	}
-
 	t.Cleanup(func() {
 		pool.Close()
 		cleanupCtx := context.Background()
@@ -143,6 +138,21 @@ func NewPGPool(t *testing.T) *pgxpool.Pool {
 		defer a.Close()
 		_, _ = a.Exec(cleanupCtx, fmt.Sprintf(`DROP DATABASE "%s" WITH (FORCE)`, dbName))
 	})
+
+	return pool
+}
+
+// NewPGPool creates a fresh database inside the shared container, applies
+// migrations, and returns a pgxpool scoped to it. The DB is dropped on
+// t.Cleanup. SetupPG must have been called from the package's TestMain.
+func NewPGPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	ctx := context.Background()
+	pool := NewUnmigratedPGPool(t)
+
+	if err := database.MigratePostgres(ctx, pool, migrations.Postgres()); err != nil {
+		t.Fatalf("testdb: apply migrations: %v", err)
+	}
 
 	return pool
 }

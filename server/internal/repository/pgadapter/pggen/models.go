@@ -144,6 +144,9 @@ type ServerSetting struct {
 	RecordingWebhookUrl           string    `json:"recording_webhook_url"`
 	RecordingWebhookSecret        string    `json:"recording_webhook_secret"`
 	RecordingWebhookEvents        string    `json:"recording_webhook_events"`
+	PlaybackCacheEnabled          bool      `json:"playback_cache_enabled"`
+	PlaybackCacheMaxPercent       int32     `json:"playback_cache_max_percent"`
+	PlaybackCacheAutoGenerate     bool      `json:"playback_cache_auto_generate"`
 }
 
 type Session struct {
@@ -306,11 +309,12 @@ type VideoCategorySpan struct {
 }
 
 type VideoMetadataChange struct {
-	ID         int64     `json:"id"`
-	VideoID    int64     `json:"video_id"`
-	OccurredAt time.Time `json:"occurred_at"`
-	TitleID    *int64    `json:"title_id"`
-	CategoryID *string   `json:"category_id"`
+	ID                 int64     `json:"id"`
+	VideoID            int64     `json:"video_id"`
+	OccurredAt         time.Time `json:"occurred_at"`
+	TitleID            *int64    `json:"title_id"`
+	CategoryID         *string   `json:"category_id"`
+	MediaOffsetSeconds *float64  `json:"media_offset_seconds"`
 }
 
 type VideoPart struct {
@@ -329,6 +333,20 @@ type VideoPart struct {
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	Fps             *float64  `json:"fps"`
+}
+
+type VideoPlaybackAsset struct {
+	VideoID         int64      `json:"video_id"`
+	Status          string     `json:"status"`
+	Filename        *string    `json:"filename"`
+	MimeType        *string    `json:"mime_type"`
+	DurationSeconds *float64   `json:"duration_seconds"`
+	SizeBytes       *int64     `json:"size_bytes"`
+	Error           *string    `json:"error"`
+	GeneratedAt     *time.Time `json:"generated_at"`
+	LastAccessedAt  *time.Time `json:"last_accessed_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type VideoRequest struct {

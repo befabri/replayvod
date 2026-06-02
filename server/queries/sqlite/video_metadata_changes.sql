@@ -1,6 +1,6 @@
 -- name: InsertVideoMetadataChange :one
-INSERT INTO video_metadata_changes (video_id, occurred_at, title_id, category_id)
-VALUES (@video_id, @occurred_at, @title_id, @category_id)
+INSERT INTO video_metadata_changes (video_id, occurred_at, title_id, category_id, media_offset_seconds)
+VALUES (@video_id, @occurred_at, @title_id, @category_id, @media_offset_seconds)
 RETURNING id;
 
 -- name: ListVideoMetadataChangesForVideo :many
@@ -8,6 +8,7 @@ SELECT
     vmc.id,
     vmc.video_id,
     vmc.occurred_at,
+    vmc.media_offset_seconds,
     vmc.title_id,
     t.name        AS title_name,
     t.created_at  AS title_created_at,

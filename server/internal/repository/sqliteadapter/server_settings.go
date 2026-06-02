@@ -48,6 +48,25 @@ func (a *SQLiteAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enable
 	return sqliteServerSettingsToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*repository.ServerSettings, error) {
+	var enabledInt, autoGenerateInt int64
+	if enabled {
+		enabledInt = 1
+	}
+	if autoGenerate {
+		autoGenerateInt = 1
+	}
+	row, err := a.queries.UpsertPlaybackCacheConfig(ctx, sqlitegen.UpsertPlaybackCacheConfigParams{
+		PlaybackCacheEnabled:      enabledInt,
+		PlaybackCacheMaxPercent:   int64(maxPercent),
+		PlaybackCacheAutoGenerate: autoGenerateInt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert playback cache config: %w", err)
+	}
+	return sqliteServerSettingsToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) EnsureRecordingWebhookSecret(ctx context.Context, secret string) error {
 	if err := a.queries.EnsureRecordingWebhookSecret(ctx, secret); err != nil {
 		return fmt.Errorf("sqlite ensure recording webhook secret: %w", err)
@@ -91,6 +110,9 @@ func sqliteServerSettingsToDomain(s sqlitegen.ServerSetting) *repository.ServerS
 		RecordingWebhookURL:           s.RecordingWebhookUrl,
 		RecordingWebhookSecret:        s.RecordingWebhookSecret,
 		RecordingWebhookEvents:        s.RecordingWebhookEvents,
+		PlaybackCacheEnabled:          s.PlaybackCacheEnabled != 0,
+		PlaybackCacheMaxPercent:       int(s.PlaybackCacheMaxPercent),
+		PlaybackCacheAutoGenerate:     s.PlaybackCacheAutoGenerate != 0,
 		CreatedAt:                     parseTime(s.CreatedAt),
 		UpdatedAt:                     parseTime(s.UpdatedAt),
 	}

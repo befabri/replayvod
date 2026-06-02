@@ -142,6 +142,9 @@ type ServerSetting struct {
 	RecordingWebhookUrl           string `json:"recording_webhook_url"`
 	RecordingWebhookSecret        string `json:"recording_webhook_secret"`
 	RecordingWebhookEvents        string `json:"recording_webhook_events"`
+	PlaybackCacheEnabled          int64  `json:"playback_cache_enabled"`
+	PlaybackCacheMaxPercent       int64  `json:"playback_cache_max_percent"`
+	PlaybackCacheAutoGenerate     int64  `json:"playback_cache_auto_generate"`
 }
 
 type Session struct {
@@ -304,11 +307,12 @@ type VideoCategorySpan struct {
 }
 
 type VideoMetadataChange struct {
-	ID         int64          `json:"id"`
-	VideoID    int64          `json:"video_id"`
-	OccurredAt string         `json:"occurred_at"`
-	TitleID    sql.NullInt64  `json:"title_id"`
-	CategoryID sql.NullString `json:"category_id"`
+	ID                 int64           `json:"id"`
+	VideoID            int64           `json:"video_id"`
+	OccurredAt         string          `json:"occurred_at"`
+	TitleID            sql.NullInt64   `json:"title_id"`
+	CategoryID         sql.NullString  `json:"category_id"`
+	MediaOffsetSeconds sql.NullFloat64 `json:"media_offset_seconds"`
 }
 
 type VideoPart struct {
@@ -327,6 +331,20 @@ type VideoPart struct {
 	CreatedAt       string          `json:"created_at"`
 	UpdatedAt       string          `json:"updated_at"`
 	Fps             sql.NullFloat64 `json:"fps"`
+}
+
+type VideoPlaybackAsset struct {
+	VideoID         int64           `json:"video_id"`
+	Status          string          `json:"status"`
+	Filename        sql.NullString  `json:"filename"`
+	MimeType        sql.NullString  `json:"mime_type"`
+	DurationSeconds sql.NullFloat64 `json:"duration_seconds"`
+	SizeBytes       sql.NullInt64   `json:"size_bytes"`
+	Error           sql.NullString  `json:"error"`
+	GeneratedAt     sql.NullString  `json:"generated_at"`
+	LastAccessedAt  sql.NullString  `json:"last_accessed_at"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
 }
 
 type VideoRequest struct {

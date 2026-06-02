@@ -163,6 +163,20 @@ func toNullString(s *string) sql.NullString {
 	return sql.NullString{String: *s, Valid: true}
 }
 
+func fromNullFloat64(f sql.NullFloat64) *float64 {
+	if !f.Valid {
+		return nil
+	}
+	return &f.Float64
+}
+
+func nullFloat64(f *float64) sql.NullFloat64 {
+	if f == nil {
+		return sql.NullFloat64{}
+	}
+	return sql.NullFloat64{Float64: *f, Valid: true}
+}
+
 func parseTime(s string) time.Time {
 	t, err := time.Parse("2006-01-02 15:04:05", s)
 	if err != nil {

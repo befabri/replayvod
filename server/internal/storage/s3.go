@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -269,16 +270,21 @@ func is404(err error) bool {
 }
 
 // errNotFound lets Stat/Open signal a missing object in a way callers
-// can detect with errors.Is(err, os.ErrNotExist)-style checks. We
-// don't import "os" here to keep the type local; callers that want
-// os.ErrNotExist semantics can wrap with errors.Join or adopt the
-// storage-specific check.
+// detect with errors.Is(err, os.ErrNotExist). The Is method makes this
+// backend satisfy the Storage.Stat contract ("os.ErrNotExist-compatible
+// error when the object is missing"), so cross-backend code — e.g. the
+// playback-cache self-heal that drops a ready row whose object is gone —
+// behaves the same on S3 as on local storage.
 type errNotFound struct {
 	key string
 }
 
 func (e errNotFound) Error() string {
 	return fmt.Sprintf("s3: key not found: %s", e.key)
+}
+
+func (errNotFound) Is(target error) bool {
+	return target == os.ErrNotExist
 }
 
 // s3ReadSeeker issues ranged GetObject calls on Seek/Read so

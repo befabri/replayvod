@@ -97,10 +97,11 @@ func (a *PGAdapter) RecordVideoMetadataChange(
 		}
 
 		if _, err := q.InsertVideoMetadataChange(ctx, pggen.InsertVideoMetadataChangeParams{
-			VideoID:    input.VideoID,
-			OccurredAt: at,
-			TitleID:    titleID,
-			CategoryID: categoryID,
+			VideoID:            input.VideoID,
+			OccurredAt:         at,
+			TitleID:            titleID,
+			CategoryID:         categoryID,
+			MediaOffsetSeconds: input.MediaOffsetSeconds,
 		}); err != nil {
 			return fmt.Errorf("pg insert video metadata change: %w", err)
 		}
@@ -123,9 +124,10 @@ func (a *PGAdapter) ListVideoMetadataChanges(
 	out := make([]repository.VideoMetadataChange, len(rows))
 	for i, r := range rows {
 		event := repository.VideoMetadataChange{
-			ID:         r.ID,
-			VideoID:    r.VideoID,
-			OccurredAt: r.OccurredAt,
+			ID:                 r.ID,
+			VideoID:            r.VideoID,
+			OccurredAt:         r.OccurredAt,
+			MediaOffsetSeconds: r.MediaOffsetSeconds,
 		}
 		// LEFT JOIN: every non-id column on the joined side is
 		// nullable. We hydrate Title/Category only when both the

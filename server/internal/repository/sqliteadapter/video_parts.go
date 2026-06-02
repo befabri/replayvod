@@ -71,6 +71,21 @@ func (a *SQLiteAdapter) ListVideoParts(ctx context.Context, videoID int64) ([]re
 	return out, nil
 }
 
+func (a *SQLiteAdapter) ListVideoPartsForVideos(ctx context.Context, videoIDs []int64) ([]repository.VideoPart, error) {
+	if len(videoIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := a.queries.ListVideoPartsForVideos(ctx, videoIDs)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list video parts for videos: %w", err)
+	}
+	out := make([]repository.VideoPart, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteVideoPartToDomain(r)
+	}
+	return out, nil
+}
+
 func (a *SQLiteAdapter) CountVideoParts(ctx context.Context, videoID int64) (int64, error) {
 	return a.queries.CountVideoParts(ctx, videoID)
 }

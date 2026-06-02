@@ -85,6 +85,7 @@ type Querier interface {
 	DeleteSubscription(ctx context.Context, id string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
+	DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
 	// EnsureRecordingWebhookSecret seeds the signing secret only when none is stored
 	// yet (compare-and-swap on the empty string), exactly like EnsureServerHMACSecret.
@@ -135,6 +136,7 @@ type Querier interface {
 	// The "current part" lookup used by resume logic — given a video and
 	// a part_index, return the row without pulling the whole list.
 	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
+	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (VideoPlaybackAsset, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	// True when at least one part for this video has been remuxed and
@@ -206,6 +208,7 @@ type Querier interface {
 	// by the video list response to render a stable "primary category"
 	// label without round-tripping every row.
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
+	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int32) ([]RecordingWebhookDelivery, error)
 	// On server startup: every row here is a job whose process crashed
 	// mid-execution. The downloader's resume path runs for each.
@@ -242,6 +245,7 @@ type Querier interface {
 	// a single round-trip.
 	ListVideoMetadataChangesForVideo(ctx context.Context, videoID int64) ([]ListVideoMetadataChangesForVideoRow, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
+	ListVideoPartsForVideos(ctx context.Context, videoIds []int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
 	// Unified list query with optional status filter and enum-driven sort.
 	// @status_filter = '' disables the status filter; otherwise filters exactly.
@@ -345,6 +349,7 @@ type Querier interface {
 	// channel name without paginating the full library client-side.
 	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
+	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
 	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
@@ -371,6 +376,10 @@ type Querier interface {
 	// the explicit path to actively change the art.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
+	// UpsertPlaybackCacheConfig writes only the continuous-playback cache knobs.
+	// Artifacts are generated asynchronously after downloads, so these settings
+	// must be mutable at runtime without touching EventSub or webhook config.
+	UpsertPlaybackCacheConfig(ctx context.Context, arg UpsertPlaybackCacheConfigParams) (ServerSetting, error)
 	// UpsertRecordingWebhookConfig writes ONLY the recording-webhook config columns
 	// (enabled, url, events), leaving server_mode, the EventSub URLs, hmac_secret,
 	// AND the recording webhook secret untouched. The secret is managed by its own
@@ -403,6 +412,7 @@ type Querier interface {
 	// Category analogue of UpsertVideoTitleSpan; see that comment for the
 	// close-then-insert rationale.
 	UpsertVideoCategorySpan(ctx context.Context, arg UpsertVideoCategorySpanParams) error
+	UpsertVideoPlaybackAsset(ctx context.Context, arg UpsertVideoPlaybackAssetParams) (VideoPlaybackAsset, error)
 	// Close the currently-open span if its title differs from the new
 	// one, then insert the new span. The CTE branch never runs when the
 	// incoming title matches the open row, so the ON CONFLICT leaves

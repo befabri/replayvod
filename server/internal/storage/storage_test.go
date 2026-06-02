@@ -1,6 +1,29 @@
 package storage
 
-import "testing"
+import (
+	"errors"
+	"io/fs"
+	"os"
+	"testing"
+)
+
+// TestErrNotFound_SatisfiesErrNotExist pins the Storage.Stat contract that the
+// S3 backend returns an os.ErrNotExist-compatible error. Cross-backend callers
+// (e.g. the playback-cache self-heal that drops a ready row whose object is
+// gone) rely on errors.Is(err, fs.ErrNotExist) matching on S3 just as it does
+// on local storage — without the Is method this silently never fires on S3.
+func TestErrNotFound_SatisfiesErrNotExist(t *testing.T) {
+	err := error(errNotFound{key: "videos/gone.mp4"})
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Error("errNotFound does not satisfy errors.Is(_, os.ErrNotExist)")
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Error("errNotFound does not satisfy errors.Is(_, fs.ErrNotExist)")
+	}
+	if errors.Is(err, os.ErrPermission) {
+		t.Error("errNotFound wrongly matches os.ErrPermission")
+	}
+}
 
 // TestObjectKey_RejectsEscapesAndNormalizes pins the contract the S3
 // backend uses: Save("videos/foo.mp4") lands at a safe key without

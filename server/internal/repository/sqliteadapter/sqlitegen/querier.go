@@ -80,6 +80,7 @@ type Querier interface {
 	DeleteSubscription(ctx context.Context, id string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
+	DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
 	// EnsureRecordingWebhookSecret seeds the signing secret only when none is stored
 	// yet (compare-and-swap on the empty string), exactly like EnsureServerHMACSecret.
@@ -120,6 +121,7 @@ type Querier interface {
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
 	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
+	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (VideoPlaybackAsset, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	// True when at least one part for this video has been remuxed and
@@ -185,6 +187,7 @@ type Querier interface {
 	// then name). The adapter takes the first row per video_id since
 	// SQLite lacks DISTINCT ON.
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
+	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int64) ([]RecordingWebhookDelivery, error)
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
@@ -213,6 +216,7 @@ type Querier interface {
 	ListUsers(ctx context.Context) ([]User, error)
 	ListVideoMetadataChangesForVideo(ctx context.Context, videoID int64) ([]ListVideoMetadataChangesForVideoRow, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
+	ListVideoPartsForVideos(ctx context.Context, videoIds []int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
 	// NOTE: ListVideos is intentionally NOT declared here. The PG path
 	// uses a CASE-based dynamic ORDER BY (see queries/postgres/videos.sql),
@@ -293,6 +297,7 @@ type Querier interface {
 	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
 	// between 0/1 explicitly via CASE for clarity on non-boolean-ish values.
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
+	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
 	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
@@ -319,6 +324,10 @@ type Querier interface {
 	// the caller passed NULL.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
+	// UpsertPlaybackCacheConfig writes only the continuous-playback cache knobs.
+	// Artifacts are generated asynchronously after downloads, so these settings
+	// must be mutable at runtime without touching EventSub or webhook config.
+	UpsertPlaybackCacheConfig(ctx context.Context, arg UpsertPlaybackCacheConfigParams) (ServerSetting, error)
 	// UpsertRecordingWebhookConfig writes ONLY the recording-webhook config columns
 	// (enabled, url, events), leaving server_mode, the EventSub URLs, hmac_secret,
 	// AND the recording webhook secret untouched. The secret is managed by its own
@@ -335,6 +344,7 @@ type Querier interface {
 	UpsertTitle(ctx context.Context, name string) (Title, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 	UpsertUserFollow(ctx context.Context, arg UpsertUserFollowParams) error
+	UpsertVideoPlaybackAsset(ctx context.Context, arg UpsertVideoPlaybackAssetParams) (VideoPlaybackAsset, error)
 }
 
 var _ Querier = (*Queries)(nil)

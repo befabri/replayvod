@@ -11,16 +11,17 @@ import (
 )
 
 const insertVideoMetadataChange = `-- name: InsertVideoMetadataChange :one
-INSERT INTO video_metadata_changes (video_id, occurred_at, title_id, category_id)
-VALUES (?1, ?2, ?3, ?4)
+INSERT INTO video_metadata_changes (video_id, occurred_at, title_id, category_id, media_offset_seconds)
+VALUES (?1, ?2, ?3, ?4, ?5)
 RETURNING id
 `
 
 type InsertVideoMetadataChangeParams struct {
-	VideoID    int64          `json:"video_id"`
-	OccurredAt string         `json:"occurred_at"`
-	TitleID    sql.NullInt64  `json:"title_id"`
-	CategoryID sql.NullString `json:"category_id"`
+	VideoID            int64           `json:"video_id"`
+	OccurredAt         string          `json:"occurred_at"`
+	TitleID            sql.NullInt64   `json:"title_id"`
+	CategoryID         sql.NullString  `json:"category_id"`
+	MediaOffsetSeconds sql.NullFloat64 `json:"media_offset_seconds"`
 }
 
 func (q *Queries) InsertVideoMetadataChange(ctx context.Context, arg InsertVideoMetadataChangeParams) (int64, error) {
@@ -29,6 +30,7 @@ func (q *Queries) InsertVideoMetadataChange(ctx context.Context, arg InsertVideo
 		arg.OccurredAt,
 		arg.TitleID,
 		arg.CategoryID,
+		arg.MediaOffsetSeconds,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -40,6 +42,7 @@ SELECT
     vmc.id,
     vmc.video_id,
     vmc.occurred_at,
+    vmc.media_offset_seconds,
     vmc.title_id,
     t.name        AS title_name,
     t.created_at  AS title_created_at,
@@ -57,18 +60,19 @@ ORDER BY vmc.occurred_at ASC, vmc.id ASC
 `
 
 type ListVideoMetadataChangesForVideoRow struct {
-	ID                int64          `json:"id"`
-	VideoID           int64          `json:"video_id"`
-	OccurredAt        string         `json:"occurred_at"`
-	TitleID           sql.NullInt64  `json:"title_id"`
-	TitleName         sql.NullString `json:"title_name"`
-	TitleCreatedAt    sql.NullString `json:"title_created_at"`
-	CategoryID        sql.NullString `json:"category_id"`
-	CategoryName      sql.NullString `json:"category_name"`
-	CategoryBoxArtUrl sql.NullString `json:"category_box_art_url"`
-	CategoryIgdbID    sql.NullString `json:"category_igdb_id"`
-	CategoryCreatedAt sql.NullString `json:"category_created_at"`
-	CategoryUpdatedAt sql.NullString `json:"category_updated_at"`
+	ID                 int64           `json:"id"`
+	VideoID            int64           `json:"video_id"`
+	OccurredAt         string          `json:"occurred_at"`
+	MediaOffsetSeconds sql.NullFloat64 `json:"media_offset_seconds"`
+	TitleID            sql.NullInt64   `json:"title_id"`
+	TitleName          sql.NullString  `json:"title_name"`
+	TitleCreatedAt     sql.NullString  `json:"title_created_at"`
+	CategoryID         sql.NullString  `json:"category_id"`
+	CategoryName       sql.NullString  `json:"category_name"`
+	CategoryBoxArtUrl  sql.NullString  `json:"category_box_art_url"`
+	CategoryIgdbID     sql.NullString  `json:"category_igdb_id"`
+	CategoryCreatedAt  sql.NullString  `json:"category_created_at"`
+	CategoryUpdatedAt  sql.NullString  `json:"category_updated_at"`
 }
 
 func (q *Queries) ListVideoMetadataChangesForVideo(ctx context.Context, videoID int64) ([]ListVideoMetadataChangesForVideoRow, error) {
@@ -84,6 +88,7 @@ func (q *Queries) ListVideoMetadataChangesForVideo(ctx context.Context, videoID 
 			&i.ID,
 			&i.VideoID,
 			&i.OccurredAt,
+			&i.MediaOffsetSeconds,
 			&i.TitleID,
 			&i.TitleName,
 			&i.TitleCreatedAt,

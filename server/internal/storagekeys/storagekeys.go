@@ -58,3 +58,14 @@ func Snapshot(filename string, index int) string {
 func Base(name string) string {
 	return strings.TrimSuffix(name, path.Ext(name))
 }
+
+// PlaybackName returns the stored filename of a recording's playback-cache
+// artifact: the video's base name plus a "-playback" suffix and the container
+// extension of its first part. It is the value written to
+// video_playback_assets.filename and passed to Video(). The playback-cache
+// builder and retention must agree on this exactly or retention silently leaks
+// the artifact, so the naming lives here with the rest of a recording's layout.
+// partFilename is the first part's stored filename (e.g. "rec-part01.mp4").
+func PlaybackName(videoFilename, partFilename string) string {
+	return videoFilename + "-playback" + strings.ToLower(path.Ext(partFilename))
+}

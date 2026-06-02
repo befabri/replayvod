@@ -109,10 +109,11 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 		}
 
 		if _, err := q.InsertVideoMetadataChange(ctx, sqlitegen.InsertVideoMetadataChangeParams{
-			VideoID:    input.VideoID,
-			OccurredAt: ts,
-			TitleID:    titleID,
-			CategoryID: categoryID,
+			VideoID:            input.VideoID,
+			OccurredAt:         ts,
+			TitleID:            titleID,
+			CategoryID:         categoryID,
+			MediaOffsetSeconds: nullFloat64(input.MediaOffsetSeconds),
 		}); err != nil {
 			return fmt.Errorf("sqlite insert video metadata change: %w", err)
 		}
@@ -135,9 +136,10 @@ func (a *SQLiteAdapter) ListVideoMetadataChanges(
 	out := make([]repository.VideoMetadataChange, len(rows))
 	for i, r := range rows {
 		event := repository.VideoMetadataChange{
-			ID:         r.ID,
-			VideoID:    r.VideoID,
-			OccurredAt: parseTime(r.OccurredAt),
+			ID:                 r.ID,
+			VideoID:            r.VideoID,
+			OccurredAt:         parseTime(r.OccurredAt),
+			MediaOffsetSeconds: fromNullFloat64(r.MediaOffsetSeconds),
 		}
 		if r.TitleID.Valid && r.TitleName.Valid {
 			t := repository.Title{

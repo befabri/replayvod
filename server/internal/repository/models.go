@@ -395,6 +395,52 @@ type VideoPartFinalize struct {
 	EndMediaSeq     int64
 }
 
+const (
+	PlaybackAssetStatusBuilding = "building"
+	PlaybackAssetStatusReady    = "ready"
+	// PlaybackAssetStatusFailed is a transient build error worth retrying;
+	// PlaybackAssetStatusUnavailable is a permanent "can't build this"
+	// (not copy-concatenable, or larger than the cache cap). The lifecycle
+	// reconciler retries only the former.
+	PlaybackAssetStatusFailed      = "failed"
+	PlaybackAssetStatusUnavailable = "unavailable"
+)
+
+// VideoPlaybackAsset is the optional playback-optimized artifact for a video.
+// The original video_parts remain the durable archive/download outputs; this
+// row tells the watch page whether a single fullscreen-safe playback source is
+// ready, impossible without transcoding, or failed during generation.
+type VideoPlaybackAsset struct {
+	VideoID         int64
+	Status          string
+	Filename        *string
+	MimeType        *string
+	DurationSeconds *float64
+	SizeBytes       *int64
+	Error           *string
+	GeneratedAt     *time.Time
+	LastAccessedAt  *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// VideoPlaybackAssetInput is one status-discriminated upsert for the playback
+// artifact row. The schema CHECK enforces field consistency: status='ready'
+// requires Filename/MimeType/DurationSeconds/SizeBytes/GeneratedAt/
+// LastAccessedAt to be set; the other statuses require Filename/MimeType/
+// LastAccessedAt to be nil.
+type VideoPlaybackAssetInput struct {
+	VideoID         int64
+	Status          string
+	Filename        *string
+	MimeType        *string
+	DurationSeconds *float64
+	SizeBytes       *int64
+	Error           *string
+	GeneratedAt     *time.Time
+	LastAccessedAt  *time.Time
+}
+
 // Title is a stream/video title string (deduplicated by name).
 type Title struct {
 	ID        int64
@@ -429,11 +475,12 @@ type CategorySpan struct {
 // didn't carry one"). The CHECK constraint on the table forbids
 // rows where both are nil.
 type VideoMetadataChange struct {
-	ID         int64
-	VideoID    int64
-	OccurredAt time.Time
-	Title      *Title
-	Category   *Category
+	ID                 int64
+	VideoID            int64
+	OccurredAt         time.Time
+	MediaOffsetSeconds *float64
+	Title              *Title
+	Category           *Category
 }
 
 // VideoMetadataChangeInput carries one channel.update observation
@@ -444,11 +491,12 @@ type VideoMetadataChange struct {
 // "don't refresh categories.name" so an existing good name isn't
 // clobbered by a partial Helix payload.
 type VideoMetadataChangeInput struct {
-	VideoID      int64
-	OccurredAt   time.Time
-	Title        string
-	CategoryID   string
-	CategoryName string
+	VideoID            int64
+	OccurredAt         time.Time
+	MediaOffsetSeconds *float64
+	Title              string
+	CategoryID         string
+	CategoryName       string
 }
 
 // VideoMetadataChangeResult exposes the upserted title row and the
@@ -835,10 +883,13 @@ type ServerSettings struct {
 	// receiver; Secret signs each delivery (empty until the owner UI generates
 	// one, exactly like the EventSub HMAC secret); Events is a comma-separated
 	// subset of {recording.completed, recording.failed} where empty means all.
-	RecordingWebhookEnabled bool
-	RecordingWebhookURL     string
-	RecordingWebhookSecret  string
-	RecordingWebhookEvents  string
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	RecordingWebhookEnabled   bool
+	RecordingWebhookURL       string
+	RecordingWebhookSecret    string
+	RecordingWebhookEvents    string
+	PlaybackCacheEnabled      bool
+	PlaybackCacheMaxPercent   int
+	PlaybackCacheAutoGenerate bool
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
 }

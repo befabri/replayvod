@@ -11,16 +11,17 @@ import (
 )
 
 const insertVideoMetadataChange = `-- name: InsertVideoMetadataChange :one
-INSERT INTO video_metadata_changes (video_id, occurred_at, title_id, category_id)
-VALUES ($1, $2, $3, $4)
+INSERT INTO video_metadata_changes (video_id, occurred_at, title_id, category_id, media_offset_seconds)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING id
 `
 
 type InsertVideoMetadataChangeParams struct {
-	VideoID    int64     `json:"video_id"`
-	OccurredAt time.Time `json:"occurred_at"`
-	TitleID    *int64    `json:"title_id"`
-	CategoryID *string   `json:"category_id"`
+	VideoID            int64     `json:"video_id"`
+	OccurredAt         time.Time `json:"occurred_at"`
+	TitleID            *int64    `json:"title_id"`
+	CategoryID         *string   `json:"category_id"`
+	MediaOffsetSeconds *float64  `json:"media_offset_seconds"`
 }
 
 // Records one observed channel.update event for a recording. The
@@ -34,6 +35,7 @@ func (q *Queries) InsertVideoMetadataChange(ctx context.Context, arg InsertVideo
 		arg.OccurredAt,
 		arg.TitleID,
 		arg.CategoryID,
+		arg.MediaOffsetSeconds,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -45,6 +47,7 @@ SELECT
     vmc.id,
     vmc.video_id,
     vmc.occurred_at,
+    vmc.media_offset_seconds,
     vmc.title_id,
     t.name        AS title_name,
     t.created_at  AS title_created_at,
@@ -62,18 +65,19 @@ ORDER BY vmc.occurred_at ASC, vmc.id ASC
 `
 
 type ListVideoMetadataChangesForVideoRow struct {
-	ID                int64      `json:"id"`
-	VideoID           int64      `json:"video_id"`
-	OccurredAt        time.Time  `json:"occurred_at"`
-	TitleID           *int64     `json:"title_id"`
-	TitleName         *string    `json:"title_name"`
-	TitleCreatedAt    *time.Time `json:"title_created_at"`
-	CategoryID        *string    `json:"category_id"`
-	CategoryName      *string    `json:"category_name"`
-	CategoryBoxArtUrl *string    `json:"category_box_art_url"`
-	CategoryIgdbID    *string    `json:"category_igdb_id"`
-	CategoryCreatedAt *time.Time `json:"category_created_at"`
-	CategoryUpdatedAt *time.Time `json:"category_updated_at"`
+	ID                 int64      `json:"id"`
+	VideoID            int64      `json:"video_id"`
+	OccurredAt         time.Time  `json:"occurred_at"`
+	MediaOffsetSeconds *float64   `json:"media_offset_seconds"`
+	TitleID            *int64     `json:"title_id"`
+	TitleName          *string    `json:"title_name"`
+	TitleCreatedAt     *time.Time `json:"title_created_at"`
+	CategoryID         *string    `json:"category_id"`
+	CategoryName       *string    `json:"category_name"`
+	CategoryBoxArtUrl  *string    `json:"category_box_art_url"`
+	CategoryIgdbID     *string    `json:"category_igdb_id"`
+	CategoryCreatedAt  *time.Time `json:"category_created_at"`
+	CategoryUpdatedAt  *time.Time `json:"category_updated_at"`
 }
 
 // Returns the merged title + category timeline for one recording,
@@ -95,6 +99,7 @@ func (q *Queries) ListVideoMetadataChangesForVideo(ctx context.Context, videoID 
 			&i.ID,
 			&i.VideoID,
 			&i.OccurredAt,
+			&i.MediaOffsetSeconds,
 			&i.TitleID,
 			&i.TitleName,
 			&i.TitleCreatedAt,

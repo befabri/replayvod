@@ -57,7 +57,7 @@ func (q *Queries) GetServerHMACSecret(ctx context.Context) (string, error) {
 }
 
 const getServerSettings = `-- name: GetServerSettings :one
-SELECT id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events FROM server_settings WHERE id = 1
+SELECT id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate FROM server_settings WHERE id = 1
 `
 
 func (q *Queries) GetServerSettings(ctx context.Context) (ServerSetting, error) {
@@ -77,6 +77,9 @@ func (q *Queries) GetServerSettings(ctx context.Context) (ServerSetting, error) 
 		&i.RecordingWebhookUrl,
 		&i.RecordingWebhookSecret,
 		&i.RecordingWebhookEvents,
+		&i.PlaybackCacheEnabled,
+		&i.PlaybackCacheMaxPercent,
+		&i.PlaybackCacheAutoGenerate,
 	)
 	return i, err
 }
@@ -96,6 +99,55 @@ func (q *Queries) SetRecordingWebhookSecret(ctx context.Context, recordingWebhoo
 	return err
 }
 
+const upsertPlaybackCacheConfig = `-- name: UpsertPlaybackCacheConfig :one
+INSERT INTO server_settings (
+    id,
+    playback_cache_enabled,
+    playback_cache_max_percent,
+    playback_cache_auto_generate
+)
+VALUES (1, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE
+SET playback_cache_enabled       = excluded.playback_cache_enabled,
+    playback_cache_max_percent   = excluded.playback_cache_max_percent,
+    playback_cache_auto_generate = excluded.playback_cache_auto_generate,
+    updated_at                   = datetime('now')
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate
+`
+
+type UpsertPlaybackCacheConfigParams struct {
+	PlaybackCacheEnabled      int64 `json:"playback_cache_enabled"`
+	PlaybackCacheMaxPercent   int64 `json:"playback_cache_max_percent"`
+	PlaybackCacheAutoGenerate int64 `json:"playback_cache_auto_generate"`
+}
+
+// UpsertPlaybackCacheConfig writes only the continuous-playback cache knobs.
+// Artifacts are generated asynchronously after downloads, so these settings
+// must be mutable at runtime without touching EventSub or webhook config.
+func (q *Queries) UpsertPlaybackCacheConfig(ctx context.Context, arg UpsertPlaybackCacheConfigParams) (ServerSetting, error) {
+	row := q.db.QueryRowContext(ctx, upsertPlaybackCacheConfig, arg.PlaybackCacheEnabled, arg.PlaybackCacheMaxPercent, arg.PlaybackCacheAutoGenerate)
+	var i ServerSetting
+	err := row.Scan(
+		&i.ID,
+		&i.ServerMode,
+		&i.EventsubWebhookCallbackUrl,
+		&i.EventsubRelayIngestUrl,
+		&i.EventsubRelaySubscribeUrl,
+		&i.EventsubRelayLocalCallbackUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.HmacSecret,
+		&i.RecordingWebhookEnabled,
+		&i.RecordingWebhookUrl,
+		&i.RecordingWebhookSecret,
+		&i.RecordingWebhookEvents,
+		&i.PlaybackCacheEnabled,
+		&i.PlaybackCacheMaxPercent,
+		&i.PlaybackCacheAutoGenerate,
+	)
+	return i, err
+}
+
 const upsertRecordingWebhookConfig = `-- name: UpsertRecordingWebhookConfig :one
 INSERT INTO server_settings (
     id,
@@ -109,7 +161,7 @@ SET recording_webhook_enabled = excluded.recording_webhook_enabled,
     recording_webhook_url     = excluded.recording_webhook_url,
     recording_webhook_events  = excluded.recording_webhook_events,
     updated_at                = datetime('now')
-RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate
 `
 
 type UpsertRecordingWebhookConfigParams struct {
@@ -140,6 +192,9 @@ func (q *Queries) UpsertRecordingWebhookConfig(ctx context.Context, arg UpsertRe
 		&i.RecordingWebhookUrl,
 		&i.RecordingWebhookSecret,
 		&i.RecordingWebhookEvents,
+		&i.PlaybackCacheEnabled,
+		&i.PlaybackCacheMaxPercent,
+		&i.PlaybackCacheAutoGenerate,
 	)
 	return i, err
 }
@@ -161,7 +216,7 @@ SET server_mode                       = excluded.server_mode,
     eventsub_relay_subscribe_url      = excluded.eventsub_relay_subscribe_url,
     eventsub_relay_local_callback_url = excluded.eventsub_relay_local_callback_url,
     updated_at                        = datetime('now')
-RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate
 `
 
 type UpsertServerSettingsParams struct {
@@ -195,6 +250,9 @@ func (q *Queries) UpsertServerSettings(ctx context.Context, arg UpsertServerSett
 		&i.RecordingWebhookUrl,
 		&i.RecordingWebhookSecret,
 		&i.RecordingWebhookEvents,
+		&i.PlaybackCacheEnabled,
+		&i.PlaybackCacheMaxPercent,
+		&i.PlaybackCacheAutoGenerate,
 	)
 	return i, err
 }

@@ -40,6 +40,24 @@ SET recording_webhook_enabled = EXCLUDED.recording_webhook_enabled,
     updated_at                = NOW()
 RETURNING *;
 
+-- UpsertPlaybackCacheConfig writes only the continuous-playback cache knobs.
+-- Artifacts are generated asynchronously after downloads, so these settings
+-- must be mutable at runtime without touching EventSub or webhook config.
+-- name: UpsertPlaybackCacheConfig :one
+INSERT INTO server_settings (
+    id,
+    playback_cache_enabled,
+    playback_cache_max_percent,
+    playback_cache_auto_generate
+)
+VALUES (1, $1, $2, $3)
+ON CONFLICT (id) DO UPDATE
+SET playback_cache_enabled       = EXCLUDED.playback_cache_enabled,
+    playback_cache_max_percent   = EXCLUDED.playback_cache_max_percent,
+    playback_cache_auto_generate = EXCLUDED.playback_cache_auto_generate,
+    updated_at                   = NOW()
+RETURNING *;
+
 -- EnsureRecordingWebhookSecret seeds the signing secret only when none is stored
 -- yet (compare-and-swap on the empty string), exactly like EnsureServerHMACSecret.
 -- The config service calls it when the webhook is first enabled, so an

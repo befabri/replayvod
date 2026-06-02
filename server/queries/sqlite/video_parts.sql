@@ -24,6 +24,11 @@ SELECT * FROM video_parts WHERE video_id = ? AND part_index = ?;
 -- name: ListVideoParts :many
 SELECT * FROM video_parts WHERE video_id = ? ORDER BY part_index ASC;
 
+-- name: ListVideoPartsForVideos :many
+SELECT * FROM video_parts
+WHERE video_id IN (sqlc.slice('video_ids'))
+ORDER BY video_id ASC, part_index ASC;
+
 -- name: CountVideoParts :one
 SELECT COUNT(*) FROM video_parts WHERE video_id = ?;
 
