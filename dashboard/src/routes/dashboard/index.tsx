@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useStore } from "@tanstack/react-store";
+import { useSelector } from "@tanstack/react-store";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import {
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/dashboard/")({
 
 function DashboardHome() {
 	const { t } = useTranslation();
-	const user = useStore(authStore, (state) => state.user);
+	const user = useSelector(authStore, (state) => state.user);
 	const isOwner = user?.role === "owner";
 	const eventSubConfig = useEventSubConfig({ enabled: isOwner });
 	const eventSub = isOwner ? eventSubConfig.data : undefined;

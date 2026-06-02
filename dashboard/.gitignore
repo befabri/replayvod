@@ -7,11 +7,6 @@ node_modules/
 /.tanstack/
 /.vite/
 
-# Alternative package manager lockfile — npm's package-lock.json is
-# the lockfile of record. Prevents bun.lock drifting against it when
-# someone accidentally runs `bun install`.
-bun.lock
-
 # Playwright
 /test-results/
 /playwright-report/

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useTRPC } from "@/api/trpc";
+import { withSessionProbe } from "@/stores/auth";
 
 export function useTasks() {
 	const trpc = useTRPC();
@@ -44,5 +45,6 @@ export function useLiveTaskStatus() {
 		onData: () => {
 			queryClient.invalidateQueries({ queryKey: trpc.task.list.queryKey() });
 		},
+		onError: withSessionProbe(),
 	});
 }

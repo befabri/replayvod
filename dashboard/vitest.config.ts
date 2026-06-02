@@ -9,6 +9,12 @@ export default defineConfig({
 	},
 	test: {
 		include: ["**/*.{test,spec}.{ts,tsx}"],
-		exclude: ["**/node_modules/**", "**/dist/**", "scripts/probes/**"],
+		// `tests/` holds Playwright specs (run via `playwright test`), not vitest.
+		exclude: [
+			"**/node_modules/**",
+			"**/dist/**",
+			"scripts/probes/**",
+			"tests/**",
+		],
 	},
 });

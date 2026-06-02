@@ -10,7 +10,6 @@ import { useTranslation } from "react-i18next";
 import appCss from "@/styles.css?url";
 import "@/i18n";
 import { Toaster } from "@/components/ui/toaster";
-import { useAuthInit } from "@/hooks/useAuthInit";
 
 interface MyRouterContext {
 	queryClient: QueryClient;
@@ -38,8 +37,9 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-	// Hydrate auth store from session cookie on app startup
-	useAuthInit();
+	// Auth is resolved per-route in beforeLoad guards (see resolveSession) and
+	// the store is hydrated by the dashboard layout, so the root no longer
+	// hydrates the session in a mount effect.
 	const { i18n } = useTranslation();
 
 	// Keep <html lang> in sync with i18n so screen readers, browser
@@ -55,6 +55,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
+				{/* biome-ignore lint/security/noDangerouslySetInnerHtml: trusted, static theme-bootstrap script (no user input) — inlined so the theme class is set before first paint, avoiding a flash of the wrong theme. */}
 				<script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
 				<HeadContent />
 			</head>

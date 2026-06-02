@@ -80,7 +80,7 @@ dashboard/
 | `npm run check`    | Biome lint + format check |
 | `npm run routes`   | Regenerate `routeTree.gen.ts` from `src/routes/` |
 
-Either `bun install` or `npm install` works; both lockfiles are kept.
+Install dependencies with `npm install`.
 
 ## Backend integration
 

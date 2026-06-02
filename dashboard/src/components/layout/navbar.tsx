@@ -1,6 +1,6 @@
 import { List } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useStore } from "@tanstack/react-store";
+import { useSelector } from "@tanstack/react-store";
 import i18n from "i18next";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
@@ -22,8 +22,8 @@ import { openSidebar } from "@/stores/ui";
 export function Navbar() {
 	const { t } = useTranslation();
 	const navigate = useNavigate();
-	const user = useStore(authStore, (s) => s.user);
-	const theme = useStore(themeStore, (s) => s.theme);
+	const user = useSelector(authStore, (s) => s.user);
+	const theme = useSelector(themeStore, (s) => s.theme);
 
 	return (
 		<nav className="fixed top-0 left-0 right-0 z-50 h-16 bg-navbar text-navbar-foreground border-b border-border shadow-sm">
@@ -101,7 +101,19 @@ export function Navbar() {
 							>
 								{t("nav.sessions")}
 							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => void logout()}>
+							<DropdownMenuItem
+								onClick={async () => {
+									// logout() clears the auth store, but the route guards only
+									// re-run on navigation (beforeLoad), so the redirect has to be
+									// driven explicitly here. Without it the cleared store just
+									// hides the menu while the dashboard stays mounted.
+									await logout();
+									await navigate({
+										to: "/login",
+										search: { error: undefined },
+									});
+								}}
+							>
 								{t("auth.logout")}
 							</DropdownMenuItem>
 						</DropdownMenuContent>

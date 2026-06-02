@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useTRPC } from "@/api/trpc";
+import { withSessionProbe } from "@/stores/auth";
 
 export function useEventLogs(params: {
 	limit: number;
@@ -34,5 +35,6 @@ export function useLiveSystemEvents() {
 				queryKey: trpc.system.eventLogs.queryKey(),
 			});
 		},
+		onError: withSessionProbe(),
 	});
 }

@@ -1,24 +1,18 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { hasRole, resolveSession } from "@/stores/auth";
 
 export const Route = createFileRoute("/dashboard/system")({
+	// The parent /dashboard guard already resolved the session; this adds the
+	// owner-only check in the loader phase so a non-owner is redirected before the
+	// system chrome renders.
+	beforeLoad: async () => {
+		const user = await resolveSession();
+		if (!user) throw redirect({ to: "/login", search: { error: undefined } });
+		if (!hasRole(user, "owner")) throw redirect({ to: "/dashboard" });
+	},
 	component: SystemLayout,
 });
 
 function SystemLayout() {
-	const { isLoading, isAuthenticated, user } = useRequireAuth({
-		requiredRole: "owner",
-	});
-
-	if (isLoading) {
-		return <div className="text-muted-foreground">Loading…</div>;
-	}
-
-	// useRequireAuth already navigates away if unauthenticated or under-privileged.
-	// Render nothing until the redirect completes.
-	if (!isAuthenticated || !user || user.role !== "owner") {
-		return null;
-	}
-
 	return <Outlet />;
 }

@@ -1,4 +1,4 @@
-import { useStore } from "@tanstack/react-store";
+import { useSelector } from "@tanstack/react-store";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 import { themeStore } from "@/stores/theme";
 
@@ -21,7 +21,7 @@ const TOAST_OPTIONS: ToasterProps["toastOptions"] = {
 };
 
 export function Toaster(props: ToasterProps) {
-	const theme = useStore(themeStore, (s) => s.theme);
+	const theme = useSelector(themeStore, (s) => s.theme);
 	return (
 		<Sonner
 			theme={theme}
