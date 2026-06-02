@@ -23,6 +23,7 @@ type progressEmitter struct {
 	out           chan<- Progress
 	recordingType string
 	onSnapshot    func(Progress)
+	mediaOffset   func() (float64, bool)
 
 	mu             sync.Mutex
 	stage          string
@@ -84,6 +85,32 @@ func newProgressEmitter(jobID, recordingType string, out chan<- Progress, onSnap
 		partIndex:     1,
 		segmentsTot:   -1,
 	}
+}
+
+// setMediaOffsetSource wires an exact media-time supplier into emitted
+// snapshots. The supplier is intentionally called while building each snapshot
+// so per-job subscribers see the same media_offset_seconds as active download
+// polling without duplicating offset accounting in the emitter.
+func (p *progressEmitter) setMediaOffsetSource(fn func() (float64, bool)) {
+	p.mu.Lock()
+	p.mediaOffset = fn
+	p.mu.Unlock()
+}
+
+// seedCompletedBytes initializes the cumulative byte counter from durable
+// resume/video_part state before a resumed HLS attempt starts. hls.Progress
+// only reports bytes written by the current process attempt, so without this
+// seed resumed dashboard progress would temporarily look like it restarted at
+// zero.
+func (p *progressEmitter) seedCompletedBytes(bytes int64) {
+	if bytes <= 0 {
+		return
+	}
+	p.mu.Lock()
+	if p.bytesWritten < bytes {
+		p.bytesWritten = bytes
+	}
+	p.mu.Unlock()
 }
 
 // setStage updates the stage label and fires one event. Called
@@ -185,7 +212,7 @@ func (p *progressEmitter) finalize() {
 // doesn't have to recompute them.
 func (p *progressEmitter) snapshotLocked() Progress {
 	rate, rateOK := currentRate(p.samples)
-	return Progress{
+	snap := Progress{
 		JobID:          p.jobID,
 		PartIndex:      p.partIndex,
 		Stage:          p.stage,
@@ -202,6 +229,12 @@ func (p *progressEmitter) snapshotLocked() Progress {
 		Codec:          p.codec,
 		RecordingType:  p.recordingType,
 	}
+	if p.mediaOffset != nil {
+		if seconds, ok := p.mediaOffset(); ok {
+			snap.MediaOffsetSeconds = &seconds
+		}
+	}
+	return snap
 }
 
 // send performs a non-blocking write to the per-job channel.

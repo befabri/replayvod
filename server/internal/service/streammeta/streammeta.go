@@ -36,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"reflect"
 	"time"
 
@@ -102,6 +103,14 @@ type CategoryArtEnricher interface {
 	Enrich(ctx context.Context, categoryID string) error
 }
 
+// RecordingMediaOffsetResolver lets push/webhook metadata writes ask
+// the in-memory downloader for the current media-time offset of the
+// active recording. It lives in this package to keep streammeta
+// independent of downloader's concrete Service type.
+type RecordingMediaOffsetResolver interface {
+	ResolveMediaOffsetSeconds(ctx context.Context, broadcasterID string, videoID int64) (float64, bool)
+}
+
 type streamFetcher interface {
 	GetStreams(ctx context.Context, params *twitch.GetStreamsParams) ([]twitch.Stream, twitch.Pagination, error)
 }
@@ -112,6 +121,7 @@ type Hydrator struct {
 	repo    repository.Repository
 	twitch  streamFetcher
 	art     CategoryArtEnricher
+	offsets RecordingMediaOffsetResolver
 	log     *slog.Logger
 	retries int
 	delay   time.Duration
@@ -133,6 +143,10 @@ type Config struct {
 	// eager enrichment and leaves the scheduled backfill task as
 	// the only filler.
 	CategoryArt CategoryArtEnricher
+
+	// MediaOffsets, when set, provides exact media-time offsets for
+	// metadata writes that arrive through push/webhook paths.
+	MediaOffsets RecordingMediaOffsetResolver
 }
 
 // NewHydrator builds the shared hydrator. `tc` may be nil for tests —
@@ -153,29 +167,33 @@ func NewHydrator(repo repository.Repository, tc *twitch.Client, cfg Config, log 
 	return &Hydrator{
 		repo:    repo,
 		twitch:  fetcher,
-		art:     nilSafeEnricher(cfg.CategoryArt),
+		art:     nilSafeInterface(cfg.CategoryArt),
+		offsets: nilSafeInterface(cfg.MediaOffsets),
 		log:     log.With("domain", "streammeta"),
 		retries: retries,
 		delay:   delay,
 	}
 }
 
-// nilSafeEnricher normalizes a typed-nil *categoryart.Service (or any
-// nil concrete pointer behind the interface) to a plain interface-nil.
-// Without this, `h.art != nil` in persist would evaluate to true for
-// an interface wrapping a nil pointer and then panic on method call.
-// The pattern also applies to any other optional interface dep we add
-// later — callers that pass a conditionally-constructed service are
-// the common offenders.
-func nilSafeEnricher(v CategoryArtEnricher) CategoryArtEnricher {
-	if v == nil {
-		return nil
-	}
+// SetMediaOffsetResolver wires a resolver after construction. main uses
+// this because the downloader service implements the resolver but is
+// itself constructed with the Hydrator.
+func (h *Hydrator) SetMediaOffsetResolver(resolver RecordingMediaOffsetResolver) {
+	h.offsets = nilSafeInterface(resolver)
+}
+
+// nilSafeInterface normalizes a typed-nil concrete value behind an interface
+// (e.g. a conditionally-constructed *categoryart.Service that came back nil) to
+// a plain interface-nil. Without it, `h.art != nil` evaluates to true for an
+// interface wrapping a nil pointer and then panics on method call. Every
+// optional interface dep this hydrator takes runs through it.
+func nilSafeInterface[T any](v T) T {
 	rv := reflect.ValueOf(v)
 	switch rv.Kind() {
 	case reflect.Ptr, reflect.Interface, reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
 		if rv.IsNil() {
-			return nil
+			var zero T
+			return zero
 		}
 	}
 	return v
@@ -385,9 +403,26 @@ func stringOrNil(s string) *string {
 // importing the generated type (this package is upstream of the
 // webhook layer). Empty fields are no-ops for their respective links.
 type ChannelUpdateMeta struct {
-	Title        string
-	CategoryID   string
-	CategoryName string
+	Title              string
+	CategoryID         string
+	CategoryName       string
+	MediaOffsetSeconds *float64
+}
+
+// MediaOffsetProvider returns the best known playback offset for a
+// live recording at the instant a metadata change is observed.
+// The bool is false when the caller cannot provide an exact media
+// time and the row should fall back to wall-clock ordering only.
+type MediaOffsetProvider interface {
+	MediaOffsetSeconds() (float64, bool)
+}
+
+func cleanMediaOffset(seconds *float64) *float64 {
+	if seconds == nil || *seconds < 0 || math.IsNaN(*seconds) || math.IsInf(*seconds, 0) {
+		return nil
+	}
+	value := *seconds
+	return &value
 }
 
 // recordVideoMetadata runs the title + category + event-row writes
@@ -402,11 +437,12 @@ type ChannelUpdateMeta struct {
 // state didn't actually move.
 func (h *Hydrator) recordVideoMetadata(ctx context.Context, videoID int64, meta ChannelUpdateMeta, at time.Time) error {
 	result, err := h.repo.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{
-		VideoID:      videoID,
-		OccurredAt:   at,
-		Title:        meta.Title,
-		CategoryID:   meta.CategoryID,
-		CategoryName: meta.CategoryName,
+		VideoID:            videoID,
+		OccurredAt:         at,
+		MediaOffsetSeconds: cleanMediaOffset(meta.MediaOffsetSeconds),
+		Title:              meta.Title,
+		CategoryID:         meta.CategoryID,
+		CategoryName:       meta.CategoryName,
 	})
 	if err != nil {
 		// ErrNoMetadataObserved means the caller passed an empty
@@ -458,6 +494,11 @@ func (h *Hydrator) RecordChannelUpdate(ctx context.Context, broadcasterID string
 			return nil
 		}
 		return err
+	}
+	if meta.MediaOffsetSeconds == nil && h.offsets != nil {
+		if seconds, ok := h.offsets.ResolveMediaOffsetSeconds(ctx, broadcasterID, job.VideoID); ok {
+			meta.MediaOffsetSeconds = &seconds
+		}
 	}
 	return h.recordVideoMetadata(ctx, job.VideoID, meta, time.Now().UTC())
 }

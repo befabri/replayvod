@@ -18,6 +18,15 @@ type fakeChannelSubs struct {
 	subscribeErr error
 }
 
+type staticTitleTrackingOffset struct {
+	seconds float64
+	ok      bool
+}
+
+func (s staticTitleTrackingOffset) MediaOffsetSeconds() (float64, bool) {
+	return s.seconds, s.ok
+}
+
 type unsubCall struct {
 	broadcasterID string
 	reason        string
@@ -89,7 +98,7 @@ func TestStartTitleTracking_WebhookSubscribesAndCleanupUnsubscribes(t *testing.T
 
 	var pollers int
 	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, 7, discardLog(),
-		func(context.CancelFunc) { pollers++ })
+		func(context.CancelFunc) { pollers++ }, nil)
 
 	if subs.subscribeCount() != 1 {
 		t.Fatalf("subscribe count = %d, want 1", subs.subscribeCount())
@@ -117,7 +126,7 @@ func TestStartTitleTracking_WebhookSubscribeFailureHasNoPollFallback(t *testing.
 
 	var pollers int
 	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, 7, discardLog(),
-		func(context.CancelFunc) { pollers++ })
+		func(context.CancelFunc) { pollers++ }, nil)
 	cleanup()
 
 	if pollers != 0 {
@@ -142,9 +151,10 @@ func TestStartTitleTracking_PollStartsWatcher(t *testing.T) {
 	s := newTitleTrackingService(config.ServerModePoll, nil, watcher)
 
 	var registered []context.CancelFunc
+	offsetProvider := staticTitleTrackingOffset{seconds: 12.5, ok: true}
 	cleanup := s.startTitleTracking(context.Background(),
 		Params{BroadcasterID: "b-1", Title: "Opening", CategoryID: "cat-1"}, 42, discardLog(),
-		func(c context.CancelFunc) { registered = append(registered, c) })
+		func(c context.CancelFunc) { registered = append(registered, c) }, offsetProvider)
 
 	select {
 	case got := <-watcher.started:
@@ -153,6 +163,13 @@ func TestStartTitleTracking_PollStartsWatcher(t *testing.T) {
 		}
 		if got.initial.Title != "Opening" || got.initial.CategoryID != "cat-1" {
 			t.Fatalf("Watch initial = %+v, want seed title/category", got.initial)
+		}
+		if got.initial.MediaOffset == nil {
+			t.Fatalf("Watch initial media offset provider is nil")
+		}
+		offset, ok := got.initial.MediaOffset.MediaOffsetSeconds()
+		if !ok || offset != 12.5 {
+			t.Fatalf("Watch initial media offset = %v/%v, want 12.5/true", offset, ok)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("poll watcher was not started")
@@ -177,7 +194,7 @@ func TestStartTitleTracking_OffDoesNothing(t *testing.T) {
 
 	var pollers int
 	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, 7, discardLog(),
-		func(context.CancelFunc) { pollers++ })
+		func(context.CancelFunc) { pollers++ }, nil)
 	cleanup()
 
 	if subs.subscribeCount() != 0 || pollers != 0 {

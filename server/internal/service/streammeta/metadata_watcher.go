@@ -57,10 +57,24 @@ func NewMetadataWatcher(hydrator *Hydrator, cfg MetadataWatchConfig, log *slog.L
 // WatchInitial carries the at-download-start metadata the watcher
 // pre-links before the first tick so a recording shorter than one
 // interval still carries correct history. Title and CategoryID come
-// from the trigger path's Hydrate snapshot.
+// from the trigger path's Hydrate snapshot. MediaOffset, when set,
+// lets poll-mode change rows store exact playback time instead of
+// deriving labels from wall-clock timestamps later.
 type WatchInitial struct {
-	Title      string
-	CategoryID string
+	Title       string
+	CategoryID  string
+	MediaOffset MediaOffsetProvider
+}
+
+func (initial WatchInitial) currentMediaOffset() *float64 {
+	if initial.MediaOffset == nil {
+		return nil
+	}
+	seconds, ok := initial.MediaOffset.MediaOffsetSeconds()
+	if !ok {
+		return nil
+	}
+	return cleanMediaOffset(&seconds)
 }
 
 // Watch polls for title AND category changes and links each new one
@@ -124,6 +138,7 @@ func (w *MetadataWatcher) Watch(ctx context.Context, broadcasterID string, video
 			if meta.Title == "" && meta.CategoryID == "" {
 				continue
 			}
+			meta.MediaOffsetSeconds = initial.currentMediaOffset()
 			if err := w.hydrator.RecordChannelUpdate(ctx, broadcasterID, meta); err != nil {
 				w.log.Warn("record channel update",
 					"video_id", videoID, "broadcaster_id", broadcasterID, "error", err)

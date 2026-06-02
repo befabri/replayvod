@@ -99,6 +99,19 @@ func TestProgressEmitter_BridgeAccumulatesCounters(t *testing.T) {
 	}
 }
 
+func TestProgressEmitter_SeedCompletedBytesCarriesIntoAttempt(t *testing.T) {
+	ch := make(chan Progress, 16)
+	em := newProgressEmitter("job-1", "video", ch)
+	em.seedCompletedBytes(1_000)
+	em.startAttempt()
+	em.bridge(hls.Progress{SegmentsDone: 1, BytesWritten: 250})
+
+	last, _ := drain(ch)
+	if last.BytesWritten != 1_250 {
+		t.Fatalf("BytesWritten=%d, want resumed total 1250", last.BytesWritten)
+	}
+}
+
 func TestProgressEmitter_FinalizeSetsTotalAndPercent(t *testing.T) {
 	ch := make(chan Progress, 16)
 	em := newProgressEmitter("job-1", "video", ch)
@@ -124,6 +137,29 @@ func TestProgressEmitter_PercentAt100OnAllDone(t *testing.T) {
 	last, _ := drain(ch)
 	if last.Percent != 100 {
 		t.Errorf("Percent=%v, want 100", last.Percent)
+	}
+}
+
+func TestProgressEmitter_MediaOffsetSourcePopulatesSnapshots(t *testing.T) {
+	ch := make(chan Progress, 16)
+	em := newProgressEmitter("job-1", "video", ch)
+	offset := 42.5
+	exact := true
+	em.setMediaOffsetSource(func() (float64, bool) {
+		return offset, exact
+	})
+
+	em.setStage("segments")
+	last, _ := drain(ch)
+	if last.MediaOffsetSeconds == nil || *last.MediaOffsetSeconds != offset {
+		t.Fatalf("MediaOffsetSeconds=%v, want %v", last.MediaOffsetSeconds, offset)
+	}
+
+	exact = false
+	em.bridge(hls.Progress{SegmentsDone: 1, BytesWritten: 100})
+	last, _ = drain(ch)
+	if last.MediaOffsetSeconds != nil {
+		t.Fatalf("MediaOffsetSeconds=%v after source became inexact, want nil", *last.MediaOffsetSeconds)
 	}
 }
 

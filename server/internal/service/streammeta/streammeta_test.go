@@ -28,6 +28,30 @@ func (r *recordingEnricher) Enrich(_ context.Context, categoryID string) error {
 	return r.err
 }
 
+type staticMediaOffset struct {
+	seconds float64
+	ok      bool
+}
+
+func (s staticMediaOffset) MediaOffsetSeconds() (float64, bool) {
+	return s.seconds, s.ok
+}
+
+type recordingMediaOffsetResolver struct {
+	seconds       float64
+	ok            bool
+	broadcasterID string
+	videoID       int64
+	calls         int
+}
+
+func (r *recordingMediaOffsetResolver) ResolveMediaOffsetSeconds(_ context.Context, broadcasterID string, videoID int64) (float64, bool) {
+	r.calls++
+	r.broadcasterID = broadcasterID
+	r.videoID = videoID
+	return r.seconds, r.ok
+}
+
 type fakeStreamFetcher struct {
 	calls  int
 	seen   []twitch.GetStreamsParams
@@ -818,7 +842,11 @@ func TestMetadataWatcher_WatchRecordsChangedMetadataOnTick(t *testing.T) {
 	watchCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		w.Watch(watchCtx, "b-1", videoID, WatchInitial{Title: "Old Title", CategoryID: "game-old"})
+		w.Watch(watchCtx, "b-1", videoID, WatchInitial{
+			Title:       "Old Title",
+			CategoryID:  "game-old",
+			MediaOffset: staticMediaOffset{seconds: 42.25, ok: true},
+		})
 		close(done)
 	}()
 	defer func() {
@@ -843,6 +871,9 @@ func TestMetadataWatcher_WatchRecordsChangedMetadataOnTick(t *testing.T) {
 			}
 			if change.Category == nil || change.Category.ID != "game-new" || change.Category.Name != "Game New" {
 				t.Fatalf("metadata category = %+v, want game-new/Game New", change.Category)
+			}
+			if change.MediaOffsetSeconds == nil || *change.MediaOffsetSeconds != 42.25 {
+				t.Fatalf("media_offset_seconds = %v, want 42.25", change.MediaOffsetSeconds)
 			}
 			return
 		}
@@ -913,6 +944,9 @@ func TestHydrator_LinkInitialVideoMetadata_BothDimensionsShareTimestamp(t *testi
 	if ev.Category == nil || ev.Category.ID != "game-42" {
 		t.Fatalf("event category: got %+v", ev.Category)
 	}
+	if ev.MediaOffsetSeconds != nil {
+		t.Fatalf("media_offset_seconds = %v, want nil when no media offset was provided", *ev.MediaOffsetSeconds)
+	}
 
 	// The title span and category span must share the event's
 	// occurred_at — that's the structural guarantee the events
@@ -936,6 +970,98 @@ func TestHydrator_LinkInitialVideoMetadata_BothDimensionsShareTimestamp(t *testi
 	}
 	if !categories[0].StartedAt.Equal(ev.OccurredAt) {
 		t.Errorf("category span started_at %v != event occurred_at %v", categories[0].StartedAt, ev.OccurredAt)
+	}
+}
+
+func TestHydrator_LinkInitialVideoMetadata_StoresMediaOffset(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHydrator(t, nil)
+	videoID := seedRecording(t, ctx, repo)
+	offset := 12.5
+
+	if err := h.LinkInitialVideoMetadata(ctx, videoID, ChannelUpdateMeta{
+		Title:              "Opening",
+		MediaOffsetSeconds: &offset,
+	}); err != nil {
+		t.Fatalf("link initial: %v", err)
+	}
+
+	events, err := repo.ListVideoMetadataChanges(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected exactly one event row, got %d", len(events))
+	}
+	if events[0].MediaOffsetSeconds == nil || *events[0].MediaOffsetSeconds != 12.5 {
+		t.Fatalf("media_offset_seconds = %v, want 12.5", events[0].MediaOffsetSeconds)
+	}
+}
+
+func TestHydrator_RecordChannelUpdate_StoresResolvedMediaOffset(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHydrator(t, nil)
+	videoID := seedRecording(t, ctx, repo)
+	if _, err := repo.CreateJob(ctx, &repository.JobInput{
+		ID:            "job-1",
+		VideoID:       videoID,
+		BroadcasterID: "b-1",
+	}); err != nil {
+		t.Fatalf("seed active job: %v", err)
+	}
+	resolver := &recordingMediaOffsetResolver{seconds: 66.5, ok: true}
+	h.SetMediaOffsetResolver(resolver)
+
+	if err := h.RecordChannelUpdate(ctx, "b-1", ChannelUpdateMeta{
+		Title: "Webhook title",
+	}); err != nil {
+		t.Fatalf("record channel update: %v", err)
+	}
+
+	if resolver.calls != 1 || resolver.broadcasterID != "b-1" || resolver.videoID != videoID {
+		t.Fatalf("resolver call = %d/%q/%d, want 1/b-1/%d",
+			resolver.calls, resolver.broadcasterID, resolver.videoID, videoID)
+	}
+	events, err := repo.ListVideoMetadataChanges(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected exactly one event row, got %d", len(events))
+	}
+	if events[0].MediaOffsetSeconds == nil || *events[0].MediaOffsetSeconds != 66.5 {
+		t.Fatalf("media_offset_seconds = %v, want 66.5", events[0].MediaOffsetSeconds)
+	}
+}
+
+func TestHydrator_RecordChannelUpdate_LeavesMediaOffsetNullWhenResolverUnavailable(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHydrator(t, nil)
+	videoID := seedRecording(t, ctx, repo)
+	if _, err := repo.CreateJob(ctx, &repository.JobInput{
+		ID:            "job-1",
+		VideoID:       videoID,
+		BroadcasterID: "b-1",
+	}); err != nil {
+		t.Fatalf("seed active job: %v", err)
+	}
+	h.SetMediaOffsetResolver(&recordingMediaOffsetResolver{ok: false})
+
+	if err := h.RecordChannelUpdate(ctx, "b-1", ChannelUpdateMeta{
+		Title: "Webhook title",
+	}); err != nil {
+		t.Fatalf("record channel update: %v", err)
+	}
+
+	events, err := repo.ListVideoMetadataChanges(ctx, videoID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected exactly one event row, got %d", len(events))
+	}
+	if events[0].MediaOffsetSeconds != nil {
+		t.Fatalf("media_offset_seconds = %v, want nil", *events[0].MediaOffsetSeconds)
 	}
 }
 

@@ -143,8 +143,8 @@ type Progress struct {
 	JobID string `json:"job_id"`
 
 	// PartIndex is 1-based and increments on a part boundary
-	// (variant/codec/container switch — see spec §"Variant
-	// loss mid-stream"). Single-part recordings stay at 1.
+	// (variant/codec/container switch, resume gap, or configured
+	// size/duration ceiling). Single-part recordings stay at 1.
 	PartIndex int `json:"part_index"`
 
 	// Stage labels the active pipeline stage. Values:
@@ -194,6 +194,12 @@ type Progress struct {
 
 	// RecordingType mirrors the video row — "video" or "audio".
 	RecordingType string `json:"recording_type"`
+
+	// MediaOffsetSeconds is the best known exact media time of the
+	// running recording. It is set from the downloader resume accounting,
+	// not wall-clock time, so dashboard timelines can place live metadata
+	// and part markers on the same axis.
+	MediaOffsetSeconds *float64 `json:"media_offset_seconds,omitempty"`
 }
 
 // Service orchestrates downloads. Safe for concurrent use. One
@@ -268,6 +274,25 @@ type download struct {
 	// runPart pass creates (or finds) its own row.
 	videoPartID int64
 
+	// completedMediaDurationSeconds is the sum of finalized parts before the
+	// current part. mediaOffset* publishes that base plus
+	// resume.PartDurationSeconds to metadata pollers without exposing the
+	// mutable ResumeState across goroutines. The value + exactness flag are
+	// guarded together so an inexact offset can never be observed with a stale
+	// exact=true flag.
+	//
+	// Note the two clocks: finalized parts contribute container-PROBED duration,
+	// but the in-flight current part contributes resume.PartDurationSeconds
+	// (sum of #EXTINF). EXTINF and probed duration differ slightly, so the live
+	// offset can drift from the probe-based concatenated-playback timeline by up
+	// to the current part's EXTINF-vs-probe delta. This is accepted as a
+	// best-known live value; sealed/playback offsets are probe-based and
+	// authoritative.
+	completedMediaDurationSeconds float64
+	mediaOffsetMu                 sync.RWMutex
+	mediaOffsetSeconds            float64
+	mediaOffsetExact              bool
+
 	// cleanupScratch gates the deferred RemoveAll in run(). Flipped
 	// true on terminal exits (success, user cancel, non-shutdown
 	// failure) and left false on shutdown interrupts so Resume can
@@ -286,6 +311,65 @@ func (d *download) progressSnapshot() Progress {
 	d.progressMu.RLock()
 	defer d.progressMu.RUnlock()
 	return d.latestProgress
+}
+
+func (d *download) setMediaOffset(seconds float64, exact bool) {
+	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		return
+	}
+	d.mediaOffsetMu.Lock()
+	d.mediaOffsetSeconds = seconds
+	d.mediaOffsetExact = exact
+	d.mediaOffsetMu.Unlock()
+}
+
+// refreshMediaOffset republishes the media offset = sum of the durations of
+// segments actually written so far. That is the recording's *playback*
+// position, which is exactly what the dashboard timeline wants: it scrubs the
+// finished recording, whose axis already excludes any dropped content. So a
+// tolerated gap (window roll, fetch failure, malformed, stitched ad) does NOT
+// make the offset wrong — both the recording and the offset skip that content,
+// and the offset stays a more accurate marker than the wall-clock fallback
+// (occurred_at - start), which would overcount by the lost duration.
+//
+// Exactness gates only on pending auth gaps because those are the one gap kind
+// that may be refetched later. A successful refetch folds the segment's
+// duration back into PartDurationSeconds, retroactively shifting every later
+// position — so while one is outstanding the offset is provisional and we let
+// the row fall back to wall-clock ordering instead of stamping a soon-to-move
+// value.
+func (d *download) refreshMediaOffset() {
+	if d.resume == nil {
+		d.setMediaOffset(d.completedMediaDurationSeconds, true)
+		return
+	}
+	d.setMediaOffset(
+		d.completedMediaDurationSeconds+d.resume.PartDurationSeconds,
+		len(d.resume.AuthGapSeqs()) == 0,
+	)
+}
+
+func (d *download) MediaOffsetSeconds() (float64, bool) {
+	d.mediaOffsetMu.RLock()
+	defer d.mediaOffsetMu.RUnlock()
+	if !d.mediaOffsetExact {
+		return 0, false
+	}
+	return d.mediaOffsetSeconds, true
+}
+
+func (s *Service) ResolveMediaOffsetSeconds(_ context.Context, broadcasterID string, videoID int64) (float64, bool) {
+	if videoID == 0 {
+		return 0, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range s.active {
+		if d.videoID == videoID && (broadcasterID == "" || d.broadcasterID == broadcasterID) {
+			return d.MediaOffsetSeconds()
+		}
+	}
+	return 0, false
 }
 
 func (s *Service) notifyActiveChanged() {
@@ -567,6 +651,12 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	// the channel.update path keeps both writes consistent; best-effort
 	// — a link failure logs but doesn't fail the whole pipeline.
 	if s.hydrator != nil {
+		// No media-offset seed here. The live resolver reports (0, inexact) until
+		// run()'s first refreshMediaOffset, so seeding an exact 0 would disagree
+		// with any channel.update landing in that window (which falls back to
+		// wall-clock → NULL). Leaving it nil keeps the opening row and an early
+		// webhook on the same wall-clock axis; at t≈0 the marker lands at ~0 either
+		// way, and later changes carry exact offsets once tracking is live.
 		if err := s.hydrator.LinkInitialVideoMetadata(ctx, vid.ID, streammeta.ChannelUpdateMeta{
 			Title:        p.Title,
 			CategoryID:   p.CategoryID,
@@ -687,6 +777,10 @@ func (s *Service) ListActiveProgress() []Progress {
 				PartIndex:     1,
 				SegmentsTotal: -1,
 			}
+		}
+		snap.MediaOffsetSeconds = nil
+		if seconds, ok := d.MediaOffsetSeconds(); ok {
+			snap.MediaOffsetSeconds = &seconds
 		}
 		out = append(out, snap)
 	}
@@ -967,7 +1061,14 @@ var (
 // registers its cancel via registerPoller so it is torn down with the other
 // media pollers after the part loop (the returned cleanup is then a no-op). Off
 // mode, or a missing dependency for the active mode, is a no-op.
-func (s *Service) startTitleTracking(ctx context.Context, p Params, videoID int64, log *slog.Logger, registerPoller func(context.CancelFunc)) func() {
+func (s *Service) startTitleTracking(
+	ctx context.Context,
+	p Params,
+	videoID int64,
+	log *slog.Logger,
+	registerPoller func(context.CancelFunc),
+	mediaOffset streammeta.MediaOffsetProvider,
+) func() {
 	noop := func() {}
 
 	if s.cfg.ServerMode.TracksTitlesViaWebhook() && s.channelSubs != nil {
@@ -995,8 +1096,9 @@ func (s *Service) startTitleTracking(ctx context.Context, p Params, videoID int6
 		titleCtx, cancelTitle := context.WithCancel(ctx)
 		registerPoller(cancelTitle)
 		initial := streammeta.WatchInitial{
-			Title:      p.Title,
-			CategoryID: p.CategoryID,
+			Title:       p.Title,
+			CategoryID:  p.CategoryID,
+			MediaOffset: mediaOffset,
 		}
 		go func() {
 			s.metaWatcher.Watch(titleCtx, p.BroadcasterID, videoID, initial)
@@ -1042,6 +1144,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		d.setProgress(snap)
 		s.notifyActiveChanged()
 	})
+	emitter.setMediaOffsetSource(d.MediaOffsetSeconds)
 
 	// Scratch layout: <scratch>/<jobID>/part<NN>/segments/ for
 	// fragments + init, <scratch>/<jobID>/<base>-part<NN>.{mp4,jpg}
@@ -1098,16 +1201,6 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		}()
 	}
 
-	// Title tracking: webhook subscribes to channel.update EventSub
-	// (handler writes on push); poll runs a Helix-polling goroutine; off stores
-	// only the at-start title. The poll watcher's cancel is registered with the
-	// media pollers so it's torn down after the part loop; the webhook
-	// unsubscribe is returned and deferred to run's exit.
-	stopTitleTracking := s.startTitleTracking(ctx, p, d.videoID, log, func(cancel context.CancelFunc) {
-		mediaPollerCancels = append(mediaPollerCancels, cancel)
-	})
-	defer stopTitleTracking()
-
 	selectOpts := twitch.SelectOptions{
 		RecordingType: recordingType,
 		Quality:       qualityToHeight(p.Quality),
@@ -1120,6 +1213,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// the whole recording, not just the still-running part. Empty
 	// for fresh jobs.
 	var parts []partResult
+	var completedSizeBytes int64
 	if existingParts, err := s.repo.ListVideoParts(dbCtx, d.videoID); err != nil {
 		s.failDownload(dbCtx, d, log, fmt.Errorf("list existing video parts: %w", err))
 		return
@@ -1137,8 +1231,26 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 				sizeBytes:       ep.SizeBytes,
 				thumbRel:        thumbRel,
 			})
+			d.completedMediaDurationSeconds += ep.DurationSeconds
+			completedSizeBytes += ep.SizeBytes
 		}
 	}
+	if d.resume != nil && d.resume.PartBytes > 0 {
+		completedSizeBytes += d.resume.PartBytes
+	}
+	emitter.seedCompletedBytes(completedSizeBytes)
+	d.refreshMediaOffset()
+
+	// Title tracking: webhook subscribes to channel.update EventSub
+	// (handler writes on push); poll runs a Helix-polling goroutine; off stores
+	// only the at-start title. The poll watcher's cancel is registered with the
+	// media pollers so it's torn down after the part loop; the webhook
+	// unsubscribe is returned and deferred to run's exit.
+	stopTitleTracking := s.startTitleTracking(ctx, p, d.videoID, log, func(cancel context.CancelFunc) {
+		mediaPollerCancels = append(mediaPollerCancels, cancel)
+	}, d)
+	defer stopTitleTracking()
+
 	if d.resume.CurrentPartIndex > 1 {
 		emitter.setPart(int(d.resume.CurrentPartIndex))
 	}
@@ -1314,6 +1426,13 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 			return
 		}
 		parts = append(parts, *pr)
+		d.completedMediaDurationSeconds += pr.durationSeconds
+		// Use setMediaOffset, NOT refreshMediaOffset: the part just sealed but
+		// resume.PartDurationSeconds isn't reset until continueAfterPendingSplit
+		// below, so refreshMediaOffset would add it on top of the already-folded
+		// completedMediaDurationSeconds and double-count. Any refreshMediaOffset
+		// call inserted between here and that reset would reintroduce the bug.
+		d.setMediaOffset(d.completedMediaDurationSeconds, len(d.resume.AuthGapSeqs()) == 0)
 
 		if pendingSplitEndedAtBoundary(d.resume, hlsResult) {
 			d.resume.ClearPendingSplit()
@@ -1394,6 +1513,12 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	)
 	// Terminal success: wake the webhook dispatcher after the durable outbox row
 	// is committed. A dropped publish only delays polling.
+	//
+	// The single-file playback artifact is NOT built here. Concatenating every
+	// finished recording would burn ffmpeg + disk on the many VODs nobody opens;
+	// instead the build is kicked lazily the first time someone plays the
+	// recording (see StreamHandler.streamPart), so only watched videos cost
+	// anything.
 	s.publishRecordingTerminal(d.videoID, eventbus.RecordingCompleted)
 }
 
@@ -2325,6 +2450,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 				// tips the part over its limit seals a clean boundary
 				// here instead of overshooting max_part_*.
 				boundary, thresholdReached := acct.recordRangeGap(from, to, GapReasonRestartWindowRolled)
+				d.refreshMediaOffset()
 				log.Warn("resume gap recorded",
 					"reason", GapReasonRestartWindowRolled,
 					"from", from,
@@ -2392,6 +2518,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 					// Ceiling-free on purpose (see authGap).
 					acct.authGap(ev.MediaSeq)
 				}
+				d.refreshMediaOffset()
 				eventsSinceCheckpoint++
 				if eventsSinceCheckpoint >= checkpointEveryEvents {
 					s.checkpointResume(dbCtx, d, log)
