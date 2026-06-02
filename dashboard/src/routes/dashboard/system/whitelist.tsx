@@ -1,5 +1,8 @@
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute } from "@tanstack/react-router";
+import type { TFunction } from "i18next";
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
@@ -12,27 +15,34 @@ import { whitelistColumns } from "@/features/whitelist/components/columns";
 // schema is untyped on content). Twitch numeric IDs only — rejects
 // blanks and non-digit input at the client boundary so the server's
 // validator isn't the first line of defense.
-const WhitelistAddSchema = z.object({
-	twitch_user_id: z
-		.string()
-		.trim()
-		.min(1, "Required")
-		.regex(/^\d+$/, "Must be a numeric Twitch user ID"),
-});
+function whitelistAddSchema(t: TFunction) {
+	return z.object({
+		twitch_user_id: z
+			.string()
+			.trim()
+			.min(1, t("whitelist.validation_required"))
+			.regex(/^\d+$/, t("whitelist.validation_numeric")),
+	});
+}
 
-type WhitelistAddValues = z.infer<typeof WhitelistAddSchema>;
+type WhitelistAddValues = {
+	twitch_user_id: string;
+};
 
 export const Route = createFileRoute("/dashboard/system/whitelist")({
 	component: WhitelistPage,
 });
 
 function WhitelistPage() {
+	const { t } = useTranslation();
 	const { data: entries, isLoading, error } = useWhitelist();
 	const add = useAddWhitelist();
+	const schema = useMemo(() => whitelistAddSchema(t), [t]);
+	const columns = useMemo(() => whitelistColumns(t), [t]);
 
 	const form = useForm({
-		defaultValues: { twitch_user_id: "" } as WhitelistAddValues,
-		validators: { onSubmit: WhitelistAddSchema },
+		defaultValues: { twitch_user_id: "" } satisfies WhitelistAddValues,
+		validators: { onSubmit: schema },
 		onSubmit: async ({ value, formApi }) => {
 			await add.mutateAsync({ twitch_user_id: value.twitch_user_id.trim() });
 			formApi.reset();
@@ -40,11 +50,10 @@ function WhitelistPage() {
 	});
 
 	return (
-		<TitledLayout title="Whitelist">
+		<TitledLayout title={t("whitelist.title")}>
 			<div className="max-w-2xl">
 				<p className="text-muted-foreground mb-6 -mt-6">
-					When whitelist is enabled in the server config, only Twitch user IDs
-					listed here can sign in.
+					{t("whitelist.description")}
 				</p>
 
 				<form
@@ -62,10 +71,10 @@ function WhitelistPage() {
 								value={field.state.value}
 								onChange={(e) => field.handleChange(e.target.value)}
 								onBlur={field.handleBlur}
-								placeholder="Twitch user ID (numeric)"
 								aria-invalid={
 									field.state.meta.errors.length > 0 ? true : undefined
 								}
+								placeholder={t("whitelist.twitch_user_id_placeholder")}
 								className="flex-1"
 							/>
 						)}
@@ -78,7 +87,9 @@ function WhitelistPage() {
 								type="submit"
 								disabled={!canSubmit || isSubmitting || add.isPending}
 							>
-								{isSubmitting || add.isPending ? "Adding…" : "Add"}
+								{isSubmitting || add.isPending
+									? t("whitelist.adding")
+									: t("whitelist.add")}
 							</Button>
 						)}
 					</form.Subscribe>
@@ -86,22 +97,24 @@ function WhitelistPage() {
 
 				{add.isError && (
 					<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
-						{add.error?.message ?? "Failed to add"}
+						{add.error?.message ?? t("whitelist.failed_to_add")}
 					</div>
 				)}
 
-				{isLoading && <div className="text-muted-foreground">Loading…</div>}
+				{isLoading && (
+					<div className="text-muted-foreground">{t("common.loading")}</div>
+				)}
 				{error && (
 					<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-						Failed to load whitelist: {error.message}
+						{t("whitelist.failed_to_load")}: {error.message}
 					</div>
 				)}
 
 				{entries && (
 					<DataTable
-						columns={whitelistColumns}
+						columns={columns}
 						data={entries}
-						emptyMessage="No whitelist entries."
+						emptyMessage={t("whitelist.empty")}
 					/>
 				)}
 			</div>

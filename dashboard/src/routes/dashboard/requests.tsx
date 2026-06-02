@@ -18,11 +18,13 @@ function RequestsPage() {
 
 	return (
 		<TitledLayout title={t("nav.requests")}>
-			{isLoading && <div className="text-muted-foreground">Loading…</div>}
+			{isLoading && (
+				<div className="text-muted-foreground">{t("common.loading")}</div>
+			)}
 
 			{error && (
 				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-					{error.message}
+					{t("requests.failed_to_load")}: {error.message}
 				</div>
 			)}
 
@@ -30,9 +32,7 @@ function RequestsPage() {
 				<DataTable
 					columns={columns}
 					data={data}
-					emptyMessage={
-						'No requests yet. Request a download by clicking "Request" on any video detail page.'
-					}
+					emptyMessage={t("requests.empty")}
 				/>
 			)}
 		</TitledLayout>

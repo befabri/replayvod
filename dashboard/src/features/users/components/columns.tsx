@@ -1,38 +1,69 @@
 import type { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import type { UserInfo } from "@/features/users";
 import { useUpdateUserRole } from "@/features/users";
-import type { Role } from "@/stores/auth";
+import { isRole, type Role } from "@/stores/auth";
+
+const ROLE_OPTIONS: readonly Role[] = ["viewer", "admin", "owner"];
+type UserRoleLabelKey =
+	| "users.role_viewer"
+	| "users.role_admin"
+	| "users.role_owner";
+const ROLE_LABEL_KEYS: Record<Role, UserRoleLabelKey> = {
+	viewer: "users.role_viewer",
+	admin: "users.role_admin",
+	owner: "users.role_owner",
+};
 
 // RoleSelect is a thin cell component so the mutation hook mounts per
 // row — keeps each row's pending/error state isolated.
-function RoleSelect({ user, isSelf }: { user: UserInfo; isSelf: boolean }) {
+function RoleSelect({
+	user,
+	isSelf,
+	t,
+}: {
+	user: UserInfo;
+	isSelf: boolean;
+	t: TFunction;
+}) {
 	const update = useUpdateUserRole();
+	const value = isRole(user.role) ? user.role : "";
 	return (
 		<select
-			value={user.role}
+			value={value}
 			disabled={isSelf}
-			onChange={(e) =>
+			onChange={(e) => {
+				const role = e.target.value;
+				if (!isRole(role)) return;
 				update.mutate({
 					user_id: user.id,
-					role: e.target.value as Role,
-				})
-			}
+					role,
+				});
+			}}
 			className="rounded-md border border-border bg-background px-2 py-1 text-sm disabled:opacity-60"
 		>
-			<option value="viewer">viewer</option>
-			<option value="admin">admin</option>
-			<option value="owner">owner</option>
+			{value === "" && (
+				<option value="" disabled>
+					{t("users.role_unknown")}
+				</option>
+			)}
+			{ROLE_OPTIONS.map((role) => (
+				<option key={role} value={role}>
+					{t(ROLE_LABEL_KEYS[role])}
+				</option>
+			))}
 		</select>
 	);
 }
 
 export function userColumns(
 	currentUserId: string | undefined,
+	t: TFunction,
 ): ColumnDef<UserInfo>[] {
 	return [
 		{
 			accessorKey: "display_name",
-			header: "User",
+			header: t("users.col_user"),
 			enableSorting: true,
 			cell: ({ row }) => {
 				const u = row.original;
@@ -48,7 +79,9 @@ export function userColumns(
 						)}
 						<span>{u.display_name}</span>
 						{isSelf && (
-							<span className="text-xs text-muted-foreground">(you)</span>
+							<span className="text-xs text-muted-foreground">
+								{t("users.you")}
+							</span>
 						)}
 					</div>
 				);
@@ -56,7 +89,7 @@ export function userColumns(
 		},
 		{
 			accessorKey: "login",
-			header: "Login",
+			header: t("users.col_login"),
 			enableSorting: true,
 			cell: ({ row }) => (
 				<span className="text-muted-foreground">@{row.original.login}</span>
@@ -64,18 +97,19 @@ export function userColumns(
 		},
 		{
 			accessorKey: "role",
-			header: "Role",
+			header: t("users.col_role"),
 			enableSorting: true,
 			cell: ({ row }) => (
 				<RoleSelect
 					user={row.original}
 					isSelf={row.original.id === currentUserId}
+					t={t}
 				/>
 			),
 		},
 		{
 			accessorKey: "created_at",
-			header: "Joined",
+			header: t("users.col_joined"),
 			enableSorting: true,
 			cell: ({ row }) => (
 				<span className="text-muted-foreground">

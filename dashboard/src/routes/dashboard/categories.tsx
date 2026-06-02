@@ -81,10 +81,8 @@ function CardGrid({ categories }: { categories: CategoryResponse[] }) {
 	const renderCategory = useCallback(
 		(category: CategoryResponse) => (
 			<Link
-				// biome-ignore lint/suspicious/noExplicitAny: param route typing
-				to={"/dashboard/categories/$categoryId" as any}
-				// biome-ignore lint/suspicious/noExplicitAny: param route typing
-				params={{ categoryId: category.id } as any}
+				to="/dashboard/categories/$categoryId"
+				params={{ categoryId: category.id }}
 				className="block rounded-lg bg-card overflow-hidden shadow-sm hover:ring-2 hover:ring-primary transition-all duration-75"
 			>
 				<CategoryBoxArt url={category.box_art_url} name={category.name} />
@@ -118,10 +116,8 @@ function DenseGrid({ categories }: { categories: CategoryResponse[] }) {
 	const renderCategory = useCallback(
 		(category: CategoryResponse) => (
 			<Link
-				// biome-ignore lint/suspicious/noExplicitAny: param route typing
-				to={"/dashboard/categories/$categoryId" as any}
-				// biome-ignore lint/suspicious/noExplicitAny: param route typing
-				params={{ categoryId: category.id } as any}
+				to="/dashboard/categories/$categoryId"
+				params={{ categoryId: category.id }}
 				className="group flex flex-col gap-1.5"
 			>
 				<CategoryBoxArt

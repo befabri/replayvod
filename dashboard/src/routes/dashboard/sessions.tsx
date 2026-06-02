@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { DataTable } from "@/components/ui/data-table";
 import { useSessions } from "@/features/sessions";
@@ -9,27 +11,30 @@ export const Route = createFileRoute("/dashboard/sessions")({
 });
 
 function SessionsPage() {
+	const { t } = useTranslation();
 	const { data, isLoading, error } = useSessions();
+	const columns = useMemo(() => sessionColumns(t), [t]);
 
 	return (
-		<TitledLayout title="Active sessions">
+		<TitledLayout title={t("sessions.title")}>
 			<p className="text-muted-foreground mb-6 -mt-6">
-				Every session currently signed into this account. Revoke any that don't
-				belong to a device you recognize.
+				{t("sessions.description")}
 			</p>
 
-			{isLoading && <div className="text-muted-foreground">Loading…</div>}
+			{isLoading && (
+				<div className="text-muted-foreground">{t("common.loading")}</div>
+			)}
 			{error && (
 				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-					Failed to load sessions: {error.message}
+					{t("sessions.failed_to_load")}: {error.message}
 				</div>
 			)}
 
 			{data && (
 				<DataTable
-					columns={sessionColumns}
+					columns={columns}
 					data={data}
-					emptyMessage="No active sessions."
+					emptyMessage={t("sessions.empty")}
 				/>
 			)}
 		</TitledLayout>

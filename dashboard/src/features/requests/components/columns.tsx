@@ -2,35 +2,37 @@ import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import type { VideoSummary } from "@/api/generated/trpc";
+import { videoStatusLabel } from "@/features/videos/labels";
 
 export function requestColumns(t: TFunction): ColumnDef<VideoSummary>[] {
 	return [
 		{
 			accessorKey: "display_name",
-			header: "Title",
+			header: t("requests.col_title"),
 			enableSorting: true,
 		},
 		{
 			accessorKey: "status",
-			header: "Status",
+			header: t("requests.col_status"),
 			enableSorting: true,
-			cell: ({ row }) =>
-				t(`videos.status.${row.original.status}` as const, row.original.status),
+			cell: ({ row }) => videoStatusLabel(t, row.original.status),
 		},
 		{
 			id: "actions",
-			header: () => <span className="text-right w-full block">Actions</span>,
+			header: () => (
+				<span className="text-right w-full block">{t("common.actions")}</span>
+			),
 			enableSorting: false,
 			cell: ({ row }) => (
 				<div className="text-right">
 					{row.original.status === "DONE" && (
 						<Link
-							// biome-ignore lint/suspicious/noExplicitAny: param route typing
-							to={"/dashboard/watch/$videoId" as any}
-							params={{ videoId: String(row.original.id) } as any}
+							to="/dashboard/watch/$videoId"
+							params={{ videoId: String(row.original.id) }}
+							search={{ t: undefined }}
 							className="text-primary hover:underline"
 						>
-							Watch
+							{t("requests.watch")}
 						</Link>
 					)}
 				</div>

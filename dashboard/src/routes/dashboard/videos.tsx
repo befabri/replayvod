@@ -63,7 +63,13 @@ type StatusKey = (typeof STATUS_KEYS)[number];
 // the tab strip but have no server backing yet (no watch_progress or
 // favorites table exists). They render an empty placeholder so the
 // shape of the design is visible without false data.
-const TAB_KEYS = ["this_week", "unwatched", "partial", "favorites"] as const;
+const TAB_KEYS = [
+	"all",
+	"this_week",
+	"unwatched",
+	"partial",
+	"favorites",
+] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 const DURATION_FILTERS = ["short", "medium", "long", "marathon"] as const;
@@ -105,7 +111,7 @@ function parseStringParam(raw: unknown): string | undefined {
 
 export const Route = createFileRoute("/dashboard/videos")({
 	validateSearch: (search: Record<string, unknown>) => ({
-		tab: isOneOf(TAB_KEYS, search.tab) ? search.tab : "this_week",
+		tab: isOneOf(TAB_KEYS, search.tab) ? search.tab : "all",
 		status: isOneOf(STATUS_KEYS, search.status) ? search.status : undefined,
 		view:
 			search.view === "table" || search.view === "grid"
@@ -142,7 +148,8 @@ function VideosPage() {
 	// `unwatched` and `favorites` have no backend support yet — no
 	// watch_progress / favorites tables exist. The chrome stays mounted
 	// for those tabs but the body renders a placeholder.
-	const tabHasBackend = tab === "this_week" || tab === "partial";
+	const tabHasBackend =
+		tab === "all" || tab === "this_week" || tab === "partial";
 
 	const videos = useInfiniteVideoPages(
 		PAGE_SIZE,
@@ -164,11 +171,11 @@ function VideosPage() {
 	);
 	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
 
-	// Per-tab counts come from the statistics endpoint — `this_week`
-	// and `partial` are aggregate columns the SQL computes against the
-	// whole library, so they're available on first paint and survive a
-	// refresh. Tabs without backend support stay undefined.
+	// Per-tab counts come from the statistics endpoint. These are exact
+	// library-wide aggregates, so tabs without backend support stay
+	// undefined instead of showing fake counts.
 	const tabCounts: Partial<Record<TabKey, number>> = {
+		all: stats?.total,
 		this_week: stats?.this_week,
 		partial: stats?.incomplete,
 	};
@@ -336,7 +343,6 @@ function VideosPage() {
 				<ScopeTabs
 					current={tab}
 					counts={tabCounts}
-					hasMore={!!videos.hasNextPage}
 					onChange={(next) => {
 						void navigate({ search: (s) => ({ ...s, tab: next }) });
 					}}
@@ -565,16 +571,12 @@ function ViewToggle({
 function ScopeTabs({
 	current,
 	counts,
-	hasMore,
 	onChange,
 }: {
 	current: TabKey;
-	// counts is keyed by tab. Only tabs that have been visited get an
-	// entry — the route caches counts as the user navigates. `hasMore`
-	// applies to whichever tab is currently active and adds a "+"
-	// suffix when the infinite query still has pages.
+	// counts is keyed by tab. Values come from the statistics endpoint
+	// and are exact for tabs that have server backing.
 	counts: Partial<Record<TabKey, number>>;
-	hasMore?: boolean;
 	onChange: (key: TabKey) => void;
 }) {
 	const { t } = useTranslation();
@@ -585,7 +587,6 @@ function ScopeTabs({
 					{TAB_KEYS.map((key) => {
 						const count = counts[key];
 						const showCount = count !== undefined;
-						const showHasMore = hasMore && key === current;
 						return (
 							<TabsTrigger
 								key={key}
@@ -613,7 +614,6 @@ function ScopeTabs({
 										)}
 									>
 										{count.toLocaleString()}
-										{showHasMore ? "+" : ""}
 									</span>
 								)}
 							</TabsTrigger>

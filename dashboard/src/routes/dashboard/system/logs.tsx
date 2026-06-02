@@ -155,6 +155,7 @@ function ApiLogsView() {
 	const { t } = useTranslation();
 	const [page, setPage] = useState(0);
 	const { data, isLoading, error } = useFetchLogs(PAGE_SIZE, page * PAGE_SIZE);
+	const columns = useMemo(() => fetchLogColumns(t), [t]);
 
 	return (
 		<>
@@ -169,7 +170,7 @@ function ApiLogsView() {
 			{!isLoading && !error && (
 				<>
 					<DataTable
-						columns={fetchLogColumns}
+						columns={columns}
 						data={data?.data ?? []}
 						emptyMessage={t("logs.api_empty")}
 					/>

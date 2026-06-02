@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useStore } from "@tanstack/react-store";
+import { useSelector } from "@tanstack/react-store";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { DataTable } from "@/components/ui/data-table";
 import { useUsers } from "@/features/users";
@@ -12,26 +13,33 @@ export const Route = createFileRoute("/dashboard/system/users")({
 });
 
 function UsersPage() {
-	const currentUser = useStore(authStore, (s) => s.user);
+	const { t } = useTranslation();
+	const currentUser = useSelector(authStore, (s) => s.user);
 	const { data: users, isLoading, error } = useUsers();
 
 	const columns = useMemo(
-		() => userColumns(currentUser?.id),
-		[currentUser?.id],
+		() => userColumns(currentUser?.id, t),
+		[currentUser?.id, t],
 	);
 
 	return (
-		<TitledLayout title="Users">
-			{isLoading && <div className="text-muted-foreground">Loading…</div>}
+		<TitledLayout title={t("users.title")}>
+			{isLoading && (
+				<div className="text-muted-foreground">{t("common.loading")}</div>
+			)}
 
 			{error && (
 				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-					Failed to load users: {error.message}
+					{t("users.failed_to_load")}: {error.message}
 				</div>
 			)}
 
 			{users && (
-				<DataTable columns={columns} data={users} emptyMessage="No users." />
+				<DataTable
+					columns={columns}
+					data={users}
+					emptyMessage={t("users.empty")}
+				/>
 			)}
 		</TitledLayout>
 	);

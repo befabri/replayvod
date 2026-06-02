@@ -22,6 +22,7 @@ export function CategoryBoxArt({
 }) {
 	const resolved = resolveBoxArtUrl(url, width, height);
 	const [errored, setErrored] = useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: resolved is the reset trigger (the URL changed), not read in the effect body — auto-removing it would stop the error state from clearing on a new src.
 	useEffect(() => {
 		setErrored(false);
 	}, [resolved]);

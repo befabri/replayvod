@@ -81,10 +81,8 @@ function ChannelsPage() {
 	const renderChannel = useCallback(
 		(channel: ChannelResponse) => (
 			<Link
-				// biome-ignore lint/suspicious/noExplicitAny: param route typing
-				to={"/dashboard/channels/$channelId" as any}
-				// biome-ignore lint/suspicious/noExplicitAny: param route typing
-				params={{ channelId: channel.broadcaster_id } as any}
+				to="/dashboard/channels/$channelId"
+				params={{ channelId: channel.broadcaster_id }}
 				className="flex items-center gap-3 rounded-md bg-card px-3 py-2 shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors duration-75"
 			>
 				<Avatar
