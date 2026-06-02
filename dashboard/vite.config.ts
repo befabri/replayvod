@@ -24,6 +24,12 @@ const config = defineConfig({
 		tanstackStart({
 			spa: {
 				enabled: true,
+				// Emit the prerendered shell as index.html so the Go server's SPA
+				// fallback (and any static host) serves it directly, with no rename
+				// step in the Docker build.
+				prerender: {
+					outputPath: "/index.html",
+				},
 			},
 		}),
 		viteReact(),

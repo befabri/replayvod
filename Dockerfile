@@ -32,8 +32,10 @@ COPY --from=gen /gen/trpc.ts /gen/zod.ts ./src/api/generated/
 
 ARG VITE_API_URL=""
 ENV VITE_API_URL=${VITE_API_URL}
-RUN npm run build && \
-    mv dist/client/_shell.html dist/client/index.html
+# SPA mode prerenders the shell to dist/client/index.html (configured via
+# spa.prerender.outputPath in vite.config.ts); the Go server serves it as the
+# 404/deep-link fallback.
+RUN npm run build
 
 # Build the Go binary on the native build platform and cross-compile to the
 # target arch. CGO is disabled (pure-Go deps), so this is just a GOARCH switch
