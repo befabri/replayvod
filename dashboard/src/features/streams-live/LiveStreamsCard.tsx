@@ -16,9 +16,9 @@ export function LiveStreamsCard() {
 		<div className="rounded-lg bg-card text-card-foreground p-4 shadow-sm sm:p-5">
 			<h2 className="text-sm font-medium mb-3">{t("streams_live.title")}</h2>
 			<ul className="space-y-2">
-				{events.map((e, i) => (
+				{events.map((e) => (
 					<li
-						key={`${e.broadcaster_id}-${e.started_at}-${i}`}
+						key={`${e.broadcaster_id}-${e.started_at}`}
 						className="flex items-center justify-between gap-4 text-sm"
 					>
 						<div className="min-w-0 flex-1">

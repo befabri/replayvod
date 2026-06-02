@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
+import { ViewAllLink } from "@/components/ui/view-all-link";
 import { useFollowedStreams } from "@/features/streams-live";
 import { useTick } from "@/hooks/useTick";
 import { formatRelative } from "@/lib/format-relative";
@@ -16,12 +17,21 @@ export function LastLiveStatistics() {
 	useTick(60_000);
 
 	const items = (data ?? []).slice(0, 4);
+	const total = (data ?? []).length;
 
 	return (
 		<div className="rounded-lg bg-card text-card-foreground p-4 shadow-sm sm:p-5">
-			<h5 className="mb-4 text-xl font-medium text-foreground">
-				{t("streams_live.title")}
-			</h5>
+			<div className="mb-4 flex items-center justify-between gap-3">
+				<h5 className="text-xl font-medium text-foreground">
+					{t("streams_live.title")}
+				</h5>
+				{total > 0 ? (
+					<ViewAllLink
+						to="/dashboard/channels"
+						search={{ filter: "live", sort: "name_asc" }}
+					/>
+				) : null}
+			</div>
 			{isLoading ? (
 				<div className="text-muted-foreground text-sm">
 					{t("common.loading")}
@@ -45,15 +55,13 @@ export function LastLiveStatistics() {
 								src={s.profile_image_url}
 								name={s.broadcaster_name}
 								alt={s.broadcaster_name}
-								size="lg"
+								size="md"
 								isLive
 							/>
 							<div className="min-w-0 flex-1">
 								<Link
-									// biome-ignore lint/suspicious/noExplicitAny: dynamic param route
-									to={"/dashboard/channels/$channelId" as any}
-									// biome-ignore lint/suspicious/noExplicitAny: dynamic param route
-									params={{ channelId: s.broadcaster_id } as any}
+									to="/dashboard/channels/$channelId"
+									params={{ channelId: s.broadcaster_id }}
 									className="truncate text-sm font-medium text-foreground hover:text-link"
 								>
 									{s.broadcaster_name}
