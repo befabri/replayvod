@@ -11,8 +11,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { QualityTag } from "@/components/ui/quality-tag";
 import { useChannel } from "@/features/channels";
 import type { ScheduleResponse } from "@/features/schedules";
+import { scheduleQualityLabel } from "@/features/schedules/quality";
 import { useToggleSchedule } from "@/features/schedules/queries";
 import { cn } from "@/lib/utils";
 import { EditForm } from "./EditForm";
@@ -59,7 +61,7 @@ export function ScheduleRow({ schedule }: { schedule: ScheduleResponse }) {
 						</div>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						<Badge variant="blue">{schedule.quality}</Badge>
+						<QualityTag>{scheduleQualityLabel(t, schedule.quality)}</QualityTag>
 						{schedule.has_min_viewers && schedule.min_viewers != null && (
 							<Badge variant="teal">
 								{schedule.min_viewers} {t("schedules.min_viewers_unit")}

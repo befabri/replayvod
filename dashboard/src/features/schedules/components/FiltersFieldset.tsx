@@ -8,20 +8,14 @@ import {
 } from "@/components/ui/multi-select-picker";
 import { CategoryMultiPicker } from "@/features/categories/components/CategoryMultiPicker";
 import { useTags } from "@/features/tags";
+import type { ScheduleFormApi } from "../form";
 import { MAX_RETENTION_WINDOW_HOURS } from "../schema";
 import { FieldError } from "./FieldError";
 
-// FiltersFieldset renders the shared filter controls used by both the
-// create and edit forms. Uses `any` on the form prop because TanStack
-// Form's inferred signature depends on a closure-captured validators
-// arg; typing it explicitly balloons the generic shape without payoff
-// for a one-file-shared component.
-//
 // Inputs are always rendered (never conditionally mounted) to avoid
 // layout shift when toggling the gating checkboxes. When the checkbox
 // is unchecked the corresponding input is disabled + dimmed.
-// biome-ignore lint/suspicious/noExplicitAny: See above
-export function FiltersFieldset({ form }: { form: any }) {
+export function FiltersFieldset({ form }: { form: ScheduleFormApi }) {
 	const { t } = useTranslation();
 	const tagsQuery = useTags();
 
@@ -40,7 +34,7 @@ export function FiltersFieldset({ form }: { form: any }) {
 
 			<Row>
 				<form.Field name="is_delete_rediff">
-					{(field: any) => (
+					{(field) => (
 						<ToggleRow
 							checked={field.state.value}
 							onChange={(c) => {
@@ -55,10 +49,10 @@ export function FiltersFieldset({ form }: { form: any }) {
 						/>
 					)}
 				</form.Field>
-				<form.Subscribe selector={(s: any) => s.values.is_delete_rediff}>
-					{(enabled: boolean) => (
+				<form.Subscribe<boolean> selector={(s) => s.values.is_delete_rediff}>
+					{(enabled) => (
 						<form.Field name="time_before_delete">
-							{(field: any) => (
+							{(field) => (
 								<NumberInputRow
 									id={field.name}
 									label={t("schedules.time_before_delete")}
@@ -77,7 +71,7 @@ export function FiltersFieldset({ form }: { form: any }) {
 
 			<Row>
 				<form.Field name="has_min_viewers">
-					{(field: any) => (
+					{(field) => (
 						<ToggleRow
 							checked={field.state.value}
 							onChange={(c) => {
@@ -88,10 +82,10 @@ export function FiltersFieldset({ form }: { form: any }) {
 						/>
 					)}
 				</form.Field>
-				<form.Subscribe selector={(s: any) => s.values.has_min_viewers}>
-					{(enabled: boolean) => (
+				<form.Subscribe<boolean> selector={(s) => s.values.has_min_viewers}>
+					{(enabled) => (
 						<form.Field name="min_viewers">
-							{(field: any) => (
+							{(field) => (
 								<NumberInputRow
 									id={field.name}
 									label={t("schedules.min_viewers")}
@@ -109,7 +103,7 @@ export function FiltersFieldset({ form }: { form: any }) {
 
 			<Row>
 				<form.Field name="has_categories">
-					{(field: any) => (
+					{(field) => (
 						<ToggleRow
 							checked={field.state.value}
 							onChange={(c) => {
@@ -120,10 +114,10 @@ export function FiltersFieldset({ form }: { form: any }) {
 						/>
 					)}
 				</form.Field>
-				<form.Subscribe selector={(s: any) => s.values.has_categories}>
-					{(enabled: boolean) => (
+				<form.Subscribe<boolean> selector={(s) => s.values.has_categories}>
+					{(enabled) => (
 						<form.Field name="category_ids">
-							{(field: any) => (
+							{(field) => (
 								<div className="pl-6">
 									<CategoryMultiPicker
 										selected={field.state.value ?? []}
@@ -139,7 +133,7 @@ export function FiltersFieldset({ form }: { form: any }) {
 
 			<Row>
 				<form.Field name="has_tags">
-					{(field: any) => (
+					{(field) => (
 						<ToggleRow
 							checked={field.state.value}
 							onChange={(c) => {
@@ -150,10 +144,10 @@ export function FiltersFieldset({ form }: { form: any }) {
 						/>
 					)}
 				</form.Field>
-				<form.Subscribe selector={(s: any) => s.values.has_tags}>
-					{(enabled: boolean) => (
+				<form.Subscribe<boolean> selector={(s) => s.values.has_tags}>
+					{(enabled) => (
 						<form.Field name="tag_ids">
-							{(field: any) => (
+							{(field) => (
 								<MultiSelectPicker<number>
 									options={tagOptions}
 									selected={field.state.value ?? []}

@@ -222,9 +222,7 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 							)}
 						</form.Field>
 						<form.Subscribe
-							selector={(s) =>
-								s.values.enabled && !s.values.onCompleted && !s.values.onFailed
-							}
+							selector={(s) => !s.values.onCompleted && !s.values.onFailed}
 						>
 							{(blocked) =>
 								blocked ? (

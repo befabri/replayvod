@@ -1,27 +1,21 @@
-import { useForm } from "@tanstack/react-form";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import { useChannel } from "@/features/channels";
 import type { ScheduleResponse } from "@/features/schedules";
+import {
+	buildSchedulePayload,
+	useScheduleForm,
+} from "@/features/schedules/form";
+import { scheduleQualityValue } from "@/features/schedules/quality";
 import {
 	useDeleteSchedule,
 	useUpdateSchedule,
 } from "@/features/schedules/queries";
-import {
-	ScheduleFormSchema,
-	type ScheduleFormValues,
-} from "@/features/schedules/schema";
+import type { ScheduleFormValues } from "@/features/schedules/schema";
 import { FiltersFieldset } from "./FiltersFieldset";
+import { QualityField } from "./QualityField";
 
 // EditForm mirrors the v1 shared ScheduleForm in edit mode: the
 // broadcaster field is shown read-only at the top (context, no change
@@ -39,47 +33,33 @@ export function EditForm({
 	const del = useDeleteSchedule();
 	const { data: channel } = useChannel(schedule.broadcaster_id);
 
-	const form = useForm({
-		defaultValues: {
-			broadcaster_id: schedule.broadcaster_id,
-			quality: schedule.quality as ScheduleFormValues["quality"],
-			has_min_viewers: schedule.has_min_viewers,
-			min_viewers: schedule.min_viewers ?? undefined,
-			has_categories: schedule.has_categories,
-			category_ids: schedule.categories.map((c) => c.id),
-			has_tags: schedule.has_tags,
-			tag_ids: schedule.tags.map((tag) => tag.id),
-			is_delete_rediff: schedule.is_delete_rediff,
-			time_before_delete: schedule.time_before_delete ?? undefined,
-		} as ScheduleFormValues,
-		validators: {
-			onSubmit: ScheduleFormSchema,
-		},
-		onSubmit: async ({ value }) => {
-			try {
-				await update.mutateAsync({
-					id: schedule.id,
-					quality: value.quality,
-					has_min_viewers: value.has_min_viewers,
-					min_viewers: value.has_min_viewers ? value.min_viewers : undefined,
-					has_categories: value.has_categories,
-					has_tags: value.has_tags,
-					is_delete_rediff: value.is_delete_rediff,
-					time_before_delete: value.is_delete_rediff
-						? value.time_before_delete
-						: undefined,
-					is_disabled: schedule.is_disabled,
-					category_ids: value.has_categories ? value.category_ids : [],
-					tag_ids: value.has_tags ? value.tag_ids : [],
-				});
-				toast.success(t("schedules.save"));
-				onDone();
-			} catch (err) {
-				toast.error(
-					err instanceof Error ? err.message : t("schedules.update_failed"),
-				);
-			}
-		},
+	const defaultValues: ScheduleFormValues = {
+		broadcaster_id: schedule.broadcaster_id,
+		quality: scheduleQualityValue(schedule.quality),
+		has_min_viewers: schedule.has_min_viewers,
+		min_viewers: schedule.min_viewers ?? undefined,
+		has_categories: schedule.has_categories,
+		category_ids: schedule.categories.map((c) => c.id),
+		has_tags: schedule.has_tags,
+		tag_ids: schedule.tags.map((tag) => tag.id),
+		is_delete_rediff: schedule.is_delete_rediff,
+		time_before_delete: schedule.time_before_delete ?? undefined,
+	};
+
+	const form = useScheduleForm(defaultValues, async (value) => {
+		try {
+			await update.mutateAsync({
+				...buildSchedulePayload(value),
+				id: schedule.id,
+				is_disabled: schedule.is_disabled,
+			});
+			toast.success(t("schedules.save"));
+			onDone();
+		} catch (err) {
+			toast.error(
+				err instanceof Error ? err.message : t("schedules.update_failed"),
+			);
+		}
 	});
 
 	const handleDelete = async () => {
@@ -121,36 +101,7 @@ export function EditForm({
 				</div>
 			</div>
 
-			<form.Field name="quality">
-				{(field) => (
-					<div className="flex flex-col gap-1 max-w-xs">
-						<Label htmlFor={field.name} className="text-muted-foreground">
-							{t("schedules.quality")}
-						</Label>
-						<Select
-							value={field.state.value}
-							onValueChange={(v) =>
-								field.handleChange(v as ScheduleFormValues["quality"])
-							}
-						>
-							<SelectTrigger id={field.name}>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="HIGH">
-									{t("schedules.quality_high")}
-								</SelectItem>
-								<SelectItem value="MEDIUM">
-									{t("schedules.quality_medium")}
-								</SelectItem>
-								<SelectItem value="LOW">
-									{t("schedules.quality_low")}
-								</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
-				)}
-			</form.Field>
+			<QualityField form={form} className="max-w-xs" />
 
 			<FiltersFieldset form={form} />
 

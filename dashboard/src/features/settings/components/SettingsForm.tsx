@@ -1,5 +1,4 @@
 import { useForm } from "@tanstack/react-form";
-import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { z } from "zod";
 import { SettingsUpdateInputSchema } from "@/api/generated/zod";
@@ -16,36 +15,47 @@ import {
 import { type SettingsResponse, useUpdateSettings } from "@/features/settings";
 
 type SettingsFormValues = z.infer<typeof SettingsUpdateInputSchema>;
+type DateTimeFormat = SettingsFormValues["datetime_format"];
+type SettingsLanguage = SettingsFormValues["language"];
+
+const DATE_TIME_FORMATS: readonly DateTimeFormat[] = ["ISO", "EU", "US"];
+const SETTINGS_LANGUAGES: readonly SettingsLanguage[] = ["en", "fr"];
+
+function isDateTimeFormat(value: unknown): value is DateTimeFormat {
+	return DATE_TIME_FORMATS.some((format) => format === value);
+}
+
+function isSettingsLanguage(value: unknown): value is SettingsLanguage {
+	return SETTINGS_LANGUAGES.some((language) => language === value);
+}
+
+function settingsFormValues(data: SettingsResponse): SettingsFormValues {
+	return {
+		timezone: data.timezone || "UTC",
+		datetime_format: isDateTimeFormat(data.datetime_format)
+			? data.datetime_format
+			: "ISO",
+		language: isSettingsLanguage(data.language) ? data.language : "en",
+	};
+}
 
 export function SettingsForm({ data }: { data: SettingsResponse }) {
 	const { t } = useTranslation();
 	const update = useUpdateSettings();
 
+	// Defaults are computed from the loaded settings at first render — the parent
+	// only mounts this form once `data` is present — so there's no prop-to-state
+	// sync effect. Successful saves re-baseline from the mutation response below.
 	const form = useForm({
-		defaultValues: {
-			timezone: "UTC",
-			datetime_format: "ISO",
-			language: "en",
-		} as SettingsFormValues,
+		defaultValues: settingsFormValues(data),
 		validators: {
 			onSubmit: SettingsUpdateInputSchema,
 		},
-		onSubmit: async ({ value }) => {
-			await update.mutateAsync(value);
+		onSubmit: async ({ value, formApi }) => {
+			const saved = await update.mutateAsync(value);
+			formApi.reset(settingsFormValues(saved));
 		},
 	});
-
-	// Sync defaults into the form once settings load. Without this,
-	// the form mounts with placeholder defaults and a user submit
-	// would overwrite their server-side values with defaults.
-	useEffect(() => {
-		form.reset({
-			timezone: data.timezone,
-			datetime_format:
-				data.datetime_format as SettingsFormValues["datetime_format"],
-			language: data.language as SettingsFormValues["language"],
-		});
-	}, [data, form]);
 
 	return (
 		<form
@@ -81,9 +91,11 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 						<Label htmlFor={field.name}>{t("settings.datetime_format")}</Label>
 						<Select
 							value={field.state.value}
-							onValueChange={(v) =>
-								field.handleChange(v as SettingsFormValues["datetime_format"])
-							}
+							onValueChange={(v) => {
+								if (typeof v === "string" && isDateTimeFormat(v)) {
+									field.handleChange(v);
+								}
+							}}
 						>
 							<SelectTrigger id={field.name}>
 								<SelectValue />
@@ -104,9 +116,11 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 						<Label htmlFor={field.name}>{t("settings.language")}</Label>
 						<Select
 							value={field.state.value}
-							onValueChange={(v) =>
-								field.handleChange(v as SettingsFormValues["language"])
-							}
+							onValueChange={(v) => {
+								if (typeof v === "string" && isSettingsLanguage(v)) {
+									field.handleChange(v);
+								}
+							}}
 						>
 							<SelectTrigger id={field.name}>
 								<SelectValue />

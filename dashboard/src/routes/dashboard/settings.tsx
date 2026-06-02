@@ -28,7 +28,10 @@ function SettingsPage() {
 					</div>
 				)}
 
-				{data && <SettingsForm data={data} />}
+				{/* Key on updated_at so a server-side settings change (e.g. another
+				    tab, or the post-save refetch) remounts the form to re-baseline
+				    its defaults — no prop-to-state sync effect needed. */}
+				{data && <SettingsForm key={data.updated_at} data={data} />}
 			</div>
 		</TitledLayout>
 	);
