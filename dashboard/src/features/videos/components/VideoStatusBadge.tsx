@@ -1,24 +1,29 @@
 import { useTranslation } from "react-i18next";
+import type { CompletionKind, VideoStatus } from "@/api/generated/trpc";
 import { videoStatusLabel } from "@/features/videos/labels";
+
+// Record<VideoStatus, string> so a new generated status is a compile error here
+// rather than silently falling through to an undefined class.
+const STATUS_CLASS: Record<VideoStatus, string> = {
+	DONE: "bg-badge-green-bg text-badge-green-fg",
+	FAILED: "bg-badge-red-bg text-badge-red-fg",
+	RUNNING: "bg-badge-blue-bg text-badge-blue-fg animate-pulse",
+	PENDING: "bg-muted text-muted-foreground",
+};
 
 export function VideoStatusBadge({
 	status,
 	completionKind,
 }: {
-	status: string;
-	completionKind?: string;
+	status: VideoStatus;
+	completionKind?: CompletionKind;
 }) {
 	const { t } = useTranslation();
 	const isCancelled = status === "FAILED" && completionKind === "cancelled";
 	const isPartial = status === "DONE" && completionKind === "partial";
 	const cls = isCancelled
 		? "bg-muted text-muted-foreground"
-		: ({
-				DONE: "bg-badge-green-bg text-badge-green-fg",
-				FAILED: "bg-badge-red-bg text-badge-red-fg",
-				RUNNING: "bg-badge-blue-bg text-badge-blue-fg animate-pulse",
-				PENDING: "bg-muted text-muted-foreground",
-			}[status] ?? "bg-muted text-muted-foreground");
+		: STATUS_CLASS[status];
 	const label = isCancelled
 		? videoStatusLabel(t, "CANCELLED")
 		: videoStatusLabel(t, status);

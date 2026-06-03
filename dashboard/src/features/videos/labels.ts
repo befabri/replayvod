@@ -1,24 +1,14 @@
 import type { TFunction } from "i18next";
-import type { VideoResponse } from "@/api/generated/trpc";
+import type { VideoResponse, VideoStatus } from "@/api/generated/trpc";
 import { formatDuration } from "./format";
 
-type VideoStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED" | "CANCELLED";
-type VideoStatusLabelKey =
-	| "videos.status.PENDING"
-	| "videos.status.RUNNING"
-	| "videos.status.DONE"
-	| "videos.status.FAILED"
-	| "videos.status.CANCELLED";
+// LabeledStatus is the generated wire VideoStatus union plus the UI-only
+// CANCELLED, which the server never sends as a status. It's rendered for a
+// FAILED recording whose completion_kind is "cancelled".
+type LabeledStatus = VideoStatus | "CANCELLED";
+type VideoStatusLabelKey = `videos.status.${LabeledStatus}`;
 
-const VIDEO_STATUSES: readonly VideoStatus[] = [
-	"PENDING",
-	"RUNNING",
-	"DONE",
-	"FAILED",
-	"CANCELLED",
-];
-
-const VIDEO_STATUS_LABEL_KEYS: Record<VideoStatus, VideoStatusLabelKey> = {
+const VIDEO_STATUS_LABEL_KEYS: Record<LabeledStatus, VideoStatusLabelKey> = {
 	PENDING: "videos.status.PENDING",
 	RUNNING: "videos.status.RUNNING",
 	DONE: "videos.status.DONE",
@@ -26,12 +16,12 @@ const VIDEO_STATUS_LABEL_KEYS: Record<VideoStatus, VideoStatusLabelKey> = {
 	CANCELLED: "videos.status.CANCELLED",
 };
 
-function isVideoStatus(status: string): status is VideoStatus {
-	return VIDEO_STATUSES.some((known) => known === status);
+function isLabeledStatus(status: string): status is LabeledStatus {
+	return Object.hasOwn(VIDEO_STATUS_LABEL_KEYS, status);
 }
 
 export function videoStatusLabel(t: TFunction, status: string): string {
-	return isVideoStatus(status)
+	return isLabeledStatus(status)
 		? t(VIDEO_STATUS_LABEL_KEYS[status], status)
 		: status;
 }

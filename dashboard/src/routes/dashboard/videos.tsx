@@ -1,13 +1,13 @@
 import {
-	FunnelSimple,
-	Rows,
-	SortAscending,
-	SquaresFour,
+	FunnelSimpleIcon,
+	RowsIcon,
+	SortAscendingIcon,
+	SquaresFourIcon,
 } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { VideoResponse } from "@/api/generated/trpc";
+import type { VideoResponse, VideoStatus } from "@/api/generated/trpc";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -52,7 +52,12 @@ const SORT_CONFIG: Record<SortKey, { sort: VideoSort; order: VideoOrder }> = {
 };
 
 const SORT_KEYS = Object.keys(SORT_CONFIG) as SortKey[];
-const STATUS_KEYS = ["DONE", "RUNNING", "PENDING", "FAILED"] as const;
+const STATUS_KEYS = [
+	"DONE",
+	"RUNNING",
+	"PENDING",
+	"FAILED",
+] as const satisfies readonly VideoStatus[];
 type StatusKey = (typeof STATUS_KEYS)[number];
 
 // TabKey scopes the page to a high-level "what am I looking at"
@@ -333,7 +338,7 @@ function VideosPage() {
 								"bg-primary text-primary-foreground hover:bg-primary-hover hover:text-primary-foreground",
 						)}
 					>
-						<FunnelSimple className="size-4" />
+						<FunnelSimpleIcon className="size-4" />
 						{t("videos.filters")}
 					</Button>
 				</>
@@ -514,7 +519,7 @@ function SortSelect({
 		<Select value={current} onValueChange={(next) => onChange(next as SortKey)}>
 			<SelectTrigger variant="chip" className="min-w-[150px]">
 				<div className="flex items-center gap-2">
-					<SortAscending className="size-4 text-muted-foreground" />
+					<SortAscendingIcon className="size-4 text-muted-foreground" />
 					<span className="truncate text-sm font-medium">{label}</span>
 				</div>
 			</SelectTrigger>
@@ -538,8 +543,8 @@ function ViewToggle({
 }) {
 	const { t } = useTranslation();
 	const modes: Array<{ key: ViewMode; icon: React.ReactNode }> = [
-		{ key: "grid", icon: <SquaresFour className="size-4" /> },
-		{ key: "table", icon: <Rows className="size-4" /> },
+		{ key: "grid", icon: <SquaresFourIcon className="size-4" /> },
+		{ key: "table", icon: <RowsIcon className="size-4" /> },
 	];
 	return (
 		<fieldset className="inline-flex items-center rounded-md border border-border bg-card p-0.5">

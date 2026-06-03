@@ -2,9 +2,8 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import type { UserInfo } from "@/features/users";
 import { useUpdateUserRole } from "@/features/users";
-import { isRole, type Role } from "@/stores/auth";
+import { isRole, ROLES, type Role } from "@/stores/auth";
 
-const ROLE_OPTIONS: readonly Role[] = ["viewer", "admin", "owner"];
 type UserRoleLabelKey =
 	| "users.role_viewer"
 	| "users.role_admin"
@@ -47,7 +46,7 @@ function RoleSelect({
 					{t("users.role_unknown")}
 				</option>
 			)}
-			{ROLE_OPTIONS.map((role) => (
+			{ROLES.map((role) => (
 				<option key={role} value={role}>
 					{t(ROLE_LABEL_KEYS[role])}
 				</option>

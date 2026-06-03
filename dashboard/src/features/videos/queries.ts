@@ -11,6 +11,8 @@ import { useMemo, useState } from "react";
 import type {
 	ActiveDownloadResponse,
 	TimelineEvent,
+	TitleItem,
+	VideoCategory,
 	VideoListPageCursor,
 	VideoListPageResponse,
 	VideoPageResponse,
@@ -19,25 +21,11 @@ import { useTRPC } from "@/api/trpc";
 import { timelineEventsWithSpanFallback } from "@/features/videos/timeline";
 import { withSessionProbe } from "@/stores/auth";
 
-// VideoCategory is the row shape for a category attached to a video
-// recording. `duration_seconds` is the total tracked time the stream
-// spent in that category.
-export type VideoCategory = {
-	id: string;
-	name: string;
-	box_art_url?: string | null;
-	started_at: string;
-	ended_at?: string | null;
-	duration_seconds: number;
-};
-
-export type VideoTitle = {
-	id: number;
-	name: string;
-	started_at: string;
-	ended_at?: string | null;
-	duration_seconds: number;
-};
+// VideoCategory (the category-span row) and VideoTitle (the title-span row) are
+// the generated wire shapes of video.categories / video.titles. VideoTitle
+// keeps its dashboard name as an alias of the generated TitleItem.
+export type { VideoCategory };
+export type VideoTitle = TitleItem;
 
 export type VideoTimelineQueryOptions = {
 	refetchInterval?: number;

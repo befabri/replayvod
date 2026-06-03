@@ -1,7 +1,10 @@
 import { useTranslation } from "react-i18next";
+import type { VideoStatus } from "@/api/generated/trpc";
 import { useStatistics } from "@/features/videos/queries";
 
-type StatusKey = "DONE" | "RUNNING" | "FAILED";
+// The dashboard card surfaces three of the wire statuses; Extract keeps this
+// subset honest if the generated VideoStatus union ever changes.
+type StatusKey = Extract<VideoStatus, "DONE" | "RUNNING" | "FAILED">;
 
 export function VideoStatistics() {
 	const { t } = useTranslation();

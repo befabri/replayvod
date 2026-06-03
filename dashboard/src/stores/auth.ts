@@ -1,10 +1,15 @@
 import { Store } from "@tanstack/store";
+import { RoleEnum } from "@/api/generated/enums";
+import type { Role } from "@/api/generated/trpc";
 import { handleApiError, redirectToLogin } from "@/api/unauthorized";
 import { trpcClient } from "@/integrations/tanstack-query/root-provider";
 
-export type Role = "viewer" | "admin" | "owner";
+// Role is generated from the Go middleware.Role enum. The guards below narrow
+// the server's role strings (session/user payloads carry it) onto this union.
+export type { Role };
 
-const ROLES: readonly Role[] = ["viewer", "admin", "owner"];
+// ROLES is the generated set of role values; the user-role dropdown reuses it.
+export const ROLES: readonly Role[] = Object.values(RoleEnum);
 
 export function isRole(value: string): value is Role {
 	return ROLES.some((role) => role === value);

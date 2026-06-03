@@ -1,7 +1,8 @@
-import { FunnelSimple } from "@phosphor-icons/react";
+import { FunnelSimpleIcon } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { VideoStatus } from "@/api/generated/trpc";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -15,7 +16,7 @@ import { useInfiniteVideoPages } from "@/features/videos";
 import { historyColumns } from "@/features/videos/components/activityColumns";
 
 const PAGE_SIZE = 50;
-type StatusKey = "DONE" | "FAILED";
+type StatusKey = Extract<VideoStatus, "DONE" | "FAILED">;
 const STATUS_KEYS: StatusKey[] = ["DONE", "FAILED"];
 
 function isStatusKey(value: unknown): value is StatusKey {
@@ -147,7 +148,7 @@ function StatusDropdown({
 			<DropdownMenuTrigger
 				render={(triggerProps) => (
 					<Button variant="outline" size="sm" {...triggerProps}>
-						<FunnelSimple className="size-4" />
+						<FunnelSimpleIcon className="size-4" />
 						{labels[current]}
 					</Button>
 				)}

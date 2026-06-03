@@ -1,8 +1,16 @@
-import { CheckCircle, FloppyDisk, WarningCircle } from "@phosphor-icons/react";
+import {
+	CheckCircleIcon,
+	FloppyDiskIcon,
+	WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { useForm } from "@tanstack/react-form";
 import { useTranslation } from "react-i18next";
 import type { z } from "zod";
-import type { ConfigResponse, UpdateConfigInput } from "@/api/generated/trpc";
+import type {
+	ConfigResponse,
+	ServerMode,
+	UpdateConfigInput,
+} from "@/api/generated/trpc";
 import { UpdateConfigInputSchema } from "@/api/generated/zod";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +33,9 @@ import {
 import { cn } from "@/lib/utils";
 import { useUpdateEventSubConfig } from "../queries";
 
-type Mode = "off" | "poll" | "direct" | "relay";
+// Mode is the generated ServerMode union (Go config.ServerMode); the form's
+// FormValues["mode"] resolves to the same set via the oneof on the input schema.
+type Mode = ServerMode;
 
 // FormValues is the validated config shape; mode is narrowed to the enum the
 // schema enforces (the wire type widens it to string).
@@ -170,9 +180,9 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 				<div>
 					<CardTitle className="flex items-center gap-2">
 						{data.setup_required ? (
-							<WarningCircle className="size-5 text-yellow-600" />
+							<WarningCircleIcon className="size-5 text-yellow-600" />
 						) : (
-							<CheckCircle className="size-5 text-green-600" />
+							<CheckCircleIcon className="size-5 text-green-600" />
 						)}
 						{t("eventsub.config_title")}
 					</CardTitle>
@@ -323,7 +333,7 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 
 						<div>
 							<Button type="submit" disabled={disabled}>
-								<FloppyDisk data-icon="inline-start" />
+								<FloppyDiskIcon data-icon="inline-start" />
 								{update.isPending
 									? t("common.saving")
 									: t("eventsub.save_config")}

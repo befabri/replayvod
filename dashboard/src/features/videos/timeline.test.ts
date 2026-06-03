@@ -171,7 +171,6 @@ describe("timelineEventsWithSpanFallback", () => {
 				{
 					id: "coworking",
 					name: "Co-working & Studying",
-					box_art_url: null,
 					started_at: "2026-01-01T00:00:00Z",
 					duration_seconds: 90,
 				},
