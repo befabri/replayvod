@@ -6,11 +6,11 @@ package schedule
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/trpcgo"
@@ -96,31 +96,13 @@ func toResponse(v schedulesvc.View) ScheduleResponse {
 	return resp
 }
 
-// mapErr translates schedule sentinels to tRPC codes. Anything not
-// specifically mapped is logged and surfaced as a 500 — callers pass
-// an action verb for the log + operator-facing message.
-func (h *Handler) mapErr(err error, action string) error {
-	if errors.Is(err, repository.ErrNotFound) {
-		return trpcgo.NewError(trpcgo.CodeNotFound, "schedule not found")
-	}
-	if errors.Is(err, schedulesvc.ErrNotOwner) {
-		return trpcgo.NewError(trpcgo.CodeForbidden, "not your schedule")
-	}
-	if errors.Is(err, schedulesvc.ErrInvalidFilter) {
-		return trpcgo.NewError(trpcgo.CodeBadRequest, err.Error())
-	}
-	h.log.Error(action, "error", err)
-	return trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to "+action)
-}
-
-// callerContext extracts the authenticated user. Returns a tRPC auth
-// error when no session is attached.
-func callerContext(ctx context.Context) (*repository.User, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
-	}
-	return user, nil
+// scheduleErrRules map the schedule domain sentinels to tRPC codes, shared by
+// every handler in this package. ErrInvalidFilter surfaces its own validation
+// message verbatim; ErrNotFound/ErrNotOwner get fixed operator-facing strings.
+var scheduleErrRules = []apierr.Rule{
+	apierr.On(repository.ErrNotFound, trpcgo.CodeNotFound, "schedule not found"),
+	apierr.On(schedulesvc.ErrNotOwner, trpcgo.CodeForbidden, "not your schedule"),
+	apierr.OnVerbatim(schedulesvc.ErrInvalidFilter, trpcgo.CodeBadRequest),
 }
 
 type ListInput struct {
@@ -136,13 +118,13 @@ type ListResponse struct {
 // viewers see only their own. We intentionally don't paginate on a total
 // count because the expected cardinality is low (one per user per channel).
 func (h *Handler) List(ctx context.Context, input ListInput) (ListResponse, error) {
-	user, err := callerContext(ctx)
+	user, err := middleware.RequireUser(ctx)
 	if err != nil {
 		return ListResponse{}, err
 	}
 	views, err := h.svc.List(ctx, user.ID, user.Role == middleware.RoleOwner, input.Limit, input.Offset)
 	if err != nil {
-		return ListResponse{}, h.mapErr(err, "list schedules")
+		return ListResponse{}, apierr.Map(h.log, err, "list schedules", scheduleErrRules...)
 	}
 	return ListResponse{Data: toResponses(views)}, nil
 }
@@ -151,13 +133,13 @@ func (h *Handler) List(ctx context.Context, input ListInput) (ListResponse, erro
 // so a future public API can expose it to viewers without granting the
 // system-wide list that owners have.
 func (h *Handler) Mine(ctx context.Context, input ListInput) (ListResponse, error) {
-	user, err := callerContext(ctx)
+	user, err := middleware.RequireUser(ctx)
 	if err != nil {
 		return ListResponse{}, err
 	}
 	views, err := h.svc.Mine(ctx, user.ID, input.Limit, input.Offset)
 	if err != nil {
-		return ListResponse{}, h.mapErr(err, "list schedules")
+		return ListResponse{}, apierr.Map(h.log, err, "list schedules", scheduleErrRules...)
 	}
 	return ListResponse{Data: toResponses(views)}, nil
 }
@@ -168,13 +150,13 @@ type GetByIDInput struct {
 
 // GetByID returns a single schedule. Non-owners may only see their own.
 func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (ScheduleResponse, error) {
-	user, err := callerContext(ctx)
+	user, err := middleware.RequireUser(ctx)
 	if err != nil {
 		return ScheduleResponse{}, err
 	}
 	view, err := h.svc.GetByID(ctx, user.ID, user.Role == middleware.RoleOwner, input.ID)
 	if err != nil {
-		return ScheduleResponse{}, h.mapErr(err, "load schedule")
+		return ScheduleResponse{}, apierr.Map(h.log, err, "load schedule", scheduleErrRules...)
 	}
 	return toResponse(*view), nil
 }
@@ -206,7 +188,7 @@ type CreateInput struct {
 // caller; admins cannot create a schedule on someone else's behalf — role
 // boundaries stay intact at the service layer.
 func (h *Handler) Create(ctx context.Context, input CreateInput) (ScheduleResponse, error) {
-	user, err := callerContext(ctx)
+	user, err := middleware.RequireUser(ctx)
 	if err != nil {
 		return ScheduleResponse{}, err
 	}
@@ -224,7 +206,7 @@ func (h *Handler) Create(ctx context.Context, input CreateInput) (ScheduleRespon
 		TagIDs:           input.TagIDs,
 	})
 	if err != nil {
-		return ScheduleResponse{}, h.mapErr(err, "create schedule")
+		return ScheduleResponse{}, apierr.Map(h.log, err, "create schedule", scheduleErrRules...)
 	}
 	return toResponse(*view), nil
 }
@@ -255,7 +237,7 @@ type UpdateInput struct {
 // can edit any. The underlying SQL preserves trigger_count and
 // last_triggered_at — see the adapter test for the regression gate.
 func (h *Handler) Update(ctx context.Context, input UpdateInput) (ScheduleResponse, error) {
-	user, err := callerContext(ctx)
+	user, err := middleware.RequireUser(ctx)
 	if err != nil {
 		return ScheduleResponse{}, err
 	}
@@ -272,7 +254,7 @@ func (h *Handler) Update(ctx context.Context, input UpdateInput) (ScheduleRespon
 		TagIDs:           input.TagIDs,
 	})
 	if err != nil {
-		return ScheduleResponse{}, h.mapErr(err, "update schedule")
+		return ScheduleResponse{}, apierr.Map(h.log, err, "update schedule", scheduleErrRules...)
 	}
 	return toResponse(*view), nil
 }
@@ -284,13 +266,13 @@ type ToggleInput struct {
 // Toggle flips is_disabled in one atomic UPDATE so the dashboard checkbox
 // can POST without re-sending the full payload.
 func (h *Handler) Toggle(ctx context.Context, input ToggleInput) (ScheduleResponse, error) {
-	user, err := callerContext(ctx)
+	user, err := middleware.RequireUser(ctx)
 	if err != nil {
 		return ScheduleResponse{}, err
 	}
 	view, err := h.svc.Toggle(ctx, user.ID, user.Role == middleware.RoleOwner, input.ID)
 	if err != nil {
-		return ScheduleResponse{}, h.mapErr(err, "toggle schedule")
+		return ScheduleResponse{}, apierr.Map(h.log, err, "toggle schedule", scheduleErrRules...)
 	}
 	return toResponse(*view), nil
 }
@@ -305,12 +287,12 @@ type DeleteResponse struct {
 
 // Delete removes a schedule and its junction rows (ON DELETE CASCADE).
 func (h *Handler) Delete(ctx context.Context, input DeleteInput) (DeleteResponse, error) {
-	user, err := callerContext(ctx)
+	user, err := middleware.RequireUser(ctx)
 	if err != nil {
 		return DeleteResponse{}, err
 	}
 	if err := h.svc.Delete(ctx, user.ID, user.Role == middleware.RoleOwner, input.ID); err != nil {
-		return DeleteResponse{}, h.mapErr(err, "delete schedule")
+		return DeleteResponse{}, apierr.Map(h.log, err, "delete schedule", scheduleErrRules...)
 	}
 	return DeleteResponse{ID: input.ID}, nil
 }

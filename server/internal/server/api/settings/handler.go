@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
-	"github.com/befabri/trpcgo"
 )
 
 // Handler is the tRPC adapter for the settings domain.
@@ -42,14 +42,13 @@ func toResponse(s *repository.Settings) SettingsResponse {
 }
 
 func (h *Handler) Get(ctx context.Context) (SettingsResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return SettingsResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return SettingsResponse{}, err
 	}
 	row, err := h.svc.Get(ctx, user.ID)
 	if err != nil {
-		h.log.Error("get settings", "user_id", user.ID, "error", err)
-		return SettingsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load settings")
+		return SettingsResponse{}, apierr.Map(h.log, err, "load settings")
 	}
 	return toResponse(row), nil
 }
@@ -61,9 +60,9 @@ type UpdateInput struct {
 }
 
 func (h *Handler) Update(ctx context.Context, input UpdateInput) (SettingsResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return SettingsResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return SettingsResponse{}, err
 	}
 	row, err := h.svc.Update(ctx, &repository.Settings{
 		UserID:         user.ID,
@@ -72,8 +71,7 @@ func (h *Handler) Update(ctx context.Context, input UpdateInput) (SettingsRespon
 		Language:       input.Language,
 	})
 	if err != nil {
-		h.log.Error("update settings", "user_id", user.ID, "error", err)
-		return SettingsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to update settings")
+		return SettingsResponse{}, apierr.Map(h.log, err, "update settings")
 	}
 	return toResponse(row), nil
 }

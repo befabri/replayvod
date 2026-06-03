@@ -2,12 +2,11 @@ package task
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/trpcgo"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 )
 
 // Handler is the tRPC adapter for the task domain.
@@ -58,8 +57,7 @@ type ListResponse struct {
 func (h *Handler) List(ctx context.Context) (ListResponse, error) {
 	rows, err := h.svc.List(ctx)
 	if err != nil {
-		h.log.Error("list tasks", "error", err)
-		return ListResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list tasks")
+		return ListResponse{}, apierr.Map(h.log, err, "list tasks")
 	}
 	data := make([]TaskResponse, len(rows))
 	for i := range rows {
@@ -76,11 +74,7 @@ type ToggleInput struct {
 func (h *Handler) Toggle(ctx context.Context, input ToggleInput) (TaskResponse, error) {
 	row, err := h.svc.SetEnabled(ctx, input.Name, input.Enabled)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return TaskResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "task not found")
-		}
-		h.log.Error("toggle task", "name", input.Name, "error", err)
-		return TaskResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to toggle task")
+		return TaskResponse{}, apierr.Map(h.log, err, "toggle task")
 	}
 	return toResponse(row), nil
 }
@@ -92,11 +86,7 @@ type RunNowInput struct {
 func (h *Handler) RunNow(ctx context.Context, input RunNowInput) (TaskResponse, error) {
 	row, err := h.svc.RunNow(ctx, input.Name)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return TaskResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "task not found")
-		}
-		h.log.Error("run task now", "name", input.Name, "error", err)
-		return TaskResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to schedule run")
+		return TaskResponse{}, apierr.Map(h.log, err, "schedule run")
 	}
 	return toResponse(row), nil
 }

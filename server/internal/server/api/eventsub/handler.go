@@ -9,11 +9,11 @@ package eventsub
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 	"github.com/befabri/trpcgo"
@@ -111,8 +111,7 @@ func stateToResponse(state eventsubconfig.State) ConfigResponse {
 func (h *Handler) Config(ctx context.Context) (ConfigResponse, error) {
 	state, err := h.configSvc.State(ctx)
 	if err != nil {
-		h.log.Error("get eventsub config", "error", err)
-		return ConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load EventSub config")
+		return ConfigResponse{}, apierr.Map(h.log, err, "load EventSub config")
 	}
 	return stateToResponse(state), nil
 }
@@ -137,14 +136,9 @@ func (h *Handler) UpdateConfig(ctx context.Context, input UpdateConfigInput) (Co
 		RelayLocalCallbackURL: input.RelayLocalCallbackURL,
 	})
 	if err != nil {
-		if errors.Is(err, eventsubconfig.ErrEnvManaged) {
-			return ConfigResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, "Server mode is managed by environment variables")
-		}
-		if errors.Is(err, eventsubconfig.ErrInvalid) {
-			return ConfigResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, err.Error())
-		}
-		h.log.Error("update eventsub config", "error", err)
-		return ConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to save server mode config")
+		return ConfigResponse{}, apierr.Map(h.log, err, "save server mode config",
+			apierr.On(eventsubconfig.ErrEnvManaged, trpcgo.CodeBadRequest, "Server mode is managed by environment variables"),
+			apierr.OnVerbatim(eventsubconfig.ErrInvalid, trpcgo.CodeBadRequest))
 	}
 	return stateToResponse(state), nil
 }
@@ -219,8 +213,7 @@ type ListSubscriptionsResponse struct {
 func (h *Handler) ListSubscriptions(ctx context.Context, input ListInput) (ListSubscriptionsResponse, error) {
 	subs, total, err := h.svc.ListActiveSubscriptions(ctx, input.Limit, input.Offset)
 	if err != nil {
-		h.log.Error("list active subs", "error", err)
-		return ListSubscriptionsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list subscriptions")
+		return ListSubscriptionsResponse{}, apierr.Map(h.log, err, "list subscriptions")
 	}
 	data := make([]SubscriptionResponse, len(subs))
 	for i := range subs {
@@ -239,8 +232,7 @@ type ListSnapshotsResponse struct {
 func (h *Handler) ListSnapshots(ctx context.Context, input ListInput) (ListSnapshotsResponse, error) {
 	snaps, err := h.svc.ListSnapshots(ctx, input.Limit, input.Offset)
 	if err != nil {
-		h.log.Error("list snapshots", "error", err)
-		return ListSnapshotsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list snapshots")
+		return ListSnapshotsResponse{}, apierr.Map(h.log, err, "list snapshots")
 	}
 	data := make([]SnapshotResponse, len(snaps))
 	for i := range snaps {
@@ -259,8 +251,7 @@ type LatestSnapshotResponse struct {
 func (h *Handler) LatestSnapshot(ctx context.Context) (LatestSnapshotResponse, error) {
 	snap, err := h.svc.LatestSnapshot(ctx)
 	if err != nil {
-		h.log.Error("latest snapshot", "error", err)
-		return LatestSnapshotResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load snapshot")
+		return LatestSnapshotResponse{}, apierr.Map(h.log, err, "load snapshot")
 	}
 	if snap == nil {
 		return LatestSnapshotResponse{}, nil
@@ -275,8 +266,7 @@ func (h *Handler) LatestSnapshot(ctx context.Context) (LatestSnapshotResponse, e
 func (h *Handler) Snapshot(ctx context.Context) (SnapshotResponse, error) {
 	snap, err := h.svc.Snapshot(ctx)
 	if err != nil {
-		h.log.Error("manual snapshot", "error", err)
-		return SnapshotResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to poll twitch")
+		return SnapshotResponse{}, apierr.Map(h.log, err, "poll twitch")
 	}
 	return snapshotToResponse(snap), nil
 }
@@ -294,8 +284,9 @@ func (h *Handler) SubscribeStreamOnline(ctx context.Context, input SubscribeInpu
 	}
 	sub, err := h.svc.SubscribeStreamOnline(ctx, input.BroadcasterID)
 	if err != nil {
-		h.log.Error("subscribe stream.online", "broadcaster", input.BroadcasterID, "error", err)
-		return SubscriptionResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to create subscription")
+		return SubscriptionResponse{}, apierr.Map(h.log, err, "create subscription",
+			apierr.On(eventsubsvc.ErrCallbackURLNotUsable, trpcgo.CodeBadRequest,
+				"callback URL is not a valid HTTPS endpoint"))
 	}
 	return subToResponse(sub), nil
 }
@@ -319,8 +310,7 @@ func (h *Handler) Unsubscribe(ctx context.Context, input UnsubscribeInput) (Unsu
 		reason = "manual"
 	}
 	if err := h.svc.Unsubscribe(ctx, input.ID, reason); err != nil {
-		h.log.Error("unsubscribe", "id", input.ID, "error", err)
-		return UnsubscribeResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to revoke subscription")
+		return UnsubscribeResponse{}, apierr.Map(h.log, err, "revoke subscription")
 	}
 	return UnsubscribeResponse{ID: input.ID}, nil
 }

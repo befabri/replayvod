@@ -13,6 +13,18 @@ import (
 // ctxKeyHTTPRequest stores the *http.Request for tRPC handlers.
 const ctxKeyHTTPRequest contextKey = "http_request"
 
+// RequireUser returns the authenticated user from ctx, or a CodeUnauthorized
+// "not authenticated" error when there is none. It replaces the hand-rolled
+// `user := GetUser(ctx); if user == nil { ... }` guard duplicated across every
+// authed handler.
+func RequireUser(ctx context.Context) (*repository.User, error) {
+	user := GetUser(ctx)
+	if user == nil {
+		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	}
+	return user, nil
+}
+
 // WithContextCreator is passed to trpcgo.WithContextCreator.
 // It stores the incoming *http.Request in the context so tRPC middleware can access cookies.
 func WithContextCreator(ctx context.Context, r *http.Request) context.Context {

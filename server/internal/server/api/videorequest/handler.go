@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
-	"github.com/befabri/trpcgo"
 )
 
 // Handler is the tRPC adapter for the video-request domain.
@@ -33,9 +33,9 @@ type VideoSummary struct {
 }
 
 func (h *Handler) Mine(ctx context.Context, input ListInput) ([]VideoSummary, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 	limit := input.Limit
 	if limit <= 0 {
@@ -43,8 +43,7 @@ func (h *Handler) Mine(ctx context.Context, input ListInput) ([]VideoSummary, er
 	}
 	videos, err := h.svc.ListForUser(ctx, user.ID, limit, input.Offset)
 	if err != nil {
-		h.log.Error("list video requests", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list requests")
+		return nil, apierr.Map(h.log, err, "list requests")
 	}
 	out := make([]VideoSummary, len(videos))
 	for i, v := range videos {
@@ -67,13 +66,12 @@ type OK struct {
 }
 
 func (h *Handler) Request(ctx context.Context, input RequestInput) (OK, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return OK{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return OK{}, err
 	}
 	if err := h.svc.Request(ctx, user.ID, input.VideoID); err != nil {
-		h.log.Error("add video request", "error", err)
-		return OK{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to request video")
+		return OK{}, apierr.Map(h.log, err, "request video")
 	}
 	return OK{OK: true}, nil
 }

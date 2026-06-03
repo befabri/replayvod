@@ -2,10 +2,10 @@ package system
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/trpcgo"
 )
@@ -37,8 +37,7 @@ func toUserInfo(u *repository.User) UserInfo {
 func (h *Handler) ListUsers(ctx context.Context) ([]UserInfo, error) {
 	users, err := h.svc.ListUsers(ctx)
 	if err != nil {
-		h.log.Error("list users", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list users")
+		return nil, apierr.Map(h.log, err, "list users")
 	}
 	out := make([]UserInfo, len(users))
 	for i := range users {
@@ -53,20 +52,14 @@ type UpdateUserRoleInput struct {
 }
 
 func (h *Handler) UpdateUserRole(ctx context.Context, input UpdateUserRoleInput) (UserInfo, error) {
-	caller := middleware.GetUser(ctx)
-	if caller == nil {
-		return UserInfo{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	caller, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return UserInfo{}, err
 	}
 	u, err := h.svc.UpdateUserRole(ctx, caller.ID, input.UserID, input.Role)
 	if err != nil {
-		if errors.Is(err, ErrCannotDemoteSelf) {
-			return UserInfo{}, trpcgo.NewError(trpcgo.CodeBadRequest, "cannot demote yourself")
-		}
-		if errors.Is(err, repository.ErrNotFound) {
-			return UserInfo{}, trpcgo.NewError(trpcgo.CodeNotFound, "user not found")
-		}
-		h.log.Error("update user role", "user_id", input.UserID, "error", err)
-		return UserInfo{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to update user role")
+		return UserInfo{}, apierr.Map(h.log, err, "update user role",
+			apierr.On(ErrCannotDemoteSelf, trpcgo.CodeBadRequest, "cannot demote yourself"))
 	}
 	return toUserInfo(u), nil
 }

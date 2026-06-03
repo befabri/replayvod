@@ -2,11 +2,11 @@ package channel
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
@@ -61,11 +61,7 @@ type GetByIDInput struct {
 func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (ChannelResponse, error) {
 	c, err := h.svc.GetByID(ctx, input.BroadcasterID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "channel not found")
-		}
-		h.log.Error("get channel", "error", err)
-		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get channel")
+		return ChannelResponse{}, apierr.Map(h.log, err, "get channel")
 	}
 	return toResponse(c), nil
 }
@@ -77,11 +73,7 @@ type GetByLoginInput struct {
 func (h *Handler) GetByLogin(ctx context.Context, input GetByLoginInput) (ChannelResponse, error) {
 	c, err := h.svc.GetByLogin(ctx, input.Login)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "channel not found")
-		}
-		h.log.Error("get channel by login", "error", err)
-		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get channel")
+		return ChannelResponse{}, apierr.Map(h.log, err, "get channel by login")
 	}
 	return toResponse(c), nil
 }
@@ -89,8 +81,7 @@ func (h *Handler) GetByLogin(ctx context.Context, input GetByLoginInput) (Channe
 func (h *Handler) List(ctx context.Context) ([]ChannelResponse, error) {
 	channels, err := h.svc.List(ctx)
 	if err != nil {
-		h.log.Error("list channels", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list channels")
+		return nil, apierr.Map(h.log, err, "list channels")
 	}
 	out := make([]ChannelResponse, len(channels))
 	for i := range channels {
@@ -128,8 +119,7 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (ChannelPag
 	}
 	page, err := h.svc.ListPage(ctx, limit, sort, input.LiveOnly, toRepositoryChannelPageCursor(input.Cursor))
 	if err != nil {
-		h.log.Error("list channels page", "error", err)
-		return ChannelPageResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list channels")
+		return ChannelPageResponse{}, apierr.Map(h.log, err, "list channels page")
 	}
 	out := make([]ChannelResponse, len(page.Items))
 	for i := range page.Items {
@@ -139,14 +129,13 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (ChannelPag
 }
 
 func (h *Handler) ListFollowed(ctx context.Context) ([]ChannelResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 	channels, err := h.svc.ListFollowedByUser(ctx, user.ID)
 	if err != nil {
-		h.log.Error("list followed channels", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list followed channels")
+		return nil, apierr.Map(h.log, err, "list followed channels")
 	}
 	out := make([]ChannelResponse, len(channels))
 	for i := range channels {
@@ -192,8 +181,7 @@ func (h *Handler) Search(ctx context.Context, input SearchInput) ([]ChannelRespo
 	}
 	channels, err := h.svc.Search(ctx, input.Query, limit)
 	if err != nil {
-		h.log.Error("search channels", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to search channels")
+		return nil, apierr.Map(h.log, err, "search channels")
 	}
 	out := make([]ChannelResponse, len(channels))
 	for i := range channels {
@@ -233,8 +221,7 @@ func (h *Handler) LatestLive(ctx context.Context, input LatestLiveInput) ([]Late
 	}
 	rows, err := h.svc.LatestLive(ctx, limit)
 	if err != nil {
-		h.log.Error("latest live per channel", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load latest live streams")
+		return nil, apierr.Map(h.log, err, "load latest live streams")
 	}
 	out := make([]LatestLiveResponse, len(rows))
 	for i, r := range rows {
@@ -263,9 +250,9 @@ type SyncFromTwitchInput struct {
 // SyncFromTwitch uses the caller's user access token so rate-limit +
 // fetch-log attribution stays accurate.
 func (h *Handler) SyncFromTwitch(ctx context.Context, input SyncFromTwitchInput) (ChannelResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return ChannelResponse{}, err
 	}
 	c, err := h.svc.SyncFromTwitch(ctx, SyncInput{
 		BroadcasterID: input.BroadcasterID,
@@ -276,8 +263,7 @@ func (h *Handler) SyncFromTwitch(ctx context.Context, input SyncFromTwitchInput)
 			h.log.Warn("sync channel", "error", err)
 			return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "twitch session expired; sign in again")
 		}
-		h.log.Error("sync channel", "error", err)
-		return ChannelResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to sync channel")
+		return ChannelResponse{}, apierr.Map(h.log, err, "sync channel")
 	}
 	return toResponse(c), nil
 }

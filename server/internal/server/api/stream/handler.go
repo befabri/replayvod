@@ -2,11 +2,11 @@ package stream
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
@@ -53,8 +53,7 @@ func toResponse(s *repository.Stream) StreamResponse {
 func (h *Handler) Active(ctx context.Context) ([]StreamResponse, error) {
 	streams, err := h.svc.ListActive(ctx)
 	if err != nil {
-		h.log.Error("list active streams", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list active streams")
+		return nil, apierr.Map(h.log, err, "list active streams")
 	}
 	out := make([]StreamResponse, len(streams))
 	for i := range streams {
@@ -76,8 +75,7 @@ func (h *Handler) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (
 	}
 	streams, err := h.svc.ListByBroadcaster(ctx, input.BroadcasterID, limit, input.Offset)
 	if err != nil {
-		h.log.Error("list streams by broadcaster", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list streams")
+		return nil, apierr.Map(h.log, err, "list streams by broadcaster")
 	}
 	out := make([]StreamResponse, len(streams))
 	for i := range streams {
@@ -93,11 +91,7 @@ type LastLiveInput struct {
 func (h *Handler) LastLive(ctx context.Context, input LastLiveInput) (StreamResponse, error) {
 	stream, err := h.svc.GetLastLive(ctx, input.BroadcasterID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return StreamResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "no streams for broadcaster")
-		}
-		h.log.Error("get last live stream", "error", err)
-		return StreamResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load stream")
+		return StreamResponse{}, apierr.Map(h.log, err, "load stream")
 	}
 	return toResponse(stream), nil
 }
@@ -190,27 +184,22 @@ func (h *Handler) LiveIds(ctx context.Context) ([]string, error) {
 // so Followed and LiveIds share the auth check and the error envelope
 // exactly — if one changes, both change.
 func (h *Handler) followedFromSession(ctx context.Context, logTag string) ([]FollowedStream, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return nil, err
 	}
 	followed, err := h.svc.Followed(ctx, FollowedInput{
 		UserID: user.ID,
 	})
 	if err != nil {
+		// twitch.IsUserAuthError is a predicate, not an errors.Is sentinel, so
+		// handle it before Map. Map covers cancel→ClientClosed,
+		// deadline→Timeout, and the generic 500.
 		if twitch.IsUserAuthError(err) {
 			h.log.Warn(logTag, "error", err)
 			return nil, trpcgo.NewError(trpcgo.CodeUnauthorized, "twitch session expired; sign in again")
 		}
-		if errors.Is(err, context.Canceled) {
-			return nil, trpcgo.NewError(trpcgo.CodeClientClosed, "request canceled")
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			h.log.Warn(logTag, "error", err)
-			return nil, trpcgo.NewError(trpcgo.CodeTimeout, "request timed out")
-		}
-		h.log.Error(logTag, "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load live streams")
+		return nil, apierr.Map(h.log, err, logTag)
 	}
 	return followed, nil
 }

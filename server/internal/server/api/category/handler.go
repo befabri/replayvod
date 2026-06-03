@@ -2,12 +2,11 @@ package category
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/trpcgo"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 )
 
 // Handler is the tRPC adapter for the category domain.
@@ -49,11 +48,7 @@ type GetByIDInput struct {
 func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (CategoryResponse, error) {
 	c, err := h.svc.GetByID(ctx, input.ID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return CategoryResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "category not found")
-		}
-		h.log.Error("get category", "error", err)
-		return CategoryResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get category")
+		return CategoryResponse{}, apierr.Map(h.log, err, "get category")
 	}
 	return toResponse(c), nil
 }
@@ -61,8 +56,7 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (CategoryResp
 func (h *Handler) List(ctx context.Context) ([]CategoryResponse, error) {
 	rows, err := h.svc.List(ctx)
 	if err != nil {
-		h.log.Error("list categories", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list categories")
+		return nil, apierr.Map(h.log, err, "list categories")
 	}
 	out := make([]CategoryResponse, len(rows))
 	for i := range rows {
@@ -87,8 +81,7 @@ func (h *Handler) Search(ctx context.Context, input SearchInput) ([]CategoryResp
 	}
 	rows, err := h.svc.Search(ctx, input.Query, limit)
 	if err != nil {
-		h.log.Error("search categories", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to search categories")
+		return nil, apierr.Map(h.log, err, "search categories")
 	}
 	out := make([]CategoryResponse, len(rows))
 	for i := range rows {

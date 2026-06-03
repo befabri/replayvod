@@ -2,10 +2,10 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/trpcgo"
@@ -45,9 +45,9 @@ type SessionResponse struct {
 // Session returns the current authenticated user. Pure ctx extraction
 // — no service call needed.
 func (h *TRPCHandler) Session(ctx context.Context) (SessionResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return SessionResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return SessionResponse{}, err
 	}
 	return SessionResponse{
 		UserID:          user.ID,
@@ -71,8 +71,7 @@ func (h *TRPCHandler) Logout(ctx context.Context) (LogoutResult, error) {
 		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
 	}
 	if err := h.svc.DeleteSession(ctx, sess.HashedID); err != nil {
-		h.log.Error("delete session", "error", err)
-		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to logout")
+		return LogoutResult{}, apierr.Map(h.log, err, "logout")
 	}
 	trpcgo.SetCookie(ctx, h.sessionMgr.ClearCookie())
 	return LogoutResult{OK: true}, nil
@@ -100,8 +99,7 @@ func (h *TRPCHandler) ListSessions(ctx context.Context) ([]SessionInfo, error) {
 	}
 	rows, err := h.svc.ListSessionsForUser(ctx, user.ID)
 	if err != nil {
-		h.log.Error("list sessions", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list sessions")
+		return nil, apierr.Map(h.log, err, "list sessions")
 	}
 	out := make([]SessionInfo, len(rows))
 	for i, row := range rows {
@@ -127,16 +125,13 @@ type RevokeSessionInput struct {
 // current user). ErrSessionNotOwned collapses "exists but not yours"
 // and "doesn't exist" to 404 — stops session-enumeration probing.
 func (h *TRPCHandler) RevokeSession(ctx context.Context, input RevokeSessionInput) (LogoutResult, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return LogoutResult{}, err
 	}
 	if err := h.svc.RevokeUserSession(ctx, user.ID, input.HashedID); err != nil {
-		if errors.Is(err, ErrSessionNotOwned) {
-			return LogoutResult{}, trpcgo.NewError(trpcgo.CodeNotFound, "session not found")
-		}
-		h.log.Error("revoke session", "error", err)
-		return LogoutResult{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to revoke")
+		return LogoutResult{}, apierr.Map(h.log, err, "revoke session",
+			apierr.On(ErrSessionNotOwned, trpcgo.CodeNotFound, "session not found"))
 	}
 
 	// If revoking the current session, clear the cookie too so the

@@ -3,10 +3,10 @@ package system
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/trpcgo"
 )
 
@@ -46,8 +46,7 @@ func playbackCacheConfigResponse(cfg *PlaybackCacheConfig) PlaybackCacheConfigRe
 func (h *Handler) PlaybackCacheConfig(ctx context.Context) (PlaybackCacheConfigResponse, error) {
 	cfg, err := h.svc.GetPlaybackCacheConfig(ctx)
 	if err != nil {
-		h.log.Error("load playback cache config", "error", err)
-		return PlaybackCacheConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load playback cache config")
+		return PlaybackCacheConfigResponse{}, apierr.Map(h.log, err, "load playback cache config")
 	}
 	return playbackCacheConfigResponse(cfg), nil
 }
@@ -59,11 +58,8 @@ func (h *Handler) UpdatePlaybackCacheConfig(ctx context.Context, input UpdatePla
 		AutoGenerate: input.AutoGenerate,
 	})
 	if err != nil {
-		if errors.Is(err, ErrInvalidPlaybackCacheConfig) {
-			return PlaybackCacheConfigResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, "invalid playback cache config")
-		}
-		h.log.Error("update playback cache config", "error", err)
-		return PlaybackCacheConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to update playback cache config")
+		return PlaybackCacheConfigResponse{}, apierr.Map(h.log, err, "update playback cache config",
+			apierr.On(ErrInvalidPlaybackCacheConfig, trpcgo.CodeBadRequest, "invalid playback cache config"))
 	}
 	return playbackCacheConfigResponse(cfg), nil
 }
@@ -103,8 +99,7 @@ func (h *Handler) FetchLogs(ctx context.Context, input FetchLogsInput) (FetchLog
 		FetchType: input.FetchType,
 	})
 	if err != nil {
-		h.log.Error("load fetch logs", "error", err)
-		return FetchLogsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load fetch logs")
+		return FetchLogsResponse{}, apierr.Map(h.log, err, "load fetch logs")
 	}
 	data := make([]FetchLogEntry, len(logs))
 	for i, l := range logs {
@@ -156,8 +151,7 @@ func (h *Handler) EventLogs(ctx context.Context, input EventLogsInput) (EventLog
 		Severity: input.Severity,
 	})
 	if err != nil {
-		h.log.Error("load event logs", "error", err)
-		return EventLogsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load event logs")
+		return EventLogsResponse{}, apierr.Map(h.log, err, "load event logs")
 	}
 	data := make([]EventLogEntry, len(rows))
 	for i, r := range rows {
@@ -200,8 +194,7 @@ type SearchEventLogsResponse struct {
 func (h *Handler) SearchEventLogs(ctx context.Context, input SearchEventLogsInput) (SearchEventLogsResponse, error) {
 	out, err := h.svc.SearchEventLogs(ctx, input.Query, input.Limit, input.Offset)
 	if err != nil {
-		h.log.Error("search event logs", "error", err)
-		return SearchEventLogsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to search event logs")
+		return SearchEventLogsResponse{}, apierr.Map(h.log, err, "search event logs")
 	}
 	data := make([]SearchEventLogEntry, len(out.Results))
 	for i, r := range out.Results {

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/befabri/trpcgo"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 )
 
 // Handler is the tRPC adapter for the tag domain.
@@ -29,8 +29,7 @@ type TagResponse struct {
 func (h *Handler) List(ctx context.Context) ([]TagResponse, error) {
 	rows, err := h.svc.List(ctx)
 	if err != nil {
-		h.log.Error("list tags", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list tags")
+		return nil, apierr.Map(h.log, err, "list tags")
 	}
 	out := make([]TagResponse, len(rows))
 	for i, r := range rows {

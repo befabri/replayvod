@@ -72,6 +72,13 @@ func GetUser(ctx context.Context) *repository.User {
 	return u
 }
 
+// WithUser returns ctx carrying user, as the auth middleware does on a real
+// request. Exposed so handler tests can exercise authed procedures (and the
+// RequireUser guard) without standing up the full middleware chain.
+func WithUser(ctx context.Context, user *repository.User) context.Context {
+	return context.WithValue(ctx, ctxKeyUser, user)
+}
+
 // GetTokens returns the Twitch tokens from context.
 func GetTokens(ctx context.Context) *session.TwitchTokens {
 	t, _ := ctx.Value(ctxKeyTokens).(*session.TwitchTokens)

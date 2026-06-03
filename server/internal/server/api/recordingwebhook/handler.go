@@ -8,11 +8,11 @@ package recordingwebhook
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
 	svc "github.com/befabri/replayvod/server/internal/recordingwebhook"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/trpcgo"
 )
 
@@ -69,8 +69,7 @@ func toResponse(c svc.Config) RecordingWebhookConfigResponse {
 func (h *Handler) Config(ctx context.Context) (RecordingWebhookConfigResponse, error) {
 	cfg, err := h.svc.Get(ctx)
 	if err != nil {
-		h.log.Error("get recording webhook config", "error", err)
-		return RecordingWebhookConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load webhook config")
+		return RecordingWebhookConfigResponse{}, apierr.Map(h.log, err, "load webhook config")
 	}
 	return toResponse(cfg), nil
 }
@@ -99,11 +98,8 @@ func (h *Handler) UpdateConfig(ctx context.Context, input RecordingWebhookUpdate
 		Events:  input.Events,
 	})
 	if err != nil {
-		if errors.Is(err, svc.ErrInvalid) {
-			return RecordingWebhookConfigResponse{}, trpcgo.NewError(trpcgo.CodeBadRequest, err.Error())
-		}
-		h.log.Error("update recording webhook config", "error", err)
-		return RecordingWebhookConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to save webhook config")
+		return RecordingWebhookConfigResponse{}, apierr.Map(h.log, err, "save webhook config",
+			apierr.OnVerbatim(svc.ErrInvalid, trpcgo.CodeBadRequest))
 	}
 	return toResponse(cfg), nil
 }
@@ -114,8 +110,7 @@ func (h *Handler) UpdateConfig(ctx context.Context, input RecordingWebhookUpdate
 func (h *Handler) RegenerateSecret(ctx context.Context) (RecordingWebhookConfigResponse, error) {
 	cfg, err := h.svc.RegenerateSecret(ctx)
 	if err != nil {
-		h.log.Error("regenerate recording webhook secret", "error", err)
-		return RecordingWebhookConfigResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to regenerate secret")
+		return RecordingWebhookConfigResponse{}, apierr.Map(h.log, err, "regenerate secret")
 	}
 	return toResponse(cfg), nil
 }
@@ -162,8 +157,7 @@ func (h *Handler) Deliveries(ctx context.Context) ([]RecordingWebhookDeliveryRes
 	}
 	recs, err := h.dispatch.RecentDeliveries(ctx)
 	if err != nil {
-		h.log.Error("list recording webhook deliveries", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load webhook deliveries")
+		return nil, apierr.Map(h.log, err, "load webhook deliveries")
 	}
 	out := make([]RecordingWebhookDeliveryResponse, len(recs))
 	for i, r := range recs {
@@ -195,11 +189,8 @@ func (h *Handler) RetryDelivery(ctx context.Context, input RecordingWebhookRetry
 	}
 	rec, err := h.dispatch.RetryDelivery(ctx, input.ID)
 	if err != nil {
-		if errors.Is(err, svc.ErrDeliveryNotRetryable) {
-			return RecordingWebhookDeliveryResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "delivery not found or not in a retryable state")
-		}
-		h.log.Error("retry recording webhook delivery", "id", input.ID, "error", err)
-		return RecordingWebhookDeliveryResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to retry webhook delivery")
+		return RecordingWebhookDeliveryResponse{}, apierr.Map(h.log, err, "retry webhook delivery",
+			apierr.On(svc.ErrDeliveryNotRetryable, trpcgo.CodeNotFound, "delivery not found or not in a retryable state"))
 	}
 	return deliveryResponse(rec), nil
 }
