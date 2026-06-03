@@ -94,3 +94,19 @@ jobs:
           go test -tags ffmpeg -count=1 -run TestReal ./internal/downloader/remux/...
           go test -tags ffmpeg -count=1 -run "^TestMultipart_|^TestResume_" ./internal/downloader/...
       - run: go run ./tools/twitch-api-gen -check -out ./internal/twitch/ -schema-in ./tools/twitch-api-gen/testdata/normalized-schema.json
+
+  server-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      # Testcontainers boots Postgres and Garage for storage/relay e2e coverage.
+      # Keep this separate from the fast unit job because container startup is slower.
+      - name: Integration tests (testcontainers)
+        run: go test -tags integration -count=1 ./...

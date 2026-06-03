@@ -6,10 +6,12 @@ import { defineConfig, devices } from "@playwright/test";
 // SPA on :3000.
 export default defineConfig({
 	testDir: "./tests",
-	fullyParallel: true,
+	// One shared Vite server makes parallel workers flaky on cold route compiles.
+	// Serial keeps this small suite deterministic locally and in CI.
+	fullyParallel: false,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
-	workers: process.env.CI ? 1 : undefined,
+	workers: 1,
 	reporter: "html",
 	use: {
 		// Dedicated port: :3000 is often taken in dev (e.g. Grafana), so the e2e
