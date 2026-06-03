@@ -180,7 +180,7 @@ func defaultAppForTest() config.AppConfig {
 			MaxRestartGapSeconds: 120,
 		},
 		Storage: config.StorageConfig{Type: "local", LocalPath: ""},
-		Logging: config.LoggingConfig{SampleRate: 1.0, LogLevel: "warn"},
+		Logging: config.LoggingConfig{LogLevel: "warn"},
 		PostgresPool: config.PostgresPoolConfig{
 			MaxConns: 25, MinConns: 5,
 			MaxConnLifetimeMs: 1800000, MaxConnIdleTimeMs: 300000,

@@ -44,12 +44,12 @@ func ParseLogLevel(level string) slog.Level {
 }
 
 // SetupLogger configures the global logger with console and optional file output.
-func SetupLogger(output io.Writer, serviceName string, logToFile bool, logDir string, sampleRate float64) *slog.Logger {
-	return SetupLoggerWithLevel(output, serviceName, logToFile, logDir, sampleRate, slog.LevelDebug)
+func SetupLogger(output io.Writer, serviceName string, logToFile bool, logDir string) *slog.Logger {
+	return SetupLoggerWithLevel(output, serviceName, logToFile, logDir, slog.LevelDebug)
 }
 
 // SetupLoggerWithLevel configures the global logger with a specific log level.
-func SetupLoggerWithLevel(output io.Writer, serviceName string, logToFile bool, logDir string, sampleRate float64, level slog.Level) *slog.Logger {
+func SetupLoggerWithLevel(output io.Writer, serviceName string, logToFile bool, logDir string, level slog.Level) *slog.Logger {
 	var handlers []slog.Handler
 
 	if logToFile {

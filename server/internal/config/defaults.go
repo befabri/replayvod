@@ -43,10 +43,9 @@ func getDefaultAppConfig() AppConfig {
 			RecordingsRetentionIntervalMinutes:    60,
 		},
 		Logging: LoggingConfig{
-			LogToFile:  false,
-			LogDir:     "./logs",
-			LogLevel:   "debug",
-			SampleRate: 1.0,
+			LogToFile: false,
+			LogDir:    "./logs",
+			LogLevel:  "debug",
 		},
 		PostgresPool: PostgresPoolConfig{
 			MaxConns:            25,
@@ -95,10 +94,6 @@ func validateAppConfig(config *AppConfig) {
 		config.Download.MaxPartSeconds = 0
 	}
 	config.Download.MaxPartCount = orDefault(config.Download.MaxPartCount, 1024)
-	// SampleRate must be in (0, 1]; reset anything outside to full sampling.
-	if config.Logging.SampleRate <= 0 || config.Logging.SampleRate > 1 {
-		config.Logging.SampleRate = 1.0
-	}
 	config.PostgresPool.MaxConns = orDefault(config.PostgresPool.MaxConns, 25)
 	config.PostgresPool.MinConns = orDefault(config.PostgresPool.MinConns, 5)
 	// MinConns can't exceed MaxConns or pgxpool rejects the config at open.

@@ -61,7 +61,6 @@ recording_webhook_delivery_retention_days = 30
 log_to_file = false
 log_dir = "./logs"
 log_level = "debug"
-sample_rate = 1.0
 
 [postgres]
 max_conns = 25

@@ -341,10 +341,9 @@ type SchedulerConfig struct {
 }
 
 type LoggingConfig struct {
-	LogToFile  bool    `toml:"log_to_file"`
-	LogDir     string  `toml:"log_dir"`
-	LogLevel   string  `toml:"log_level"`
-	SampleRate float64 `toml:"sample_rate"`
+	LogToFile bool   `toml:"log_to_file"`
+	LogDir    string `toml:"log_dir"`
+	LogLevel  string `toml:"log_level"`
 }
 
 type PostgresPoolConfig struct {

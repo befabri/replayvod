@@ -58,7 +58,7 @@ func main() {
 	log := logger.SetupLoggerWithLevel(
 		os.Stderr, "replayvod",
 		cfg.App.Logging.LogToFile, cfg.App.Logging.LogDir,
-		cfg.App.Logging.SampleRate, level,
+		level,
 	)
 
 	// Connect to database and create repository

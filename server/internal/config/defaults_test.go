@@ -74,10 +74,9 @@ func TestGetDefaultAppConfig(t *testing.T) {
 			RecordingsRetentionIntervalMinutes:    60,
 		},
 		Logging: LoggingConfig{
-			LogToFile:  false,
-			LogDir:     "./logs",
-			LogLevel:   "debug",
-			SampleRate: 1.0,
+			LogToFile: false,
+			LogDir:    "./logs",
+			LogLevel:  "debug",
 		},
 		PostgresPool: PostgresPoolConfig{
 			MaxConns:            25,
@@ -122,7 +121,6 @@ func validBaseline() AppConfig {
 	cfg.Download.MaxPartBytes = 4_000_000_000
 	cfg.Download.MaxPartSeconds = 3600
 	cfg.Download.MaxPartCount = 2048
-	cfg.Logging.SampleRate = 0.5
 	cfg.PostgresPool.MaxConns = 40
 	cfg.PostgresPool.MinConns = 8
 	return cfg
@@ -223,13 +221,6 @@ func TestValidateAppConfigFieldRules(t *testing.T) {
 		{"max part count zero clamps", func(c *AppConfig) { c.Download.MaxPartCount = 0 }, func(c *AppConfig) any { return c.Download.MaxPartCount }, int32(1024)},
 		{"max part count negative clamps", func(c *AppConfig) { c.Download.MaxPartCount = -1 }, func(c *AppConfig) any { return c.Download.MaxPartCount }, int32(1024)},
 		{"max part count one stays", func(c *AppConfig) { c.Download.MaxPartCount = 1 }, func(c *AppConfig) any { return c.Download.MaxPartCount }, int32(1)},
-
-		// SampleRate: valid range is (0, 1]; clamp outside to 1.0.
-		{"sample rate zero clamps", func(c *AppConfig) { c.Logging.SampleRate = 0 }, func(c *AppConfig) any { return c.Logging.SampleRate }, 1.0},
-		{"sample rate negative clamps", func(c *AppConfig) { c.Logging.SampleRate = -0.2 }, func(c *AppConfig) any { return c.Logging.SampleRate }, 1.0},
-		{"sample rate above one clamps", func(c *AppConfig) { c.Logging.SampleRate = 1.5 }, func(c *AppConfig) any { return c.Logging.SampleRate }, 1.0},
-		{"sample rate mid stays", func(c *AppConfig) { c.Logging.SampleRate = 0.3 }, func(c *AppConfig) any { return c.Logging.SampleRate }, 0.3},
-		{"sample rate one stays", func(c *AppConfig) { c.Logging.SampleRate = 1.0 }, func(c *AppConfig) any { return c.Logging.SampleRate }, 1.0},
 
 		// PostgresPool.MaxConns: clamp <= 0 to 25 (int32).
 		{"max conns zero clamps", func(c *AppConfig) { c.PostgresPool.MaxConns = 0 }, func(c *AppConfig) any { return c.PostgresPool.MaxConns }, int32(25)},

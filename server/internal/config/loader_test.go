@@ -59,6 +59,26 @@ func TestLoadTOML(t *testing.T) {
 			t.Fatalf("MaxConcurrent = %d, want 5", app.Download.MaxConcurrent)
 		}
 	})
+
+	t.Run("deprecated sample rate is tolerated", func(t *testing.T) {
+		path := writeFile(t, t.TempDir(), "config.toml", "[logging]\nsample_rate = 0.5\nlog_level = \"warn\"\n")
+		app := getDefaultAppConfig()
+		if err := loadTOML(path, &app); err != nil {
+			t.Fatalf("loadTOML(deprecated sample_rate) = %v, want nil", err)
+		}
+		if app.Logging.LogLevel != "warn" {
+			t.Fatalf("LogLevel = %q, want warn", app.Logging.LogLevel)
+		}
+	})
+}
+
+func TestIsDeprecatedConfigKey(t *testing.T) {
+	if !isDeprecatedConfigKey("logging.sample_rate") {
+		t.Fatal("logging.sample_rate should be recognized as deprecated")
+	}
+	if isDeprecatedConfigKey("download.max_concurrent") {
+		t.Fatal("active config key reported as deprecated")
+	}
 }
 
 // clearServerModeEnv forces the EventSub-related env vars present-but-empty so

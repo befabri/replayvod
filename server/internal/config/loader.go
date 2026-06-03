@@ -126,10 +126,18 @@ func loadTOML(path string, config *AppConfig) error {
 	slog.Info("Loaded config.toml", "path", path)
 
 	for _, key := range meta.Undecoded() {
+		if isDeprecatedConfigKey(key.String()) {
+			slog.Warn("Deprecated config key ignored", "key", key.String())
+			continue
+		}
 		slog.Warn("Unknown config key (typo?)", "key", key.String())
 	}
 
 	return nil
+}
+
+func isDeprecatedConfigKey(key string) bool {
+	return key == "logging.sample_rate"
 }
 
 // GetConfig returns the loaded configuration (thread-safe).
