@@ -40,6 +40,14 @@ func NewHandler(service *svc.Service, dispatch sender, log *slog.Logger) *Handle
 	return &Handler{svc: service, dispatch: dispatch, log: log.With("domain", "recording-webhook-api")}
 }
 
+// errDispatcherInert is returned by the live-delivery procedures when no
+// dispatcher is wired. A nil dispatcher is a supported "feature off" runtime
+// state (see NewHandler), not a server fault, so it maps to ServiceUnavailable.
+// A 500 would wrongly signal a crash and tell the operator to file a bug
+// instead of enabling the subsystem. Safe to share as a package-level value:
+// trpcgo treats *Error as immutable (the response path only reads it).
+var errDispatcherInert = trpcgo.NewError(trpcgo.CodeServiceUnavailable, "the recording-webhook subsystem is not running")
+
 // RecordingWebhookConfigResponse is the owner-facing webhook config. Secret is
 // returned in full (owner-only route): the owner needs it to configure
 // verification on the receiving end. The type name is deliberately qualified —
@@ -128,7 +136,7 @@ type RecordingWebhookTestResult struct {
 // and reports the result. Owner-only, like the rest of this surface.
 func (h *Handler) TestDelivery(ctx context.Context) (RecordingWebhookTestResult, error) {
 	if h.dispatch == nil {
-		return RecordingWebhookTestResult{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "webhook dispatcher is not running")
+		return RecordingWebhookTestResult{}, errDispatcherInert
 	}
 	r := h.dispatch.SendTest(ctx)
 	return RecordingWebhookTestResult{OK: r.OK, Status: r.Status, Error: r.Error}, nil
@@ -185,7 +193,7 @@ type RecordingWebhookRetryDeliveryInput struct {
 
 func (h *Handler) RetryDelivery(ctx context.Context, input RecordingWebhookRetryDeliveryInput) (RecordingWebhookDeliveryResponse, error) {
 	if h.dispatch == nil {
-		return RecordingWebhookDeliveryResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "webhook dispatcher is not running")
+		return RecordingWebhookDeliveryResponse{}, errDispatcherInert
 	}
 	rec, err := h.dispatch.RetryDelivery(ctx, input.ID)
 	if err != nil {

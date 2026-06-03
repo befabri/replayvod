@@ -227,11 +227,14 @@ func TestHandler_TestDelivery_relaysResult(t *testing.T) {
 	}
 }
 
-func TestHandler_TestDelivery_noDispatcherErrors(t *testing.T) {
+// TestHandler_TestDelivery_noDispatcherIsServiceUnavailable pins that an inert
+// dispatcher (a supported feature-off state) surfaces as 503 ServiceUnavailable,
+// not a 500 — the latter would wrongly tell the operator a server fault occurred
+// instead of "enable the webhook subsystem."
+func TestHandler_TestDelivery_noDispatcherIsServiceUnavailable(t *testing.T) {
 	h := newHandler(&fakeStore{settings: &repository.ServerSettings{}}) // nil sender
-	if _, err := h.TestDelivery(context.Background()); err == nil {
-		t.Fatal("expected an error when no dispatcher is wired")
-	}
+	_, err := h.TestDelivery(context.Background())
+	requireTRPCCode(t, err, trpcgo.CodeServiceUnavailable)
 }
 
 func TestHandler_Deliveries_mapsRecords(t *testing.T) {
@@ -293,10 +296,10 @@ func TestHandler_RetryDelivery_internalErrorMapsToInternal(t *testing.T) {
 	requireTRPCCode(t, err, trpcgo.CodeInternalServerError)
 }
 
-func TestHandler_RetryDelivery_noDispatcherErrors(t *testing.T) {
+func TestHandler_RetryDelivery_noDispatcherIsServiceUnavailable(t *testing.T) {
 	h := newHandler(&fakeStore{settings: &repository.ServerSettings{}})
 	_, err := h.RetryDelivery(context.Background(), RecordingWebhookRetryDeliveryInput{ID: 123})
-	requireTRPCCode(t, err, trpcgo.CodeInternalServerError)
+	requireTRPCCode(t, err, trpcgo.CodeServiceUnavailable)
 }
 
 func TestHandler_Deliveries_noDispatcherReturnsEmpty(t *testing.T) {

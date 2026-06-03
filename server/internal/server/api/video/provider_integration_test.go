@@ -36,12 +36,16 @@ func (f *fakeDownloadRepo) ListVideosByJobIDs(context.Context, []string) ([]repo
 }
 
 type fakeDownloadRunner struct {
-	params downloader.Params
-	jobID  string
+	params   downloader.Params
+	jobID    string
+	startErr error
 }
 
 func (f *fakeDownloadRunner) Start(_ context.Context, p downloader.Params) (string, error) {
 	f.params = p
+	if f.startErr != nil {
+		return "", f.startErr
+	}
 	if f.jobID == "" {
 		f.jobID = "job-1"
 	}

@@ -7,6 +7,7 @@ package system
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -36,9 +37,13 @@ func (s *Service) ListUsers(ctx context.Context) ([]repository.User, error) {
 	return s.repo.ListUsers(ctx)
 }
 
-// UpdateUserRole assigns a role, returning the reloaded user row.
-// callerID must be the currently-authenticated user's ID so the
-// self-demotion guard can fire.
+// UpdateUserRole assigns a role, returning the reloaded user row. callerID must
+// be the currently-authenticated user's ID so the self-demotion guard can fire.
+//
+// This does not revoke sessions: role gates load the user row from the
+// repository on every request, so an existing session keeps login state but not
+// stale elevated permissions. Whitelist removal is different because the
+// whitelist is only checked at login.
 func (s *Service) UpdateUserRole(ctx context.Context, callerID, targetID, newRole string) (*repository.User, error) {
 	if callerID == targetID && newRole != "owner" {
 		return nil, ErrCannotDemoteSelf
@@ -60,11 +65,21 @@ func (s *Service) AddToWhitelist(ctx context.Context, twitchUserID string) error
 }
 
 // RemoveFromWhitelist is idempotent — missing entries return nil.
+//
+// Revoking the user's active sessions is the teeth of the de-whitelist:
+// the whitelist is only checked at login, so without this an already
+// logged-in user keeps access until their session expires. Both deletes
+// are idempotent: if the whitelist row is already gone on retry, the
+// session delete still runs again, so surfacing a revoke error gives the
+// admin a useful retry instead of a false OK.
 func (s *Service) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
 	if err := s.repo.RemoveFromWhitelist(ctx, twitchUserID); err != nil {
 		return err
 	}
-	return s.repo.DeleteUserSessions(ctx, twitchUserID)
+	if err := s.repo.DeleteUserSessions(ctx, twitchUserID); err != nil {
+		return fmt.Errorf("revoke sessions after whitelist removal for %s: %w", twitchUserID, err)
+	}
+	return nil
 }
 
 type PlaybackCacheConfig struct {

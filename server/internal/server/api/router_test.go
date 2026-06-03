@@ -217,6 +217,45 @@ func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 	}
 }
 
+func TestExistingSessionUsesFreshRoleAfterDemotion(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sessionMgr, err := session.NewManager(repo, "role-demotion-session-secret-0123456789", false, log)
+	if err != nil {
+		t.Fatalf("session.NewManager: %v", err)
+	}
+	cfg := &config.Config{
+		Env: config.Environment{
+			HMACSecret:  routerWebhookSecret,
+			CallbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
+			FrontendURL: "http://localhost:3000",
+		},
+		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
+	}
+	bus := eventbus.New()
+	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	if closeTRPC != nil {
+		t.Cleanup(func() {
+			if err := closeTRPC(); err != nil {
+				t.Errorf("close tRPC router: %v", err)
+			}
+		})
+	}
+
+	cookie := mintSessionCookie(t, repo, sessionMgr, "demoted-owner-1", "owner")
+	if got := roleGateRequest(router, http.MethodGet, "/trpc/eventsub.config", "", cookie); got != http.StatusOK {
+		t.Fatalf("eventsub.config before demotion = %d, want 200", got)
+	}
+	if err := repo.UpdateUserRole(ctx, "demoted-owner-1", "viewer"); err != nil {
+		t.Fatalf("demote user: %v", err)
+	}
+	if got := roleGateRequest(router, http.MethodGet, "/trpc/eventsub.config", "", cookie); got != http.StatusForbidden {
+		t.Fatalf("eventsub.config after demotion with same session = %d, want 403", got)
+	}
+}
+
 // TestRecordingWebhookProceduresAreOwnerGated is the route-level regression
 // guard for the custom outbound webhook surface. Handler unit tests do not catch
 // a route accidentally registered with `viewer`/`admin`; this drives the real

@@ -65,6 +65,8 @@ type testServer struct {
 	sessionID string
 	userID    string
 	repo      repository.Repository
+	// Lets tests mint a second identity through the real manager.
+	sessionMgr *session.Manager
 }
 
 // newTestServer spins up the full tRPC stack against the requested
@@ -118,11 +120,52 @@ func newTestServer(t *testing.T, d driver) *testServer {
 	rawID := seedSession(t, repo, sessionMgr, user.ID)
 
 	return &testServer{
-		baseURL:   srv.URL,
-		sessionID: rawID,
-		userID:    user.ID,
-		repo:      repo,
+		baseURL:    srv.URL,
+		sessionID:  rawID,
+		userID:     user.ID,
+		repo:       repo,
+		sessionMgr: sessionMgr,
 	}
+}
+
+// rawRequest issues a tRPC request with an explicit session cookie and returns
+// the HTTP status and body without failing the test on non-200 — for the
+// authorization and validation cases (403 viewer rejection, 400 self-demotion)
+// where a non-200 is the assertion, not a failure.
+func rawRequest(t *testing.T, ts *testServer, method, procedure string, input any, cookie string) (int, []byte) {
+	t.Helper()
+	endpoint := ts.baseURL + "/trpc/" + procedure
+	var body io.Reader
+	if input != nil {
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatalf("marshal input: %v", err)
+		}
+		if method == http.MethodGet {
+			endpoint += "?input=" + url.QueryEscape(string(raw))
+		} else {
+			body = bytes.NewReader(raw)
+		}
+	}
+	req, err := http.NewRequest(method, endpoint, body)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Origin", ts.baseURL)
+	req.AddCookie(&http.Cookie{Name: session.CookieName, Value: cookie})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, endpoint, err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return resp.StatusCode, raw
 }
 
 func newRepo(t *testing.T, d driver) repository.Repository {
@@ -277,6 +320,8 @@ func doRequest(t *testing.T, ts *testServer, method, endpoint string, body io.Re
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	// Same-origin Origin satisfies trpcgo's CSRF check on mutations.
+	req.Header.Set("Origin", ts.baseURL)
 	req.AddCookie(&http.Cookie{Name: session.CookieName, Value: ts.sessionID})
 
 	resp, err := http.DefaultClient.Do(req)

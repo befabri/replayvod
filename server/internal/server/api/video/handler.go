@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
@@ -851,6 +852,10 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context) ([]ActiveDownload
 	return out, nil
 }
 
+// activeDownloadsCoalesceInterval bounds DB snapshot frequency for live progress.
+// It is a var so tests can shrink it.
+var activeDownloadsCoalesceInterval = 250 * time.Millisecond
+
 func (h *Handler) ActiveDownloadsLive(ctx context.Context) (<-chan []ActiveDownloadResponse, error) {
 	src := h.download.SubscribeActive(ctx)
 	out := make(chan []ActiveDownloadResponse, 8)
@@ -858,34 +863,102 @@ func (h *Handler) ActiveDownloadsLive(ctx context.Context) (<-chan []ActiveDownl
 	go func() {
 		defer close(out)
 
-		sendSnapshot := func() bool {
+		type sendResult struct {
+			keepRunning bool
+			delivered   bool
+		}
+		sendSnapshot := func() sendResult {
 			rows, err := h.activeDownloadsSnapshot(ctx)
 			if err != nil {
 				h.log.Error("stream active downloads", "error", err)
-				return true
+				return sendResult{keepRunning: true}
 			}
 			select {
 			case out <- rows:
-				return true
+				return sendResult{keepRunning: true, delivered: true}
 			case <-ctx.Done():
-				return false
+				return sendResult{}
 			}
 		}
 
-		if !sendSnapshot() {
-			return
+		var last time.Time
+		pending := false
+		var timerC <-chan time.Time
+		armTimer := func(after time.Duration) {
+			if after < 0 {
+				after = 0
+			}
+			timerC = time.After(after)
 		}
 
+		initial := sendSnapshot()
+		if !initial.keepRunning {
+			return
+		}
+		if initial.delivered {
+			last = time.Now()
+		} else {
+			pending = true
+			armTimer(activeDownloadsCoalesceInterval)
+		}
+
+		// Send on the leading edge, then one trailing flush for bursts.
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case _, ok := <-src:
 				if !ok {
+					if pending {
+						for pending {
+							result := sendSnapshot()
+							if !result.keepRunning {
+								return
+							}
+							if result.delivered {
+								pending = false
+								break
+							}
+							select {
+							case <-ctx.Done():
+								return
+							case <-time.After(activeDownloadsCoalesceInterval):
+							}
+						}
+					}
 					return
 				}
-				if !sendSnapshot() {
-					return
+				if timerC == nil && (last.IsZero() || time.Since(last) >= activeDownloadsCoalesceInterval) {
+					result := sendSnapshot()
+					if !result.keepRunning {
+						return
+					}
+					if result.delivered {
+						last = time.Now()
+						pending = false
+					} else {
+						pending = true
+						armTimer(activeDownloadsCoalesceInterval)
+					}
+				} else {
+					pending = true
+					if timerC == nil {
+						armTimer(activeDownloadsCoalesceInterval - time.Since(last))
+					}
+				}
+			case <-timerC:
+				timerC = nil
+				if pending {
+					result := sendSnapshot()
+					if !result.keepRunning {
+						return
+					}
+					if result.delivered {
+						last = time.Now()
+						pending = false
+					} else {
+						armTimer(activeDownloadsCoalesceInterval)
+					}
 				}
 			}
 		}
@@ -935,7 +1008,13 @@ func (h *Handler) TriggerDownload(ctx context.Context, input TriggerDownloadInpu
 		}
 		return TriggerDownloadResponse{}, apierr.Map(h.log, err, "start download",
 			apierr.On(ErrChannelNotSynced, trpcgo.CodeNotFound,
-				"channel not synced — run channel.syncFromTwitch first"))
+				"channel not synced — run channel.syncFromTwitch first"),
+			apierr.On(downloader.ErrBusy, trpcgo.CodeConflict,
+				"a recording is already running for this channel"),
+			apierr.On(downloader.ErrAtCapacity, trpcgo.CodeConflict,
+				"the recorder is at its concurrent-download limit; stop one or raise max_concurrent"),
+			apierr.On(downloader.ErrShuttingDown, trpcgo.CodeServiceUnavailable,
+				"the server is restarting; try again in a moment"))
 	}
 	return TriggerDownloadResponse{JobID: result.JobID, VideoID: result.VideoID}, nil
 }

@@ -125,6 +125,8 @@ type Hydrator struct {
 	log     *slog.Logger
 	retries int
 	delay   time.Duration
+	// now supplies occurred_at; tests override it to avoid sleeps.
+	now func() time.Time
 }
 
 // Config carries the tunables. All fields have zero-value-safe defaults;
@@ -172,6 +174,7 @@ func NewHydrator(repo repository.Repository, tc *twitch.Client, cfg Config, log 
 		log:     log.With("domain", "streammeta"),
 		retries: retries,
 		delay:   delay,
+		now:     time.Now,
 	}
 }
 
@@ -500,7 +503,7 @@ func (h *Hydrator) RecordChannelUpdate(ctx context.Context, broadcasterID string
 			meta.MediaOffsetSeconds = &seconds
 		}
 	}
-	return h.recordVideoMetadata(ctx, job.VideoID, meta, time.Now().UTC())
+	return h.recordVideoMetadata(ctx, job.VideoID, meta, h.now().UTC())
 }
 
 // LinkInitialVideoMetadata is the download-trigger companion to
@@ -516,5 +519,5 @@ func (h *Hydrator) LinkInitialVideoMetadata(ctx context.Context, videoID int64, 
 	if videoID == 0 || (meta.Title == "" && meta.CategoryID == "") {
 		return nil
 	}
-	return h.recordVideoMetadata(ctx, videoID, meta, time.Now().UTC())
+	return h.recordVideoMetadata(ctx, videoID, meta, h.now().UTC())
 }

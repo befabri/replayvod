@@ -160,3 +160,52 @@ func TestRemoveFromWhitelistRevokesUserSessions(t *testing.T) {
 		t.Fatalf("sessions after removal = %d, want 0", len(sessions))
 	}
 }
+
+// whitelistFakeRepo drives RemoveFromWhitelist's two error paths in isolation:
+// the whitelist-row removal and the follow-up session revoke fail independently.
+type whitelistFakeRepo struct {
+	repository.Repository
+	removeErr    error
+	deleteErr    error
+	deleteCalled bool
+}
+
+func (f *whitelistFakeRepo) RemoveFromWhitelist(context.Context, string) error { return f.removeErr }
+
+func (f *whitelistFakeRepo) DeleteUserSessions(context.Context, string) error {
+	f.deleteCalled = true
+	return f.deleteErr
+}
+
+// TestRemoveFromWhitelist_SessionRevokeFailurePropagates pins that a failed
+// session revoke does fail the call. The whitelist row delete is idempotent, so
+// a retry still reaches DeleteUserSessions; returning success here would give
+// the admin a false OK while the user's active sessions remain valid.
+func TestRemoveFromWhitelist_SessionRevokeFailurePropagates(t *testing.T) {
+	wantErr := errors.New("sessions table locked")
+	repo := &whitelistFakeRepo{deleteErr: wantErr}
+	svc := system.New(repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := svc.RemoveFromWhitelist(context.Background(), "user-1"); !errors.Is(err, wantErr) {
+		t.Fatalf("RemoveFromWhitelist err = %v, want wrapped %v", err, wantErr)
+	}
+	if !repo.deleteCalled {
+		t.Fatal("session revoke was not attempted")
+	}
+}
+
+// TestRemoveFromWhitelist_PrimaryRemovalErrorPropagates pins the other side:
+// when the whitelist removal itself fails, the error surfaces and sessions are
+// NOT revoked (the user is still whitelisted, so revoking would be wrong).
+func TestRemoveFromWhitelist_PrimaryRemovalErrorPropagates(t *testing.T) {
+	wantErr := errors.New("whitelist write failed")
+	repo := &whitelistFakeRepo{removeErr: wantErr}
+	svc := system.New(repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := svc.RemoveFromWhitelist(context.Background(), "user-1"); !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want %v", err, wantErr)
+	}
+	if repo.deleteCalled {
+		t.Fatal("sessions must not be revoked when the whitelist removal failed")
+	}
+}

@@ -117,6 +117,17 @@ func newFetchRetryHydrator(fetcher streamFetcher, retries int, delay time.Durati
 		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		retries: retries,
 		delay:   delay,
+		now:     time.Now,
+	}
+}
+
+func TestNewFetchRetryHydratorSetsClock(t *testing.T) {
+	h := newFetchRetryHydrator(nil, 1, time.Millisecond)
+	if h.now == nil {
+		t.Fatal("newFetchRetryHydrator left now nil")
+	}
+	if got := h.now(); got.IsZero() {
+		t.Fatal("newFetchRetryHydrator now returned zero time")
 	}
 }
 
@@ -1133,6 +1144,14 @@ func TestHydrator_LinkInitialVideoMetadata_OrdersByOccurredAt(t *testing.T) {
 	h, repo := newTestHydrator(t, nil)
 	videoID := seedRecording(t, ctx, repo)
 
+	// SQLite stores text times at second resolution, so advance the test clock.
+	base := time.Date(2026, 4, 12, 15, 0, 0, 0, time.UTC)
+	calls := 0
+	h.now = func() time.Time {
+		calls++
+		return base.Add(time.Duration(calls) * time.Second)
+	}
+
 	if err := h.LinkInitialVideoMetadata(ctx, videoID, ChannelUpdateMeta{
 		Title:        "first",
 		CategoryID:   "game-1",
@@ -1140,12 +1159,6 @@ func TestHydrator_LinkInitialVideoMetadata_OrdersByOccurredAt(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("first link: %v", err)
 	}
-	// Sleep one second so SQLite's text-time format (second-
-	// resolution) records distinct occurred_at values. The fix
-	// upstream (RecordChannelUpdate hoisting `at` to a single
-	// time.Now() per event) doesn't help across separate calls —
-	// these are genuinely two events.
-	time.Sleep(1100 * time.Millisecond)
 	if err := h.LinkInitialVideoMetadata(ctx, videoID, ChannelUpdateMeta{
 		Title:        "second",
 		CategoryID:   "game-2",
