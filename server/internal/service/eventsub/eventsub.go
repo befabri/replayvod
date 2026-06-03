@@ -217,9 +217,10 @@ func planChannelSubCreates(channelIDs map[string]bool, haveOnline, haveOffline m
 //   - Helix 409 unexpected (our dedup missed something; safer to stop and let
 //     the operator investigate)
 //
-// Transient 5xx / timeouts DO retry via the normal Helix backoff in
-// twitch.Client; we just cancel the outer context to propagate stop to any
-// in-flight goroutines.
+// Transient 429 rate-limits retry with bounded backoff in twitch.Client; a 5xx
+// on the create POST is surfaced rather than auto-retried (so a retry can't
+// duplicate a subscription) and counts toward the breaker. We cancel the outer
+// context to propagate stop to any in-flight goroutines.
 func (s *Service) createChannelSubs(ctx context.Context, reqs []createReq) (int, error) {
 	if len(reqs) == 0 {
 		return 0, nil

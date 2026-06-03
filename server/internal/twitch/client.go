@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +64,11 @@ type Client struct {
 	appTokenMu  sync.Mutex
 	appToken    string
 	appTokenExp time.Time
+
+	// retryBaseDelay is the first-attempt backoff for the bounded Helix retry
+	// (doubled each attempt). A field rather than a bare constant so tests can
+	// zero it to exercise the retry loop without a wall-clock wait.
+	retryBaseDelay time.Duration
 }
 
 // NewClient creates a new Twitch API client.
@@ -73,7 +79,8 @@ func NewClient(clientID, clientSecret string, log *slog.Logger) *Client {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		log: log.With("domain", "twitch"),
+		log:            log.With("domain", "twitch"),
+		retryBaseDelay: helixRetryBaseDelay,
 	}
 }
 
@@ -150,9 +157,13 @@ func (c *Client) appAccessToken(ctx context.Context) (string, error) {
 // --- Helix error ---
 
 // HelixError is returned when the Twitch API responds with a non-2xx status.
+// RetryAfter carries the server's requested wait (parsed from Retry-After, or
+// Ratelimit-Reset as a fallback) when present, so the retry loop can honor it;
+// it is zero when the response gave no hint.
 type HelixError struct {
-	Status int
-	Body   string
+	Status     int
+	Body       string
+	RetryAfter time.Duration
 }
 
 func (e *HelixError) Error() string {
@@ -211,7 +222,7 @@ func (c *Client) doWithAuth(ctx context.Context, method, path string, params any
 	if err != nil {
 		return 0, err
 	}
-	status, err := c.doOnce(ctx, method, path, params, body, out, token)
+	status, err := c.doWithRetry(ctx, method, path, params, body, out, token)
 	if err == nil || !userScoped || provider == nil {
 		return status, err
 	}
@@ -223,7 +234,101 @@ func (c *Client) doWithAuth(ctx context.Context, method, path string, params any
 	if forceErr != nil {
 		return status, forceErr
 	}
-	return c.doOnce(ctx, method, path, params, body, out, forcedToken)
+	return c.doWithRetry(ctx, method, path, params, body, out, forcedToken)
+}
+
+// Helix retry policy. Twitch's per-app bucket is generous and our callers batch,
+// so a single transient blip should not fail a whole scheduler tick. We retry a
+// bounded number of times, honoring a server-provided Retry-After (capped) and
+// otherwise backing off exponentially, and we always select on ctx so a
+// shutdown or request-cancel stops the wait immediately.
+const (
+	maxHelixRetries     = 3
+	helixRetryBaseDelay = 500 * time.Millisecond
+	helixRetryMaxDelay  = 30 * time.Second
+)
+
+// doWithRetry wraps doOnce with the bounded retry described above. 429 means the
+// request was rejected before processing, so it is safe to retry for any method;
+// 5xx is retried only for idempotent methods so a POST (e.g. an EventSub
+// subscription create) is never silently duplicated by a retry.
+func (c *Client) doWithRetry(ctx context.Context, method, path string, params, body, out any, token string) (int, error) {
+	var (
+		status int
+		err    error
+	)
+	for attempt := 0; ; attempt++ {
+		status, err = c.doOnce(ctx, method, path, params, body, out, token)
+		if attempt >= maxHelixRetries || !shouldRetryHelix(method, status) {
+			return status, err
+		}
+		select {
+		case <-ctx.Done():
+			// Cancelled/shutdown during backoff: surface the cancellation, not
+			// the last attempt's Helix status, so callers and the fetch log see
+			// context.Canceled rather than a phantom Twitch failure.
+			return status, ctx.Err()
+		case <-time.After(c.retryDelay(attempt, err)):
+		}
+	}
+}
+
+// shouldRetryHelix reports whether a (method, status) pair is worth another try.
+func shouldRetryHelix(method string, status int) bool {
+	if status == http.StatusTooManyRequests {
+		return true
+	}
+	return status >= 500 && status <= 599 && isIdempotentMethod(method)
+}
+
+func isIdempotentMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+// retryDelay prefers the server's Retry-After hint (capped at helixRetryMaxDelay)
+// and otherwise backs off exponentially from the client's base delay.
+func (c *Client) retryDelay(attempt int, err error) time.Duration {
+	var helixErr *HelixError
+	if errors.As(err, &helixErr) && helixErr.RetryAfter > 0 {
+		return capHelixDelay(helixErr.RetryAfter)
+	}
+	return capHelixDelay(c.retryBaseDelay << attempt)
+}
+
+func capHelixDelay(d time.Duration) time.Duration {
+	if d > helixRetryMaxDelay {
+		return helixRetryMaxDelay
+	}
+	return d
+}
+
+// parseRetryAfter reads the server's requested wait from Retry-After (delta
+// seconds or an HTTP date) and falls back to Ratelimit-Reset (a unix epoch).
+// Returns 0 when no usable hint is present.
+func parseRetryAfter(h http.Header, now time.Time) time.Duration {
+	if ra := strings.TrimSpace(h.Get("Retry-After")); ra != "" {
+		if secs, err := strconv.Atoi(ra); err == nil && secs >= 0 {
+			return time.Duration(secs) * time.Second
+		}
+		if t, err := http.ParseTime(ra); err == nil {
+			if d := t.Sub(now); d > 0 {
+				return d
+			}
+		}
+	}
+	if reset := strings.TrimSpace(h.Get("Ratelimit-Reset")); reset != "" {
+		if epoch, err := strconv.ParseInt(reset, 10, 64); err == nil {
+			if d := time.Unix(epoch, 0).Sub(now); d > 0 {
+				return d
+			}
+		}
+	}
+	return 0
 }
 
 func (c *Client) authToken(ctx context.Context, provider UserTokenProvider, force bool) (token string, userScoped bool, err error) {
@@ -291,7 +396,11 @@ func (c *Client) doOnce(ctx context.Context, method, path string, params any, bo
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, &HelixError{Status: resp.StatusCode, Body: string(b)}
+		return resp.StatusCode, &HelixError{
+			Status:     resp.StatusCode,
+			Body:       string(b),
+			RetryAfter: parseRetryAfter(resp.Header, time.Now()),
+		}
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		_, _ = io.Copy(io.Discard, resp.Body)
