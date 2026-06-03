@@ -128,7 +128,16 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	}
 	r.Group(func(r chi.Router) {
 		r.Use(csrfProtection.Handler)
-		r.Handle("/trpc/*", trpc.NewHandler(trpcRouter, "/trpc"))
+		// trpcgo runs its own Origin/Referer CSRF check on mutations, comparing
+		// the browser Origin against the request Host. The Vite dev proxy (and a
+		// TLS-terminating reverse proxy in prod) rewrites Host to the internal
+		// upstream, so the browser origin never matches and every mutation 403s
+		// with "CSRF origin not allowed". Register the configured origins as
+		// public so the dashboard's same-app cross-origin POSTs and SSE
+		// subscriptions are treated as same-origin.
+		r.Handle("/trpc/*", trpc.NewHandler(trpcRouter, "/trpc",
+			trpc.WithPublicOrigins(cfg.App.Server.AllowedOrigins...),
+		))
 	})
 
 	// SPA fallback
@@ -176,6 +185,7 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 		opts = append(opts,
 			trpcgo.WithTypeOutput("../dashboard/src/api/generated/trpc.ts"),
 			trpcgo.WithZodOutput("../dashboard/src/api/generated/zod.ts"),
+			trpcgo.WithEnumsOutput("../dashboard/src/api/generated/enums.ts"),
 			trpcgo.WithWatchPackages("./..."),
 		)
 	}

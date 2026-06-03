@@ -63,14 +63,14 @@ type VideoResponse struct {
 	// Title is the stream title at download-start time. Empty when
 	// Twitch didn't surface a title (manual trigger on an offline
 	// channel); the UI falls back to display_name in that case.
-	Title  string `json:"title"`
-	Status string `json:"status"`
+	Title  string      `json:"title"`
+	Status VideoStatus `json:"status"`
 	// CompletionKind distinguishes clean-end from partial/cancelled
 	// recordings. See repository.CompletionKind* constants. The UI
 	// renders a secondary badge (PARTIAL) for DONE+partial and
 	// replaces the FAILED badge with CANCELLED when the operator
 	// explicitly cancelled.
-	CompletionKind string `json:"completion_kind"`
+	CompletionKind CompletionKind `json:"completion_kind"`
 	// Truncated is true when the recording stopped before the
 	// broadcast ended — operator cancel, mid-run failure, or a clean
 	// finalize that never observed EXT-X-ENDLIST. Orthogonal to
@@ -129,15 +129,15 @@ type VideoPartResponse struct {
 }
 
 type VideoPlaybackAssetResponse struct {
-	Status          string     `json:"status"`
-	Filename        *string    `json:"filename,omitempty"`
-	MimeType        *string    `json:"mime_type,omitempty"`
-	DurationSeconds *float64   `json:"duration_seconds,omitempty"`
-	SizeBytes       *int64     `json:"size_bytes,omitempty"`
-	Error           *string    `json:"error,omitempty"`
-	GeneratedAt     *time.Time `json:"generated_at,omitempty"`
-	LastAccessedAt  *time.Time `json:"last_accessed_at,omitempty"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	Status          PlaybackAssetStatus `json:"status"`
+	Filename        *string             `json:"filename,omitempty"`
+	MimeType        *string             `json:"mime_type,omitempty"`
+	DurationSeconds *float64            `json:"duration_seconds,omitempty"`
+	SizeBytes       *int64              `json:"size_bytes,omitempty"`
+	Error           *string             `json:"error,omitempty"`
+	GeneratedAt     *time.Time          `json:"generated_at,omitempty"`
+	LastAccessedAt  *time.Time          `json:"last_accessed_at,omitempty"`
+	UpdatedAt       time.Time           `json:"updated_at"`
 }
 
 func toVideoPlaybackAssetResponse(asset *repository.VideoPlaybackAsset) *VideoPlaybackAssetResponse {
@@ -145,7 +145,7 @@ func toVideoPlaybackAssetResponse(asset *repository.VideoPlaybackAsset) *VideoPl
 		return nil
 	}
 	return &VideoPlaybackAssetResponse{
-		Status:          asset.Status,
+		Status:          PlaybackAssetStatus(asset.Status),
 		Filename:        asset.Filename,
 		MimeType:        asset.MimeType,
 		DurationSeconds: asset.DurationSeconds,
@@ -185,8 +185,8 @@ func toVideoResponse(v *repository.Video, ch *repository.Channel, primaryCategor
 		Filename:        v.Filename,
 		DisplayName:     v.DisplayName,
 		Title:           v.Title,
-		Status:          v.Status,
-		CompletionKind:  v.CompletionKind,
+		Status:          VideoStatus(v.Status),
+		CompletionKind:  CompletionKind(v.CompletionKind),
 		Truncated:       v.Truncated,
 		Quality:         formatVideoQualityLabel(v),
 		FPS:             v.SelectedFPS,
@@ -319,6 +319,7 @@ type ListPageInput struct {
 	Window         string               `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
 	IncompleteOnly bool                 `json:"incomplete_only,omitempty"`
 	Cursor         *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+	Direction      string               `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
 }
 
 type VideoListPageResponse struct {
@@ -630,6 +631,7 @@ type ByBroadcasterInput struct {
 	BroadcasterID string           `json:"broadcaster_id" validate:"required"`
 	Limit         int              `json:"limit" validate:"min=0,max=200"`
 	Cursor        *VideoPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+	Direction     string           `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
 }
 
 func (h *Handler) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (VideoPageResponse, error) {
@@ -655,6 +657,7 @@ type ByCategoryInput struct {
 	CategoryID string           `json:"category_id" validate:"required"`
 	Limit      int              `json:"limit" validate:"min=0,max=200"`
 	Cursor     *VideoPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+	Direction  string           `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
 }
 
 func (h *Handler) ByCategory(ctx context.Context, input ByCategoryInput) (VideoPageResponse, error) {
@@ -729,8 +732,8 @@ func toVideoListPageCursor(cursor *repository.VideoListPageCursor) *VideoListPag
 }
 
 type StatsBucket struct {
-	Status string `json:"status"`
-	Count  int64  `json:"count"`
+	Status VideoStatus `json:"status"`
+	Count  int64       `json:"count"`
 }
 
 type StatisticsResponse struct {
@@ -794,7 +797,7 @@ func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 		Channels:      stats.Totals.Channels,
 	}
 	for i, b := range stats.ByStatus {
-		out.ByStatus[i] = StatsBucket{Status: b.Status, Count: b.Count}
+		out.ByStatus[i] = StatsBucket{Status: VideoStatus(b.Status), Count: b.Count}
 	}
 	return out, nil
 }

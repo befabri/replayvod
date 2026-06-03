@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -26,6 +27,29 @@ import (
 )
 
 const routerWebhookSecret = "router-webhook-secret"
+
+// roleGateRequest drives the real tRPC router and returns the status code.
+// httptest defaults the Host to example.com; it sends a matching same-origin
+// Origin so a POST clears trpcgo's CSRF check and the assertion lands on the
+// role gate under test, not the CSRF gate in front of it. A real browser always
+// sends Origin on a mutation.
+func roleGateRequest(router http.Handler, method, path, body string, cookie *http.Cookie) int {
+	var rdr io.Reader
+	if body != "" {
+		rdr = bytes.NewReader([]byte(body))
+	}
+	req := httptest.NewRequest(method, path, rdr)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Origin", "http://example.com")
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	return rr.Code
+}
 
 func TestSetupRouter_ServerModeControlsWebhookProcessor(t *testing.T) {
 	tests := []struct {
@@ -165,20 +189,7 @@ func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 	owner := mintSessionCookie(t, repo, sessionMgr, "owner-1", "owner")
 
 	do := func(method, path, body string, cookie *http.Cookie) int {
-		var rdr io.Reader
-		if body != "" {
-			rdr = bytes.NewReader([]byte(body))
-		}
-		req := httptest.NewRequest(method, path, rdr)
-		if body != "" {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		if cookie != nil {
-			req.AddCookie(cookie)
-		}
-		rr := httptest.NewRecorder()
-		router.ServeHTTP(rr, req)
-		return rr.Code
+		return roleGateRequest(router, method, path, body, cookie)
 	}
 
 	// eventsub.config is a void query (GET). Pin the exact role boundary: a
@@ -243,20 +254,7 @@ func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
 	owner := mintSessionCookie(t, repo, sessionMgr, "rw-owner-1", "owner")
 
 	do := func(method, path, body string, cookie *http.Cookie) int {
-		var rdr io.Reader
-		if body != "" {
-			rdr = bytes.NewReader([]byte(body))
-		}
-		req := httptest.NewRequest(method, path, rdr)
-		if body != "" {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		if cookie != nil {
-			req.AddCookie(cookie)
-		}
-		rr := httptest.NewRecorder()
-		router.ServeHTTP(rr, req)
-		return rr.Code
+		return roleGateRequest(router, method, path, body, cookie)
 	}
 
 	cases := []struct {
@@ -289,6 +287,74 @@ func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
 			}
 			if got := do(tc.method, tc.path, tc.body, owner); got != tc.ownerWant {
 				t.Fatalf("%s as owner = %d, want %d", tc.path, got, tc.ownerWant)
+			}
+		})
+	}
+}
+
+func TestInfiniteQueryDirectionInputIsAccepted(t *testing.T) {
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sessionMgr, err := session.NewManager(repo, "infinite-direction-session-secret-0123456789", false, log)
+	if err != nil {
+		t.Fatalf("session.NewManager: %v", err)
+	}
+	cfg := &config.Config{
+		Env: config.Environment{
+			HMACSecret:  routerWebhookSecret,
+			CallbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
+			FrontendURL: "http://localhost:3000",
+		},
+		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
+	}
+	bus := eventbus.New()
+	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	if closeTRPC != nil {
+		t.Cleanup(func() {
+			if err := closeTRPC(); err != nil {
+				t.Errorf("close tRPC router: %v", err)
+			}
+		})
+	}
+	viewer := mintSessionCookie(t, repo, sessionMgr, "infinite-direction-viewer", "viewer")
+
+	cases := []struct {
+		name  string
+		path  string
+		input string
+	}{
+		{
+			name:  "channel list page",
+			path:  "/trpc/channel.listPage",
+			input: `{"0":{"limit":60,"sort":"name_asc","live_only":false,"direction":"forward"}}`,
+		},
+		{
+			name:  "video list page",
+			path:  "/trpc/video.listPage",
+			input: `{"0":{"limit":24,"direction":"forward"}}`,
+		},
+		{
+			name:  "video by broadcaster",
+			path:  "/trpc/video.byBroadcaster",
+			input: `{"0":{"broadcaster_id":"56649026","limit":24,"direction":"forward"}}`,
+		},
+		{
+			name:  "video by category",
+			path:  "/trpc/video.byCategory",
+			input: `{"0":{"category_id":"509658","limit":24,"direction":"forward"}}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path+"?batch=1&input="+url.QueryEscape(tc.input), nil)
+			req.AddCookie(viewer)
+			rr := httptest.NewRecorder()
+
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("%s status = %d, want %d; body: %s", tc.path, rr.Code, http.StatusOK, rr.Body.String())
 			}
 		})
 	}

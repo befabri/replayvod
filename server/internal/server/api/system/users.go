@@ -11,14 +11,14 @@ import (
 )
 
 type UserInfo struct {
-	ID              string    `json:"id"`
-	Login           string    `json:"login"`
-	DisplayName     string    `json:"display_name"`
-	Email           *string   `json:"email,omitempty"`
-	ProfileImageURL *string   `json:"profile_image_url,omitempty"`
-	Role            string    `json:"role"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              string          `json:"id"`
+	Login           string          `json:"login"`
+	DisplayName     string          `json:"display_name"`
+	Email           *string         `json:"email,omitempty"`
+	ProfileImageURL *string         `json:"profile_image_url,omitempty"`
+	Role            middleware.Role `json:"role"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 func toUserInfo(u *repository.User) UserInfo {
@@ -28,7 +28,7 @@ func toUserInfo(u *repository.User) UserInfo {
 		DisplayName:     u.DisplayName,
 		Email:           u.Email,
 		ProfileImageURL: u.ProfileImageURL,
-		Role:            u.Role,
+		Role:            middleware.Role(u.Role),
 		CreatedAt:       u.CreatedAt,
 		UpdatedAt:       u.UpdatedAt,
 	}

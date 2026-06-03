@@ -48,7 +48,7 @@ func NewHandler(svc *eventsubsvc.Service, configSvc *eventsubconfig.Service, log
 // tell what actually works before the owner restarts.
 type ConfigResponse struct {
 	Source                     string        `json:"source"`
-	Mode                       string        `json:"mode"`
+	Mode                       ServerMode    `json:"mode"`
 	EnvManaged                 bool          `json:"env_managed"`
 	SetupRequired              bool          `json:"setup_required"`
 	RestartRequired            bool          `json:"restart_required"`
@@ -66,11 +66,11 @@ type ConfigResponse struct {
 // flags reflect what the live process can do, which is what SubscribeStreamOnline
 // gates on — distinct from the saved config's flags when a restart is pending.
 type ActiveRuntime struct {
-	Source                     string `json:"source"`
-	Mode                       string `json:"mode"`
-	CreatesTwitchSubscriptions bool   `json:"creates_twitch_subscriptions"`
-	UsesRelayAgent             bool   `json:"uses_relay_agent"`
-	PollsHelix                 bool   `json:"polls_helix"`
+	Source                     string     `json:"source"`
+	Mode                       ServerMode `json:"mode"`
+	CreatesTwitchSubscriptions bool       `json:"creates_twitch_subscriptions"`
+	UsesRelayAgent             bool       `json:"uses_relay_agent"`
+	PollsHelix                 bool       `json:"polls_helix"`
 }
 
 func stateToResponse(state eventsubconfig.State) ConfigResponse {
@@ -85,7 +85,7 @@ func stateToResponse(state eventsubconfig.State) ConfigResponse {
 	// config.ServerModeConfig.ClearURLsForDelivery.
 	return ConfigResponse{
 		Source:                     saved.Source,
-		Mode:                       saved.Mode,
+		Mode:                       ServerMode(saved.Mode),
 		EnvManaged:                 saved.EnvManaged(),
 		SetupRequired:              saved.SetupRequired(),
 		RestartRequired:            state.RestartRequired,
@@ -98,7 +98,7 @@ func stateToResponse(state eventsubconfig.State) ConfigResponse {
 		RelayLocalCallbackURL:      saved.RelayLocalCallbackURL,
 		Active: ActiveRuntime{
 			Source:                     active.Source,
-			Mode:                       active.Mode,
+			Mode:                       ServerMode(active.Mode),
 			CreatesTwitchSubscriptions: active.CreatesTwitchSubscriptions(),
 			UsesRelayAgent:             active.UsesRelayAgent(),
 			PollsHelix:                 active.PollsHelix(),

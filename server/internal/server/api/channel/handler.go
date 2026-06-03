@@ -110,10 +110,11 @@ type ChannelPageResponse struct {
 }
 
 type ListPageInput struct {
-	Limit    int                `json:"limit,omitempty" validate:"min=0,max=200"`
-	Sort     string             `json:"sort,omitempty" validate:"omitempty,oneof=name_asc name_desc"`
-	LiveOnly bool               `json:"live_only,omitempty"`
-	Cursor   *ChannelPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+	Limit     int                `json:"limit,omitempty" validate:"min=0,max=200"`
+	Sort      string             `json:"sort,omitempty" validate:"omitempty,oneof=name_asc name_desc"`
+	LiveOnly  bool               `json:"live_only,omitempty"`
+	Cursor    *ChannelPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+	Direction string             `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
 }
 
 func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (ChannelPageResponse, error) {

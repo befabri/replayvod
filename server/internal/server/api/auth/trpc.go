@@ -34,12 +34,12 @@ func NewTRPCHandler(svc *Service, sm *session.Manager, log *slog.Logger) *TRPCHa
 // SessionResponse is the shape returned by auth.session — never
 // includes tokens.
 type SessionResponse struct {
-	UserID          string  `json:"user_id"`
-	Login           string  `json:"login"`
-	DisplayName     string  `json:"display_name"`
-	Email           *string `json:"email,omitempty"`
-	ProfileImageURL *string `json:"profile_image_url,omitempty"`
-	Role            string  `json:"role" validate:"oneof=viewer admin owner"`
+	UserID          string          `json:"user_id"`
+	Login           string          `json:"login"`
+	DisplayName     string          `json:"display_name"`
+	Email           *string         `json:"email,omitempty"`
+	ProfileImageURL *string         `json:"profile_image_url,omitempty"`
+	Role            middleware.Role `json:"role"`
 }
 
 // Session returns the current authenticated user. Pure ctx extraction
@@ -55,7 +55,7 @@ func (h *TRPCHandler) Session(ctx context.Context) (SessionResponse, error) {
 		DisplayName:     user.DisplayName,
 		Email:           user.Email,
 		ProfileImageURL: user.ProfileImageURL,
-		Role:            user.Role,
+		Role:            middleware.Role(user.Role),
 	}, nil
 }
 

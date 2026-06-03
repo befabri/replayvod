@@ -58,6 +58,8 @@ github.com/befabri/goqual v0.0.0-20260525184413-c7c46b3bfcfb h1:darwr3F+9q0CxIUm
 github.com/befabri/goqual v0.0.0-20260525184413-c7c46b3bfcfb/go.mod h1:LgrtJ2iuKgtoLPfwuNn1icPXvt9X5JOtMGL3bqcNQlI=
 github.com/befabri/trpcgo v0.10.6 h1:O/a6/Nc9jWwpX0muQ0oHZ6sOlJfdiUFoVxrW8KAQ7gI=
 github.com/befabri/trpcgo v0.10.6/go.mod h1:ChS+GZcaEzati1ZyXlV/101Sf43IzGgU0dI4dX5Rmyo=
+github.com/befabri/trpcgo v0.10.7 h1:msCAIdxsvGLGr3A2StR8QlO+CUg0styiMmJcZUCjb6g=
+github.com/befabri/trpcgo v0.10.7/go.mod h1:ChS+GZcaEzati1ZyXlV/101Sf43IzGgU0dI4dX5Rmyo=
 github.com/caarlos0/env/v11 v11.3.1 h1:cArPWC15hWmEt+gWk7YBi7lEXTXCvpaSdCiZE2X5mCA=
 github.com/caarlos0/env/v11 v11.3.1/go.mod h1:qupehSf/Y0TUTsxKywqRt/vJjN5nz6vauiYEUUr8P4U=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=

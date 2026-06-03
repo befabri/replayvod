@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.13
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.99.0
 	github.com/aws/smithy-go v1.24.2
-	github.com/befabri/trpcgo v0.10.6
+	github.com/befabri/trpcgo v0.10.7
 	github.com/caarlos0/env/v11 v11.3.1
 	github.com/coder/websocket v1.8.14
 	github.com/go-chi/chi/v5 v5.2.5
