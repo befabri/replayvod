@@ -7,6 +7,7 @@ on:
       - 'landing/**'
       - 'relay/**'
       - 'server/**'
+      - 'dashboard/**'
       - 'docker-compose.yml'
       - 'README.md'
       - '.github/workflows/landing.yml'
@@ -15,6 +16,7 @@ on:
       - 'landing/**'
       - 'relay/**'
       - 'server/**'
+      - 'dashboard/**'
       - 'docker-compose.yml'
       - 'README.md'
       - '.github/workflows/landing.yml'
@@ -51,6 +53,23 @@ jobs:
           cache-dependency-path: relay/package-lock.json
       - run: npm ci
       - run: npm test
+
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
 
   server:
     runs-on: ubuntu-latest
