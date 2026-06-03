@@ -588,6 +588,10 @@ func (s *Service) MaxConcurrent() int {
 
 func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	s.mu.Lock()
+	if s.shuttingDown.Load() {
+		s.mu.Unlock()
+		return "", ErrShuttingDown
+	}
 	for _, existing := range s.active {
 		if existing.broadcasterID == p.BroadcasterID {
 			s.mu.Unlock()
@@ -624,8 +628,20 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		startedAt:     time.Now(),
 		resume:        NewResumeState(),
 	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	d.cancel = cancel
 	s.active[jobID] = d
+	s.wg.Add(1)
 	s.mu.Unlock()
+
+	cleanupReserved := true
+	defer func() {
+		if !cleanupReserved {
+			return
+		}
+		cancel()
+		s.wg.Done()
+	}()
 
 	vid, err := s.repo.CreateVideo(ctx, &repository.VideoInput{
 		JobID:                     jobID,
@@ -697,10 +713,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		return "", fmt.Errorf("create job row: %w", err)
 	}
 
-	runCtx, cancel := context.WithCancel(context.Background())
-	d.cancel = cancel
-
-	s.wg.Add(1)
+	cleanupReserved = false
 	s.notifyActiveChanged()
 	go s.run(runCtx, d, p, filename)
 	return jobID, nil
@@ -810,7 +823,9 @@ func (s *Service) Shutdown() {
 	s.shuttingDown.Store(true)
 	s.mu.Lock()
 	for _, d := range s.active {
-		d.cancel()
+		if d.cancel != nil {
+			d.cancel()
+		}
 	}
 	s.mu.Unlock()
 
@@ -1012,8 +1027,9 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 // ErrCancelled marks a download that was terminated by a user
 // Cancel() rather than crashing. Distinguishing matters for the UI.
 var (
-	ErrBusy      = errors.New("downloader: broadcaster already has an active download")
-	ErrCancelled = errors.New("downloader: cancelled by user")
+	ErrBusy         = errors.New("downloader: broadcaster already has an active download")
+	ErrShuttingDown = errors.New("downloader: shutting down")
+	ErrCancelled    = errors.New("downloader: cancelled by user")
 
 	// ErrVariantChanged fires when a Stage-3 re-select inside
 	// fetchWithAuthRefresh lands on a different (quality, codec)

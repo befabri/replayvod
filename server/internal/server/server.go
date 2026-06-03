@@ -74,12 +74,17 @@ func (s *Server) Start(ready chan<- error) {
 		return
 	}
 
+	// No WriteTimeout on purpose: it is an absolute cap on the whole response
+	// write, which would truncate the long-lived ActiveDownloadsLive SSE stream
+	// and large recorded-video downloads. ReadTimeout + IdleTimeout cover the
+	// read/idle side, and this is a single-user homelab behind auth. If write
+	// hardening is wanted later, set per-route deadlines via http.ResponseController
+	// on the non-streaming handlers rather than restoring a blanket WriteTimeout.
 	s.httpServer = &http.Server{
-		Addr:         addr,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:        addr,
+		Handler:     router,
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second,
 	}
 
 	notifyReady(ready, nil)

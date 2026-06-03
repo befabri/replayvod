@@ -8,10 +8,7 @@ import (
 	"github.com/lmittmann/tint"
 )
 
-var (
-	currentLevel = slog.LevelDebug
-	logFile      *os.File
-)
+var logFile *os.File
 
 func init() {
 	handler := tint.NewHandler(os.Stderr, &tint.Options{
@@ -53,8 +50,6 @@ func SetupLogger(output io.Writer, serviceName string, logToFile bool, logDir st
 
 // SetupLoggerWithLevel configures the global logger with a specific log level.
 func SetupLoggerWithLevel(output io.Writer, serviceName string, logToFile bool, logDir string, sampleRate float64, level slog.Level) *slog.Logger {
-	currentLevel = level
-
 	var handlers []slog.Handler
 
 	if logToFile {
