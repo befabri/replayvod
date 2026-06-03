@@ -66,6 +66,7 @@ func TestLoadTOML(t *testing.T) {
 // environment.
 func clearServerModeEnv(t *testing.T) {
 	t.Helper()
+	t.Setenv("SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	for _, k := range []string{"SERVER_MODE", "WEBHOOK_CALLBACK_URL", "RELAY_INGEST_URL", "RELAY_SUBSCRIBE_URL", "RELAY_LOCAL_CALLBACK_URL"} {
 		t.Setenv(k, "")
 	}

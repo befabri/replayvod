@@ -101,4 +101,8 @@ func validateAppConfig(config *AppConfig) {
 	}
 	config.PostgresPool.MaxConns = orDefault(config.PostgresPool.MaxConns, 25)
 	config.PostgresPool.MinConns = orDefault(config.PostgresPool.MinConns, 5)
+	// MinConns can't exceed MaxConns or pgxpool rejects the config at open.
+	// Clamp the floor down to the ceiling rather than failing boot, matching
+	// the silent-reset style of the rest of this function.
+	config.PostgresPool.MinConns = min(config.PostgresPool.MinConns, config.PostgresPool.MaxConns)
 }

@@ -9,10 +9,15 @@ import (
 
 func validateEnvironment(env *Environment) error {
 	env.ServerMode = strings.ToLower(strings.TrimSpace(env.ServerMode))
+	env.SessionSecret = strings.TrimSpace(env.SessionSecret)
 	env.WebhookCallbackURL = strings.TrimSpace(env.WebhookCallbackURL)
 	env.RelayIngestURL = strings.TrimSpace(env.RelayIngestURL)
 	env.RelaySubscribeURL = strings.TrimSpace(env.RelaySubscribeURL)
 	env.RelayLocalCallbackURL = strings.TrimSpace(env.RelayLocalCallbackURL)
+
+	if !ValidSessionSecret(env.SessionSecret) {
+		return fmt.Errorf("SESSION_SECRET must be at least 32 characters")
+	}
 
 	env.ServerModeEnvConfigured = env.ServerMode != ""
 	switch env.ServerMode {
@@ -30,6 +35,13 @@ func validateEnvironment(env *Environment) error {
 			ServerModeOff, ServerModePoll, ServerModeDirect, ServerModeRelay)
 	}
 	return nil
+}
+
+// ValidSessionSecret reports whether s is strong enough to key session-token
+// encryption. The value feeds HKDF rather than AES directly, so length is the
+// operator-facing invariant: .env.example documents 32+ characters.
+func ValidSessionSecret(s string) bool {
+	return len(strings.TrimSpace(s)) >= 32
 }
 
 // hasEventSubURLs reports whether any EventSub callback or relay URL env var is

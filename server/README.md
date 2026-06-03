@@ -206,8 +206,7 @@ setups.
 Requires Go 1.26+, [Task](https://taskfile.dev/), and ffmpeg on `$PATH`.
 
 ```bash
-cp .env.example .env        # fill in Twitch credentials
-$EDITOR .env
+cp .env.example .env        # fill in Twitch credentials and SESSION_SECRET
 
 task dev                    # go run ./cmd/server (port 8080)
 task build                  # produces ./server

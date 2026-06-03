@@ -121,7 +121,7 @@ func TestValidateDotenvNoDuplicateKeysRejectsSingleLineQuotedDuplicate(t *testin
 }
 
 func TestValidateEnvironmentNormalizesServerMode(t *testing.T) {
-	env := &Environment{ServerMode: " RELAY "}
+	env := &Environment{SessionSecret: "0123456789abcdef0123456789abcdef", ServerMode: " RELAY "}
 
 	if err := validateEnvironment(env); err != nil {
 		t.Fatalf("validateEnvironment = %v, want nil", err)
@@ -135,7 +135,7 @@ func TestValidateEnvironmentNormalizesServerMode(t *testing.T) {
 }
 
 func TestValidateEnvironmentLeavesEmptyServerModeAppManaged(t *testing.T) {
-	env := &Environment{}
+	env := &Environment{SessionSecret: "0123456789abcdef0123456789abcdef"}
 
 	if err := validateEnvironment(env); err != nil {
 		t.Fatalf("validateEnvironment = %v, want nil", err)
@@ -150,10 +150,10 @@ func TestValidateEnvironmentLeavesEmptyServerModeAppManaged(t *testing.T) {
 
 func TestValidateEnvironmentRejectsEventSubURLsWithoutMode(t *testing.T) {
 	cases := map[string]Environment{
-		"webhook callback":     {WebhookCallbackURL: "https://replayvod.example/api/v1/webhook/callback"},
-		"relay ingest":         {RelayIngestURL: "https://relay.replayvod.com/u/AAAAAAAAAAAAAAAA"},
-		"relay subscribe":      {RelaySubscribeURL: "wss://relay.replayvod.com/u/AAAAAAAAAAAAAAAA/subscribe"},
-		"relay local callback": {RelayLocalCallbackURL: "http://127.0.0.1:8080/api/v1/webhook/callback"},
+		"webhook callback":     {SessionSecret: "0123456789abcdef0123456789abcdef", WebhookCallbackURL: "https://replayvod.example/api/v1/webhook/callback"},
+		"relay ingest":         {SessionSecret: "0123456789abcdef0123456789abcdef", RelayIngestURL: "https://relay.replayvod.com/u/AAAAAAAAAAAAAAAA"},
+		"relay subscribe":      {SessionSecret: "0123456789abcdef0123456789abcdef", RelaySubscribeURL: "wss://relay.replayvod.com/u/AAAAAAAAAAAAAAAA/subscribe"},
+		"relay local callback": {SessionSecret: "0123456789abcdef0123456789abcdef", RelayLocalCallbackURL: "http://127.0.0.1:8080/api/v1/webhook/callback"},
 	}
 	for name, env := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -168,6 +168,7 @@ func TestValidateEnvironmentRejectsEventSubURLsWithoutMode(t *testing.T) {
 }
 
 func TestEnvironmentParseIgnoresDerivedServerModeConfiguredFlag(t *testing.T) {
+	t.Setenv("SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("SERVER_MODE_ENV_CONFIGURED", "true")
 	t.Setenv("SERVER_MODE", "")
 
@@ -184,10 +185,26 @@ func TestEnvironmentParseIgnoresDerivedServerModeConfiguredFlag(t *testing.T) {
 }
 
 func TestValidateEnvironmentRejectsUnknownServerMode(t *testing.T) {
-	env := &Environment{ServerMode: "magic"}
+	env := &Environment{SessionSecret: "0123456789abcdef0123456789abcdef", ServerMode: "magic"}
 
 	if err := validateEnvironment(env); err == nil {
 		t.Fatal("validateEnvironment(unknown mode) = nil, want error")
+	}
+}
+
+func TestValidateEnvironmentRejectsWeakSessionSecret(t *testing.T) {
+	cases := map[string]string{
+		"empty":  "",
+		"short":  "0123456789abcdef",
+		"spaces": "                                ",
+	}
+	for name, secret := range cases {
+		t.Run(name, func(t *testing.T) {
+			env := &Environment{SessionSecret: secret}
+			if err := validateEnvironment(env); err == nil {
+				t.Fatal("validateEnvironment(weak SESSION_SECRET) = nil, want error")
+			}
+		})
 	}
 }
 

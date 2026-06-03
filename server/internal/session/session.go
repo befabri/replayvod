@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -34,6 +35,10 @@ type Manager struct {
 
 // NewManager creates a new session manager.
 func NewManager(repo repository.Repository, sessionSecret string, secureCookie bool, log *slog.Logger) (*Manager, error) {
+	sessionSecret = strings.TrimSpace(sessionSecret)
+	if len(sessionSecret) < 32 {
+		return nil, fmt.Errorf("session secret must be at least 32 characters")
+	}
 	key, err := deriveKey(sessionSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive session key: %w", err)

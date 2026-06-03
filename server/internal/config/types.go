@@ -236,10 +236,11 @@ type DownloadConfig struct {
 	// resumes at the next media sequence with no dropped or
 	// duplicated segments. 0 (the default) disables size-based
 	// splitting, preserving single-file behavior; negative values are
-	// clamped to 0 on load. Useful for per-file ceilings (FAT32's 4 GiB
-	// limit, upload chunk sizes) and faster seeking. Independent of
-	// MaxPartSeconds — whichever ceiling the part hits first triggers
-	// the split.
+	// clamped to 0 on load. Sized for target uploadable chunks (e.g. a
+	// Telegram 2/4 GB per-file ceiling) and faster seeking; it counts raw
+	// committed segment bytes, so leave margin below a hard limit because a
+	// part can overshoot by up to one segment. Independent of MaxPartSeconds
+	// — whichever ceiling the part hits first triggers the split.
 	MaxPartBytes int64 `toml:"max_part_bytes"`
 
 	// MaxPartSeconds splits the recording into a new part once the
