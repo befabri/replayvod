@@ -7,6 +7,11 @@ import { defineConfig } from "vite";
 const config = defineConfig({
 	resolve: { tsconfigPaths: true },
 	server: {
+		// Fail loudly if the requested port is taken rather than drifting to
+		// the next free one. A drifted port changes the page origin (e.g.
+		// :3001), which the Go server's CSRF allowlist doesn't trust, so every
+		// mutation 403s. Crashing on a busy port surfaces that immediately.
+		strictPort: true,
 		proxy: {
 			"/api": {
 				target: "http://localhost:8080",
