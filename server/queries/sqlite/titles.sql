@@ -20,12 +20,9 @@ ORDER BY t.id;
 -- Called first inside the same tx as InsertVideoTitleSpan; closes only
 -- the spans whose title_id differs from the new one.
 --
--- @at_time forces sqlc to type @at_time as `string`,
--- not `sql.NullTime`. The adapter pre-formats using formatTime() to
--- the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
--- modernc.org/sqlite's native time.Time binding produces RFC3339
--- with the `T` separator and `Z` suffix, which julianday() treats
--- as NULL, silently corrupting the duration sum.
+-- @at_time is sqlitetype.Time so its Valuer emits the shape SQLite's
+-- julianday() accepts. Some native time.Time bindings format to RFC3339,
+-- which julianday() can treat as NULL and corrupt duration sums.
 UPDATE video_title_spans
    SET ended_at = @at_time,
        duration_seconds = duration_seconds + ((julianday(@at_time) - julianday(started_at)) * 86400.0)

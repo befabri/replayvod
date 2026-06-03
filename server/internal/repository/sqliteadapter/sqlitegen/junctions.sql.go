@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const addVideoRequest = `-- name: AddVideoRequest :exec
@@ -34,8 +36,8 @@ UPDATE video_category_spans
 `
 
 type CloseOpenVideoCategorySpansParams struct {
-	AtTime  sql.NullString `json:"at_time"`
-	VideoID int64          `json:"video_id"`
+	AtTime  *sqlitetype.Time `json:"at_time"`
+	VideoID int64            `json:"video_id"`
 }
 
 func (q *Queries) CloseOpenVideoCategorySpans(ctx context.Context, arg CloseOpenVideoCategorySpansParams) error {
@@ -53,9 +55,9 @@ UPDATE video_category_spans
 `
 
 type CloseOtherOpenVideoCategorySpansParams struct {
-	AtTime     sql.NullString `json:"at_time"`
-	VideoID    int64          `json:"video_id"`
-	CategoryID string         `json:"category_id"`
+	AtTime     *sqlitetype.Time `json:"at_time"`
+	VideoID    int64            `json:"video_id"`
+	CategoryID string           `json:"category_id"`
 }
 
 // Paired with InsertVideoCategorySpan to emulate pg's CTE-driven
@@ -73,13 +75,13 @@ ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING
 `
 
 type InsertVideoCategorySpanParams struct {
-	VideoID    int64  `json:"video_id"`
-	CategoryID string `json:"category_id"`
-	AtTime     string `json:"at_time"`
+	VideoID    int64           `json:"video_id"`
+	CategoryID string          `json:"category_id"`
+	AtTime     sqlitetype.Time `json:"at_time"`
 }
 
-// @at_time: see CloseOtherOpenVideoTitleSpans for why
-// the string cast is load-bearing.
+// @at_time: see CloseOtherOpenVideoTitleSpans for why the custom SQLite
+// timestamp Valuer is load-bearing.
 func (q *Queries) InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error {
 	_, err := q.db.ExecContext(ctx, insertVideoCategorySpan, arg.VideoID, arg.CategoryID, arg.AtTime)
 	return err
@@ -162,15 +164,15 @@ ORDER BY vcs.started_at ASC, vcs.id ASC
 `
 
 type ListCategorySpansForVideoRow struct {
-	ID              string         `json:"id"`
-	Name            string         `json:"name"`
-	BoxArtUrl       sql.NullString `json:"box_art_url"`
-	IgdbID          sql.NullString `json:"igdb_id"`
-	CreatedAt       string         `json:"created_at"`
-	UpdatedAt       string         `json:"updated_at"`
-	StartedAt       string         `json:"started_at"`
-	EndedAt         sql.NullString `json:"ended_at"`
-	DurationSeconds interface{}    `json:"duration_seconds"`
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	BoxArtUrl       sql.NullString   `json:"box_art_url"`
+	IgdbID          sql.NullString   `json:"igdb_id"`
+	CreatedAt       sqlitetype.Time  `json:"created_at"`
+	UpdatedAt       sqlitetype.Time  `json:"updated_at"`
+	StartedAt       sqlitetype.Time  `json:"started_at"`
+	EndedAt         *sqlitetype.Time `json:"ended_at"`
+	DurationSeconds interface{}      `json:"duration_seconds"`
 }
 
 func (q *Queries) ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error) {
@@ -236,8 +238,8 @@ type ListPrimaryCategoriesForVideosRow struct {
 	Name            string          `json:"name"`
 	BoxArtUrl       sql.NullString  `json:"box_art_url"`
 	IgdbID          sql.NullString  `json:"igdb_id"`
-	CreatedAt       string          `json:"created_at"`
-	UpdatedAt       string          `json:"updated_at"`
+	CreatedAt       sqlitetype.Time `json:"created_at"`
+	UpdatedAt       sqlitetype.Time `json:"updated_at"`
 	DurationSeconds sql.NullFloat64 `json:"duration_seconds"`
 	FirstSeenAt     interface{}     `json:"first_seen_at"`
 }
@@ -246,7 +248,10 @@ type ListPrimaryCategoriesForVideosRow struct {
 // aggregate rows ordered so the first row per video_id is the
 // "primary" category (most total duration, earliest first-seen,
 // then name). The adapter takes the first row per video_id since
-// SQLite lacks DISTINCT ON.
+// SQLite lacks DISTINCT ON, and scans that kept row's first_seen_at
+// even though it does not expose it; that keeps malformed started_at
+// values on the returned primary category's hard-fail path instead of
+// silently affecting aggregate ordering/duration.
 func (q *Queries) ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error) {
 	query := listPrimaryCategoriesForVideos
 	var queryParams []interface{}
@@ -402,8 +407,8 @@ WHERE NOT EXISTS (
 `
 
 type ResumeVideoCategorySpanParams struct {
-	VideoID   int64  `json:"video_id"`
-	StartedAt string `json:"started_at"`
+	VideoID   int64           `json:"video_id"`
+	StartedAt sqlitetype.Time `json:"started_at"`
 }
 
 // See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this

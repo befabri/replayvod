@@ -21,7 +21,7 @@ func (a *SQLiteAdapter) CreateSubscription(ctx context.Context, input *repositor
 		BroadcasterID:     stringPtrToNullString(input.BroadcasterID),
 		TransportMethod:   input.TransportMethod,
 		TransportCallback: input.TransportCallback,
-		TwitchCreatedAt:   formatTime(input.TwitchCreatedAt),
+		TwitchCreatedAt:   sqliteTime(input.TwitchCreatedAt),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create subscription: %w", err)
@@ -40,7 +40,7 @@ func (a *SQLiteAdapter) UpsertSubscription(ctx context.Context, input *repositor
 		BroadcasterID:     stringPtrToNullString(input.BroadcasterID),
 		TransportMethod:   input.TransportMethod,
 		TransportCallback: input.TransportCallback,
-		TwitchCreatedAt:   formatTime(input.TwitchCreatedAt),
+		TwitchCreatedAt:   sqliteTime(input.TwitchCreatedAt),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite upsert subscription: %w", err)
@@ -127,9 +127,9 @@ func sqliteSubscriptionToDomain(s sqlitegen.Subscription) *repository.Subscripti
 		BroadcasterID:     fromNullString(s.BroadcasterID),
 		TransportMethod:   s.TransportMethod,
 		TransportCallback: s.TransportCallback,
-		TwitchCreatedAt:   parseTime(s.TwitchCreatedAt),
-		CreatedAt:         parseTime(s.CreatedAt),
-		RevokedAt:         parseNullTime(s.RevokedAt),
+		TwitchCreatedAt:   s.TwitchCreatedAt.Time,
+		CreatedAt:         s.CreatedAt.Time,
+		RevokedAt:         timePtrFromSQLite(s.RevokedAt),
 		RevokedReason:     fromNullString(s.RevokedReason),
 	}
 }

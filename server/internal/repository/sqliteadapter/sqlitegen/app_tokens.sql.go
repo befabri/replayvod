@@ -7,6 +7,8 @@ package sqlitegen
 
 import (
 	"context"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const createAppToken = `-- name: CreateAppToken :one
@@ -14,8 +16,8 @@ INSERT INTO app_access_tokens (token, expires_at) VALUES (?, ?) RETURNING id, to
 `
 
 type CreateAppTokenParams struct {
-	Token     string `json:"token"`
-	ExpiresAt string `json:"expires_at"`
+	Token     string          `json:"token"`
+	ExpiresAt sqlitetype.Time `json:"expires_at"`
 }
 
 func (q *Queries) CreateAppToken(ctx context.Context, arg CreateAppTokenParams) (AppAccessToken, error) {

@@ -85,13 +85,13 @@ func sqliteTaskToDomain(t sqlitegen.Task) *repository.Task {
 		Description:     t.Description,
 		IntervalSeconds: int32(t.IntervalSeconds),
 		IsEnabled:       int64ToBool(t.IsEnabled),
-		LastRunAt:       parseNullTime(t.LastRunAt),
+		LastRunAt:       timePtrFromSQLite(t.LastRunAt),
 		LastDurationMs:  int32(t.LastDurationMs),
 		LastStatus:      t.LastStatus,
 		LastError:       fromNullString(t.LastError),
-		NextRunAt:       parseNullTime(t.NextRunAt),
-		CreatedAt:       parseTime(t.CreatedAt),
-		UpdatedAt:       parseTime(t.UpdatedAt),
+		NextRunAt:       timePtrFromSQLite(t.NextRunAt),
+		CreatedAt:       t.CreatedAt.Time,
+		UpdatedAt:       t.UpdatedAt.Time,
 	}
 }
 

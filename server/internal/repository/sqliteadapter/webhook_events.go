@@ -22,7 +22,7 @@ func (a *SQLiteAdapter) CreateWebhookEvent(ctx context.Context, input *repositor
 		EventType:        stringPtrToNullString(input.EventType),
 		SubscriptionID:   stringPtrToNullString(input.SubscriptionID),
 		BroadcasterID:    stringPtrToNullString(input.BroadcasterID),
-		MessageTimestamp: formatTime(input.MessageTimestamp),
+		MessageTimestamp: sqliteTime(input.MessageTimestamp),
 		Payload:          payload,
 	})
 	if err != nil {
@@ -98,7 +98,7 @@ func (a *SQLiteAdapter) ListWebhookEventsByType(ctx context.Context, eventType s
 
 func (a *SQLiteAdapter) ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]repository.WebhookEvent, error) {
 	rows, err := a.queries.ListStuckWebhookEvents(ctx, sqlitegen.ListStuckWebhookEventsParams{
-		ReceivedAt: formatTime(before),
+		ReceivedAt: sqliteTime(before),
 		Limit:      int64(limit),
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func (a *SQLiteAdapter) ListStuckWebhookEvents(ctx context.Context, before time.
 }
 
 func (a *SQLiteAdapter) ClearWebhookEventPayload(ctx context.Context, before time.Time) error {
-	return a.queries.ClearWebhookEventPayload(ctx, formatTime(before))
+	return a.queries.ClearWebhookEventPayload(ctx, sqliteTime(before))
 }
 
 func (a *SQLiteAdapter) CountWebhookEvents(ctx context.Context) (int64, error) {
@@ -131,12 +131,12 @@ func sqliteWebhookEventToDomain(w sqlitegen.WebhookEvent) *repository.WebhookEve
 		EventType:        fromNullString(w.EventType),
 		SubscriptionID:   fromNullString(w.SubscriptionID),
 		BroadcasterID:    fromNullString(w.BroadcasterID),
-		MessageTimestamp: parseTime(w.MessageTimestamp),
+		MessageTimestamp: w.MessageTimestamp.Time,
 		Payload:          payload,
 		Status:           w.Status,
 		Error:            fromNullString(w.Error),
-		ReceivedAt:       parseTime(w.ReceivedAt),
-		ProcessedAt:      parseNullTime(w.ProcessedAt),
+		ReceivedAt:       w.ReceivedAt.Time,
+		ProcessedAt:      timePtrFromSQLite(w.ProcessedAt),
 	}
 }
 

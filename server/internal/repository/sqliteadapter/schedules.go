@@ -185,10 +185,10 @@ func sqliteScheduleToDomain(s sqlitegen.DownloadSchedule) *repository.DownloadSc
 		IsDeleteRediff:   int64ToBool(s.IsDeleteRediff),
 		TimeBeforeDelete: nullInt64ToInt64Ptr(s.TimeBeforeDelete),
 		IsDisabled:       int64ToBool(s.IsDisabled),
-		LastTriggeredAt:  parseNullTime(s.LastTriggeredAt),
+		LastTriggeredAt:  timePtrFromSQLite(s.LastTriggeredAt),
 		TriggerCount:     s.TriggerCount,
-		CreatedAt:        parseTime(s.CreatedAt),
-		UpdatedAt:        parseTime(s.UpdatedAt),
+		CreatedAt:        s.CreatedAt.Time,
+		UpdatedAt:        s.UpdatedAt.Time,
 	}
 }
 

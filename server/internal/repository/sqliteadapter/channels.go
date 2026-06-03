@@ -197,7 +197,7 @@ func (a *SQLiteAdapter) UpsertUserFollow(ctx context.Context, f *repository.User
 	return a.queries.UpsertUserFollow(ctx, sqlitegen.UpsertUserFollowParams{
 		UserID:        f.UserID,
 		BroadcasterID: f.BroadcasterID,
-		FollowedAt:    formatTime(f.FollowedAt),
+		FollowedAt:    sqliteTime(f.FollowedAt),
 		Followed:      followed,
 	})
 }
@@ -232,8 +232,8 @@ func sqliteChannelToDomain(c sqlitegen.Channel) *repository.Channel {
 		Description:         fromNullString(c.Description),
 		BroadcasterType:     fromNullString(c.BroadcasterType),
 		ViewCount:           c.ViewCount,
-		CreatedAt:           parseTime(c.CreatedAt),
-		UpdatedAt:           parseTime(c.UpdatedAt),
+		CreatedAt:           c.CreatedAt.Time,
+		UpdatedAt:           c.UpdatedAt.Time,
 	}
 }
 

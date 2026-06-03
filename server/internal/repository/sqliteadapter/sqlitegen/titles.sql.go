@@ -7,7 +7,8 @@ package sqlitegen
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const closeOpenVideoTitleSpans = `-- name: CloseOpenVideoTitleSpans :exec
@@ -19,8 +20,8 @@ UPDATE video_title_spans
 `
 
 type CloseOpenVideoTitleSpansParams struct {
-	AtTime  sql.NullString `json:"at_time"`
-	VideoID int64          `json:"video_id"`
+	AtTime  *sqlitetype.Time `json:"at_time"`
+	VideoID int64            `json:"video_id"`
 }
 
 func (q *Queries) CloseOpenVideoTitleSpans(ctx context.Context, arg CloseOpenVideoTitleSpansParams) error {
@@ -38,21 +39,20 @@ UPDATE video_title_spans
 `
 
 type CloseOtherOpenVideoTitleSpansParams struct {
-	AtTime  sql.NullString `json:"at_time"`
-	VideoID int64          `json:"video_id"`
-	TitleID int64          `json:"title_id"`
+	AtTime  *sqlitetype.Time `json:"at_time"`
+	VideoID int64            `json:"video_id"`
+	TitleID int64            `json:"title_id"`
 }
 
 // Paired with InsertVideoTitleSpan to emulate pg's CTE-driven upsert.
 // Called first inside the same tx as InsertVideoTitleSpan; closes only
 // the spans whose title_id differs from the new one.
 //
-// @at_time forces sqlc to type @at_time as `string`,
-// not `sql.NullTime`. The adapter pre-formats using formatTime() to
-// the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
-// modernc.org/sqlite's native time.Time binding produces RFC3339
-// with the `T` separator and `Z` suffix, which julianday() treats
-// as NULL, silently corrupting the duration sum.
+// @at_time is typed as sqlitetype.Time by sqlc override. Its driver.Valuer
+// emits the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
+// modernc.org/sqlite's native time.Time binding can produce an RFC3339
+// string with a `T` separator and `Z` suffix, which julianday() treats as
+// NULL, silently corrupting the duration sum.
 func (q *Queries) CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error {
 	_, err := q.db.ExecContext(ctx, closeOtherOpenVideoTitleSpans, arg.AtTime, arg.VideoID, arg.TitleID)
 	return err
@@ -65,9 +65,9 @@ ON CONFLICT (video_id, title_id) WHERE ended_at IS NULL DO NOTHING
 `
 
 type InsertVideoTitleSpanParams struct {
-	VideoID int64  `json:"video_id"`
-	TitleID int64  `json:"title_id"`
-	AtTime  string `json:"at_time"`
+	VideoID int64           `json:"video_id"`
+	TitleID int64           `json:"title_id"`
+	AtTime  sqlitetype.Time `json:"at_time"`
 }
 
 // The INSERT half of the upsert. The partial unique index on
@@ -124,12 +124,12 @@ ORDER BY vts.started_at ASC, vts.id ASC
 `
 
 type ListTitleSpansForVideoRow struct {
-	ID              int64          `json:"id"`
-	Name            string         `json:"name"`
-	CreatedAt       string         `json:"created_at"`
-	StartedAt       string         `json:"started_at"`
-	EndedAt         sql.NullString `json:"ended_at"`
-	DurationSeconds interface{}    `json:"duration_seconds"`
+	ID              int64            `json:"id"`
+	Name            string           `json:"name"`
+	CreatedAt       sqlitetype.Time  `json:"created_at"`
+	StartedAt       sqlitetype.Time  `json:"started_at"`
+	EndedAt         *sqlitetype.Time `json:"ended_at"`
+	DurationSeconds interface{}      `json:"duration_seconds"`
 }
 
 // julianday('now') is UTC per SQLite docs; matches pg's NOW() at UTC,
@@ -216,8 +216,8 @@ WHERE NOT EXISTS (
 `
 
 type ResumeVideoTitleSpanParams struct {
-	VideoID   int64  `json:"video_id"`
-	StartedAt string `json:"started_at"`
+	VideoID   int64           `json:"video_id"`
+	StartedAt sqlitetype.Time `json:"started_at"`
 }
 
 // sqlc-sqlite's @-rewriter misses some @video_id occurrences when

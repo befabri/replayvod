@@ -47,17 +47,6 @@ WHERE vc.category_id = $1
 ORDER BY v.start_download_at DESC, v.id DESC
 LIMIT $4`
 
-const listVideosPageBaseSQL = `SELECT
-    id, job_id, filename, display_name, status, quality, selected_quality,
-    selected_fps, broadcaster_id, stream_id, viewer_count, language,
-    duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
-    recording_type, force_h264, title, completion_kind, truncated,
-    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
-FROM videos
-WHERE deleted_at IS NULL
-  AND ($1::text = '' OR status = $1::text)`
-
 func (a *PGAdapter) CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
 	return closeOpenVideoMetadataSpansWith(ctx, a.queries, videoID, at)
 }
@@ -262,7 +251,10 @@ func (a *PGAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOp
 }
 
 func (a *PGAdapter) ListVideosPage(ctx context.Context, opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (*repository.VideoListPage, error) {
-	query, args := pgListVideosPageQueryAndArgs(opts, cursor)
+	query, args := repository.BuildListVideosPageQuery(opts, cursor, repository.VideoPageDialect{
+		Postgres:   true,
+		FormatTime: func(t time.Time) any { return t },
+	})
 	rows, err := a.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos page: %w", err)
@@ -489,200 +481,6 @@ func pgCursorID(cursor *repository.VideoPageCursor) int64 {
 		return 0
 	}
 	return cursor.ID
-}
-
-func pgListVideosPageQueryAndArgs(opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (string, []any) {
-	sort, order := repository.NormalizeVideoListSort(opts)
-	limit := repository.ListVideosPageQueryLimit(opts.Limit)
-	args := []any{opts.Status}
-	query := listVideosPageBaseSQL + pgVideoListFiltersSQL(&args, opts)
-	appendLimit := func() string { return pgAppendArg(&args, limit) }
-	switch sort + ":" + order {
-	case "created_at:asc":
-		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
-		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
-		query += fmt.Sprintf(`
-  AND (%s::timestamptz IS NULL OR start_download_at > %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))
-ORDER BY start_download_at ASC, id ASC
-LIMIT %s`, t, t, t, id, appendLimit())
-	case "channel:asc":
-		text := pgAppendArg(&args, pgVideoListCursorText(cursor))
-		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
-		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
-		query += fmt.Sprintf(`
-  AND (%s::text IS NULL
-    OR display_name > %s::text
-    OR (display_name = %s::text
-      AND (start_download_at < %s::timestamptz
-        OR (start_download_at = %s::timestamptz AND id > %s))))
-ORDER BY display_name ASC, start_download_at DESC, id ASC
-LIMIT %s`, text, text, text, t, t, id, appendLimit())
-	case "channel:desc":
-		text := pgAppendArg(&args, pgVideoListCursorText(cursor))
-		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
-		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
-		query += fmt.Sprintf(`
-  AND (%s::text IS NULL
-    OR display_name < %s::text
-    OR (display_name = %s::text
-      AND (start_download_at < %s::timestamptz
-        OR (start_download_at = %s::timestamptz AND id < %s))))
-ORDER BY display_name DESC, start_download_at DESC, id DESC
-LIMIT %s`, text, text, text, t, t, id, appendLimit())
-	case "duration:asc":
-		n := pgAppendArg(&args, pgVideoListCursorNumber(cursor))
-		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
-		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
-		query += fmt.Sprintf(`
-  AND (
-    %s::timestamptz IS NULL
-    OR %s::double precision IS NULL
-      AND duration_seconds IS NULL
-      AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))
-    OR %s::double precision IS NOT NULL
-      AND (duration_seconds IS NULL
-        OR duration_seconds > %s::double precision
-        OR (duration_seconds = %s::double precision
-          AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))))
-  )
-ORDER BY duration_seconds ASC NULLS LAST, start_download_at DESC, id ASC
-LIMIT %s`, t, n, t, t, id, n, n, n, t, t, id, appendLimit())
-	case "duration:desc":
-		n := pgAppendArg(&args, pgVideoListCursorNumber(cursor))
-		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
-		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
-		query += fmt.Sprintf(`
-  AND (
-    %s::timestamptz IS NULL
-    OR %s::double precision IS NULL
-      AND duration_seconds IS NULL
-      AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))
-    OR %s::double precision IS NOT NULL
-      AND (duration_seconds IS NULL
-        OR duration_seconds < %s::double precision
-        OR (duration_seconds = %s::double precision
-          AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))))
-  )
-ORDER BY duration_seconds DESC NULLS LAST, start_download_at DESC, id DESC
-LIMIT %s`, t, n, t, t, id, n, n, n, t, t, id, appendLimit())
-	case "size:asc":
-		n := pgAppendArg(&args, pgVideoListCursorInt(cursor))
-		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
-		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
-		query += fmt.Sprintf(`
-  AND (
-    %s::timestamptz IS NULL
-    OR %s::bigint IS NULL
-      AND size_bytes IS NULL
-      AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))
-    OR %s::bigint IS NOT NULL
-      AND (size_bytes IS NULL
-        OR size_bytes > %s::bigint
-        OR (size_bytes = %s::bigint
-          AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id > %s))))
-  )
-ORDER BY size_bytes ASC NULLS LAST, start_download_at DESC, id ASC
-LIMIT %s`, t, n, t, t, id, n, n, n, t, t, id, appendLimit())
-	case "size:desc":
-		n := pgAppendArg(&args, pgVideoListCursorInt(cursor))
-		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
-		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
-		query += fmt.Sprintf(`
-  AND (
-    %s::timestamptz IS NULL
-    OR %s::bigint IS NULL
-      AND size_bytes IS NULL
-      AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))
-    OR %s::bigint IS NOT NULL
-      AND (size_bytes IS NULL
-        OR size_bytes < %s::bigint
-        OR (size_bytes = %s::bigint
-          AND (start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))))
-  )
-ORDER BY size_bytes DESC NULLS LAST, start_download_at DESC, id DESC
-LIMIT %s`, t, n, t, t, id, n, n, n, t, t, id, appendLimit())
-	default:
-		t := pgAppendArg(&args, pgVideoListCursorTime(cursor))
-		id := pgAppendArg(&args, pgVideoListCursorID(cursor))
-		query += fmt.Sprintf(`
-  AND (%s::timestamptz IS NULL OR start_download_at < %s::timestamptz OR (start_download_at = %s::timestamptz AND id < %s))
-ORDER BY start_download_at DESC, id DESC
-LIMIT %s`, t, t, t, id, appendLimit())
-	}
-	return query, args
-}
-
-func pgVideoListFiltersSQL(args *[]any, opts repository.ListVideosOpts) string {
-	quality := pgAppendArg(args, opts.Quality)
-	broadcasterID := pgAppendArg(args, opts.BroadcasterID)
-	language := pgAppendArg(args, opts.Language)
-	durationMin := pgAppendArg(args, opts.DurationMinSeconds)
-	durationMax := pgAppendArg(args, opts.DurationMaxSeconds)
-	sizeMin := pgAppendArg(args, opts.SizeMinBytes)
-	sizeMax := pgAppendArg(args, opts.SizeMaxBytes)
-	window := pgAppendArg(args, opts.Window)
-	incompleteOnly := pgAppendArg(args, opts.IncompleteOnly)
-	return fmt.Sprintf(`
-  AND (%s::text = '' OR quality = %s::text OR selected_quality = %s::text OR selected_quality || 'p' = %s::text OR (selected_fps IS NOT NULL AND selected_fps > 0 AND selected_quality || 'p' || ROUND(selected_fps)::int::text = %s::text))
-  AND (%s::text = '' OR broadcaster_id = %s::text)
-  AND (%s::text = '' OR language = %s::text)
-  AND (%s::double precision IS NULL OR duration_seconds >= %s::double precision)
-  AND (%s::double precision IS NULL OR duration_seconds < %s::double precision)
-  AND (%s::bigint IS NULL OR size_bytes >= %s::bigint)
-  AND (%s::bigint IS NULL OR size_bytes < %s::bigint)
-  AND (%s::text = '' OR (%s::text = 'this_week' AND start_download_at >= now() - interval '7 days'))
-  AND (NOT %s::boolean OR completion_kind = 'partial' OR truncated)`,
-		quality, quality, quality, quality, quality,
-		broadcasterID, broadcasterID,
-		language, language,
-		durationMin, durationMin,
-		durationMax, durationMax,
-		sizeMin, sizeMin,
-		sizeMax, sizeMax,
-		window, window,
-		incompleteOnly,
-	)
-}
-
-func pgAppendArg(args *[]any, value any) string {
-	*args = append(*args, value)
-	return fmt.Sprintf("$%d", len(*args))
-}
-
-func pgVideoListCursorTime(cursor *repository.VideoListPageCursor) *time.Time {
-	if cursor == nil {
-		return nil
-	}
-	t := cursor.StartDownloadAt.UTC()
-	return &t
-}
-
-func pgVideoListCursorID(cursor *repository.VideoListPageCursor) int64 {
-	if cursor == nil {
-		return 0
-	}
-	return cursor.ID
-}
-
-func pgVideoListCursorText(cursor *repository.VideoListPageCursor) *string {
-	if cursor == nil {
-		return nil
-	}
-	return cursor.SortText
-}
-
-func pgVideoListCursorNumber(cursor *repository.VideoListPageCursor) *float64 {
-	if cursor == nil {
-		return nil
-	}
-	return cursor.SortNumber
-}
-
-func pgVideoListCursorInt(cursor *repository.VideoListPageCursor) *int64 {
-	if cursor == nil {
-		return nil
-	}
-	return cursor.SortInt
 }
 
 // Pure page/cursor helpers now live in repository (pagination.go) so both

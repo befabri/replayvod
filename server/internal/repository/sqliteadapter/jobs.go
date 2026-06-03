@@ -92,7 +92,7 @@ func (a *SQLiteAdapter) ListRunningJobs(ctx context.Context) ([]repository.Job, 
 
 func (a *SQLiteAdapter) ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]repository.Job, error) {
 	rows, err := a.queries.ListFailedJobsForRetry(ctx, sqlitegen.ListFailedJobsForRetryParams{
-		FinishedAt: sql.NullString{String: formatTime(before), Valid: true},
+		FinishedAt: sqliteTimePtr(&before),
 		Limit:      int64(limit),
 	})
 	if err != nil {
@@ -111,11 +111,11 @@ func sqliteJobToDomain(j sqlitegen.Job) *repository.Job {
 		VideoID:       j.VideoID,
 		BroadcasterID: j.BroadcasterID,
 		Status:        j.Status,
-		StartedAt:     parseNullTime(j.StartedAt),
-		FinishedAt:    parseNullTime(j.FinishedAt),
+		StartedAt:     timePtrFromSQLite(j.StartedAt),
+		FinishedAt:    timePtrFromSQLite(j.FinishedAt),
 		Error:         fromNullString(j.Error),
 		ResumeState:   json.RawMessage(j.ResumeState),
-		CreatedAt:     parseTime(j.CreatedAt),
-		UpdatedAt:     parseTime(j.UpdatedAt),
+		CreatedAt:     j.CreatedAt.Time,
+		UpdatedAt:     j.UpdatedAt.Time,
 	}
 }

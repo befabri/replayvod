@@ -7,15 +7,17 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 type Querier interface {
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
 	AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error
-	ClaimDueRecordingWebhookDelivery(ctx context.Context, now sql.NullString) (RecordingWebhookDelivery, error)
+	ClaimDueRecordingWebhookDelivery(ctx context.Context, now *sqlitetype.Time) (RecordingWebhookDelivery, error)
 	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
 	ClearScheduleTags(ctx context.Context, scheduleID int64) error
-	ClearWebhookEventPayload(ctx context.Context, receivedAt string) error
+	ClearWebhookEventPayload(ctx context.Context, receivedAt sqlitetype.Time) error
 	CloseOpenVideoCategorySpans(ctx context.Context, arg CloseOpenVideoCategorySpansParams) error
 	CloseOpenVideoTitleSpans(ctx context.Context, arg CloseOpenVideoTitleSpansParams) error
 	// Paired with InsertVideoCategorySpan to emulate pg's CTE-driven
@@ -26,12 +28,11 @@ type Querier interface {
 	// Called first inside the same tx as InsertVideoTitleSpan; closes only
 	// the spans whose title_id differs from the new one.
 	//
-	// @at_time forces sqlc to type @at_time as `string`,
-	// not `sql.NullTime`. The adapter pre-formats using formatTime() to
-	// the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
-	// modernc.org/sqlite's native time.Time binding produces RFC3339
-	// with the `T` separator and `Z` suffix, which julianday() treats
-	// as NULL, silently corrupting the duration sum.
+	// @at_time is typed as sqlitetype.Time by sqlc override. Its driver.Valuer
+	// emits the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
+	// modernc.org/sqlite's native time.Time binding can produce an RFC3339
+	// string with a `T` separator and `Z` suffix, which julianday() treats as
+	// NULL, silently corrupting the duration sum.
 	CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error
 	CountActiveSubscriptions(ctx context.Context) (int64, error)
 	CountEventLogs(ctx context.Context) (int64, error)
@@ -66,15 +67,15 @@ type Querier interface {
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
-	DeleteOldEventLogs(ctx context.Context, createdAt string) error
-	DeleteOldFetchLogs(ctx context.Context, fetchedAt string) error
+	DeleteOldEventLogs(ctx context.Context, createdAt sqlitetype.Time) error
+	DeleteOldFetchLogs(ctx context.Context, fetchedAt sqlitetype.Time) error
 	// Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) whose
 	// latest terminal update is before the cutoff. pending/delivering rows are never
 	// deleted regardless of age so a queued or in-flight delivery is never lost.
 	// Uses updated_at instead of created_at so a long-retrying row keeps a recent
 	// outcome.
-	DeleteOldRecordingWebhookDeliveries(ctx context.Context, cutoff string) error
-	DeleteOldSnapshots(ctx context.Context, fetchedAt string) error
+	DeleteOldRecordingWebhookDeliveries(ctx context.Context, cutoff sqlitetype.Time) error
+	DeleteOldSnapshots(ctx context.Context, fetchedAt sqlitetype.Time) error
 	DeleteSchedule(ctx context.Context, id int64) error
 	DeleteSession(ctx context.Context, hashedID string) error
 	DeleteSubscription(ctx context.Context, id string) error
@@ -134,8 +135,8 @@ type Querier interface {
 	// alias and a clobbered DeleteVideoParts). One-line form sidesteps
 	// the parser bug.
 	HasFinalizedVideoParts(ctx context.Context, videoID int64) (int64, error)
-	// @at_time: see CloseOtherOpenVideoTitleSpans for why
-	// the string cast is load-bearing.
+	// @at_time: see CloseOtherOpenVideoTitleSpans for why the custom SQLite
+	// timestamp Valuer is load-bearing.
 	InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error
 	InsertVideoMetadataChange(ctx context.Context, arg InsertVideoMetadataChangeParams) (int64, error)
 	// The INSERT half of the upsert. The partial unique index on
@@ -176,7 +177,7 @@ type Querier interface {
 	// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
 	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 	// agree on "exactly at the deadline is still retained".
-	ListFinishedVideosForRetention(ctx context.Context, now sql.NullString) ([]ListFinishedVideosForRetentionRow, error)
+	ListFinishedVideosForRetention(ctx context.Context, now *sqlitetype.Time) ([]ListFinishedVideosForRetentionRow, error)
 	// SQLite has no DISTINCT ON; use ROW_NUMBER() to pick the most recent
 	// stream per broadcaster, then filter to rn=1. Joined with channels so
 	// the caller gets display metadata in one round-trip.
@@ -185,7 +186,10 @@ type Querier interface {
 	// aggregate rows ordered so the first row per video_id is the
 	// "primary" category (most total duration, earliest first-seen,
 	// then name). The adapter takes the first row per video_id since
-	// SQLite lacks DISTINCT ON.
+	// SQLite lacks DISTINCT ON, and scans that kept row's first_seen_at
+	// even though it does not expose it; that keeps malformed started_at
+	// values on the returned primary category's hard-fail path instead of
+	// silently affecting aggregate ordering/duration.
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
 	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int64) ([]RecordingWebhookDelivery, error)

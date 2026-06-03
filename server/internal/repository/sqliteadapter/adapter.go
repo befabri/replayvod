@@ -9,6 +9,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 // mapErr translates database/sql driver errors to portable repository errors.
@@ -146,8 +147,8 @@ func sqliteUserToDomain(u sqlitegen.User) *repository.User {
 		Email:           fromNullString(u.Email),
 		ProfileImageURL: fromNullString(u.ProfileImageUrl),
 		Role:            u.Role,
-		CreatedAt:       parseTime(u.CreatedAt),
-		UpdatedAt:       parseTime(u.UpdatedAt),
+		CreatedAt:       u.CreatedAt.Time,
+		UpdatedAt:       u.UpdatedAt.Time,
 	}
 }
 
@@ -179,16 +180,24 @@ func nullFloat64(f *float64) sql.NullFloat64 {
 	return sql.NullFloat64{Float64: *f, Valid: true}
 }
 
-func parseTime(s string) time.Time {
-	t, err := time.Parse("2006-01-02 15:04:05", s)
-	if err != nil {
-		t, _ = time.Parse(time.RFC3339, s)
-	}
-	return t
+func sqliteTime(t time.Time) sqlitetype.Time {
+	return sqlitetype.NewTime(t)
 }
 
-func formatTime(t time.Time) string {
-	return t.UTC().Format("2006-01-02 15:04:05")
+func sqliteTimePtr(t *time.Time) *sqlitetype.Time {
+	if t == nil {
+		return nil
+	}
+	out := sqlitetype.NewTime(*t)
+	return &out
+}
+
+func timePtrFromSQLite(t *sqlitetype.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	out := t.Time
+	return &out
 }
 
 // anyToFloat64 normalises the `interface{}` that sqlc-sqlite emits
@@ -216,7 +225,7 @@ func (a *SQLiteAdapter) CreateSession(ctx context.Context, s *repository.Session
 		HashedID:        s.HashedID,
 		UserID:          s.UserID,
 		EncryptedTokens: s.EncryptedTokens,
-		ExpiresAt:       formatTime(s.ExpiresAt),
+		ExpiresAt:       sqliteTime(s.ExpiresAt),
 		UserAgent:       toNullString(s.UserAgent),
 		IpAddress:       toNullString(s.IPAddress),
 	}); err != nil {
@@ -234,11 +243,11 @@ func (a *SQLiteAdapter) GetSession(ctx context.Context, hashedID string) (*repos
 		HashedID:        row.HashedID,
 		UserID:          row.UserID,
 		EncryptedTokens: row.EncryptedTokens,
-		ExpiresAt:       parseTime(row.ExpiresAt),
-		LastActiveAt:    parseTime(row.LastActiveAt),
+		ExpiresAt:       row.ExpiresAt.Time,
+		LastActiveAt:    row.LastActiveAt.Time,
 		UserAgent:       fromNullString(row.UserAgent),
 		IPAddress:       fromNullString(row.IpAddress),
-		CreatedAt:       parseTime(row.CreatedAt),
+		CreatedAt:       row.CreatedAt.Time,
 	}, nil
 }
 
@@ -275,11 +284,11 @@ func (a *SQLiteAdapter) ListUserSessions(ctx context.Context, userID string) ([]
 		sessions[i] = repository.SessionInfo{
 			HashedID:     row.HashedID,
 			UserID:       row.UserID,
-			ExpiresAt:    parseTime(row.ExpiresAt),
-			LastActiveAt: parseTime(row.LastActiveAt),
+			ExpiresAt:    row.ExpiresAt.Time,
+			LastActiveAt: row.LastActiveAt.Time,
 			UserAgent:    fromNullString(row.UserAgent),
 			IPAddress:    fromNullString(row.IpAddress),
-			CreatedAt:    parseTime(row.CreatedAt),
+			CreatedAt:    row.CreatedAt.Time,
 		}
 	}
 	return sessions, nil
@@ -295,15 +304,15 @@ func (a *SQLiteAdapter) GetLatestAppToken(ctx context.Context) (*repository.AppA
 	return &repository.AppAccessToken{
 		ID:        row.ID,
 		Token:     row.Token,
-		ExpiresAt: parseTime(row.ExpiresAt),
-		CreatedAt: parseTime(row.CreatedAt),
+		ExpiresAt: row.ExpiresAt.Time,
+		CreatedAt: row.CreatedAt.Time,
 	}, nil
 }
 
 func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*repository.AppAccessToken, error) {
 	row, err := a.queries.CreateAppToken(ctx, sqlitegen.CreateAppTokenParams{
 		Token:     token,
-		ExpiresAt: formatTime(expiresAt),
+		ExpiresAt: sqliteTime(expiresAt),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create app token: %w", err)
@@ -311,8 +320,8 @@ func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expire
 	return &repository.AppAccessToken{
 		ID:        row.ID,
 		Token:     row.Token,
-		ExpiresAt: parseTime(row.ExpiresAt),
-		CreatedAt: parseTime(row.CreatedAt),
+		ExpiresAt: row.ExpiresAt.Time,
+		CreatedAt: row.CreatedAt.Time,
 	}, nil
 }
 
@@ -343,7 +352,7 @@ func (a *SQLiteAdapter) ListWhitelist(ctx context.Context) ([]repository.Whiteli
 	for i, row := range rows {
 		entries[i] = repository.WhitelistEntry{
 			TwitchUserID: row.TwitchUserID,
-			AddedAt:      parseTime(row.AddedAt),
+			AddedAt:      row.AddedAt.Time,
 		}
 	}
 	return entries, nil

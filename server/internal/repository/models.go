@@ -601,17 +601,15 @@ type VideoListPage struct {
 	NextCursor *VideoListPageCursor
 }
 
-// SortKey composes Sort+Order into the "sort_key" form the SQL expects
-// ("duration-desc", "channel-asc", etc.). Returns "" when either half
-// is empty — the SQL's default branch (start_download_at DESC) handles
-// that case without needing a second code path. Handlers that want
-// "desc when sort is set, default otherwise" should fill Order before
-// calling.
+// SortKey renders the sort as the "<column>-<order>" token the offset-based
+// ListVideos query switches on. It runs Sort/Order through the same
+// NormalizeVideoListSort allowlist the keyset ListVideosPage path uses, so both
+// sort surfaces validate against one source of truth: an unrecognized column or
+// order collapses to "created_at-desc", which the ListVideos ORDER BY treats
+// identically to the empty default.
 func (o ListVideosOpts) SortKey() string {
-	if o.Sort == "" || o.Order == "" {
-		return ""
-	}
-	return o.Sort + "-" + o.Order
+	sort, order := NormalizeVideoListSort(o)
+	return sort + "-" + order
 }
 
 // WebhookMessageType enumerates the three Twitch EventSub message types.

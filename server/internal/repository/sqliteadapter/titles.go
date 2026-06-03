@@ -31,10 +31,10 @@ func (a *SQLiteAdapter) LinkVideoTitle(ctx context.Context, videoID int64, title
 // equivalent to pg's single-CTE form, so we split into two sqlc
 // queries and bracket them with BEGIN/COMMIT.
 func (a *SQLiteAdapter) UpsertVideoTitleSpan(ctx context.Context, videoID int64, titleID int64, at time.Time) error {
-	ts := formatTime(at.UTC())
+	ts := sqliteTime(at)
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		if err := q.CloseOtherOpenVideoTitleSpans(ctx, sqlitegen.CloseOtherOpenVideoTitleSpansParams{
-			AtTime:  sql.NullString{String: ts, Valid: true},
+			AtTime:  &ts,
 			VideoID: videoID,
 			TitleID: titleID,
 		}); err != nil {
@@ -74,15 +74,12 @@ func (a *SQLiteAdapter) ListTitlesForVideo(ctx context.Context, videoID int64) (
 			Title: repository.Title{
 				ID:        r.ID,
 				Name:      r.Name,
-				CreatedAt: parseTime(r.CreatedAt),
+				CreatedAt: r.CreatedAt.Time,
 			},
-			StartedAt:       parseTime(r.StartedAt),
+			StartedAt:       r.StartedAt.Time,
 			DurationSeconds: anyToFloat64(r.DurationSeconds),
 		}
-		if r.EndedAt.Valid {
-			v := parseTime(r.EndedAt.String)
-			span.EndedAt = &v
-		}
+		span.EndedAt = timePtrFromSQLite(r.EndedAt)
 		out[i] = span
 	}
 	return out, nil
@@ -92,6 +89,6 @@ func sqliteTitleToDomain(t sqlitegen.Title) *repository.Title {
 	return &repository.Title{
 		ID:        t.ID,
 		Name:      t.Name,
-		CreatedAt: parseTime(t.CreatedAt),
+		CreatedAt: t.CreatedAt.Time,
 	}
 }

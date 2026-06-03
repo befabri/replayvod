@@ -52,7 +52,7 @@ func (a *SQLiteAdapter) CountFetchLogsByType(ctx context.Context, fetchType stri
 }
 
 func (a *SQLiteAdapter) DeleteOldFetchLogs(ctx context.Context, before time.Time) error {
-	return a.queries.DeleteOldFetchLogs(ctx, formatTime(before))
+	return a.queries.DeleteOldFetchLogs(ctx, sqliteTime(before))
 }
 
 func sqliteFetchLogsToDomain(rows []sqlitegen.FetchLog) []repository.FetchLog {
@@ -66,7 +66,7 @@ func sqliteFetchLogsToDomain(rows []sqlitegen.FetchLog) []repository.FetchLog {
 			Status:        int(row.Status),
 			Error:         fromNullString(row.Error),
 			DurationMs:    row.DurationMs,
-			FetchedAt:     parseTime(row.FetchedAt),
+			FetchedAt:     row.FetchedAt.Time,
 		}
 	}
 	return logs

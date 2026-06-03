@@ -8,6 +8,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 func (a *SQLiteAdapter) LinkStreamCategory(ctx context.Context, streamID, categoryID string) error {
@@ -21,10 +22,10 @@ func (a *SQLiteAdapter) LinkVideoCategory(ctx context.Context, videoID int64, ca
 // UpsertVideoCategorySpan runs the close-previous-span + insert-
 // new-span pair in a tx. See UpsertVideoTitleSpan for rationale.
 func (a *SQLiteAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error {
-	ts := formatTime(at.UTC())
+	ts := sqliteTime(at)
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		if err := q.CloseOtherOpenVideoCategorySpans(ctx, sqlitegen.CloseOtherOpenVideoCategorySpansParams{
-			AtTime:     sql.NullString{String: ts, Valid: true},
+			AtTime:     &ts,
 			VideoID:    videoID,
 			CategoryID: categoryID,
 		}); err != nil {
@@ -62,16 +63,13 @@ func (a *SQLiteAdapter) ListCategoriesForVideo(ctx context.Context, videoID int6
 				Name:      r.Name,
 				BoxArtURL: fromNullString(r.BoxArtUrl),
 				IGDBID:    fromNullString(r.IgdbID),
-				CreatedAt: parseTime(r.CreatedAt),
-				UpdatedAt: parseTime(r.UpdatedAt),
+				CreatedAt: r.CreatedAt.Time,
+				UpdatedAt: r.UpdatedAt.Time,
 			},
-			StartedAt:       parseTime(r.StartedAt),
+			StartedAt:       r.StartedAt.Time,
 			DurationSeconds: anyToFloat64(r.DurationSeconds),
 		}
-		if r.EndedAt.Valid {
-			v := parseTime(r.EndedAt.String)
-			span.EndedAt = &v
-		}
+		span.EndedAt = timePtrFromSQLite(r.EndedAt)
 		out[i] = span
 	}
 	return out, nil
@@ -94,16 +92,24 @@ func (a *SQLiteAdapter) ListPrimaryCategoriesForVideos(ctx context.Context, vide
 		if _, exists := out[r.VideoID]; exists {
 			continue
 		}
+		if err := validateSQLiteTimestamp(r.FirstSeenAt); err != nil {
+			return nil, fmt.Errorf("sqlite list primary categories first_seen_at: %w", err)
+		}
 		out[r.VideoID] = repository.Category{
 			ID:        r.ID,
 			Name:      r.Name,
 			BoxArtURL: fromNullString(r.BoxArtUrl),
 			IGDBID:    fromNullString(r.IgdbID),
-			CreatedAt: parseTime(r.CreatedAt),
-			UpdatedAt: parseTime(r.UpdatedAt),
+			CreatedAt: r.CreatedAt.Time,
+			UpdatedAt: r.UpdatedAt.Time,
 		}
 	}
 	return out, nil
+}
+
+func validateSQLiteTimestamp(src any) error {
+	var ts sqlitetype.Time
+	return ts.Scan(src)
 }
 
 func (a *SQLiteAdapter) ListTagsForVideo(ctx context.Context, videoID int64) ([]repository.Tag, error) {

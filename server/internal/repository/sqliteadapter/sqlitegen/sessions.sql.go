@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const createSession = `-- name: CreateSession :exec
@@ -16,12 +18,12 @@ VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type CreateSessionParams struct {
-	HashedID        string         `json:"hashed_id"`
-	UserID          string         `json:"user_id"`
-	EncryptedTokens []byte         `json:"encrypted_tokens"`
-	ExpiresAt       string         `json:"expires_at"`
-	UserAgent       sql.NullString `json:"user_agent"`
-	IpAddress       sql.NullString `json:"ip_address"`
+	HashedID        string          `json:"hashed_id"`
+	UserID          string          `json:"user_id"`
+	EncryptedTokens []byte          `json:"encrypted_tokens"`
+	ExpiresAt       sqlitetype.Time `json:"expires_at"`
+	UserAgent       sql.NullString  `json:"user_agent"`
+	IpAddress       sql.NullString  `json:"ip_address"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
@@ -89,13 +91,13 @@ FROM sessions WHERE user_id = ? ORDER BY last_active_at DESC
 `
 
 type ListUserSessionsRow struct {
-	HashedID     string         `json:"hashed_id"`
-	UserID       string         `json:"user_id"`
-	ExpiresAt    string         `json:"expires_at"`
-	LastActiveAt string         `json:"last_active_at"`
-	UserAgent    sql.NullString `json:"user_agent"`
-	IpAddress    sql.NullString `json:"ip_address"`
-	CreatedAt    string         `json:"created_at"`
+	HashedID     string          `json:"hashed_id"`
+	UserID       string          `json:"user_id"`
+	ExpiresAt    sqlitetype.Time `json:"expires_at"`
+	LastActiveAt sqlitetype.Time `json:"last_active_at"`
+	UserAgent    sql.NullString  `json:"user_agent"`
+	IpAddress    sql.NullString  `json:"ip_address"`
+	CreatedAt    sqlitetype.Time `json:"created_at"`
 }
 
 func (q *Queries) ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error) {

@@ -1666,3 +1666,141 @@ func createWebhookOutboxVideo(t *testing.T, adapter *PGAdapter, jobID string) *r
 	}
 	return v
 }
+
+// TestUpsertChannel_ViewCountExceedsInt32 is the regression guard for the
+// view_count int32 truncation: the largest Twitch channels report view counts
+// above the signed-32-bit ceiling, and the old INTEGER column wrapped them.
+// After widening to BIGINT the value must round-trip intact through both the
+// upsert return and a fresh read.
+func TestUpsertChannel_ViewCountExceedsInt32(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	const huge = int64(3_000_000_000) // > math.MaxInt32 (2_147_483_647)
+	saved, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID:    "big-channel",
+		BroadcasterLogin: "big",
+		BroadcasterName:  "Big",
+		ViewCount:        huge,
+	})
+	if err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+	if saved.ViewCount != huge {
+		t.Fatalf("upsert returned view_count = %d, want %d (truncated to int32?)", saved.ViewCount, huge)
+	}
+
+	got, err := a.GetChannel(ctx, "big-channel")
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if got.ViewCount != huge {
+		t.Fatalf("persisted view_count = %d, want %d", got.ViewCount, huge)
+	}
+}
+
+// TestResetStaleRecordingWebhookDeliveries is the Postgres counterpart to the
+// SQLite crash-recovery guard: ResetStale must re-arm only rows that have been
+// stuck in 'delivering' past the cutoff, and never disturb a fresh in-flight
+// delivery or any terminal/pending row.
+func TestResetStaleRecordingWebhookDeliveries(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("re-arms only stale delivering rows, leaves terminal and pending alone", func(t *testing.T) {
+		a := newTestAdapter(t)
+
+		stale, err := a.CreateClaimedRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "stale", DedupeKey: "stale", Event: "recording.completed", VideoID: 1,
+		})
+		if err != nil {
+			t.Fatalf("create stale delivering: %v", err)
+		}
+		if stale.Status != repository.RecordingWebhookDeliveryDelivering {
+			t.Fatalf("precondition: stale row status = %q, want delivering", stale.Status)
+		}
+
+		pending, err := a.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "pending", DedupeKey: "pending", Event: "recording.completed", VideoID: 2,
+		})
+		if err != nil {
+			t.Fatalf("create pending: %v", err)
+		}
+
+		failed, err := a.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "failed", DedupeKey: "failed", Event: "recording.completed", VideoID: 3,
+		})
+		if err != nil {
+			t.Fatalf("create failed: %v", err)
+		}
+		fin := time.Now().UTC().Truncate(time.Second)
+		if err := a.MarkRecordingWebhookDeliveryFinal(ctx, failed.ID, repository.RecordingWebhookDeliveryFailed, 500, "boom", fin, fin); err != nil {
+			t.Fatalf("mark failed: %v", err)
+		}
+
+		delivered, err := a.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "delivered", DedupeKey: "delivered", Event: "recording.completed", VideoID: 4, NextAttemptAt: fin,
+		})
+		if err != nil {
+			t.Fatalf("create delivered: %v", err)
+		}
+		if _, err := a.ClaimDueRecordingWebhookDeliveries(ctx, fin, 1); err != nil {
+			t.Fatalf("claim delivered: %v", err)
+		}
+		if err := a.MarkRecordingWebhookDeliveryDelivered(ctx, delivered.ID, 204, fin); err != nil {
+			t.Fatalf("mark delivered: %v", err)
+		}
+
+		resetNow := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+		before := time.Now().UTC().Add(24 * time.Hour)
+		if err := a.ResetStaleRecordingWebhookDeliveries(ctx, before, resetNow); err != nil {
+			t.Fatalf("ResetStaleRecordingWebhookDeliveries: %v", err)
+		}
+
+		byID := pgDeliveriesByID(t, a, ctx)
+		if got := byID[stale.ID].Status; got != repository.RecordingWebhookDeliveryPending {
+			t.Fatalf("stale delivering row status = %q, want pending (re-armed)", got)
+		}
+		if got := byID[stale.ID].NextAttemptAt; !got.Equal(resetNow) {
+			t.Fatalf("re-armed row next_attempt_at = %v, want %v (due immediately)", got, resetNow)
+		}
+		if got := byID[pending.ID].Status; got != repository.RecordingWebhookDeliveryPending {
+			t.Fatalf("pending row status = %q, want pending (untouched)", got)
+		}
+		if got := byID[failed.ID].Status; got != repository.RecordingWebhookDeliveryFailed {
+			t.Fatalf("failed row status = %q, want failed (untouched)", got)
+		}
+		if got := byID[delivered.ID].Status; got != repository.RecordingWebhookDeliveryDelivered {
+			t.Fatalf("delivered row status = %q, want delivered (untouched)", got)
+		}
+	})
+
+	t.Run("leaves fresh delivering rows untouched", func(t *testing.T) {
+		a := newTestAdapter(t)
+		fresh, err := a.CreateClaimedRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "fresh", DedupeKey: "fresh", Event: "recording.completed", VideoID: 1,
+		})
+		if err != nil {
+			t.Fatalf("create fresh delivering: %v", err)
+		}
+		before := time.Now().UTC().Add(-24 * time.Hour)
+		if err := a.ResetStaleRecordingWebhookDeliveries(ctx, before, time.Now().UTC()); err != nil {
+			t.Fatalf("ResetStaleRecordingWebhookDeliveries: %v", err)
+		}
+		if got := pgDeliveriesByID(t, a, ctx)[fresh.ID].Status; got != repository.RecordingWebhookDeliveryDelivering {
+			t.Fatalf("fresh delivering row status = %q, want delivering (not yet stale)", got)
+		}
+	})
+}
+
+func pgDeliveriesByID(t *testing.T, a *PGAdapter, ctx context.Context) map[int64]repository.RecordingWebhookDelivery {
+	t.Helper()
+	rows, err := a.ListRecordingWebhookDeliveries(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListRecordingWebhookDeliveries: %v", err)
+	}
+	out := make(map[int64]repository.RecordingWebhookDelivery, len(rows))
+	for _, r := range rows {
+		out[r.ID] = r
+	}
+	return out
+}

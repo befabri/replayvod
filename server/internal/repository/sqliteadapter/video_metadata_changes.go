@@ -27,7 +27,7 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 
 	result := &repository.VideoMetadataChangeResult{}
 	at := input.OccurredAt.UTC()
-	ts := formatTime(at)
+	ts := sqliteTime(at)
 
 	err := a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		var titleID sql.NullInt64
@@ -47,7 +47,7 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 			// UpsertVideoTitleSpan in titles.go which uses its own
 			// inTx — here we share the outer tx instead.
 			if err := q.CloseOtherOpenVideoTitleSpans(ctx, sqlitegen.CloseOtherOpenVideoTitleSpansParams{
-				AtTime:  sql.NullString{String: ts, Valid: true},
+				AtTime:  &ts,
 				VideoID: input.VideoID,
 				TitleID: t.ID,
 			}); err != nil {
@@ -83,7 +83,7 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 				return fmt.Errorf("sqlite link video category: %w", err)
 			}
 			if err := q.CloseOtherOpenVideoCategorySpans(ctx, sqlitegen.CloseOtherOpenVideoCategorySpansParams{
-				AtTime:     sql.NullString{String: ts, Valid: true},
+				AtTime:     &ts,
 				VideoID:    input.VideoID,
 				CategoryID: input.CategoryID,
 			}); err != nil {
@@ -138,7 +138,7 @@ func (a *SQLiteAdapter) ListVideoMetadataChanges(
 		event := repository.VideoMetadataChange{
 			ID:                 r.ID,
 			VideoID:            r.VideoID,
-			OccurredAt:         parseTime(r.OccurredAt),
+			OccurredAt:         r.OccurredAt.Time,
 			MediaOffsetSeconds: fromNullFloat64(r.MediaOffsetSeconds),
 		}
 		if r.TitleID.Valid && r.TitleName.Valid {
@@ -146,9 +146,7 @@ func (a *SQLiteAdapter) ListVideoMetadataChanges(
 				ID:   r.TitleID.Int64,
 				Name: r.TitleName.String,
 			}
-			if r.TitleCreatedAt.Valid {
-				t.CreatedAt = parseTime(r.TitleCreatedAt.String)
-			}
+			t.CreatedAt = r.TitleCreatedAt.Time
 			event.Title = &t
 		}
 		if r.CategoryID.Valid && r.CategoryName.Valid {
@@ -158,12 +156,8 @@ func (a *SQLiteAdapter) ListVideoMetadataChanges(
 				BoxArtURL: fromNullString(r.CategoryBoxArtUrl),
 				IGDBID:    fromNullString(r.CategoryIgdbID),
 			}
-			if r.CategoryCreatedAt.Valid {
-				c.CreatedAt = parseTime(r.CategoryCreatedAt.String)
-			}
-			if r.CategoryUpdatedAt.Valid {
-				c.UpdatedAt = parseTime(r.CategoryUpdatedAt.String)
-			}
+			c.CreatedAt = r.CategoryCreatedAt.Time
+			c.UpdatedAt = r.CategoryUpdatedAt.Time
 			event.Category = &c
 		}
 		out[i] = event

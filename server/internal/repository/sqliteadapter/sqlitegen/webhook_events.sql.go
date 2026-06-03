@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const clearWebhookEventPayload = `-- name: ClearWebhookEventPayload :exec
@@ -16,7 +18,7 @@ SET payload = NULL
 WHERE received_at < ? AND payload IS NOT NULL
 `
 
-func (q *Queries) ClearWebhookEventPayload(ctx context.Context, receivedAt string) error {
+func (q *Queries) ClearWebhookEventPayload(ctx context.Context, receivedAt sqlitetype.Time) error {
 	_, err := q.db.ExecContext(ctx, clearWebhookEventPayload, receivedAt)
 	return err
 }
@@ -55,13 +57,13 @@ RETURNING id, event_id, message_type, event_type, subscription_id, broadcaster_i
 `
 
 type CreateWebhookEventParams struct {
-	EventID          string         `json:"event_id"`
-	MessageType      string         `json:"message_type"`
-	EventType        sql.NullString `json:"event_type"`
-	SubscriptionID   sql.NullString `json:"subscription_id"`
-	BroadcasterID    sql.NullString `json:"broadcaster_id"`
-	MessageTimestamp string         `json:"message_timestamp"`
-	Payload          sql.NullString `json:"payload"`
+	EventID          string          `json:"event_id"`
+	MessageType      string          `json:"message_type"`
+	EventType        sql.NullString  `json:"event_type"`
+	SubscriptionID   sql.NullString  `json:"subscription_id"`
+	BroadcasterID    sql.NullString  `json:"broadcaster_id"`
+	MessageTimestamp sqlitetype.Time `json:"message_timestamp"`
+	Payload          sql.NullString  `json:"payload"`
 }
 
 func (q *Queries) CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error) {
@@ -148,8 +150,8 @@ LIMIT ?
 `
 
 type ListStuckWebhookEventsParams struct {
-	ReceivedAt string `json:"received_at"`
-	Limit      int64  `json:"limit"`
+	ReceivedAt sqlitetype.Time `json:"received_at"`
+	Limit      int64           `json:"limit"`
 }
 
 func (q *Queries) ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error) {

@@ -164,8 +164,8 @@ func sqliteCategoryToDomain(c sqlitegen.Category) *repository.Category {
 		Name:      c.Name,
 		BoxArtURL: fromNullString(c.BoxArtUrl),
 		IGDBID:    fromNullString(c.IgdbID),
-		CreatedAt: parseTime(c.CreatedAt),
-		UpdatedAt: parseTime(c.UpdatedAt),
+		CreatedAt: c.CreatedAt.Time,
+		UpdatedAt: c.UpdatedAt.Time,
 	}
 }
 
@@ -173,6 +173,6 @@ func sqliteTagToDomain(t sqlitegen.Tag) *repository.Tag {
 	return &repository.Tag{
 		ID:        t.ID,
 		Name:      t.Name,
-		CreatedAt: parseTime(t.CreatedAt),
+		CreatedAt: t.CreatedAt.Time,
 	}
 }

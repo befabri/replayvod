@@ -34,7 +34,7 @@ type Channel struct {
 	OfflineImageUrl     *string   `json:"offline_image_url"`
 	Description         *string   `json:"description"`
 	BroadcasterType     *string   `json:"broadcaster_type"`
-	ViewCount           int32     `json:"view_count"`
+	ViewCount           int64     `json:"view_count"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }

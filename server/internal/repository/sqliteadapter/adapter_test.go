@@ -3,6 +3,7 @@ package sqliteadapter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
@@ -19,14 +21,14 @@ func newTestAdapter(t *testing.T) *SQLiteAdapter {
 	return New(testdb.NewSQLiteDB(t))
 }
 
-// TestTimeRoundtrip exercises parseTime/formatTime directly. No DB involved —
-// this is the cheapest regression signal if someone accidentally changes the
-// format string.
+// TestTimeRoundtrip exercises the SQLite timestamp formatter/parser directly.
+// No DB involved — this is the cheapest regression signal if someone
+// accidentally changes the format string.
 //
 // SQLite's "datetime('now')" default emits a second-precision TEXT with a
-// space separator (`YYYY-MM-DD HH:MM:SS`). formatTime must produce exactly
+// space separator (`YYYY-MM-DD HH:MM:SS`). sqlitetype.Format must produce exactly
 // that layout so Go writes round-trip through the default-NOW columns, and
-// parseTime must accept it back. Nanoseconds are dropped on the floor — that
+// sqlitetype.Parse must accept it back. Nanoseconds are dropped on the floor — that
 // matches SQLite's default precision and is fine for our purposes (download
 // timestamps don't need ns precision).
 func TestTimeRoundtrip(t *testing.T) {
@@ -38,9 +40,12 @@ func TestTimeRoundtrip(t *testing.T) {
 	}
 	for _, want := range cases {
 		t.Run(want.Format(time.RFC3339), func(t *testing.T) {
-			got := parseTime(formatTime(want))
+			got, err := sqlitetype.Parse(sqlitetype.Format(want))
+			if err != nil {
+				t.Fatalf("Parse(Format()) error: %v", err)
+			}
 			if !got.Equal(want) {
-				t.Errorf("roundtrip mismatch: want %v, got %v (via %q)", want, got, formatTime(want))
+				t.Errorf("roundtrip mismatch: want %v, got %v (via %q)", want, got, sqlitetype.Format(want))
 			}
 		})
 	}
@@ -51,10 +56,84 @@ func TestTimeRoundtrip(t *testing.T) {
 // and force an explicit decision rather than a silent change.
 func TestTimeRoundtrip_DropsSubsecond(t *testing.T) {
 	withNs := time.Date(2026, 4, 12, 15, 30, 45, 123_456_789, time.UTC)
-	got := parseTime(formatTime(withNs))
+	got, err := sqlitetype.Parse(sqlitetype.Format(withNs))
+	if err != nil {
+		t.Fatalf("Parse(Format()) error: %v", err)
+	}
 	want := withNs.Truncate(time.Second)
 	if !got.Equal(want) {
 		t.Errorf("expected truncation to second precision: want %v, got %v", want, got)
+	}
+}
+
+// TestSQLiteTimeParse pins the parse logic used by sqlitetype.Time.Scan: both
+// accepted layouts round-trip, nil is the only legitimately absent scanned
+// value, and malformed TEXT values hard-fail.
+func TestSQLiteTimeParse(t *testing.T) {
+	t.Run("space layout", func(t *testing.T) {
+		got, err := sqlitetype.Parse("2026-04-12 15:30:45")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := time.Date(2026, 4, 12, 15, 30, 45, 0, time.UTC); !got.Equal(want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+	t.Run("rfc3339 layout", func(t *testing.T) {
+		got, err := sqlitetype.Parse("2026-04-12T15:30:45Z")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := time.Date(2026, 4, 12, 15, 30, 45, 0, time.UTC); !got.Equal(want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+	t.Run("empty hard-fails", func(t *testing.T) {
+		got, err := sqlitetype.Parse("")
+		if err == nil {
+			t.Fatal("expected an error for an empty timestamp, got nil")
+		}
+		if !got.IsZero() {
+			t.Fatalf("error path should still return the zero instant, got %v", got)
+		}
+	})
+	t.Run("malformed surfaces an error", func(t *testing.T) {
+		got, err := sqlitetype.Parse("not-a-timestamp")
+		if err == nil {
+			t.Fatal("expected an error for an unparseable non-empty value, got nil (silent zero)")
+		}
+		if !got.IsZero() {
+			t.Fatalf("error path should still return the zero instant, got %v", got)
+		}
+	})
+}
+
+func TestMalformedTimestampHardFails(t *testing.T) {
+	tests := []string{"", "not-a-timestamp"}
+	for _, bad := range tests {
+		t.Run(fmt.Sprintf("%q", bad), func(t *testing.T) {
+			ctx := context.Background()
+			a := newTestAdapter(t)
+			_, err := a.UpsertUser(ctx, &repository.User{
+				ID:          "u1",
+				Login:       "login",
+				DisplayName: "Display",
+				Role:        "user",
+			})
+			if err != nil {
+				t.Fatalf("UpsertUser: %v", err)
+			}
+			if _, err := a.db.ExecContext(ctx, "UPDATE users SET created_at = ? WHERE id = ?", bad, "u1"); err != nil {
+				t.Fatalf("corrupt timestamp: %v", err)
+			}
+			_, err = a.GetUser(ctx, "u1")
+			if err == nil {
+				t.Fatal("GetUser succeeded with a malformed timestamp; want scan error")
+			}
+			if !strings.Contains(err.Error(), "unparseable") {
+				t.Fatalf("GetUser error = %v, want unparseable timestamp error", err)
+			}
+		})
 	}
 }
 
@@ -623,7 +702,7 @@ func TestListVideos_SortDimensions(t *testing.T) {
 	for i, name := range []string{"Alpha", "Bravo", "Charlie"} {
 		if _, err := a.db.ExecContext(ctx,
 			"UPDATE videos SET start_download_at = ? WHERE id = ?",
-			formatTime(base.Add(time.Duration(i)*time.Minute)),
+			sqlitetype.Format(base.Add(time.Duration(i)*time.Minute)),
 			ids[name],
 		); err != nil {
 			t.Fatalf("override start_download_at for %s: %v", name, err)
@@ -842,7 +921,7 @@ func seedVideoListFilterFixture(t *testing.T, ctx context.Context, a *SQLiteAdap
 			}
 		}
 		startedAt := base.Add(time.Duration(s.minute) * time.Minute)
-		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", formatTime(startedAt), v.ID); err != nil {
+		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", sqlitetype.Format(startedAt), v.ID); err != nil {
 			t.Fatalf("override start_download_at %s: %v", s.jobID, err)
 		}
 	}
@@ -915,7 +994,7 @@ func seedVideoListPageFixture(t *testing.T, ctx context.Context, a *SQLiteAdapte
 		if err := a.MarkVideoDone(ctx, v.ID, s.duration, s.size, nil, repository.CompletionKindComplete, false); err != nil {
 			t.Fatalf("mark done %s: %v", s.jobID, err)
 		}
-		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", formatTime(s.startedAt), v.ID); err != nil {
+		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", sqlitetype.Format(s.startedAt), v.ID); err != nil {
 			t.Fatalf("override start_download_at %s: %v", s.jobID, err)
 		}
 	}
@@ -1605,6 +1684,99 @@ func TestVideoMetadataDurations_TracksHistoryAndPrimaryCategory(t *testing.T) {
 	}
 }
 
+func TestListPrimaryCategoriesForVideos_HardFailsMalformedFirstSeenAt(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-primary-bad", BroadcasterLogin: "primary-bad", BroadcasterName: "Primary Bad",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	cat := repository.Category{ID: "cat-bad-time", Name: "Bad Time"}
+	if _, err := a.UpsertCategory(ctx, &cat); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	video, err := a.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-primary-bad-time",
+		Filename:      "primary-bad-time",
+		DisplayName:   "Primary Bad",
+		Status:        repository.VideoStatusPending,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "bc-primary-bad",
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("create video: %v", err)
+	}
+	if err := a.UpsertVideoCategorySpan(ctx, video.ID, cat.ID, time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("span category: %v", err)
+	}
+	if _, err := a.db.ExecContext(ctx, "UPDATE video_category_spans SET started_at = ? WHERE video_id = ?", "not-a-timestamp", video.ID); err != nil {
+		t.Fatalf("corrupt span started_at: %v", err)
+	}
+
+	_, err = a.ListPrimaryCategoriesForVideos(ctx, []int64{video.ID})
+	if err == nil {
+		t.Fatal("ListPrimaryCategoriesForVideos succeeded with malformed first_seen_at; want scan error")
+	}
+	if !strings.Contains(err.Error(), "first_seen_at") || !strings.Contains(err.Error(), "unparseable") {
+		t.Fatalf("ListPrimaryCategoriesForVideos error = %v, want first_seen_at unparseable error", err)
+	}
+}
+
+func TestListPrimaryCategoriesForVideos_IgnoresMalformedDiscardedFirstSeenAt(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-primary-discarded-bad", BroadcasterLogin: "primary-discarded-bad", BroadcasterName: "Primary Discarded Bad",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	primary := repository.Category{ID: "cat-primary-good-time", Name: "Primary Good"}
+	if _, err := a.UpsertCategory(ctx, &primary); err != nil {
+		t.Fatalf("seed primary category: %v", err)
+	}
+	decoy := repository.Category{ID: "cat-discarded-bad-time", Name: "Discarded Bad"}
+	if _, err := a.UpsertCategory(ctx, &decoy); err != nil {
+		t.Fatalf("seed decoy category: %v", err)
+	}
+	video, err := a.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-primary-discarded-bad-time",
+		Filename:      "primary-discarded-bad-time",
+		DisplayName:   "Primary Discarded Bad",
+		Status:        repository.VideoStatusPending,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "bc-primary-discarded-bad",
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("create video: %v", err)
+	}
+	base := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	if _, err := a.db.ExecContext(ctx, `
+INSERT INTO video_category_spans (video_id, category_id, started_at, ended_at, duration_seconds)
+VALUES (?, ?, ?, ?, ?)`,
+		video.ID, primary.ID, sqlitetype.Format(base), sqlitetype.Format(base.Add(time.Minute)), 120.0); err != nil {
+		t.Fatalf("insert primary span: %v", err)
+	}
+	if _, err := a.db.ExecContext(ctx, `
+INSERT INTO video_category_spans (video_id, category_id, started_at, ended_at, duration_seconds)
+VALUES (?, ?, ?, ?, ?)`,
+		video.ID, decoy.ID, "not-a-timestamp", sqlitetype.Format(base.Add(time.Minute)), 1.0); err != nil {
+		t.Fatalf("insert discarded span: %v", err)
+	}
+
+	got, err := a.ListPrimaryCategoriesForVideos(ctx, []int64{video.ID})
+	if err != nil {
+		t.Fatalf("ListPrimaryCategoriesForVideos returned discarded-row first_seen_at error: %v", err)
+	}
+	if cat, ok := got[video.ID]; !ok || cat.ID != primary.ID {
+		t.Fatalf("primary category = %+v, want %s", cat, primary.ID)
+	}
+}
+
 func TestServerHMACSecret_PreservedAcrossUpsert(t *testing.T) {
 	ctx := context.Background()
 	adapter := newTestAdapter(t)
@@ -1811,6 +1983,111 @@ func TestRecordingWebhookDelivery_OutboxLifecycle(t *testing.T) {
 	}
 }
 
+// Crash recovery re-arms stale delivering rows without touching fresh or
+// terminal deliveries.
+func TestResetStaleRecordingWebhookDeliveries(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("re-arms only stale delivering rows, leaves terminal and pending alone", func(t *testing.T) {
+		a := newTestAdapter(t)
+
+		stale, err := a.CreateClaimedRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "stale", DedupeKey: "stale", Event: "recording.completed", VideoID: 1,
+		})
+		if err != nil {
+			t.Fatalf("create stale delivering: %v", err)
+		}
+		if stale.Status != repository.RecordingWebhookDeliveryDelivering {
+			t.Fatalf("precondition: stale row status = %q, want delivering", stale.Status)
+		}
+
+		pending, err := a.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "pending", DedupeKey: "pending", Event: "recording.completed", VideoID: 2,
+		})
+		if err != nil {
+			t.Fatalf("create pending: %v", err)
+		}
+
+		failed, err := a.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "failed", DedupeKey: "failed", Event: "recording.completed", VideoID: 3,
+		})
+		if err != nil {
+			t.Fatalf("create failed: %v", err)
+		}
+		fin := time.Now().UTC().Truncate(time.Second)
+		if err := a.MarkRecordingWebhookDeliveryFinal(ctx, failed.ID, repository.RecordingWebhookDeliveryFailed, 500, "boom", fin, fin); err != nil {
+			t.Fatalf("mark failed: %v", err)
+		}
+
+		delivered, err := a.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "delivered", DedupeKey: "delivered", Event: "recording.completed", VideoID: 4, NextAttemptAt: fin,
+		})
+		if err != nil {
+			t.Fatalf("create delivered: %v", err)
+		}
+		if _, err := a.ClaimDueRecordingWebhookDeliveries(ctx, fin, 1); err != nil {
+			t.Fatalf("claim delivered: %v", err)
+		}
+		if err := a.MarkRecordingWebhookDeliveryDelivered(ctx, delivered.ID, 204, fin); err != nil {
+			t.Fatalf("mark delivered: %v", err)
+		}
+
+		// The future cutoff makes time eligible; status must still filter rows.
+		resetNow := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+		before := time.Now().UTC().Add(24 * time.Hour)
+		if err := a.ResetStaleRecordingWebhookDeliveries(ctx, before, resetNow); err != nil {
+			t.Fatalf("ResetStaleRecordingWebhookDeliveries: %v", err)
+		}
+
+		byID := deliveriesByID(t, a, ctx)
+		if got := byID[stale.ID].Status; got != repository.RecordingWebhookDeliveryPending {
+			t.Fatalf("stale delivering row status = %q, want pending (re-armed)", got)
+		}
+		if got := byID[stale.ID].NextAttemptAt; !got.Equal(resetNow) {
+			t.Fatalf("re-armed row next_attempt_at = %v, want %v (due immediately)", got, resetNow)
+		}
+		if got := byID[pending.ID].Status; got != repository.RecordingWebhookDeliveryPending {
+			t.Fatalf("pending row status = %q, want pending (untouched)", got)
+		}
+		if got := byID[failed.ID].Status; got != repository.RecordingWebhookDeliveryFailed {
+			t.Fatalf("failed row status = %q, want failed (untouched)", got)
+		}
+		if got := byID[delivered.ID].Status; got != repository.RecordingWebhookDeliveryDelivered {
+			t.Fatalf("delivered row status = %q, want delivered (untouched)", got)
+		}
+	})
+
+	t.Run("leaves fresh delivering rows untouched", func(t *testing.T) {
+		a := newTestAdapter(t)
+		fresh, err := a.CreateClaimedRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+			MessageID: "fresh", DedupeKey: "fresh", Event: "recording.completed", VideoID: 1,
+		})
+		if err != nil {
+			t.Fatalf("create fresh delivering: %v", err)
+		}
+		before := time.Now().UTC().Add(-24 * time.Hour)
+		if err := a.ResetStaleRecordingWebhookDeliveries(ctx, before, time.Now().UTC()); err != nil {
+			t.Fatalf("ResetStaleRecordingWebhookDeliveries: %v", err)
+		}
+		if got := deliveriesByID(t, a, ctx)[fresh.ID].Status; got != repository.RecordingWebhookDeliveryDelivering {
+			t.Fatalf("fresh delivering row status = %q, want delivering (not yet stale)", got)
+		}
+	})
+}
+
+func deliveriesByID(t *testing.T, a *SQLiteAdapter, ctx context.Context) map[int64]repository.RecordingWebhookDelivery {
+	t.Helper()
+	rows, err := a.ListRecordingWebhookDeliveries(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListRecordingWebhookDeliveries: %v", err)
+	}
+	out := make(map[int64]repository.RecordingWebhookDelivery, len(rows))
+	for _, r := range rows {
+		out[r.ID] = r
+	}
+	return out
+}
+
 // TestCreateClaimedRecordingWebhookDelivery_NotClaimable pins the SendTest
 // double-delivery fix: a row created via CreateClaimedRecordingWebhookDelivery
 // starts in 'delivering' (one attempt) and is therefore NOT picked up by the
@@ -1884,7 +2161,7 @@ func TestDeleteOldRecordingWebhookDeliveries_PrunesTerminalKeepsActive(t *testin
 	}
 	if _, err := adapter.db.ExecContext(ctx,
 		"UPDATE recording_webhook_deliveries SET created_at = ?, updated_at = ?, delivered_at = ? WHERE id = ?",
-		formatTime(old), formatTime(old), formatTime(old), d1.ID); err != nil {
+		sqlitetype.Format(old), sqlitetype.Format(old), sqlitetype.Format(old), d1.ID); err != nil {
 		t.Fatalf("backdate delivered row: %v", err)
 	}
 	// failed (terminal), created old but updated recently: must survive.
@@ -1894,14 +2171,14 @@ func TestDeleteOldRecordingWebhookDeliveries_PrunesTerminalKeepsActive(t *testin
 	}
 	if _, err := adapter.db.ExecContext(ctx,
 		"UPDATE recording_webhook_deliveries SET created_at = ? WHERE id = ?",
-		formatTime(old), d2.ID); err != nil {
+		sqlitetype.Format(old), d2.ID); err != nil {
 		t.Fatalf("backdate failed row created_at: %v", err)
 	}
 	// pending (active) and delivering (active) — must survive.
 	pending := mkPending("recording.completed:3", 3)
 	if _, err := adapter.db.ExecContext(ctx,
 		"UPDATE recording_webhook_deliveries SET created_at = ?, updated_at = ? WHERE id = ?",
-		formatTime(old), formatTime(old), pending.ID); err != nil {
+		sqlitetype.Format(old), sqlitetype.Format(old), pending.ID); err != nil {
 		t.Fatalf("backdate pending row: %v", err)
 	}
 	delivering, err := adapter.CreateClaimedRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
@@ -1912,7 +2189,7 @@ func TestDeleteOldRecordingWebhookDeliveries_PrunesTerminalKeepsActive(t *testin
 	}
 	if _, err := adapter.db.ExecContext(ctx,
 		"UPDATE recording_webhook_deliveries SET created_at = ?, updated_at = ? WHERE id = ?",
-		formatTime(old), formatTime(old), delivering.ID); err != nil {
+		sqlitetype.Format(old), sqlitetype.Format(old), delivering.ID); err != nil {
 		t.Fatalf("backdate delivering row: %v", err)
 	}
 

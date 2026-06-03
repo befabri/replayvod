@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const countFetchLogs = `-- name: CountFetchLogs :one
@@ -62,7 +64,7 @@ const deleteOldFetchLogs = `-- name: DeleteOldFetchLogs :exec
 DELETE FROM fetch_logs WHERE fetched_at < ?
 `
 
-func (q *Queries) DeleteOldFetchLogs(ctx context.Context, fetchedAt string) error {
+func (q *Queries) DeleteOldFetchLogs(ctx context.Context, fetchedAt sqlitetype.Time) error {
 	_, err := q.db.ExecContext(ctx, deleteOldFetchLogs, fetchedAt)
 	return err
 }

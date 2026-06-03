@@ -113,7 +113,7 @@ func sqliteServerSettingsToDomain(s sqlitegen.ServerSetting) *repository.ServerS
 		PlaybackCacheEnabled:          s.PlaybackCacheEnabled != 0,
 		PlaybackCacheMaxPercent:       int(s.PlaybackCacheMaxPercent),
 		PlaybackCacheAutoGenerate:     s.PlaybackCacheAutoGenerate != 0,
-		CreatedAt:                     parseTime(s.CreatedAt),
-		UpdatedAt:                     parseTime(s.UpdatedAt),
+		CreatedAt:                     s.CreatedAt.Time,
+		UpdatedAt:                     s.UpdatedAt.Time,
 	}
 }

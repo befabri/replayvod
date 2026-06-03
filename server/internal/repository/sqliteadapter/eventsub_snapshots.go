@@ -45,7 +45,7 @@ func (a *SQLiteAdapter) ListEventSubSnapshots(ctx context.Context, limit, offset
 }
 
 func (a *SQLiteAdapter) DeleteOldEventSubSnapshots(ctx context.Context, before time.Time) error {
-	return a.queries.DeleteOldSnapshots(ctx, formatTime(before))
+	return a.queries.DeleteOldSnapshots(ctx, sqliteTime(before))
 }
 
 func (a *SQLiteAdapter) LinkSnapshotSubscription(ctx context.Context, snapshotID int64, subscriptionID string, costAtSnapshot int64, statusAtSnapshot string) error {
@@ -63,6 +63,6 @@ func sqliteSnapshotToDomain(s sqlitegen.EventsubSnapshot) *repository.EventSubSn
 		Total:        s.Total,
 		TotalCost:    s.TotalCost,
 		MaxTotalCost: s.MaxTotalCost,
-		FetchedAt:    parseTime(s.FetchedAt),
+		FetchedAt:    s.FetchedAt.Time,
 	}
 }

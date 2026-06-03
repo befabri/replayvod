@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const createJob = `-- name: CreateJob :one
@@ -121,8 +123,8 @@ ORDER BY finished_at ASC LIMIT ?
 `
 
 type ListFailedJobsForRetryParams struct {
-	FinishedAt sql.NullString `json:"finished_at"`
-	Limit      int64          `json:"limit"`
+	FinishedAt *sqlitetype.Time `json:"finished_at"`
+	Limit      int64            `json:"limit"`
 }
 
 func (q *Queries) ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error) {

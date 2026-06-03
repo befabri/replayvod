@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const deleteChannel = `-- name: DeleteChannel :exec
@@ -283,10 +285,10 @@ ON CONFLICT (user_id, broadcaster_id) DO UPDATE SET
 `
 
 type UpsertUserFollowParams struct {
-	UserID        string `json:"user_id"`
-	BroadcasterID string `json:"broadcaster_id"`
-	FollowedAt    string `json:"followed_at"`
-	Followed      int64  `json:"followed"`
+	UserID        string          `json:"user_id"`
+	BroadcasterID string          `json:"broadcaster_id"`
+	FollowedAt    sqlitetype.Time `json:"followed_at"`
+	Followed      int64           `json:"followed"`
 }
 
 func (q *Queries) UpsertUserFollow(ctx context.Context, arg UpsertUserFollowParams) error {

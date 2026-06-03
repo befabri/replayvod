@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const countEventLogs = `-- name: CountEventLogs :one
@@ -76,7 +78,7 @@ WHERE created_at < ?
   AND severity IN ('debug', 'info')
 `
 
-func (q *Queries) DeleteOldEventLogs(ctx context.Context, createdAt string) error {
+func (q *Queries) DeleteOldEventLogs(ctx context.Context, createdAt sqlitetype.Time) error {
 	_, err := q.db.ExecContext(ctx, deleteOldEventLogs, createdAt)
 	return err
 }

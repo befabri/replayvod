@@ -75,7 +75,7 @@ func (a *PGAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*
 		OfflineImageUrl:     c.OfflineImageURL,
 		Description:         c.Description,
 		BroadcasterType:     c.BroadcasterType,
-		ViewCount:           int32(c.ViewCount),
+		ViewCount:           c.ViewCount,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg upsert channel %s: %w", c.BroadcasterID, err)
@@ -183,7 +183,7 @@ func pgChannelToDomain(c pggen.Channel) *repository.Channel {
 		OfflineImageURL:     c.OfflineImageUrl,
 		Description:         c.Description,
 		BroadcasterType:     c.BroadcasterType,
-		ViewCount:           int64(c.ViewCount),
+		ViewCount:           c.ViewCount,
 		CreatedAt:           c.CreatedAt,
 		UpdatedAt:           c.UpdatedAt,
 	}

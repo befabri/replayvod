@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const countVideosByStatus = `-- name: CountVideosByStatus :one
@@ -201,10 +203,10 @@ WHERE deleted_at IS NULL
 `
 
 type ListFinishedVideosForRetentionRow struct {
-	ID                   int64          `json:"id"`
-	BroadcasterID        string         `json:"broadcaster_id"`
-	DownloadedAt         sql.NullString `json:"downloaded_at"`
-	RetentionWindowHours sql.NullInt64  `json:"retention_window_hours"`
+	ID                   int64            `json:"id"`
+	BroadcasterID        string           `json:"broadcaster_id"`
+	DownloadedAt         *sqlitetype.Time `json:"downloaded_at"`
+	RetentionWindowHours sql.NullInt64    `json:"retention_window_hours"`
 }
 
 // Terminal, not-yet-tombstoned recordings whose creation-time retention policy
@@ -216,7 +218,7 @@ type ListFinishedVideosForRetentionRow struct {
 // delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
 // keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 // agree on "exactly at the deadline is still retained".
-func (q *Queries) ListFinishedVideosForRetention(ctx context.Context, now sql.NullString) ([]ListFinishedVideosForRetentionRow, error) {
+func (q *Queries) ListFinishedVideosForRetention(ctx context.Context, now *sqlitetype.Time) ([]ListFinishedVideosForRetentionRow, error) {
 	rows, err := q.db.QueryContext(ctx, listFinishedVideosForRetention, now)
 	if err != nil {
 		return nil, err

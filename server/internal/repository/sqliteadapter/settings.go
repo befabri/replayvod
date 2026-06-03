@@ -35,7 +35,7 @@ func sqliteSettingsToDomain(s sqlitegen.Setting) *repository.Settings {
 		Timezone:       s.Timezone,
 		DatetimeFormat: s.DatetimeFormat,
 		Language:       s.Language,
-		CreatedAt:      parseTime(s.CreatedAt),
-		UpdatedAt:      parseTime(s.UpdatedAt),
+		CreatedAt:      s.CreatedAt.Time,
+		UpdatedAt:      s.UpdatedAt.Time,
 	}
 }

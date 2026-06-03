@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const deleteVideoPlaybackAsset = `-- name: DeleteVideoPlaybackAsset :exec
@@ -117,15 +119,15 @@ RETURNING video_id, status, filename, mime_type, duration_seconds, size_bytes, e
 `
 
 type UpsertVideoPlaybackAssetParams struct {
-	VideoID         int64           `json:"video_id"`
-	Status          string          `json:"status"`
-	Filename        sql.NullString  `json:"filename"`
-	MimeType        sql.NullString  `json:"mime_type"`
-	DurationSeconds sql.NullFloat64 `json:"duration_seconds"`
-	SizeBytes       sql.NullInt64   `json:"size_bytes"`
-	Error           sql.NullString  `json:"error"`
-	GeneratedAt     sql.NullString  `json:"generated_at"`
-	LastAccessedAt  sql.NullString  `json:"last_accessed_at"`
+	VideoID         int64            `json:"video_id"`
+	Status          string           `json:"status"`
+	Filename        sql.NullString   `json:"filename"`
+	MimeType        sql.NullString   `json:"mime_type"`
+	DurationSeconds sql.NullFloat64  `json:"duration_seconds"`
+	SizeBytes       sql.NullInt64    `json:"size_bytes"`
+	Error           sql.NullString   `json:"error"`
+	GeneratedAt     *sqlitetype.Time `json:"generated_at"`
+	LastAccessedAt  *sqlitetype.Time `json:"last_accessed_at"`
 }
 
 func (q *Queries) UpsertVideoPlaybackAsset(ctx context.Context, arg UpsertVideoPlaybackAssetParams) (VideoPlaybackAsset, error) {

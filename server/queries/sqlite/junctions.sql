@@ -38,8 +38,7 @@ UPDATE video_category_spans
    AND category_id <> @category_id;
 
 -- name: InsertVideoCategorySpan :exec
--- @at_time: see CloseOtherOpenVideoTitleSpans for why
--- the string cast is load-bearing.
+-- @at_time: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
 INSERT INTO video_category_spans (video_id, category_id, started_at)
 VALUES (@video_id, @category_id, @at_time)
 ON CONFLICT (video_id, category_id) WHERE ended_at IS NULL DO NOTHING;
@@ -92,7 +91,8 @@ ORDER BY vcs.started_at ASC, vcs.id ASC;
 -- aggregate rows ordered so the first row per video_id is the
 -- "primary" category (most total duration, earliest first-seen,
 -- then name). The adapter takes the first row per video_id since
--- SQLite lacks DISTINCT ON.
+-- SQLite lacks DISTINCT ON. Scanning first_seen_at keeps malformed
+-- started_at values on the returned row's hard-fail path.
 SELECT vcs.video_id,
        c.id,
        c.name,

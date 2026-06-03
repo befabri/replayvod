@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const endStream = `-- name: EndStream :exec
@@ -15,8 +17,8 @@ UPDATE streams SET ended_at = ? WHERE id = ? AND ended_at IS NULL
 `
 
 type EndStreamParams struct {
-	EndedAt sql.NullString `json:"ended_at"`
-	ID      string         `json:"id"`
+	EndedAt *sqlitetype.Time `json:"ended_at"`
+	ID      string           `json:"id"`
 }
 
 func (q *Queries) EndStream(ctx context.Context, arg EndStreamParams) error {
@@ -149,19 +151,19 @@ LIMIT ?
 `
 
 type ListLatestLivePerChannelRow struct {
-	ID               string         `json:"id"`
-	BroadcasterID    string         `json:"broadcaster_id"`
-	Type             string         `json:"type"`
-	Language         string         `json:"language"`
-	ThumbnailUrl     sql.NullString `json:"thumbnail_url"`
-	ViewerCount      int64          `json:"viewer_count"`
-	IsMature         sql.NullInt64  `json:"is_mature"`
-	StartedAt        string         `json:"started_at"`
-	EndedAt          sql.NullString `json:"ended_at"`
-	CreatedAt        string         `json:"created_at"`
-	BroadcasterLogin string         `json:"broadcaster_login"`
-	BroadcasterName  string         `json:"broadcaster_name"`
-	ProfileImageUrl  sql.NullString `json:"profile_image_url"`
+	ID               string           `json:"id"`
+	BroadcasterID    string           `json:"broadcaster_id"`
+	Type             string           `json:"type"`
+	Language         string           `json:"language"`
+	ThumbnailUrl     sql.NullString   `json:"thumbnail_url"`
+	ViewerCount      int64            `json:"viewer_count"`
+	IsMature         sql.NullInt64    `json:"is_mature"`
+	StartedAt        sqlitetype.Time  `json:"started_at"`
+	EndedAt          *sqlitetype.Time `json:"ended_at"`
+	CreatedAt        sqlitetype.Time  `json:"created_at"`
+	BroadcasterLogin string           `json:"broadcaster_login"`
+	BroadcasterName  string           `json:"broadcaster_name"`
+	ProfileImageUrl  sql.NullString   `json:"profile_image_url"`
 }
 
 // SQLite has no DISTINCT ON; use ROW_NUMBER() to pick the most recent
@@ -278,14 +280,14 @@ RETURNING id, broadcaster_id, type, language, thumbnail_url, viewer_count, is_ma
 `
 
 type UpsertStreamParams struct {
-	ID            string         `json:"id"`
-	BroadcasterID string         `json:"broadcaster_id"`
-	Type          string         `json:"type"`
-	Language      string         `json:"language"`
-	ThumbnailUrl  sql.NullString `json:"thumbnail_url"`
-	ViewerCount   int64          `json:"viewer_count"`
-	IsMature      sql.NullInt64  `json:"is_mature"`
-	StartedAt     string         `json:"started_at"`
+	ID            string          `json:"id"`
+	BroadcasterID string          `json:"broadcaster_id"`
+	Type          string          `json:"type"`
+	Language      string          `json:"language"`
+	ThumbnailUrl  sql.NullString  `json:"thumbnail_url"`
+	ViewerCount   int64           `json:"viewer_count"`
+	IsMature      sql.NullInt64   `json:"is_mature"`
+	StartedAt     sqlitetype.Time `json:"started_at"`
 }
 
 func (q *Queries) UpsertStream(ctx context.Context, arg UpsertStreamParams) (Stream, error) {

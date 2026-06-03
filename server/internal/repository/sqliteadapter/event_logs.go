@@ -74,7 +74,7 @@ func (a *SQLiteAdapter) CountEventLogsByDomain(ctx context.Context, domain strin
 }
 
 func (a *SQLiteAdapter) DeleteOldEventLogs(ctx context.Context, before time.Time) error {
-	return a.queries.DeleteOldEventLogs(ctx, formatTime(before))
+	return a.queries.DeleteOldEventLogs(ctx, sqliteTime(before))
 }
 
 func sqliteEventLogToDomain(e sqlitegen.EventLog) *repository.EventLog {
@@ -90,7 +90,7 @@ func sqliteEventLogToDomain(e sqlitegen.EventLog) *repository.EventLog {
 		Message:     e.Message,
 		ActorUserID: fromNullString(e.ActorUserID),
 		Data:        data,
-		CreatedAt:   parseTime(e.CreatedAt),
+		CreatedAt:   e.CreatedAt.Time,
 	}
 }
 

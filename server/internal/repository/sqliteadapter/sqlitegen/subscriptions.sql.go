@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const countActiveSubscriptions = `-- name: CountActiveSubscriptions :one
@@ -33,16 +35,16 @@ RETURNING id, status, type, version, cost, condition, broadcaster_id, transport_
 `
 
 type CreateSubscriptionParams struct {
-	ID                string         `json:"id"`
-	Status            string         `json:"status"`
-	Type              string         `json:"type"`
-	Version           string         `json:"version"`
-	Cost              int64          `json:"cost"`
-	Condition         string         `json:"condition"`
-	BroadcasterID     sql.NullString `json:"broadcaster_id"`
-	TransportMethod   string         `json:"transport_method"`
-	TransportCallback string         `json:"transport_callback"`
-	TwitchCreatedAt   string         `json:"twitch_created_at"`
+	ID                string          `json:"id"`
+	Status            string          `json:"status"`
+	Type              string          `json:"type"`
+	Version           string          `json:"version"`
+	Cost              int64           `json:"cost"`
+	Condition         string          `json:"condition"`
+	BroadcasterID     sql.NullString  `json:"broadcaster_id"`
+	TransportMethod   string          `json:"transport_method"`
+	TransportCallback string          `json:"transport_callback"`
+	TwitchCreatedAt   sqlitetype.Time `json:"twitch_created_at"`
 }
 
 func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error) {
@@ -324,16 +326,16 @@ RETURNING id, status, type, version, cost, condition, broadcaster_id, transport_
 `
 
 type UpsertSubscriptionParams struct {
-	ID                string         `json:"id"`
-	Status            string         `json:"status"`
-	Type              string         `json:"type"`
-	Version           string         `json:"version"`
-	Cost              int64          `json:"cost"`
-	Condition         string         `json:"condition"`
-	BroadcasterID     sql.NullString `json:"broadcaster_id"`
-	TransportMethod   string         `json:"transport_method"`
-	TransportCallback string         `json:"transport_callback"`
-	TwitchCreatedAt   string         `json:"twitch_created_at"`
+	ID                string          `json:"id"`
+	Status            string          `json:"status"`
+	Type              string          `json:"type"`
+	Version           string          `json:"version"`
+	Cost              int64           `json:"cost"`
+	Condition         string          `json:"condition"`
+	BroadcasterID     sql.NullString  `json:"broadcaster_id"`
+	TransportMethod   string          `json:"transport_method"`
+	TransportCallback string          `json:"transport_callback"`
+	TwitchCreatedAt   sqlitetype.Time `json:"twitch_created_at"`
 }
 
 // Self-heal path; see postgres variant.

@@ -6,54 +6,56 @@ package sqlitegen
 
 import (
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 type AppAccessToken struct {
-	ID        int64  `json:"id"`
-	Token     string `json:"token"`
-	ExpiresAt string `json:"expires_at"`
-	CreatedAt string `json:"created_at"`
+	ID        int64           `json:"id"`
+	Token     string          `json:"token"`
+	ExpiresAt sqlitetype.Time `json:"expires_at"`
+	CreatedAt sqlitetype.Time `json:"created_at"`
 }
 
 type Category struct {
-	ID        string         `json:"id"`
-	Name      string         `json:"name"`
-	BoxArtUrl sql.NullString `json:"box_art_url"`
-	IgdbID    sql.NullString `json:"igdb_id"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	BoxArtUrl sql.NullString  `json:"box_art_url"`
+	IgdbID    sql.NullString  `json:"igdb_id"`
+	CreatedAt sqlitetype.Time `json:"created_at"`
+	UpdatedAt sqlitetype.Time `json:"updated_at"`
 }
 
 type Channel struct {
-	BroadcasterID       string         `json:"broadcaster_id"`
-	BroadcasterLogin    string         `json:"broadcaster_login"`
-	BroadcasterName     string         `json:"broadcaster_name"`
-	BroadcasterLanguage sql.NullString `json:"broadcaster_language"`
-	ProfileImageUrl     sql.NullString `json:"profile_image_url"`
-	OfflineImageUrl     sql.NullString `json:"offline_image_url"`
-	Description         sql.NullString `json:"description"`
-	BroadcasterType     sql.NullString `json:"broadcaster_type"`
-	ViewCount           int64          `json:"view_count"`
-	CreatedAt           string         `json:"created_at"`
-	UpdatedAt           string         `json:"updated_at"`
+	BroadcasterID       string          `json:"broadcaster_id"`
+	BroadcasterLogin    string          `json:"broadcaster_login"`
+	BroadcasterName     string          `json:"broadcaster_name"`
+	BroadcasterLanguage sql.NullString  `json:"broadcaster_language"`
+	ProfileImageUrl     sql.NullString  `json:"profile_image_url"`
+	OfflineImageUrl     sql.NullString  `json:"offline_image_url"`
+	Description         sql.NullString  `json:"description"`
+	BroadcasterType     sql.NullString  `json:"broadcaster_type"`
+	ViewCount           int64           `json:"view_count"`
+	CreatedAt           sqlitetype.Time `json:"created_at"`
+	UpdatedAt           sqlitetype.Time `json:"updated_at"`
 }
 
 type DownloadSchedule struct {
-	ID               int64          `json:"id"`
-	BroadcasterID    string         `json:"broadcaster_id"`
-	RequestedBy      string         `json:"requested_by"`
-	Quality          string         `json:"quality"`
-	HasMinViewers    int64          `json:"has_min_viewers"`
-	MinViewers       sql.NullInt64  `json:"min_viewers"`
-	HasCategories    int64          `json:"has_categories"`
-	HasTags          int64          `json:"has_tags"`
-	IsDeleteRediff   int64          `json:"is_delete_rediff"`
-	TimeBeforeDelete sql.NullInt64  `json:"time_before_delete"`
-	IsDisabled       int64          `json:"is_disabled"`
-	LastTriggeredAt  sql.NullString `json:"last_triggered_at"`
-	TriggerCount     int64          `json:"trigger_count"`
-	CreatedAt        string         `json:"created_at"`
-	UpdatedAt        string         `json:"updated_at"`
+	ID               int64            `json:"id"`
+	BroadcasterID    string           `json:"broadcaster_id"`
+	RequestedBy      string           `json:"requested_by"`
+	Quality          string           `json:"quality"`
+	HasMinViewers    int64            `json:"has_min_viewers"`
+	MinViewers       sql.NullInt64    `json:"min_viewers"`
+	HasCategories    int64            `json:"has_categories"`
+	HasTags          int64            `json:"has_tags"`
+	IsDeleteRediff   int64            `json:"is_delete_rediff"`
+	TimeBeforeDelete sql.NullInt64    `json:"time_before_delete"`
+	IsDisabled       int64            `json:"is_disabled"`
+	LastTriggeredAt  *sqlitetype.Time `json:"last_triggered_at"`
+	TriggerCount     int64            `json:"trigger_count"`
+	CreatedAt        sqlitetype.Time  `json:"created_at"`
+	UpdatedAt        sqlitetype.Time  `json:"updated_at"`
 }
 
 type DownloadScheduleCategory struct {
@@ -67,104 +69,104 @@ type DownloadScheduleTag struct {
 }
 
 type EventLog struct {
-	ID          int64          `json:"id"`
-	Domain      string         `json:"domain"`
-	EventType   string         `json:"event_type"`
-	Severity    string         `json:"severity"`
-	Message     string         `json:"message"`
-	ActorUserID sql.NullString `json:"actor_user_id"`
-	Data        sql.NullString `json:"data"`
-	CreatedAt   string         `json:"created_at"`
+	ID          int64           `json:"id"`
+	Domain      string          `json:"domain"`
+	EventType   string          `json:"event_type"`
+	Severity    string          `json:"severity"`
+	Message     string          `json:"message"`
+	ActorUserID sql.NullString  `json:"actor_user_id"`
+	Data        sql.NullString  `json:"data"`
+	CreatedAt   sqlitetype.Time `json:"created_at"`
 }
 
 type EventsubSnapshot struct {
-	ID           int64  `json:"id"`
-	Total        int64  `json:"total"`
-	TotalCost    int64  `json:"total_cost"`
-	MaxTotalCost int64  `json:"max_total_cost"`
-	FetchedAt    string `json:"fetched_at"`
+	ID           int64           `json:"id"`
+	Total        int64           `json:"total"`
+	TotalCost    int64           `json:"total_cost"`
+	MaxTotalCost int64           `json:"max_total_cost"`
+	FetchedAt    sqlitetype.Time `json:"fetched_at"`
 }
 
 type FetchLog struct {
-	ID            int64          `json:"id"`
-	UserID        sql.NullString `json:"user_id"`
-	FetchType     string         `json:"fetch_type"`
-	BroadcasterID sql.NullString `json:"broadcaster_id"`
-	Status        int64          `json:"status"`
-	Error         sql.NullString `json:"error"`
-	DurationMs    int64          `json:"duration_ms"`
-	FetchedAt     string         `json:"fetched_at"`
+	ID            int64           `json:"id"`
+	UserID        sql.NullString  `json:"user_id"`
+	FetchType     string          `json:"fetch_type"`
+	BroadcasterID sql.NullString  `json:"broadcaster_id"`
+	Status        int64           `json:"status"`
+	Error         sql.NullString  `json:"error"`
+	DurationMs    int64           `json:"duration_ms"`
+	FetchedAt     sqlitetype.Time `json:"fetched_at"`
 }
 
 type Job struct {
-	ID            string         `json:"id"`
-	VideoID       int64          `json:"video_id"`
-	BroadcasterID string         `json:"broadcaster_id"`
-	Status        string         `json:"status"`
-	StartedAt     sql.NullString `json:"started_at"`
-	FinishedAt    sql.NullString `json:"finished_at"`
-	Error         sql.NullString `json:"error"`
-	ResumeState   string         `json:"resume_state"`
-	CreatedAt     string         `json:"created_at"`
-	UpdatedAt     string         `json:"updated_at"`
+	ID            string           `json:"id"`
+	VideoID       int64            `json:"video_id"`
+	BroadcasterID string           `json:"broadcaster_id"`
+	Status        string           `json:"status"`
+	StartedAt     *sqlitetype.Time `json:"started_at"`
+	FinishedAt    *sqlitetype.Time `json:"finished_at"`
+	Error         sql.NullString   `json:"error"`
+	ResumeState   string           `json:"resume_state"`
+	CreatedAt     sqlitetype.Time  `json:"created_at"`
+	UpdatedAt     sqlitetype.Time  `json:"updated_at"`
 }
 
 type RecordingWebhookDelivery struct {
-	ID            int64          `json:"id"`
-	MessageID     string         `json:"message_id"`
-	DedupeKey     string         `json:"dedupe_key"`
-	Event         string         `json:"event"`
-	VideoID       int64          `json:"video_id"`
-	Status        string         `json:"status"`
-	Attempts      int64          `json:"attempts"`
-	LastStatus    int64          `json:"last_status"`
-	LastError     string         `json:"last_error"`
-	Test          int64          `json:"test"`
-	NextAttemptAt string         `json:"next_attempt_at"`
-	LastAttemptAt sql.NullString `json:"last_attempt_at"`
-	DeliveredAt   sql.NullString `json:"delivered_at"`
-	CreatedAt     string         `json:"created_at"`
-	UpdatedAt     string         `json:"updated_at"`
-	FrozenParts   string         `json:"frozen_parts"`
+	ID            int64            `json:"id"`
+	MessageID     string           `json:"message_id"`
+	DedupeKey     string           `json:"dedupe_key"`
+	Event         string           `json:"event"`
+	VideoID       int64            `json:"video_id"`
+	Status        string           `json:"status"`
+	Attempts      int64            `json:"attempts"`
+	LastStatus    int64            `json:"last_status"`
+	LastError     string           `json:"last_error"`
+	Test          int64            `json:"test"`
+	NextAttemptAt sqlitetype.Time  `json:"next_attempt_at"`
+	LastAttemptAt *sqlitetype.Time `json:"last_attempt_at"`
+	DeliveredAt   *sqlitetype.Time `json:"delivered_at"`
+	CreatedAt     sqlitetype.Time  `json:"created_at"`
+	UpdatedAt     sqlitetype.Time  `json:"updated_at"`
+	FrozenParts   string           `json:"frozen_parts"`
 }
 
 type ServerSetting struct {
-	ID                            int64  `json:"id"`
-	ServerMode                    string `json:"server_mode"`
-	EventsubWebhookCallbackUrl    string `json:"eventsub_webhook_callback_url"`
-	EventsubRelayIngestUrl        string `json:"eventsub_relay_ingest_url"`
-	EventsubRelaySubscribeUrl     string `json:"eventsub_relay_subscribe_url"`
-	EventsubRelayLocalCallbackUrl string `json:"eventsub_relay_local_callback_url"`
-	CreatedAt                     string `json:"created_at"`
-	UpdatedAt                     string `json:"updated_at"`
-	HmacSecret                    string `json:"hmac_secret"`
-	RecordingWebhookEnabled       int64  `json:"recording_webhook_enabled"`
-	RecordingWebhookUrl           string `json:"recording_webhook_url"`
-	RecordingWebhookSecret        string `json:"recording_webhook_secret"`
-	RecordingWebhookEvents        string `json:"recording_webhook_events"`
-	PlaybackCacheEnabled          int64  `json:"playback_cache_enabled"`
-	PlaybackCacheMaxPercent       int64  `json:"playback_cache_max_percent"`
-	PlaybackCacheAutoGenerate     int64  `json:"playback_cache_auto_generate"`
+	ID                            int64           `json:"id"`
+	ServerMode                    string          `json:"server_mode"`
+	EventsubWebhookCallbackUrl    string          `json:"eventsub_webhook_callback_url"`
+	EventsubRelayIngestUrl        string          `json:"eventsub_relay_ingest_url"`
+	EventsubRelaySubscribeUrl     string          `json:"eventsub_relay_subscribe_url"`
+	EventsubRelayLocalCallbackUrl string          `json:"eventsub_relay_local_callback_url"`
+	CreatedAt                     sqlitetype.Time `json:"created_at"`
+	UpdatedAt                     sqlitetype.Time `json:"updated_at"`
+	HmacSecret                    string          `json:"hmac_secret"`
+	RecordingWebhookEnabled       int64           `json:"recording_webhook_enabled"`
+	RecordingWebhookUrl           string          `json:"recording_webhook_url"`
+	RecordingWebhookSecret        string          `json:"recording_webhook_secret"`
+	RecordingWebhookEvents        string          `json:"recording_webhook_events"`
+	PlaybackCacheEnabled          int64           `json:"playback_cache_enabled"`
+	PlaybackCacheMaxPercent       int64           `json:"playback_cache_max_percent"`
+	PlaybackCacheAutoGenerate     int64           `json:"playback_cache_auto_generate"`
 }
 
 type Session struct {
-	HashedID        string         `json:"hashed_id"`
-	UserID          string         `json:"user_id"`
-	EncryptedTokens []byte         `json:"encrypted_tokens"`
-	ExpiresAt       string         `json:"expires_at"`
-	LastActiveAt    string         `json:"last_active_at"`
-	UserAgent       sql.NullString `json:"user_agent"`
-	IpAddress       sql.NullString `json:"ip_address"`
-	CreatedAt       string         `json:"created_at"`
+	HashedID        string          `json:"hashed_id"`
+	UserID          string          `json:"user_id"`
+	EncryptedTokens []byte          `json:"encrypted_tokens"`
+	ExpiresAt       sqlitetype.Time `json:"expires_at"`
+	LastActiveAt    sqlitetype.Time `json:"last_active_at"`
+	UserAgent       sql.NullString  `json:"user_agent"`
+	IpAddress       sql.NullString  `json:"ip_address"`
+	CreatedAt       sqlitetype.Time `json:"created_at"`
 }
 
 type Setting struct {
-	UserID         string `json:"user_id"`
-	Timezone       string `json:"timezone"`
-	DatetimeFormat string `json:"datetime_format"`
-	Language       string `json:"language"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	UserID         string          `json:"user_id"`
+	Timezone       string          `json:"timezone"`
+	DatetimeFormat string          `json:"datetime_format"`
+	Language       string          `json:"language"`
+	CreatedAt      sqlitetype.Time `json:"created_at"`
+	UpdatedAt      sqlitetype.Time `json:"updated_at"`
 }
 
 type SnapshotSubscription struct {
@@ -175,16 +177,16 @@ type SnapshotSubscription struct {
 }
 
 type Stream struct {
-	ID            string         `json:"id"`
-	BroadcasterID string         `json:"broadcaster_id"`
-	Type          string         `json:"type"`
-	Language      string         `json:"language"`
-	ThumbnailUrl  sql.NullString `json:"thumbnail_url"`
-	ViewerCount   int64          `json:"viewer_count"`
-	IsMature      sql.NullInt64  `json:"is_mature"`
-	StartedAt     string         `json:"started_at"`
-	EndedAt       sql.NullString `json:"ended_at"`
-	CreatedAt     string         `json:"created_at"`
+	ID            string           `json:"id"`
+	BroadcasterID string           `json:"broadcaster_id"`
+	Type          string           `json:"type"`
+	Language      string           `json:"language"`
+	ThumbnailUrl  sql.NullString   `json:"thumbnail_url"`
+	ViewerCount   int64            `json:"viewer_count"`
+	IsMature      sql.NullInt64    `json:"is_mature"`
+	StartedAt     sqlitetype.Time  `json:"started_at"`
+	EndedAt       *sqlitetype.Time `json:"ended_at"`
+	CreatedAt     sqlitetype.Time  `json:"created_at"`
 }
 
 type StreamCategory struct {
@@ -203,93 +205,93 @@ type StreamTitle struct {
 }
 
 type Subscription struct {
-	ID                string         `json:"id"`
-	Status            string         `json:"status"`
-	Type              string         `json:"type"`
-	Version           string         `json:"version"`
-	Cost              int64          `json:"cost"`
-	Condition         string         `json:"condition"`
-	BroadcasterID     sql.NullString `json:"broadcaster_id"`
-	TransportMethod   string         `json:"transport_method"`
-	TransportCallback string         `json:"transport_callback"`
-	TwitchCreatedAt   string         `json:"twitch_created_at"`
-	CreatedAt         string         `json:"created_at"`
-	RevokedAt         sql.NullString `json:"revoked_at"`
-	RevokedReason     sql.NullString `json:"revoked_reason"`
+	ID                string           `json:"id"`
+	Status            string           `json:"status"`
+	Type              string           `json:"type"`
+	Version           string           `json:"version"`
+	Cost              int64            `json:"cost"`
+	Condition         string           `json:"condition"`
+	BroadcasterID     sql.NullString   `json:"broadcaster_id"`
+	TransportMethod   string           `json:"transport_method"`
+	TransportCallback string           `json:"transport_callback"`
+	TwitchCreatedAt   sqlitetype.Time  `json:"twitch_created_at"`
+	CreatedAt         sqlitetype.Time  `json:"created_at"`
+	RevokedAt         *sqlitetype.Time `json:"revoked_at"`
+	RevokedReason     sql.NullString   `json:"revoked_reason"`
 }
 
 type Tag struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
+	ID        int64           `json:"id"`
+	Name      string          `json:"name"`
+	CreatedAt sqlitetype.Time `json:"created_at"`
 }
 
 type Task struct {
-	Name            string         `json:"name"`
-	Description     string         `json:"description"`
-	IntervalSeconds int64          `json:"interval_seconds"`
-	IsEnabled       int64          `json:"is_enabled"`
-	LastRunAt       sql.NullString `json:"last_run_at"`
-	LastDurationMs  int64          `json:"last_duration_ms"`
-	LastStatus      string         `json:"last_status"`
-	LastError       sql.NullString `json:"last_error"`
-	NextRunAt       sql.NullString `json:"next_run_at"`
-	CreatedAt       string         `json:"created_at"`
-	UpdatedAt       string         `json:"updated_at"`
+	Name            string           `json:"name"`
+	Description     string           `json:"description"`
+	IntervalSeconds int64            `json:"interval_seconds"`
+	IsEnabled       int64            `json:"is_enabled"`
+	LastRunAt       *sqlitetype.Time `json:"last_run_at"`
+	LastDurationMs  int64            `json:"last_duration_ms"`
+	LastStatus      string           `json:"last_status"`
+	LastError       sql.NullString   `json:"last_error"`
+	NextRunAt       *sqlitetype.Time `json:"next_run_at"`
+	CreatedAt       sqlitetype.Time  `json:"created_at"`
+	UpdatedAt       sqlitetype.Time  `json:"updated_at"`
 }
 
 type Title struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
+	ID        int64           `json:"id"`
+	Name      string          `json:"name"`
+	CreatedAt sqlitetype.Time `json:"created_at"`
 }
 
 type User struct {
-	ID              string         `json:"id"`
-	Login           string         `json:"login"`
-	DisplayName     string         `json:"display_name"`
-	Email           sql.NullString `json:"email"`
-	ProfileImageUrl sql.NullString `json:"profile_image_url"`
-	Role            string         `json:"role"`
-	CreatedAt       string         `json:"created_at"`
-	UpdatedAt       string         `json:"updated_at"`
+	ID              string          `json:"id"`
+	Login           string          `json:"login"`
+	DisplayName     string          `json:"display_name"`
+	Email           sql.NullString  `json:"email"`
+	ProfileImageUrl sql.NullString  `json:"profile_image_url"`
+	Role            string          `json:"role"`
+	CreatedAt       sqlitetype.Time `json:"created_at"`
+	UpdatedAt       sqlitetype.Time `json:"updated_at"`
 }
 
 type UserFollowedChannel struct {
-	UserID        string `json:"user_id"`
-	BroadcasterID string `json:"broadcaster_id"`
-	FollowedAt    string `json:"followed_at"`
-	Followed      int64  `json:"followed"`
+	UserID        string          `json:"user_id"`
+	BroadcasterID string          `json:"broadcaster_id"`
+	FollowedAt    sqlitetype.Time `json:"followed_at"`
+	Followed      int64           `json:"followed"`
 }
 
 type Video struct {
-	ID                        int64           `json:"id"`
-	JobID                     string          `json:"job_id"`
-	Filename                  string          `json:"filename"`
-	DisplayName               string          `json:"display_name"`
-	Status                    string          `json:"status"`
-	Quality                   string          `json:"quality"`
-	BroadcasterID             string          `json:"broadcaster_id"`
-	StreamID                  sql.NullString  `json:"stream_id"`
-	ViewerCount               int64           `json:"viewer_count"`
-	Language                  string          `json:"language"`
-	DurationSeconds           sql.NullFloat64 `json:"duration_seconds"`
-	SizeBytes                 sql.NullInt64   `json:"size_bytes"`
-	Thumbnail                 sql.NullString  `json:"thumbnail"`
-	Error                     sql.NullString  `json:"error"`
-	StartDownloadAt           string          `json:"start_download_at"`
-	DownloadedAt              sql.NullString  `json:"downloaded_at"`
-	DeletedAt                 sql.NullString  `json:"deleted_at"`
-	RecordingType             string          `json:"recording_type"`
-	ForceH264                 int64           `json:"force_h264"`
-	Title                     string          `json:"title"`
-	CompletionKind            string          `json:"completion_kind"`
-	SelectedQuality           sql.NullString  `json:"selected_quality"`
-	SelectedFps               sql.NullFloat64 `json:"selected_fps"`
-	Truncated                 int64           `json:"truncated"`
-	TriggerScheduleID         sql.NullInt64   `json:"trigger_schedule_id"`
-	RetentionSourceScheduleID sql.NullInt64   `json:"retention_source_schedule_id"`
-	RetentionWindowHours      sql.NullInt64   `json:"retention_window_hours"`
+	ID                        int64            `json:"id"`
+	JobID                     string           `json:"job_id"`
+	Filename                  string           `json:"filename"`
+	DisplayName               string           `json:"display_name"`
+	Status                    string           `json:"status"`
+	Quality                   string           `json:"quality"`
+	BroadcasterID             string           `json:"broadcaster_id"`
+	StreamID                  sql.NullString   `json:"stream_id"`
+	ViewerCount               int64            `json:"viewer_count"`
+	Language                  string           `json:"language"`
+	DurationSeconds           sql.NullFloat64  `json:"duration_seconds"`
+	SizeBytes                 sql.NullInt64    `json:"size_bytes"`
+	Thumbnail                 sql.NullString   `json:"thumbnail"`
+	Error                     sql.NullString   `json:"error"`
+	StartDownloadAt           sqlitetype.Time  `json:"start_download_at"`
+	DownloadedAt              *sqlitetype.Time `json:"downloaded_at"`
+	DeletedAt                 *sqlitetype.Time `json:"deleted_at"`
+	RecordingType             string           `json:"recording_type"`
+	ForceH264                 int64            `json:"force_h264"`
+	Title                     string           `json:"title"`
+	CompletionKind            string           `json:"completion_kind"`
+	SelectedQuality           sql.NullString   `json:"selected_quality"`
+	SelectedFps               sql.NullFloat64  `json:"selected_fps"`
+	Truncated                 int64            `json:"truncated"`
+	TriggerScheduleID         sql.NullInt64    `json:"trigger_schedule_id"`
+	RetentionSourceScheduleID sql.NullInt64    `json:"retention_source_schedule_id"`
+	RetentionWindowHours      sql.NullInt64    `json:"retention_window_hours"`
 }
 
 type VideoCategory struct {
@@ -298,18 +300,18 @@ type VideoCategory struct {
 }
 
 type VideoCategorySpan struct {
-	ID              int64          `json:"id"`
-	VideoID         int64          `json:"video_id"`
-	CategoryID      string         `json:"category_id"`
-	StartedAt       string         `json:"started_at"`
-	EndedAt         sql.NullString `json:"ended_at"`
-	DurationSeconds float64        `json:"duration_seconds"`
+	ID              int64            `json:"id"`
+	VideoID         int64            `json:"video_id"`
+	CategoryID      string           `json:"category_id"`
+	StartedAt       sqlitetype.Time  `json:"started_at"`
+	EndedAt         *sqlitetype.Time `json:"ended_at"`
+	DurationSeconds float64          `json:"duration_seconds"`
 }
 
 type VideoMetadataChange struct {
 	ID                 int64           `json:"id"`
 	VideoID            int64           `json:"video_id"`
-	OccurredAt         string          `json:"occurred_at"`
+	OccurredAt         sqlitetype.Time `json:"occurred_at"`
 	TitleID            sql.NullInt64   `json:"title_id"`
 	CategoryID         sql.NullString  `json:"category_id"`
 	MediaOffsetSeconds sql.NullFloat64 `json:"media_offset_seconds"`
@@ -328,29 +330,29 @@ type VideoPart struct {
 	Thumbnail       sql.NullString  `json:"thumbnail"`
 	StartMediaSeq   int64           `json:"start_media_seq"`
 	EndMediaSeq     sql.NullInt64   `json:"end_media_seq"`
-	CreatedAt       string          `json:"created_at"`
-	UpdatedAt       string          `json:"updated_at"`
+	CreatedAt       sqlitetype.Time `json:"created_at"`
+	UpdatedAt       sqlitetype.Time `json:"updated_at"`
 	Fps             sql.NullFloat64 `json:"fps"`
 }
 
 type VideoPlaybackAsset struct {
-	VideoID         int64           `json:"video_id"`
-	Status          string          `json:"status"`
-	Filename        sql.NullString  `json:"filename"`
-	MimeType        sql.NullString  `json:"mime_type"`
-	DurationSeconds sql.NullFloat64 `json:"duration_seconds"`
-	SizeBytes       sql.NullInt64   `json:"size_bytes"`
-	Error           sql.NullString  `json:"error"`
-	GeneratedAt     sql.NullString  `json:"generated_at"`
-	LastAccessedAt  sql.NullString  `json:"last_accessed_at"`
-	CreatedAt       string          `json:"created_at"`
-	UpdatedAt       string          `json:"updated_at"`
+	VideoID         int64            `json:"video_id"`
+	Status          string           `json:"status"`
+	Filename        sql.NullString   `json:"filename"`
+	MimeType        sql.NullString   `json:"mime_type"`
+	DurationSeconds sql.NullFloat64  `json:"duration_seconds"`
+	SizeBytes       sql.NullInt64    `json:"size_bytes"`
+	Error           sql.NullString   `json:"error"`
+	GeneratedAt     *sqlitetype.Time `json:"generated_at"`
+	LastAccessedAt  *sqlitetype.Time `json:"last_accessed_at"`
+	CreatedAt       sqlitetype.Time  `json:"created_at"`
+	UpdatedAt       sqlitetype.Time  `json:"updated_at"`
 }
 
 type VideoRequest struct {
-	VideoID     int64  `json:"video_id"`
-	UserID      string `json:"user_id"`
-	RequestedAt string `json:"requested_at"`
+	VideoID     int64           `json:"video_id"`
+	UserID      string          `json:"user_id"`
+	RequestedAt sqlitetype.Time `json:"requested_at"`
 }
 
 type VideoTag struct {
@@ -359,36 +361,36 @@ type VideoTag struct {
 }
 
 type VideoTitle struct {
-	VideoID  int64  `json:"video_id"`
-	TitleID  int64  `json:"title_id"`
-	LinkedAt string `json:"linked_at"`
+	VideoID  int64           `json:"video_id"`
+	TitleID  int64           `json:"title_id"`
+	LinkedAt sqlitetype.Time `json:"linked_at"`
 }
 
 type VideoTitleSpan struct {
-	ID              int64          `json:"id"`
-	VideoID         int64          `json:"video_id"`
-	TitleID         int64          `json:"title_id"`
-	StartedAt       string         `json:"started_at"`
-	EndedAt         sql.NullString `json:"ended_at"`
-	DurationSeconds float64        `json:"duration_seconds"`
+	ID              int64            `json:"id"`
+	VideoID         int64            `json:"video_id"`
+	TitleID         int64            `json:"title_id"`
+	StartedAt       sqlitetype.Time  `json:"started_at"`
+	EndedAt         *sqlitetype.Time `json:"ended_at"`
+	DurationSeconds float64          `json:"duration_seconds"`
 }
 
 type WebhookEvent struct {
-	ID               int64          `json:"id"`
-	EventID          string         `json:"event_id"`
-	MessageType      string         `json:"message_type"`
-	EventType        sql.NullString `json:"event_type"`
-	SubscriptionID   sql.NullString `json:"subscription_id"`
-	BroadcasterID    sql.NullString `json:"broadcaster_id"`
-	MessageTimestamp string         `json:"message_timestamp"`
-	Payload          sql.NullString `json:"payload"`
-	Status           string         `json:"status"`
-	Error            sql.NullString `json:"error"`
-	ReceivedAt       string         `json:"received_at"`
-	ProcessedAt      sql.NullString `json:"processed_at"`
+	ID               int64            `json:"id"`
+	EventID          string           `json:"event_id"`
+	MessageType      string           `json:"message_type"`
+	EventType        sql.NullString   `json:"event_type"`
+	SubscriptionID   sql.NullString   `json:"subscription_id"`
+	BroadcasterID    sql.NullString   `json:"broadcaster_id"`
+	MessageTimestamp sqlitetype.Time  `json:"message_timestamp"`
+	Payload          sql.NullString   `json:"payload"`
+	Status           string           `json:"status"`
+	Error            sql.NullString   `json:"error"`
+	ReceivedAt       sqlitetype.Time  `json:"received_at"`
+	ProcessedAt      *sqlitetype.Time `json:"processed_at"`
 }
 
 type Whitelist struct {
-	TwitchUserID string `json:"twitch_user_id"`
-	AddedAt      string `json:"added_at"`
+	TwitchUserID string          `json:"twitch_user_id"`
+	AddedAt      sqlitetype.Time `json:"added_at"`
 }

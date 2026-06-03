@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
@@ -31,8 +30,8 @@ func (a *SQLiteAdapter) UpsertVideoPlaybackAsset(ctx context.Context, input *rep
 		DurationSeconds: nullFloat64(input.DurationSeconds),
 		SizeBytes:       sizeBytes,
 		Error:           toNullString(input.Error),
-		GeneratedAt:     nullTimeString(input.GeneratedAt),
-		LastAccessedAt:  nullTimeString(input.LastAccessedAt),
+		GeneratedAt:     sqliteTimePtr(input.GeneratedAt),
+		LastAccessedAt:  sqliteTimePtr(input.LastAccessedAt),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite upsert video playback asset: %w", err)
@@ -75,18 +74,11 @@ func sqliteVideoPlaybackAssetToDomain(a sqlitegen.VideoPlaybackAsset) *repositor
 		DurationSeconds: fromNullFloat64(a.DurationSeconds),
 		SizeBytes:       fromNullInt64(a.SizeBytes),
 		Error:           fromNullString(a.Error),
-		GeneratedAt:     fromNullTimeString(a.GeneratedAt),
-		LastAccessedAt:  fromNullTimeString(a.LastAccessedAt),
-		CreatedAt:       parseTime(a.CreatedAt),
-		UpdatedAt:       parseTime(a.UpdatedAt),
+		GeneratedAt:     timePtrFromSQLite(a.GeneratedAt),
+		LastAccessedAt:  timePtrFromSQLite(a.LastAccessedAt),
+		CreatedAt:       a.CreatedAt.Time,
+		UpdatedAt:       a.UpdatedAt.Time,
 	}
-}
-
-func nullTimeString(t *time.Time) sql.NullString {
-	if t == nil {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: formatTime(*t), Valid: true}
 }
 
 func fromNullInt64(n sql.NullInt64) *int64 {
@@ -94,12 +86,4 @@ func fromNullInt64(n sql.NullInt64) *int64 {
 		return nil
 	}
 	return &n.Int64
-}
-
-func fromNullTimeString(s sql.NullString) *time.Time {
-	if !s.Valid {
-		return nil
-	}
-	t := parseTime(s.String)
-	return &t
 }

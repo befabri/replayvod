@@ -128,7 +128,7 @@ func sqliteVideoPartToDomain(p sqlitegen.VideoPart) *repository.VideoPart {
 		Thumbnail:       fromNullString(p.Thumbnail),
 		StartMediaSeq:   p.StartMediaSeq,
 		EndMediaSeq:     endMediaSeq,
-		CreatedAt:       parseTime(p.CreatedAt),
-		UpdatedAt:       parseTime(p.UpdatedAt),
+		CreatedAt:       p.CreatedAt.Time,
+		UpdatedAt:       p.UpdatedAt.Time,
 	}
 }

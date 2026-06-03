@@ -27,7 +27,7 @@ func (a *SQLiteAdapter) UpsertStream(ctx context.Context, s *repository.StreamIn
 		ThumbnailUrl:  toNullString(s.ThumbnailURL),
 		ViewerCount:   s.ViewerCount,
 		IsMature:      boolToNullInt64(s.IsMature),
-		StartedAt:     formatTime(s.StartedAt),
+		StartedAt:     sqliteTime(s.StartedAt),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite upsert stream %s: %w", s.ID, err)
@@ -38,7 +38,7 @@ func (a *SQLiteAdapter) UpsertStream(ctx context.Context, s *repository.StreamIn
 func (a *SQLiteAdapter) EndStream(ctx context.Context, id string, endedAt time.Time) error {
 	return a.queries.EndStream(ctx, sqlitegen.EndStreamParams{
 		ID:      id,
-		EndedAt: sql.NullString{String: formatTime(endedAt), Valid: true},
+		EndedAt: sqliteTimePtr(&endedAt),
 	})
 }
 
@@ -93,9 +93,9 @@ func (a *SQLiteAdapter) ListLatestLivePerChannel(ctx context.Context, limit int)
 				ThumbnailURL:  fromNullString(r.ThumbnailUrl),
 				ViewerCount:   r.ViewerCount,
 				IsMature:      nullInt64ToBool(r.IsMature),
-				StartedAt:     parseTime(r.StartedAt),
-				EndedAt:       parseNullTime(r.EndedAt),
-				CreatedAt:     parseTime(r.CreatedAt),
+				StartedAt:     r.StartedAt.Time,
+				EndedAt:       timePtrFromSQLite(r.EndedAt),
+				CreatedAt:     r.CreatedAt.Time,
 			},
 			BroadcasterLogin: r.BroadcasterLogin,
 			BroadcasterName:  r.BroadcasterName,
@@ -114,9 +114,9 @@ func sqliteStreamToDomain(s sqlitegen.Stream) *repository.Stream {
 		ThumbnailURL:  fromNullString(s.ThumbnailUrl),
 		ViewerCount:   s.ViewerCount,
 		IsMature:      nullInt64ToBool(s.IsMature),
-		StartedAt:     parseTime(s.StartedAt),
-		EndedAt:       parseNullTime(s.EndedAt),
-		CreatedAt:     parseTime(s.CreatedAt),
+		StartedAt:     s.StartedAt.Time,
+		EndedAt:       timePtrFromSQLite(s.EndedAt),
+		CreatedAt:     s.CreatedAt.Time,
 	}
 }
 
@@ -145,12 +145,4 @@ func nullInt64ToBool(n sql.NullInt64) *bool {
 	}
 	b := n.Int64 != 0
 	return &b
-}
-
-func parseNullTime(s sql.NullString) *time.Time {
-	if !s.Valid {
-		return nil
-	}
-	t := parseTime(s.String)
-	return &t
 }

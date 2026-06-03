@@ -36,7 +36,7 @@ func (a *SQLiteAdapter) CreateClaimedRecordingWebhookDelivery(ctx context.Contex
 }
 
 func (a *SQLiteAdapter) DeleteOldRecordingWebhookDeliveries(ctx context.Context, before time.Time) error {
-	if err := a.queries.DeleteOldRecordingWebhookDeliveries(ctx, formatTime(before)); err != nil {
+	if err := a.queries.DeleteOldRecordingWebhookDeliveries(ctx, sqliteTime(before)); err != nil {
 		return fmt.Errorf("sqlite delete old recording webhook deliveries: %w", err)
 	}
 	return nil
@@ -48,7 +48,7 @@ func (a *SQLiteAdapter) ClaimDueRecordingWebhookDeliveries(ctx context.Context, 
 	}
 	out := make([]repository.RecordingWebhookDelivery, 0, limit)
 	for len(out) < limit {
-		row, err := a.queries.ClaimDueRecordingWebhookDelivery(ctx, sql.NullString{String: formatTime(now), Valid: true})
+		row, err := a.queries.ClaimDueRecordingWebhookDelivery(ctx, sqliteTimePtr(&now))
 		if errors.Is(err, sql.ErrNoRows) {
 			break
 		}
@@ -64,7 +64,7 @@ func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryDelivered(ctx context.Contex
 	if err := a.queries.MarkRecordingWebhookDeliveryDelivered(ctx, sqlitegen.MarkRecordingWebhookDeliveryDeliveredParams{
 		ID:         id,
 		LastStatus: int64(status),
-		Now:        sql.NullString{String: formatTime(now), Valid: true},
+		Now:        sqliteTimePtr(&now),
 	}); err != nil {
 		return fmt.Errorf("sqlite mark recording webhook delivery delivered: %w", err)
 	}
@@ -77,8 +77,8 @@ func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryFinal(ctx context.Context, i
 		Status:        status,
 		LastStatus:    int64(httpStatus),
 		LastError:     errMsg,
-		NextAttemptAt: formatTime(nextAttemptAt),
-		Now:           formatTime(now),
+		NextAttemptAt: sqliteTime(nextAttemptAt),
+		Now:           sqliteTime(now),
 	}); err != nil {
 		return fmt.Errorf("sqlite mark recording webhook delivery final: %w", err)
 	}
@@ -87,8 +87,8 @@ func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryFinal(ctx context.Context, i
 
 func (a *SQLiteAdapter) ResetStaleRecordingWebhookDeliveries(ctx context.Context, before time.Time, now time.Time) error {
 	if err := a.queries.ResetStaleRecordingWebhookDeliveries(ctx, sqlitegen.ResetStaleRecordingWebhookDeliveriesParams{
-		Now:    formatTime(now),
-		Before: formatTime(before),
+		Now:    sqliteTime(now),
+		Before: sqliteTime(before),
 	}); err != nil {
 		return fmt.Errorf("sqlite reset stale recording webhook deliveries: %w", err)
 	}
@@ -98,7 +98,7 @@ func (a *SQLiteAdapter) ResetStaleRecordingWebhookDeliveries(ctx context.Context
 func (a *SQLiteAdapter) RetryRecordingWebhookDelivery(ctx context.Context, id int64, now time.Time) (*repository.RecordingWebhookDelivery, error) {
 	row, err := a.queries.RetryRecordingWebhookDelivery(ctx, sqlitegen.RetryRecordingWebhookDeliveryParams{
 		ID:  id,
-		Now: formatTime(now),
+		Now: sqliteTime(now),
 	})
 	if err != nil {
 		return nil, mapErr(err)
@@ -136,7 +136,7 @@ func sqliteCreateRecordingWebhookDeliveryParams(input *repository.RecordingWebho
 		Event:         input.Event,
 		VideoID:       input.VideoID,
 		Test:          test,
-		NextAttemptAt: formatTime(next),
+		NextAttemptAt: sqliteTime(next),
 	}
 }
 
@@ -153,7 +153,7 @@ func sqliteCreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, q *sqlit
 		DedupeKey:     input.DedupeKey,
 		Event:         input.Event,
 		VideoID:       input.VideoID,
-		NextAttemptAt: formatTime(next),
+		NextAttemptAt: sqliteTime(next),
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -176,11 +176,11 @@ func sqliteRecordingWebhookDeliveryToDomain(d sqlitegen.RecordingWebhookDelivery
 		LastStatus:    int(d.LastStatus),
 		LastError:     d.LastError,
 		Test:          d.Test != 0,
-		NextAttemptAt: parseTime(d.NextAttemptAt),
-		LastAttemptAt: parseNullTime(d.LastAttemptAt),
-		DeliveredAt:   parseNullTime(d.DeliveredAt),
-		CreatedAt:     parseTime(d.CreatedAt),
-		UpdatedAt:     parseTime(d.UpdatedAt),
+		NextAttemptAt: d.NextAttemptAt.Time,
+		LastAttemptAt: timePtrFromSQLite(d.LastAttemptAt),
+		DeliveredAt:   timePtrFromSQLite(d.DeliveredAt),
+		CreatedAt:     d.CreatedAt.Time,
+		UpdatedAt:     d.UpdatedAt.Time,
 		FrozenParts:   d.FrozenParts,
 	}
 }

@@ -8,6 +8,8 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const insertVideoMetadataChange = `-- name: InsertVideoMetadataChange :one
@@ -18,7 +20,7 @@ RETURNING id
 
 type InsertVideoMetadataChangeParams struct {
 	VideoID            int64           `json:"video_id"`
-	OccurredAt         string          `json:"occurred_at"`
+	OccurredAt         sqlitetype.Time `json:"occurred_at"`
 	TitleID            sql.NullInt64   `json:"title_id"`
 	CategoryID         sql.NullString  `json:"category_id"`
 	MediaOffsetSeconds sql.NullFloat64 `json:"media_offset_seconds"`
@@ -62,17 +64,17 @@ ORDER BY vmc.occurred_at ASC, vmc.id ASC
 type ListVideoMetadataChangesForVideoRow struct {
 	ID                 int64           `json:"id"`
 	VideoID            int64           `json:"video_id"`
-	OccurredAt         string          `json:"occurred_at"`
+	OccurredAt         sqlitetype.Time `json:"occurred_at"`
 	MediaOffsetSeconds sql.NullFloat64 `json:"media_offset_seconds"`
 	TitleID            sql.NullInt64   `json:"title_id"`
 	TitleName          sql.NullString  `json:"title_name"`
-	TitleCreatedAt     sql.NullString  `json:"title_created_at"`
+	TitleCreatedAt     sqlitetype.Time `json:"title_created_at"`
 	CategoryID         sql.NullString  `json:"category_id"`
 	CategoryName       sql.NullString  `json:"category_name"`
 	CategoryBoxArtUrl  sql.NullString  `json:"category_box_art_url"`
 	CategoryIgdbID     sql.NullString  `json:"category_igdb_id"`
-	CategoryCreatedAt  sql.NullString  `json:"category_created_at"`
-	CategoryUpdatedAt  sql.NullString  `json:"category_updated_at"`
+	CategoryCreatedAt  sqlitetype.Time `json:"category_created_at"`
+	CategoryUpdatedAt  sqlitetype.Time `json:"category_updated_at"`
 }
 
 func (q *Queries) ListVideoMetadataChangesForVideo(ctx context.Context, videoID int64) ([]ListVideoMetadataChangesForVideoRow, error) {

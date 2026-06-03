@@ -7,7 +7,8 @@ package sqlitegen
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const claimDueRecordingWebhookDelivery = `-- name: ClaimDueRecordingWebhookDelivery :one
@@ -26,7 +27,7 @@ WHERE id = (
 RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_status, last_error, test, next_attempt_at, last_attempt_at, delivered_at, created_at, updated_at, frozen_parts
 `
 
-func (q *Queries) ClaimDueRecordingWebhookDelivery(ctx context.Context, now sql.NullString) (RecordingWebhookDelivery, error) {
+func (q *Queries) ClaimDueRecordingWebhookDelivery(ctx context.Context, now *sqlitetype.Time) (RecordingWebhookDelivery, error) {
 	row := q.db.QueryRowContext(ctx, claimDueRecordingWebhookDelivery, now)
 	var i RecordingWebhookDelivery
 	err := row.Scan(
@@ -61,12 +62,12 @@ RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_st
 `
 
 type CreateClaimedRecordingWebhookDeliveryParams struct {
-	MessageID     string `json:"message_id"`
-	DedupeKey     string `json:"dedupe_key"`
-	Event         string `json:"event"`
-	VideoID       int64  `json:"video_id"`
-	Test          int64  `json:"test"`
-	NextAttemptAt string `json:"next_attempt_at"`
+	MessageID     string          `json:"message_id"`
+	DedupeKey     string          `json:"dedupe_key"`
+	Event         string          `json:"event"`
+	VideoID       int64           `json:"video_id"`
+	Test          int64           `json:"test"`
+	NextAttemptAt sqlitetype.Time `json:"next_attempt_at"`
 }
 
 // Insert a delivery already CLAIMED (status 'delivering', one attempt counted)
@@ -115,12 +116,12 @@ RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_st
 `
 
 type CreateRecordingWebhookDeliveryParams struct {
-	MessageID     string `json:"message_id"`
-	DedupeKey     string `json:"dedupe_key"`
-	Event         string `json:"event"`
-	VideoID       int64  `json:"video_id"`
-	Test          int64  `json:"test"`
-	NextAttemptAt string `json:"next_attempt_at"`
+	MessageID     string          `json:"message_id"`
+	DedupeKey     string          `json:"dedupe_key"`
+	Event         string          `json:"event"`
+	VideoID       int64           `json:"video_id"`
+	Test          int64           `json:"test"`
+	NextAttemptAt sqlitetype.Time `json:"next_attempt_at"`
 }
 
 func (q *Queries) CreateRecordingWebhookDelivery(ctx context.Context, arg CreateRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error) {
@@ -174,11 +175,11 @@ RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_st
 `
 
 type CreateRecordingWebhookDeliveryIfEnabledParams struct {
-	MessageID     string `json:"message_id"`
-	DedupeKey     string `json:"dedupe_key"`
-	Event         string `json:"event"`
-	VideoID       int64  `json:"video_id"`
-	NextAttemptAt string `json:"next_attempt_at"`
+	MessageID     string          `json:"message_id"`
+	DedupeKey     string          `json:"dedupe_key"`
+	Event         string          `json:"event"`
+	VideoID       int64           `json:"video_id"`
+	NextAttemptAt sqlitetype.Time `json:"next_attempt_at"`
 }
 
 func (q *Queries) CreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, arg CreateRecordingWebhookDeliveryIfEnabledParams) (RecordingWebhookDelivery, error) {
@@ -222,7 +223,7 @@ WHERE updated_at < ?1
 // deleted regardless of age so a queued or in-flight delivery is never lost.
 // Uses updated_at instead of created_at so a long-retrying row keeps a recent
 // outcome.
-func (q *Queries) DeleteOldRecordingWebhookDeliveries(ctx context.Context, cutoff string) error {
+func (q *Queries) DeleteOldRecordingWebhookDeliveries(ctx context.Context, cutoff sqlitetype.Time) error {
 	_, err := q.db.ExecContext(ctx, deleteOldRecordingWebhookDeliveries, cutoff)
 	return err
 }
@@ -284,9 +285,9 @@ WHERE id = ?3
 `
 
 type MarkRecordingWebhookDeliveryDeliveredParams struct {
-	LastStatus int64          `json:"last_status"`
-	Now        sql.NullString `json:"now"`
-	ID         int64          `json:"id"`
+	LastStatus int64            `json:"last_status"`
+	Now        *sqlitetype.Time `json:"now"`
+	ID         int64            `json:"id"`
 }
 
 func (q *Queries) MarkRecordingWebhookDeliveryDelivered(ctx context.Context, arg MarkRecordingWebhookDeliveryDeliveredParams) error {
@@ -305,12 +306,12 @@ WHERE id = ?6
 `
 
 type MarkRecordingWebhookDeliveryFinalParams struct {
-	Status        string `json:"status"`
-	LastStatus    int64  `json:"last_status"`
-	LastError     string `json:"last_error"`
-	NextAttemptAt string `json:"next_attempt_at"`
-	Now           string `json:"now"`
-	ID            int64  `json:"id"`
+	Status        string          `json:"status"`
+	LastStatus    int64           `json:"last_status"`
+	LastError     string          `json:"last_error"`
+	NextAttemptAt sqlitetype.Time `json:"next_attempt_at"`
+	Now           sqlitetype.Time `json:"now"`
+	ID            int64           `json:"id"`
 }
 
 func (q *Queries) MarkRecordingWebhookDeliveryFinal(ctx context.Context, arg MarkRecordingWebhookDeliveryFinalParams) error {
@@ -334,8 +335,8 @@ WHERE status = 'delivering' AND updated_at < ?2
 `
 
 type ResetStaleRecordingWebhookDeliveriesParams struct {
-	Now    string `json:"now"`
-	Before string `json:"before"`
+	Now    sqlitetype.Time `json:"now"`
+	Before sqlitetype.Time `json:"before"`
 }
 
 func (q *Queries) ResetStaleRecordingWebhookDeliveries(ctx context.Context, arg ResetStaleRecordingWebhookDeliveriesParams) error {
@@ -358,8 +359,8 @@ RETURNING id, message_id, dedupe_key, event, video_id, status, attempts, last_st
 `
 
 type RetryRecordingWebhookDeliveryParams struct {
-	Now string `json:"now"`
-	ID  int64  `json:"id"`
+	Now sqlitetype.Time `json:"now"`
+	ID  int64           `json:"id"`
 }
 
 // Manual re-queue of a terminal delivery, constrained to failed/rejected (a

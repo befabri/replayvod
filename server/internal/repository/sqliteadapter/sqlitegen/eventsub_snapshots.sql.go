@@ -7,6 +7,8 @@ package sqlitegen
 
 import (
 	"context"
+
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const createSnapshot = `-- name: CreateSnapshot :one
@@ -38,7 +40,7 @@ const deleteOldSnapshots = `-- name: DeleteOldSnapshots :exec
 DELETE FROM eventsub_snapshots WHERE fetched_at < ?
 `
 
-func (q *Queries) DeleteOldSnapshots(ctx context.Context, fetchedAt string) error {
+func (q *Queries) DeleteOldSnapshots(ctx context.Context, fetchedAt sqlitetype.Time) error {
 	_, err := q.db.ExecContext(ctx, deleteOldSnapshots, fetchedAt)
 	return err
 }
