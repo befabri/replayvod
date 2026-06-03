@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
@@ -124,5 +125,38 @@ func TestUpdatePlaybackCacheConfig_RejectsZeroPercent(t *testing.T) {
 	}
 	if !got.Enabled || got.MaxPercent != 25 || !got.AutoGenerate {
 		t.Fatalf("config = %+v, want enabled/25/auto", got)
+	}
+}
+
+func TestRemoveFromWhitelistRevokesUserSessions(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	svc := system.New(repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	const userID = "user-1"
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: userID, Login: "user1", DisplayName: "User 1", Role: "viewer"}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := repo.AddToWhitelist(ctx, userID); err != nil {
+		t.Fatalf("add whitelist: %v", err)
+	}
+	if err := repo.CreateSession(ctx, &repository.Session{
+		HashedID:        "session-hash",
+		UserID:          userID,
+		EncryptedTokens: []byte("tokens"),
+		ExpiresAt:       time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	if err := svc.RemoveFromWhitelist(ctx, userID); err != nil {
+		t.Fatalf("RemoveFromWhitelist: %v", err)
+	}
+	sessions, err := repo.ListUserSessions(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListUserSessions after removal: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("sessions after removal = %d, want 0", len(sessions))
 	}
 }

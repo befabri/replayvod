@@ -23,6 +23,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+const maxWebhookBodyBytes = 1 << 20
+
 // EventProcessor is the hook the webhook handler uses to dispatch a decoded
 // notification to domain logic (schedule matcher, auto-download trigger).
 //
@@ -63,6 +65,7 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Reading the raw body first is load-bearing: HMAC covers the literal
 	// bytes Twitch sent, so we must never let middleware parse or re-encode
 	// the body between now and VerifyEventSubSignature.
+	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.log.Warn("failed to read webhook body", "error", err)

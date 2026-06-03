@@ -61,7 +61,10 @@ func (s *Service) AddToWhitelist(ctx context.Context, twitchUserID string) error
 
 // RemoveFromWhitelist is idempotent — missing entries return nil.
 func (s *Service) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
-	return s.repo.RemoveFromWhitelist(ctx, twitchUserID)
+	if err := s.repo.RemoveFromWhitelist(ctx, twitchUserID); err != nil {
+		return err
+	}
+	return s.repo.DeleteUserSessions(ctx, twitchUserID)
 }
 
 type PlaybackCacheConfig struct {

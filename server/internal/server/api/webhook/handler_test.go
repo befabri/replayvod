@@ -157,6 +157,34 @@ func TestWebhook_Verification_EchoesChallenge(t *testing.T) {
 	}
 }
 
+func TestWebhookRejectsOversizedBody(t *testing.T) {
+	proc := &fakeProcessor{}
+	srv, _ := newTestServer(t, proc)
+
+	body := []byte(strings.Replace(
+		notificationBody("12345", "sub-big", "event-big"),
+		`"type": "live",`,
+		`"type": "live", "padding": "`+strings.Repeat("x", maxWebhookBodyBytes)+`",`,
+		1,
+	))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/webhook/callback", strings.NewReader(string(body)))
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	req.Header.Set(twitch.EventSubHeaderMessageType, string(twitch.MsgTypeNotification))
+	signRequest(req, "big-body", ts, body, testSecret)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	if proc.calls.Load() != 0 {
+		t.Fatalf("processor calls = %d, want 0", proc.calls.Load())
+	}
+}
+
 // TestWebhook_Notification_DedupsOnMessageIDRetry covers Twitch's at-least-once
 // retry semantics: on delivery failure Twitch retries with the same
 // Message-Id. The ON CONFLICT DO NOTHING path in CreateWebhookEvent must
