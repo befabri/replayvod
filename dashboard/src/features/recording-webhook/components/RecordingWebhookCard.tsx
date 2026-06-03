@@ -1,10 +1,10 @@
 import {
-	ArrowsClockwise,
-	Copy,
-	Eye,
-	EyeSlash,
-	FloppyDisk,
-	PaperPlaneTilt,
+	ArrowsClockwiseIcon,
+	CopyIcon,
+	EyeIcon,
+	EyeSlashIcon,
+	FloppyDiskIcon,
+	PaperPlaneTiltIcon,
 } from "@phosphor-icons/react";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
@@ -256,7 +256,7 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 									}
 									onClick={() => setShowSecret((v) => !v)}
 								>
-									{showSecret ? <EyeSlash /> : <Eye />}
+									{showSecret ? <EyeSlashIcon /> : <EyeIcon />}
 								</Button>
 								<Button
 									type="button"
@@ -265,7 +265,7 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 									aria-label={t("webhook.copy_secret")}
 									onClick={copySecret}
 								>
-									<Copy />
+									<CopyIcon />
 								</Button>
 							</div>
 							<span className="text-xs text-muted-foreground">
@@ -297,7 +297,7 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 									type="submit"
 									disabled={busy || !canSubmit || isSubmitting}
 								>
-									<FloppyDisk data-icon="inline-start" />
+									<FloppyDiskIcon data-icon="inline-start" />
 									{isSubmitting || update.isPending
 										? t("common.saving")
 										: t("webhook.save")}
@@ -309,7 +309,7 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 										disabled={busy || isDirty}
 										onClick={() => test.mutate()}
 									>
-										<PaperPlaneTilt data-icon="inline-start" />
+										<PaperPlaneTiltIcon data-icon="inline-start" />
 										{test.isPending
 											? t("webhook.testing")
 											: t("webhook.send_test")}
@@ -322,7 +322,7 @@ export function RecordingWebhookCard({ data }: { data: ConfigResponse }) {
 										disabled={busy}
 										onClick={() => setConfirmRotate(true)}
 									>
-										<ArrowsClockwise data-icon="inline-start" />
+										<ArrowsClockwiseIcon data-icon="inline-start" />
 										{t("webhook.regenerate_secret")}
 									</Button>
 								)}

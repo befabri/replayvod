@@ -1,5 +1,5 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
-import { CaretDown, Check, X } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon, XIcon } from "@phosphor-icons/react";
 import type * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -47,7 +47,7 @@ function ComboboxTrigger({
 			)}
 			{...props}
 		>
-			{children ?? <CaretDown className="size-4 opacity-70" />}
+			{children ?? <CaretDownIcon className="size-4 opacity-70" />}
 		</ComboboxPrimitive.Trigger>
 	);
 }
@@ -108,7 +108,7 @@ function ComboboxItem({
 		>
 			{children}
 			<ComboboxPrimitive.ItemIndicator className="ml-auto">
-				<Check className="size-4" />
+				<CheckIcon className="size-4" />
 			</ComboboxPrimitive.ItemIndicator>
 		</ComboboxPrimitive.Item>
 	);
@@ -196,7 +196,7 @@ function ComboboxChipRemove({
 			aria-label="Remove"
 			{...props}
 		>
-			<X className="size-3" />
+			<XIcon className="size-3" />
 		</ComboboxPrimitive.ChipRemove>
 	);
 }

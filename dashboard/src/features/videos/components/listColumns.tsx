@@ -1,4 +1,4 @@
-import { ImageBroken } from "@phosphor-icons/react";
+import { ImageBrokenIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
@@ -124,7 +124,7 @@ function VideoThumbnail({ video, t }: { video: VideoResponse; t: TFunction }) {
 					role="img"
 					aria-label={t("videos.no_thumbnail")}
 				>
-					<ImageBroken className="size-5" />
+					<ImageBrokenIcon className="size-5" />
 				</div>
 			)}
 			<span className="absolute right-1 bottom-1 rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground">

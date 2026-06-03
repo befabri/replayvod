@@ -1,5 +1,5 @@
 import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox";
-import { Check } from "@phosphor-icons/react";
+import { CheckIcon } from "@phosphor-icons/react";
 import type * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ function Checkbox({
 			{...props}
 		>
 			<CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
-				<Check className="size-3.5" weight="bold" />
+				<CheckIcon className="size-3.5" weight="bold" />
 			</CheckboxPrimitive.Indicator>
 		</CheckboxPrimitive.Root>
 	);

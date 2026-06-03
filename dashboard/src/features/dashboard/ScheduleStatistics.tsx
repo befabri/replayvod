@@ -1,4 +1,4 @@
-import { PencilSimple } from "@phosphor-icons/react";
+import { PencilSimpleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -91,7 +91,7 @@ function ScheduleStatsRow({ schedule }: { schedule: ScheduleResponse }) {
 				onClick={() => setEditing(true)}
 				aria-label={t("schedules.edit")}
 			>
-				<PencilSimple />
+				<PencilSimpleIcon />
 			</Button>
 
 			<Dialog open={editing} onOpenChange={setEditing}>

@@ -1,5 +1,5 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
-import { CaretDown, Check } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 
@@ -47,7 +47,7 @@ function SelectTrigger({
 		>
 			{children}
 			<SelectPrimitive.Icon>
-				<CaretDown className="size-4 opacity-50" />
+				<CaretDownIcon className="size-4 opacity-50" />
 			</SelectPrimitive.Icon>
 		</SelectPrimitive.Trigger>
 	);
@@ -99,7 +99,7 @@ function SelectItem({
 		>
 			<span className="absolute left-2 flex size-3.5 items-center justify-center">
 				<SelectPrimitive.ItemIndicator>
-					<Check className="size-4" />
+					<CheckIcon className="size-4" />
 				</SelectPrimitive.ItemIndicator>
 			</span>
 			<SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

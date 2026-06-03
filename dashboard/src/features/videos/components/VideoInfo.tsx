@@ -1,4 +1,4 @@
-import { Download } from "@phosphor-icons/react";
+import { DownloadIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
@@ -159,7 +159,7 @@ export function VideoInfo({
 					broadcasterName={channelLabel}
 				>
 					<Button variant="outline" size="sm" className="shrink-0">
-						<Download weight="regular" />
+						<DownloadIcon weight="regular" />
 						{t("watch.record_live")}
 					</Button>
 				</TriggerDownloadDialog>

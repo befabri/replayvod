@@ -1,4 +1,4 @@
-import { Pause, PencilSimple, Play } from "@phosphor-icons/react";
+import { PauseIcon, PencilSimpleIcon, PlayIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -101,7 +101,7 @@ export function ScheduleRow({ schedule }: { schedule: ScheduleResponse }) {
 						onClick={() => setEditing(true)}
 						aria-label={t("schedules.edit")}
 					>
-						<PencilSimple />
+						<PencilSimpleIcon />
 					</Button>
 					<Button
 						variant="ghost"
@@ -114,7 +114,7 @@ export function ScheduleRow({ schedule }: { schedule: ScheduleResponse }) {
 								: t("schedules.disable")
 						}
 					>
-						{schedule.is_disabled ? <Play weight="fill" /> : <Pause />}
+						{schedule.is_disabled ? <PlayIcon weight="fill" /> : <PauseIcon />}
 					</Button>
 				</div>
 			</div>

@@ -1,4 +1,4 @@
-import { WarningCircle } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
@@ -14,7 +14,7 @@ function DashboardNotFound() {
 	return (
 		<TitledLayout title="404">
 			<EmptyState
-				icon={<WarningCircle weight="duotone" />}
+				icon={<WarningCircleIcon weight="duotone" />}
 				title={t("errors.not_found_title")}
 				description={t("errors.not_found_description")}
 				action={

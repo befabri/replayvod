@@ -1,4 +1,4 @@
-import { CaretDoubleLeft, CaretDown } from "@phosphor-icons/react";
+import { CaretDoubleLeftIcon, CaretDownIcon } from "@phosphor-icons/react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect, useMemo, useState } from "react";
@@ -268,7 +268,7 @@ function GroupRow({
 					className={cn("shrink-0 transition-colors", active && "text-primary")}
 				/>
 				<span className="flex-1 truncate text-left">{group.label}</span>
-				<CaretDown
+				<CaretDownIcon
 					size={15}
 					className={cn(
 						"shrink-0 text-sidebar-foreground/50 transition-transform duration-300",
@@ -333,7 +333,7 @@ function CollapseToggle({ compact }: { compact: boolean }) {
 				compact ? "w-11 justify-center" : "w-full gap-3 px-3",
 			)}
 		>
-			<CaretDoubleLeft
+			<CaretDoubleLeftIcon
 				size={SIDEBAR_CONTROL_ICON_SIZE}
 				className={cn(
 					"shrink-0 transition-transform duration-300",

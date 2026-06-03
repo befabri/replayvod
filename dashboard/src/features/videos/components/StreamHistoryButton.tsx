@@ -1,4 +1,4 @@
-import { Info, ListBullets } from "@phosphor-icons/react";
+import { InfoIcon, ListBulletsIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -89,7 +89,7 @@ export function StreamHistoryButton({
 						aria-label={t("videos.history.tooltip")}
 						title={t("videos.history.tooltip")}
 					>
-						<ListBullets className="size-4" />
+						<ListBulletsIcon className="size-4" />
 					</button>
 				)}
 			/>
@@ -106,7 +106,7 @@ export function StreamHistoryButton({
 											className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
 											aria-label={t("videos.history.description")}
 										>
-											<Info className="size-4" weight="regular" />
+											<InfoIcon className="size-4" weight="regular" />
 										</button>
 									}
 								/>
@@ -117,7 +117,7 @@ export function StreamHistoryButton({
 						</TooltipProvider>
 					</DialogTitle>
 					{/* Visually hidden — sighted users read the same text
-					    from the Info tooltip; this connects the dialog
+					    from the InfoIcon tooltip; this connects the dialog
 					    to a description for screen readers via Base UI's
 					    auto-wired aria-describedby. */}
 					<DialogDescription className="sr-only">

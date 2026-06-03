@@ -1,4 +1,4 @@
-import { Rows, SquaresFour } from "@phosphor-icons/react";
+import { RowsIcon, SquaresFourIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -159,8 +159,8 @@ function ViewDropdown({
 		grid: t("categories.view_grid"),
 	};
 	const icons: Record<ViewMode, React.ReactNode> = {
-		card: <Rows className="size-4" />,
-		grid: <SquaresFour className="size-4" />,
+		card: <RowsIcon className="size-4" />,
+		grid: <SquaresFourIcon className="size-4" />,
 	};
 	return (
 		<DropdownMenu>

@@ -1,4 +1,4 @@
-import { TwitchLogo } from "@phosphor-icons/react";
+import { TwitchLogoIcon } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { API_URL } from "@/env";
@@ -51,7 +51,7 @@ function LoginPage() {
 					href={`${API_URL}/api/v1/auth/twitch`}
 					className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-5 py-2.5 text-foreground font-medium hover:bg-primary-hover transition-colors duration-75"
 				>
-					<TwitchLogo weight="fill" size={18} />
+					<TwitchLogoIcon weight="fill" size={18} />
 					{t("auth.twitch_connect")}
 				</a>
 			</section>

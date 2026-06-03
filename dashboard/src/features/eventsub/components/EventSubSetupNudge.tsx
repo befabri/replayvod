@@ -1,4 +1,4 @@
-import { ArrowRight, WarningCircle } from "@phosphor-icons/react";
+import { ArrowRightIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { buttonVariants } from "@/components/ui/button";
@@ -27,7 +27,7 @@ export function EventSubSetupNudge({
 		<Card>
 			<CardHeader className="sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex items-start gap-2">
-					<WarningCircle className="size-5 shrink-0 text-yellow-600" />
+					<WarningCircleIcon className="size-5 shrink-0 text-yellow-600" />
 					<div>
 						<CardTitle>
 							{needsRestart
@@ -46,7 +46,7 @@ export function EventSubSetupNudge({
 					className={buttonVariants({ variant: "outline" })}
 				>
 					{t("eventsub.configure")}
-					<ArrowRight data-icon="inline-end" />
+					<ArrowRightIcon data-icon="inline-end" />
 				</Link>
 			</CardHeader>
 		</Card>

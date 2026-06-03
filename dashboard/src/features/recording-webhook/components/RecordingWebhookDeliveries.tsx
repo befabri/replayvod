@@ -1,4 +1,4 @@
-import { ArrowsClockwise } from "@phosphor-icons/react";
+import { ArrowsClockwiseIcon } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { RecordingWebhookDeliveryResponse as Delivery } from "@/api/generated/trpc";
@@ -121,7 +121,7 @@ function DeliveryRow({ delivery }: { delivery: Delivery }) {
 						disabled={retrying}
 						onClick={onRetry}
 					>
-						<ArrowsClockwise />
+						<ArrowsClockwiseIcon />
 					</Button>
 				)}
 			</div>

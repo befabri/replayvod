@@ -1,4 +1,4 @@
-import { CaretDown, CaretUp } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
 import {
 	type ColumnDef,
 	flexRender,
@@ -123,9 +123,9 @@ export function DataTable<TData, TValue>({
 												header.getContext(),
 											)}
 											{sort === "asc" ? (
-												<CaretUp className="size-3" />
+												<CaretUpIcon className="size-3" />
 											) : sort === "desc" ? (
-												<CaretDown className="size-3" />
+												<CaretDownIcon className="size-3" />
 											) : null}
 										</button>
 									) : (

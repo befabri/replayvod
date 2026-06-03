@@ -1,4 +1,4 @@
-import { CaretRight } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@phosphor-icons/react";
 import { createLink } from "@tanstack/react-router";
 import type * as React from "react";
 import { forwardRef } from "react";
@@ -29,7 +29,7 @@ const ViewAllBase = forwardRef<
 			)}
 		>
 			{t("common.view_all")}
-			<CaretRight
+			<CaretRightIcon
 				weight="bold"
 				className="size-3 transition-transform group-hover:translate-x-0.5"
 			/>

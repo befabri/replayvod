@@ -1,4 +1,4 @@
-import { Info } from "@phosphor-icons/react";
+import { InfoIcon } from "@phosphor-icons/react";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -229,7 +229,10 @@ function TriggerDownloadDialogBody({
 																		"videos.force_h264_tooltip_aria",
 																	)}
 																>
-																	<Info className="size-3.5" weight="regular" />
+																	<InfoIcon
+																		className="size-3.5"
+																		weight="regular"
+																	/>
 																</button>
 															}
 														/>

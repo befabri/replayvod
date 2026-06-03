@@ -1,4 +1,4 @@
-import { FloppyDisk } from "@phosphor-icons/react";
+import { FloppyDiskIcon } from "@phosphor-icons/react";
 import { useForm } from "@tanstack/react-form";
 import { useTranslation } from "react-i18next";
 import type { z } from "zod";
@@ -181,7 +181,7 @@ export function PlaybackCacheCard({
 										!canSubmit || isSubmitting || update.isPending || !isDirty
 									}
 								>
-									<FloppyDisk />
+									<FloppyDiskIcon />
 									{isSubmitting || update.isPending
 										? t("common.saving")
 										: t("playback_cache.save")}

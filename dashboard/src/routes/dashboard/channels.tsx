@@ -1,4 +1,4 @@
-import { Broadcast, SortAscending } from "@phosphor-icons/react";
+import { BroadcastIcon, SortAscendingIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -192,7 +192,7 @@ function FilterDropdown({
 			<DropdownMenuTrigger
 				render={(triggerProps) => (
 					<Button variant="outline" size="sm" {...triggerProps}>
-						<Broadcast className="size-4" />
+						<BroadcastIcon className="size-4" />
 						{labels[current]}
 					</Button>
 				)}
@@ -225,7 +225,7 @@ function SortDropdown({
 			<DropdownMenuTrigger
 				render={(triggerProps) => (
 					<Button variant="outline" size="sm" {...triggerProps}>
-						<SortAscending className="size-4" />
+						<SortAscendingIcon className="size-4" />
 						{labels[current]}
 					</Button>
 				)}

@@ -1,4 +1,4 @@
-import { GameController } from "@phosphor-icons/react";
+import { GameControllerIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
 import { resolveBoxArtUrl } from "@/lib/twitch";
@@ -45,7 +45,7 @@ export function CategoryBoxArt({
 					onError={() => setErrored(true)}
 				/>
 			) : (
-				<GameController size={32} weight="duotone" />
+				<GameControllerIcon size={32} weight="duotone" />
 			)}
 		</div>
 	);

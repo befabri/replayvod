@@ -1,4 +1,8 @@
-import { CaretLeft, Download, TwitchLogo } from "@phosphor-icons/react";
+import {
+	CaretLeftIcon,
+	DownloadIcon,
+	TwitchLogoIcon,
+} from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -53,7 +57,7 @@ function ChannelDetailPage() {
 				search={{ sort: "name_asc", filter: "all" }}
 				className="group -mt-6 mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
 			>
-				<CaretLeft
+				<CaretLeftIcon
 					weight="bold"
 					className="size-3 transition-transform group-hover:-translate-x-0.5"
 				/>
@@ -96,7 +100,7 @@ function ChannelDetailPage() {
 							rel="noopener noreferrer"
 							className={buttonVariants({ variant: "outline" })}
 						>
-							<TwitchLogo weight="fill" />
+							<TwitchLogoIcon weight="fill" />
 							{t("channels.open_in_twitch")}
 						</a>
 						<TriggerDownloadDialog
@@ -104,7 +108,7 @@ function ChannelDetailPage() {
 							broadcasterName={channel.data.broadcaster_name}
 						>
 							<Button variant="outline">
-								<Download weight="regular" />
+								<DownloadIcon weight="regular" />
 								{t("videos.trigger_download")}
 							</Button>
 						</TriggerDownloadDialog>

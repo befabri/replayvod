@@ -1,4 +1,4 @@
-import { ArrowsIn, ArrowsOut } from "@phosphor-icons/react";
+import { ArrowsInIcon, ArrowsOutIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -149,7 +149,7 @@ function WatchPage() {
 													: translate("watch.switch_to_wide")
 											}
 										>
-											{isWide ? <ArrowsIn /> : <ArrowsOut />}
+											{isWide ? <ArrowsInIcon /> : <ArrowsOutIcon />}
 										</Button>
 									}
 								/>

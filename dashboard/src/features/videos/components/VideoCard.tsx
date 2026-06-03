@@ -1,4 +1,4 @@
-import { Play } from "@phosphor-icons/react";
+import { PlayIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -252,7 +252,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 				</span>
 				<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
 					<div className="flex size-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm opacity-0 transition-opacity duration-150 group-hover/video-card:opacity-100">
-						<Play weight="fill" className="size-4 translate-x-px" />
+						<PlayIcon weight="fill" className="size-4 translate-x-px" />
 					</div>
 				</div>
 			</div>

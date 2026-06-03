@@ -1,10 +1,10 @@
 import type { Icon } from "@phosphor-icons/react";
 import {
-	Desktop,
-	DownloadSimple,
-	House,
-	Play,
-	ShieldCheck,
+	DesktopIcon,
+	DownloadSimpleIcon,
+	HouseIcon,
+	PlayIcon,
+	ShieldCheckIcon,
 } from "@phosphor-icons/react";
 import { useSelector } from "@tanstack/react-store";
 import { useMemo } from "react";
@@ -38,9 +38,9 @@ export function useNavGroups(): NavGroup[] {
 	const { t } = useTranslation();
 	return useMemo<NavGroup[]>(
 		() => [
-			{ icon: House, label: t("nav.dashboard"), to: "/dashboard" },
+			{ icon: HouseIcon, label: t("nav.dashboard"), to: "/dashboard" },
 			{
-				icon: Play,
+				icon: PlayIcon,
 				label: t("nav.library"),
 				children: [
 					{
@@ -54,7 +54,7 @@ export function useNavGroups(): NavGroup[] {
 				],
 			},
 			{
-				icon: DownloadSimple,
+				icon: DownloadSimpleIcon,
 				label: t("nav.recordings"),
 				children: [
 					{ to: "/dashboard/schedules", label: t("nav.schedules") },
@@ -67,7 +67,7 @@ export function useNavGroups(): NavGroup[] {
 				],
 			},
 			{
-				icon: ShieldCheck,
+				icon: ShieldCheckIcon,
 				label: t("nav.security"),
 				ownerOnly: true,
 				children: [
@@ -76,7 +76,7 @@ export function useNavGroups(): NavGroup[] {
 				],
 			},
 			{
-				icon: Desktop,
+				icon: DesktopIcon,
 				label: t("nav.system"),
 				ownerOnly: true,
 				children: [

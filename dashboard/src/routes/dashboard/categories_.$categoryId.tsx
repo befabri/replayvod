@@ -1,4 +1,4 @@
-import { CaretLeft } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -48,7 +48,7 @@ function CategoryDetailPage() {
 				search={{ view: "card" }}
 				className="group -mt-6 mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
 			>
-				<CaretLeft
+				<CaretLeftIcon
 					weight="bold"
 					className="size-3 transition-transform group-hover:-translate-x-0.5"
 				/>

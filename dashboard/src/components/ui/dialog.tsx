@@ -1,5 +1,5 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { X } from "@phosphor-icons/react";
+import { XIcon } from "@phosphor-icons/react";
 import type * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -60,7 +60,7 @@ function DialogContent({
 					className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none"
 					aria-label="Close"
 				>
-					<X className="size-4" />
+					<XIcon className="size-4" />
 				</DialogPrimitive.Close>
 			</DialogPrimitive.Popup>
 		</DialogPrimitive.Portal>

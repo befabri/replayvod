@@ -1,4 +1,4 @@
-import { WarningCircle } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { buttonVariants } from "@/components/ui/button";
@@ -13,7 +13,7 @@ function NotFoundPage() {
 	return (
 		<div className="min-h-screen bg-background text-foreground flex items-center justify-center p-4">
 			<EmptyState
-				icon={<WarningCircle weight="duotone" />}
+				icon={<WarningCircleIcon weight="duotone" />}
 				title={t("errors.not_found_title")}
 				description={t("errors.not_found_description")}
 				action={

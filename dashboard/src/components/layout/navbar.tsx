@@ -1,4 +1,4 @@
-import { List } from "@phosphor-icons/react";
+import { ListIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import i18n from "i18next";
@@ -35,7 +35,7 @@ export function Navbar() {
 						aria-label={t("nav.open_menu")}
 						className="md:hidden inline-flex items-center rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					>
-						<List size={20} weight="bold" />
+						<ListIcon size={20} weight="bold" />
 					</button>
 					<Link
 						to="/dashboard"

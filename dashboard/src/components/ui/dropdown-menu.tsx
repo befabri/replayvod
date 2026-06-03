@@ -1,5 +1,5 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { CaretRight, Check } from "@phosphor-icons/react";
+import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
 import type * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -86,7 +86,7 @@ function DropdownMenuCheckboxItem({
 		>
 			<span className="absolute left-2 flex size-4 items-center justify-center">
 				<MenuPrimitive.CheckboxItemIndicator>
-					<Check className="size-4" />
+					<CheckIcon className="size-4" />
 				</MenuPrimitive.CheckboxItemIndicator>
 			</span>
 			{children}
@@ -117,7 +117,7 @@ function DropdownMenuSubmenuTrigger({
 			{...props}
 		>
 			<span className="flex items-center gap-2">{children}</span>
-			<CaretRight className="size-4 opacity-70" />
+			<CaretRightIcon className="size-4 opacity-70" />
 		</MenuPrimitive.SubmenuTrigger>
 	);
 }
