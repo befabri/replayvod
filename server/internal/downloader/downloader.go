@@ -601,7 +601,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	maxConcurrent := s.MaxConcurrent()
 	if len(s.active) >= maxConcurrent {
 		s.mu.Unlock()
-		return "", fmt.Errorf("downloader: at max concurrent downloads (%d)", maxConcurrent)
+		return "", fmt.Errorf("downloader: at max concurrent downloads (%d): %w", maxConcurrent, ErrAtCapacity)
 	}
 
 	// DB-level broadcaster idempotency: catches the case where a
@@ -1024,11 +1024,15 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 // is already in flight. Callers that want to replace the running
 // download should call Cancel first.
 //
+// ErrAtCapacity is returned by Start when MaxConcurrent downloads are
+// already running. Surfaced to the trigger dialog as an actionable message.
+//
 // ErrCancelled marks a download that was terminated by a user
 // Cancel() rather than crashing. Distinguishing matters for the UI.
 var (
 	ErrBusy         = errors.New("downloader: broadcaster already has an active download")
 	ErrShuttingDown = errors.New("downloader: shutting down")
+	ErrAtCapacity   = errors.New("downloader: at maximum concurrent downloads")
 	ErrCancelled    = errors.New("downloader: cancelled by user")
 
 	// ErrVariantChanged fires when a Stage-3 re-select inside
@@ -2421,6 +2425,29 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			},
 		}
 
+		// Shared range-gap path for first-poll and mid-stream window rolls.
+		// Recording the lost range advances the durable frontier; threshold
+		// accounting may then seal if buffered commits become contiguous.
+		//
+		// split is only used for first-poll resume rolls, where a large restart
+		// gap can re-anchor the next part before threshold sealing/checkpointing.
+		recordWindowRollGap := func(from, to int64, logMsg string, split func() bool) {
+			boundary, thresholdReached := acct.recordRangeGap(from, to, GapReasonRestartWindowRolled)
+			d.refreshMediaOffset()
+			log.Warn(logMsg,
+				"reason", GapReasonRestartWindowRolled,
+				"from", from,
+				"to", to,
+				"lost_segments", to-from+1)
+			if split != nil && split() {
+				return
+			}
+			if acct.sealIfCrossed(boundary, thresholdReached) {
+				return
+			}
+			s.checkpointResume(dbCtx, d, log)
+		}
+
 		result, err := hls.Run(splitCtx, hls.JobConfig{
 			MediaPlaylistURL:   variant.URL,
 			WorkDir:            segmentsDir,
@@ -2456,28 +2483,11 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 				s.checkpointResume(dbCtx, d, log)
 			},
 			OnWindowRoll: func(from, to int64, targetDuration time.Duration) {
-				// Always record the gap — segments were lost,
-				// completion_kind classifier needs to see it,
-				// and the frontier advance lets the next
-				// OnFirstPoll anchor cleanly. The split decision
-				// is independent.
-				//
-				// Threshold-aware: filling the lost range can make
-				// buffered above-frontier commits (carried across a
-				// crash) contiguous, folding their bytes/duration into
-				// the part totals. Capture the first seq that crosses
-				// the size/duration ceiling so a small window roll that
-				// tips the part over its limit seals a clean boundary
-				// here instead of overshooting max_part_*.
-				boundary, thresholdReached := acct.recordRangeGap(from, to, GapReasonRestartWindowRolled)
-				d.refreshMediaOffset()
-				log.Warn("resume gap recorded",
-					"reason", GapReasonRestartWindowRolled,
-					"from", from,
-					"to", to,
-					"lost_segments", to-from+1)
-
-				if shouldForceSplitOnRestartGap(from, to, targetDuration, thresholdSeconds, d.resume) {
+				// A large first-poll resume roll starts a new part before threshold sealing.
+				recordWindowRollGap(from, to, "resume gap recorded", func() bool {
+					if !shouldForceSplitOnRestartGap(from, to, targetDuration, thresholdSeconds, d.resume) {
+						return false
+					}
 					d.resume.PendingSplit = true
 					thresholdSplitFired = true
 					log.Info("restart gap exceeds threshold; forcing part boundary",
@@ -2488,18 +2498,12 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 						"part_index", d.resume.CurrentPartIndex)
 					s.checkpointResume(dbCtx, d, log)
 					cancelSplit()
-					return
-				}
-				// A restart gap large enough to force a discontinuity
-				// split (above) takes precedence and re-anchors; this
-				// runs only for a smaller roll whose folded bytes still
-				// crossed the size/duration ceiling, where a contiguous
-				// threshold cut is correct. sealIfCrossed checkpoints +
-				// cancels when it fires.
-				if acct.sealIfCrossed(boundary, thresholdReached) {
-					return
-				}
-				s.checkpointResume(dbCtx, d, log)
+					return true
+				})
+			},
+			OnMidStreamWindowRoll: func(from, to int64) {
+				// Mid-stream holes stay inside the current part.
+				recordWindowRollGap(from, to, "mid-stream window roll recorded as gap", nil)
 			},
 			OnEvent: func(ev hls.SegmentEvent) {
 				if d.resume.PendingThresholdSplit &&

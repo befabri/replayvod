@@ -6,10 +6,150 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestMidStreamRollRange(t *testing.T) {
+	cases := []struct {
+		name             string
+		headSeq, lastSeq int64
+		wantFrom, wantTo int64
+		wantOK           bool
+	}{
+		{"contiguous next segment", 101, 100, 0, 0, false},
+		{"overlapping poll (head behind frontier)", 95, 100, 0, 0, false},
+		{"head at frontier", 100, 100, 0, 0, false},
+		{"one segment lost", 102, 100, 101, 101, true},
+		{"range lost", 130, 100, 101, 129, true},
+		{"fresh frontier (-1), head 0 is contiguous", 0, -1, 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			from, to, ok := midStreamRollRange(tc.headSeq, tc.lastSeq)
+			if ok != tc.wantOK || from != tc.wantFrom || to != tc.wantTo {
+				t.Fatalf("midStreamRollRange(%d,%d) = (%d,%d,%v), want (%d,%d,%v)",
+					tc.headSeq, tc.lastSeq, from, to, ok, tc.wantFrom, tc.wantTo, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestPollerRun_EmptyFirstPollIsNotAWindowRoll(t *testing.T) {
+	empty := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n"
+	joined := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:5000\n" +
+		"#EXTINF:1.000,\nseg5000.ts\n#EXTINF:1.000,\nseg5001.ts\n#EXT-X-ENDLIST\n"
+
+	srv := sequencePlaylistServer(t, empty, joined)
+
+	skip := make(chan SkipEvent, 8)
+	p := &Poller{URL: srv.URL, HTTPClient: srv.Client(), MinTick: time.Millisecond, SkipEvents: skip}
+
+	first := make(chan PollResult, 1)
+	out := make(chan segmentJob, 64)
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.Run(context.Background(), first, out) }()
+	var gotSeqs []int64
+	for j := range out {
+		gotSeqs = append(gotSeqs, j.Segment.MediaSeq)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	close(skip)
+
+	for ev := range skip {
+		if ev.Reason == SkipReasonWindowRolled {
+			t.Fatalf("fresh join after an empty first poll was misread as a window roll: %+v", ev)
+		}
+	}
+	if want := []int64{5000, 5001}; !slices.Equal(gotSeqs, want) {
+		t.Fatalf("emitted seqs = %v, want %v", gotSeqs, want)
+	}
+}
+
+func TestPollerRun_EmptyFirstPollStillReportsResumeWindowRoll(t *testing.T) {
+	empty := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:50\n"
+	// The next non-empty poll has rolled past the resume point: [50,99] is lost.
+	rolled := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:100\n" +
+		"#EXTINF:1.000,\nseg100.ts\n#EXTINF:1.000,\nseg101.ts\n#EXT-X-ENDLIST\n"
+
+	srv := sequencePlaylistServer(t, empty, rolled)
+
+	skip := make(chan SkipEvent, 8)
+	p := &Poller{URL: srv.URL, HTTPClient: srv.Client(), MinTick: time.Millisecond, StartMediaSeq: 50, SkipEvents: skip}
+
+	pr, gotFirst, jobs, err := runPollerCollect(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !gotFirst {
+		t.Fatal("no PollResult emitted; the empty first poll must not have consumed the one-shot emit")
+	}
+	if pr.WindowRollFrom != 50 || pr.WindowRollTo != 99 {
+		t.Fatalf("PollResult window roll = [%d,%d], want [50,99]", pr.WindowRollFrom, pr.WindowRollTo)
+	}
+	// Resume rolls are reported on PollResult, not as mid-stream skip events.
+	close(skip)
+	for ev := range skip {
+		if ev.Reason == SkipReasonWindowRolled {
+			t.Fatalf("resume roll wrongly routed through the mid-stream skip path: %+v", ev)
+		}
+	}
+	var gotSeqs []int64
+	for _, j := range jobs {
+		gotSeqs = append(gotSeqs, j.Segment.MediaSeq)
+	}
+	if want := []int64{100, 101}; !slices.Equal(gotSeqs, want) {
+		t.Fatalf("emitted seqs = %v, want %v", gotSeqs, want)
+	}
+}
+
+func TestPollerRun_MidStreamWindowRollEmitsRangeSkip(t *testing.T) {
+	// Poll 1: head 100, segments 100-101, no ENDLIST.
+	// Poll 2: window rolled to 130 (102-129 aged out), segments 130-131 + ENDLIST.
+	poll1 := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:100\n" +
+		"#EXTINF:1.000,\nseg100.ts\n#EXTINF:1.000,\nseg101.ts\n"
+	poll2 := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:130\n" +
+		"#EXTINF:1.000,\nseg130.ts\n#EXTINF:1.000,\nseg131.ts\n#EXT-X-ENDLIST\n"
+
+	srv := sequencePlaylistServer(t, poll1, poll2)
+
+	skip := make(chan SkipEvent, 8)
+	p := &Poller{URL: srv.URL, HTTPClient: srv.Client(), MinTick: time.Millisecond, SkipEvents: skip}
+
+	first := make(chan PollResult, 1)
+	out := make(chan segmentJob, 64)
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.Run(context.Background(), first, out) }()
+	var gotSeqs []int64
+	for j := range out {
+		gotSeqs = append(gotSeqs, j.Segment.MediaSeq)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	close(skip)
+
+	var rolls []SkipEvent
+	for ev := range skip {
+		if ev.Reason == SkipReasonWindowRolled {
+			rolls = append(rolls, ev)
+		}
+	}
+	if len(rolls) != 1 {
+		t.Fatalf("window-roll skip events = %d, want exactly 1: %+v", len(rolls), rolls)
+	}
+	if rolls[0].MediaSeq != 102 || rolls[0].EndMediaSeq != 129 {
+		t.Fatalf("window-roll range = [%d,%d], want [102,129]", rolls[0].MediaSeq, rolls[0].EndMediaSeq)
+	}
+	if want := []int64{100, 101, 130, 131}; !slices.Equal(gotSeqs, want) {
+		t.Fatalf("emitted seqs = %v, want %v", gotSeqs, want)
+	}
+}
 
 // playlistServer returns an httptest server that answers every
 // request with status + body. status 0 is treated as 200.
@@ -20,6 +160,28 @@ func playlistServer(t *testing.T, status int, body string) *httptest.Server {
 			w.WriteHeader(status)
 		}
 		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// sequencePlaylistServer answers successive requests with successive bodies,
+// one per poll. Once the sequence is exhausted it keeps serving the last body,
+// so an extra poll (e.g. before an ENDLIST is observed) neither 404s nor shifts
+// the sequence — the test asserts on the produced events, not on an exact
+// request count.
+func sequencePlaylistServer(t *testing.T, bodies ...string) *httptest.Server {
+	t.Helper()
+	if len(bodies) == 0 {
+		t.Fatal("sequencePlaylistServer: need at least one body")
+	}
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		i := int(n.Add(1)) - 1
+		if i >= len(bodies) {
+			i = len(bodies) - 1
+		}
+		_, _ = io.WriteString(w, bodies[i])
 	}))
 	t.Cleanup(srv.Close)
 	return srv

@@ -9,6 +9,103 @@ import (
 	"testing"
 )
 
+func TestDrainOutcomes_MidStreamWindowRollIsNonAbortingRangeGap(t *testing.T) {
+	cfg := &JobConfig{GapPolicy: GapPolicy{MaxGapRatio: 1}}
+	result := &JobResult{LastMediaSeq: 101, SegmentsDone: 100}
+	results := make(chan SegmentResult)
+	skipEvents := make(chan SkipEvent, 1)
+
+	var calls int
+	var gotFrom, gotTo int64
+	cfg.OnMidStreamWindowRoll = func(from, to int64) {
+		calls++
+		gotFrom, gotTo = from, to
+	}
+
+	close(results)
+	skipEvents <- SkipEvent{MediaSeq: 102, EndMediaSeq: 129, Reason: SkipReasonWindowRolled}
+	close(skipEvents)
+
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() {}, nil, slog.New(slog.DiscardHandler))
+
+	if abortErr != nil || authErr != nil {
+		t.Fatalf("window roll must not abort: abortErr=%v authErr=%v", abortErr, authErr)
+	}
+	if calls != 1 || gotFrom != 102 || gotTo != 129 {
+		t.Fatalf("OnMidStreamWindowRoll calls=%d range=[%d,%d], want 1 call over [102,129]", calls, gotFrom, gotTo)
+	}
+	if result.LastMediaSeq != 129 {
+		t.Fatalf("LastMediaSeq = %d, want 129 (advanced to range end)", result.LastMediaSeq)
+	}
+	if result.SegmentsGaps != 28 {
+		t.Fatalf("SegmentsGaps = %d, want 28 (accepted window-roll range)", result.SegmentsGaps)
+	}
+}
+
+func TestDrainOutcomes_MidStreamWindowRollWithoutCallbackDoesNotAdvanceFrontier(t *testing.T) {
+	cfg := &JobConfig{GapPolicy: GapPolicy{MaxGapRatio: 1}}
+	result := &JobResult{LastMediaSeq: 101, SegmentsDone: 100}
+	results := make(chan SegmentResult)
+	skipEvents := make(chan SkipEvent, 1)
+	close(results)
+	skipEvents <- SkipEvent{MediaSeq: 102, EndMediaSeq: 129, Reason: SkipReasonWindowRolled}
+	close(skipEvents)
+
+	var cancelCalled atomic.Int32
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() { cancelCalled.Add(1) }, nil, slog.New(slog.DiscardHandler))
+	if authErr != nil {
+		t.Fatalf("authErr=%v, want nil", authErr)
+	}
+	if abortErr == nil {
+		t.Fatal("abortErr is nil; want missing window-roll callback to fail the job")
+	}
+	if result.LastMediaSeq != 101 {
+		t.Fatalf("LastMediaSeq = %d, want 101; missing callback must not advance durable frontier", result.LastMediaSeq)
+	}
+	if result.SegmentsGaps != 0 {
+		t.Fatalf("SegmentsGaps = %d, want 0; unrecorded window roll must not be accepted", result.SegmentsGaps)
+	}
+	if cancelCalled.Load() != 1 {
+		t.Fatalf("cancel called %d times, want 1", cancelCalled.Load())
+	}
+}
+
+func TestDrainOutcomes_MidStreamWindowRollTripsGapRatio(t *testing.T) {
+	cfg := &JobConfig{GapPolicy: GapPolicy{MaxGapRatio: 0.10}}
+	result := &JobResult{LastMediaSeq: 101, SegmentsDone: 10}
+	results := make(chan SegmentResult)
+	skipEvents := make(chan SkipEvent, 1)
+	close(results)
+	skipEvents <- SkipEvent{MediaSeq: 102, EndMediaSeq: 129, Reason: SkipReasonWindowRolled}
+	close(skipEvents)
+
+	var calls int
+	cfg.OnMidStreamWindowRoll = func(from, to int64) { calls++ }
+	var cancelCalled atomic.Int32
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() { cancelCalled.Add(1) }, nil, slog.New(slog.DiscardHandler))
+	if authErr != nil {
+		t.Fatalf("authErr=%v, want nil", authErr)
+	}
+	if abortErr == nil {
+		t.Fatal("abortErr is nil; want aggregate gap-ratio abort")
+	}
+	if abortErr.LastSeq != 129 {
+		t.Fatalf("abortErr.LastSeq=%d, want 129", abortErr.LastSeq)
+	}
+	if calls != 0 {
+		t.Fatalf("OnMidStreamWindowRoll calls=%d, want 0 for policy-aborted roll", calls)
+	}
+	if result.LastMediaSeq != 129 {
+		t.Fatalf("LastMediaSeq = %d, want 129; callback existed so the skip frontier is known", result.LastMediaSeq)
+	}
+	if result.SegmentsGaps != 0 {
+		t.Fatalf("SegmentsGaps = %d, want 0; trigger gap aborts instead of being accepted", result.SegmentsGaps)
+	}
+	if cancelCalled.Load() != 1 {
+		t.Fatalf("cancel called %d times, want 1", cancelCalled.Load())
+	}
+}
+
 // TestDrainOutcomes_PostAuthSuccessStillCounted is the regression
 // guard for the fix to the second-pass review finding:
 // "OnEvent is still not fully exact after an auth/abort boundary."

@@ -306,13 +306,10 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			}
 		}
 
-		// Publish PollResult once, before any segment leaves
-		// the poller. Guarantees the orchestrator sees Kind +
-		// Init before a worker tries to use them. The window-
-		// roll fields ride along on this same first emission
-		// so the resume writer records the gap range before
-		// the first NoteCommitted lands.
-		if !firstSent {
+		// Publish PollResult once, before any segment leaves the poller. Empty
+		// first polls defer this until segments or ENDLIST, otherwise a resume
+		// window roll discovered on the next non-empty poll would be dropped.
+		if !firstSent && (len(pl.Segments) > 0 || pl.EndList) {
 			select {
 			case first <- PollResult{
 				Kind:              pl.Kind,
@@ -326,6 +323,28 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 				return ctx.Err()
 			}
 			firstSent = true
+		}
+
+		// After at least one segment from this run has been enqueued, a playlist
+		// head beyond lastSeq+1 means the intervening CDN window aged out.
+		// Emit a range skip; first-poll resume rolls use PollResult above.
+		if lastSeq >= p.StartMediaSeq && len(pl.Segments) > 0 {
+			if from, to, ok := midStreamRollRange(pl.Segments[0].MediaSeq, lastSeq); ok {
+				log.Warn("playlist window rolled mid-stream; segments lost",
+					"frontier", lastSeq,
+					"playlist_head", pl.Segments[0].MediaSeq,
+					"from", from,
+					"to", to,
+					"lost_segments", to-from+1)
+				if p.SkipEvents != nil {
+					select {
+					case p.SkipEvents <- SkipEvent{MediaSeq: from, EndMediaSeq: to, Reason: SkipReasonWindowRolled}:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				lastSeq = to
+			}
 		}
 
 		ext := segmentExt(pl.Kind)
@@ -427,6 +446,15 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			return sleepErr
 		}
 	}
+}
+
+// midStreamRollRange reports [lastSeq+1, headSeq-1] when a refreshed playlist
+// has jumped past the next contiguous segment.
+func midStreamRollRange(headSeq, lastSeq int64) (from, to int64, ok bool) {
+	if headSeq > lastSeq+1 {
+		return lastSeq + 1, headSeq - 1, true
+	}
+	return 0, 0, false
 }
 
 // fetchAndParse performs one playlist GET, parses the body, and

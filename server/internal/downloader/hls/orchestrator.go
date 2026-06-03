@@ -119,6 +119,12 @@ type JobConfig struct {
 	// cancellation propagates) before any subsequent commit.
 	OnWindowRoll func(from, to int64, targetDuration time.Duration)
 
+	// OnMidStreamWindowRoll records accepted mid-stream CDN window rolls.
+	// The lost range [from, to] is inclusive. Unlike OnWindowRoll this is not a
+	// resume boundary, so it carries no target duration or split semantics.
+	// Without a callback the run fails rather than advancing with no durable record.
+	OnMidStreamWindowRoll func(from, to int64)
+
 	// ClassifyAuth, when non-nil, is forwarded to both the poller
 	// and the segment fetcher. It inspects 401/403 response bodies
 	// and reports whether the failure is permanent (entitlement
@@ -213,7 +219,7 @@ type Progress struct {
 }
 
 // JobResult summarizes a completed Run. SegmentsDone counts
-// commits, SegmentsGaps counts failures the tolerant policy
+// commits, SegmentsGaps counts real content-loss gaps the tolerant policy
 // accepted. The orchestrator returns non-nil error for
 // bootstrap failures, gap-policy aborts (strict mode, ratio
 // breach, first-content guard tripped), or auth refresh
@@ -659,15 +665,18 @@ func drainOutcomes(
 				skipEventsCh = nil
 				continue
 			}
-			// Skips advance LastMediaSeq too — resume must see
-			// them as "accounted for, no retry." Otherwise the
-			// next attempt's StartMediaSeq would be before the
-			// skipped seqs and re-process them.
-			if ev.MediaSeq > result.LastMediaSeq {
-				result.LastMediaSeq = ev.MediaSeq
+			// Skips are already accounted for; advancing LastMediaSeq prevents
+			// retries. Range skips use EndMediaSeq as the frontier.
+			advanceSkip := func() int64 {
+				skipEnd := max(ev.MediaSeq, ev.EndMediaSeq)
+				if skipEnd > result.LastMediaSeq {
+					result.LastMediaSeq = skipEnd
+				}
+				return skipEnd
 			}
 			switch ev.Reason {
 			case SkipReasonStitchedAd:
+				advanceSkip()
 				// Structurally expected: Twitch-injected ad
 				// content is not a CDN or transport failure.
 				// Counted separately from SegmentsGaps so
@@ -678,6 +687,7 @@ func drainOutcomes(
 					Outcome:  OutcomeAdSkipped,
 				})
 			case SkipReasonMalformed:
+				advanceSkip()
 				// Real content loss, not structurally expected.
 				// Apply the same gap policy a worker failure
 				// would: first-content-guard aborts if no
@@ -719,7 +729,67 @@ func drainOutcomes(
 					cancel()
 					continue
 				}
+			case SkipReasonWindowRolled:
+				if cfg.OnMidStreamWindowRoll == nil {
+					if authErr == nil && abortErr == nil {
+						abortErr = &GapAbortError{
+							Reason:  "mid-stream window roll callback not configured",
+							Done:    result.SegmentsDone,
+							Gaps:    result.SegmentsGaps,
+							LastSeq: ev.MediaSeq,
+							LastErr: errors.New("playlist window rolled mid-stream without range-gap callback"),
+						}
+						log.Error("playlist window rolled mid-stream without range-gap callback; leaving frontier unresolved",
+							"from", ev.MediaSeq,
+							"to", ev.EndMediaSeq)
+						cancel()
+					}
+					continue
+				}
+				skipEnd := advanceSkip()
+				lostSegments := skipEnd - ev.MediaSeq + 1
+				if lostSegments < 1 {
+					lostSegments = 1
+				}
+				// Mid-stream rolls are real range gaps; count the whole lost range
+				// before calling durable accounting.
+				acceptWindowRoll := func(postAbort bool) {
+					gapsBefore := result.SegmentsGaps
+					result.SegmentsGaps += lostSegments
+					total := result.SegmentsDone + result.SegmentsGaps
+					var gapRatio float64
+					if total > 0 {
+						gapRatio = float64(result.SegmentsGaps) / float64(total)
+					}
+					log.Warn("mid-stream window roll accepted as gap",
+						"from", ev.MediaSeq,
+						"to", skipEnd,
+						"lost_segments", lostSegments,
+						"done", result.SegmentsDone,
+						"gaps_before", gapsBefore,
+						"gaps_after", result.SegmentsGaps,
+						"gap_ratio", gapRatio,
+						"max_gap_ratio", cfg.GapPolicy.MaxGapRatio,
+						"post_abort", postAbort)
+					cfg.OnMidStreamWindowRoll(ev.MediaSeq, skipEnd)
+				}
+				if authErr != nil || abortErr != nil {
+					acceptWindowRoll(true)
+				} else if gapErr := evaluateWindowRollGap(&cfg.GapPolicy, result, ev.MediaSeq, skipEnd); gapErr == nil {
+					acceptWindowRoll(false)
+				} else {
+					abortErr = gapErr
+					log.Warn("mid-stream window roll aborts job",
+						"reason", abortErr.Reason,
+						"from", ev.MediaSeq,
+						"to", skipEnd,
+						"done", result.SegmentsDone,
+						"gaps", result.SegmentsGaps)
+					cancel()
+					continue
+				}
 			default:
+				advanceSkip()
 				// Unknown reason — defensive fallback. Log +
 				// advance the frontier so we don't stall, but
 				// don't apply any policy. Future reasons get an
@@ -843,6 +913,48 @@ func evaluateMalformedGap(p *GapPolicy, r *JobResult, seq int64) *GapAbortError 
 			Done:    r.SegmentsDone,
 			Gaps:    r.SegmentsGaps,
 			LastSeq: seq,
+			LastErr: reason,
+		}
+	}
+	return nil
+}
+
+// evaluateWindowRollGap applies the aggregate gap policy to a contiguous
+// mid-stream CDN window roll. The roll can span many segments at once, so the
+// ratio check accounts for the whole range rather than treating the event as a
+// single missing segment.
+func evaluateWindowRollGap(p *GapPolicy, r *JobResult, from, to int64) *GapAbortError {
+	lostSegments := to - from + 1
+	if lostSegments < 1 {
+		lostSegments = 1
+	}
+	reason := fmt.Errorf("playlist window rolled mid-stream")
+	if p.Strict {
+		return &GapAbortError{
+			Reason:  "strict mode (window roll)",
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: to,
+			LastErr: reason,
+		}
+	}
+	if !p.SkipFirstContentGuard && r.SegmentsDone == 0 {
+		return &GapAbortError{
+			Reason:  "no content segment committed yet (window roll)",
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: to,
+			LastErr: reason,
+		}
+	}
+	gapsAfter := r.SegmentsGaps + lostSegments
+	total := gapsAfter + r.SegmentsDone
+	if float64(gapsAfter)/float64(total) > p.MaxGapRatio {
+		return &GapAbortError{
+			Reason:  fmt.Sprintf("gap ratio %.2f%% over ceiling %.2f%% (window roll)", 100*float64(gapsAfter)/float64(total), 100*p.MaxGapRatio),
+			Done:    r.SegmentsDone,
+			Gaps:    r.SegmentsGaps,
+			LastSeq: to,
 			LastErr: reason,
 		}
 	}

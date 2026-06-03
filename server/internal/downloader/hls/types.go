@@ -98,12 +98,11 @@ type SegmentEvent struct {
 }
 
 // SkipReason classifies why the Poller filtered a segment before
-// it was ever enqueued. Skipped segments never see a worker, never
-// produce bytes on disk, and never go through the gap-policy's
-// MaxGapRatio math for retryable fetch failures. Different reasons
-// map to different downstream accounting: ads are structurally
-// expected and counted separately from real loss; other classes
-// (added later) may apply gap policy or abort the job.
+// it was ever enqueued. Skipped segments never see a worker and never
+// produce bytes on disk. Different reasons map to different downstream
+// accounting: ads are structurally expected and counted separately from
+// real loss; malformed segments and mid-stream window rolls are real
+// content loss and apply gap policy.
 type SkipReason string
 
 const (
@@ -124,15 +123,23 @@ const (
 	// against MaxGapRatio since, unlike ads, they represent real
 	// content loss.
 	SkipReasonMalformed SkipReason = "malformed"
+
+	// SkipReasonWindowRolled means a mid-stream CDN refresh jumped past
+	// the poller's frontier, losing [MediaSeq, EndMediaSeq]. This is real
+	// content loss and can recur after the first poll.
+	SkipReasonWindowRolled SkipReason = "window-rolled"
 )
 
-// SkipEvent is the Poller's "this segment was filtered before
+// SkipEvent is the Poller's "this segment(s) was filtered before
 // enqueue" signal. One channel carries every reason class so the
 // orchestrator's drain loop has a single dispatch point and the
 // Poller doesn't need a parallel channel per defect type.
 type SkipEvent struct {
 	MediaSeq int64
-	Reason   SkipReason
+	// EndMediaSeq closes the lost range for SkipReasonWindowRolled.
+	// Zero means this event covers only MediaSeq.
+	EndMediaSeq int64
+	Reason      SkipReason
 }
 
 // Segment is one media fragment parsed out of the media playlist.

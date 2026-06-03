@@ -108,10 +108,13 @@ func TestServiceAccount_SingleFlightOnConcurrentCallers(t *testing.T) {
 	// must result in exactly one refresher invocation — all
 	// waiters share the same result.
 	var calls int32
+	var enteredOnce sync.Once
 	gate := make(chan struct{})
+	entered := make(chan struct{})
 	refresher := func(_ context.Context, _ string) (string, time.Time, error) {
 		atomic.AddInt32(&calls, 1)
-		<-gate // hold the refresh until every goroutine is blocked on it
+		enteredOnce.Do(func() { close(entered) })
+		<-gate
 		return "access-single-flight", time.Now().Add(time.Hour), nil
 	}
 	sa := newServiceAccount("refresh-tok", discardLog())
@@ -126,8 +129,8 @@ func TestServiceAccount_SingleFlightOnConcurrentCallers(t *testing.T) {
 			results <- sa.Token(context.Background())
 		}()
 	}
-	// Give the waiters time to pile up on the inflight channel.
-	time.Sleep(20 * time.Millisecond)
+	// Wait until one caller is inside the refresher; this replaces a timing sleep.
+	<-entered
 	close(gate)
 	wg.Wait()
 	close(results)
@@ -152,7 +155,9 @@ func TestServiceAccount_CtxCancelDuringRefresh(t *testing.T) {
 	// in flight. The caller cancels while waiting; Token
 	// returns "" rather than blocking forever.
 	block := make(chan struct{})
+	entered := make(chan struct{})
 	refresher := func(ctx context.Context, _ string) (string, time.Time, error) {
+		close(entered)
 		select {
 		case <-block:
 		case <-ctx.Done():
@@ -163,11 +168,10 @@ func TestServiceAccount_CtxCancelDuringRefresh(t *testing.T) {
 	sa := newServiceAccount("refresh-tok", discardLog())
 	sa.setRefresher(refresher)
 
-	// Kick off one goroutine that gets the inflight slot and
-	// blocks the refresher.
+	// Wait until the refresh slot is held before the canceled caller arrives.
 	first := make(chan string)
 	go func() { first <- sa.Token(context.Background()) }()
-	time.Sleep(10 * time.Millisecond)
+	<-entered
 
 	// Second caller comes in with a canceled ctx.
 	ctx, cancel := context.WithCancel(context.Background())
