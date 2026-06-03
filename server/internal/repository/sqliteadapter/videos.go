@@ -68,6 +68,21 @@ func (a *SQLiteAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*rep
 	return sqliteVideoToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) ListVideosByJobIDs(ctx context.Context, jobIDs []string) ([]repository.Video, error) {
+	if len(jobIDs) == 0 {
+		return []repository.Video{}, nil
+	}
+	rows, err := a.queries.ListVideosByJobIDs(ctx, jobIDs)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos by job ids: %w", err)
+	}
+	videos := make([]repository.Video, len(rows))
+	for i, row := range rows {
+		videos[i] = *sqliteVideoToDomain(row)
+	}
+	return videos, nil
+}
+
 func (a *SQLiteAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (*repository.Video, error) {
 	rt := v.RecordingType
 	if rt == "" {
@@ -345,7 +360,7 @@ func (a *SQLiteAdapter) ListVideosPage(ctx context.Context, opts repository.List
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos page: %w", err)
 	}
-	return toVideoListPage(items, opts), nil
+	return repository.ToVideoListPage(items, opts), nil
 }
 
 func (a *SQLiteAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
@@ -362,7 +377,7 @@ func (a *SQLiteAdapter) ListVideosByBroadcaster(ctx context.Context, broadcaster
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos by broadcaster: %w", err)
 	}
-	return toVideoPage(items, limit), nil
+	return repository.ToVideoPage(items, limit), nil
 }
 
 func (a *SQLiteAdapter) ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
@@ -379,7 +394,7 @@ func (a *SQLiteAdapter) ListVideosByCategory(ctx context.Context, categoryID str
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos by category: %w", err)
 	}
-	return toVideoPage(items, limit), nil
+	return repository.ToVideoPage(items, limit), nil
 }
 
 func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
@@ -603,8 +618,8 @@ func sqliteCursorID(cursor *repository.VideoPageCursor) int64 {
 }
 
 func sqliteListVideosPageQueryAndArgs(opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (string, []any) {
-	sort, order := normalizeVideoListSort(opts)
-	limit := int64(listVideosPageQueryLimit(opts.Limit))
+	sort, order := repository.NormalizeVideoListSort(opts)
+	limit := int64(repository.ListVideosPageQueryLimit(opts.Limit))
 	args := []any{opts.Status, opts.Status}
 	query := listVideosPageBaseSQL + sqliteVideoListFiltersSQL(&args, opts)
 	appendLimit := func() { args = append(args, limit) }
@@ -774,68 +789,5 @@ func sqliteVideoListCursorInt(cursor *repository.VideoListPageCursor) any {
 	return *cursor.SortInt
 }
 
-func toVideoListPage(items []repository.Video, opts repository.ListVideosOpts) *repository.VideoListPage {
-	if opts.Limit <= 0 {
-		return &repository.VideoListPage{Items: []repository.Video{}}
-	}
-	page := &repository.VideoListPage{Items: items}
-	if len(items) <= opts.Limit {
-		return page
-	}
-	page.Items = items[:opts.Limit]
-	last := page.Items[len(page.Items)-1]
-	page.NextCursor = videoListCursorFromVideo(&last, opts)
-	return page
-}
-
-func normalizeVideoListSort(opts repository.ListVideosOpts) (string, string) {
-	sort := opts.Sort
-	order := opts.Order
-	switch sort {
-	case "created_at", "duration", "size", "channel":
-	default:
-		return "created_at", "desc"
-	}
-	if order != "asc" && order != "desc" {
-		order = "desc"
-	}
-	return sort, order
-}
-
-func listVideosPageQueryLimit(limit int) int {
-	if limit < 1 {
-		return 1
-	}
-	return limit + 1
-}
-
-func videoListCursorFromVideo(v *repository.Video, opts repository.ListVideosOpts) *repository.VideoListPageCursor {
-	if v == nil {
-		return nil
-	}
-	cursor := &repository.VideoListPageCursor{StartDownloadAt: v.StartDownloadAt, ID: v.ID}
-	sort, _ := normalizeVideoListSort(opts)
-	switch sort {
-	case "duration":
-		cursor.SortNumber = v.DurationSeconds
-	case "size":
-		cursor.SortInt = v.SizeBytes
-	case "channel":
-		cursor.SortText = &v.DisplayName
-	}
-	return cursor
-}
-
-func toVideoPage(items []repository.Video, limit int) *repository.VideoPage {
-	if limit <= 0 {
-		return &repository.VideoPage{Items: []repository.Video{}}
-	}
-	page := &repository.VideoPage{Items: items}
-	if len(items) <= limit {
-		return page
-	}
-	page.Items = items[:limit]
-	next := page.Items[len(page.Items)-1]
-	page.NextCursor = &repository.VideoPageCursor{StartDownloadAt: next.StartDownloadAt, ID: next.ID}
-	return page
-}
+// Pure page/cursor helpers now live in repository (pagination.go) so both
+// adapters share one copy.

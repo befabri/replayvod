@@ -116,6 +116,21 @@ func (a *PGAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*reposit
 	return pgVideoToDomain(row), nil
 }
 
+func (a *PGAdapter) ListVideosByJobIDs(ctx context.Context, jobIDs []string) ([]repository.Video, error) {
+	if len(jobIDs) == 0 {
+		return []repository.Video{}, nil
+	}
+	rows, err := a.queries.ListVideosByJobIDs(ctx, jobIDs)
+	if err != nil {
+		return nil, fmt.Errorf("pg list videos by job ids: %w", err)
+	}
+	videos := make([]repository.Video, len(rows))
+	for i, row := range rows {
+		videos[i] = *pgVideoToDomain(row)
+	}
+	return videos, nil
+}
+
 func (a *PGAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (*repository.Video, error) {
 	rt := v.RecordingType
 	if rt == "" {
@@ -256,7 +271,7 @@ func (a *PGAdapter) ListVideosPage(ctx context.Context, opts repository.ListVide
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos page: %w", err)
 	}
-	return toVideoListPage(items, opts), nil
+	return repository.ToVideoListPage(items, opts), nil
 }
 
 func (a *PGAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
@@ -273,7 +288,7 @@ func (a *PGAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID s
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos by broadcaster: %w", err)
 	}
-	return toVideoPage(items, limit), nil
+	return repository.ToVideoPage(items, limit), nil
 }
 
 func (a *PGAdapter) ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
@@ -290,7 +305,7 @@ func (a *PGAdapter) ListVideosByCategory(ctx context.Context, categoryID string,
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos by category: %w", err)
 	}
-	return toVideoPage(items, limit), nil
+	return repository.ToVideoPage(items, limit), nil
 }
 
 func (a *PGAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
@@ -477,8 +492,8 @@ func pgCursorID(cursor *repository.VideoPageCursor) int64 {
 }
 
 func pgListVideosPageQueryAndArgs(opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (string, []any) {
-	sort, order := normalizeVideoListSort(opts)
-	limit := listVideosPageQueryLimit(opts.Limit)
+	sort, order := repository.NormalizeVideoListSort(opts)
+	limit := repository.ListVideosPageQueryLimit(opts.Limit)
 	args := []any{opts.Status}
 	query := listVideosPageBaseSQL + pgVideoListFiltersSQL(&args, opts)
 	appendLimit := func() string { return pgAppendArg(&args, limit) }
@@ -634,27 +649,6 @@ func pgAppendArg(args *[]any, value any) string {
 	return fmt.Sprintf("$%d", len(*args))
 }
 
-func normalizeVideoListSort(opts repository.ListVideosOpts) (string, string) {
-	sort := opts.Sort
-	order := opts.Order
-	switch sort {
-	case "created_at", "duration", "size", "channel":
-	default:
-		return "created_at", "desc"
-	}
-	if order != "asc" && order != "desc" {
-		order = "desc"
-	}
-	return sort, order
-}
-
-func listVideosPageQueryLimit(limit int) int {
-	if limit < 1 {
-		return 1
-	}
-	return limit + 1
-}
-
 func pgVideoListCursorTime(cursor *repository.VideoListPageCursor) *time.Time {
 	if cursor == nil {
 		return nil
@@ -691,47 +685,5 @@ func pgVideoListCursorInt(cursor *repository.VideoListPageCursor) *int64 {
 	return cursor.SortInt
 }
 
-func toVideoListPage(items []repository.Video, opts repository.ListVideosOpts) *repository.VideoListPage {
-	if opts.Limit <= 0 {
-		return &repository.VideoListPage{Items: []repository.Video{}}
-	}
-	page := &repository.VideoListPage{Items: items}
-	if len(items) <= opts.Limit {
-		return page
-	}
-	page.Items = items[:opts.Limit]
-	last := page.Items[len(page.Items)-1]
-	page.NextCursor = videoListCursorFromVideo(&last, opts)
-	return page
-}
-
-func videoListCursorFromVideo(v *repository.Video, opts repository.ListVideosOpts) *repository.VideoListPageCursor {
-	if v == nil {
-		return nil
-	}
-	cursor := &repository.VideoListPageCursor{StartDownloadAt: v.StartDownloadAt, ID: v.ID}
-	sort, _ := normalizeVideoListSort(opts)
-	switch sort {
-	case "duration":
-		cursor.SortNumber = v.DurationSeconds
-	case "size":
-		cursor.SortInt = v.SizeBytes
-	case "channel":
-		cursor.SortText = &v.DisplayName
-	}
-	return cursor
-}
-
-func toVideoPage(items []repository.Video, limit int) *repository.VideoPage {
-	if limit <= 0 {
-		return &repository.VideoPage{Items: []repository.Video{}}
-	}
-	page := &repository.VideoPage{Items: items}
-	if len(items) <= limit {
-		return page
-	}
-	page.Items = items[:limit]
-	next := page.Items[len(page.Items)-1]
-	page.NextCursor = &repository.VideoPageCursor{StartDownloadAt: next.StartDownloadAt, ID: next.ID}
-	return page
-}
+// Pure page/cursor helpers now live in repository (pagination.go) so both
+// adapters share one copy.

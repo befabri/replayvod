@@ -35,6 +35,8 @@ type PGAdapter struct {
 	db      pggen.DBTX
 }
 
+var _ repository.Repository = (*PGAdapter)(nil)
+
 // New creates a new PGAdapter. db is the pgx pool or transaction
 // backing the generated queries; it's retained so the adapter can run
 // raw SQL for PG-only capabilities without fighting sqlc.

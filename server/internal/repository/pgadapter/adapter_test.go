@@ -1052,6 +1052,71 @@ func TestUpdateCategoryBoxArt(t *testing.T) {
 	}
 }
 
+// TestListVideosByJobIDs pins the batched job-ID dereference the active-
+// downloads snapshot uses in place of one GetVideoByJobID per running job.
+// Subtests cover: matched+missing mix, nil-input no-op, duplicate IDs.
+func TestListVideosByJobIDs(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-1", BroadcasterLogin: "bc", BroadcasterName: "BC",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	for _, jobID := range []string{"job-a", "job-b", "job-c"} {
+		if _, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID:         jobID,
+			Filename:      jobID,
+			DisplayName:   jobID,
+			Status:        repository.VideoStatusDone,
+			Quality:       repository.QualityHigh,
+			BroadcasterID: "bc-1",
+			Language:      "en",
+			RecordingType: repository.RecordingTypeVideo,
+		}); err != nil {
+			t.Fatalf("seed %s: %v", jobID, err)
+		}
+	}
+
+	t.Run("matched + missing job ids", func(t *testing.T) {
+		got, err := a.ListVideosByJobIDs(ctx, []string{"job-a", "job-c", "job-missing"})
+		if err != nil {
+			t.Fatalf("by job ids: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("want 2 matched rows, got %d", len(got))
+		}
+		gotJobs := map[string]bool{}
+		for _, v := range got {
+			gotJobs[v.JobID] = true
+		}
+		if !gotJobs["job-a"] || !gotJobs["job-c"] {
+			t.Errorf("expected job-a and job-c, got %v", gotJobs)
+		}
+	})
+
+	t.Run("nil job ids returns empty, no error", func(t *testing.T) {
+		empty, err := a.ListVideosByJobIDs(ctx, nil)
+		if err != nil {
+			t.Fatalf("by nil ids: %v", err)
+		}
+		if len(empty) != 0 {
+			t.Errorf("nil ids should return 0 rows, got %d", len(empty))
+		}
+	})
+
+	t.Run("duplicate job ids collapse", func(t *testing.T) {
+		got, err := a.ListVideosByJobIDs(ctx, []string{"job-a", "job-a", "job-b"})
+		if err != nil {
+			t.Fatalf("by dup ids: %v", err)
+		}
+		if len(got) != 2 {
+			t.Errorf("duplicates should collapse, got %d rows", len(got))
+		}
+	})
+}
+
 // TestListChannelsByIDs pins the batch-dereference primitive used by
 // stream.followed to pre-filter Helix results against the local
 // mirror. Subtests cover: matched+missing mix, nil-input no-op,

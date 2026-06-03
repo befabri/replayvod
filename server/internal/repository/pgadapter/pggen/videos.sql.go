@@ -332,6 +332,58 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 	return items, nil
 }
 
+const listVideosByJobIDs = `-- name: ListVideosByJobIDs :many
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours FROM videos WHERE job_id = ANY($1::text[])
+`
+
+func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error) {
+	rows, err := q.db.Query(ctx, listVideosByJobIDs, jobIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.Quality,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
 SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `

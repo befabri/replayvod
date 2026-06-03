@@ -31,6 +31,10 @@ func (f *fakeDownloadRepo) GetVideoByJobID(context.Context, string) (*repository
 	return nil, repository.ErrNotFound
 }
 
+func (f *fakeDownloadRepo) ListVideosByJobIDs(context.Context, []string) ([]repository.Video, error) {
+	return nil, nil
+}
+
 type fakeDownloadRunner struct {
 	params downloader.Params
 	jobID  string

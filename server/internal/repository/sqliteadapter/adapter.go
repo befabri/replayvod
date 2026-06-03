@@ -34,6 +34,8 @@ type SQLiteAdapter struct {
 	db      sqlitegen.DBTX
 }
 
+var _ repository.Repository = (*SQLiteAdapter)(nil)
+
 // New creates a new SQLiteAdapter. db is typically an *sql.DB but any
 // sqlitegen.DBTX works — the adapter retains it so the hand-rolled
 // queries can reach the raw driver without fighting sqlc.

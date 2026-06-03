@@ -8,6 +8,7 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const countVideosByStatus = `-- name: CountVideosByStatus :one
@@ -228,6 +229,71 @@ func (q *Queries) ListFinishedVideosForRetention(ctx context.Context, now sql.Nu
 			&i.ID,
 			&i.BroadcasterID,
 			&i.DownloadedAt,
+			&i.RetentionWindowHours,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVideosByJobIDs = `-- name: ListVideosByJobIDs :many
+SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours FROM videos WHERE job_id IN (/*SLICE:job_ids*/?)
+`
+
+func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error) {
+	query := listVideosByJobIDs
+	var queryParams []interface{}
+	if len(jobIds) > 0 {
+		for _, v := range jobIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:job_ids*/?", strings.Repeat(",?", len(jobIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:job_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.Quality,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
 			&i.RetentionWindowHours,
 		); err != nil {
 			return nil, err

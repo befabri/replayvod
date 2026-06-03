@@ -137,6 +137,10 @@ type Repository interface {
 	// Videos
 	GetVideo(ctx context.Context, id int64) (*Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (*Video, error)
+	// ListVideosByJobIDs batches GetVideoByJobID across a set of job IDs
+	// (rows for unknown IDs are simply absent) so callers iterating active
+	// downloads don't fan out one query per running recording.
+	ListVideosByJobIDs(ctx context.Context, jobIDs []string) ([]Video, error)
 	CreateVideo(ctx context.Context, v *VideoInput) (*Video, error)
 	UpdateVideoStatus(ctx context.Context, id int64, status string) error
 	UpdateVideoSelectedVariant(ctx context.Context, id int64, quality string, fps *float64) error

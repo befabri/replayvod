@@ -110,7 +110,7 @@ func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort st
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list channels page: %w", err)
 	}
-	return toChannelPage(items, limit), nil
+	return repository.ToChannelPage(items, limit), nil
 }
 
 func (a *SQLiteAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]repository.Channel, error) {
@@ -286,19 +286,4 @@ func boolToInt(v bool) int {
 	return 0
 }
 
-func toChannelPage(items []repository.Channel, limit int) *repository.ChannelPage {
-	if limit <= 0 {
-		return &repository.ChannelPage{Items: []repository.Channel{}}
-	}
-	page := &repository.ChannelPage{Items: items}
-	if len(items) <= limit {
-		return page
-	}
-	page.Items = items[:limit]
-	next := page.Items[len(page.Items)-1]
-	page.NextCursor = &repository.ChannelPageCursor{
-		BroadcasterName: next.BroadcasterName,
-		BroadcasterID:   next.BroadcasterID,
-	}
-	return page
-}
+// toChannelPage now lives in repository (pagination.go), shared by both adapters.

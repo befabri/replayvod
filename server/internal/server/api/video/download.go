@@ -15,6 +15,7 @@ import (
 type downloadRepo interface {
 	GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (*repository.Video, error)
+	ListVideosByJobIDs(ctx context.Context, jobIDs []string) ([]repository.Video, error)
 }
 
 type downloadRunner interface {
@@ -212,11 +213,13 @@ func (s *DownloadService) ActiveProgress() []downloader.Progress {
 	return s.downloader.ListActiveProgress()
 }
 
-// VideoByJobID exposes the downloader-service's video lookup so the
-// handler can resolve the active-downloads set from in-memory job
-// IDs instead of scanning a page of RUNNING rows.
-func (s *DownloadService) VideoByJobID(ctx context.Context, jobID string) (*repository.Video, error) {
-	return s.repo.GetVideoByJobID(ctx, jobID)
+// VideosByJobIDs resolves the video rows for the downloader's active job set in
+// one query so the active-downloads snapshot — which runs on every dashboard
+// poll and SSE wake — doesn't fan out a lookup per running recording. Resolving
+// from the in-memory job IDs (not a page of RUNNING rows) avoids missing new
+// downloads hidden behind stale orphans; job IDs with no video row are omitted.
+func (s *DownloadService) VideosByJobIDs(ctx context.Context, jobIDs []string) ([]repository.Video, error) {
+	return s.repo.ListVideosByJobIDs(ctx, jobIDs)
 }
 
 func (s *DownloadService) SubscribeActive(ctx context.Context) <-chan struct{} {

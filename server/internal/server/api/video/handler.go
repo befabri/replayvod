@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -33,20 +34,6 @@ func NewHandler(video *Service, download *DownloadService, store storage.Storage
 		storage:  store,
 		log:      log.With("domain", "video-api"),
 	}
-}
-
-// clientClosed maps a request the client abandoned (canceled context or
-// deadline) to tRPC's client-closed code. The dashboard fires many parallel
-// reads per view and cancels in-flight ones on navigation; without this they
-// surface as ERROR + 500 server faults. The router's WithOnError hook
-// deliberately skips logging CodeClientClosed, so returning it both drops the
-// 500 and silences the log line. Returns nil when err isn't a cancellation, so
-// callers fall through to their normal log-and-500 path.
-func clientClosed(err error) *trpcgo.Error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return trpcgo.NewError(trpcgo.CodeClientClosed, "request canceled")
-	}
-	return nil
 }
 
 // VideoResponse is the wire shape for a video record. broadcaster_*
@@ -289,11 +276,7 @@ func (h *Handler) List(ctx context.Context, input ListInput) ([]VideoResponse, e
 		Offset: input.Offset,
 	})
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return nil, e
-		}
-		h.log.Error("list videos", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
+		return nil, apierr.Map(h.log, err, "list videos")
 	}
 	return h.toVideoResponses(ctx, vids), nil
 }
@@ -358,11 +341,7 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		Limit:              limit,
 	}, cursor)
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return VideoListPageResponse{}, e
-		}
-		h.log.Error("list video page", "error", err)
-		return VideoListPageResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
+		return VideoListPageResponse{}, apierr.Map(h.log, err, "list videos")
 	}
 	return VideoListPageResponse{
 		Items:      h.toVideoResponses(ctx, page.Items),
@@ -467,14 +446,7 @@ type SnapshotsInput struct {
 func (h *Handler) Snapshots(ctx context.Context, input SnapshotsInput) ([]string, error) {
 	paths, err := h.video.ListSnapshots(ctx, h.storage, input.VideoID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, trpcgo.NewError(trpcgo.CodeNotFound, "video not found")
-		}
-		if e := clientClosed(err); e != nil {
-			return nil, e
-		}
-		h.log.Error("list snapshots", "video_id", input.VideoID, "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list snapshots")
+		return nil, apierr.Map(h.log, err, "list snapshots")
 	}
 	return paths, nil
 }
@@ -486,11 +458,7 @@ func (h *Handler) Snapshots(ctx context.Context, input SnapshotsInput) ([]string
 func (h *Handler) Titles(ctx context.Context, input TitlesInput) ([]TitleItem, error) {
 	rows, err := h.video.Titles(ctx, input.VideoID)
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return nil, e
-		}
-		h.log.Error("list titles for video", "video_id", input.VideoID, "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list titles")
+		return nil, apierr.Map(h.log, err, "list titles")
 	}
 	out := make([]TitleItem, len(rows))
 	for i, r := range rows {
@@ -506,11 +474,7 @@ func (h *Handler) Titles(ctx context.Context, input TitlesInput) ([]TitleItem, e
 func (h *Handler) Categories(ctx context.Context, input CategoriesInput) ([]VideoCategory, error) {
 	rows, err := h.video.Categories(ctx, input.VideoID)
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return nil, e
-		}
-		h.log.Error("list categories for video", "video_id", input.VideoID, "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list categories")
+		return nil, apierr.Map(h.log, err, "list categories")
 	}
 	out := make([]VideoCategory, len(rows))
 	for i, r := range rows {
@@ -563,11 +527,7 @@ type TimelineInput struct {
 func (h *Handler) Timeline(ctx context.Context, input TimelineInput) ([]TimelineEvent, error) {
 	rows, err := h.video.Timeline(ctx, input.VideoID)
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return nil, e
-		}
-		h.log.Error("list video timeline", "video_id", input.VideoID, "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list timeline")
+		return nil, apierr.Map(h.log, err, "list timeline")
 	}
 	out := make([]TimelineEvent, len(rows))
 	for i, r := range rows {
@@ -593,14 +553,7 @@ func (h *Handler) Timeline(ctx context.Context, input TimelineInput) ([]Timeline
 func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoResponse, error) {
 	v, err := h.video.GetByID(ctx, input.ID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return VideoResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "video not found")
-		}
-		if e := clientClosed(err); e != nil {
-			return VideoResponse{}, e
-		}
-		h.log.Error("get video", "error", err)
-		return VideoResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to get video")
+		return VideoResponse{}, apierr.Map(h.log, err, "get video")
 	}
 	// Single-row enrichment through the same bulk helper so GetByID's
 	// wire shape matches List's — the Watch page's VideoInfo no longer
@@ -641,11 +594,7 @@ func (h *Handler) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (
 	}
 	page, err := h.video.ListByBroadcaster(ctx, input.BroadcasterID, limit, toRepositoryVideoPageCursor(input.Cursor))
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return VideoPageResponse{}, e
-		}
-		h.log.Error("list videos by broadcaster", "error", err)
-		return VideoPageResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
+		return VideoPageResponse{}, apierr.Map(h.log, err, "list videos by broadcaster")
 	}
 	return VideoPageResponse{
 		Items:      h.toVideoResponses(ctx, page.Items),
@@ -667,11 +616,7 @@ func (h *Handler) ByCategory(ctx context.Context, input ByCategoryInput) (VideoP
 	}
 	page, err := h.video.ListByCategory(ctx, input.CategoryID, limit, toRepositoryVideoPageCursor(input.Cursor))
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return VideoPageResponse{}, e
-		}
-		h.log.Error("list videos by category", "error", err)
-		return VideoPageResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list videos")
+		return VideoPageResponse{}, apierr.Map(h.log, err, "list videos by category")
 	}
 	return VideoPageResponse{
 		Items:      h.toVideoResponses(ctx, page.Items),
@@ -781,11 +726,7 @@ func (h *Handler) DownloadCapacity(ctx context.Context) (DownloadCapacityRespons
 func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 	stats, err := h.video.Stats(ctx)
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return StatisticsResponse{}, e
-		}
-		h.log.Error("video statistics", "error", err)
-		return StatisticsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load statistics")
+		return StatisticsResponse{}, apierr.Map(h.log, err, "load statistics")
 	}
 	out := StatisticsResponse{
 		Total:         stats.Totals.Total,
@@ -820,11 +761,7 @@ func (h *Handler) StatisticsByBroadcaster(ctx context.Context, input ChannelStat
 	}
 	totals, err := h.video.StatsByBroadcaster(ctx, input.BroadcasterID)
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return ChannelStatisticsResponse{}, e
-		}
-		h.log.Error("video statistics by broadcaster", "error", err, "broadcaster_id", input.BroadcasterID)
-		return ChannelStatisticsResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to load channel statistics")
+		return ChannelStatisticsResponse{}, apierr.Map(h.log, err, "load channel statistics")
 	}
 	return ChannelStatisticsResponse{
 		Total:         totals.Total,
@@ -836,11 +773,7 @@ func (h *Handler) StatisticsByBroadcaster(ctx context.Context, input ChannelStat
 func (h *Handler) ActiveDownloads(ctx context.Context) ([]ActiveDownloadResponse, error) {
 	rows, err := h.activeDownloadsSnapshot(ctx)
 	if err != nil {
-		if e := clientClosed(err); e != nil {
-			return nil, e
-		}
-		h.log.Error("list active downloads", "error", err)
-		return nil, trpcgo.NewError(trpcgo.CodeInternalServerError, "failed to list active downloads")
+		return nil, apierr.Map(h.log, err, "list active downloads")
 	}
 	return rows, nil
 }
@@ -855,18 +788,21 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context) ([]ActiveDownload
 	// running. Using in-memory active jobs as the source of truth
 	// avoids missing new downloads hidden behind any stale
 	// RUNNING rows in the database (e.g. orphans from a prior crash).
-	vids := make([]repository.Video, 0, len(progress))
-	byJob := make(map[string]*repository.Video, len(progress))
-	for _, snap := range progress {
-		v, err := h.download.VideoByJobID(ctx, snap.JobID)
-		if err != nil {
-			if errors.Is(err, repository.ErrNotFound) {
-				continue
-			}
-			return nil, err
-		}
-		vids = append(vids, *v)
-		byJob[v.JobID] = &vids[len(vids)-1]
+	jobIDs := make([]string, len(progress))
+	for i, snap := range progress {
+		jobIDs[i] = snap.JobID
+	}
+	// One batched lookup instead of a GetVideoByJobID per active job — this
+	// snapshot runs on every dashboard poll and every active-downloads SSE
+	// wake. Job IDs with no video row (e.g. a stale RUNNING orphan) are simply
+	// absent from the result.
+	vids, err := h.download.VideosByJobIDs(ctx, jobIDs)
+	if err != nil {
+		return nil, err
+	}
+	byJob := make(map[string]*repository.Video, len(vids))
+	for i := range vids {
+		byJob[vids[i].JobID] = &vids[i]
 	}
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vids)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vids)
@@ -978,9 +914,9 @@ type TriggerDownloadResponse struct {
 }
 
 func (h *Handler) TriggerDownload(ctx context.Context, input TriggerDownloadInput) (TriggerDownloadResponse, error) {
-	user := middleware.GetUser(ctx)
-	if user == nil {
-		return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized, "not authenticated")
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return TriggerDownloadResponse{}, err
 	}
 	result, err := h.download.Trigger(ctx, TriggerInput{
 		BroadcasterID: input.BroadcasterID,
@@ -990,18 +926,16 @@ func (h *Handler) TriggerDownload(ctx context.Context, input TriggerDownloadInpu
 		UserID:        user.ID,
 	})
 	if err != nil {
-		if errors.Is(err, ErrChannelNotSynced) {
-			return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeNotFound,
-				"channel not synced — run channel.syncFromTwitch first")
-		}
+		// twitch.IsUserAuthError is a predicate, not an errors.Is sentinel, so
+		// it must be handled before Map (which can't match it).
 		if twitch.IsUserAuthError(err) {
 			h.log.Warn("trigger download", "error", err, "broadcaster_id", input.BroadcasterID)
 			return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized,
 				"twitch session expired; sign in again")
 		}
-		h.log.Error("trigger download", "error", err, "broadcaster_id", input.BroadcasterID)
-		return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeInternalServerError,
-			"failed to start download: "+err.Error())
+		return TriggerDownloadResponse{}, apierr.Map(h.log, err, "start download",
+			apierr.On(ErrChannelNotSynced, trpcgo.CodeNotFound,
+				"channel not synced — run channel.syncFromTwitch first"))
 	}
 	return TriggerDownloadResponse{JobID: result.JobID, VideoID: result.VideoID}, nil
 }

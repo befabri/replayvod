@@ -218,6 +218,7 @@ type Querier interface {
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoPartsForVideos(ctx context.Context, videoIds []int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
+	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
 	// NOTE: ListVideos is intentionally NOT declared here. The PG path
 	// uses a CASE-based dynamic ORDER BY (see queries/postgres/videos.sql),
 	// but sqlc's SQLite engine can't infer the param type of a named arg

@@ -4,6 +4,9 @@ SELECT * FROM videos WHERE id = $1;
 -- name: GetVideoByJobID :one
 SELECT * FROM videos WHERE job_id = $1;
 
+-- name: ListVideosByJobIDs :many
+SELECT * FROM videos WHERE job_id = ANY(@job_ids::text[]);
+
 -- name: CreateVideo :one
 INSERT INTO videos (
     job_id, filename, display_name, title, status, quality,

@@ -4,6 +4,9 @@ SELECT * FROM videos WHERE id = ?;
 -- name: GetVideoByJobID :one
 SELECT * FROM videos WHERE job_id = ?;
 
+-- name: ListVideosByJobIDs :many
+SELECT * FROM videos WHERE job_id IN (sqlc.slice('job_ids'));
+
 -- name: CreateVideo :one
 INSERT INTO videos (
     job_id, filename, display_name, title, status, quality,

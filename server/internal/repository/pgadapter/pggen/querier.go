@@ -255,6 +255,7 @@ type Querier interface {
 	// explicit 'created_at-desc' sort (matched by the CASE above it) and the
 	// fallthrough for empty/unrecognized sort_key values.
 	ListVideos(ctx context.Context, arg ListVideosParams) ([]Video, error)
+	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
