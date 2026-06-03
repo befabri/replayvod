@@ -141,6 +141,12 @@ tasks:
     cmds:
       - go tool trpcgo generate -o ../dashboard/src/api/generated/trpc.ts --zod ../dashboard/src/api/generated/zod.ts --enums ../dashboard/src/api/generated/enums.ts ./internal/server/api/...
 
+  trpcgen:check:
+    desc: CI gate — fails when committed dashboard/src/api/generated/ is out of sync with the tRPC procedures
+    cmds:
+      - task: trpcgen
+      - git diff --exit-code ../dashboard/src/api/generated/
+
   twitch-api-gen:
     desc: Regenerate Twitch API types and client from docs
     cmds:

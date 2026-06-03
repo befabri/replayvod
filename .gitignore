@@ -46,7 +46,6 @@ Thumbs.db
 
 # Generated (regeneratable)
 dashboard/src/routeTree.gen.ts
-dashboard/src/api/generated/
 
 # Temporary
 tmp/
