@@ -98,15 +98,18 @@ the same tRPC client, backed by the server's event bus.
 
 ## Configuration
 
-Environment variables are validated by `src/env.ts` (Zod). The only
-deployment-relevant override is the backend origin:
+Environment variables are validated by `src/env.ts` (Zod). Normal Docker and
+production builds leave the dashboard same-origin with the Go server. For local
+development, Vite already proxies `/api/*` and `/trpc/*` to
+`http://localhost:8080`; set `VITE_API_URL` only if you intentionally bypass
+that proxy:
 
 ```env
-VITE_API_URL=https://your-backend.example.com
+VITE_API_URL=http://localhost:8080
 ```
 
-Leave it unset for the standard same-origin deploy. See `.env.example` for
-the current list.
+Leave it unset for the standard same-origin deploy. See `.env.example` for the
+current list.
 
 ## Internationalisation
 
@@ -128,9 +131,9 @@ npx playwright test         # e2e
 
 ## Build output
 
-`npm run build` writes to `dist/`. The Go server picks that directory up via
-`DASHBOARD_DIR` (defaults to the path used by Docker compose) and serves it
-as static assets.
+`npm run build` writes to `dist/`. The Docker image copies that build to
+`/app/dashboard`, and the Go server serves it automatically when present. For
+manual/source packages, point `DASHBOARD_DIR` at the built dashboard directory.
 
 ## License
 

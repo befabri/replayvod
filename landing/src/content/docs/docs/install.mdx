@@ -24,33 +24,15 @@ The installer:
 
 <Steps>
 
-1. Clones the latest release tag into `~/replayvod/` (falls back to `main` before the first release).
-2. Writes `server/.env` from the example and generates `SESSION_SECRET` locally.
-3. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` if a terminal is available. The secret prompt is hidden.
-4. Starts ReplayVOD with `docker compose up -d`, which pulls the prebuilt image.
+1. Asks where to install ReplayVOD. The default is `~/replayvod/`.
+2. Asks for a version tag or branch. Press Enter for the latest release tag.
+3. Asks for a database profile. The default is `sqlite`; choose `postgres` if you want Compose to start Postgres too.
+4. Asks for the public URL. Press Enter for local-only `http://localhost:8080`, or enter your HTTPS domain for a public server.
+5. Writes `server/.env` from the example and generates `SESSION_SECRET` locally.
+6. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID`. The secret prompt is hidden.
+7. Asks whether to start containers now, then runs `docker compose up -d` if you say yes.
 
 </Steps>
-
-**Overrides**
-
-Pick a different directory or database profile:
-
-```bash
-curl -fsSL https://replayvod.com/install.sh | \
-  REPLAYVOD_DIR=/srv/replayvod REPLAYVOD_PROFILE=postgres sh
-```
-
-Pin a specific version (tag or branch) instead of the latest release tag:
-
-```bash
-curl -fsSL https://replayvod.com/install.sh | REPLAYVOD_REF=v1.2.3 sh
-```
-
-Configure without starting containers:
-
-```bash
-curl -fsSL https://replayvod.com/install.sh | REPLAYVOD_NO_START=1 sh
-```
 
 ## Manual Docker
 
@@ -149,7 +131,8 @@ For a public deployment also set:
 PUBLIC_BASE_URL=https://your-domain.example
 ```
 
-The Compose file derives `CALLBACK_URL` and `FRONTEND_URL` from `PUBLIC_BASE_URL`.
+The server derives its Twitch OAuth callback and dashboard redirects from
+`PUBLIC_BASE_URL`.
 
 ## Next steps
 

@@ -120,12 +120,12 @@ Grouped by purpose:
 | ----------- | --------- |
 | Database    | `DATABASE_DRIVER`, `POSTGRES_*`, `SQLITE_PATH` |
 | Twitch      | `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, `TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN` |
-| HTTP        | `HOST`, `PORT`, `CALLBACK_URL`, `WEBHOOK_CALLBACK_URL`, `FRONTEND_URL` |
+| HTTP        | `HOST`, `PORT`, `PUBLIC_BASE_URL`, `WEBHOOK_CALLBACK_URL` |
 | Security    | `SESSION_SECRET`, `WHITELIST_ENABLED`, `WHITELISTED_USER_IDS`, `OWNER_TWITCH_ID` |
 | Storage     | `VIDEO_DIR`, `THUMBNAIL_DIR`, `SCRATCH_DIR`, `DASHBOARD_DIR` |
 | Server mode | `SERVER_MODE` |
 | Connect     | `RELAY_INGEST_URL`, `RELAY_SUBSCRIBE_URL`, `RELAY_LOCAL_CALLBACK_URL` |
-| Compose     | `PUBLIC_BASE_URL`, `COMPOSE_PROFILES` |
+| Compose     | `COMPOSE_PROFILES` |
 
 `.env.example` is the source of truth — every supported variable is listed and
 commented there.

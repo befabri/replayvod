@@ -139,10 +139,9 @@ recording auto-delete task is enabled, retention caps the URL at the recording's
 retention deadline; after a recording has been retained, retry payloads keep the
 part metadata but omit `download_url`.
 The origin is taken from `PUBLIC_BASE_URL` when set, otherwise from the direct
-EventSub callback origin when direct mode is active, otherwise from
-`CALLBACK_URL`. Set `PUBLIC_BASE_URL` if your public streaming host differs from
-those callback hosts. A consumer that shares ReplayVOD's storage volume can use
-`path` directly.
+EventSub callback origin when direct mode is active, otherwise from the OAuth
+callback origin. Set `PUBLIC_BASE_URL` for normal deployments. A consumer that
+shares ReplayVOD's storage volume can use `path` directly.
 
 <Aside type="caution">
 A `download_url` is a capability URL: anyone who holds it can fetch that part

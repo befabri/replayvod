@@ -47,17 +47,11 @@ The installer generates `SESSION_SECRET`; for manual installs, generate it with 
 
 ## Public URLs
 
-For Compose deployments, set `PUBLIC_BASE_URL` and let Compose derive everything:
+For normal deployments, set `PUBLIC_BASE_URL` and let the server derive the
+OAuth callback and frontend redirect URL:
 
 ```text
 PUBLIC_BASE_URL=https://replayvod.example
-```
-
-For separate services or manual runtime, set each URL directly:
-
-```text
-CALLBACK_URL=https://replayvod.example/api/v1/auth/twitch/callback
-FRONTEND_URL=https://replayvod.example
 ```
 
 Direct EventSub env setup is optional; leaving `SERVER_MODE` empty lets the

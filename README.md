@@ -85,8 +85,8 @@ docker compose --env-file server/.env --profile sqlite up -d
 ```
 
 For real deployments, set `PUBLIC_BASE_URL=https://your-domain` in
-`server/.env` before starting. The compose file derives the OAuth callback,
-webhook callback, and frontend redirect URLs from that base URL.
+`server/.env` before starting. The server derives the OAuth callback and
+frontend redirect URL from that base URL.
 
 ### Twitch credentials
 
@@ -98,6 +98,9 @@ OAuth redirect URL:
 http://localhost:8080/api/v1/auth/twitch/callback
 ```
 
+For a public deployment, replace the origin with your `PUBLIC_BASE_URL`, for
+example `https://replayvod.example/api/v1/auth/twitch/callback`.
+
 Copy the resulting Client ID and Client Secret into `server/.env`:
 
 ```env
@@ -106,9 +109,6 @@ TWITCH_SECRET=...
 SESSION_SECRET=...     # any random 32+ byte hex
 OWNER_TWITCH_ID=...    # your numeric Twitch user id
 ```
-
-If you are not using Docker compose and are running the backend + Vite dev
-server separately, keep `FRONTEND_URL=http://localhost:3000` for local dev.
 
 ## Configuration
 
