@@ -177,6 +177,18 @@ func TestEnvExampleKeepsPublicBaseURLBlankForLocalDev(t *testing.T) {
 	}
 }
 
+func TestEnvExampleBlankValuesParseEmpty(t *testing.T) {
+	values, err := godotenv.Read(filepath.Join("..", "..", ".env.example"))
+	if err != nil {
+		t.Fatalf("read .env.example: %v", err)
+	}
+	for _, key := range []string{"SESSION_SECRET", "WHITELISTED_USER_IDS", "OWNER_TWITCH_ID", "DASHBOARD_DIR"} {
+		if got := values[key]; got != "" {
+			t.Fatalf(".env.example %s = %q, want empty; keep comments on their own lines so godotenv does not parse them as values", key, got)
+		}
+	}
+}
+
 func TestValidateEnvironmentDerivesURLsFromPublicBaseURL(t *testing.T) {
 	env := &Environment{
 		SessionSecret: "0123456789abcdef0123456789abcdef",
