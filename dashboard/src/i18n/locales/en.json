@@ -56,6 +56,26 @@
 		"copied": "Copied",
 		"actions": "Actions"
 	},
+	"search": {
+		"open": "Open search",
+		"title": "Search library",
+		"input_label": "Search",
+		"placeholder": "Search library…",
+		"clear": "Clear search",
+		"scope_label": "Search scope",
+		"scope": {
+			"all": "All",
+			"videos": "Videos",
+			"channels": "Channels",
+			"categories": "Categories"
+		},
+		"group": {
+			"videos": "Videos",
+			"channels": "Channels",
+			"categories": "Categories"
+		},
+		"no_results": "No results found"
+	},
 	"dashboard": {
 		"running_now": "Running now",
 		"active_count": "{{count}} active",

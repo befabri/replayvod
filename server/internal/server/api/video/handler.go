@@ -350,6 +350,25 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 	}, nil
 }
 
+// SearchInput drives video.search for the global navbar search. Query is
+// capped to bound LIKE/ILIKE work across titles, broadcasters, and categories.
+type SearchInput struct {
+	Query string `json:"query" validate:"max=100"`
+	Limit int    `json:"limit,omitempty" validate:"min=0,max=50"`
+}
+
+func (h *Handler) Search(ctx context.Context, input SearchInput) ([]VideoResponse, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	vids, err := h.video.Search(ctx, input.Query, limit)
+	if err != nil {
+		return nil, apierr.Map(h.log, err, "search videos")
+	}
+	return h.toVideoResponses(ctx, vids), nil
+}
+
 func videoDurationFilterBounds(filter string) (*float64, *float64) {
 	const minute = 60.0
 	const hour = 60 * minute

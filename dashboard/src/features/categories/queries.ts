@@ -13,7 +13,16 @@ export function useCategory(id: string) {
 	);
 }
 
-export function useCategorySearch(query: string, limit = 50) {
+export function useCategorySearch(
+	query: string,
+	limit = 50,
+	options?: { enabled?: boolean },
+) {
 	const trpc = useTRPC();
-	return useQuery(trpc.category.search.queryOptions({ query, limit }));
+	return useQuery(
+		trpc.category.search.queryOptions(
+			{ query, limit },
+			{ enabled: options?.enabled ?? true },
+		),
+	);
 }

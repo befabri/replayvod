@@ -275,6 +275,11 @@ export const VideoListPageInputSchema = z.object({
   direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
 }).meta({ id: "VideoListPageInput" });
 
+export const VideoSearchInputSchema = z.object({
+  query: z.string().max(100),
+  limit: z.int().gte(0).lte(50).optional(),
+}).meta({ id: "VideoSearchInput" });
+
 export const VideorequestListInputSchema = z.object({
   limit: z.int().gte(0).lte(200),
   offset: z.int().gte(0),

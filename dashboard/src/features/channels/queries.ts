@@ -45,11 +45,20 @@ export function useChannel(broadcasterId: string) {
 	);
 }
 
-export function useChannelSearch(query: string, limit = 10) {
+export function useChannelSearch(
+	query: string,
+	limit = 10,
+	options?: { enabled?: boolean },
+) {
 	const trpc = useTRPC();
 	// Empty query returns all channels up to limit (per backend contract) —
 	// that's what powers the combobox's "show all" initial state.
-	return useQuery(trpc.channel.search.queryOptions({ query, limit }));
+	return useQuery(
+		trpc.channel.search.queryOptions(
+			{ query, limit },
+			{ enabled: options?.enabled ?? true },
+		),
+	);
 }
 
 export function useSyncChannel() {
@@ -83,6 +92,9 @@ export function useSyncChannel() {
 				// need an explicit invalidation.
 				queryClient.invalidateQueries({
 					queryKey: trpc.video.listPage.queryKey(),
+				});
+				queryClient.invalidateQueries({
+					queryKey: trpc.video.search.queryKey(),
 				});
 				queryClient.invalidateQueries({
 					queryKey: trpc.video.byBroadcaster.queryKey(),

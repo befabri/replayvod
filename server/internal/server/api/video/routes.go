@@ -26,6 +26,7 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloade
 
 	trpcgo.MustQuery(tr, "video.list", h.List, viewer)
 	trpcgo.MustQuery(tr, "video.listPage", h.ListPage, viewer)
+	trpcgo.MustQuery(tr, "video.search", h.Search, viewer)
 	trpcgo.MustQuery(tr, "video.getById", h.GetByID, viewer)
 	trpcgo.MustQuery(tr, "video.titles", h.Titles, viewer)
 	trpcgo.MustQuery(tr, "video.categories", h.Categories, viewer)

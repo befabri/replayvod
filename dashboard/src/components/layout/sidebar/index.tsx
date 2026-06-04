@@ -107,7 +107,7 @@ export function Sidebar() {
 				)}
 			>
 				<TooltipProvider>
-					<nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-3">
+					<nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 pt-4 pb-3">
 						<ul className="space-y-1">
 							{groups.map((group, idx) => (
 								<li

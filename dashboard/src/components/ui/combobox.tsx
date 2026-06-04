@@ -56,13 +56,22 @@ function ComboboxContent({
 	className,
 	children,
 	sideOffset = 4,
+	anchor,
+	align,
 	...props
 }: React.ComponentProps<typeof ComboboxPrimitive.Popup> & {
 	sideOffset?: number;
+	anchor?: React.ComponentProps<typeof ComboboxPrimitive.Positioner>["anchor"];
+	align?: React.ComponentProps<typeof ComboboxPrimitive.Positioner>["align"];
 }) {
 	return (
 		<ComboboxPrimitive.Portal>
-			<ComboboxPrimitive.Positioner sideOffset={sideOffset} className="z-50">
+			<ComboboxPrimitive.Positioner
+				sideOffset={sideOffset}
+				anchor={anchor}
+				align={align}
+				className="z-50"
+			>
 				<ComboboxPrimitive.Popup
 					data-slot="combobox-content"
 					className={cn(
@@ -83,7 +92,7 @@ type ComboboxListProps<T> = Omit<
 	React.ComponentProps<typeof ComboboxPrimitive.List>,
 	"children"
 > & {
-	children: (item: T, index: number) => React.ReactNode;
+	children: React.ReactNode | ((item: T, index: number) => React.ReactNode);
 };
 
 function ComboboxList<T = unknown>(props: ComboboxListProps<T>) {
@@ -144,6 +153,46 @@ function ComboboxStatus({
 			{...props}
 		/>
 	);
+}
+
+function ComboboxGroup({
+	className,
+	...props
+}: React.ComponentProps<typeof ComboboxPrimitive.Group>) {
+	return (
+		<ComboboxPrimitive.Group
+			data-slot="combobox-group"
+			className={cn("py-1", className)}
+			{...props}
+		/>
+	);
+}
+
+function ComboboxGroupLabel({
+	className,
+	...props
+}: React.ComponentProps<typeof ComboboxPrimitive.GroupLabel>) {
+	return (
+		<ComboboxPrimitive.GroupLabel
+			data-slot="combobox-group-label"
+			className={cn(
+				"flex items-center justify-between px-2 pb-1 pt-1.5 text-xs font-medium uppercase text-muted-foreground",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+type ComboboxCollectionProps<T> = Omit<
+	React.ComponentProps<typeof ComboboxPrimitive.Collection>,
+	"children"
+> & {
+	children: (item: T, index: number) => React.ReactNode;
+};
+
+function ComboboxCollection<T = unknown>(props: ComboboxCollectionProps<T>) {
+	return <ComboboxPrimitive.Collection {...props} />;
 }
 
 function ComboboxChips({
@@ -210,6 +259,9 @@ export {
 	ComboboxItem,
 	ComboboxEmpty,
 	ComboboxStatus,
+	ComboboxGroup,
+	ComboboxGroupLabel,
+	ComboboxCollection,
 	ComboboxChips,
 	ComboboxChip,
 	ComboboxChipRemove,

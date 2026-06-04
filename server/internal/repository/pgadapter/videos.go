@@ -47,6 +47,86 @@ WHERE vc.category_id = $1
 ORDER BY v.start_download_at DESC, v.id DESC
 LIMIT $4`
 
+const searchVideosSQL = `WITH q AS (
+    SELECT
+        lower($1::text) AS term,
+        lower($1::text) || '%' AS prefix,
+        '%' || lower($1::text) || '%' AS contains
+),
+matched AS (
+    SELECT
+        v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.selected_quality,
+        v.selected_fps, v.broadcaster_id, v.stream_id, v.viewer_count, v.language,
+        v.duration_seconds, v.size_bytes, v.thumbnail, v.error,
+        v.start_download_at, v.downloaded_at, v.deleted_at,
+        v.recording_type, v.force_h264, v.title, v.completion_kind, v.truncated,
+        v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours,
+        q.term = '' AS empty_query,
+        lower(coalesce(v.title, '')) = q.term OR coalesce(title_match.title_exact, false) AS title_exact,
+        lower(coalesce(v.title, '')) LIKE q.prefix OR coalesce(title_match.title_prefix, false) AS title_prefix,
+        lower(coalesce(v.title, '')) LIKE q.contains OR coalesce(title_match.title_contains, false) AS title_contains,
+        lower(coalesce(v.display_name, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_login, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_name, '')) = q.term AS channel_exact,
+        lower(coalesce(v.display_name, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.prefix AS channel_prefix,
+        lower(coalesce(v.display_name, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.contains AS channel_contains,
+        coalesce(category_match.category_exact, false) AS category_exact,
+        coalesce(category_match.category_prefix, false) AS category_prefix,
+        coalesce(category_match.category_contains, false) AS category_contains
+    FROM videos v
+    CROSS JOIN q
+    LEFT JOIN channels ch ON ch.broadcaster_id = v.broadcaster_id
+    LEFT JOIN LATERAL (
+        SELECT
+            bool_or(lower(t.name) = q.term) AS title_exact,
+            bool_or(lower(t.name) LIKE q.prefix) AS title_prefix,
+            bool_or(lower(t.name) LIKE q.contains) AS title_contains
+        FROM video_titles vt
+        INNER JOIN titles t ON t.id = vt.title_id
+        WHERE vt.video_id = v.id
+    ) title_match ON true
+    LEFT JOIN LATERAL (
+        SELECT
+            bool_or(lower(c.name) = q.term) AS category_exact,
+            bool_or(lower(c.name) LIKE q.prefix) AS category_prefix,
+            bool_or(lower(c.name) LIKE q.contains) AS category_contains
+        FROM video_categories vc
+        INNER JOIN categories c ON c.id = vc.category_id
+        WHERE vc.video_id = v.id
+    ) category_match ON true
+    WHERE v.deleted_at IS NULL
+)
+SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind, truncated,
+    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
+FROM matched
+WHERE empty_query
+   OR title_contains
+   OR channel_contains
+   OR category_contains
+ORDER BY
+    CASE
+        WHEN empty_query THEN 7
+        WHEN title_exact THEN 0
+        WHEN title_prefix THEN 1
+        WHEN channel_exact THEN 2
+        WHEN channel_prefix THEN 3
+        WHEN category_exact THEN 4
+        WHEN category_prefix THEN 5
+        ELSE 6
+    END,
+    start_download_at DESC,
+    id DESC
+LIMIT $2`
+
 func (a *PGAdapter) CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error {
 	return closeOpenVideoMetadataSpansWith(ctx, a.queries, videoID, at)
 }
@@ -264,6 +344,18 @@ func (a *PGAdapter) ListVideosPage(ctx context.Context, opts repository.ListVide
 		return nil, fmt.Errorf("pg list videos page: %w", err)
 	}
 	return repository.ToVideoListPage(items, opts), nil
+}
+
+func (a *PGAdapter) SearchVideos(ctx context.Context, query string, limit int) ([]repository.Video, error) {
+	rows, err := a.db.Query(ctx, searchVideosSQL, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("pg search videos: %w", err)
+	}
+	items, err := scanPGVideos(rows)
+	if err != nil {
+		return nil, fmt.Errorf("pg search videos: %w", err)
+	}
+	return items, nil
 }
 
 func (a *PGAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {

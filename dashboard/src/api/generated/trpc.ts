@@ -1140,6 +1140,15 @@ export interface VideoResponse {
   playback_artifact?: VideoPlaybackAssetResponse;
 }
 
+/**
+ * SearchInput drives video.search for the global navbar search. Query is
+ * capped to bound LIKE/ILIKE work across titles, broadcasters, and categories.
+ */
+export interface VideoSearchInput {
+  query: string;
+  limit?: number;
+}
+
 export type VideoStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
 
 /** VideoSummary is a trimmed video view for the request list. */
@@ -1268,6 +1277,7 @@ type AppRouterRecord = {
     getById: $Query<VideoGetByIDInput, VideoResponse>;
     list: $Query<VideoListInput, VideoResponse[]>;
     listPage: $Query<VideoListPageInput, VideoListPageResponse>;
+    search: $Query<VideoSearchInput, VideoResponse[]>;
     snapshots: $Query<SnapshotsInput, string[]>;
     statistics: $Query<void, StatisticsResponse>;
     statisticsByBroadcaster: $Query<ChannelStatisticsInput, ChannelStatisticsResponse>;

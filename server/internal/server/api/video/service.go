@@ -42,6 +42,11 @@ func (s *Service) ListPage(ctx context.Context, opts repository.ListVideosOpts, 
 	return s.repo.ListVideosPage(ctx, opts, cursor)
 }
 
+// Search returns a small ranked list of videos for the global navbar search.
+func (s *Service) Search(ctx context.Context, query string, limit int) ([]repository.Video, error) {
+	return s.repo.SearchVideos(ctx, query, limit)
+}
+
 // GetByID returns a single video row or repository.ErrNotFound.
 func (s *Service) GetByID(ctx context.Context, id int64) (*repository.Video, error) {
 	return s.repo.GetVideo(ctx, id)

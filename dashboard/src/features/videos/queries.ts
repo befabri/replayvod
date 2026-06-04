@@ -114,6 +114,20 @@ export function useVideoListPage(
 	);
 }
 
+export function useVideoSearch(
+	query: string,
+	limit = 8,
+	options?: { enabled?: boolean },
+) {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.video.search.queryOptions(
+			{ query, limit },
+			{ enabled: options?.enabled ?? true },
+		),
+	);
+}
+
 export function useVideo(id: number) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -396,6 +410,7 @@ function invalidateVideoCaches(
 ) {
 	for (const queryKey of [
 		trpc.video.listPage.queryKey(),
+		trpc.video.search.queryKey(),
 		trpc.video.byBroadcaster.queryKey(),
 		trpc.video.byCategory.queryKey(),
 		trpc.video.getById.queryKey(),

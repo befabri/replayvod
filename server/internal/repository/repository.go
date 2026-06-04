@@ -155,6 +155,11 @@ type Repository interface {
 	// and ListVideosByStatus pair.
 	ListVideos(ctx context.Context, opts ListVideosOpts) ([]Video, error)
 	ListVideosPage(ctx context.Context, opts ListVideosOpts, cursor *VideoListPageCursor) (*VideoListPage, error)
+	// SearchVideos returns videos matching query across the recording title,
+	// title history, broadcaster display metadata, and linked categories.
+	// Empty query returns the latest non-deleted videos up to limit, matching
+	// the "show all" behavior of channel/category search endpoints.
+	SearchVideos(ctx context.Context, query string, limit int) ([]Video, error)
 	ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
 	ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)

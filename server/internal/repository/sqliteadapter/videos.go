@@ -286,6 +286,92 @@ WHERE vc.category_id = ?1
 ORDER BY v.start_download_at DESC, v.id DESC
 LIMIT ?4`
 
+const searchVideosSQL = `WITH q AS (
+    SELECT
+        lower(?1) AS term,
+        lower(?1) || '%' AS prefix,
+        '%' || lower(?1) || '%' AS contains
+),
+title_matches AS (
+    SELECT
+        vt.video_id,
+        MAX(lower(t.name) = q.term) AS title_exact,
+        MAX(lower(t.name) LIKE q.prefix) AS title_prefix,
+        MAX(lower(t.name) LIKE q.contains) AS title_contains
+    FROM video_titles vt
+    INNER JOIN titles t ON t.id = vt.title_id
+    CROSS JOIN q
+    GROUP BY vt.video_id
+),
+category_matches AS (
+    SELECT
+        vc.video_id,
+        MAX(lower(c.name) = q.term) AS category_exact,
+        MAX(lower(c.name) LIKE q.prefix) AS category_prefix,
+        MAX(lower(c.name) LIKE q.contains) AS category_contains
+    FROM video_categories vc
+    INNER JOIN categories c ON c.id = vc.category_id
+    CROSS JOIN q
+    GROUP BY vc.video_id
+),
+matched AS (
+    SELECT
+        v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.selected_quality,
+        v.selected_fps, v.broadcaster_id, v.stream_id, v.viewer_count, v.language,
+        v.duration_seconds, v.size_bytes, v.thumbnail, v.error,
+        v.start_download_at, v.downloaded_at, v.deleted_at,
+        v.recording_type, v.force_h264, v.title, v.completion_kind, v.truncated,
+        v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours,
+        q.term = '' AS empty_query,
+        lower(coalesce(v.title, '')) = q.term OR coalesce(tm.title_exact, 0) AS title_exact,
+        lower(coalesce(v.title, '')) LIKE q.prefix OR coalesce(tm.title_prefix, 0) AS title_prefix,
+        lower(coalesce(v.title, '')) LIKE q.contains OR coalesce(tm.title_contains, 0) AS title_contains,
+        lower(coalesce(v.display_name, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_login, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_name, '')) = q.term AS channel_exact,
+        lower(coalesce(v.display_name, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.prefix AS channel_prefix,
+        lower(coalesce(v.display_name, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.contains AS channel_contains,
+        coalesce(cm.category_exact, 0) AS category_exact,
+        coalesce(cm.category_prefix, 0) AS category_prefix,
+        coalesce(cm.category_contains, 0) AS category_contains
+    FROM videos v
+    CROSS JOIN q
+    LEFT JOIN channels ch ON ch.broadcaster_id = v.broadcaster_id
+    LEFT JOIN title_matches tm ON tm.video_id = v.id
+    LEFT JOIN category_matches cm ON cm.video_id = v.id
+    WHERE v.deleted_at IS NULL
+)
+SELECT
+    id, job_id, filename, display_name, status, quality, selected_quality,
+    selected_fps, broadcaster_id, stream_id, viewer_count, language,
+    duration_seconds, size_bytes, thumbnail, error,
+    start_download_at, downloaded_at, deleted_at,
+    recording_type, force_h264, title, completion_kind, truncated,
+    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
+FROM matched
+WHERE empty_query
+   OR title_contains
+   OR channel_contains
+   OR category_contains
+ORDER BY
+    CASE
+        WHEN empty_query THEN 7
+        WHEN title_exact THEN 0
+        WHEN title_prefix THEN 1
+        WHEN channel_exact THEN 2
+        WHEN channel_prefix THEN 3
+        WHEN category_exact THEN 4
+        WHEN category_prefix THEN 5
+        ELSE 6
+    END,
+    start_download_at DESC,
+    id DESC
+LIMIT ?2`
+
 func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
 	rows, err := a.db.QueryContext(ctx, listVideosSQL,
 		opts.Status,
@@ -353,6 +439,18 @@ func (a *SQLiteAdapter) ListVideosPage(ctx context.Context, opts repository.List
 		return nil, fmt.Errorf("sqlite list videos page: %w", err)
 	}
 	return repository.ToVideoListPage(items, opts), nil
+}
+
+func (a *SQLiteAdapter) SearchVideos(ctx context.Context, query string, limit int) ([]repository.Video, error) {
+	rows, err := a.db.QueryContext(ctx, searchVideosSQL, query, int64(limit))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite search videos: %w", err)
+	}
+	items, err := scanSQLiteVideos(rows)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite search videos: %w", err)
+	}
+	return items, nil
 }
 
 func (a *SQLiteAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {

@@ -56,6 +56,26 @@
 		"copied": "Copié",
 		"actions": "Actions"
 	},
+	"search": {
+		"open": "Ouvrir la recherche",
+		"title": "Rechercher dans la bibliothèque",
+		"input_label": "Recherche",
+		"placeholder": "Rechercher dans la bibliothèque…",
+		"clear": "Effacer la recherche",
+		"scope_label": "Portée de recherche",
+		"scope": {
+			"all": "Tout",
+			"videos": "Vidéos",
+			"channels": "Chaînes",
+			"categories": "Catégories"
+		},
+		"group": {
+			"videos": "Vidéos",
+			"channels": "Chaînes",
+			"categories": "Catégories"
+		},
+		"no_results": "Aucun résultat"
+	},
 	"dashboard": {
 		"running_now": "En cours",
 		"active_count": "{{count}} actives",
