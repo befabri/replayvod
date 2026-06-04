@@ -173,6 +173,13 @@ export interface ConfigResponse {
   relay_ingest_url?: string;
   relay_subscribe_url?: string;
   relay_local_callback_url?: string;
+  /**
+   * DirectCallbackURL is the callback Twitch would call in direct mode, derived
+   * from the server's public base URL independent of the current mode. The
+   * dashboard shows it read-only (direct mode asks for no URL); empty means no
+   * public base is configured, so direct mode can't be enabled yet.
+   */
+  direct_callback_url?: string;
   active: ActiveRuntime;
 }
 

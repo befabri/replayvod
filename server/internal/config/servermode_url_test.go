@@ -162,6 +162,104 @@ func TestRelaySubscribeToken(t *testing.T) {
 	}
 }
 
+// TestDeriveRelaySubscribeURL pins that the subscribe URL is a pure function of
+// the relay (ingest) URL: same host and token, wss scheme, /subscribe suffix.
+// This is what lets the dashboard ask for one relay URL instead of two.
+func TestDeriveRelaySubscribeURL(t *testing.T) {
+	const token = "AAAAAAAAAAAAAAAA"
+	cases := []struct {
+		name   string
+		ingest string
+		want   string
+		wantOK bool
+	}{
+		{name: "valid", ingest: "https://relay.example/u/" + token, want: "wss://relay.example/u/" + token + "/subscribe", wantOK: true},
+		{name: "default port host preserved", ingest: "https://relay.example:443/u/" + token, want: "wss://relay.example:443/u/" + token + "/subscribe", wantOK: true},
+		{name: "trailing slash tolerated", ingest: "https://relay.example/u/" + token + "/", want: "wss://relay.example/u/" + token + "/subscribe", wantOK: true},
+		{name: "http rejected", ingest: "http://relay.example/u/" + token, wantOK: false},
+		{name: "missing token path rejected", ingest: "https://relay.example/", wantOK: false},
+		{name: "subscribe path rejected", ingest: "https://relay.example/u/" + token + "/subscribe", wantOK: false},
+		{name: "unparseable rejected", ingest: "https://[", wantOK: false},
+		{name: "empty rejected", ingest: "", wantOK: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := DeriveRelaySubscribeURL(tc.ingest)
+			if ok != tc.wantOK || got != tc.want {
+				t.Fatalf("DeriveRelaySubscribeURL(%q) = (%q, %v), want (%q, %v)", tc.ingest, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+// TestResolveDerivedURLs pins the read/runtime fill: relay subscribe comes from
+// the relay URL, the direct callback comes from the public base, both only when
+// blank (explicit wins), and other modes are untouched. A relay/direct config
+// carrying only the operator-supplied URL must validate after resolution, which
+// is what makes the single-field form and the no-field direct mode work.
+func TestResolveDerivedURLs(t *testing.T) {
+	const (
+		token  = "AAAAAAAAAAAAAAAA"
+		ingest = "https://relay.example/u/AAAAAAAAAAAAAAAA"
+	)
+
+	t.Run("relay fills subscribe from ingest", func(t *testing.T) {
+		cfg := ServerModeConfig{Mode: ServerModeRelay, RelayIngestURL: ingest}
+		cfg.ResolveDerivedURLs("")
+		if want := "wss://relay.example/u/" + token + "/subscribe"; cfg.RelaySubscribeURL != want {
+			t.Fatalf("subscribe = %q, want %q", cfg.RelaySubscribeURL, want)
+		}
+		if err := ValidateServerMode(cfg); err != nil {
+			t.Fatalf("relay config with only an ingest URL must validate after resolution: %v", err)
+		}
+	})
+
+	t.Run("relay keeps explicit subscribe", func(t *testing.T) {
+		const explicit = "wss://other.example/u/" + token + "/subscribe"
+		cfg := ServerModeConfig{Mode: ServerModeRelay, RelayIngestURL: ingest, RelaySubscribeURL: explicit}
+		cfg.ResolveDerivedURLs("")
+		if cfg.RelaySubscribeURL != explicit {
+			t.Fatalf("subscribe = %q, want explicit %q", cfg.RelaySubscribeURL, explicit)
+		}
+	})
+
+	t.Run("direct fills callback from public base", func(t *testing.T) {
+		cfg := ServerModeConfig{Mode: ServerModeDirect}
+		cfg.ResolveDerivedURLs("https://replayvod.example")
+		if want := "https://replayvod.example" + webhookCallbackPath; cfg.WebhookCallbackURL != want {
+			t.Fatalf("callback = %q, want %q", cfg.WebhookCallbackURL, want)
+		}
+		if err := ValidateServerMode(cfg); err != nil {
+			t.Fatalf("direct config must validate once the callback is derived: %v", err)
+		}
+	})
+
+	t.Run("direct keeps explicit callback", func(t *testing.T) {
+		const explicit = "https://explicit.example/api/v1/webhook/callback"
+		cfg := ServerModeConfig{Mode: ServerModeDirect, WebhookCallbackURL: explicit}
+		cfg.ResolveDerivedURLs("https://replayvod.example")
+		if cfg.WebhookCallbackURL != explicit {
+			t.Fatalf("callback = %q, want explicit %q", cfg.WebhookCallbackURL, explicit)
+		}
+	})
+
+	t.Run("direct without public base stays blank", func(t *testing.T) {
+		cfg := ServerModeConfig{Mode: ServerModeDirect}
+		cfg.ResolveDerivedURLs("")
+		if cfg.WebhookCallbackURL != "" {
+			t.Fatalf("callback = %q, want empty when no public base", cfg.WebhookCallbackURL)
+		}
+	})
+
+	t.Run("poll mode untouched", func(t *testing.T) {
+		cfg := ServerModeConfig{Mode: ServerModePoll}
+		cfg.ResolveDerivedURLs("https://replayvod.example")
+		if cfg.WebhookCallbackURL != "" || cfg.RelaySubscribeURL != "" {
+			t.Fatalf("poll mode must not gain URLs: %+v", cfg)
+		}
+	})
+}
+
 // TestValidateRelayURLs pins the ingest/subscribe pairing rules directly: an
 // empty subscribe URL is allowed (relay subscription is optional), a valid pair
 // passes, and every mismatch (host, scheme, token, malformed path) is rejected.

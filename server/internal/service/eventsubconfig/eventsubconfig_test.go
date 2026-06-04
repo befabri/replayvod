@@ -214,6 +214,90 @@ func TestUpdate_RelaySanitizesAndRequiresRestart(t *testing.T) {
 	}
 }
 
+// TestUpdate_RelayDerivesSubscribeFromSingleURL pins the single-field relay
+// flow: the dashboard sends only the relay (ingest) URL, and the server derives
+// the subscribe URL rather than asking the owner for it.
+func TestUpdate_RelayDerivesSubscribeFromSingleURL(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := newTestService(t, config.ServerModeConfig{
+		Source: config.ServerModeConfigSourceUnset,
+	})
+
+	state, err := svc.Update(ctx, UpdateInput{
+		Mode:           config.ServerModeRelay,
+		RelayIngestURL: "https://relay.replayvod.com/u/AAAAAAAAAAAAAAAA",
+	})
+	if err != nil {
+		t.Fatalf("Update(relay, ingest only) error = %v, want nil", err)
+	}
+	if want := "wss://relay.replayvod.com/u/AAAAAAAAAAAAAAAA/subscribe"; state.Saved.RelaySubscribeURL != want {
+		t.Fatalf("Saved.RelaySubscribeURL = %q, want derived %q", state.Saved.RelaySubscribeURL, want)
+	}
+}
+
+// TestUpdate_DirectDerivesCallbackFromPublicBase pins the no-field direct flow:
+// the owner supplies no callback URL, and the server derives it from the public
+// base. The derived value is reported but NOT stored, so it tracks the public
+// base if that later changes.
+func TestUpdate_DirectDerivesCallbackFromPublicBase(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, cfg := newTestService(t, config.ServerModeConfig{
+		Source: config.ServerModeConfigSourceUnset,
+	})
+	cfg.Env.PublicBaseURL = "https://replayvod.example"
+
+	state, err := svc.Update(ctx, UpdateInput{Mode: config.ServerModeDirect})
+	if err != nil {
+		t.Fatalf("Update(direct, no callback) error = %v, want nil", err)
+	}
+	if want := "https://replayvod.example/api/v1/webhook/callback"; state.Saved.WebhookCallbackURL != want {
+		t.Fatalf("Saved.WebhookCallbackURL = %q, want derived %q", state.Saved.WebhookCallbackURL, want)
+	}
+	row, err := repo.GetServerSettings(ctx)
+	if err != nil {
+		t.Fatalf("GetServerSettings: %v", err)
+	}
+	if row.EventSubWebhookCallbackURL != "" {
+		t.Fatalf("stored callback = %q, want empty (derived on read)", row.EventSubWebhookCallbackURL)
+	}
+}
+
+// TestUpdate_DirectDerivesCallbackFromOAuthCallbackOrigin pins that an operator
+// does NOT need to set PUBLIC_BASE_URL: the public origin falls back to the
+// mandatory OAuth login callback, so direct mode auto-fills for any normal
+// public deployment.
+func TestUpdate_DirectDerivesCallbackFromOAuthCallbackOrigin(t *testing.T) {
+	ctx := context.Background()
+	svc, _, cfg := newTestService(t, config.ServerModeConfig{
+		Source: config.ServerModeConfigSourceUnset,
+	})
+	// No PUBLIC_BASE_URL; only the OAuth callback (always set for Twitch login).
+	cfg.Env.CallbackURL = "https://replayvod.example/api/v1/auth/twitch/callback"
+
+	state, err := svc.Update(ctx, UpdateInput{Mode: config.ServerModeDirect})
+	if err != nil {
+		t.Fatalf("Update(direct, only OAuth callback set) error = %v, want nil", err)
+	}
+	if want := "https://replayvod.example/api/v1/webhook/callback"; state.Saved.WebhookCallbackURL != want {
+		t.Fatalf("Saved.WebhookCallbackURL = %q, want derived %q", state.Saved.WebhookCallbackURL, want)
+	}
+}
+
+// TestUpdate_DirectWithoutPublicBaseRejected pins that direct mode still needs a
+// reachable public URL: with no public base to derive from, the save is rejected
+// rather than silently saving a blank callback.
+func TestUpdate_DirectWithoutPublicBaseRejected(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := newTestService(t, config.ServerModeConfig{
+		Source: config.ServerModeConfigSourceUnset,
+	})
+
+	_, err := svc.Update(ctx, UpdateInput{Mode: config.ServerModeDirect})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Update(direct, no public base) error = %v, want ErrInvalid", err)
+	}
+}
+
 func TestUpdate_RejectsWebhookModeWithoutHMACSecret(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, cfg := newTestService(t, config.ServerModeConfig{

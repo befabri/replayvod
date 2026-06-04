@@ -63,6 +63,11 @@ type State struct {
 	Saved           config.ServerModeConfig
 	Active          config.ServerModeConfig
 	RestartRequired bool
+	// DirectCallbackURL is the callback URL direct mode would use, derived from
+	// the server's public base URL regardless of the current mode. The dashboard
+	// shows it read-only when the owner picks direct (they enter nothing); empty
+	// means no public base is configured.
+	DirectCallbackURL string
 }
 
 // Active returns the server mode config currently running in this process.
@@ -82,6 +87,7 @@ func Resolve(ctx context.Context, repo repository.Repository, cfg *config.Config
 	if cfg.ServerMode.EnvManaged() {
 		runtime := cfg.ServerMode
 		runtime.Normalize()
+		runtime.ResolveDerivedURLs(cfg.PublicAPIBaseURL())
 		if err := config.ValidateServerModeRuntimeConfig(runtime, cfg.Env.HMACSecret); err != nil {
 			return runtime, invalidError{message: err.Error()}
 		}
@@ -92,6 +98,9 @@ func Resolve(ctx context.Context, repo repository.Repository, cfg *config.Config
 	if err != nil {
 		return config.ServerModeConfig{}, err
 	}
+	// Fill the URLs the owner no longer supplies (relay subscribe, direct
+	// callback) before validating and before this becomes the process runtime.
+	runtime.ResolveDerivedURLs(cfg.PublicAPIBaseURL())
 	if err := config.ValidateServerModeRuntimeConfig(runtime, cfg.Env.HMACSecret); err != nil {
 		return runtime, invalidError{message: err.Error()}
 	}
@@ -104,8 +113,9 @@ func (s *Service) State(ctx context.Context) (State, error) {
 	active := s.Active()
 	if active.EnvManaged() {
 		return State{
-			Saved:  active,
-			Active: active,
+			Saved:             active,
+			Active:            active,
+			DirectCallbackURL: config.PublicWebhookCallbackURL(s.cfg.PublicAPIBaseURL()),
 		}, nil
 	}
 
@@ -113,6 +123,7 @@ func (s *Service) State(ctx context.Context) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
+	saved.ResolveDerivedURLs(s.cfg.PublicAPIBaseURL())
 	if err := config.ValidateServerModeRuntimeConfig(saved, s.cfg.Env.HMACSecret); err != nil {
 		s.log.Warn("saved server mode config invalid; reporting setup required", "error", err, "mode", saved.Mode)
 		saved = config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset}
@@ -148,7 +159,13 @@ func (s *Service) Update(ctx context.Context, input UpdateInput) (State, error) 
 	if desired.Mode == "" {
 		return State{}, invalidError{message: "server mode is required"}
 	}
-	if err := config.ValidateServerModeRuntimeConfig(desired, s.cfg.Env.HMACSecret); err != nil {
+	// Validate against the resolved config (relay subscribe + direct callback
+	// filled in) but persist only what the owner supplied: the direct callback
+	// is re-derived from the public base on every read, so it is never stored
+	// stale if the public base later changes.
+	resolved := desired
+	resolved.ResolveDerivedURLs(s.cfg.PublicAPIBaseURL())
+	if err := config.ValidateServerModeRuntimeConfig(resolved, s.cfg.Env.HMACSecret); err != nil {
 		return State{}, invalidError{message: err.Error()}
 	}
 
@@ -193,11 +210,16 @@ func loadSavedConfig(ctx context.Context, repo repository.Repository) (config.Se
 }
 
 func (s *Service) stateFromSaved(saved config.ServerModeConfig) State {
+	// Resolve derived URLs so the response (and the restart-required diff) sees
+	// the same effective config the runtime will, including the direct callback
+	// derived from the public base.
+	saved.ResolveDerivedURLs(s.cfg.PublicAPIBaseURL())
 	active := s.Active()
 	return State{
-		Saved:           saved,
-		Active:          active,
-		RestartRequired: RestartRequired(active, saved),
+		Saved:             saved,
+		Active:            active,
+		RestartRequired:   RestartRequired(active, saved),
+		DirectCallbackURL: config.PublicWebhookCallbackURL(s.cfg.PublicAPIBaseURL()),
 	}
 }
 

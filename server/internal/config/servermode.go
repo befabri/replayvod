@@ -17,6 +17,11 @@ const (
 	ServerModeConfigSourceUnset = "unset"
 	ServerModeConfigSourceEnv   = "env"
 	ServerModeConfigSourceApp   = "app"
+
+	// webhookCallbackPath is the fixed endpoint Twitch posts EventSub
+	// notifications to (and the path the relay agent replays locally). Direct
+	// mode's callback URL is this path under the server's public base origin.
+	webhookCallbackPath = "/api/v1/webhook/callback"
 )
 
 // ServerModeConfig is the resolved server integration mode for this process.
@@ -47,6 +52,12 @@ func ServerModeConfigFromEnv(env Environment) ServerModeConfig {
 		RelayLocalCallbackURL: env.RelayLocalCallbackURL,
 	}
 	cfg.Normalize()
+	// Derive the relay subscribe URL from the relay URL when the operator omits
+	// it (explicit RELAY_SUBSCRIBE_URL still wins). The direct callback is NOT
+	// derived here: it needs the resolved public origin (PublicAPIBaseURL, which
+	// also falls back to the OAuth callback origin), which only the full Config
+	// knows, so that fill happens at boot/read via ResolveDerivedURLs.
+	cfg.deriveRelaySubscribe()
 	return cfg
 }
 
@@ -63,7 +74,74 @@ func ServerModeConfigFromApp(mode, webhookCallbackURL, relayIngestURL, relaySubs
 	// App config is canonical at the source: clear the URL fields the chosen
 	// delivery does not use so storage, runtime, and API responses agree.
 	cfg.ClearURLsForDelivery()
+	// The relay subscribe URL is a pure function of the relay (ingest) URL, so
+	// derive it here rather than asking the owner for it. The direct callback is
+	// NOT derived here: it needs the public base URL, which this constructor
+	// doesn't have, so that fill happens at the read/runtime boundary
+	// (ResolveDerivedURLs) and is never persisted, staying correct if the public
+	// base later changes.
+	cfg.deriveRelaySubscribe()
 	return cfg
+}
+
+// DeriveRelaySubscribeURL builds the wss subscribe URL the local relay agent
+// dials from the public https relay (ingest) URL. The relay serves both off one
+// token (POST /u/<token>, GET /u/<token>/subscribe), so the subscribe URL is
+// fully determined by the ingest URL: same host and token, wss scheme, with a
+// /subscribe suffix. Returns ok=false when ingestURL is not an
+// https://<host>/u/<token> URL.
+func DeriveRelaySubscribeURL(ingestURL string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(ingestURL))
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return "", false
+	}
+	token, ok := relayIngestToken(u.Path)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("wss://%s/u/%s/subscribe", u.Host, token), true
+}
+
+func (c *ServerModeConfig) deriveRelaySubscribe() {
+	if c.Mode != ServerModeRelay || c.RelaySubscribeURL != "" || c.RelayIngestURL == "" {
+		return
+	}
+	if sub, ok := DeriveRelaySubscribeURL(c.RelayIngestURL); ok {
+		c.RelaySubscribeURL = sub
+	}
+}
+
+// ResolveDerivedURLs fills the URLs an operator no longer supplies: the relay
+// subscribe URL from the relay (ingest) URL, and the direct webhook callback
+// from the server's public origin (pass Config.PublicAPIBaseURL). Both fill only
+// when blank, so an explicit value still wins, and it is idempotent. The direct
+// callback is resolved at read/runtime (not stored), so it tracks the public
+// origin.
+func (c *ServerModeConfig) ResolveDerivedURLs(publicOriginURL string) {
+	c.deriveRelaySubscribe()
+	if c.Mode == ServerModeDirect && c.WebhookCallbackURL == "" {
+		c.WebhookCallbackURL = PublicWebhookCallbackURL(publicOriginURL)
+	}
+}
+
+// PublicWebhookCallbackURL is the callback URL direct mode uses: the fixed
+// EventSub webhook path under the server's public origin. Callers pass the
+// resolved public origin (Config.PublicAPIBaseURL, which falls back from
+// PUBLIC_BASE_URL to the OAuth callback origin), so an operator who configured
+// Twitch login already has a usable origin without setting PUBLIC_BASE_URL.
+// Returns "" when the origin would not yield a Twitch-reachable callback (e.g. a
+// localhost-only dev server), which the dashboard surfaces as "set a public URL"
+// and the validator rejects.
+func PublicWebhookCallbackURL(publicOriginURL string) string {
+	origin := parseOrigin(publicOriginURL)
+	if origin == "" {
+		return ""
+	}
+	candidate := origin + webhookCallbackPath
+	if !IsUsableWebhookURL(candidate) {
+		return ""
+	}
+	return candidate
 }
 
 func (c *ServerModeConfig) Normalize() {

@@ -47,19 +47,24 @@ func NewHandler(svc *eventsubsvc.Service, configSvc *eventsubconfig.Service, log
 // subscriptions — are gated on Active, not the saved config, so a client can
 // tell what actually works before the owner restarts.
 type ConfigResponse struct {
-	Source                     string        `json:"source"`
-	Mode                       ServerMode    `json:"mode"`
-	EnvManaged                 bool          `json:"env_managed"`
-	SetupRequired              bool          `json:"setup_required"`
-	RestartRequired            bool          `json:"restart_required"`
-	CreatesTwitchSubscriptions bool          `json:"creates_twitch_subscriptions"`
-	UsesRelayAgent             bool          `json:"uses_relay_agent"`
-	PollsHelix                 bool          `json:"polls_helix"`
-	WebhookCallbackURL         string        `json:"webhook_callback_url,omitempty"`
-	RelayIngestURL             string        `json:"relay_ingest_url,omitempty"`
-	RelaySubscribeURL          string        `json:"relay_subscribe_url,omitempty"`
-	RelayLocalCallbackURL      string        `json:"relay_local_callback_url,omitempty"`
-	Active                     ActiveRuntime `json:"active"`
+	Source                     string     `json:"source"`
+	Mode                       ServerMode `json:"mode"`
+	EnvManaged                 bool       `json:"env_managed"`
+	SetupRequired              bool       `json:"setup_required"`
+	RestartRequired            bool       `json:"restart_required"`
+	CreatesTwitchSubscriptions bool       `json:"creates_twitch_subscriptions"`
+	UsesRelayAgent             bool       `json:"uses_relay_agent"`
+	PollsHelix                 bool       `json:"polls_helix"`
+	WebhookCallbackURL         string     `json:"webhook_callback_url,omitempty"`
+	RelayIngestURL             string     `json:"relay_ingest_url,omitempty"`
+	RelaySubscribeURL          string     `json:"relay_subscribe_url,omitempty"`
+	RelayLocalCallbackURL      string     `json:"relay_local_callback_url,omitempty"`
+	// DirectCallbackURL is the callback Twitch would call in direct mode, derived
+	// from the server's public base URL independent of the current mode. The
+	// dashboard shows it read-only (direct mode asks for no URL); empty means no
+	// public base is configured, so direct mode can't be enabled yet.
+	DirectCallbackURL string        `json:"direct_callback_url,omitempty"`
+	Active            ActiveRuntime `json:"active"`
 }
 
 // ActiveRuntime is the EventSub config the server is running now. Its capability
@@ -96,6 +101,7 @@ func stateToResponse(state eventsubconfig.State) ConfigResponse {
 		RelayIngestURL:             saved.RelayIngestURL,
 		RelaySubscribeURL:          saved.RelaySubscribeURL,
 		RelayLocalCallbackURL:      saved.RelayLocalCallbackURL,
+		DirectCallbackURL:          state.DirectCallbackURL,
 		Active: ActiveRuntime{
 			Source:                     active.Source,
 			Mode:                       ServerMode(active.Mode),
