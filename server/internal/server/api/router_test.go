@@ -193,6 +193,48 @@ func TestSetupRouterServesConfiguredDashboardDir(t *testing.T) {
 	}
 }
 
+func TestTRPCMutationTrustsPublicBaseOriginBehindProxy(t *testing.T) {
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sessionMgr, err := session.NewManager(repo, "public-origin-test-session-secret-0123456789", false, log)
+	if err != nil {
+		t.Fatalf("session.NewManager: %v", err)
+	}
+	cfg := &config.Config{
+		Env: config.Environment{
+			HMACSecret:    routerWebhookSecret,
+			PublicBaseURL: "https://ReplayVOD.Madata.OVH:443",
+			CallbackURL:   "https://replayvod.madata.ovh/api/v1/auth/twitch/callback",
+			FrontendURL:   "https://replayvod.madata.ovh",
+		},
+		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
+	}
+	bus := eventbus.New()
+	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	if closeTRPC != nil {
+		t.Cleanup(func() {
+			if err := closeTRPC(); err != nil {
+				t.Errorf("close tRPC router: %v", err)
+			}
+		})
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/trpc/eventsub.updateConfig", bytes.NewReader([]byte(`{"mode":"off"}`)))
+	req.Host = "replayvod:8080"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://replayvod.madata.ovh")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want auth failure after CSRF passes: %s", rr.Code, rr.Body.String())
+	}
+	if bytes.Contains(rr.Body.Bytes(), []byte("CSRF")) {
+		t.Fatalf("unexpected CSRF rejection body: %s", rr.Body.String())
+	}
+}
+
 // TestEventSubProceduresAreOwnerGated drives the eventsub.* procedures through
 // the fully wired router and asserts they sit behind the owner role. This is the
 // only thing that catches a routes.go/router.go edit swapping `owner` for a

@@ -45,6 +45,30 @@ func (c *Config) ServerModeCallbackURL() string {
 	return c.ServerMode.CallbackURL()
 }
 
+func (c *Config) TrustedBrowserOrigins() []string {
+	var origins []string
+	add := func(raw string) {
+		origin := parseOrigin(raw)
+		if origin == "" {
+			return
+		}
+		for _, existing := range origins {
+			if existing == origin {
+				return
+			}
+		}
+		origins = append(origins, origin)
+	}
+	if c.App.Development {
+		add(legacyDefaultFrontendURL)
+	}
+	add(c.Env.PublicBaseURL)
+	for _, origin := range c.Env.TrustedOrigins {
+		add(origin)
+	}
+	return origins
+}
+
 // PublicAPIBaseURL returns the scheme://host the API is reachable at from
 // outside the process. An explicit PUBLIC_BASE_URL wins when set. Otherwise,
 // direct EventSub mode uses its webhook callback origin, because that is the
@@ -76,7 +100,32 @@ func parseOrigin(raw string) string {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return ""
 	}
-	return u.Scheme + "://" + u.Host
+	return canonicalOrigin(u.Scheme, u.Host)
+}
+
+func canonicalOrigin(scheme, hostport string) string {
+	scheme = strings.ToLower(scheme)
+	if scheme != "http" && scheme != "https" {
+		return ""
+	}
+	u, err := url.Parse(scheme + "://" + hostport)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return ""
+	}
+	port := u.Port()
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		port = ""
+	}
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return scheme + "://" + host
 }
 
 // OriginIsLoopback reports whether the host of origin (a scheme://host as

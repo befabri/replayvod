@@ -36,7 +36,6 @@ func TestValidateAppConfigClampsPollInterval(t *testing.T) {
 func TestGetDefaultAppConfig(t *testing.T) {
 	want := AppConfig{
 		Server: ServerConfig{
-			AllowedOrigins:      []string{"http://localhost:3000"},
 			PollIntervalMinutes: 1,
 		},
 		Download: DownloadConfig{

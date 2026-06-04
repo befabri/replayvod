@@ -86,7 +86,9 @@ docker compose --env-file server/.env --profile sqlite up -d
 
 For real deployments, set `PUBLIC_BASE_URL=https://your-domain` in
 `server/.env` before starting. The server derives the OAuth callback and
-frontend redirect URL from that base URL.
+frontend redirect URL from that base URL and trusts the public origin for
+browser mutations. If you host a separate dashboard origin, add it with
+`TRUSTED_ORIGINS=https://dashboard.example`.
 
 ### Twitch credentials
 

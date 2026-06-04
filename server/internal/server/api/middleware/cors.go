@@ -8,6 +8,12 @@ import (
 
 // CORS returns a middleware that handles CORS.
 func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
+	if len(allowedOrigins) == 0 {
+		return func(next http.Handler) http.Handler {
+			return next
+		}
+	}
+
 	return cors.Handler(cors.Options{
 		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},

@@ -63,6 +63,8 @@ type Environment struct {
 	// recording webhook's signed part-download links.
 	PublicBaseURL string `env:"PUBLIC_BASE_URL"`
 
+	TrustedOrigins []string `env:"TRUSTED_ORIGINS"`
+
 	// ServerMode selects how this recorder detects live channels and title
 	// updates: "off" disables automation, "poll" polls Helix, "direct" uses
 	// WebhookCallbackURL, and "relay" uses RelayIngestURL + RelaySubscribeURL.
@@ -141,8 +143,7 @@ type HealthConfig struct {
 }
 
 type ServerConfig struct {
-	AllowedOrigins      []string `toml:"allowed_origins"`
-	PollIntervalMinutes int      `toml:"poll_interval_minutes"`
+	PollIntervalMinutes int `toml:"poll_interval_minutes"`
 }
 
 // DownloadConfig controls the native Go HLS downloader. Field docs

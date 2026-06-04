@@ -76,6 +76,9 @@ func TestIsDeprecatedConfigKey(t *testing.T) {
 	if !isDeprecatedConfigKey("logging.sample_rate") {
 		t.Fatal("logging.sample_rate should be recognized as deprecated")
 	}
+	if !isDeprecatedConfigKey("server.allowed_origins") {
+		t.Fatal("server.allowed_origins should be recognized as deprecated")
+	}
 	if isDeprecatedConfigKey("download.max_concurrent") {
 		t.Fatal("active config key reported as deprecated")
 	}
@@ -113,6 +116,49 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("public base url is trusted for csrf", func(t *testing.T) {
+		clearServerModeEnv(t)
+		t.Setenv("PUBLIC_BASE_URL", "https://replayvod.madata.ovh")
+		cfg, err := loadConfig(filepath.Join(t.TempDir(), "absent.toml"))
+		if err != nil {
+			t.Fatalf("loadConfig = %v, want nil", err)
+		}
+		if !containsString(cfg.TrustedBrowserOrigins(), "https://replayvod.madata.ovh") {
+			t.Fatalf("TrustedBrowserOrigins = %#v, want public base origin", cfg.TrustedBrowserOrigins())
+		}
+	})
+
+	t.Run("trusted origins add split dashboard origins", func(t *testing.T) {
+		clearServerModeEnv(t)
+		t.Setenv("PUBLIC_BASE_URL", "https://api.example.com:443")
+		t.Setenv("TRUSTED_ORIGINS", "https://Dashboard.Example.com:443, https://admin.example.com, https://api.example.com")
+		cfg, err := loadConfig(filepath.Join(t.TempDir(), "absent.toml"))
+		if err != nil {
+			t.Fatalf("loadConfig = %v, want nil", err)
+		}
+		got := cfg.TrustedBrowserOrigins()
+		for _, want := range []string{"https://api.example.com", "https://dashboard.example.com", "https://admin.example.com"} {
+			if !containsString(got, want) {
+				t.Fatalf("TrustedBrowserOrigins = %#v, want %q", got, want)
+			}
+		}
+		if countString(got, "https://api.example.com") != 1 {
+			t.Fatalf("TrustedBrowserOrigins = %#v, want public origin once", got)
+		}
+	})
+
+	t.Run("development trusts vite origin", func(t *testing.T) {
+		clearServerModeEnv(t)
+		path := writeFile(t, t.TempDir(), "config.toml", "development = true\n")
+		cfg, err := loadConfig(path)
+		if err != nil {
+			t.Fatalf("loadConfig = %v, want nil", err)
+		}
+		if !containsString(cfg.TrustedBrowserOrigins(), "http://localhost:3000") {
+			t.Fatalf("TrustedBrowserOrigins = %#v, want local dev origin", cfg.TrustedBrowserOrigins())
+		}
+	})
+
 	t.Run("malformed toml is an error", func(t *testing.T) {
 		clearServerModeEnv(t)
 		path := writeFile(t, t.TempDir(), "config.toml", "== not toml ==")
@@ -127,6 +173,25 @@ func TestLoadConfig(t *testing.T) {
 			t.Fatal("loadConfig(invalid SERVER_MODE) = nil, want error")
 		}
 	})
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func countString(values []string, want string) int {
+	count := 0
+	for _, value := range values {
+		if value == want {
+			count++
+		}
+	}
+	return count
 }
 
 // TestReloadAppConfig covers the live-reload path: it errors before the first

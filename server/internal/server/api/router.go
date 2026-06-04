@@ -57,7 +57,8 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger(log))
 	r.Use(middleware.Recoverer(log))
-	r.Use(middleware.CORS(cfg.App.Server.AllowedOrigins))
+	trustedBrowserOrigins := cfg.TrustedBrowserOrigins()
+	r.Use(middleware.CORS(trustedBrowserOrigins))
 
 	// Pprof endpoints, dev-only. Production config.toml leaves
 	// Development=false so this never listens on a hardened deploy.
@@ -123,21 +124,15 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// tRPC router with CSRF/origin protection.
 	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, tokenProvider, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, webhookDispatcher, log)
 	csrfProtection := http.NewCrossOriginProtection()
-	for _, origin := range cfg.App.Server.AllowedOrigins {
+	for _, origin := range trustedBrowserOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
 			log.Warn("invalid trusted origin for CSRF protection", "origin", origin, "error", err)
 		}
 	}
 	r.Group(func(r chi.Router) {
 		r.Use(csrfProtection.Handler)
-		// trpcgo runs its own Origin/Referer CSRF check on mutations, comparing
-		// the browser Origin against the request Host. In local dashboard
-		// development, the Vite proxy can leave those different (browser origin
-		// localhost:3000, upstream Host localhost:8080), so mutations 403 with
-		// "CSRF origin not allowed". Register the configured dev origins as
-		// public so local dashboard mutations and SSE subscriptions are accepted.
 		r.Handle("/trpc/*", trpc.NewHandler(trpcRouter, "/trpc",
-			trpc.WithPublicOrigins(cfg.App.Server.AllowedOrigins...),
+			trpc.WithPublicOrigins(trustedBrowserOrigins...),
 		))
 	})
 

@@ -1,7 +1,6 @@
 development = true
 
 [server]
-allowed_origins = ["http://localhost:3000"]
 poll_interval_minutes = 1
 
 [download]

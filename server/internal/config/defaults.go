@@ -5,7 +5,6 @@ import "cmp"
 func getDefaultAppConfig() AppConfig {
 	return AppConfig{
 		Server: ServerConfig{
-			AllowedOrigins:      []string{"http://localhost:3000"},
 			PollIntervalMinutes: 1,
 		},
 		Download: DownloadConfig{

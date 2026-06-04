@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -244,6 +245,59 @@ func TestValidateEnvironmentPublicBaseURLOverridesPrefilledURLFields(t *testing.
 	}
 	if env.FrontendURL != "https://replayvod.example" {
 		t.Fatalf("FrontendURL = %q, want public-base derived frontend", env.FrontendURL)
+	}
+}
+
+func TestValidateEnvironmentCanonicalizesPublicBaseURL(t *testing.T) {
+	env := &Environment{
+		SessionSecret: "0123456789abcdef0123456789abcdef",
+		PublicBaseURL: "HTTPS://ReplayVOD.Madata.OVH:443",
+	}
+
+	if err := validateEnvironment(env); err != nil {
+		t.Fatalf("validateEnvironment = %v, want nil", err)
+	}
+	if env.PublicBaseURL != "https://replayvod.madata.ovh" {
+		t.Fatalf("PublicBaseURL = %q, want canonical origin", env.PublicBaseURL)
+	}
+	if env.CallbackURL != "https://replayvod.madata.ovh/api/v1/auth/twitch/callback" {
+		t.Fatalf("CallbackURL = %q, want canonical public-base callback", env.CallbackURL)
+	}
+	if env.FrontendURL != "https://replayvod.madata.ovh" {
+		t.Fatalf("FrontendURL = %q, want canonical public-base frontend", env.FrontendURL)
+	}
+}
+
+func TestValidateEnvironmentTrustedOrigins(t *testing.T) {
+	env := &Environment{
+		SessionSecret:  "0123456789abcdef0123456789abcdef",
+		TrustedOrigins: []string{" HTTPS://Dashboard.Example.COM:443 ", "https://admin.example.com:8443", "https://copy.example.com/"},
+	}
+
+	if err := validateEnvironment(env); err != nil {
+		t.Fatalf("validateEnvironment = %v, want nil", err)
+	}
+	want := []string{"https://dashboard.example.com", "https://admin.example.com:8443", "https://copy.example.com"}
+	if !reflect.DeepEqual(env.TrustedOrigins, want) {
+		t.Fatalf("TrustedOrigins = %#v, want %#v", env.TrustedOrigins, want)
+	}
+}
+
+func TestValidateEnvironmentRejectsInvalidTrustedOrigins(t *testing.T) {
+	for _, origin := range []string{"dashboard.example.com", "https://dashboard.example.com/app", "https://dashboard.example.com?x=1"} {
+		t.Run(origin, func(t *testing.T) {
+			env := &Environment{
+				SessionSecret:  "0123456789abcdef0123456789abcdef",
+				TrustedOrigins: []string{origin},
+			}
+			err := validateEnvironment(env)
+			if err == nil {
+				t.Fatal("validateEnvironment = nil, want trusted origin error")
+			}
+			if !strings.Contains(err.Error(), "TRUSTED_ORIGINS") {
+				t.Fatalf("error = %q, want TRUSTED_ORIGINS", err)
+			}
+		})
 	}
 }
 

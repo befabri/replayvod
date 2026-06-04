@@ -21,6 +21,9 @@ func validateEnvironment(env *Environment) error {
 	env.WebhookCallbackURL = strings.TrimSpace(env.WebhookCallbackURL)
 	env.FrontendURL = strings.TrimSpace(env.FrontendURL)
 	env.PublicBaseURL = strings.TrimSpace(env.PublicBaseURL)
+	for i := range env.TrustedOrigins {
+		env.TrustedOrigins[i] = strings.TrimSpace(env.TrustedOrigins[i])
+	}
 	env.RelayIngestURL = strings.TrimSpace(env.RelayIngestURL)
 	env.RelaySubscribeURL = strings.TrimSpace(env.RelaySubscribeURL)
 	env.RelayLocalCallbackURL = strings.TrimSpace(env.RelayLocalCallbackURL)
@@ -31,6 +34,9 @@ func validateEnvironment(env *Environment) error {
 	}
 
 	if err := derivePublicURLs(env); err != nil {
+		return err
+	}
+	if err := validateTrustedOrigins(env); err != nil {
 		return err
 	}
 
@@ -52,6 +58,20 @@ func validateEnvironment(env *Environment) error {
 	default:
 		return fmt.Errorf("SERVER_MODE must be one of %q, %q, %q, or %q",
 			ServerModeOff, ServerModePoll, ServerModeDirect, ServerModeRelay)
+	}
+	return nil
+}
+
+func validateTrustedOrigins(env *Environment) error {
+	for i, origin := range env.TrustedOrigins {
+		if origin == "" {
+			continue
+		}
+		normalized, err := normalizeExactOrigin("TRUSTED_ORIGINS", origin)
+		if err != nil {
+			return fmt.Errorf("TRUSTED_ORIGINS entry %q: %w", origin, err)
+		}
+		env.TrustedOrigins[i] = normalized
 	}
 	return nil
 }
@@ -146,7 +166,25 @@ func normalizeAbsoluteBaseURL(name, raw string) (string, error) {
 	u.Path = ""
 	u.RawQuery = ""
 	u.Fragment = ""
-	return strings.TrimRight(u.String(), "/"), nil
+	return canonicalOrigin(u.Scheme, u.Host), nil
+}
+
+func normalizeExactOrigin(name, raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("%s must be an absolute origin like https://dashboard.example", name)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("%s must use http:// or https://", name)
+	}
+	if strings.TrimRight(u.Path, "/") != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("%s must not include a path, query, or fragment", name)
+	}
+	origin := canonicalOrigin(u.Scheme, u.Host)
+	if origin == "" {
+		return "", fmt.Errorf("%s must be an absolute origin like https://dashboard.example", name)
+	}
+	return origin, nil
 }
 
 func validateOAuthCallbackURL(raw string) error {

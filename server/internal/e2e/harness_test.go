@@ -210,7 +210,7 @@ func newTestConfig(t *testing.T) *config.Config {
 // by config.LoadConfig for a missing/empty TOML.
 func defaultAppForTest() config.AppConfig {
 	return config.AppConfig{
-		Server: config.ServerConfig{AllowedOrigins: []string{}},
+		Server: config.ServerConfig{},
 		Download: config.DownloadConfig{
 			MaxConcurrent:        2,
 			PreferredQuality:     "1080",
