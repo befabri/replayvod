@@ -371,6 +371,9 @@ if ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 
+if ! compose_run --env-file server/.env --profile "$PROFILE" pull; then
+  printf 'replayvod install: image pull failed; continuing with any local image Docker can use.\n' >&2
+fi
 compose_run --env-file server/.env --profile "$PROFILE" up -d
 base_url=$(get_env PUBLIC_BASE_URL)
 if [ -z "$base_url" ]; then

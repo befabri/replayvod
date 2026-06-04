@@ -336,6 +336,7 @@ test_preserves_postgres_profile() {
   assert_env_private "$app/server/.env"
   assert_env_value "$app/server/.env" COMPOSE_PROFILES postgres
   assert_env_value "$app/server/.env" SESSION_SECRET existing-session
+  assert_file_contains "$dir/docker.log" '--profile postgres pull' 'postgres compose pull'
   assert_file_contains "$dir/docker.log" '--profile postgres up -d' 'postgres compose start'
   pass 'preserves existing postgres profile and secrets'
 }
@@ -352,6 +353,7 @@ test_starts_with_default_sqlite_profile() {
   assert_eq "$status" 0 'start status'
   assert_env_value "$app/server/.env" COMPOSE_PROFILES sqlite
   assert_env_value "$app/server/.env" PUBLIC_BASE_URL http://localhost:8080
+  assert_file_contains "$dir/docker.log" '--profile sqlite pull' 'sqlite compose pull'
   assert_file_contains "$dir/docker.log" '--profile sqlite up -d' 'sqlite compose start'
   pass 'starts complete install with default sqlite profile'
 }
@@ -370,6 +372,7 @@ test_owner_id_is_optional_non_interactive() {
 
   assert_eq "$status" 0 'optional owner status'
   assert_env_value "$app/server/.env" OWNER_TWITCH_ID ''
+  assert_file_contains "$dir/docker.log" '--profile sqlite pull' 'pulls image before first-login owner bootstrap'
   assert_file_contains "$dir/docker.log" '--profile sqlite up -d' 'starts with first-login owner bootstrap'
   pass 'owner id is optional for non-interactive installs'
 }
@@ -392,6 +395,7 @@ test_profile_prompt_selects_postgres() {
   assert_env_value "$app/server/.env" COMPOSE_PROFILES postgres
   assert_env_value "$app/server/.env" PUBLIC_BASE_URL http://localhost:8080
   assert_file_contains "$dir/stdout" 'Database profile' 'profile prompt output'
+  assert_file_contains "$dir/docker.log" '--profile postgres pull' 'postgres compose pull after prompt'
   assert_file_contains "$dir/docker.log" '--profile postgres up -d' 'postgres compose start'
   pass 'interactive profile prompt selects postgres'
 }
@@ -464,6 +468,7 @@ test_dirty_existing_checkout_skips_pull_and_starts() {
 
   assert_eq "$status" 0 'dirty checkout status'
   assert_file_contains "$dir/stderr" 'local changes; skipping update' 'dirty checkout message'
+  assert_file_contains "$dir/docker.log" '--profile sqlite pull' 'dirty checkout pull'
   assert_file_contains "$dir/docker.log" '--profile sqlite up -d' 'dirty checkout start'
   pass 'dirty existing checkout skips pull and still starts'
 }
@@ -493,8 +498,52 @@ test_docker_compose_v1_fallback() {
   status=$(run_installer "$dir" "$repo" "$app" FAKE_COMPOSE_PLUGIN=0 FAKE_COMPOSE_V1=1)
 
   assert_eq "$status" 0 'compose v1 status'
+  assert_file_contains "$dir/docker.log" '^docker-compose --env-file server/.env --profile sqlite pull$' 'docker-compose pull fallback'
   assert_file_contains "$dir/docker.log" '^docker-compose --env-file server/.env --profile sqlite up -d$' 'docker-compose fallback'
   pass 'falls back to docker-compose when compose plugin is unavailable'
+}
+
+test_pull_failure_still_starts() {
+  dir=$(case_dir pull-fail)
+  repo="$dir/repo"
+  app="$dir/home/replayvod"
+  make_fixture_repo "$repo" sqlite with-creds
+  make_fake_bin "$dir/fake-bin"
+
+  cat > "$dir/fake-bin/docker" <<'EOF'
+#!/bin/sh
+cmd=${1:-}
+sub=${2:-}
+
+if [ "$cmd" = compose ] && [ "$sub" = version ]; then
+  exit 0
+fi
+
+if [ "$cmd" = info ]; then
+  exit 0
+fi
+
+if [ "$cmd" = compose ]; then
+  shift
+  printf 'docker compose %s\n' "$*" >> "${FAKE_DOCKER_LOG:?}"
+  case "$*" in
+    *" pull") exit 1 ;;
+  esac
+  exit 0
+fi
+
+printf 'unexpected docker command: %s\n' "$*" >&2
+exit 1
+EOF
+  chmod +x "$dir/fake-bin/docker"
+
+  status=$(run_installer "$dir" "$repo" "$app")
+
+  assert_eq "$status" 0 'pull fail status'
+  assert_file_contains "$dir/stderr" 'image pull failed' 'pull failure warning'
+  assert_file_contains "$dir/docker.log" '--profile sqlite pull' 'pull attempted'
+  assert_file_contains "$dir/docker.log" '--profile sqlite up -d' 'starts after pull failure'
+  pass 'continues with local image when pull fails'
 }
 
 test_public_installer_assets() {
@@ -534,5 +583,6 @@ test_wrong_existing_checkout_fails
 test_dirty_existing_checkout_skips_pull_and_starts
 test_docker_daemon_unreachable_does_not_start
 test_docker_compose_v1_fallback
+test_pull_failure_still_starts
 
 log "installer tests passed: $pass_count"
