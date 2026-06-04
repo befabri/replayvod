@@ -15,10 +15,6 @@ const (
 )
 
 func validateEnvironment(env *Environment) error {
-	if err := rejectLegacyURLVars(); err != nil {
-		return err
-	}
-
 	env.ServerMode = strings.ToLower(strings.TrimSpace(env.ServerMode))
 	env.SessionSecret = strings.TrimSpace(env.SessionSecret)
 	env.CallbackURL = strings.TrimSpace(env.CallbackURL)
@@ -86,15 +82,6 @@ func isNumericTwitchID(s string) bool {
 		}
 	}
 	return true
-}
-
-func rejectLegacyURLVars() error {
-	for _, name := range []string{"CALLBACK_URL", "FRONTEND_URL"} {
-		if raw, ok := os.LookupEnv(name); ok && strings.TrimSpace(raw) != "" {
-			return fmt.Errorf("%s is no longer supported; set PUBLIC_BASE_URL to the public scheme://host URL, for example https://replayvod.example", name)
-		}
-	}
-	return nil
 }
 
 // ValidSessionSecret reports whether s is strong enough to key session-token

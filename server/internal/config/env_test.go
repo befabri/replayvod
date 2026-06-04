@@ -369,31 +369,27 @@ func TestEnvironmentParseIgnoresDerivedServerModeConfiguredFlag(t *testing.T) {
 	}
 }
 
-func TestValidateEnvironmentRejectsLegacyURLVariables(t *testing.T) {
-	cases := map[string]string{
-		"CALLBACK_URL": "https://legacy.example/api/v1/auth/twitch/callback",
-		"FRONTEND_URL": "https://legacy.example",
-	}
-	for key, value := range cases {
-		t.Run(key, func(t *testing.T) {
-			t.Setenv("SESSION_SECRET", "0123456789abcdef0123456789abcdef")
-			t.Setenv("CALLBACK_URL", "")
-			t.Setenv("FRONTEND_URL", "")
-			t.Setenv(key, value)
+func TestEnvironmentParseIgnoresLegacyURLVariables(t *testing.T) {
+	t.Setenv("SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("PUBLIC_BASE_URL", "https://replayvod.example")
+	t.Setenv("CALLBACK_URL", "https://legacy.example/api/v1/auth/twitch/callback")
+	t.Setenv("FRONTEND_URL", "https://legacy.example")
 
-			var parsed Environment
-			if err := envparse.Parse(&parsed); err != nil {
-				t.Fatalf("env.Parse = %v, want nil", err)
-			}
-			err := validateEnvironment(&parsed)
-			if err == nil {
-				t.Fatal("validateEnvironment with legacy URL env = nil, want error")
-			}
-			msg := err.Error()
-			if !strings.Contains(msg, key) || !strings.Contains(msg, "PUBLIC_BASE_URL") {
-				t.Fatalf("error = %q, want migration message naming %s and PUBLIC_BASE_URL", msg, key)
-			}
-		})
+	var parsed Environment
+	if err := envparse.Parse(&parsed); err != nil {
+		t.Fatalf("env.Parse = %v, want nil", err)
+	}
+	if err := validateEnvironment(&parsed); err != nil {
+		t.Fatalf("validateEnvironment = %v, want nil", err)
+	}
+	if parsed.PublicBaseURL != "https://replayvod.example" {
+		t.Fatalf("PublicBaseURL = %q, want parsed public base", parsed.PublicBaseURL)
+	}
+	if parsed.CallbackURL != "https://replayvod.example/api/v1/auth/twitch/callback" {
+		t.Fatalf("CallbackURL = %q, want derived from PUBLIC_BASE_URL", parsed.CallbackURL)
+	}
+	if parsed.FrontendURL != "https://replayvod.example" {
+		t.Fatalf("FrontendURL = %q, want derived from PUBLIC_BASE_URL", parsed.FrontendURL)
 	}
 }
 
