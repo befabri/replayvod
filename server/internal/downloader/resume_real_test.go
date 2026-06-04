@@ -158,19 +158,18 @@ func TestResume_GapExceedsThreshold_ForcesSplit(t *testing.T) {
 	requireFFmpegHarness(t)
 
 	opts := defaultEdgeOpts()
-	// Fixture sized for the test's actual needs: shutdown at
-	// frontier ~103 (4-6 segments served), post-jump cursor lands
-	// past tsCount (clamped to aEndlist), part 02 gets the
-	// trailing window plus ENDLIST. The stage rollback below
-	// handles the SEGMENTS-vs-REMUX shutdown race regardless of
-	// fixture length, so we don't need extra runway just for that.
-	opts.tsCount = 20
+	// Fixture sized with enough runway for slower CI: the DB polling
+	// helper can observe the resume frontier a few playlist ticks late
+	// before Shutdown stops the original run. Keep the post-restart jump
+	// away from tsCount's clamp so the first resumed playlist still starts
+	// past the saved frontier and deterministically fires OnWindowRoll.
+	opts.tsCount = 80
 	opts.windowA = 3
 	opts.dropAfterServed = 0
-	opts.aEndlist = 20 // ENDLIST after all segments served
+	opts.aEndlist = 40 // ENDLIST after the post-restart jump's trailing window
 	opts.fmp4Count = 0 // single variant — split is purely the gap threshold, not codec
 	opts.baseSeqA = 100
-	opts.postRestartSeqJump = 10 // post-jump start lands above frontier; lost > 2s threshold
+	opts.postRestartSeqJump = 30 // post-jump start lands above frontier; lost > 2s threshold
 	// Note: tsCount must exceed pre-shutdown cursor + jump so the
 	// post-jump playlist serves seqs above the frontier — otherwise
 	// the cursor clamps to tsCount and the served range overlaps
