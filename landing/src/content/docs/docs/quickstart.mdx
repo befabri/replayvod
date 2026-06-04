@@ -29,7 +29,7 @@ import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
   docker compose --env-file server/.env --profile sqlite up -d
   ```
 
-  This pulls the prebuilt `ghcr.io/befabri/replayvod:latest` image (add `--build` to build from source). Fill in `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, `OWNER_TWITCH_ID`, and `SESSION_SECRET` in `server/.env` before the `docker compose` step.
+  This pulls the prebuilt `ghcr.io/befabri/replayvod:latest` image (add `--build` to build from source). Fill in `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `SESSION_SECRET` in `server/.env` before the `docker compose` step. `OWNER_TWITCH_ID` is optional.
 
   </TabItem>
 </Tabs>
@@ -52,7 +52,7 @@ Copy the resulting **Client ID** and **Client Secret** when the installer asks.
 
 2. Sign in with Twitch.
 
-3. The user listed in `OWNER_TWITCH_ID` is granted the owner role.
+3. If `OWNER_TWITCH_ID` is empty, this first successful login becomes owner.
 
 </Steps>
 

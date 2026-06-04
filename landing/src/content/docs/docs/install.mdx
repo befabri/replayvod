@@ -10,7 +10,6 @@ ReplayVOD ships as a Docker Compose stack. On macOS and Linux a one-line install
 ## Requirements
 
 - A Twitch developer application (for `TWITCH_CLIENT_ID` and `TWITCH_SECRET`).
-- Your numeric Twitch user ID (for `OWNER_TWITCH_ID`).
 - Docker (Docker Desktop on Windows).
 - `ffmpeg` is bundled in the Docker image.
 
@@ -29,7 +28,7 @@ The installer:
 3. Asks for a database profile. The default is `sqlite`; choose `postgres` if you want Compose to start Postgres too.
 4. Asks for the public URL. Press Enter for local-only `http://localhost:8080`, or enter your HTTPS domain for a public server.
 5. Writes `server/.env` from the example and generates `SESSION_SECRET` locally.
-6. Prompts for `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID`. The secret prompt is hidden.
+6. Prompts for `TWITCH_CLIENT_ID` and `TWITCH_SECRET`. The secret prompt is hidden.
 7. Asks whether to start containers now, then runs `docker compose up -d` if you say yes.
 
 </Steps>
@@ -63,7 +62,7 @@ Clone the repo and run Docker Compose. This is the only path on Windows, and wor
   </TabItem>
 </Tabs>
 
-Fill `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `OWNER_TWITCH_ID` in `server/.env` before starting, and generate `SESSION_SECRET` (any 32-byte hex string, e.g. `openssl rand -hex 32`). The EventSub HMAC secret is generated and stored in the database automatically.
+Fill `TWITCH_CLIENT_ID` and `TWITCH_SECRET` in `server/.env` before starting, and generate `SESSION_SECRET` (any 32-byte hex string, e.g. `openssl rand -hex 32`). `OWNER_TWITCH_ID` is optional; leave it empty and the first successful login becomes owner. The EventSub HMAC secret is generated and stored in the database automatically.
 
 `docker compose up -d` pulls the prebuilt image `ghcr.io/befabri/replayvod:latest` (linux/amd64 and linux/arm64); add `--build` to build from the local source instead. Use `--profile postgres` to run against Postgres.
 
@@ -121,8 +120,8 @@ After install, fill these in `server/.env`:
 ```text
 TWITCH_CLIENT_ID=...
 TWITCH_SECRET=...
-OWNER_TWITCH_ID=...
 SESSION_SECRET=...   # installer generates this, or: openssl rand -hex 32
+OWNER_TWITCH_ID=...  # optional; empty = first login becomes owner
 ```
 
 For a public deployment also set:

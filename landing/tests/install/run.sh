@@ -356,6 +356,24 @@ test_starts_with_default_sqlite_profile() {
   pass 'starts complete install with default sqlite profile'
 }
 
+test_owner_id_is_optional_non_interactive() {
+  dir=$(case_dir optional-owner)
+  repo="$dir/repo"
+  app="$dir/home/replayvod"
+  make_fixture_repo "$repo" omit with-creds
+  sed -i 's/^OWNER_TWITCH_ID=.*/OWNER_TWITCH_ID=/' "$repo/server/.env.example"
+  git -C "$repo" add server/.env.example
+  git -C "$repo" commit -m 'clear owner fixture' >/dev/null
+  make_fake_bin "$dir/fake-bin"
+
+  status=$(run_installer "$dir" "$repo" "$app")
+
+  assert_eq "$status" 0 'optional owner status'
+  assert_env_value "$app/server/.env" OWNER_TWITCH_ID ''
+  assert_file_contains "$dir/docker.log" '--profile sqlite up -d' 'starts with first-login owner bootstrap'
+  pass 'owner id is optional for non-interactive installs'
+}
+
 test_profile_prompt_selects_postgres() {
   if ! command -v python3 >/dev/null 2>&1; then
     pass 'interactive profile prompt skipped because python3 is unavailable'
@@ -399,30 +417,6 @@ test_prompt_retry_and_skip_start() {
   assert_file_contains "$dir/stdout" '--profile postgres' 'manual start command'
   assert_file_not_contains "$dir/docker.log" 'up -d' 'no docker start when prompt answered no'
 	pass 'interactive prompts retry invalid profile and can skip start'
-}
-
-test_owner_prompt_requires_numeric_id() {
-  if ! command -v python3 >/dev/null 2>&1; then
-    pass 'interactive owner prompt skipped because python3 is unavailable'
-    return
-  fi
-
-  dir=$(case_dir owner-prompt)
-  repo="$dir/repo"
-  app="$dir/home/replayvod"
-  make_fixture_repo "$repo" omit with-creds
-  sed -i 's/^OWNER_TWITCH_ID=.*/OWNER_TWITCH_ID=/' "$repo/server/.env.example"
-  git -C "$repo" add server/.env.example
-  git -C "$repo" commit -m 'clear owner fixture' >/dev/null
-  make_fake_bin "$dir/fake-bin"
-
-  status=$(run_installer_tty "$dir" "$repo" "$app" "||||piim|126462569|n" "Install directory|Version tag or branch|Database profile|Public URL for ReplayVOD|Owner Twitch numeric user ID|Owner Twitch numeric user ID|Start containers now")
-
-  assert_eq "$status" 0 'owner prompt status'
-  assert_env_value "$app/server/.env" OWNER_TWITCH_ID 126462569
-  assert_file_contains "$dir/stdout" 'Please enter a numeric Twitch user ID' 'numeric owner retry prompt'
-  assert_file_not_contains "$dir/docker.log" 'up -d' 'no docker start when owner prompt test skips start'
-  pass 'interactive owner prompt requires numeric id'
 }
 
 test_invalid_profile_fails_before_start() {
@@ -517,6 +511,7 @@ test_public_installer_assets() {
   assert_file_contains "$INSTALL_SCRIPT" 'Public URL for ReplayVOD' 'unix public URL prompt'
   assert_file_contains "$INSTALL_SCRIPT" 'Start containers now' 'unix start prompt'
   assert_file_contains "$INSTALL_SCRIPT" 'prompt_secret_env TWITCH_SECRET' 'unix secret prompt'
+  assert_file_not_contains "$INSTALL_SCRIPT" 'Owner Twitch numeric user ID' 'owner id is not prompted'
   pass 'public macOS/Linux installer asset exists; no Windows installer ships'
 }
 
@@ -531,9 +526,9 @@ test_public_installer_assets
 test_missing_credentials_non_interactive
 test_preserves_postgres_profile
 test_starts_with_default_sqlite_profile
+test_owner_id_is_optional_non_interactive
 test_profile_prompt_selects_postgres
 test_prompt_retry_and_skip_start
-test_owner_prompt_requires_numeric_id
 test_invalid_profile_fails_before_start
 test_wrong_existing_checkout_fails
 test_dirty_existing_checkout_skips_pull_and_starts

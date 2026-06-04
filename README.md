@@ -71,8 +71,8 @@ docker compose --env-file server/.env --profile sqlite up -d
 # or --profile postgres to add a Postgres container.
 ```
 
-Open <http://localhost:8080>, sign in with your Twitch account, and the user
-listed in `OWNER_TWITCH_ID` is granted the owner role.
+Open <http://localhost:8080> and sign in with Twitch. If `OWNER_TWITCH_ID` is
+empty, the first successful login becomes the owner.
 
 To skip the `--profile` flag on every command, set `COMPOSE_PROFILES=sqlite`
 (or `=postgres`) in `server/.env`.
@@ -107,7 +107,7 @@ Copy the resulting Client ID and Client Secret into `server/.env`:
 TWITCH_CLIENT_ID=...
 TWITCH_SECRET=...
 SESSION_SECRET=...     # any random 32+ byte hex
-OWNER_TWITCH_ID=...    # your numeric Twitch user id
+OWNER_TWITCH_ID=...    # optional numeric Twitch user id; empty = first login owns
 ```
 
 ## Configuration
