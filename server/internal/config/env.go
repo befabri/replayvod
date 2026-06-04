@@ -3,17 +3,36 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 )
 
+const (
+	oauthCallbackPath        = "/api/v1/auth/twitch/callback"
+	defaultHTTPPort          = 8080
+	legacyDefaultFrontendURL = "http://localhost:3000"
+)
+
 func validateEnvironment(env *Environment) error {
+	if err := rejectLegacyURLVars(); err != nil {
+		return err
+	}
+
 	env.ServerMode = strings.ToLower(strings.TrimSpace(env.ServerMode))
 	env.SessionSecret = strings.TrimSpace(env.SessionSecret)
+	env.CallbackURL = strings.TrimSpace(env.CallbackURL)
 	env.WebhookCallbackURL = strings.TrimSpace(env.WebhookCallbackURL)
+	env.FrontendURL = strings.TrimSpace(env.FrontendURL)
+	env.PublicBaseURL = strings.TrimSpace(env.PublicBaseURL)
 	env.RelayIngestURL = strings.TrimSpace(env.RelayIngestURL)
 	env.RelaySubscribeURL = strings.TrimSpace(env.RelaySubscribeURL)
 	env.RelayLocalCallbackURL = strings.TrimSpace(env.RelayLocalCallbackURL)
+	env.DashboardDir = strings.TrimSpace(env.DashboardDir)
+
+	if err := derivePublicURLs(env); err != nil {
+		return err
+	}
 
 	if !ValidSessionSecret(env.SessionSecret) {
 		return fmt.Errorf("SESSION_SECRET must be at least 32 characters")
@@ -37,6 +56,15 @@ func validateEnvironment(env *Environment) error {
 	return nil
 }
 
+func rejectLegacyURLVars() error {
+	for _, name := range []string{"CALLBACK_URL", "FRONTEND_URL"} {
+		if raw, ok := os.LookupEnv(name); ok && strings.TrimSpace(raw) != "" {
+			return fmt.Errorf("%s is no longer supported; set PUBLIC_BASE_URL to the public scheme://host URL, for example https://replayvod.example", name)
+		}
+	}
+	return nil
+}
+
 // ValidSessionSecret reports whether s is strong enough to key session-token
 // encryption. The value feeds HKDF rather than AES directly, so length is the
 // operator-facing invariant: .env.example documents 32+ characters.
@@ -48,6 +76,72 @@ func ValidSessionSecret(s string) bool {
 // set. They are meaningful only when paired with SERVER_MODE.
 func (env *Environment) hasEventSubURLs() bool {
 	return env.WebhookCallbackURL != "" || env.RelayIngestURL != "" || env.RelaySubscribeURL != "" || env.RelayLocalCallbackURL != ""
+}
+
+func derivePublicURLs(env *Environment) error {
+	if env.PublicBaseURL != "" {
+		base, err := normalizeAbsoluteBaseURL("PUBLIC_BASE_URL", env.PublicBaseURL)
+		if err != nil {
+			return err
+		}
+		env.PublicBaseURL = base
+
+		env.CallbackURL = base + oauthCallbackPath
+		env.FrontendURL = base
+	}
+
+	if env.CallbackURL == "" {
+		port := env.Port
+		if port <= 0 {
+			port = defaultHTTPPort
+		}
+		env.CallbackURL = fmt.Sprintf("http://localhost:%d%s", port, oauthCallbackPath)
+	}
+	if err := validateOAuthCallbackURL(env.CallbackURL); err != nil {
+		return err
+	}
+
+	if env.FrontendURL == "" {
+		env.FrontendURL = legacyDefaultFrontendURL
+	}
+	frontend, err := normalizeAbsoluteBaseURL("FRONTEND_URL", env.FrontendURL)
+	if err != nil {
+		return err
+	}
+	env.FrontendURL = frontend
+
+	return nil
+}
+
+func normalizeAbsoluteBaseURL(name, raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("%s must be an absolute URL like https://replayvod.example", name)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("%s must use http:// or https://", name)
+	}
+	if strings.TrimRight(u.Path, "/") != "" {
+		return "", fmt.Errorf("%s must not include a path; use a scheme://host URL like https://replayvod.example", name)
+	}
+	u.Path = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
+func validateOAuthCallbackURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("CALLBACK_URL must be an absolute URL like https://replayvod.example%s; set PUBLIC_BASE_URL for normal deployments", oauthCallbackPath)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("CALLBACK_URL must use http:// or https://")
+	}
+	if u.Path != oauthCallbackPath {
+		return fmt.Errorf("CALLBACK_URL path must be %s", oauthCallbackPath)
+	}
+	return nil
 }
 
 func validateDotenvNoDuplicateKeys(path string) error {

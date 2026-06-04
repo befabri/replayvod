@@ -31,9 +31,7 @@ x-replayvod-base: &replayvod-base
 x-replayvod-env: &replayvod-env
   HOST: 0.0.0.0
   PORT: "8080"
-  FRONTEND_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}"
-  CALLBACK_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}/api/v1/auth/twitch/callback"
-  DASHBOARD_DIR: /app/dashboard
+  PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}"
   VIDEO_DIR: /app/data/videos
   THUMBNAIL_DIR: /app/data/thumbnails
   SCRATCH_DIR: /app/data/.scratch

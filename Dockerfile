@@ -67,8 +67,7 @@ COPY --from=go-builder /replayvod /app/replayvod
 COPY --from=dashboard-builder /dashboard/dist/client /app/dashboard
 COPY server/config.toml /app/config.toml
 # Force production mode regardless of config.toml's local-dev default, so the
-# published image never serves pprof or runs the tRPC dev watcher. Editing
-# config.toml and rebuilding still applies every other setting.
+# published image never serves pprof or runs the tRPC dev watcher.
 ENV DEVELOPMENT=false
 
 RUN adduser -D -u 1000 appuser && \

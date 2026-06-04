@@ -10,6 +10,19 @@ import (
 	"github.com/joho/godotenv"
 )
 
+func TestMain(m *testing.M) {
+	clearURLTestEnv()
+	os.Exit(m.Run())
+}
+
+func clearURLTestEnv() {
+	for _, key := range []string{"CALLBACK_URL", "FRONTEND_URL", "PUBLIC_BASE_URL"} {
+		if err := os.Setenv(key, ""); err != nil {
+			panic(err)
+		}
+	}
+}
+
 func TestValidateDotenvNoDuplicateKeysRejectsDuplicate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(path, []byte("RELAY_SUBSCRIBE_URL=wss://one\n# comment\nRELAY_SUBSCRIBE_URL=wss://two\n"), 0o600); err != nil {
@@ -146,6 +159,125 @@ func TestValidateEnvironmentLeavesEmptyServerModeAppManaged(t *testing.T) {
 	if env.ServerModeEnvConfigured {
 		t.Fatal("ServerModeEnvConfigured = true, want false")
 	}
+	if env.CallbackURL != "http://localhost:8080/api/v1/auth/twitch/callback" {
+		t.Fatalf("CallbackURL = %q, want local default", env.CallbackURL)
+	}
+	if env.FrontendURL != "http://localhost:3000" {
+		t.Fatalf("FrontendURL = %q, want local dev default", env.FrontendURL)
+	}
+}
+
+func TestEnvExampleKeepsPublicBaseURLBlankForLocalDev(t *testing.T) {
+	values, err := godotenv.Read(filepath.Join("..", "..", ".env.example"))
+	if err != nil {
+		t.Fatalf("read .env.example: %v", err)
+	}
+	if got, ok := values["PUBLIC_BASE_URL"]; !ok || got != "" {
+		t.Fatalf(".env.example PUBLIC_BASE_URL = %q (present %v), want blank so task dev keeps FRONTEND_URL on :3000", got, ok)
+	}
+}
+
+func TestValidateEnvironmentDerivesURLsFromPublicBaseURL(t *testing.T) {
+	env := &Environment{
+		SessionSecret: "0123456789abcdef0123456789abcdef",
+		PublicBaseURL: " https://replayvod.example/ ",
+	}
+
+	if err := validateEnvironment(env); err != nil {
+		t.Fatalf("validateEnvironment = %v, want nil", err)
+	}
+	if env.PublicBaseURL != "https://replayvod.example" {
+		t.Fatalf("PublicBaseURL = %q, want normalized origin", env.PublicBaseURL)
+	}
+	if env.CallbackURL != "https://replayvod.example/api/v1/auth/twitch/callback" {
+		t.Fatalf("CallbackURL = %q, want derived callback", env.CallbackURL)
+	}
+	if env.FrontendURL != "https://replayvod.example" {
+		t.Fatalf("FrontendURL = %q, want derived frontend", env.FrontendURL)
+	}
+}
+
+func TestValidateEnvironmentRejectsPublicBaseURLPathClearly(t *testing.T) {
+	env := &Environment{
+		SessionSecret: "0123456789abcdef0123456789abcdef",
+		PublicBaseURL: "https://replayvod.example/replayvod",
+	}
+
+	err := validateEnvironment(env)
+	if err == nil {
+		t.Fatal("validateEnvironment(PUBLIC_BASE_URL with path) = nil, want error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "PUBLIC_BASE_URL") || !strings.Contains(msg, "must not include a path") {
+		t.Fatalf("error = %q, want clear PUBLIC_BASE_URL path error", msg)
+	}
+	if strings.Contains(msg, "CALLBACK_URL") {
+		t.Fatalf("error = %q, should not mention derived CALLBACK_URL", msg)
+	}
+}
+
+func TestValidateEnvironmentPublicBaseURLOverridesPrefilledURLFields(t *testing.T) {
+	env := &Environment{
+		SessionSecret: "0123456789abcdef0123456789abcdef",
+		PublicBaseURL: "https://replayvod.example",
+		CallbackURL:   "http://localhost:8080/api/v1/auth/twitch/callback",
+		FrontendURL:   "http://localhost:3000",
+	}
+
+	if err := validateEnvironment(env); err != nil {
+		t.Fatalf("validateEnvironment = %v, want nil", err)
+	}
+	if env.CallbackURL != "https://replayvod.example/api/v1/auth/twitch/callback" {
+		t.Fatalf("CallbackURL = %q, want public-base derived callback", env.CallbackURL)
+	}
+	if env.FrontendURL != "https://replayvod.example" {
+		t.Fatalf("FrontendURL = %q, want public-base derived frontend", env.FrontendURL)
+	}
+}
+
+func TestValidateEnvironmentPublicBaseURLWinsOverProgrammaticURLFields(t *testing.T) {
+	env := &Environment{
+		SessionSecret: "0123456789abcdef0123456789abcdef",
+		PublicBaseURL: "https://videos.example",
+		CallbackURL:   "https://auth.example/api/v1/auth/twitch/callback",
+		FrontendURL:   "https://dashboard.example",
+	}
+
+	if err := validateEnvironment(env); err != nil {
+		t.Fatalf("validateEnvironment = %v, want nil", err)
+	}
+	if env.CallbackURL != "https://videos.example/api/v1/auth/twitch/callback" {
+		t.Fatalf("CallbackURL = %q, want public-base derived callback", env.CallbackURL)
+	}
+	if env.FrontendURL != "https://videos.example" {
+		t.Fatalf("FrontendURL = %q, want public-base derived frontend", env.FrontendURL)
+	}
+}
+
+func TestValidateEnvironmentRejectsPathOnlyCallbackURL(t *testing.T) {
+	env := &Environment{
+		SessionSecret: "0123456789abcdef0123456789abcdef",
+		CallbackURL:   "/api/v1/auth/twitch/callback",
+	}
+
+	if err := validateEnvironment(env); err == nil {
+		t.Fatal("validateEnvironment(path-only CALLBACK_URL) = nil, want error")
+	}
+}
+
+func TestValidateEnvironmentPublicBaseURLFixesPathOnlyCallbackURL(t *testing.T) {
+	env := &Environment{
+		SessionSecret: "0123456789abcdef0123456789abcdef",
+		PublicBaseURL: "https://replayvod.example",
+		CallbackURL:   "/api/v1/auth/twitch/callback",
+	}
+
+	if err := validateEnvironment(env); err != nil {
+		t.Fatalf("validateEnvironment = %v, want nil: PUBLIC_BASE_URL should repair old compose interpolation", err)
+	}
+	if env.CallbackURL != "https://replayvod.example/api/v1/auth/twitch/callback" {
+		t.Fatalf("CallbackURL = %q, want public-base derived callback", env.CallbackURL)
+	}
 }
 
 func TestValidateEnvironmentRejectsEventSubURLsWithoutMode(t *testing.T) {
@@ -181,6 +313,34 @@ func TestEnvironmentParseIgnoresDerivedServerModeConfiguredFlag(t *testing.T) {
 	}
 	if parsed.ServerModeEnvConfigured {
 		t.Fatal("ServerModeEnvConfigured = true, want derived false")
+	}
+}
+
+func TestValidateEnvironmentRejectsLegacyURLVariables(t *testing.T) {
+	cases := map[string]string{
+		"CALLBACK_URL": "https://legacy.example/api/v1/auth/twitch/callback",
+		"FRONTEND_URL": "https://legacy.example",
+	}
+	for key, value := range cases {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv("SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+			t.Setenv("CALLBACK_URL", "")
+			t.Setenv("FRONTEND_URL", "")
+			t.Setenv(key, value)
+
+			var parsed Environment
+			if err := envparse.Parse(&parsed); err != nil {
+				t.Fatalf("env.Parse = %v, want nil", err)
+			}
+			err := validateEnvironment(&parsed)
+			if err == nil {
+				t.Fatal("validateEnvironment with legacy URL env = nil, want error")
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, key) || !strings.Contains(msg, "PUBLIC_BASE_URL") {
+				t.Fatalf("error = %q, want migration message naming %s and PUBLIC_BASE_URL", msg, key)
+			}
+		})
 	}
 }
 

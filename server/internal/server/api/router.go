@@ -45,6 +45,8 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 )
 
+const bundledDashboardDir = "/app/dashboard"
+
 // SetupRouter creates and configures the Chi router and returns a cleanup
 // hook for the tRPC router lifecycle.
 func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger) (*chi.Mux, func() error) {
@@ -129,20 +131,23 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	r.Group(func(r chi.Router) {
 		r.Use(csrfProtection.Handler)
 		// trpcgo runs its own Origin/Referer CSRF check on mutations, comparing
-		// the browser Origin against the request Host. The Vite dev proxy (and a
-		// TLS-terminating reverse proxy in prod) rewrites Host to the internal
-		// upstream, so the browser origin never matches and every mutation 403s
-		// with "CSRF origin not allowed". Register the configured origins as
-		// public so the dashboard's same-app cross-origin POSTs and SSE
-		// subscriptions are treated as same-origin.
+		// the browser Origin against the request Host. In local dashboard
+		// development, the Vite proxy can leave those different (browser origin
+		// localhost:3000, upstream Host localhost:8080), so mutations 403 with
+		// "CSRF origin not allowed". Register the configured dev origins as
+		// public so local dashboard mutations and SSE subscriptions are accepted.
 		r.Handle("/trpc/*", trpc.NewHandler(trpcRouter, "/trpc",
 			trpc.WithPublicOrigins(cfg.App.Server.AllowedOrigins...),
 		))
 	})
 
-	// SPA fallback
+	// SPA fallback. Docker images place the built dashboard at
+	// bundledDashboardDir. Manual/source packages can set DASHBOARD_DIR; for an
+	// explicit path, keep setupDashboardRoutes' warning when files are missing.
 	if cfg.Env.DashboardDir != "" {
 		setupDashboardRoutes(r, cfg.Env.DashboardDir, log)
+	} else if dashboardBuildExists(bundledDashboardDir) {
+		setupDashboardRoutes(r, bundledDashboardDir, log)
 	}
 
 	return r, trpcRouter.Close
@@ -228,6 +233,11 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	videorequest.RegisterRoutes(tr, repo, log, viewer)
 
 	return tr
+}
+
+func dashboardBuildExists(dashboardDir string) bool {
+	info, err := os.Stat(filepath.Join(dashboardDir, "index.html"))
+	return err == nil && !info.IsDir()
 }
 
 // setupDashboardRoutes serves the dashboard SPA with proper 404→index.html fallback.

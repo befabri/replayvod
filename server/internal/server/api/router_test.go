@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -148,6 +150,46 @@ func TestSetupRouter_ServerModeControlsWebhookProcessor(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSetupRouterServesConfiguredDashboardDir(t *testing.T) {
+	dashboardDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dashboardDir, "index.html"), []byte("configured dashboard"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := &config.Config{
+		Env: config.Environment{
+			HMACSecret:   routerWebhookSecret,
+			CallbackURL:  "http://localhost:8080/api/v1/auth/twitch/callback",
+			FrontendURL:  "http://localhost:3000",
+			DashboardDir: dashboardDir,
+		},
+		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
+	}
+	bus := eventbus.New()
+	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
+	router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	if closeTRPC != nil {
+		t.Cleanup(func() {
+			if err := closeTRPC(); err != nil {
+				t.Errorf("close tRPC router: %v", err)
+			}
+		})
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if body := rr.Body.String(); body != "configured dashboard" {
+		t.Fatalf("body = %q, want configured dashboard", body)
 	}
 }
 

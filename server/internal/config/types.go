@@ -52,18 +52,15 @@ type Environment struct {
 	OwnerTwitchID      string `env:"OWNER_TWITCH_ID"`
 
 	// URLs
-	CallbackURL        string `env:"CALLBACK_URL" envDefault:"http://localhost:8080/api/v1/auth/twitch/callback"`
+	CallbackURL        string `env:"-"`
 	WebhookCallbackURL string `env:"WEBHOOK_CALLBACK_URL"`
-	FrontendURL        string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
+	FrontendURL        string `env:"-"`
 
 	// PublicBaseURL is the absolute scheme://host the API is publicly
-	// reachable at. It is used to build absolute URLs handed to external
-	// consumers, specifically the recording webhook's signed part-download
-	// links. Optional: when empty the origin is derived from CallbackURL,
-	// which is correct for the common single-origin deployment (the dashboard,
-	// streaming routes, and OAuth callback all share one host). Set it
-	// explicitly only when the public streaming host differs from the OAuth
-	// callback host (split-host or reverse-proxy setups).
+	// reachable at. This is the primary URL knob for normal deployments: when
+	// set, CallbackURL and FrontendURL are derived from it. It is also used to
+	// build absolute URLs handed to external consumers, specifically the
+	// recording webhook's signed part-download links.
 	PublicBaseURL string `env:"PUBLIC_BASE_URL"`
 
 	// ServerMode selects how this recorder detects live channels and title
