@@ -159,9 +159,6 @@ const rowBase =
 const SIDEBAR_ICON_SIZE = 18;
 const SIDEBAR_CONTROL_ICON_SIZE = 16;
 
-const indicator =
-	"before:absolute before:-left-3 before:top-1/2 before:h-0 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-primary before:opacity-0 before:transition-all before:duration-200";
-
 function LeafRow({
 	to,
 	icon: Icon,
@@ -229,10 +226,9 @@ function GroupRow({
 				aria-label={group.label}
 				className={cn(
 					rowBase,
-					indicator,
 					"w-11 justify-center hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
 					active
-						? "bg-sidebar-accent text-sidebar-accent-foreground before:h-5 before:opacity-100"
+						? "bg-sidebar-accent text-sidebar-accent-foreground"
 						: "text-sidebar-foreground/75",
 				)}
 			>
