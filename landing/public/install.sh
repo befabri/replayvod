@@ -95,6 +95,30 @@ prompt_env() {
   fi
 }
 
+prompt_numeric_env() {
+  key=$1
+  label=$2
+  if [ -n "$(get_env "$key")" ] || ! has_tty; then
+    return
+  fi
+  while :; do
+    printf '%s: ' "$label" >/dev/tty
+    IFS= read -r value </dev/tty || value=
+    if [ -z "$value" ]; then
+      return
+    fi
+    case "$value" in
+      *[!0-9]*)
+        printf 'Please enter a numeric Twitch user ID.\n' >/dev/tty
+        ;;
+      *)
+        set_env "$key" "$value"
+        return
+        ;;
+    esac
+  done
+}
+
 prompt_with_default() {
   label=$1
   default=$2
@@ -345,7 +369,7 @@ set_env PUBLIC_BASE_URL "$public_base"
 
 prompt_env TWITCH_CLIENT_ID 'Twitch Client ID'
 prompt_secret_env TWITCH_SECRET 'Twitch Client Secret'
-prompt_env OWNER_TWITCH_ID 'Owner Twitch numeric user ID'
+prompt_numeric_env OWNER_TWITCH_ID 'Owner Twitch numeric user ID'
 
 if [ -z "$(get_env TWITCH_CLIENT_ID)" ] || [ -z "$(get_env TWITCH_SECRET)" ] || [ -z "$(get_env OWNER_TWITCH_ID)" ]; then
   cat >&2 <<EOF

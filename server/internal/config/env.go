@@ -30,6 +30,10 @@ func validateEnvironment(env *Environment) error {
 	env.RelayLocalCallbackURL = strings.TrimSpace(env.RelayLocalCallbackURL)
 	env.DashboardDir = strings.TrimSpace(env.DashboardDir)
 
+	if err := validateBootstrapUserIDs(env.OwnerTwitchID, env.WhitelistedUserIDs); err != nil {
+		return err
+	}
+
 	if err := derivePublicURLs(env); err != nil {
 		return err
 	}
@@ -54,6 +58,34 @@ func validateEnvironment(env *Environment) error {
 			ServerModeOff, ServerModePoll, ServerModeDirect, ServerModeRelay)
 	}
 	return nil
+}
+
+func validateBootstrapUserIDs(ownerTwitchID, whitelistedUserIDs string) error {
+	if ownerTwitchID != "" && !isNumericTwitchID(ownerTwitchID) {
+		return fmt.Errorf("OWNER_TWITCH_ID must be a numeric Twitch user ID")
+	}
+	for _, id := range strings.Split(whitelistedUserIDs, ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if !isNumericTwitchID(id) {
+			return fmt.Errorf("WHITELISTED_USER_IDS must contain comma-separated numeric Twitch user IDs (invalid value %q)", id)
+		}
+	}
+	return nil
+}
+
+func isNumericTwitchID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func rejectLegacyURLVars() error {

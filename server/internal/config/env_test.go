@@ -292,6 +292,47 @@ func TestValidateEnvironmentPublicBaseURLFixesPathOnlyCallbackURL(t *testing.T) 
 	}
 }
 
+func TestValidateEnvironmentValidatesBootstrapUserIDs(t *testing.T) {
+	t.Run("valid owner and whitelist", func(t *testing.T) {
+		env := &Environment{
+			SessionSecret:      "0123456789abcdef0123456789abcdef",
+			OwnerTwitchID:      "126462569",
+			WhitelistedUserIDs: "123, 456",
+		}
+		if err := validateEnvironment(env); err != nil {
+			t.Fatalf("validateEnvironment = %v, want nil", err)
+		}
+	})
+
+	t.Run("owner must be numeric id", func(t *testing.T) {
+		env := &Environment{
+			SessionSecret: "0123456789abcdef0123456789abcdef",
+			OwnerTwitchID: "piim",
+		}
+		err := validateEnvironment(env)
+		if err == nil {
+			t.Fatal("validateEnvironment(owner login) = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "OWNER_TWITCH_ID") {
+			t.Fatalf("error = %q, want OWNER_TWITCH_ID", err)
+		}
+	})
+
+	t.Run("whitelist must be numeric ids", func(t *testing.T) {
+		env := &Environment{
+			SessionSecret:      "0123456789abcdef0123456789abcdef",
+			WhitelistedUserIDs: "# Comma-separated Twitch user IDs",
+		}
+		err := validateEnvironment(env)
+		if err == nil {
+			t.Fatal("validateEnvironment(comment whitelist) = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "WHITELISTED_USER_IDS") {
+			t.Fatalf("error = %q, want WHITELISTED_USER_IDS", err)
+		}
+	})
+}
+
 func TestValidateEnvironmentRejectsEventSubURLsWithoutMode(t *testing.T) {
 	cases := map[string]Environment{
 		"webhook callback":     {SessionSecret: "0123456789abcdef0123456789abcdef", WebhookCallbackURL: "https://replayvod.example/api/v1/webhook/callback"},
