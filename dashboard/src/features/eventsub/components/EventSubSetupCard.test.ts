@@ -43,9 +43,10 @@ afterEach(() => {
 	updateMock.data = undefined;
 });
 
-// payload must send only the fields the chosen mode uses, trimmed,
-// mirroring the server's ClearURLsForDelivery. These cases pin that a stale URL
-// left in the form from another mode never leaks into the saved config.
+// payload sends only the URL the owner actually types: the relay URL for relay,
+// nothing for off/poll/direct (the server derives the rest). `filled` carries a
+// stale URL from every field so these cases pin that nothing foreign leaks into
+// the saved config.
 const filled: UpdateConfigInput = {
 	mode: "relay",
 	webhook_callback_url: "  https://replayvod.example/api/v1/webhook/callback  ",
@@ -69,6 +70,7 @@ function configResponse(
 		relay_ingest_url: "https://relay.replayvod.com/u/token",
 		relay_subscribe_url: "wss://relay.replayvod.com/u/token/subscribe",
 		relay_local_callback_url: "http://127.0.0.1:8080/api/v1/webhook/callback",
+		direct_callback_url: "https://replayvod.example/api/v1/webhook/callback",
 		active: {
 			source: "app",
 			mode: "relay",
@@ -81,66 +83,34 @@ function configResponse(
 }
 
 describe("EventSubSetupCard payload", () => {
-	it("off clears every URL", () => {
-		expect(payload({ ...filled, mode: "off" })).toEqual({
-			mode: "off",
-			webhook_callback_url: "",
-			relay_ingest_url: "",
-			relay_subscribe_url: "",
-			relay_local_callback_url: "",
-		});
+	it("off sends only the mode", () => {
+		expect(payload({ ...filled, mode: "off" })).toEqual({ mode: "off" });
 	});
 
-	it("poll clears every URL", () => {
-		expect(payload({ ...filled, mode: "poll" })).toEqual({
-			mode: "poll",
-			webhook_callback_url: "",
-			relay_ingest_url: "",
-			relay_subscribe_url: "",
-			relay_local_callback_url: "",
-		});
+	it("poll sends only the mode", () => {
+		expect(payload({ ...filled, mode: "poll" })).toEqual({ mode: "poll" });
 	});
 
-	it("direct keeps only the trimmed webhook URL", () => {
-		expect(payload({ ...filled, mode: "direct" })).toEqual({
-			mode: "direct",
-			webhook_callback_url: "https://replayvod.example/api/v1/webhook/callback",
-			relay_ingest_url: "",
-			relay_subscribe_url: "",
-			relay_local_callback_url: "",
-		});
+	it("direct sends only the mode; the server derives the callback", () => {
+		expect(payload({ ...filled, mode: "direct" })).toEqual({ mode: "direct" });
 	});
 
-	it("relay keeps only the trimmed relay URLs", () => {
+	it("relay sends only the trimmed relay URL", () => {
 		expect(payload({ ...filled, mode: "relay" })).toEqual({
 			mode: "relay",
-			webhook_callback_url: "",
 			relay_ingest_url: "https://relay.replayvod.com/u/token",
-			relay_subscribe_url: "wss://relay.replayvod.com/u/token/subscribe",
-			relay_local_callback_url: "http://127.0.0.1:8080/api/v1/webhook/callback",
 		});
 	});
 });
 
 describe("EventSubSetupCard rendered form", () => {
-	it("submits edited relay fields through the mutation payload", async () => {
+	it("submits the edited relay URL through the mutation payload", async () => {
 		updateMock.mutateAsync.mockResolvedValue(configResponse());
 		render(createElement(EventSubSetupCard, { data: configResponse() }));
 
-		fireEvent.change(screen.getByLabelText("eventsub.relay_ingest_url"), {
+		fireEvent.change(screen.getByLabelText("eventsub.relay_url"), {
 			target: { value: " https://relay.replayvod.com/u/edited " },
 		});
-		fireEvent.change(screen.getByLabelText("eventsub.relay_subscribe_url"), {
-			target: { value: " wss://relay.replayvod.com/u/edited/subscribe " },
-		});
-		fireEvent.change(
-			screen.getByLabelText("eventsub.relay_local_callback_url"),
-			{
-				target: {
-					value: " http://127.0.0.1:9090/api/v1/webhook/callback ",
-				},
-			},
-		);
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "eventsub.save_config" }),
@@ -149,23 +119,19 @@ describe("EventSubSetupCard rendered form", () => {
 		await waitFor(() => {
 			expect(updateMock.mutateAsync).toHaveBeenCalledWith({
 				mode: "relay",
-				webhook_callback_url: "",
 				relay_ingest_url: "https://relay.replayvod.com/u/edited",
-				relay_subscribe_url: "wss://relay.replayvod.com/u/edited/subscribe",
-				relay_local_callback_url:
-					"http://127.0.0.1:9090/api/v1/webhook/callback",
 			});
 		});
 	});
 
-	it("submits the direct webhook field through the mutation payload", async () => {
+	it("shows the derived direct callback read-only and submits only the mode", async () => {
 		const directConfig = configResponse({
 			mode: "direct",
 			uses_relay_agent: false,
 			relay_ingest_url: undefined,
 			relay_subscribe_url: undefined,
 			relay_local_callback_url: undefined,
-			webhook_callback_url: "https://replayvod.example/api/v1/webhook/callback",
+			direct_callback_url: "https://replayvod.example/api/v1/webhook/callback",
 			active: {
 				source: "app",
 				mode: "direct",
@@ -177,32 +143,50 @@ describe("EventSubSetupCard rendered form", () => {
 		updateMock.mutateAsync.mockResolvedValue(directConfig);
 		render(createElement(EventSubSetupCard, { data: directConfig }));
 
-		fireEvent.change(screen.getByLabelText("eventsub.webhook_callback_url"), {
-			target: { value: " https://new.example/api/v1/webhook/callback " },
-		});
+		// The derived callback is shown; there is no editable webhook field.
+		expect(
+			screen.getByText("https://replayvod.example/api/v1/webhook/callback"),
+		).toBeTruthy();
+		expect(screen.queryByLabelText("eventsub.webhook_callback_url")).toBeNull();
+
 		fireEvent.click(
 			screen.getByRole("button", { name: "eventsub.save_config" }),
 		);
 
 		await waitFor(() => {
-			expect(updateMock.mutateAsync).toHaveBeenCalledWith({
-				mode: "direct",
-				webhook_callback_url: "https://new.example/api/v1/webhook/callback",
-				relay_ingest_url: "",
-				relay_subscribe_url: "",
-				relay_local_callback_url: "",
-			});
+			expect(updateMock.mutateAsync).toHaveBeenCalledWith({ mode: "direct" });
 		});
+	});
+
+	it("prompts for a public URL when direct mode has no derived callback", () => {
+		const directConfig = configResponse({
+			mode: "direct",
+			uses_relay_agent: false,
+			relay_ingest_url: undefined,
+			relay_subscribe_url: undefined,
+			relay_local_callback_url: undefined,
+			direct_callback_url: undefined,
+			active: {
+				source: "app",
+				mode: "direct",
+				creates_twitch_subscriptions: true,
+				uses_relay_agent: false,
+				polls_helix: false,
+			},
+		});
+		render(createElement(EventSubSetupCard, { data: directConfig }));
+
+		expect(screen.getByText("eventsub.direct_needs_public_url")).toBeTruthy();
 	});
 
 	it("keeps unsaved edits for a retry when the save fails", async () => {
 		updateMock.mutateAsync.mockRejectedValueOnce(new Error("save failed"));
 		render(createElement(EventSubSetupCard, { data: configResponse() }));
 
-		const ingest = screen.getByLabelText(
-			"eventsub.relay_ingest_url",
+		const relay = screen.getByLabelText(
+			"eventsub.relay_url",
 		) as HTMLInputElement;
-		fireEvent.change(ingest, {
+		fireEvent.change(relay, {
 			target: { value: "https://relay.replayvod.com/u/edited" },
 		});
 		fireEvent.click(
@@ -214,7 +198,7 @@ describe("EventSubSetupCard rendered form", () => {
 		});
 		// The rejection is swallowed (no reset to server values), so the edit
 		// survives. A leaked rejection would fail this test.
-		expect(ingest.value).toBe("https://relay.replayvod.com/u/edited");
+		expect(relay.value).toBe("https://relay.replayvod.com/u/edited");
 	});
 
 	it("reads status from the fresh data prop, not a stale mutation response", () => {
@@ -245,15 +229,15 @@ describe("EventSubSetupCard rendered form", () => {
 			createElement(EventSubSetupCard, { data: configResponse() }),
 		);
 
-		const ingest = screen.getByLabelText(
-			"eventsub.relay_ingest_url",
+		const relay = screen.getByLabelText(
+			"eventsub.relay_url",
 		) as HTMLInputElement;
-		fireEvent.change(ingest, {
+		fireEvent.change(relay, {
 			target: { value: "https://relay.replayvod.com/u/unsaved" },
 		});
 
 		rerender(createElement(EventSubSetupCard, { data: configResponse() }));
 
-		expect(ingest.value).toBe("https://relay.replayvod.com/u/unsaved");
+		expect(relay.value).toBe("https://relay.replayvod.com/u/unsaved");
 	});
 });

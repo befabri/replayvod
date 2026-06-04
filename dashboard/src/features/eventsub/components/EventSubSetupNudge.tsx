@@ -1,18 +1,22 @@
-import { ArrowRightIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import {
+	ArrowRightIcon,
+	BroadcastIcon,
+	WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { buttonVariants } from "@/components/ui/button";
-import {
-	Card,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
-// EventSubSetupNudge is the dashboard-home prompt: a compact alert linking to
-// the full setup form on the system page. The form lives in exactly one place
-// (EventSubSetupCard on /dashboard/system/eventsub), so its save/success/restart
-// feedback is never lost when this prompt unmounts after a successful save.
+// EventSubSetupNudge is the dashboard-home prompt: a compact onboarding callout
+// linking to the full setup form on the system page. The form lives in exactly
+// one place (EventSubSetupCard on /dashboard/system/eventsub), so its
+// save/success/restart feedback is never lost when this prompt unmounts after a
+// successful save.
+//
+// Two states share the layout: the first-run "set up live detection" nudge
+// (primary accent, inviting) and the post-save "restart required" reminder
+// (amber accent, advisory).
 export function EventSubSetupNudge({
 	setupRequired,
 	restartRequired,
@@ -23,32 +27,46 @@ export function EventSubSetupNudge({
 	const { t } = useTranslation();
 	const needsRestart = restartRequired && !setupRequired;
 
+	const Icon = needsRestart ? WarningCircleIcon : BroadcastIcon;
+	const title = needsRestart
+		? t("eventsub.restart_required")
+		: t("eventsub.nudge_title");
+	const body = needsRestart
+		? t("eventsub.nudge_restart")
+		: t("eventsub.nudge_setup");
+
 	return (
-		<Card>
-			<CardHeader className="sm:flex-row sm:items-center sm:justify-between">
-				<div className="flex items-start gap-2">
-					<WarningCircleIcon className="size-5 shrink-0 text-yellow-600" />
-					<div>
-						<CardTitle>
-							{needsRestart
-								? t("eventsub.restart_required")
-								: t("eventsub.setup_required")}
-						</CardTitle>
-						<CardDescription>
-							{needsRestart
-								? t("eventsub.nudge_restart")
-								: t("eventsub.nudge_setup")}
-						</CardDescription>
+		<div className="rounded-xl border border-border bg-card shadow-sm">
+			<div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+				<div className="flex items-start gap-4">
+					<span
+						className={cn(
+							"flex size-11 shrink-0 items-center justify-center rounded-lg",
+							needsRestart
+								? "bg-yellow-500/10 text-yellow-500"
+								: "bg-primary/10 text-primary",
+						)}
+					>
+						<Icon className="size-6" />
+					</span>
+					<div className="space-y-1">
+						<h3 className="text-base font-semibold leading-tight text-foreground">
+							{title}
+						</h3>
+						<p className="max-w-prose text-sm text-muted-foreground">{body}</p>
 					</div>
 				</div>
 				<Link
 					to="/dashboard/system/eventsub"
-					className={buttonVariants({ variant: "outline" })}
+					className={cn(
+						buttonVariants({ variant: needsRestart ? "outline" : "default" }),
+						"shrink-0 self-start sm:self-auto",
+					)}
 				>
 					{t("eventsub.configure")}
 					<ArrowRightIcon data-icon="inline-end" />
 				</Link>
-			</CardHeader>
-		</Card>
+			</div>
+		</div>
 	);
 }
