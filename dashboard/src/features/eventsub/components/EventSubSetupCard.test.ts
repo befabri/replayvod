@@ -177,6 +177,12 @@ describe("EventSubSetupCard rendered form", () => {
 		render(createElement(EventSubSetupCard, { data: directConfig }));
 
 		expect(screen.getByText("eventsub.direct_needs_public_url")).toBeTruthy();
+		// Save is blocked, so the owner can't trigger the server-side rejection on
+		// top of the warning that already explains the problem.
+		const save = screen.getByRole("button", {
+			name: "eventsub.save_config",
+		}) as HTMLButtonElement;
+		expect(save.disabled).toBe(true);
 	});
 
 	it("keeps unsaved edits for a retry when the save fails", async () => {

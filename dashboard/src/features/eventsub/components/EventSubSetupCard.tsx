@@ -11,7 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { useForm } from "@tanstack/react-form";
 import type { TFunction } from "i18next";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { z } from "zod";
 import type {
@@ -76,13 +76,13 @@ function modeCopy(t: TFunction, mode: Mode): { label: string; desc: string } {
 	}
 }
 
+// Only the fields the form actually edits are seeded: the mode and (for relay)
+// the relay URL. The server derives every other URL, so the form never tracks
+// them.
 function formValues(data: ConfigResponse): FormValues {
 	return {
 		mode: (data.mode || "poll") as Mode,
-		webhook_callback_url: data.webhook_callback_url ?? "",
 		relay_ingest_url: data.relay_ingest_url ?? "",
-		relay_subscribe_url: data.relay_subscribe_url ?? "",
-		relay_local_callback_url: data.relay_local_callback_url ?? "",
 	};
 }
 
@@ -99,21 +99,64 @@ export function payload(values: FormValues): UpdateConfigInput {
 	return { mode };
 }
 
-// CopyButton copies a value to the clipboard with a brief "copied" acknowledgement.
+// copyText copies via the async clipboard API when available (HTTPS or
+// localhost) and falls back to a hidden-textarea execCommand for the plain-HTTP
+// LAN origins a self-hosted dashboard is often reached at, where
+// navigator.clipboard is undefined. Returns whether the copy actually succeeded
+// so the UI only acknowledges real copies.
+async function copyText(value: string): Promise<boolean> {
+	try {
+		if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(value);
+			return true;
+		}
+	} catch {
+		// Fall through to the execCommand fallback below.
+	}
+	try {
+		const textarea = document.createElement("textarea");
+		textarea.value = value;
+		textarea.style.position = "fixed";
+		textarea.style.opacity = "0";
+		document.body.appendChild(textarea);
+		textarea.select();
+		const ok = document.execCommand("copy");
+		document.body.removeChild(textarea);
+		return ok;
+	} catch {
+		return false;
+	}
+}
+
+// CopyButton copies a value and acknowledges with a brief "copied" state, but
+// only when the copy actually succeeds (the value here is the callback URL the
+// owner pastes into Twitch, so a false "copied" would silently lose it).
 function CopyButton({ value }: { value: string }) {
 	const { t } = useTranslation();
 	const [copied, setCopied] = useState(false);
+	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(
+		() => () => {
+			if (timer.current) clearTimeout(timer.current);
+		},
+		[],
+	);
+
+	const onCopy = async () => {
+		if (!(await copyText(value))) return;
+		setCopied(true);
+		if (timer.current) clearTimeout(timer.current);
+		timer.current = setTimeout(() => setCopied(false), 1500);
+	};
+
 	return (
 		<Button
 			type="button"
 			variant="outline"
 			size="sm"
 			className="shrink-0"
-			onClick={() => {
-				void navigator.clipboard?.writeText(value);
-				setCopied(true);
-				setTimeout(() => setCopied(false), 1500);
-			}}
+			onClick={() => void onCopy()}
 		>
 			{copied ? (
 				<CheckIcon data-icon="inline-start" />
@@ -396,12 +439,25 @@ export function EventSubSetupCard({ data }: { data: ConfigResponse }) {
 						</form.Subscribe>
 
 						<div>
-							<Button type="submit" disabled={disabled}>
-								<FloppyDiskIcon data-icon="inline-start" />
-								{update.isPending
-									? t("common.saving")
-									: t("eventsub.save_config")}
-							</Button>
+							{/* In direct mode with no derived callback (no public URL),
+							    saving would just fail server-side on top of the warning
+							    already shown, so block it here. */}
+							<form.Subscribe selector={(s) => s.values.mode}>
+								{(mode) => (
+									<Button
+										type="submit"
+										disabled={
+											disabled ||
+											(mode === "direct" && !data.direct_callback_url)
+										}
+									>
+										<FloppyDiskIcon data-icon="inline-start" />
+										{update.isPending
+											? t("common.saving")
+											: t("eventsub.save_config")}
+									</Button>
+								)}
+							</form.Subscribe>
 						</div>
 					</form>
 				)}
