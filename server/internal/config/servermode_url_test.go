@@ -260,6 +260,35 @@ func TestResolveDerivedURLs(t *testing.T) {
 	})
 }
 
+// TestValidateRelayMode_MalformedRelayURLReportsAgainstRelayURL pins that a
+// malformed relay URL is reported as a relay URL problem. The dashboard sends
+// only the relay URL and derives the subscribe URL, so an error about a missing
+// subscribe URL would point at an input the owner can't see.
+func TestValidateRelayMode_MalformedRelayURLReportsAgainstRelayURL(t *testing.T) {
+	const token = "AAAAAAAAAAAAAAAA"
+	cases := []struct {
+		name   string
+		ingest string
+		want   string
+	}{
+		{name: "http scheme", ingest: "http://relay.example/u/" + token, want: "relay URL must be a public HTTPS URL"},
+		{name: "no scheme", ingest: "relay.example/u/" + token, want: "relay URL must be a public HTTPS URL"},
+		{name: "bad path", ingest: "https://relay.example/wrong", want: "relay URL must use the form https://<host>/u/<token>"},
+		{name: "short token", ingest: "https://relay.example/u/short", want: "relay URL must use the form https://<host>/u/<token>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Build as the app does (it derives the subscribe URL), mirroring the
+			// dashboard sending only the relay URL.
+			cfg := ServerModeConfigFromApp(ServerModeRelay, "", tc.ingest, "", "")
+			err := ValidateServerMode(cfg)
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("ValidateServerMode(%q) error = %v, want %q", tc.ingest, err, tc.want)
+			}
+		})
+	}
+}
+
 // TestValidateRelayURLs pins the ingest/subscribe pairing rules directly: an
 // empty subscribe URL is allowed (relay subscription is optional), a valid pair
 // passes, and every mismatch (host, scheme, token, malformed path) is rejected.

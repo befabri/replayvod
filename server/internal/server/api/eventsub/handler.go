@@ -83,11 +83,14 @@ func stateToResponse(state eventsubconfig.State) ConfigResponse {
 	active := state.Active
 	saved.Normalize()
 	active.Normalize()
-	// URL fields are emitted directly: saved configs are URL-cleared per
-	// mode by ServerModeConfigFromApp, and env configs are validated, so the
-	// fields a mode does not use are already empty (omitempty drops
-	// them). No per-mode switch needed here — that rule lives only in
-	// config.ServerModeConfig.ClearURLsForDelivery.
+	// URL fields are emitted directly. ServerModeConfigFromApp clears the fields
+	// a mode does not use, and the service resolves the saved config through
+	// ResolveDerivedURLs before mapping, so the relay subscribe URL and, in direct
+	// mode, the webhook callback are filled in (from the relay URL and the public
+	// origin). Direct mode's derived callback therefore appears both as
+	// webhook_callback_url and as DirectCallbackURL; the dashboard reads the
+	// latter, while webhook_callback_url keeps surfacing the effective callback for
+	// other API consumers.
 	return ConfigResponse{
 		Source:                     saved.Source,
 		Mode:                       ServerMode(saved.Mode),

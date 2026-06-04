@@ -293,13 +293,21 @@ func validateDirectMode(cfg ServerModeConfig) error {
 
 func validateRelayMode(cfg ServerModeConfig) error {
 	if cfg.WebhookCallbackURL != "" {
-		return fmt.Errorf("relay mode does not use a webhook callback URL; it uses the relay ingest URL")
+		return fmt.Errorf("relay mode does not use a webhook callback URL; it uses the relay URL")
 	}
 	if cfg.RelayIngestURL == "" {
-		return fmt.Errorf("relay mode requires a relay ingest URL")
+		return fmt.Errorf("relay mode requires a relay URL")
+	}
+	// The subscribe URL is derived from the relay URL, and the single-field UI has
+	// no subscribe input, so validate the relay URL itself: a malformed one must
+	// report against the relay URL, not the derived (and therefore empty)
+	// subscribe URL. A relay URL that passes the public-HTTPS check but yields no
+	// subscribe URL has a bad /u/<token> path.
+	if !IsUsableWebhookURL(cfg.RelayIngestURL) {
+		return fmt.Errorf("relay URL must be a public HTTPS URL")
 	}
 	if cfg.RelaySubscribeURL == "" {
-		return fmt.Errorf("relay mode requires a relay subscribe URL")
+		return fmt.Errorf("relay URL must use the form https://<host>/u/<token>")
 	}
 	if err := ValidateRelayURLs(cfg.RelayIngestURL, cfg.RelaySubscribeURL); err != nil {
 		return err
