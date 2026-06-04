@@ -2,7 +2,7 @@
 set -eu
 
 INSTALL_SCRIPT=${INSTALL_SCRIPT:-/workspace/landing/public/install.sh}
-BASE=${TMPDIR:-/tmp}/replayvod-install-tests.$$
+BASE=$(mktemp -d "${TMPDIR:-/tmp}/replayvod-install-tests.XXXXXX")
 
 pass_count=0
 
@@ -86,7 +86,7 @@ make_fixture_repo() {
     printf 'SESSION_SECRET='
     if [ "$creds" = with-creds ]; then printf 'existing-session'; fi
     printf '\n'
-    printf 'PUBLIC_BASE_URL=http://localhost:8080\n'
+    printf 'PUBLIC_BASE_URL=\n'
     if [ "$profile" != omit ]; then
       printf 'COMPOSE_PROFILES=%s\n' "$profile"
     fi
@@ -164,23 +164,138 @@ run_installer() {
   shift 3
 
   fake_bin="$case_dir/fake-bin"
+  home_dir=$(dirname "$app")
   docker_log="$case_dir/docker.log"
   out="$case_dir/stdout"
   err="$case_dir/stderr"
+  mkdir -p "$home_dir"
   : > "$docker_log"
 
   set +e
   env \
     PATH="$fake_bin:$PATH" \
+    HOME="$home_dir" \
     FAKE_DOCKER_LOG="$docker_log" \
     REPLAYVOD_REPO="file://$repo" \
-    REPLAYVOD_DIR="$app" \
     "$@" \
     sh "$INSTALL_SCRIPT" > "$out" 2> "$err"
   status=$?
   set -e
 
   printf '%s' "$status"
+}
+
+run_installer_tty() {
+  case_dir=$1
+  repo=$2
+  app=$3
+  answers=$4
+  prompts=$5
+
+  fake_bin="$case_dir/fake-bin"
+  home_dir=$(dirname "$app")
+  docker_log="$case_dir/docker.log"
+  out="$case_dir/stdout"
+  err="$case_dir/stderr"
+  mkdir -p "$home_dir"
+  : > "$docker_log"
+  : > "$err"
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '127'
+    return
+  fi
+
+  set +e
+  result=$(env \
+    PATH="$fake_bin:$PATH" \
+    HOME="$home_dir" \
+    FAKE_DOCKER_LOG="$docker_log" \
+    REPLAYVOD_REPO="file://$repo" \
+    python3 - "$INSTALL_SCRIPT" "$out" "$answers" "$prompts" <<'PY'
+import errno
+import os
+import pty
+import select
+import signal
+import sys
+import time
+
+install_script, out_path, answers_arg, prompts_arg = sys.argv[1:]
+answers = answers_arg.split("|")
+prompts = prompts_arg.split("|")
+
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvpe("sh", ["sh", install_script], os.environ)
+
+output = bytearray()
+buffer = ""
+answer_index = 0
+deadline = time.monotonic() + 30
+status = 124
+
+def exit_status(wait_status):
+    if os.WIFEXITED(wait_status):
+        return os.WEXITSTATUS(wait_status)
+    if os.WIFSIGNALED(wait_status):
+        return 128 + os.WTERMSIG(wait_status)
+    return 1
+
+try:
+    while True:
+        done_pid, wait_status = os.waitpid(pid, os.WNOHANG)
+        if done_pid:
+            status = exit_status(wait_status)
+            break
+
+        readable, _, _ = select.select([fd], [], [], 0.05)
+        if readable:
+            try:
+                data = os.read(fd, 4096)
+            except OSError as exc:
+                if exc.errno != errno.EIO:
+                    raise
+                data = b""
+            if data:
+                output.extend(data)
+                buffer += data.decode("utf-8", "replace")
+                while answer_index < len(prompts) and prompts[answer_index] in buffer:
+                    os.write(fd, (answers[answer_index] + "\n").encode("utf-8"))
+                    answer_index += 1
+                    buffer = ""
+
+        if time.monotonic() > deadline:
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(0.2)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            break
+finally:
+    while True:
+        try:
+            data = os.read(fd, 4096)
+        except OSError:
+            break
+        if not data:
+            break
+        output.extend(data)
+    with open(out_path, "wb") as f:
+        f.write(output)
+
+print(status)
+PY
+)
+  py_status=$?
+  set -e
+
+  if [ "$py_status" -ne 0 ]; then
+    printf '%s' "$py_status"
+  else
+    printf '%s' "$result"
+  fi
 }
 
 case_dir() {
@@ -192,7 +307,7 @@ case_dir() {
 test_missing_credentials_non_interactive() {
   dir=$(case_dir missing-creds)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" sqlite missing-creds
   make_fake_bin "$dir/fake-bin"
 
@@ -208,28 +323,27 @@ test_missing_credentials_non_interactive() {
   pass 'non-interactive missing credentials fails cleanly'
 }
 
-test_preserves_postgres_profile_no_start() {
-  dir=$(case_dir postgres-no-start)
+test_preserves_postgres_profile() {
+  dir=$(case_dir postgres-profile)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" postgres with-creds
   make_fake_bin "$dir/fake-bin"
 
-  status=$(run_installer "$dir" "$repo" "$app" REPLAYVOD_NO_START=1)
+  status=$(run_installer "$dir" "$repo" "$app")
 
-  assert_eq "$status" 0 'no-start status'
+  assert_eq "$status" 0 'postgres status'
   assert_env_private "$app/server/.env"
   assert_env_value "$app/server/.env" COMPOSE_PROFILES postgres
   assert_env_value "$app/server/.env" SESSION_SECRET existing-session
-  assert_file_contains "$dir/stderr" '--profile postgres' 'postgres start command'
-  assert_file_not_contains "$dir/docker.log" 'up -d' 'no docker start with no-start flag'
+  assert_file_contains "$dir/docker.log" '--profile postgres up -d' 'postgres compose start'
   pass 'preserves existing postgres profile and secrets'
 }
 
 test_starts_with_default_sqlite_profile() {
   dir=$(case_dir start-sqlite)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" omit with-creds
   make_fake_bin "$dir/fake-bin"
 
@@ -237,29 +351,60 @@ test_starts_with_default_sqlite_profile() {
 
   assert_eq "$status" 0 'start status'
   assert_env_value "$app/server/.env" COMPOSE_PROFILES sqlite
+  assert_env_value "$app/server/.env" PUBLIC_BASE_URL http://localhost:8080
   assert_file_contains "$dir/docker.log" '--profile sqlite up -d' 'sqlite compose start'
   pass 'starts complete install with default sqlite profile'
 }
 
-test_profile_override() {
-  dir=$(case_dir profile-override)
+test_profile_prompt_selects_postgres() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    pass 'interactive profile prompt skipped because python3 is unavailable'
+    return
+  fi
+
+  dir=$(case_dir profile-prompt)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" omit with-creds
   make_fake_bin "$dir/fake-bin"
 
-  status=$(run_installer "$dir" "$repo" "$app" REPLAYVOD_PROFILE=postgres)
+  status=$(run_installer_tty "$dir" "$repo" "$app" "||postgres||" "Install directory|Version tag or branch|Database profile|Public URL for ReplayVOD|Start containers now")
 
-  assert_eq "$status" 0 'profile override status'
+  assert_eq "$status" 0 'profile prompt status'
   assert_env_value "$app/server/.env" COMPOSE_PROFILES postgres
+  assert_env_value "$app/server/.env" PUBLIC_BASE_URL http://localhost:8080
+  assert_file_contains "$dir/stdout" 'Database profile' 'profile prompt output'
   assert_file_contains "$dir/docker.log" '--profile postgres up -d' 'postgres compose start'
-  pass 'REPLAYVOD_PROFILE overrides default profile'
+  pass 'interactive profile prompt selects postgres'
+}
+
+test_prompt_retry_and_skip_start() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    pass 'interactive retry/start prompt skipped because python3 is unavailable'
+    return
+  fi
+
+  dir=$(case_dir prompt-retry-skip-start)
+  repo="$dir/repo"
+  app="$dir/home/replayvod"
+  make_fixture_repo "$repo" omit with-creds
+  make_fake_bin "$dir/fake-bin"
+
+  status=$(run_installer_tty "$dir" "$repo" "$app" "||banana|2||n" "Install directory|Version tag or branch|Database profile|Database profile|Public URL for ReplayVOD|Start containers now")
+
+  assert_eq "$status" 0 'prompt retry skip-start status'
+  assert_env_value "$app/server/.env" COMPOSE_PROFILES postgres
+  assert_file_contains "$dir/stdout" "Please enter 'sqlite' or 'postgres'" 'invalid profile retry prompt'
+  assert_file_contains "$dir/stdout" 'Start containers now' 'start prompt output'
+  assert_file_contains "$dir/stdout" '--profile postgres' 'manual start command'
+  assert_file_not_contains "$dir/docker.log" 'up -d' 'no docker start when prompt answered no'
+  pass 'interactive prompts retry invalid profile and can skip start'
 }
 
 test_invalid_profile_fails_before_start() {
   dir=$(case_dir invalid-profile)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" invalid with-creds
   make_fake_bin "$dir/fake-bin"
 
@@ -274,7 +419,7 @@ test_invalid_profile_fails_before_start() {
 test_wrong_existing_checkout_fails() {
   dir=$(case_dir wrong-checkout)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" sqlite with-creds
   make_wrong_checkout "$app"
   make_fake_bin "$dir/fake-bin"
@@ -290,7 +435,7 @@ test_wrong_existing_checkout_fails() {
 test_dirty_existing_checkout_skips_pull_and_starts() {
   dir=$(case_dir dirty-checkout)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" sqlite with-creds
   make_fake_bin "$dir/fake-bin"
 
@@ -308,7 +453,7 @@ test_dirty_existing_checkout_skips_pull_and_starts() {
 test_docker_daemon_unreachable_does_not_start() {
   dir=$(case_dir docker-info-fail)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" sqlite with-creds
   make_fake_bin "$dir/fake-bin"
 
@@ -323,7 +468,7 @@ test_docker_daemon_unreachable_does_not_start() {
 test_docker_compose_v1_fallback() {
   dir=$(case_dir compose-v1)
   repo="$dir/repo"
-  app="$dir/app"
+  app="$dir/home/replayvod"
   make_fixture_repo "$repo" sqlite with-creds
   make_fake_bin "$dir/fake-bin"
 
@@ -338,7 +483,15 @@ test_public_installer_assets() {
   [ -f "$INSTALL_SCRIPT" ] || fail "missing install.sh"
   [ ! -e /workspace/landing/public/install.ps1 ] || fail "install.ps1 should not exist; Windows uses manual docker compose"
 
-  assert_file_contains "$INSTALL_SCRIPT" 'REPLAYVOD_PROFILE' 'unix installer profile override'
+  assert_file_not_contains "$INSTALL_SCRIPT" 'REPLAYVOD_PROFILE' 'no profile env override'
+  assert_file_not_contains "$INSTALL_SCRIPT" 'REPLAYVOD_DIR' 'no install directory env override'
+  assert_file_not_contains "$INSTALL_SCRIPT" 'REPLAYVOD_REF' 'no ref env override'
+  assert_file_not_contains "$INSTALL_SCRIPT" 'REPLAYVOD_NO_START' 'no no-start env override'
+  assert_file_contains "$INSTALL_SCRIPT" 'prompt_profile' 'unix profile prompt'
+  assert_file_contains "$INSTALL_SCRIPT" 'Install directory' 'unix install directory prompt'
+  assert_file_contains "$INSTALL_SCRIPT" 'Version tag or branch' 'unix version prompt'
+  assert_file_contains "$INSTALL_SCRIPT" 'Public URL for ReplayVOD' 'unix public URL prompt'
+  assert_file_contains "$INSTALL_SCRIPT" 'Start containers now' 'unix start prompt'
   assert_file_contains "$INSTALL_SCRIPT" 'prompt_secret_env TWITCH_SECRET' 'unix secret prompt'
   pass 'public macOS/Linux installer asset exists; no Windows installer ships'
 }
@@ -352,9 +505,10 @@ shellcheck "$INSTALL_SCRIPT"
 
 test_public_installer_assets
 test_missing_credentials_non_interactive
-test_preserves_postgres_profile_no_start
+test_preserves_postgres_profile
 test_starts_with_default_sqlite_profile
-test_profile_override
+test_profile_prompt_selects_postgres
+test_prompt_retry_and_skip_start
 test_invalid_profile_fails_before_start
 test_wrong_existing_checkout_fails
 test_dirty_existing_checkout_skips_pull_and_starts

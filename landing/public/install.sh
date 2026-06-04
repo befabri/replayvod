@@ -2,8 +2,7 @@
 set -eu
 
 REPO_URL=${REPLAYVOD_REPO:-${REPLAYVOD_REPO_URL:-https://github.com/befabri/replayvod.git}}
-REF_OVERRIDE=${REPLAYVOD_REF:-${REPLAYVOD_BRANCH:-}}
-INSTALL_DIR=${REPLAYVOD_DIR:-${HOME:-.}/replayvod}
+DEFAULT_INSTALL_DIR=${HOME:-.}/replayvod
 TTY_STTY=
 
 umask 077
@@ -96,6 +95,113 @@ prompt_env() {
   fi
 }
 
+prompt_with_default() {
+  label=$1
+  default=$2
+  if ! has_tty; then
+    printf '%s' "$default"
+    return
+  fi
+  printf '%s [%s]: ' "$label" "$default" >/dev/tty
+  IFS= read -r value </dev/tty || value=
+  if [ -z "$value" ]; then
+    value=$default
+  fi
+  printf '%s' "$value"
+}
+
+prompt_optional() {
+  label=$1
+  if ! has_tty; then
+    return
+  fi
+  printf '%s: ' "$label" >/dev/tty
+  IFS= read -r value </dev/tty || value=
+  printf '%s' "$value"
+}
+
+expand_home_path() {
+  case "$1" in
+    '~')
+      printf '%s' "${HOME:-.}"
+      ;;
+    ~/*)
+      printf '%s/%s' "${HOME:-.}" "${1#~/}"
+      ;;
+    *)
+      printf '%s' "$1"
+      ;;
+  esac
+}
+
+prompt_profile() {
+  default=$1
+  if [ -z "$default" ]; then
+    default=sqlite
+  fi
+  if ! has_tty; then
+    printf '%s' "$default"
+    return
+  fi
+
+  while :; do
+    printf 'Database profile (sqlite/postgres) [%s]: ' "$default" >/dev/tty
+    IFS= read -r value </dev/tty || value=
+    if [ -z "$value" ]; then
+      value=$default
+    fi
+    case "$value" in
+      sqlite | 1)
+        printf 'sqlite'
+        return
+        ;;
+      postgres | 2)
+        printf 'postgres'
+        return
+        ;;
+      *)
+        printf "Please enter 'sqlite' or 'postgres'.\n" >/dev/tty
+        ;;
+    esac
+  done
+}
+
+prompt_yes_no() {
+  label=$1
+  default=$2
+  if ! has_tty; then
+    printf '%s' "$default"
+    return
+  fi
+
+  case "$default" in
+    1) suffix='Y/n' ;;
+    *) suffix='y/N' ;;
+  esac
+
+  while :; do
+    printf '%s [%s]: ' "$label" "$suffix" >/dev/tty
+    IFS= read -r value </dev/tty || value=
+    case "$value" in
+      '')
+        printf '%s' "$default"
+        return
+        ;;
+      y | Y | yes | YES | Yes)
+        printf '1'
+        return
+        ;;
+      n | N | no | NO | No)
+        printf '0'
+        return
+        ;;
+      *)
+        printf "Please answer 'y' or 'n'.\n" >/dev/tty
+        ;;
+    esac
+  done
+}
+
 prompt_secret_env() {
   key=$1
   label=$2
@@ -175,10 +281,11 @@ else
   exit 1
 fi
 
+INSTALL_DIR=$(expand_home_path "$(prompt_with_default 'Install directory' "$DEFAULT_INSTALL_DIR")")
+REF=$(prompt_optional 'Version tag or branch (empty = latest release)')
+
 # Track the latest release tag by default so the cloned source matches the
-# published :latest image. Falls back to main until the first tag is cut, and
-# REPLAYVOD_REF (or REPLAYVOD_BRANCH) pins a specific tag or branch.
-REF=$REF_OVERRIDE
+# published :latest image. Falls back to main until the first tag is cut.
 if [ -z "$REF" ]; then
   REF=$(resolve_latest_tag)
 fi
@@ -219,10 +326,7 @@ if [ -z "$(get_env SESSION_SECRET)" ]; then
   set_env SESSION_SECRET "$(secret)"
 fi
 
-PROFILE=${REPLAYVOD_PROFILE:-$(get_env COMPOSE_PROFILES)}
-if [ -z "$PROFILE" ]; then
-  PROFILE=sqlite
-fi
+PROFILE=$(prompt_profile "$(get_env COMPOSE_PROFILES)")
 case "$PROFILE" in
   sqlite | postgres) ;;
   *)
@@ -231,6 +335,13 @@ case "$PROFILE" in
     ;;
 esac
 set_env COMPOSE_PROFILES "$PROFILE"
+
+public_base_default=$(get_env PUBLIC_BASE_URL)
+if [ -z "$public_base_default" ]; then
+  public_base_default=http://localhost:8080
+fi
+public_base=$(prompt_with_default 'Public URL for ReplayVOD' "$public_base_default")
+set_env PUBLIC_BASE_URL "$public_base"
 
 prompt_env TWITCH_CLIENT_ID 'Twitch Client ID'
 prompt_secret_env TWITCH_SECRET 'Twitch Client Secret'
@@ -250,7 +361,8 @@ EOF
   exit 1
 fi
 
-if [ "${REPLAYVOD_NO_START:-0}" = 1 ]; then
+START_CONTAINERS=$(prompt_yes_no 'Start containers now' 1)
+if [ "$START_CONTAINERS" != 1 ]; then
   printf 'ReplayVOD is ready. Start it with:\n\n  %s\n' "$(compose_command_text)" >&2
   exit 0
 fi
