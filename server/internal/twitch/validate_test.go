@@ -316,6 +316,7 @@ func TestGeneratedTags_AreSyntacticallyValid(t *testing.T) {
 		&ModifyChannelInformationBody{},
 		&GetFollowedChannelsParams{},
 		&GetGamesParams{},
+		&SearchCategoriesParams{},
 		&GetTopGamesParams{},
 		&GetStreamsParams{},
 		&GetFollowedStreamsParams{},

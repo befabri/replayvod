@@ -124,6 +124,7 @@ var responseBodySchemaNames = map[string]string{
 	"get-followed-channels":                  "FollowedChannel",
 	"create-eventsub-subscription":           "EventSubSubscription",
 	"get-eventsub-subscriptions":             "EventSubSubscription",
+	"search-categories":                      "SearchCategory",
 	"get-clips":                              "Clip",
 	"create-stream-marker":                   "StreamMarkerCreated",
 	"get-stream-markers":                     "StreamMarkers",

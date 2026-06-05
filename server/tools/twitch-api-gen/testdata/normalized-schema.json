@@ -2821,6 +2821,96 @@
       ]
     },
     {
+      "id": "search-categories",
+      "name": "Search Categories",
+      "tag": "Search",
+      "summary": "Gets the games or categories that match the specified query.",
+      "description": "Gets the games or categories that match the specified query.\n\nTo match, the category’s name must contain all parts of the query string. For example, if the query string is 42, the response includes any category name that contains 42 in the title. If the query string is a phrase like love computer, the response includes any category name that contains the words love and computer anywhere in the name. The comparison is case insensitive.",
+      "method": "GET",
+      "path": "/search/categories",
+      "auth_type": "either",
+      "query_params": [
+        {
+          "name": "query",
+          "type": "String",
+          "required": true,
+          "description": "The URI-encoded search string. For example, encode #archery as %23archery and search strings like angel of death as angel%20of%20death."
+        },
+        {
+          "name": "first",
+          "type": "Integer",
+          "required": false,
+          "description": "The maximum number of items to return per page in the response. The minimum page size is 1 item per page and the maximum is 100 items per page. The default is 20."
+        },
+        {
+          "name": "after",
+          "type": "String",
+          "required": false,
+          "description": "The cursor used to get the next page of results. The Pagination object in the response contains the cursor’s value. Read More"
+        }
+      ],
+      "response": [
+        {
+          "name": "data",
+          "type": "Object[]",
+          "required": true,
+          "description": "The list of games or categories that match the query. The list is empty if there are no matches.",
+          "children": [
+            {
+              "name": "box_art_url",
+              "type": "String",
+              "required": true,
+              "description": "A URL to an image of the game’s box art or streaming category.",
+              "depth": 1
+            },
+            {
+              "name": "name",
+              "type": "String",
+              "required": true,
+              "description": "The name of the game or category.",
+              "depth": 1
+            },
+            {
+              "name": "id",
+              "type": "String",
+              "required": true,
+              "description": "An ID that uniquely identifies the game or category.",
+              "depth": 1
+            }
+          ]
+        },
+        {
+          "name": "pagination",
+          "type": "Object",
+          "required": false,
+          "description": "Contains the information used to page through the list of results. The object is empty if there are no more pages left to page through. Read More",
+          "children": [
+            {
+              "name": "cursor",
+              "type": "String",
+              "required": false,
+              "description": "The cursor used to get the next page of results. Use the cursor to set the request’s after query parameter.",
+              "depth": 1
+            }
+          ]
+        }
+      ],
+      "status_codes": [
+        {
+          "code": 200,
+          "description": "Successfully retrieved the list of category names that matched the specified query string."
+        },
+        {
+          "code": 400,
+          "description": "The query query parameter is required."
+        },
+        {
+          "code": 401,
+          "description": "The Authorization header is required and must contain an app access token or user access token.The access token is not valid.The client ID specified in the Client-Id header does not match the client ID specified in the access token."
+        }
+      ]
+    },
+    {
       "id": "update-channel-stream-schedule",
       "name": "Update Channel Stream Schedule",
       "tag": "Schedule",

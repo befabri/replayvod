@@ -8,6 +8,7 @@ var endpoints = []string{
 	"modify-channel-information",
 	"get-followed-channels",
 	"get-games",
+	"search-categories",
 	"get-top-games",
 
 	// Phase 4

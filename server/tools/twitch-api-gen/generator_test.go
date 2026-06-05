@@ -118,6 +118,83 @@ func TestBuildModel_queryParamSemantics(t *testing.T) {
 	}
 }
 
+func TestBuildModel_searchCategoriesContract(t *testing.T) {
+	defs := parseSnapshotEndpointDefs(t, []string{"search-categories"})
+	if len(defs) != 1 {
+		t.Fatalf("parsed %d endpoint defs; want 1", len(defs))
+	}
+	def := defs[0]
+	if def.Method != "GET" || def.Path != "/search/categories" {
+		t.Errorf("search-categories method/path = %q %q; want GET /search/categories", def.Method, def.Path)
+	}
+	if !hasResponseField(def.Response, "pagination") {
+		t.Fatal("search-categories response missing injected pagination field")
+	}
+
+	model, err := buildModel(defs, "https://dev.twitch.tv/docs/api/reference/", "test-source-hash", silentLogger())
+	if err != nil {
+		t.Fatalf("build model: %v", err)
+	}
+
+	ep := findEndpointModel(t, model.Endpoints, "search-categories")
+	if ep.MethodName != "SearchCategories" {
+		t.Errorf("MethodName = %q; want SearchCategories", ep.MethodName)
+	}
+	if ep.ItemType != "SearchCategory" {
+		t.Errorf("ItemType = %q; want SearchCategory", ep.ItemType)
+	}
+	if !ep.Paginated {
+		t.Error("Paginated = false; want true")
+	}
+	if ep.ReturnType != "[]SearchCategory, Pagination, error" {
+		t.Errorf("ReturnType = %q; want []SearchCategory, Pagination, error", ep.ReturnType)
+	}
+
+	params := findTypeModel(t, model.ParamTypes, "SearchCategoriesParams")
+	query := findFieldModel(t, params.Fields, "Query")
+	if query.GoType != "string" {
+		t.Errorf("SearchCategoriesParams.Query GoType = %q; want string", query.GoType)
+	}
+	if query.ValidateTag != "required" {
+		t.Errorf("SearchCategoriesParams.Query validate = %q; want required", query.ValidateTag)
+	}
+
+	first := findFieldModel(t, params.Fields, "First")
+	if first.GoType != "int" {
+		t.Errorf("SearchCategoriesParams.First GoType = %q; want int", first.GoType)
+	}
+	after := findFieldModel(t, params.Fields, "After")
+	if after.GoType != "string" {
+		t.Errorf("SearchCategoriesParams.After GoType = %q; want string", after.GoType)
+	}
+
+	category := findTypeModel(t, model.Types, "SearchCategory")
+	for _, field := range []struct {
+		name string
+		typ  string
+	}{
+		{"ID", "string"},
+		{"Name", "string"},
+		{"BoxArtURL", "string"},
+	} {
+		got := findFieldModel(t, category.Fields, field.name)
+		if got.GoType != field.typ {
+			t.Errorf("SearchCategory.%s GoType = %q; want %q", field.name, got.GoType, field.typ)
+		}
+	}
+}
+
+func findEndpointModel(t *testing.T, endpoints []endpointModel, id string) endpointModel {
+	t.Helper()
+	for _, endpoint := range endpoints {
+		if endpoint.ID == id {
+			return endpoint
+		}
+	}
+	t.Fatalf("endpoint %s not found", id)
+	return endpointModel{}
+}
+
 func findTypeModel(t *testing.T, types []typeModel, name string) typeModel {
 	t.Helper()
 	for _, typ := range types {
@@ -138,6 +215,15 @@ func findFieldModel(t *testing.T, fields []fieldModel, name string) fieldModel {
 	}
 	t.Fatalf("field %s not found", name)
 	return fieldModel{}
+}
+
+func hasResponseField(fields []FieldSchema, name string) bool {
+	for _, field := range fields {
+		if field.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // generatedFilenames lists every file Generate produces when EventSub input is present.
