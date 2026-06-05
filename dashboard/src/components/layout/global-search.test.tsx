@@ -18,6 +18,10 @@ const searchState = vi.hoisted(() => ({
 	isChannelFetching: false,
 	isCategoryFetching: false,
 }));
+const categoryHooks = vi.hoisted(() => ({
+	search: vi.fn(),
+	searchWithVideos: vi.fn(),
+}));
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -50,10 +54,20 @@ vi.mock("@/features/channels/queries", () => ({
 }));
 
 vi.mock("@/features/categories/queries", () => ({
-	useCategorySearch: () => ({
-		data: searchState.categories,
-		isFetching: searchState.isCategoryFetching,
-	}),
+	useCategorySearch: (...args: unknown[]) => {
+		categoryHooks.search(...args);
+		return {
+			data: searchState.categories,
+			isFetching: searchState.isCategoryFetching,
+		};
+	},
+	useCategorySearchWithVideos: (...args: unknown[]) => {
+		categoryHooks.searchWithVideos(...args);
+		return {
+			data: searchState.categories,
+			isFetching: searchState.isCategoryFetching,
+		};
+	},
 }));
 
 import { GlobalSearch, GlobalSearchDialog } from "./global-search";
@@ -67,6 +81,8 @@ afterEach(() => {
 	searchState.isVideoFetching = false;
 	searchState.isChannelFetching = false;
 	searchState.isCategoryFetching = false;
+	categoryHooks.search.mockClear();
+	categoryHooks.searchWithVideos.mockClear();
 });
 
 describe("GlobalSearch", () => {
@@ -96,6 +112,23 @@ describe("GlobalSearch", () => {
 			to: "/dashboard/watch/$videoId",
 			params: { videoId: "42" },
 			search: { t: undefined },
+		});
+	});
+
+	it("uses the library-only category search endpoint", () => {
+		searchState.categories = [category({ name: "Neon Game" })];
+
+		render(createElement(GlobalSearch));
+		fireEvent.change(
+			screen.getByRole("combobox", { name: "search.input_label" }),
+			{
+				target: { value: "neon" },
+			},
+		);
+
+		expect(categoryHooks.search).not.toHaveBeenCalled();
+		expect(categoryHooks.searchWithVideos).toHaveBeenCalledWith("neon", 3, {
+			enabled: true,
 		});
 	});
 

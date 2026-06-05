@@ -69,8 +69,9 @@ function CategoryDetailPage() {
 					<CategoryBoxArt
 						url={category.data.box_art_url}
 						name={category.data.name}
-						width={192}
-						height={256}
+						width={144}
+						height={192}
+						sizes="144px"
 						className="w-36 rounded-md shrink-0"
 					/>
 					<div className="flex-1 min-w-0">

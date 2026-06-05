@@ -1,5 +1,6 @@
 import { DownloadIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
+import { useSelector } from "@tanstack/react-store";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,7 @@ import {
 	useVideoCategories,
 } from "@/features/videos/queries";
 import { useRelativeTime } from "@/lib/format-relative";
+import { authStore, hasRole } from "@/stores/auth";
 import { TriggerDownloadDialog } from "./TriggerDownloadDialog";
 
 // VideoInfo renders the title block, a chip strip of headline facts,
@@ -45,6 +47,12 @@ export function VideoInfo({
 	// SSE-backed set of currently-live broadcasters — drives the live ring on
 	// the channel avatar so the watch page reflects on/offline in real time.
 	const isLive = useLiveSet().has(video.broadcaster_id);
+	// video.triggerDownload is admin-only on the server, so hide the
+	// record-live entry point from viewers instead of failing on submit.
+	const canDownload = hasRole(
+		useSelector(authStore, (s) => s.user),
+		"admin",
+	);
 
 	const channelLabel = channel?.broadcaster_name ?? video.broadcaster_id;
 	const titleLabel = video.title?.trim() || video.display_name;
@@ -154,15 +162,17 @@ export function VideoInfo({
 						) : null}
 					</div>
 				</Link>
-				<TriggerDownloadDialog
-					broadcasterId={video.broadcaster_id}
-					broadcasterName={channelLabel}
-				>
-					<Button variant="outline" size="sm" className="shrink-0">
-						<DownloadIcon weight="regular" />
-						{t("watch.record_live")}
-					</Button>
-				</TriggerDownloadDialog>
+				{canDownload && (
+					<TriggerDownloadDialog
+						broadcasterId={video.broadcaster_id}
+						broadcasterName={channelLabel}
+					>
+						<Button variant="outline" size="sm" className="shrink-0">
+							<DownloadIcon weight="regular" />
+							{t("watch.record_live")}
+						</Button>
+					</TriggerDownloadDialog>
+				)}
 			</div>
 		</div>
 	);

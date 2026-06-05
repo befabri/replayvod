@@ -112,6 +112,45 @@ export function useToggleSchedule() {
 	);
 }
 
+// Global auto-download pause flag. Reading is viewer-level so the paused
+// banner shows for everyone; flipping it is admin-only on the server.
+export function useSchedulesPaused() {
+	const trpc = useTRPC();
+	return useQuery(trpc.schedule.pauseState.queryOptions(undefined));
+}
+
+export function useSetSchedulesPaused() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.schedule.setPaused.mutationOptions({
+			// Optimistic: the button + banner read this cache, so flip it
+			// immediately and roll back on error. Individual schedules are
+			// untouched server-side, so no list invalidation is needed.
+			onMutate: async ({ paused }) => {
+				const key = trpc.schedule.pauseState.queryKey();
+				await queryClient.cancelQueries({ queryKey: key });
+				const prev = queryClient.getQueryData(key);
+				queryClient.setQueryData(key, { paused });
+				return { prev };
+			},
+			onError: (_err, _vars, ctx) => {
+				if (ctx?.prev) {
+					queryClient.setQueryData(
+						trpc.schedule.pauseState.queryKey(),
+						ctx.prev,
+					);
+				}
+			},
+			onSettled: () => {
+				queryClient.invalidateQueries({
+					queryKey: trpc.schedule.pauseState.queryKey(),
+				});
+			},
+		}),
+	);
+}
+
 export function useDeleteSchedule() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();

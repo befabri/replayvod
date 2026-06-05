@@ -12,7 +12,9 @@ export const MAX_RETENTION_WINDOW_HOURS = 2562047;
 // requirements on/off at runtime.
 export const ScheduleFormSchema = CreateInputSchema.pick({
 	broadcaster_id: true,
+	recording_type: true,
 	quality: true,
+	force_h264: true,
 	has_min_viewers: true,
 	min_viewers: true,
 	has_categories: true,
@@ -27,6 +29,9 @@ export const ScheduleFormSchema = CreateInputSchema.pick({
 			.string()
 			.min(1)
 			.regex(/^\d+$/, "broadcaster_id must be numeric"),
+		recording_type: z.enum(["video", "audio"]),
+		quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+		force_h264: z.boolean(),
 		// The generated schema still carries the backend's historical
 		// unconditional bounds. The service validates this field only when
 		// retention is enabled, and the form drops stale values on submit when the
@@ -41,6 +46,38 @@ export const ScheduleFormSchema = CreateInputSchema.pick({
 				path: ["min_viewers"],
 				message: "min_viewers is required when has_min_viewers is enabled",
 			});
+		}
+		if (value.has_categories) {
+			if (value.category_ids.length === 0) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["category_ids"],
+					message:
+						"category_ids must include at least one category when has_categories is enabled",
+				});
+			} else if (value.category_ids.some((id) => id.trim().length === 0)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["category_ids"],
+					message: "category_ids cannot include empty category IDs",
+				});
+			}
+		}
+		if (value.has_tags) {
+			if (value.tag_ids.length === 0) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["tag_ids"],
+					message:
+						"tag_ids must include at least one tag when has_tags is enabled",
+				});
+			} else if (value.tag_ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["tag_ids"],
+					message: "tag_ids must be positive whole numbers",
+				});
+			}
 		}
 		if (value.is_delete_rediff) {
 			if (value.time_before_delete == null) {

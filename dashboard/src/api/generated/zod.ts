@@ -59,7 +59,9 @@ export const ChannelStatisticsInputSchema = z.object({
 
 export const CreateInputSchema = z.object({
   broadcaster_id: z.string().min(1),
+  recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
   quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  force_h264: z.boolean().optional(),
   has_min_viewers: z.boolean(),
   min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
   has_categories: z.boolean(),
@@ -146,7 +148,9 @@ export const ScheduleToggleInputSchema = z.object({
 
 export const ScheduleUpdateInputSchema = z.object({
   id: z.number(),
+  recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
   quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  force_h264: z.boolean().optional(),
   has_min_viewers: z.boolean(),
   min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
   has_categories: z.boolean(),
@@ -163,6 +167,10 @@ export const SearchEventLogsInputSchema = z.object({
   limit: z.int().gte(0).lte(200),
   offset: z.int().gte(0),
 }).meta({ id: "SearchEventLogsInput" });
+
+export const SetPausedInputSchema = z.object({
+  paused: z.boolean(),
+}).meta({ id: "SetPausedInput" });
 
 export const SettingsUpdateInputSchema = z.object({
   timezone: z.string().min(1).max(64),

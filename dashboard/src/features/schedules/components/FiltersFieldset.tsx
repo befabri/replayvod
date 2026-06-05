@@ -6,7 +6,10 @@ import {
 	MultiSelectPicker,
 	type PickerOption,
 } from "@/components/ui/multi-select-picker";
-import { CategoryMultiPicker } from "@/features/categories/components/CategoryMultiPicker";
+import {
+	CategoryMultiPicker,
+	type CategoryPickerCategory,
+} from "@/features/categories/components/CategoryMultiPicker";
 import { useTags } from "@/features/tags";
 import type { ScheduleFormApi } from "../form";
 import { MAX_RETENTION_WINDOW_HOURS } from "../schema";
@@ -15,7 +18,13 @@ import { FieldError } from "./FieldError";
 // Inputs are always rendered (never conditionally mounted) to avoid
 // layout shift when toggling the gating checkboxes. When the checkbox
 // is unchecked the corresponding input is disabled + dimmed.
-export function FiltersFieldset({ form }: { form: ScheduleFormApi }) {
+export function FiltersFieldset({
+	form,
+	initialCategories = [],
+}: {
+	form: ScheduleFormApi;
+	initialCategories?: CategoryPickerCategory[];
+}) {
 	const { t } = useTranslation();
 	const tagsQuery = useTags();
 
@@ -118,12 +127,14 @@ export function FiltersFieldset({ form }: { form: ScheduleFormApi }) {
 					{(enabled) => (
 						<form.Field name="category_ids">
 							{(field) => (
-								<div className="pl-6">
+								<div className="space-y-1 pl-6">
 									<CategoryMultiPicker
 										selected={field.state.value ?? []}
+										selectedCategories={initialCategories}
 										onChange={(next) => field.handleChange(next)}
 										disabled={!enabled}
 									/>
+									<FieldError errors={field.state.meta.errors} />
 								</div>
 							)}
 						</form.Field>
@@ -148,14 +159,17 @@ export function FiltersFieldset({ form }: { form: ScheduleFormApi }) {
 					{(enabled) => (
 						<form.Field name="tag_ids">
 							{(field) => (
-								<MultiSelectPicker<number>
-									options={tagOptions}
-									selected={field.state.value ?? []}
-									onChange={(next) => field.handleChange(next)}
-									placeholder={t("schedules.search_tags")}
-									emptyHint={t("schedules.no_tags")}
-									disabled={!enabled}
-								/>
+								<div className="space-y-1 pl-6">
+									<MultiSelectPicker<number>
+										options={tagOptions}
+										selected={field.state.value ?? []}
+										onChange={(next) => field.handleChange(next)}
+										placeholder={t("schedules.search_tags")}
+										emptyHint={t("schedules.no_tags")}
+										disabled={!enabled}
+									/>
+									<FieldError errors={field.state.meta.errors} />
+								</div>
 							)}
 						</form.Field>
 					)}

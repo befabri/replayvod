@@ -11,6 +11,14 @@ A **schedule** is a rule that decides whether a live stream gets recorded. Title
 
 Schedules are managed from the dashboard, not from a config file. Open **Schedules** and create a rule.
 
+A rule has recording settings:
+
+| Setting      | What it does |
+| ------------ | ------------ |
+| Mode         | Record video, or record the Twitch `audio_only` rendition as audio only. |
+| Quality      | Video mode only: preferred HLS video variant for streams matching this rule. |
+| Force H.264  | Video mode only: prefer H.264 variants when a channel offers HEVC/AV1. |
+
 A rule can match on:
 
 | Filter   | What it does |
@@ -19,7 +27,6 @@ A rule can match on:
 | Category | Match by Twitch category / game ID. |
 | Tag      | Match if the broadcaster set a given tag. |
 | Viewers  | Minimum viewer count threshold. |
-| Quality  | Preferred HLS variant for streams matching this rule (overrides global default for this rule). |
 
 Rules are independent. Multiple matching rules don't multiply the recording — one stream produces one VOD.
 

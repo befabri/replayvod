@@ -7,7 +7,9 @@ import {
 
 const base: ScheduleFormValues = {
 	broadcaster_id: "123456",
+	recording_type: "video",
 	quality: "HIGH",
+	force_h264: false,
 	has_min_viewers: false,
 	min_viewers: undefined,
 	has_categories: false,
@@ -100,5 +102,87 @@ describe("ScheduleFormSchema retention validation", () => {
 				result.error.issues.some((i) => i.path.includes("time_before_delete")),
 			).toBe(true);
 		}
+	});
+});
+
+describe("ScheduleFormSchema category and tag filter validation", () => {
+	it("accepts empty category and tag arrays when their filters are disabled", () => {
+		expect(
+			ScheduleFormSchema.safeParse({
+				...base,
+				has_categories: false,
+				category_ids: [],
+				has_tags: false,
+				tag_ids: [],
+			}).success,
+		).toBe(true);
+	});
+
+	it("requires at least one category when the category filter is enabled", () => {
+		const result = ScheduleFormSchema.safeParse({
+			...base,
+			has_categories: true,
+			category_ids: [],
+		});
+		expect(result.success).toBe(false);
+		if (!result.success) {
+			expect(
+				result.error.issues.some((i) => i.path.includes("category_ids")),
+			).toBe(true);
+		}
+	});
+
+	it("rejects blank category IDs", () => {
+		const result = ScheduleFormSchema.safeParse({
+			...base,
+			has_categories: true,
+			category_ids: ["game-1", " "],
+		});
+		expect(result.success).toBe(false);
+		if (!result.success) {
+			expect(
+				result.error.issues.some((i) => i.path.includes("category_ids")),
+			).toBe(true);
+		}
+	});
+
+	it("requires at least one tag when the tag filter is enabled", () => {
+		const result = ScheduleFormSchema.safeParse({
+			...base,
+			has_tags: true,
+			tag_ids: [],
+		});
+		expect(result.success).toBe(false);
+		if (!result.success) {
+			expect(result.error.issues.some((i) => i.path.includes("tag_ids"))).toBe(
+				true,
+			);
+		}
+	});
+
+	it("rejects non-positive tag IDs", () => {
+		const result = ScheduleFormSchema.safeParse({
+			...base,
+			has_tags: true,
+			tag_ids: [0],
+		});
+		expect(result.success).toBe(false);
+		if (!result.success) {
+			expect(result.error.issues.some((i) => i.path.includes("tag_ids"))).toBe(
+				true,
+			);
+		}
+	});
+
+	it("accepts selected category and tag filters", () => {
+		expect(
+			ScheduleFormSchema.safeParse({
+				...base,
+				has_categories: true,
+				category_ids: ["game-1"],
+				has_tags: true,
+				tag_ids: [1],
+			}).success,
+		).toBe(true);
 	});
 });

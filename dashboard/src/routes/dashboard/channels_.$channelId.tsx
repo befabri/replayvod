@@ -4,6 +4,7 @@ import {
 	TwitchLogoIcon,
 } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useSelector } from "@tanstack/react-store";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
@@ -11,11 +12,12 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useChannel } from "@/features/channels/queries";
 import { useLiveSet } from "@/features/streams-live";
-import { TriggerDownloadDialog } from "@/features/videos/components/TriggerDownloadDialog";
+import { ChannelDownloadDialog } from "@/features/videos/components/ChannelDownloadDialog";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { useInfiniteVideosByBroadcaster } from "@/features/videos/queries";
+import { authStore, hasRole } from "@/stores/auth";
 
 export const Route = createFileRoute("/dashboard/channels_/$channelId")({
 	component: ChannelDetailPage,
@@ -28,6 +30,12 @@ function ChannelDetailPage() {
 	const videos = useInfiniteVideosByBroadcaster(channelId, 24);
 	const liveSet = useLiveSet();
 	const isLive = liveSet.has(channelId);
+	// Both the direct download (video.triggerDownload) and the schedule tab
+	// (schedule.create) are admin-only on the server, so the whole Download
+	// entry point is hidden from viewers rather than letting them fill the
+	// flow and fail on submit.
+	const user = useSelector(authStore, (s) => s.user);
+	const canDownload = hasRole(user, "admin");
 	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 	const videoItems = videos.data?.pages.flatMap((page) => page.items) ?? [];
 	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
@@ -103,15 +111,20 @@ function ChannelDetailPage() {
 							<TwitchLogoIcon weight="fill" />
 							{t("channels.open_in_twitch")}
 						</a>
-						<TriggerDownloadDialog
-							broadcasterId={channel.data.broadcaster_id}
-							broadcasterName={channel.data.broadcaster_name}
-						>
-							<Button variant="outline">
-								<DownloadIcon weight="regular" />
-								{t("videos.trigger_download")}
-							</Button>
-						</TriggerDownloadDialog>
+						{canDownload && (
+							<ChannelDownloadDialog
+								broadcasterId={channel.data.broadcaster_id}
+								broadcasterName={channel.data.broadcaster_name}
+								broadcasterLogin={channel.data.broadcaster_login}
+								profileImageUrl={channel.data.profile_image_url}
+								isLive={isLive}
+							>
+								<Button variant="outline">
+									<DownloadIcon weight="regular" />
+									{t("videos.trigger_download")}
+								</Button>
+							</ChannelDownloadDialog>
+						)}
 					</div>
 				</div>
 			)}

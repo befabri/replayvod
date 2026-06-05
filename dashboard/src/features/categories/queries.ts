@@ -6,6 +6,11 @@ export function useCategories() {
 	return useQuery(trpc.category.list.queryOptions());
 }
 
+export function useCategoriesWithVideos() {
+	const trpc = useTRPC();
+	return useQuery(trpc.category.listWithVideos.queryOptions());
+}
+
 export function useCategory(id: string) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -21,6 +26,20 @@ export function useCategorySearch(
 	const trpc = useTRPC();
 	return useQuery(
 		trpc.category.search.queryOptions(
+			{ query, limit },
+			{ enabled: options?.enabled ?? true },
+		),
+	);
+}
+
+export function useCategorySearchWithVideos(
+	query: string,
+	limit = 50,
+	options?: { enabled?: boolean },
+) {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.category.searchWithVideos.queryOptions(
 			{ query, limit },
 			{ enabled: options?.enabled ?? true },
 		),

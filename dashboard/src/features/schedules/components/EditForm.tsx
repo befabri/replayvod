@@ -13,9 +13,10 @@ import {
 	useDeleteSchedule,
 	useUpdateSchedule,
 } from "@/features/schedules/queries";
+import { scheduleRecordingTypeValue } from "@/features/schedules/recording";
 import type { ScheduleFormValues } from "@/features/schedules/schema";
 import { FiltersFieldset } from "./FiltersFieldset";
-import { QualityField } from "./QualityField";
+import { RecordingSettingsField } from "./RecordingSettingsField";
 
 // EditForm mirrors the v1 shared ScheduleForm in edit mode: the
 // broadcaster field is shown read-only at the top (context, no change
@@ -35,7 +36,9 @@ export function EditForm({
 
 	const defaultValues: ScheduleFormValues = {
 		broadcaster_id: schedule.broadcaster_id,
+		recording_type: scheduleRecordingTypeValue(schedule.recording_type),
 		quality: scheduleQualityValue(schedule.quality),
+		force_h264: schedule.force_h264,
 		has_min_viewers: schedule.has_min_viewers,
 		min_viewers: schedule.min_viewers ?? undefined,
 		has_categories: schedule.has_categories,
@@ -101,9 +104,9 @@ export function EditForm({
 				</div>
 			</div>
 
-			<QualityField form={form} className="max-w-xs" />
+			<RecordingSettingsField form={form} />
 
-			<FiltersFieldset form={form} />
+			<FiltersFieldset form={form} initialCategories={schedule.categories} />
 
 			{update.isError && (
 				<div className="rounded-md bg-destructive/10 p-3 text-destructive text-sm">

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CategoryResponse } from "@/api/generated/trpc";
 import {
@@ -13,72 +13,101 @@ import {
 	ComboboxList,
 	ComboboxStatus,
 } from "@/components/ui/combobox";
+import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import {
 	useCategories,
 	useCategorySearch,
 } from "@/features/categories/queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { resolveBoxArtUrl } from "@/lib/twitch";
+
+export type CategoryPickerCategory = Pick<
+	CategoryResponse,
+	"id" | "name" | "box_art_url" | "igdb_id"
+>;
 
 interface CategoryMultiPickerProps {
 	selected: string[];
+	selectedCategories?: CategoryPickerCategory[];
 	onChange: (next: string[]) => void;
 	disabled?: boolean;
 }
 
+const EMPTY_SELECTED_CATEGORIES: CategoryPickerCategory[] = [];
+
 // CategoryMultiPicker drives the schedule form's category filter via a
-// Base UI Combobox in multi-select mode. Server-side search (once the
-// backend exposes category.search) keeps the dropdown responsive for
-// arbitrarily large Twitch catalogs; until then it client-filters the
-// list response.
-// Small box-art thumbnail used in the dropdown rows. Silently drops to
-// a bg-muted block if the URL is missing or fails to load.
-function PickerThumb({ url }: { url?: string | null }) {
-	const resolved = resolveBoxArtUrl(url, 36, 48);
-	const [errored, setErrored] = useState(false);
-	if (!resolved || errored) {
-		return <span className="w-6 h-8 rounded bg-muted shrink-0" />;
-	}
+// Base UI Combobox in multi-select mode. Server-side search keeps the
+// dropdown responsive for arbitrarily large Twitch catalogs while the
+// selected-item union keeps chips visible across query changes.
+function PickerThumb({ url, name }: { url?: string | null; name: string }) {
 	return (
-		<img
-			src={resolved}
-			alt=""
-			className="w-6 h-8 object-cover rounded shrink-0"
-			onError={() => setErrored(true)}
+		<CategoryBoxArt
+			url={url}
+			name={name}
+			width={24}
+			height={32}
+			sizes="24px"
+			decorative
+			placeholderIconSize={14}
+			className="w-6 rounded shrink-0"
 		/>
 	);
 }
 
 export function CategoryMultiPicker({
 	selected,
+	selectedCategories = EMPTY_SELECTED_CATEGORIES,
 	onChange,
 	disabled,
 }: CategoryMultiPickerProps) {
 	const { t } = useTranslation();
 	const [query, setQuery] = useState("");
 	const debounced = useDebouncedValue(query, 200);
+	const canSearchTwitch = Array.from(debounced.trim()).length >= 2;
 	const { data: results, isFetching } = useCategorySearch(debounced, 50);
 	const { data: all } = useCategories();
 
-	// Resolve the currently-selected ids into full CategoryResponse
-	// objects so chips can display the label. We union `useCategories`
-	// data and the current search results — a category picked from a
-	// prior search page may not be in either alone, so pulling from
-	// both maximizes coverage. Once the backend `category.search` lands
-	// and the list endpoint stops being sparse, this will just work.
-	const selectedItems = useMemo<CategoryResponse[]>(() => {
-		const byId = new Map<string, CategoryResponse>();
+	// Accumulate every category we've ever seen: edit-form defaults, the full
+	// list, plus any search page. Edit defaults matter before useCategories()
+	// resolves; without them, interacting during initial load can make unresolved
+	// chips disappear from `selectedItems`, and the next onValueChange would write
+	// the form back without those IDs.
+	const [seen, setSeen] = useState<Map<string, CategoryPickerCategory>>(
+		() => new Map(),
+	);
+	useEffect(() => {
+		setSeen((prev) => {
+			let next: Map<string, CategoryPickerCategory> | null = null;
+			for (const c of [
+				...selectedCategories,
+				...(all ?? []),
+				...(results ?? []),
+			]) {
+				if (!prev.has(c.id)) {
+					next ??= new Map(prev);
+					next.set(c.id, c);
+				}
+			}
+			return next ?? prev;
+		});
+	}, [selectedCategories, all, results]);
+
+	// Resolve the currently-selected ids into full CategoryResponse objects so
+	// chips can display the label. Union the seen cache with the freshest list +
+	// results so a just-arrived row resolves on the same render the effect commits.
+	const selectedItems = useMemo<CategoryPickerCategory[]>(() => {
+		const byId = new Map(seen);
+		for (const c of selectedCategories) byId.set(c.id, c);
 		for (const c of all ?? []) byId.set(c.id, c);
 		for (const c of results ?? []) byId.set(c.id, c);
 		return selected
 			.map((id) => byId.get(id))
-			.filter((c): c is CategoryResponse => !!c);
-	}, [selected, all, results]);
+			.filter((c): c is CategoryPickerCategory => !!c);
+	}, [selected, selectedCategories, seen, all, results]);
 
 	// Stitch selected items into the visible options so they remain
 	// deselectable from the dropdown even when they don't match the
 	// current query.
-	const items = useMemo<CategoryResponse[]>(() => {
+	const items = useMemo<CategoryPickerCategory[]>(() => {
 		const list = results ?? [];
 		const seen = new Set(list.map((c) => c.id));
 		return [...list, ...selectedItems.filter((c) => !seen.has(c.id))];
@@ -89,7 +118,7 @@ export function CategoryMultiPicker({
 	// wrapper needed.
 	return (
 		<div className={disabled ? "opacity-50" : undefined}>
-			<Combobox<CategoryResponse, true>
+			<Combobox<CategoryPickerCategory, true>
 				multiple
 				items={items}
 				filter={null}
@@ -114,10 +143,10 @@ export function CategoryMultiPicker({
 					/>
 				</ComboboxChips>
 				<ComboboxContent>
-					<ComboboxList<CategoryResponse>>
+					<ComboboxList<CategoryPickerCategory>>
 						{(item) => (
 							<ComboboxItem key={item.id} value={item}>
-								<PickerThumb url={item.box_art_url} />
+								<PickerThumb url={item.box_art_url} name={item.name} />
 								<span className="truncate">{item.name}</span>
 							</ComboboxItem>
 						)}
@@ -125,7 +154,11 @@ export function CategoryMultiPicker({
 					{isFetching ? (
 						<ComboboxStatus>{t("common.loading")}</ComboboxStatus>
 					) : (
-						<ComboboxEmpty>{t("schedules.no_categories")}</ComboboxEmpty>
+						<ComboboxEmpty>
+							{canSearchTwitch
+								? t("schedules.no_category_matches")
+								: t("schedules.no_categories")}
+						</ComboboxEmpty>
 					)}
 				</ComboboxContent>
 			</Combobox>

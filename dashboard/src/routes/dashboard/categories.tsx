@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { VirtualGrid } from "@/components/ui/virtual-grid";
 import type { CategoryResponse } from "@/features/categories";
-import { useCategories } from "@/features/categories";
+import { useCategoriesWithVideos } from "@/features/categories";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 
 type ViewMode = "card" | "grid";
@@ -32,7 +32,7 @@ function CategoriesPage() {
 	const { t } = useTranslation();
 	const { view } = Route.useSearch();
 	const navigate = Route.useNavigate();
-	const { data: categories, isLoading, error } = useCategories();
+	const { data: categories, isLoading, error } = useCategoriesWithVideos();
 
 	return (
 		<TitledLayout
@@ -85,7 +85,13 @@ function CardGrid({ categories }: { categories: CategoryResponse[] }) {
 				params={{ categoryId: category.id }}
 				className="block rounded-lg bg-card overflow-hidden shadow-sm hover:ring-2 hover:ring-primary transition-all duration-75"
 			>
-				<CategoryBoxArt url={category.box_art_url} name={category.name} />
+				<CategoryBoxArt
+					url={category.box_art_url}
+					name={category.name}
+					width={240}
+					height={320}
+					sizes="(max-width: 360px) calc(100vw - 2rem), (max-width: 768px) calc(50vw - 2rem), 200px"
+				/>
 				<div className="p-2 text-sm font-medium truncate">{category.name}</div>
 			</Link>
 		),
@@ -123,6 +129,9 @@ function DenseGrid({ categories }: { categories: CategoryResponse[] }) {
 				<CategoryBoxArt
 					url={category.box_art_url}
 					name={category.name}
+					width={180}
+					height={240}
+					sizes="(max-width: 768px) calc(50vw - 1.5rem), 180px"
 					className="rounded-md border-4 border-background group-hover:border-primary transition-colors duration-75"
 				/>
 				<div className="text-sm font-medium truncate group-hover:text-link transition-colors duration-75">

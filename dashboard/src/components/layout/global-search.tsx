@@ -1,6 +1,5 @@
 import {
 	CircleNotchIcon,
-	GameControllerIcon,
 	MagnifyingGlassIcon,
 	XIcon,
 } from "@phosphor-icons/react";
@@ -40,12 +39,12 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API_URL } from "@/env";
-import { useCategorySearch } from "@/features/categories/queries";
+import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
+import { useCategorySearchWithVideos } from "@/features/categories/queries";
 import { useChannelSearch } from "@/features/channels/queries";
 import { channelLabel, useVideoSearch } from "@/features/videos";
 import { VideoStatusBadge } from "@/features/videos/components/VideoStatusBadge";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { resolveBoxArtUrl } from "@/lib/twitch";
 import { cn } from "@/lib/utils";
 
 type SearchScope = "all" | "videos" | "channels" | "categories";
@@ -106,7 +105,7 @@ export function GlobalSearch({
 	const channels = useChannelSearch(debouncedQuery, otherLimit, {
 		enabled: open && debouncedReady && channelScopeActive,
 	});
-	const categories = useCategorySearch(debouncedQuery, otherLimit, {
+	const categories = useCategorySearchWithVideos(debouncedQuery, otherLimit, {
 		enabled: open && debouncedReady && categoryScopeActive,
 	});
 
@@ -546,20 +545,16 @@ function CategoryResultRow({
 }
 
 function CategoryThumb({ category }: { category: CategoryResponse }) {
-	const src = resolveBoxArtUrl(category.box_art_url, 54, 72);
-	if (!src) {
-		return (
-			<div className="flex h-12 w-9 shrink-0 items-center justify-center rounded-sm bg-muted text-muted-foreground">
-				<GameControllerIcon className="size-4" />
-			</div>
-		);
-	}
 	return (
-		<img
-			src={src}
-			alt=""
-			className="h-12 w-9 shrink-0 rounded-sm object-cover"
-			loading="lazy"
+		<CategoryBoxArt
+			url={category.box_art_url}
+			name={category.name}
+			width={36}
+			height={48}
+			sizes="36px"
+			decorative
+			placeholderIconSize={16}
+			className="w-9 rounded-sm shrink-0"
 		/>
 	);
 }

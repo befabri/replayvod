@@ -76,7 +76,7 @@ export interface CategoryResponse {
 /**
  * SearchInput drives category.search. Empty Query returns everything
  * up to Limit — the same endpoint backs the combobox "show all"
- * state. Query is capped at 100 chars to bound ILIKE pattern work;
+ * state. Query is capped at 100 chars to bound substring pattern work;
  * plenty of headroom for any realistic game title.
  */
 export interface CategorySearchInput {
@@ -191,7 +191,9 @@ export interface ConfigResponse {
  */
 export interface CreateInput {
   broadcaster_id: string;
+  recording_type?: string;
   quality: string;
+  force_h264?: boolean;
   has_min_viewers: boolean;
   min_viewers?: number;
   has_categories: boolean;
@@ -381,6 +383,14 @@ export interface LogoutResult {
   ok: boolean;
 }
 
+/**
+ * PauseStateResponse reports the global auto-download pause flag. The dashboard
+ * uses it to render the Pause all / Resume button and the paused banner.
+ */
+export interface PauseStateResponse {
+  paused: boolean;
+}
+
 export type PlaybackAssetStatus = "building" | "ready" | "failed" | "unavailable";
 
 export interface PlaybackCacheConfigResponse {
@@ -522,7 +532,9 @@ export interface ScheduleResponse {
   id: number;
   broadcaster_id: string;
   requested_by: string;
+  recording_type: string;
   quality: string;
+  force_h264: boolean;
   has_min_viewers: boolean;
   min_viewers?: number;
   has_categories: boolean;
@@ -549,7 +561,9 @@ export interface ScheduleToggleInput {
  */
 export interface ScheduleUpdateInput {
   id: number;
+  recording_type?: string;
   quality: string;
+  force_h264?: boolean;
   has_min_viewers: boolean;
   min_viewers?: number;
   has_categories: boolean;
@@ -624,6 +638,10 @@ export interface SessionResponse {
   email?: string;
   profile_image_url?: string;
   role: Role;
+}
+
+export interface SetPausedInput {
+  paused: boolean;
 }
 
 export interface SettingsResponse {
@@ -1191,7 +1209,9 @@ type AppRouterRecord = {
   category: {
     getById: $Query<CategoryGetByIDInput, CategoryResponse>;
     list: $Query<void, CategoryResponse[]>;
+    listWithVideos: $Query<void, CategoryResponse[]>;
     search: $Query<CategorySearchInput, CategoryResponse[]>;
+    searchWithVideos: $Query<CategorySearchInput, CategoryResponse[]>;
   };
   channel: {
     getById: $Query<ChannelGetByIDInput, ChannelResponse>;
@@ -1227,6 +1247,8 @@ type AppRouterRecord = {
     getById: $Query<ScheduleGetByIDInput, ScheduleResponse>;
     list: $Query<ScheduleListInput, ScheduleListResponse>;
     mine: $Query<ScheduleListInput, ScheduleListResponse>;
+    pauseState: $Query<void, PauseStateResponse>;
+    setPaused: $Mutation<SetPausedInput, PauseStateResponse>;
     toggle: $Mutation<ScheduleToggleInput, ScheduleResponse>;
     update: $Mutation<ScheduleUpdateInput, ScheduleResponse>;
   };

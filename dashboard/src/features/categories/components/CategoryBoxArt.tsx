@@ -1,7 +1,7 @@
 import { GameControllerIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
-import { resolveBoxArtUrl } from "@/lib/twitch";
+import { resolveBoxArtSrcSet, resolveBoxArtUrl } from "@/lib/twitch";
 import { cn } from "@/lib/utils";
 
 // CategoryBoxArt resolves the Twitch box-art template URL and degrades
@@ -12,15 +12,23 @@ export function CategoryBoxArt({
 	name,
 	width = 144,
 	height = 192,
+	sizes,
+	decorative = false,
+	placeholderIconSize = 32,
 	className,
 }: {
 	url?: string | null;
 	name: string;
 	width?: number;
 	height?: number;
+	sizes?: string;
+	decorative?: boolean;
+	placeholderIconSize?: number;
 	className?: string;
 }) {
 	const resolved = resolveBoxArtUrl(url, width, height);
+	const srcSet = resolveBoxArtSrcSet(url, width, height);
+	const imageSizes = srcSet ? (sizes ?? `${width}px`) : undefined;
 	const [errored, setErrored] = useState(false);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: resolved is the reset trigger (the URL changed), not read in the effect body — auto-removing it would stop the error state from clearing on a new src.
 	useEffect(() => {
@@ -39,13 +47,18 @@ export function CategoryBoxArt({
 			{showImg ? (
 				<img
 					src={resolved}
-					alt={name}
+					srcSet={srcSet}
+					sizes={imageSizes}
+					alt={decorative ? "" : name}
+					width={width}
+					height={height}
 					className="w-full h-full object-cover"
 					loading="lazy"
+					decoding="async"
 					onError={() => setErrored(true)}
 				/>
 			) : (
-				<GameControllerIcon size={32} weight="duotone" />
+				<GameControllerIcon size={placeholderIconSize} weight="duotone" />
 			)}
 		</div>
 	);

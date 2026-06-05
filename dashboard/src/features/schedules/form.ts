@@ -1,11 +1,12 @@
 import { useForm } from "@tanstack/react-form";
+import { forceH264For } from "@/lib/recording-settings";
 import { ScheduleFormSchema, type ScheduleFormValues } from "./schema";
 
 // useScheduleForm centralizes the shared TanStack Form config used by
 // both the create and edit forms: the same validator (the picked,
 // superRefined schema) and submit plumbing. Returning the form from one
 // factory also gives the shared field components (FiltersFieldset,
-// QualityField) a single concrete, fully-typed form type to depend on
+// RecordingSettingsField) a single concrete, fully-typed form type to depend on
 // instead of falling back to loose typing.
 export function useScheduleForm(
 	defaultValues: ScheduleFormValues,
@@ -26,9 +27,14 @@ export type ScheduleFormApi = ReturnType<typeof useScheduleForm>;
 // toggle is disabled, so a stale value the user can't see never reaches
 // the server. The caller spreads in the mode-specific fields
 // (broadcaster_id + is_disabled on create, id + is_disabled on edit).
+//
+// Recording settings follow the same audio/H.264 rule as the shared UI and the
+// server normalization: stale force_h264 is cleared when audio is selected.
 export function buildSchedulePayload(value: ScheduleFormValues) {
 	return {
+		recording_type: value.recording_type,
 		quality: value.quality,
+		force_h264: forceH264For(value.recording_type, value.force_h264),
 		has_min_viewers: value.has_min_viewers,
 		min_viewers: value.has_min_viewers ? value.min_viewers : undefined,
 		has_categories: value.has_categories,

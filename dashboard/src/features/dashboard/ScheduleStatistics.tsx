@@ -1,5 +1,6 @@
 import { PencilSimpleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
+import { useSelector } from "@tanstack/react-store";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
@@ -17,10 +18,14 @@ import type { ScheduleResponse } from "@/features/schedules";
 import { EditForm } from "@/features/schedules/components/EditForm";
 import { scheduleQualityLabel } from "@/features/schedules/quality";
 import { useMineSchedules } from "@/features/schedules/queries";
+import { scheduleRecordingTypeLabel } from "@/features/schedules/recording";
+import { authStore, hasRole } from "@/stores/auth";
 
 export function ScheduleStatistics() {
 	const { t } = useTranslation();
 	const { data, isLoading, isError } = useMineSchedules();
+	const user = useSelector(authStore, (s) => s.user);
+	const canManage = hasRole(user, "admin");
 
 	const items = data?.data.slice(0, 4) ?? [];
 	const total = data?.data.length ?? 0;
@@ -47,7 +52,7 @@ export function ScheduleStatistics() {
 			) : (
 				<ul className="divide-y divide-border">
 					{items.map((s) => (
-						<ScheduleStatsRow key={s.id} schedule={s} />
+						<ScheduleStatsRow key={s.id} schedule={s} canManage={canManage} />
 					))}
 				</ul>
 			)}
@@ -58,7 +63,13 @@ export function ScheduleStatistics() {
 // Extracted to its own component so each row can fire its own useChannel
 // query for name/avatar resolution without cluttering the parent hook
 // list. React Query dedupes across rows with the same broadcaster_id.
-function ScheduleStatsRow({ schedule }: { schedule: ScheduleResponse }) {
+function ScheduleStatsRow({
+	schedule,
+	canManage,
+}: {
+	schedule: ScheduleResponse;
+	canManage: boolean;
+}) {
 	const { t } = useTranslation();
 	const { data: channel } = useChannel(schedule.broadcaster_id);
 	const [editing, setEditing] = useState(false);
@@ -79,34 +90,42 @@ function ScheduleStatsRow({ schedule }: { schedule: ScheduleResponse }) {
 			>
 				{label}
 			</Link>
-			<QualityTag>{scheduleQualityLabel(t, schedule.quality)}</QualityTag>
+			<QualityTag>
+				{schedule.recording_type === "audio"
+					? scheduleRecordingTypeLabel(t, schedule.recording_type)
+					: scheduleQualityLabel(t, schedule.quality)}
+			</QualityTag>
 			{schedule.is_disabled ? (
 				<span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
 					{t("schedules.disabled")}
 				</span>
 			) : null}
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				onClick={() => setEditing(true)}
-				aria-label={t("schedules.edit")}
-			>
-				<PencilSimpleIcon />
-			</Button>
+			{canManage ? (
+				<>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onClick={() => setEditing(true)}
+						aria-label={t("schedules.edit")}
+					>
+						<PencilSimpleIcon />
+					</Button>
 
-			<Dialog open={editing} onOpenChange={setEditing}>
-				<DialogContent className="max-w-xl">
-					<DialogHeader>
-						<DialogTitle>
-							{t("schedules.edit_title")}
-							<span className="ml-2 font-mono text-xs text-muted-foreground">
-								{schedule.broadcaster_id}
-							</span>
-						</DialogTitle>
-					</DialogHeader>
-					<EditForm schedule={schedule} onDone={() => setEditing(false)} />
-				</DialogContent>
-			</Dialog>
+					<Dialog open={editing} onOpenChange={setEditing}>
+						<DialogContent className="max-w-xl">
+							<DialogHeader>
+								<DialogTitle>
+									{t("schedules.edit_title")}
+									<span className="ml-2 font-mono text-xs text-muted-foreground">
+										{schedule.broadcaster_id}
+									</span>
+								</DialogTitle>
+							</DialogHeader>
+							<EditForm schedule={schedule} onDone={() => setEditing(false)} />
+						</DialogContent>
+					</Dialog>
+				</>
+			) : null}
 		</li>
 	);
 }

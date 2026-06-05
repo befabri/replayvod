@@ -11,15 +11,22 @@ import { useCreateSchedule } from "@/features/schedules/queries";
 import type { ScheduleFormValues } from "@/features/schedules/schema";
 import { FieldError } from "./FieldError";
 import { FiltersFieldset } from "./FiltersFieldset";
-import { QualityField } from "./QualityField";
+import { RecordingSettingsField } from "./RecordingSettingsField";
 
-export function CreateForm() {
+// CreateForm is the schedule creation form, rendered inside the
+// CreateScheduleDialog modal. It mirrors EditForm's modal layout (vertical
+// fields, bled footer) but starts from empty defaults and exposes the
+// channel picker, since the target channel isn't fixed the way it is when
+// editing an existing schedule.
+export function CreateForm({ onDone }: { onDone: () => void }) {
 	const { t } = useTranslation();
 	const create = useCreateSchedule();
 
 	const defaultValues: ScheduleFormValues = {
 		broadcaster_id: "",
+		recording_type: "video",
 		quality: "HIGH",
+		force_h264: false,
 		has_min_viewers: false,
 		min_viewers: undefined,
 		has_categories: false,
@@ -37,8 +44,8 @@ export function CreateForm() {
 				broadcaster_id: value.broadcaster_id.trim(),
 				is_disabled: false,
 			});
-			form.reset();
-			toast.success(t("schedules.create_submit"));
+			toast.success(t("schedules.created"));
+			onDone();
 		} catch (err) {
 			toast.error(
 				err instanceof Error ? err.message : t("schedules.create_failed"),
@@ -53,30 +60,28 @@ export function CreateForm() {
 				e.stopPropagation();
 				void form.handleSubmit();
 			}}
-			className="rounded-lg bg-card p-4 mb-6 space-y-3 shadow-sm"
+			className="flex flex-col gap-4"
 		>
-			<h2 className="text-lg font-medium">{t("schedules.create_title")}</h2>
-			<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-				<form.Field name="broadcaster_id">
-					{(field) => (
-						<div className="flex flex-col gap-1">
-							<Label htmlFor={field.name} className="text-muted-foreground">
-								{t("schedules.broadcaster_id")}
-							</Label>
-							<ChannelPicker
-								id={field.name}
-								value={field.state.value}
-								onChange={(id) => field.handleChange(id)}
-								aria-invalid={
-									field.state.meta.errors.length > 0 ? true : undefined
-								}
-							/>
-							<FieldError errors={field.state.meta.errors} />
-						</div>
-					)}
-				</form.Field>
-				<QualityField form={form} />
-			</div>
+			<form.Field name="broadcaster_id">
+				{(field) => (
+					<div className="flex flex-col gap-1">
+						<Label htmlFor={field.name} className="text-muted-foreground">
+							{t("schedules.broadcaster_id")}
+						</Label>
+						<ChannelPicker
+							id={field.name}
+							value={field.state.value}
+							onChange={(id) => field.handleChange(id)}
+							aria-invalid={
+								field.state.meta.errors.length > 0 ? true : undefined
+							}
+						/>
+						<FieldError errors={field.state.meta.errors} />
+					</div>
+				)}
+			</form.Field>
+
+			<RecordingSettingsField form={form} />
 
 			<FiltersFieldset form={form} />
 
@@ -86,18 +91,33 @@ export function CreateForm() {
 				</div>
 			)}
 
-			<form.Subscribe selector={(s) => [s.canSubmit, s.isSubmitting] as const}>
-				{([canSubmit, isSubmitting]) => (
-					<Button
-						type="submit"
-						disabled={!canSubmit || isSubmitting || create.isPending}
-					>
-						{isSubmitting || create.isPending
-							? t("common.saving")
-							: t("schedules.create_submit")}
-					</Button>
-				)}
-			</form.Subscribe>
+			{/* Footer mirrors EditForm: bled to the dialog edges, Cancel + Create
+				on the right with a shared min-width so labels line up. */}
+			<div className="flex items-center justify-end gap-2 border-t border-border pt-4 -mx-6 px-6 -mb-6 pb-6">
+				<Button
+					type="button"
+					variant="outline"
+					onClick={onDone}
+					className="min-w-24"
+				>
+					{t("schedules.cancel")}
+				</Button>
+				<form.Subscribe
+					selector={(s) => [s.canSubmit, s.isSubmitting] as const}
+				>
+					{([canSubmit, isSubmitting]) => (
+						<Button
+							type="submit"
+							disabled={!canSubmit || isSubmitting || create.isPending}
+							className="min-w-24"
+						>
+							{isSubmitting || create.isPending
+								? t("common.saving")
+								: t("schedules.create_submit")}
+						</Button>
+					)}
+				</form.Subscribe>
+			</div>
 		</form>
 	);
 }
