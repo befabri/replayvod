@@ -49,6 +49,14 @@ tasks:
       - task: server:test
       - task: dashboard:test
 
+  ci:server:
+    desc: Run the GitHub Actions Public CI server job locally with act
+    preconditions:
+      - sh: command -v act >/dev/null 2>&1
+        msg: "act is required for task ci:server. Install it from https://github.com/nektos/act"
+    cmds:
+      - act push -W .github/workflows/landing.yml -j server -P ubuntu-latest=catthehacker/ubuntu:act-latest
+
   # ---- server (Go) ----
 
   server:setup:
