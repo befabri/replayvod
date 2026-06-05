@@ -32,6 +32,20 @@ import (
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
+const twitchEdgeSegmentDuration = time.Second
+
+func twitchEdgeTargetDurationSeconds() int {
+	seconds := int((twitchEdgeSegmentDuration + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
+}
+
+func twitchEdgeTargetDuration() time.Duration {
+	return time.Duration(twitchEdgeTargetDurationSeconds()) * time.Second
+}
+
 // requireFFmpegHarness skips the test when ffmpeg / ffprobe are
 // missing. Mirrors the helper in remux/ffmpeg_real_test.go —
 // duplicated because Go test files can't share symbols across
@@ -240,6 +254,31 @@ func (e *twitchEdge) NoteRestart() {
 	}
 }
 
+// SetNextAWindowHead moves variant A so the next media-playlist request
+// starts at mediaSeq. With endlist=true, that same response is final.
+// Call only after the service using the edge has stopped.
+func (e *twitchEdge) SetNextAWindowHead(mediaSeq int64, endlist bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	start := int(mediaSeq) - e.opts.baseSeqA
+	if start < 0 {
+		e.t.Fatalf("invalid variant-A window fixture: requested playlist head %d is before base media sequence %d",
+			mediaSeq, e.opts.baseSeqA)
+	}
+	nextCursor := start + e.opts.windowA
+	if nextCursor > e.opts.tsCount {
+		e.t.Fatalf("invalid variant-A window fixture: requested playlist head %d needs cursor %d beyond tsCount %d",
+			mediaSeq, nextCursor, e.opts.tsCount)
+	}
+
+	e.aCursor = nextCursor - 1
+	e.pendingJump = 0
+	if endlist {
+		e.opts.aEndlist = nextCursor
+	}
+}
+
 func (e *twitchEdge) handleGQL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method", http.StatusMethodNotAllowed)
@@ -286,8 +325,8 @@ func (e *twitchEdge) handleUsher(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (e *twitchEdge) handlePlaylistA(w http.ResponseWriter, r *http.Request) {
-	opts := e.opts
 	e.mu.Lock()
+	opts := e.opts
 	if e.aDropped {
 		e.mu.Unlock()
 		http.NotFound(w, r)
@@ -318,10 +357,10 @@ func (e *twitchEdge) handlePlaylistA(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:3\n")
-	b.WriteString("#EXT-X-TARGETDURATION:1\n")
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", twitchEdgeTargetDurationSeconds())
 	fmt.Fprintf(&b, "#EXT-X-MEDIA-SEQUENCE:%d\n", opts.baseSeqA+start)
 	for i := start; i < end; i++ {
-		b.WriteString("#EXTINF:1.000,\n")
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n", twitchEdgeSegmentDuration.Seconds())
 		fmt.Fprintf(&b, "%s/seg/A/%d.ts\n", e.server.URL, i)
 	}
 	if endlist {
@@ -336,11 +375,11 @@ func (e *twitchEdge) handlePlaylistB(w http.ResponseWriter, _ *http.Request) {
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:6\n")
-	b.WriteString("#EXT-X-TARGETDURATION:1\n")
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", twitchEdgeTargetDurationSeconds())
 	fmt.Fprintf(&b, "#EXT-X-MEDIA-SEQUENCE:%d\n", opts.baseSeqB)
 	fmt.Fprintf(&b, "#EXT-X-MAP:URI=\"%s/seg/B/init.mp4\"\n", e.server.URL)
 	for i := 0; i < opts.fmp4Count; i++ {
-		b.WriteString("#EXTINF:1.000,\n")
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n", twitchEdgeSegmentDuration.Seconds())
 		fmt.Fprintf(&b, "%s/seg/B/%d.m4s\n", e.server.URL, i)
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")

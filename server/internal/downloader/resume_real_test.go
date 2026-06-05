@@ -157,28 +157,25 @@ func TestResume_CrashMidStream_ResumesCleanly(t *testing.T) {
 func TestResume_GapExceedsThreshold_ForcesSplit(t *testing.T) {
 	requireFFmpegHarness(t)
 
+	const maxRestartGapSeconds = 2
+	const restartGapSegments = maxRestartGapSeconds + 1
+
 	opts := defaultEdgeOpts()
 	// Fixture sized with enough runway for slower CI: the DB polling
 	// helper can observe the resume frontier a few playlist ticks late
-	// before Shutdown stops the original run. Keep the post-restart jump
-	// away from tsCount's clamp so the first resumed playlist still starts
-	// past the saved frontier and deterministically fires OnWindowRoll.
-	opts.tsCount = 80
+	// before Shutdown stops the original run. The restart window is
+	// positioned relative to the saved frontier below, not by a fixed
+	// cursor delta.
+	opts.tsCount = 120
 	opts.windowA = 3
 	opts.dropAfterServed = 0
-	opts.aEndlist = 40 // ENDLIST after the post-restart jump's trailing window
+	opts.aEndlist = 0  // live until the forced post-restart window below
 	opts.fmp4Count = 0 // single variant — split is purely the gap threshold, not codec
 	opts.baseSeqA = 100
-	opts.postRestartSeqJump = 30 // post-jump start lands above frontier; lost > 2s threshold
-	// Note: tsCount must exceed pre-shutdown cursor + jump so the
-	// post-jump playlist serves seqs above the frontier — otherwise
-	// the cursor clamps to tsCount and the served range overlaps
-	// the frontier, no window roll fires, no split. Keep
-	// tsCount > (frontier_at_shutdown - baseSeqA + windowA).
 
 	edge := newTwitchEdge(t, opts)
 	h := newHarnessServiceWithOpts(t, edge.URL(), harnessOpts{
-		maxRestartGapSeconds: 2, // > 2s lost forces a split
+		maxRestartGapSeconds: maxRestartGapSeconds,
 	})
 	if _, err := h.repo.UpsertChannel(context.Background(), &repository.Channel{
 		BroadcasterID:    "test-bid",
@@ -241,9 +238,20 @@ func TestResume_GapExceedsThreshold_ForcesSplit(t *testing.T) {
 		}
 	}
 
-	edge.NoteRestart()
+	lostDuration := time.Duration(restartGapSegments) * twitchEdgeTargetDuration()
+	if lostDuration <= time.Duration(maxRestartGapSeconds)*time.Second {
+		t.Fatalf("invalid restart-gap fixture: lost duration %s must exceed MaxRestartGapSeconds=%ds",
+			lostDuration, maxRestartGapSeconds)
+	}
 
-	resumed := resumeOver(t, h, edge.URL(), withMaxRestartGapSeconds(2))
+	// Force the next playlist head past the resume cursor:
+	// StartMediaSeq is frontier+1, so head=StartMediaSeq+restartGapSegments
+	// yields a restart gap above MaxRestartGapSeconds. The same response
+	// carries ENDLIST so the resumed tail stays short.
+	startSeq := state.AccountedFrontierMediaSeq + 1
+	edge.SetNextAWindowHead(startSeq+restartGapSegments, true)
+
+	resumed := resumeOver(t, h, edge.URL(), withMaxRestartGapSeconds(maxRestartGapSeconds))
 	defer resumed.svc.Shutdown()
 	if err := resumed.svc.Resume(context.Background()); err != nil {
 		t.Fatalf("Resume: %v", err)
