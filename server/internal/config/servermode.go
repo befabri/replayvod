@@ -212,6 +212,14 @@ func (c ServerModeConfig) ProcessesWebhookNotifications() bool {
 	return c.Mode == ServerModeDirect || c.Mode == ServerModeRelay
 }
 
+// RunsLiveAutomation reports whether this process is allowed to react to a
+// channel being live by running schedule matching and starting recordings.
+// This covers both Helix poll mode and EventSub delivery modes, but excludes
+// off/setup-required modes even if the router has Twitch dependencies wired.
+func (c ServerModeConfig) RunsLiveAutomation() bool {
+	return c.PollsHelix() || c.ProcessesWebhookNotifications()
+}
+
 func (c ServerModeConfig) UsesRelayAgent() bool {
 	return c.Mode == ServerModeRelay
 }

@@ -24,6 +24,54 @@ RETURNING *;
 -- name: ListCategories :many
 SELECT * FROM categories ORDER BY name;
 
+-- name: ListCategoriesWithVideos :many
+-- Browse/library list: categories must be linked to at least one visible
+-- recording. Twitch search can mirror catalog-only rows into categories; those
+-- should stay out of the category page until a video actually references them.
+SELECT c.* FROM categories c
+WHERE EXISTS (
+    SELECT 1
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE vc.category_id = c.id
+      AND v.deleted_at IS NULL
+)
+ORDER BY c.name;
+
+-- name: ListCategoriesByIDs :many
+SELECT * FROM categories WHERE id IN (sqlc.slice('ids'));
+
+-- name: SearchCategoriesWithVideos :many
+-- Same ranking contract as SearchCategories, restricted to categories linked to
+-- at least one visible recording. unicode_lower is registered by the SQLite
+-- adapter so SQLite matches Go/Postgres Unicode case folding for category search.
+-- Bind params once in a CTE with explicit casts: this keeps sqlc's SQLite output
+-- typed while avoiding missed @param rewrites in repeated CASE/LIKE expressions.
+WITH params AS (
+    SELECT CAST(@query AS text) AS search_query,
+           CAST(@row_limit AS integer) AS row_limit
+)
+SELECT c.* FROM categories c
+CROSS JOIN params
+WHERE (params.search_query = ''
+       OR unicode_lower(c.name) LIKE '%' || unicode_lower(params.search_query) || '%')
+  AND EXISTS (
+      SELECT 1
+      FROM video_categories vc
+      INNER JOIN videos v ON v.id = vc.video_id
+      WHERE vc.category_id = c.id
+        AND v.deleted_at IS NULL
+  )
+ORDER BY
+    CASE
+        WHEN params.search_query = '' THEN 3
+        WHEN unicode_lower(c.name) = unicode_lower(params.search_query) THEN 0
+        WHEN unicode_lower(c.name) LIKE unicode_lower(params.search_query) || '%' THEN 1
+        ELSE 2
+    END,
+    c.name
+LIMIT (SELECT row_limit FROM params);
+
 -- name: ListCategoriesMissingBoxArt :many
 SELECT * FROM categories WHERE box_art_url IS NULL OR box_art_url = '';
 
@@ -36,3 +84,34 @@ SELECT * FROM categories WHERE box_art_url IS NULL OR box_art_url = '';
 -- has been flaky combining named params with SET clauses in UPDATE
 -- (observed as tokens swallowing adjacent characters on generate).
 UPDATE categories SET box_art_url = ?, updated_at = datetime('now') WHERE id = ?;
+
+-- name: GetCategorySearchCache :one
+SELECT * FROM category_search_cache WHERE normalized_query = ?;
+
+-- name: UpsertCategorySearchCache :one
+INSERT INTO category_search_cache (normalized_query, category_ids, expires_at, last_accessed_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (normalized_query) DO UPDATE SET
+    category_ids = excluded.category_ids,
+    expires_at = excluded.expires_at,
+    last_accessed_at = excluded.last_accessed_at,
+    updated_at = datetime('now')
+RETURNING *;
+
+-- name: TouchCategorySearchCache :exec
+UPDATE category_search_cache
+SET last_accessed_at = ?,
+    updated_at = datetime('now')
+WHERE normalized_query = ?;
+
+-- name: DeleteExpiredCategorySearchCache :exec
+DELETE FROM category_search_cache WHERE expires_at < ?;
+
+-- name: PruneCategorySearchCache :exec
+DELETE FROM category_search_cache
+WHERE normalized_query IN (
+    SELECT normalized_query
+    FROM category_search_cache
+    ORDER BY last_accessed_at DESC, updated_at DESC, normalized_query ASC
+    LIMIT -1 OFFSET ?
+);

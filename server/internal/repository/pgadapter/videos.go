@@ -201,23 +201,24 @@ func (a *PGAdapter) ListVideosByJobIDs(ctx context.Context, jobIDs []string) ([]
 }
 
 func (a *PGAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (*repository.Video, error) {
-	rt := v.RecordingType
-	if rt == "" {
-		rt = repository.RecordingTypeVideo
-	}
+	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
+		RecordingType: v.RecordingType,
+		Quality:       v.Quality,
+		ForceH264:     v.ForceH264,
+	})
 	row, err := a.queries.CreateVideo(ctx, pggen.CreateVideoParams{
 		JobID:                     v.JobID,
 		Filename:                  v.Filename,
 		DisplayName:               v.DisplayName,
 		Title:                     v.Title,
 		Status:                    v.Status,
-		Quality:                   v.Quality,
+		Quality:                   settings.Quality,
 		BroadcasterID:             v.BroadcasterID,
 		StreamID:                  v.StreamID,
 		ViewerCount:               int32(v.ViewerCount),
 		Language:                  v.Language,
-		RecordingType:             rt,
-		ForceH264:                 v.ForceH264,
+		RecordingType:             settings.RecordingType,
+		ForceH264:                 settings.ForceH264,
 		TriggerScheduleID:         v.TriggerScheduleID,
 		RetentionSourceScheduleID: v.RetentionSourceScheduleID,
 		RetentionWindowHours:      int64PtrToInt32Ptr(v.RetentionWindowHours),

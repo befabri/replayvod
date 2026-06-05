@@ -24,6 +24,7 @@ func TestSQLiteMigrationsFreshServerSettingsShape(t *testing.T) {
 	assertSQLiteServerSettingsColumns(t, ctx, db, expectedServerSettingsColumns)
 	assertSQLiteServerSettingsIDPrimaryKey(t, ctx, db)
 	assertSQLiteServerSettingsSingletonIDCheck(t, ctx, db)
+	assertSQLiteIndexColumns(t, ctx, db, "idx_video_categories_category_id_video_id", []string{"category_id", "video_id"})
 
 	adapter := sqliteadapter.New(db)
 	if _, err := adapter.GetServerSettings(ctx); !errors.Is(err, repository.ErrNotFound) {
@@ -59,6 +60,7 @@ func TestSQLiteMigrationsIdempotent(t *testing.T) {
 	assertSQLiteServerSettingsColumns(t, ctx, db, expectedServerSettingsColumns)
 	assertSQLiteServerSettingsIDPrimaryKey(t, ctx, db)
 	assertSQLiteServerSettingsSingletonIDCheck(t, ctx, db)
+	assertSQLiteIndexColumns(t, ctx, db, "idx_video_categories_category_id_video_id", []string{"category_id", "video_id"})
 }
 
 func newUnmigratedSQLiteDB(t *testing.T) *sql.DB {
@@ -142,5 +144,38 @@ func assertSQLiteServerSettingsSingletonIDCheck(t *testing.T, ctx context.Contex
 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO server_settings (id) VALUES (2)`); err == nil {
 		t.Fatal("server_settings allowed id=2; want CHECK (id = 1)")
+	}
+}
+
+func assertSQLiteIndexColumns(t *testing.T, ctx context.Context, db *sql.DB, indexName string, want []string) {
+	t.Helper()
+	rows, err := db.QueryContext(ctx, `PRAGMA index_info("`+indexName+`")`)
+	if err != nil {
+		t.Fatalf("inspect sqlite index %s: %v", indexName, err)
+	}
+	defer rows.Close()
+
+	got := []string{}
+	for rows.Next() {
+		var seqno, cid int
+		var name string
+		if err := rows.Scan(&seqno, &cid, &name); err != nil {
+			t.Fatalf("scan sqlite index %s: %v", indexName, err)
+		}
+		got = append(got, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate sqlite index %s: %v", indexName, err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("sqlite index %s does not exist", indexName)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("sqlite index %s columns = %v, want %v", indexName, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("sqlite index %s columns = %v, want %v", indexName, got, want)
+		}
 	}
 }

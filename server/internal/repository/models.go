@@ -101,6 +101,78 @@ type Category struct {
 	UpdatedAt time.Time
 }
 
+// UniqueCategoriesByID collapses duplicate category IDs while preserving the
+// first occurrence. Batch upserts use it before constructing one INSERT so a
+// duplicate remote result cannot make PostgreSQL's ON CONFLICT path touch the
+// same row twice.
+func UniqueCategoriesByID(categories []Category) []Category {
+	if len(categories) == 0 {
+		return []Category{}
+	}
+	out := make([]Category, 0, len(categories))
+	seen := make(map[string]struct{}, len(categories))
+	for _, c := range categories {
+		if _, ok := seen[c.ID]; ok {
+			continue
+		}
+		seen[c.ID] = struct{}{}
+		out = append(out, c)
+	}
+	return out
+}
+
+// OrderCategoriesByIDs returns the rows found in rows ordered by ids. Missing
+// IDs are skipped and duplicate IDs are returned once at their first position.
+func OrderCategoriesByIDs(rows []Category, ids []string) []Category {
+	if len(rows) == 0 || len(ids) == 0 {
+		return []Category{}
+	}
+	byID := make(map[string]Category, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	out := make([]Category, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		row, ok := byID[id]
+		if !ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, row)
+	}
+	return out
+}
+
+// CategorySearchCache stores a Twitch search result for a normalized category
+// query. CategoryIDs holds the raw Twitch result order as stable storage, and
+// callers de-reference IDs through ListCategoriesByIDs so the cache never
+// duplicates category metadata. That repository method preserves the first
+// occurrence order of CategoryIDs and skips missing rows. Note this stored order
+// is not the order the search endpoint serves: the service re-ranks the merged
+// local + cached + remote rows by local query relevance before returning, so
+// best-match-first wins over Twitch's own ordering.
+type CategorySearchCache struct {
+	NormalizedQuery string
+	CategoryIDs     []string
+	ExpiresAt       time.Time
+	LastAccessedAt  time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// CategorySearchCacheInput is the durable cache payload written after a
+// successful Twitch category search.
+type CategorySearchCacheInput struct {
+	NormalizedQuery string
+	CategoryIDs     []string
+	ExpiresAt       time.Time
+	LastAccessedAt  time.Time
+}
+
 // Tag is a stream tag.
 type Tag struct {
 	ID        int64
@@ -288,6 +360,57 @@ const (
 	RecordingTypeVideo = "video"
 	RecordingTypeAudio = "audio"
 )
+
+// NormalizeRecordingType coerces an arbitrary recording_type string to a known
+// value, defaulting to video. Single source of truth for the audio-vs-video
+// decision shared by the schedule service, the webhook processor, and both DB
+// adapters.
+func NormalizeRecordingType(value string) string {
+	if value == RecordingTypeAudio {
+		return RecordingTypeAudio
+	}
+	return RecordingTypeVideo
+}
+
+// ScheduleForceH264 reports the effective force_h264 flag for a recording. The
+// H.264 override only applies to video, so audio always reports false. This is
+// the single source of truth for the "audio clears force_h264" rule across the
+// write path (adapters), the read path (processor), and the service.
+func ScheduleForceH264(recordingType string, forceH264 bool) bool {
+	return NormalizeRecordingType(recordingType) == RecordingTypeVideo && forceH264
+}
+
+// RecordingSettings is the normalized recording-mode payload shared by schedule
+// writes, schedule dispatch, and video row creation.
+type RecordingSettings struct {
+	RecordingType string
+	Quality       string
+	ForceH264     bool
+}
+
+// RecordingSettingsInput carries caller-provided recording options before
+// defaults and video-only rules are applied.
+type RecordingSettingsInput struct {
+	RecordingType string
+	Quality       string
+	ForceH264     bool
+}
+
+// NormalizeRecordingSettings is the shared chokepoint for recording mode
+// defaults. Empty/unknown recording_type becomes video, empty quality becomes
+// HIGH, and audio always clears force_h264.
+func NormalizeRecordingSettings(input RecordingSettingsInput) RecordingSettings {
+	recordingType := NormalizeRecordingType(input.RecordingType)
+	quality := input.Quality
+	if quality == "" {
+		quality = QualityHigh
+	}
+	return RecordingSettings{
+		RecordingType: recordingType,
+		Quality:       quality,
+		ForceH264:     ScheduleForceH264(recordingType, input.ForceH264),
+	}
+}
 
 // Codec enumerates the codec values stored on video_parts.codec.
 // 'aac' is the audio-only mode; video modes use h264/h265/av1.
@@ -634,7 +757,9 @@ type DownloadSchedule struct {
 	ID               int64
 	BroadcasterID    string
 	RequestedBy      string
+	RecordingType    string
 	Quality          string
+	ForceH264        bool
 	HasMinViewers    bool
 	MinViewers       *int64
 	HasCategories    bool
@@ -653,7 +778,9 @@ type DownloadSchedule struct {
 type ScheduleInput struct {
 	BroadcasterID    string
 	RequestedBy      string
+	RecordingType    string
 	Quality          string
+	ForceH264        bool
 	HasMinViewers    bool
 	MinViewers       *int64
 	HasCategories    bool
@@ -661,6 +788,14 @@ type ScheduleInput struct {
 	IsDeleteRediff   bool
 	TimeBeforeDelete *int64
 	IsDisabled       bool
+}
+
+// ScheduleFilterInput captures the set-valued schedule filters stored in
+// junction tables. Repository adapters use it for atomic schedule row + filter
+// writes, while ListScheduleCategories/ListScheduleTags remain the read path.
+type ScheduleFilterInput struct {
+	CategoryIDs []string
+	TagIDs      []int64
 }
 
 // Subscription is our local mirror of a Twitch EventSub subscription.
@@ -888,6 +1023,10 @@ type ServerSettings struct {
 	PlaybackCacheEnabled      bool
 	PlaybackCacheMaxPercent   int
 	PlaybackCacheAutoGenerate bool
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
+	// SchedulesPaused is the global auto-download kill switch. When true, the
+	// schedule processor skips every stream.online auto-download without
+	// touching any schedule's IsDisabled, so resuming restores prior state.
+	SchedulesPaused bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }

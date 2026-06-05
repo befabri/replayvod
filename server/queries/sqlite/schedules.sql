@@ -1,12 +1,12 @@
 -- name: CreateSchedule :one
 INSERT INTO download_schedules (
-    broadcaster_id, requested_by, quality,
+    broadcaster_id, requested_by, recording_type, quality, force_h264,
     has_min_viewers, min_viewers,
     has_categories, has_tags,
     is_delete_rediff, time_before_delete,
     is_disabled
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetSchedule :one
@@ -18,7 +18,9 @@ WHERE broadcaster_id = ? AND requested_by = ?;
 
 -- name: UpdateSchedule :one
 UPDATE download_schedules SET
+    recording_type      = ?,
     quality             = ?,
+    force_h264          = ?,
     has_min_viewers     = ?,
     min_viewers         = ?,
     has_categories      = ?,

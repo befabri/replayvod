@@ -58,6 +58,18 @@ SET playback_cache_enabled       = excluded.playback_cache_enabled,
     updated_at                   = datetime('now')
 RETURNING *;
 
+-- SetSchedulesPaused writes only the global auto-download pause flag, leaving
+-- every other server setting untouched. The schedule processor reads it on each
+-- stream.online to decide whether to skip auto-downloads; individual schedule
+-- is_disabled flags are never modified, so resuming restores prior state exactly.
+-- name: SetSchedulesPaused :one
+INSERT INTO server_settings (id, schedules_paused)
+VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE
+SET schedules_paused = excluded.schedules_paused,
+    updated_at       = datetime('now')
+RETURNING *;
+
 -- EnsureRecordingWebhookSecret seeds the signing secret only when none is stored
 -- yet (compare-and-swap on the empty string), exactly like EnsureServerHMACSecret.
 -- The config service calls it when the webhook is first enabled, so an

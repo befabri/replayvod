@@ -118,6 +118,11 @@ func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (Trig
 	if quality == "" {
 		quality = repository.QualityHigh
 	}
+	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
+		RecordingType: input.RecordingType,
+		Quality:       quality,
+		ForceH264:     input.ForceH264,
+	})
 
 	ch, err := s.repo.GetChannel(ctx, input.BroadcasterID)
 	if err != nil {
@@ -172,12 +177,12 @@ func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (Trig
 		Title:            title,
 		CategoryID:       categoryID,
 		CategoryName:     categoryName,
-		Quality:          quality,
+		Quality:          settings.Quality,
 		Language:         language,
 		ViewerCount:      viewers,
 		StreamID:         streamID,
-		RecordingType:    input.RecordingType,
-		ForceH264:        input.ForceH264,
+		RecordingType:    settings.RecordingType,
+		ForceH264:        settings.ForceH264,
 	})
 	if err != nil {
 		return TriggerResult{}, fmt.Errorf("start download: %w", err)

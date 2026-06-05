@@ -48,11 +48,9 @@ type CloseOtherOpenVideoTitleSpansParams struct {
 // Called first inside the same tx as InsertVideoTitleSpan; closes only
 // the spans whose title_id differs from the new one.
 //
-// @at_time is typed as sqlitetype.Time by sqlc override. Its driver.Valuer
-// emits the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
-// modernc.org/sqlite's native time.Time binding can produce an RFC3339
-// string with a `T` separator and `Z` suffix, which julianday() treats as
-// NULL, silently corrupting the duration sum.
+// @at_time is sqlitetype.Time so its Valuer emits the shape SQLite's
+// julianday() accepts. Some native time.Time bindings format to RFC3339,
+// which julianday() can treat as NULL and corrupt duration sums.
 func (q *Queries) CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error {
 	_, err := q.db.ExecContext(ctx, closeOtherOpenVideoTitleSpans, arg.AtTime, arg.VideoID, arg.TitleID)
 	return err

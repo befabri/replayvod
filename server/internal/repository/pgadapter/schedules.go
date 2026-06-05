@@ -4,27 +4,38 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
 func (a *PGAdapter) CreateSchedule(ctx context.Context, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.CreateSchedule(ctx, pggen.CreateScheduleParams{
-		BroadcasterID:    input.BroadcasterID,
-		RequestedBy:      input.RequestedBy,
-		Quality:          input.Quality,
-		HasMinViewers:    input.HasMinViewers,
-		MinViewers:       int64PtrToInt32Ptr(input.MinViewers),
-		HasCategories:    input.HasCategories,
-		HasTags:          input.HasTags,
-		IsDeleteRediff:   input.IsDeleteRediff,
-		TimeBeforeDelete: int64PtrToInt32Ptr(input.TimeBeforeDelete),
-		IsDisabled:       input.IsDisabled,
-	})
+	row, err := a.queries.CreateSchedule(ctx, pgCreateScheduleParams(input))
 	if err != nil {
 		return nil, fmt.Errorf("pg create schedule: %w", err)
 	}
 	return pgScheduleToDomain(row), nil
+}
+
+func (a *PGAdapter) CreateScheduleWithFilters(ctx context.Context, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
+	var out *repository.DownloadSchedule
+	err := a.inTx(ctx, func(q *pggen.Queries, _ pgx.Tx) error {
+		row, err := q.CreateSchedule(ctx, pgCreateScheduleParams(input))
+		if err != nil {
+			return fmt.Errorf("pg create schedule: %w", err)
+		}
+		sched := pgScheduleToDomain(row)
+		if err := replacePGScheduleFilters(ctx, q, sched.ID, filters); err != nil {
+			return err
+		}
+		out = sched
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (a *PGAdapter) GetSchedule(ctx context.Context, id int64) (*repository.DownloadSchedule, error) {
@@ -47,21 +58,31 @@ func (a *PGAdapter) GetScheduleForUserChannel(ctx context.Context, broadcasterID
 }
 
 func (a *PGAdapter) UpdateSchedule(ctx context.Context, id int64, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.UpdateSchedule(ctx, pggen.UpdateScheduleParams{
-		ID:               id,
-		Quality:          input.Quality,
-		HasMinViewers:    input.HasMinViewers,
-		MinViewers:       int64PtrToInt32Ptr(input.MinViewers),
-		HasCategories:    input.HasCategories,
-		HasTags:          input.HasTags,
-		IsDeleteRediff:   input.IsDeleteRediff,
-		TimeBeforeDelete: int64PtrToInt32Ptr(input.TimeBeforeDelete),
-		IsDisabled:       input.IsDisabled,
-	})
+	row, err := a.queries.UpdateSchedule(ctx, pgUpdateScheduleParams(id, input))
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return pgScheduleToDomain(row), nil
+}
+
+func (a *PGAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
+	var out *repository.DownloadSchedule
+	err := a.inTx(ctx, func(q *pggen.Queries, _ pgx.Tx) error {
+		row, err := q.UpdateSchedule(ctx, pgUpdateScheduleParams(id, input))
+		if err != nil {
+			return fmt.Errorf("pg update schedule: %w", mapErr(err))
+		}
+		sched := pgScheduleToDomain(row)
+		if err := replacePGScheduleFilters(ctx, q, sched.ID, filters); err != nil {
+			return err
+		}
+		out = sched
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (a *PGAdapter) ToggleSchedule(ctx context.Context, id int64) (*repository.DownloadSchedule, error) {
@@ -171,12 +192,77 @@ func (a *PGAdapter) ListScheduleTags(ctx context.Context, scheduleID int64) ([]r
 	return out, nil
 }
 
+func pgCreateScheduleParams(input *repository.ScheduleInput) pggen.CreateScheduleParams {
+	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
+		RecordingType: input.RecordingType,
+		Quality:       input.Quality,
+		ForceH264:     input.ForceH264,
+	})
+	return pggen.CreateScheduleParams{
+		BroadcasterID:    input.BroadcasterID,
+		RequestedBy:      input.RequestedBy,
+		RecordingType:    settings.RecordingType,
+		Quality:          settings.Quality,
+		ForceH264:        settings.ForceH264,
+		HasMinViewers:    input.HasMinViewers,
+		MinViewers:       int64PtrToInt32Ptr(input.MinViewers),
+		HasCategories:    input.HasCategories,
+		HasTags:          input.HasTags,
+		IsDeleteRediff:   input.IsDeleteRediff,
+		TimeBeforeDelete: int64PtrToInt32Ptr(input.TimeBeforeDelete),
+		IsDisabled:       input.IsDisabled,
+	}
+}
+
+func pgUpdateScheduleParams(id int64, input *repository.ScheduleInput) pggen.UpdateScheduleParams {
+	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
+		RecordingType: input.RecordingType,
+		Quality:       input.Quality,
+		ForceH264:     input.ForceH264,
+	})
+	return pggen.UpdateScheduleParams{
+		ID:               id,
+		RecordingType:    settings.RecordingType,
+		Quality:          settings.Quality,
+		ForceH264:        settings.ForceH264,
+		HasMinViewers:    input.HasMinViewers,
+		MinViewers:       int64PtrToInt32Ptr(input.MinViewers),
+		HasCategories:    input.HasCategories,
+		HasTags:          input.HasTags,
+		IsDeleteRediff:   input.IsDeleteRediff,
+		TimeBeforeDelete: int64PtrToInt32Ptr(input.TimeBeforeDelete),
+		IsDisabled:       input.IsDisabled,
+	}
+}
+
+func replacePGScheduleFilters(ctx context.Context, q *pggen.Queries, scheduleID int64, filters repository.ScheduleFilterInput) error {
+	if err := q.ClearScheduleCategories(ctx, scheduleID); err != nil {
+		return fmt.Errorf("pg clear schedule categories %d: %w", scheduleID, err)
+	}
+	for _, id := range filters.CategoryIDs {
+		if err := q.LinkScheduleCategory(ctx, pggen.LinkScheduleCategoryParams{ScheduleID: scheduleID, CategoryID: id}); err != nil {
+			return fmt.Errorf("pg link schedule category %s to schedule %d: %w", id, scheduleID, err)
+		}
+	}
+	if err := q.ClearScheduleTags(ctx, scheduleID); err != nil {
+		return fmt.Errorf("pg clear schedule tags %d: %w", scheduleID, err)
+	}
+	for _, id := range filters.TagIDs {
+		if err := q.LinkScheduleTag(ctx, pggen.LinkScheduleTagParams{ScheduleID: scheduleID, TagID: id}); err != nil {
+			return fmt.Errorf("pg link schedule tag %d to schedule %d: %w", id, scheduleID, err)
+		}
+	}
+	return nil
+}
+
 func pgScheduleToDomain(s pggen.DownloadSchedule) *repository.DownloadSchedule {
 	return &repository.DownloadSchedule{
 		ID:               s.ID,
 		BroadcasterID:    s.BroadcasterID,
 		RequestedBy:      s.RequestedBy,
+		RecordingType:    repository.NormalizeRecordingType(s.RecordingType),
 		Quality:          s.Quality,
+		ForceH264:        s.ForceH264,
 		HasMinViewers:    s.HasMinViewers,
 		MinViewers:       int32PtrToInt64Ptr(s.MinViewers),
 		HasCategories:    s.HasCategories,

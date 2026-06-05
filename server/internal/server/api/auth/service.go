@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/ptr"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -155,8 +156,8 @@ func (s *Service) HandleOAuthCallback(ctx context.Context, code, redirectURI, co
 		ID:              tu.ID,
 		Login:           tu.Login,
 		DisplayName:     tu.DisplayName,
-		Email:           stringOrNil(tu.Email),
-		ProfileImageURL: stringOrNil(tu.ProfileImageURL),
+		Email:           ptr.StringOrNil(tu.Email),
+		ProfileImageURL: ptr.StringOrNil(tu.ProfileImageURL),
 		Role:            role,
 	})
 	if err != nil {
@@ -188,13 +189,6 @@ func (s *Service) resolveRole(ctx context.Context, twitchID string) string {
 		return "owner"
 	}
 	return "viewer"
-}
-
-func stringOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 // SyncUserFollows mirrors the user's Twitch follows into the local
@@ -240,10 +234,10 @@ func (s *Service) SyncUserFollows(ctx context.Context, userID, accessToken strin
 			BroadcasterName:  f.BroadcasterName,
 		}
 		if u, ok := users[f.BroadcasterID]; ok {
-			ch.ProfileImageURL = stringOrNil(u.ProfileImageURL)
-			ch.OfflineImageURL = stringOrNil(u.OfflineImageURL)
-			ch.Description = stringOrNil(u.Description)
-			ch.BroadcasterType = stringOrNil(u.BroadcasterType)
+			ch.ProfileImageURL = ptr.StringOrNil(u.ProfileImageURL)
+			ch.OfflineImageURL = ptr.StringOrNil(u.OfflineImageURL)
+			ch.Description = ptr.StringOrNil(u.Description)
+			ch.BroadcasterType = ptr.StringOrNil(u.BroadcasterType)
 		}
 		if _, err := s.repo.UpsertChannel(ctx, ch); err != nil {
 			return fmt.Errorf("upsert channel %s: %w", f.BroadcasterID, err)

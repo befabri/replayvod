@@ -26,6 +26,15 @@ type Category struct {
 	UpdatedAt sqlitetype.Time `json:"updated_at"`
 }
 
+type CategorySearchCache struct {
+	NormalizedQuery string          `json:"normalized_query"`
+	CategoryIds     string          `json:"category_ids"`
+	ExpiresAt       sqlitetype.Time `json:"expires_at"`
+	LastAccessedAt  sqlitetype.Time `json:"last_accessed_at"`
+	CreatedAt       sqlitetype.Time `json:"created_at"`
+	UpdatedAt       sqlitetype.Time `json:"updated_at"`
+}
+
 type Channel struct {
 	BroadcasterID       string          `json:"broadcaster_id"`
 	BroadcasterLogin    string          `json:"broadcaster_login"`
@@ -56,6 +65,8 @@ type DownloadSchedule struct {
 	TriggerCount     int64            `json:"trigger_count"`
 	CreatedAt        sqlitetype.Time  `json:"created_at"`
 	UpdatedAt        sqlitetype.Time  `json:"updated_at"`
+	RecordingType    string           `json:"recording_type"`
+	ForceH264        int64            `json:"force_h264"`
 }
 
 type DownloadScheduleCategory struct {
@@ -147,6 +158,7 @@ type ServerSetting struct {
 	PlaybackCacheEnabled          int64           `json:"playback_cache_enabled"`
 	PlaybackCacheMaxPercent       int64           `json:"playback_cache_max_percent"`
 	PlaybackCacheAutoGenerate     int64           `json:"playback_cache_auto_generate"`
+	SchedulesPaused               int64           `json:"schedules_paused"`
 }
 
 type Session struct {

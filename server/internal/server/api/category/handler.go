@@ -41,6 +41,14 @@ func toResponse(c *repository.Category) CategoryResponse {
 	}
 }
 
+func toResponses(rows []repository.Category) []CategoryResponse {
+	out := make([]CategoryResponse, len(rows))
+	for i := range rows {
+		out[i] = toResponse(&rows[i])
+	}
+	return out
+}
+
 type GetByIDInput struct {
 	ID string `json:"id" validate:"required"`
 }
@@ -58,16 +66,20 @@ func (h *Handler) List(ctx context.Context) ([]CategoryResponse, error) {
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "list categories")
 	}
-	out := make([]CategoryResponse, len(rows))
-	for i := range rows {
-		out[i] = toResponse(&rows[i])
+	return toResponses(rows), nil
+}
+
+func (h *Handler) ListWithVideos(ctx context.Context) ([]CategoryResponse, error) {
+	rows, err := h.svc.ListWithVideos(ctx)
+	if err != nil {
+		return nil, apierr.Map(h.log, err, "list categories with videos")
 	}
-	return out, nil
+	return toResponses(rows), nil
 }
 
 // SearchInput drives category.search. Empty Query returns everything
 // up to Limit — the same endpoint backs the combobox "show all"
-// state. Query is capped at 100 chars to bound ILIKE pattern work;
+// state. Query is capped at 100 chars to bound substring pattern work;
 // plenty of headroom for any realistic game title.
 type SearchInput struct {
 	Query string `json:"query" validate:"max=100"`
@@ -75,17 +87,17 @@ type SearchInput struct {
 }
 
 func (h *Handler) Search(ctx context.Context, input SearchInput) ([]CategoryResponse, error) {
-	limit := input.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	rows, err := h.svc.Search(ctx, input.Query, limit)
+	rows, err := h.svc.Search(ctx, input.Query, input.Limit)
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "search categories")
 	}
-	out := make([]CategoryResponse, len(rows))
-	for i := range rows {
-		out[i] = toResponse(&rows[i])
+	return toResponses(rows), nil
+}
+
+func (h *Handler) SearchWithVideos(ctx context.Context, input SearchInput) ([]CategoryResponse, error) {
+	rows, err := h.svc.SearchWithVideos(ctx, input.Query, input.Limit)
+	if err != nil {
+		return nil, apierr.Map(h.log, err, "search categories with videos")
 	}
-	return out, nil
+	return toResponses(rows), nil
 }

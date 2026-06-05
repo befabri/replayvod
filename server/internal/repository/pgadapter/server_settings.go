@@ -57,6 +57,14 @@ func (a *PGAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool,
 	return pgServerSettingsToDomain(row), nil
 }
 
+func (a *PGAdapter) SetSchedulesPaused(ctx context.Context, paused bool) (*repository.ServerSettings, error) {
+	row, err := a.queries.SetSchedulesPaused(ctx, paused)
+	if err != nil {
+		return nil, fmt.Errorf("pg set schedules paused: %w", err)
+	}
+	return pgServerSettingsToDomain(row), nil
+}
+
 func (a *PGAdapter) EnsureRecordingWebhookSecret(ctx context.Context, secret string) error {
 	if err := a.queries.EnsureRecordingWebhookSecret(ctx, secret); err != nil {
 		return fmt.Errorf("pg ensure recording webhook secret: %w", err)
@@ -103,6 +111,7 @@ func pgServerSettingsToDomain(s pggen.ServerSetting) *repository.ServerSettings 
 		PlaybackCacheEnabled:          s.PlaybackCacheEnabled,
 		PlaybackCacheMaxPercent:       int(s.PlaybackCacheMaxPercent),
 		PlaybackCacheAutoGenerate:     s.PlaybackCacheAutoGenerate,
+		SchedulesPaused:               s.SchedulesPaused,
 		CreatedAt:                     s.CreatedAt,
 		UpdatedAt:                     s.UpdatedAt,
 	}

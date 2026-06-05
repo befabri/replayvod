@@ -82,15 +82,27 @@ type Repository interface {
 	GetCategory(ctx context.Context, id string) (*Category, error)
 	GetCategoryByName(ctx context.Context, name string) (*Category, error)
 	UpsertCategory(ctx context.Context, c *Category) (*Category, error)
+	UpsertCategories(ctx context.Context, categories []Category) ([]Category, error)
 	ListCategories(ctx context.Context) ([]Category, error)
-	// SearchCategories returns categories matching query (ILIKE/LIKE
-	// on name), ranked by match quality (exact → prefix → substring
-	// → alphabetical). Empty query returns everything up to limit —
+	// ListCategoriesWithVideos returns categories that are linked to at
+	// least one non-deleted video. This is the browse/library view, distinct
+	// from ListCategories which exposes the whole mirrored Twitch catalog.
+	ListCategoriesWithVideos(ctx context.Context) ([]Category, error)
+	// ListCategoriesByIDs returns found categories in ids order. Missing IDs are
+	// skipped and duplicate IDs are collapsed at their first occurrence.
+	ListCategoriesByIDs(ctx context.Context, ids []string) ([]Category, error)
+	// SearchCategories returns categories matching a case-insensitive substring
+	// query on name, ranked by match quality (exact → prefix → substring →
+	// alphabetical). Empty query returns everything up to limit —
 	// the same endpoint backs both the combobox "show all" and the
 	// "filter" states. Mirrors SearchChannels semantics for UI
 	// consistency between the schedule form's channel picker and
 	// category picker.
 	SearchCategories(ctx context.Context, query string, limit int) ([]Category, error)
+	// SearchCategoriesWithVideos is the library-only category search. It uses
+	// the same ranking as SearchCategories, but restricts results to categories
+	// linked to at least one non-deleted recording.
+	SearchCategoriesWithVideos(ctx context.Context, query string, limit int) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
 	// UpdateCategoryBoxArt is the explicit "refresh just the art"
 	// path. Used by categoryart.Service both for eager on-first-
@@ -105,6 +117,11 @@ type Repository interface {
 	// their own layer (see categoryart.Service.writeBoxArt for the
 	// service-level guard).
 	UpdateCategoryBoxArt(ctx context.Context, id string, boxArtURL string) error
+	GetCategorySearchCache(ctx context.Context, normalizedQuery string) (*CategorySearchCache, error)
+	UpsertCategorySearchCache(ctx context.Context, input CategorySearchCacheInput) (*CategorySearchCache, error)
+	TouchCategorySearchCache(ctx context.Context, normalizedQuery string, at time.Time) error
+	DeleteExpiredCategorySearchCache(ctx context.Context, before time.Time) error
+	PruneCategorySearchCache(ctx context.Context, maxRows int) error
 
 	// Tags
 	GetTag(ctx context.Context, id int64) (*Tag, error)
@@ -263,9 +280,11 @@ type Repository interface {
 
 	// Download schedules — auto-record rules matched on stream.online.
 	CreateSchedule(ctx context.Context, input *ScheduleInput) (*DownloadSchedule, error)
+	CreateScheduleWithFilters(ctx context.Context, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, error)
 	GetSchedule(ctx context.Context, id int64) (*DownloadSchedule, error)
 	GetScheduleForUserChannel(ctx context.Context, broadcasterID, userID string) (*DownloadSchedule, error)
 	UpdateSchedule(ctx context.Context, id int64, input *ScheduleInput) (*DownloadSchedule, error)
+	UpdateScheduleWithFilters(ctx context.Context, id int64, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, error)
 	ToggleSchedule(ctx context.Context, id int64) (*DownloadSchedule, error)
 	DeleteSchedule(ctx context.Context, id int64) error
 	ListSchedules(ctx context.Context, limit, offset int) ([]DownloadSchedule, error)
@@ -336,6 +355,10 @@ type Repository interface {
 	GetServerSettings(ctx context.Context) (*ServerSettings, error)
 	UpsertServerSettings(ctx context.Context, s *ServerSettings) (*ServerSettings, error)
 	UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*ServerSettings, error)
+	// SetSchedulesPaused writes only the global auto-download pause flag,
+	// leaving every other server setting and every schedule's is_disabled
+	// untouched. Returns the persisted settings row.
+	SetSchedulesPaused(ctx context.Context, paused bool) (*ServerSettings, error)
 
 	// UpsertRecordingWebhookConfig persists only the recording-webhook config
 	// columns of server_settings (enabled, url, events), leaving server mode,

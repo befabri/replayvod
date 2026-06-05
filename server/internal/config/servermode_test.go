@@ -315,14 +315,14 @@ func TestValidateServerModeMessagesAreFieldNeutral(t *testing.T) {
 // subsystem at boot, and nothing else asserts these in isolation.
 func TestServerModeCapabilityPredicatesPerMode(t *testing.T) {
 	type caps struct {
-		creates, processesWebhook, usesRelay, pollsHelix, titlesPoll, titlesWebhook bool
+		creates, processesWebhook, liveAutomation, usesRelay, pollsHelix, titlesPoll, titlesWebhook bool
 	}
 	cases := map[string]caps{
 		"":               {},
 		ServerModeOff:    {},
-		ServerModePoll:   {pollsHelix: true, titlesPoll: true},
-		ServerModeDirect: {creates: true, processesWebhook: true, titlesWebhook: true},
-		ServerModeRelay:  {creates: true, processesWebhook: true, usesRelay: true, titlesWebhook: true},
+		ServerModePoll:   {liveAutomation: true, pollsHelix: true, titlesPoll: true},
+		ServerModeDirect: {creates: true, processesWebhook: true, liveAutomation: true, titlesWebhook: true},
+		ServerModeRelay:  {creates: true, processesWebhook: true, liveAutomation: true, usesRelay: true, titlesWebhook: true},
 	}
 	for mode, want := range cases {
 		t.Run("mode="+mode, func(t *testing.T) {
@@ -332,6 +332,9 @@ func TestServerModeCapabilityPredicatesPerMode(t *testing.T) {
 			}
 			if got := c.ProcessesWebhookNotifications(); got != want.processesWebhook {
 				t.Errorf("ProcessesWebhookNotifications = %v, want %v", got, want.processesWebhook)
+			}
+			if got := c.RunsLiveAutomation(); got != want.liveAutomation {
+				t.Errorf("RunsLiveAutomation = %v, want %v", got, want.liveAutomation)
 			}
 			if got := c.UsesRelayAgent(); got != want.usesRelay {
 				t.Errorf("UsesRelayAgent = %v, want %v", got, want.usesRelay)

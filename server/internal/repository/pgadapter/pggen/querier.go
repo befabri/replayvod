@@ -63,6 +63,7 @@ type Querier interface {
 	CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
+	DeleteExpiredCategorySearchCache(ctx context.Context, expiresAt time.Time) error
 	DeleteExpiredSessions(ctx context.Context) error
 	// Retention task path: debug/info rows older than the retention window
 	// are pruned; warn/error rows stay longer (retention task uses a
@@ -107,6 +108,7 @@ type Querier interface {
 	GetActiveSubscriptionForBroadcasterType(ctx context.Context, arg GetActiveSubscriptionForBroadcasterTypeParams) (Subscription, error)
 	GetCategory(ctx context.Context, id string) (Category, error)
 	GetCategoryByName(ctx context.Context, name string) (Category, error)
+	GetCategorySearchCache(ctx context.Context, normalizedQuery string) (CategorySearchCache, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
 	GetJob(ctx context.Context, id string) (Job, error)
@@ -172,7 +174,12 @@ type Querier interface {
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
 	ListActiveSubscriptions(ctx context.Context, arg ListActiveSubscriptionsParams) ([]Subscription, error)
 	ListCategories(ctx context.Context) ([]Category, error)
+	ListCategoriesByIDs(ctx context.Context, ids []string) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
+	// Browse/library list: categories must be linked to at least one visible
+	// recording. Twitch search can mirror catalog-only rows into categories; those
+	// should stay out of the category page until a video actually references them.
+	ListCategoriesWithVideos(ctx context.Context) ([]Category, error)
 	ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
@@ -292,6 +299,7 @@ type Querier interface {
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
 	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
+	PruneCategorySearchCache(ctx context.Context, offset int32) error
 	// Atomic increment + timestamp stamp. Called after a successful auto-download
 	// trigger so the dashboard can show "this schedule fired N times, last at T".
 	RecordScheduleTrigger(ctx context.Context, id int64) error
@@ -316,6 +324,9 @@ type Querier interface {
 	// picker) share a ranking contract. Empty query returns everything
 	// up to row_limit, so the same endpoint backs the "show all" state.
 	SearchCategories(ctx context.Context, arg SearchCategoriesParams) ([]Category, error)
+	// Same ranking contract as SearchCategories, restricted to categories linked to
+	// at least one visible recording.
+	SearchCategoriesWithVideos(ctx context.Context, arg SearchCategoriesWithVideosParams) ([]Category, error)
 	// Case-insensitive substring match on login + display name. Ranks exact
 	// login match first, then prefix match, then substring match, then
 	// alphabetical — so typing "sho" surfaces "shroud" before "ashotoftoast".
@@ -331,6 +342,11 @@ type Querier interface {
 	// SetRecordingWebhookSecret rotates the signing secret unconditionally, for the
 	// owner's explicit "regenerate secret" action.
 	SetRecordingWebhookSecret(ctx context.Context, recordingWebhookSecret string) error
+	// SetSchedulesPaused writes only the global auto-download pause flag, leaving
+	// every other server setting untouched. The schedule processor reads it on each
+	// stream.online to decide whether to skip auto-downloads; individual schedule
+	// is_disabled flags are never modified, so resuming restores prior state exactly.
+	SetSchedulesPaused(ctx context.Context, schedulesPaused bool) (ServerSetting, error)
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	// Manual "run now" path — set next_run_at to now so the scheduler picks
 	// it up on the next tick. Separate from SetTaskEnabled so the caller
@@ -350,6 +366,7 @@ type Querier interface {
 	// channel name without paginating the full library client-side.
 	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
+	TouchCategorySearchCache(ctx context.Context, arg TouchCategorySearchCacheParams) error
 	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
@@ -376,6 +393,7 @@ type Querier interface {
 	// value when the caller passed NULL. UpdateCategoryBoxArt below is
 	// the explicit path to actively change the art.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
+	UpsertCategorySearchCache(ctx context.Context, arg UpsertCategorySearchCacheParams) (CategorySearchCache, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
 	// UpsertPlaybackCacheConfig writes only the continuous-playback cache knobs.
 	// Artifacts are generated asynchronously after downloads, so these settings

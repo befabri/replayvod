@@ -67,6 +67,18 @@ func (a *SQLiteAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled b
 	return sqliteServerSettingsToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) SetSchedulesPaused(ctx context.Context, paused bool) (*repository.ServerSettings, error) {
+	var pausedInt int64
+	if paused {
+		pausedInt = 1
+	}
+	row, err := a.queries.SetSchedulesPaused(ctx, pausedInt)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite set schedules paused: %w", err)
+	}
+	return sqliteServerSettingsToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) EnsureRecordingWebhookSecret(ctx context.Context, secret string) error {
 	if err := a.queries.EnsureRecordingWebhookSecret(ctx, secret); err != nil {
 		return fmt.Errorf("sqlite ensure recording webhook secret: %w", err)
@@ -113,6 +125,7 @@ func sqliteServerSettingsToDomain(s sqlitegen.ServerSetting) *repository.ServerS
 		PlaybackCacheEnabled:          s.PlaybackCacheEnabled != 0,
 		PlaybackCacheMaxPercent:       int(s.PlaybackCacheMaxPercent),
 		PlaybackCacheAutoGenerate:     s.PlaybackCacheAutoGenerate != 0,
+		SchedulesPaused:               s.SchedulesPaused != 0,
 		CreatedAt:                     s.CreatedAt.Time,
 		UpdatedAt:                     s.UpdatedAt.Time,
 	}

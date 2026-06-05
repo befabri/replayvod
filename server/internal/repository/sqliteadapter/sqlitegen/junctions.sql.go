@@ -80,8 +80,7 @@ type InsertVideoCategorySpanParams struct {
 	AtTime     sqlitetype.Time `json:"at_time"`
 }
 
-// @at_time: see CloseOtherOpenVideoTitleSpans for why the custom SQLite
-// timestamp Valuer is load-bearing.
+// @at_time: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
 func (q *Queries) InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error {
 	_, err := q.db.ExecContext(ctx, insertVideoCategorySpan, arg.VideoID, arg.CategoryID, arg.AtTime)
 	return err
@@ -248,10 +247,8 @@ type ListPrimaryCategoriesForVideosRow struct {
 // aggregate rows ordered so the first row per video_id is the
 // "primary" category (most total duration, earliest first-seen,
 // then name). The adapter takes the first row per video_id since
-// SQLite lacks DISTINCT ON, and scans that kept row's first_seen_at
-// even though it does not expose it; that keeps malformed started_at
-// values on the returned primary category's hard-fail path instead of
-// silently affecting aggregate ordering/duration.
+// SQLite lacks DISTINCT ON. Scanning first_seen_at keeps malformed
+// started_at values on the returned row's hard-fail path.
 func (q *Queries) ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error) {
 	query := listPrimaryCategoriesForVideos
 	var queryParams []interface{}

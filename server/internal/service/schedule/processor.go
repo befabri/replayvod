@@ -22,6 +22,8 @@ type StreamDownloader interface {
 	Start(ctx context.Context, p downloader.Params) (string, error)
 }
 
+var errDownloaderUnavailable = errors.New("schedule: downloader unavailable")
+
 // EventProcessor implements routes/webhook.EventProcessor. On a
 // stream.online webhook it enriches the event with full stream data
 // from Helix, runs every active schedule through Match, picks the
@@ -220,7 +222,7 @@ func (p *EventProcessor) publishStatus(kind eventbus.StreamStatusKind, broadcast
 }
 
 func (p *EventProcessor) DispatchStreamOnline(ctx context.Context, event twitch.StreamOnlineEvent) error {
-	return p.dispatchStreamOnline(ctx, event, nil)
+	return p.dispatchStreamOnline(ctx, event, nil, nil)
 }
 
 // DispatchStreamOnlineFromStream is the poll-mode entry point. The caller has
@@ -229,7 +231,20 @@ func (p *EventProcessor) DispatchStreamOnline(ctx context.Context, event twitch.
 // has the EventSub payload, which carries no title/category/viewer data, so it
 // must re-fetch.
 func (p *EventProcessor) DispatchStreamOnlineFromStream(ctx context.Context, stream twitch.Stream) error {
-	return p.dispatchStreamOnline(ctx, streamOnlineEventFromStream(stream), &stream)
+	return p.dispatchStreamOnline(ctx, streamOnlineEventFromStream(stream), &stream, nil)
+}
+
+// DispatchStreamOnlineFromStreamForSchedule is the schedule-write entry point:
+// the broadcaster is already live, but we should only start recording if the
+// schedule that was just created/updated is one of the matching schedules. Once
+// that gate passes, the normal winner selection still considers every matching
+// active schedule for the broadcaster so the one-download-per-stream rule stays
+// identical to real stream.online handling.
+func (p *EventProcessor) DispatchStreamOnlineFromStreamForSchedule(ctx context.Context, stream twitch.Stream, scheduleID int64) error {
+	if scheduleID <= 0 {
+		return nil
+	}
+	return p.dispatchStreamOnline(ctx, streamOnlineEventFromStream(stream), &stream, &scheduleID)
 }
 
 func streamOnlineEventFromStream(s twitch.Stream) twitch.StreamOnlineEvent {
@@ -244,9 +259,11 @@ func streamOnlineEventFromStream(s twitch.Stream) twitch.StreamOnlineEvent {
 }
 
 // dispatchStreamOnline is the shared path. prefetched is the already-polled live
-// stream in poll mode, or nil in webhook mode (where hydrate re-fetches from
-// Helix).
-func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.StreamOnlineEvent, prefetched *twitch.Stream) error {
+// stream in poll/immediate mode, or nil in webhook mode (where hydrate
+// re-fetches from Helix). requiredScheduleID gates the immediate schedule-write
+// path: nil means normal stream.online semantics, non-nil means "do nothing
+// unless this schedule matched the current stream".
+func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.StreamOnlineEvent, prefetched *twitch.Stream, requiredScheduleID *int64) error {
 	if event.BroadcasterUserID == "" {
 		p.log.Warn("stream.online event missing broadcaster_user_id", "event_id", event.ID)
 		return nil
@@ -263,6 +280,20 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		return fmt.Errorf("list schedules for broadcaster: %w", err)
 	}
 	if len(schedules) == 0 {
+		return nil
+	}
+
+	// Global pause kill switch: when the owner has paused all schedules, skip
+	// auto-downloads entirely. Individual schedule is_disabled flags are left
+	// untouched, so resuming restores each schedule's prior behavior. The live
+	// status fan-out above still runs so the dashboard indicator stays correct.
+	// Read after the no-schedule early return so broadcasters without schedules
+	// (the common case) don't pay a settings lookup on every stream.online.
+	paused, err := readSchedulesPaused(ctx, p.repo)
+	if err != nil {
+		return fmt.Errorf("read schedules paused flag: %w", err)
+	}
+	if paused {
 		return nil
 	}
 
@@ -300,6 +331,7 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 	// be the lowest quality).
 	var matches []*repository.DownloadSchedule
 	var filterErrs []error
+	requiredMatched := requiredScheduleID == nil
 	for i := range schedules {
 		schedule := &schedules[i]
 		filters, err := p.loadFilters(ctx, schedule)
@@ -310,23 +342,40 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		}
 		if Match(schedule, filters, signals) {
 			matches = append(matches, schedule)
+			if requiredScheduleID != nil && schedule.ID == *requiredScheduleID {
+				requiredMatched = true
+			}
 		}
+	}
+	if !requiredMatched {
+		return errors.Join(filterErrs...)
 	}
 	if len(matches) == 0 {
 		return errors.Join(filterErrs...)
 	}
 
-	// Pick highest-quality match deterministically. Ties break by
-	// schedule ID so repeated firings of the same event converge on the
-	// same winner.
-	winner := highestQuality(matches)
+	// Pick the best match deterministically. Video schedules win over audio
+	// when both match because video contains the audio track too; within the
+	// same mode, higher quality wins and ties break by schedule ID.
+	winner := bestSchedule(matches)
 	winnerID := winner.ID
 	retention := effectiveRetentionPolicy(matches)
+
+	if p.dl == nil {
+		p.log.Warn("auto-download skipped; downloader unavailable",
+			"schedule_id", winner.ID, "broadcaster_id", event.BroadcasterUserID)
+		return errDownloaderUnavailable
+	}
 
 	dlLanguage := p.defaultLng
 	if language != "" {
 		dlLanguage = language
 	}
+	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
+		RecordingType: winner.RecordingType,
+		Quality:       winner.Quality,
+		ForceH264:     winner.ForceH264,
+	})
 	jobID, startErr := p.dl.Start(ctx, downloader.Params{
 		BroadcasterID:             event.BroadcasterUserID,
 		BroadcasterLogin:          login,
@@ -334,7 +383,9 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		Title:                     streamTitle,
 		CategoryID:                categoryID,
 		CategoryName:              categoryName,
-		Quality:                   winner.Quality,
+		RecordingType:             settings.RecordingType,
+		Quality:                   settings.Quality,
+		ForceH264:                 settings.ForceH264,
 		Language:                  dlLanguage,
 		ViewerCount:               signals.ViewerCount,
 		TriggerScheduleID:         &winnerID,
@@ -384,7 +435,9 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		"match_count", len(matches),
 		"broadcaster_id", event.BroadcasterUserID,
 		"job_id", jobID,
-		"quality", winner.Quality)
+		"recording_type", settings.RecordingType,
+		"force_h264", settings.ForceH264,
+		"quality", settings.Quality)
 	return nil
 }
 
@@ -395,6 +448,13 @@ var qualityRank = map[string]int{
 	repository.QualityLow:    1,
 	repository.QualityMedium: 2,
 	repository.QualityHigh:   3,
+}
+
+func recordingTypeRank(recordingType string) int {
+	if repository.NormalizeRecordingType(recordingType) == repository.RecordingTypeAudio {
+		return 1
+	}
+	return 2
 }
 
 type retentionPolicySnapshot struct {
@@ -427,17 +487,23 @@ func effectiveRetentionPolicy(matches []*repository.DownloadSchedule) retentionP
 	return out
 }
 
-// highestQuality returns the schedule with the highest quality rank.
-// Ties break by lowest ID — deterministic across repeated invocations
-// so retry / replay of the same event always picks the same winner.
-func highestQuality(matches []*repository.DownloadSchedule) *repository.DownloadSchedule {
+// bestSchedule returns the schedule that should own the single auto-download.
+// Video wins over audio, then higher quality wins within the same recording
+// mode. Ties break by lowest ID so retry / replay of the same event always
+// picks the same winner.
+func bestSchedule(matches []*repository.DownloadSchedule) *repository.DownloadSchedule {
 	winner := matches[0]
-	winRank := qualityRank[winner.Quality]
+	winModeRank := recordingTypeRank(winner.RecordingType)
+	winQualityRank := qualityRank[winner.Quality]
 	for _, s := range matches[1:] {
-		r := qualityRank[s.Quality]
-		if r > winRank || (r == winRank && s.ID < winner.ID) {
+		modeRank := recordingTypeRank(s.RecordingType)
+		candidateQualityRank := qualityRank[s.Quality]
+		if modeRank > winModeRank ||
+			(modeRank == winModeRank && candidateQualityRank > winQualityRank) ||
+			(modeRank == winModeRank && candidateQualityRank == winQualityRank && s.ID < winner.ID) {
 			winner = s
-			winRank = r
+			winModeRank = modeRank
+			winQualityRank = candidateQualityRank
 		}
 	}
 	return winner

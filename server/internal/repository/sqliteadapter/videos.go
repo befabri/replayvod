@@ -84,27 +84,24 @@ func (a *SQLiteAdapter) ListVideosByJobIDs(ctx context.Context, jobIDs []string)
 }
 
 func (a *SQLiteAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (*repository.Video, error) {
-	rt := v.RecordingType
-	if rt == "" {
-		rt = repository.RecordingTypeVideo
-	}
-	var force int64
-	if v.ForceH264 {
-		force = 1
-	}
+	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
+		RecordingType: v.RecordingType,
+		Quality:       v.Quality,
+		ForceH264:     v.ForceH264,
+	})
 	row, err := a.queries.CreateVideo(ctx, sqlitegen.CreateVideoParams{
 		JobID:                     v.JobID,
 		Filename:                  v.Filename,
 		DisplayName:               v.DisplayName,
 		Title:                     v.Title,
 		Status:                    v.Status,
-		Quality:                   v.Quality,
+		Quality:                   settings.Quality,
 		BroadcasterID:             v.BroadcasterID,
 		StreamID:                  toNullString(v.StreamID),
 		ViewerCount:               v.ViewerCount,
 		Language:                  v.Language,
-		RecordingType:             rt,
-		ForceH264:                 force,
+		RecordingType:             settings.RecordingType,
+		ForceH264:                 boolToInt64(settings.ForceH264),
 		TriggerScheduleID:         int64PtrToNullInt64(v.TriggerScheduleID),
 		RetentionSourceScheduleID: int64PtrToNullInt64(v.RetentionSourceScheduleID),
 		RetentionWindowHours:      int64PtrToNullInt64(v.RetentionWindowHours),

@@ -17,8 +17,10 @@ func RegisterRoutes(tr *trpcgo.Router, svc *schedulesvc.Service, log *slog.Logge
 	trpcgo.MustQuery(tr, "schedule.list", h.List, viewer)
 	trpcgo.MustQuery(tr, "schedule.mine", h.Mine, viewer)
 	trpcgo.MustQuery(tr, "schedule.getById", h.GetByID, viewer)
+	trpcgo.MustVoidQuery(tr, "schedule.pauseState", h.PauseState, viewer)
 	trpcgo.MustMutation(tr, "schedule.create", h.Create, admin)
 	trpcgo.MustMutation(tr, "schedule.update", h.Update, admin)
 	trpcgo.MustMutation(tr, "schedule.toggle", h.Toggle, admin)
+	trpcgo.MustMutation(tr, "schedule.setPaused", h.SetPaused, admin)
 	trpcgo.MustMutation(tr, "schedule.delete", h.Delete, admin)
 }

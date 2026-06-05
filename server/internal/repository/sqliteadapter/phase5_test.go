@@ -46,6 +46,12 @@ func TestSchedule_Upsert_PreservesTriggerCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	if created.RecordingType != repository.RecordingTypeVideo {
+		t.Fatalf("created recording_type = %q, want video default", created.RecordingType)
+	}
+	if created.ForceH264 {
+		t.Fatalf("created force_h264 = true, want false default")
+	}
 
 	for range 2 {
 		if err := a.RecordScheduleTrigger(ctx, created.ID); err != nil {
@@ -61,8 +67,8 @@ func TestSchedule_Upsert_PreservesTriggerCount(t *testing.T) {
 	}
 
 	updated, err := a.UpdateSchedule(ctx, created.ID, &repository.ScheduleInput{
-		BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "MEDIUM",
-		IsDisabled: true,
+		BroadcasterID: "b-1", RequestedBy: "u-1", RecordingType: repository.RecordingTypeAudio,
+		Quality: "MEDIUM", ForceH264: true, IsDisabled: true,
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -70,11 +76,94 @@ func TestSchedule_Upsert_PreservesTriggerCount(t *testing.T) {
 	if updated.Quality != "MEDIUM" || !updated.IsDisabled {
 		t.Errorf("update didn't apply: quality=%s disabled=%v", updated.Quality, updated.IsDisabled)
 	}
+	if updated.RecordingType != repository.RecordingTypeAudio {
+		t.Errorf("update didn't apply recording_type: got %q, want audio", updated.RecordingType)
+	}
+	if updated.ForceH264 {
+		t.Errorf("audio update stored force_h264=true, want false")
+	}
 	if updated.TriggerCount != 2 {
 		t.Errorf("UpdateSchedule clobbered trigger_count: was 2, now %d", updated.TriggerCount)
 	}
 	if updated.LastTriggeredAt == nil || !updated.LastTriggeredAt.Equal(*before.LastTriggeredAt) {
 		t.Errorf("UpdateSchedule clobbered last_triggered_at: was %v, now %v", before.LastTriggeredAt, updated.LastTriggeredAt)
+	}
+}
+
+func TestScheduleWithFilters_RollsBackOnFilterLinkFailure(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	seedUserChannel(t, ctx, a, "u-tx", "b-tx")
+	if _, err := a.UpsertCategory(ctx, &repository.Category{ID: "game-1", Name: "Game 1"}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	tag, err := a.UpsertTag(ctx, "tag-one")
+	if err != nil {
+		t.Fatalf("seed tag: %v", err)
+	}
+
+	_, err = a.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-tx",
+		RequestedBy:   "u-tx",
+		Quality:       repository.QualityHigh,
+		HasCategories: true,
+	}, repository.ScheduleFilterInput{
+		CategoryIDs: []string{"missing-game"},
+	})
+	if err == nil {
+		t.Fatal("CreateScheduleWithFilters with missing category succeeded, want FK error")
+	}
+	if _, err := a.GetScheduleForUserChannel(ctx, "b-tx", "u-tx"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("GetScheduleForUserChannel after failed create err = %v, want ErrNotFound", err)
+	}
+
+	created, err := a.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-tx",
+		RequestedBy:   "u-tx",
+		Quality:       repository.QualityLow,
+		HasCategories: true,
+		HasTags:       true,
+	}, repository.ScheduleFilterInput{
+		CategoryIDs: []string{"game-1"},
+		TagIDs:      []int64{tag.ID},
+	})
+	if err != nil {
+		t.Fatalf("CreateScheduleWithFilters valid: %v", err)
+	}
+
+	_, err = a.UpdateScheduleWithFilters(ctx, created.ID, &repository.ScheduleInput{
+		BroadcasterID: "b-tx",
+		RequestedBy:   "u-tx",
+		Quality:       repository.QualityHigh,
+		HasCategories: true,
+		HasTags:       true,
+	}, repository.ScheduleFilterInput{
+		CategoryIDs: []string{"missing-game"},
+		TagIDs:      []int64{tag.ID},
+	})
+	if err == nil {
+		t.Fatal("UpdateScheduleWithFilters with missing category succeeded, want FK error")
+	}
+	got, err := a.GetSchedule(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetSchedule after failed update: %v", err)
+	}
+	if got.Quality != repository.QualityLow {
+		t.Fatalf("quality after failed update = %q, want original %q", got.Quality, repository.QualityLow)
+	}
+	cats, err := a.ListScheduleCategories(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("ListScheduleCategories after failed update: %v", err)
+	}
+	if len(cats) != 1 || cats[0].ID != "game-1" {
+		t.Fatalf("categories after failed update = %+v, want only game-1", cats)
+	}
+	tags, err := a.ListScheduleTags(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("ListScheduleTags after failed update: %v", err)
+	}
+	if len(tags) != 1 || tags[0].ID != tag.ID {
+		t.Fatalf("tags after failed update = %+v, want only tag %d", tags, tag.ID)
 	}
 }
 

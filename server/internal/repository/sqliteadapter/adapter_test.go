@@ -137,6 +137,70 @@ func TestMalformedTimestampHardFails(t *testing.T) {
 	}
 }
 
+// TestSetSchedulesPaused_RoundTripAndIsolation pins the global pause flag: it
+// flips on a fresh row and reads back, and it is isolated from the other
+// selective server-settings writes in both directions — pausing must not clobber
+// the server mode, and an unrelated settings write must not clear the pause
+// flag. That isolation is exactly what "resume restores prior state" relies on.
+func TestSetSchedulesPaused_RoundTripAndIsolation(t *testing.T) {
+	ctx := context.Background()
+	adapter := newTestAdapter(t)
+
+	// Fresh DB: the write creates the row and echoes the flag back.
+	saved, err := adapter.SetSchedulesPaused(ctx, true)
+	if err != nil {
+		t.Fatalf("SetSchedulesPaused(true): %v", err)
+	}
+	if !saved.SchedulesPaused {
+		t.Fatal("SetSchedulesPaused(true) returned SchedulesPaused=false")
+	}
+	if reloaded, err := adapter.GetServerSettings(ctx); err != nil {
+		t.Fatalf("GetServerSettings: %v", err)
+	} else if !reloaded.SchedulesPaused {
+		t.Fatal("schedules_paused not persisted")
+	}
+
+	// Toggling back off works.
+	if off, err := adapter.SetSchedulesPaused(ctx, false); err != nil {
+		t.Fatalf("SetSchedulesPaused(false): %v", err)
+	} else if off.SchedulesPaused {
+		t.Fatal("SetSchedulesPaused(false) left the flag on")
+	}
+
+	// Isolation 1: pausing must not clobber an unrelated setting.
+	if _, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "relay"}); err != nil {
+		t.Fatalf("UpsertServerSettings: %v", err)
+	}
+	if _, err := adapter.SetSchedulesPaused(ctx, true); err != nil {
+		t.Fatalf("SetSchedulesPaused after upsert: %v", err)
+	}
+	afterPause, err := adapter.GetServerSettings(ctx)
+	if err != nil {
+		t.Fatalf("GetServerSettings: %v", err)
+	}
+	if !afterPause.SchedulesPaused {
+		t.Fatal("pause flag lost")
+	}
+	if afterPause.ServerMode != "relay" {
+		t.Fatalf("ServerMode = %q, want relay (pause write clobbered it)", afterPause.ServerMode)
+	}
+
+	// Isolation 2: an unrelated settings write must leave the pause flag on.
+	if _, err := adapter.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "direct"}); err != nil {
+		t.Fatalf("second UpsertServerSettings: %v", err)
+	}
+	afterUpsert, err := adapter.GetServerSettings(ctx)
+	if err != nil {
+		t.Fatalf("GetServerSettings: %v", err)
+	}
+	if !afterUpsert.SchedulesPaused {
+		t.Fatal("unrelated settings write clobbered schedules_paused")
+	}
+	if afterUpsert.ServerMode != "direct" {
+		t.Fatalf("ServerMode = %q, want direct", afterUpsert.ServerMode)
+	}
+}
+
 func TestServerSettings_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 	adapter := newTestAdapter(t)
@@ -558,6 +622,40 @@ func TestListVideos_ColumnRoundtrip(t *testing.T) {
 	}
 	if got.DownloadedAt == nil || got.DownloadedAt.IsZero() {
 		t.Error("DownloadedAt: nil — MarkVideoDone should have stamped it")
+	}
+}
+
+func TestCreateVideo_NormalizesRecordingSettings(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-audio", BroadcasterLogin: "audio", BroadcasterName: "Audio",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	got, err := a.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-audio",
+		Filename:      "audio",
+		DisplayName:   "Audio",
+		Status:        repository.VideoStatusPending,
+		BroadcasterID: "bc-audio",
+		Language:      "en",
+		RecordingType: repository.RecordingTypeAudio,
+		ForceH264:     true,
+	})
+	if err != nil {
+		t.Fatalf("CreateVideo: %v", err)
+	}
+	if got.RecordingType != repository.RecordingTypeAudio {
+		t.Fatalf("recording_type = %q, want audio", got.RecordingType)
+	}
+	if got.Quality != repository.QualityHigh {
+		t.Fatalf("quality = %q, want HIGH default", got.Quality)
+	}
+	if got.ForceH264 {
+		t.Fatalf("force_h264 = true for audio row, want false")
 	}
 }
 
@@ -1326,6 +1424,7 @@ func TestSearchCategories(t *testing.T) {
 		{ID: "3", Name: "The Legend of Valor"},
 		{ID: "4", Name: "Celeste"},
 		{ID: "5", Name: "50% Off"}, // exercises LIKE wildcard edge case
+		{ID: "6", Name: "Échecs"},
 	}
 	for _, c := range seed {
 		cat := c
@@ -1409,6 +1508,16 @@ func TestSearchCategories(t *testing.T) {
 			t.Errorf("expected '50%% Off' in result, got %v", namesOf(got))
 		}
 	})
+
+	t.Run("unicode case fold matches non ASCII names", func(t *testing.T) {
+		got, err := a.SearchCategories(ctx, "é", 10)
+		if err != nil {
+			t.Fatalf("search unicode: %v", err)
+		}
+		if len(got) == 0 || got[0].Name != "Échecs" {
+			t.Fatalf("unicode search = %v, want Échecs first", namesOf(got))
+		}
+	})
 }
 
 // TestSearchCategories_ColumnRoundtrip pins scan column order for the
@@ -1464,6 +1573,92 @@ func TestSearchCategories_ColumnRoundtrip(t *testing.T) {
 	}
 }
 
+func TestListCategoriesWithVideos(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	for _, c := range []repository.Category{
+		{ID: "cat-visible", Name: "Visible Game"},
+		{ID: "cat-searched", Name: "Searched Only"},
+		{ID: "cat-deleted", Name: "Deleted Only"},
+	} {
+		cat := c
+		if _, err := a.UpsertCategory(ctx, &cat); err != nil {
+			t.Fatalf("seed category %s: %v", cat.ID, err)
+		}
+	}
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-cats", BroadcasterLogin: "cats", BroadcasterName: "Cats",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	visible, err := a.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-visible-cat",
+		Filename:      "visible-cat",
+		DisplayName:   "Cats",
+		Status:        repository.VideoStatusDone,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "bc-cats",
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("create visible video: %v", err)
+	}
+	if err := a.LinkVideoCategory(ctx, visible.ID, "cat-visible"); err != nil {
+		t.Fatalf("link visible category: %v", err)
+	}
+
+	deleted, err := a.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-deleted-cat",
+		Filename:      "deleted-cat",
+		DisplayName:   "Cats",
+		Status:        repository.VideoStatusDone,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "bc-cats",
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("create deleted video: %v", err)
+	}
+	if err := a.LinkVideoCategory(ctx, deleted.ID, "cat-deleted"); err != nil {
+		t.Fatalf("link deleted category: %v", err)
+	}
+	if err := a.SoftDeleteVideo(ctx, deleted.ID); err != nil {
+		t.Fatalf("soft delete video: %v", err)
+	}
+
+	got, err := a.ListCategoriesWithVideos(ctx)
+	if err != nil {
+		t.Fatalf("list categories with videos: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "cat-visible" {
+		t.Fatalf("ListCategoriesWithVideos = %+v, want only cat-visible", got)
+	}
+
+	got, err = a.SearchCategoriesWithVideos(ctx, "Visible", 10)
+	if err != nil {
+		t.Fatalf("search visible categories with videos: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "cat-visible" {
+		t.Fatalf("SearchCategoriesWithVideos visible = %+v, want only cat-visible", got)
+	}
+	got, err = a.SearchCategoriesWithVideos(ctx, "Searched", 10)
+	if err != nil {
+		t.Fatalf("search catalog-only categories with videos: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("SearchCategoriesWithVideos catalog-only = %+v, want none", got)
+	}
+	got, err = a.SearchCategoriesWithVideos(ctx, "Deleted", 10)
+	if err != nil {
+		t.Fatalf("search deleted categories with videos: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("SearchCategoriesWithVideos deleted-only = %+v, want none", got)
+	}
+}
+
 // TestUpsertCategory_PreservesBoxArt pins the data-loss fix: when a
 // caller upserts a category with only (id, name) — the streammeta
 // Hydrator's webhook path — any box_art_url / igdb_id the category
@@ -1508,6 +1703,78 @@ func TestUpsertCategory_PreservesBoxArt(t *testing.T) {
 	}
 	if got.IGDBID == nil || *got.IGDBID != igdb {
 		t.Errorf("igdb_id was wiped: got %v, want %q", got.IGDBID, igdb)
+	}
+}
+
+func TestUpsertCategories_PreservesBoxArtAndReturnsInputOrder(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	art := "https://cdn.example.com/art-{width}x{height}.jpg"
+	igdb := "igdb-42"
+	if _, err := a.UpsertCategory(ctx, &repository.Category{
+		ID:        "g-1",
+		Name:      "Old Name",
+		BoxArtURL: &art,
+		IGDBID:    &igdb,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, err := a.UpsertCategories(ctx, []repository.Category{
+		{ID: "g-2", Name: "Second"},
+		{ID: "g-1", Name: "New Name"},
+		{ID: "g-2", Name: "Second Duplicate"},
+	})
+	if err != nil {
+		t.Fatalf("batch upsert: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != "g-2" || got[1].ID != "g-1" {
+		t.Fatalf("batch order = %+v, want g-2 then g-1", got)
+	}
+
+	updated, err := a.GetCategory(ctx, "g-1")
+	if err != nil {
+		t.Fatalf("get updated: %v", err)
+	}
+	if updated.Name != "New Name" {
+		t.Fatalf("name = %q, want New Name", updated.Name)
+	}
+	if updated.BoxArtURL == nil || *updated.BoxArtURL != art {
+		t.Fatalf("box_art_url = %v, want %q", updated.BoxArtURL, art)
+	}
+	if updated.IGDBID == nil || *updated.IGDBID != igdb {
+		t.Fatalf("igdb_id = %v, want %q", updated.IGDBID, igdb)
+	}
+}
+
+func TestListCategoriesByIDs_ReturnsInputOrder(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	for _, c := range []repository.Category{
+		{ID: "a", Name: "A"},
+		{ID: "b", Name: "B"},
+		{ID: "c", Name: "C"},
+	} {
+		cat := c
+		if _, err := a.UpsertCategory(ctx, &cat); err != nil {
+			t.Fatalf("seed %s: %v", c.ID, err)
+		}
+	}
+
+	got, err := a.ListCategoriesByIDs(ctx, []string{"c", "missing", "a", "c", "b"})
+	if err != nil {
+		t.Fatalf("ListCategoriesByIDs: %v", err)
+	}
+	want := []string{"c", "a", "b"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d: %+v", len(got), len(want), got)
+	}
+	for i, id := range want {
+		if got[i].ID != id {
+			t.Fatalf("row %d ID = %q, want %q: %+v", i, got[i].ID, id, got)
+		}
 	}
 }
 

@@ -39,7 +39,9 @@ type ScheduleResponse struct {
 	ID               int64          `json:"id"`
 	BroadcasterID    string         `json:"broadcaster_id"`
 	RequestedBy      string         `json:"requested_by"`
+	RecordingType    string         `json:"recording_type"`
 	Quality          string         `json:"quality"`
+	ForceH264        bool           `json:"force_h264"`
 	HasMinViewers    bool           `json:"has_min_viewers"`
 	MinViewers       *int64         `json:"min_viewers,omitempty"`
 	HasCategories    bool           `json:"has_categories"`
@@ -72,7 +74,9 @@ func toResponse(v schedulesvc.View) ScheduleResponse {
 		ID:               v.Schedule.ID,
 		BroadcasterID:    v.Schedule.BroadcasterID,
 		RequestedBy:      v.Schedule.RequestedBy,
+		RecordingType:    v.Schedule.RecordingType,
 		Quality:          v.Schedule.Quality,
+		ForceH264:        v.Schedule.ForceH264,
 		HasMinViewers:    v.Schedule.HasMinViewers,
 		MinViewers:       v.Schedule.MinViewers,
 		HasCategories:    v.Schedule.HasCategories,
@@ -167,7 +171,9 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (ScheduleResp
 // keeps the UI simpler than wrapping driver-level constraint errors.
 type CreateInput struct {
 	BroadcasterID  string `json:"broadcaster_id" validate:"required"`
+	RecordingType  string `json:"recording_type,omitempty" validate:"omitempty,oneof=video audio"`
 	Quality        string `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH"`
+	ForceH264      bool   `json:"force_h264,omitempty"`
 	HasMinViewers  bool   `json:"has_min_viewers"`
 	MinViewers     *int64 `json:"min_viewers,omitempty" validate:"omitempty,min=0"`
 	HasCategories  bool   `json:"has_categories"`
@@ -194,7 +200,9 @@ func (h *Handler) Create(ctx context.Context, input CreateInput) (ScheduleRespon
 	}
 	view, err := h.svc.Create(ctx, user.ID, schedulesvc.WriteInput{
 		BroadcasterID:    input.BroadcasterID,
+		RecordingType:    input.RecordingType,
 		Quality:          input.Quality,
+		ForceH264:        &input.ForceH264,
 		HasMinViewers:    input.HasMinViewers,
 		MinViewers:       input.MinViewers,
 		HasCategories:    input.HasCategories,
@@ -216,7 +224,9 @@ func (h *Handler) Create(ctx context.Context, input CreateInput) (ScheduleRespon
 // another channel and should be a delete+create instead.
 type UpdateInput struct {
 	ID             int64  `json:"id" validate:"required"`
+	RecordingType  string `json:"recording_type,omitempty" validate:"omitempty,oneof=video audio"`
 	Quality        string `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH"`
+	ForceH264      *bool  `json:"force_h264,omitempty"`
 	HasMinViewers  bool   `json:"has_min_viewers"`
 	MinViewers     *int64 `json:"min_viewers,omitempty" validate:"omitempty,min=0"`
 	HasCategories  bool   `json:"has_categories"`
@@ -242,7 +252,9 @@ func (h *Handler) Update(ctx context.Context, input UpdateInput) (ScheduleRespon
 		return ScheduleResponse{}, err
 	}
 	view, err := h.svc.Update(ctx, user.ID, user.Role == middleware.RoleOwner, input.ID, schedulesvc.WriteInput{
+		RecordingType:    input.RecordingType,
 		Quality:          input.Quality,
+		ForceH264:        input.ForceH264,
 		HasMinViewers:    input.HasMinViewers,
 		MinViewers:       input.MinViewers,
 		HasCategories:    input.HasCategories,
@@ -295,6 +307,42 @@ func (h *Handler) Delete(ctx context.Context, input DeleteInput) (DeleteResponse
 		return DeleteResponse{}, apierr.Map(h.log, err, "delete schedule", scheduleErrRules...)
 	}
 	return DeleteResponse{ID: input.ID}, nil
+}
+
+// PauseStateResponse reports the global auto-download pause flag. The dashboard
+// uses it to render the Pause all / Resume button and the paused banner.
+type PauseStateResponse struct {
+	Paused bool `json:"paused"`
+}
+
+// PauseState returns whether auto-downloads are globally paused. Viewer-level:
+// the paused banner is visible to anyone who can see the schedules list.
+func (h *Handler) PauseState(ctx context.Context) (PauseStateResponse, error) {
+	if _, err := middleware.RequireUser(ctx); err != nil {
+		return PauseStateResponse{}, err
+	}
+	paused, err := h.svc.PausedState(ctx)
+	if err != nil {
+		return PauseStateResponse{}, apierr.Map(h.log, err, "schedule pause state", scheduleErrRules...)
+	}
+	return PauseStateResponse{Paused: paused}, nil
+}
+
+type SetPausedInput struct {
+	Paused bool `json:"paused"`
+}
+
+// SetPaused flips the global auto-download pause flag. Admin-only, mirroring the
+// other schedule writes so viewers can't halt every recording.
+func (h *Handler) SetPaused(ctx context.Context, input SetPausedInput) (PauseStateResponse, error) {
+	if _, err := middleware.RequireUser(ctx); err != nil {
+		return PauseStateResponse{}, err
+	}
+	paused, err := h.svc.SetPaused(ctx, input.Paused)
+	if err != nil {
+		return PauseStateResponse{}, apierr.Map(h.log, err, "set schedule pause", scheduleErrRules...)
+	}
+	return PauseStateResponse{Paused: paused}, nil
 }
 
 func toResponses(views []schedulesvc.View) []ScheduleResponse {

@@ -28,11 +28,9 @@ type Querier interface {
 	// Called first inside the same tx as InsertVideoTitleSpan; closes only
 	// the spans whose title_id differs from the new one.
 	//
-	// @at_time is typed as sqlitetype.Time by sqlc override. Its driver.Valuer
-	// emits the "2006-01-02 15:04:05" shape SQLite's julianday() accepts;
-	// modernc.org/sqlite's native time.Time binding can produce an RFC3339
-	// string with a `T` separator and `Z` suffix, which julianday() treats as
-	// NULL, silently corrupting the duration sum.
+	// @at_time is sqlitetype.Time so its Valuer emits the shape SQLite's
+	// julianday() accepts. Some native time.Time bindings format to RFC3339,
+	// which julianday() can treat as NULL and corrupt duration sums.
 	CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error
 	CountActiveSubscriptions(ctx context.Context) (int64, error)
 	CountEventLogs(ctx context.Context) (int64, error)
@@ -66,6 +64,7 @@ type Querier interface {
 	// ListVideos (see queries/sqlite/videos.sql).
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
+	DeleteExpiredCategorySearchCache(ctx context.Context, expiresAt sqlitetype.Time) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteOldEventLogs(ctx context.Context, createdAt sqlitetype.Time) error
 	DeleteOldFetchLogs(ctx context.Context, fetchedAt sqlitetype.Time) error
@@ -98,6 +97,7 @@ type Querier interface {
 	GetActiveSubscriptionForBroadcasterType(ctx context.Context, arg GetActiveSubscriptionForBroadcasterTypeParams) (Subscription, error)
 	GetCategory(ctx context.Context, id string) (Category, error)
 	GetCategoryByName(ctx context.Context, name string) (Category, error)
+	GetCategorySearchCache(ctx context.Context, normalizedQuery string) (CategorySearchCache, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
 	GetJob(ctx context.Context, id string) (Job, error)
@@ -135,8 +135,7 @@ type Querier interface {
 	// alias and a clobbered DeleteVideoParts). One-line form sidesteps
 	// the parser bug.
 	HasFinalizedVideoParts(ctx context.Context, videoID int64) (int64, error)
-	// @at_time: see CloseOtherOpenVideoTitleSpans for why the custom SQLite
-	// timestamp Valuer is load-bearing.
+	// @at_time: see CloseOtherOpenVideoTitleSpans for the timestamp Valuer.
 	InsertVideoCategorySpan(ctx context.Context, arg InsertVideoCategorySpanParams) error
 	InsertVideoMetadataChange(ctx context.Context, arg InsertVideoMetadataChangeParams) (int64, error)
 	// The INSERT half of the upsert. The partial unique index on
@@ -157,7 +156,12 @@ type Querier interface {
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
 	ListActiveSubscriptions(ctx context.Context, arg ListActiveSubscriptionsParams) ([]Subscription, error)
 	ListCategories(ctx context.Context) ([]Category, error)
+	ListCategoriesByIDs(ctx context.Context, ids []string) ([]Category, error)
 	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
+	// Browse/library list: categories must be linked to at least one visible
+	// recording. Twitch search can mirror catalog-only rows into categories; those
+	// should stay out of the category page until a video actually references them.
+	ListCategoriesWithVideos(ctx context.Context) ([]Category, error)
 	ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
@@ -186,10 +190,8 @@ type Querier interface {
 	// aggregate rows ordered so the first row per video_id is the
 	// "primary" category (most total duration, earliest first-seen,
 	// then name). The adapter takes the first row per video_id since
-	// SQLite lacks DISTINCT ON, and scans that kept row's first_seen_at
-	// even though it does not expose it; that keeps malformed started_at
-	// values on the returned primary category's hard-fail path instead of
-	// silently affecting aggregate ordering/duration.
+	// SQLite lacks DISTINCT ON. Scanning first_seen_at keeps malformed
+	// started_at values on the returned row's hard-fail path.
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
 	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int64) ([]RecordingWebhookDelivery, error)
@@ -251,6 +253,7 @@ type Querier interface {
 	MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams) error
 	MarkWebhookEventFailed(ctx context.Context, arg MarkWebhookEventFailedParams) error
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
+	PruneCategorySearchCache(ctx context.Context, offset int64) error
 	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	ResetStaleRecordingWebhookDeliveries(ctx context.Context, arg ResetStaleRecordingWebhookDeliveriesParams) error
@@ -267,6 +270,12 @@ type Querier interface {
 	// duplicate-send). attempts is reset for a fresh budget. A non-matching id
 	// returns no row, which the adapter maps to ErrNotFound.
 	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
+	// Same ranking contract as SearchCategories, restricted to categories linked to
+	// at least one visible recording. unicode_lower is registered by the SQLite
+	// adapter so SQLite matches Go/Postgres Unicode case folding for category search.
+	// Bind params once in a CTE with explicit casts: this keeps sqlc's SQLite output
+	// typed while avoiding missed @param rewrites in repeated CASE/LIKE expressions.
+	SearchCategoriesWithVideos(ctx context.Context, arg SearchCategoriesWithVideosParams) ([]Category, error)
 	// Freeze the part metadata on the first delivery build, while the video's parts
 	// still exist, so a later retry rebuilds the real part list even after retention
 	// has deleted those parts. Signed download URLs are re-minted per attempt and
@@ -276,6 +285,11 @@ type Querier interface {
 	// SetRecordingWebhookSecret rotates the signing secret unconditionally, for the
 	// owner's explicit "regenerate secret" action.
 	SetRecordingWebhookSecret(ctx context.Context, recordingWebhookSecret string) error
+	// SetSchedulesPaused writes only the global auto-download pause flag, leaving
+	// every other server setting untouched. The schedule processor reads it on each
+	// stream.online to decide whether to skip auto-downloads; individual schedule
+	// is_disabled flags are never modified, so resuming restores prior state exactly.
+	SetSchedulesPaused(ctx context.Context, schedulesPaused int64) (ServerSetting, error)
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	SetTaskNextRun(ctx context.Context, name string) error
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
@@ -302,6 +316,7 @@ type Querier interface {
 	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
 	// between 0/1 explicitly via CASE for clarity on non-boolean-ish values.
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
+	TouchCategorySearchCache(ctx context.Context, arg TouchCategorySearchCacheParams) error
 	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
@@ -328,6 +343,7 @@ type Querier interface {
 	// art sync has filled. ifnull() picks the existing row value when
 	// the caller passed NULL.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
+	UpsertCategorySearchCache(ctx context.Context, arg UpsertCategorySearchCacheParams) (CategorySearchCache, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)
 	// UpsertPlaybackCacheConfig writes only the continuous-playback cache knobs.
 	// Artifacts are generated asynchronously after downloads, so these settings

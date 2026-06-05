@@ -40,6 +40,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/ptr"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
@@ -270,7 +271,7 @@ func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *tw
 		BroadcasterID: broadcasterID,
 		Type:          stream.Type,
 		Language:      stream.Language,
-		ThumbnailURL:  stringOrNil(thumb),
+		ThumbnailURL:  ptr.StringOrNil(thumb),
 		ViewerCount:   snap.ViewerCount,
 		IsMature:      &isMature,
 		StartedAt:     stream.StartedAt,
@@ -392,13 +393,6 @@ func (h *Hydrator) fetchWithRetry(ctx context.Context, broadcasterID string) (*t
 		lastErr = errors.New("hydrate retries exhausted")
 	}
 	return nil, lastErr
-}
-
-func stringOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 // ChannelUpdateMeta is the payload shape RecordChannelUpdate accepts.

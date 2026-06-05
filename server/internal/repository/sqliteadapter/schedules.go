@@ -10,22 +10,31 @@ import (
 )
 
 func (a *SQLiteAdapter) CreateSchedule(ctx context.Context, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.CreateSchedule(ctx, sqlitegen.CreateScheduleParams{
-		BroadcasterID:    input.BroadcasterID,
-		RequestedBy:      input.RequestedBy,
-		Quality:          input.Quality,
-		HasMinViewers:    boolToInt64(input.HasMinViewers),
-		MinViewers:       int64PtrToNullInt64(input.MinViewers),
-		HasCategories:    boolToInt64(input.HasCategories),
-		HasTags:          boolToInt64(input.HasTags),
-		IsDeleteRediff:   boolToInt64(input.IsDeleteRediff),
-		TimeBeforeDelete: int64PtrToNullInt64(input.TimeBeforeDelete),
-		IsDisabled:       boolToInt64(input.IsDisabled),
-	})
+	row, err := a.queries.CreateSchedule(ctx, sqliteCreateScheduleParams(input))
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create schedule: %w", err)
 	}
 	return sqliteScheduleToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) CreateScheduleWithFilters(ctx context.Context, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
+	var out *repository.DownloadSchedule
+	err := a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
+		row, err := q.CreateSchedule(ctx, sqliteCreateScheduleParams(input))
+		if err != nil {
+			return fmt.Errorf("sqlite create schedule: %w", err)
+		}
+		sched := sqliteScheduleToDomain(row)
+		if err := replaceSQLiteScheduleFilters(ctx, q, sched.ID, filters); err != nil {
+			return err
+		}
+		out = sched
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (a *SQLiteAdapter) GetSchedule(ctx context.Context, id int64) (*repository.DownloadSchedule, error) {
@@ -48,21 +57,31 @@ func (a *SQLiteAdapter) GetScheduleForUserChannel(ctx context.Context, broadcast
 }
 
 func (a *SQLiteAdapter) UpdateSchedule(ctx context.Context, id int64, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.UpdateSchedule(ctx, sqlitegen.UpdateScheduleParams{
-		ID:               id,
-		Quality:          input.Quality,
-		HasMinViewers:    boolToInt64(input.HasMinViewers),
-		MinViewers:       int64PtrToNullInt64(input.MinViewers),
-		HasCategories:    boolToInt64(input.HasCategories),
-		HasTags:          boolToInt64(input.HasTags),
-		IsDeleteRediff:   boolToInt64(input.IsDeleteRediff),
-		TimeBeforeDelete: int64PtrToNullInt64(input.TimeBeforeDelete),
-		IsDisabled:       boolToInt64(input.IsDisabled),
-	})
+	row, err := a.queries.UpdateSchedule(ctx, sqliteUpdateScheduleParams(id, input))
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return sqliteScheduleToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64, input *repository.ScheduleInput, filters repository.ScheduleFilterInput) (*repository.DownloadSchedule, error) {
+	var out *repository.DownloadSchedule
+	err := a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
+		row, err := q.UpdateSchedule(ctx, sqliteUpdateScheduleParams(id, input))
+		if err != nil {
+			return fmt.Errorf("sqlite update schedule: %w", mapErr(err))
+		}
+		sched := sqliteScheduleToDomain(row)
+		if err := replaceSQLiteScheduleFilters(ctx, q, sched.ID, filters); err != nil {
+			return err
+		}
+		out = sched
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (a *SQLiteAdapter) ToggleSchedule(ctx context.Context, id int64) (*repository.DownloadSchedule, error) {
@@ -172,12 +191,77 @@ func (a *SQLiteAdapter) ListScheduleTags(ctx context.Context, scheduleID int64) 
 	return out, nil
 }
 
+func sqliteCreateScheduleParams(input *repository.ScheduleInput) sqlitegen.CreateScheduleParams {
+	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
+		RecordingType: input.RecordingType,
+		Quality:       input.Quality,
+		ForceH264:     input.ForceH264,
+	})
+	return sqlitegen.CreateScheduleParams{
+		BroadcasterID:    input.BroadcasterID,
+		RequestedBy:      input.RequestedBy,
+		RecordingType:    settings.RecordingType,
+		Quality:          settings.Quality,
+		ForceH264:        boolToInt64(settings.ForceH264),
+		HasMinViewers:    boolToInt64(input.HasMinViewers),
+		MinViewers:       int64PtrToNullInt64(input.MinViewers),
+		HasCategories:    boolToInt64(input.HasCategories),
+		HasTags:          boolToInt64(input.HasTags),
+		IsDeleteRediff:   boolToInt64(input.IsDeleteRediff),
+		TimeBeforeDelete: int64PtrToNullInt64(input.TimeBeforeDelete),
+		IsDisabled:       boolToInt64(input.IsDisabled),
+	}
+}
+
+func sqliteUpdateScheduleParams(id int64, input *repository.ScheduleInput) sqlitegen.UpdateScheduleParams {
+	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
+		RecordingType: input.RecordingType,
+		Quality:       input.Quality,
+		ForceH264:     input.ForceH264,
+	})
+	return sqlitegen.UpdateScheduleParams{
+		ID:               id,
+		RecordingType:    settings.RecordingType,
+		Quality:          settings.Quality,
+		ForceH264:        boolToInt64(settings.ForceH264),
+		HasMinViewers:    boolToInt64(input.HasMinViewers),
+		MinViewers:       int64PtrToNullInt64(input.MinViewers),
+		HasCategories:    boolToInt64(input.HasCategories),
+		HasTags:          boolToInt64(input.HasTags),
+		IsDeleteRediff:   boolToInt64(input.IsDeleteRediff),
+		TimeBeforeDelete: int64PtrToNullInt64(input.TimeBeforeDelete),
+		IsDisabled:       boolToInt64(input.IsDisabled),
+	}
+}
+
+func replaceSQLiteScheduleFilters(ctx context.Context, q *sqlitegen.Queries, scheduleID int64, filters repository.ScheduleFilterInput) error {
+	if err := q.ClearScheduleCategories(ctx, scheduleID); err != nil {
+		return fmt.Errorf("sqlite clear schedule categories %d: %w", scheduleID, err)
+	}
+	for _, id := range filters.CategoryIDs {
+		if err := q.LinkScheduleCategory(ctx, sqlitegen.LinkScheduleCategoryParams{ScheduleID: scheduleID, CategoryID: id}); err != nil {
+			return fmt.Errorf("sqlite link schedule category %s to schedule %d: %w", id, scheduleID, err)
+		}
+	}
+	if err := q.ClearScheduleTags(ctx, scheduleID); err != nil {
+		return fmt.Errorf("sqlite clear schedule tags %d: %w", scheduleID, err)
+	}
+	for _, id := range filters.TagIDs {
+		if err := q.LinkScheduleTag(ctx, sqlitegen.LinkScheduleTagParams{ScheduleID: scheduleID, TagID: id}); err != nil {
+			return fmt.Errorf("sqlite link schedule tag %d to schedule %d: %w", id, scheduleID, err)
+		}
+	}
+	return nil
+}
+
 func sqliteScheduleToDomain(s sqlitegen.DownloadSchedule) *repository.DownloadSchedule {
 	return &repository.DownloadSchedule{
 		ID:               s.ID,
 		BroadcasterID:    s.BroadcasterID,
 		RequestedBy:      s.RequestedBy,
+		RecordingType:    repository.NormalizeRecordingType(s.RecordingType),
 		Quality:          s.Quality,
+		ForceH264:        int64ToBool(s.ForceH264),
 		HasMinViewers:    int64ToBool(s.HasMinViewers),
 		MinViewers:       nullInt64ToInt64Ptr(s.MinViewers),
 		HasCategories:    int64ToBool(s.HasCategories),

@@ -14,15 +14,18 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
+	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
+	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -51,6 +54,21 @@ func roleGateRequest(router http.Handler, method, path, body string, cookie *htt
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 	return rr.Code
+}
+
+type apiRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f apiRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+type routerDownloadRecorder struct {
+	calls int
+	last  downloader.Params
+}
+
+func (r *routerDownloadRecorder) Start(_ context.Context, p downloader.Params) (string, error) {
+	r.calls++
+	r.last = p
+	return "job-router-live", nil
 }
 
 func TestSetupRouter_ServerModeControlsWebhookProcessor(t *testing.T) {
@@ -148,6 +166,271 @@ func TestSetupRouter_ServerModeControlsWebhookProcessor(t *testing.T) {
 				if tt.wantStatusBus {
 					t.Fatal("stream status event was not published; webhook processor may not be wired")
 				}
+			}
+		})
+	}
+}
+
+func TestSetupRouter_ImmediateScheduleTriggerHonorsServerMode(t *testing.T) {
+	cases := []struct {
+		name      string
+		mode      config.ServerModeConfig
+		wantFetch int
+		wantStart int
+	}{
+		{name: "unset", mode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset}},
+		{name: "off", mode: config.ServerModeConfig{Source: config.ServerModeConfigSourceApp, Mode: config.ServerModeOff}},
+		{name: "poll", mode: config.ServerModeConfig{Source: config.ServerModeConfigSourceApp, Mode: config.ServerModePoll}, wantFetch: 1, wantStart: 1},
+		{
+			name: "direct",
+			mode: config.ServerModeConfig{
+				Source:             config.ServerModeConfigSourceApp,
+				Mode:               config.ServerModeDirect,
+				WebhookCallbackURL: "https://replayvod.example/api/v1/webhook/callback",
+			},
+			wantFetch: 1,
+			wantStart: 1,
+		},
+		{
+			name: "relay",
+			mode: config.ServerModeConfig{
+				Source:            config.ServerModeConfigSourceApp,
+				Mode:              config.ServerModeRelay,
+				RelayIngestURL:    "https://relay.replayvod.example/u/AAAAAAAAAAAAAAAA",
+				RelaySubscribeURL: "wss://relay.replayvod.example/u/AAAAAAAAAAAAAAAA/subscribe",
+			},
+			wantFetch: 1,
+			wantStart: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+			if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+				BroadcasterID:    "b-live",
+				BroadcasterLogin: "live",
+				BroadcasterName:  "Live",
+			}); err != nil {
+				t.Fatalf("seed channel: %v", err)
+			}
+			log := slog.New(slog.NewTextHandler(io.Discard, nil))
+			sessionMgr, err := session.NewManager(repo, "immediate-trigger-session-secret-0123456789", false, log)
+			if err != nil {
+				t.Fatalf("session.NewManager: %v", err)
+			}
+			cfg := &config.Config{
+				Env: config.Environment{
+					HMACSecret:  routerWebhookSecret,
+					CallbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
+					FrontendURL: "http://localhost:3000",
+				},
+				ServerMode: tc.mode,
+			}
+
+			var streamFetches int
+			twitchClient := twitch.NewClient("client-id", "secret", log)
+			twitchClient.SetHTTPClient(&http.Client{Transport: apiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path != "/helix/streams" {
+					return &http.Response{
+						StatusCode: http.StatusInternalServerError,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader(`{"error":"unexpected path"}`)),
+					}, nil
+				}
+				streamFetches++
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(`{
+						"data":[{
+							"id":"stream-live",
+							"user_id":"b-live",
+							"user_login":"live",
+							"user_name":"Live",
+							"game_id":"",
+							"game_name":"",
+							"type":"live",
+							"title":"Live now",
+							"viewer_count":42,
+							"started_at":"2026-06-05T12:00:00Z",
+							"language":"en",
+							"thumbnail_url":"",
+							"tag_ids":[],
+							"tags":[],
+							"is_mature":false
+						}],
+						"pagination":{}
+					}`)),
+				}, nil
+			})})
+
+			bus := eventbus.New()
+			dl := &routerDownloadRecorder{}
+			hydrator := streammeta.NewHydrator(repo, nil, streammeta.Config{}, log)
+			eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
+			router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, twitchClient, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+			if closeTRPC != nil {
+				t.Cleanup(func() {
+					if err := closeTRPC(); err != nil {
+						t.Errorf("close tRPC router: %v", err)
+					}
+				})
+			}
+			owner := mintSessionCookie(t, repo, sessionMgr, "owner-immediate", "owner")
+
+			status := roleGateRequest(router, http.MethodPost, "/trpc/schedule.create", `{
+				"broadcaster_id":"b-live",
+				"quality":"HIGH",
+				"has_min_viewers":false,
+				"has_categories":false,
+				"has_tags":false,
+				"is_delete_rediff":false,
+				"is_disabled":false,
+				"category_ids":[],
+				"tag_ids":[]
+			}`, owner)
+			if status != http.StatusOK {
+				t.Fatalf("schedule.create status = %d, want 200", status)
+			}
+			if streamFetches != tc.wantFetch {
+				t.Fatalf("stream fetches = %d, want %d", streamFetches, tc.wantFetch)
+			}
+			if dl.calls != tc.wantStart {
+				t.Fatalf("download starts = %d, want %d", dl.calls, tc.wantStart)
+			}
+			if tc.wantStart > 0 {
+				if dl.last.BroadcasterID != "b-live" || dl.last.TriggerScheduleID == nil {
+					t.Fatalf("download params = %+v, want schedule-triggered b-live download", dl.last)
+				}
+			}
+		})
+	}
+}
+
+func TestSetupRouter_ImmediateScheduleTriggerMatchesCategoryCriteria(t *testing.T) {
+	cases := []struct {
+		name          string
+		categoryIDs   string
+		wantDownloads int
+	}{
+		{
+			name:          "matching category starts",
+			categoryIDs:   `"game-match"`,
+			wantDownloads: 1,
+		},
+		{
+			name:        "nonmatching category does not start",
+			categoryIDs: `"game-other"`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+			for _, cat := range []repository.Category{
+				{ID: "game-match", Name: "Match Game"},
+				{ID: "game-other", Name: "Other Game"},
+			} {
+				if _, err := repo.UpsertCategory(ctx, &cat); err != nil {
+					t.Fatalf("seed category %s: %v", cat.ID, err)
+				}
+			}
+			if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+				BroadcasterID:    "b-live",
+				BroadcasterLogin: "live",
+				BroadcasterName:  "Live",
+			}); err != nil {
+				t.Fatalf("seed channel: %v", err)
+			}
+
+			log := slog.New(slog.NewTextHandler(io.Discard, nil))
+			sessionMgr, err := session.NewManager(repo, "immediate-filter-session-secret-0123456789", false, log)
+			if err != nil {
+				t.Fatalf("session.NewManager: %v", err)
+			}
+			cfg := &config.Config{
+				Env: config.Environment{
+					HMACSecret:  routerWebhookSecret,
+					CallbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
+					FrontendURL: "http://localhost:3000",
+				},
+				ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceApp, Mode: config.ServerModePoll},
+			}
+
+			var streamFetches int
+			twitchClient := twitch.NewClient("client-id", "secret", log)
+			twitchClient.SetHTTPClient(&http.Client{Transport: apiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path != "/helix/streams" {
+					return &http.Response{
+						StatusCode: http.StatusInternalServerError,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader(`{"error":"unexpected path"}`)),
+					}, nil
+				}
+				streamFetches++
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(`{
+						"data":[{
+							"id":"stream-live",
+							"user_id":"b-live",
+							"user_login":"live",
+							"user_name":"Live",
+							"game_id":"game-match",
+							"game_name":"Match Game",
+							"type":"live",
+							"title":"Live now",
+							"viewer_count":42,
+							"started_at":"2026-06-05T12:00:00Z",
+							"language":"en",
+							"thumbnail_url":"",
+							"tag_ids":[],
+							"tags":[],
+							"is_mature":false
+						}],
+						"pagination":{}
+					}`)),
+				}, nil
+			})})
+
+			bus := eventbus.New()
+			dl := &routerDownloadRecorder{}
+			hydrator := streammeta.NewHydrator(repo, nil, streammeta.Config{}, log)
+			eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
+			router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, twitchClient, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+			if closeTRPC != nil {
+				t.Cleanup(func() {
+					if err := closeTRPC(); err != nil {
+						t.Errorf("close tRPC router: %v", err)
+					}
+				})
+			}
+			owner := mintSessionCookie(t, repo, sessionMgr, "owner-immediate-filter", "owner")
+
+			status := roleGateRequest(router, http.MethodPost, "/trpc/schedule.create", `{
+				"broadcaster_id":"b-live",
+				"quality":"HIGH",
+				"has_min_viewers":false,
+				"has_categories":true,
+				"has_tags":false,
+				"is_delete_rediff":false,
+				"is_disabled":false,
+				"category_ids":[`+tc.categoryIDs+`],
+				"tag_ids":[]
+			}`, owner)
+			if status != http.StatusOK {
+				t.Fatalf("schedule.create status = %d, want 200", status)
+			}
+			if streamFetches != 1 {
+				t.Fatalf("stream fetches = %d, want 1", streamFetches)
+			}
+			if dl.calls != tc.wantDownloads {
+				t.Fatalf("download starts = %d, want %d", dl.calls, tc.wantDownloads)
+			}
+			if tc.wantDownloads > 0 && (dl.last.CategoryID != "game-match" || dl.last.TriggerScheduleID == nil) {
+				t.Fatalf("download params = %+v, want matched category schedule", dl.last)
 			}
 		})
 	}

@@ -196,17 +196,19 @@ func TestProcess_DecodedPointerEventsDispatch(t *testing.T) {
 	}
 }
 
-// TestHighestQuality_PicksHighRankAndBreaksTiesByID pins the winner-
+// TestBestSchedule_PicksModeQualityAndBreaksTiesByID pins the winner-
 // selection rule from .docs/spec/eventsub.md: on a stream.online match
-// the processor must trigger ONE download at the highest-quality matching
-// schedule's quality. Without this, two matching schedules race on the
+// the processor must trigger ONE download from the best matching schedule.
+// Video schedules beat audio schedules because video includes audio; within
+// a mode the highest-quality schedule wins. Without this, matching schedules
+// race on the
 // downloader's busy-check — whichever Start() call wins decides the
-// quality, and if the lower-quality one wins the VOD gets recorded at
+// mode/quality, and if the lower-priority one wins the VOD gets recorded at
 // the wrong setting.
 //
 // The ID-based tie-break keeps the choice deterministic across retries
 // of the same event.
-func TestHighestQuality_PicksHighRankAndBreaksTiesByID(t *testing.T) {
+func TestBestSchedule_PicksModeQualityAndBreaksTiesByID(t *testing.T) {
 	cases := []struct {
 		name   string
 		input  []*repository.DownloadSchedule
@@ -245,12 +247,28 @@ func TestHighestQuality_PicksHighRankAndBreaksTiesByID(t *testing.T) {
 			},
 			wantID: 9,
 		},
+		{
+			name: "audio schedule wins when all matches are audio",
+			input: []*repository.DownloadSchedule{
+				{ID: 10, RecordingType: repository.RecordingTypeAudio, Quality: repository.QualityLow},
+				{ID: 8, RecordingType: repository.RecordingTypeAudio, Quality: repository.QualityHigh},
+			},
+			wantID: 8,
+		},
+		{
+			name: "video schedule wins over higher quality audio schedule",
+			input: []*repository.DownloadSchedule{
+				{ID: 4, RecordingType: repository.RecordingTypeAudio, Quality: repository.QualityHigh},
+				{ID: 6, RecordingType: repository.RecordingTypeVideo, Quality: repository.QualityLow},
+			},
+			wantID: 6,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := highestQuality(tc.input)
+			got := bestSchedule(tc.input)
 			if got.ID != tc.wantID {
-				t.Errorf("got ID=%d, want %d (quality=%q)", got.ID, tc.wantID, got.Quality)
+				t.Errorf("got ID=%d, want %d (recording_type=%q quality=%q)", got.ID, tc.wantID, got.RecordingType, got.Quality)
 			}
 		})
 	}
@@ -534,6 +552,111 @@ func TestDispatchStreamOnline_ErrBusyIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestDispatchStreamOnline_GlobalPauseSkipsDownload pins the global pause kill
+// switch: while server_settings.schedules_paused is on, a matching active
+// schedule must NOT trigger a download, and the schedule's own is_disabled must
+// stay untouched so resuming restores the original behavior immediately.
+func TestDispatchStreamOnline_GlobalPauseSkipsDownload(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.NewSQLiteDB(t)
+	repo := sqliteadapter.New(db)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "u-1", Login: "u1", DisplayName: "U1", Role: "owner"}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"})
+	if err != nil {
+		t.Fatalf("seed schedule: %v", err)
+	}
+
+	event := twitch.StreamOnlineEvent{
+		ID: "s-1", BroadcasterUserID: "b-1", BroadcasterUserLogin: "b1", BroadcasterUserName: "B1", Type: "live",
+	}
+
+	// Paused: the matching schedule must not reach dl.Start.
+	if _, err := repo.SetSchedulesPaused(ctx, true); err != nil {
+		t.Fatalf("pause schedules: %v", err)
+	}
+	dl := &fakeDownloader{}
+	p := NewEventProcessor(repo, dl, nil, nil, nil, log)
+	if err := p.DispatchStreamOnline(ctx, event); err != nil {
+		t.Fatalf("DispatchStreamOnline(paused) = %v, want nil", err)
+	}
+	if dl.calls != 0 {
+		t.Fatalf("dl.Start calls while paused = %d, want 0", dl.calls)
+	}
+	// The schedule itself must be untouched by the global pause.
+	if got, err := repo.GetSchedule(ctx, sched.ID); err != nil {
+		t.Fatalf("get schedule: %v", err)
+	} else if got.IsDisabled {
+		t.Fatal("global pause must not flip the schedule's is_disabled")
+	}
+
+	// Resume: the same event now triggers exactly one download.
+	if _, err := repo.SetSchedulesPaused(ctx, false); err != nil {
+		t.Fatalf("resume schedules: %v", err)
+	}
+	if err := p.DispatchStreamOnline(ctx, event); err != nil {
+		t.Fatalf("DispatchStreamOnline(resumed) = %v, want nil", err)
+	}
+	if dl.calls != 1 {
+		t.Fatalf("dl.Start calls after resume = %d, want 1", dl.calls)
+	}
+}
+
+// TestDispatchStreamOnline_PausedStillPublishesStatus pins that the global pause
+// skips the auto-download but NOT the live-status fan-out: the dashboard live
+// indicator must keep working while schedules are paused. This proves the pause
+// check sits after publishStatus, not before it.
+func TestDispatchStreamOnline_PausedStillPublishesStatus(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.NewSQLiteDB(t)
+	repo := sqliteadapter.New(db)
+	bus := eventbus.New()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "u-1", Login: "u1", DisplayName: "U1", Role: "owner"}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	// A bare schedule would otherwise match and trigger a download.
+	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}); err != nil {
+		t.Fatalf("seed schedule: %v", err)
+	}
+	if _, err := repo.SetSchedulesPaused(ctx, true); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+
+	sub := bus.StreamStatus.Subscribe(ctx)
+	dl := &fakeDownloader{}
+	p := NewEventProcessor(repo, dl, nil, nil, bus, log)
+
+	event := twitch.StreamOnlineEvent{
+		ID: "s-1", BroadcasterUserID: "b-1", BroadcasterUserLogin: "b1", BroadcasterUserName: "B1", Type: "live",
+	}
+	if err := p.DispatchStreamOnline(ctx, event); err != nil {
+		t.Fatalf("DispatchStreamOnline(paused) = %v, want nil", err)
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Kind != eventbus.StreamStatusOnline || ev.BroadcasterID != "b-1" {
+			t.Errorf("status event = %+v, want online for b-1", ev)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected StreamStatus online event even while paused")
+	}
+	if dl.calls != 0 {
+		t.Fatalf("dl.Start calls while paused = %d, want 0", dl.calls)
+	}
+}
+
 // TestDispatchStreamOnlineFromStream_MatchesFilteredScheduleWithoutHelix pins
 // the poll-mode fix end-to-end: a category-filtered schedule must match off the
 // already-polled stream, with no second Helix GetStreams. The hydrator gets a
@@ -629,7 +752,12 @@ func TestDispatchStreamOnline_MultiMatchTriggersOnlyWinnerButCountsAll(t *testin
 	if err != nil {
 		t.Fatalf("seed low schedule: %v", err)
 	}
-	high, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-high", Quality: repository.QualityHigh})
+	high, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-1",
+		RequestedBy:   "u-high",
+		Quality:       repository.QualityHigh,
+		ForceH264:     true,
+	})
 	if err != nil {
 		t.Fatalf("seed high schedule: %v", err)
 	}
@@ -647,6 +775,12 @@ func TestDispatchStreamOnline_MultiMatchTriggersOnlyWinnerButCountsAll(t *testin
 	}
 	if dl.lastParams.Quality != repository.QualityHigh {
 		t.Fatalf("winner quality reaching Start = %q, want HIGH", dl.lastParams.Quality)
+	}
+	if dl.lastParams.RecordingType != repository.RecordingTypeVideo {
+		t.Fatalf("winner recording_type reaching Start = %q, want video", dl.lastParams.RecordingType)
+	}
+	if !dl.lastParams.ForceH264 {
+		t.Fatalf("winner force_h264 reaching Start = false, want true")
 	}
 	if dl.lastParams.TriggerScheduleID == nil || *dl.lastParams.TriggerScheduleID != high.ID {
 		t.Fatalf("trigger schedule id = %v, want high schedule %d", dl.lastParams.TriggerScheduleID, high.ID)
@@ -671,6 +805,201 @@ func TestDispatchStreamOnline_MultiMatchTriggersOnlyWinnerButCountsAll(t *testin
 		}
 		if got.LastTriggeredAt == nil {
 			t.Fatalf("%s schedule last_triggered_at = nil, want stamped", want.name)
+		}
+	}
+}
+
+func TestDispatchStreamOnline_AudioScheduleStartsAudioDownload(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "u-audio", Login: "u-audio", DisplayName: "Audio", Role: "owner"}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-audio", BroadcasterLogin: "baudio", BroadcasterName: "BAudio"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-audio",
+		RequestedBy:   "u-audio",
+		RecordingType: repository.RecordingTypeAudio,
+		Quality:       repository.QualityHigh,
+		ForceH264:     true,
+	})
+	if err != nil {
+		t.Fatalf("seed audio schedule: %v", err)
+	}
+
+	dl := &fakeDownloader{}
+	p := NewEventProcessor(repo, dl, nil, nil, nil, log)
+	if err := p.DispatchStreamOnline(ctx, twitch.StreamOnlineEvent{
+		ID: "s-audio", BroadcasterUserID: "b-audio", BroadcasterUserLogin: "baudio", BroadcasterUserName: "BAudio", Type: "live",
+	}); err != nil {
+		t.Fatalf("DispatchStreamOnline: %v", err)
+	}
+	if dl.calls != 1 {
+		t.Fatalf("dl.Start calls = %d, want 1", dl.calls)
+	}
+	if dl.lastParams.RecordingType != repository.RecordingTypeAudio {
+		t.Fatalf("recording_type reaching Start = %q, want audio", dl.lastParams.RecordingType)
+	}
+	if dl.lastParams.ForceH264 {
+		t.Fatalf("force_h264 reaching Start = true for audio schedule, want false")
+	}
+	if dl.lastParams.TriggerScheduleID == nil || *dl.lastParams.TriggerScheduleID != sched.ID {
+		t.Fatalf("trigger schedule id = %v, want audio schedule %d", dl.lastParams.TriggerScheduleID, sched.ID)
+	}
+}
+
+func TestDispatchStreamOnline_DownloaderUnavailableDoesNotRecordTrigger(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "u-nil-dl", Login: "u-nil-dl", DisplayName: "NilDL", Role: "owner"}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-nil-dl", BroadcasterLogin: "bnildl", BroadcasterName: "BNilDL"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	sched, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-nil-dl",
+		RequestedBy:   "u-nil-dl",
+		RecordingType: repository.RecordingTypeVideo,
+		Quality:       repository.QualityHigh,
+	})
+	if err != nil {
+		t.Fatalf("seed schedule: %v", err)
+	}
+
+	p := NewEventProcessor(repo, nil, nil, nil, nil, log)
+	err = p.DispatchStreamOnline(ctx, twitch.StreamOnlineEvent{
+		ID: "s-nil-dl", BroadcasterUserID: "b-nil-dl", BroadcasterUserLogin: "bnildl", BroadcasterUserName: "BNilDL", Type: "live",
+	})
+	if !errors.Is(err, errDownloaderUnavailable) {
+		t.Fatalf("DispatchStreamOnline err = %v, want errDownloaderUnavailable", err)
+	}
+	got, err := repo.GetSchedule(ctx, sched.ID)
+	if err != nil {
+		t.Fatalf("GetSchedule: %v", err)
+	}
+	if got.TriggerCount != 0 || got.LastTriggeredAt != nil {
+		t.Fatalf("trigger metadata after downloader-unavailable = count %d at %v, want untouched", got.TriggerCount, got.LastTriggeredAt)
+	}
+}
+
+func TestDispatchStreamOnlineForSchedule_TargetMustMatch(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	for _, id := range []string{"u-target", "u-other"} {
+		if _, err := repo.UpsertUser(ctx, &repository.User{ID: id, Login: id, DisplayName: id, Role: "owner"}); err != nil {
+			t.Fatalf("seed user %s: %v", id, err)
+		}
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	target, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID:  "b-1",
+		RequestedBy:    "u-target",
+		Quality:        repository.QualityHigh,
+		HasCategories:  true,
+		RecordingType:  repository.RecordingTypeVideo,
+		HasMinViewers:  false,
+		IsDeleteRediff: false,
+	})
+	if err != nil {
+		t.Fatalf("seed target schedule: %v", err)
+	}
+	other, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-1",
+		RequestedBy:   "u-other",
+		Quality:       repository.QualityHigh,
+		RecordingType: repository.RecordingTypeVideo,
+	})
+	if err != nil {
+		t.Fatalf("seed other schedule: %v", err)
+	}
+
+	dl := &fakeDownloader{}
+	p := NewEventProcessor(repo, dl, nil, nil, nil, log)
+	if err := p.DispatchStreamOnlineFromStreamForSchedule(ctx, twitch.Stream{
+		ID: "s-1", UserID: "b-1", UserLogin: "b1", UserName: "B1", Type: "live",
+	}, target.ID); err != nil {
+		t.Fatalf("DispatchStreamOnlineFromStreamForSchedule: %v", err)
+	}
+	if dl.calls != 0 {
+		t.Fatalf("dl.Start calls = %d, want 0 because target schedule did not match", dl.calls)
+	}
+	for _, sched := range []*repository.DownloadSchedule{target, other} {
+		got, err := repo.GetSchedule(ctx, sched.ID)
+		if err != nil {
+			t.Fatalf("GetSchedule(%d): %v", sched.ID, err)
+		}
+		if got.TriggerCount != 0 {
+			t.Fatalf("schedule %d trigger_count = %d, want 0", sched.ID, got.TriggerCount)
+		}
+	}
+}
+
+func TestDispatchStreamOnlineForSchedule_TargetMatchKeepsGlobalWinner(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	for _, id := range []string{"u-target", "u-video"} {
+		if _, err := repo.UpsertUser(ctx, &repository.User{ID: id, Login: id, DisplayName: id, Role: "owner"}); err != nil {
+			t.Fatalf("seed user %s: %v", id, err)
+		}
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	target, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-1",
+		RequestedBy:   "u-target",
+		RecordingType: repository.RecordingTypeAudio,
+		Quality:       repository.QualityHigh,
+	})
+	if err != nil {
+		t.Fatalf("seed target schedule: %v", err)
+	}
+	video, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{
+		BroadcasterID: "b-1",
+		RequestedBy:   "u-video",
+		RecordingType: repository.RecordingTypeVideo,
+		Quality:       repository.QualityLow,
+	})
+	if err != nil {
+		t.Fatalf("seed video schedule: %v", err)
+	}
+
+	dl := &fakeDownloader{}
+	p := NewEventProcessor(repo, dl, nil, nil, nil, log)
+	if err := p.DispatchStreamOnlineFromStreamForSchedule(ctx, twitch.Stream{
+		ID: "s-1", UserID: "b-1", UserLogin: "b1", UserName: "B1", Type: "live",
+	}, target.ID); err != nil {
+		t.Fatalf("DispatchStreamOnlineFromStreamForSchedule: %v", err)
+	}
+	if dl.calls != 1 {
+		t.Fatalf("dl.Start calls = %d, want 1", dl.calls)
+	}
+	if dl.lastParams.TriggerScheduleID == nil || *dl.lastParams.TriggerScheduleID != video.ID {
+		t.Fatalf("trigger schedule id = %v, want video winner %d", dl.lastParams.TriggerScheduleID, video.ID)
+	}
+	if dl.lastParams.RecordingType != repository.RecordingTypeVideo {
+		t.Fatalf("recording type = %q, want video winner", dl.lastParams.RecordingType)
+	}
+	for _, sched := range []*repository.DownloadSchedule{target, video} {
+		got, err := repo.GetSchedule(ctx, sched.ID)
+		if err != nil {
+			t.Fatalf("GetSchedule(%d): %v", sched.ID, err)
+		}
+		if got.TriggerCount != 1 {
+			t.Fatalf("schedule %d trigger_count = %d, want 1", sched.ID, got.TriggerCount)
 		}
 	}
 }

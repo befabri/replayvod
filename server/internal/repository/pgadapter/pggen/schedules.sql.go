@@ -29,20 +29,22 @@ func (q *Queries) ClearScheduleTags(ctx context.Context, scheduleID int64) error
 
 const createSchedule = `-- name: CreateSchedule :one
 INSERT INTO download_schedules (
-    broadcaster_id, requested_by, quality,
+    broadcaster_id, requested_by, recording_type, quality, force_h264,
     has_min_viewers, min_viewers,
     has_categories, has_tags,
     is_delete_rediff, time_before_delete,
     is_disabled
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264
 `
 
 type CreateScheduleParams struct {
 	BroadcasterID    string `json:"broadcaster_id"`
 	RequestedBy      string `json:"requested_by"`
+	RecordingType    string `json:"recording_type"`
 	Quality          string `json:"quality"`
+	ForceH264        bool   `json:"force_h264"`
 	HasMinViewers    bool   `json:"has_min_viewers"`
 	MinViewers       *int32 `json:"min_viewers"`
 	HasCategories    bool   `json:"has_categories"`
@@ -56,7 +58,9 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 	row := q.db.QueryRow(ctx, createSchedule,
 		arg.BroadcasterID,
 		arg.RequestedBy,
+		arg.RecordingType,
 		arg.Quality,
+		arg.ForceH264,
 		arg.HasMinViewers,
 		arg.MinViewers,
 		arg.HasCategories,
@@ -82,6 +86,8 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 		&i.TriggerCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RecordingType,
+		&i.ForceH264,
 	)
 	return i, err
 }
@@ -96,7 +102,7 @@ func (q *Queries) DeleteSchedule(ctx context.Context, id int64) error {
 }
 
 const getSchedule = `-- name: GetSchedule :one
-SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at FROM download_schedules WHERE id = $1
+SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264 FROM download_schedules WHERE id = $1
 `
 
 func (q *Queries) GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error) {
@@ -118,12 +124,14 @@ func (q *Queries) GetSchedule(ctx context.Context, id int64) (DownloadSchedule, 
 		&i.TriggerCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RecordingType,
+		&i.ForceH264,
 	)
 	return i, err
 }
 
 const getScheduleForUserChannel = `-- name: GetScheduleForUserChannel :one
-SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at FROM download_schedules
+SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264 FROM download_schedules
 WHERE broadcaster_id = $1 AND requested_by = $2
 `
 
@@ -151,6 +159,8 @@ func (q *Queries) GetScheduleForUserChannel(ctx context.Context, arg GetSchedule
 		&i.TriggerCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RecordingType,
+		&i.ForceH264,
 	)
 	return i, err
 }
@@ -188,7 +198,7 @@ func (q *Queries) LinkScheduleTag(ctx context.Context, arg LinkScheduleTagParams
 }
 
 const listActiveSchedulesForBroadcaster = `-- name: ListActiveSchedulesForBroadcaster :many
-SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at FROM download_schedules
+SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264 FROM download_schedules
 WHERE broadcaster_id = $1 AND is_disabled = FALSE
 `
 
@@ -219,6 +229,8 @@ func (q *Queries) ListActiveSchedulesForBroadcaster(ctx context.Context, broadca
 			&i.TriggerCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RecordingType,
+			&i.ForceH264,
 		); err != nil {
 			return nil, err
 		}
@@ -292,7 +304,7 @@ func (q *Queries) ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag
 }
 
 const listSchedules = `-- name: ListSchedules :many
-SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at FROM download_schedules ORDER BY created_at DESC LIMIT $1 OFFSET $2
+SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264 FROM download_schedules ORDER BY created_at DESC LIMIT $1 OFFSET $2
 `
 
 type ListSchedulesParams struct {
@@ -325,6 +337,8 @@ func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([
 			&i.TriggerCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RecordingType,
+			&i.ForceH264,
 		); err != nil {
 			return nil, err
 		}
@@ -337,7 +351,7 @@ func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([
 }
 
 const listSchedulesForUser = `-- name: ListSchedulesForUser :many
-SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at FROM download_schedules
+SELECT id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264 FROM download_schedules
 WHERE requested_by = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -374,6 +388,8 @@ func (q *Queries) ListSchedulesForUser(ctx context.Context, arg ListSchedulesFor
 			&i.TriggerCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RecordingType,
+			&i.ForceH264,
 		); err != nil {
 			return nil, err
 		}
@@ -402,7 +418,7 @@ func (q *Queries) RecordScheduleTrigger(ctx context.Context, id int64) error {
 const toggleSchedule = `-- name: ToggleSchedule :one
 UPDATE download_schedules SET is_disabled = NOT is_disabled, updated_at = NOW()
 WHERE id = $1
-RETURNING id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at
+RETURNING id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264
 `
 
 func (q *Queries) ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error) {
@@ -424,6 +440,8 @@ func (q *Queries) ToggleSchedule(ctx context.Context, id int64) (DownloadSchedul
 		&i.TriggerCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RecordingType,
+		&i.ForceH264,
 	)
 	return i, err
 }
@@ -460,22 +478,26 @@ func (q *Queries) UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagPa
 
 const updateSchedule = `-- name: UpdateSchedule :one
 UPDATE download_schedules SET
-    quality             = $2,
-    has_min_viewers     = $3,
-    min_viewers         = $4,
-    has_categories      = $5,
-    has_tags            = $6,
-    is_delete_rediff    = $7,
-    time_before_delete  = $8,
-    is_disabled         = $9,
+    recording_type      = $2,
+    quality             = $3,
+    force_h264          = $4,
+    has_min_viewers     = $5,
+    min_viewers         = $6,
+    has_categories      = $7,
+    has_tags            = $8,
+    is_delete_rediff    = $9,
+    time_before_delete  = $10,
+    is_disabled         = $11,
     updated_at          = NOW()
 WHERE id = $1
-RETURNING id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at
+RETURNING id, broadcaster_id, requested_by, quality, has_min_viewers, min_viewers, has_categories, has_tags, is_delete_rediff, time_before_delete, is_disabled, last_triggered_at, trigger_count, created_at, updated_at, recording_type, force_h264
 `
 
 type UpdateScheduleParams struct {
 	ID               int64  `json:"id"`
+	RecordingType    string `json:"recording_type"`
 	Quality          string `json:"quality"`
+	ForceH264        bool   `json:"force_h264"`
 	HasMinViewers    bool   `json:"has_min_viewers"`
 	MinViewers       *int32 `json:"min_viewers"`
 	HasCategories    bool   `json:"has_categories"`
@@ -488,7 +510,9 @@ type UpdateScheduleParams struct {
 func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error) {
 	row := q.db.QueryRow(ctx, updateSchedule,
 		arg.ID,
+		arg.RecordingType,
 		arg.Quality,
+		arg.ForceH264,
 		arg.HasMinViewers,
 		arg.MinViewers,
 		arg.HasCategories,
@@ -514,6 +538,8 @@ func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) 
 		&i.TriggerCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RecordingType,
+		&i.ForceH264,
 	)
 	return i, err
 }

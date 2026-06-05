@@ -7,7 +7,18 @@ package pggen
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 )
+
+const deleteExpiredCategorySearchCache = `-- name: DeleteExpiredCategorySearchCache :exec
+DELETE FROM category_search_cache WHERE expires_at < $1
+`
+
+func (q *Queries) DeleteExpiredCategorySearchCache(ctx context.Context, expiresAt time.Time) error {
+	_, err := q.db.Exec(ctx, deleteExpiredCategorySearchCache, expiresAt)
+	return err
+}
 
 const getCategory = `-- name: GetCategory :one
 SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories WHERE id = $1
@@ -45,12 +56,61 @@ func (q *Queries) GetCategoryByName(ctx context.Context, name string) (Category,
 	return i, err
 }
 
+const getCategorySearchCache = `-- name: GetCategorySearchCache :one
+SELECT normalized_query, category_ids, expires_at, last_accessed_at, created_at, updated_at FROM category_search_cache WHERE normalized_query = $1
+`
+
+func (q *Queries) GetCategorySearchCache(ctx context.Context, normalizedQuery string) (CategorySearchCache, error) {
+	row := q.db.QueryRow(ctx, getCategorySearchCache, normalizedQuery)
+	var i CategorySearchCache
+	err := row.Scan(
+		&i.NormalizedQuery,
+		&i.CategoryIds,
+		&i.ExpiresAt,
+		&i.LastAccessedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listCategories = `-- name: ListCategories :many
 SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories ORDER BY name
 `
 
 func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
 	rows, err := q.db.Query(ctx, listCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoriesByIDs = `-- name: ListCategoriesByIDs :many
+SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories WHERE id = ANY($1::text[])
+`
+
+func (q *Queries) ListCategoriesByIDs(ctx context.Context, ids []string) ([]Category, error) {
+	rows, err := q.db.Query(ctx, listCategoriesByIDs, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -107,10 +167,67 @@ func (q *Queries) ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, 
 	return items, nil
 }
 
+const listCategoriesWithVideos = `-- name: ListCategoriesWithVideos :many
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+WHERE EXISTS (
+    SELECT 1
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE vc.category_id = c.id
+      AND v.deleted_at IS NULL
+)
+ORDER BY c.name
+`
+
+// Browse/library list: categories must be linked to at least one visible
+// recording. Twitch search can mirror catalog-only rows into categories; those
+// should stay out of the category page until a video actually references them.
+func (q *Queries) ListCategoriesWithVideos(ctx context.Context) ([]Category, error) {
+	rows, err := q.db.Query(ctx, listCategoriesWithVideos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pruneCategorySearchCache = `-- name: PruneCategorySearchCache :exec
+DELETE FROM category_search_cache
+WHERE normalized_query IN (
+    SELECT normalized_query
+    FROM category_search_cache
+    ORDER BY last_accessed_at DESC, updated_at DESC, normalized_query ASC
+    OFFSET $1
+)
+`
+
+func (q *Queries) PruneCategorySearchCache(ctx context.Context, offset int32) error {
+	_, err := q.db.Exec(ctx, pruneCategorySearchCache, offset)
+	return err
+}
+
 const searchCategories = `-- name: SearchCategories :many
 SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories
 WHERE $1::text = ''
-   OR name ILIKE '%' || $1::text || '%'
+   OR lower(name) LIKE '%' || lower($1::text) || '%'
 ORDER BY
     CASE
         WHEN $1::text = '' THEN 3
@@ -158,6 +275,79 @@ func (q *Queries) SearchCategories(ctx context.Context, arg SearchCategoriesPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const searchCategoriesWithVideos = `-- name: SearchCategoriesWithVideos :many
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+WHERE ($1::text = ''
+       OR lower(c.name) LIKE '%' || lower($1::text) || '%')
+  AND EXISTS (
+      SELECT 1
+      FROM video_categories vc
+      INNER JOIN videos v ON v.id = vc.video_id
+      WHERE vc.category_id = c.id
+        AND v.deleted_at IS NULL
+  )
+ORDER BY
+    CASE
+        WHEN $1::text = '' THEN 3
+        WHEN lower(c.name) = lower($1::text) THEN 0
+        WHEN lower(c.name) LIKE lower($1::text) || '%' THEN 1
+        ELSE 2
+    END,
+    c.name
+LIMIT $2
+`
+
+type SearchCategoriesWithVideosParams struct {
+	Query    string `json:"query"`
+	RowLimit int32  `json:"row_limit"`
+}
+
+// Same ranking contract as SearchCategories, restricted to categories linked to
+// at least one visible recording.
+func (q *Queries) SearchCategoriesWithVideos(ctx context.Context, arg SearchCategoriesWithVideosParams) ([]Category, error) {
+	rows, err := q.db.Query(ctx, searchCategoriesWithVideos, arg.Query, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const touchCategorySearchCache = `-- name: TouchCategorySearchCache :exec
+UPDATE category_search_cache
+SET last_accessed_at = $2,
+    updated_at = NOW()
+WHERE normalized_query = $1
+`
+
+type TouchCategorySearchCacheParams struct {
+	NormalizedQuery string    `json:"normalized_query"`
+	LastAccessedAt  time.Time `json:"last_accessed_at"`
+}
+
+func (q *Queries) TouchCategorySearchCache(ctx context.Context, arg TouchCategorySearchCacheParams) error {
+	_, err := q.db.Exec(ctx, touchCategorySearchCache, arg.NormalizedQuery, arg.LastAccessedAt)
+	return err
 }
 
 const updateCategoryBoxArt = `-- name: UpdateCategoryBoxArt :exec
@@ -216,6 +406,43 @@ func (q *Queries) UpsertCategory(ctx context.Context, arg UpsertCategoryParams) 
 		&i.Name,
 		&i.BoxArtUrl,
 		&i.IgdbID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertCategorySearchCache = `-- name: UpsertCategorySearchCache :one
+INSERT INTO category_search_cache (normalized_query, category_ids, expires_at, last_accessed_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (normalized_query) DO UPDATE SET
+    category_ids = EXCLUDED.category_ids,
+    expires_at = EXCLUDED.expires_at,
+    last_accessed_at = EXCLUDED.last_accessed_at,
+    updated_at = NOW()
+RETURNING normalized_query, category_ids, expires_at, last_accessed_at, created_at, updated_at
+`
+
+type UpsertCategorySearchCacheParams struct {
+	NormalizedQuery string          `json:"normalized_query"`
+	CategoryIds     json.RawMessage `json:"category_ids"`
+	ExpiresAt       time.Time       `json:"expires_at"`
+	LastAccessedAt  time.Time       `json:"last_accessed_at"`
+}
+
+func (q *Queries) UpsertCategorySearchCache(ctx context.Context, arg UpsertCategorySearchCacheParams) (CategorySearchCache, error) {
+	row := q.db.QueryRow(ctx, upsertCategorySearchCache,
+		arg.NormalizedQuery,
+		arg.CategoryIds,
+		arg.ExpiresAt,
+		arg.LastAccessedAt,
+	)
+	var i CategorySearchCache
+	err := row.Scan(
+		&i.NormalizedQuery,
+		&i.CategoryIds,
+		&i.ExpiresAt,
+		&i.LastAccessedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

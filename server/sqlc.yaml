@@ -89,6 +89,14 @@ sql:
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
           - column: "categories.updated_at"
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "category_search_cache.expires_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "category_search_cache.last_accessed_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "category_search_cache.created_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "category_search_cache.updated_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
           - column: "channels.created_at"
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
           - column: "channels.updated_at"

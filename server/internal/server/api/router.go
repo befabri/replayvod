@@ -76,7 +76,13 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		WhitelistEnabled: cfg.Env.WhitelistEnabled,
 		OwnerTwitchID:    cfg.Env.OwnerTwitchID,
 	}, log)
-	scheduleSvc := schedulesvc.New(repo, log)
+	var scheduleOpts []schedulesvc.Option
+	if cfg.ServerMode.RunsLiveAutomation() && twitchClient != nil && eventProcessor != nil {
+		scheduleOpts = append(scheduleOpts, schedulesvc.WithImmediateLiveTrigger(
+			schedulesvc.NewImmediateTrigger(twitchClient, eventProcessor, log),
+		))
+	}
+	scheduleSvc := schedulesvc.New(repo, log, scheduleOpts...)
 
 	// Chi routes (non-tRPC: OAuth, webhooks, video streaming, thumbnails).
 	// Video/thumbnail routes reuse the session middleware — auth required
@@ -213,7 +219,7 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	// Dispatch to each domain. Keeps this function stable when a domain
 	// adds a new procedure — the change lives in that domain's routes.go.
 	auth.RegisterTRPC(tr, authSvc, sessionMgr, log, authed)
-	category.RegisterRoutes(tr, repo, log, viewer)
+	category.RegisterRoutes(tr, repo, twitchClient, log, viewer)
 	channel.RegisterRoutes(tr, repo, twitchClient, log, viewer, owner)
 	eventsub.RegisterRoutes(tr, eventsubMgr, eventsubConfigSvc, log, owner)
 	recordingwebhookapi.RegisterRoutes(tr, repo, webhookDispatcher, log, owner)

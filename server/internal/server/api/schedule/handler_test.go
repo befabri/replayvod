@@ -75,3 +75,46 @@ func TestUpdate_RequiresAuth(t *testing.T) {
 	_, err := h.Update(context.Background(), UpdateInput{ID: 1, Quality: "HIGH"})
 	requireTRPCCode(t, err, trpcgo.CodeUnauthorized)
 }
+
+// TestPauseState_RequiresAuth and TestSetPaused_RequiresAuth prove both global
+// pause procedures gate on RequireUser before touching the service.
+func TestPauseState_RequiresAuth(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	h := NewHandler(schedulesvc.New(repo, log), log)
+
+	_, err := h.PauseState(context.Background())
+	requireTRPCCode(t, err, trpcgo.CodeUnauthorized)
+}
+
+func TestSetPaused_RequiresAuth(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	h := NewHandler(schedulesvc.New(repo, log), log)
+
+	_, err := h.SetPaused(context.Background(), SetPausedInput{Paused: true})
+	requireTRPCCode(t, err, trpcgo.CodeUnauthorized)
+}
+
+// TestPauseState_RoundTrip exercises the full handler path end to end: defaults
+// to false, SetPaused flips and echoes it, PauseState reads it back, then resume
+// clears it.
+func TestPauseState_RoundTrip(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	h := NewHandler(schedulesvc.New(repo, log), log)
+	ctx := middleware.WithUser(context.Background(), &repository.User{ID: "u1", Role: "owner"})
+
+	if got, err := h.PauseState(ctx); err != nil || got.Paused {
+		t.Fatalf("PauseState (fresh) = (%+v, %v), want paused=false", got, err)
+	}
+	if got, err := h.SetPaused(ctx, SetPausedInput{Paused: true}); err != nil || !got.Paused {
+		t.Fatalf("SetPaused(true) = (%+v, %v), want paused=true", got, err)
+	}
+	if got, err := h.PauseState(ctx); err != nil || !got.Paused {
+		t.Fatalf("PauseState after pause = (%+v, %v), want paused=true", got, err)
+	}
+	if got, err := h.SetPaused(ctx, SetPausedInput{Paused: false}); err != nil || got.Paused {
+		t.Fatalf("SetPaused(false) = (%+v, %v), want paused=false", got, err)
+	}
+}

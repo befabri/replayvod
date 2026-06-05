@@ -32,6 +32,7 @@ var expectedServerSettingsColumns = []string{
 	"playback_cache_enabled",
 	"playback_cache_max_percent",
 	"playback_cache_auto_generate",
+	"schedules_paused",
 }
 
 func TestMain(m *testing.M) {
@@ -45,6 +46,7 @@ func TestPostgresMigrationsFreshServerSettingsShape(t *testing.T) {
 	assertServerSettingsColumns(t, ctx, pool, expectedServerSettingsColumns)
 	assertPostgresServerSettingsUniqueID(t, ctx, pool)
 	assertPostgresServerSettingsSingletonIDCheck(t, ctx, pool)
+	assertPostgresIndexColumns(t, ctx, pool, "video_categories", "idx_video_categories_category_id_video_id", []string{"category_id", "video_id"})
 
 	adapter := pgadapter.New(pool)
 	if _, err := adapter.GetServerSettings(ctx); !errors.Is(err, repository.ErrNotFound) {
@@ -77,6 +79,7 @@ func TestPostgresMigrationsIdempotent(t *testing.T) {
 	assertServerSettingsColumns(t, ctx, pool, expectedServerSettingsColumns)
 	assertPostgresServerSettingsUniqueID(t, ctx, pool)
 	assertPostgresServerSettingsSingletonIDCheck(t, ctx, pool)
+	assertPostgresIndexColumns(t, ctx, pool, "video_categories", "idx_video_categories_category_id_video_id", []string{"category_id", "video_id"})
 }
 
 func assertServerSettingsColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want []string) {
@@ -152,5 +155,51 @@ func assertPostgresServerSettingsSingletonIDCheck(t *testing.T, ctx context.Cont
 
 	if _, err := tx.Exec(ctx, `INSERT INTO server_settings (id) VALUES (2)`); err == nil {
 		t.Fatal("server_settings allowed id=2; want CHECK (id = 1)")
+	}
+}
+
+func assertPostgresIndexColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tableName, indexName string, want []string) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+		SELECT a.attname
+		FROM pg_index i
+		JOIN pg_class idx ON idx.oid = i.indexrelid
+		JOIN pg_class t ON t.oid = i.indrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		JOIN unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+		WHERE n.nspname = current_schema()
+		  AND t.relname = $1
+		  AND idx.relname = $2
+		  AND i.indisvalid
+		  AND k.ord <= i.indnkeyatts
+		ORDER BY k.ord
+	`, tableName, indexName)
+	if err != nil {
+		t.Fatalf("inspect postgres index %s: %v", indexName, err)
+	}
+	defer rows.Close()
+
+	got := []string{}
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatalf("scan postgres index %s: %v", indexName, err)
+		}
+		got = append(got, column)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate postgres index %s: %v", indexName, err)
+	}
+	if len(got) == 0 {
+		t.Fatalf("postgres index %s does not exist", indexName)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("postgres index %s columns = %v, want %v", indexName, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("postgres index %s columns = %v, want %v", indexName, got, want)
+		}
 	}
 }

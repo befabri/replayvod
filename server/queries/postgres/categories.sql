@@ -31,6 +31,23 @@ UPDATE categories SET box_art_url = $2, updated_at = NOW() WHERE id = $1;
 -- name: ListCategories :many
 SELECT * FROM categories ORDER BY name;
 
+-- name: ListCategoriesWithVideos :many
+-- Browse/library list: categories must be linked to at least one visible
+-- recording. Twitch search can mirror catalog-only rows into categories; those
+-- should stay out of the category page until a video actually references them.
+SELECT c.* FROM categories c
+WHERE EXISTS (
+    SELECT 1
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE vc.category_id = c.id
+      AND v.deleted_at IS NULL
+)
+ORDER BY c.name;
+
+-- name: ListCategoriesByIDs :many
+SELECT * FROM categories WHERE id = ANY(@ids::text[]);
+
 -- name: SearchCategories :many
 -- Case-insensitive substring match on name. Ranks exact name match
 -- first, then prefix match, then substring match, then alphabetical.
@@ -40,7 +57,7 @@ SELECT * FROM categories ORDER BY name;
 -- up to row_limit, so the same endpoint backs the "show all" state.
 SELECT * FROM categories
 WHERE @query::text = ''
-   OR name ILIKE '%' || @query::text || '%'
+   OR lower(name) LIKE '%' || lower(@query::text) || '%'
 ORDER BY
     CASE
         WHEN @query::text = '' THEN 3
@@ -51,5 +68,59 @@ ORDER BY
     name
 LIMIT @row_limit;
 
+-- name: SearchCategoriesWithVideos :many
+-- Same ranking contract as SearchCategories, restricted to categories linked to
+-- at least one visible recording.
+SELECT c.* FROM categories c
+WHERE (@query::text = ''
+       OR lower(c.name) LIKE '%' || lower(@query::text) || '%')
+  AND EXISTS (
+      SELECT 1
+      FROM video_categories vc
+      INNER JOIN videos v ON v.id = vc.video_id
+      WHERE vc.category_id = c.id
+        AND v.deleted_at IS NULL
+  )
+ORDER BY
+    CASE
+        WHEN @query::text = '' THEN 3
+        WHEN lower(c.name) = lower(@query::text) THEN 0
+        WHEN lower(c.name) LIKE lower(@query::text) || '%' THEN 1
+        ELSE 2
+    END,
+    c.name
+LIMIT @row_limit;
+
 -- name: ListCategoriesMissingBoxArt :many
 SELECT * FROM categories WHERE box_art_url IS NULL OR box_art_url = '';
+
+-- name: GetCategorySearchCache :one
+SELECT * FROM category_search_cache WHERE normalized_query = $1;
+
+-- name: UpsertCategorySearchCache :one
+INSERT INTO category_search_cache (normalized_query, category_ids, expires_at, last_accessed_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (normalized_query) DO UPDATE SET
+    category_ids = EXCLUDED.category_ids,
+    expires_at = EXCLUDED.expires_at,
+    last_accessed_at = EXCLUDED.last_accessed_at,
+    updated_at = NOW()
+RETURNING *;
+
+-- name: TouchCategorySearchCache :exec
+UPDATE category_search_cache
+SET last_accessed_at = $2,
+    updated_at = NOW()
+WHERE normalized_query = $1;
+
+-- name: DeleteExpiredCategorySearchCache :exec
+DELETE FROM category_search_cache WHERE expires_at < $1;
+
+-- name: PruneCategorySearchCache :exec
+DELETE FROM category_search_cache
+WHERE normalized_query IN (
+    SELECT normalized_query
+    FROM category_search_cache
+    ORDER BY last_accessed_at DESC, updated_at DESC, normalized_query ASC
+    OFFSET $1
+);
