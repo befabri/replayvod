@@ -14,13 +14,9 @@ import (
 )
 
 const deleteChannel = `-- name: DeleteChannel :exec
-
 DELETE FROM channels WHERE broadcaster_id = ?
 `
 
-// NOTE: SearchChannels is hand-rolled in
-// internal/repository/sqliteadapter/channels.go for the same reason as
-// ListVideos (see queries/sqlite/videos.sql).
 func (q *Queries) DeleteChannel(ctx context.Context, broadcasterID string) error {
 	_, err := q.db.ExecContext(ctx, deleteChannel, broadcasterID)
 	return err
@@ -160,6 +156,150 @@ func (q *Queries) ListChannelsByIDs(ctx context.Context, ids []string) ([]Channe
 	return items, nil
 }
 
+const listChannelsPageAsc = `-- name: ListChannelsPageAsc :many
+WITH params AS (
+    SELECT CAST(?1 AS integer) AS live_only,
+           CAST(?2 AS text) AS cursor_name,
+           CAST(?3 AS text) AS cursor_id,
+           CAST(?4 AS integer) AS row_limit
+)
+SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
+CROSS JOIN params
+WHERE (
+    params.live_only = 0
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    params.cursor_name IS NULL
+    OR lower(c.broadcaster_name) > lower(params.cursor_name)
+    OR (lower(c.broadcaster_name) = lower(params.cursor_name) AND c.broadcaster_id > params.cursor_id)
+  )
+ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
+LIMIT (SELECT row_limit FROM params)
+`
+
+type ListChannelsPageAscParams struct {
+	LiveOnly   int64          `json:"live_only"`
+	CursorName sql.NullString `json:"cursor_name"`
+	CursorID   string         `json:"cursor_id"`
+	RowLimit   int64          `json:"row_limit"`
+}
+
+func (q *Queries) ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error) {
+	rows, err := q.db.QueryContext(ctx, listChannelsPageAsc,
+		arg.LiveOnly,
+		arg.CursorName,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channel{}
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.BroadcasterID,
+			&i.BroadcasterLogin,
+			&i.BroadcasterName,
+			&i.BroadcasterLanguage,
+			&i.ProfileImageUrl,
+			&i.OfflineImageUrl,
+			&i.Description,
+			&i.BroadcasterType,
+			&i.ViewCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChannelsPageDesc = `-- name: ListChannelsPageDesc :many
+WITH params AS (
+    SELECT CAST(?1 AS integer) AS live_only,
+           CAST(?2 AS text) AS cursor_name,
+           CAST(?3 AS text) AS cursor_id,
+           CAST(?4 AS integer) AS row_limit
+)
+SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
+CROSS JOIN params
+WHERE (
+    params.live_only = 0
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    params.cursor_name IS NULL
+    OR lower(c.broadcaster_name) < lower(params.cursor_name)
+    OR (lower(c.broadcaster_name) = lower(params.cursor_name) AND c.broadcaster_id < params.cursor_id)
+  )
+ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
+LIMIT (SELECT row_limit FROM params)
+`
+
+type ListChannelsPageDescParams struct {
+	LiveOnly   int64          `json:"live_only"`
+	CursorName sql.NullString `json:"cursor_name"`
+	CursorID   string         `json:"cursor_id"`
+	RowLimit   int64          `json:"row_limit"`
+}
+
+func (q *Queries) ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error) {
+	rows, err := q.db.QueryContext(ctx, listChannelsPageDesc,
+		arg.LiveOnly,
+		arg.CursorName,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channel{}
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.BroadcasterID,
+			&i.BroadcasterLogin,
+			&i.BroadcasterName,
+			&i.BroadcasterLanguage,
+			&i.ProfileImageUrl,
+			&i.OfflineImageUrl,
+			&i.Description,
+			&i.BroadcasterType,
+			&i.ViewCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserFollows = `-- name: ListUserFollows :many
 SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
 INNER JOIN user_followed_channels ufc ON ufc.broadcaster_id = c.broadcaster_id
@@ -169,6 +309,72 @@ ORDER BY c.broadcaster_login
 
 func (q *Queries) ListUserFollows(ctx context.Context, userID string) ([]Channel, error) {
 	rows, err := q.db.QueryContext(ctx, listUserFollows, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channel{}
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.BroadcasterID,
+			&i.BroadcasterLogin,
+			&i.BroadcasterName,
+			&i.BroadcasterLanguage,
+			&i.ProfileImageUrl,
+			&i.OfflineImageUrl,
+			&i.Description,
+			&i.BroadcasterType,
+			&i.ViewCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchChannels = `-- name: SearchChannels :many
+WITH params AS (
+    SELECT CAST(?1 AS text) AS search_query,
+           CAST(?2 AS integer) AS row_limit
+)
+SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
+CROSS JOIN params
+WHERE params.search_query = ''
+   OR lower(c.broadcaster_login) LIKE '%' || lower(params.search_query) || '%'
+   OR lower(c.broadcaster_name)  LIKE '%' || lower(params.search_query) || '%'
+ORDER BY
+    CASE
+        WHEN params.search_query = '' THEN 3
+        WHEN lower(c.broadcaster_login) = lower(params.search_query) THEN 0
+        WHEN lower(c.broadcaster_login) LIKE lower(params.search_query) || '%' THEN 1
+        WHEN lower(c.broadcaster_name)  LIKE lower(params.search_query) || '%' THEN 1
+        ELSE 2
+    END,
+    c.broadcaster_login
+LIMIT (SELECT row_limit FROM params)
+`
+
+type SearchChannelsParams struct {
+	Query    string `json:"query"`
+	RowLimit int64  `json:"row_limit"`
+}
+
+// Case-insensitive substring match on login + display name. Ranks exact
+// login match first, then prefix match, then substring match, then
+// alphabetical. Bind params once in a CTE with explicit casts so sqlc's
+// SQLite output stays typed through the repeated CASE/LIKE expressions.
+func (q *Queries) SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error) {
+	rows, err := q.db.QueryContext(ctx, searchChannels, arg.Query, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

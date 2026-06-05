@@ -30,6 +30,7 @@ type Querier interface {
 	CountEventLogsByDomain(ctx context.Context, domain string) (int64, error)
 	CountFetchLogs(ctx context.Context) (int64, error)
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
+	CountSearchEventLogs(ctx context.Context, query string) (int64, error)
 	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	CountWebhookEvents(ctx context.Context) (int64, error)
@@ -183,6 +184,8 @@ type Querier interface {
 	ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
+	ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error)
+	ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error)
 	// Scheduler tick path: enabled tasks whose next_run_at has passed.
 	// The partial index idx_tasks_next_run_at keeps this O(log n).
 	ListDueTasks(ctx context.Context) ([]Task, error)
@@ -262,6 +265,8 @@ type Querier interface {
 	// explicit 'created_at-desc' sort (matched by the CASE above it) and the
 	// fallthrough for empty/unrecognized sort_key values.
 	ListVideos(ctx context.Context, arg ListVideosParams) ([]Video, error)
+	ListVideosByBroadcasterPage(ctx context.Context, arg ListVideosByBroadcasterPageParams) ([]Video, error)
+	ListVideosByCategoryPage(ctx context.Context, arg ListVideosByCategoryPageParams) ([]Video, error)
 	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
@@ -333,6 +338,8 @@ type Querier interface {
 	// Empty query returns everything (up to row_limit), so the same endpoint
 	// backs the "show all" state of a combobox without a second query.
 	SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error)
+	SearchEventLogs(ctx context.Context, arg SearchEventLogsParams) ([]SearchEventLogsRow, error)
+	SearchVideos(ctx context.Context, arg SearchVideosParams) ([]Video, error)
 	// Freeze the part metadata on the first delivery build, while the video's parts
 	// still exist, so a later retry rebuilds the real part list even after retention
 	// has deleted those parts. Signed download URLs are re-minted per attempt and

@@ -59,9 +59,6 @@ type Querier interface {
 	CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error)
 	CreateVideoPart(ctx context.Context, arg CreateVideoPartParams) (VideoPart, error)
 	CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error)
-	// NOTE: SearchChannels is hand-rolled in
-	// internal/repository/sqliteadapter/channels.go for the same reason as
-	// ListVideos (see queries/sqlite/videos.sql).
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredCategorySearchCache(ctx context.Context, expiresAt sqlitetype.Time) error
@@ -165,6 +162,8 @@ type Querier interface {
 	ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
+	ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error)
+	ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error)
 	ListDueTasks(ctx context.Context) ([]Task, error)
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
@@ -224,13 +223,13 @@ type Querier interface {
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoPartsForVideos(ctx context.Context, videoIds []int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
+	// Unified list query with optional status filter and enum-driven sort.
+	// Bind params once in a CTE with explicit casts so sqlc's SQLite output stays
+	// typed through the repeated CASE expressions.
+	ListVideos(ctx context.Context, arg ListVideosParams) ([]Video, error)
+	ListVideosByBroadcasterPage(ctx context.Context, arg ListVideosByBroadcasterPageParams) ([]Video, error)
+	ListVideosByCategoryPage(ctx context.Context, arg ListVideosByCategoryPageParams) ([]Video, error)
 	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
-	// NOTE: ListVideos is intentionally NOT declared here. The PG path
-	// uses a CASE-based dynamic ORDER BY (see queries/postgres/videos.sql),
-	// but sqlc's SQLite engine can't infer the param type of a named arg
-	// referenced only inside CASE expressions, so the equivalent query is
-	// hand-rolled against the raw *sql.DB in
-	// internal/repository/sqliteadapter/videos.go.
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
@@ -270,12 +269,23 @@ type Querier interface {
 	// duplicate-send). attempts is reset for a fresh budget. A non-matching id
 	// returns no row, which the adapter maps to ErrNotFound.
 	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
+	// Case-insensitive substring match on name. unicode_lower is registered by the
+	// SQLite adapter so SQLite matches Go/Postgres Unicode case folding for category
+	// search. Bind params once in a CTE with explicit casts so sqlc's SQLite output
+	// stays typed through the repeated CASE/LIKE expressions.
+	SearchCategories(ctx context.Context, arg SearchCategoriesParams) ([]Category, error)
 	// Same ranking contract as SearchCategories, restricted to categories linked to
 	// at least one visible recording. unicode_lower is registered by the SQLite
 	// adapter so SQLite matches Go/Postgres Unicode case folding for category search.
 	// Bind params once in a CTE with explicit casts: this keeps sqlc's SQLite output
 	// typed while avoiding missed @param rewrites in repeated CASE/LIKE expressions.
 	SearchCategoriesWithVideos(ctx context.Context, arg SearchCategoriesWithVideosParams) ([]Category, error)
+	// Case-insensitive substring match on login + display name. Ranks exact
+	// login match first, then prefix match, then substring match, then
+	// alphabetical. Bind params once in a CTE with explicit casts so sqlc's
+	// SQLite output stays typed through the repeated CASE/LIKE expressions.
+	SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error)
+	SearchVideos(ctx context.Context, arg SearchVideosParams) ([]Video, error)
 	// Freeze the part metadata on the first delivery build, while the video's parts
 	// still exist, so a later retry rebuilds the real part list even after retention
 	// has deleted those parts. Signed download URLs are re-minted per attempt and

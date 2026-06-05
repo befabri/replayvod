@@ -41,6 +41,29 @@ ORDER BY c.name;
 -- name: ListCategoriesByIDs :many
 SELECT * FROM categories WHERE id IN (sqlc.slice('ids'));
 
+-- name: SearchCategories :many
+-- Case-insensitive substring match on name. unicode_lower is registered by the
+-- SQLite adapter so SQLite matches Go/Postgres Unicode case folding for category
+-- search. Bind params once in a CTE with explicit casts so sqlc's SQLite output
+-- stays typed through the repeated CASE/LIKE expressions.
+WITH params AS (
+    SELECT CAST(@query AS text) AS search_query,
+           CAST(@row_limit AS integer) AS row_limit
+)
+SELECT c.* FROM categories c
+CROSS JOIN params
+WHERE params.search_query = ''
+   OR unicode_lower(c.name) LIKE '%' || unicode_lower(params.search_query) || '%'
+ORDER BY
+    CASE
+        WHEN params.search_query = '' THEN 3
+        WHEN unicode_lower(c.name) = unicode_lower(params.search_query) THEN 0
+        WHEN unicode_lower(c.name) LIKE unicode_lower(params.search_query) || '%' THEN 1
+        ELSE 2
+    END,
+    c.name
+LIMIT (SELECT row_limit FROM params);
+
 -- name: SearchCategoriesWithVideos :many
 -- Same ranking contract as SearchCategories, restricted to categories linked to
 -- at least one visible recording. unicode_lower is registered by the SQLite

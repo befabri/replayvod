@@ -95,6 +95,101 @@ ORDER BY
   id DESC
 LIMIT @row_limit OFFSET @row_offset;
 
+-- name: ListVideosByBroadcasterPage :many
+SELECT v.* FROM videos v
+WHERE v.broadcaster_id = @broadcaster_id::text
+  AND v.deleted_at IS NULL
+  AND (
+    sqlc.narg('cursor_start_download_at')::timestamptz IS NULL
+    OR v.start_download_at < sqlc.narg('cursor_start_download_at')::timestamptz
+    OR (v.start_download_at = sqlc.narg('cursor_start_download_at')::timestamptz AND v.id < @cursor_id::bigint)
+  )
+ORDER BY v.start_download_at DESC, v.id DESC
+LIMIT @row_limit;
+
+-- name: ListVideosByCategoryPage :many
+SELECT v.* FROM videos v
+INNER JOIN video_categories vc ON vc.video_id = v.id
+WHERE vc.category_id = @category_id::text
+  AND v.deleted_at IS NULL
+  AND (
+    sqlc.narg('cursor_start_download_at')::timestamptz IS NULL
+    OR v.start_download_at < sqlc.narg('cursor_start_download_at')::timestamptz
+    OR (v.start_download_at = sqlc.narg('cursor_start_download_at')::timestamptz AND v.id < @cursor_id::bigint)
+  )
+ORDER BY v.start_download_at DESC, v.id DESC
+LIMIT @row_limit;
+
+-- name: SearchVideos :many
+WITH q AS (
+    SELECT
+        lower(@query::text) AS term,
+        lower(@query::text) || '%' AS prefix,
+        '%' || lower(@query::text) || '%' AS contains
+),
+matched AS (
+    SELECT
+        v.id,
+        q.term = '' AS empty_query,
+        lower(coalesce(v.title, '')) = q.term OR coalesce(title_match.title_exact, false) AS title_exact,
+        lower(coalesce(v.title, '')) LIKE q.prefix OR coalesce(title_match.title_prefix, false) AS title_prefix,
+        lower(coalesce(v.title, '')) LIKE q.contains OR coalesce(title_match.title_contains, false) AS title_contains,
+        lower(coalesce(v.display_name, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_login, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_name, '')) = q.term AS channel_exact,
+        lower(coalesce(v.display_name, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.prefix AS channel_prefix,
+        lower(coalesce(v.display_name, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.contains AS channel_contains,
+        coalesce(category_match.category_exact, false) AS category_exact,
+        coalesce(category_match.category_prefix, false) AS category_prefix,
+        coalesce(category_match.category_contains, false) AS category_contains
+    FROM videos v
+    CROSS JOIN q
+    LEFT JOIN channels ch ON ch.broadcaster_id = v.broadcaster_id
+    LEFT JOIN LATERAL (
+        SELECT
+            bool_or(lower(t.name) = q.term) AS title_exact,
+            bool_or(lower(t.name) LIKE q.prefix) AS title_prefix,
+            bool_or(lower(t.name) LIKE q.contains) AS title_contains
+        FROM video_titles vt
+        INNER JOIN titles t ON t.id = vt.title_id
+        WHERE vt.video_id = v.id
+    ) title_match ON true
+    LEFT JOIN LATERAL (
+        SELECT
+            bool_or(lower(c.name) = q.term) AS category_exact,
+            bool_or(lower(c.name) LIKE q.prefix) AS category_prefix,
+            bool_or(lower(c.name) LIKE q.contains) AS category_contains
+        FROM video_categories vc
+        INNER JOIN categories c ON c.id = vc.category_id
+        WHERE vc.video_id = v.id
+    ) category_match ON true
+    WHERE v.deleted_at IS NULL
+)
+SELECT v.* FROM videos v
+INNER JOIN matched m ON m.id = v.id
+WHERE m.empty_query
+   OR m.title_contains
+   OR m.channel_contains
+   OR m.category_contains
+ORDER BY
+    CASE
+        WHEN m.empty_query THEN 7
+        WHEN m.title_exact THEN 0
+        WHEN m.title_prefix THEN 1
+        WHEN m.channel_exact THEN 2
+        WHEN m.channel_prefix THEN 3
+        WHEN m.category_exact THEN 4
+        WHEN m.category_prefix THEN 5
+        ELSE 6
+    END,
+    v.start_download_at DESC,
+    v.id DESC
+LIMIT @row_limit;
+
 -- name: ListVideosMissingThumbnail :many
 SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL;
 

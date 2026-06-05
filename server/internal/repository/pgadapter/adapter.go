@@ -27,9 +27,8 @@ func mapErr(err error) error {
 // PGAdapter implements repository.Repository using PostgreSQL via sqlc-generated code.
 // sqlc.yaml maps nullable columns to *T so this adapter doesn't need pgtype shuffling.
 //
-// db is kept alongside queries so PG-only capabilities (FullTextSearcher,
-// future LISTEN/NOTIFY) can reach the raw connection for queries that
-// live outside the sqlc-generated surface.
+// db is kept alongside queries for ping, transactions, batch upserts, and the
+// dynamic ListVideosPage keyset query. Fixed-shape SQL goes through sqlc.
 type PGAdapter struct {
 	queries *pggen.Queries
 	db      pggen.DBTX
@@ -38,8 +37,8 @@ type PGAdapter struct {
 var _ repository.Repository = (*PGAdapter)(nil)
 
 // New creates a new PGAdapter. db is the pgx pool or transaction
-// backing the generated queries; it's retained so the adapter can run
-// raw SQL for PG-only capabilities without fighting sqlc.
+// backing the generated queries; it's retained for the few raw database
+// operations that intentionally live outside sqlc.
 func New(db pggen.DBTX) *PGAdapter {
 	return &PGAdapter{queries: pggen.New(db), db: db}
 }

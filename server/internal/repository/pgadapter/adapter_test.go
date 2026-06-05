@@ -587,6 +587,41 @@ func TestListVideosPage_CursorPagination(t *testing.T) {
 	}
 }
 
+func TestListVideosByBroadcasterAndCategoryPage(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	seedVideoPageFixture(t, ctx, a)
+	limit := 2
+
+	cases := []struct {
+		name  string
+		fetch func(*repository.VideoPageCursor) (*repository.VideoPage, error)
+		want  []string
+	}{
+		{
+			name: "broadcaster filters, pages, and skips deleted",
+			fetch: func(cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+				return a.ListVideosByBroadcaster(ctx, "bc-video-page-target", limit, cursor)
+			},
+			want: []string{"job-other-category", "job-new", "job-tie-high", "job-tie-low", "job-old"},
+		},
+		{
+			name: "category filters, pages, and skips deleted",
+			fetch: func(cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+				return a.ListVideosByCategory(ctx, "cat-video-page-target", limit, cursor)
+			},
+			want: []string{"job-other-broadcaster", "job-new", "job-tie-high", "job-tie-low", "job-old"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := collectVideoPageJobIDs(t, limit, tc.fetch)
+			assertStringSlice(t, got, tc.want)
+		})
+	}
+}
+
 func collectChannelPageLogins(t *testing.T, ctx context.Context, a *PGAdapter, limit int, sort string, liveOnly bool) []string {
 	t.Helper()
 	var cursor *repository.ChannelPageCursor
@@ -612,6 +647,73 @@ func collectChannelPageLogins(t *testing.T, ctx context.Context, a *PGAdapter, l
 			t.Fatal("empty channel page returned a next cursor")
 		}
 		cursor = page.NextCursor
+	}
+}
+
+func seedVideoPageFixture(t *testing.T, ctx context.Context, a *PGAdapter) {
+	t.Helper()
+	for _, ch := range []struct{ id, login, name string }{
+		{"bc-video-page-target", "video-page-target", "Video Page Target"},
+		{"bc-video-page-other", "video-page-other", "Video Page Other"},
+	} {
+		if _, err := a.UpsertChannel(ctx, &repository.Channel{
+			BroadcasterID: ch.id, BroadcasterLogin: ch.login, BroadcasterName: ch.name,
+		}); err != nil {
+			t.Fatalf("seed channel %s: %v", ch.id, err)
+		}
+	}
+	for _, cat := range []repository.Category{
+		{ID: "cat-video-page-target", Name: "Video Page Target"},
+		{ID: "cat-video-page-other", Name: "Video Page Other"},
+	} {
+		category := cat
+		if _, err := a.UpsertCategory(ctx, &category); err != nil {
+			t.Fatalf("seed category %s: %v", cat.ID, err)
+		}
+	}
+
+	base := time.Date(2026, 4, 23, 16, 0, 0, 0, time.UTC)
+	seeds := []struct {
+		jobID         string
+		broadcasterID string
+		categoryID    string
+		startedAt     time.Time
+		deleted       bool
+	}{
+		{"job-old", "bc-video-page-target", "cat-video-page-target", base.Add(1 * time.Minute), false},
+		{"job-tie-low", "bc-video-page-target", "cat-video-page-target", base.Add(2 * time.Minute), false},
+		{"job-tie-high", "bc-video-page-target", "cat-video-page-target", base.Add(2 * time.Minute), false},
+		{"job-new", "bc-video-page-target", "cat-video-page-target", base.Add(3 * time.Minute), false},
+		{"job-other-broadcaster", "bc-video-page-other", "cat-video-page-target", base.Add(4 * time.Minute), false},
+		{"job-other-category", "bc-video-page-target", "cat-video-page-other", base.Add(5 * time.Minute), false},
+		{"job-deleted", "bc-video-page-target", "cat-video-page-target", base.Add(6 * time.Minute), true},
+	}
+	for _, s := range seeds {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID:         s.jobID,
+			Filename:      s.jobID,
+			DisplayName:   s.jobID,
+			Title:         s.jobID,
+			Status:        repository.VideoStatusDone,
+			Quality:       repository.QualityHigh,
+			BroadcasterID: s.broadcasterID,
+			Language:      "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", s.jobID, err)
+		}
+		if err := a.LinkVideoCategory(ctx, v.ID, s.categoryID); err != nil {
+			t.Fatalf("link category %s: %v", s.jobID, err)
+		}
+		if _, err := a.db.Exec(ctx, "UPDATE videos SET start_download_at = $1 WHERE id = $2", s.startedAt, v.ID); err != nil {
+			t.Fatalf("override start_download_at %s: %v", s.jobID, err)
+		}
+		if s.deleted {
+			if err := a.SoftDeleteVideo(ctx, v.ID); err != nil {
+				t.Fatalf("soft delete %s: %v", s.jobID, err)
+			}
+		}
 	}
 }
 
@@ -657,6 +759,34 @@ func seedVideoListPageFixture(t *testing.T, ctx context.Context, a *PGAdapter) {
 		if _, err := a.db.Exec(ctx, "UPDATE videos SET start_download_at = $1 WHERE id = $2", s.startedAt, v.ID); err != nil {
 			t.Fatalf("override start_download_at %s: %v", s.jobID, err)
 		}
+	}
+}
+
+func collectVideoPageJobIDs(t *testing.T, limit int, fetch func(*repository.VideoPageCursor) (*repository.VideoPage, error)) []string {
+	t.Helper()
+	var cursor *repository.VideoPageCursor
+	out := []string{}
+	for pages := 0; ; pages++ {
+		if pages > 10 {
+			t.Fatal("video page pagination did not terminate")
+		}
+		page, err := fetch(cursor)
+		if err != nil {
+			t.Fatalf("fetch video page: %v", err)
+		}
+		if len(page.Items) > limit {
+			t.Fatalf("page size: got %d, limit %d", len(page.Items), limit)
+		}
+		for _, item := range page.Items {
+			out = append(out, item.JobID)
+		}
+		if page.NextCursor == nil {
+			return out
+		}
+		if len(page.Items) == 0 {
+			t.Fatal("empty video page returned a next cursor")
+		}
+		cursor = page.NextCursor
 	}
 }
 

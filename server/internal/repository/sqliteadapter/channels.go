@@ -9,46 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-const listChannelsPageAscSQL = `SELECT
-    c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language,
-    c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type,
-    c.view_count, c.created_at, c.updated_at
-FROM channels c
-WHERE (
-    ?1 = 0
-    OR EXISTS (
-        SELECT 1 FROM streams s
-        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
-    )
-)
-  AND (
-    ?2 IS NULL
-    OR lower(c.broadcaster_name) > lower(?2)
-    OR (lower(c.broadcaster_name) = lower(?2) AND c.broadcaster_id > ?3)
-  )
-ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
-LIMIT ?4`
-
-const listChannelsPageDescSQL = `SELECT
-    c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language,
-    c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type,
-    c.view_count, c.created_at, c.updated_at
-FROM channels c
-WHERE (
-    ?1 = 0
-    OR EXISTS (
-        SELECT 1 FROM streams s
-        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
-    )
-)
-  AND (
-    ?2 IS NULL
-    OR lower(c.broadcaster_name) < lower(?2)
-    OR (lower(c.broadcaster_name) = lower(?2) AND c.broadcaster_id < ?3)
-  )
-ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
-LIMIT ?4`
-
 // Channels
 
 func (a *SQLiteAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
@@ -98,17 +58,25 @@ func (a *SQLiteAdapter) ListChannels(ctx context.Context) ([]repository.Channel,
 }
 
 func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
-	query := listChannelsPageAscSQL
+	params := sqlitegen.ListChannelsPageAscParams{
+		LiveOnly:   boolToInt64(liveOnly),
+		CursorName: sqliteChannelCursorName(cursor),
+		CursorID:   sqliteChannelCursorID(cursor),
+		RowLimit:   int64(limit + 1),
+	}
+	var rows []sqlitegen.Channel
+	var err error
 	if sort == "name_desc" {
-		query = listChannelsPageDescSQL
+		rows, err = a.queries.ListChannelsPageDesc(ctx, sqlitegen.ListChannelsPageDescParams(params))
+	} else {
+		rows, err = a.queries.ListChannelsPageAsc(ctx, params)
 	}
-	rows, err := a.db.QueryContext(ctx, query, boolToInt(liveOnly), sqliteChannelCursorName(cursor), sqliteChannelCursorID(cursor), int64(limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list channels page: %w", err)
 	}
-	items, err := scanSQLiteChannels(rows)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list channels page: %w", err)
+	items := make([]repository.Channel, len(rows))
+	for i, row := range rows {
+		items[i] = *sqliteChannelToDomain(row)
 	}
 	return repository.ToChannelPage(items, limit), nil
 }
@@ -128,57 +96,17 @@ func (a *SQLiteAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]
 	return channels, nil
 }
 
-// searchChannelsSQL mirrors queries/postgres/channels.sql SearchChannels.
-// Hand-rolled because sqlc's SQLite engine can't type-infer a ?N param
-// whose only usages are inside a CASE expression (see the NOTE in
-// queries/sqlite/channels.sql).
-const searchChannelsSQL = `SELECT
-    broadcaster_id, broadcaster_login, broadcaster_name, broadcaster_language,
-    profile_image_url, offline_image_url, description, broadcaster_type,
-    view_count, created_at, updated_at
-FROM channels
-WHERE ?1 = ''
-   OR lower(broadcaster_login) LIKE '%' || lower(?1) || '%'
-   OR lower(broadcaster_name)  LIKE '%' || lower(?1) || '%'
-ORDER BY
-    CASE
-        WHEN ?1 = '' THEN 3
-        WHEN lower(broadcaster_login) = lower(?1) THEN 0
-        WHEN lower(broadcaster_login) LIKE lower(?1) || '%' THEN 1
-        WHEN lower(broadcaster_name)  LIKE lower(?1) || '%' THEN 1
-        ELSE 2
-    END,
-    broadcaster_login
-LIMIT ?2`
-
 func (a *SQLiteAdapter) SearchChannels(ctx context.Context, query string, limit int) ([]repository.Channel, error) {
-	rows, err := a.db.QueryContext(ctx, searchChannelsSQL, query, int64(limit))
+	rows, err := a.queries.SearchChannels(ctx, sqlitegen.SearchChannelsParams{
+		Query:    query,
+		RowLimit: int64(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite search channels: %w", err)
 	}
-	defer rows.Close()
-	out := []repository.Channel{}
-	for rows.Next() {
-		var row sqlitegen.Channel
-		if err := rows.Scan(
-			&row.BroadcasterID,
-			&row.BroadcasterLogin,
-			&row.BroadcasterName,
-			&row.BroadcasterLanguage,
-			&row.ProfileImageUrl,
-			&row.OfflineImageUrl,
-			&row.Description,
-			&row.BroadcasterType,
-			&row.ViewCount,
-			&row.CreatedAt,
-			&row.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("sqlite search channels scan: %w", err)
-		}
-		out = append(out, *sqliteChannelToDomain(row))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("sqlite search channels: %w", err)
+	out := make([]repository.Channel, len(rows))
+	for i, row := range rows {
+		out[i] = *sqliteChannelToDomain(row)
 	}
 	return out, nil
 }
@@ -237,39 +165,11 @@ func sqliteChannelToDomain(c sqlitegen.Channel) *repository.Channel {
 	}
 }
 
-func scanSQLiteChannels(rows *sql.Rows) ([]repository.Channel, error) {
-	defer rows.Close()
-	out := []repository.Channel{}
-	for rows.Next() {
-		var row sqlitegen.Channel
-		if err := rows.Scan(
-			&row.BroadcasterID,
-			&row.BroadcasterLogin,
-			&row.BroadcasterName,
-			&row.BroadcasterLanguage,
-			&row.ProfileImageUrl,
-			&row.OfflineImageUrl,
-			&row.Description,
-			&row.BroadcasterType,
-			&row.ViewCount,
-			&row.CreatedAt,
-			&row.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		out = append(out, *sqliteChannelToDomain(row))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func sqliteChannelCursorName(cursor *repository.ChannelPageCursor) any {
+func sqliteChannelCursorName(cursor *repository.ChannelPageCursor) sql.NullString {
 	if cursor == nil {
-		return nil
+		return sql.NullString{}
 	}
-	return cursor.BroadcasterName
+	return sql.NullString{String: cursor.BroadcasterName, Valid: true}
 }
 
 func sqliteChannelCursorID(cursor *repository.ChannelPageCursor) string {
@@ -277,13 +177,6 @@ func sqliteChannelCursorID(cursor *repository.ChannelPageCursor) string {
 		return ""
 	}
 	return cursor.BroadcasterID
-}
-
-func boolToInt(v bool) int {
-	if v {
-		return 1
-	}
-	return 0
 }
 
 // toChannelPage now lives in repository (pagination.go), shared by both adapters.

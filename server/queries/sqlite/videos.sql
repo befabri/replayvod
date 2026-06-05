@@ -53,12 +53,148 @@ WHERE id = ?;
 -- name: SetVideoThumbnail :exec
 UPDATE videos SET thumbnail = ? WHERE id = ?;
 
--- NOTE: ListVideos is intentionally NOT declared here. The PG path
--- uses a CASE-based dynamic ORDER BY (see queries/postgres/videos.sql),
--- but sqlc's SQLite engine can't infer the param type of a named arg
--- referenced only inside CASE expressions, so the equivalent query is
--- hand-rolled against the raw *sql.DB in
--- internal/repository/sqliteadapter/videos.go.
+-- name: ListVideos :many
+-- Unified list query with optional status filter and enum-driven sort.
+-- Bind params once in a CTE with explicit casts so sqlc's SQLite output stays
+-- typed through the repeated CASE expressions.
+WITH params AS (
+    SELECT CAST(@status_filter AS text) AS status_filter,
+           CAST(@sort_key AS text) AS sort_key,
+           CAST(@row_limit AS integer) AS row_limit,
+           CAST(@row_offset AS integer) AS row_offset
+)
+SELECT v.* FROM videos v
+CROSS JOIN params
+WHERE v.deleted_at IS NULL
+  AND (params.status_filter = '' OR v.status = params.status_filter)
+ORDER BY
+  CASE WHEN params.sort_key = 'duration-desc'  THEN v.duration_seconds  END DESC NULLS LAST,
+  CASE WHEN params.sort_key = 'duration-asc'   THEN v.duration_seconds  END ASC NULLS LAST,
+  CASE WHEN params.sort_key = 'size-desc'      THEN v.size_bytes        END DESC NULLS LAST,
+  CASE WHEN params.sort_key = 'size-asc'       THEN v.size_bytes        END ASC NULLS LAST,
+  CASE WHEN params.sort_key = 'channel-asc'    THEN v.display_name      END ASC,
+  CASE WHEN params.sort_key = 'channel-desc'   THEN v.display_name      END DESC,
+  CASE WHEN params.sort_key = 'created_at-asc' THEN v.start_download_at END ASC,
+  v.start_download_at DESC,
+  CASE WHEN params.sort_key LIKE '%-asc' THEN v.id END ASC,
+  v.id DESC
+LIMIT (SELECT row_limit FROM params) OFFSET (SELECT row_offset FROM params);
+
+-- name: ListVideosByBroadcasterPage :many
+WITH params AS (
+    SELECT CAST(@broadcaster_id AS text) AS broadcaster_id,
+           CAST(sqlc.narg('cursor_start_download_at') AS text) AS cursor_start_download_at,
+           CAST(@cursor_id AS integer) AS cursor_id,
+           CAST(@row_limit AS integer) AS row_limit
+)
+SELECT v.* FROM videos v
+CROSS JOIN params
+WHERE v.broadcaster_id = params.broadcaster_id
+  AND v.deleted_at IS NULL
+  AND (
+    params.cursor_start_download_at IS NULL
+    OR v.start_download_at < params.cursor_start_download_at
+    OR (v.start_download_at = params.cursor_start_download_at AND v.id < params.cursor_id)
+  )
+ORDER BY v.start_download_at DESC, v.id DESC
+LIMIT (SELECT row_limit FROM params);
+
+-- name: ListVideosByCategoryPage :many
+WITH params AS (
+    SELECT CAST(@category_id AS text) AS category_id,
+           CAST(sqlc.narg('cursor_start_download_at') AS text) AS cursor_start_download_at,
+           CAST(@cursor_id AS integer) AS cursor_id,
+           CAST(@row_limit AS integer) AS row_limit
+)
+SELECT v.* FROM videos v
+CROSS JOIN params
+INNER JOIN video_categories vc ON vc.video_id = v.id
+WHERE vc.category_id = params.category_id
+  AND v.deleted_at IS NULL
+  AND (
+    params.cursor_start_download_at IS NULL
+    OR v.start_download_at < params.cursor_start_download_at
+    OR (v.start_download_at = params.cursor_start_download_at AND v.id < params.cursor_id)
+  )
+ORDER BY v.start_download_at DESC, v.id DESC
+LIMIT (SELECT row_limit FROM params);
+
+-- name: SearchVideos :many
+WITH q AS (
+    SELECT
+        lower(CAST(@query AS text)) AS term,
+        lower(CAST(@query AS text)) || '%' AS prefix,
+        '%' || lower(CAST(@query AS text)) || '%' AS contains,
+        CAST(@row_limit AS integer) AS row_limit
+),
+title_matches AS (
+    SELECT
+        vt.video_id,
+        MAX(lower(t.name) = q.term) AS title_exact,
+        MAX(lower(t.name) LIKE q.prefix) AS title_prefix,
+        MAX(lower(t.name) LIKE q.contains) AS title_contains
+    FROM video_titles vt
+    INNER JOIN titles t ON t.id = vt.title_id
+    CROSS JOIN q
+    GROUP BY vt.video_id
+),
+category_matches AS (
+    SELECT
+        vc.video_id,
+        MAX(lower(c.name) = q.term) AS category_exact,
+        MAX(lower(c.name) LIKE q.prefix) AS category_prefix,
+        MAX(lower(c.name) LIKE q.contains) AS category_contains
+    FROM video_categories vc
+    INNER JOIN categories c ON c.id = vc.category_id
+    CROSS JOIN q
+    GROUP BY vc.video_id
+),
+matched AS (
+    SELECT
+        v.id,
+        q.term = '' AS empty_query,
+        lower(coalesce(v.title, '')) = q.term OR coalesce(tm.title_exact, 0) AS title_exact,
+        lower(coalesce(v.title, '')) LIKE q.prefix OR coalesce(tm.title_prefix, 0) AS title_prefix,
+        lower(coalesce(v.title, '')) LIKE q.contains OR coalesce(tm.title_contains, 0) AS title_contains,
+        lower(coalesce(v.display_name, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_login, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_name, '')) = q.term AS channel_exact,
+        lower(coalesce(v.display_name, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.prefix AS channel_prefix,
+        lower(coalesce(v.display_name, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.contains AS channel_contains,
+        coalesce(cm.category_exact, 0) AS category_exact,
+        coalesce(cm.category_prefix, 0) AS category_prefix,
+        coalesce(cm.category_contains, 0) AS category_contains
+    FROM videos v
+    CROSS JOIN q
+    LEFT JOIN channels ch ON ch.broadcaster_id = v.broadcaster_id
+    LEFT JOIN title_matches tm ON tm.video_id = v.id
+    LEFT JOIN category_matches cm ON cm.video_id = v.id
+    WHERE v.deleted_at IS NULL
+)
+SELECT v.* FROM videos v
+INNER JOIN matched m ON m.id = v.id
+WHERE m.empty_query
+   OR m.title_contains
+   OR m.channel_contains
+   OR m.category_contains
+ORDER BY
+    CASE
+        WHEN m.empty_query THEN 7
+        WHEN m.title_exact THEN 0
+        WHEN m.title_prefix THEN 1
+        WHEN m.channel_exact THEN 2
+        WHEN m.channel_prefix THEN 3
+        WHEN m.category_exact THEN 4
+        WHEN m.category_prefix THEN 5
+        ELSE 6
+    END,
+    v.start_download_at DESC,
+    v.id DESC
+LIMIT (SELECT row_limit FROM q);
 
 -- name: ListVideosMissingThumbnail :many
 SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL;

@@ -6,48 +6,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
-	"github.com/jackc/pgx/v5"
 )
-
-const listChannelsPageAscSQL = `SELECT
-    c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language,
-    c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type,
-    c.view_count, c.created_at, c.updated_at
-FROM channels c
-WHERE (
-    NOT $1
-    OR EXISTS (
-        SELECT 1 FROM streams s
-        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
-    )
-)
-  AND (
-    $2::text IS NULL
-    OR lower(c.broadcaster_name) > lower($2::text)
-    OR (lower(c.broadcaster_name) = lower($2::text) AND c.broadcaster_id > $3)
-  )
-ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
-LIMIT $4`
-
-const listChannelsPageDescSQL = `SELECT
-    c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language,
-    c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type,
-    c.view_count, c.created_at, c.updated_at
-FROM channels c
-WHERE (
-    NOT $1
-    OR EXISTS (
-        SELECT 1 FROM streams s
-        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
-    )
-)
-  AND (
-    $2::text IS NULL
-    OR lower(c.broadcaster_name) < lower($2::text)
-    OR (lower(c.broadcaster_name) = lower($2::text) AND c.broadcaster_id < $3)
-  )
-ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
-LIMIT $4`
 
 func (a *PGAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
 	row, err := a.queries.GetChannel(ctx, broadcasterID)
@@ -96,17 +55,25 @@ func (a *PGAdapter) ListChannels(ctx context.Context) ([]repository.Channel, err
 }
 
 func (a *PGAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
-	query := listChannelsPageAscSQL
+	params := pggen.ListChannelsPageAscParams{
+		LiveOnly:   liveOnly,
+		CursorName: pgChannelCursorName(cursor),
+		CursorID:   pgChannelCursorID(cursor),
+		RowLimit:   int32(limit + 1),
+	}
+	var rows []pggen.Channel
+	var err error
 	if sort == "name_desc" {
-		query = listChannelsPageDescSQL
+		rows, err = a.queries.ListChannelsPageDesc(ctx, pggen.ListChannelsPageDescParams(params))
+	} else {
+		rows, err = a.queries.ListChannelsPageAsc(ctx, params)
 	}
-	rows, err := a.db.Query(ctx, query, liveOnly, pgChannelCursorName(cursor), pgChannelCursorID(cursor), limit+1)
 	if err != nil {
 		return nil, fmt.Errorf("pg list channels page: %w", err)
 	}
-	items, err := scanPGChannels(rows)
-	if err != nil {
-		return nil, fmt.Errorf("pg list channels page: %w", err)
+	items := make([]repository.Channel, len(rows))
+	for i, row := range rows {
+		items[i] = *pgChannelToDomain(row)
 	}
 	return repository.ToChannelPage(items, limit), nil
 }
@@ -187,34 +154,6 @@ func pgChannelToDomain(c pggen.Channel) *repository.Channel {
 		CreatedAt:           c.CreatedAt,
 		UpdatedAt:           c.UpdatedAt,
 	}
-}
-
-func scanPGChannels(rows pgx.Rows) ([]repository.Channel, error) {
-	defer rows.Close()
-	items := []repository.Channel{}
-	for rows.Next() {
-		var row pggen.Channel
-		if err := rows.Scan(
-			&row.BroadcasterID,
-			&row.BroadcasterLogin,
-			&row.BroadcasterName,
-			&row.BroadcasterLanguage,
-			&row.ProfileImageUrl,
-			&row.OfflineImageUrl,
-			&row.Description,
-			&row.BroadcasterType,
-			&row.ViewCount,
-			&row.CreatedAt,
-			&row.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, *pgChannelToDomain(row))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 func pgChannelCursorName(cursor *repository.ChannelPageCursor) *string {

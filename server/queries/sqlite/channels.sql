@@ -28,9 +28,78 @@ SELECT * FROM channels ORDER BY broadcaster_login;
 -- name: ListChannelsByIDs :many
 SELECT * FROM channels WHERE broadcaster_id IN (sqlc.slice('ids'));
 
--- NOTE: SearchChannels is hand-rolled in
--- internal/repository/sqliteadapter/channels.go for the same reason as
--- ListVideos (see queries/sqlite/videos.sql).
+-- name: ListChannelsPageAsc :many
+WITH params AS (
+    SELECT CAST(@live_only AS integer) AS live_only,
+           CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
+           CAST(@cursor_id AS text) AS cursor_id,
+           CAST(@row_limit AS integer) AS row_limit
+)
+SELECT c.* FROM channels c
+CROSS JOIN params
+WHERE (
+    params.live_only = 0
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    params.cursor_name IS NULL
+    OR lower(c.broadcaster_name) > lower(params.cursor_name)
+    OR (lower(c.broadcaster_name) = lower(params.cursor_name) AND c.broadcaster_id > params.cursor_id)
+  )
+ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
+LIMIT (SELECT row_limit FROM params);
+
+-- name: ListChannelsPageDesc :many
+WITH params AS (
+    SELECT CAST(@live_only AS integer) AS live_only,
+           CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
+           CAST(@cursor_id AS text) AS cursor_id,
+           CAST(@row_limit AS integer) AS row_limit
+)
+SELECT c.* FROM channels c
+CROSS JOIN params
+WHERE (
+    params.live_only = 0
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    params.cursor_name IS NULL
+    OR lower(c.broadcaster_name) < lower(params.cursor_name)
+    OR (lower(c.broadcaster_name) = lower(params.cursor_name) AND c.broadcaster_id < params.cursor_id)
+  )
+ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
+LIMIT (SELECT row_limit FROM params);
+
+-- name: SearchChannels :many
+-- Case-insensitive substring match on login + display name. Ranks exact
+-- login match first, then prefix match, then substring match, then
+-- alphabetical. Bind params once in a CTE with explicit casts so sqlc's
+-- SQLite output stays typed through the repeated CASE/LIKE expressions.
+WITH params AS (
+    SELECT CAST(@query AS text) AS search_query,
+           CAST(@row_limit AS integer) AS row_limit
+)
+SELECT c.* FROM channels c
+CROSS JOIN params
+WHERE params.search_query = ''
+   OR lower(c.broadcaster_login) LIKE '%' || lower(params.search_query) || '%'
+   OR lower(c.broadcaster_name)  LIKE '%' || lower(params.search_query) || '%'
+ORDER BY
+    CASE
+        WHEN params.search_query = '' THEN 3
+        WHEN lower(c.broadcaster_login) = lower(params.search_query) THEN 0
+        WHEN lower(c.broadcaster_login) LIKE lower(params.search_query) || '%' THEN 1
+        WHEN lower(c.broadcaster_name)  LIKE lower(params.search_query) || '%' THEN 1
+        ELSE 2
+    END,
+    c.broadcaster_login
+LIMIT (SELECT row_limit FROM params);
 
 -- name: DeleteChannel :exec
 DELETE FROM channels WHERE broadcaster_id = ?;

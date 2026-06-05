@@ -28,6 +28,40 @@ SELECT * FROM channels ORDER BY broadcaster_login;
 -- name: ListChannelsByIDs :many
 SELECT * FROM channels WHERE broadcaster_id = ANY(@ids::text[]);
 
+-- name: ListChannelsPageAsc :many
+SELECT c.* FROM channels c
+WHERE (
+    NOT @live_only::boolean
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    sqlc.narg('cursor_name')::text IS NULL
+    OR lower(c.broadcaster_name) > lower(sqlc.narg('cursor_name')::text)
+    OR (lower(c.broadcaster_name) = lower(sqlc.narg('cursor_name')::text) AND c.broadcaster_id > @cursor_id::text)
+  )
+ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
+LIMIT @row_limit;
+
+-- name: ListChannelsPageDesc :many
+SELECT c.* FROM channels c
+WHERE (
+    NOT @live_only::boolean
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    sqlc.narg('cursor_name')::text IS NULL
+    OR lower(c.broadcaster_name) < lower(sqlc.narg('cursor_name')::text)
+    OR (lower(c.broadcaster_name) = lower(sqlc.narg('cursor_name')::text) AND c.broadcaster_id < @cursor_id::text)
+  )
+ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
+LIMIT @row_limit;
+
 -- name: SearchChannels :many
 -- Case-insensitive substring match on login + display name. Ranks exact
 -- login match first, then prefix match, then substring match, then

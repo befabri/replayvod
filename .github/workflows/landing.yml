@@ -83,6 +83,12 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
       - run: go test ./...
+      - name: Install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+      - name: Check committed sqlc output is up to date
+        run: |
+          "$(go env GOPATH)/bin/sqlc" generate
+          git diff --exit-code internal/repository/pgadapter/pggen internal/repository/sqliteadapter/sqlitegen
       # Real ffmpeg/ffprobe integration tests (build tag `ffmpeg`) — the
       # only coverage that catches ffmpeg argv regressions and exercises
       # the full Service.run part-split / resume pipeline end to end.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
 // SearchEventLogs implements repository.FullTextSearcher for Postgres.
@@ -33,58 +34,44 @@ func (a *PGAdapter) SearchEventLogs(ctx context.Context, query string, limit, of
 		return nil, 0, nil
 	}
 
-	// Total count of matching rows, shared between the two queries so
-	// the dashboard can paginate even when the page is smaller than the
-	// result set. websearch_to_tsquery + @@ operator lets PG use the
-	// GIN index for both count and select.
-	var total int64
-	if err := a.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM event_logs
-		WHERE search_vector @@ websearch_to_tsquery('simple', $1)
-	`, query).Scan(&total); err != nil {
+	total, err := a.queries.CountSearchEventLogs(ctx, query)
+	if err != nil {
 		return nil, 0, fmt.Errorf("pg count event log search: %w", err)
 	}
 	if total == 0 {
 		return nil, 0, nil
 	}
 
-	rows, err := a.db.Query(ctx, `
-		SELECT
-			id, domain, event_type, severity, message, actor_user_id, data, created_at,
-			ts_rank_cd(search_vector, websearch_to_tsquery('simple', $1)) AS rank
-		FROM event_logs
-		WHERE search_vector @@ websearch_to_tsquery('simple', $1)
-		ORDER BY rank DESC, created_at DESC
-		LIMIT $2 OFFSET $3
-	`, query, limit, offset)
+	rows, err := a.queries.SearchEventLogs(ctx, pggen.SearchEventLogsParams{
+		Query:     query,
+		RowLimit:  int32(limit),
+		RowOffset: int32(offset),
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("pg search event logs: %w", err)
 	}
-	defer rows.Close()
 
-	results := make([]repository.EventLogSearchResult, 0, limit)
-	for rows.Next() {
-		var r repository.EventLogSearchResult
-		if err := rows.Scan(
-			&r.ID,
-			&r.Domain,
-			&r.EventType,
-			&r.Severity,
-			&r.Message,
-			&r.ActorUserID,
-			&r.Data,
-			&r.CreatedAt,
-			&r.Rank,
-		); err != nil {
-			return nil, 0, fmt.Errorf("pg scan event log search row: %w", err)
-		}
-		results = append(results, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("pg iterate event log search rows: %w", err)
+	results := make([]repository.EventLogSearchResult, len(rows))
+	for i, row := range rows {
+		results[i] = pgEventLogSearchResultToDomain(row)
 	}
 	return results, total, nil
+}
+
+func pgEventLogSearchResultToDomain(row pggen.SearchEventLogsRow) repository.EventLogSearchResult {
+	return repository.EventLogSearchResult{
+		EventLog: repository.EventLog{
+			ID:          row.ID,
+			Domain:      row.Domain,
+			EventType:   row.EventType,
+			Severity:    row.Severity,
+			Message:     row.Message,
+			ActorUserID: row.ActorUserID,
+			Data:        row.Data,
+			CreatedAt:   row.CreatedAt,
+		},
+		Rank: float64(row.Rank),
+	}
 }
 
 // compile-time guarantee that PGAdapter satisfies the optional

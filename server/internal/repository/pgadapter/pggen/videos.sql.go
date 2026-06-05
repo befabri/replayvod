@@ -332,6 +332,153 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 	return items, nil
 }
 
+const listVideosByBroadcasterPage = `-- name: ListVideosByBroadcasterPage :many
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours FROM videos v
+WHERE v.broadcaster_id = $1::text
+  AND v.deleted_at IS NULL
+  AND (
+    $2::timestamptz IS NULL
+    OR v.start_download_at < $2::timestamptz
+    OR (v.start_download_at = $2::timestamptz AND v.id < $3::bigint)
+  )
+ORDER BY v.start_download_at DESC, v.id DESC
+LIMIT $4
+`
+
+type ListVideosByBroadcasterPageParams struct {
+	BroadcasterID         string     `json:"broadcaster_id"`
+	CursorStartDownloadAt *time.Time `json:"cursor_start_download_at"`
+	CursorID              int64      `json:"cursor_id"`
+	RowLimit              int32      `json:"row_limit"`
+}
+
+func (q *Queries) ListVideosByBroadcasterPage(ctx context.Context, arg ListVideosByBroadcasterPageParams) ([]Video, error) {
+	rows, err := q.db.Query(ctx, listVideosByBroadcasterPage,
+		arg.BroadcasterID,
+		arg.CursorStartDownloadAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.Quality,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVideosByCategoryPage = `-- name: ListVideosByCategoryPage :many
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours FROM videos v
+INNER JOIN video_categories vc ON vc.video_id = v.id
+WHERE vc.category_id = $1::text
+  AND v.deleted_at IS NULL
+  AND (
+    $2::timestamptz IS NULL
+    OR v.start_download_at < $2::timestamptz
+    OR (v.start_download_at = $2::timestamptz AND v.id < $3::bigint)
+  )
+ORDER BY v.start_download_at DESC, v.id DESC
+LIMIT $4
+`
+
+type ListVideosByCategoryPageParams struct {
+	CategoryID            string     `json:"category_id"`
+	CursorStartDownloadAt *time.Time `json:"cursor_start_download_at"`
+	CursorID              int64      `json:"cursor_id"`
+	RowLimit              int32      `json:"row_limit"`
+}
+
+func (q *Queries) ListVideosByCategoryPage(ctx context.Context, arg ListVideosByCategoryPageParams) ([]Video, error) {
+	rows, err := q.db.Query(ctx, listVideosByCategoryPage,
+		arg.CategoryID,
+		arg.CursorStartDownloadAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.Quality,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVideosByJobIDs = `-- name: ListVideosByJobIDs :many
 SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours FROM videos WHERE job_id = ANY($1::text[])
 `
@@ -509,6 +656,130 @@ func (q *Queries) MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams
 		arg.Truncated,
 	)
 	return err
+}
+
+const searchVideos = `-- name: SearchVideos :many
+WITH q AS (
+    SELECT
+        lower($2::text) AS term,
+        lower($2::text) || '%' AS prefix,
+        '%' || lower($2::text) || '%' AS contains
+),
+matched AS (
+    SELECT
+        v.id,
+        q.term = '' AS empty_query,
+        lower(coalesce(v.title, '')) = q.term OR coalesce(title_match.title_exact, false) AS title_exact,
+        lower(coalesce(v.title, '')) LIKE q.prefix OR coalesce(title_match.title_prefix, false) AS title_prefix,
+        lower(coalesce(v.title, '')) LIKE q.contains OR coalesce(title_match.title_contains, false) AS title_contains,
+        lower(coalesce(v.display_name, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_login, '')) = q.term
+            OR lower(coalesce(ch.broadcaster_name, '')) = q.term AS channel_exact,
+        lower(coalesce(v.display_name, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.prefix
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.prefix AS channel_prefix,
+        lower(coalesce(v.display_name, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.contains
+            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.contains AS channel_contains,
+        coalesce(category_match.category_exact, false) AS category_exact,
+        coalesce(category_match.category_prefix, false) AS category_prefix,
+        coalesce(category_match.category_contains, false) AS category_contains
+    FROM videos v
+    CROSS JOIN q
+    LEFT JOIN channels ch ON ch.broadcaster_id = v.broadcaster_id
+    LEFT JOIN LATERAL (
+        SELECT
+            bool_or(lower(t.name) = q.term) AS title_exact,
+            bool_or(lower(t.name) LIKE q.prefix) AS title_prefix,
+            bool_or(lower(t.name) LIKE q.contains) AS title_contains
+        FROM video_titles vt
+        INNER JOIN titles t ON t.id = vt.title_id
+        WHERE vt.video_id = v.id
+    ) title_match ON true
+    LEFT JOIN LATERAL (
+        SELECT
+            bool_or(lower(c.name) = q.term) AS category_exact,
+            bool_or(lower(c.name) LIKE q.prefix) AS category_prefix,
+            bool_or(lower(c.name) LIKE q.contains) AS category_contains
+        FROM video_categories vc
+        INNER JOIN categories c ON c.id = vc.category_id
+        WHERE vc.video_id = v.id
+    ) category_match ON true
+    WHERE v.deleted_at IS NULL
+)
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours FROM videos v
+INNER JOIN matched m ON m.id = v.id
+WHERE m.empty_query
+   OR m.title_contains
+   OR m.channel_contains
+   OR m.category_contains
+ORDER BY
+    CASE
+        WHEN m.empty_query THEN 7
+        WHEN m.title_exact THEN 0
+        WHEN m.title_prefix THEN 1
+        WHEN m.channel_exact THEN 2
+        WHEN m.channel_prefix THEN 3
+        WHEN m.category_exact THEN 4
+        WHEN m.category_prefix THEN 5
+        ELSE 6
+    END,
+    v.start_download_at DESC,
+    v.id DESC
+LIMIT $1
+`
+
+type SearchVideosParams struct {
+	RowLimit int32  `json:"row_limit"`
+	Query    string `json:"query"`
+}
+
+func (q *Queries) SearchVideos(ctx context.Context, arg SearchVideosParams) ([]Video, error) {
+	rows, err := q.db.Query(ctx, searchVideos, arg.RowLimit, arg.Query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.Quality,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setVideoThumbnail = `-- name: SetVideoThumbnail :exec

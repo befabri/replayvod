@@ -26,6 +26,20 @@ SELECT COUNT(*) FROM event_logs;
 -- name: CountEventLogsByDomain :one
 SELECT COUNT(*) FROM event_logs WHERE domain = $1;
 
+-- name: CountSearchEventLogs :one
+SELECT COUNT(*)
+FROM event_logs
+WHERE search_vector @@ websearch_to_tsquery('simple', @query::text);
+
+-- name: SearchEventLogs :many
+SELECT
+    id, domain, event_type, severity, message, actor_user_id, data, created_at,
+    ts_rank_cd(search_vector, websearch_to_tsquery('simple', @query::text)) AS rank
+FROM event_logs
+WHERE search_vector @@ websearch_to_tsquery('simple', @query::text)
+ORDER BY rank DESC, created_at DESC
+LIMIT @row_limit OFFSET @row_offset;
+
 -- name: DeleteOldEventLogs :exec
 -- Retention task path: debug/info rows older than the retention window
 -- are pruned; warn/error rows stay longer (retention task uses a

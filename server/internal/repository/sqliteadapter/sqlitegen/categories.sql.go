@@ -248,6 +248,65 @@ func (q *Queries) PruneCategorySearchCache(ctx context.Context, offset int64) er
 	return err
 }
 
+const searchCategories = `-- name: SearchCategories :many
+WITH params AS (
+    SELECT CAST(?1 AS text) AS search_query,
+           CAST(?2 AS integer) AS row_limit
+)
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+CROSS JOIN params
+WHERE params.search_query = ''
+   OR unicode_lower(c.name) LIKE '%' || unicode_lower(params.search_query) || '%'
+ORDER BY
+    CASE
+        WHEN params.search_query = '' THEN 3
+        WHEN unicode_lower(c.name) = unicode_lower(params.search_query) THEN 0
+        WHEN unicode_lower(c.name) LIKE unicode_lower(params.search_query) || '%' THEN 1
+        ELSE 2
+    END,
+    c.name
+LIMIT (SELECT row_limit FROM params)
+`
+
+type SearchCategoriesParams struct {
+	Query    string `json:"query"`
+	RowLimit int64  `json:"row_limit"`
+}
+
+// Case-insensitive substring match on name. unicode_lower is registered by the
+// SQLite adapter so SQLite matches Go/Postgres Unicode case folding for category
+// search. Bind params once in a CTE with explicit casts so sqlc's SQLite output
+// stays typed through the repeated CASE/LIKE expressions.
+func (q *Queries) SearchCategories(ctx context.Context, arg SearchCategoriesParams) ([]Category, error) {
+	rows, err := q.db.QueryContext(ctx, searchCategories, arg.Query, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchCategoriesWithVideos = `-- name: SearchCategoriesWithVideos :many
 WITH params AS (
     SELECT CAST(?1 AS text) AS search_query,

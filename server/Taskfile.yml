@@ -136,6 +136,12 @@ tasks:
     cmds:
       - sqlc generate
 
+  sqlc:check:
+    desc: CI gate — fails when committed pggen/sqlitegen are out of sync with queries
+    cmds:
+      - task: sqlc
+      - git diff --exit-code internal/repository/pgadapter/pggen internal/repository/sqliteadapter/sqlitegen
+
   trpcgen:
     desc: Generate TypeScript + Zod types from tRPC procedures
     cmds:

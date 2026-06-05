@@ -519,14 +519,9 @@ func TestSQLiteAdapter_ErrNotFound(t *testing.T) {
 	}
 }
 
-// TestListVideos_ColumnRoundtrip pins every scan target against the
-// SELECT in listVideosSQL. The hand-rolled SQL is outside sqlc's
-// codegen reach (see queries/sqlite/videos.sql), so a schema migration
-// that adds a column can silently drift from this scan and fail only
-// at runtime. Inserting a row with every non-null/nullable field
-// populated and reading it back proves the scan column order still
-// matches — a mismatch shows up as a Scan error at test time, not in
-// production. Keep adding assertions as videos grows columns.
+// TestListVideos_ColumnRoundtrip pins every video domain field exposed by
+// the sqlc ListVideos query. Inserting a row with every non-null/nullable
+// field populated and reading it back catches schema and mapper drift.
 func TestListVideos_ColumnRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -586,8 +581,7 @@ func TestListVideos_ColumnRoundtrip(t *testing.T) {
 
 	// Every domain field must round-trip. If a column is added to the
 	// videos migration, extend repository.Video accordingly, then add
-	// a matching assertion here — the Scan in listVideosSQL must be
-	// kept in sync at the same time.
+	// a matching assertion here.
 	checks := []struct {
 		name string
 		got  any
@@ -659,9 +653,9 @@ func TestCreateVideo_NormalizesRecordingSettings(t *testing.T) {
 	}
 }
 
-// TestSearchChannels_ColumnRoundtrip pins the scan column order for
-// the hand-rolled searchChannelsSQL the same way the videos variant
-// does. Every populatable field on Channel must flow through.
+// TestSearchChannels_ColumnRoundtrip pins every channel field exposed by
+// the generated SearchChannels query. Every populatable field on Channel
+// must flow through.
 func TestSearchChannels_ColumnRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -739,11 +733,9 @@ func derefInt64(p *int64) int64 {
 	return *p
 }
 
-// TestListVideos_SortDimensions verifies that the hand-rolled
-// listVideosSQL actually responds to every sort_key variant — the
-// earlier sqlc-generated version silently dropped @sort_key inside
-// CASE expressions, so this test pins that the ?N positional reuse
-// works end-to-end against modernc.org/sqlite.
+// TestListVideos_SortDimensions verifies that the generated SQLite
+// ListVideos query responds to every sort_key variant. It pins the CASE
+// expression behavior that previously forced this query out of sqlc.
 func TestListVideos_SortDimensions(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -975,6 +967,41 @@ func TestSearchVideos(t *testing.T) {
 	})
 }
 
+func TestListVideosByBroadcasterAndCategoryPage(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	seedVideoPageFixture(t, ctx, a)
+	limit := 2
+
+	cases := []struct {
+		name  string
+		fetch func(*repository.VideoPageCursor) (*repository.VideoPage, error)
+		want  []string
+	}{
+		{
+			name: "broadcaster filters, pages, and skips deleted",
+			fetch: func(cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+				return a.ListVideosByBroadcaster(ctx, "bc-video-page-target", limit, cursor)
+			},
+			want: []string{"job-other-category", "job-new", "job-tie-high", "job-tie-low", "job-old"},
+		},
+		{
+			name: "category filters, pages, and skips deleted",
+			fetch: func(cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
+				return a.ListVideosByCategory(ctx, "cat-video-page-target", limit, cursor)
+			},
+			want: []string{"job-other-broadcaster", "job-new", "job-tie-high", "job-tie-low", "job-old"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := collectVideoPageJobIDs(t, limit, tc.fetch)
+			assertStringSlice(t, got, tc.want)
+		})
+	}
+}
+
 func videoJobIDs(videos []repository.Video) []string {
 	out := make([]string, len(videos))
 	for i, v := range videos {
@@ -1176,6 +1203,73 @@ func seedVideoListFilterFixture(t *testing.T, ctx context.Context, a *SQLiteAdap
 	}
 }
 
+func seedVideoPageFixture(t *testing.T, ctx context.Context, a *SQLiteAdapter) {
+	t.Helper()
+	for _, ch := range []struct{ id, login, name string }{
+		{"bc-video-page-target", "video-page-target", "Video Page Target"},
+		{"bc-video-page-other", "video-page-other", "Video Page Other"},
+	} {
+		if _, err := a.UpsertChannel(ctx, &repository.Channel{
+			BroadcasterID: ch.id, BroadcasterLogin: ch.login, BroadcasterName: ch.name,
+		}); err != nil {
+			t.Fatalf("seed channel %s: %v", ch.id, err)
+		}
+	}
+	for _, cat := range []repository.Category{
+		{ID: "cat-video-page-target", Name: "Video Page Target"},
+		{ID: "cat-video-page-other", Name: "Video Page Other"},
+	} {
+		category := cat
+		if _, err := a.UpsertCategory(ctx, &category); err != nil {
+			t.Fatalf("seed category %s: %v", cat.ID, err)
+		}
+	}
+
+	base := time.Date(2026, 4, 23, 16, 0, 0, 0, time.UTC)
+	seeds := []struct {
+		jobID         string
+		broadcasterID string
+		categoryID    string
+		startedAt     time.Time
+		deleted       bool
+	}{
+		{"job-old", "bc-video-page-target", "cat-video-page-target", base.Add(1 * time.Minute), false},
+		{"job-tie-low", "bc-video-page-target", "cat-video-page-target", base.Add(2 * time.Minute), false},
+		{"job-tie-high", "bc-video-page-target", "cat-video-page-target", base.Add(2 * time.Minute), false},
+		{"job-new", "bc-video-page-target", "cat-video-page-target", base.Add(3 * time.Minute), false},
+		{"job-other-broadcaster", "bc-video-page-other", "cat-video-page-target", base.Add(4 * time.Minute), false},
+		{"job-other-category", "bc-video-page-target", "cat-video-page-other", base.Add(5 * time.Minute), false},
+		{"job-deleted", "bc-video-page-target", "cat-video-page-target", base.Add(6 * time.Minute), true},
+	}
+	for _, s := range seeds {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID:         s.jobID,
+			Filename:      s.jobID,
+			DisplayName:   s.jobID,
+			Title:         s.jobID,
+			Status:        repository.VideoStatusDone,
+			Quality:       repository.QualityHigh,
+			BroadcasterID: s.broadcasterID,
+			Language:      "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", s.jobID, err)
+		}
+		if err := a.LinkVideoCategory(ctx, v.ID, s.categoryID); err != nil {
+			t.Fatalf("link category %s: %v", s.jobID, err)
+		}
+		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", sqlitetype.Format(s.startedAt), v.ID); err != nil {
+			t.Fatalf("override start_download_at %s: %v", s.jobID, err)
+		}
+		if s.deleted {
+			if err := a.SoftDeleteVideo(ctx, v.ID); err != nil {
+				t.Fatalf("soft delete %s: %v", s.jobID, err)
+			}
+		}
+	}
+}
+
 func collectChannelPageLogins(t *testing.T, ctx context.Context, a *SQLiteAdapter, limit int, sort string, liveOnly bool) []string {
 	t.Helper()
 	var cursor *repository.ChannelPageCursor
@@ -1199,6 +1293,34 @@ func collectChannelPageLogins(t *testing.T, ctx context.Context, a *SQLiteAdapte
 		}
 		if len(page.Items) == 0 {
 			t.Fatal("empty channel page returned a next cursor")
+		}
+		cursor = page.NextCursor
+	}
+}
+
+func collectVideoPageJobIDs(t *testing.T, limit int, fetch func(*repository.VideoPageCursor) (*repository.VideoPage, error)) []string {
+	t.Helper()
+	var cursor *repository.VideoPageCursor
+	out := []string{}
+	for pages := 0; ; pages++ {
+		if pages > 10 {
+			t.Fatal("video page pagination did not terminate")
+		}
+		page, err := fetch(cursor)
+		if err != nil {
+			t.Fatalf("fetch video page: %v", err)
+		}
+		if len(page.Items) > limit {
+			t.Fatalf("page size: got %d, limit %d", len(page.Items), limit)
+		}
+		for _, item := range page.Items {
+			out = append(out, item.JobID)
+		}
+		if page.NextCursor == nil {
+			return out
+		}
+		if len(page.Items) == 0 {
+			t.Fatal("empty video page returned a next cursor")
 		}
 		cursor = page.NextCursor
 	}
@@ -1291,9 +1413,8 @@ func assertStringSlice(t *testing.T, got, want []string) {
 
 // TestSearchChannels pins the ranking + filter contract. Split into
 // subtests so an assertion failure in one case (e.g., rank order)
-// doesn't mask the others. Covers the hand-rolled searchChannelsSQL
-// path where ?1 is reused across WHERE and CASE — the specific sqlc
-// SQLite limitation that forced hand-rolling.
+// doesn't mask the others. Covers the generated SearchChannels path where
+// SQLite parameters are reused across WHERE and CASE ranking branches.
 func TestSearchChannels(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -1411,9 +1532,8 @@ func assertLogins(t *testing.T, got []repository.Channel, want []string) {
 // TestSearchCategories pins the ranking + filter contract for the
 // category combobox. Mirrors TestSearchChannels so the two pickers
 // (schedule form broadcaster + category) share an assertion shape.
-// Exercises the hand-rolled searchCategoriesSQL specifically — ?1 is
-// reused across WHERE and CASE, the same sqlc-SQLite limitation that
-// forced SearchChannels to hand-roll.
+// Exercises the generated SearchCategories query specifically: the query
+// parameter is reused across WHERE and CASE, matching SearchChannels.
 func TestSearchCategories(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -1520,11 +1640,9 @@ func TestSearchCategories(t *testing.T) {
 	})
 }
 
-// TestSearchCategories_ColumnRoundtrip pins scan column order for the
-// hand-rolled searchCategoriesSQL, same pattern as the channels and
-// videos variants. A schema migration that adds a column to
-// categories needs to update this SQL + scan in the same commit;
-// this test trips on mismatch.
+// TestSearchCategories_ColumnRoundtrip pins every category field exposed by
+// the generated SearchCategories query, same pattern as channels and videos.
+// A schema migration that adds a category field should extend this test.
 func TestSearchCategories_ColumnRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)

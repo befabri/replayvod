@@ -33,6 +33,19 @@ func (q *Queries) CountEventLogsByDomain(ctx context.Context, domain string) (in
 	return count, err
 }
 
+const countSearchEventLogs = `-- name: CountSearchEventLogs :one
+SELECT COUNT(*)
+FROM event_logs
+WHERE search_vector @@ websearch_to_tsquery('simple', $1::text)
+`
+
+func (q *Queries) CountSearchEventLogs(ctx context.Context, query string) (int64, error) {
+	row := q.db.QueryRow(ctx, countSearchEventLogs, query)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createEventLog = `-- name: CreateEventLog :one
 INSERT INTO event_logs (domain, event_type, severity, message, actor_user_id, data)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -202,6 +215,64 @@ func (q *Queries) ListEventLogsBySeverity(ctx context.Context, arg ListEventLogs
 			&i.Data,
 			&i.CreatedAt,
 			&i.SearchVector,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchEventLogs = `-- name: SearchEventLogs :many
+SELECT
+    id, domain, event_type, severity, message, actor_user_id, data, created_at,
+    ts_rank_cd(search_vector, websearch_to_tsquery('simple', $1::text)) AS rank
+FROM event_logs
+WHERE search_vector @@ websearch_to_tsquery('simple', $1::text)
+ORDER BY rank DESC, created_at DESC
+LIMIT $3 OFFSET $2
+`
+
+type SearchEventLogsParams struct {
+	Query     string `json:"query"`
+	RowOffset int32  `json:"row_offset"`
+	RowLimit  int32  `json:"row_limit"`
+}
+
+type SearchEventLogsRow struct {
+	ID          int64           `json:"id"`
+	Domain      string          `json:"domain"`
+	EventType   string          `json:"event_type"`
+	Severity    string          `json:"severity"`
+	Message     string          `json:"message"`
+	ActorUserID *string         `json:"actor_user_id"`
+	Data        json.RawMessage `json:"data"`
+	CreatedAt   time.Time       `json:"created_at"`
+	Rank        float32         `json:"rank"`
+}
+
+func (q *Queries) SearchEventLogs(ctx context.Context, arg SearchEventLogsParams) ([]SearchEventLogsRow, error) {
+	rows, err := q.db.Query(ctx, searchEventLogs, arg.Query, arg.RowOffset, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchEventLogsRow{}
+	for rows.Next() {
+		var i SearchEventLogsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Domain,
+			&i.EventType,
+			&i.Severity,
+			&i.Message,
+			&i.ActorUserID,
+			&i.Data,
+			&i.CreatedAt,
+			&i.Rank,
 		); err != nil {
 			return nil, err
 		}

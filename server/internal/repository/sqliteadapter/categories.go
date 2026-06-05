@@ -142,51 +142,17 @@ func (a *SQLiteAdapter) ListCategoriesByIDs(ctx context.Context, ids []string) (
 	return repository.OrderCategoriesByIDs(cats, ids), nil
 }
 
-// searchCategoriesSQL mirrors queries/postgres/categories.sql
-// SearchCategories. unicode_lower is registered by the SQLite adapter so
-// SQLite matches Go/Postgres Unicode case folding for category search.
-// Hand-rolled because sqlc's SQLite engine can't
-// type-infer a ?N param reused across WHERE and CASE branches — same
-// limitation we hit for SearchChannels and ListVideos. Keeps the
-// ranking contract identical across dialects.
-const searchCategoriesSQL = `SELECT
-    id, name, box_art_url, igdb_id, created_at, updated_at
-FROM categories
-WHERE ?1 = ''
-   OR unicode_lower(name) LIKE '%' || unicode_lower(?1) || '%'
-ORDER BY
-    CASE
-        WHEN ?1 = '' THEN 3
-        WHEN unicode_lower(name) = unicode_lower(?1) THEN 0
-        WHEN unicode_lower(name) LIKE unicode_lower(?1) || '%' THEN 1
-        ELSE 2
-    END,
-    name
-LIMIT ?2`
-
 func (a *SQLiteAdapter) SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error) {
-	rows, err := a.db.QueryContext(ctx, searchCategoriesSQL, query, int64(limit))
+	rows, err := a.queries.SearchCategories(ctx, sqlitegen.SearchCategoriesParams{
+		Query:    query,
+		RowLimit: int64(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite search categories: %w", err)
 	}
-	defer rows.Close()
-	out := []repository.Category{}
-	for rows.Next() {
-		var row sqlitegen.Category
-		if err := rows.Scan(
-			&row.ID,
-			&row.Name,
-			&row.BoxArtUrl,
-			&row.IgdbID,
-			&row.CreatedAt,
-			&row.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("sqlite search categories scan: %w", err)
-		}
-		out = append(out, *sqliteCategoryToDomain(row))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("sqlite search categories: %w", err)
+	out := make([]repository.Category, len(rows))
+	for i, row := range rows {
+		out[i] = *sqliteCategoryToDomain(row)
 	}
 	return out, nil
 }

@@ -137,6 +137,130 @@ func (q *Queries) ListChannelsByIDs(ctx context.Context, ids []string) ([]Channe
 	return items, nil
 }
 
+const listChannelsPageAsc = `-- name: ListChannelsPageAsc :many
+SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
+WHERE (
+    NOT $1::boolean
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    $2::text IS NULL
+    OR lower(c.broadcaster_name) > lower($2::text)
+    OR (lower(c.broadcaster_name) = lower($2::text) AND c.broadcaster_id > $3::text)
+  )
+ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
+LIMIT $4
+`
+
+type ListChannelsPageAscParams struct {
+	LiveOnly   bool    `json:"live_only"`
+	CursorName *string `json:"cursor_name"`
+	CursorID   string  `json:"cursor_id"`
+	RowLimit   int32   `json:"row_limit"`
+}
+
+func (q *Queries) ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error) {
+	rows, err := q.db.Query(ctx, listChannelsPageAsc,
+		arg.LiveOnly,
+		arg.CursorName,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channel{}
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.BroadcasterID,
+			&i.BroadcasterLogin,
+			&i.BroadcasterName,
+			&i.BroadcasterLanguage,
+			&i.ProfileImageUrl,
+			&i.OfflineImageUrl,
+			&i.Description,
+			&i.BroadcasterType,
+			&i.ViewCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChannelsPageDesc = `-- name: ListChannelsPageDesc :many
+SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
+WHERE (
+    NOT $1::boolean
+    OR EXISTS (
+        SELECT 1 FROM streams s
+        WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    $2::text IS NULL
+    OR lower(c.broadcaster_name) < lower($2::text)
+    OR (lower(c.broadcaster_name) = lower($2::text) AND c.broadcaster_id < $3::text)
+  )
+ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
+LIMIT $4
+`
+
+type ListChannelsPageDescParams struct {
+	LiveOnly   bool    `json:"live_only"`
+	CursorName *string `json:"cursor_name"`
+	CursorID   string  `json:"cursor_id"`
+	RowLimit   int32   `json:"row_limit"`
+}
+
+func (q *Queries) ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error) {
+	rows, err := q.db.Query(ctx, listChannelsPageDesc,
+		arg.LiveOnly,
+		arg.CursorName,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channel{}
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.BroadcasterID,
+			&i.BroadcasterLogin,
+			&i.BroadcasterName,
+			&i.BroadcasterLanguage,
+			&i.ProfileImageUrl,
+			&i.OfflineImageUrl,
+			&i.Description,
+			&i.BroadcasterType,
+			&i.ViewCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserFollows = `-- name: ListUserFollows :many
 SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
 INNER JOIN user_followed_channels ufc ON ufc.broadcaster_id = c.broadcaster_id
