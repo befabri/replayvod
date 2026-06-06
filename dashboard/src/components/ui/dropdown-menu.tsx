@@ -153,12 +153,12 @@ function DropdownMenuLabel({
 
 export {
 	DropdownMenu,
-	DropdownMenuTrigger,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuCheckboxItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
 	DropdownMenuSubmenu,
 	DropdownMenuSubmenuTrigger,
-	DropdownMenuSeparator,
-	DropdownMenuLabel,
+	DropdownMenuTrigger,
 };
