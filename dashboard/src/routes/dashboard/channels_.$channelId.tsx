@@ -1,12 +1,11 @@
-import {
-	CaretLeftIcon,
-	DownloadIcon,
-	TwitchLogoIcon,
-} from "@phosphor-icons/react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { DownloadIcon, TwitchLogoIcon } from "@phosphor-icons/react";
+import { createFileRoute } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import { useTranslation } from "react-i18next";
-import { TitledLayout } from "@/components/layout/titled-layout";
+import {
+	TitleBreadcrumb,
+	TitledLayout,
+} from "@/components/layout/titled-layout";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useChannel } from "@/features/channels/queries";
@@ -45,19 +44,16 @@ function ChannelDetailPage() {
 	});
 
 	return (
-		<TitledLayout title={channel.data?.broadcaster_name ?? ""}>
-			<Link
-				to="/dashboard/channels"
-				search={{ sort: "name_asc", filter: "all" }}
-				className="group -mt-6 mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-			>
-				<CaretLeftIcon
-					weight="bold"
-					className="size-3 transition-transform group-hover:-translate-x-0.5"
+		<TitledLayout
+			title={
+				<TitleBreadcrumb
+					parentLabel={t("nav.channels")}
+					parentTo="/dashboard/channels"
+					parentSearch={{ sort: "name_asc", filter: "all" }}
+					currentLabel={channel.data?.broadcaster_name ?? channelId}
 				/>
-				{t("nav.channels")}
-			</Link>
-
+			}
+		>
 			{channel.isLoading && (
 				<div className="text-muted-foreground mt-4">{t("common.loading")}</div>
 			)}

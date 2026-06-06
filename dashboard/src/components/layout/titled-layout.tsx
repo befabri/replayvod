@@ -1,3 +1,5 @@
+import { CaretRightIcon } from "@phosphor-icons/react";
+import { type AnyRouter, Link, type LinkProps } from "@tanstack/react-router";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
@@ -46,5 +48,37 @@ export function TitledLayout({
 			</div>
 			{children}
 		</>
+	);
+}
+
+type TitleBreadcrumbProps<TTo extends string> = {
+	parentLabel: React.ReactNode;
+	parentTo: LinkProps<"a", AnyRouter, string, TTo>["to"];
+	parentSearch?: LinkProps<"a", AnyRouter, string, TTo>["search"];
+	currentLabel: React.ReactNode;
+};
+
+export function TitleBreadcrumb<TTo extends string>({
+	parentLabel,
+	parentTo,
+	parentSearch,
+	currentLabel,
+}: TitleBreadcrumbProps<TTo>) {
+	return (
+		<span className="flex min-w-0 items-baseline gap-2">
+			<Link
+				to={parentTo}
+				search={parentSearch}
+				className="shrink-0 text-muted-foreground transition-colors hover:text-link"
+			>
+				{parentLabel}
+			</Link>
+			<CaretRightIcon
+				aria-hidden="true"
+				weight="bold"
+				className="size-5 shrink-0 text-muted-foreground/80"
+			/>
+			<span className="min-w-0 truncate">{currentLabel}</span>
+		</span>
 	);
 }

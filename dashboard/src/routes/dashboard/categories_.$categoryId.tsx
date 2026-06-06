@@ -1,7 +1,9 @@
-import { CaretLeftIcon } from "@phosphor-icons/react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { TitledLayout } from "@/components/layout/titled-layout";
+import {
+	TitleBreadcrumb,
+	TitledLayout,
+} from "@/components/layout/titled-layout";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { useCategory } from "@/features/categories/queries";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
@@ -30,19 +32,16 @@ function CategoryDetailPage() {
 	});
 
 	return (
-		<TitledLayout title={category.data?.name ?? ""}>
-			<Link
-				to="/dashboard/categories"
-				search={{ sort: "name_asc" }}
-				className="group -mt-6 mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-			>
-				<CaretLeftIcon
-					weight="bold"
-					className="size-3 transition-transform group-hover:-translate-x-0.5"
+		<TitledLayout
+			title={
+				<TitleBreadcrumb
+					parentLabel={t("nav.categories")}
+					parentTo="/dashboard/categories"
+					parentSearch={{ sort: "name_asc" }}
+					currentLabel={category.data?.name ?? categoryId}
 				/>
-				{t("nav.categories")}
-			</Link>
-
+			}
+		>
 			{category.isLoading && (
 				<div className="text-muted-foreground mt-4">{t("common.loading")}</div>
 			)}
