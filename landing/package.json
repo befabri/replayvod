@@ -18,22 +18,27 @@
     "format:check": "prettier --check \"src/**/*.{astro,ts,css}\""
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.7.2",
-    "@astrojs/starlight": "^0.38.4",
-    "@tailwindcss/vite": "^4.2.4",
-    "astro": "^6.1.9",
-    "tailwindcss": "^4.2.4"
+    "@astrojs/sitemap": "^3.7.3",
+    "@astrojs/starlight": "^0.39.3",
+    "@tailwindcss/vite": "^4.3.0",
+    "astro": "^6.4.4",
+    "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.8",
+    "@astrojs/check": "^0.9.9",
     "@fontsource-variable/figtree": "^5.2.10",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/outfit": "^5.2.8",
-    "@playwright/test": "^1.59.1",
-    "@types/node": "^25.6.0",
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.2",
     "prettier": "^3.8.3",
     "prettier-plugin-astro": "^0.14.1",
-    "typescript": "^5.9.3",
-    "wrangler": "^4.86.0"
+    "typescript": "^6.0.3",
+    "wrangler": "^4.98.0"
+  },
+  "overrides": {
+    "yaml-language-server": {
+      "yaml": "2.8.3"
+    }
   }
 }
