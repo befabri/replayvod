@@ -69,9 +69,13 @@ type VideoResponse struct {
 	// Quality is the display label for the selected recorded rendition
 	// when Stage 3 has picked one (e.g. 1080p60). Before that it falls
 	// back to the requested quality enum (HIGH/MEDIUM/LOW).
-	Quality       string   `json:"quality"`
-	FPS           *float64 `json:"fps,omitempty"`
-	BroadcasterID string   `json:"broadcaster_id"`
+	Quality string   `json:"quality"`
+	FPS     *float64 `json:"fps,omitempty"`
+	// IsAudioOnly is the server-owned playback classification. Clients use this
+	// instead of re-deriving audio-ness from file extensions, MIME types, or
+	// playback artifact metadata that can disagree during migrations/backfills.
+	IsAudioOnly   bool   `json:"is_audio_only"`
+	BroadcasterID string `json:"broadcaster_id"`
 	// BroadcasterLogin / BroadcasterName / ProfileImageURL come from
 	// the channels mirror. When the broadcaster isn't locally synced
 	// (rare but possible for historical videos) these are empty and
@@ -178,6 +182,7 @@ func toVideoResponse(v *repository.Video, ch *repository.Channel, primaryCategor
 		Truncated:       v.Truncated,
 		Quality:         formatVideoQualityLabel(v),
 		FPS:             v.SelectedFPS,
+		IsAudioOnly:     repository.NormalizeRecordingType(v.RecordingType) == repository.RecordingTypeAudio,
 		BroadcasterID:   v.BroadcasterID,
 		StreamID:        v.StreamID,
 		ViewerCount:     v.ViewerCount,
@@ -589,6 +594,7 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 		h.log.Warn("list video parts", "video_id", v.ID, "error", err)
 	} else {
 		resp.Parts = toVideoPartResponses(parts)
+		resp.IsAudioOnly = isAudioOnlyRecording(v, parts)
 	}
 	if asset, err := h.video.PlaybackAsset(ctx, v.ID); err != nil {
 		if !errors.Is(err, repository.ErrNotFound) {

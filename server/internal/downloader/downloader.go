@@ -63,6 +63,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
+	"github.com/befabri/replayvod/server/internal/waveform"
 )
 
 // qualityToHeight maps the repository's coarse Quality enum (LOW /
@@ -216,6 +217,7 @@ type Service struct {
 	remuxer     *remux.Remuxer
 	probe       *probe.Probe
 	thumb       *thumbnail.Generator
+	waveforms   waveform.Generator
 	svcAcct     *serviceAccount
 	hydrator    *streammeta.Hydrator
 	metaWatcher titleWatcher
@@ -460,6 +462,7 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		remuxer:     &remux.Remuxer{Log: domainLog},
 		probe:       &probe.Probe{Log: domainLog},
 		thumb:       &thumbnail.Generator{Log: domainLog},
+		waveforms:   waveform.FFmpegGenerator{},
 		svcAcct:     newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
 		hydrator:    hydrator,
 		channelSubs: channelSubs,
@@ -1204,11 +1207,10 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	}
 	defer stopMediaPollers()
 
-	// Snapshot ticker fetches Twitch's preview image every ~5
-	// min into thumbnails/<base>-snapNN.jpg for the UI's
-	// time-lapse hover (Helix's URL only works while live).
-	// Best-effort; skipped for audio jobs.
-	if kindFromRecordingType(recordingType) == remux.KindVideo {
+	// Capture Twitch preview frames during recording. The first
+	// successful snapshot becomes the row thumbnail immediately.
+	// Best-effort; skipped only when no storage backend is wired.
+	if s.storage != nil {
 		snapCtx, cancelSnap := context.WithCancel(ctx)
 		mediaPollerCancels = append(mediaPollerCancels, cancelSnap)
 		snapper := thumbnail.NewSnapshotter(thumbnail.SnapshotterConfig{
@@ -1218,6 +1220,14 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 			storage:  s.storage,
 			filename: filename,
 			ctx:      ctx,
+			onFirstSnapshotSaved: func(path string) {
+				if err := s.repo.SetVideoThumbnail(dbCtx, d.videoID, path); err != nil {
+					log.Warn("failed to promote first live snapshot to video thumbnail",
+						"path", path,
+						"error", err,
+					)
+				}
+			},
 		}
 		go func() {
 			count := snapper.Run(snapCtx, p.BroadcasterLogin, snapWriter)
@@ -1251,6 +1261,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 				thumbRel = *ep.Thumbnail
 			}
 			parts = append(parts, partResult{
+				filename:        ep.Filename,
 				durationSeconds: ep.DurationSeconds,
 				sizeBytes:       ep.SizeBytes,
 				thumbRel:        thumbRel,
@@ -1500,6 +1511,12 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 			thumbPtr = &t
 		}
 	}
+	if repository.NormalizeRecordingType(recordingType) == repository.RecordingTypeAudio {
+		if err := s.persistAudioWaveform(ctx, d.videoID, filename, recordingType, aggDuration, parts); err != nil {
+			log.Warn("audio waveform artifact generation failed; watch page can rebuild it later",
+				"video_id", d.videoID, "error", err)
+		}
+	}
 
 	// Other gap reasons (stitched-ad, fetch-failure, malformed)
 	// are tolerant losses, not interruptions, so don't classify
@@ -1553,9 +1570,51 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 // result, remuxed path, video_parts row ID) stays scoped to
 // runPart.
 type partResult struct {
+	filename        string
+	localPath       string
 	durationSeconds float64
 	sizeBytes       int64
 	thumbRel        string // storage-relative thumbnail path; "" when none
+}
+
+func (s *Service) persistAudioWaveform(ctx context.Context, videoID int64, filename, recordingType string, totalDuration float64, parts []partResult) error {
+	if len(parts) == 0 {
+		return nil
+	}
+	partInputs := make([]waveform.PartInput, 0, len(parts))
+	localFiles := make(map[string]string)
+	for _, part := range parts {
+		if part.filename == "" {
+			continue
+		}
+		partInputs = append(partInputs, waveform.PartInput{
+			Filename:        part.filename,
+			DurationSeconds: part.durationSeconds,
+			SizeBytes:       part.sizeBytes,
+		})
+		if part.localPath != "" {
+			localFiles[part.filename] = part.localPath
+		}
+	}
+	if len(partInputs) == 0 {
+		return nil
+	}
+	var videoDuration *float64
+	if totalDuration > 0 {
+		videoDuration = &totalDuration
+	}
+	plan, ok := waveform.BuildPlan(videoID, recordingType, videoDuration, partInputs)
+	if !ok {
+		return nil
+	}
+	resp, err := waveform.Generate(ctx, s.waveforms, waveform.InputResolver{
+		Storage:    s.storage,
+		LocalFiles: localFiles,
+	}, plan)
+	if err != nil {
+		return err
+	}
+	return waveform.SaveArtifact(ctx, s.storage, storagekeys.Waveform(filename), plan.Fingerprint, resp)
 }
 
 func (s *Service) continueAfterPendingSplit(dbCtx context.Context, d *download, emitter *progressEmitter, log *slog.Logger) (bool, error) {
@@ -2183,6 +2242,8 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	)
 
 	out := &partResult{
+		filename:        partFilename + kind.OutputExt(),
+		localPath:       remuxedPath,
 		durationSeconds: probeResult.Duration,
 		sizeBytes:       probeResult.Size,
 	}
@@ -2936,13 +2997,21 @@ func classifyTwitchAuth(status int, body []byte) bool {
 // The outer run() ctx + user cancel still tear everything down if
 // the whole job is canceled.
 type storageSnapshotWriter struct {
-	storage  storage.Storage
-	filename string
-	ctx      context.Context
+	storage              storage.Storage
+	filename             string
+	ctx                  context.Context
+	onFirstSnapshotSaved func(path string)
 }
 
 func (w *storageSnapshotWriter) WriteSnapshot(_ context.Context, index int, body io.Reader) error {
-	return w.storage.Save(w.ctx, storagekeys.Snapshot(w.filename, index), body)
+	path := storagekeys.Snapshot(w.filename, index)
+	if err := w.storage.Save(w.ctx, path, body); err != nil {
+		return err
+	}
+	if index == 0 && w.onFirstSnapshotSaved != nil {
+		w.onFirstSnapshotSaved(path)
+	}
+	return nil
 }
 
 // buildFilename generates a deterministic, filesystem-safe

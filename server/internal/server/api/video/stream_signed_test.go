@@ -102,6 +102,7 @@ type signedStorage struct {
 	storage.Storage
 	body     []byte
 	bodies   map[string][]byte
+	openErrs map[string][]error
 	statErrs map[string][]error
 	opened   []string
 	stats    int // Stat call count (each is a HeadObject on S3)
@@ -113,6 +114,11 @@ func (nopSeekCloser) Close() error { return nil }
 
 func (s *signedStorage) Open(_ context.Context, path string) (io.ReadSeekCloser, error) {
 	s.opened = append(s.opened, path)
+	if errs := s.openErrs[path]; len(errs) > 0 {
+		err := errs[0]
+		s.openErrs[path] = errs[1:]
+		return nil, err
+	}
 	body := s.body
 	if s.bodies != nil {
 		b, ok := s.bodies[path]
@@ -122,6 +128,17 @@ func (s *signedStorage) Open(_ context.Context, path string) (io.ReadSeekCloser,
 		body = b
 	}
 	return nopSeekCloser{bytes.NewReader(body)}, nil
+}
+func (s *signedStorage) Save(_ context.Context, path string, r io.Reader) error {
+	body, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if s.bodies == nil {
+		s.bodies = make(map[string][]byte)
+	}
+	s.bodies[path] = body
+	return nil
 }
 func (s *signedStorage) Stat(_ context.Context, path string) (storage.FileInfo, error) {
 	s.stats++

@@ -134,14 +134,41 @@ func TestStorageSnapshotWriter_PropagatesStorageError(t *testing.T) {
 	fs.saveErrs = map[string]error{
 		"thumbnails/rec-snap00.jpg": wantErr,
 	}
+	var promoted []string
 	w := &storageSnapshotWriter{
-		storage:  fs,
-		filename: "rec",
-		ctx:      context.Background(),
+		storage:              fs,
+		filename:             "rec",
+		ctx:                  context.Background(),
+		onFirstSnapshotSaved: func(path string) { promoted = append(promoted, path) },
 	}
 	err := w.WriteSnapshot(context.Background(), 0, strings.NewReader("bytes"))
 	if !errors.Is(err, wantErr) {
 		t.Errorf("err=%v, want errors.Is(%v)", err, wantErr)
+	}
+	if len(promoted) != 0 {
+		t.Errorf("first snapshot callback ran after failed save: %v", promoted)
+	}
+}
+
+func TestStorageSnapshotWriter_PromotesOnlyFirstSavedSnapshot(t *testing.T) {
+	fs := newFakeStorage()
+	var promoted []string
+	w := &storageSnapshotWriter{
+		storage:              fs,
+		filename:             "rec",
+		ctx:                  context.Background(),
+		onFirstSnapshotSaved: func(path string) { promoted = append(promoted, path) },
+	}
+
+	for i := 0; i < 3; i++ {
+		if err := w.WriteSnapshot(context.Background(), i, strings.NewReader("bytes")); err != nil {
+			t.Fatalf("WriteSnapshot(%d): %v", i, err)
+		}
+	}
+
+	want := []string{"thumbnails/rec-snap00.jpg"}
+	if strings.Join(promoted, ",") != strings.Join(want, ",") {
+		t.Errorf("promoted=%v, want %v", promoted, want)
 	}
 }
 

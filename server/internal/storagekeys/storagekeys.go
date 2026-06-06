@@ -1,10 +1,11 @@
 // Package storagekeys is the single source of truth for the object-store keys a
 // recording owns: the per-part video file, its hero thumbnail and sprite strip,
-// and the live-snapshot JPEGs. The downloader writes objects at these keys, the
-// video API serves and lists them, and retention deletes them — three packages
-// that must agree exactly or retention silently leaks orphaned files. Centralize
-// the layout here so a change to the naming is a compile-time concern at every
-// site instead of a drift no test would catch.
+// the live-snapshot JPEGs, and the audio waveform artifact. The downloader
+// writes objects at these keys, the video API serves and lists them, and
+// retention deletes them — packages that must agree exactly or retention
+// silently leaks orphaned files. Centralize the layout here so a change to the
+// naming is a compile-time concern at every site instead of a drift no test
+// would catch.
 //
 // Layout (all keys are forward-slash storage-relative):
 //
@@ -12,6 +13,7 @@
 //	thumbnails/<base>.jpg             the part hero thumbnail (base = name without extension)
 //	thumbnails/<base>-strip.jpg       the part sprite strip
 //	thumbnails/<filename>-snapNN.jpg  the NN-th live snapshot (filename = video base name)
+//	thumbnails/<filename>-waveform.json the audio waveform artifact
 package storagekeys
 
 import (
@@ -49,6 +51,12 @@ func Strip(base string) string {
 // gap.
 func Snapshot(filename string, index int) string {
 	return fmt.Sprintf("%s/%s-snap%02d.jpg", thumbDir, filename, index)
+}
+
+// Waveform returns the persisted audio waveform artifact key for a recording.
+// filename is the video's base name, matching Snapshot.
+func Waveform(filename string) string {
+	return thumbDir + "/" + filename + "-waveform.json"
 }
 
 // Base strips a stored filename's container extension, yielding the base that

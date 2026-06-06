@@ -312,7 +312,8 @@ func TestRetentionQueries(t *testing.T) {
 
 // objectsFor lists every storage path a two-part recording named "rec"
 // owns in the deletion tests below: part files, per-part thumbnail + strip,
-// the video-level thumbnail, and two live snapshots.
+// the video-level thumbnail, the audio waveform artifact, and two live
+// snapshots.
 func objectsFor() []string {
 	return []string{
 		"videos/rec-part01.mp4",
@@ -323,6 +324,7 @@ func objectsFor() []string {
 		"thumbnails/rec-part02-strip.jpg",
 		"thumbnails/rec-snap00.jpg",
 		"thumbnails/rec-snap01.jpg",
+		"thumbnails/rec-waveform.json",
 		"videos/rec-playback.mp4",
 	}
 }

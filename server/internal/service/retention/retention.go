@@ -164,10 +164,10 @@ func (s *Service) deleteRecording(ctx context.Context, videoID int64) error {
 }
 
 // purgeObjects deletes every stored object a recording owns: each part's
-// video file plus its thumbnail and sprite strip, the video-level
-// thumbnail, and the live-snapshot JPEGs. storage.Delete is idempotent (a
-// missing object is not an error), so a re-run after a partial pass is
-// safe; a real I/O error stops the purge so the caller leaves the DB
+// video file plus its thumbnail and sprite strip, the video-level thumbnail,
+// the waveform artifact, and the live-snapshot JPEGs. storage.Delete is
+// idempotent (a missing object is not an error), so a re-run after a partial
+// pass is safe; a real I/O error stops the purge so the caller leaves the DB
 // untouched.
 func (s *Service) purgeObjects(ctx context.Context, v *repository.Video, parts []repository.VideoPart) error {
 	if len(parts) == 0 {
@@ -213,6 +213,9 @@ func (s *Service) purgeObjects(ctx context.Context, v *repository.Video, parts [
 		if err := s.store.Delete(ctx, storagekeys.Video(artifact)); err != nil {
 			return fmt.Errorf("delete object %s: %w", artifact, err)
 		}
+	}
+	if err := s.store.Delete(ctx, storagekeys.Waveform(v.Filename)); err != nil {
+		return fmt.Errorf("delete object %s: %w", storagekeys.Waveform(v.Filename), err)
 	}
 	return s.purgeSnapshots(ctx, v.Filename)
 }

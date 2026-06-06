@@ -243,8 +243,8 @@ const maxSnapshotsPerVideo = 500
 // per-index.
 //
 // Returns an empty slice (no error) for videos with no snapshots
-// (audio-only jobs, server mode off, recording shorter
-// than one tick).
+// (recording predates snapshot capture, storage had no captures, or
+// recording shorter than one tick).
 func (s *Service) ListSnapshots(ctx context.Context, store storage.Storage, videoID int64) ([]string, error) {
 	if store == nil {
 		return nil, nil

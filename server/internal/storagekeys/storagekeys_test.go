@@ -26,6 +26,9 @@ func TestKeys(t *testing.T) {
 	if got, want := Snapshot("rec", 42), "thumbnails/rec-snap42.jpg"; got != want {
 		t.Errorf("Snapshot(42) = %q, want %q", got, want)
 	}
+	if got, want := Waveform("rec"), "thumbnails/rec-waveform.json"; got != want {
+		t.Errorf("Waveform = %q, want %q", got, want)
+	}
 }
 
 // TestBase covers the extension strip that derives a part's thumbnail base from

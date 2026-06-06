@@ -15,6 +15,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 	"github.com/befabri/replayvod/server/internal/videodownload"
+	"github.com/befabri/replayvod/server/internal/waveform"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -61,6 +62,11 @@ type StreamHandler struct {
 	// triggers StartBuild once rather than on every request. StartBuild is itself
 	// idempotent; this just avoids the goroutine churn.
 	kickedBuild sync.Map
+	// waveformFlights deduplicates concurrent rebuilds of the same missing or
+	// stale waveform artifact. Durable caching lives in object storage; this map
+	// only holds active work and deletes each entry when that work completes.
+	waveformFlights   *waveformFlights
+	waveformGenerator waveform.Generator
 }
 
 type StreamHandlerOption func(*StreamHandler)
@@ -70,10 +76,12 @@ type StreamHandlerOption func(*StreamHandler)
 // case that route rejects everything.
 func NewStreamHandler(repo repository.Repository, store storage.Storage, verifier *videodownload.Verifier, log *slog.Logger, opts ...StreamHandlerOption) *StreamHandler {
 	h := &StreamHandler{
-		repo:     repo,
-		storage:  store,
-		verifier: verifier,
-		log:      log.With("domain", "video-stream"),
+		repo:              repo,
+		storage:           store,
+		verifier:          verifier,
+		log:               log.With("domain", "video-stream"),
+		waveformFlights:   newWaveformFlights(),
+		waveformGenerator: waveform.FFmpegGenerator{},
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -86,6 +94,16 @@ func NewStreamHandler(repo repository.Repository, store storage.Storage, verifie
 // the trigger entirely.
 func WithPlaybackBuilder(b PlaybackBuilder) StreamHandlerOption {
 	return func(h *StreamHandler) { h.builder = b }
+}
+
+// WithWaveformGenerator swaps the audio waveform generator. Production uses
+// ffmpeg; tests inject a deterministic fake so they don't need media fixtures.
+func WithWaveformGenerator(g WaveformGenerator) StreamHandlerOption {
+	return func(h *StreamHandler) {
+		if g != nil {
+			h.waveformGenerator = g
+		}
+	}
 }
 
 // SetupRoutes registers /videos/{id}/stream and /thumbnails/{path} on
@@ -104,6 +122,7 @@ func (h *StreamHandler) SetupRoutes(r chi.Router, authMiddleware func(http.Handl
 		r.Head("/videos/{id}/playback/stream", h.streamPlayback)
 		r.Get("/videos/{id}/parts/{part}/stream", h.streamPart)
 		r.Head("/videos/{id}/parts/{part}/stream", h.streamPart)
+		r.Get("/videos/{id}/waveform", h.streamAudioWaveform)
 		r.Get("/thumbnails/*", h.serveThumbnail)
 	})
 }
