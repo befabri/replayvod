@@ -7,26 +7,106 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RecordingPlaylist } from "@/features/videos/playback";
 import { WatchPlayer } from "./WatchPlayer";
 
 type MockPlayer = {
+	canPlay: boolean;
+	canSetVolume: boolean;
 	currentTime: number;
+	ended: boolean;
+	muted: boolean;
 	paused: boolean;
 	playbackRate: number;
-	play: ReturnType<typeof vi.fn<() => Promise<void>>>;
+	volume: number;
+	addEventListener: ReturnType<typeof vi.fn>;
+	removeEventListener: ReturnType<typeof vi.fn>;
+	play: ReturnType<typeof vi.fn<(trigger?: Event) => Promise<void>>>;
+	pause: ReturnType<typeof vi.fn<(trigger?: Event) => Promise<void>>>;
 };
 
-const vidstackMock = vi.hoisted(() => ({
-	player: {
+const vidstackMock = vi.hoisted(() => {
+	const playerListeners = new Map<string, Set<EventListener>>();
+	const player = {
+		canPlay: false,
+		canSetVolume: true,
 		currentTime: 0,
+		ended: false,
+		muted: false,
 		paused: false,
 		playbackRate: 1,
+		volume: 1,
+		addEventListener: vi.fn(
+			(type: string, listener: EventListenerOrEventListenerObject) => {
+				const eventListener =
+					typeof listener === "function"
+						? listener
+						: listener.handleEvent.bind(listener);
+				let listeners = playerListeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					playerListeners.set(type, listeners);
+				}
+				listeners.add(eventListener);
+			},
+		),
+		removeEventListener: vi.fn(
+			(type: string, listener: EventListenerOrEventListenerObject) => {
+				const eventListener =
+					typeof listener === "function"
+						? listener
+						: listener.handleEvent.bind(listener);
+				playerListeners.get(type)?.delete(eventListener);
+			},
+		),
 		play: vi.fn(() => Promise.resolve()),
-	} as MockPlayer,
-}));
+		pause: vi.fn(() => Promise.resolve()),
+	} as MockPlayer;
+
+	return {
+		dispatchPlayerEvent: (type: string) => {
+			const event = new Event(type);
+			for (const listener of Array.from(playerListeners.get(type) ?? [])) {
+				listener(event);
+			}
+		},
+		player,
+		playerListeners,
+		remote: null as unknown as {
+			changePlaybackRate: ReturnType<typeof vi.fn<(rate: number) => void>>;
+			changeVolume: ReturnType<typeof vi.fn<(volume: number) => void>>;
+			mute: ReturnType<typeof vi.fn<() => void>>;
+			seek: ReturnType<typeof vi.fn<(time: number, trigger?: Event) => void>>;
+			seeking: ReturnType<
+				typeof vi.fn<(time: number, trigger?: Event) => void>
+			>;
+			unmute: ReturnType<typeof vi.fn<() => void>>;
+		},
+	};
+});
+
+vidstackMock.remote = {
+	changePlaybackRate: vi.fn((rate: number) => {
+		vidstackMock.player.playbackRate = rate;
+	}),
+	changeVolume: vi.fn((volume: number) => {
+		vidstackMock.player.volume = volume;
+		vidstackMock.player.muted = volume <= 0;
+	}),
+	mute: vi.fn(() => {
+		vidstackMock.player.muted = true;
+	}),
+	seek: vi.fn((time: number) => {
+		vidstackMock.player.currentTime = time;
+		vidstackMock.player.ended = false;
+	}),
+	seeking: vi.fn(),
+	unmute: vi.fn(() => {
+		vidstackMock.player.muted = false;
+	}),
+};
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -45,6 +125,13 @@ vi.mock("@vidstack/react", async () => {
 		if (typeof src === "string") return src;
 		if (src && typeof src === "object" && "src" in src) {
 			const value = src.src;
+			return typeof value === "string" ? value : "";
+		}
+		return "";
+	}
+	function sourceType(src: unknown): string {
+		if (src && typeof src === "object" && "type" in src) {
+			const value = src.type;
 			return typeof value === "string" ? value : "";
 		}
 		return "";
@@ -81,17 +168,30 @@ vi.mock("@vidstack/react", async () => {
 				{
 					"data-testid": "media-player",
 					"data-src": sourceSrc(src),
+					"data-type": sourceType(src),
 					onKeyDown,
 					tabIndex: 0,
 				},
 				React.createElement(
 					"button",
-					{ type: "button", onClick: onEnded },
+					{
+						type: "button",
+						onClick: () => {
+							vidstackMock.player.ended = true;
+							onEnded?.();
+						},
+					},
 					"ended",
 				),
 				React.createElement(
 					"button",
-					{ type: "button", onClick: onCanPlay },
+					{
+						type: "button",
+						onClick: () => {
+							vidstackMock.player.canPlay = true;
+							onCanPlay?.();
+						},
+					},
 					"canplay",
 				),
 				React.createElement(
@@ -101,12 +201,24 @@ vi.mock("@vidstack/react", async () => {
 				),
 				React.createElement(
 					"button",
-					{ type: "button", onClick: onPlay },
+					{
+						type: "button",
+						onClick: () => {
+							vidstackMock.player.paused = false;
+							onPlay?.();
+						},
+					},
 					"play",
 				),
 				React.createElement(
 					"button",
-					{ type: "button", onClick: onPause },
+					{
+						type: "button",
+						onClick: () => {
+							vidstackMock.player.paused = true;
+							onPause?.();
+						},
+					},
 					"pause",
 				),
 				React.createElement(
@@ -126,7 +238,34 @@ vi.mock("@vidstack/react", async () => {
 		MediaPlayer,
 		MediaProvider: ({ children }: { children?: ReactNode }) =>
 			React.createElement("div", { "data-testid": "media-provider" }, children),
+		PlayButton: ({
+			children,
+			...props
+		}: ButtonHTMLAttributes<HTMLButtonElement> & {
+			children?: ReactNode;
+		}) =>
+			React.createElement(
+				"button",
+				{
+					type: "button",
+					...props,
+					onClick: (event) => {
+						if (vidstackMock.player.paused) {
+							vidstackMock.player.paused = false;
+							void vidstackMock.player.play();
+						} else {
+							vidstackMock.player.paused = true;
+							void vidstackMock.player.pause();
+						}
+						props.onClick?.(event);
+					},
+				},
+				children,
+			),
 		Track: () => React.createElement("track"),
+		useMediaRemote: () => vidstackMock.remote,
+		useMediaState: (prop: string) =>
+			(vidstackMock.player as Record<string, unknown>)[prop],
 	};
 });
 
@@ -137,7 +276,7 @@ vi.mock("@vidstack/react/player/layouts/default", async () => {
 		DefaultVideoLayout: ({ slots }: { slots?: { timeSlider?: ReactNode } }) =>
 			React.createElement(
 				"div",
-				{ "data-testid": "layout" },
+				{ "data-testid": "video-layout" },
 				slots?.timeSlider,
 			),
 	};
@@ -145,10 +284,25 @@ vi.mock("@vidstack/react/player/layouts/default", async () => {
 
 afterEach(() => {
 	cleanup();
+	vidstackMock.player.canPlay = false;
+	vidstackMock.player.canSetVolume = true;
 	vidstackMock.player.currentTime = 0;
+	vidstackMock.player.ended = false;
+	vidstackMock.player.muted = false;
 	vidstackMock.player.paused = false;
 	vidstackMock.player.playbackRate = 1;
+	vidstackMock.player.volume = 1;
+	vidstackMock.player.addEventListener.mockClear();
+	vidstackMock.player.removeEventListener.mockClear();
 	vidstackMock.player.play.mockClear();
+	vidstackMock.player.pause.mockClear();
+	vidstackMock.playerListeners.clear();
+	vidstackMock.remote.changePlaybackRate.mockClear();
+	vidstackMock.remote.changeVolume.mockClear();
+	vidstackMock.remote.mute.mockClear();
+	vidstackMock.remote.seek.mockClear();
+	vidstackMock.remote.seeking.mockClear();
+	vidstackMock.remote.unmute.mockClear();
 });
 
 describe("WatchPlayer multipart boundaries", () => {
@@ -202,7 +356,10 @@ describe("WatchPlayer multipart boundaries", () => {
 		const partPeriod = screen.getByRole("button", {
 			name: /watch\.part_segment:part=2/,
 		});
-		mockRect(requiredParent(partPeriod), { left: 0, width: 120 });
+		mockRect(screen.getByTestId("recording-timeline-rail"), {
+			left: 0,
+			width: 120,
+		});
 
 		fireEvent.click(partPeriod, { clientX: 90 });
 
@@ -223,7 +380,10 @@ describe("WatchPlayer multipart boundaries", () => {
 		const partPeriod = screen.getByRole("button", {
 			name: /watch\.part_segment:part=2/,
 		});
-		mockRect(requiredParent(partPeriod), { left: 0, width: 120 });
+		mockRect(screen.getByTestId("recording-timeline-rail"), {
+			left: 0,
+			width: 120,
+		});
 
 		fireEvent.pointerDown(partPeriod, { button: 0, clientX: 60, pointerId: 1 });
 		fireEvent.pointerMove(partPeriod, { clientX: 105, pointerId: 1 });
@@ -246,7 +406,10 @@ describe("WatchPlayer multipart boundaries", () => {
 		const partPeriod = screen.getByRole("button", {
 			name: /watch\.part_segment:part=1/,
 		});
-		mockRect(requiredParent(partPeriod), { left: 0, width: 120 });
+		mockRect(screen.getByTestId("recording-timeline-rail"), {
+			left: 0,
+			width: 120,
+		});
 
 		fireEvent.pointerDown(partPeriod, { button: 0, clientX: 30, pointerId: 1 });
 		fireEvent.pointerMove(partPeriod, { clientX: 90, pointerId: 1 });
@@ -273,6 +436,295 @@ describe("WatchPlayer multipart boundaries", () => {
 		expect(screen.getByTestId("media-player").getAttribute("data-src")).toBe(
 			"/api/v1/videos/65/playback/stream",
 		);
+	});
+
+	it("uses compact audio controls for audio-only parts", () => {
+		render(<WatchPlayer playlist={audioPlaylist()} />);
+
+		expect(getAudioElement().getAttribute("src")).toBe("/part-1.m4a");
+		expect(screen.getByTestId("audio-controls")).toBeTruthy();
+		expect(
+			document
+				.querySelector(".rv-audio-time-readout")
+				?.textContent?.replace(/\s+/g, " ")
+				.trim(),
+		).toBe("0:00 / 1:00");
+		expect(screen.queryByTestId("video-layout")).toBeNull();
+	});
+
+	it("keeps the recording progress below the audio controls", () => {
+		render(<WatchPlayer playlist={audioPlaylist()} />);
+
+		const controls = screen.getByTestId("audio-controls");
+		const progress = screen.getByRole("slider", {
+			name: "watch.seek_recording",
+		});
+
+		expect(controls.contains(progress)).toBe(false);
+		expect(
+			controls.compareDocumentPosition(progress) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it("renders audio waveform peaks on the recording timeline", () => {
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				audioWaveform={{ peaks: [0, 0.35, 1, 0.5] }}
+			/>,
+		);
+
+		expect(screen.getByTestId("audio-waveform")).toBeTruthy();
+		expect(screen.getByTestId("audio-controls")).toBeTruthy();
+		expect(
+			screen.getByRole("slider", { name: "watch.seek_recording" }),
+		).toBeTruthy();
+	});
+
+	it("seeks single-part audio from the recording slider after playback ends", () => {
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				audioWaveform={{ peaks: [0, 0.35, 1, 0.5] }}
+			/>,
+		);
+
+		const audio = getAudioElement();
+		fireEvent.canPlay(audio);
+		fireEvent.ended(audio);
+
+		const recordingSlider = screen.getByRole("slider", {
+			name: "watch.seek_recording",
+		});
+		mockRect(screen.getByTestId("recording-timeline-rail"), {
+			left: 0,
+			width: 120,
+		});
+
+		fireEvent.pointerDown(recordingSlider, {
+			button: 0,
+			clientX: 30,
+			pointerId: 1,
+		});
+		fireEvent.pointerUp(recordingSlider, {
+			clientX: 30,
+			pointerId: 1,
+		});
+
+		expect(audio.currentTime).toBe(15);
+		expect(
+			screen.queryByRole("button", { name: /watch\.part_segment:part=1/ }),
+		).toBeNull();
+	});
+
+	it("lets the visible progress thumb seek away from the end of audio playback", () => {
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				audioWaveform={{ peaks: [0, 0.35, 1, 0.5] }}
+			/>,
+		);
+
+		const audio = getAudioElement();
+		fireEvent.canPlay(audio);
+		fireEvent.ended(audio);
+
+		const recordingSlider = screen.getByRole("slider", {
+			name: "watch.seek_recording",
+		});
+		const thumb = screen.getByTestId("recording-progress-thumb");
+		expect(thumb).toBeTruthy();
+		mockRect(screen.getByTestId("recording-timeline-rail"), {
+			left: 6,
+			width: 108,
+		});
+
+		fireEvent.pointerDown(recordingSlider, {
+			button: 0,
+			clientX: 120,
+			pointerId: 1,
+		});
+		fireEvent.pointerMove(recordingSlider, {
+			clientX: 30,
+			pointerId: 1,
+		});
+		fireEvent.pointerUp(recordingSlider, {
+			clientX: 30,
+			pointerId: 1,
+		});
+
+		expect(audio.currentTime).toBeCloseTo(13.33, 2);
+	});
+
+	it("keeps the dragged audio position when a stale ended time update arrives", () => {
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				audioWaveform={{ peaks: [0, 0.35, 1, 0.5] }}
+			/>,
+		);
+
+		const audio = getAudioElement();
+		fireEvent.canPlay(audio);
+		fireEvent.ended(audio);
+
+		const recordingSlider = screen.getByRole("slider", {
+			name: "watch.seek_recording",
+		});
+		mockRect(screen.getByTestId("recording-timeline-rail"), {
+			left: 0,
+			width: 120,
+		});
+
+		fireEvent.pointerDown(recordingSlider, {
+			button: 0,
+			clientX: 120,
+			pointerId: 1,
+		});
+		fireEvent.pointerMove(recordingSlider, {
+			clientX: 30,
+			pointerId: 1,
+		});
+		expect(recordingSlider.getAttribute("aria-valuenow")).toBe("15");
+
+		audio.currentTime = 60;
+		fireEvent.timeUpdate(audio);
+
+		expect(recordingSlider.getAttribute("aria-valuenow")).toBe("15");
+	});
+
+	it("reapplies the committed audio seek before resuming from a stale ended state", async () => {
+		const playSpy = vi
+			.spyOn(window.HTMLMediaElement.prototype, "play")
+			.mockResolvedValue(undefined);
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				audioWaveform={{ peaks: [0, 0.35, 1, 0.5] }}
+			/>,
+		);
+
+		const audio = getAudioElement();
+		fireEvent.canPlay(audio);
+		fireEvent.ended(audio);
+
+		const recordingSlider = screen.getByRole("slider", {
+			name: "watch.seek_recording",
+		});
+		mockRect(screen.getByTestId("recording-timeline-rail"), {
+			left: 0,
+			width: 120,
+		});
+
+		fireEvent.click(recordingSlider, {
+			clientX: 30,
+		});
+		expect(audio.currentTime).toBe(15);
+
+		// The audio branch keeps the app's committed recording seek as the source
+		// of truth, so Play reapplies it even if the native element has drifted.
+		audio.currentTime = 0;
+		fireEvent.click(screen.getByRole("button", { name: "Play" }));
+
+		expect(audio.currentTime).toBe(15);
+		expect(playSpy).toHaveBeenCalledTimes(1);
+		playSpy.mockRestore();
+	});
+
+	it("replays audio from the recording start after natural playback ends", () => {
+		const playSpy = vi
+			.spyOn(window.HTMLMediaElement.prototype, "play")
+			.mockResolvedValue(undefined);
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1000);
+		try {
+			render(
+				<WatchPlayer
+					playlist={audioPlaylist()}
+					audioWaveform={{ peaks: [0, 0.35, 1, 0.5] }}
+				/>,
+			);
+
+			const audio = getAudioElement();
+			fireEvent.canPlay(audio);
+			fireEvent.ended(audio);
+			audio.currentTime = 60;
+
+			const recordingSlider = screen.getByRole("slider", {
+				name: "watch.seek_recording",
+			});
+			expect(recordingSlider.getAttribute("aria-valuenow")).toBe("60");
+
+			fireEvent.click(screen.getByRole("button", { name: "Play" }));
+
+			expect(audio.currentTime).toBe(0);
+			expect(recordingSlider.getAttribute("aria-valuenow")).toBe("0");
+			expect(playSpy).toHaveBeenCalledTimes(1);
+
+			nowSpy.mockReturnValue(3000);
+			audio.currentTime = 2;
+			fireEvent.timeUpdate(audio);
+
+			expect(recordingSlider.getAttribute("aria-valuenow")).toBe("2");
+		} finally {
+			nowSpy.mockRestore();
+			playSpy.mockRestore();
+		}
+	});
+
+	it("changes audio volume through the range control", () => {
+		render(<WatchPlayer playlist={audioPlaylist()} />);
+
+		const volumeSlider = screen.getByRole("slider", { name: "Volume" });
+		fireEvent.change(volumeSlider, { target: { value: "0.35" } });
+
+		const audio = getAudioElement();
+		expect(audio.volume).toBe(0.35);
+		expect(audio.muted).toBe(false);
+	});
+
+	it("toggles audio mute through the custom volume button", () => {
+		render(<WatchPlayer playlist={audioPlaylist()} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Mute" }));
+
+		expect(getAudioElement().muted).toBe(true);
+	});
+
+	it("uses compact audio controls for ready audio playback artifacts", () => {
+		render(
+			<WatchPlayer
+				playlist={{
+					...audioPlaylist(),
+					continuousSource: {
+						src: "/api/v1/videos/65/playback/stream",
+						mimeType: "audio/mp4",
+						durationSeconds: null,
+					},
+				}}
+			/>,
+		);
+
+		expect(getAudioElement().getAttribute("src")).toBe(
+			"/api/v1/videos/65/playback/stream",
+		);
+		expect(screen.getByTestId("audio-controls")).toBeTruthy();
+		expect(screen.queryByTestId("video-layout")).toBeNull();
+	});
+
+	it("renders waveform peaks through the last bucket with no empty tail", () => {
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				audioWaveform={{ peaks: [0, 0.35, 1, 0.5] }}
+			/>,
+		);
+
+		const waveform = screen.getByTestId("audio-waveform");
+		const svg = waveform.querySelector("svg");
+		const path = waveform.querySelector("path");
+		expect(svg?.getAttribute("viewBox")).toBe("0 0 3 100");
+		expect(path?.getAttribute("d")).toContain("M 3 ");
 	});
 
 	it("crosses a part boundary on the continuous source without remounting playback state", async () => {
@@ -425,6 +877,7 @@ function multipartPlaylist(): RecordingPlaylist {
 	return {
 		videoId: 65,
 		title: "Recording",
+		isAudioOnly: false,
 		totalDurationSeconds: 120,
 		continuousSource: null,
 		parts: [
@@ -479,10 +932,32 @@ function continuousPlaylist(): RecordingPlaylist {
 	};
 }
 
-function requiredParent(element: HTMLElement): HTMLElement {
-	const parent = element.parentElement;
-	if (!parent) throw new Error("expected element parent");
-	return parent;
+function audioPlaylist(): RecordingPlaylist {
+	return {
+		...multipartPlaylist(),
+		isAudioOnly: true,
+		continuousSource: null,
+		totalDurationSeconds: 60,
+		parts: [
+			{
+				partIndex: 1,
+				position: 0,
+				src: "/part-1.m4a",
+				mimeType: "audio/mp4",
+				durationSeconds: 60,
+				sizeBytes: 100,
+				startSeconds: 0,
+				endSeconds: 60,
+				label: "Part 1",
+			},
+		],
+	};
+}
+
+function getAudioElement() {
+	const audio = document.querySelector("audio");
+	expect(audio).not.toBeNull();
+	return audio as HTMLAudioElement;
 }
 
 function mockRect(

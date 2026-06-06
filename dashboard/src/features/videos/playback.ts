@@ -49,6 +49,7 @@ export type RecordingTimelineMarker = {
 export type RecordingPlaylist = {
 	videoId: number;
 	title: string;
+	isAudioOnly: boolean;
 	totalDurationSeconds: number;
 	continuousSource: RecordingPlaylistSource | null;
 	parts: RecordingPlaylistPart[];
@@ -82,6 +83,7 @@ export function buildRecordingPlaylist(
 	return {
 		videoId: video.id,
 		title: video.title?.trim() || video.display_name,
+		isAudioOnly: video.is_audio_only,
 		totalDurationSeconds,
 		continuousSource: continuousSourceForVideo(video, parts, apiUrl),
 		parts,
@@ -94,7 +96,10 @@ export function buildRecordingPlaylist(
 }
 
 export function continuousSourceForVideo(
-	video: Pick<VideoResponse, "id" | "parts" | "playback_artifact">,
+	video: Pick<
+		VideoResponse,
+		"id" | "parts" | "playback_artifact" | "is_audio_only"
+	>,
 	parts: RecordingPlaylistPart[],
 	apiUrl = "",
 ): RecordingPlaylistSource | null {
@@ -102,7 +107,9 @@ export function continuousSourceForVideo(
 	if (video.playback_artifact?.status === "ready") {
 		return {
 			src: mediaURL(apiUrl, `/api/v1/videos/${video.id}/playback/stream`),
-			mimeType: mimeTypeForArtifact(video.playback_artifact),
+			mimeType: video.is_audio_only
+				? "audio/mp4"
+				: mimeTypeForArtifact(video.playback_artifact),
 			durationSeconds: artifactDurationSeconds(video.playback_artifact),
 		};
 	}
@@ -135,7 +142,10 @@ function mimeTypeForArtifact(
 }
 
 export function buildPlaylistParts(
-	video: Pick<VideoResponse, "id" | "duration_seconds" | "parts">,
+	video: Pick<
+		VideoResponse,
+		"id" | "duration_seconds" | "parts" | "is_audio_only"
+	>,
 	apiUrl = "",
 ): RecordingPlaylistPart[] {
 	const rows = [...(video.parts ?? [])].sort(
@@ -148,7 +158,7 @@ export function buildPlaylistParts(
 				partIndex: 0,
 				position: 0,
 				src: mediaURL(apiUrl, `/api/v1/videos/${video.id}/stream`),
-				mimeType: "video/mp4",
+				mimeType: video.is_audio_only ? "audio/mp4" : "video/mp4",
 				durationSeconds,
 				sizeBytes: null,
 				startSeconds: 0,
@@ -175,7 +185,7 @@ export function buildPlaylistParts(
 				apiUrl,
 				`/api/v1/videos/${video.id}/parts/${part.part_index}/stream`,
 			),
-			mimeType: mimeTypeForPart(part),
+			mimeType: video.is_audio_only ? "audio/mp4" : "video/mp4",
 			durationSeconds,
 			sizeBytes: positiveOrNull(part.size_bytes),
 			startSeconds,
@@ -342,12 +352,6 @@ function cleanPartDuration(
 
 function mediaURL(apiUrl: string, path: string): string {
 	return `${apiUrl}${path}`;
-}
-
-function mimeTypeForPart(part: Pick<VideoPart, "filename">) {
-	return part.filename.toLowerCase().endsWith(".m4a")
-		? "audio/mp4"
-		: "video/mp4";
 }
 
 function lastMarkerAtOrBefore(

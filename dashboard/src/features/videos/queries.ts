@@ -18,6 +18,7 @@ import type {
 	VideoPageResponse,
 } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
+import { API_URL } from "@/env";
 import { timelineEventsWithSpanFallback } from "@/features/videos/timeline";
 import { withSessionProbe } from "@/stores/auth";
 
@@ -167,6 +168,41 @@ export function useVideo(id: number) {
 	);
 }
 
+export type AudioWaveform = {
+	duration_seconds: number;
+	peaks: number[];
+};
+
+class RestApiError extends Error {
+	data: { httpStatus: number; code?: string };
+
+	constructor(response: Response) {
+		super(`HTTP ${response.status}`);
+		this.name = "RestApiError";
+		this.data = {
+			httpStatus: response.status,
+			code: response.status === 401 ? "UNAUTHORIZED" : undefined,
+		};
+	}
+}
+
+export function useAudioWaveform(videoId: number, enabled = true) {
+	return useQuery<AudioWaveform | null>({
+		queryKey: ["video", "audio-waveform", videoId],
+		enabled: enabled && videoId > 0,
+		staleTime: (query) => (query.state.data ? Number.POSITIVE_INFINITY : 0),
+		queryFn: async () => {
+			const response = await fetch(
+				`${API_URL}/api/v1/videos/${videoId}/waveform`,
+				{ credentials: "include" },
+			);
+			if (response.status === 404) return null;
+			if (!response.ok) throw new RestApiError(response);
+			return (await response.json()) as AudioWaveform;
+		},
+	});
+}
+
 // useVideoTitles fetches the full title history for a video. Empty
 // array when title tracking is disabled on the server or the
 // recording was too short to capture a change. The UI shows the
@@ -258,12 +294,13 @@ export function useMergedTimeline(
 
 // useVideoSnapshots returns the ordered list of snapshot storage
 // paths captured during a recording (one per live-preview tick).
-// The VideoCard's hover effect cycles through these — the backend
-// probes storage, so an empty result means either no snapshots
-// (server mode off, too-short recording) or the recording
-// predates the snapshotter. `enabled` is a lazy-load gate: list
-// queries shouldn't fire for every card, only for ones currently
-// under hover.
+// The VideoCard's hover effect cycles through these — including
+// audio-only recordings, whose previews come from Twitch's live
+// frame endpoint while the recording is active. The backend probes
+// storage, so an empty result means either no snapshots, too-short
+// recording, or the recording predates the snapshotter. `enabled`
+// is a lazy-load gate: list queries shouldn't fire for every card,
+// only for ones currently under hover.
 export function useVideoSnapshots(videoId: number, enabled = true) {
 	const trpc = useTRPC();
 	return useQuery(

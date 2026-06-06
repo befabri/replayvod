@@ -11,7 +11,11 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { API_URL } from "@/env";
-import { useMergedTimeline, useVideo } from "@/features/videos";
+import {
+	useAudioWaveform,
+	useMergedTimeline,
+	useVideo,
+} from "@/features/videos";
 import {
 	CategoryTimelineCard,
 	TitleTimelineCard,
@@ -54,6 +58,13 @@ function WatchPage() {
 			video ? buildRecordingPlaylist(video, timelineEvents, API_URL) : null,
 		[video, timelineEvents],
 	);
+	const audioWaveformEnabled =
+		!!playlist &&
+		video?.status === "DONE" &&
+		playlist.isAudioOnly &&
+		playlist.parts.length > 0;
+	const { data: audioWaveform, isFetching: isAudioWaveformFetching } =
+		useAudioWaveform(id, audioWaveformEnabled);
 
 	const [layout, setLayout] = useLocalStorageState<WatchLayout>(
 		LAYOUT_STORAGE_KEY,
@@ -124,6 +135,12 @@ function WatchPage() {
 						key={playlist.videoId}
 						playlist={playlist}
 						initialOffsetSeconds={initialOffsetSeconds}
+						audioWaveform={audioWaveform ?? null}
+						audioWaveformLoading={
+							audioWaveformEnabled &&
+							isAudioWaveformFetching &&
+							!audioWaveform?.peaks?.length
+						}
 					/>
 				)}
 				<VideoInfo

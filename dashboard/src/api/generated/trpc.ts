@@ -1123,6 +1123,12 @@ export interface VideoResponse {
    */
   quality: string;
   fps?: number;
+  /**
+   * IsAudioOnly is the server-owned playback classification. Clients use this
+   * instead of re-deriving audio-ness from file extensions, MIME types, or
+   * playback artifact metadata that can disagree during migrations/backfills.
+   */
+  is_audio_only: boolean;
   broadcaster_id: string;
   /**
    * BroadcasterLogin / BroadcasterName / ProfileImageURL come from

@@ -47,3 +47,15 @@ export function resolveBoxArtSrcSet(
 		return `${resolved} ${variantWidth}w`;
 	}).join(", ");
 }
+
+export function twitchLivePreviewURL(
+	login: string | null | undefined,
+	options?: { width?: number; height?: number; cacheBust?: number },
+): string | null {
+	const normalized = login?.trim().toLowerCase();
+	if (!normalized) return null;
+	const width = options?.width ?? 1280;
+	const height = options?.height ?? 720;
+	const base = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${encodeURIComponent(normalized)}-${width}x${height}.jpg`;
+	return options?.cacheBust == null ? base : `${base}?rv=${options.cacheBust}`;
+}

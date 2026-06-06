@@ -1,6 +1,6 @@
 import { PlayIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
 import { API_URL } from "@/env";
@@ -22,6 +22,25 @@ const HOVER_SWAP_INTERVAL_MS = 900;
 // look at a card cross this threshold without noticing it, brief
 // pass-throughs don't trigger snapshot fetches or cycling.
 const HOVER_INTENT_DELAY_MS = 700;
+
+const STORED_PREVIEW_RETRY_DELAY_MS = 5000;
+const STORED_PREVIEW_MAX_RETRIES = 3;
+const STORED_PREVIEW_VISIBILITY_ROOT_MARGIN = "300px 0px";
+
+function localThumbnailURL(path: string): string {
+	return `${API_URL}/api/v1/thumbnails/${path.replace(/^thumbnails\//, "")}`;
+}
+
+function cacheBustedURL(url: string, cacheBust: number): string {
+	return cacheBust > 0 ? `${url}?rv=${cacheBust}` : url;
+}
+
+function firstSnapshotURL(video: VideoResponse, cacheBust = 0): string {
+	return cacheBustedURL(
+		localThumbnailURL(`thumbnails/${video.filename}-snap00.jpg`),
+		cacheBust,
+	);
+}
 
 // useHoverSnapshots cycles through a list of snapshot URLs while
 // `active` is true. Returns { current, prev } so the caller can layer
@@ -129,9 +148,71 @@ function QualityOverlay({ children }: { children: React.ReactNode }) {
 
 export function VideoCard({ video }: { video: VideoResponse }) {
 	const { t } = useTranslation();
-	const thumbnail = video.thumbnail
-		? `${API_URL}/api/v1/thumbnails/${video.thumbnail.replace(/^thumbnails\//, "")}`
-		: null;
+	const mediaRef = useRef<HTMLDivElement | null>(null);
+	const [mediaVisible, setMediaVisible] = useState(false);
+	const thumbnail = video.thumbnail ? localThumbnailURL(video.thumbnail) : null;
+	const [storedPreviewRetry, setStoredPreviewRetry] = useState(0);
+	const [storedPreviewRetryPending, setStoredPreviewRetryPending] =
+		useState(false);
+	const [storedPreviewFailed, setStoredPreviewFailed] = useState(false);
+	const storedPreviewThumbnail =
+		!thumbnail &&
+		!storedPreviewFailed &&
+		(video.status === "DONE" || mediaVisible)
+			? firstSnapshotURL(video, storedPreviewRetry)
+			: null;
+	const fallbackThumbnail =
+		storedPreviewFailed || storedPreviewRetryPending
+			? null
+			: storedPreviewThumbnail;
+	const heroThumbnail = thumbnail ?? fallbackThumbnail;
+	const fallbackIdentity = [video.id, video.filename, video.status].join(":");
+
+	useEffect(() => {
+		const node = mediaRef.current;
+		if (!node) return;
+		if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+			setMediaVisible(true);
+			return;
+		}
+		const observer = new window.IntersectionObserver(
+			(entries) => {
+				setMediaVisible(entries.some((entry) => entry.isIntersecting));
+			},
+			{ rootMargin: STORED_PREVIEW_VISIBILITY_ROOT_MARGIN },
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, []);
+
+	useEffect(() => {
+		if (!fallbackIdentity) return;
+		setStoredPreviewRetry(0);
+		setStoredPreviewRetryPending(false);
+		setStoredPreviewFailed(false);
+	}, [fallbackIdentity]);
+
+	useEffect(() => {
+		if (!storedPreviewRetryPending || !mediaVisible) return;
+		const id = window.setTimeout(() => {
+			setStoredPreviewRetry((retry) => retry + 1);
+			setStoredPreviewRetryPending(false);
+		}, STORED_PREVIEW_RETRY_DELAY_MS);
+		return () => window.clearTimeout(id);
+	}, [storedPreviewRetryPending, mediaVisible]);
+
+	function handleFallbackThumbnailError() {
+		if (storedPreviewThumbnail && heroThumbnail === storedPreviewThumbnail) {
+			if (
+				video.status !== "DONE" &&
+				storedPreviewRetry < STORED_PREVIEW_MAX_RETRIES
+			) {
+				setStoredPreviewRetryPending(true);
+				return;
+			}
+			setStoredPreviewFailed(true);
+		}
+	}
 
 	// Hover intent: only mark `previewing` true after the user has
 	// held hover for HOVER_INTENT_DELAY_MS. Cancels on mouseleave so
@@ -151,18 +232,18 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 		return () => window.clearTimeout(id);
 	}, [hovered]);
 
-	// Only DONE recordings have snapshots saved; we gate the fetch on
-	// `previewing` (not raw hover) so a list view doesn't fan out N
-	// storage-probe requests just from the pointer crossing the grid.
-	// Once a card earns its fetch the result is cached forever
+	// The hover time-lapse is for finished recordings only: while a
+	// recording is active, snap00 is enough for the card hero and the
+	// full snapshot list is still changing. Gate the list query on
+	// `previewing` (not raw hover) so the grid doesn't fan out N
+	// storage-probe requests just from the pointer crossing it. Once
+	// a DONE card earns its fetch the result is cached forever
 	// (staleTime: Infinity).
 	const { data: snapshotPaths } = useVideoSnapshots(
 		video.id,
 		previewing && video.status === "DONE",
 	);
-	const snapshotURLs = (snapshotPaths ?? []).map(
-		(p) => `${API_URL}/api/v1/thumbnails/${p.replace(/^thumbnails\//, "")}`,
-	);
+	const snapshotURLs = (snapshotPaths ?? []).map(localThumbnailURL);
 	const snapshotFrame = useHoverSnapshots(snapshotURLs, previewing);
 
 	const label = channelLabel(video);
@@ -180,6 +261,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 		<>
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: hover intent drives preview loading, not button-like interaction */}
 			<div
+				ref={mediaRef}
 				className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-muted"
 				onMouseEnter={() => setHovered(true)}
 				onMouseLeave={() => setHovered(false)}
@@ -189,14 +271,15 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 				    and fades in per frame via `key`-forced remount.
 				    When no snapshot is active (no hover, no data,
 				    or mid-fetch) the hero shows through — that's
-				    why the hero layer is rendered unconditionally
-				    for DONE recordings and not swapped out. */}
-				{thumbnail ? (
+				    why the hero layer is rendered independently
+				    from the hover snapshot overlay. */}
+				{heroThumbnail ? (
 					<img
-						src={thumbnail}
+						src={heroThumbnail}
 						alt=""
 						className="h-full w-full object-cover"
 						loading="lazy"
+						onError={thumbnail ? undefined : handleFallbackThumbnailError}
 					/>
 				) : (
 					<div className="text-muted-foreground text-sm">

@@ -1,6 +1,8 @@
 export type { StatisticsResponse, VideoResponse } from "@/api/generated/trpc";
 export { channelLabel, spanDurationLabel } from "./labels";
 export {
+	type AudioWaveform,
+	useAudioWaveform,
 	useCancelDownload,
 	useDownloadCapacity,
 	useInfiniteVideoPages,

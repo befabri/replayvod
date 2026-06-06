@@ -52,6 +52,35 @@ describe("buildPlaylistParts", () => {
 			},
 		]);
 	});
+
+	it("uses the server audio-only verdict for legacy rows with no parts", () => {
+		const parts = buildPlaylistParts(
+			video({ is_audio_only: true, parts: undefined }),
+			"",
+		);
+
+		expect(parts[0].mimeType).toBe("audio/mp4");
+	});
+
+	it("uses the server audio-only verdict over part filename inference", () => {
+		const audioParts = buildPlaylistParts(
+			video({
+				is_audio_only: true,
+				parts: [part({ filename: "vod-part01.mp4" })],
+			}),
+			"",
+		);
+		const videoParts = buildPlaylistParts(
+			video({
+				is_audio_only: false,
+				parts: [part({ filename: "vod-part01.m4a" })],
+			}),
+			"",
+		);
+
+		expect(audioParts[0].mimeType).toBe("audio/mp4");
+		expect(videoParts[0].mimeType).toBe("video/mp4");
+	});
 });
 
 describe("findPartForOffset", () => {
@@ -146,6 +175,23 @@ describe("continuous playback source", () => {
 				mimeType: "video/mp4",
 				durationSeconds: null,
 			},
+		);
+	});
+
+	it("uses the server audio-only verdict over playback artifact MIME", () => {
+		const row = video({
+			is_audio_only: true,
+			playback_artifact: {
+				status: "ready",
+				mime_type: "video/mp4",
+				updated_at: "2026-01-01T00:00:00Z",
+			},
+			parts: [part({ part_index: 1, filename: "vod-part01.mp4" })],
+		});
+		const parts = buildPlaylistParts(row, "");
+
+		expect(continuousSourceForVideo(row, parts, "")?.mimeType).toBe(
+			"audio/mp4",
 		);
 	});
 
@@ -321,6 +367,7 @@ function video(partial: Partial<VideoResponse>): VideoResponse {
 		completion_kind: "complete",
 		truncated: false,
 		quality: "1080p60",
+		is_audio_only: false,
 		broadcaster_id: "b1",
 		viewer_count: 0,
 		language: "en",

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveBoxArtSrcSet, resolveBoxArtUrl } from "./twitch";
+import {
+	resolveBoxArtSrcSet,
+	resolveBoxArtUrl,
+	twitchLivePreviewURL,
+} from "./twitch";
 
 describe("resolveBoxArtUrl", () => {
 	it("fills Twitch box-art templates with the requested dimensions", () => {
@@ -45,5 +49,23 @@ describe("resolveBoxArtSrcSet", () => {
 		expect(
 			resolveBoxArtSrcSet("https://example.test/art.jpg", 144, 192),
 		).toBeUndefined();
+	});
+});
+
+describe("twitchLivePreviewURL", () => {
+	it("builds Twitch's live preview CDN URL from a broadcaster login", () => {
+		expect(twitchLivePreviewURL(" Some_Login ")).toBe(
+			"https://static-cdn.jtvnw.net/previews-ttv/live_user_some_login-1280x720.jpg",
+		);
+	});
+
+	it("supports cache busting transient CDN misses", () => {
+		expect(twitchLivePreviewURL("streamer", { cacheBust: 3 })).toBe(
+			"https://static-cdn.jtvnw.net/previews-ttv/live_user_streamer-1280x720.jpg?rv=3",
+		);
+	});
+
+	it("returns null when login is missing", () => {
+		expect(twitchLivePreviewURL(" ")).toBeNull();
 	});
 });
