@@ -43,9 +43,14 @@ export function Navbar() {
 					</button>
 					<Link
 						to="/dashboard"
-						className="hidden self-center whitespace-nowrap text-xl font-heading font-semibold text-navbar-foreground min-[380px]:inline md:text-2xl"
+						aria-label={t("app.name")}
+						className="hidden min-w-0 items-baseline gap-2 self-center whitespace-nowrap text-[1.1875rem] tracking-[-0.04em] text-navbar-foreground no-underline min-[380px]:inline-flex"
 					>
-						{t("app.name")}
+						<span className="inline-flex items-baseline">
+							<span className="font-semibold">Replay</span>
+							<span className="font-bold text-primary">VOD</span>
+							<span className="font-bold text-primary">.</span>
+						</span>
 					</Link>
 				</div>
 
