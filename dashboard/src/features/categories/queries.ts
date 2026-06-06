@@ -37,6 +37,16 @@ export function useCategory(id: string) {
 	);
 }
 
+export function useCategoryDetail(id: string) {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.category.getDetail.queryOptions(
+			{ id },
+			{ enabled: !!id, staleTime: 30_000 },
+		),
+	);
+}
+
 export function useCategorySearch(
 	query: string,
 	limit = 50,

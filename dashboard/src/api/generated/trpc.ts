@@ -54,6 +54,18 @@ export interface CategoriesInput {
   video_id: number;
 }
 
+export interface CategoryDetailResponse {
+  id: string;
+  name: string;
+  box_art_url?: string;
+  igdb_id?: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  video_count: number;
+  total_size: number;
+}
+
 export interface CategoryGetByIDInput {
   id: string;
 }
@@ -88,6 +100,7 @@ export interface CategoryResponse {
   name: string;
   box_art_url?: string;
   igdb_id?: string;
+  description?: string;
   created_at: string;
   updated_at: string;
 }
@@ -1269,6 +1282,7 @@ type AppRouterRecord = {
   };
   category: {
     getById: $Query<CategoryGetByIDInput, CategoryResponse>;
+    getDetail: $Query<CategoryGetByIDInput, CategoryDetailResponse>;
     list: $Query<void, CategoryResponse[]>;
     listPage: $Query<CategoryListPageInput, CategoryPageResponse>;
     listWithVideos: $Query<void, CategoryResponse[]>;

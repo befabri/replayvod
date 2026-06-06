@@ -4,6 +4,7 @@ import { useSelector } from "@tanstack/react-store";
 import { useTranslation } from "react-i18next";
 import {
 	TitleBreadcrumb,
+	TitleBreadcrumbParentLink,
 	TitledLayout,
 } from "@/components/layout/titled-layout";
 import { Avatar } from "@/components/ui/avatar";
@@ -47,9 +48,14 @@ function ChannelDetailPage() {
 		<TitledLayout
 			title={
 				<TitleBreadcrumb
-					parentLabel={t("nav.channels")}
-					parentTo="/dashboard/channels"
-					parentSearch={{ sort: "name_asc", filter: "all" }}
+					parent={
+						<TitleBreadcrumbParentLink
+							to="/dashboard/channels"
+							search={{ sort: "name_asc", filter: "all" }}
+						>
+							{t("nav.channels")}
+						</TitleBreadcrumbParentLink>
+					}
 					currentLabel={channel.data?.broadcaster_name ?? channelId}
 				/>
 			}

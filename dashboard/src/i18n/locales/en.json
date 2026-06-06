@@ -58,7 +58,9 @@
 		"previous": "Previous",
 		"next": "Next",
 		"page": "Page {{n}}",
-		"total_count": "{{total}} total"
+		"total_count": "{{total}} total",
+		"show_more": "Show more",
+		"show_less": "Show less"
 	},
 	"search": {
 		"open": "Open search",
@@ -107,8 +109,11 @@
 	},
 	"categories": {
 		"title": "Categories",
+		"detail_fallback": "Category",
 		"empty": "No categories yet. Categories will be populated as streams are recorded.",
 		"failed_to_load": "Failed to load categories",
+		"detail_summary_one": "{{count, number}} video · {{size}}",
+		"detail_summary_other": "{{count, number}} videos · {{size}}",
 		"sort_default": "Default",
 		"sort_latest_video": "Latest video",
 		"sort_video_count": "Most videos",

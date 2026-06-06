@@ -4,5 +4,6 @@ export {
 	useCategories,
 	useCategoriesWithVideos,
 	useCategory,
+	useCategoryDetail,
 	useInfiniteCategoriesWithVideos,
 } from "./queries";
