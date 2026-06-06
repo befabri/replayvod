@@ -6,18 +6,23 @@ import { VIDEO_GRID_LAYOUT, type VideoGridVariant } from "./VideoGrid";
 
 export function VirtualVideoGrid({
 	videos,
+	canManage,
 	variant = "compact",
 	className,
 }: {
 	videos: VideoResponse[];
+	// canManage is resolved once by the owning route (a single auth-store read)
+	// and forwarded to every card, so a grid never fans out one permission
+	// subscription per VideoCard.
+	canManage: boolean;
 	variant?: VideoGridVariant;
 	className?: string;
 }) {
 	const layout = VIDEO_GRID_LAYOUT[variant];
 	const getItemKey = useCallback((video: VideoResponse) => video.id, []);
 	const renderItem = useCallback(
-		(video: VideoResponse) => <VideoCard video={video} />,
-		[],
+		(video: VideoResponse) => <VideoCard video={video} canManage={canManage} />,
+		[canManage],
 	);
 
 	return (

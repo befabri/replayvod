@@ -13,7 +13,6 @@ import type {
 	TimelineEvent,
 	TitleItem,
 	VideoCategory,
-	VideoListPageCursor,
 	VideoListPageResponse,
 	VideoPageResponse,
 } from "@/api/generated/trpc";
@@ -33,8 +32,17 @@ export type VideoTimelineQueryOptions = {
 	staleTime?: number;
 };
 
-export type VideoSort = "created_at" | "duration" | "size" | "channel";
+export type VideoSort =
+	| "created_at"
+	| "duration"
+	| "size"
+	| "channel"
+	| "history_when";
 export type VideoOrder = "asc" | "desc";
+// VideoScope selects the tombstone state. "active" (the default everywhere) is
+// live recordings only; "removed" and "all" power the removed-inclusive history
+// surface. Only video.listPage honours it; grids and search stay active-only.
+export type VideoScope = "active" | "removed" | "all";
 export type VideoListFilters = {
 	quality?: string;
 	broadcasterId?: string;
@@ -43,6 +51,8 @@ export type VideoListFilters = {
 	size?: string;
 	window?: string;
 	incompleteOnly?: boolean;
+	terminalOnly?: boolean;
+	scope?: VideoScope;
 };
 
 export function useInfiniteVideoPages(
@@ -68,6 +78,8 @@ export function useInfiniteVideoPages(
 				size: filters?.size ?? "",
 				window: filters?.window ?? "",
 				incomplete_only: filters?.incompleteOnly ?? false,
+				terminal_only: filters?.terminalOnly ?? false,
+				scope: filters?.scope ?? "",
 			},
 			{
 				getNextPageParam: (lastPage: VideoListPageResponse) =>
@@ -85,33 +97,6 @@ export function useInfiniteVideoPages(
 				enabled: options?.enabled ?? true,
 			},
 		),
-	);
-}
-
-export function useVideoListPage(
-	limit = 50,
-	status?: string,
-	sort?: VideoSort,
-	order?: VideoOrder,
-	cursor?: VideoListPageCursor,
-	filters?: VideoListFilters,
-) {
-	const trpc = useTRPC();
-	return useQuery(
-		trpc.video.listPage.queryOptions({
-			limit,
-			status: status ?? "",
-			sort: sort ?? "",
-			order: order ?? "",
-			quality: filters?.quality ?? "",
-			broadcaster_id: filters?.broadcasterId ?? "",
-			language: filters?.language ?? "",
-			duration: filters?.duration ?? "",
-			size: filters?.size ?? "",
-			window: filters?.window ?? "",
-			incomplete_only: filters?.incompleteOnly ?? false,
-			cursor,
-		}),
 	);
 }
 
@@ -152,7 +137,7 @@ export function useVideo(id: number) {
 				// the session, since the query unmounts on navigate.
 				refetchInterval: (query) => {
 					const v = query.state.data;
-					if (!v || v.status !== "DONE") return false;
+					if (v?.status !== "DONE") return false;
 					const status = v.playback_artifact?.status;
 					if (
 						status === "ready" ||
@@ -473,6 +458,19 @@ export function useCancelDownload() {
 	const queryClient = useQueryClient();
 	return useMutation(
 		trpc.video.cancel.mutationOptions({
+			onSuccess: () => invalidateVideoCaches(queryClient, trpc),
+		}),
+	);
+}
+
+// useDeleteVideo queues a finished recording for background removal. The worker
+// later purges files and tombstones the row (deletion_kind=manual), so the
+// shared cache invalidation refreshes library, search, statistics, and history.
+export function useDeleteVideo() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.video.delete.mutationOptions({
 			onSuccess: () => invalidateVideoCaches(queryClient, trpc),
 		}),
 	);

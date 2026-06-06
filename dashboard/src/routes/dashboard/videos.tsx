@@ -5,19 +5,19 @@ import {
 	SquaresFourIcon,
 } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { VideoResponse, VideoStatus } from "@/api/generated/trpc";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
+import { FilterTabs } from "@/components/ui/filter-tabs";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	useInfiniteVideoPages,
 	useStatistics,
@@ -29,6 +29,8 @@ import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { formatBytes } from "@/features/videos/format";
+import { useCanManageVideos } from "@/features/videos/permissions";
+import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
@@ -145,8 +147,11 @@ function VideosPage() {
 	} = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const [filtersOpen, setFiltersOpen] = useState(false);
-	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 	const { data: stats } = useStatistics();
+	// Resolve the delete permission once for the whole page; the table columns
+	// and the grid cards omit the remove control for viewers rather than each
+	// row subscribing to the auth store and rendering null.
+	const canManage = useCanManageVideos();
 
 	const sortConfig = SORT_CONFIG[sortKey];
 
@@ -175,6 +180,17 @@ function VideosPage() {
 		[videos.data],
 	);
 	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
+	const shouldLoadMore = !!(
+		loadedRows.length > 0 &&
+		videos.hasNextPage &&
+		!videos.error
+	);
+	const loadMoreRef = useInfiniteScrollSentinel({
+		enabled: shouldLoadMore,
+		isLoadingMore: videos.isFetchingNextPage,
+		onLoadMore: () => videos.fetchNextPage(),
+		rootMargin: "500px 0px",
+	});
 
 	// Per-tab counts come from the statistics endpoint. These are exact
 	// library-wide aggregates, so tabs without backend support stay
@@ -189,25 +205,7 @@ function VideosPage() {
 	// filter. Reset on page reload. See note in useLanguageFacet.
 	const seenLanguages = useLanguageFacet(loadedRows, language);
 
-	useEffect(() => {
-		const node = loadMoreRef.current;
-		if (!node || !videos.hasNextPage) {
-			return;
-		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (!entries[0]?.isIntersecting || videos.isFetchingNextPage) {
-					return;
-				}
-				void videos.fetchNextPage();
-			},
-			{ rootMargin: "500px 0px" },
-		);
-		observer.observe(node);
-		return () => observer.disconnect();
-	}, [videos.fetchNextPage, videos.hasNextPage, videos.isFetchingNextPage]);
-
-	const columns = useMemo(() => videoListColumns(t), [t]);
+	const columns = useMemo(() => videoListColumns(t, canManage), [t, canManage]);
 	const statusOptions = useMemo(
 		() =>
 			withSelectedOption(
@@ -438,7 +436,10 @@ function VideosPage() {
 
 						{filteredVideos.length > 0 &&
 							(view === "grid" ? (
-								<VirtualVideoGrid videos={filteredVideos} />
+								<VirtualVideoGrid
+									videos={filteredVideos}
+									canManage={canManage}
+								/>
 							) : (
 								<DataTable
 									columns={columns}
@@ -449,9 +450,7 @@ function VideosPage() {
 								/>
 							))}
 
-						{loadedRows.length > 0 && !!videos.hasNextPage && !videos.error && (
-							<div ref={loadMoreRef} className="h-1" />
-						)}
+						{shouldLoadMore && <div ref={loadMoreRef} className="h-1" />}
 
 						{videos.isFetchingNextPage &&
 							(view === "grid" ? (
@@ -586,47 +585,15 @@ function ScopeTabs({
 }) {
 	const { t } = useTranslation();
 	return (
-		<Tabs value={current} onValueChange={(value) => onChange(value as TabKey)}>
-			<div className="overflow-x-auto">
-				<TabsList className="h-auto min-w-max justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
-					{TAB_KEYS.map((key) => {
-						const count = counts[key];
-						const showCount = count !== undefined;
-						return (
-							<TabsTrigger
-								key={key}
-								value={key}
-								className={cn(
-									"group relative h-auto cursor-pointer rounded-none px-0 pt-0 pb-4 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground",
-									// Base UI Tabs emit `data-active` on the
-									// selected trigger; the shared TabsTrigger
-									// targets `data-[selected]`, which never
-									// matches. Use the real attribute so the
-									// underline + active label color render.
-									"data-[active]:bg-transparent data-[active]:text-foreground data-[active]:shadow-none",
-									"before:pointer-events-none before:absolute before:right-0 before:bottom-[-1px] before:left-0 before:h-0.5 before:rounded-full before:bg-primary before:opacity-0 before:transition-opacity",
-									"data-[active]:before:opacity-100",
-								)}
-							>
-								<span>{t(`videos.tabs.${key}`)}</span>
-								{showCount && (
-									<span
-										className={cn(
-											"ml-2 text-xs font-medium transition-colors",
-											key === current
-												? "text-primary"
-												: "text-muted-foreground",
-										)}
-									>
-										{count.toLocaleString()}
-									</span>
-								)}
-							</TabsTrigger>
-						);
-					})}
-				</TabsList>
-			</div>
-		</Tabs>
+		<FilterTabs
+			value={current}
+			onChange={(value) => onChange(value as TabKey)}
+			options={TAB_KEYS.map((key) => ({
+				value: key,
+				label: t(`videos.tabs.${key}`),
+				count: counts[key],
+			}))}
+		/>
 	);
 }
 

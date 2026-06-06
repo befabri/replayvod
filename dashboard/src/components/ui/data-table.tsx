@@ -4,6 +4,7 @@ import {
 	flexRender,
 	getCoreRowModel,
 	getSortedRowModel,
+	type OnChangeFn,
 	type SortingState,
 	useReactTable,
 } from "@tanstack/react-table";
@@ -20,8 +21,12 @@ import {
 
 // DataTable is the shared TanStack Table wrapper used by the dashboard
 // system pages. Headless by design so each caller supplies its own
-// column definitions; sorting is client-side and opt-in per column via
-// `enableSorting` in the ColumnDef.
+// column definitions; sorting is opt-in per column via `enableSorting`.
+//
+// Sorting is client-side by default (the table reorders `data`). Pass
+// `sorting` + `onSortingChange` + `manualSorting` to control it externally and
+// have the header drive a server-side sort instead — the caller re-fetches
+// already-sorted data rather than the table reordering a single page.
 export function DataTable<TData, TValue>({
 	columns,
 	data,
@@ -29,6 +34,9 @@ export function DataTable<TData, TValue>({
 	virtualizeRows = false,
 	estimateRowHeight = 74,
 	overscan = 8,
+	sorting: controlledSorting,
+	onSortingChange,
+	manualSorting = false,
 }: {
 	columns: ColumnDef<TData, TValue>[];
 	data: TData[];
@@ -36,8 +44,12 @@ export function DataTable<TData, TValue>({
 	virtualizeRows?: boolean;
 	estimateRowHeight?: number;
 	overscan?: number;
+	sorting?: SortingState;
+	onSortingChange?: OnChangeFn<SortingState>;
+	manualSorting?: boolean;
 }) {
-	const [sorting, setSorting] = useState<SortingState>([]);
+	const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+	const sorting = controlledSorting ?? internalSorting;
 	const bodyRef = useRef<HTMLTableSectionElement | null>(null);
 	const [scrollMargin, setScrollMargin] = useState(0);
 
@@ -45,7 +57,8 @@ export function DataTable<TData, TValue>({
 		data,
 		columns,
 		state: { sorting },
-		onSortingChange: setSorting,
+		onSortingChange: onSortingChange ?? setInternalSorting,
+		manualSorting,
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
 	});

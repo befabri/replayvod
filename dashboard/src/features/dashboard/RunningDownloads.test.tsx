@@ -33,6 +33,7 @@ vi.mock("@/features/videos", () => ({
 	useLiveActiveDownloads: () => live,
 	useDownloadCapacity: () => ({ data: { max_concurrent: 2 } }),
 	useVideoTimeline: () => ({ data: undefined }),
+	useCancelDownload: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLiveSeconds", () => ({ useLiveSeconds: () => 0 }));

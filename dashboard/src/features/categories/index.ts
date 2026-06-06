@@ -1,2 +1,8 @@
 export type { CategoryResponse } from "@/api/generated/trpc";
-export { useCategories, useCategoriesWithVideos, useCategory } from "./queries";
+export type { CategorySort } from "./queries";
+export {
+	useCategories,
+	useCategoriesWithVideos,
+	useCategory,
+	useInfiniteCategoriesWithVideos,
+} from "./queries";

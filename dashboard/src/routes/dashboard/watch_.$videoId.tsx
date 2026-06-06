@@ -16,6 +16,7 @@ import {
 	useMergedTimeline,
 	useVideo,
 } from "@/features/videos";
+import { RemoveVideoButton } from "@/features/videos/components/RemoveVideoButton";
 import {
 	CategoryTimelineCard,
 	TitleTimelineCard,
@@ -23,6 +24,7 @@ import {
 } from "@/features/videos/components/VideoDetails";
 import { VideoInfo } from "@/features/videos/components/VideoInfo";
 import { WatchPlayer } from "@/features/videos/components/WatchPlayer";
+import { useCanManageVideos } from "@/features/videos/permissions";
 import { buildRecordingPlaylist } from "@/features/videos/playback";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { cn } from "@/lib/utils";
@@ -38,6 +40,20 @@ const parseWatchLayout = (raw: string): WatchLayout | null =>
 	raw === "aside" || raw === "wide" ? raw : null;
 const serializeWatchLayout = (value: WatchLayout) => value;
 
+// Search state for the videos library, used whenever the watch page sends the
+// user back there: the "not ready" exit link and the post-removal navigate.
+// Mirrors the library route's validateSearch defaults so both entry points land
+// on the same default view instead of an arbitrary one.
+const VIDEOS_LIBRARY_SEARCH = {
+	tab: "all",
+	status: undefined,
+	view: "grid",
+	sort: "newest",
+	quality: undefined,
+	language: undefined,
+	duration: undefined,
+} as const;
+
 export const Route = createFileRoute("/dashboard/watch_/$videoId")({
 	validateSearch: (search: Record<string, unknown>) => ({
 		t: parseSeekParam(search.t),
@@ -49,20 +65,22 @@ function WatchPage() {
 	const { t: translate } = useTranslation();
 	const { videoId } = Route.useParams();
 	const { t: initialOffsetSeconds } = Route.useSearch();
+	const navigate = Route.useNavigate();
+	const canManage = useCanManageVideos();
 	const id = Number(videoId);
 	const { data: video, isLoading, error } = useVideo(id);
-	const timelineEnabled = !!video && video.status === "DONE";
+	const playable = !!video && video.status === "DONE" && !video.deleted_at;
+	const timelineEnabled = playable;
 	const { data: timelineEvents } = useMergedTimeline(id, timelineEnabled);
 	const playlist = useMemo(
 		() =>
-			video ? buildRecordingPlaylist(video, timelineEvents, API_URL) : null,
-		[video, timelineEvents],
+			video && playable
+				? buildRecordingPlaylist(video, timelineEvents, API_URL)
+				: null,
+		[playable, video, timelineEvents],
 	);
 	const audioWaveformEnabled =
-		!!playlist &&
-		video?.status === "DONE" &&
-		playlist.isAudioOnly &&
-		playlist.parts.length > 0;
+		!!playlist && playable && playlist.isAudioOnly && playlist.parts.length > 0;
 	const { data: audioWaveform, isFetching: isAudioWaveformFetching } =
 		useAudioWaveform(id, audioWaveformEnabled);
 
@@ -95,6 +113,21 @@ function WatchPage() {
 		);
 	}
 
+	if (video.deleted_at) {
+		return (
+			<TitledLayout title={video.title?.trim() || video.display_name}>
+				<p className="text-muted-foreground">{translate("watch.removed")}</p>
+				<Link
+					to="/dashboard/activity/history"
+					search={{ filter: "removed" }}
+					className="inline-block mt-4 text-link hover:underline"
+				>
+					{translate("watch.back_to_history")}
+				</Link>
+			</TitledLayout>
+		);
+	}
+
 	if (video.status !== "DONE") {
 		return (
 			<TitledLayout title={video.title?.trim() || video.display_name}>
@@ -103,15 +136,7 @@ function WatchPage() {
 				</p>
 				<Link
 					to="/dashboard/videos"
-					search={{
-						tab: "all",
-						status: undefined,
-						view: "grid",
-						sort: "newest",
-						quality: undefined,
-						language: undefined,
-						duration: undefined,
-					}}
+					search={VIDEOS_LIBRARY_SEARCH}
 					className="inline-block mt-4 text-link hover:underline"
 				>
 					{translate("watch.back_to_videos")}
@@ -146,37 +171,51 @@ function WatchPage() {
 				<VideoInfo
 					video={video}
 					headerAction={
-						/* Layout toggle docks alongside the title via the
-						   VideoInfo headerAction slot. Hidden below xl —
-						   the page always stacks there regardless of the
-						   saved preference, so the button would be a no-op.
-						   Icon-only with a tooltip for the verbose label. */
-						<TooltipProvider>
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<Button
-											variant="outline"
-											size="icon-sm"
-											className="hidden xl:inline-flex"
-											onClick={() => setLayout(isWide ? "aside" : "wide")}
-											aria-label={
-												isWide
-													? translate("watch.switch_to_aside")
-													: translate("watch.switch_to_wide")
-											}
-										>
-											{isWide ? <ArrowsInIcon /> : <ArrowsOutIcon />}
-										</Button>
+						<div className="flex items-center gap-2">
+							{canManage ? (
+								<RemoveVideoButton
+									videoId={video.id}
+									withLabel
+									onRemoved={() =>
+										navigate({
+											to: "/dashboard/videos",
+											search: VIDEOS_LIBRARY_SEARCH,
+										})
 									}
 								/>
-								<TooltipContent>
-									{isWide
-										? translate("watch.layout_aside")
-										: translate("watch.layout_wide")}
-								</TooltipContent>
-							</Tooltip>
-						</TooltipProvider>
+							) : null}
+							{/* Layout toggle docks alongside the title via the
+							   VideoInfo headerAction slot. Hidden below xl —
+							   the page always stacks there regardless of the
+							   saved preference, so the button would be a no-op.
+							   Icon-only with a tooltip for the verbose label. */}
+							<TooltipProvider>
+								<Tooltip>
+									<TooltipTrigger
+										render={
+											<Button
+												variant="outline"
+												size="icon-sm"
+												className="hidden xl:inline-flex"
+												onClick={() => setLayout(isWide ? "aside" : "wide")}
+												aria-label={
+													isWide
+														? translate("watch.switch_to_aside")
+														: translate("watch.switch_to_wide")
+												}
+											>
+												{isWide ? <ArrowsInIcon /> : <ArrowsOutIcon />}
+											</Button>
+										}
+									/>
+									<TooltipContent>
+										{isWide
+											? translate("watch.layout_aside")
+											: translate("watch.layout_wide")}
+									</TooltipContent>
+								</Tooltip>
+							</TooltipProvider>
+						</div>
 					}
 				/>
 				<VideoMetaGrid video={video} />

@@ -27,7 +27,7 @@
 		"expand_sidebar": "Expand",
 		"requests": "Requests",
 		"sessions": "Sessions",
-		"activity_queue": "Queue",
+		"downloads": "Downloads",
 		"activity_history": "History",
 		"activity": "Activity",
 		"recording": "Recording",
@@ -54,7 +54,11 @@
 		"view_all": "View all",
 		"copy": "Copy",
 		"copied": "Copied",
-		"actions": "Actions"
+		"actions": "Actions",
+		"previous": "Previous",
+		"next": "Next",
+		"page": "Page {{n}}",
+		"total_count": "{{total}} total"
 	},
 	"search": {
 		"open": "Open search",
@@ -82,6 +86,7 @@
 		"active_capacity": "{{active}}/{{max}} active",
 		"running_now_empty": "No active downloads.",
 		"running_now_failed": "Failed to load current downloads",
+		"view_all_downloads": "View all {{count}} downloads",
 		"recording_timeline": "Recording timeline",
 		"current_part": "Part {{part}}",
 		"elapsed": "{{time}} elapsed",
@@ -104,8 +109,10 @@
 		"title": "Categories",
 		"empty": "No categories yet. Categories will be populated as streams are recorded.",
 		"failed_to_load": "Failed to load categories",
-		"view_card": "Cards",
-		"view_grid": "Grid"
+		"sort_default": "Default",
+		"sort_latest_video": "Latest video",
+		"sort_video_count": "Most videos",
+		"end_of_list": "End of list"
 	},
 	"channels": {
 		"title": "Channels",
@@ -258,11 +265,17 @@
 			"truncated_tooltip": "Recorder ended before the broadcast did — a server interruption, an unresumable run, or a finalize that never saw the playlist's end marker. The file itself plays cleanly; the broadcast just continued past where we stopped.",
 			"cancelled": "CANCELLED",
 			"cancelled_tooltip": "You stopped this recording manually while the broadcast was still live."
-		}
+		},
+		"remove": "Remove",
+		"remove_confirm_title": "Remove recording?",
+		"remove_confirm_body": "This permanently deletes the recording's files. It stays in History as removed.",
+		"remove_confirm": "Remove"
 	},
 	"watch": {
 		"not_ready": "This video is not ready to play (status: {{status}}).",
+		"removed": "This recording has been removed and its files are no longer available.",
 		"back_to_videos": "← Back to videos",
+		"back_to_history": "← Back to history",
 		"layout_aside": "History aside",
 		"layout_wide": "Wide player",
 		"switch_to_aside": "Move history to the side of the player",
@@ -435,30 +448,29 @@
 		"col_status": "Status",
 		"watch": "Watch"
 	},
-	"queue": {
-		"title": "Download queue",
-		"description": "Downloads currently running or waiting to start.",
-		"failed_to_load": "Failed to load queue",
-		"empty": "No downloads in progress.",
-		"cancel": "Cancel",
-		"col_channel": "Channel",
-		"col_status": "Status",
-		"col_quality": "Quality",
-		"col_started": "Started"
+	"downloads": {
+		"title": "Downloads",
+		"description": "Recordings currently downloading.",
+		"cancel": "Cancel"
 	},
 	"history": {
 		"title": "Download history",
-		"description": "Completed and failed downloads. Filter by status to investigate failures.",
+		"description": "Completed, failed, and removed recordings.",
 		"failed_to_load": "Failed to load history",
-		"empty": "No entries.",
 		"col_channel": "Channel",
 		"col_status": "Status",
 		"col_quality": "Quality",
-		"col_duration": "Duration",
 		"col_size": "Size",
-		"col_finished": "Finished",
-		"filter_done": "Done",
-		"filter_failed": "Failed"
+		"filter_failed": "Failed",
+		"filter_removed": "Removed",
+		"col_error": "Error",
+		"removed_auto": "Removed (auto-cleanup)",
+		"removed_manual": "Removed (by you)",
+		"filter_all": "All",
+		"col_when": "When",
+		"empty_all": "No recordings yet.",
+		"empty_failed": "No failed recordings.",
+		"empty_removed": "Nothing has been removed."
 	},
 	"events": {
 		"title": "Event logs",

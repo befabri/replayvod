@@ -1,15 +1,18 @@
 import { useTranslation } from "react-i18next";
 import type { CompletionKind, VideoStatus } from "@/api/generated/trpc";
+import { Badge } from "@/components/ui/badge";
 import { videoStatusLabel } from "@/features/videos/labels";
 
-// Record<VideoStatus, string> so a new generated status is a compile error here
-// rather than silently falling through to an undefined class.
-const STATUS_CLASS: Record<VideoStatus, string> = {
-	DONE: "bg-badge-green-bg text-badge-green-fg",
-	FAILED: "bg-badge-red-bg text-badge-red-fg",
-	RUNNING: "bg-badge-blue-bg text-badge-blue-fg animate-pulse",
-	PENDING: "bg-muted text-muted-foreground",
-};
+// Record<VideoStatus, ...> so a new generated status is a compile error here
+// rather than silently falling through to an undefined variant. Maps each
+// status onto a shared Badge color variant.
+const STATUS_VARIANT: Record<VideoStatus, "green" | "red" | "blue" | "muted"> =
+	{
+		DONE: "green",
+		FAILED: "red",
+		RUNNING: "blue",
+		PENDING: "muted",
+	};
 
 export function VideoStatusBadge({
 	status,
@@ -21,24 +24,22 @@ export function VideoStatusBadge({
 	const { t } = useTranslation();
 	const isCancelled = status === "FAILED" && completionKind === "cancelled";
 	const isPartial = status === "DONE" && completionKind === "partial";
-	const cls = isCancelled
-		? "bg-muted text-muted-foreground"
-		: STATUS_CLASS[status];
 	const label = isCancelled
 		? videoStatusLabel(t, "CANCELLED")
 		: videoStatusLabel(t, status);
 
 	return (
 		<span className="inline-flex flex-wrap items-center gap-1.5">
-			<span
-				className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs ${cls}`}
+			<Badge
+				variant={isCancelled ? "muted" : STATUS_VARIANT[status]}
+				className={status === "RUNNING" ? "animate-pulse" : undefined}
 			>
 				{label}
-			</span>
+			</Badge>
 			{isPartial ? (
-				<span className="inline-flex items-center rounded-md bg-badge-yellow-bg px-2 py-0.5 text-xs text-badge-yellow-fg">
+				<Badge variant="yellow">
 					{t("videos.completion.partial", "PARTIAL")}
-				</span>
+				</Badge>
 			) : null}
 		</span>
 	);

@@ -1,4 +1,4 @@
-import { RowsIcon, SquaresFourIcon } from "@phosphor-icons/react";
+import { SortAscendingIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,110 +11,95 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { VirtualGrid } from "@/components/ui/virtual-grid";
-import type { CategoryResponse } from "@/features/categories";
-import { useCategoriesWithVideos } from "@/features/categories";
+import {
+	type CategoryResponse,
+	type CategorySort,
+	useInfiniteCategoriesWithVideos,
+} from "@/features/categories";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
+import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
+import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
 
-type ViewMode = "card" | "grid";
-const VIEW_MODES: ViewMode[] = ["card", "grid"];
+const SORT_MODES = [
+	"name_asc",
+	"latest_video_desc",
+	"video_count_desc",
+] as const satisfies readonly CategorySort[];
+type SortMode = (typeof SORT_MODES)[number];
 
 export const Route = createFileRoute("/dashboard/categories")({
 	validateSearch: (search: Record<string, unknown>) => ({
-		view:
-			search.view === "grid" || search.view === "card"
-				? (search.view as ViewMode)
-				: ("card" as ViewMode),
+		sort: SORT_MODES.includes(search.sort as SortMode)
+			? (search.sort as SortMode)
+			: ("name_asc" as SortMode),
 	}),
 	component: CategoriesPage,
 });
 
 function CategoriesPage() {
 	const { t } = useTranslation();
-	const { view } = Route.useSearch();
+	const { sort } = Route.useSearch();
 	const navigate = Route.useNavigate();
-	const { data: categories, isLoading, error } = useCategoriesWithVideos();
+	const categories = useInfiniteCategoriesWithVideos(sort);
+	const visible = categories.data?.pages.flatMap((page) => page.items) ?? [];
+	const hasScrolledThroughPages = (categories.data?.pages.length ?? 0) > 1;
+	const shouldLoadMore = !!(categories.hasNextPage && !categories.error);
+	const loadMoreRef = useInfiniteScrollSentinel({
+		enabled: shouldLoadMore,
+		isLoadingMore: categories.isFetchingNextPage,
+		onLoadMore: () => categories.fetchNextPage(),
+		rootMargin: "500px 0px",
+	});
 
 	return (
 		<TitledLayout
 			title={t("categories.title")}
 			actions={
-				<ViewDropdown
-					current={view}
+				<SortDropdown
+					current={sort}
 					onChange={(next) =>
-						void navigate({ search: (s) => ({ ...s, view: next }) })
+						void navigate({ search: (s) => ({ ...s, sort: next }) })
 					}
 				/>
 			}
 		>
-			{isLoading && (
+			{categories.isLoading && (
 				<div className="text-muted-foreground">{t("common.loading")}</div>
 			)}
 
-			{error && (
+			{categories.error && (
 				<div className="rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">
-					{t("categories.failed_to_load")}: {error.message}
+					{t("categories.failed_to_load")}: {categories.error.message}
 				</div>
 			)}
 
-			{categories && categories.length === 0 && !isLoading && !error && (
-				<div className="text-muted-foreground">{t("categories.empty")}</div>
-			)}
+			{visible.length === 0 &&
+				!categories.isLoading &&
+				!categories.isFetchingNextPage &&
+				!categories.error && (
+					<div className="text-muted-foreground">{t("categories.empty")}</div>
+				)}
 
-			{categories &&
-				categories.length > 0 &&
-				(view === "card" ? (
-					<CardGrid categories={categories} />
-				) : (
-					<DenseGrid categories={categories} />
-				))}
+			{visible.length > 0 && <CategoryGrid categories={visible} />}
+			{visible.length > 0 && shouldLoadMore && (
+				<div ref={loadMoreRef} className="h-1" />
+			)}
+			{categories.isFetchingNextPage && (
+				<div className="mt-4 text-muted-foreground text-sm">
+					{t("common.loading")}
+				</div>
+			)}
+			{hasScrolledThroughPages &&
+				!categories.hasNextPage &&
+				!categories.isFetchingNextPage &&
+				visible.length > 0 && (
+					<VideoGridEnd labelKey="categories.end_of_list" />
+				)}
 		</TitledLayout>
 	);
 }
 
-// Card grid — one row of boxed art + name below in a padded card.
-// Suits a modest library where each category deserves attention.
-function CardGrid({ categories }: { categories: CategoryResponse[] }) {
-	const getCategoryKey = useCallback(
-		(category: CategoryResponse) => category.id,
-		[],
-	);
-	const renderCategory = useCallback(
-		(category: CategoryResponse) => (
-			<Link
-				to="/dashboard/categories/$categoryId"
-				params={{ categoryId: category.id }}
-				className="block rounded-lg bg-card overflow-hidden shadow-sm hover:ring-2 hover:ring-primary transition-all duration-75"
-			>
-				<CategoryBoxArt
-					url={category.box_art_url}
-					name={category.name}
-					width={240}
-					height={320}
-					sizes="(max-width: 360px) calc(100vw - 2rem), (max-width: 768px) calc(50vw - 2rem), 200px"
-				/>
-				<div className="p-2 text-sm font-medium truncate">{category.name}</div>
-			</Link>
-		),
-		[],
-	);
-
-	return (
-		<VirtualGrid
-			items={categories}
-			getItemKey={getCategoryKey}
-			renderItem={renderCategory}
-			minItemWidth={160}
-			estimateRowHeight={270}
-			gap={16}
-			overscan={5}
-		/>
-	);
-}
-
-// Dense grid — v1-style: fluid auto-fit, tight gap, border-only hover on
-// bare box art, name as a link-styled title underneath. Maximizes the
-// number of categories on screen.
-function DenseGrid({ categories }: { categories: CategoryResponse[] }) {
+function CategoryGrid({ categories }: { categories: CategoryResponse[] }) {
 	const getCategoryKey = useCallback(
 		(category: CategoryResponse) => category.id,
 		[],
@@ -155,36 +140,32 @@ function DenseGrid({ categories }: { categories: CategoryResponse[] }) {
 	);
 }
 
-function ViewDropdown({
+function SortDropdown({
 	current,
 	onChange,
 }: {
-	current: ViewMode;
-	onChange: (mode: ViewMode) => void;
+	current: SortMode;
+	onChange: (mode: SortMode) => void;
 }) {
 	const { t } = useTranslation();
-	const labels: Record<ViewMode, string> = {
-		card: t("categories.view_card"),
-		grid: t("categories.view_grid"),
-	};
-	const icons: Record<ViewMode, React.ReactNode> = {
-		card: <RowsIcon className="size-4" />,
-		grid: <SquaresFourIcon className="size-4" />,
+	const labels: Record<SortMode, string> = {
+		name_asc: t("categories.sort_default"),
+		latest_video_desc: t("categories.sort_latest_video"),
+		video_count_desc: t("categories.sort_video_count"),
 	};
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				render={(triggerProps) => (
 					<Button variant="outline" size="sm" {...triggerProps}>
-						{icons[current]}
+						<SortAscendingIcon className="size-4" />
 						{labels[current]}
 					</Button>
 				)}
 			/>
 			<DropdownMenuContent>
-				{VIEW_MODES.map((mode) => (
+				{SORT_MODES.map((mode) => (
 					<DropdownMenuItem key={mode} onClick={() => onChange(mode)}>
-						{icons[mode]}
 						{labels[mode]}
 					</DropdownMenuItem>
 				))}

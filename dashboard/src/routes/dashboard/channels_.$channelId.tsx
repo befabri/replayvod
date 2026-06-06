@@ -5,7 +5,6 @@ import {
 } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
-import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Avatar } from "@/components/ui/avatar";
@@ -17,6 +16,7 @@ import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { useInfiniteVideosByBroadcaster } from "@/features/videos/queries";
+import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
 import { authStore, hasRole } from "@/stores/auth";
 
 export const Route = createFileRoute("/dashboard/channels_/$channelId")({
@@ -36,27 +36,13 @@ function ChannelDetailPage() {
 	// flow and fail on submit.
 	const user = useSelector(authStore, (s) => s.user);
 	const canDownload = hasRole(user, "admin");
-	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 	const videoItems = videos.data?.pages.flatMap((page) => page.items) ?? [];
 	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
-
-	useEffect(() => {
-		const node = loadMoreRef.current;
-		if (!node || !videos.hasNextPage) {
-			return;
-		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (!entries[0]?.isIntersecting || videos.isFetchingNextPage) {
-					return;
-				}
-				void videos.fetchNextPage();
-			},
-			{ rootMargin: "400px 0px" },
-		);
-		observer.observe(node);
-		return () => observer.disconnect();
-	}, [videos.fetchNextPage, videos.hasNextPage, videos.isFetchingNextPage]);
+	const loadMoreRef = useInfiniteScrollSentinel({
+		enabled: !!videos.hasNextPage,
+		isLoadingMore: videos.isFetchingNextPage,
+		onLoadMore: () => videos.fetchNextPage(),
+	});
 
 	return (
 		<TitledLayout title={channel.data?.broadcaster_name ?? ""}>
@@ -137,7 +123,11 @@ function ChannelDetailPage() {
 			)}
 			{videos.data && videoItems.length > 0 && (
 				<>
-					<VirtualVideoGrid videos={videoItems} variant="wide" />
+					<VirtualVideoGrid
+						videos={videoItems}
+						variant="wide"
+						canManage={canDownload}
+					/>
 					<div ref={loadMoreRef} className="h-1" />
 					{videos.isFetchingNextPage && (
 						<VideoGridLoading count={2} variant="wide" />

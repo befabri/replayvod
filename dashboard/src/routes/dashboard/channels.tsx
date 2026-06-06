@@ -1,6 +1,6 @@
 import { BroadcastIcon, SortAscendingIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Avatar } from "@/components/ui/avatar";
@@ -15,6 +15,7 @@ import { VirtualGrid } from "@/components/ui/virtual-grid";
 import { type ChannelResponse, useInfiniteChannels } from "@/features/channels";
 import { useLiveSet } from "@/features/streams-live";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
+import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
 
 const SORT_MODES = ["name_asc", "name_desc"] as const;
 type SortMode = (typeof SORT_MODES)[number];
@@ -40,7 +41,6 @@ function ChannelsPage() {
 	const navigate = Route.useNavigate();
 	const channels = useInfiniteChannels(sort);
 	const liveSet = useLiveSet();
-	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 	// filter === "live" is applied client-side against the SSE-
 	// backed liveSet so channels going on- or offline reflect in
 	// real time. The server fetch always returns the full channel
@@ -99,24 +99,12 @@ function ChannelsPage() {
 		),
 		[liveSet],
 	);
-
-	useEffect(() => {
-		const node = loadMoreRef.current;
-		if (!node || !shouldLoadMore) {
-			return;
-		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (!entries[0]?.isIntersecting || channels.isFetchingNextPage) {
-					return;
-				}
-				void channels.fetchNextPage();
-			},
-			{ rootMargin: "500px 0px" },
-		);
-		observer.observe(node);
-		return () => observer.disconnect();
-	}, [channels.fetchNextPage, channels.isFetchingNextPage, shouldLoadMore]);
+	const loadMoreRef = useInfiniteScrollSentinel({
+		enabled: shouldLoadMore,
+		isLoadingMore: channels.isFetchingNextPage,
+		onLoadMore: () => channels.fetchNextPage(),
+		rootMargin: "500px 0px",
+	});
 
 	return (
 		<TitledLayout

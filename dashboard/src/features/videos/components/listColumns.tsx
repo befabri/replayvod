@@ -7,10 +7,14 @@ import { Timestamp } from "@/components/ui/timestamp";
 import { API_URL } from "@/env";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
 import { VideoStatusBadge } from "./VideoStatusBadge";
 
-export function videoListColumns(t: TFunction): ColumnDef<VideoResponse>[] {
+export function videoListColumns(
+	t: TFunction,
+	canManage: boolean,
+): ColumnDef<VideoResponse>[] {
 	return [
 		{
 			id: "thumbnail",
@@ -82,24 +86,43 @@ export function videoListColumns(t: TFunction): ColumnDef<VideoResponse>[] {
 			id: "actions",
 			header: "",
 			enableSorting: false,
-			cell: ({ row }) =>
-				row.original.status === "DONE" ? (
+			cell: ({ row }) => {
+				const video = row.original;
+				const isDone = video.status === "DONE";
+				// Only terminal recordings get row actions: DONE rows can be
+				// watched/inspected/removed; FAILED rows can only be removed. A
+				// FAILED row therefore has nothing to offer a viewer, so its cell
+				// collapses to null. In-flight and queued recordings are managed
+				// (cancelled) from Downloads.
+				if (!isDone && video.status !== "FAILED") {
+					return null;
+				}
+				if (!isDone && !canManage) {
+					return null;
+				}
+				return (
 					<div className="flex items-center justify-end gap-1.5">
-						<StreamHistoryButton
-							videoId={row.original.id}
-							videoStartDownloadAt={row.original.start_download_at}
-							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-						/>
-						<Link
-							to="/dashboard/watch/$videoId"
-							params={{ videoId: String(row.original.id) }}
-							search={{ t: undefined }}
-							className="text-primary text-xs hover:underline"
-						>
-							{t("videos.watch")}
-						</Link>
+						{isDone ? (
+							<>
+								<StreamHistoryButton
+									videoId={video.id}
+									videoStartDownloadAt={video.start_download_at}
+									className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								/>
+								<Link
+									to="/dashboard/watch/$videoId"
+									params={{ videoId: String(video.id) }}
+									search={{ t: undefined }}
+									className="text-primary text-xs hover:underline"
+								>
+									{t("videos.watch")}
+								</Link>
+							</>
+						) : null}
+						{canManage ? <RemoveVideoButton videoId={video.id} /> : null}
 					</div>
-				) : null,
+				);
+			},
 		},
 	];
 }

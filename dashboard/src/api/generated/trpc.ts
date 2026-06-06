@@ -63,6 +63,25 @@ export interface CategoryLink {
   name: string;
 }
 
+export interface CategoryListPageInput {
+  limit?: number;
+  sort?: string;
+  cursor?: CategoryPageCursor;
+  direction?: string;
+}
+
+export interface CategoryPageCursor {
+  name: string;
+  id: string;
+  latest_video_at?: string;
+  video_count?: number;
+}
+
+export interface CategoryPageResponse {
+  items: CategoryResponse[];
+  next_cursor?: CategoryPageCursor;
+}
+
 /** CategoryResponse is the wire shape for a category. */
 export interface CategoryResponse {
   id: string;
@@ -210,10 +229,6 @@ export interface CreateInput {
   is_disabled: boolean;
   category_ids: string[];
   tag_ids: number[];
-}
-
-export interface DeleteInput {
-  id: number;
 }
 
 export interface DeleteResponse {
@@ -511,6 +526,10 @@ export interface RunNowInput {
   name: string;
 }
 
+export interface ScheduleDeleteInput {
+  id: number;
+}
+
 export interface ScheduleGetByIDInput {
   id: number;
 }
@@ -693,6 +712,11 @@ export interface StatisticsResponse {
    * the videos table — used by the videos page subtitle.
    */
   channels: number;
+  /**
+   * Removed counts tombstoned recordings; drives the History "Removed" tab
+   * count (the only count not derivable from by_status, which is live-only).
+   */
+  removed: number;
 }
 
 export interface StatsBucket {
@@ -983,6 +1007,10 @@ export interface VideoCategory {
   duration_seconds: number;
 }
 
+export interface VideoDeleteInput {
+  id: number;
+}
+
 export interface VideoGetByIDInput {
   id: number;
 }
@@ -1004,6 +1032,7 @@ export interface VideoListPageCursor {
   sort_number?: number;
   sort_int?: string;
   sort_text?: string;
+  sort_time?: string;
   start_download_at: string;
   id: number;
 }
@@ -1020,6 +1049,19 @@ export interface VideoListPageInput {
   size?: string;
   window?: string;
   incomplete_only?: boolean;
+  /**
+   * TerminalOnly keeps active in-flight rows out of history-style views while
+   * still allowing those views to include both active terminal rows and
+   * tombstones through Scope="all".
+   */
+  terminal_only?: boolean;
+  /**
+   * Scope selects the tombstone state. Empty/"active" keeps the library
+   * default (live recordings only); "removed" and "all" power the
+   * removed-inclusive history surface. Channel/category grids and search
+   * never expose this and stay active-only.
+   */
+  scope?: string;
   cursor?: VideoListPageCursor;
   direction?: string;
 }
@@ -1152,6 +1194,19 @@ export interface VideoResponse {
   start_download_at: string;
   downloaded_at?: string;
   /**
+   * DeletedAt is set on tombstoned (removed) recordings; DeletionKind
+   * records why ("retention" | "manual"). Both nil for live recordings.
+   * Surfaced only on the removed-inclusive history surface (listPage with
+   * scope removed/all); the library default scope never returns these rows.
+   */
+  deleted_at?: string;
+  deletion_kind?: string;
+  /**
+   * DeleteRequestedAt is set while a manual removal is queued but not yet
+   * finalized by the background deletion task.
+   */
+  delete_requested_at?: string;
+  /**
    * Parts is populated only by GetByID — list endpoints skip it
    * to avoid N+1 queries on grid views.
    */
@@ -1215,6 +1270,7 @@ type AppRouterRecord = {
   category: {
     getById: $Query<CategoryGetByIDInput, CategoryResponse>;
     list: $Query<void, CategoryResponse[]>;
+    listPage: $Query<CategoryListPageInput, CategoryPageResponse>;
     listWithVideos: $Query<void, CategoryResponse[]>;
     search: $Query<CategorySearchInput, CategoryResponse[]>;
     searchWithVideos: $Query<CategorySearchInput, CategoryResponse[]>;
@@ -1249,7 +1305,7 @@ type AppRouterRecord = {
   };
   schedule: {
     create: $Mutation<CreateInput, ScheduleResponse>;
-    delete: $Mutation<DeleteInput, DeleteResponse>;
+    delete: $Mutation<ScheduleDeleteInput, DeleteResponse>;
     getById: $Query<ScheduleGetByIDInput, ScheduleResponse>;
     list: $Query<ScheduleListInput, ScheduleListResponse>;
     mine: $Query<ScheduleListInput, ScheduleListResponse>;
@@ -1300,6 +1356,7 @@ type AppRouterRecord = {
     byCategory: $Query<ByCategoryInput, VideoPageResponse>;
     cancel: $Mutation<CancelInput, VideoOK>;
     categories: $Query<CategoriesInput, VideoCategory[]>;
+    delete: $Mutation<VideoDeleteInput, VideoOK>;
     downloadCapacity: $Query<void, DownloadCapacityResponse>;
     downloadProgress: $Subscription<DownloadProgressInput, ProgressEvent>;
     getById: $Query<VideoGetByIDInput, VideoResponse>;

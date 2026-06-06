@@ -1,5 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import type { CategoryPageResponse } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
+
+export type CategorySort =
+	| "name_asc"
+	| "latest_video_desc"
+	| "video_count_desc";
 
 export function useCategories() {
 	const trpc = useTRPC();
@@ -9,6 +15,19 @@ export function useCategories() {
 export function useCategoriesWithVideos() {
 	const trpc = useTRPC();
 	return useQuery(trpc.category.listWithVideos.queryOptions());
+}
+
+export function useInfiniteCategoriesWithVideos(sort: CategorySort) {
+	const trpc = useTRPC();
+	return useInfiniteQuery(
+		trpc.category.listPage.infiniteQueryOptions(
+			{ limit: 60, sort },
+			{
+				getNextPageParam: (lastPage: CategoryPageResponse) =>
+					lastPage.next_cursor ?? undefined,
+			},
+		),
+	);
 }
 
 export function useCategory(id: string) {

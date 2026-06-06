@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { DataTable } from "@/components/ui/data-table";
+import { Pager } from "@/components/ui/pager";
 import {
 	Select,
 	SelectContent,
@@ -144,7 +145,13 @@ function EventsView({
 						data={data.data}
 						emptyMessage={t("events.empty")}
 					/>
-					<Pager page={page} total={data.total} onPage={setPage} />
+					<Pager
+						page={page}
+						total={data.total}
+						hasNext={(page + 1) * PAGE_SIZE < data.total}
+						onPrev={() => setPage((p) => Math.max(0, p - 1))}
+						onNext={() => setPage((p) => p + 1)}
+					/>
 				</>
 			)}
 		</>
@@ -174,45 +181,15 @@ function ApiLogsView() {
 						data={data?.data ?? []}
 						emptyMessage={t("logs.api_empty")}
 					/>
-					<Pager page={page} total={data?.total ?? 0} onPage={setPage} />
+					<Pager
+						page={page}
+						total={data?.total ?? 0}
+						hasNext={(page + 1) * PAGE_SIZE < (data?.total ?? 0)}
+						onPrev={() => setPage((p) => Math.max(0, p - 1))}
+						onNext={() => setPage((p) => p + 1)}
+					/>
 				</>
 			)}
 		</>
-	);
-}
-
-function Pager({
-	page,
-	total,
-	onPage,
-}: {
-	page: number;
-	total: number;
-	onPage: (updater: (p: number) => number) => void;
-}) {
-	const { t } = useTranslation();
-	const hasNext = (page + 1) * PAGE_SIZE < total;
-	return (
-		<div className="flex items-center gap-2 mt-4">
-			<button
-				type="button"
-				disabled={page === 0}
-				onClick={() => onPage((p) => Math.max(0, p - 1))}
-				className="px-3 py-1 rounded-md border border-border disabled:opacity-50 text-sm"
-			>
-				{t("events.prev")}
-			</button>
-			<span className="text-sm text-muted-foreground">
-				{t("events.page", { n: page + 1 })} · {total} {t("events.total")}
-			</span>
-			<button
-				type="button"
-				disabled={!hasNext}
-				onClick={() => onPage((p) => p + 1)}
-				className="px-3 py-1 rounded-md border border-border disabled:opacity-50 text-sm"
-			>
-				{t("events.next")}
-			</button>
-		</div>
 	);
 }

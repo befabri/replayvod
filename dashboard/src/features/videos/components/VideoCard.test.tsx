@@ -129,7 +129,9 @@ afterEach(() => {
 
 describe("VideoCard stored preview thumbnail", () => {
 	it("does not mount stored preview fallback images while the card is off-screen", () => {
-		const { container } = render(<VideoCard video={video()} />);
+		const { container } = render(
+			<VideoCard video={video()} canManage={false} />,
+		);
 
 		expect(storedPreviewImg(container)).toBeNull();
 
@@ -142,7 +144,9 @@ describe("VideoCard stored preview thumbnail", () => {
 
 	it("stops retrying a missing stored preview after three cache-busted attempts", () => {
 		vi.useFakeTimers();
-		const { container } = render(<VideoCard video={video()} />);
+		const { container } = render(
+			<VideoCard video={video()} canManage={false} />,
+		);
 		setIntersecting(true);
 
 		let img = storedPreviewImg(container);
@@ -174,7 +178,9 @@ describe("VideoCard stored preview thumbnail", () => {
 
 	it("pauses a pending stored preview retry while the card is off-screen", () => {
 		vi.useFakeTimers();
-		const { container } = render(<VideoCard video={video()} />);
+		const { container } = render(
+			<VideoCard video={video()} canManage={false} />,
+		);
 		setIntersecting(true);
 
 		const img = storedPreviewImg(container);

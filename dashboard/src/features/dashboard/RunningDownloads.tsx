@@ -10,12 +10,14 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+	useCancelDownload,
 	useDownloadCapacity,
 	useLiveActiveDownloads,
 	useVideoTimeline,
 } from "@/features/videos";
 import { TimelineChangeContent } from "@/features/videos/components/timelinePopover";
 import { formatBytes, formatPlaybackTime } from "@/features/videos/format";
+import { useCanManageVideos } from "@/features/videos/permissions";
 import { useLiveSeconds } from "@/hooks/useLiveSeconds";
 import { cn, isFinitePositive, percentOf } from "@/lib/utils";
 import {
@@ -39,13 +41,18 @@ const STAGE_PIPELINE = [
 	"thumbnail",
 ] as const;
 
-export function RunningDownloads() {
+export function RunningDownloads({ limit }: { limit?: number }) {
 	const { t } = useTranslation();
 	const { data, dataUpdatedAt, isLoading, isError, error } =
 		useLiveActiveDownloads();
 	const { data: capacity } = useDownloadCapacity();
 	const rows = data ?? [];
 	const maxConcurrent = capacity?.max_concurrent ?? 0;
+	// `limit` turns this into the dashboard-home peek: render only the first
+	// few rows and link to the full Downloads page. The count badge still
+	// reflects the true active total, not the truncated view.
+	const visible = limit != null ? rows.slice(0, limit) : rows;
+	const hasMore = limit != null && rows.length > limit;
 
 	return (
 		<section className="rounded-2xl border border-border bg-card/70 px-4 py-4 sm:px-6 sm:py-5">
@@ -76,15 +83,31 @@ export function RunningDownloads() {
 					{t("dashboard.running_now_empty")}
 				</div>
 			) : (
-				<div className="divide-y divide-border">
-					{rows.map((row) => (
-						<RunningDownloadRow
-							key={row.video.job_id}
-							row={row}
-							sampleAt={dataUpdatedAt}
-						/>
-					))}
-				</div>
+				<>
+					<div className="divide-y divide-border">
+						{visible.map((row) => (
+							<RunningDownloadRow
+								key={row.video.job_id}
+								row={row}
+								sampleAt={dataUpdatedAt}
+								// Cancel is offered on the full Downloads page, not the
+								// dashboard-home peek (limit set) where it'd be an easy
+								// misclick beside a glanceable readout.
+								cancelable={limit == null}
+							/>
+						))}
+					</div>
+					{hasMore ? (
+						<div className="pt-4">
+							<Link
+								to="/dashboard/downloads"
+								className="text-sm text-link hover:underline"
+							>
+								{t("dashboard.view_all_downloads", { count: rows.length })}
+							</Link>
+						</div>
+					) : null}
+				</>
 			)}
 		</section>
 	);
@@ -97,9 +120,11 @@ export function RunningDownloads() {
 function RunningDownloadRow({
 	row,
 	sampleAt,
+	cancelable,
 }: {
 	row: ActiveDownloadResponse;
 	sampleAt: number;
+	cancelable: boolean;
 }) {
 	const channelName = row.video.broadcaster_name || row.video.display_name;
 	const estimatedBytes = estimateTotalBytes(row.bytes_written, row.percent);
@@ -189,8 +214,13 @@ function RunningDownloadRow({
 						) : null}
 					</div>
 				</div>
-				<div className="shrink-0 font-mono text-sm text-foreground tabular-nums">
-					{row.speed || "—"}
+				<div className="flex shrink-0 items-center gap-3">
+					<span className="font-mono text-sm text-foreground tabular-nums">
+						{row.speed || "—"}
+					</span>
+					{cancelable ? (
+						<CancelDownloadButton jobId={row.video.job_id} />
+					) : null}
 				</div>
 			</div>
 
@@ -212,6 +242,30 @@ function RunningDownloadRow({
 				/>
 			</div>
 		</div>
+	);
+}
+
+// CancelDownloadButton stops an in-flight recording. The downloader's Cancel is
+// a no-op for an unknown job, so a stale row can't error here; the live feed
+// drops the row once the run goroutine exits.
+function CancelDownloadButton({ jobId }: { jobId: string }) {
+	const { t } = useTranslation();
+	const cancel = useCancelDownload();
+	const canManage = useCanManageVideos();
+
+	if (!canManage) {
+		return null;
+	}
+
+	return (
+		<button
+			type="button"
+			onClick={() => cancel.mutate({ job_id: jobId })}
+			disabled={cancel.isPending}
+			className="text-xs text-destructive hover:underline disabled:opacity-60"
+		>
+			{t("downloads.cancel")}
+		</button>
 	);
 }
 

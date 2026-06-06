@@ -10,6 +10,7 @@ import {
 	type VideoResponse,
 } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
 
 // Ms between snapshot swaps on hover. 900ms — middle-ground between
@@ -146,7 +147,13 @@ function QualityOverlay({ children }: { children: React.ReactNode }) {
 	);
 }
 
-export function VideoCard({ video }: { video: VideoResponse }) {
+export function VideoCard({
+	video,
+	canManage,
+}: {
+	video: VideoResponse;
+	canManage: boolean;
+}) {
 	const { t } = useTranslation();
 	const mediaRef = useRef<HTMLDivElement | null>(null);
 	const [mediaVisible, setMediaVisible] = useState(false);
@@ -376,6 +383,7 @@ export function VideoCard({ video }: { video: VideoResponse }) {
 							videoStartDownloadAt={video.start_download_at}
 							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 						/>
+						{canManage ? <RemoveVideoButton videoId={video.id} /> : null}
 					</div>
 				) : (
 					<div

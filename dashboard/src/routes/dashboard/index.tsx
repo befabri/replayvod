@@ -40,7 +40,7 @@ function DashboardHome() {
 			</div>
 			<LiveStreamsCard />
 			<div className="mt-6">
-				<RunningDownloads />
+				<RunningDownloads limit={3} />
 			</div>
 		</TitledLayout>
 	);

@@ -1,6 +1,5 @@
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
@@ -8,7 +7,9 @@ import { useCategory } from "@/features/categories/queries";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
+import { useCanManageVideos } from "@/features/videos/permissions";
 import { useInfiniteVideosByCategory } from "@/features/videos/queries";
+import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
 
 export const Route = createFileRoute("/dashboard/categories_/$categoryId")({
 	component: CategoryDetailPage,
@@ -19,33 +20,20 @@ function CategoryDetailPage() {
 	const { categoryId } = Route.useParams();
 	const category = useCategory(categoryId);
 	const videos = useInfiniteVideosByCategory(categoryId, 24);
-	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 	const videoItems = videos.data?.pages.flatMap((page) => page.items) ?? [];
 	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
-
-	useEffect(() => {
-		const node = loadMoreRef.current;
-		if (!node || !videos.hasNextPage) {
-			return;
-		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (!entries[0]?.isIntersecting || videos.isFetchingNextPage) {
-					return;
-				}
-				void videos.fetchNextPage();
-			},
-			{ rootMargin: "400px 0px" },
-		);
-		observer.observe(node);
-		return () => observer.disconnect();
-	}, [videos.fetchNextPage, videos.hasNextPage, videos.isFetchingNextPage]);
+	const canManage = useCanManageVideos();
+	const loadMoreRef = useInfiniteScrollSentinel({
+		enabled: !!videos.hasNextPage,
+		isLoadingMore: videos.isFetchingNextPage,
+		onLoadMore: () => videos.fetchNextPage(),
+	});
 
 	return (
 		<TitledLayout title={category.data?.name ?? ""}>
 			<Link
 				to="/dashboard/categories"
-				search={{ view: "card" }}
+				search={{ sort: "name_asc" }}
 				className="group -mt-6 mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
 			>
 				<CaretLeftIcon
@@ -90,7 +78,11 @@ function CategoryDetailPage() {
 			)}
 			{videos.data && videoItems.length > 0 && (
 				<>
-					<VirtualVideoGrid videos={videoItems} variant="wide" />
+					<VirtualVideoGrid
+						videos={videoItems}
+						variant="wide"
+						canManage={canManage}
+					/>
 					<div ref={loadMoreRef} className="h-1" />
 					{videos.isFetchingNextPage && (
 						<VideoGridLoading count={2} variant="wide" />

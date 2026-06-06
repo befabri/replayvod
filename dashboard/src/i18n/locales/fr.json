@@ -27,7 +27,7 @@
 		"expand_sidebar": "Agrandir",
 		"requests": "Demandes",
 		"sessions": "Sessions",
-		"activity_queue": "File d'attente",
+		"downloads": "Téléchargements",
 		"activity_history": "Historique",
 		"activity": "Activité",
 		"recording": "Enregistrement",
@@ -54,7 +54,11 @@
 		"view_all": "Voir tout",
 		"copy": "Copier",
 		"copied": "Copié",
-		"actions": "Actions"
+		"actions": "Actions",
+		"previous": "Précédent",
+		"next": "Suivant",
+		"page": "Page {{n}}",
+		"total_count": "{{total}} au total"
 	},
 	"search": {
 		"open": "Ouvrir la recherche",
@@ -82,6 +86,7 @@
 		"active_capacity": "{{active}}/{{max}} actives",
 		"running_now_empty": "Aucun téléchargement actif.",
 		"running_now_failed": "Impossible de charger les téléchargements en cours",
+		"view_all_downloads": "Voir les {{count}} téléchargements",
 		"recording_timeline": "Chronologie de l'enregistrement",
 		"current_part": "Partie {{part}}",
 		"elapsed": "{{time}} écoulées",
@@ -104,8 +109,10 @@
 		"title": "Catégories",
 		"empty": "Aucune catégorie. Elles apparaîtront quand des streams seront enregistrés.",
 		"failed_to_load": "Impossible de charger les catégories",
-		"view_card": "Cartes",
-		"view_grid": "Grille"
+		"sort_default": "Par défaut",
+		"sort_latest_video": "Dernière vidéo",
+		"sort_video_count": "Plus de vidéos",
+		"end_of_list": "Fin de la liste"
 	},
 	"channels": {
 		"title": "Chaînes",
@@ -258,11 +265,17 @@
 			"truncated_tooltip": "L'enregistreur s'est arrêté avant la fin de la diffusion — une interruption serveur, une reprise échouée ou une finalisation sans le marqueur de fin de playlist. Le fichier se lit proprement ; la diffusion s'est juste poursuivie au-delà de l'arrêt.",
 			"cancelled": "ANNULÉ",
 			"cancelled_tooltip": "Vous avez arrêté cet enregistrement manuellement pendant la diffusion."
-		}
+		},
+		"remove": "Supprimer",
+		"remove_confirm_title": "Supprimer l'enregistrement ?",
+		"remove_confirm_body": "Cela supprime définitivement les fichiers de l'enregistrement. Il reste dans l'historique comme supprimé.",
+		"remove_confirm": "Supprimer"
 	},
 	"watch": {
 		"not_ready": "Cette vidéo n'est pas prête à être lue (statut : {{status}}).",
+		"removed": "Cet enregistrement a été supprimé et ses fichiers ne sont plus disponibles.",
 		"back_to_videos": "← Retour aux vidéos",
+		"back_to_history": "← Retour à l'historique",
 		"layout_aside": "Historique latéral",
 		"layout_wide": "Lecteur étendu",
 		"switch_to_aside": "Déplacer l'historique à côté du lecteur",
@@ -435,30 +448,29 @@
 		"col_status": "Statut",
 		"watch": "Regarder"
 	},
-	"queue": {
-		"title": "File d'attente des téléchargements",
-		"description": "Téléchargements en cours ou en attente de démarrage.",
-		"failed_to_load": "Impossible de charger la file d'attente",
-		"empty": "Aucun téléchargement en cours.",
-		"cancel": "Annuler",
-		"col_channel": "Chaîne",
-		"col_status": "Statut",
-		"col_quality": "Qualité",
-		"col_started": "Démarré"
+	"downloads": {
+		"title": "Téléchargements",
+		"description": "Enregistrements en cours de téléchargement.",
+		"cancel": "Annuler"
 	},
 	"history": {
 		"title": "Historique des téléchargements",
-		"description": "Téléchargements terminés et échoués. Filtrez par statut pour investiguer les échecs.",
+		"description": "Enregistrements terminés, échoués et supprimés.",
 		"failed_to_load": "Impossible de charger l'historique",
-		"empty": "Aucune entrée.",
 		"col_channel": "Chaîne",
 		"col_status": "Statut",
 		"col_quality": "Qualité",
-		"col_duration": "Durée",
 		"col_size": "Taille",
-		"col_finished": "Terminé",
-		"filter_done": "Terminé",
-		"filter_failed": "Échoué"
+		"filter_failed": "Échoué",
+		"filter_removed": "Supprimés",
+		"col_error": "Erreur",
+		"removed_auto": "Supprimé (nettoyage auto)",
+		"removed_manual": "Supprimé (par vous)",
+		"filter_all": "Tout",
+		"col_when": "Quand",
+		"empty_all": "Aucun enregistrement.",
+		"empty_failed": "Aucun enregistrement échoué.",
+		"empty_removed": "Rien n'a été supprimé."
 	},
 	"events": {
 		"title": "Journal d'événements",

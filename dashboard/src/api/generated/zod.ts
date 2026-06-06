@@ -26,6 +26,20 @@ export const CategoryGetByIDInputSchema = z.object({
   id: z.string().min(1),
 }).meta({ id: "CategoryGetByIDInput" });
 
+export const CategoryPageCursorSchema = z.object({
+  name: z.string().min(1),
+  id: z.string().min(1),
+  latest_video_at: z.iso.datetime().optional(),
+  video_count: z.number().optional(),
+}).meta({ id: "CategoryPageCursor" });
+
+export const CategoryListPageInputSchema = z.object({
+  limit: z.int().gte(0).lte(200).optional(),
+  sort: z.enum(["name_asc", "latest_video_desc", "video_count_desc"]).or(z.literal("")).optional(),
+  cursor: CategoryPageCursorSchema.optional(),
+  direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
+}).meta({ id: "CategoryListPageInput" });
+
 export const CategorySearchInputSchema = z.object({
   query: z.string().max(100),
   limit: z.int().gte(0).lte(200).optional(),
@@ -72,10 +86,6 @@ export const CreateInputSchema = z.object({
   category_ids: z.array(z.string()),
   tag_ids: z.array(z.number()),
 }).meta({ id: "CreateInput" });
-
-export const DeleteInputSchema = z.object({
-  id: z.number(),
-}).meta({ id: "DeleteInput" });
 
 export const DownloadProgressInputSchema = z.object({
   job_id: z.string().min(1),
@@ -132,6 +142,10 @@ export const RevokeSessionInputSchema = z.object({
 export const RunNowInputSchema = z.object({
   name: z.string().min(1),
 }).meta({ id: "RunNowInput" });
+
+export const ScheduleDeleteInputSchema = z.object({
+  id: z.number(),
+}).meta({ id: "ScheduleDeleteInput" });
 
 export const ScheduleGetByIDInputSchema = z.object({
   id: z.number(),
@@ -247,6 +261,10 @@ export const VideoByBroadcasterInputSchema = z.object({
   direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
 }).meta({ id: "VideoByBroadcasterInput" });
 
+export const VideoDeleteInputSchema = z.object({
+  id: z.number(),
+}).meta({ id: "VideoDeleteInput" });
+
 export const VideoGetByIDInputSchema = z.object({
   id: z.number(),
 }).meta({ id: "VideoGetByIDInput" });
@@ -255,7 +273,7 @@ export const VideoListInputSchema = z.object({
   limit: z.int().gte(0).lte(200),
   offset: z.int().gte(0),
   status: z.enum(["PENDING", "RUNNING", "DONE", "FAILED"]).or(z.literal("")).optional(),
-  sort: z.enum(["created_at", "duration", "size", "channel"]).or(z.literal("")).optional(),
+  sort: z.enum(["created_at", "duration", "size", "channel", "history_when"]).or(z.literal("")).optional(),
   order: z.enum(["asc", "desc"]).or(z.literal("")).optional(),
 }).meta({ id: "VideoListInput" });
 
@@ -263,6 +281,7 @@ export const VideoListPageCursorSchema = z.object({
   sort_number: z.float64().optional(),
   sort_int: z.string().optional(),
   sort_text: z.string().optional(),
+  sort_time: z.iso.datetime().optional(),
   start_download_at: z.iso.datetime(),
   id: z.number(),
 }).meta({ id: "VideoListPageCursor" });
@@ -270,7 +289,7 @@ export const VideoListPageCursorSchema = z.object({
 export const VideoListPageInputSchema = z.object({
   limit: z.int().gte(0).lte(200),
   status: z.enum(["PENDING", "RUNNING", "DONE", "FAILED"]).or(z.literal("")).optional(),
-  sort: z.enum(["created_at", "duration", "size", "channel"]).or(z.literal("")).optional(),
+  sort: z.enum(["created_at", "duration", "size", "channel", "history_when"]).or(z.literal("")).optional(),
   order: z.enum(["asc", "desc"]).or(z.literal("")).optional(),
   quality: z.string().optional(),
   broadcaster_id: z.string().optional(),
@@ -279,6 +298,8 @@ export const VideoListPageInputSchema = z.object({
   size: z.enum(["small", "medium", "large"]).or(z.literal("")).optional(),
   window: z.enum(["this_week"]).or(z.literal("")).optional(),
   incomplete_only: z.boolean().optional(),
+  terminal_only: z.boolean().optional().describe("TerminalOnly keeps active in-flight rows out of history-style views while\nstill allowing those views to include both active terminal rows and\ntombstones through Scope=\"all\"."),
+  scope: z.enum(["active", "removed", "all"]).or(z.literal("")).optional().describe("Scope selects the tombstone state. Empty/\"active\" keeps the library\ndefault (live recordings only); \"removed\" and \"all\" power the\nremoved-inclusive history surface. Channel/category grids and search\nnever expose this and stay active-only."),
   cursor: VideoListPageCursorSchema.optional(),
   direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
 }).meta({ id: "VideoListPageInput" });
