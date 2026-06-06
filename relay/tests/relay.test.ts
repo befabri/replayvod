@@ -416,6 +416,7 @@ async function startRelay(
 ): Promise<RelayHandle> {
   const worker = await unstable_startWorker({
     config: "wrangler.jsonc",
+    envFiles: ["tests/empty.env"],
     dev: {
       server: { port: 0 },
       inspector: false,
