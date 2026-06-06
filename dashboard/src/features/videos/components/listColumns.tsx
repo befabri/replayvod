@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { Avatar } from "@/components/ui/avatar";
-import { Timestamp } from "@/components/ui/timestamp";
+import { TimestampValue } from "@/components/ui/timestamp";
 import { API_URL } from "@/env";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
@@ -14,6 +14,7 @@ import { VideoStatusBadge } from "./VideoStatusBadge";
 export function videoListColumns(
 	t: TFunction,
 	canManage: boolean,
+	locale: string,
 ): ColumnDef<VideoResponse>[] {
 	return [
 		{
@@ -43,6 +44,7 @@ export function videoListColumns(
 				<VideoStatusBadge
 					status={row.original.status}
 					completionKind={row.original.completion_kind}
+					t={t}
 				/>
 			),
 		},
@@ -76,8 +78,9 @@ export function videoListColumns(
 			header: "Started",
 			enableSorting: true,
 			cell: ({ row }) => (
-				<Timestamp
+				<TimestampValue
 					iso={row.original.start_download_at}
+					locale={locale}
 					className="text-xs text-muted-foreground"
 				/>
 			),
@@ -107,6 +110,7 @@ export function videoListColumns(
 								<StreamHistoryButton
 									videoId={video.id}
 									videoStartDownloadAt={video.start_download_at}
+									t={t}
 									className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 								/>
 								<Link

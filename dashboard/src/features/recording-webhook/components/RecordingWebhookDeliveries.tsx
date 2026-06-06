@@ -11,7 +11,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
-import { Timestamp } from "@/components/ui/timestamp";
+import { TimestampValue } from "@/components/ui/timestamp";
 import {
 	useRecordingWebhookDeliveries,
 	useRetryRecordingWebhookDelivery,
@@ -71,7 +71,7 @@ export function RecordingWebhookDeliveries() {
 }
 
 function DeliveryRow({ delivery }: { delivery: Delivery }) {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const retry = useRetryRecordingWebhookDelivery();
 	const retrying = retry.isPending && retry.variables?.id === delivery.id;
 	const canRetry =
@@ -110,7 +110,7 @@ function DeliveryRow({ delivery }: { delivery: Delivery }) {
 						{delivery.error}
 					</span>
 				)}
-				<Timestamp iso={delivery.time} />
+				<TimestampValue iso={delivery.time} locale={i18n.language} />
 				{canRetry && (
 					<Button
 						type="button"

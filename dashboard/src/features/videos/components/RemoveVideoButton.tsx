@@ -63,17 +63,19 @@ export function RemoveVideoButton({
 				<TrashIcon className="size-4" />
 				{withLabel ? t("videos.remove") : null}
 			</button>
-			<ConfirmDialog
-				open={open}
-				onOpenChange={setOpen}
-				title={t("videos.remove_confirm_title")}
-				description={t("videos.remove_confirm_body")}
-				confirmLabel={t("videos.remove_confirm")}
-				cancelLabel={t("common.cancel")}
-				onConfirm={confirm}
-				confirming={remove.isPending}
-				destructive
-			/>
+			{open ? (
+				<ConfirmDialog
+					open={open}
+					onOpenChange={setOpen}
+					title={t("videos.remove_confirm_title")}
+					description={t("videos.remove_confirm_body")}
+					confirmLabel={t("videos.remove_confirm")}
+					cancelLabel={t("common.cancel")}
+					onConfirm={confirm}
+					confirming={remove.isPending}
+					destructive
+				/>
+			) : null}
 		</>
 	);
 }

@@ -4,6 +4,7 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
+import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -364,6 +365,7 @@ export function GlobalSearch({
 														key={result.id}
 														result={result}
 														query={debouncedQuery}
+														t={t}
 													/>
 												)}
 											</ComboboxCollection>
@@ -421,9 +423,11 @@ export function GlobalSearchDialog({ className }: { className?: string }) {
 function SearchResultItem({
 	result,
 	query,
+	t,
 }: {
 	result: SearchResult;
 	query: string;
+	t: TFunction;
 }) {
 	return (
 		<ComboboxItem
@@ -431,7 +435,7 @@ function SearchResultItem({
 			className="h-auto w-full cursor-pointer justify-start gap-3 px-2 py-2 text-left whitespace-normal data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
 		>
 			{result.kind === "video" && (
-				<VideoResultRow video={result.item} query={query} />
+				<VideoResultRow video={result.item} query={query} t={t} />
 			)}
 			{result.kind === "channel" && (
 				<ChannelResultRow channel={result.item} query={query} />
@@ -446,9 +450,11 @@ function SearchResultItem({
 function VideoResultRow({
 	video,
 	query,
+	t,
 }: {
 	video: VideoResponse;
 	query: string;
+	t: TFunction;
 }) {
 	const title = video.title?.trim() || video.display_name;
 	const channel = channelLabel(video);
@@ -490,6 +496,7 @@ function VideoResultRow({
 			<VideoStatusBadge
 				status={video.status}
 				completionKind={video.completion_kind}
+				t={t}
 			/>
 		</>
 	);

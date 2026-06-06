@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Badge } from "@/components/ui/badge";
 
 // RemovedBadge marks a tombstoned (deleted) recording in the history audit log.
@@ -8,10 +8,11 @@ import { Badge } from "@/components/ui/badge";
 // apart from an operator delete (manual).
 export function RemovedBadge({
 	deletionKind,
+	t,
 }: {
 	deletionKind?: string | null;
+	t: TFunction;
 }) {
-	const { t } = useTranslation();
 	const label =
 		deletionKind === "retention"
 			? t("history.removed_auto")

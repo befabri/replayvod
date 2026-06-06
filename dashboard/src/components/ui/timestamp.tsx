@@ -25,6 +25,24 @@ export function Timestamp({
 	className?: string;
 }) {
 	const { i18n } = useTranslation();
+
+	return (
+		<TimestampValue iso={iso} locale={i18n.language} className={className} />
+	);
+}
+
+// TimestampValue is the pure locale-injected variant for table/list rows whose
+// parent already subscribes to i18n. It avoids one useTranslation subscription
+// per row while preserving Timestamp's relative-time ticking behavior.
+export function TimestampValue({
+	iso,
+	locale,
+	className,
+}: {
+	iso: string;
+	locale: string;
+	className?: string;
+}) {
 	const [, tick] = useState(0);
 
 	useEffect(() => {
@@ -34,8 +52,8 @@ export function Timestamp({
 		return () => window.clearInterval(id);
 	}, [iso]);
 
-	const visible = formatTimestamp(iso, i18n.language);
-	const full = formatAbsolute(iso, i18n.language);
+	const visible = formatTimestamp(iso, locale);
+	const full = formatAbsolute(iso, locale);
 	return (
 		<time dateTime={iso} title={full} className={className}>
 			{visible}

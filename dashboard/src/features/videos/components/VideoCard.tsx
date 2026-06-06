@@ -1,5 +1,6 @@
 import { PlayIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
+import type { TFunction } from "i18next";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
@@ -104,11 +105,12 @@ function useHoverSnapshots(
 function IncompleteOverlayBadge({
 	completionKind,
 	truncated,
+	t,
 }: {
 	completionKind: string;
 	truncated: boolean;
+	t: TFunction;
 }) {
-	const { t } = useTranslation();
 	const variant =
 		completionKind === "partial"
 			? "partial"
@@ -328,6 +330,7 @@ export function VideoCard({
 					<IncompleteOverlayBadge
 						completionKind={video.completion_kind}
 						truncated={video.truncated}
+						t={t}
 					/>
 				</div>
 				{video.duration_seconds ? (
@@ -381,6 +384,7 @@ export function VideoCard({
 						<StreamHistoryButton
 							videoId={video.id}
 							videoStartDownloadAt={video.start_download_at}
+							t={t}
 							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 						/>
 						{canManage ? <RemoveVideoButton videoId={video.id} /> : null}

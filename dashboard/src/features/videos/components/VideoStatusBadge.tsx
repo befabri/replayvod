@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { CompletionKind, VideoStatus } from "@/api/generated/trpc";
 import { Badge } from "@/components/ui/badge";
 import { videoStatusLabel } from "@/features/videos/labels";
@@ -17,11 +17,12 @@ const STATUS_VARIANT: Record<VideoStatus, "green" | "red" | "blue" | "muted"> =
 export function VideoStatusBadge({
 	status,
 	completionKind,
+	t,
 }: {
 	status: VideoStatus;
 	completionKind?: CompletionKind;
+	t: TFunction;
 }) {
-	const { t } = useTranslation();
 	const isCancelled = status === "FAILED" && completionKind === "cancelled";
 	const isPartial = status === "DONE" && completionKind === "partial";
 	const label = isCancelled

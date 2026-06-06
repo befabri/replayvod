@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { DataTable } from "@/components/ui/data-table";
@@ -96,7 +96,11 @@ function LogsPage() {
 			</div>
 
 			{source === "events" ? (
-				<EventsView domain={domain} severity={severity} />
+				<EventsView
+					key={`${domain ?? ""}:${severity ?? ""}`}
+					domain={domain}
+					severity={severity}
+				/>
 			) : (
 				<ApiLogsView />
 			)}
@@ -121,10 +125,6 @@ function EventsView({
 	});
 	// Land new rows live while this view is mounted.
 	useLiveSystemEvents();
-
-	// Reset to the first page whenever the filters change.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset on filter change, not page
-	useEffect(() => setPage(0), [domain, severity]);
 
 	const columns = useMemo(() => eventLogColumns(t), [t]);
 

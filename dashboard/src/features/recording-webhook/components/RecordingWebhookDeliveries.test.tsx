@@ -16,6 +16,7 @@ vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: (key: string, vars?: { count?: number }) =>
 			vars?.count == null ? key : `${key}:${vars.count}`,
+		i18n: { language: "en" },
 	}),
 }));
 
@@ -28,6 +29,8 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/components/ui/timestamp", () => ({
 	Timestamp: ({ iso }: { iso: string }) => createElement("span", null, iso),
+	TimestampValue: ({ iso }: { iso: string }) =>
+		createElement("span", null, iso),
 }));
 
 vi.mock("../queries", () => ({

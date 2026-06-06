@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { useState } from "react";
-import { Timestamp } from "@/components/ui/timestamp";
+import { TimestampValue } from "@/components/ui/timestamp";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes } from "@/features/videos/format";
 import { cn } from "@/lib/utils";
@@ -53,9 +53,10 @@ function statusColumn(t: TFunction): ColumnDef<VideoResponse> {
 				<VideoStatusBadge
 					status={row.original.status}
 					completionKind={row.original.completion_kind}
+					t={t}
 				/>
 				{row.original.deleted_at ? (
-					<RemovedBadge deletionKind={row.original.deletion_kind} />
+					<RemovedBadge deletionKind={row.original.deletion_kind} t={t} />
 				) : null}
 			</span>
 		),
@@ -80,14 +81,18 @@ const sizeColumn = (t: TFunction): ColumnDef<VideoResponse> => ({
 // whenColumn shows the most relevant moment for the row: when it was removed,
 // else when it finished, else when it started. Relative ("2h ago") with an
 // absolute hover via the shared Timestamp.
-const whenColumn = (t: TFunction): ColumnDef<VideoResponse> => ({
+const whenColumn = (
+	t: TFunction,
+	locale: string,
+): ColumnDef<VideoResponse> => ({
 	id: "when",
 	header: t("history.col_when"),
 	cell: ({ row }) => {
 		const v = row.original;
 		return (
-			<Timestamp
+			<TimestampValue
 				iso={v.deleted_at ?? v.downloaded_at ?? v.start_download_at}
+				locale={locale}
 				className="text-xs text-muted-foreground"
 			/>
 		);
@@ -170,6 +175,7 @@ export function historyColumns(
 	t: TFunction,
 	filter: HistoryFilter,
 	canManage: boolean,
+	locale: string,
 ): ColumnDef<VideoResponse>[] {
 	let cols: ColumnDef<VideoResponse>[];
 	if (filter === "removed") {
@@ -178,14 +184,14 @@ export function historyColumns(
 			statusColumn(t),
 			qualityColumn(t),
 			sizeColumn(t),
-			whenColumn(t),
+			whenColumn(t, locale),
 		];
 	} else if (filter === "failed") {
 		cols = [
 			channelColumn(t),
 			statusColumn(t),
 			qualityColumn(t),
-			whenColumn(t),
+			whenColumn(t, locale),
 			errorColumn(t),
 			actionsColumn(t, canManage),
 		];
@@ -195,7 +201,7 @@ export function historyColumns(
 			statusColumn(t),
 			qualityColumn(t),
 			sizeColumn(t),
-			whenColumn(t),
+			whenColumn(t, locale),
 			actionsColumn(t, canManage),
 		];
 	}

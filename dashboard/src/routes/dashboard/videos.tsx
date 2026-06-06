@@ -135,7 +135,7 @@ export const Route = createFileRoute("/dashboard/videos")({
 });
 
 function VideosPage() {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const {
 		tab,
 		status,
@@ -205,7 +205,10 @@ function VideosPage() {
 	// filter. Reset on page reload. See note in useLanguageFacet.
 	const seenLanguages = useLanguageFacet(loadedRows, language);
 
-	const columns = useMemo(() => videoListColumns(t, canManage), [t, canManage]);
+	const columns = useMemo(
+		() => videoListColumns(t, canManage, i18n.language),
+		[t, canManage, i18n.language],
+	);
 	const statusOptions = useMemo(
 		() =>
 			withSelectedOption(

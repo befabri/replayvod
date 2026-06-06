@@ -96,7 +96,7 @@ function HistoryContent({
 	filter: HistoryFilter;
 	onFilterChange: (next: HistoryFilter) => void;
 }) {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const [page, setPage] = useState(0);
 	const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
 
@@ -127,8 +127,8 @@ function HistoryContent({
 	// that renders null.
 	const canManage = useCanManageVideos();
 	const columns = useMemo(
-		() => historyColumns(t, filter, canManage),
-		[t, filter, canManage],
+		() => historyColumns(t, filter, canManage, i18n.language),
+		[t, filter, canManage, i18n.language],
 	);
 	const counts = useHistoryCounts();
 
