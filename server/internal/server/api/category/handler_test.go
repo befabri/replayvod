@@ -110,7 +110,7 @@ func TestListWithVideos_FiltersCatalogOnlyAndDeletedVideoCategories(t *testing.T
 	if err := repo.LinkVideoCategory(ctx, deleted.ID, "cat-deleted"); err != nil {
 		t.Fatalf("link deleted category: %v", err)
 	}
-	if err := repo.SoftDeleteVideo(ctx, deleted.ID); err != nil {
+	if err := repo.SoftDeleteVideo(ctx, deleted.ID, repository.DeletionKindManual); err != nil {
 		t.Fatalf("soft delete video: %v", err)
 	}
 

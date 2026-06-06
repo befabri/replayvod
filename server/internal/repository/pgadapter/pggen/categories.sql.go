@@ -209,6 +209,226 @@ func (q *Queries) ListCategoriesWithVideos(ctx context.Context) ([]Category, err
 	return items, nil
 }
 
+const listCategoriesWithVideosPageLatestDesc = `-- name: ListCategoriesWithVideosPageLatestDesc :many
+WITH category_stats AS (
+    SELECT
+        vc.category_id,
+        MAX(v.start_download_at) AS latest_video_at,
+        COUNT(DISTINCT vc.video_id)::bigint AS video_count
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE v.deleted_at IS NULL
+    GROUP BY vc.category_id
+)
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, category_stats.latest_video_at, category_stats.video_count
+FROM categories c
+INNER JOIN category_stats ON category_stats.category_id = c.id
+WHERE (
+    $1::timestamptz IS NULL
+    OR category_stats.latest_video_at < $1::timestamptz
+    OR (
+        category_stats.latest_video_at = $1::timestamptz
+        AND lower(c.name) > lower($2::text)
+    )
+    OR (
+        category_stats.latest_video_at = $1::timestamptz
+        AND lower(c.name) = lower($2::text)
+        AND c.id > $3::text
+    )
+)
+ORDER BY category_stats.latest_video_at DESC, lower(c.name) ASC, c.id ASC
+LIMIT $4
+`
+
+type ListCategoriesWithVideosPageLatestDescParams struct {
+	CursorLatestVideoAt *time.Time `json:"cursor_latest_video_at"`
+	CursorName          *string    `json:"cursor_name"`
+	CursorID            string     `json:"cursor_id"`
+	RowLimit            int32      `json:"row_limit"`
+}
+
+type ListCategoriesWithVideosPageLatestDescRow struct {
+	ID            string      `json:"id"`
+	Name          string      `json:"name"`
+	BoxArtUrl     *string     `json:"box_art_url"`
+	IgdbID        *string     `json:"igdb_id"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+	LatestVideoAt interface{} `json:"latest_video_at"`
+	VideoCount    int64       `json:"video_count"`
+}
+
+func (q *Queries) ListCategoriesWithVideosPageLatestDesc(ctx context.Context, arg ListCategoriesWithVideosPageLatestDescParams) ([]ListCategoriesWithVideosPageLatestDescRow, error) {
+	rows, err := q.db.Query(ctx, listCategoriesWithVideosPageLatestDesc,
+		arg.CursorLatestVideoAt,
+		arg.CursorName,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCategoriesWithVideosPageLatestDescRow{}
+	for rows.Next() {
+		var i ListCategoriesWithVideosPageLatestDescRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LatestVideoAt,
+			&i.VideoCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoriesWithVideosPageNameAsc = `-- name: ListCategoriesWithVideosPageNameAsc :many
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+WHERE EXISTS (
+    SELECT 1
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE vc.category_id = c.id
+      AND v.deleted_at IS NULL
+)
+  AND (
+    $1::text IS NULL
+    OR lower(c.name) > lower($1::text)
+    OR (lower(c.name) = lower($1::text) AND c.id > $2::text)
+  )
+ORDER BY lower(c.name) ASC, c.id ASC
+LIMIT $3
+`
+
+type ListCategoriesWithVideosPageNameAscParams struct {
+	CursorName *string `json:"cursor_name"`
+	CursorID   string  `json:"cursor_id"`
+	RowLimit   int32   `json:"row_limit"`
+}
+
+// Cursor-paginated browse list for the default category order. This mirrors
+// ListCategoriesWithVideos' visibility predicate while over-fetching at the
+// adapter layer to discover the next cursor.
+func (q *Queries) ListCategoriesWithVideosPageNameAsc(ctx context.Context, arg ListCategoriesWithVideosPageNameAscParams) ([]Category, error) {
+	rows, err := q.db.Query(ctx, listCategoriesWithVideosPageNameAsc, arg.CursorName, arg.CursorID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoriesWithVideosPageVideoCountDesc = `-- name: ListCategoriesWithVideosPageVideoCountDesc :many
+WITH category_stats AS (
+    SELECT
+        vc.category_id,
+        MAX(v.start_download_at) AS latest_video_at,
+        COUNT(DISTINCT vc.video_id)::bigint AS video_count
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE v.deleted_at IS NULL
+    GROUP BY vc.category_id
+)
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, category_stats.latest_video_at, category_stats.video_count
+FROM categories c
+INNER JOIN category_stats ON category_stats.category_id = c.id
+WHERE (
+    $1::text IS NULL
+    OR category_stats.video_count < $2::bigint
+    OR (
+        category_stats.video_count = $2::bigint
+        AND lower(c.name) > lower($1::text)
+    )
+    OR (
+        category_stats.video_count = $2::bigint
+        AND lower(c.name) = lower($1::text)
+        AND c.id > $3::text
+    )
+)
+ORDER BY category_stats.video_count DESC, lower(c.name) ASC, c.id ASC
+LIMIT $4
+`
+
+type ListCategoriesWithVideosPageVideoCountDescParams struct {
+	CursorName       *string `json:"cursor_name"`
+	CursorVideoCount int64   `json:"cursor_video_count"`
+	CursorID         string  `json:"cursor_id"`
+	RowLimit         int32   `json:"row_limit"`
+}
+
+type ListCategoriesWithVideosPageVideoCountDescRow struct {
+	ID            string      `json:"id"`
+	Name          string      `json:"name"`
+	BoxArtUrl     *string     `json:"box_art_url"`
+	IgdbID        *string     `json:"igdb_id"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+	LatestVideoAt interface{} `json:"latest_video_at"`
+	VideoCount    int64       `json:"video_count"`
+}
+
+func (q *Queries) ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context, arg ListCategoriesWithVideosPageVideoCountDescParams) ([]ListCategoriesWithVideosPageVideoCountDescRow, error) {
+	rows, err := q.db.Query(ctx, listCategoriesWithVideosPageVideoCountDesc,
+		arg.CursorName,
+		arg.CursorVideoCount,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCategoriesWithVideosPageVideoCountDescRow{}
+	for rows.Next() {
+		var i ListCategoriesWithVideosPageVideoCountDescRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LatestVideoAt,
+			&i.VideoCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pruneCategorySearchCache = `-- name: PruneCategorySearchCache :exec
 DELETE FROM category_search_cache
 WHERE normalized_query IN (

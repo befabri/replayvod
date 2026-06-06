@@ -45,6 +45,86 @@ WHERE EXISTS (
 )
 ORDER BY c.name;
 
+-- name: ListCategoriesWithVideosPageNameAsc :many
+-- Cursor-paginated browse list for the default category order. This mirrors
+-- ListCategoriesWithVideos' visibility predicate while over-fetching at the
+-- adapter layer to discover the next cursor.
+SELECT c.* FROM categories c
+WHERE EXISTS (
+    SELECT 1
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE vc.category_id = c.id
+      AND v.deleted_at IS NULL
+)
+  AND (
+    sqlc.narg('cursor_name')::text IS NULL
+    OR lower(c.name) > lower(sqlc.narg('cursor_name')::text)
+    OR (lower(c.name) = lower(sqlc.narg('cursor_name')::text) AND c.id > @cursor_id::text)
+  )
+ORDER BY lower(c.name) ASC, c.id ASC
+LIMIT @row_limit;
+
+-- name: ListCategoriesWithVideosPageLatestDesc :many
+WITH category_stats AS (
+    SELECT
+        vc.category_id,
+        MAX(v.start_download_at) AS latest_video_at,
+        COUNT(DISTINCT vc.video_id)::bigint AS video_count
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE v.deleted_at IS NULL
+    GROUP BY vc.category_id
+)
+SELECT c.*, category_stats.latest_video_at, category_stats.video_count
+FROM categories c
+INNER JOIN category_stats ON category_stats.category_id = c.id
+WHERE (
+    sqlc.narg('cursor_latest_video_at')::timestamptz IS NULL
+    OR category_stats.latest_video_at < sqlc.narg('cursor_latest_video_at')::timestamptz
+    OR (
+        category_stats.latest_video_at = sqlc.narg('cursor_latest_video_at')::timestamptz
+        AND lower(c.name) > lower(sqlc.narg('cursor_name')::text)
+    )
+    OR (
+        category_stats.latest_video_at = sqlc.narg('cursor_latest_video_at')::timestamptz
+        AND lower(c.name) = lower(sqlc.narg('cursor_name')::text)
+        AND c.id > @cursor_id::text
+    )
+)
+ORDER BY category_stats.latest_video_at DESC, lower(c.name) ASC, c.id ASC
+LIMIT @row_limit;
+
+-- name: ListCategoriesWithVideosPageVideoCountDesc :many
+WITH category_stats AS (
+    SELECT
+        vc.category_id,
+        MAX(v.start_download_at) AS latest_video_at,
+        COUNT(DISTINCT vc.video_id)::bigint AS video_count
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE v.deleted_at IS NULL
+    GROUP BY vc.category_id
+)
+SELECT c.*, category_stats.latest_video_at, category_stats.video_count
+FROM categories c
+INNER JOIN category_stats ON category_stats.category_id = c.id
+WHERE (
+    sqlc.narg('cursor_name')::text IS NULL
+    OR category_stats.video_count < @cursor_video_count::bigint
+    OR (
+        category_stats.video_count = @cursor_video_count::bigint
+        AND lower(c.name) > lower(sqlc.narg('cursor_name')::text)
+    )
+    OR (
+        category_stats.video_count = @cursor_video_count::bigint
+        AND lower(c.name) = lower(sqlc.narg('cursor_name')::text)
+        AND c.id > @cursor_id::text
+    )
+)
+ORDER BY category_stats.video_count DESC, lower(c.name) ASC, c.id ASC
+LIMIT @row_limit;
+
 -- name: ListCategoriesByIDs :many
 SELECT * FROM categories WHERE id = ANY(@ids::text[]);
 

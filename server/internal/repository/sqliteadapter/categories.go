@@ -2,6 +2,7 @@ package sqliteadapter
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 // Categories
@@ -125,6 +127,66 @@ func (a *SQLiteAdapter) ListCategoriesWithVideos(ctx context.Context) ([]reposit
 		cats[i] = *sqliteCategoryToDomain(row)
 	}
 	return cats, nil
+}
+
+func (a *SQLiteAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit int, sort string, cursor *repository.CategoryPageCursor) (*repository.CategoryPage, error) {
+	sort = repository.NormalizeCategoryPageSort(sort)
+	rowLimit := int64(limit + 1)
+
+	switch sort {
+	case "latest_video_desc":
+		rows, err := a.queries.ListCategoriesWithVideosPageLatestDesc(ctx, sqlitegen.ListCategoriesWithVideosPageLatestDescParams{
+			CursorLatestVideoAt: sqliteCategoryCursorLatestVideoAt(cursor),
+			CursorName:          sqliteCategoryCursorName(cursor),
+			CursorID:            sqliteCategoryCursorID(cursor),
+			RowLimit:            rowLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sqlite list category page by latest video: %w", err)
+		}
+		items := make([]repository.CategoryPageItem, 0, len(rows))
+		for _, row := range rows {
+			item, err := sqliteLatestCategoryPageItem(row)
+			if err != nil {
+				return nil, fmt.Errorf("sqlite list category page by latest video: %w", err)
+			}
+			items = append(items, item)
+		}
+		return repository.ToCategoryPage(items, limit, sort), nil
+	case "video_count_desc":
+		rows, err := a.queries.ListCategoriesWithVideosPageVideoCountDesc(ctx, sqlitegen.ListCategoriesWithVideosPageVideoCountDescParams{
+			CursorVideoCount: sqliteCategoryCursorVideoCount(cursor),
+			CursorName:       sqliteCategoryCursorName(cursor),
+			CursorID:         sqliteCategoryCursorID(cursor),
+			RowLimit:         rowLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sqlite list category page by video count: %w", err)
+		}
+		items := make([]repository.CategoryPageItem, 0, len(rows))
+		for _, row := range rows {
+			item, err := sqliteCountCategoryPageItem(row)
+			if err != nil {
+				return nil, fmt.Errorf("sqlite list category page by video count: %w", err)
+			}
+			items = append(items, item)
+		}
+		return repository.ToCategoryPage(items, limit, sort), nil
+	default:
+		rows, err := a.queries.ListCategoriesWithVideosPageNameAsc(ctx, sqlitegen.ListCategoriesWithVideosPageNameAscParams{
+			CursorName: sqliteCategoryCursorName(cursor),
+			CursorID:   sqliteCategoryCursorID(cursor),
+			RowLimit:   rowLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sqlite list category page by name: %w", err)
+		}
+		items := make([]repository.CategoryPageItem, len(rows))
+		for i, row := range rows {
+			items[i] = repository.CategoryPageItem{Category: *sqliteCategoryToDomain(row)}
+		}
+		return repository.ToCategoryPage(items, limit, sort), nil
+	}
 }
 
 func (a *SQLiteAdapter) ListCategoriesByIDs(ctx context.Context, ids []string) ([]repository.Category, error) {
@@ -244,6 +306,85 @@ func (a *SQLiteAdapter) PruneCategorySearchCache(ctx context.Context, maxRows in
 		return fmt.Errorf("sqlite prune category search cache: %w", err)
 	}
 	return nil
+}
+
+func sqliteCategoryCursorName(cursor *repository.CategoryPageCursor) sql.NullString {
+	if cursor == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: cursor.Name, Valid: true}
+}
+
+func sqliteCategoryCursorID(cursor *repository.CategoryPageCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	return cursor.ID
+}
+
+func sqliteCategoryCursorLatestVideoAt(cursor *repository.CategoryPageCursor) sql.NullString {
+	if cursor == nil || cursor.LatestVideoAt == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: sqlitetype.Format(*cursor.LatestVideoAt), Valid: true}
+}
+
+func sqliteCategoryCursorVideoCount(cursor *repository.CategoryPageCursor) int64 {
+	if cursor == nil {
+		return 0
+	}
+	return cursor.VideoCount
+}
+
+func sqliteLatestCategoryPageItem(row sqlitegen.ListCategoriesWithVideosPageLatestDescRow) (repository.CategoryPageItem, error) {
+	latest, err := sqliteCategoryPageTime(row.LatestVideoAt)
+	if err != nil {
+		return repository.CategoryPageItem{}, err
+	}
+	return repository.CategoryPageItem{
+		Category: repository.Category{
+			ID:        row.ID,
+			Name:      row.Name,
+			BoxArtURL: fromNullString(row.BoxArtUrl),
+			IGDBID:    fromNullString(row.IgdbID),
+			CreatedAt: row.CreatedAt.Time,
+			UpdatedAt: row.UpdatedAt.Time,
+		},
+		LatestVideoAt: latest,
+		VideoCount:    row.VideoCount,
+	}, nil
+}
+
+func sqliteCountCategoryPageItem(row sqlitegen.ListCategoriesWithVideosPageVideoCountDescRow) (repository.CategoryPageItem, error) {
+	latest, err := sqliteCategoryPageTime(row.LatestVideoAt)
+	if err != nil {
+		return repository.CategoryPageItem{}, err
+	}
+	return repository.CategoryPageItem{
+		Category: repository.Category{
+			ID:        row.ID,
+			Name:      row.Name,
+			BoxArtURL: fromNullString(row.BoxArtUrl),
+			IGDBID:    fromNullString(row.IgdbID),
+			CreatedAt: row.CreatedAt.Time,
+			UpdatedAt: row.UpdatedAt.Time,
+		},
+		LatestVideoAt: latest,
+		VideoCount:    row.VideoCount,
+	}, nil
+}
+
+func sqliteCategoryPageTime(v any) (time.Time, error) {
+	switch x := v.(type) {
+	case time.Time:
+		return x.UTC(), nil
+	case string:
+		return sqlitetype.Parse(x)
+	case []byte:
+		return sqlitetype.Parse(string(x))
+	default:
+		return time.Time{}, fmt.Errorf("sqlite category page timestamp: cannot scan %T", v)
+	}
 }
 
 // Tags

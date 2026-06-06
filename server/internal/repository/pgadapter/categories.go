@@ -123,6 +123,66 @@ func (a *PGAdapter) ListCategoriesWithVideos(ctx context.Context) ([]repository.
 	return cats, nil
 }
 
+func (a *PGAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit int, sort string, cursor *repository.CategoryPageCursor) (*repository.CategoryPage, error) {
+	sort = repository.NormalizeCategoryPageSort(sort)
+	rowLimit := int32(limit + 1)
+
+	switch sort {
+	case "latest_video_desc":
+		rows, err := a.queries.ListCategoriesWithVideosPageLatestDesc(ctx, pggen.ListCategoriesWithVideosPageLatestDescParams{
+			CursorLatestVideoAt: pgCategoryCursorLatestVideoAt(cursor),
+			CursorName:          pgCategoryCursorName(cursor),
+			CursorID:            pgCategoryCursorID(cursor),
+			RowLimit:            rowLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("pg list category page by latest video: %w", err)
+		}
+		items := make([]repository.CategoryPageItem, 0, len(rows))
+		for _, row := range rows {
+			item, err := pgLatestCategoryPageItem(row)
+			if err != nil {
+				return nil, fmt.Errorf("pg list category page by latest video: %w", err)
+			}
+			items = append(items, item)
+		}
+		return repository.ToCategoryPage(items, limit, sort), nil
+	case "video_count_desc":
+		rows, err := a.queries.ListCategoriesWithVideosPageVideoCountDesc(ctx, pggen.ListCategoriesWithVideosPageVideoCountDescParams{
+			CursorName:       pgCategoryCursorName(cursor),
+			CursorVideoCount: pgCategoryCursorVideoCount(cursor),
+			CursorID:         pgCategoryCursorID(cursor),
+			RowLimit:         rowLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("pg list category page by video count: %w", err)
+		}
+		items := make([]repository.CategoryPageItem, 0, len(rows))
+		for _, row := range rows {
+			item, err := pgCountCategoryPageItem(row)
+			if err != nil {
+				return nil, fmt.Errorf("pg list category page by video count: %w", err)
+			}
+			items = append(items, item)
+		}
+		return repository.ToCategoryPage(items, limit, sort), nil
+	default:
+		rows, err := a.queries.ListCategoriesWithVideosPageNameAsc(ctx, pggen.ListCategoriesWithVideosPageNameAscParams{
+			CursorName: pgCategoryCursorName(cursor),
+			CursorID:   pgCategoryCursorID(cursor),
+			RowLimit:   rowLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("pg list category page by name: %w", err)
+		}
+		items := make([]repository.CategoryPageItem, len(rows))
+		for i, row := range rows {
+			items[i] = repository.CategoryPageItem{Category: *pgCategoryToDomain(row)}
+		}
+		return repository.ToCategoryPage(items, limit, sort), nil
+	}
+}
+
 func (a *PGAdapter) ListCategoriesByIDs(ctx context.Context, ids []string) ([]repository.Category, error) {
 	if len(ids) == 0 {
 		return []repository.Category{}, nil
@@ -240,6 +300,90 @@ func (a *PGAdapter) PruneCategorySearchCache(ctx context.Context, maxRows int) e
 		return fmt.Errorf("pg prune category search cache: %w", err)
 	}
 	return nil
+}
+
+func pgCategoryCursorName(cursor *repository.CategoryPageCursor) *string {
+	if cursor == nil {
+		return nil
+	}
+	return &cursor.Name
+}
+
+func pgCategoryCursorID(cursor *repository.CategoryPageCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	return cursor.ID
+}
+
+func pgCategoryCursorLatestVideoAt(cursor *repository.CategoryPageCursor) *time.Time {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.LatestVideoAt
+}
+
+func pgCategoryCursorVideoCount(cursor *repository.CategoryPageCursor) int64 {
+	if cursor == nil {
+		return 0
+	}
+	return cursor.VideoCount
+}
+
+func pgLatestCategoryPageItem(row pggen.ListCategoriesWithVideosPageLatestDescRow) (repository.CategoryPageItem, error) {
+	latest, err := pgCategoryPageTime(row.LatestVideoAt)
+	if err != nil {
+		return repository.CategoryPageItem{}, err
+	}
+	return repository.CategoryPageItem{
+		Category: repository.Category{
+			ID:        row.ID,
+			Name:      row.Name,
+			BoxArtURL: row.BoxArtUrl,
+			IGDBID:    row.IgdbID,
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		},
+		LatestVideoAt: latest,
+		VideoCount:    row.VideoCount,
+	}, nil
+}
+
+func pgCountCategoryPageItem(row pggen.ListCategoriesWithVideosPageVideoCountDescRow) (repository.CategoryPageItem, error) {
+	latest, err := pgCategoryPageTime(row.LatestVideoAt)
+	if err != nil {
+		return repository.CategoryPageItem{}, err
+	}
+	return repository.CategoryPageItem{
+		Category: repository.Category{
+			ID:        row.ID,
+			Name:      row.Name,
+			BoxArtURL: row.BoxArtUrl,
+			IGDBID:    row.IgdbID,
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		},
+		LatestVideoAt: latest,
+		VideoCount:    row.VideoCount,
+	}, nil
+}
+
+func pgCategoryPageTime(v any) (time.Time, error) {
+	switch x := v.(type) {
+	case time.Time:
+		return x.UTC(), nil
+	case *time.Time:
+		if x == nil {
+			return time.Time{}, fmt.Errorf("pg category page timestamp: nil value")
+		}
+		return x.UTC(), nil
+	case string:
+		return time.Parse(time.RFC3339, x)
+	case []byte:
+		return time.Parse(time.RFC3339, string(x))
+	default:
+		return time.Time{}, fmt.Errorf("pg category page timestamp: cannot scan %T", v)
+	}
 }
 
 // Tags

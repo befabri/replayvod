@@ -24,6 +24,7 @@ type categoryRepo interface {
 	GetCategory(ctx context.Context, id string) (*repository.Category, error)
 	ListCategories(ctx context.Context) ([]repository.Category, error)
 	ListCategoriesWithVideos(ctx context.Context) ([]repository.Category, error)
+	ListCategoriesWithVideosPage(ctx context.Context, limit int, sort string, cursor *repository.CategoryPageCursor) (*repository.CategoryPage, error)
 	ListCategoriesByIDs(ctx context.Context, ids []string) ([]repository.Category, error)
 	SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error)
 	SearchCategoriesWithVideos(ctx context.Context, query string, limit int) ([]repository.Category, error)
@@ -131,6 +132,11 @@ func (s *Service) List(ctx context.Context) ([]repository.Category, error) {
 // recording library until a video is linked to them.
 func (s *Service) ListWithVideos(ctx context.Context) ([]repository.Category, error) {
 	return s.repo.ListCategoriesWithVideos(ctx)
+}
+
+// ListPage returns a cursor-paginated slice of browse/library categories.
+func (s *Service) ListPage(ctx context.Context, limit int, sort string, cursor *repository.CategoryPageCursor) (*repository.CategoryPage, error) {
+	return s.repo.ListCategoriesWithVideosPage(ctx, limit, sort, cursor)
 }
 
 // SearchWithVideos returns only categories that have at least one visible

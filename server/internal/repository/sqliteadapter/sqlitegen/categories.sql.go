@@ -233,6 +233,255 @@ func (q *Queries) ListCategoriesWithVideos(ctx context.Context) ([]Category, err
 	return items, nil
 }
 
+const listCategoriesWithVideosPageLatestDesc = `-- name: ListCategoriesWithVideosPageLatestDesc :many
+WITH params AS (
+    SELECT CAST(?1 AS text) AS cursor_latest_video_at,
+           CAST(?2 AS text) AS cursor_name,
+           CAST(?3 AS text) AS cursor_id,
+           CAST(?4 AS integer) AS row_limit
+),
+category_stats AS (
+    SELECT
+        vc.category_id,
+        MAX(v.start_download_at) AS latest_video_at,
+        COUNT(DISTINCT vc.video_id) AS video_count
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE v.deleted_at IS NULL
+    GROUP BY vc.category_id
+)
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, category_stats.latest_video_at, category_stats.video_count
+FROM categories c
+INNER JOIN category_stats ON category_stats.category_id = c.id
+CROSS JOIN params
+WHERE (
+    params.cursor_latest_video_at IS NULL
+    OR category_stats.latest_video_at < params.cursor_latest_video_at
+    OR (
+        category_stats.latest_video_at = params.cursor_latest_video_at
+        AND unicode_lower(c.name) > unicode_lower(params.cursor_name)
+    )
+    OR (
+        category_stats.latest_video_at = params.cursor_latest_video_at
+        AND unicode_lower(c.name) = unicode_lower(params.cursor_name)
+        AND c.id > params.cursor_id
+    )
+)
+ORDER BY category_stats.latest_video_at DESC, unicode_lower(c.name) ASC, c.id ASC
+LIMIT (SELECT row_limit FROM params)
+`
+
+type ListCategoriesWithVideosPageLatestDescParams struct {
+	CursorLatestVideoAt sql.NullString `json:"cursor_latest_video_at"`
+	CursorName          sql.NullString `json:"cursor_name"`
+	CursorID            string         `json:"cursor_id"`
+	RowLimit            int64          `json:"row_limit"`
+}
+
+type ListCategoriesWithVideosPageLatestDescRow struct {
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	BoxArtUrl     sql.NullString  `json:"box_art_url"`
+	IgdbID        sql.NullString  `json:"igdb_id"`
+	CreatedAt     sqlitetype.Time `json:"created_at"`
+	UpdatedAt     sqlitetype.Time `json:"updated_at"`
+	LatestVideoAt interface{}     `json:"latest_video_at"`
+	VideoCount    int64           `json:"video_count"`
+}
+
+func (q *Queries) ListCategoriesWithVideosPageLatestDesc(ctx context.Context, arg ListCategoriesWithVideosPageLatestDescParams) ([]ListCategoriesWithVideosPageLatestDescRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoriesWithVideosPageLatestDesc,
+		arg.CursorLatestVideoAt,
+		arg.CursorName,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCategoriesWithVideosPageLatestDescRow{}
+	for rows.Next() {
+		var i ListCategoriesWithVideosPageLatestDescRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LatestVideoAt,
+			&i.VideoCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoriesWithVideosPageNameAsc = `-- name: ListCategoriesWithVideosPageNameAsc :many
+WITH params AS (
+    SELECT CAST(?1 AS text) AS cursor_name,
+           CAST(?2 AS text) AS cursor_id,
+           CAST(?3 AS integer) AS row_limit
+)
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+CROSS JOIN params
+WHERE EXISTS (
+    SELECT 1
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE vc.category_id = c.id
+      AND v.deleted_at IS NULL
+)
+  AND (
+    params.cursor_name IS NULL
+    OR unicode_lower(c.name) > unicode_lower(params.cursor_name)
+    OR (unicode_lower(c.name) = unicode_lower(params.cursor_name) AND c.id > params.cursor_id)
+  )
+ORDER BY unicode_lower(c.name) ASC, c.id ASC
+LIMIT (SELECT row_limit FROM params)
+`
+
+type ListCategoriesWithVideosPageNameAscParams struct {
+	CursorName sql.NullString `json:"cursor_name"`
+	CursorID   string         `json:"cursor_id"`
+	RowLimit   int64          `json:"row_limit"`
+}
+
+// Cursor-paginated browse list for the default category order. This mirrors
+// ListCategoriesWithVideos' visibility predicate while over-fetching at the
+// adapter layer to discover the next cursor.
+func (q *Queries) ListCategoriesWithVideosPageNameAsc(ctx context.Context, arg ListCategoriesWithVideosPageNameAscParams) ([]Category, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoriesWithVideosPageNameAsc, arg.CursorName, arg.CursorID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoriesWithVideosPageVideoCountDesc = `-- name: ListCategoriesWithVideosPageVideoCountDesc :many
+WITH params AS (
+    SELECT CAST(?1 AS integer) AS cursor_video_count,
+           CAST(?2 AS text) AS cursor_name,
+           CAST(?3 AS text) AS cursor_id,
+           CAST(?4 AS integer) AS row_limit
+),
+category_stats AS (
+    SELECT
+        vc.category_id,
+        MAX(v.start_download_at) AS latest_video_at,
+        COUNT(DISTINCT vc.video_id) AS video_count
+    FROM video_categories vc
+    INNER JOIN videos v ON v.id = vc.video_id
+    WHERE v.deleted_at IS NULL
+    GROUP BY vc.category_id
+)
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, category_stats.latest_video_at, category_stats.video_count
+FROM categories c
+INNER JOIN category_stats ON category_stats.category_id = c.id
+CROSS JOIN params
+WHERE (
+    params.cursor_name IS NULL
+    OR category_stats.video_count < params.cursor_video_count
+    OR (
+        category_stats.video_count = params.cursor_video_count
+        AND unicode_lower(c.name) > unicode_lower(params.cursor_name)
+    )
+    OR (
+        category_stats.video_count = params.cursor_video_count
+        AND unicode_lower(c.name) = unicode_lower(params.cursor_name)
+        AND c.id > params.cursor_id
+    )
+)
+ORDER BY category_stats.video_count DESC, unicode_lower(c.name) ASC, c.id ASC
+LIMIT (SELECT row_limit FROM params)
+`
+
+type ListCategoriesWithVideosPageVideoCountDescParams struct {
+	CursorVideoCount int64          `json:"cursor_video_count"`
+	CursorName       sql.NullString `json:"cursor_name"`
+	CursorID         string         `json:"cursor_id"`
+	RowLimit         int64          `json:"row_limit"`
+}
+
+type ListCategoriesWithVideosPageVideoCountDescRow struct {
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	BoxArtUrl     sql.NullString  `json:"box_art_url"`
+	IgdbID        sql.NullString  `json:"igdb_id"`
+	CreatedAt     sqlitetype.Time `json:"created_at"`
+	UpdatedAt     sqlitetype.Time `json:"updated_at"`
+	LatestVideoAt interface{}     `json:"latest_video_at"`
+	VideoCount    int64           `json:"video_count"`
+}
+
+func (q *Queries) ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context, arg ListCategoriesWithVideosPageVideoCountDescParams) ([]ListCategoriesWithVideosPageVideoCountDescRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoriesWithVideosPageVideoCountDesc,
+		arg.CursorVideoCount,
+		arg.CursorName,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCategoriesWithVideosPageVideoCountDescRow{}
+	for rows.Next() {
+		var i ListCategoriesWithVideosPageVideoCountDescRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LatestVideoAt,
+			&i.VideoCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pruneCategorySearchCache = `-- name: PruneCategorySearchCache :exec
 DELETE FROM category_search_cache
 WHERE normalized_query IN (
