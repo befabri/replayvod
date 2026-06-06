@@ -23,7 +23,7 @@ func TestNormalize_PerFix(t *testing.T) {
 	for _, fix := range normalizeFixes {
 		t.Run(fix.Name, func(t *testing.T) {
 			input := readFixture(t, fix.Name+".input.html")
-			expected := readFixture(t, fix.Name+".expected.html")
+			expected := canonicalFixtureHTML(t, readFixture(t, fix.Name+".expected.html"), fix.Scope)
 
 			doc := parseFragment(t, input)
 			// Fixtures are rooted at the wrapper itself — resolveScope navigates
@@ -41,6 +41,7 @@ func TestNormalize_PerFix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("serialize: %v", err)
 			}
+			got = canonicalFixtureHTML(t, got, fix.Scope)
 			if got != expected {
 				t.Errorf("output mismatch\n--- expected (%d bytes)\n%s\n--- got (%d bytes)\n%s",
 					len(expected), expected, len(got), got)
@@ -169,6 +170,20 @@ func parseFragment(t *testing.T, fragment string) *goquery.Document {
 		t.Fatalf("parse fragment: %v", err)
 	}
 	return doc
+}
+
+func canonicalFixtureHTML(t *testing.T, fragment string, scope fixScope) string {
+	t.Helper()
+	doc := parseFragment(t, fragment)
+	el, err := resolveFixtureWrapper(doc, scope)
+	if err != nil {
+		t.Fatalf("canonicalize fixture: %v", err)
+	}
+	out, err := goquery.OuterHtml(el)
+	if err != nil {
+		t.Fatalf("canonicalize fixture: %v", err)
+	}
+	return out
 }
 
 // resolveFixtureWrapper returns the single wrapper a fixture should contain,
