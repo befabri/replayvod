@@ -35,7 +35,7 @@ The server is a self-contained Go process. One binary handles:
   `channel.update`; reconciles on boot; falls back to polling when EventSub is
   unavailable.
 - **Scheduler** — small task runner with DB-persisted state for periodic jobs
-  (polling, category-art backfill, token cleanup, etc.).
+  (polling, category metadata backfills, token cleanup, etc.).
 - **SSE bus** — typed pub/sub used to push live indicators and task status to
   the dashboard.
 
@@ -177,8 +177,8 @@ setups.
 - **Scheduler** — `internal/scheduler/`. A single ticker wakes every 15 s and
   runs due tasks. Each task has its own row with `next_run_at`, `is_enabled`,
   and `last_error`, so the dashboard can pause, schedule, and inspect tasks at
-  runtime. Standard tasks: stream-online polling fallback, thumbnail backfill,
-  category-art sync, token cleanup.
+  runtime. Standard tasks include EventSub reconciliation/snapshots, category
+  art/IGDB metadata sync, retention sweeps, and token/session cleanup.
 - **SSE bus** — `internal/eventbus/`. Typed `Topic[T]` with bounded
   subscriber buffers, used to push live indicators and task status to the
   dashboard via `/api/v1/sse`.

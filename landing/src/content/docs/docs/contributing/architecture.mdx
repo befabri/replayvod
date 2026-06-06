@@ -91,7 +91,7 @@ Migrations live in `migrations/{postgres,sqlite}/` as numbered `NNN_name.up.sql`
 | Downloader       | `internal/downloader/`         | HLS pull → segment fetch with retry → ffmpeg remux → ffprobe → thumbnail → upload. State in DB so crashes resume cleanly. |
 | EventSub manager | `internal/service/eventsub/`   | Boot reconcile (delete orphans, create missing) and per-call quota snapshots. |
 | Scheduler        | `internal/scheduler/`          | One ticker, 15 s cadence. Each task has its own row with `next_run_at`, `is_enabled`, `last_error`. |
-| Standard tasks   | `internal/scheduler/tasks.go`  | EventSub reconcile, quota snapshot, category-art sync, retention sweeps for fetch/event logs and webhook payloads, session and app-token cleanup. |
+| Standard tasks   | `internal/scheduler/tasks.go`  | EventSub reconcile, quota snapshot, category art/IGDB metadata sync, retention sweeps for fetch/event logs and webhook payloads, session and app-token cleanup. |
 
 ## Dashboard
 

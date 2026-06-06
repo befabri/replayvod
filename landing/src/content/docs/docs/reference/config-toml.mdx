@@ -67,7 +67,8 @@ Used only when `[storage].type = "s3"`.
 | `enabled`                                 | `true`  | Master switch for the scheduled-task runner. |
 | `eventsub_interval_minutes`               | `10`    | EventSub quota-snapshot cadence. |
 | `eventsub_reconcile_interval_minutes`     | `60`    | Periodic full reconcile of EventSub subscriptions. |
-| `category_art_interval_minutes`           | `1440`  | Backfill `box_art_url` on categories from Helix `/games`. |
+| `category_art_interval_minutes`           | `1440`  | Backfill `box_art_url` and `igdb_id` on categories from Helix `/games`. |
+| `category_metadata_interval_minutes`      | `1440`  | Backfill category descriptions from IGDB games with a known `igdb_id`. |
 | `token_cleanup_interval_minutes`          | `60`    | Drop expired Twitch app tokens. |
 | `session_cleanup_interval_minutes`        | `120`   | Drop expired user session tokens. |
 | `fetch_logs_retention_days`               | `14`    | Retention sweep for the Helix fetch-log table. |
