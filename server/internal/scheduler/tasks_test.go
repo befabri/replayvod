@@ -187,7 +187,7 @@ func (f *schedulerFakeGames) GetGames(_ context.Context, params *twitch.GetGames
 
 // TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet pins the
 // "everything on" contract: with every interval populated and all optional
-// services present, exactly these ten tasks register, each carrying the
+// services present, exactly these eleven tasks register, each carrying the
 // interval derived from its own config field. Distinct minute values catch a
 // crossed wire (e.g. reconcile reading EventsubIntervalMinutes), and the four
 // log-retention tasks must land on the fixed daily cadence (86400s) rather than
@@ -225,7 +225,8 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 		// distinct from the daily constant; otherwise a mutant that hands
 		// category_art_sync the fixed daily cadence instead of minutes*60
 		// would pass unnoticed.
-		"category_art_sync": 45 * 60,
+		"category_art_sync":              45 * 60,
+		retention.ManualDeletionTaskName: retention.ManualDeletionIntervalSeconds,
 		// 30 min → 1800s, a poll cadence derived from the field (not a
 		// retention-day count), distinct from every other value above.
 		"recordings_retention": 30 * 60,

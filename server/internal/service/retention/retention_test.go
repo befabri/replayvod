@@ -271,7 +271,7 @@ func TestRetentionQueries(t *testing.T) {
 		t.Fatalf("create pending video: %v", err)
 	}
 	vGone := seedDoneVideo(t, ctx, repo, "job-gone", "rec-gone", "b-del")
-	if err := repo.SoftDeleteVideo(ctx, vGone.ID); err != nil {
+	if err := repo.SoftDeleteVideo(ctx, vGone.ID, repository.DeletionKindManual); err != nil {
 		t.Fatalf("soft delete: %v", err)
 	}
 	vNotDue, err := repo.CreateVideo(ctx, &repository.VideoInput{
@@ -458,6 +458,192 @@ func TestSweep_SkipsRecordingWithUnfrozenPendingWebhook(t *testing.T) {
 		t.Fatalf("deleted = %d, want 1 after webhook parts are frozen", deleted)
 	}
 	assertObjectsGone(t, ctx, store)
+}
+
+func TestProcessManualDeletes_WaitsForWebhookFrozenParts(t *testing.T) {
+	ctx := context.Background()
+	repo := newTestRepo(t)
+	store := newLocalStore(t)
+	svc := New(repo, store, discardLog())
+
+	v := seedRecordingWithObjects(t, ctx, repo, store)
+	delivery, err := repo.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+		MessageID:     "msg-manual-delete-block",
+		DedupeKey:     "dedupe-manual-delete-block",
+		Event:         "recording.completed",
+		VideoID:       v.ID,
+		NextAttemptAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
+	}
+
+	if err := svc.RequestManualDelete(ctx, v); err != nil {
+		t.Fatalf("RequestManualDelete: %v", err)
+	}
+	task, err := repo.GetTask(ctx, ManualDeletionTaskName)
+	if err != nil {
+		t.Fatalf("GetTask after RequestManualDelete: %v", err)
+	}
+	if !task.IsEnabled || int64(task.IntervalSeconds) != ManualDeletionIntervalSeconds {
+		t.Fatalf("manual deletion task = %+v, want enabled interval %d", task, ManualDeletionIntervalSeconds)
+	}
+	queued, err := repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo queued: %v", err)
+	}
+	if queued.DeleteRequestedAt == nil {
+		t.Fatal("DeleteRequestedAt is nil after RequestManualDelete")
+	}
+
+	deleted, err := svc.ProcessManualDeletes(ctx)
+	if err != nil {
+		t.Fatalf("ProcessManualDeletes with unfrozen webhook: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("deleted = %d, want 0 while pending webhook parts are not frozen", deleted)
+	}
+	assertObjectsExist(t, ctx, store)
+	parts, err := repo.ListVideoParts(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("ListVideoParts before freeze: %v", err)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("part rows before freeze = %d, want 2", len(parts))
+	}
+	got, err := repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo before freeze: %v", err)
+	}
+	if got.DeletedAt != nil {
+		t.Fatal("video tombstoned before webhook parts were frozen")
+	}
+
+	if err := repo.SetRecordingWebhookDeliveryFrozenParts(ctx, delivery.ID, "[]"); err != nil {
+		t.Fatalf("SetRecordingWebhookDeliveryFrozenParts: %v", err)
+	}
+	deleted, err = svc.ProcessManualDeletes(ctx)
+	if err != nil {
+		t.Fatalf("ProcessManualDeletes after freezing webhook parts: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1 after webhook parts are frozen", deleted)
+	}
+	assertObjectsGone(t, ctx, store)
+	parts, err = repo.ListVideoParts(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("ListVideoParts after delete: %v", err)
+	}
+	if len(parts) != 0 {
+		t.Fatalf("part rows after delete = %d, want 0", len(parts))
+	}
+	got, err = repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo after delete: %v", err)
+	}
+	if got.DeletedAt == nil {
+		t.Fatal("video not tombstoned after manual delete worker")
+	}
+	if got.DeletionKind == nil || *got.DeletionKind != repository.DeletionKindManual {
+		t.Fatalf("DeletionKind = %v, want %q", got.DeletionKind, repository.DeletionKindManual)
+	}
+}
+
+func TestRequestManualDelete_RejectsWhenWorkerUnavailableWithoutQueueing(t *testing.T) {
+	ctx := context.Background()
+	repo := newTestRepo(t)
+	store := newLocalStore(t)
+	svc := New(repo, store, discardLog(), WithManualDeletionWorkerAvailable(false))
+
+	seedChannelUser(t, ctx, repo, "u-delete-worker", "b-delete-worker")
+	v := seedDoneVideo(t, ctx, repo, "job-delete-worker", "rec-delete-worker", "b-delete-worker")
+
+	err := svc.RequestManualDelete(ctx, v)
+	if !errors.Is(err, ErrManualDeletionUnavailable) {
+		t.Fatalf("RequestManualDelete err = %v, want ErrManualDeletionUnavailable", err)
+	}
+	got, err := repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.DeleteRequestedAt != nil {
+		t.Fatalf("DeleteRequestedAt = %v, want nil when worker is unavailable", got.DeleteRequestedAt)
+	}
+}
+
+func TestRequestManualDelete_RejectsDisabledTaskWithoutQueueing(t *testing.T) {
+	ctx := context.Background()
+	repo := newTestRepo(t)
+	store := newLocalStore(t)
+	svc := New(repo, store, discardLog())
+
+	seedChannelUser(t, ctx, repo, "u-delete-task", "b-delete-task")
+	v := seedDoneVideo(t, ctx, repo, "job-delete-task", "rec-delete-task", "b-delete-task")
+	if _, err := repo.UpsertTask(ctx, ManualDeletionTaskName, "manual delete", 60); err != nil {
+		t.Fatalf("UpsertTask: %v", err)
+	}
+	if _, err := repo.SetTaskEnabled(ctx, ManualDeletionTaskName, false); err != nil {
+		t.Fatalf("SetTaskEnabled: %v", err)
+	}
+
+	err := svc.RequestManualDelete(ctx, v)
+	if !errors.Is(err, ErrManualDeletionUnavailable) {
+		t.Fatalf("RequestManualDelete err = %v, want ErrManualDeletionUnavailable", err)
+	}
+	got, err := repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.DeleteRequestedAt != nil {
+		t.Fatalf("DeleteRequestedAt = %v, want nil when manual delete task is disabled", got.DeleteRequestedAt)
+	}
+}
+
+func TestRequestManualDelete_WakesExistingFutureTask(t *testing.T) {
+	ctx := context.Background()
+	repo := newTestRepo(t)
+	store := newLocalStore(t)
+	svc := New(repo, store, discardLog())
+
+	seedChannelUser(t, ctx, repo, "u-delete-wakeup", "b-delete-wakeup")
+	v := seedDoneVideo(t, ctx, repo, "job-delete-wakeup", "rec-delete-wakeup", "b-delete-wakeup")
+	if _, err := repo.UpsertTask(ctx, ManualDeletionTaskName, ManualDeletionTaskDescription, ManualDeletionIntervalSeconds); err != nil {
+		t.Fatalf("UpsertTask: %v", err)
+	}
+	if err := repo.MarkTaskSuccess(ctx, ManualDeletionTaskName, 123); err != nil {
+		t.Fatalf("MarkTaskSuccess: %v", err)
+	}
+	before, err := repo.GetTask(ctx, ManualDeletionTaskName)
+	if err != nil {
+		t.Fatalf("GetTask before queue: %v", err)
+	}
+	if before.NextRunAt == nil {
+		t.Fatal("NextRunAt before queue is nil; MarkTaskSuccess should schedule the next interval")
+	}
+
+	if err := svc.RequestManualDelete(ctx, v); err != nil {
+		t.Fatalf("RequestManualDelete: %v", err)
+	}
+	after, err := repo.GetTask(ctx, ManualDeletionTaskName)
+	if err != nil {
+		t.Fatalf("GetTask after queue: %v", err)
+	}
+	if after.NextRunAt == nil {
+		t.Fatal("NextRunAt after queue is nil")
+	}
+	if !after.NextRunAt.Before(*before.NextRunAt) {
+		t.Fatalf("NextRunAt after queue = %v, want before previous future run %v", after.NextRunAt, before.NextRunAt)
+	}
+	if after.NextRunAt.After(time.Now().Add(5 * time.Second)) {
+		t.Fatalf("NextRunAt after queue = %v, want due now", after.NextRunAt)
+	}
+	got, err := repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo: %v", err)
+	}
+	if got.DeleteRequestedAt == nil {
+		t.Fatal("DeleteRequestedAt is nil after RequestManualDelete")
+	}
 }
 
 // TestSweep_DeletesExpiredRecording covers the happy path end to end: every
@@ -712,6 +898,70 @@ func TestSweep_KeepsRecordingInsideWindow(t *testing.T) {
 	}
 	if ok, _ := store.Exists(ctx, "videos/rec-part01.mp4"); !ok {
 		t.Fatalf("recording inside window had its object deleted")
+	}
+}
+
+func TestProcessManualDeletes_StorageFailureLeavesQueueForRetry(t *testing.T) {
+	ctx := context.Background()
+	repo := newTestRepo(t)
+	base := newLocalStore(t)
+	faulty := &faultyStore{Storage: base, failOn: "videos/rec-part01.mp4"}
+	svc := New(repo, faulty, discardLog())
+
+	v := seedRecordingWithObjects(t, ctx, repo, base)
+	if err := svc.RequestManualDelete(ctx, v); err != nil {
+		t.Fatalf("RequestManualDelete: %v", err)
+	}
+
+	deleted, err := svc.ProcessManualDeletes(ctx)
+	if err == nil {
+		t.Fatal("ProcessManualDeletes: want injected storage error, got nil")
+	}
+	if !strings.Contains(err.Error(), "injected delete failure") {
+		t.Fatalf("ProcessManualDeletes error = %v, want injected delete failure", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("deleted = %d, want 0 after storage failure", deleted)
+	}
+	assertObjectsExist(t, ctx, base)
+	got, err := repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo after failed delete: %v", err)
+	}
+	if got.DeletedAt != nil {
+		t.Fatal("video tombstoned despite storage failure")
+	}
+	if got.DeleteRequestedAt == nil {
+		t.Fatal("DeleteRequestedAt cleared despite storage failure")
+	}
+	parts, err := repo.ListVideoParts(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("ListVideoParts after failed delete: %v", err)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("part rows after failed delete = %d, want 2", len(parts))
+	}
+
+	deleted, err = svc.ProcessManualDeletes(ctx)
+	if err != nil {
+		t.Fatalf("retry ProcessManualDeletes: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("retry deleted = %d, want 1", deleted)
+	}
+	assertObjectsGone(t, ctx, base)
+	got, err = repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo after retry: %v", err)
+	}
+	if got.DeletedAt == nil {
+		t.Fatal("video not tombstoned after retry")
+	}
+	if got.DeleteRequestedAt != nil {
+		t.Fatalf("DeleteRequestedAt after retry = %v, want nil", got.DeleteRequestedAt)
+	}
+	if got.DeletionKind == nil || *got.DeletionKind != repository.DeletionKindManual {
+		t.Fatalf("DeletionKind after retry = %v, want %q", got.DeletionKind, repository.DeletionKindManual)
 	}
 }
 
@@ -1063,19 +1313,19 @@ func TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates(t *testing.T) {
 	}
 }
 
-// finalizeFailRepo fails the first FinalizeRetentionDelete, then delegates,
+// finalizeFailRepo fails the first FinalizeDelete, then delegates,
 // modelling a crash/DB hiccup after the object purge but before the commit.
 type finalizeFailRepo struct {
 	repository.Repository
 	failed bool
 }
 
-func (r *finalizeFailRepo) FinalizeRetentionDelete(ctx context.Context, videoID int64) error {
+func (r *finalizeFailRepo) FinalizeDelete(ctx context.Context, videoID int64, kind string) error {
 	if !r.failed {
 		r.failed = true
 		return errors.New("injected finalize failure")
 	}
-	return r.Repository.FinalizeRetentionDelete(ctx, videoID)
+	return r.Repository.FinalizeDelete(ctx, videoID, kind)
 }
 
 // TestSweep_FinalizeFailureConverges pins crash-safety at the DB-commit step:

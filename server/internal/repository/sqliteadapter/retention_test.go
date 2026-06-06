@@ -47,7 +47,7 @@ func TestFinalizeRetentionDelete_RollsBackWhenPartDeleteFails(t *testing.T) {
 		t.Fatalf("insert blocking FK: %v", err)
 	}
 
-	if err := a.FinalizeRetentionDelete(ctx, video.ID); err == nil {
+	if err := a.FinalizeDelete(ctx, video.ID, repository.DeletionKindRetention); err == nil {
 		t.Fatal("FinalizeRetentionDelete returned nil; want FK failure")
 	}
 

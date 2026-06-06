@@ -35,21 +35,66 @@ import (
 // one continuous recording, far past anything real.
 const maxSnapshotProbe = 100_000
 
+const (
+	// ManualDeletionTaskName is the scheduler task that drains
+	// operator-requested recording deletions. The video API wakes this task
+	// after queueing a delete.
+	ManualDeletionTaskName = "recording_delete_requested"
+	// ManualDeletionTaskDescription is kept beside the task name so the queueing
+	// path can ensure the durable task row exists before accepting a delete.
+	ManualDeletionTaskDescription = "Delete recordings queued by an operator, after webhook part metadata is frozen"
+	// ManualDeletionIntervalSeconds is short enough that a failed wake-up still
+	// drains queued deletes promptly on the next scheduler interval.
+	ManualDeletionIntervalSeconds int64 = 60
+
+	manualDeleteBatchSize = 25
+)
+
+// ErrManualDeletionUnavailable means the operator-requested delete queue cannot
+// currently be drained. The API must not accept a delete request in this state:
+// setting delete_requested_at without an enabled worker would strand the row in
+// a pending state.
+var ErrManualDeletionUnavailable = errors.New("manual recording deletion worker unavailable")
+
+// Option tweaks retention service behaviour for the process it is wired into.
+type Option func(*Service)
+
+// WithManualDeletionWorkerAvailable tells RequestManualDelete whether this
+// process has a scheduler worker that can drain ManualDeletionTaskName. The
+// scheduler task itself leaves the default true; the API-facing service passes
+// false when the scheduler is disabled by config so video.delete fails before
+// queueing a row that no background task will ever process.
+func WithManualDeletionWorkerAvailable(available bool) Option {
+	return func(s *Service) {
+		s.manualDeletionWorkerAvailable = available
+	}
+}
+
 // Service deletes recordings once their stored retention window elapses. It
 // owns no scheduling of its own — the scheduler's recordings_retention task
 // drives Sweep on an interval.
 type Service struct {
-	repo  repository.Repository
-	store storage.Storage
-	log   *slog.Logger
+	repo                          repository.Repository
+	store                         storage.Storage
+	log                           *slog.Logger
+	manualDeletionWorkerAvailable bool
 }
 
 // New builds the retention service. store is required: a pass that can't
 // reach the object store would tombstone rows while leaving the files
 // behind — the exact orphan the sweep exists to prevent — so main.go only
 // constructs this once a storage backend is up.
-func New(repo repository.Repository, store storage.Storage, log *slog.Logger) *Service {
-	return &Service{repo: repo, store: store, log: log.With("domain", "retention")}
+func New(repo repository.Repository, store storage.Storage, log *slog.Logger, opts ...Option) *Service {
+	s := &Service{
+		repo:                          repo,
+		store:                         store,
+		log:                           log.With("domain", "retention"),
+		manualDeletionWorkerAvailable: true,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Sweep deletes every recording whose completion is older than the retention
@@ -75,7 +120,12 @@ func (s *Service) Sweep(ctx context.Context, now time.Time) (int, error) {
 		errs = append(errs, err)
 	}
 	for _, id := range expired {
-		if err := s.deleteRecording(ctx, id); err != nil {
+		v, err := s.repo.GetVideo(ctx, id)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("load recording %d: %w", id, err))
+			continue
+		}
+		if err := s.DeleteRecording(ctx, v, repository.DeletionKindRetention); err != nil {
 			errs = append(errs, fmt.Errorf("delete recording %d: %w", id, err))
 			continue
 		}
@@ -132,34 +182,100 @@ func retentionWindow(hours int64) (time.Duration, error) {
 	return time.Duration(hours) * time.Hour, nil
 }
 
-// deleteRecording removes one recording's bytes, then finalizes the DB cleanup
+// RequestManualDelete marks a terminal recording for background removal and
+// nudges the scheduler task to run on its next tick. The actual purge is not
+// performed in the API request: object deletion can be slow or transiently fail,
+// and video_parts must not be removed until pending recording-webhook deliveries
+// have frozen their part metadata.
+func (s *Service) RequestManualDelete(ctx context.Context, v *repository.Video) error {
+	if v == nil {
+		return fmt.Errorf("queue manual delete: nil video")
+	}
+	if err := s.ensureManualDeletionWorker(ctx); err != nil {
+		return err
+	}
+	if _, err := s.repo.RequestVideoDelete(ctx, v.ID); err != nil {
+		return fmt.Errorf("queue manual delete: %w", err)
+	}
+	if err := s.repo.SetTaskNextRun(ctx, ManualDeletionTaskName); err != nil {
+		// Queueing succeeded. A wakeup failure should not make the API caller
+		// retry and potentially duplicate user-visible work; the interval task
+		// will still pick the row up.
+		s.log.Warn("manual delete queued but task wakeup failed", "video_id", v.ID, "error", err)
+	}
+	return nil
+}
+
+func (s *Service) ensureManualDeletionWorker(ctx context.Context) error {
+	if !s.manualDeletionWorkerAvailable {
+		return ErrManualDeletionUnavailable
+	}
+	task, err := s.repo.UpsertTask(ctx, ManualDeletionTaskName, ManualDeletionTaskDescription, ManualDeletionIntervalSeconds)
+	if err != nil {
+		return fmt.Errorf("register manual deletion task: %w", err)
+	}
+	if !task.IsEnabled || task.IntervalSeconds <= 0 {
+		return ErrManualDeletionUnavailable
+	}
+	return nil
+}
+
+// ProcessManualDeletes drains queued operator-requested deletions that are safe
+// to finalize now. The repository query applies the same webhook frozen-parts
+// guard as the retention sweep: rows with pending/delivering deliveries whose
+// frozen_parts is still empty are left queued until the webhook dispatcher
+// captures their part list.
+func (s *Service) ProcessManualDeletes(ctx context.Context) (int, error) {
+	videos, err := s.repo.ListVideosPendingManualDelete(ctx, manualDeleteBatchSize)
+	if err != nil {
+		return 0, fmt.Errorf("list manual deletes: %w", err)
+	}
+	var (
+		deleted int
+		errs    []error
+	)
+	for i := range videos {
+		if err := s.DeleteRecording(ctx, &videos[i], repository.DeletionKindManual); err != nil {
+			errs = append(errs, fmt.Errorf("delete recording %d: %w", videos[i].ID, err))
+			continue
+		}
+		deleted++
+	}
+	return deleted, errors.Join(errs...)
+}
+
+// DeleteRecording removes one recording's bytes, then finalizes the DB cleanup
 // in a transaction. Storage deletes run first and any failure aborts before the
 // DB writes, leaving the recording selectable for the next sweep. Once every
 // object is gone we tombstone the video and drop its part rows atomically so
-// readers never observe a visible recording whose parts disappeared.
-func (s *Service) deleteRecording(ctx context.Context, videoID int64) error {
-	v, err := s.repo.GetVideo(ctx, videoID)
-	if err != nil {
-		return fmt.Errorf("load video: %w", err)
-	}
-	parts, err := s.repo.ListVideoParts(ctx, videoID)
+// readers never observe a visible recording whose parts disappeared. kind
+// records why the recording was removed (DeletionKindRetention for the sweep,
+// DeletionKindManual for an operator delete); the purge itself is identical.
+// Exported so the video API's manual-delete handler reuses this exact routine
+// rather than reimplementing the object purge and stranding orphans.
+//
+// v is the already-loaded recording row: Sweep loads it per due id and the
+// manual-delete handler passes the row it fetched for its precheck, so the purge
+// never issues a redundant read.
+func (s *Service) DeleteRecording(ctx context.Context, v *repository.Video, kind string) error {
+	parts, err := s.repo.ListVideoParts(ctx, v.ID)
 	if err != nil {
 		return fmt.Errorf("list parts: %w", err)
 	}
 	if err := s.purgeObjects(ctx, v, parts); err != nil {
 		return err
 	}
-	// FinalizeRetentionDelete soft-deletes the video row, so the
+	// FinalizeDelete soft-deletes the video row, so the
 	// video_playback_assets ON DELETE CASCADE never fires. Drop the row
 	// explicitly or a stale ready row would dangle past every retention pass.
-	if err := s.repo.DeleteVideoPlaybackAsset(ctx, videoID); err != nil {
+	if err := s.repo.DeleteVideoPlaybackAsset(ctx, v.ID); err != nil {
 		return fmt.Errorf("delete playback asset row: %w", err)
 	}
-	if err := s.repo.FinalizeRetentionDelete(ctx, videoID); err != nil {
+	if err := s.repo.FinalizeDelete(ctx, v.ID, kind); err != nil {
 		return fmt.Errorf("finalize db delete: %w", err)
 	}
-	s.log.Info("retention deleted recording",
-		"video_id", videoID, "broadcaster_id", v.BroadcasterID, "parts", len(parts))
+	s.log.Info("deleted recording",
+		"video_id", v.ID, "broadcaster_id", v.BroadcasterID, "parts", len(parts), "kind", kind)
 	return nil
 }
 

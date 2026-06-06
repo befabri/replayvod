@@ -74,6 +74,8 @@ ORDER BY
   CASE WHEN params.sort_key = 'size-asc'       THEN v.size_bytes        END ASC NULLS LAST,
   CASE WHEN params.sort_key = 'channel-asc'    THEN v.display_name      END ASC,
   CASE WHEN params.sort_key = 'channel-desc'   THEN v.display_name      END DESC,
+  CASE WHEN params.sort_key = 'history_when-desc' THEN COALESCE(v.deleted_at, v.downloaded_at, v.start_download_at) END DESC,
+  CASE WHEN params.sort_key = 'history_when-asc'  THEN COALESCE(v.deleted_at, v.downloaded_at, v.start_download_at) END ASC,
   CASE WHEN params.sort_key = 'created_at-asc' THEN v.start_download_at END ASC,
   v.start_download_at DESC,
   CASE WHEN params.sort_key LIKE '%-asc' THEN v.id END ASC,
@@ -199,8 +201,26 @@ LIMIT (SELECT row_limit FROM q);
 -- name: ListVideosMissingThumbnail :many
 SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL;
 
+-- name: RequestVideoDelete :one
+-- Queue an operator-requested deletion. Idempotent for already-queued live
+-- terminal rows; active recordings must be cancelled first.
+UPDATE videos
+SET delete_requested_at = COALESCE(delete_requested_at, datetime('now'))
+WHERE id = ?
+  AND deleted_at IS NULL
+  AND status IN ('DONE', 'FAILED')
+RETURNING *;
+
 -- name: SoftDeleteVideo :exec
-UPDATE videos SET deleted_at = datetime('now') WHERE id = ?;
+-- Tombstone a recording. deletion_kind records why ('retention' | 'manual').
+UPDATE videos
+SET deleted_at = datetime('now'),
+    deletion_kind = CASE
+      WHEN delete_requested_at IS NOT NULL THEN 'manual'
+      ELSE ?2
+    END,
+    delete_requested_at = NULL
+WHERE id = ?1 AND deleted_at IS NULL;
 
 -- name: ListFinishedVideosForRetention :many
 -- Terminal, not-yet-tombstoned recordings whose creation-time retention policy
@@ -214,6 +234,7 @@ UPDATE videos SET deleted_at = datetime('now') WHERE id = ?;
 -- agree on "exactly at the deadline is still retained".
 SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
 WHERE deleted_at IS NULL
+  AND delete_requested_at IS NULL
   AND downloaded_at IS NOT NULL
   AND retention_window_hours IS NOT NULL
   AND datetime(downloaded_at, '+' || retention_window_hours || ' hours') < @now
@@ -229,6 +250,25 @@ WHERE deleted_at IS NULL
       AND rwd.status IN ('pending', 'delivering')
       AND rwd.frozen_parts = ''
   );
+
+-- name: ListVideosPendingManualDelete :many
+-- Operator-requested deletions that are safe for the background worker to
+-- finalize. The webhook frozen-parts guard mirrors retention: do not delete
+-- video_parts until any pending/delivering delivery has captured them.
+SELECT * FROM videos
+WHERE deleted_at IS NULL
+  AND delete_requested_at IS NOT NULL
+  AND status IN ('DONE', 'FAILED')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM recording_webhook_deliveries rwd
+    WHERE rwd.video_id = videos.id
+      AND rwd.test = 0
+      AND rwd.status IN ('pending', 'delivering')
+      AND rwd.frozen_parts = ''
+  )
+ORDER BY delete_requested_at ASC, id ASC
+LIMIT @row_limit;
 
 -- name: CountVideosByStatus :one
 SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL;
@@ -267,6 +307,12 @@ WHERE deleted_at IS NULL AND (completion_kind = 'partial' OR truncated);
 SELECT CAST(COUNT(DISTINCT broadcaster_id) AS INTEGER) AS channels
 FROM videos
 WHERE deleted_at IS NULL;
+
+-- name: StatisticsRemoved :one
+-- Count of tombstoned (removed) recordings; powers the History "Removed" tab.
+SELECT CAST(COUNT(*) AS INTEGER) AS removed
+FROM videos
+WHERE deleted_at IS NOT NULL;
 
 -- name: StatisticsTotalsByBroadcaster :one
 -- Per-channel rollup of finished recordings: count + summed bytes +

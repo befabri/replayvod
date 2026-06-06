@@ -159,6 +159,12 @@ type Querier interface {
 	// recording. Twitch search can mirror catalog-only rows into categories; those
 	// should stay out of the category page until a video actually references them.
 	ListCategoriesWithVideos(ctx context.Context) ([]Category, error)
+	ListCategoriesWithVideosPageLatestDesc(ctx context.Context, arg ListCategoriesWithVideosPageLatestDescParams) ([]ListCategoriesWithVideosPageLatestDescRow, error)
+	// Cursor-paginated browse list for the default category order. This mirrors
+	// ListCategoriesWithVideos' visibility predicate while over-fetching at the
+	// adapter layer to discover the next cursor.
+	ListCategoriesWithVideosPageNameAsc(ctx context.Context, arg ListCategoriesWithVideosPageNameAscParams) ([]Category, error)
+	ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context, arg ListCategoriesWithVideosPageVideoCountDescParams) ([]ListCategoriesWithVideosPageVideoCountDescRow, error)
 	ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
@@ -231,6 +237,10 @@ type Querier interface {
 	ListVideosByCategoryPage(ctx context.Context, arg ListVideosByCategoryPageParams) ([]Video, error)
 	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
+	// Operator-requested deletions that are safe for the background worker to
+	// finalize. The webhook frozen-parts guard mirrors retention: do not delete
+	// video_parts until any pending/delivering delivery has captured them.
+	ListVideosPendingManualDelete(ctx context.Context, rowLimit int64) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
 	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
@@ -255,6 +265,9 @@ type Querier interface {
 	PruneCategorySearchCache(ctx context.Context, offset int64) error
 	RecordScheduleTrigger(ctx context.Context, id int64) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	// Queue an operator-requested deletion. Idempotent for already-queued live
+	// terminal rows; active recordings must be cancelled first.
+	RequestVideoDelete(ctx context.Context, id int64) (Video, error)
 	ResetStaleRecordingWebhookDeliveries(ctx context.Context, arg ResetStaleRecordingWebhookDeliveriesParams) error
 	// See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
 	// uses positional ?1/?2 instead of @video_id/@at_time.
@@ -303,10 +316,13 @@ type Querier interface {
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	SetTaskNextRun(ctx context.Context, name string) error
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
-	SoftDeleteVideo(ctx context.Context, id int64) error
+	// Tombstone a recording. deletion_kind records why ('retention' | 'manual').
+	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
 	StatisticsChannels(ctx context.Context) (int64, error)
 	StatisticsIncomplete(ctx context.Context) (int64, error)
+	// Count of tombstoned (removed) recordings; powers the History "Removed" tab.
+	StatisticsRemoved(ctx context.Context) (int64, error)
 	StatisticsThisWeek(ctx context.Context) (int64, error)
 	// Per-channel rollup of finished recordings: count + summed bytes +
 	// summed duration. Mirrors StatisticsTotals scoped to one broadcaster

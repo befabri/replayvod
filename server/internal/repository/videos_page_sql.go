@@ -5,17 +5,20 @@ import (
 	"time"
 )
 
-// videosPageColumnsSQL is the shared SELECT/FROM/soft-delete prefix for the
-// dialect-aware keyset query builder.
+// videosPageColumnsSQL is the shared SELECT/FROM prefix for the dialect-aware
+// keyset query builder. The tombstone (deleted_at) predicate is appended by
+// filtersSQL based on opts.Scope rather than hardcoded here, so this list is
+// the only place the column order is declared (kept in lockstep with
+// scanPGVideo/scanSQLiteVideo).
 const videosPageColumnsSQL = `SELECT
     id, job_id, filename, display_name, status, quality, selected_quality,
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
     duration_seconds, size_bytes, thumbnail, error,
-    start_download_at, downloaded_at, deleted_at,
+    start_download_at, downloaded_at, deleted_at, deletion_kind, delete_requested_at,
     recording_type, force_h264, title, completion_kind, truncated,
     trigger_schedule_id, retention_source_schedule_id, retention_window_hours
 FROM videos
-WHERE deleted_at IS NULL`
+WHERE 1=1`
 
 // VideoPageDialect supplies the placeholder/cast and timestamp-binding pieces
 // that differ between Postgres and SQLite.
@@ -116,6 +119,20 @@ func BuildListVideosPageQuery(opts ListVideosOpts, cursor *VideoListPageCursor, 
 }
 
 func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
+	// Tombstone scope. Default ("" / "active") keeps the historical
+	// active-only behaviour; "removed" returns only tombstones; "all"
+	// drops the predicate entirely. No bind args: the value is a fixed
+	// enum already validated at the handler boundary.
+	var scope string
+	switch opts.Scope {
+	case "removed":
+		scope = "\n  AND deleted_at IS NOT NULL"
+	case "all":
+		scope = ""
+	default:
+		scope = "\n  AND deleted_at IS NULL"
+	}
+
 	// FPS-aware quality match: "<height>p<fps>" e.g. "1080p60".
 	fpsCast := "ROUND(selected_fps)::int::text"
 	if !b.d.Postgres {
@@ -145,33 +162,50 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 		incomplete = fmt.Sprintf("\n  AND (%s = 0 OR completion_kind = 'partial' OR truncated = 1)", b.phBool(opts.IncompleteOnly))
 	}
 
-	return quality + broadcaster + language + durationMin + durationMax + sizeMin + sizeMax + window + incomplete
+	terminal := fmt.Sprintf("\n  AND (NOT %s OR status IN ('DONE', 'FAILED'))", b.phBool(opts.TerminalOnly))
+
+	return scope + quality + broadcaster + language + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + terminal
 }
 
 func (b *videoPageBuilder) cursorAndOrderSQL(sort, order string, cursor *VideoListPageCursor) string {
 	present := cursor != nil
 	var (
-		curTime time.Time
-		curID   int64
-		curNum  *float64
-		curInt  *int64
-		curText *string
+		curTime     time.Time
+		curSortTime time.Time
+		curID       int64
+		curNum      *float64
+		curInt      *int64
+		curText     *string
 	)
 	if present {
 		curTime, curID = cursor.StartDownloadAt, cursor.ID
 		curNum, curInt, curText = cursor.SortNumber, cursor.SortInt, cursor.SortText
+		curSortTime = curTime
+		if cursor.SortTime != nil {
+			curSortTime = *cursor.SortTime
+		}
 	}
 	t := func() string { return b.phTime(curTime, present) }
+	sortTime := func() string { return b.phTime(curSortTime, present) }
 	id := func() string { return b.phID(curID) }
 	text := func() string { return b.phTextPtr(curText) }
 	num := func() string { return b.phFloatPtr(curNum) }
 	bigint := func() string { return b.phIntPtr(curInt) }
+	historyWhen := "COALESCE(deleted_at, downloaded_at, start_download_at)"
 
 	switch sort + ":" + order {
 	case "created_at:asc":
 		return fmt.Sprintf(`
   AND (%s IS NULL OR start_download_at > %s OR (start_download_at = %s AND id > %s))
 ORDER BY start_download_at ASC, id ASC`, t(), t(), t(), id())
+	case "history_when:asc":
+		return fmt.Sprintf(`
+  AND (%s IS NULL OR %s > %s OR (%s = %s AND id > %s))
+ORDER BY %s ASC, id ASC`, sortTime(), historyWhen, sortTime(), historyWhen, sortTime(), id(), historyWhen)
+	case "history_when:desc":
+		return fmt.Sprintf(`
+  AND (%s IS NULL OR %s < %s OR (%s = %s AND id < %s))
+ORDER BY %s DESC, id DESC`, sortTime(), historyWhen, sortTime(), historyWhen, sortTime(), id(), historyWhen)
 	case "channel:asc":
 		return fmt.Sprintf(`
   AND (%s IS NULL OR display_name > %s

@@ -277,8 +277,27 @@ func (a *PGAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repositor
 	return pgVideosToDomain(rows), nil
 }
 
-func (a *PGAdapter) SoftDeleteVideo(ctx context.Context, id int64) error {
-	return a.queries.SoftDeleteVideo(ctx, id)
+func (a *PGAdapter) RequestVideoDelete(ctx context.Context, id int64) (*repository.Video, error) {
+	row, err := a.queries.RequestVideoDelete(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgVideoToDomain(row), nil
+}
+
+func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, limit int) ([]repository.Video, error) {
+	if limit <= 0 {
+		return []repository.Video{}, nil
+	}
+	rows, err := a.queries.ListVideosPendingManualDelete(ctx, int32(limit))
+	if err != nil {
+		return nil, fmt.Errorf("pg list videos pending manual delete: %w", err)
+	}
+	return pgVideosToDomain(rows), nil
+}
+
+func (a *PGAdapter) SoftDeleteVideo(ctx context.Context, id int64, kind string) error {
+	return a.queries.SoftDeleteVideo(ctx, pggen.SoftDeleteVideoParams{ID: id, DeletionKind: &kind})
 }
 
 func (a *PGAdapter) ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]repository.RetentionVideo, error) {
@@ -298,13 +317,13 @@ func (a *PGAdapter) ListFinishedVideosForRetention(ctx context.Context, now time
 	return out, nil
 }
 
-func (a *PGAdapter) FinalizeRetentionDelete(ctx context.Context, videoID int64) error {
+func (a *PGAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind string) error {
 	return a.inTx(ctx, func(q *pggen.Queries, tx pgx.Tx) error {
-		if err := q.SoftDeleteVideo(ctx, videoID); err != nil {
-			return fmt.Errorf("pg retention tombstone video: %w", err)
+		if err := q.SoftDeleteVideo(ctx, pggen.SoftDeleteVideoParams{ID: videoID, DeletionKind: &kind}); err != nil {
+			return fmt.Errorf("pg tombstone video: %w", err)
 		}
 		if err := q.DeleteVideoParts(ctx, videoID); err != nil {
-			return fmt.Errorf("pg retention delete parts: %w", err)
+			return fmt.Errorf("pg delete parts: %w", err)
 		}
 		return nil
 	})
@@ -338,6 +357,7 @@ func (a *PGAdapter) VideoStatsTotals(ctx context.Context) (*repository.VideoStat
 		ThisWeek:      row.ThisWeek,
 		Incomplete:    row.Incomplete,
 		Channels:      row.Channels,
+		Removed:       row.Removed,
 	}, nil
 }
 
@@ -375,6 +395,8 @@ func pgVideoToDomain(v pggen.Video) *repository.Video {
 		StartDownloadAt:           v.StartDownloadAt,
 		DownloadedAt:              v.DownloadedAt,
 		DeletedAt:                 v.DeletedAt,
+		DeleteRequestedAt:         v.DeleteRequestedAt,
+		DeletionKind:              v.DeletionKind,
 		RecordingType:             v.RecordingType,
 		ForceH264:                 v.ForceH264,
 		TriggerScheduleID:         v.TriggerScheduleID,
@@ -418,6 +440,8 @@ func scanPGVideos(rows pgx.Rows) ([]repository.Video, error) {
 			&row.StartDownloadAt,
 			&row.DownloadedAt,
 			&row.DeletedAt,
+			&row.DeletionKind,
+			&row.DeleteRequestedAt,
 			&row.RecordingType,
 			&row.ForceH264,
 			&row.Title,

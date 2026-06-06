@@ -954,7 +954,7 @@ func TestSearchVideos(t *testing.T) {
 	})
 
 	t.Run("soft-deleted videos are excluded", func(t *testing.T) {
-		if err := a.SoftDeleteVideo(ctx, gotVideoID(t, ctx, a, "job-title")); err != nil {
+		if err := a.SoftDeleteVideo(ctx, gotVideoID(t, ctx, a, "job-title"), repository.DeletionKindManual); err != nil {
 			t.Fatalf("soft delete: %v", err)
 		}
 		got, err := a.SearchVideos(ctx, "Neon Run", 10)
@@ -1141,6 +1141,255 @@ func TestListVideosPage_FiltersAndNullCursor(t *testing.T) {
 	}
 }
 
+// TestListVideosPage_Scope pins the removed-inclusive scope opt: the default
+// hides tombstones (library behaviour), "removed" returns only tombstones and
+// carries their deletion_kind, and "all" returns both.
+func TestListVideosPage_Scope(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-scope", BroadcasterLogin: "scope", BroadcasterName: "Scope",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	mk := func(jobID string) *repository.Video {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: "Scope", Status: repository.VideoStatusDone,
+			Quality: repository.QualityHigh, BroadcasterID: "bc-scope", Language: "en",
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", jobID, err)
+		}
+		return v
+	}
+	mk("job-scope-live")
+	gone := mk("job-scope-gone")
+	if err := a.SoftDeleteVideo(ctx, gone.ID, repository.DeletionKindRetention); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	base := repository.ListVideosOpts{Sort: "created_at", Order: "desc", Limit: 10}
+	active := base
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, active), []string{"job-scope-live"})
+
+	removed := base
+	removed.Scope = "removed"
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, removed), []string{"job-scope-gone"})
+
+	all := base
+	all.Scope = "all"
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, all), []string{"job-scope-gone", "job-scope-live"})
+
+	// The removed row must carry its tombstone reason through to the response.
+	page, err := a.ListVideosPage(ctx, removed, nil)
+	if err != nil {
+		t.Fatalf("ListVideosPage removed: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].DeletionKind == nil ||
+		*page.Items[0].DeletionKind != repository.DeletionKindRetention {
+		t.Fatalf("removed row deletion_kind: got %+v, want %q", page.Items, repository.DeletionKindRetention)
+	}
+	if page.Items[0].DeletedAt == nil {
+		t.Fatal("removed row deleted_at must be set")
+	}
+}
+
+func TestListVideosPage_TerminalOnlyHistoryWhen(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-history", BroadcasterLogin: "history", BroadcasterName: "History",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	mk := func(jobID, status string, offset time.Duration) *repository.Video {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: "History", Status: status,
+			Quality: repository.QualityHigh, BroadcasterID: "bc-history", Language: "en",
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", jobID, err)
+		}
+		if _, err := a.db.ExecContext(ctx,
+			"UPDATE videos SET start_download_at = ? WHERE id = ?",
+			sqlitetype.Format(base.Add(offset)), v.ID,
+		); err != nil {
+			t.Fatalf("override start %s: %v", jobID, err)
+		}
+		return v
+	}
+	done := mk("job-history-done", repository.VideoStatusDone, 0)
+	failed := mk("job-history-failed", repository.VideoStatusFailed, time.Hour)
+	removed := mk("job-history-removed", repository.VideoStatusDone, 2*time.Hour)
+	mk("job-history-running", repository.VideoStatusRunning, 3*time.Hour)
+	mk("job-history-pending", repository.VideoStatusPending, 4*time.Hour)
+
+	downloadedDone := base.Add(48 * time.Hour)
+	downloadedFailed := base.Add(24 * time.Hour)
+	deletedRemoved := base.Add(72 * time.Hour)
+	if _, err := a.db.ExecContext(ctx,
+		"UPDATE videos SET downloaded_at = ? WHERE id = ?",
+		sqlitetype.Format(downloadedDone), done.ID,
+	); err != nil {
+		t.Fatalf("set done downloaded_at: %v", err)
+	}
+	if _, err := a.db.ExecContext(ctx,
+		"UPDATE videos SET downloaded_at = ? WHERE id = ?",
+		sqlitetype.Format(downloadedFailed), failed.ID,
+	); err != nil {
+		t.Fatalf("set failed downloaded_at: %v", err)
+	}
+	if err := a.SoftDeleteVideo(ctx, removed.ID, repository.DeletionKindManual); err != nil {
+		t.Fatalf("soft delete removed: %v", err)
+	}
+	if _, err := a.db.ExecContext(ctx,
+		"UPDATE videos SET deleted_at = ? WHERE id = ?",
+		sqlitetype.Format(deletedRemoved), removed.ID,
+	); err != nil {
+		t.Fatalf("set removed deleted_at: %v", err)
+	}
+
+	opts := repository.ListVideosOpts{
+		Sort:         "history_when",
+		Order:        "desc",
+		Scope:        "all",
+		TerminalOnly: true,
+		Limit:        2,
+	}
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, opts), []string{
+		"job-history-removed",
+		"job-history-done",
+		"job-history-failed",
+	})
+}
+
+func TestManualDeleteQueue_WaitsForWebhookFrozenParts(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-delete", BroadcasterLogin: "delete", BroadcasterName: "Delete",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	mkDone := func(jobID string) *repository.Video {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: "Delete", Status: repository.VideoStatusPending,
+			Quality: repository.QualityHigh, BroadcasterID: "bc-delete", RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", jobID, err)
+		}
+		if err := a.MarkVideoDone(ctx, v.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
+			t.Fatalf("mark done %s: %v", jobID, err)
+		}
+		return v
+	}
+	ready := mkDone("job-delete-ready")
+	blocked := mkDone("job-delete-blocked")
+	pending, err := a.CreateVideo(ctx, &repository.VideoInput{
+		JobID: "job-delete-pending", Filename: "job-delete-pending", DisplayName: "Delete",
+		Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
+		BroadcasterID: "bc-delete", RecordingType: repository.RecordingTypeVideo,
+	})
+	if err != nil {
+		t.Fatalf("create pending: %v", err)
+	}
+
+	queued, err := a.RequestVideoDelete(ctx, ready.ID)
+	if err != nil {
+		t.Fatalf("RequestVideoDelete ready: %v", err)
+	}
+	if queued.DeleteRequestedAt == nil {
+		t.Fatal("ready DeleteRequestedAt is nil")
+	}
+	queuedAgain, err := a.RequestVideoDelete(ctx, ready.ID)
+	if err != nil {
+		t.Fatalf("RequestVideoDelete ready again: %v", err)
+	}
+	if queuedAgain.DeleteRequestedAt == nil || !queuedAgain.DeleteRequestedAt.Equal(*queued.DeleteRequestedAt) {
+		t.Fatalf("RequestVideoDelete not idempotent: first %v second %v", queued.DeleteRequestedAt, queuedAgain.DeleteRequestedAt)
+	}
+	if _, err := a.RequestVideoDelete(ctx, pending.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("RequestVideoDelete pending err = %v, want ErrNotFound", err)
+	}
+	if _, err := a.RequestVideoDelete(ctx, blocked.ID); err != nil {
+		t.Fatalf("RequestVideoDelete blocked: %v", err)
+	}
+	delivery, err := a.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
+		MessageID:     "msg-delete-blocked",
+		DedupeKey:     "dedupe-delete-blocked",
+		Event:         "recording.completed",
+		VideoID:       blocked.ID,
+		NextAttemptAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
+	}
+
+	rows, err := a.ListVideosPendingManualDelete(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListVideosPendingManualDelete before freeze: %v", err)
+	}
+	assertStringSlice(t, videoJobIDs(rows), []string{"job-delete-ready"})
+
+	if err := a.SoftDeleteVideo(ctx, ready.ID, repository.DeletionKindManual); err != nil {
+		t.Fatalf("soft delete ready: %v", err)
+	}
+	readyGone, err := a.GetVideo(ctx, ready.ID)
+	if err != nil {
+		t.Fatalf("GetVideo ready after soft delete: %v", err)
+	}
+	if readyGone.DeleteRequestedAt != nil {
+		t.Fatalf("ready DeleteRequestedAt after tombstone = %v, want nil", readyGone.DeleteRequestedAt)
+	}
+	if err := a.SetRecordingWebhookDeliveryFrozenParts(ctx, delivery.ID, "[]"); err != nil {
+		t.Fatalf("SetRecordingWebhookDeliveryFrozenParts: %v", err)
+	}
+	rows, err = a.ListVideosPendingManualDelete(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListVideosPendingManualDelete after freeze: %v", err)
+	}
+	assertStringSlice(t, videoJobIDs(rows), []string{"job-delete-blocked"})
+
+	race := mkDone("job-delete-race")
+	if _, err := a.RequestVideoDelete(ctx, race.ID); err != nil {
+		t.Fatalf("RequestVideoDelete race: %v", err)
+	}
+	if err := a.SoftDeleteVideo(ctx, race.ID, repository.DeletionKindRetention); err != nil {
+		t.Fatalf("soft delete race as retention: %v", err)
+	}
+	raceGone, err := a.GetVideo(ctx, race.ID)
+	if err != nil {
+		t.Fatalf("GetVideo race after soft delete: %v", err)
+	}
+	if raceGone.DeleteRequestedAt != nil {
+		t.Fatalf("race DeleteRequestedAt after tombstone = %v, want nil", raceGone.DeleteRequestedAt)
+	}
+	if raceGone.DeletionKind == nil || *raceGone.DeletionKind != repository.DeletionKindManual {
+		t.Fatalf("race DeletionKind = %v, want %q because manual intent wins", raceGone.DeletionKind, repository.DeletionKindManual)
+	}
+
+	failed, err := a.CreateVideo(ctx, &repository.VideoInput{
+		JobID: "job-delete-failed", Filename: "job-delete-failed", DisplayName: "Delete",
+		Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
+		BroadcasterID: "bc-delete", RecordingType: repository.RecordingTypeVideo,
+	})
+	if err != nil {
+		t.Fatalf("create failed terminal: %v", err)
+	}
+	if err := a.MarkVideoFailed(ctx, failed.ID, "seed-failed", repository.CompletionKindPartial, true); err != nil {
+		t.Fatalf("MarkVideoFailed failed terminal: %v", err)
+	}
+	failedQueued, err := a.RequestVideoDelete(ctx, failed.ID)
+	if err != nil {
+		t.Fatalf("RequestVideoDelete failed terminal: %v", err)
+	}
+	if failedQueued.DeleteRequestedAt == nil {
+		t.Fatal("failed terminal DeleteRequestedAt is nil")
+	}
+}
+
 func seedVideoListFilterFixture(t *testing.T, ctx context.Context, a *SQLiteAdapter) {
 	t.Helper()
 	for _, ch := range []struct{ id, login, name string }{
@@ -1263,7 +1512,7 @@ func seedVideoPageFixture(t *testing.T, ctx context.Context, a *SQLiteAdapter) {
 			t.Fatalf("override start_download_at %s: %v", s.jobID, err)
 		}
 		if s.deleted {
-			if err := a.SoftDeleteVideo(ctx, v.ID); err != nil {
+			if err := a.SoftDeleteVideo(ctx, v.ID, repository.DeletionKindManual); err != nil {
 				t.Fatalf("soft delete %s: %v", s.jobID, err)
 			}
 		}
@@ -1293,6 +1542,97 @@ func collectChannelPageLogins(t *testing.T, ctx context.Context, a *SQLiteAdapte
 		}
 		if len(page.Items) == 0 {
 			t.Fatal("empty channel page returned a next cursor")
+		}
+		cursor = page.NextCursor
+	}
+}
+
+func seedCategoryPageFixture(t *testing.T, ctx context.Context, a *SQLiteAdapter) {
+	t.Helper()
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-category-page", BroadcasterLogin: "categorypage", BroadcasterName: "Category Page",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	for _, c := range []repository.Category{
+		{ID: "cat-alpha-page", Name: "Alpha Game"},
+		{ID: "cat-bravo-page", Name: "Bravo Game"},
+		{ID: "cat-charlie-page", Name: "Charlie Game"},
+		{ID: "cat-deleted-page", Name: "Deleted Game"},
+	} {
+		cat := c
+		if _, err := a.UpsertCategory(ctx, &cat); err != nil {
+			t.Fatalf("seed category %s: %v", cat.ID, err)
+		}
+	}
+
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	seeds := []struct {
+		jobID      string
+		categoryID string
+		startedAt  time.Time
+		deleted    bool
+	}{
+		{"cat-page-alpha-1", "cat-alpha-page", base.Add(1 * time.Minute), false},
+		{"cat-page-bravo-1", "cat-bravo-page", base.Add(2 * time.Minute), false},
+		{"cat-page-bravo-2", "cat-bravo-page", base.Add(3 * time.Minute), false},
+		{"cat-page-bravo-3", "cat-bravo-page", base.Add(4 * time.Minute), false},
+		{"cat-page-charlie-1", "cat-charlie-page", base.Add(5 * time.Minute), false},
+		{"cat-page-charlie-2", "cat-charlie-page", base.Add(6 * time.Minute), false},
+		{"cat-page-deleted-1", "cat-deleted-page", base.Add(7 * time.Minute), true},
+	}
+	for _, seed := range seeds {
+		video, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID:         seed.jobID,
+			Filename:      seed.jobID,
+			DisplayName:   "Category Page",
+			Title:         seed.jobID,
+			Status:        repository.VideoStatusDone,
+			Quality:       repository.QualityHigh,
+			BroadcasterID: "bc-category-page",
+			Language:      "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create video %s: %v", seed.jobID, err)
+		}
+		if err := a.LinkVideoCategory(ctx, video.ID, seed.categoryID); err != nil {
+			t.Fatalf("link category %s: %v", seed.jobID, err)
+		}
+		if _, err := a.db.ExecContext(ctx, "UPDATE videos SET start_download_at = ? WHERE id = ?", sqlitetype.Format(seed.startedAt), video.ID); err != nil {
+			t.Fatalf("override start_download_at %s: %v", seed.jobID, err)
+		}
+		if seed.deleted {
+			if err := a.SoftDeleteVideo(ctx, video.ID, repository.DeletionKindManual); err != nil {
+				t.Fatalf("soft delete %s: %v", seed.jobID, err)
+			}
+		}
+	}
+}
+
+func collectCategoryPageNames(t *testing.T, ctx context.Context, a *SQLiteAdapter, limit int, sort string) []string {
+	t.Helper()
+	var cursor *repository.CategoryPageCursor
+	out := []string{}
+	for pages := 0; ; pages++ {
+		if pages > 10 {
+			t.Fatal("category pagination did not terminate")
+		}
+		page, err := a.ListCategoriesWithVideosPage(ctx, limit, sort, cursor)
+		if err != nil {
+			t.Fatalf("ListCategoriesWithVideosPage: %v", err)
+		}
+		if len(page.Items) > limit {
+			t.Fatalf("page size: got %d, limit %d", len(page.Items), limit)
+		}
+		for _, item := range page.Items {
+			out = append(out, item.Name)
+		}
+		if page.NextCursor == nil {
+			return out
+		}
+		if len(page.Items) == 0 {
+			t.Fatal("empty category page returned a next cursor")
 		}
 		cursor = page.NextCursor
 	}
@@ -1742,7 +2082,7 @@ func TestListCategoriesWithVideos(t *testing.T) {
 	if err := a.LinkVideoCategory(ctx, deleted.ID, "cat-deleted"); err != nil {
 		t.Fatalf("link deleted category: %v", err)
 	}
-	if err := a.SoftDeleteVideo(ctx, deleted.ID); err != nil {
+	if err := a.SoftDeleteVideo(ctx, deleted.ID, repository.DeletionKindManual); err != nil {
 		t.Fatalf("soft delete video: %v", err)
 	}
 
@@ -1774,6 +2114,28 @@ func TestListCategoriesWithVideos(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("SearchCategoriesWithVideos deleted-only = %+v, want none", got)
+	}
+}
+
+func TestListCategoriesWithVideosPage_SortAndCursor(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	seedCategoryPageFixture(t, ctx, a)
+
+	cases := []struct {
+		name string
+		sort string
+		want []string
+	}{
+		{"default", "name_asc", []string{"Alpha Game", "Bravo Game", "Charlie Game"}},
+		{"latest video", "latest_video_desc", []string{"Charlie Game", "Bravo Game", "Alpha Game"}},
+		{"video count", "video_count_desc", []string{"Bravo Game", "Charlie Game", "Alpha Game"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := collectCategoryPageNames(t, ctx, a, 1, tc.sort)
+			assertStringSlice(t, got, tc.want)
+		})
 	}
 }
 

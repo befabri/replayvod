@@ -1,5 +1,7 @@
 package repository
 
+import "time"
+
 // Pure page/cursor helpers shared by every Repository adapter. They operate only
 // on repository types (no SQL, no dialect), so a single copy keeps the keyset
 // pagination semantics — over-fetch-by-one, cursor derivation, sort allowlist —
@@ -24,6 +26,50 @@ func ToChannelPage(items []Channel, limit int) *ChannelPage {
 	return page
 }
 
+// NormalizeCategoryPageSort clamps the category browse sort allowlist to the
+// current default: alphabetical by category name.
+func NormalizeCategoryPageSort(sort string) string {
+	switch sort {
+	case "latest_video_desc", "video_count_desc":
+		return sort
+	default:
+		return "name_asc"
+	}
+}
+
+// ToCategoryPage trims an over-fetched category slice to limit and derives the
+// next cursor from the last kept row.
+func ToCategoryPage(items []CategoryPageItem, limit int, sort string) *CategoryPage {
+	if limit <= 0 {
+		return &CategoryPage{Items: []Category{}}
+	}
+	page := &CategoryPage{Items: make([]Category, 0, min(len(items), limit))}
+	kept := items
+	if len(items) > limit {
+		kept = items[:limit]
+	}
+	for _, item := range kept {
+		page.Items = append(page.Items, item.Category)
+	}
+	if len(items) <= limit {
+		return page
+	}
+	last := kept[len(kept)-1]
+	cursor := &CategoryPageCursor{
+		Name: last.Category.Name,
+		ID:   last.Category.ID,
+	}
+	switch NormalizeCategoryPageSort(sort) {
+	case "latest_video_desc":
+		latest := last.LatestVideoAt
+		cursor.LatestVideoAt = &latest
+	case "video_count_desc":
+		cursor.VideoCount = last.VideoCount
+	}
+	page.NextCursor = cursor
+	return page
+}
+
 // NormalizeVideoListSort clamps opts.Sort/Order to the supported allowlist,
 // defaulting to created_at/desc. It is the single source of truth for which
 // video-list sorts exist.
@@ -31,7 +77,7 @@ func NormalizeVideoListSort(opts ListVideosOpts) (string, string) {
 	sort := opts.Sort
 	order := opts.Order
 	switch sort {
-	case "created_at", "duration", "size", "channel":
+	case "created_at", "duration", "size", "channel", "history_when":
 	default:
 		return "created_at", "desc"
 	}
@@ -81,8 +127,27 @@ func VideoListCursorFromVideo(v *Video, opts ListVideosOpts) *VideoListPageCurso
 		cursor.SortInt = v.SizeBytes
 	case "channel":
 		cursor.SortText = &v.DisplayName
+	case "history_when":
+		sortTime := VideoHistoryWhen(v)
+		cursor.SortTime = &sortTime
 	}
 	return cursor
+}
+
+// VideoHistoryWhen is the timestamp shown by the History table's "When" column.
+// It is also the sort key for history_when, keeping display order and cursor
+// pagination in lockstep.
+func VideoHistoryWhen(v *Video) time.Time {
+	if v == nil {
+		return time.Time{}
+	}
+	if v.DeletedAt != nil {
+		return *v.DeletedAt
+	}
+	if v.DownloadedAt != nil {
+		return *v.DownloadedAt
+	}
+	return v.StartDownloadAt
 }
 
 // ToVideoPage trims an over-fetched video slice to limit and derives the

@@ -36,6 +36,7 @@ func TestBuildListVideosPageQuery_PlaceholdersMatchArgs(t *testing.T) {
 
 	sorts := []struct{ sort, order string }{
 		{"created_at", "desc"}, {"created_at", "asc"},
+		{"history_when", "desc"}, {"history_when", "asc"},
 		{"channel", "asc"}, {"channel", "desc"},
 		{"duration", "asc"}, {"duration", "desc"},
 		{"size", "asc"}, {"size", "desc"},
@@ -59,6 +60,27 @@ func TestBuildListVideosPageQuery_PlaceholdersMatchArgs(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestBuildListVideosPageQuery_HistoryContracts(t *testing.T) {
+	opts := ListVideosOpts{
+		Sort:         "history_when",
+		Order:        "desc",
+		TerminalOnly: true,
+		Scope:        "all",
+		Limit:        10,
+	}
+	q, _ := BuildListVideosPageQuery(opts, nil, VideoPageDialect{Postgres: true, FormatTime: func(t time.Time) any { return t }})
+
+	if !strings.Contains(q, "status IN ('DONE', 'FAILED')") {
+		t.Fatalf("terminal-only predicate missing:\n%s", q)
+	}
+	if !strings.Contains(q, "COALESCE(deleted_at, downloaded_at, start_download_at) DESC") {
+		t.Fatalf("history_when sort missing:\n%s", q)
+	}
+	if strings.Contains(q, "deleted_at IS NULL") || strings.Contains(q, "deleted_at IS NOT NULL") {
+		t.Fatalf("scope=all should not add a tombstone predicate:\n%s", q)
 	}
 }
 

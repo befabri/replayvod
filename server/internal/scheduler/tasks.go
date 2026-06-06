@@ -180,6 +180,20 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 	}
 
 	if retentionsvc != nil {
+		if err := s.Register(Task{
+			Name:            retention.ManualDeletionTaskName,
+			Description:     retention.ManualDeletionTaskDescription,
+			IntervalSeconds: retention.ManualDeletionIntervalSeconds,
+			Run: func(ctx context.Context) error {
+				deleted, err := retentionsvc.ProcessManualDeletes(ctx)
+				if deleted > 0 {
+					log.Info("manual recording deletion: deleted queued recordings", "count", deleted)
+				}
+				return err
+			},
+		}); err != nil {
+			return err
+		}
 		if m := sc.RecordingsRetentionIntervalMinutes; m > 0 {
 			if err := s.Register(Task{
 				Name:            "recordings_retention",

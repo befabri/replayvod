@@ -101,6 +101,31 @@ type Category struct {
 	UpdatedAt time.Time
 }
 
+// CategoryPageCursor is the stable keyset cursor for the category browse list.
+// Name and ID are always used as deterministic tie-breakers. LatestVideoAt and
+// VideoCount are populated only for the matching sort modes.
+type CategoryPageCursor struct {
+	Name          string
+	ID            string
+	LatestVideoAt *time.Time
+	VideoCount    int64
+}
+
+// CategoryPageItem carries the category row plus the aggregate values needed to
+// build a cursor for non-name sorts. The API maps Items back to plain Category
+// responses so the cursor details stay internal to pagination.
+type CategoryPageItem struct {
+	Category      Category
+	LatestVideoAt time.Time
+	VideoCount    int64
+}
+
+// CategoryPage is one cursor-paginated slice of library categories.
+type CategoryPage struct {
+	Items      []Category
+	NextCursor *CategoryPageCursor
+}
+
 // UniqueCategoriesByID collapses duplicate category IDs while preserving the
 // first occurrence. Batch upserts use it before constructing one INSERT so a
 // duplicate remote result cannot make PostgreSQL's ON CONFLICT path touch the
@@ -287,8 +312,16 @@ type Video struct {
 	StartDownloadAt time.Time
 	DownloadedAt    *time.Time
 	DeletedAt       *time.Time
-	RecordingType   string
-	ForceH264       bool
+	// DeleteRequestedAt marks a live recording queued for operator-requested
+	// background deletion. DeletedAt remains nil until the worker purges storage
+	// and finalizes the tombstone.
+	DeleteRequestedAt *time.Time
+	// DeletionKind records why a tombstoned recording was removed:
+	// "retention" (auto-pruned by the schedule retention sweep) or
+	// "manual" (an operator removed it). Nil while DeletedAt is nil.
+	DeletionKind  *string
+	RecordingType string
+	ForceH264     bool
 	// TriggerScheduleID is the highest-quality schedule that caused this
 	// recording. RetentionSourceScheduleID is the matched delete-enabled
 	// schedule whose shortest window was snapshotted onto the recording.
@@ -321,6 +354,14 @@ const (
 	CompletionKindComplete  = "complete"
 	CompletionKindPartial   = "partial"
 	CompletionKindCancelled = "cancelled"
+)
+
+// DeletionKind enumerates the values of videos.deletion_kind, set when a
+// recording is tombstoned. Pinned to constants so the retention sweep and the
+// manual-delete handler don't drift on literals.
+const (
+	DeletionKindRetention = "retention"
+	DeletionKindManual    = "manual"
 )
 
 // MaxRetentionWindowHours is the largest time_before_delete value that can be
@@ -644,6 +685,9 @@ type VideoStatsTotals struct {
 	ThisWeek      int64
 	Incomplete    int64
 	Channels      int64
+	// Removed counts tombstoned recordings (deleted_at IS NOT NULL). Zero for
+	// the per-broadcaster rollup, which only aggregates live DONE rows.
+	Removed int64
 }
 
 // VideoStatsByStatus is one bucket of the status histogram.
@@ -689,8 +733,18 @@ type ListVideosOpts struct {
 	// gap-rooted partial files alongside cancelled and truncated
 	// recordings under one user-facing concept.
 	IncompleteOnly bool
-	Limit          int
-	Offset         int
+	// TerminalOnly narrows the result to terminal lifecycle rows (DONE/FAILED).
+	// History uses this with Scope="all" so active PENDING/RUNNING recordings
+	// stay on the Downloads surface instead of leaking into the audit log.
+	TerminalOnly bool
+	// Scope selects which tombstone state to return. "" and "active"
+	// keep the historical behaviour (deleted_at IS NULL); "removed"
+	// returns only tombstoned recordings; "all" returns both. Only the
+	// keyset page query (BuildListVideosPageQuery) honours this; the
+	// channel/category grids and search always stay active-only.
+	Scope  string // "" | "active" | "removed" | "all"
+	Limit  int
+	Offset int
 }
 
 // VideoPageCursor is the stable keyset cursor for channel/category video lists.
@@ -708,12 +762,14 @@ type VideoPage struct {
 }
 
 // VideoListPageCursor is the stable keyset cursor for video.listPage.
-// SortNumber is used for duration sorts, SortInt for size sorts, SortText for channel sorts,
-// and StartDownloadAt always participates as a stable tie-breaker.
+// SortNumber is used for duration sorts, SortInt for size sorts, SortText for
+// channel sorts, and SortTime for timestamp-derived sorts such as history_when.
+// StartDownloadAt is retained for created_at and as the historical cursor field.
 type VideoListPageCursor struct {
 	SortNumber      *float64
 	SortInt         *int64
 	SortText        *string
+	SortTime        *time.Time
 	StartDownloadAt time.Time
 	ID              int64
 }

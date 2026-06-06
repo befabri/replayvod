@@ -304,6 +304,8 @@ type Video struct {
 	TriggerScheduleID         *int64     `json:"trigger_schedule_id"`
 	RetentionSourceScheduleID *int64     `json:"retention_source_schedule_id"`
 	RetentionWindowHours      *int32     `json:"retention_window_hours"`
+	DeletionKind              *string    `json:"deletion_kind"`
+	DeleteRequestedAt         *time.Time `json:"delete_requested_at"`
 }
 
 type VideoCategory struct {

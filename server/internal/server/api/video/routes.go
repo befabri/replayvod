@@ -21,8 +21,8 @@ import (
 // preview JPEGs saved during recording. Passed through so the handler
 // can call Exists() at request time without holding the Storage on
 // the domain Service (which is read-only by design).
-func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, store storage.Storage, log *slog.Logger, viewer, admin *trpcgo.ProcedureBuilder) {
-	h := NewHandler(New(repo, log), NewDownload(repo, dl, tc, hydrator, log), store, log)
+func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, deletion RecordingDeletionRequester, store storage.Storage, log *slog.Logger, viewer, admin *trpcgo.ProcedureBuilder) {
+	h := NewHandler(New(repo, log), NewDownload(repo, dl, tc, hydrator, log), deletion, store, log)
 
 	trpcgo.MustQuery(tr, "video.list", h.List, viewer)
 	trpcgo.MustQuery(tr, "video.listPage", h.ListPage, viewer)
@@ -41,5 +41,6 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloade
 	trpcgo.MustVoidSubscribe(tr, "video.activeDownloadsLive", h.ActiveDownloadsLive, viewer)
 	trpcgo.MustMutation(tr, "video.triggerDownload", h.TriggerDownload, admin)
 	trpcgo.MustMutation(tr, "video.cancel", h.Cancel, admin)
+	trpcgo.MustMutation(tr, "video.delete", h.Delete, admin)
 	trpcgo.MustSubscribe(tr, "video.downloadProgress", h.DownloadProgress, admin)
 }

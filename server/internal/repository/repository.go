@@ -88,6 +88,9 @@ type Repository interface {
 	// least one non-deleted video. This is the browse/library view, distinct
 	// from ListCategories which exposes the whole mirrored Twitch catalog.
 	ListCategoriesWithVideos(ctx context.Context) ([]Category, error)
+	// ListCategoriesWithVideosPage returns the browse/library categories with
+	// cursor pagination and a small sort allowlist.
+	ListCategoriesWithVideosPage(ctx context.Context, limit int, sort string, cursor *CategoryPageCursor) (*CategoryPage, error)
 	// ListCategoriesByIDs returns found categories in ids order. Missing IDs are
 	// skipped and duplicate IDs are collapsed at their first occurrence.
 	ListCategoriesByIDs(ctx context.Context, ids []string) ([]Category, error)
@@ -180,15 +183,24 @@ type Repository interface {
 	ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
 	ListVideosByCategory(ctx context.Context, categoryID string, limit int, cursor *VideoPageCursor) (*VideoPage, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
-	SoftDeleteVideo(ctx context.Context, id int64) error
+	// RequestVideoDelete queues an operator-requested delete on a live terminal
+	// recording. The background deletion task performs the object purge and
+	// tombstone finalization.
+	RequestVideoDelete(ctx context.Context, id int64) (*Video, error)
+	// ListVideosPendingManualDelete returns queued manual deletes that are safe
+	// to purge now, including the recording-webhook frozen-parts guard.
+	ListVideosPendingManualDelete(ctx context.Context, limit int) ([]Video, error)
+	// SoftDeleteVideo tombstones a video, recording why via kind
+	// (DeletionKindRetention | DeletionKindManual).
+	SoftDeleteVideo(ctx context.Context, id int64, kind string) error
 	// ListFinishedVideosForRetention returns the terminal, not-yet-tombstoned
 	// recordings that own a snapshotted retention policy, can have reclaimable
 	// objects, and are already due at now.
 	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]RetentionVideo, error)
-	// FinalizeRetentionDelete is the DB commit marker after object purge:
-	// tombstone the video and remove its parts in one transaction so readers
-	// never see a visible row whose part rows were already deleted.
-	FinalizeRetentionDelete(ctx context.Context, videoID int64) error
+	// FinalizeDelete is the DB commit marker after object purge: tombstone the
+	// video (recording why via kind) and remove its parts in one transaction so
+	// readers never see a visible row whose part rows were already deleted.
+	FinalizeDelete(ctx context.Context, videoID int64, kind string) error
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	VideoStatsByStatus(ctx context.Context) ([]VideoStatsByStatus, error)
 	VideoStatsTotals(ctx context.Context) (*VideoStatsTotals, error)

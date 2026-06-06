@@ -304,6 +304,8 @@ type Video struct {
 	TriggerScheduleID         sql.NullInt64    `json:"trigger_schedule_id"`
 	RetentionSourceScheduleID sql.NullInt64    `json:"retention_source_schedule_id"`
 	RetentionWindowHours      sql.NullInt64    `json:"retention_window_hours"`
+	DeletionKind              sql.NullString   `json:"deletion_kind"`
+	DeleteRequestedAt         *sqlitetype.Time `json:"delete_requested_at"`
 }
 
 type VideoCategory struct {

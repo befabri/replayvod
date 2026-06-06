@@ -12,26 +12,38 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	"github.com/befabri/replayvod/server/internal/service/retention"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
 )
 
+// RecordingDeletionRequester queues a recording for background removal.
+// The retention service owns the actual purge path so manual deletes and
+// automatic retention use the same storage-key cleanup, but video.delete keeps
+// the request fast and leaves retry/webhook-freeze handling to the task.
+type RecordingDeletionRequester interface {
+	RequestManualDelete(ctx context.Context, video *repository.Video) error
+}
+
 // Handler is the tRPC adapter for the video domain.
 type Handler struct {
 	video    *Service
 	download *DownloadService
+	deletion RecordingDeletionRequester
 	storage  storage.Storage
 	log      *slog.Logger
 }
 
 // NewHandler wires a handler around the two video domain services.
 // storage is used by the Snapshots endpoint to probe for the
-// hover-preview images saved during recording.
-func NewHandler(video *Service, download *DownloadService, store storage.Storage, log *slog.Logger) *Handler {
+// hover-preview images saved during recording. deletion queues background
+// recording removal for video.delete.
+func NewHandler(video *Service, download *DownloadService, deletion RecordingDeletionRequester, store storage.Storage, log *slog.Logger) *Handler {
 	return &Handler{
 		video:    video,
 		download: download,
+		deletion: deletion,
 		storage:  store,
 		log:      log.With("domain", "video-api"),
 	}
@@ -95,6 +107,15 @@ type VideoResponse struct {
 	Error                    *string    `json:"error,omitempty"`
 	StartDownloadAt          time.Time  `json:"start_download_at"`
 	DownloadedAt             *time.Time `json:"downloaded_at,omitempty"`
+	// DeletedAt is set on tombstoned (removed) recordings; DeletionKind
+	// records why ("retention" | "manual"). Both nil for live recordings.
+	// Surfaced only on the removed-inclusive history surface (listPage with
+	// scope removed/all); the library default scope never returns these rows.
+	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
+	DeletionKind *string    `json:"deletion_kind,omitempty"`
+	// DeleteRequestedAt is set while a manual removal is queued but not yet
+	// finalized by the background deletion task.
+	DeleteRequestedAt *time.Time `json:"delete_requested_at,omitempty"`
 	// Parts is populated only by GetByID — list endpoints skip it
 	// to avoid N+1 queries on grid views.
 	Parts []VideoPartResponse `json:"parts,omitempty"`
@@ -172,27 +193,30 @@ func toVideoPartResponses(parts []repository.VideoPart) []VideoPartResponse {
 
 func toVideoResponse(v *repository.Video, ch *repository.Channel, primaryCategory *repository.Category) VideoResponse {
 	resp := VideoResponse{
-		ID:              v.ID,
-		JobID:           v.JobID,
-		Filename:        v.Filename,
-		DisplayName:     v.DisplayName,
-		Title:           v.Title,
-		Status:          VideoStatus(v.Status),
-		CompletionKind:  CompletionKind(v.CompletionKind),
-		Truncated:       v.Truncated,
-		Quality:         formatVideoQualityLabel(v),
-		FPS:             v.SelectedFPS,
-		IsAudioOnly:     repository.NormalizeRecordingType(v.RecordingType) == repository.RecordingTypeAudio,
-		BroadcasterID:   v.BroadcasterID,
-		StreamID:        v.StreamID,
-		ViewerCount:     v.ViewerCount,
-		Language:        v.Language,
-		DurationSeconds: v.DurationSeconds,
-		SizeBytes:       v.SizeBytes,
-		Thumbnail:       v.Thumbnail,
-		Error:           v.Error,
-		StartDownloadAt: v.StartDownloadAt,
-		DownloadedAt:    v.DownloadedAt,
+		ID:                v.ID,
+		JobID:             v.JobID,
+		Filename:          v.Filename,
+		DisplayName:       v.DisplayName,
+		Title:             v.Title,
+		Status:            VideoStatus(v.Status),
+		CompletionKind:    CompletionKind(v.CompletionKind),
+		Truncated:         v.Truncated,
+		Quality:           formatVideoQualityLabel(v),
+		FPS:               v.SelectedFPS,
+		IsAudioOnly:       repository.NormalizeRecordingType(v.RecordingType) == repository.RecordingTypeAudio,
+		BroadcasterID:     v.BroadcasterID,
+		StreamID:          v.StreamID,
+		ViewerCount:       v.ViewerCount,
+		Language:          v.Language,
+		DurationSeconds:   v.DurationSeconds,
+		SizeBytes:         v.SizeBytes,
+		Thumbnail:         v.Thumbnail,
+		Error:             v.Error,
+		StartDownloadAt:   v.StartDownloadAt,
+		DownloadedAt:      v.DownloadedAt,
+		DeletedAt:         v.DeletedAt,
+		DeletionKind:      v.DeletionKind,
+		DeleteRequestedAt: v.DeleteRequestedAt,
 	}
 	if ch != nil {
 		resp.BroadcasterLogin = ch.BroadcasterLogin
@@ -257,7 +281,7 @@ type ListInput struct {
 	Limit  int    `json:"limit" validate:"min=0,max=200"`
 	Offset int    `json:"offset" validate:"min=0"`
 	Status string `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
-	Sort   string `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel"`
+	Sort   string `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel history_when"`
 	Order  string `json:"order,omitempty" validate:"omitempty,oneof=asc desc"`
 }
 
@@ -288,27 +312,37 @@ func (h *Handler) List(ctx context.Context, input ListInput) ([]VideoResponse, e
 }
 
 type VideoListPageCursor struct {
-	SortNumber      *float64  `json:"sort_number,omitempty"`
-	SortInt         *string   `json:"sort_int,omitempty"`
-	SortText        *string   `json:"sort_text,omitempty"`
-	StartDownloadAt time.Time `json:"start_download_at" validate:"required"`
-	ID              int64     `json:"id" validate:"required"`
+	SortNumber      *float64   `json:"sort_number,omitempty"`
+	SortInt         *string    `json:"sort_int,omitempty"`
+	SortText        *string    `json:"sort_text,omitempty"`
+	SortTime        *time.Time `json:"sort_time,omitempty"`
+	StartDownloadAt time.Time  `json:"start_download_at" validate:"required"`
+	ID              int64      `json:"id" validate:"required"`
 }
 
 type ListPageInput struct {
-	Limit          int                  `json:"limit" validate:"min=0,max=200"`
-	Status         string               `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
-	Sort           string               `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel"`
-	Order          string               `json:"order,omitempty" validate:"omitempty,oneof=asc desc"`
-	Quality        string               `json:"quality,omitempty"`
-	BroadcasterID  string               `json:"broadcaster_id,omitempty"`
-	Language       string               `json:"language,omitempty"`
-	Duration       string               `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
-	Size           string               `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
-	Window         string               `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
-	IncompleteOnly bool                 `json:"incomplete_only,omitempty"`
-	Cursor         *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
-	Direction      string               `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
+	Limit          int    `json:"limit" validate:"min=0,max=200"`
+	Status         string `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
+	Sort           string `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel history_when"`
+	Order          string `json:"order,omitempty" validate:"omitempty,oneof=asc desc"`
+	Quality        string `json:"quality,omitempty"`
+	BroadcasterID  string `json:"broadcaster_id,omitempty"`
+	Language       string `json:"language,omitempty"`
+	Duration       string `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
+	Size           string `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
+	Window         string `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
+	IncompleteOnly bool   `json:"incomplete_only,omitempty"`
+	// TerminalOnly keeps active in-flight rows out of history-style views while
+	// still allowing those views to include both active terminal rows and
+	// tombstones through Scope="all".
+	TerminalOnly bool `json:"terminal_only,omitempty"`
+	// Scope selects the tombstone state. Empty/"active" keeps the library
+	// default (live recordings only); "removed" and "all" power the
+	// removed-inclusive history surface. Channel/category grids and search
+	// never expose this and stay active-only.
+	Scope     string               `json:"scope,omitempty" validate:"omitempty,oneof=active removed all"`
+	Cursor    *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+	Direction string               `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
 }
 
 type VideoListPageResponse struct {
@@ -344,6 +378,8 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		SizeMaxBytes:       sizeMax,
 		Window:             input.Window,
 		IncompleteOnly:     input.IncompleteOnly,
+		TerminalOnly:       input.TerminalOnly,
+		Scope:              input.Scope,
 		Limit:              limit,
 	}, cursor)
 	if err != nil {
@@ -680,6 +716,7 @@ func toRepositoryVideoListPageCursor(cursor *VideoListPageCursor) (*repository.V
 		SortNumber:      cursor.SortNumber,
 		SortInt:         sortInt,
 		SortText:        cursor.SortText,
+		SortTime:        cursor.SortTime,
 		StartDownloadAt: cursor.StartDownloadAt,
 		ID:              cursor.ID,
 	}, nil
@@ -692,6 +729,7 @@ func toVideoListPageCursor(cursor *repository.VideoListPageCursor) *VideoListPag
 	out := &VideoListPageCursor{
 		SortNumber:      cursor.SortNumber,
 		SortText:        cursor.SortText,
+		SortTime:        cursor.SortTime,
 		StartDownloadAt: cursor.StartDownloadAt,
 		ID:              cursor.ID,
 	}
@@ -720,6 +758,9 @@ type StatisticsResponse struct {
 	// Channels is the count of distinct broadcasters represented in
 	// the videos table — used by the videos page subtitle.
 	Channels int64 `json:"channels"`
+	// Removed counts tombstoned recordings; drives the History "Removed" tab
+	// count (the only count not derivable from by_status, which is live-only).
+	Removed int64 `json:"removed"`
 }
 
 type ActiveDownloadResponse struct {
@@ -762,6 +803,7 @@ func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 		ThisWeek:      stats.Totals.ThisWeek,
 		Incomplete:    stats.Totals.Incomplete,
 		Channels:      stats.Totals.Channels,
+		Removed:       stats.Totals.Removed,
 	}
 	for i, b := range stats.ByStatus {
 		out.ByStatus[i] = StatsBucket{Status: VideoStatus(b.Status), Count: b.Count}
@@ -1054,6 +1096,41 @@ type OK struct {
 
 func (h *Handler) Cancel(ctx context.Context, input CancelInput) (OK, error) {
 	h.download.Cancel(ctx, input.JobID)
+	return OK{OK: true}, nil
+}
+
+type DeleteInput struct {
+	ID int64 `json:"id" validate:"required"`
+}
+
+// Delete queues a finished recording for background removal. Only terminal
+// recordings (DONE/FAILED) are removable — an in-flight or queued recording
+// owns a live job, so purging it would race the writer; those are stopped via
+// video.cancel first. The background task handles storage retries and waits for
+// recording-webhook part metadata to be frozen before deleting video_parts.
+func (h *Handler) Delete(ctx context.Context, input DeleteInput) (OK, error) {
+	if _, err := middleware.RequireUser(ctx); err != nil {
+		return OK{}, err
+	}
+	v, err := h.video.GetByID(ctx, input.ID)
+	if err != nil {
+		return OK{}, apierr.Map(h.log, err, "delete recording",
+			apierr.On(repository.ErrNotFound, trpcgo.CodeNotFound, "recording not found"))
+	}
+	if v.DeletedAt != nil {
+		return OK{}, trpcgo.NewError(trpcgo.CodeConflict, "recording is already removed")
+	}
+	if v.Status != repository.VideoStatusDone && v.Status != repository.VideoStatusFailed {
+		return OK{}, trpcgo.NewError(trpcgo.CodeConflict,
+			"cancel the recording before removing it")
+	}
+	if err := h.deletion.RequestManualDelete(ctx, v); err != nil {
+		return OK{}, apierr.Map(h.log, err, "queue recording delete",
+			apierr.On(repository.ErrNotFound, trpcgo.CodeConflict,
+				"recording is already removed"),
+			apierr.On(retention.ErrManualDeletionUnavailable, trpcgo.CodeServiceUnavailable,
+				"recording deletion worker is unavailable"))
+	}
 	return OK{OK: true}, nil
 }
 

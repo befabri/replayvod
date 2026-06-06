@@ -129,7 +129,7 @@ func TestSearchVideos(t *testing.T) {
 	})
 
 	t.Run("soft-deleted videos are excluded", func(t *testing.T) {
-		if err := a.SoftDeleteVideo(ctx, pgGotVideoID(t, ctx, a, "job-title")); err != nil {
+		if err := a.SoftDeleteVideo(ctx, pgGotVideoID(t, ctx, a, "job-title"), repository.DeletionKindManual); err != nil {
 			t.Fatalf("soft delete: %v", err)
 		}
 		got, err := a.SearchVideos(ctx, "Neon Run", 10)

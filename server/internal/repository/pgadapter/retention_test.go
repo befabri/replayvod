@@ -143,7 +143,7 @@ func TestRetentionQueries_FilterContracts(t *testing.T) {
 		t.Fatalf("create done video with null downloaded_at: %v", err)
 	}
 	vGone := seedRetentionDoneVideo(t, ctx, a, "job-gone", "rec-gone", "b-del")
-	if err := a.SoftDeleteVideo(ctx, vGone.ID); err != nil {
+	if err := a.SoftDeleteVideo(ctx, vGone.ID, repository.DeletionKindManual); err != nil {
 		t.Fatalf("soft delete video: %v", err)
 	}
 	vNotDue, err := a.CreateVideo(ctx, &repository.VideoInput{
@@ -254,7 +254,7 @@ func TestFinalizeRetentionDelete_RollsBackWhenPartDeleteFails(t *testing.T) {
 		t.Fatalf("insert blocking FK: %v", err)
 	}
 
-	if err := a.FinalizeRetentionDelete(ctx, video.ID); err == nil {
+	if err := a.FinalizeDelete(ctx, video.ID, repository.DeletionKindRetention); err == nil {
 		t.Fatal("FinalizeRetentionDelete returned nil; want FK failure")
 	}
 

@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,6 +25,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/service/retention"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -515,6 +517,69 @@ func TestTRPCMutationTrustsPublicBaseOriginBehindProxy(t *testing.T) {
 	}
 	if bytes.Contains(rr.Body.Bytes(), []byte("CSRF")) {
 		t.Fatalf("unexpected CSRF rejection body: %s", rr.Body.String())
+	}
+}
+
+func TestSetupRouter_VideoDeleteUnavailableWhenSchedulerDisabled(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sessionMgr, err := session.NewManager(repo, "delete-router-session-secret-0123456789", false, log)
+	if err != nil {
+		t.Fatalf("session.NewManager: %v", err)
+	}
+	cfg := &config.Config{
+		Env: config.Environment{
+			HMACSecret:  routerWebhookSecret,
+			CallbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
+			FrontendURL: "http://localhost:3000",
+		},
+		App: config.AppConfig{
+			Scheduler: config.SchedulerConfig{Enabled: false},
+		},
+		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
+	}
+	bus := eventbus.New()
+	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	if closeTRPC != nil {
+		t.Cleanup(func() {
+			if err := closeTRPC(); err != nil {
+				t.Errorf("close tRPC router: %v", err)
+			}
+		})
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-delete-router", BroadcasterLogin: "delete-router", BroadcasterName: "Delete Router",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	v, err := repo.CreateVideo(ctx, &repository.VideoInput{
+		JobID: "job-delete-router", Filename: "delete-router", DisplayName: "Delete Router",
+		Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
+		BroadcasterID: "bc-delete-router", RecordingType: repository.RecordingTypeVideo,
+	})
+	if err != nil {
+		t.Fatalf("create video: %v", err)
+	}
+	if err := repo.MarkVideoDone(ctx, v.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
+		t.Fatalf("mark video done: %v", err)
+	}
+
+	admin := mintSessionCookie(t, repo, sessionMgr, "delete-router-admin", "admin")
+	status := roleGateRequest(router, http.MethodPost, "/trpc/video.delete", fmt.Sprintf(`{"id":%d}`, v.ID), admin)
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("video.delete status = %d, want %d", status, http.StatusServiceUnavailable)
+	}
+	got, err := repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVideo after delete attempt: %v", err)
+	}
+	if got.DeleteRequestedAt != nil {
+		t.Fatalf("DeleteRequestedAt = %v, want nil when scheduler is disabled", got.DeleteRequestedAt)
+	}
+	if _, err := repo.GetTask(ctx, retention.ManualDeletionTaskName); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("manual deletion task err = %v, want ErrNotFound", err)
 	}
 }
 

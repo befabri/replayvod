@@ -289,8 +289,30 @@ func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repos
 	return sqliteVideosToDomain(rows), nil
 }
 
-func (a *SQLiteAdapter) SoftDeleteVideo(ctx context.Context, id int64) error {
-	return a.queries.SoftDeleteVideo(ctx, id)
+func (a *SQLiteAdapter) RequestVideoDelete(ctx context.Context, id int64) (*repository.Video, error) {
+	row, err := a.queries.RequestVideoDelete(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteVideoToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, limit int) ([]repository.Video, error) {
+	if limit <= 0 {
+		return []repository.Video{}, nil
+	}
+	rows, err := a.queries.ListVideosPendingManualDelete(ctx, int64(limit))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos pending manual delete: %w", err)
+	}
+	return sqliteVideosToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) SoftDeleteVideo(ctx context.Context, id int64, kind string) error {
+	return a.queries.SoftDeleteVideo(ctx, sqlitegen.SoftDeleteVideoParams{
+		ID:           id,
+		DeletionKind: sql.NullString{String: kind, Valid: true},
+	})
 }
 
 func (a *SQLiteAdapter) ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]repository.RetentionVideo, error) {
@@ -310,13 +332,16 @@ func (a *SQLiteAdapter) ListFinishedVideosForRetention(ctx context.Context, now 
 	return out, nil
 }
 
-func (a *SQLiteAdapter) FinalizeRetentionDelete(ctx context.Context, videoID int64) error {
+func (a *SQLiteAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind string) error {
 	return a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
-		if err := q.SoftDeleteVideo(ctx, videoID); err != nil {
-			return fmt.Errorf("sqlite retention tombstone video: %w", err)
+		if err := q.SoftDeleteVideo(ctx, sqlitegen.SoftDeleteVideoParams{
+			ID:           videoID,
+			DeletionKind: sql.NullString{String: kind, Valid: true},
+		}); err != nil {
+			return fmt.Errorf("sqlite tombstone video: %w", err)
 		}
 		if err := q.DeleteVideoParts(ctx, videoID); err != nil {
-			return fmt.Errorf("sqlite retention delete parts: %w", err)
+			return fmt.Errorf("sqlite delete parts: %w", err)
 		}
 		return nil
 	})
@@ -360,6 +385,10 @@ func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context) (*repository.Video
 	if err != nil {
 		return nil, fmt.Errorf("sqlite video stats totals (channels): %w", err)
 	}
+	removed, err := a.queries.StatisticsRemoved(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats totals (removed): %w", err)
+	}
 	return &repository.VideoStatsTotals{
 		Total:         doneRow.Total,
 		TotalSize:     doneRow.TotalSize,
@@ -367,6 +396,7 @@ func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context) (*repository.Video
 		ThisWeek:      thisWeek,
 		Incomplete:    incomplete,
 		Channels:      channels,
+		Removed:       removed,
 	}, nil
 }
 
@@ -419,6 +449,8 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		StartDownloadAt:           v.StartDownloadAt.Time,
 		DownloadedAt:              timePtrFromSQLite(v.DownloadedAt),
 		DeletedAt:                 timePtrFromSQLite(v.DeletedAt),
+		DeleteRequestedAt:         timePtrFromSQLite(v.DeleteRequestedAt),
+		DeletionKind:              fromNullString(v.DeletionKind),
 		RecordingType:             v.RecordingType,
 		ForceH264:                 v.ForceH264 != 0,
 		TriggerScheduleID:         nullInt64ToInt64Ptr(v.TriggerScheduleID),
@@ -475,6 +507,8 @@ func scanSQLiteVideo(rows *sql.Rows) (sqlitegen.Video, error) {
 		&row.StartDownloadAt,
 		&row.DownloadedAt,
 		&row.DeletedAt,
+		&row.DeletionKind,
+		&row.DeleteRequestedAt,
 		&row.RecordingType,
 		&row.ForceH264,
 		&row.Title,
