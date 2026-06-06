@@ -134,6 +134,26 @@ func TestValidateDotenvNoDuplicateKeysRejectsSingleLineQuotedDuplicate(t *testin
 	}
 }
 
+func TestValidateDotenvNoDuplicateKeysAcceptsEscapedSingleQuote(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	content := "POSTGRES_PASSWORD='pa\\'ss'\nPOSTGRES_USER=replayvod\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	values, err := godotenv.Read(path)
+	if err != nil {
+		t.Fatalf("godotenv.Read = %v, want nil", err)
+	}
+	if got := values["POSTGRES_PASSWORD"]; got != `pa\'ss` {
+		t.Fatalf("POSTGRES_PASSWORD = %q, want escaped single quote preserved", got)
+	}
+
+	if err := validateDotenvNoDuplicateKeys(path); err != nil {
+		t.Fatalf("validateDotenvNoDuplicateKeys(escaped single quote) = %v, want nil", err)
+	}
+}
+
 func TestValidateEnvironmentNormalizesServerMode(t *testing.T) {
 	env := &Environment{SessionSecret: "0123456789abcdef0123456789abcdef", ServerMode: " RELAY "}
 

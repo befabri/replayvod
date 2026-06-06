@@ -5,8 +5,8 @@ import "testing"
 // TestContainsUnescapedQuote pins the scanner that decides whether a quoted
 // dotenv value closes. It must find a quote at index 0 (the off-by-one that
 // previously skipped it let an empty value `FOO=""` masquerade as a multi-line
-// open), honor backslash escapes only in double-quote mode, and treat single-
-// quoted values as literal.
+// open) and honor godotenv's escaped-quote rule for both double- and single-
+// quoted values.
 func TestContainsUnescapedQuote(t *testing.T) {
 	cases := []struct {
 		name string
@@ -20,7 +20,8 @@ func TestContainsUnescapedQuote(t *testing.T) {
 		{name: "escaped quote is not a close", s: `\"`, q: '"', want: false},
 		{name: "escaped quote then real close", s: `\"x"`, q: '"', want: true},
 		{name: "single quote found", s: `a'`, q: '\'', want: true},
-		{name: "backslash does not escape in single-quote mode", s: `\'`, q: '\'', want: true},
+		{name: "escaped single quote is not a close", s: `\'`, q: '\'', want: false},
+		{name: "escaped single quote then real close", s: `\'x'`, q: '\'', want: true},
 		{name: "empty", s: ``, q: '"', want: false},
 	}
 	for _, tc := range cases {

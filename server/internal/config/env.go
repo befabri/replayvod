@@ -302,15 +302,15 @@ func multilineValueQuote(value string) (byte, bool) {
 }
 
 // containsUnescapedQuote reports whether s contains an unescaped quote q.
-// Double-quoted values honor backslash escapes, matching godotenv; single-
-// quoted values are literal.
+// Backslashes prevent both double and single quotes from closing, matching
+// godotenv's scanner.
 func containsUnescapedQuote(s string, q byte) bool {
 	escaped := false
 	for i := 0; i < len(s); i++ {
 		switch {
 		case escaped:
 			escaped = false
-		case s[i] == '\\' && q == '"':
+		case s[i] == '\\':
 			escaped = true
 		case s[i] == q:
 			return true
