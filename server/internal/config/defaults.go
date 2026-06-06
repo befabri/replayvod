@@ -33,6 +33,7 @@ func getDefaultAppConfig() AppConfig {
 			EventsubIntervalMinutes:               10,
 			EventsubReconcileIntervalMinutes:      60,
 			CategoryArtIntervalMinutes:            1440,
+			CategoryMetadataIntervalMinutes:       1440,
 			TokenCleanupIntervalMinutes:           60,
 			FetchLogsRetentionDays:                14,
 			WebhookEventPayloadRetentionDays:      7,

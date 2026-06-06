@@ -109,6 +109,7 @@ type Querier interface {
 	GetActiveSubscriptionForBroadcasterType(ctx context.Context, arg GetActiveSubscriptionForBroadcasterTypeParams) (Subscription, error)
 	GetCategory(ctx context.Context, id string) (Category, error)
 	GetCategoryByName(ctx context.Context, name string) (Category, error)
+	GetCategoryDetail(ctx context.Context, id string) (GetCategoryDetailRow, error)
 	GetCategorySearchCache(ctx context.Context, normalizedQuery string) (CategorySearchCache, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
@@ -176,7 +177,13 @@ type Querier interface {
 	ListActiveSubscriptions(ctx context.Context, arg ListActiveSubscriptionsParams) ([]Subscription, error)
 	ListCategories(ctx context.Context) ([]Category, error)
 	ListCategoriesByIDs(ctx context.Context, ids []string) ([]Category, error)
-	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
+	// IGDB descriptions need a numeric igdb_id. Rows without one are left to the
+	// Helix metadata sync first.
+	ListCategoriesMissingDescription(ctx context.Context, descriptionCheckedAt *time.Time) ([]Category, error)
+	// Helix /games is the source for both box_art_url and igdb_id. Keep this
+	// broader than the historical box-art-only query so categories that already
+	// have art but still lack igdb_id can become eligible for IGDB enrichment.
+	ListCategoriesMissingGameMetadata(ctx context.Context, gameMetadataCheckedAt *time.Time) ([]Category, error)
 	// Browse/library list: categories must be linked to at least one visible
 	// recording. Twitch search can mirror catalog-only rows into categories; those
 	// should stay out of the category page until a video actually references them.
@@ -283,6 +290,8 @@ type Querier interface {
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
 	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
 	ListWhitelist(ctx context.Context) ([]Whitelist, error)
+	MarkCategoryDescriptionChecked(ctx context.Context, id string) error
+	MarkCategoryGameMetadataChecked(ctx context.Context, id string) error
 	MarkJobDone(ctx context.Context, id string) error
 	MarkJobFailed(ctx context.Context, arg MarkJobFailedParams) error
 	MarkJobRunning(ctx context.Context, id string) error
@@ -371,7 +380,7 @@ type Querier interface {
 	// Manual "run now" path — set next_run_at to now so the scheduler picks
 	// it up on the next tick. Separate from SetTaskEnabled so the caller
 	// can request a one-shot run without changing the enabled flag.
-	SetTaskNextRun(ctx context.Context, name string) error
+	SetTaskNextRun(ctx context.Context, name string) (Task, error)
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
 	// Tombstone a recording. deletion_kind records why ('retention' | 'manual').
 	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
@@ -392,10 +401,11 @@ type Querier interface {
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error
 	UnlinkScheduleCategory(ctx context.Context, arg UnlinkScheduleCategoryParams) error
 	UnlinkScheduleTag(ctx context.Context, arg UnlinkScheduleTagParams) error
-	// Dedicated setter for box_art_url. Used by the category-art sync
-	// task and the Hydrator's eager enrichment; separates "refresh just
-	// the art" from the broader UpsertCategory contract.
-	UpdateCategoryBoxArt(ctx context.Context, arg UpdateCategoryBoxArtParams) error
+	UpdateCategoryDescription(ctx context.Context, arg UpdateCategoryDescriptionParams) error
+	// Refresh the Twitch-side category metadata returned by Helix /games.
+	// Empty inputs preserve the existing value so callers can safely write
+	// whichever subset Twitch returned.
+	UpdateCategoryGameMetadata(ctx context.Context, arg UpdateCategoryGameMetadataParams) error
 	// Hot path: called after every segment completion, stage transition,
 	// and accepted gap. Single UPDATE keeps the write atomic with respect
 	// to the frontier-advance logic in the downloader.
@@ -408,11 +418,11 @@ type Querier interface {
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoSelectedVariant(ctx context.Context, arg UpdateVideoSelectedVariantParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
-	// Preserves box_art_url and igdb_id on conflict: a webhook-path
-	// upsert that only knows (id, name) won't wipe values the
-	// category-art sync has filled. COALESCE picks the existing row
-	// value when the caller passed NULL. UpdateCategoryBoxArt below is
-	// the explicit path to actively change the art.
+	// Preserves box_art_url, igdb_id, and description on ordinary webhook-path
+	// upserts that only know (id, name). When a non-empty incoming igdb_id changes
+	// the mapped IGDB game, the existing description cache is cleared so it can be
+	// re-enriched for the new game. UpdateCategoryGameMetadata below is the
+	// explicit path to actively change Twitch game metadata.
 	UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error)
 	UpsertCategorySearchCache(ctx context.Context, arg UpsertCategorySearchCacheParams) (CategorySearchCache, error)
 	UpsertChannel(ctx context.Context, arg UpsertChannelParams) (Channel, error)

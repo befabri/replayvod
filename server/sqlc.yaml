@@ -89,6 +89,10 @@ sql:
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
           - column: "categories.updated_at"
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "categories.game_metadata_checked_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time", pointer: true }
+          - column: "categories.description_checked_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time", pointer: true }
           - column: "category_search_cache.expires_at"
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
           - column: "category_search_cache.last_accessed_at"

@@ -22,6 +22,7 @@ import (
 
 type categoryRepo interface {
 	GetCategory(ctx context.Context, id string) (*repository.Category, error)
+	GetCategoryDetail(ctx context.Context, id string) (*repository.CategoryDetail, error)
 	ListCategories(ctx context.Context) ([]repository.Category, error)
 	ListCategoriesWithVideos(ctx context.Context) ([]repository.Category, error)
 	ListCategoriesWithVideosPage(ctx context.Context, limit int, sort string, cursor *repository.CategoryPageCursor) (*repository.CategoryPage, error)
@@ -119,6 +120,12 @@ func New(repo categoryRepo, tc categorySearcher, log *slog.Logger, opts ...Optio
 // GetByID returns a category by Twitch game_id, or ErrNotFound.
 func (s *Service) GetByID(ctx context.Context, id string) (*repository.Category, error) {
 	return s.repo.GetCategory(ctx, id)
+}
+
+// GetDetail returns category metadata plus local recording aggregates for the
+// category detail page.
+func (s *Service) GetDetail(ctx context.Context, id string) (*repository.CategoryDetail, error) {
+	return s.repo.GetCategoryDetail(ctx, id)
 }
 
 // List returns every mirrored category ordered by the repo's list query.

@@ -122,7 +122,7 @@ SET last_status      = 'failed',
     last_error       = ?3,
     next_run_at      = CASE
         WHEN interval_seconds > 0
-        THEN datetime('now', '+' || interval_seconds || ' seconds')
+        THEN ifnull(next_run_at, datetime('now', '+' || interval_seconds || ' seconds'))
         ELSE NULL
     END,
     updated_at       = datetime('now')
@@ -144,6 +144,7 @@ const markTaskRunning = `-- name: MarkTaskRunning :exec
 UPDATE tasks
 SET last_status = 'running',
     last_run_at = datetime('now'),
+    next_run_at = NULL,
     last_error  = NULL,
     updated_at  = datetime('now')
 WHERE name = ?
@@ -160,7 +161,7 @@ SET last_status      = 'success',
     last_duration_ms = ?2,
     next_run_at      = CASE
         WHEN interval_seconds > 0
-        THEN datetime('now', '+' || interval_seconds || ' seconds')
+        THEN ifnull(next_run_at, datetime('now', '+' || interval_seconds || ' seconds'))
         ELSE NULL
     END,
     last_error       = NULL,
@@ -215,16 +216,31 @@ func (q *Queries) SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) 
 	return i, err
 }
 
-const setTaskNextRun = `-- name: SetTaskNextRun :exec
+const setTaskNextRun = `-- name: SetTaskNextRun :one
 UPDATE tasks
 SET next_run_at = datetime('now'),
     updated_at  = datetime('now')
 WHERE name = ?
+RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at
 `
 
-func (q *Queries) SetTaskNextRun(ctx context.Context, name string) error {
-	_, err := q.db.ExecContext(ctx, setTaskNextRun, name)
-	return err
+func (q *Queries) SetTaskNextRun(ctx context.Context, name string) (Task, error) {
+	row := q.db.QueryRowContext(ctx, setTaskNextRun, name)
+	var i Task
+	err := row.Scan(
+		&i.Name,
+		&i.Description,
+		&i.IntervalSeconds,
+		&i.IsEnabled,
+		&i.LastRunAt,
+		&i.LastDurationMs,
+		&i.LastStatus,
+		&i.LastError,
+		&i.NextRunAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertTask = `-- name: UpsertTask :one

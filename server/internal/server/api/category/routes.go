@@ -24,6 +24,7 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, tc *twitch.Cl
 	}
 	h := NewHandler(New(repo, searcher, log), log)
 	trpcgo.MustQuery(tr, "category.getById", h.GetByID, viewer)
+	trpcgo.MustQuery(tr, "category.getDetail", h.GetDetail, viewer)
 	trpcgo.MustVoidQuery(tr, "category.list", h.List, viewer)
 	trpcgo.MustVoidQuery(tr, "category.listWithVideos", h.ListWithVideos, viewer)
 	trpcgo.MustQuery(tr, "category.listPage", h.ListPage, viewer)

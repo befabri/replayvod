@@ -76,7 +76,10 @@ func (a *PGAdapter) SetTaskEnabled(ctx context.Context, name string, enabled boo
 }
 
 func (a *PGAdapter) SetTaskNextRun(ctx context.Context, name string) error {
-	return a.queries.SetTaskNextRun(ctx, name)
+	if _, err := a.queries.SetTaskNextRun(ctx, name); err != nil {
+		return mapErr(err)
+	}
+	return nil
 }
 
 func pgTaskToDomain(t pggen.Task) *repository.Task {

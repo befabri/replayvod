@@ -23,22 +23,24 @@ func NewHandler(svc *Service, log *slog.Logger) *Handler {
 
 // CategoryResponse is the wire shape for a category.
 type CategoryResponse struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	BoxArtURL *string   `json:"box_art_url,omitempty"`
-	IGDBID    *string   `json:"igdb_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	BoxArtURL   *string   `json:"box_art_url,omitempty"`
+	IGDBID      *string   `json:"igdb_id,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func toResponse(c *repository.Category) CategoryResponse {
 	return CategoryResponse{
-		ID:        c.ID,
-		Name:      c.Name,
-		BoxArtURL: c.BoxArtURL,
-		IGDBID:    c.IGDBID,
-		CreatedAt: c.CreatedAt,
-		UpdatedAt: c.UpdatedAt,
+		ID:          c.ID,
+		Name:        c.Name,
+		BoxArtURL:   c.BoxArtURL,
+		IGDBID:      c.IGDBID,
+		Description: c.Description,
+		CreatedAt:   c.CreatedAt,
+		UpdatedAt:   c.UpdatedAt,
 	}
 }
 
@@ -54,12 +56,34 @@ type GetByIDInput struct {
 	ID string `json:"id" validate:"required"`
 }
 
+type CategoryDetailResponse struct {
+	CategoryResponse
+	VideoCount int64 `json:"video_count"`
+	TotalSize  int64 `json:"total_size"`
+}
+
+func toDetailResponse(d *repository.CategoryDetail) CategoryDetailResponse {
+	return CategoryDetailResponse{
+		CategoryResponse: toResponse(&d.Category),
+		VideoCount:       d.VideoCount,
+		TotalSize:        d.TotalSize,
+	}
+}
+
 func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (CategoryResponse, error) {
 	c, err := h.svc.GetByID(ctx, input.ID)
 	if err != nil {
 		return CategoryResponse{}, apierr.Map(h.log, err, "get category")
 	}
 	return toResponse(c), nil
+}
+
+func (h *Handler) GetDetail(ctx context.Context, input GetByIDInput) (CategoryDetailResponse, error) {
+	detail, err := h.svc.GetDetail(ctx, input.ID)
+	if err != nil {
+		return CategoryDetailResponse{}, apierr.Map(h.log, err, "get category detail")
+	}
+	return toDetailResponse(detail), nil
 }
 
 func (h *Handler) List(ctx context.Context) ([]CategoryResponse, error) {

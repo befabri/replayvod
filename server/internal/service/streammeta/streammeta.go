@@ -61,6 +61,10 @@ const (
 	// own before calling Hydrate — this constant governs the inner
 	// Enrich call only.
 	defaultEnrichTimeout = 2 * time.Second
+
+	// categoryGameMetadataRetryInterval mirrors categoryart's retry window for
+	// categories Twitch returns without a complete /games metadata payload.
+	categoryGameMetadataRetryInterval = 7 * 24 * time.Hour
 )
 
 // Snapshot is the hydrated view a caller gets back. Zero values for each
@@ -140,11 +144,10 @@ type Config struct {
 	// RetryDelay is the spacing between attempts. Default 1s.
 	RetryDelay time.Duration
 
-	// CategoryArt, when set, is called after a category row is
-	// observed for the first time (returned row has nil
-	// BoxArtURL). Intended for *categoryart.Service; nil disables
-	// eager enrichment and leaves the scheduled backfill task as
-	// the only filler.
+	// CategoryArt, when set, is called after a category row is observed with
+	// missing Twitch /games metadata. Intended for *categoryart.Service; nil
+	// disables eager enrichment and leaves the scheduled backfill task as the
+	// only filler.
 	CategoryArt CategoryArtEnricher
 
 	// MediaOffsets, when set, provides exact media-time offsets for
@@ -287,11 +290,12 @@ func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *tw
 	// match unfiltered + category-filtered schedules on the Helix
 	// response alone.
 	//
-	// Helix /streams returns (game_id, game_name) but not box_art_url —
-	// so a newly-observed category lands with no art. When an art
-	// enricher is wired, kick off the /helix/games lookup right here
-	// so the dashboard card sees box art within the same webhook
-	// handler. Already-filled categories skip the lookup.
+	// Helix /streams returns (game_id, game_name) but not box_art_url or
+	// igdb_id — so a newly-observed category lands with only its name. When
+	// an art enricher is wired, kick off the /helix/games lookup right here
+	// so the dashboard card sees box art within the same webhook handler and
+	// the IGDB description sync has an id to query. Already-filled categories
+	// skip the lookup.
 	if stream.GameID != "" {
 		cat, err := h.repo.UpsertCategory(ctx, &repository.Category{
 			ID:   stream.GameID,
@@ -307,14 +311,14 @@ func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *tw
 				}
 			}
 			snap.CategoryIDs = append(snap.CategoryIDs, stream.GameID)
-			if h.art != nil && (cat == nil || cat.BoxArtURL == nil || *cat.BoxArtURL == "") {
+			if h.art != nil && categoryNeedsGameMetadata(cat) {
 				// Capped timeout so a slow /helix/games can't push the
 				// outer stream.online webhook handler over Twitch's
 				// budget. Inherits ctx cancellation (client drop,
 				// parent timeout) and adds a hard ceiling on top.
 				enrichCtx, cancel := context.WithTimeout(ctx, defaultEnrichTimeout)
 				if err := h.art.Enrich(enrichCtx, stream.GameID); err != nil {
-					h.log.Warn("enrich category box art",
+					h.log.Warn("enrich category game metadata",
 						"game_id", stream.GameID, "error", err)
 				}
 				cancel()
@@ -358,6 +362,17 @@ func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *tw
 	}
 
 	return snap
+}
+
+func categoryNeedsGameMetadata(cat *repository.Category) bool {
+	if cat == nil {
+		return true
+	}
+	missing := cat.BoxArtURL == nil || *cat.BoxArtURL == "" || cat.IGDBID == nil || *cat.IGDBID == ""
+	if !missing {
+		return false
+	}
+	return cat.GameMetadataCheckedAt == nil || cat.GameMetadataCheckedAt.Before(time.Now().Add(-categoryGameMetadataRetryInterval))
 }
 
 // fetchWithRetry is the 3-attempt loop with 1s pacing. Treats "streams
@@ -452,14 +467,13 @@ func (h *Hydrator) recordVideoMetadata(ctx context.Context, videoID int64, meta 
 		}
 		return fmt.Errorf("record video metadata change: %w", err)
 	}
-	// Eagerly enrich art for newly-observed categories. The enrich
+	// Eagerly enrich game metadata for newly-observed categories. The enrich
 	// call is best-effort and lives outside the tx because it hits
 	// Helix — a slow/failed Helix call must not roll back the event
 	// write.
-	if h.art != nil && result != nil && result.Category != nil &&
-		(result.Category.BoxArtURL == nil || *result.Category.BoxArtURL == "") {
+	if h.art != nil && result != nil && result.Category != nil && categoryNeedsGameMetadata(result.Category) {
 		if err := h.art.Enrich(ctx, result.Category.ID); err != nil {
-			h.log.Warn("enrich category box art",
+			h.log.Warn("enrich category game metadata",
 				"game_id", result.Category.ID, "error", err)
 		}
 	}

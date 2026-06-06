@@ -18,12 +18,15 @@ type AppAccessToken struct {
 }
 
 type Category struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	BoxArtUrl sql.NullString  `json:"box_art_url"`
-	IgdbID    sql.NullString  `json:"igdb_id"`
-	CreatedAt sqlitetype.Time `json:"created_at"`
-	UpdatedAt sqlitetype.Time `json:"updated_at"`
+	ID                    string           `json:"id"`
+	Name                  string           `json:"name"`
+	BoxArtUrl             sql.NullString   `json:"box_art_url"`
+	IgdbID                sql.NullString   `json:"igdb_id"`
+	CreatedAt             sqlitetype.Time  `json:"created_at"`
+	UpdatedAt             sqlitetype.Time  `json:"updated_at"`
+	Description           sql.NullString   `json:"description"`
+	DescriptionCheckedAt  *sqlitetype.Time `json:"description_checked_at"`
+	GameMetadataCheckedAt *sqlitetype.Time `json:"game_metadata_checked_at"`
 }
 
 type CategorySearchCache struct {

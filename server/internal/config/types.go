@@ -299,11 +299,12 @@ type S3Config struct {
 }
 
 type SchedulerConfig struct {
-	Enabled                     bool `toml:"enabled"`
-	ThumbnailIntervalMinutes    int  `toml:"thumbnail_interval_minutes"`
-	EventsubIntervalMinutes     int  `toml:"eventsub_interval_minutes"`
-	CategoryArtIntervalMinutes  int  `toml:"category_art_interval_minutes"`
-	TokenCleanupIntervalMinutes int  `toml:"token_cleanup_interval_minutes"`
+	Enabled                         bool `toml:"enabled"`
+	ThumbnailIntervalMinutes        int  `toml:"thumbnail_interval_minutes"`
+	EventsubIntervalMinutes         int  `toml:"eventsub_interval_minutes"`
+	CategoryArtIntervalMinutes      int  `toml:"category_art_interval_minutes"`
+	CategoryMetadataIntervalMinutes int  `toml:"category_metadata_interval_minutes"`
+	TokenCleanupIntervalMinutes     int  `toml:"token_cleanup_interval_minutes"`
 	// EventsubReconcileIntervalMinutes periodically ensures the
 	// stream.online/stream.offline subs match the local channels
 	// table. Keeps the SSE live-dot feed authoritative — without

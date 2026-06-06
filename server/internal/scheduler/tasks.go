@@ -11,6 +11,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
+	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/retention"
 )
@@ -18,7 +19,16 @@ import (
 const (
 	taskEventSubReconcileChannels = "eventsub_reconcile_channels"
 	taskEventSubSnapshot          = "eventsub_snapshot"
+	taskCategoryArtSync           = "category_art_sync"
+	taskCategoryMetadataSync      = "category_metadata_sync"
 )
+
+type StandardTaskDeps struct {
+	EventSub         *eventsub.Service
+	CategoryArt      *categoryart.Service
+	CategoryMetadata *categorymeta.Service
+	Retention        *retention.Service
+}
 
 // RegisterStandardTasks wires the default scheduled jobs against a scheduler
 // Service. Each task reads its interval from cfg.App.Scheduler; a task whose
@@ -33,14 +43,17 @@ const (
 // stops warning, every poll, about a due task with no runner. The other tasks
 // are config-only and do not get this treatment.
 //
-// artsvc is optional: when set, the category-art backfill task runs
-// on the configured interval; when nil the eager Hydrator path is the
-// only filler for box art.
+// CategoryArt is optional: when set, the Twitch game metadata backfill task
+// runs on the configured interval; when nil the eager Hydrator path is the only
+// filler for box art and igdb_id.
 //
-// retentionsvc is optional in the same way: when set (a storage backend is
+// CategoryMetadata is optional: when set, the IGDB description task runs on the
+// configured interval.
+//
+// Retention is optional in the same way: when set (a storage backend is
 // up) the per-schedule recordings auto-delete task runs on the configured
 // interval; when nil that task is left unregistered.
-func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repository, esvc *eventsub.Service, artsvc *categoryart.Service, retentionsvc *retention.Service, log *slog.Logger) error {
+func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repository, deps StandardTaskDeps, log *slog.Logger) error {
 	sc := cfg.App.Scheduler
 
 	if m := sc.TokenCleanupIntervalMinutes; m > 0 {
@@ -121,7 +134,7 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 		}
 	}
 
-	if esvc != nil && sc.EventsubReconcileIntervalMinutes > 0 {
+	if deps.EventSub != nil && sc.EventsubReconcileIntervalMinutes > 0 {
 		if err := s.Register(Task{
 			Name: taskEventSubReconcileChannels,
 			Description: "Ensure stream.online/stream.offline subs exist for every local " +
@@ -136,7 +149,7 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 				for _, ch := range channels {
 					ids[ch.BroadcasterID] = true
 				}
-				return esvc.ReconcileChannelSubs(ctx, ids)
+				return deps.EventSub.ReconcileChannelSubs(ctx, ids)
 			},
 		}); err != nil {
 			return err
@@ -144,13 +157,13 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 	} else if err := registerDisabledTask(s, taskEventSubReconcileChannels, "EventSub channel subscription reconcile disabled"); err != nil {
 		return err
 	}
-	if esvc != nil && sc.EventsubIntervalMinutes > 0 {
+	if deps.EventSub != nil && sc.EventsubIntervalMinutes > 0 {
 		if err := s.Register(Task{
 			Name:            taskEventSubSnapshot,
 			Description:     "Poll Twitch EventSub subscriptions + record quota snapshot",
 			IntervalSeconds: int64(sc.EventsubIntervalMinutes) * 60,
 			Run: func(ctx context.Context) error {
-				_, err := esvc.Snapshot(ctx)
+				_, err := deps.EventSub.Snapshot(ctx)
 				return err
 			},
 		}); err != nil {
@@ -160,16 +173,22 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 		return err
 	}
 
-	if artsvc != nil {
+	if deps.CategoryArt != nil {
 		if m := sc.CategoryArtIntervalMinutes; m > 0 {
 			if err := s.Register(Task{
-				Name:            "category_art_sync",
-				Description:     "Fetch box_art_url for categories the Hydrator couldn't fill eagerly",
+				Name:            taskCategoryArtSync,
+				Description:     "Fetch box_art_url and igdb_id for categories the Hydrator couldn't fill eagerly",
 				IntervalSeconds: int64(m) * 60,
 				Run: func(ctx context.Context) error {
-					synced, err := artsvc.SyncMissing(ctx)
-					if synced > 0 {
-						log.Info("category art sync: filled rows", "count", synced)
+					result, err := deps.CategoryArt.SyncMissing(ctx)
+					if result.Updated > 0 {
+						log.Info("category art sync: filled metadata rows", "count", result.Updated)
+						if result.IGDBUpdated > 0 && deps.CategoryMetadata != nil && sc.CategoryMetadataIntervalMinutes > 0 {
+							if err := repo.SetTaskNextRun(ctx, taskCategoryMetadataSync); err != nil {
+								return fmt.Errorf("queue category metadata sync: %w", err)
+							}
+							log.Info("category art sync: queued category metadata sync")
+						}
 					}
 					return err
 				},
@@ -179,13 +198,32 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 		}
 	}
 
-	if retentionsvc != nil {
+	if deps.CategoryMetadata != nil {
+		if m := sc.CategoryMetadataIntervalMinutes; m > 0 {
+			if err := s.Register(Task{
+				Name:            taskCategoryMetadataSync,
+				Description:     "Fetch IGDB descriptions for categories with igdb_id",
+				IntervalSeconds: int64(m) * 60,
+				Run: func(ctx context.Context) error {
+					synced, err := deps.CategoryMetadata.SyncMissing(ctx)
+					if synced > 0 {
+						log.Info("category metadata sync: filled descriptions", "count", synced)
+					}
+					return err
+				},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	if deps.Retention != nil {
 		if err := s.Register(Task{
 			Name:            retention.ManualDeletionTaskName,
 			Description:     retention.ManualDeletionTaskDescription,
 			IntervalSeconds: retention.ManualDeletionIntervalSeconds,
 			Run: func(ctx context.Context) error {
-				deleted, err := retentionsvc.ProcessManualDeletes(ctx)
+				deleted, err := deps.Retention.ProcessManualDeletes(ctx)
 				if deleted > 0 {
 					log.Info("manual recording deletion: deleted queued recordings", "count", deleted)
 				}
@@ -200,7 +238,7 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 				Description:     "Delete recordings past their schedule's auto-delete window (is_delete_rediff)",
 				IntervalSeconds: int64(m) * 60,
 				Run: func(ctx context.Context) error {
-					deleted, err := retentionsvc.Sweep(ctx, time.Now())
+					deleted, err := deps.Retention.Sweep(ctx, time.Now())
 					if deleted > 0 {
 						log.Info("recordings retention: deleted expired recordings", "count", deleted)
 					}

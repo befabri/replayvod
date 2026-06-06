@@ -24,6 +24,7 @@ ORDER BY CASE WHEN next_run_at IS NULL THEN 0 ELSE 1 END, next_run_at;
 UPDATE tasks
 SET last_status = 'running',
     last_run_at = datetime('now'),
+    next_run_at = NULL,
     last_error  = NULL,
     updated_at  = datetime('now')
 WHERE name = ?;
@@ -34,7 +35,7 @@ SET last_status      = 'success',
     last_duration_ms = ?2,
     next_run_at      = CASE
         WHEN interval_seconds > 0
-        THEN datetime('now', '+' || interval_seconds || ' seconds')
+        THEN ifnull(next_run_at, datetime('now', '+' || interval_seconds || ' seconds'))
         ELSE NULL
     END,
     last_error       = NULL,
@@ -48,7 +49,7 @@ SET last_status      = 'failed',
     last_error       = ?3,
     next_run_at      = CASE
         WHEN interval_seconds > 0
-        THEN datetime('now', '+' || interval_seconds || ' seconds')
+        THEN ifnull(next_run_at, datetime('now', '+' || interval_seconds || ' seconds'))
         ELSE NULL
     END,
     updated_at       = datetime('now')
@@ -66,8 +67,9 @@ SET is_enabled  = ?2,
 WHERE name = ?1
 RETURNING *;
 
--- name: SetTaskNextRun :exec
+-- name: SetTaskNextRun :one
 UPDATE tasks
 SET next_run_at = datetime('now'),
     updated_at  = datetime('now')
-WHERE name = ?;
+WHERE name = ?
+RETURNING *;

@@ -80,6 +80,7 @@ type Repository interface {
 
 	// Categories
 	GetCategory(ctx context.Context, id string) (*Category, error)
+	GetCategoryDetail(ctx context.Context, id string) (*CategoryDetail, error)
 	GetCategoryByName(ctx context.Context, name string) (*Category, error)
 	UpsertCategory(ctx context.Context, c *Category) (*Category, error)
 	UpsertCategories(ctx context.Context, categories []Category) ([]Category, error)
@@ -106,20 +107,16 @@ type Repository interface {
 	// the same ranking as SearchCategories, but restricts results to categories
 	// linked to at least one non-deleted recording.
 	SearchCategoriesWithVideos(ctx context.Context, query string, limit int) ([]Category, error)
-	ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error)
-	// UpdateCategoryBoxArt is the explicit "refresh just the art"
-	// path. Used by categoryart.Service both for eager on-first-
-	// observation fetches (from the streammeta Hydrator) and the
-	// scheduled backfill task. Distinct from UpsertCategory, which
-	// only refreshes the name on conflict and preserves existing
-	// box_art_url / igdb_id.
-	//
-	// boxArtURL is written as-is, including the empty string — this
-	// method is meant for writing known-good URLs, not for "clear the
-	// art". Callers that might pass empty should short-circuit at
-	// their own layer (see categoryart.Service.writeBoxArt for the
-	// service-level guard).
-	UpdateCategoryBoxArt(ctx context.Context, id string, boxArtURL string) error
+	ListCategoriesMissingGameMetadata(ctx context.Context, checkedBefore time.Time) ([]Category, error)
+	// UpdateCategoryGameMetadata writes the Twitch /games metadata used by the
+	// category dashboard. Empty boxArtURL or igdbID inputs preserve the existing
+	// value; if a non-empty igdbID changes, cached IGDB description state is
+	// cleared so it can be re-enriched for the new game.
+	UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error
+	MarkCategoryGameMetadataChecked(ctx context.Context, id string) error
+	ListCategoriesMissingDescription(ctx context.Context, checkedBefore time.Time) ([]Category, error)
+	UpdateCategoryDescription(ctx context.Context, id, description string) error
+	MarkCategoryDescriptionChecked(ctx context.Context, id string) error
 	GetCategorySearchCache(ctx context.Context, normalizedQuery string) (*CategorySearchCache, error)
 	UpsertCategorySearchCache(ctx context.Context, input CategorySearchCacheInput) (*CategorySearchCache, error)
 	TouchCategorySearchCache(ctx context.Context, normalizedQuery string, at time.Time) error

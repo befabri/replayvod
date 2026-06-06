@@ -252,12 +252,9 @@ func TestHydrator_CallsEnrichForNewCategory(t *testing.T) {
 	}
 }
 
-// TestHydrator_SkipsEnrichWhenArtAlreadyPresent documents the
-// freshness-vs-quota tradeoff: if the category already has box art
-// from a prior sync, the Hydrator does NOT re-fetch. Re-firing on
-// every stream.online for a popular category would triple Helix
-// quota with zero signal (box art is near-immutable).
-func TestHydrator_SkipsEnrichWhenArtAlreadyPresent(t *testing.T) {
+// TestHydrator_CallsEnrichWhenIGDBIDMissing pins the newer description path:
+// a category that already has art still needs /helix/games if igdb_id is empty.
+func TestHydrator_CallsEnrichWhenIGDBIDMissing(t *testing.T) {
 	ctx := context.Background()
 	art := &recordingEnricher{}
 	h, repo := newTestHydrator(t, art)
@@ -276,8 +273,64 @@ func TestHydrator_SkipsEnrichWhenArtAlreadyPresent(t *testing.T) {
 
 	h.persist(ctx, "b-1", synthStream("s-1", "b-1", "game-42", "Game 42"))
 
+	if len(art.calls) != 1 || art.calls[0] != "game-42" {
+		t.Errorf("Enrich calls = %v, want [game-42]", art.calls)
+	}
+}
+
+func TestHydrator_SkipsEnrichWhenGameMetadataRecentlyChecked(t *testing.T) {
+	ctx := context.Background()
+	art := &recordingEnricher{}
+	h, repo := newTestHydrator(t, art)
+
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-1", BroadcasterLogin: "b", BroadcasterName: "B",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	existing := "https://cdn.example.com/g-existing-{width}x{height}.jpg"
+	if _, err := repo.UpsertCategory(ctx, &repository.Category{
+		ID: "game-42", Name: "Game 42", BoxArtURL: &existing,
+	}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	if err := repo.MarkCategoryGameMetadataChecked(ctx, "game-42"); err != nil {
+		t.Fatalf("mark game metadata checked: %v", err)
+	}
+
+	h.persist(ctx, "b-1", synthStream("s-1", "b-1", "game-42", "Game 42"))
+
 	if len(art.calls) != 0 {
-		t.Errorf("Enrich should be skipped when art already present, got %v", art.calls)
+		t.Errorf("Enrich should be skipped after recent game metadata check, got %v", art.calls)
+	}
+}
+
+// TestHydrator_SkipsEnrichWhenGameMetadataAlreadyPresent documents the
+// freshness-vs-quota tradeoff: if the category already has both box art and
+// igdb_id from a prior sync, the Hydrator does NOT re-fetch. Re-firing on every
+// stream.online for a popular category would burn Helix quota with zero signal.
+func TestHydrator_SkipsEnrichWhenGameMetadataAlreadyPresent(t *testing.T) {
+	ctx := context.Background()
+	art := &recordingEnricher{}
+	h, repo := newTestHydrator(t, art)
+
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "b-1", BroadcasterLogin: "b", BroadcasterName: "B",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	existing := "https://cdn.example.com/g-existing-{width}x{height}.jpg"
+	igdbID := "4242"
+	if _, err := repo.UpsertCategory(ctx, &repository.Category{
+		ID: "game-42", Name: "Game 42", BoxArtURL: &existing, IGDBID: &igdbID,
+	}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+
+	h.persist(ctx, "b-1", synthStream("s-1", "b-1", "game-42", "Game 42"))
+
+	if len(art.calls) != 0 {
+		t.Errorf("Enrich should be skipped when game metadata is already present, got %v", art.calls)
 	}
 }
 

@@ -20,6 +20,28 @@ func (a *PGAdapter) GetCategory(ctx context.Context, id string) (*repository.Cat
 	return pgCategoryToDomain(row), nil
 }
 
+func (a *PGAdapter) GetCategoryDetail(ctx context.Context, id string) (*repository.CategoryDetail, error) {
+	row, err := a.queries.GetCategoryDetail(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &repository.CategoryDetail{
+		Category: repository.Category{
+			ID:                    row.ID,
+			Name:                  row.Name,
+			BoxArtURL:             row.BoxArtUrl,
+			IGDBID:                row.IgdbID,
+			Description:           row.Description,
+			GameMetadataCheckedAt: row.GameMetadataCheckedAt,
+			DescriptionCheckedAt:  row.DescriptionCheckedAt,
+			CreatedAt:             row.CreatedAt,
+			UpdatedAt:             row.UpdatedAt,
+		},
+		VideoCount: row.VideoCount,
+		TotalSize:  row.TotalSize,
+	}, nil
+}
+
 func (a *PGAdapter) GetCategoryByName(ctx context.Context, name string) (*repository.Category, error) {
 	row, err := a.queries.GetCategoryByName(ctx, name)
 	if err != nil {
@@ -30,10 +52,11 @@ func (a *PGAdapter) GetCategoryByName(ctx context.Context, name string) (*reposi
 
 func (a *PGAdapter) UpsertCategory(ctx context.Context, c *repository.Category) (*repository.Category, error) {
 	row, err := a.queries.UpsertCategory(ctx, pggen.UpsertCategoryParams{
-		ID:        c.ID,
-		Name:      c.Name,
-		BoxArtUrl: c.BoxArtURL,
-		IgdbID:    c.IGDBID,
+		ID:          c.ID,
+		Name:        c.Name,
+		BoxArtUrl:   c.BoxArtURL,
+		IgdbID:      c.IGDBID,
+		Description: c.Description,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg upsert category %s: %w", c.ID, err)
@@ -43,21 +66,34 @@ func (a *PGAdapter) UpsertCategory(ctx context.Context, c *repository.Category) 
 
 const upsertCategoriesSQL = `WITH input AS (
     SELECT *
-    FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) WITH ORDINALITY
-        AS t(id, name, box_art_url, igdb_id, ord)
+    FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[]) WITH ORDINALITY
+        AS t(id, name, box_art_url, igdb_id, description, ord)
 ),
 upserted AS (
-    INSERT INTO categories (id, name, box_art_url, igdb_id)
-    SELECT id, name, box_art_url, igdb_id
+    INSERT INTO categories (id, name, box_art_url, igdb_id, description)
+    SELECT id, name, box_art_url, igdb_id, description
     FROM input
     ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         box_art_url = COALESCE(NULLIF(EXCLUDED.box_art_url, ''), categories.box_art_url),
         igdb_id = COALESCE(NULLIF(EXCLUDED.igdb_id, ''), categories.igdb_id),
+        description = CASE
+            WHEN NULLIF(EXCLUDED.description, '') IS NOT NULL THEN EXCLUDED.description
+            WHEN NULLIF(EXCLUDED.igdb_id, '') IS NOT NULL
+                 AND NULLIF(EXCLUDED.igdb_id, '') IS DISTINCT FROM categories.igdb_id
+            THEN NULL
+            ELSE categories.description
+        END,
+        description_checked_at = CASE
+            WHEN NULLIF(EXCLUDED.igdb_id, '') IS NOT NULL
+                 AND NULLIF(EXCLUDED.igdb_id, '') IS DISTINCT FROM categories.igdb_id
+            THEN NULL
+            ELSE categories.description_checked_at
+        END,
         updated_at = NOW()
-    RETURNING id, name, box_art_url, igdb_id, created_at, updated_at
+    RETURNING id, name, box_art_url, igdb_id, description, game_metadata_checked_at, description_checked_at, created_at, updated_at
 )
-SELECT u.id, u.name, u.box_art_url, u.igdb_id, u.created_at, u.updated_at
+SELECT u.id, u.name, u.box_art_url, u.igdb_id, u.description, u.game_metadata_checked_at, u.description_checked_at, u.created_at, u.updated_at
 FROM upserted u
 INNER JOIN input i ON i.id = u.id
 ORDER BY i.ord`
@@ -72,14 +108,16 @@ func (a *PGAdapter) UpsertCategories(ctx context.Context, categories []repositor
 	names := make([]string, len(categories))
 	boxArtURLs := make([]*string, len(categories))
 	igdbIDs := make([]*string, len(categories))
+	descriptions := make([]*string, len(categories))
 	for i, c := range categories {
 		ids[i] = c.ID
 		names[i] = c.Name
 		boxArtURLs[i] = c.BoxArtURL
 		igdbIDs[i] = c.IGDBID
+		descriptions[i] = c.Description
 	}
 
-	rows, err := a.db.Query(ctx, upsertCategoriesSQL, ids, names, boxArtURLs, igdbIDs)
+	rows, err := a.db.Query(ctx, upsertCategoriesSQL, ids, names, boxArtURLs, igdbIDs, descriptions)
 	if err != nil {
 		return nil, fmt.Errorf("pg upsert categories batch: %w", err)
 	}
@@ -88,7 +126,7 @@ func (a *PGAdapter) UpsertCategories(ctx context.Context, categories []repositor
 	out := []repository.Category{}
 	for rows.Next() {
 		var row pggen.Category
-		if err := rows.Scan(&row.ID, &row.Name, &row.BoxArtUrl, &row.IgdbID, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.BoxArtUrl, &row.IgdbID, &row.Description, &row.GameMetadataCheckedAt, &row.DescriptionCheckedAt, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("pg upsert categories batch scan: %w", err)
 		}
 		out = append(out, *pgCategoryToDomain(row))
@@ -228,10 +266,10 @@ func (a *PGAdapter) SearchCategoriesWithVideos(ctx context.Context, query string
 	return cats, nil
 }
 
-func (a *PGAdapter) ListCategoriesMissingBoxArt(ctx context.Context) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategoriesMissingBoxArt(ctx)
+func (a *PGAdapter) ListCategoriesMissingGameMetadata(ctx context.Context, checkedBefore time.Time) ([]repository.Category, error) {
+	rows, err := a.queries.ListCategoriesMissingGameMetadata(ctx, &checkedBefore)
 	if err != nil {
-		return nil, fmt.Errorf("pg list categories missing box art: %w", err)
+		return nil, fmt.Errorf("pg list categories missing game metadata: %w", err)
 	}
 	cats := make([]repository.Category, len(rows))
 	for i, row := range rows {
@@ -240,12 +278,49 @@ func (a *PGAdapter) ListCategoriesMissingBoxArt(ctx context.Context) ([]reposito
 	return cats, nil
 }
 
-func (a *PGAdapter) UpdateCategoryBoxArt(ctx context.Context, id, boxArtURL string) error {
-	if err := a.queries.UpdateCategoryBoxArt(ctx, pggen.UpdateCategoryBoxArtParams{
-		ID:        id,
-		BoxArtUrl: &boxArtURL,
+func (a *PGAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error {
+	if err := a.queries.UpdateCategoryGameMetadata(ctx, pggen.UpdateCategoryGameMetadataParams{
+		ID:      id,
+		Column2: boxArtURL,
+		Column3: igdbID,
 	}); err != nil {
-		return fmt.Errorf("pg update category box art %s: %w", id, err)
+		return fmt.Errorf("pg update category game metadata %s: %w", id, err)
+	}
+	return nil
+}
+
+func (a *PGAdapter) MarkCategoryGameMetadataChecked(ctx context.Context, id string) error {
+	if err := a.queries.MarkCategoryGameMetadataChecked(ctx, id); err != nil {
+		return fmt.Errorf("pg mark category game metadata checked %s: %w", id, err)
+	}
+	return nil
+}
+
+func (a *PGAdapter) ListCategoriesMissingDescription(ctx context.Context, checkedBefore time.Time) ([]repository.Category, error) {
+	rows, err := a.queries.ListCategoriesMissingDescription(ctx, &checkedBefore)
+	if err != nil {
+		return nil, fmt.Errorf("pg list categories missing description: %w", err)
+	}
+	cats := make([]repository.Category, len(rows))
+	for i, row := range rows {
+		cats[i] = *pgCategoryToDomain(row)
+	}
+	return cats, nil
+}
+
+func (a *PGAdapter) UpdateCategoryDescription(ctx context.Context, id, description string) error {
+	if err := a.queries.UpdateCategoryDescription(ctx, pggen.UpdateCategoryDescriptionParams{
+		ID:          id,
+		Description: &description,
+	}); err != nil {
+		return fmt.Errorf("pg update category description %s: %w", id, err)
+	}
+	return nil
+}
+
+func (a *PGAdapter) MarkCategoryDescriptionChecked(ctx context.Context, id string) error {
+	if err := a.queries.MarkCategoryDescriptionChecked(ctx, id); err != nil {
+		return fmt.Errorf("pg mark category description checked %s: %w", id, err)
 	}
 	return nil
 }
@@ -337,12 +412,15 @@ func pgLatestCategoryPageItem(row pggen.ListCategoriesWithVideosPageLatestDescRo
 	}
 	return repository.CategoryPageItem{
 		Category: repository.Category{
-			ID:        row.ID,
-			Name:      row.Name,
-			BoxArtURL: row.BoxArtUrl,
-			IGDBID:    row.IgdbID,
-			CreatedAt: row.CreatedAt,
-			UpdatedAt: row.UpdatedAt,
+			ID:                    row.ID,
+			Name:                  row.Name,
+			BoxArtURL:             row.BoxArtUrl,
+			IGDBID:                row.IgdbID,
+			Description:           row.Description,
+			GameMetadataCheckedAt: row.GameMetadataCheckedAt,
+			DescriptionCheckedAt:  row.DescriptionCheckedAt,
+			CreatedAt:             row.CreatedAt,
+			UpdatedAt:             row.UpdatedAt,
 		},
 		LatestVideoAt: latest,
 		VideoCount:    row.VideoCount,
@@ -356,12 +434,15 @@ func pgCountCategoryPageItem(row pggen.ListCategoriesWithVideosPageVideoCountDes
 	}
 	return repository.CategoryPageItem{
 		Category: repository.Category{
-			ID:        row.ID,
-			Name:      row.Name,
-			BoxArtURL: row.BoxArtUrl,
-			IGDBID:    row.IgdbID,
-			CreatedAt: row.CreatedAt,
-			UpdatedAt: row.UpdatedAt,
+			ID:                    row.ID,
+			Name:                  row.Name,
+			BoxArtURL:             row.BoxArtUrl,
+			IGDBID:                row.IgdbID,
+			Description:           row.Description,
+			GameMetadataCheckedAt: row.GameMetadataCheckedAt,
+			DescriptionCheckedAt:  row.DescriptionCheckedAt,
+			CreatedAt:             row.CreatedAt,
+			UpdatedAt:             row.UpdatedAt,
 		},
 		LatestVideoAt: latest,
 		VideoCount:    row.VideoCount,
@@ -426,12 +507,15 @@ func (a *PGAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) {
 
 func pgCategoryToDomain(c pggen.Category) *repository.Category {
 	return &repository.Category{
-		ID:        c.ID,
-		Name:      c.Name,
-		BoxArtURL: c.BoxArtUrl,
-		IGDBID:    c.IgdbID,
-		CreatedAt: c.CreatedAt,
-		UpdatedAt: c.UpdatedAt,
+		ID:                    c.ID,
+		Name:                  c.Name,
+		BoxArtURL:             c.BoxArtUrl,
+		IGDBID:                c.IgdbID,
+		Description:           c.Description,
+		GameMetadataCheckedAt: c.GameMetadataCheckedAt,
+		DescriptionCheckedAt:  c.DescriptionCheckedAt,
+		CreatedAt:             c.CreatedAt,
+		UpdatedAt:             c.UpdatedAt,
 	}
 }
 

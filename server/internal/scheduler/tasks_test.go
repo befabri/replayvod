@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
+	"github.com/befabri/replayvod/server/internal/igdb"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
+	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/retention"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -32,11 +34,11 @@ const dailySeconds int64 = 24 * 60 * 60
 // would hit the Twitch client); the in-memory registration is the contract
 // RegisterStandardTasks owns. Reading the map without the mutex is safe here
 // because nothing is started, so no ticker goroutine touches it.
-func registeredIntervals(t *testing.T, cfg *config.Config, esvc *eventsub.Service, artsvc *categoryart.Service, retentionsvc *retention.Service) map[string]int64 {
+func registeredIntervals(t *testing.T, cfg *config.Config, deps StandardTaskDeps) map[string]int64 {
 	t.Helper()
 	s, repo := newTestScheduler(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if err := RegisterStandardTasks(s, cfg, repo, esvc, artsvc, retentionsvc, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, deps, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 	out := make(map[string]int64, len(s.tasks))
@@ -68,6 +70,13 @@ func categoryArtService(t *testing.T) *categoryart.Service {
 	_, repo := newTestScheduler(t)
 	// tc may be nil; we never run the task body, only assert registration.
 	return categoryart.New(repo, nil, log)
+}
+
+func categoryMetadataService(t *testing.T) *categorymeta.Service {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	_, repo := newTestScheduler(t)
+	return categorymeta.New(repo, nil, log)
 }
 
 func retentionService(t *testing.T) *retention.Service {
@@ -170,7 +179,7 @@ func schedulerTextResponse(status int, body string) *http.Response {
 
 type schedulerFakeGames struct {
 	calls [][]string
-	byID  map[string]string
+	byID  map[string]twitch.Game
 }
 
 func (f *schedulerFakeGames) GetGames(_ context.Context, params *twitch.GetGamesParams) ([]twitch.Game, error) {
@@ -178,8 +187,34 @@ func (f *schedulerFakeGames) GetGames(_ context.Context, params *twitch.GetGames
 	f.calls = append(f.calls, ids)
 	out := make([]twitch.Game, 0, len(ids))
 	for _, id := range ids {
-		if art, ok := f.byID[id]; ok {
-			out = append(out, twitch.Game{ID: id, Name: "Game " + id, BoxArtURL: art})
+		if game, ok := f.byID[id]; ok {
+			if game.ID == "" {
+				game.ID = id
+			}
+			if game.Name == "" {
+				game.Name = "Game " + id
+			}
+			out = append(out, game)
+		}
+	}
+	return out, nil
+}
+
+type schedulerFakeIGDB struct {
+	calls [][]int64
+	byID  map[int64]igdb.Game
+}
+
+func (f *schedulerFakeIGDB) GetGames(_ context.Context, ids []int64) ([]igdb.Game, error) {
+	call := append([]int64(nil), ids...)
+	f.calls = append(f.calls, call)
+	out := make([]igdb.Game, 0, len(ids))
+	for _, id := range ids {
+		if game, ok := f.byID[id]; ok {
+			if game.ID == 0 {
+				game.ID = id
+			}
+			out = append(out, game)
 		}
 	}
 	return out, nil
@@ -187,7 +222,7 @@ func (f *schedulerFakeGames) GetGames(_ context.Context, params *twitch.GetGames
 
 // TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet pins the
 // "everything on" contract: with every interval populated and all optional
-// services present, exactly these eleven tasks register, each carrying the
+// services present, exactly these twelve tasks register, each carrying the
 // interval derived from its own config field. Distinct minute values catch a
 // crossed wire (e.g. reconcile reading EventsubIntervalMinutes), and the four
 // log-retention tasks must land on the fixed daily cadence (86400s) rather than
@@ -205,13 +240,19 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 				EventsubReconcileIntervalMinutes:      15,
 				EventsubIntervalMinutes:               10,
 				CategoryArtIntervalMinutes:            45,
+				CategoryMetadataIntervalMinutes:       75,
 				RecordingsRetentionIntervalMinutes:    30,
 			},
 		},
 		ServerMode: config.ServerModeConfig{Mode: config.ServerModeDirect},
 	}
 
-	got := registeredIntervals(t, cfg, eventsubService(t), categoryArtService(t), retentionService(t))
+	got := registeredIntervals(t, cfg, StandardTaskDeps{
+		EventSub:         eventsubService(t),
+		CategoryArt:      categoryArtService(t),
+		CategoryMetadata: categoryMetadataService(t),
+		Retention:        retentionService(t),
+	})
 	want := map[string]int64{
 		"app_token_cleanup":                      60 * 60,
 		"session_cleanup":                        120 * 60,
@@ -226,6 +267,7 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 		// category_art_sync the fixed daily cadence instead of minutes*60
 		// would pass unnoticed.
 		"category_art_sync":              45 * 60,
+		"category_metadata_sync":         75 * 60,
 		retention.ManualDeletionTaskName: retention.ManualDeletionIntervalSeconds,
 		// 30 min → 1800s, a poll cadence derived from the field (not a
 		// retention-day count), distinct from every other value above.
@@ -247,7 +289,7 @@ func TestRegisterStandardTasks_ZeroConfigRegistersOnlyNeutralizedEventSubPair(t 
 		ServerMode: config.ServerModeConfig{Mode: config.ServerModeOff},
 	}
 
-	got := registeredIntervals(t, cfg, nil, nil, nil)
+	got := registeredIntervals(t, cfg, StandardTaskDeps{})
 	want := map[string]int64{
 		taskEventSubReconcileChannels: 0,
 		taskEventSubSnapshot:          0,
@@ -311,7 +353,7 @@ func TestRegisterStandardTasks_ConfigGatedTasksByInterval(t *testing.T) {
 			enabled := config.SchedulerConfig{}
 			tc.mutate(&enabled)
 			cfg := &config.Config{App: config.AppConfig{Scheduler: enabled}}
-			got := registeredIntervals(t, cfg, nil, nil, nil)
+			got := registeredIntervals(t, cfg, StandardTaskDeps{})
 			if iv, ok := got[tc.taskName]; !ok {
 				t.Fatalf("%s not registered when its interval is positive", tc.taskName)
 			} else if iv != tc.wantInterval {
@@ -320,7 +362,7 @@ func TestRegisterStandardTasks_ConfigGatedTasksByInterval(t *testing.T) {
 
 			// Disabled: a zero SchedulerConfig must omit it entirely.
 			zero := &config.Config{App: config.AppConfig{Scheduler: config.SchedulerConfig{}}}
-			gotZero := registeredIntervals(t, zero, nil, nil, nil)
+			gotZero := registeredIntervals(t, zero, StandardTaskDeps{})
 			if _, ok := gotZero[tc.taskName]; ok {
 				t.Fatalf("%s registered with a zero interval; want unregistered", tc.taskName)
 			}
@@ -357,7 +399,46 @@ func TestRegisterStandardTasks_CategoryArtGating(t *testing.T) {
 			if tc.withService {
 				artsvc = categoryArtService(t)
 			}
-			got := registeredIntervals(t, cfg, nil, artsvc, nil)
+			got := registeredIntervals(t, cfg, StandardTaskDeps{CategoryArt: artsvc})
+			iv, present := got[taskName]
+			if present != tc.wantPresent {
+				t.Fatalf("%s present = %v, want %v", taskName, present, tc.wantPresent)
+			}
+			if tc.wantPresent && iv != int64(tc.interval)*60 {
+				t.Fatalf("%s interval = %d, want %d", taskName, iv, int64(tc.interval)*60)
+			}
+		})
+	}
+}
+
+// TestRegisterStandardTasks_CategoryMetadataGating pins the dual gate on the
+// IGDB description backfill: it needs BOTH a non-nil metadata service and a
+// positive interval. This keeps the task opt-in by configuration and unavailable
+// integrations from registering dead runners.
+func TestRegisterStandardTasks_CategoryMetadataGating(t *testing.T) {
+	const taskName = "category_metadata_sync"
+	cases := []struct {
+		name        string
+		interval    int
+		withService bool
+		wantPresent bool
+	}{
+		{name: "service and interval", interval: 75, withService: true, wantPresent: true},
+		{name: "service but zero interval", interval: 0, withService: true, wantPresent: false},
+		{name: "interval but nil service", interval: 75, withService: false, wantPresent: false},
+		{name: "neither", interval: 0, withService: false, wantPresent: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{
+				App: config.AppConfig{Scheduler: config.SchedulerConfig{CategoryMetadataIntervalMinutes: tc.interval}},
+			}
+			var metasvc *categorymeta.Service
+			if tc.withService {
+				metasvc = categoryMetadataService(t)
+			}
+			got := registeredIntervals(t, cfg, StandardTaskDeps{CategoryMetadata: metasvc})
 			iv, present := got[taskName]
 			if present != tc.wantPresent {
 				t.Fatalf("%s present = %v, want %v", taskName, present, tc.wantPresent)
@@ -398,7 +479,7 @@ func TestRegisterStandardTasks_EventSubConditionsAreIndependent(t *testing.T) {
 				},
 				ServerMode: config.ServerModeConfig{Mode: config.ServerModeDirect},
 			}
-			got := registeredIntervals(t, cfg, eventsubService(t), nil, nil)
+			got := registeredIntervals(t, cfg, StandardTaskDeps{EventSub: eventsubService(t)})
 			if got[taskEventSubReconcileChannels] != tc.wantReconcile {
 				t.Fatalf("%s interval = %d, want %d", taskEventSubReconcileChannels, got[taskEventSubReconcileChannels], tc.wantReconcile)
 			}
@@ -430,7 +511,7 @@ func TestRegisterStandardTasks_ConfigTaskBodiesCallExpectedRepoMethods(t *testin
 			},
 		},
 	}
-	if err := RegisterStandardTasks(s, cfg, repo, nil, nil, nil, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 
@@ -473,7 +554,7 @@ func TestRegisterStandardTasks_EventSubReconcileTaskListsChannels(t *testing.T) 
 			Scheduler: config.SchedulerConfig{EventsubReconcileIntervalMinutes: 15},
 		},
 	}
-	if err := RegisterStandardTasks(s, cfg, repo, eventsubService(t), nil, nil, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{EventSub: eventsubService(t)}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 
@@ -510,7 +591,7 @@ func TestRegisterStandardTasks_EventSubSnapshotTaskRunsSnapshot(t *testing.T) {
 			Scheduler: config.SchedulerConfig{EventsubIntervalMinutes: 10},
 		},
 	}
-	if err := RegisterStandardTasks(s, cfg, repo, esvc, nil, nil, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{EventSub: esvc}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 
@@ -533,7 +614,12 @@ func TestRegisterStandardTasks_CategoryArtTaskRunsSyncMissing(t *testing.T) {
 		t.Fatalf("seed category: %v", err)
 	}
 	fakeGames := &schedulerFakeGames{
-		byID: map[string]string{"game-42": "https://static-cdn.jtvnw.net/ttv-boxart/game-42-{width}x{height}.jpg"},
+		byID: map[string]twitch.Game{
+			"game-42": {
+				BoxArtURL: "https://static-cdn.jtvnw.net/ttv-boxart/game-42-{width}x{height}.jpg",
+				IGDBID:    "4242",
+			},
+		},
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	artsvc := categoryart.New(repo, fakeGames, log)
@@ -542,7 +628,7 @@ func TestRegisterStandardTasks_CategoryArtTaskRunsSyncMissing(t *testing.T) {
 			Scheduler: config.SchedulerConfig{CategoryArtIntervalMinutes: 45},
 		},
 	}
-	if err := RegisterStandardTasks(s, cfg, repo, nil, artsvc, nil, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{CategoryArt: artsvc}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 
@@ -558,6 +644,144 @@ func TestRegisterStandardTasks_CategoryArtTaskRunsSyncMissing(t *testing.T) {
 	}
 	if cat.BoxArtURL == nil || *cat.BoxArtURL != "https://static-cdn.jtvnw.net/ttv-boxart/game-42-{width}x{height}.jpg" {
 		t.Fatalf("BoxArtURL = %v, want fake art URL", cat.BoxArtURL)
+	}
+	if cat.IGDBID == nil || *cat.IGDBID != "4242" {
+		t.Fatalf("IGDBID = %v, want 4242", cat.IGDBID)
+	}
+}
+
+func TestRegisterStandardTasks_CategoryArtTaskQueuesMetadataSync(t *testing.T) {
+	s, repo := newTestScheduler(t)
+	ctx := context.Background()
+	if _, err := repo.UpsertCategory(ctx, &repository.Category{ID: "game-42", Name: "Game 42"}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	fakeGames := &schedulerFakeGames{
+		byID: map[string]twitch.Game{
+			"game-42": {IGDBID: "4242"},
+		},
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	artsvc := categoryart.New(repo, fakeGames, log)
+	metasvc := categorymeta.New(repo, &schedulerFakeIGDB{}, log)
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Scheduler: config.SchedulerConfig{
+				CategoryArtIntervalMinutes:      45,
+				CategoryMetadataIntervalMinutes: 75,
+			},
+		},
+	}
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{
+		CategoryArt:      artsvc,
+		CategoryMetadata: metasvc,
+	}, log); err != nil {
+		t.Fatalf("RegisterStandardTasks: %v", err)
+	}
+	if _, err := repo.UpsertTask(ctx, taskCategoryMetadataSync, "metadata", 75*60); err != nil {
+		t.Fatalf("seed metadata task row: %v", err)
+	}
+
+	if err := s.tasks[taskCategoryArtSync].Run(ctx); err != nil {
+		t.Fatalf("category_art_sync Run(): %v", err)
+	}
+	task, err := repo.GetTask(ctx, taskCategoryMetadataSync)
+	if err != nil {
+		t.Fatalf("GetTask(%s): %v", taskCategoryMetadataSync, err)
+	}
+	if task.NextRunAt == nil {
+		t.Fatalf("%s next_run_at is nil; want queued after art sync fills igdb_id", taskCategoryMetadataSync)
+	}
+}
+
+func TestRegisterStandardTasks_CategoryArtTaskDoesNotQueueMetadataForArtOnlyCategory(t *testing.T) {
+	s, repo := newTestScheduler(t)
+	ctx := context.Background()
+	art := "https://static-cdn.jtvnw.net/ttv-boxart/special-{width}x{height}.jpg"
+	if _, err := repo.UpsertCategory(ctx, &repository.Category{
+		ID:        "special",
+		Name:      "Special Category",
+		BoxArtURL: &art,
+	}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	fakeGames := &schedulerFakeGames{
+		byID: map[string]twitch.Game{
+			"special": {BoxArtURL: art},
+		},
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	artsvc := categoryart.New(repo, fakeGames, log)
+	metasvc := categorymeta.New(repo, &schedulerFakeIGDB{}, log)
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Scheduler: config.SchedulerConfig{
+				CategoryArtIntervalMinutes:      45,
+				CategoryMetadataIntervalMinutes: 75,
+			},
+		},
+	}
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{
+		CategoryArt:      artsvc,
+		CategoryMetadata: metasvc,
+	}, log); err != nil {
+		t.Fatalf("RegisterStandardTasks: %v", err)
+	}
+	if _, err := repo.UpsertTask(ctx, taskCategoryMetadataSync, "metadata", 75*60); err != nil {
+		t.Fatalf("seed metadata task row: %v", err)
+	}
+
+	if err := s.tasks[taskCategoryArtSync].Run(ctx); err != nil {
+		t.Fatalf("category_art_sync Run(): %v", err)
+	}
+	task, err := repo.GetTask(ctx, taskCategoryMetadataSync)
+	if err != nil {
+		t.Fatalf("GetTask(%s): %v", taskCategoryMetadataSync, err)
+	}
+	if task.NextRunAt != nil {
+		t.Fatalf("%s next_run_at = %v, want nil for art-only/no-IGDB sync", taskCategoryMetadataSync, task.NextRunAt)
+	}
+}
+
+func TestRegisterStandardTasks_CategoryMetadataTaskRunsSyncMissing(t *testing.T) {
+	s, repo := newTestScheduler(t)
+	ctx := context.Background()
+	igdbID := "4242"
+	if _, err := repo.UpsertCategory(ctx, &repository.Category{
+		ID:     "game-42",
+		Name:   "Game 42",
+		IGDBID: &igdbID,
+	}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	fakeIGDB := &schedulerFakeIGDB{
+		byID: map[int64]igdb.Game{
+			4242: {Summary: "A useful game description."},
+		},
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	metasvc := categorymeta.New(repo, fakeIGDB, log)
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Scheduler: config.SchedulerConfig{CategoryMetadataIntervalMinutes: 75},
+		},
+	}
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{CategoryMetadata: metasvc}, log); err != nil {
+		t.Fatalf("RegisterStandardTasks: %v", err)
+	}
+
+	if err := s.tasks["category_metadata_sync"].Run(ctx); err != nil {
+		t.Fatalf("category_metadata_sync Run(): %v", err)
+	}
+	if len(fakeIGDB.calls) != 1 || !reflect.DeepEqual(fakeIGDB.calls[0], []int64{4242}) {
+		t.Fatalf("IGDB calls = %v, want [[4242]]", fakeIGDB.calls)
+	}
+	cat, err := repo.GetCategory(ctx, "game-42")
+	if err != nil {
+		t.Fatalf("GetCategory: %v", err)
+	}
+	if cat.Description == nil || *cat.Description != "A useful game description." {
+		t.Fatalf("Description = %v, want fake IGDB description", cat.Description)
 	}
 }
 
@@ -591,7 +815,7 @@ func TestRegisterStandardTasks_RecordingsRetentionGating(t *testing.T) {
 			if tc.withService {
 				retsvc = retentionService(t)
 			}
-			got := registeredIntervals(t, cfg, nil, nil, retsvc)
+			got := registeredIntervals(t, cfg, StandardTaskDeps{Retention: retsvc})
 			iv, present := got[taskName]
 			if present != tc.wantPresent {
 				t.Fatalf("%s present = %v, want %v", taskName, present, tc.wantPresent)
@@ -662,7 +886,7 @@ func TestRegisterStandardTasks_RecordingsRetentionTaskDeletesExpired(t *testing.
 
 	s := NewService(repo, log, 20*time.Millisecond, nil)
 	cfg := &config.Config{App: config.AppConfig{Scheduler: config.SchedulerConfig{RecordingsRetentionIntervalMinutes: 30}}}
-	if err := RegisterStandardTasks(s, cfg, repo, nil, nil, retention.New(repo, store, log), log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, store, log)}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 
@@ -747,7 +971,7 @@ func TestRegisterStandardTasks_RecordingsRetentionTaskPropagatesError(t *testing
 	store := deleteFailStore{Storage: local, err: boom}
 	s := NewService(repo, log, 20*time.Millisecond, nil)
 	cfg := &config.Config{App: config.AppConfig{Scheduler: config.SchedulerConfig{RecordingsRetentionIntervalMinutes: 30}}}
-	if err := RegisterStandardTasks(s, cfg, repo, nil, nil, retention.New(repo, store, log), log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, store, log)}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 

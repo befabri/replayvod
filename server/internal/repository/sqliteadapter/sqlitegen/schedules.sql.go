@@ -245,7 +245,7 @@ func (q *Queries) ListActiveSchedulesForBroadcaster(ctx context.Context, broadca
 }
 
 const listScheduleCategories = `-- name: ListScheduleCategories :many
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, c.description, c.description_checked_at, c.game_metadata_checked_at FROM categories c
 INNER JOIN download_schedule_categories dsc ON dsc.category_id = c.id
 WHERE dsc.schedule_id = ?
 ORDER BY c.name
@@ -267,6 +267,9 @@ func (q *Queries) ListScheduleCategories(ctx context.Context, scheduleID int64) 
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 		); err != nil {
 			return nil, err
 		}

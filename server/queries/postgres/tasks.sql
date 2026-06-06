@@ -29,6 +29,7 @@ ORDER BY next_run_at NULLS FIRST;
 UPDATE tasks
 SET last_status = 'running',
     last_run_at = NOW(),
+    next_run_at = NULL,
     last_error  = NULL,
     updated_at  = NOW()
 WHERE name = $1;
@@ -39,7 +40,7 @@ SET last_status      = 'success',
     last_duration_ms = $2,
     next_run_at      = CASE
         WHEN interval_seconds > 0
-        THEN NOW() + (interval_seconds * INTERVAL '1 second')
+        THEN COALESCE(next_run_at, NOW() + (interval_seconds * INTERVAL '1 second'))
         ELSE NULL
     END,
     last_error       = NULL,
@@ -53,7 +54,7 @@ SET last_status      = 'failed',
     last_error       = $3,
     next_run_at      = CASE
         WHEN interval_seconds > 0
-        THEN NOW() + (interval_seconds * INTERVAL '1 second')
+        THEN COALESCE(next_run_at, NOW() + (interval_seconds * INTERVAL '1 second'))
         ELSE NULL
     END,
     updated_at       = NOW()
@@ -71,11 +72,12 @@ SET is_enabled  = $2,
 WHERE name = $1
 RETURNING *;
 
--- name: SetTaskNextRun :exec
+-- name: SetTaskNextRun :one
 -- Manual "run now" path — set next_run_at to now so the scheduler picks
 -- it up on the next tick. Separate from SetTaskEnabled so the caller
 -- can request a one-shot run without changing the enabled flag.
 UPDATE tasks
 SET next_run_at = NOW(),
     updated_at  = NOW()
-WHERE name = $1;
+WHERE name = $1
+RETURNING *;

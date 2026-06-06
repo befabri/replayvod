@@ -84,6 +84,44 @@ func TestTask_MarkSuccess_RearmsNextRun(t *testing.T) {
 	}
 }
 
+func TestTask_QueuedRunDuringActiveRunSurvivesMarkSuccess(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if _, err := a.UpsertTask(ctx, "category_metadata_sync", "Fetch category metadata", 24*60*60); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := a.MarkTaskRunning(ctx, "category_metadata_sync"); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+	if err := a.SetTaskNextRun(ctx, "category_metadata_sync"); err != nil {
+		t.Fatalf("set next run: %v", err)
+	}
+	if err := a.MarkTaskSuccess(ctx, "category_metadata_sync", 50); err != nil {
+		t.Fatalf("mark success: %v", err)
+	}
+
+	got, err := a.GetTask(ctx, "category_metadata_sync")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.NextRunAt == nil {
+		t.Fatal("next_run_at must preserve the queued run")
+	}
+	if got.NextRunAt.After(time.Now().Add(5 * time.Second)) {
+		t.Fatalf("next_run_at = %v, want queued immediate run, not interval rearm", got.NextRunAt)
+	}
+}
+
+func TestTask_SetNextRun_MissingTaskReturnsNotFound(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	if err := a.SetTaskNextRun(ctx, "missing-task"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("SetTaskNextRun error = %v, want ErrNotFound", err)
+	}
+}
+
 // TestEventLog_Append_PreservesJSONData checks the JSONB round-trip.
 // A consumer reading the data column as json.RawMessage must see
 // semantically-equivalent JSON on the way out.

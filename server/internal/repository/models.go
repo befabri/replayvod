@@ -93,12 +93,23 @@ type UserFollow struct {
 
 // Category is a Twitch game/category.
 type Category struct {
-	ID        string
-	Name      string
-	BoxArtURL *string
-	IGDBID    *string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                    string
+	Name                  string
+	BoxArtURL             *string
+	IGDBID                *string
+	Description           *string
+	GameMetadataCheckedAt *time.Time
+	DescriptionCheckedAt  *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+// CategoryDetail is the category detail page payload: mirrored Twitch metadata
+// plus local aggregate facts about visible recordings linked to the category.
+type CategoryDetail struct {
+	Category   Category
+	VideoCount int64
+	TotalSize  int64
 }
 
 // CategoryPageCursor is the stable keyset cursor for the category browse list.

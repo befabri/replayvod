@@ -23,7 +23,7 @@ func (q *Queries) DeleteExpiredCategorySearchCache(ctx context.Context, expiresA
 }
 
 const getCategory = `-- name: GetCategory :one
-SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories WHERE id = ?
+SELECT id, name, box_art_url, igdb_id, created_at, updated_at, description, description_checked_at, game_metadata_checked_at FROM categories WHERE id = ?
 `
 
 func (q *Queries) GetCategory(ctx context.Context, id string) (Category, error) {
@@ -36,12 +36,15 @@ func (q *Queries) GetCategory(ctx context.Context, id string) (Category, error) 
 		&i.IgdbID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
+		&i.DescriptionCheckedAt,
+		&i.GameMetadataCheckedAt,
 	)
 	return i, err
 }
 
 const getCategoryByName = `-- name: GetCategoryByName :one
-SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories WHERE name = ?
+SELECT id, name, box_art_url, igdb_id, created_at, updated_at, description, description_checked_at, game_metadata_checked_at FROM categories WHERE name = ?
 `
 
 func (q *Queries) GetCategoryByName(ctx context.Context, name string) (Category, error) {
@@ -54,6 +57,62 @@ func (q *Queries) GetCategoryByName(ctx context.Context, name string) (Category,
 		&i.IgdbID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
+		&i.DescriptionCheckedAt,
+		&i.GameMetadataCheckedAt,
+	)
+	return i, err
+}
+
+const getCategoryDetail = `-- name: GetCategoryDetail :one
+SELECT
+    c.id,
+    c.name,
+    c.box_art_url,
+    c.igdb_id,
+    c.description,
+    c.game_metadata_checked_at,
+    c.description_checked_at,
+    c.created_at,
+    c.updated_at,
+    CAST(COUNT(v.id) AS INTEGER) AS video_count,
+    CAST(COALESCE(SUM(v.size_bytes), 0) AS INTEGER) AS total_size
+FROM categories c
+LEFT JOIN video_categories vc ON vc.category_id = c.id
+LEFT JOIN videos v ON v.id = vc.video_id AND v.deleted_at IS NULL
+WHERE c.id = ?
+GROUP BY c.id, c.name, c.box_art_url, c.igdb_id, c.description, c.game_metadata_checked_at, c.description_checked_at, c.created_at, c.updated_at
+`
+
+type GetCategoryDetailRow struct {
+	ID                    string           `json:"id"`
+	Name                  string           `json:"name"`
+	BoxArtUrl             sql.NullString   `json:"box_art_url"`
+	IgdbID                sql.NullString   `json:"igdb_id"`
+	Description           sql.NullString   `json:"description"`
+	GameMetadataCheckedAt *sqlitetype.Time `json:"game_metadata_checked_at"`
+	DescriptionCheckedAt  *sqlitetype.Time `json:"description_checked_at"`
+	CreatedAt             sqlitetype.Time  `json:"created_at"`
+	UpdatedAt             sqlitetype.Time  `json:"updated_at"`
+	VideoCount            int64            `json:"video_count"`
+	TotalSize             int64            `json:"total_size"`
+}
+
+func (q *Queries) GetCategoryDetail(ctx context.Context, id string) (GetCategoryDetailRow, error) {
+	row := q.db.QueryRowContext(ctx, getCategoryDetail, id)
+	var i GetCategoryDetailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.BoxArtUrl,
+		&i.IgdbID,
+		&i.Description,
+		&i.GameMetadataCheckedAt,
+		&i.DescriptionCheckedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VideoCount,
+		&i.TotalSize,
 	)
 	return i, err
 }
@@ -77,7 +136,7 @@ func (q *Queries) GetCategorySearchCache(ctx context.Context, normalizedQuery st
 }
 
 const listCategories = `-- name: ListCategories :many
-SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories ORDER BY name
+SELECT id, name, box_art_url, igdb_id, created_at, updated_at, description, description_checked_at, game_metadata_checked_at FROM categories ORDER BY name
 `
 
 func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
@@ -96,6 +155,9 @@ func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -111,7 +173,7 @@ func (q *Queries) ListCategories(ctx context.Context) ([]Category, error) {
 }
 
 const listCategoriesByIDs = `-- name: ListCategoriesByIDs :many
-SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories WHERE id IN (/*SLICE:ids*/?)
+SELECT id, name, box_art_url, igdb_id, created_at, updated_at, description, description_checked_at, game_metadata_checked_at FROM categories WHERE id IN (/*SLICE:ids*/?)
 `
 
 func (q *Queries) ListCategoriesByIDs(ctx context.Context, ids []string) ([]Category, error) {
@@ -140,6 +202,9 @@ func (q *Queries) ListCategoriesByIDs(ctx context.Context, ids []string) ([]Cate
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -154,12 +219,18 @@ func (q *Queries) ListCategoriesByIDs(ctx context.Context, ids []string) ([]Cate
 	return items, nil
 }
 
-const listCategoriesMissingBoxArt = `-- name: ListCategoriesMissingBoxArt :many
-SELECT id, name, box_art_url, igdb_id, created_at, updated_at FROM categories WHERE box_art_url IS NULL OR box_art_url = ''
+const listCategoriesMissingDescription = `-- name: ListCategoriesMissingDescription :many
+SELECT id, name, box_art_url, igdb_id, created_at, updated_at, description, description_checked_at, game_metadata_checked_at FROM categories
+WHERE igdb_id IS NOT NULL AND igdb_id <> ''
+  AND (description IS NULL OR description = '')
+  AND (description_checked_at IS NULL OR description_checked_at < ?)
+ORDER BY name
 `
 
-func (q *Queries) ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, error) {
-	rows, err := q.db.QueryContext(ctx, listCategoriesMissingBoxArt)
+// IGDB descriptions need a numeric igdb_id. Rows without one are left to the
+// Helix metadata sync first.
+func (q *Queries) ListCategoriesMissingDescription(ctx context.Context, descriptionCheckedAt *sqlitetype.Time) ([]Category, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoriesMissingDescription, descriptionCheckedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +245,53 @@ func (q *Queries) ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, 
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoriesMissingGameMetadata = `-- name: ListCategoriesMissingGameMetadata :many
+SELECT id, name, box_art_url, igdb_id, created_at, updated_at, description, description_checked_at, game_metadata_checked_at FROM categories
+WHERE (box_art_url IS NULL OR box_art_url = ''
+       OR igdb_id IS NULL OR igdb_id = '')
+  AND (game_metadata_checked_at IS NULL OR game_metadata_checked_at < ?)
+ORDER BY name
+`
+
+// Helix /games is the source for both box_art_url and igdb_id. Keep this
+// broader than the historical box-art-only query so categories that already
+// have art but still lack igdb_id can become eligible for IGDB enrichment.
+func (q *Queries) ListCategoriesMissingGameMetadata(ctx context.Context, gameMetadataCheckedAt *sqlitetype.Time) ([]Category, error) {
+	rows, err := q.db.QueryContext(ctx, listCategoriesMissingGameMetadata, gameMetadataCheckedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Category{}
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BoxArtUrl,
+			&i.IgdbID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -189,7 +307,7 @@ func (q *Queries) ListCategoriesMissingBoxArt(ctx context.Context) ([]Category, 
 }
 
 const listCategoriesWithVideos = `-- name: ListCategoriesWithVideos :many
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, c.description, c.description_checked_at, c.game_metadata_checked_at FROM categories c
 WHERE EXISTS (
     SELECT 1
     FROM video_categories vc
@@ -219,6 +337,9 @@ func (q *Queries) ListCategoriesWithVideos(ctx context.Context) ([]Category, err
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -250,7 +371,7 @@ category_stats AS (
     WHERE v.deleted_at IS NULL
     GROUP BY vc.category_id
 )
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, category_stats.latest_video_at, category_stats.video_count
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, c.description, c.description_checked_at, c.game_metadata_checked_at, category_stats.latest_video_at, category_stats.video_count
 FROM categories c
 INNER JOIN category_stats ON category_stats.category_id = c.id
 CROSS JOIN params
@@ -279,14 +400,17 @@ type ListCategoriesWithVideosPageLatestDescParams struct {
 }
 
 type ListCategoriesWithVideosPageLatestDescRow struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	BoxArtUrl     sql.NullString  `json:"box_art_url"`
-	IgdbID        sql.NullString  `json:"igdb_id"`
-	CreatedAt     sqlitetype.Time `json:"created_at"`
-	UpdatedAt     sqlitetype.Time `json:"updated_at"`
-	LatestVideoAt interface{}     `json:"latest_video_at"`
-	VideoCount    int64           `json:"video_count"`
+	ID                    string           `json:"id"`
+	Name                  string           `json:"name"`
+	BoxArtUrl             sql.NullString   `json:"box_art_url"`
+	IgdbID                sql.NullString   `json:"igdb_id"`
+	CreatedAt             sqlitetype.Time  `json:"created_at"`
+	UpdatedAt             sqlitetype.Time  `json:"updated_at"`
+	Description           sql.NullString   `json:"description"`
+	DescriptionCheckedAt  *sqlitetype.Time `json:"description_checked_at"`
+	GameMetadataCheckedAt *sqlitetype.Time `json:"game_metadata_checked_at"`
+	LatestVideoAt         interface{}      `json:"latest_video_at"`
+	VideoCount            int64            `json:"video_count"`
 }
 
 func (q *Queries) ListCategoriesWithVideosPageLatestDesc(ctx context.Context, arg ListCategoriesWithVideosPageLatestDescParams) ([]ListCategoriesWithVideosPageLatestDescRow, error) {
@@ -310,6 +434,9 @@ func (q *Queries) ListCategoriesWithVideosPageLatestDesc(ctx context.Context, ar
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 			&i.LatestVideoAt,
 			&i.VideoCount,
 		); err != nil {
@@ -332,7 +459,7 @@ WITH params AS (
            CAST(?2 AS text) AS cursor_id,
            CAST(?3 AS integer) AS row_limit
 )
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, c.description, c.description_checked_at, c.game_metadata_checked_at FROM categories c
 CROSS JOIN params
 WHERE EXISTS (
     SELECT 1
@@ -375,6 +502,9 @@ func (q *Queries) ListCategoriesWithVideosPageNameAsc(ctx context.Context, arg L
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -406,7 +536,7 @@ category_stats AS (
     WHERE v.deleted_at IS NULL
     GROUP BY vc.category_id
 )
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, category_stats.latest_video_at, category_stats.video_count
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, c.description, c.description_checked_at, c.game_metadata_checked_at, category_stats.latest_video_at, category_stats.video_count
 FROM categories c
 INNER JOIN category_stats ON category_stats.category_id = c.id
 CROSS JOIN params
@@ -435,14 +565,17 @@ type ListCategoriesWithVideosPageVideoCountDescParams struct {
 }
 
 type ListCategoriesWithVideosPageVideoCountDescRow struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	BoxArtUrl     sql.NullString  `json:"box_art_url"`
-	IgdbID        sql.NullString  `json:"igdb_id"`
-	CreatedAt     sqlitetype.Time `json:"created_at"`
-	UpdatedAt     sqlitetype.Time `json:"updated_at"`
-	LatestVideoAt interface{}     `json:"latest_video_at"`
-	VideoCount    int64           `json:"video_count"`
+	ID                    string           `json:"id"`
+	Name                  string           `json:"name"`
+	BoxArtUrl             sql.NullString   `json:"box_art_url"`
+	IgdbID                sql.NullString   `json:"igdb_id"`
+	CreatedAt             sqlitetype.Time  `json:"created_at"`
+	UpdatedAt             sqlitetype.Time  `json:"updated_at"`
+	Description           sql.NullString   `json:"description"`
+	DescriptionCheckedAt  *sqlitetype.Time `json:"description_checked_at"`
+	GameMetadataCheckedAt *sqlitetype.Time `json:"game_metadata_checked_at"`
+	LatestVideoAt         interface{}      `json:"latest_video_at"`
+	VideoCount            int64            `json:"video_count"`
 }
 
 func (q *Queries) ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context, arg ListCategoriesWithVideosPageVideoCountDescParams) ([]ListCategoriesWithVideosPageVideoCountDescRow, error) {
@@ -466,6 +599,9 @@ func (q *Queries) ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 			&i.LatestVideoAt,
 			&i.VideoCount,
 		); err != nil {
@@ -480,6 +616,30 @@ func (q *Queries) ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context
 		return nil, err
 	}
 	return items, nil
+}
+
+const markCategoryDescriptionChecked = `-- name: MarkCategoryDescriptionChecked :exec
+UPDATE categories
+SET description_checked_at = datetime('now'),
+    updated_at = datetime('now')
+WHERE id = ?
+`
+
+func (q *Queries) MarkCategoryDescriptionChecked(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, markCategoryDescriptionChecked, id)
+	return err
+}
+
+const markCategoryGameMetadataChecked = `-- name: MarkCategoryGameMetadataChecked :exec
+UPDATE categories
+SET game_metadata_checked_at = datetime('now'),
+    updated_at = datetime('now')
+WHERE id = ?
+`
+
+func (q *Queries) MarkCategoryGameMetadataChecked(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, markCategoryGameMetadataChecked, id)
+	return err
 }
 
 const pruneCategorySearchCache = `-- name: PruneCategorySearchCache :exec
@@ -502,7 +662,7 @@ WITH params AS (
     SELECT CAST(?1 AS text) AS search_query,
            CAST(?2 AS integer) AS row_limit
 )
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, c.description, c.description_checked_at, c.game_metadata_checked_at FROM categories c
 CROSS JOIN params
 WHERE params.search_query = ''
    OR unicode_lower(c.name) LIKE '%' || unicode_lower(params.search_query) || '%'
@@ -542,6 +702,9 @@ func (q *Queries) SearchCategories(ctx context.Context, arg SearchCategoriesPara
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -561,7 +724,7 @@ WITH params AS (
     SELECT CAST(?1 AS text) AS search_query,
            CAST(?2 AS integer) AS row_limit
 )
-SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at FROM categories c
+SELECT c.id, c.name, c.box_art_url, c.igdb_id, c.created_at, c.updated_at, c.description, c.description_checked_at, c.game_metadata_checked_at FROM categories c
 CROSS JOIN params
 WHERE (params.search_query = ''
        OR unicode_lower(c.name) LIKE '%' || unicode_lower(params.search_query) || '%')
@@ -609,6 +772,9 @@ func (q *Queries) SearchCategoriesWithVideos(ctx context.Context, arg SearchCate
 			&i.IgdbID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
+			&i.DescriptionCheckedAt,
+			&i.GameMetadataCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -640,30 +806,60 @@ func (q *Queries) TouchCategorySearchCache(ctx context.Context, arg TouchCategor
 	return err
 }
 
-const updateCategoryBoxArt = `-- name: UpdateCategoryBoxArt :exec
-UPDATE categories SET box_art_url = ?, updated_at = datetime('now') WHERE id = ?
+const updateCategoryDescription = `-- name: UpdateCategoryDescription :exec
+UPDATE categories
+SET description = ?2,
+    description_checked_at = datetime('now'),
+    updated_at = datetime('now')
+WHERE id = ?1
 `
 
-type UpdateCategoryBoxArtParams struct {
-	BoxArtUrl sql.NullString `json:"box_art_url"`
-	ID        string         `json:"id"`
+type UpdateCategoryDescriptionParams struct {
+	ID          string         `json:"id"`
+	Description sql.NullString `json:"description"`
 }
 
-// Dedicated setter for box_art_url, the explicit "refresh art" path
-// used by categoryart.Service (both the eager Hydrator enrichment
-// and the scheduled backfill task). Separating this from
-// UpsertCategory keeps "update art" distinct from "upsert name".
-// Positional ? rather than named @ because sqlc's SQLite rewriter
-// has been flaky combining named params with SET clauses in UPDATE
-// (observed as tokens swallowing adjacent characters on generate).
-func (q *Queries) UpdateCategoryBoxArt(ctx context.Context, arg UpdateCategoryBoxArtParams) error {
-	_, err := q.db.ExecContext(ctx, updateCategoryBoxArt, arg.BoxArtUrl, arg.ID)
+func (q *Queries) UpdateCategoryDescription(ctx context.Context, arg UpdateCategoryDescriptionParams) error {
+	_, err := q.db.ExecContext(ctx, updateCategoryDescription, arg.ID, arg.Description)
+	return err
+}
+
+const updateCategoryGameMetadata = `-- name: UpdateCategoryGameMetadata :exec
+UPDATE categories
+SET box_art_url = ifnull(nullif(?2, ''), box_art_url),
+    igdb_id = ifnull(nullif(?3, ''), igdb_id),
+    description = CASE
+        WHEN nullif(?3, '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(?3, '')
+        THEN NULL
+        ELSE description
+    END,
+    description_checked_at = CASE
+        WHEN nullif(?3, '') IS NOT NULL AND ifnull(igdb_id, '') <> nullif(?3, '')
+        THEN NULL
+        ELSE description_checked_at
+    END,
+    game_metadata_checked_at = datetime('now'),
+    updated_at = datetime('now')
+WHERE id = ?1
+`
+
+type UpdateCategoryGameMetadataParams struct {
+	ID       string      `json:"id"`
+	NULLIF   interface{} `json:"NULLIF"`
+	NULLIF_2 interface{} `json:"NULLIF_2"`
+}
+
+// Refresh the Twitch-side category metadata returned by Helix /games.
+// Empty inputs preserve the existing value so callers can safely write
+// whichever subset Twitch returned.
+func (q *Queries) UpdateCategoryGameMetadata(ctx context.Context, arg UpdateCategoryGameMetadataParams) error {
+	_, err := q.db.ExecContext(ctx, updateCategoryGameMetadata, arg.ID, arg.NULLIF, arg.NULLIF_2)
 	return err
 }
 
 const upsertCategory = `-- name: UpsertCategory :one
-INSERT INTO categories (id, name, box_art_url, igdb_id)
-VALUES (?, ?, ?, ?)
+INSERT INTO categories (id, name, box_art_url, igdb_id, description)
+VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET
     name = excluded.name,
     -- nullif normalizes an explicit empty-string payload to NULL
@@ -671,27 +867,42 @@ ON CONFLICT (id) DO UPDATE SET
     -- the existing art any more than a nil caller can.
     box_art_url = ifnull(nullif(excluded.box_art_url, ''), categories.box_art_url),
     igdb_id = ifnull(nullif(excluded.igdb_id, ''), categories.igdb_id),
+    description = CASE
+        WHEN nullif(excluded.description, '') IS NOT NULL THEN excluded.description
+        WHEN nullif(excluded.igdb_id, '') IS NOT NULL
+             AND ifnull(categories.igdb_id, '') <> nullif(excluded.igdb_id, '')
+        THEN NULL
+        ELSE categories.description
+    END,
+    description_checked_at = CASE
+        WHEN nullif(excluded.igdb_id, '') IS NOT NULL
+             AND ifnull(categories.igdb_id, '') <> nullif(excluded.igdb_id, '')
+        THEN NULL
+        ELSE categories.description_checked_at
+    END,
     updated_at = datetime('now')
-RETURNING id, name, box_art_url, igdb_id, created_at, updated_at
+RETURNING id, name, box_art_url, igdb_id, created_at, updated_at, description, description_checked_at, game_metadata_checked_at
 `
 
 type UpsertCategoryParams struct {
-	ID        string         `json:"id"`
-	Name      string         `json:"name"`
-	BoxArtUrl sql.NullString `json:"box_art_url"`
-	IgdbID    sql.NullString `json:"igdb_id"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	BoxArtUrl   sql.NullString `json:"box_art_url"`
+	IgdbID      sql.NullString `json:"igdb_id"`
+	Description sql.NullString `json:"description"`
 }
 
-// Preserves box_art_url and igdb_id on conflict: a webhook-path
-// upsert that only knows (id, name) won't wipe values the category-
-// art sync has filled. ifnull() picks the existing row value when
-// the caller passed NULL.
+// Preserves box_art_url, igdb_id, and description on ordinary webhook-path
+// upserts that only know (id, name). When a non-empty incoming igdb_id changes
+// the mapped IGDB game, the existing description cache is cleared so it can be
+// re-enriched for the new game.
 func (q *Queries) UpsertCategory(ctx context.Context, arg UpsertCategoryParams) (Category, error) {
 	row := q.db.QueryRowContext(ctx, upsertCategory,
 		arg.ID,
 		arg.Name,
 		arg.BoxArtUrl,
 		arg.IgdbID,
+		arg.Description,
 	)
 	var i Category
 	err := row.Scan(
@@ -701,6 +912,9 @@ func (q *Queries) UpsertCategory(ctx context.Context, arg UpsertCategoryParams) 
 		&i.IgdbID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
+		&i.DescriptionCheckedAt,
+		&i.GameMetadataCheckedAt,
 	)
 	return i, err
 }

@@ -76,7 +76,10 @@ func (a *SQLiteAdapter) SetTaskEnabled(ctx context.Context, name string, enabled
 }
 
 func (a *SQLiteAdapter) SetTaskNextRun(ctx context.Context, name string) error {
-	return a.queries.SetTaskNextRun(ctx, name)
+	if _, err := a.queries.SetTaskNextRun(ctx, name); err != nil {
+		return mapErr(err)
+	}
+	return nil
 }
 
 func sqliteTaskToDomain(t sqlitegen.Task) *repository.Task {

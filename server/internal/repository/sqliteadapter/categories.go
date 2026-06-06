@@ -23,6 +23,28 @@ func (a *SQLiteAdapter) GetCategory(ctx context.Context, id string) (*repository
 	return sqliteCategoryToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) GetCategoryDetail(ctx context.Context, id string) (*repository.CategoryDetail, error) {
+	row, err := a.queries.GetCategoryDetail(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &repository.CategoryDetail{
+		Category: repository.Category{
+			ID:                    row.ID,
+			Name:                  row.Name,
+			BoxArtURL:             fromNullString(row.BoxArtUrl),
+			IGDBID:                fromNullString(row.IgdbID),
+			Description:           fromNullString(row.Description),
+			GameMetadataCheckedAt: timePtrFromSQLite(row.GameMetadataCheckedAt),
+			DescriptionCheckedAt:  timePtrFromSQLite(row.DescriptionCheckedAt),
+			CreatedAt:             row.CreatedAt.Time,
+			UpdatedAt:             row.UpdatedAt.Time,
+		},
+		VideoCount: row.VideoCount,
+		TotalSize:  row.TotalSize,
+	}, nil
+}
+
 func (a *SQLiteAdapter) GetCategoryByName(ctx context.Context, name string) (*repository.Category, error) {
 	row, err := a.queries.GetCategoryByName(ctx, name)
 	if err != nil {
@@ -33,10 +55,11 @@ func (a *SQLiteAdapter) GetCategoryByName(ctx context.Context, name string) (*re
 
 func (a *SQLiteAdapter) UpsertCategory(ctx context.Context, c *repository.Category) (*repository.Category, error) {
 	row, err := a.queries.UpsertCategory(ctx, sqlitegen.UpsertCategoryParams{
-		ID:        c.ID,
-		Name:      c.Name,
-		BoxArtUrl: toNullString(c.BoxArtURL),
-		IgdbID:    toNullString(c.IGDBID),
+		ID:          c.ID,
+		Name:        c.Name,
+		BoxArtUrl:   toNullString(c.BoxArtURL),
+		IgdbID:      toNullString(c.IGDBID),
+		Description: toNullString(c.Description),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite upsert category %s: %w", c.ID, err)
@@ -44,7 +67,7 @@ func (a *SQLiteAdapter) UpsertCategory(ctx context.Context, c *repository.Catego
 	return sqliteCategoryToDomain(row), nil
 }
 
-const upsertCategoriesPrefix = `INSERT INTO categories (id, name, box_art_url, igdb_id)
+const upsertCategoriesPrefix = `INSERT INTO categories (id, name, box_art_url, igdb_id, description)
 VALUES `
 
 const upsertCategoriesSuffix = `
@@ -52,8 +75,21 @@ ON CONFLICT (id) DO UPDATE SET
     name = excluded.name,
     box_art_url = ifnull(nullif(excluded.box_art_url, ''), categories.box_art_url),
     igdb_id = ifnull(nullif(excluded.igdb_id, ''), categories.igdb_id),
+    description = CASE
+        WHEN nullif(excluded.description, '') IS NOT NULL THEN excluded.description
+        WHEN nullif(excluded.igdb_id, '') IS NOT NULL
+             AND ifnull(categories.igdb_id, '') <> nullif(excluded.igdb_id, '')
+        THEN NULL
+        ELSE categories.description
+    END,
+    description_checked_at = CASE
+        WHEN nullif(excluded.igdb_id, '') IS NOT NULL
+             AND ifnull(categories.igdb_id, '') <> nullif(excluded.igdb_id, '')
+        THEN NULL
+        ELSE categories.description_checked_at
+    END,
     updated_at = datetime('now')
-RETURNING id, name, box_art_url, igdb_id, created_at, updated_at`
+RETURNING id, name, box_art_url, igdb_id, description, game_metadata_checked_at, description_checked_at, created_at, updated_at`
 
 func (a *SQLiteAdapter) UpsertCategories(ctx context.Context, categories []repository.Category) ([]repository.Category, error) {
 	categories = repository.UniqueCategoriesByID(categories)
@@ -63,13 +99,13 @@ func (a *SQLiteAdapter) UpsertCategories(ctx context.Context, categories []repos
 
 	var b strings.Builder
 	b.WriteString(upsertCategoriesPrefix)
-	args := make([]any, 0, len(categories)*4)
+	args := make([]any, 0, len(categories)*5)
 	for i, c := range categories {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString("(?, ?, ?, ?)")
-		args = append(args, c.ID, c.Name, toNullString(c.BoxArtURL), toNullString(c.IGDBID))
+		b.WriteString("(?, ?, ?, ?, ?)")
+		args = append(args, c.ID, c.Name, toNullString(c.BoxArtURL), toNullString(c.IGDBID), toNullString(c.Description))
 	}
 	b.WriteString(upsertCategoriesSuffix)
 
@@ -87,6 +123,9 @@ func (a *SQLiteAdapter) UpsertCategories(ctx context.Context, categories []repos
 			&row.Name,
 			&row.BoxArtUrl,
 			&row.IgdbID,
+			&row.Description,
+			&row.GameMetadataCheckedAt,
+			&row.DescriptionCheckedAt,
 			&row.CreatedAt,
 			&row.UpdatedAt,
 		); err != nil {
@@ -234,10 +273,10 @@ func (a *SQLiteAdapter) SearchCategoriesWithVideos(ctx context.Context, query st
 	return out, nil
 }
 
-func (a *SQLiteAdapter) ListCategoriesMissingBoxArt(ctx context.Context) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategoriesMissingBoxArt(ctx)
+func (a *SQLiteAdapter) ListCategoriesMissingGameMetadata(ctx context.Context, checkedBefore time.Time) ([]repository.Category, error) {
+	rows, err := a.queries.ListCategoriesMissingGameMetadata(ctx, sqliteTimePtr(&checkedBefore))
 	if err != nil {
-		return nil, fmt.Errorf("sqlite list categories missing box art: %w", err)
+		return nil, fmt.Errorf("sqlite list categories missing game metadata: %w", err)
 	}
 	cats := make([]repository.Category, len(rows))
 	for i, row := range rows {
@@ -246,12 +285,49 @@ func (a *SQLiteAdapter) ListCategoriesMissingBoxArt(ctx context.Context) ([]repo
 	return cats, nil
 }
 
-func (a *SQLiteAdapter) UpdateCategoryBoxArt(ctx context.Context, id, boxArtURL string) error {
-	if err := a.queries.UpdateCategoryBoxArt(ctx, sqlitegen.UpdateCategoryBoxArtParams{
-		ID:        id,
-		BoxArtUrl: toNullString(&boxArtURL),
+func (a *SQLiteAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error {
+	if err := a.queries.UpdateCategoryGameMetadata(ctx, sqlitegen.UpdateCategoryGameMetadataParams{
+		ID:       id,
+		NULLIF:   boxArtURL,
+		NULLIF_2: igdbID,
 	}); err != nil {
-		return fmt.Errorf("sqlite update category box art %s: %w", id, err)
+		return fmt.Errorf("sqlite update category game metadata %s: %w", id, err)
+	}
+	return nil
+}
+
+func (a *SQLiteAdapter) MarkCategoryGameMetadataChecked(ctx context.Context, id string) error {
+	if err := a.queries.MarkCategoryGameMetadataChecked(ctx, id); err != nil {
+		return fmt.Errorf("sqlite mark category game metadata checked %s: %w", id, err)
+	}
+	return nil
+}
+
+func (a *SQLiteAdapter) ListCategoriesMissingDescription(ctx context.Context, checkedBefore time.Time) ([]repository.Category, error) {
+	rows, err := a.queries.ListCategoriesMissingDescription(ctx, sqliteTimePtr(&checkedBefore))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list categories missing description: %w", err)
+	}
+	cats := make([]repository.Category, len(rows))
+	for i, row := range rows {
+		cats[i] = *sqliteCategoryToDomain(row)
+	}
+	return cats, nil
+}
+
+func (a *SQLiteAdapter) UpdateCategoryDescription(ctx context.Context, id, description string) error {
+	if err := a.queries.UpdateCategoryDescription(ctx, sqlitegen.UpdateCategoryDescriptionParams{
+		ID:          id,
+		Description: toNullString(&description),
+	}); err != nil {
+		return fmt.Errorf("sqlite update category description %s: %w", id, err)
+	}
+	return nil
+}
+
+func (a *SQLiteAdapter) MarkCategoryDescriptionChecked(ctx context.Context, id string) error {
+	if err := a.queries.MarkCategoryDescriptionChecked(ctx, id); err != nil {
+		return fmt.Errorf("sqlite mark category description checked %s: %w", id, err)
 	}
 	return nil
 }
@@ -343,12 +419,15 @@ func sqliteLatestCategoryPageItem(row sqlitegen.ListCategoriesWithVideosPageLate
 	}
 	return repository.CategoryPageItem{
 		Category: repository.Category{
-			ID:        row.ID,
-			Name:      row.Name,
-			BoxArtURL: fromNullString(row.BoxArtUrl),
-			IGDBID:    fromNullString(row.IgdbID),
-			CreatedAt: row.CreatedAt.Time,
-			UpdatedAt: row.UpdatedAt.Time,
+			ID:                    row.ID,
+			Name:                  row.Name,
+			BoxArtURL:             fromNullString(row.BoxArtUrl),
+			IGDBID:                fromNullString(row.IgdbID),
+			Description:           fromNullString(row.Description),
+			GameMetadataCheckedAt: timePtrFromSQLite(row.GameMetadataCheckedAt),
+			DescriptionCheckedAt:  timePtrFromSQLite(row.DescriptionCheckedAt),
+			CreatedAt:             row.CreatedAt.Time,
+			UpdatedAt:             row.UpdatedAt.Time,
 		},
 		LatestVideoAt: latest,
 		VideoCount:    row.VideoCount,
@@ -362,12 +441,15 @@ func sqliteCountCategoryPageItem(row sqlitegen.ListCategoriesWithVideosPageVideo
 	}
 	return repository.CategoryPageItem{
 		Category: repository.Category{
-			ID:        row.ID,
-			Name:      row.Name,
-			BoxArtURL: fromNullString(row.BoxArtUrl),
-			IGDBID:    fromNullString(row.IgdbID),
-			CreatedAt: row.CreatedAt.Time,
-			UpdatedAt: row.UpdatedAt.Time,
+			ID:                    row.ID,
+			Name:                  row.Name,
+			BoxArtURL:             fromNullString(row.BoxArtUrl),
+			IGDBID:                fromNullString(row.IgdbID),
+			Description:           fromNullString(row.Description),
+			GameMetadataCheckedAt: timePtrFromSQLite(row.GameMetadataCheckedAt),
+			DescriptionCheckedAt:  timePtrFromSQLite(row.DescriptionCheckedAt),
+			CreatedAt:             row.CreatedAt.Time,
+			UpdatedAt:             row.UpdatedAt.Time,
 		},
 		LatestVideoAt: latest,
 		VideoCount:    row.VideoCount,
@@ -427,12 +509,15 @@ func (a *SQLiteAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) 
 
 func sqliteCategoryToDomain(c sqlitegen.Category) *repository.Category {
 	return &repository.Category{
-		ID:        c.ID,
-		Name:      c.Name,
-		BoxArtURL: fromNullString(c.BoxArtUrl),
-		IGDBID:    fromNullString(c.IgdbID),
-		CreatedAt: c.CreatedAt.Time,
-		UpdatedAt: c.UpdatedAt.Time,
+		ID:                    c.ID,
+		Name:                  c.Name,
+		BoxArtURL:             fromNullString(c.BoxArtUrl),
+		IGDBID:                fromNullString(c.IgdbID),
+		Description:           fromNullString(c.Description),
+		GameMetadataCheckedAt: timePtrFromSQLite(c.GameMetadataCheckedAt),
+		DescriptionCheckedAt:  timePtrFromSQLite(c.DescriptionCheckedAt),
+		CreatedAt:             c.CreatedAt.Time,
+		UpdatedAt:             c.UpdatedAt.Time,
 	}
 }
 

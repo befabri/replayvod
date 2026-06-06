@@ -46,6 +46,7 @@ thumbnail_interval_minutes = 5
 eventsub_interval_minutes = 10
 eventsub_reconcile_interval_minutes = 60
 category_art_interval_minutes = 1440
+category_metadata_interval_minutes = 1440
 token_cleanup_interval_minutes = 60
 # How often to sweep for recordings past their schedule's auto-delete
 # window (time_before_delete, in hours). This is a poll cadence, not a

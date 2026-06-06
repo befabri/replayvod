@@ -154,6 +154,103 @@ func TestListWithVideos_FiltersCatalogOnlyAndDeletedVideoCategories(t *testing.T
 	}
 }
 
+func TestGetDetail_ReturnsDescriptionAndVisibleVideoStats(t *testing.T) {
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+
+	description := "A tactical game about careful choices."
+	if err := seedCategory(repo, &repository.Category{
+		ID:          "cat-detail",
+		Name:        "Detail Game",
+		Description: &description,
+	}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID:    "bc-detail",
+		BroadcasterLogin: "detail",
+		BroadcasterName:  "Detail",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	done, err := repo.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-detail-done",
+		Filename:      "detail-done",
+		DisplayName:   "Detail",
+		Status:        repository.VideoStatusDone,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "bc-detail",
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("create done video: %v", err)
+	}
+	if err := repo.LinkVideoCategory(ctx, done.ID, "cat-detail"); err != nil {
+		t.Fatalf("link done category: %v", err)
+	}
+	if err := repo.MarkVideoDone(ctx, done.ID, 60, 1_500, nil, repository.CompletionKindComplete, false); err != nil {
+		t.Fatalf("mark done: %v", err)
+	}
+
+	running, err := repo.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-detail-running",
+		Filename:      "detail-running",
+		DisplayName:   "Detail",
+		Status:        repository.VideoStatusRunning,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "bc-detail",
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("create running video: %v", err)
+	}
+	if err := repo.LinkVideoCategory(ctx, running.ID, "cat-detail"); err != nil {
+		t.Fatalf("link running category: %v", err)
+	}
+
+	deleted, err := repo.CreateVideo(ctx, &repository.VideoInput{
+		JobID:         "job-detail-deleted",
+		Filename:      "detail-deleted",
+		DisplayName:   "Detail",
+		Status:        repository.VideoStatusDone,
+		Quality:       repository.QualityHigh,
+		BroadcasterID: "bc-detail",
+		Language:      "en",
+	})
+	if err != nil {
+		t.Fatalf("create deleted video: %v", err)
+	}
+	if err := repo.LinkVideoCategory(ctx, deleted.ID, "cat-detail"); err != nil {
+		t.Fatalf("link deleted category: %v", err)
+	}
+	if err := repo.MarkVideoDone(ctx, deleted.ID, 60, 9_000, nil, repository.CompletionKindComplete, false); err != nil {
+		t.Fatalf("mark deleted done: %v", err)
+	}
+	if err := repo.SoftDeleteVideo(ctx, deleted.ID, repository.DeletionKindManual); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	h := NewHandler(New(repo, nil, log), log)
+	got, err := h.GetDetail(ctx, GetByIDInput{ID: "cat-detail"})
+	if err != nil {
+		t.Fatalf("GetDetail error = %v", err)
+	}
+	if got.ID != "cat-detail" || got.Name != "Detail Game" {
+		t.Fatalf("category identity = (%q, %q)", got.ID, got.Name)
+	}
+	if got.Description == nil || *got.Description != description {
+		t.Fatalf("description = %v, want %q", got.Description, description)
+	}
+	if got.VideoCount != 2 {
+		t.Fatalf("video_count = %d, want 2", got.VideoCount)
+	}
+	if got.TotalSize != 1_500 {
+		t.Fatalf("total_size = %d, want 1500", got.TotalSize)
+	}
+}
+
 func TestSearch_EmptyQueryReturnsAll(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -539,11 +636,13 @@ func TestWriteCategorySearchCacheIgnoresRequestCancellation(t *testing.T) {
 func TestToResponse_FieldMapping(t *testing.T) {
 	boxArt := "https://example.com/box.jpg"
 	igdb := "42"
+	description := "A category description."
 	c := &repository.Category{
-		ID:        "cat1",
-		Name:      "My Game",
-		BoxArtURL: &boxArt,
-		IGDBID:    &igdb,
+		ID:          "cat1",
+		Name:        "My Game",
+		BoxArtURL:   &boxArt,
+		IGDBID:      &igdb,
+		Description: &description,
 	}
 	r := toResponse(c)
 	if r.ID != c.ID {
@@ -557,6 +656,9 @@ func TestToResponse_FieldMapping(t *testing.T) {
 	}
 	if r.IGDBID == nil || *r.IGDBID != igdb {
 		t.Errorf("IGDBID: %v, want %q", r.IGDBID, igdb)
+	}
+	if r.Description == nil || *r.Description != description {
+		t.Errorf("Description: %v, want %q", r.Description, description)
 	}
 }
 

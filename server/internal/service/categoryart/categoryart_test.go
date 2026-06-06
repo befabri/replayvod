@@ -18,11 +18,11 @@ import (
 // that need a different response per call seed the map accordingly.
 type fakeGames struct {
 	calls   [][]string
-	byID    map[string]string // id → box_art_url
-	errOnce error             // returned the first call, then cleared
+	byID    map[string]twitch.Game
+	errOnce error // returned the first call, then cleared
 }
 
-func newFakeGames(byID map[string]string) *fakeGames {
+func newFakeGames(byID map[string]twitch.Game) *fakeGames {
 	return &fakeGames{byID: byID}
 }
 
@@ -36,8 +36,14 @@ func (f *fakeGames) GetGames(_ context.Context, params *twitch.GetGamesParams) (
 	}
 	out := make([]twitch.Game, 0, len(ids))
 	for _, id := range ids {
-		if url, ok := f.byID[id]; ok {
-			out = append(out, twitch.Game{ID: id, Name: "n-" + id, BoxArtURL: url})
+		if game, ok := f.byID[id]; ok {
+			if game.ID == "" {
+				game.ID = id
+			}
+			if game.Name == "" {
+				game.Name = "n-" + id
+			}
+			out = append(out, game)
 		}
 	}
 	return out, nil
@@ -55,7 +61,12 @@ func newServiceWithRepo(t *testing.T, fake *fakeGames) (*Service, repository.Rep
 // Hydrator's on-first-observation hook down to the box_art_url column.
 func TestEnrich_UpdatesSingleCategory(t *testing.T) {
 	ctx := context.Background()
-	fake := newFakeGames(map[string]string{"g-1": "https://static-cdn.jtvnw.net/ttv-boxart/g-1-{width}x{height}.jpg"})
+	fake := newFakeGames(map[string]twitch.Game{
+		"g-1": {
+			BoxArtURL: "https://static-cdn.jtvnw.net/ttv-boxart/g-1-{width}x{height}.jpg",
+			IGDBID:    "1234",
+		},
+	})
 	svc, repo := newServiceWithRepo(t, fake)
 
 	if _, err := repo.UpsertCategory(ctx, &repository.Category{ID: "g-1", Name: "Game One"}); err != nil {
@@ -71,17 +82,102 @@ func TestEnrich_UpdatesSingleCategory(t *testing.T) {
 	if got.BoxArtURL == nil || *got.BoxArtURL != "https://static-cdn.jtvnw.net/ttv-boxart/g-1-{width}x{height}.jpg" {
 		t.Errorf("box_art_url not written: got %v", got.BoxArtURL)
 	}
+	if got.IGDBID == nil || *got.IGDBID != "1234" {
+		t.Errorf("igdb_id not written: got %v", got.IGDBID)
+	}
 	if len(fake.calls) != 1 || len(fake.calls[0]) != 1 || fake.calls[0][0] != "g-1" {
 		t.Errorf("expected one GetGames call with [g-1], got %v", fake.calls)
 	}
 }
 
-// TestEnrich_UnknownCategoryLeavesRowAlone documents the degraded path:
-// Twitch returns no match for an ID (game merged/removed). The existing
-// NULL box_art_url stays NULL — we don't write an empty string on top.
-func TestEnrich_UnknownCategoryLeavesRowAlone(t *testing.T) {
+// TestSyncMissing_FillsIGDBIDWhenArtAlreadyExists protects the description
+// enrichment path: a category with art but no igdb_id still needs Helix /games
+// so the later IGDB sync has a numeric id to query.
+func TestSyncMissing_FillsIGDBIDWhenArtAlreadyExists(t *testing.T) {
 	ctx := context.Background()
-	fake := newFakeGames(map[string]string{}) // nothing matches
+	fake := newFakeGames(map[string]twitch.Game{
+		"g-2": {IGDBID: "2222"},
+	})
+	svc, repo := newServiceWithRepo(t, fake)
+
+	art := "existing-art"
+	if _, err := repo.UpsertCategory(ctx, &repository.Category{
+		ID:        "g-2",
+		Name:      "Game Two",
+		BoxArtURL: &art,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	result, err := svc.SyncMissing(ctx)
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if result.Updated != 1 || result.IGDBUpdated != 1 {
+		t.Fatalf("result = %+v, want one updated row with IGDB", result)
+	}
+	got, err := repo.GetCategory(ctx, "g-2")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.BoxArtURL == nil || *got.BoxArtURL != art {
+		t.Fatalf("BoxArtURL = %v, want preserved %q", got.BoxArtURL, art)
+	}
+	if got.IGDBID == nil || *got.IGDBID != "2222" {
+		t.Fatalf("IGDBID = %v, want 2222", got.IGDBID)
+	}
+}
+
+func TestSyncMissing_CachesCategoryWithBoxArtButNoIGDB(t *testing.T) {
+	ctx := context.Background()
+	art := "https://static-cdn.jtvnw.net/ttv-boxart/special-{width}x{height}.jpg"
+	fake := newFakeGames(map[string]twitch.Game{
+		"special": {BoxArtURL: art},
+	})
+	svc, repo := newServiceWithRepo(t, fake)
+
+	if _, err := repo.UpsertCategory(ctx, &repository.Category{
+		ID:        "special",
+		Name:      "Special Category",
+		BoxArtURL: &art,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	result, err := svc.SyncMissing(ctx)
+	if err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	if result.Updated != 0 || result.IGDBUpdated != 0 || result.Checked != 1 {
+		t.Fatalf("first result = %+v, want checked-only", result)
+	}
+	got, err := repo.GetCategory(ctx, "special")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.GameMetadataCheckedAt == nil {
+		t.Fatal("game_metadata_checked_at = nil, want checked timestamp")
+	}
+
+	result, err = svc.SyncMissing(ctx)
+	if err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	if result != (SyncResult{}) {
+		t.Fatalf("second result = %+v, want no-op", result)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("Helix calls = %v, want one call after cached no-IGDB result", fake.calls)
+	}
+}
+
+// TestEnrich_UnknownCategoryMarksChecked documents the degraded path:
+// Twitch returns no match for an ID (game merged/removed). The existing
+// NULL box_art_url stays NULL, but the lookup is tombstoned so the scheduled
+// sync does not immediately retry the same no-match category.
+func TestEnrich_UnknownCategoryMarksChecked(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeGames(map[string]twitch.Game{}) // nothing matches
 	svc, repo := newServiceWithRepo(t, fake)
 
 	if _, err := repo.UpsertCategory(ctx, &repository.Category{ID: "g-ghost", Name: "Ghost"}); err != nil {
@@ -97,6 +193,9 @@ func TestEnrich_UnknownCategoryLeavesRowAlone(t *testing.T) {
 	if got.BoxArtURL != nil {
 		t.Errorf("expected BoxArtURL to remain nil, got %q", *got.BoxArtURL)
 	}
+	if got.GameMetadataCheckedAt == nil {
+		t.Fatal("game_metadata_checked_at = nil, want checked timestamp")
+	}
 }
 
 // TestEnrich_HelixErrorPropagates pins the contract change: Helix
@@ -105,7 +204,7 @@ func TestEnrich_UnknownCategoryLeavesRowAlone(t *testing.T) {
 // path; the scheduled task will re-try on its next tick.
 func TestEnrich_HelixErrorPropagates(t *testing.T) {
 	ctx := context.Background()
-	fake := newFakeGames(map[string]string{})
+	fake := newFakeGames(map[string]twitch.Game{})
 	fake.errOnce = errors.New("helix 503")
 	svc, repo := newServiceWithRepo(t, fake)
 
@@ -123,10 +222,10 @@ func TestEnrich_HelixErrorPropagates(t *testing.T) {
 // limit.
 func TestSyncMissing_BatchesTo100(t *testing.T) {
 	ctx := context.Background()
-	byID := make(map[string]string, 250)
+	byID := make(map[string]twitch.Game, 250)
 	for i := range 250 {
 		id := fmtID(i)
-		byID[id] = "art-" + id
+		byID[id] = twitch.Game{BoxArtURL: "art-" + id, IGDBID: "1" + pad4(i)}
 	}
 	fake := newFakeGames(byID)
 	svc, repo := newServiceWithRepo(t, fake)
@@ -138,12 +237,12 @@ func TestSyncMissing_BatchesTo100(t *testing.T) {
 		}
 	}
 
-	synced, err := svc.SyncMissing(ctx)
+	result, err := svc.SyncMissing(ctx)
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	if synced != 250 {
-		t.Errorf("synced: want 250, got %d", synced)
+	if result.Updated != 250 || result.IGDBUpdated != 250 {
+		t.Errorf("result: want 250 updated rows with IGDB, got %+v", result)
 	}
 	if len(fake.calls) != 3 {
 		t.Fatalf("helix calls: want 3 batches, got %d (%v)", len(fake.calls), fake.calls)
@@ -161,15 +260,15 @@ func TestSyncMissing_BatchesTo100(t *testing.T) {
 // /helix/games call every interval when everything is already synced.
 func TestSyncMissing_NoMissingIsNoOp(t *testing.T) {
 	ctx := context.Background()
-	fake := newFakeGames(map[string]string{})
+	fake := newFakeGames(map[string]twitch.Game{})
 	svc, _ := newServiceWithRepo(t, fake)
 
-	synced, err := svc.SyncMissing(ctx)
+	result, err := svc.SyncMissing(ctx)
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	if synced != 0 {
-		t.Errorf("synced: want 0, got %d", synced)
+	if result != (SyncResult{}) {
+		t.Errorf("result: want zero, got %+v", result)
 	}
 	if len(fake.calls) != 0 {
 		t.Errorf("expected no Helix calls, got %d", len(fake.calls))
@@ -182,7 +281,7 @@ func TestSyncMissing_NoMissingIsNoOp(t *testing.T) {
 // — count reflects rows written before the error.
 func TestSyncMissing_HelixErrorAborts(t *testing.T) {
 	ctx := context.Background()
-	fake := newFakeGames(map[string]string{})
+	fake := newFakeGames(map[string]twitch.Game{})
 	fake.errOnce = errors.New("helix 500")
 	svc, repo := newServiceWithRepo(t, fake)
 
@@ -190,12 +289,12 @@ func TestSyncMissing_HelixErrorAborts(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	synced, err := svc.SyncMissing(ctx)
+	result, err := svc.SyncMissing(ctx)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if synced != 0 {
-		t.Errorf("synced before error: want 0, got %d", synced)
+	if result.Updated != 0 || result.IGDBUpdated != 0 {
+		t.Errorf("result before error: want no updates, got %+v", result)
 	}
 }
 

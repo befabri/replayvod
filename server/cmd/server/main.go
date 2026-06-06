@@ -17,6 +17,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/database"
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/igdb"
 	"github.com/befabri/replayvod/server/internal/logger"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/relayclient"
@@ -27,6 +28,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/secrets"
 	"github.com/befabri/replayvod/server/internal/server"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
+	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 	"github.com/befabri/replayvod/server/internal/service/livepoll"
@@ -261,10 +263,13 @@ func main() {
 	// Server mode selects how we detect live channels and mid-stream title
 	// changes: poll uses Helix polling; direct/relay use EventSub push; off
 	// stores only the at-start title snapshot.
-	// categoryart.Service fetches box_art_url from /helix/games. Used
-	// by the Hydrator eagerly (on first category observation) and by
-	// the scheduler's category_art_sync task as a backfill path.
+	// categoryart.Service fetches box_art_url + igdb_id from /helix/games. Used
+	// by the Hydrator eagerly (on first category observation) and by the
+	// scheduler's category_art_sync task as a backfill path. categorymeta then
+	// uses the igdb_id values to fill category descriptions from IGDB.
 	artSvc := categoryart.New(repo, twitchClient, log)
+	igdbClient := igdb.NewClient(cfg.Env.TwitchClientID, twitchClient, log)
+	categoryMetaSvc := categorymeta.New(repo, igdbClient, log)
 	hydrator := streammeta.NewHydrator(repo, twitchClient, streammeta.Config{
 		CategoryArt: artSvc,
 	}, log)
@@ -504,7 +509,12 @@ func main() {
 		// store is always non-nil by here (selected/validated above), so
 		// the per-schedule recordings auto-delete sweep is always wired.
 		retentionSvc := retention.New(repo, store, log)
-		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, esvc, artSvc, retentionSvc, log); err != nil {
+		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, scheduler.StandardTaskDeps{
+			EventSub:         esvc,
+			CategoryArt:      artSvc,
+			CategoryMetadata: categoryMetaSvc,
+			Retention:        retentionSvc,
+		}, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
 			shutdown(1)
 		}

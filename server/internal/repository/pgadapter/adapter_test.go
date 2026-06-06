@@ -1684,6 +1684,78 @@ func TestListCategoriesWithVideos(t *testing.T) {
 	}
 }
 
+func TestGetCategoryDetail(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	description := "Local detail metadata."
+	if _, err := a.UpsertCategory(ctx, &repository.Category{
+		ID:          "cat-detail",
+		Name:        "Detail Game",
+		Description: &description,
+	}); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-category-detail", BroadcasterLogin: "categorydetail", BroadcasterName: "Category Detail",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	seeds := []struct {
+		jobID   string
+		status  string
+		size    int64
+		deleted bool
+	}{
+		{jobID: "category-detail-sized", status: repository.VideoStatusDone, size: 2_048},
+		{jobID: "category-detail-running", status: repository.VideoStatusRunning},
+		{jobID: "category-detail-deleted", status: repository.VideoStatusDone, size: 8_192, deleted: true},
+	}
+	for _, seed := range seeds {
+		video, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID:         seed.jobID,
+			Filename:      seed.jobID,
+			DisplayName:   "Category Detail",
+			Status:        seed.status,
+			Quality:       repository.QualityHigh,
+			BroadcasterID: "bc-category-detail",
+			Language:      "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create video %s: %v", seed.jobID, err)
+		}
+		if err := a.LinkVideoCategory(ctx, video.ID, "cat-detail"); err != nil {
+			t.Fatalf("link category %s: %v", seed.jobID, err)
+		}
+		if seed.size > 0 {
+			if err := a.MarkVideoDone(ctx, video.ID, 60, seed.size, nil, repository.CompletionKindComplete, false); err != nil {
+				t.Fatalf("mark done %s: %v", seed.jobID, err)
+			}
+		}
+		if seed.deleted {
+			if err := a.SoftDeleteVideo(ctx, video.ID, repository.DeletionKindManual); err != nil {
+				t.Fatalf("soft delete %s: %v", seed.jobID, err)
+			}
+		}
+	}
+
+	got, err := a.GetCategoryDetail(ctx, "cat-detail")
+	if err != nil {
+		t.Fatalf("GetCategoryDetail: %v", err)
+	}
+	if got.Category.Description == nil || *got.Category.Description != description {
+		t.Fatalf("description = %v, want %q", got.Category.Description, description)
+	}
+	if got.VideoCount != 2 {
+		t.Fatalf("VideoCount = %d, want 2", got.VideoCount)
+	}
+	if got.TotalSize != 2_048 {
+		t.Fatalf("TotalSize = %d, want 2048", got.TotalSize)
+	}
+}
+
 func TestListCategoriesWithVideosPage_SortAndCursor(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -1816,23 +1888,148 @@ func TestListCategoriesByIDs_ReturnsInputOrder(t *testing.T) {
 	}
 }
 
-func TestUpdateCategoryBoxArt(t *testing.T) {
+func TestUpdateCategoryGameMetadata(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
 
-	if _, err := a.UpsertCategory(ctx, &repository.Category{ID: "g-2", Name: "G"}); err != nil {
+	existingArt := "https://cdn.example.com/existing.jpg"
+	if _, err := a.UpsertCategory(ctx, &repository.Category{
+		ID:        "g-meta",
+		Name:      "Meta",
+		BoxArtURL: &existingArt,
+	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	art := "https://cdn.example.com/g-2-{width}x{height}.jpg"
-	if err := a.UpdateCategoryBoxArt(ctx, "g-2", art); err != nil {
-		t.Fatalf("update: %v", err)
+	if err := a.UpdateCategoryGameMetadata(ctx, "g-meta", "", "9876"); err != nil {
+		t.Fatalf("update igdb only: %v", err)
 	}
-	got, err := a.GetCategory(ctx, "g-2")
+	got, err := a.GetCategory(ctx, "g-meta")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.BoxArtURL == nil || *got.BoxArtURL != art {
-		t.Errorf("box_art_url: got %v, want %q", got.BoxArtURL, art)
+	if got.BoxArtURL == nil || *got.BoxArtURL != existingArt {
+		t.Fatalf("box_art_url = %v, want preserved %q", got.BoxArtURL, existingArt)
+	}
+	if got.IGDBID == nil || *got.IGDBID != "9876" {
+		t.Fatalf("igdb_id = %v, want 9876", got.IGDBID)
+	}
+	if got.GameMetadataCheckedAt == nil {
+		t.Fatal("game_metadata_checked_at must be set after game metadata update")
+	}
+
+	newArt := "https://cdn.example.com/new.jpg"
+	if err := a.UpdateCategoryGameMetadata(ctx, "g-meta", newArt, ""); err != nil {
+		t.Fatalf("update art only: %v", err)
+	}
+	got, err = a.GetCategory(ctx, "g-meta")
+	if err != nil {
+		t.Fatalf("get updated: %v", err)
+	}
+	if got.BoxArtURL == nil || *got.BoxArtURL != newArt {
+		t.Fatalf("box_art_url = %v, want %q", got.BoxArtURL, newArt)
+	}
+	if got.IGDBID == nil || *got.IGDBID != "9876" {
+		t.Fatalf("igdb_id = %v, want preserved 9876", got.IGDBID)
+	}
+}
+
+func TestListCategoriesMissingGameMetadata(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	art := "art"
+	igdb := "123"
+	for _, category := range []repository.Category{
+		{ID: "missing-both", Name: "A"},
+		{ID: "missing-igdb", Name: "B", BoxArtURL: &art},
+		{ID: "complete", Name: "C", BoxArtURL: &art, IGDBID: &igdb},
+		{ID: "missing-art", Name: "D", IGDBID: &igdb},
+		{ID: "recently-checked", Name: "E", BoxArtURL: &art},
+	} {
+		c := category
+		if _, err := a.UpsertCategory(ctx, &c); err != nil {
+			t.Fatalf("seed %s: %v", c.ID, err)
+		}
+	}
+	if err := a.MarkCategoryGameMetadataChecked(ctx, "recently-checked"); err != nil {
+		t.Fatalf("MarkCategoryGameMetadataChecked: %v", err)
+	}
+
+	got, err := a.ListCategoriesMissingGameMetadata(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ListCategoriesMissingGameMetadata: %v", err)
+	}
+	want := []string{"missing-both", "missing-igdb", "missing-art"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d: %+v", len(got), len(want), got)
+	}
+	for i, id := range want {
+		if got[i].ID != id {
+			t.Fatalf("row %d ID = %q, want %q: %+v", i, got[i].ID, id, got)
+		}
+	}
+	retry, err := a.ListCategoriesMissingGameMetadata(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ListCategoriesMissingGameMetadata retry: %v", err)
+	}
+	wantRetry := []string{"missing-both", "missing-igdb", "missing-art", "recently-checked"}
+	if len(retry) != len(wantRetry) {
+		t.Fatalf("retry len = %d, want %d: %+v", len(retry), len(wantRetry), retry)
+	}
+	for i, id := range wantRetry {
+		if retry[i].ID != id {
+			t.Fatalf("retry row %d ID = %q, want %q: %+v", i, retry[i].ID, id, retry)
+		}
+	}
+}
+
+func TestCategoryDescriptionMethods(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+
+	igdb := "123"
+	existing := "Existing"
+	for _, category := range []repository.Category{
+		{ID: "needs-description", Name: "A", IGDBID: &igdb},
+		{ID: "no-igdb", Name: "B"},
+		{ID: "has-description", Name: "C", IGDBID: &igdb, Description: &existing},
+		{ID: "recently-checked", Name: "D", IGDBID: &igdb},
+	} {
+		c := category
+		if _, err := a.UpsertCategory(ctx, &c); err != nil {
+			t.Fatalf("seed %s: %v", c.ID, err)
+		}
+	}
+	if err := a.MarkCategoryDescriptionChecked(ctx, "recently-checked"); err != nil {
+		t.Fatalf("MarkCategoryDescriptionChecked: %v", err)
+	}
+
+	missing, err := a.ListCategoriesMissingDescription(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ListCategoriesMissingDescription: %v", err)
+	}
+	if len(missing) != 1 || missing[0].ID != "needs-description" {
+		t.Fatalf("missing description = %+v, want only needs-description", missing)
+	}
+	retry, err := a.ListCategoriesMissingDescription(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ListCategoriesMissingDescription retry: %v", err)
+	}
+	if len(retry) != 2 || retry[0].ID != "needs-description" || retry[1].ID != "recently-checked" {
+		t.Fatalf("retryable missing description = %+v, want needs-description and recently-checked", retry)
+	}
+	if err := a.UpdateCategoryDescription(ctx, "needs-description", "New description"); err != nil {
+		t.Fatalf("UpdateCategoryDescription: %v", err)
+	}
+	got, err := a.GetCategory(ctx, "needs-description")
+	if err != nil {
+		t.Fatalf("GetCategory: %v", err)
+	}
+	if got.Description == nil || *got.Description != "New description" {
+		t.Fatalf("description = %v, want New description", got.Description)
+	}
+	if got.DescriptionCheckedAt == nil {
+		t.Fatal("description_checked_at must be set when description is updated")
 	}
 }
 

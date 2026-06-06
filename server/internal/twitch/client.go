@@ -154,6 +154,13 @@ func (c *Client) appAccessToken(ctx context.Context) (string, error) {
 	return c.appToken, nil
 }
 
+// AppAccessToken returns a cached Twitch app access token. It is intentionally
+// narrow so adjacent clients, such as IGDB, can reuse Twitch auth without
+// depending on Helix request internals.
+func (c *Client) AppAccessToken(ctx context.Context) (string, error) {
+	return c.appAccessToken(ctx)
+}
+
 // --- Helix error ---
 
 // HelixError is returned when the Twitch API responds with a non-2xx status.

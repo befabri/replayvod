@@ -1,17 +1,36 @@
 -- name: GetCategory :one
 SELECT * FROM categories WHERE id = $1;
 
+-- name: GetCategoryDetail :one
+SELECT
+    c.id,
+    c.name,
+    c.box_art_url,
+    c.igdb_id,
+    c.description,
+    c.game_metadata_checked_at,
+    c.description_checked_at,
+    c.created_at,
+    c.updated_at,
+    COUNT(v.id)::BIGINT AS video_count,
+    COALESCE(SUM(v.size_bytes), 0)::BIGINT AS total_size
+FROM categories c
+LEFT JOIN video_categories vc ON vc.category_id = c.id
+LEFT JOIN videos v ON v.id = vc.video_id AND v.deleted_at IS NULL
+WHERE c.id = $1
+GROUP BY c.id, c.name, c.box_art_url, c.igdb_id, c.description, c.game_metadata_checked_at, c.description_checked_at, c.created_at, c.updated_at;
+
 -- name: GetCategoryByName :one
 SELECT * FROM categories WHERE name = $1;
 
 -- name: UpsertCategory :one
--- Preserves box_art_url and igdb_id on conflict: a webhook-path
--- upsert that only knows (id, name) won't wipe values the
--- category-art sync has filled. COALESCE picks the existing row
--- value when the caller passed NULL. UpdateCategoryBoxArt below is
--- the explicit path to actively change the art.
-INSERT INTO categories (id, name, box_art_url, igdb_id)
-VALUES ($1, $2, $3, $4)
+-- Preserves box_art_url, igdb_id, and description on ordinary webhook-path
+-- upserts that only know (id, name). When a non-empty incoming igdb_id changes
+-- the mapped IGDB game, the existing description cache is cleared so it can be
+-- re-enriched for the new game. UpdateCategoryGameMetadata below is the
+-- explicit path to actively change Twitch game metadata.
+INSERT INTO categories (id, name, box_art_url, igdb_id, description)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     -- NULLIF normalizes an explicit empty-string payload to NULL
@@ -19,14 +38,42 @@ ON CONFLICT (id) DO UPDATE SET
     -- the existing art any more than a nil caller can.
     box_art_url = COALESCE(NULLIF(EXCLUDED.box_art_url, ''), categories.box_art_url),
     igdb_id = COALESCE(NULLIF(EXCLUDED.igdb_id, ''), categories.igdb_id),
+    description = CASE
+        WHEN NULLIF(EXCLUDED.description, '') IS NOT NULL THEN EXCLUDED.description
+        WHEN NULLIF(EXCLUDED.igdb_id, '') IS NOT NULL
+             AND NULLIF(EXCLUDED.igdb_id, '') IS DISTINCT FROM categories.igdb_id
+        THEN NULL
+        ELSE categories.description
+    END,
+    description_checked_at = CASE
+        WHEN NULLIF(EXCLUDED.igdb_id, '') IS NOT NULL
+             AND NULLIF(EXCLUDED.igdb_id, '') IS DISTINCT FROM categories.igdb_id
+        THEN NULL
+        ELSE categories.description_checked_at
+    END,
     updated_at = NOW()
 RETURNING *;
 
--- name: UpdateCategoryBoxArt :exec
--- Dedicated setter for box_art_url. Used by the category-art sync
--- task and the Hydrator's eager enrichment; separates "refresh just
--- the art" from the broader UpsertCategory contract.
-UPDATE categories SET box_art_url = $2, updated_at = NOW() WHERE id = $1;
+-- name: UpdateCategoryGameMetadata :exec
+-- Refresh the Twitch-side category metadata returned by Helix /games.
+-- Empty inputs preserve the existing value so callers can safely write
+-- whichever subset Twitch returned.
+UPDATE categories
+SET box_art_url = COALESCE(NULLIF($2, ''), box_art_url),
+    igdb_id = COALESCE(NULLIF($3, ''), igdb_id),
+    description = CASE
+        WHEN NULLIF($3, '') IS NOT NULL AND NULLIF($3, '') IS DISTINCT FROM igdb_id
+        THEN NULL
+        ELSE description
+    END,
+    description_checked_at = CASE
+        WHEN NULLIF($3, '') IS NOT NULL AND NULLIF($3, '') IS DISTINCT FROM igdb_id
+        THEN NULL
+        ELSE description_checked_at
+    END,
+    game_metadata_checked_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1;
 
 -- name: ListCategories :many
 SELECT * FROM categories ORDER BY name;
@@ -171,8 +218,43 @@ ORDER BY
     c.name
 LIMIT @row_limit;
 
--- name: ListCategoriesMissingBoxArt :many
-SELECT * FROM categories WHERE box_art_url IS NULL OR box_art_url = '';
+-- name: ListCategoriesMissingGameMetadata :many
+-- Helix /games is the source for both box_art_url and igdb_id. Keep this
+-- broader than the historical box-art-only query so categories that already
+-- have art but still lack igdb_id can become eligible for IGDB enrichment.
+SELECT * FROM categories
+WHERE (box_art_url IS NULL OR box_art_url = ''
+       OR igdb_id IS NULL OR igdb_id = '')
+  AND (game_metadata_checked_at IS NULL OR game_metadata_checked_at < $1)
+ORDER BY name;
+
+-- name: MarkCategoryGameMetadataChecked :exec
+UPDATE categories
+SET game_metadata_checked_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: ListCategoriesMissingDescription :many
+-- IGDB descriptions need a numeric igdb_id. Rows without one are left to the
+-- Helix metadata sync first.
+SELECT * FROM categories
+WHERE igdb_id IS NOT NULL AND igdb_id <> ''
+  AND (description IS NULL OR description = '')
+  AND (description_checked_at IS NULL OR description_checked_at < $1)
+ORDER BY name;
+
+-- name: UpdateCategoryDescription :exec
+UPDATE categories
+SET description = $2,
+    description_checked_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: MarkCategoryDescriptionChecked :exec
+UPDATE categories
+SET description_checked_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1;
 
 -- name: GetCategorySearchCache :one
 SELECT * FROM category_search_cache WHERE normalized_query = $1;

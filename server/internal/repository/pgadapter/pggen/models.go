@@ -17,12 +17,15 @@ type AppAccessToken struct {
 }
 
 type Category struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	BoxArtUrl *string   `json:"box_art_url"`
-	IgdbID    *string   `json:"igdb_id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                    string     `json:"id"`
+	Name                  string     `json:"name"`
+	BoxArtUrl             *string    `json:"box_art_url"`
+	IgdbID                *string    `json:"igdb_id"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+	Description           *string    `json:"description"`
+	DescriptionCheckedAt  *time.Time `json:"description_checked_at"`
+	GameMetadataCheckedAt *time.Time `json:"game_metadata_checked_at"`
 }
 
 type CategorySearchCache struct {

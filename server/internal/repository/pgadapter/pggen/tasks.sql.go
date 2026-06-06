@@ -117,7 +117,7 @@ SET last_status      = 'failed',
     last_error       = $3,
     next_run_at      = CASE
         WHEN interval_seconds > 0
-        THEN NOW() + (interval_seconds * INTERVAL '1 second')
+        THEN COALESCE(next_run_at, NOW() + (interval_seconds * INTERVAL '1 second'))
         ELSE NULL
     END,
     updated_at       = NOW()
@@ -139,6 +139,7 @@ const markTaskRunning = `-- name: MarkTaskRunning :exec
 UPDATE tasks
 SET last_status = 'running',
     last_run_at = NOW(),
+    next_run_at = NULL,
     last_error  = NULL,
     updated_at  = NOW()
 WHERE name = $1
@@ -155,7 +156,7 @@ SET last_status      = 'success',
     last_duration_ms = $2,
     next_run_at      = CASE
         WHEN interval_seconds > 0
-        THEN NOW() + (interval_seconds * INTERVAL '1 second')
+        THEN COALESCE(next_run_at, NOW() + (interval_seconds * INTERVAL '1 second'))
         ELSE NULL
     END,
     last_error       = NULL,
@@ -210,19 +211,34 @@ func (q *Queries) SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) 
 	return i, err
 }
 
-const setTaskNextRun = `-- name: SetTaskNextRun :exec
+const setTaskNextRun = `-- name: SetTaskNextRun :one
 UPDATE tasks
 SET next_run_at = NOW(),
     updated_at  = NOW()
 WHERE name = $1
+RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at
 `
 
 // Manual "run now" path — set next_run_at to now so the scheduler picks
 // it up on the next tick. Separate from SetTaskEnabled so the caller
 // can request a one-shot run without changing the enabled flag.
-func (q *Queries) SetTaskNextRun(ctx context.Context, name string) error {
-	_, err := q.db.Exec(ctx, setTaskNextRun, name)
-	return err
+func (q *Queries) SetTaskNextRun(ctx context.Context, name string) (Task, error) {
+	row := q.db.QueryRow(ctx, setTaskNextRun, name)
+	var i Task
+	err := row.Scan(
+		&i.Name,
+		&i.Description,
+		&i.IntervalSeconds,
+		&i.IsEnabled,
+		&i.LastRunAt,
+		&i.LastDurationMs,
+		&i.LastStatus,
+		&i.LastError,
+		&i.NextRunAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertTask = `-- name: UpsertTask :one
