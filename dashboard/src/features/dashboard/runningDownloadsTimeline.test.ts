@@ -221,6 +221,7 @@ function video(partial: Partial<VideoResponse> = {}): VideoResponse {
 		completion_kind: "complete",
 		truncated: false,
 		quality: "1080p60",
+		is_audio_only: false,
 		broadcaster_id: "b1",
 		viewer_count: 0,
 		language: "fr",

@@ -7,7 +7,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RecordingPlaylist } from "@/features/videos/playback";
 import { WatchPlayer } from "./WatchPlayer";
@@ -249,7 +249,7 @@ vi.mock("@vidstack/react", async () => {
 				{
 					type: "button",
 					...props,
-					onClick: (event) => {
+					onClick: (event: MouseEvent<HTMLButtonElement>) => {
 						if (vidstackMock.player.paused) {
 							vidstackMock.player.paused = false;
 							void vidstackMock.player.play();

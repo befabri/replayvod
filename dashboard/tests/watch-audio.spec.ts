@@ -237,7 +237,8 @@ test.describe("audio watch player", () => {
 });
 
 async function expectAudioPlaybackToStayPastStart(page: Page) {
-	const samples = await page.locator("audio").evaluate(async (audio) => {
+	const samples = await page.locator("audio").evaluate(async (element) => {
+		const audio = element as HTMLAudioElement;
 		const values: number[] = [];
 		const startedAt = performance.now();
 		while (performance.now() - startedAt < 750) {

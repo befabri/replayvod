@@ -201,6 +201,7 @@ function video(overrides: Partial<VideoResponse> = {}): VideoResponse {
 		completion_kind: "complete",
 		truncated: false,
 		quality: "1080p60",
+		is_audio_only: false,
 		broadcaster_id: "bc-1",
 		broadcaster_login: "streamer",
 		broadcaster_name: "Streamer",
