@@ -21,26 +21,6 @@ func (a *SQLiteAdapter) UpsertTask(ctx context.Context, name, description string
 	return sqliteTaskToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) ListTasks(ctx context.Context) ([]repository.Task, error) {
-	rows, err := a.queries.ListTasks(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list tasks: %w", err)
-	}
-	return sqliteTasksToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListDueTasks(ctx context.Context) ([]repository.Task, error) {
-	rows, err := a.queries.ListDueTasks(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list due tasks: %w", err)
-	}
-	return sqliteTasksToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) MarkTaskRunning(ctx context.Context, name string) error {
-	return a.queries.MarkTaskRunning(ctx, name)
-}
-
 func (a *SQLiteAdapter) MarkTaskSuccess(ctx context.Context, name string, durationMs int64) error {
 	return a.queries.MarkTaskSuccess(ctx, sqlitegen.MarkTaskSuccessParams{
 		Name:           name,

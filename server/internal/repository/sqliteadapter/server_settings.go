@@ -10,14 +10,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-func (a *SQLiteAdapter) GetServerSettings(ctx context.Context) (*repository.ServerSettings, error) {
-	row, err := a.queries.GetServerSettings(ctx)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteServerSettingsToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) UpsertServerSettings(ctx context.Context, s *repository.ServerSettings) (*repository.ServerSettings, error) {
 	row, err := a.queries.UpsertServerSettings(ctx, sqlitegen.UpsertServerSettingsParams{
 		ServerMode:                    s.ServerMode,

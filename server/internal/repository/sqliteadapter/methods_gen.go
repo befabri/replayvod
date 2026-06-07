@@ -5,9 +5,30 @@ package sqliteadapter
 import (
 	"context"
 	"fmt"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
+
+func (a *SQLiteAdapter) AddToWhitelist(ctx context.Context, twitchUserID string) error {
+	return a.queries.AddToWhitelist(ctx, twitchUserID)
+}
+
+func (a *SQLiteAdapter) AddVideoRequest(ctx context.Context, videoID int64, userID string) error {
+	return a.queries.AddVideoRequest(ctx, sqlitegen.AddVideoRequestParams{VideoID: videoID, UserID: userID})
+}
+
+func (a *SQLiteAdapter) ClearScheduleCategories(ctx context.Context, scheduleID int64) error {
+	return a.queries.ClearScheduleCategories(ctx, scheduleID)
+}
+
+func (a *SQLiteAdapter) ClearScheduleTags(ctx context.Context, scheduleID int64) error {
+	return a.queries.ClearScheduleTags(ctx, scheduleID)
+}
+
+func (a *SQLiteAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
+	return a.queries.DeleteChannel(ctx, broadcasterID)
+}
 
 func (a *SQLiteAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
 	return a.queries.DeleteExpiredAppTokens(ctx)
@@ -17,44 +38,32 @@ func (a *SQLiteAdapter) DeleteExpiredSessions(ctx context.Context) error {
 	return a.queries.DeleteExpiredSessions(ctx)
 }
 
-func (a *SQLiteAdapter) UpsertTitle(ctx context.Context, name string) (*repository.Title, error) {
-	row, err := a.queries.UpsertTitle(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite upsert title: %w", err)
-	}
-	return sqliteTitleToDomain(row), nil
+func (a *SQLiteAdapter) DeleteSchedule(ctx context.Context, id int64) error {
+	return a.queries.DeleteSchedule(ctx, id)
 }
 
-func (a *SQLiteAdapter) UpsertTag(ctx context.Context, name string) (*repository.Tag, error) {
-	row, err := a.queries.UpsertTag(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite upsert tag: %w", err)
-	}
-	return sqliteTagToDomain(row), nil
+func (a *SQLiteAdapter) DeleteSession(ctx context.Context, hashedID string) error {
+	return a.queries.DeleteSession(ctx, hashedID)
 }
 
-func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
-	row, err := a.queries.GetUser(ctx, id)
+func (a *SQLiteAdapter) DeleteSubscription(ctx context.Context, id string) error {
+	return a.queries.DeleteSubscription(ctx, id)
+}
+
+func (a *SQLiteAdapter) DeleteUserSessions(ctx context.Context, userID string) error {
+	return a.queries.DeleteUserSessions(ctx, userID)
+}
+
+func (a *SQLiteAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
+	return a.queries.DeleteVideoParts(ctx, videoID)
+}
+
+func (a *SQLiteAdapter) GetActiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
+	row, err := a.queries.GetActiveJobByBroadcaster(ctx, broadcasterID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return sqliteUserToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
-	row, err := a.queries.GetUserByLogin(ctx, login)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteUserToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetChannelByLogin(ctx context.Context, login string) (*repository.Channel, error) {
-	row, err := a.queries.GetChannelByLogin(ctx, login)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteChannelToDomain(row), nil
+	return sqliteJobToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) GetCategory(ctx context.Context, id string) (*repository.Category, error) {
@@ -73,6 +82,78 @@ func (a *SQLiteAdapter) GetCategoryByName(ctx context.Context, name string) (*re
 	return sqliteCategoryToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
+	row, err := a.queries.GetChannel(ctx, broadcasterID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteChannelToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetChannelByLogin(ctx context.Context, login string) (*repository.Channel, error) {
+	row, err := a.queries.GetChannelByLogin(ctx, login)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteChannelToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
+	row, err := a.queries.GetJob(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteJobToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetJobByVideoID(ctx context.Context, videoID int64) (*repository.Job, error) {
+	row, err := a.queries.GetJobByVideoID(ctx, videoID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteJobToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetLastLiveStream(ctx context.Context, broadcasterID string) (*repository.Stream, error) {
+	row, err := a.queries.GetLastLiveStream(ctx, broadcasterID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteStreamToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetServerSettings(ctx context.Context) (*repository.ServerSettings, error) {
+	row, err := a.queries.GetServerSettings(ctx)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteServerSettingsToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetSettings(ctx context.Context, userID string) (*repository.Settings, error) {
+	row, err := a.queries.GetSettings(ctx, userID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteSettingsToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetStream(ctx context.Context, id string) (*repository.Stream, error) {
+	row, err := a.queries.GetStream(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteStreamToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetSubscription(ctx context.Context, id string) (*repository.Subscription, error) {
+	row, err := a.queries.GetSubscription(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteSubscriptionToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) GetTag(ctx context.Context, id int64) (*repository.Tag, error) {
 	row, err := a.queries.GetTag(ctx, id)
 	if err != nil {
@@ -89,38 +170,6 @@ func (a *SQLiteAdapter) GetTagByName(ctx context.Context, name string) (*reposit
 	return sqliteTagToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetStream(ctx context.Context, id string) (*repository.Stream, error) {
-	row, err := a.queries.GetStream(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteStreamToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
-	row, err := a.queries.GetJob(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteJobToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetVideoPart(ctx context.Context, id int64) (*repository.VideoPart, error) {
-	row, err := a.queries.GetVideoPart(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoPartToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetSubscription(ctx context.Context, id string) (*repository.Subscription, error) {
-	row, err := a.queries.GetSubscription(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteSubscriptionToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetTask(ctx context.Context, name string) (*repository.Task, error) {
 	row, err := a.queries.GetTask(ctx, name)
 	if err != nil {
@@ -129,12 +178,20 @@ func (a *SQLiteAdapter) GetTask(ctx context.Context, name string) (*repository.T
 	return sqliteTaskToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetWebhookEvent(ctx context.Context, id int64) (*repository.WebhookEvent, error) {
-	row, err := a.queries.GetWebhookEvent(ctx, id)
+func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
+	row, err := a.queries.GetUser(ctx, id)
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return sqliteWebhookEventToDomain(row), nil
+	return sqliteUserToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
+	row, err := a.queries.GetUserByLogin(ctx, login)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteUserToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) GetVideo(ctx context.Context, id int64) (*repository.Video, error) {
@@ -145,22 +202,154 @@ func (a *SQLiteAdapter) GetVideo(ctx context.Context, id int64) (*repository.Vid
 	return sqliteVideoToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
-	return a.queries.LinkStreamTitle(ctx, sqlitegen.LinkStreamTitleParams{StreamID: streamID, TitleID: titleID})
+func (a *SQLiteAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*repository.Video, error) {
+	row, err := a.queries.GetVideoByJobID(ctx, jobID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteVideoToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) LinkVideoTitle(ctx context.Context, videoID int64, titleID int64) error {
-	return a.queries.LinkVideoTitle(ctx, sqlitegen.LinkVideoTitleParams{VideoID: videoID, TitleID: titleID})
+func (a *SQLiteAdapter) GetVideoPart(ctx context.Context, id int64) (*repository.VideoPart, error) {
+	row, err := a.queries.GetVideoPart(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteVideoPartToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetVideoPlaybackAsset(ctx context.Context, videoID int64) (*repository.VideoPlaybackAsset, error) {
+	row, err := a.queries.GetVideoPlaybackAsset(ctx, videoID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteVideoPlaybackAssetToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetWebhookEvent(ctx context.Context, id int64) (*repository.WebhookEvent, error) {
+	row, err := a.queries.GetWebhookEvent(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteWebhookEventToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetWebhookEventByEventID(ctx context.Context, eventID string) (*repository.WebhookEvent, error) {
+	row, err := a.queries.GetWebhookEventByEventID(ctx, eventID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteWebhookEventToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) LinkStreamCategory(ctx context.Context, streamID, categoryID string) error {
+	return a.queries.LinkStreamCategory(ctx, sqlitegen.LinkStreamCategoryParams{StreamID: streamID, CategoryID: categoryID})
+}
+
+func (a *SQLiteAdapter) LinkStreamTag(ctx context.Context, streamID string, tagID int64) error {
+	return a.queries.LinkStreamTag(ctx, sqlitegen.LinkStreamTagParams{StreamID: streamID, TagID: tagID})
+}
+
+func (a *SQLiteAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
+	return a.queries.LinkStreamTitle(ctx, sqlitegen.LinkStreamTitleParams{StreamID: streamID, TitleID: titleID})
 }
 
 func (a *SQLiteAdapter) LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error {
 	return a.queries.LinkVideoCategory(ctx, sqlitegen.LinkVideoCategoryParams{VideoID: videoID, CategoryID: categoryID})
 }
 
-func (a *SQLiteAdapter) ListActiveSubscriptions(ctx context.Context, limit int, offset int) ([]repository.Subscription, error) {
+func (a *SQLiteAdapter) LinkVideoTag(ctx context.Context, videoID, tagID int64) error {
+	return a.queries.LinkVideoTag(ctx, sqlitegen.LinkVideoTagParams{VideoID: videoID, TagID: tagID})
+}
+
+func (a *SQLiteAdapter) LinkVideoTitle(ctx context.Context, videoID, titleID int64) error {
+	return a.queries.LinkVideoTitle(ctx, sqlitegen.LinkVideoTitleParams{VideoID: videoID, TitleID: titleID})
+}
+
+func (a *SQLiteAdapter) ListActiveStreams(ctx context.Context) ([]repository.Stream, error) {
+	rows, err := a.queries.ListActiveStreams(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list active streams: %w", err)
+	}
+	return sqliteStreamsToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListActiveSubscriptions(ctx context.Context, limit, offset int) ([]repository.Subscription, error) {
 	rows, err := a.queries.ListActiveSubscriptions(ctx, sqlitegen.ListActiveSubscriptionsParams{Limit: int64(limit), Offset: int64(offset)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list active subscriptions: %w", err)
 	}
 	return sqliteSubscriptionsToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListDueTasks(ctx context.Context) ([]repository.Task, error) {
+	rows, err := a.queries.ListDueTasks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list due tasks: %w", err)
+	}
+	return sqliteTasksToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListTasks(ctx context.Context) ([]repository.Task, error) {
+	rows, err := a.queries.ListTasks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list tasks: %w", err)
+	}
+	return sqliteTasksToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
+	rows, err := a.queries.ListVideosMissingThumbnail(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos missing thumbnail: %w", err)
+	}
+	return sqliteVideosToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) MarkJobDone(ctx context.Context, id string) error {
+	return a.queries.MarkJobDone(ctx, id)
+}
+
+func (a *SQLiteAdapter) MarkJobRunning(ctx context.Context, id string) error {
+	return a.queries.MarkJobRunning(ctx, id)
+}
+
+func (a *SQLiteAdapter) MarkTaskRunning(ctx context.Context, name string) error {
+	return a.queries.MarkTaskRunning(ctx, name)
+}
+
+func (a *SQLiteAdapter) MarkWebhookEventProcessed(ctx context.Context, id int64) error {
+	return a.queries.MarkWebhookEventProcessed(ctx, id)
+}
+
+func (a *SQLiteAdapter) RecordScheduleTrigger(ctx context.Context, id int64) error {
+	return a.queries.RecordScheduleTrigger(ctx, id)
+}
+
+func (a *SQLiteAdapter) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
+	return a.queries.RemoveFromWhitelist(ctx, twitchUserID)
+}
+
+func (a *SQLiteAdapter) UpdateSessionActivity(ctx context.Context, hashedID string) error {
+	return a.queries.UpdateSessionActivity(ctx, hashedID)
+}
+
+func (a *SQLiteAdapter) UpdateVideoStatus(ctx context.Context, id int64, status string) error {
+	return a.queries.UpdateVideoStatus(ctx, sqlitegen.UpdateVideoStatusParams{ID: id, Status: status})
+}
+
+func (a *SQLiteAdapter) UpsertTag(ctx context.Context, name string) (*repository.Tag, error) {
+	row, err := a.queries.UpsertTag(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert tag: %w", err)
+	}
+	return sqliteTagToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) UpsertTitle(ctx context.Context, name string) (*repository.Title, error) {
+	row, err := a.queries.UpsertTitle(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite upsert title: %w", err)
+	}
+	return sqliteTitleToDomain(row), nil
 }

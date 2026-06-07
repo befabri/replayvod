@@ -3,7 +3,6 @@ package pgadapter
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
@@ -65,8 +64,4 @@ func (a *PGAdapter) CountEventLogs(ctx context.Context) (int64, error) {
 
 func (a *PGAdapter) CountEventLogsByDomain(ctx context.Context, domain string) (int64, error) {
 	return a.queries.CountEventLogsByDomain(ctx, domain)
-}
-
-func (a *PGAdapter) DeleteOldEventLogs(ctx context.Context, before time.Time) error {
-	return a.queries.DeleteOldEventLogs(ctx, before)
 }

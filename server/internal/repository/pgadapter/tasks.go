@@ -20,26 +20,6 @@ func (a *PGAdapter) UpsertTask(ctx context.Context, name, description string, in
 	return pgTaskToDomain(row), nil
 }
 
-func (a *PGAdapter) ListTasks(ctx context.Context) ([]repository.Task, error) {
-	rows, err := a.queries.ListTasks(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list tasks: %w", err)
-	}
-	return pgTasksToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListDueTasks(ctx context.Context) ([]repository.Task, error) {
-	rows, err := a.queries.ListDueTasks(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list due tasks: %w", err)
-	}
-	return pgTasksToDomain(rows), nil
-}
-
-func (a *PGAdapter) MarkTaskRunning(ctx context.Context, name string) error {
-	return a.queries.MarkTaskRunning(ctx, name)
-}
-
 func (a *PGAdapter) MarkTaskSuccess(ctx context.Context, name string, durationMs int64) error {
 	return a.queries.MarkTaskSuccess(ctx, pggen.MarkTaskSuccessParams{
 		Name:           name,

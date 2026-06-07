@@ -11,10 +11,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
-func (a *SQLiteAdapter) LinkStreamCategory(ctx context.Context, streamID, categoryID string) error {
-	return a.queries.LinkStreamCategory(ctx, sqlitegen.LinkStreamCategoryParams{StreamID: streamID, CategoryID: categoryID})
-}
-
 // UpsertVideoCategorySpan runs the close-previous-span + insert-
 // new-span pair in a tx. See UpsertVideoTitleSpan for rationale.
 func (a *SQLiteAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error {
@@ -36,14 +32,6 @@ func (a *SQLiteAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int
 		}
 		return nil
 	})
-}
-
-func (a *SQLiteAdapter) LinkStreamTag(ctx context.Context, streamID string, tagID int64) error {
-	return a.queries.LinkStreamTag(ctx, sqlitegen.LinkStreamTagParams{StreamID: streamID, TagID: tagID})
-}
-
-func (a *SQLiteAdapter) LinkVideoTag(ctx context.Context, videoID, tagID int64) error {
-	return a.queries.LinkVideoTag(ctx, sqlitegen.LinkVideoTagParams{VideoID: videoID, TagID: tagID})
 }
 
 func (a *SQLiteAdapter) ListCategoriesForVideo(ctx context.Context, videoID int64) ([]repository.CategorySpan, error) {
@@ -118,10 +106,6 @@ func (a *SQLiteAdapter) ListTagsForVideo(ctx context.Context, videoID int64) ([]
 		out[i] = *sqliteTagToDomain(r)
 	}
 	return out, nil
-}
-
-func (a *SQLiteAdapter) AddVideoRequest(ctx context.Context, videoID int64, userID string) error {
-	return a.queries.AddVideoRequest(ctx, sqlitegen.AddVideoRequestParams{VideoID: videoID, UserID: userID})
 }
 
 func (a *SQLiteAdapter) ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]repository.Video, error) {

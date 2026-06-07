@@ -9,14 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-func (a *SQLiteAdapter) GetVideoPlaybackAsset(ctx context.Context, videoID int64) (*repository.VideoPlaybackAsset, error) {
-	row, err := a.queries.GetVideoPlaybackAsset(ctx, videoID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoPlaybackAssetToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) UpsertVideoPlaybackAsset(ctx context.Context, input *repository.VideoPlaybackAssetInput) (*repository.VideoPlaybackAsset, error) {
 	var sizeBytes sql.NullInt64
 	if input.SizeBytes != nil {

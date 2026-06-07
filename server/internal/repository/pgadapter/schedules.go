@@ -93,10 +93,6 @@ func (a *PGAdapter) ToggleSchedule(ctx context.Context, id int64) (*repository.D
 	return pgScheduleToDomain(row), nil
 }
 
-func (a *PGAdapter) DeleteSchedule(ctx context.Context, id int64) error {
-	return a.queries.DeleteSchedule(ctx, id)
-}
-
 func (a *PGAdapter) ListSchedules(ctx context.Context, limit, offset int) ([]repository.DownloadSchedule, error) {
 	rows, err := a.queries.ListSchedules(ctx, pggen.ListSchedulesParams{
 		Limit:  int32(limit),
@@ -128,10 +124,6 @@ func (a *PGAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, broad
 	return pgSchedulesToDomain(rows), nil
 }
 
-func (a *PGAdapter) RecordScheduleTrigger(ctx context.Context, id int64) error {
-	return a.queries.RecordScheduleTrigger(ctx, id)
-}
-
 func (a *PGAdapter) LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
 	return a.queries.LinkScheduleCategory(ctx, pggen.LinkScheduleCategoryParams{
 		ScheduleID: scheduleID,
@@ -144,10 +136,6 @@ func (a *PGAdapter) UnlinkScheduleCategory(ctx context.Context, scheduleID int64
 		ScheduleID: scheduleID,
 		CategoryID: categoryID,
 	})
-}
-
-func (a *PGAdapter) ClearScheduleCategories(ctx context.Context, scheduleID int64) error {
-	return a.queries.ClearScheduleCategories(ctx, scheduleID)
 }
 
 func (a *PGAdapter) ListScheduleCategories(ctx context.Context, scheduleID int64) ([]repository.Category, error) {
@@ -174,10 +162,6 @@ func (a *PGAdapter) UnlinkScheduleTag(ctx context.Context, scheduleID, tagID int
 		ScheduleID: scheduleID,
 		TagID:      tagID,
 	})
-}
-
-func (a *PGAdapter) ClearScheduleTags(ctx context.Context, scheduleID int64) error {
-	return a.queries.ClearScheduleTags(ctx, scheduleID)
 }
 
 func (a *PGAdapter) ListScheduleTags(ctx context.Context, scheduleID int64) ([]repository.Tag, error) {

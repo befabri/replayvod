@@ -53,14 +53,6 @@ func closeOpenVideoMetadataSpansWith(ctx context.Context, q *sqlitegen.Queries, 
 	return nil
 }
 
-func (a *SQLiteAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*repository.Video, error) {
-	row, err := a.queries.GetVideoByJobID(ctx, jobID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) ListVideosByJobIDs(ctx context.Context, jobIDs []string) ([]repository.Video, error) {
 	if len(jobIDs) == 0 {
 		return []repository.Video{}, nil
@@ -103,10 +95,6 @@ func (a *SQLiteAdapter) CreateVideo(ctx context.Context, v *repository.VideoInpu
 		return nil, fmt.Errorf("sqlite create video: %w", err)
 	}
 	return sqliteVideoToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) UpdateVideoStatus(ctx context.Context, id int64, status string) error {
-	return a.queries.UpdateVideoStatus(ctx, sqlitegen.UpdateVideoStatusParams{ID: id, Status: status})
 }
 
 func (a *SQLiteAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64, quality string, fps *float64) error {
@@ -271,14 +259,6 @@ func (a *SQLiteAdapter) ListVideosByCategory(ctx context.Context, categoryID str
 	}
 	items := sqliteVideosToDomain(rows)
 	return repository.ToVideoPage(items, limit), nil
-}
-
-func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosMissingThumbnail(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list videos missing thumbnail: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
 }
 
 func (a *SQLiteAdapter) RequestVideoDelete(ctx context.Context, id int64) (*repository.Video, error) {

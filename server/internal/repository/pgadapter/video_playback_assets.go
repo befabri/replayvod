@@ -8,14 +8,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) GetVideoPlaybackAsset(ctx context.Context, videoID int64) (*repository.VideoPlaybackAsset, error) {
-	row, err := a.queries.GetVideoPlaybackAsset(ctx, videoID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgVideoPlaybackAssetToDomain(row), nil
-}
-
 func (a *PGAdapter) UpsertVideoPlaybackAsset(ctx context.Context, input *repository.VideoPlaybackAssetInput) (*repository.VideoPlaybackAsset, error) {
 	row, err := a.queries.UpsertVideoPlaybackAsset(ctx, pggen.UpsertVideoPlaybackAssetParams{
 		VideoID:         input.VideoID,

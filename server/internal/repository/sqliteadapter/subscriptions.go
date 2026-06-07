@@ -88,10 +88,6 @@ func (a *SQLiteAdapter) MarkSubscriptionRevoked(ctx context.Context, id, reason 
 	})
 }
 
-func (a *SQLiteAdapter) DeleteSubscription(ctx context.Context, id string) error {
-	return a.queries.DeleteSubscription(ctx, id)
-}
-
 func (a *SQLiteAdapter) CountActiveSubscriptions(ctx context.Context) (int64, error) {
 	return a.queries.CountActiveSubscriptions(ctx)
 }

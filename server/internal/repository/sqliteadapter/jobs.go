@@ -28,30 +28,6 @@ func (a *SQLiteAdapter) CreateJob(ctx context.Context, input *repository.JobInpu
 	return sqliteJobToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetJobByVideoID(ctx context.Context, videoID int64) (*repository.Job, error) {
-	row, err := a.queries.GetJobByVideoID(ctx, videoID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteJobToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetActiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
-	row, err := a.queries.GetActiveJobByBroadcaster(ctx, broadcasterID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteJobToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) MarkJobRunning(ctx context.Context, id string) error {
-	return a.queries.MarkJobRunning(ctx, id)
-}
-
-func (a *SQLiteAdapter) MarkJobDone(ctx context.Context, id string) error {
-	return a.queries.MarkJobDone(ctx, id)
-}
-
 func (a *SQLiteAdapter) MarkJobFailed(ctx context.Context, id string, errMsg string) error {
 	return a.queries.MarkJobFailed(ctx, sqlitegen.MarkJobFailedParams{
 		ID:    id,

@@ -92,10 +92,6 @@ func (a *SQLiteAdapter) ToggleSchedule(ctx context.Context, id int64) (*reposito
 	return sqliteScheduleToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) DeleteSchedule(ctx context.Context, id int64) error {
-	return a.queries.DeleteSchedule(ctx, id)
-}
-
 func (a *SQLiteAdapter) ListSchedules(ctx context.Context, limit, offset int) ([]repository.DownloadSchedule, error) {
 	rows, err := a.queries.ListSchedules(ctx, sqlitegen.ListSchedulesParams{
 		Limit:  int64(limit),
@@ -127,10 +123,6 @@ func (a *SQLiteAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, b
 	return sqliteSchedulesToDomain(rows), nil
 }
 
-func (a *SQLiteAdapter) RecordScheduleTrigger(ctx context.Context, id int64) error {
-	return a.queries.RecordScheduleTrigger(ctx, id)
-}
-
 func (a *SQLiteAdapter) LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
 	return a.queries.LinkScheduleCategory(ctx, sqlitegen.LinkScheduleCategoryParams{
 		ScheduleID: scheduleID,
@@ -143,10 +135,6 @@ func (a *SQLiteAdapter) UnlinkScheduleCategory(ctx context.Context, scheduleID i
 		ScheduleID: scheduleID,
 		CategoryID: categoryID,
 	})
-}
-
-func (a *SQLiteAdapter) ClearScheduleCategories(ctx context.Context, scheduleID int64) error {
-	return a.queries.ClearScheduleCategories(ctx, scheduleID)
 }
 
 func (a *SQLiteAdapter) ListScheduleCategories(ctx context.Context, scheduleID int64) ([]repository.Category, error) {
@@ -173,10 +161,6 @@ func (a *SQLiteAdapter) UnlinkScheduleTag(ctx context.Context, scheduleID, tagID
 		ScheduleID: scheduleID,
 		TagID:      tagID,
 	})
-}
-
-func (a *SQLiteAdapter) ClearScheduleTags(ctx context.Context, scheduleID int64) error {
-	return a.queries.ClearScheduleTags(ctx, scheduleID)
 }
 
 func (a *SQLiteAdapter) ListScheduleTags(ctx context.Context, scheduleID int64) ([]repository.Tag, error) {

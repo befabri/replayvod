@@ -1,19 +1,26 @@
-// Command repo-adapter-gen generates the mechanical row->domain mapper functions
-// for the Postgres and SQLite repository adapters from a single source.
+// Command repo-adapter-gen generates the mechanical parts of the Postgres and
+// SQLite repository adapters from a single source: the row->domain mappers and
+// the boilerplate Repository method bodies.
 //
-// It parses the domain model structs (internal/repository/models.go) and the
-// two sqlc-generated row structs (pggen, sqlitegen), matches their fields by
-// name, and emits pg<Type>ToDomain / sqlite<Type>ToDomain using a type-driven
-// conversion table. Any field whose (rowType -> domainType) conversion is not
-// in the table is a hard error: such tables stay hand-written. This keeps the
-// generator scoped to the boring, identical ~80% and never silently guesses.
+// Mappers (mappers_gen.go): it parses the domain model structs
+// (internal/repository/models.go) and the two sqlc-generated row structs
+// (pggen, sqlitegen), matches their fields by name, and emits pg<Type>ToDomain
+// / sqlite<Type>ToDomain using a type-driven conversion table (convRules). Any
+// field whose (rowType -> domainType) conversion is not in the table is a hard
+// error, so non-1:1 tables stay hand-written and it never silently guesses.
+//
+// Methods (methods_gen.go): it auto-discovers Repository methods that fit a
+// fixed set of shapes (exec / one-row / slice) and emits their bodies. There is
+// no allowlist; a hand-written method is taken over ("harvested", deleting the
+// hand-written copy) only when its generated body is byte-identical to the
+// hand-written one, so the harvest is behavior-preserving. See denyMethods.
 //
 // The repository contract test (internal/repository/contracttest) is the
 // acceptance gate: generated adapters must pass it on both backends unchanged.
 //
 // Usage:
 //
-//	go run ./tools/repo-adapter-gen            # write the generated files
+//	go run ./tools/repo-adapter-gen            # write generated files + harvest
 //	go run ./tools/repo-adapter-gen -check     # fail if generated files are stale
 package main
 
@@ -30,6 +37,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"golang.org/x/tools/imports"
 )
 
 // genSpec names one generated mapper. name is the function suffix
@@ -132,36 +141,25 @@ type dialect struct {
 	adapterType string // "PGAdapter" / "SQLiteAdapter"
 }
 
-// genMethods is the allowlist of repository.Repository methods whose bodies are
-// generated. Restricted to the unambiguous shapes: an exec query taking only ctx
-// or scalar args passed positionally, and a one-row query whose scalar args pass
-// positionally and whose result maps through a generated single-row mapper. Args
-// that need a sqlc params struct, not-found translation, or any logic stay
-// hand-written. Signature and classification are inferred from the interface.
-var genMethods = []string{
-	"DeleteExpiredAppTokens",
-	"DeleteExpiredSessions",
-	"UpsertTitle",
-	"UpsertTag",
-	"GetUser",
-	"GetUserByLogin",
-	"GetChannelByLogin",
-	"GetCategory",
-	"GetCategoryByName",
-	"GetTag",
-	"GetTagByName",
-	"GetStream",
-	"GetJob",
-	"GetVideoPart",
-	"GetSubscription",
-	"GetTask",
-	"GetWebhookEvent",
-	"GetVideo",
-	"LinkStreamTitle",
-	"LinkVideoTitle",
-	"LinkVideoCategory",
-	"ListActiveSubscriptions",
-}
+// Method generation is auto-discovered: there is no allowlist. Every
+// repository.Repository method is tried and classified into a supported shape
+// (exec / one-row / slice, args positional or via a <Method>Params struct).
+// A method is emitted into methods_gen.go only when one of:
+//
+//   - it is already present in methods_gen.go (harvested on a prior run), or
+//   - it is still hand-written AND its generated body is byte-identical (after
+//     gofmt + comment-stripping normalization) to the hand-written one — in
+//     which case the hand-written copy is also deleted (the "harvest").
+//
+// The byte-identical guard makes harvesting behavior-preserving by
+// construction: any method carrying extra logic, a different error message, a
+// renamed param, or an inline loop simply differs and is left hand-written. A
+// brand-new method that fits a shape but has no implementation yet is NOT
+// guessed; write it by hand first and the next run harvests it if it matches.
+//
+// denyMethods force-excludes names that would otherwise be harvested but must
+// stay hand-written (e.g. a trivial-looking method expected to grow logic).
+var denyMethods = map[string]bool{}
 
 func main() {
 	root := flag.String("root", ".", "server module root")
@@ -195,7 +193,7 @@ func main() {
 		if err != nil {
 			fail(fmt.Errorf("%s mappers: %w", d.name, err))
 		}
-		methodSrc, err := generateMethods(d, methods, gen)
+		methodSrc, harvest, err := generateMethods(d, methods, gen, *root)
 		if err != nil {
 			fail(fmt.Errorf("%s methods: %w", d.name, err))
 		}
@@ -205,7 +203,7 @@ func main() {
 			note string
 		}{
 			{filepath.Join(*root, d.dir, "mappers_gen.go"), mapperSrc, fmt.Sprintf("%d types", len(genTypes))},
-			{filepath.Join(*root, d.dir, "methods_gen.go"), methodSrc, fmt.Sprintf("%d methods", len(genMethods))},
+			{filepath.Join(*root, d.dir, "methods_gen.go"), methodSrc, fmt.Sprintf("%d methods", strings.Count(string(methodSrc), "\nfunc (a *"))},
 		}
 		for _, o := range outputs {
 			if *check {
@@ -219,6 +217,15 @@ func main() {
 				fail(err)
 			}
 			fmt.Printf("wrote %s (%s)\n", o.path, o.note)
+		}
+		// In write mode, harvest: delete the now-generated methods from the
+		// hand-written adapter files. -check never mutates; it relies on the
+		// methods_gen.go diff above (plus the compiler catching any duplicate
+		// definition) to flag a pending harvest.
+		if !*check {
+			if err := applyHarvest(harvest); err != nil {
+				fail(fmt.Errorf("%s harvest: %w", d.name, err))
+			}
 		}
 	}
 }
@@ -451,117 +458,332 @@ func interfaceMethods(path, ifaceName string) (map[string]methodSig, error) {
 	return out, nil
 }
 
-// generateMethods renders methods_gen.go for one dialect from the allowlist.
-func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map[string]string) ([]byte, error) {
+// harvestTarget marks a hand-written method to delete after it has been
+// generated: a byte range (doc comment through closing brace) in a source file.
+type harvestTarget struct {
+	file       string
+	start, end int
+}
+
+// generateMethods renders methods_gen.go for one dialect by auto-discovery and
+// returns the hand-written methods to harvest. See denyMethods for the policy.
+func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map[string]string, root string) ([]byte, []harvestTarget, error) {
 	pkgName := filepath.Base(d.dir)
+	dir := filepath.Join(root, d.dir)
+	existing, err := genFileMethodNames(filepath.Join(dir, "methods_gen.go"), d.adapterType)
+	if err != nil {
+		return nil, nil, err
+	}
+	hand, err := handWrittenMethods(dir, d.adapterType)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	names := make([]string, 0, len(methods))
+	for name := range methods {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	var body strings.Builder
-	needFmt, needRepo, needGen := false, false, false
-
-	for _, name := range genMethods {
-		sig, ok := methods[name]
-		if !ok {
-			return nil, fmt.Errorf("interface method %q not found", name)
-		}
-		if len(sig.params) == 0 {
-			return nil, fmt.Errorf("method %q takes no context param", name)
-		}
-		var decls, names []string
-		for i, p := range sig.params {
-			pn := p.name
-			if pn == "" {
-				pn = fmt.Sprintf("a%d", i)
-			}
-			names = append(names, pn)
-			decls = append(decls, pn+" "+p.typ)
-		}
-		ctxName := names[0]
-
-		// Build the query call args. A <Method>Params struct in the gen package
-		// means sqlc takes a single struct arg: fill its fields by
-		// case-insensitive name match, casting when the param type differs from
-		// the interface arg type (e.g. PG int32 / SQLite int64 limit/offset).
-		// Otherwise pass the args positionally.
-		call := ctxName
-		if pf, ok := gen[name+"Params"]; ok {
-			needGen = true
-			fieldByNorm := make(map[string]string, len(pf))
-			for fn := range pf {
-				fieldByNorm[strings.ToLower(fn)] = fn
-			}
-			if len(names)-1 != len(pf) {
-				return nil, fmt.Errorf("method %q: %d args but %sParams has %d fields", name, len(names)-1, name, len(pf))
-			}
-			var assigns []string
-			for j := 1; j < len(names); j++ {
-				argName, argType := names[j], sig.params[j].typ
-				field, ok := fieldByNorm[strings.ToLower(argName)]
-				if !ok {
-					return nil, fmt.Errorf("method %q: no %sParams field for arg %q", name, name, argName)
-				}
-				val := argName
-				if pf[field] != argType {
-					val = pf[field] + "(" + argName + ")"
-				}
-				assigns = append(assigns, field+": "+val)
-			}
-			call = fmt.Sprintf("%s, %s.%sParams{%s}", ctxName, d.genPkg, name, strings.Join(assigns, ", "))
-		} else if len(names) > 1 {
-			call = ctxName + ", " + strings.Join(names[1:], ", ")
-		}
-
+	var harvest []harvestTarget
+	for _, name := range names {
+		src, ok := classifyMethod(d, name, methods[name], gen)
+		hm, hasHand := hand[name]
 		switch {
-		case len(sig.results) == 1 && sig.results[0] == "error":
-			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) error {\n\treturn a.queries.%s(%s)\n}\n",
-				d.adapterType, name, strings.Join(decls, ", "), name, call)
-		case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "*") && !strings.Contains(sig.results[0], "."):
-			needRepo = true
-			// Interface is in package repository, so the result is the bare
-			// "*Title"; qualify it as *repository.Title in the adapter package.
-			dom := strings.TrimPrefix(sig.results[0], "*")
-			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) (*repository.%s, error) {\n", d.adapterType, name, strings.Join(decls, ", "), dom)
-			fmt.Fprintf(&body, "\trow, err := a.queries.%s(%s)\n", name, call)
-			// Get* may miss a row; mapErr translates the driver's no-rows error
-			// to repository.ErrNotFound. Other reads always return a row, so they
-			// wrap with context instead.
-			if strings.HasPrefix(name, "Get") {
-				fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, mapErr(err)\n\t}\n")
-			} else {
-				needFmt = true
-				fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
+		case denyMethods[name]:
+			if existing[name] {
+				return nil, nil, fmt.Errorf("method %q is in denyMethods but still present in methods_gen.go; remove it there and hand-write it", name)
 			}
-			fmt.Fprintf(&body, "\treturn %s%sToDomain(row), nil\n}\n", d.name, dom)
-		case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "[]") && !strings.Contains(sig.results[0], "."):
-			needFmt, needRepo = true, true
-			elem := strings.TrimPrefix(sig.results[0], "[]")
-			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) ([]repository.%s, error) {\n", d.adapterType, name, strings.Join(decls, ", "), elem)
-			fmt.Fprintf(&body, "\trows, err := a.queries.%s(%s)\n", name, call)
-			fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
-			fmt.Fprintf(&body, "\treturn %s%ssToDomain(rows), nil\n}\n", d.name, elem)
+		case existing[name]:
+			// Already harvested on a prior run: regenerate it.
+			if !ok {
+				return nil, nil, fmt.Errorf("method %q is in methods_gen.go but no longer fits a generatable shape; hand-write it and delete it from methods_gen.go", name)
+			}
+			if hasHand {
+				return nil, nil, fmt.Errorf("method %q is both generated and hand-written (%s); delete the hand-written copy", name, hm.file)
+			}
+			body.WriteString("\n")
+			body.WriteString(src)
+		case ok && hasHand:
+			// New harvest candidate: take it over only if the generated body is
+			// byte-identical to what the human wrote (zero behavior change).
+			nc, err := normalizeFuncSrc(src)
+			if err != nil {
+				return nil, nil, fmt.Errorf("normalize candidate %q: %w", name, err)
+			}
+			if nc == hm.norm {
+				body.WriteString("\n")
+				body.WriteString(src)
+				harvest = append(harvest, harvestTarget{file: hm.file, start: hm.start, end: hm.end})
+			}
+			// Otherwise the hand-written version carries extra logic: leave it.
 		default:
-			return nil, fmt.Errorf("method %q has an unsupported shape (results=%v); hand-write it", name, sig.results)
+			// Either unsupported shape, or a brand-new method with no
+			// implementation: never guess. Skip.
 		}
+	}
+
+	// Let goimports resolve the import set: generated signatures can reference
+	// arbitrary types (time, encoding/json, ...) beyond context/fmt/repository,
+	// so deriving imports from a fixed list is fragile.
+	var b strings.Builder
+	fmt.Fprintf(&b, "// Code generated by repo-adapter-gen. DO NOT EDIT.\n\npackage %s\n\n%s", pkgName, body.String())
+	formatted, err := imports.Process(filepath.Join(dir, "methods_gen.go"), []byte(b.String()), &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
+	if err != nil {
+		return nil, nil, fmt.Errorf("format methods source: %w\n%s", err, b.String())
+	}
+	return formatted, harvest, nil
+}
+
+// classifyMethod renders the adapter body for one method if it fits a supported
+// shape, returning ok=false when it does not (so auto-discovery skips it rather
+// than failing the whole run). Shapes: exec (-> error), one-row (-> *T, error),
+// slice (-> []T, error); args pass positionally or via a <Method>Params struct.
+func classifyMethod(d dialect, name string, sig methodSig, gen map[string]map[string]string) (string, bool) {
+	if len(sig.params) == 0 {
+		return "", false
+	}
+	names := make([]string, len(sig.params))
+	for i, p := range sig.params {
+		pn := p.name
+		if pn == "" {
+			pn = fmt.Sprintf("a%d", i)
+		}
+		names[i] = pn
+	}
+	decls := groupedDecls(sig.params, names)
+	ctxName := names[0]
+
+	// Build the query call args. A <Method>Params struct in the gen package
+	// means sqlc takes a single struct arg: fill its fields by case-insensitive
+	// name match, casting when the param type differs from the interface arg
+	// type (e.g. PG int32 / SQLite int64 limit/offset). Otherwise pass args
+	// positionally. A field/arg count or name mismatch means it is not a 1:1
+	// method (e.g. a struct input destructured by hand) -> not generatable.
+	call := ctxName
+	if pf, ok := gen[name+"Params"]; ok {
+		if len(names)-1 != len(pf) {
+			return "", false
+		}
+		fieldByNorm := make(map[string]string, len(pf))
+		for fn := range pf {
+			fieldByNorm[strings.ToLower(fn)] = fn
+		}
+		var assigns []string
+		for j := 1; j < len(names); j++ {
+			field, ok := fieldByNorm[strings.ToLower(names[j])]
+			if !ok {
+				return "", false
+			}
+			val := names[j]
+			if pf[field] != sig.params[j].typ {
+				val = pf[field] + "(" + names[j] + ")"
+			}
+			assigns = append(assigns, field+": "+val)
+		}
+		call = fmt.Sprintf("%s, %s.%sParams{%s}", ctxName, d.genPkg, name, strings.Join(assigns, ", "))
+	} else if len(names) > 1 {
+		call = ctxName + ", " + strings.Join(names[1:], ", ")
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "// Code generated by repo-adapter-gen. DO NOT EDIT.\n\npackage %s\n\n", pkgName)
-	b.WriteString("import (\n\t\"context\"\n")
-	if needFmt {
-		b.WriteString("\t\"fmt\"\n")
+	switch {
+	case len(sig.results) == 1 && sig.results[0] == "error":
+		fmt.Fprintf(&b, "func (a *%s) %s(%s) error {\n\treturn a.queries.%s(%s)\n}\n",
+			d.adapterType, name, decls, name, call)
+	case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "*") && !strings.Contains(sig.results[0], "."):
+		// Interface is in package repository, so the result is the bare
+		// "*Title"; qualify it as *repository.Title in the adapter package.
+		dom := strings.TrimPrefix(sig.results[0], "*")
+		fmt.Fprintf(&b, "func (a *%s) %s(%s) (*repository.%s, error) {\n", d.adapterType, name, decls, dom)
+		fmt.Fprintf(&b, "\trow, err := a.queries.%s(%s)\n", name, call)
+		// Get* may miss a row; mapErr translates the driver's no-rows error to
+		// repository.ErrNotFound. Other reads always return a row, so they wrap
+		// with context instead.
+		if strings.HasPrefix(name, "Get") {
+			b.WriteString("\tif err != nil {\n\t\treturn nil, mapErr(err)\n\t}\n")
+		} else {
+			fmt.Fprintf(&b, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
+		}
+		fmt.Fprintf(&b, "\treturn %s%sToDomain(row), nil\n}\n", d.name, dom)
+	case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "[]") && !strings.Contains(sig.results[0], "."):
+		elem := strings.TrimPrefix(sig.results[0], "[]")
+		fmt.Fprintf(&b, "func (a *%s) %s(%s) ([]repository.%s, error) {\n", d.adapterType, name, decls, elem)
+		fmt.Fprintf(&b, "\trows, err := a.queries.%s(%s)\n", name, call)
+		fmt.Fprintf(&b, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
+		fmt.Fprintf(&b, "\treturn %s%ssToDomain(rows), nil\n}\n", d.name, elem)
+	default:
+		return "", false
 	}
-	if needRepo {
-		fmt.Fprintf(&b, "\t%q\n", "github.com/befabri/replayvod/server/internal/repository")
-	}
-	if needGen {
-		fmt.Fprintf(&b, "\t%q\n", d.genAlias)
-	}
-	b.WriteString(")\n")
-	b.WriteString(body.String())
+	return b.String(), true
+}
 
-	formatted, err := format.Source([]byte(b.String()))
-	if err != nil {
-		return nil, fmt.Errorf("format methods source: %w\n%s", err, b.String())
+// groupedDecls renders parameter declarations, grouping consecutive params that
+// share a type ("limit, offset int") to match idiomatic hand-written
+// signatures, so the byte-identical guard is not defeated by param spelling.
+func groupedDecls(params []param, names []string) string {
+	var groups []string
+	for i := 0; i < len(params); {
+		j := i
+		for j+1 < len(params) && params[j+1].typ == params[i].typ {
+			j++
+		}
+		groups = append(groups, strings.Join(names[i:j+1], ", ")+" "+params[i].typ)
+		i = j + 1
 	}
-	return formatted, nil
+	return strings.Join(groups, ", ")
+}
+
+// handMethod is a hand-written adapter method: its normalized source (for the
+// byte-identical compare) and the byte range to delete when harvested.
+type handMethod struct {
+	file       string
+	norm       string
+	start, end int
+}
+
+// handWrittenMethods returns every method with the given adapter receiver
+// across the package's hand-written files (excluding _test.go and *_gen.go).
+func handWrittenMethods(dir, adapterType string) (map[string]handMethod, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]handMethod{}
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") || strings.HasSuffix(n, "_gen.go") {
+			continue
+		}
+		path := filepath.Join(dir, n)
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, path, src, parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || recvTypeName(fd.Recv) != adapterType {
+				continue
+			}
+			pos := fset.Position(fd.Pos()).Offset
+			end := fset.Position(fd.End()).Offset
+			start := pos
+			if fd.Doc != nil {
+				start = fset.Position(fd.Doc.Pos()).Offset
+			}
+			norm, err := normalizeFuncSrc(string(src[pos:end]))
+			if err != nil {
+				return nil, fmt.Errorf("normalize %s.%s: %w", path, fd.Name.Name, err)
+			}
+			out[fd.Name.Name] = handMethod{file: path, norm: norm, start: start, end: end}
+		}
+	}
+	return out, nil
+}
+
+// genFileMethodNames returns the set of adapter methods already present in
+// methods_gen.go (empty if the file does not exist yet).
+func genFileMethodNames(path, adapterType string) (map[string]bool, error) {
+	src, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), path, src, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, decl := range f.Decls {
+		if fd, ok := decl.(*ast.FuncDecl); ok && recvTypeName(fd.Recv) == adapterType {
+			out[fd.Name.Name] = true
+		}
+	}
+	return out, nil
+}
+
+// recvTypeName returns the receiver's base type name (e.g. "PGAdapter" for
+// "func (a *PGAdapter) ..."), or "" if recv is not a single named type.
+func recvTypeName(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) != 1 {
+		return ""
+	}
+	switch t := recv.List[0].Type.(type) {
+	case *ast.StarExpr:
+		if id, ok := t.X.(*ast.Ident); ok {
+			return id.Name
+		}
+	case *ast.Ident:
+		return t.Name
+	}
+	return ""
+}
+
+// normalizeFuncSrc parses a single func declaration and re-renders it with
+// gofmt and without comments, so two semantically identical bodies compare
+// equal regardless of comments or whitespace.
+func normalizeFuncSrc(src string) (string, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "x.go", "package x\n"+src, 0)
+	if err != nil {
+		return "", err
+	}
+	for _, decl := range f.Decls {
+		if fd, ok := decl.(*ast.FuncDecl); ok {
+			var buf bytes.Buffer
+			if err := format.Node(&buf, fset, fd); err != nil {
+				return "", err
+			}
+			return buf.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no func declaration in %q", src)
+}
+
+// applyHarvest deletes harvested methods from their hand-written files, then
+// re-formats and prunes now-unused imports. Ranges within a file are removed
+// back-to-front so earlier offsets stay valid.
+func applyHarvest(targets []harvestTarget) error {
+	byFile := map[string][]harvestTarget{}
+	for _, t := range targets {
+		byFile[t.file] = append(byFile[t.file], t)
+	}
+	files := make([]string, 0, len(byFile))
+	for f := range byFile {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+	for _, file := range files {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		ts := byFile[file]
+		sort.Slice(ts, func(i, j int) bool { return ts[i].start > ts[j].start })
+		for _, t := range ts {
+			if t.start < 0 || t.end > len(src) || t.start > t.end {
+				return fmt.Errorf("%s: bad harvest range [%d,%d)", file, t.start, t.end)
+			}
+			src = append(src[:t.start], src[t.end:]...)
+		}
+		out, err := imports.Process(file, src, &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
+		if err != nil {
+			return fmt.Errorf("format %s after harvest: %w", file, err)
+		}
+		if err := os.WriteFile(file, out, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("harvested %d method(s) from %s\n", len(ts), file)
+	}
+	return nil
 }
 
 // actionPhrase turns a method name into a lowercase space-separated phrase for

@@ -234,18 +234,6 @@ func (a *SQLiteAdapter) UpdateSessionTokens(ctx context.Context, hashedID string
 	})
 }
 
-func (a *SQLiteAdapter) UpdateSessionActivity(ctx context.Context, hashedID string) error {
-	return a.queries.UpdateSessionActivity(ctx, hashedID)
-}
-
-func (a *SQLiteAdapter) DeleteSession(ctx context.Context, hashedID string) error {
-	return a.queries.DeleteSession(ctx, hashedID)
-}
-
-func (a *SQLiteAdapter) DeleteUserSessions(ctx context.Context, userID string) error {
-	return a.queries.DeleteUserSessions(ctx, userID)
-}
-
 func (a *SQLiteAdapter) ListUserSessions(ctx context.Context, userID string) ([]repository.SessionInfo, error) {
 	rows, err := a.queries.ListUserSessions(ctx, userID)
 	if err != nil {
@@ -301,14 +289,6 @@ func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expire
 
 func (a *SQLiteAdapter) IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error) {
 	return a.queries.IsWhitelisted(ctx, twitchUserID)
-}
-
-func (a *SQLiteAdapter) AddToWhitelist(ctx context.Context, twitchUserID string) error {
-	return a.queries.AddToWhitelist(ctx, twitchUserID)
-}
-
-func (a *SQLiteAdapter) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
-	return a.queries.RemoveFromWhitelist(ctx, twitchUserID)
 }
 
 func (a *SQLiteAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {

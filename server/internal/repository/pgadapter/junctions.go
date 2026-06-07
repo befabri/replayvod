@@ -9,10 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) LinkStreamCategory(ctx context.Context, streamID, categoryID string) error {
-	return a.queries.LinkStreamCategory(ctx, pggen.LinkStreamCategoryParams{StreamID: streamID, CategoryID: categoryID})
-}
-
 func (a *PGAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error {
 	if err := a.queries.UpsertVideoCategorySpan(ctx, pggen.UpsertVideoCategorySpanParams{
 		VideoID:    videoID,
@@ -22,14 +18,6 @@ func (a *PGAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int64, 
 		return fmt.Errorf("pg upsert video category span: %w", err)
 	}
 	return nil
-}
-
-func (a *PGAdapter) LinkStreamTag(ctx context.Context, streamID string, tagID int64) error {
-	return a.queries.LinkStreamTag(ctx, pggen.LinkStreamTagParams{StreamID: streamID, TagID: tagID})
-}
-
-func (a *PGAdapter) LinkVideoTag(ctx context.Context, videoID, tagID int64) error {
-	return a.queries.LinkVideoTag(ctx, pggen.LinkVideoTagParams{VideoID: videoID, TagID: tagID})
 }
 
 func (a *PGAdapter) ListCategoriesForVideo(ctx context.Context, videoID int64) ([]repository.CategorySpan, error) {
@@ -88,10 +76,6 @@ func (a *PGAdapter) ListTagsForVideo(ctx context.Context, videoID int64) ([]repo
 		out[i] = *pgTagToDomain(r)
 	}
 	return out, nil
-}
-
-func (a *PGAdapter) AddVideoRequest(ctx context.Context, videoID int64, userID string) error {
-	return a.queries.AddVideoRequest(ctx, pggen.AddVideoRequestParams{VideoID: videoID, UserID: userID})
 }
 
 func (a *PGAdapter) ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]repository.Video, error) {

@@ -52,14 +52,6 @@ func closeOpenVideoMetadataSpansWith(ctx context.Context, q *pggen.Queries, vide
 	return nil
 }
 
-func (a *PGAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*repository.Video, error) {
-	row, err := a.queries.GetVideoByJobID(ctx, jobID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgVideoToDomain(row), nil
-}
-
 func (a *PGAdapter) ListVideosByJobIDs(ctx context.Context, jobIDs []string) ([]repository.Video, error) {
 	if len(jobIDs) == 0 {
 		return []repository.Video{}, nil
@@ -102,10 +94,6 @@ func (a *PGAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (
 		return nil, fmt.Errorf("pg create video: %w", err)
 	}
 	return pgVideoToDomain(row), nil
-}
-
-func (a *PGAdapter) UpdateVideoStatus(ctx context.Context, id int64, status string) error {
-	return a.queries.UpdateVideoStatus(ctx, pggen.UpdateVideoStatusParams{ID: id, Status: status})
 }
 
 func (a *PGAdapter) UpdateVideoSelectedVariant(ctx context.Context, id int64, quality string, fps *float64) error {
@@ -259,14 +247,6 @@ func (a *PGAdapter) ListVideosByCategory(ctx context.Context, categoryID string,
 	}
 	items := pgVideosToDomain(rows)
 	return repository.ToVideoPage(items, limit), nil
-}
-
-func (a *PGAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideosMissingThumbnail(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list videos missing thumbnail: %w", err)
-	}
-	return pgVideosToDomain(rows), nil
 }
 
 func (a *PGAdapter) RequestVideoDelete(ctx context.Context, id int64) (*repository.Video, error) {

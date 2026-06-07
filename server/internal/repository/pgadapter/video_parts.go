@@ -81,7 +81,3 @@ func (a *PGAdapter) CountVideoParts(ctx context.Context, videoID int64) (int64, 
 func (a *PGAdapter) HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error) {
 	return a.queries.HasFinalizedVideoParts(ctx, videoID)
 }
-
-func (a *PGAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
-	return a.queries.DeleteVideoParts(ctx, videoID)
-}

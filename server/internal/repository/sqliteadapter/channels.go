@@ -11,14 +11,6 @@ import (
 
 // Channels
 
-func (a *SQLiteAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
-	row, err := a.queries.GetChannel(ctx, broadcasterID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteChannelToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error) {
 	row, err := a.queries.UpsertChannel(ctx, sqlitegen.UpsertChannelParams{
 		BroadcasterID:       c.BroadcasterID,
@@ -104,10 +96,6 @@ func (a *SQLiteAdapter) SearchChannels(ctx context.Context, query string, limit 
 		out[i] = *sqliteChannelToDomain(row)
 	}
 	return out, nil
-}
-
-func (a *SQLiteAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
-	return a.queries.DeleteChannel(ctx, broadcasterID)
 }
 
 // User follows

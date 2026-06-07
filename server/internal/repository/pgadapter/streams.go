@@ -40,14 +40,6 @@ func (a *PGAdapter) UpdateStreamViewers(ctx context.Context, id string, viewerCo
 	})
 }
 
-func (a *PGAdapter) ListActiveStreams(ctx context.Context) ([]repository.Stream, error) {
-	rows, err := a.queries.ListActiveStreams(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list active streams: %w", err)
-	}
-	return pgStreamsToDomain(rows), nil
-}
-
 func (a *PGAdapter) ListStreamsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.Stream, error) {
 	rows, err := a.queries.ListStreamsByBroadcaster(ctx, pggen.ListStreamsByBroadcasterParams{
 		BroadcasterID: broadcasterID,
@@ -58,14 +50,6 @@ func (a *PGAdapter) ListStreamsByBroadcaster(ctx context.Context, broadcasterID 
 		return nil, fmt.Errorf("pg list streams by broadcaster: %w", err)
 	}
 	return pgStreamsToDomain(rows), nil
-}
-
-func (a *PGAdapter) GetLastLiveStream(ctx context.Context, broadcasterID string) (*repository.Stream, error) {
-	row, err := a.queries.GetLastLiveStream(ctx, broadcasterID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgStreamToDomain(row), nil
 }
 
 func (a *PGAdapter) ListLatestLivePerChannel(ctx context.Context, limit int) ([]repository.LatestLiveStream, error) {

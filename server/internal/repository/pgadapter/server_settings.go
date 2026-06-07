@@ -11,14 +11,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) GetServerSettings(ctx context.Context) (*repository.ServerSettings, error) {
-	row, err := a.queries.GetServerSettings(ctx)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgServerSettingsToDomain(row), nil
-}
-
 func (a *PGAdapter) UpsertServerSettings(ctx context.Context, s *repository.ServerSettings) (*repository.ServerSettings, error) {
 	row, err := a.queries.UpsertServerSettings(ctx, pggen.UpsertServerSettingsParams{
 		ServerMode:                    s.ServerMode,
@@ -53,14 +45,6 @@ func (a *PGAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg upsert playback cache config: %w", err)
-	}
-	return pgServerSettingsToDomain(row), nil
-}
-
-func (a *PGAdapter) SetSchedulesPaused(ctx context.Context, paused bool) (*repository.ServerSettings, error) {
-	row, err := a.queries.SetSchedulesPaused(ctx, paused)
-	if err != nil {
-		return nil, fmt.Errorf("pg set schedules paused: %w", err)
 	}
 	return pgServerSettingsToDomain(row), nil
 }

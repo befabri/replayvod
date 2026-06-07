@@ -41,14 +41,6 @@ func (a *SQLiteAdapter) UpdateStreamViewers(ctx context.Context, id string, view
 	})
 }
 
-func (a *SQLiteAdapter) ListActiveStreams(ctx context.Context) ([]repository.Stream, error) {
-	rows, err := a.queries.ListActiveStreams(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list active streams: %w", err)
-	}
-	return sqliteStreamsToDomain(rows), nil
-}
-
 func (a *SQLiteAdapter) ListStreamsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.Stream, error) {
 	rows, err := a.queries.ListStreamsByBroadcaster(ctx, sqlitegen.ListStreamsByBroadcasterParams{
 		BroadcasterID: broadcasterID,
@@ -59,14 +51,6 @@ func (a *SQLiteAdapter) ListStreamsByBroadcaster(ctx context.Context, broadcaste
 		return nil, fmt.Errorf("sqlite list streams by broadcaster: %w", err)
 	}
 	return sqliteStreamsToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) GetLastLiveStream(ctx context.Context, broadcasterID string) (*repository.Stream, error) {
-	row, err := a.queries.GetLastLiveStream(ctx, broadcasterID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteStreamToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) ListLatestLivePerChannel(ctx context.Context, limit int) ([]repository.LatestLiveStream, error) {

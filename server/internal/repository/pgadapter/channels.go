@@ -8,14 +8,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
-	row, err := a.queries.GetChannel(ctx, broadcasterID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgChannelToDomain(row), nil
-}
-
 func (a *PGAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error) {
 	row, err := a.queries.UpsertChannel(ctx, pggen.UpsertChannelParams{
 		BroadcasterID:       c.BroadcasterID,
@@ -101,10 +93,6 @@ func (a *PGAdapter) SearchChannels(ctx context.Context, query string, limit int)
 		channels[i] = *pgChannelToDomain(row)
 	}
 	return channels, nil
-}
-
-func (a *PGAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
-	return a.queries.DeleteChannel(ctx, broadcasterID)
 }
 
 func (a *PGAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFollow) error {

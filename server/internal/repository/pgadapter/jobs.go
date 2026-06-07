@@ -28,30 +28,6 @@ func (a *PGAdapter) CreateJob(ctx context.Context, input *repository.JobInput) (
 	return pgJobToDomain(row), nil
 }
 
-func (a *PGAdapter) GetJobByVideoID(ctx context.Context, videoID int64) (*repository.Job, error) {
-	row, err := a.queries.GetJobByVideoID(ctx, videoID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgJobToDomain(row), nil
-}
-
-func (a *PGAdapter) GetActiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
-	row, err := a.queries.GetActiveJobByBroadcaster(ctx, broadcasterID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgJobToDomain(row), nil
-}
-
-func (a *PGAdapter) MarkJobRunning(ctx context.Context, id string) error {
-	return a.queries.MarkJobRunning(ctx, id)
-}
-
-func (a *PGAdapter) MarkJobDone(ctx context.Context, id string) error {
-	return a.queries.MarkJobDone(ctx, id)
-}
-
 func (a *PGAdapter) MarkJobFailed(ctx context.Context, id string, errMsg string) error {
 	return a.queries.MarkJobFailed(ctx, pggen.MarkJobFailedParams{
 		ID:    id,

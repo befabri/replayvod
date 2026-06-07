@@ -90,10 +90,6 @@ func (a *PGAdapter) MarkSubscriptionRevoked(ctx context.Context, id, reason stri
 	})
 }
 
-func (a *PGAdapter) DeleteSubscription(ctx context.Context, id string) error {
-	return a.queries.DeleteSubscription(ctx, id)
-}
-
 func (a *PGAdapter) CountActiveSubscriptions(ctx context.Context) (int64, error) {
 	return a.queries.CountActiveSubscriptions(ctx)
 }

@@ -8,14 +8,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) GetSettings(ctx context.Context, userID string) (*repository.Settings, error) {
-	row, err := a.queries.GetSettings(ctx, userID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgSettingsToDomain(row), nil
-}
-
 func (a *PGAdapter) UpsertSettings(ctx context.Context, s *repository.Settings) (*repository.Settings, error) {
 	row, err := a.queries.UpsertSettings(ctx, pggen.UpsertSettingsParams{
 		UserID:         s.UserID,

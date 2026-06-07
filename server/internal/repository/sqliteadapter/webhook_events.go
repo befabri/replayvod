@@ -33,18 +33,6 @@ func (a *SQLiteAdapter) CreateWebhookEvent(ctx context.Context, input *repositor
 	return sqliteWebhookEventToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetWebhookEventByEventID(ctx context.Context, eventID string) (*repository.WebhookEvent, error) {
-	row, err := a.queries.GetWebhookEventByEventID(ctx, eventID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteWebhookEventToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) MarkWebhookEventProcessed(ctx context.Context, id int64) error {
-	return a.queries.MarkWebhookEventProcessed(ctx, id)
-}
-
 func (a *SQLiteAdapter) MarkWebhookEventFailed(ctx context.Context, id int64, errMsg string) error {
 	return a.queries.MarkWebhookEventFailed(ctx, sqlitegen.MarkWebhookEventFailedParams{
 		ID:    id,

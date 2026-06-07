@@ -90,7 +90,3 @@ func (a *SQLiteAdapter) HasFinalizedVideoParts(ctx context.Context, videoID int6
 	}
 	return v != 0, nil
 }
-
-func (a *SQLiteAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
-	return a.queries.DeleteVideoParts(ctx, videoID)
-}

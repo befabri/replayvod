@@ -3,7 +3,6 @@ package pgadapter
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
@@ -49,10 +48,6 @@ func (a *PGAdapter) CountFetchLogs(ctx context.Context) (int64, error) {
 
 func (a *PGAdapter) CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error) {
 	return a.queries.CountFetchLogsByType(ctx, fetchType)
-}
-
-func (a *PGAdapter) DeleteOldFetchLogs(ctx context.Context, before time.Time) error {
-	return a.queries.DeleteOldFetchLogs(ctx, before)
 }
 
 func pgFetchLogsToDomain(rows []pggen.FetchLog) []repository.FetchLog {
