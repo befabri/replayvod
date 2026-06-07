@@ -76,6 +76,14 @@ func pgEventLogToDomain(src pggen.EventLog) *repository.EventLog {
 	}
 }
 
+func pgEventLogsToDomain(rows []pggen.EventLog) []repository.EventLog {
+	out := make([]repository.EventLog, len(rows))
+	for i, r := range rows {
+		out[i] = *pgEventLogToDomain(r)
+	}
+	return out
+}
+
 func pgJobToDomain(src pggen.Job) *repository.Job {
 	return &repository.Job{
 		BroadcasterID: src.BroadcasterID,
@@ -127,6 +135,14 @@ func pgStreamToDomain(src pggen.Stream) *repository.Stream {
 	}
 }
 
+func pgStreamsToDomain(rows []pggen.Stream) []repository.Stream {
+	out := make([]repository.Stream, len(rows))
+	for i, r := range rows {
+		out[i] = *pgStreamToDomain(r)
+	}
+	return out
+}
+
 func pgSubscriptionToDomain(src pggen.Subscription) *repository.Subscription {
 	return &repository.Subscription{
 		BroadcasterID:     src.BroadcasterID,
@@ -145,6 +161,14 @@ func pgSubscriptionToDomain(src pggen.Subscription) *repository.Subscription {
 	}
 }
 
+func pgSubscriptionsToDomain(rows []pggen.Subscription) []repository.Subscription {
+	out := make([]repository.Subscription, len(rows))
+	for i, r := range rows {
+		out[i] = *pgSubscriptionToDomain(r)
+	}
+	return out
+}
+
 func pgTaskToDomain(src pggen.Task) *repository.Task {
 	return &repository.Task{
 		CreatedAt:       src.CreatedAt,
@@ -159,6 +183,14 @@ func pgTaskToDomain(src pggen.Task) *repository.Task {
 		NextRunAt:       src.NextRunAt,
 		UpdatedAt:       src.UpdatedAt,
 	}
+}
+
+func pgTasksToDomain(rows []pggen.Task) []repository.Task {
+	out := make([]repository.Task, len(rows))
+	for i, r := range rows {
+		out[i] = *pgTaskToDomain(r)
+	}
+	return out
 }
 
 func pgUserToDomain(src pggen.User) *repository.User {
@@ -239,6 +271,14 @@ func pgWebhookEventToDomain(src pggen.WebhookEvent) *repository.WebhookEvent {
 		Status:           src.Status,
 		SubscriptionID:   src.SubscriptionID,
 	}
+}
+
+func pgWebhookEventsToDomain(rows []pggen.WebhookEvent) []repository.WebhookEvent {
+	out := make([]repository.WebhookEvent, len(rows))
+	for i, r := range rows {
+		out[i] = *pgWebhookEventToDomain(r)
+	}
+	return out
 }
 
 func pgServerSettingsToDomain(src pggen.ServerSetting) *repository.ServerSettings {

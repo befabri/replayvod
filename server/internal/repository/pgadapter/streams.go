@@ -103,11 +103,3 @@ func (a *PGAdapter) ListLatestLivePerChannel(ctx context.Context, limit int) ([]
 	}
 	return out, nil
 }
-
-func pgStreamsToDomain(rows []pggen.Stream) []repository.Stream {
-	out := make([]repository.Stream, len(rows))
-	for i, r := range rows {
-		out[i] = *pgStreamToDomain(r)
-	}
-	return out
-}

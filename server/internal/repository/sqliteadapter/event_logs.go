@@ -75,11 +75,3 @@ func (a *SQLiteAdapter) CountEventLogsByDomain(ctx context.Context, domain strin
 func (a *SQLiteAdapter) DeleteOldEventLogs(ctx context.Context, before time.Time) error {
 	return a.queries.DeleteOldEventLogs(ctx, sqliteTime(before))
 }
-
-func sqliteEventLogsToDomain(rows []sqlitegen.EventLog) []repository.EventLog {
-	out := make([]repository.EventLog, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteEventLogToDomain(r)
-	}
-	return out
-}

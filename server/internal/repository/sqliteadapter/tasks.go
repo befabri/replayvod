@@ -81,11 +81,3 @@ func (a *SQLiteAdapter) SetTaskNextRun(ctx context.Context, name string) error {
 	}
 	return nil
 }
-
-func sqliteTasksToDomain(rows []sqlitegen.Task) []repository.Task {
-	out := make([]repository.Task, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteTaskToDomain(r)
-	}
-	return out
-}

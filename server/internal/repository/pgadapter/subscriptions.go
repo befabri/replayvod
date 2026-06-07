@@ -116,11 +116,3 @@ func (a *PGAdapter) DeleteSubscription(ctx context.Context, id string) error {
 func (a *PGAdapter) CountActiveSubscriptions(ctx context.Context) (int64, error) {
 	return a.queries.CountActiveSubscriptions(ctx)
 }
-
-func pgSubscriptionsToDomain(rows []pggen.Subscription) []repository.Subscription {
-	out := make([]repository.Subscription, len(rows))
-	for i, r := range rows {
-		out[i] = *pgSubscriptionToDomain(r)
-	}
-	return out
-}

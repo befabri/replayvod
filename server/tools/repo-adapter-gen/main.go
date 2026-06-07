@@ -39,6 +39,10 @@ type genSpec struct {
 	name   string
 	domain string
 	row    string
+	// slice also emits pg<name>sToDomain([]row) []domain, which calls the
+	// single-row mapper. Only set it when the plural is name+"s" and the row
+	// type is the plain singular row (true for the simple list-of-rows mappers).
+	slice bool
 }
 
 func (s genSpec) domainType() string {
@@ -64,17 +68,17 @@ var genTypes = []genSpec{
 	{name: "Category"},
 	{name: "Channel"},
 	{name: "ChannelUserState"},
-	{name: "EventLog"},
+	{name: "EventLog", slice: true},
 	{name: "Job"},
 	{name: "RecordingWebhookDelivery"},
-	{name: "Stream"},
-	{name: "Subscription"},
-	{name: "Task"},
+	{name: "Stream", slice: true},
+	{name: "Subscription", slice: true},
+	{name: "Task", slice: true},
 	{name: "User"},
 	{name: "VideoPart"},
 	{name: "VideoPlaybackAsset"},
 	{name: "VideoUserState"},
-	{name: "WebhookEvent"},
+	{name: "WebhookEvent", slice: true},
 	{name: "ServerSettings", row: "ServerSetting"},
 	{name: "Settings", row: "Setting"},
 	{name: "Snapshot", domain: "EventSubSnapshot", row: "EventsubSnapshot"},
@@ -212,6 +216,14 @@ func generate(d dialect, domain, rows map[string]map[string]string) ([]byte, err
 			fmt.Fprintf(&body, "\t\t%s: %s,\n", f, expr)
 		}
 		body.WriteString("\t}\n}\n")
+
+		if spec.slice {
+			fmt.Fprintf(&body, "\nfunc %s%ssToDomain(rows []%s.%s) []repository.%s {\n",
+				d.name, spec.name, d.genPkg, spec.rowType(), spec.domainType())
+			fmt.Fprintf(&body, "\tout := make([]repository.%s, len(rows))\n", spec.domainType())
+			fmt.Fprintf(&body, "\tfor i, r := range rows {\n\t\tout[i] = *%s%sToDomain(r)\n\t}\n\treturn out\n}\n",
+				d.name, spec.name)
+		}
 	}
 
 	var b strings.Builder

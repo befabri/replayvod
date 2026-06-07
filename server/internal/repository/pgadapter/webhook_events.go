@@ -115,11 +115,3 @@ func (a *PGAdapter) CountWebhookEventsByType(ctx context.Context, eventType stri
 	et := eventType
 	return a.queries.CountWebhookEventsByType(ctx, &et)
 }
-
-func pgWebhookEventsToDomain(rows []pggen.WebhookEvent) []repository.WebhookEvent {
-	out := make([]repository.WebhookEvent, len(rows))
-	for i, r := range rows {
-		out[i] = *pgWebhookEventToDomain(r)
-	}
-	return out
-}

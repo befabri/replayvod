@@ -117,11 +117,3 @@ func (a *SQLiteAdapter) CountWebhookEvents(ctx context.Context) (int64, error) {
 func (a *SQLiteAdapter) CountWebhookEventsByType(ctx context.Context, eventType string) (int64, error) {
 	return a.queries.CountWebhookEventsByType(ctx, sql.NullString{String: eventType, Valid: true})
 }
-
-func sqliteWebhookEventsToDomain(rows []sqlitegen.WebhookEvent) []repository.WebhookEvent {
-	out := make([]repository.WebhookEvent, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteWebhookEventToDomain(r)
-	}
-	return out
-}

@@ -77,6 +77,14 @@ func sqliteEventLogToDomain(src sqlitegen.EventLog) *repository.EventLog {
 	}
 }
 
+func sqliteEventLogsToDomain(rows []sqlitegen.EventLog) []repository.EventLog {
+	out := make([]repository.EventLog, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteEventLogToDomain(r)
+	}
+	return out
+}
+
 func sqliteJobToDomain(src sqlitegen.Job) *repository.Job {
 	return &repository.Job{
 		BroadcasterID: src.BroadcasterID,
@@ -128,6 +136,14 @@ func sqliteStreamToDomain(src sqlitegen.Stream) *repository.Stream {
 	}
 }
 
+func sqliteStreamsToDomain(rows []sqlitegen.Stream) []repository.Stream {
+	out := make([]repository.Stream, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteStreamToDomain(r)
+	}
+	return out
+}
+
 func sqliteSubscriptionToDomain(src sqlitegen.Subscription) *repository.Subscription {
 	return &repository.Subscription{
 		BroadcasterID:     fromNullString(src.BroadcasterID),
@@ -146,6 +162,14 @@ func sqliteSubscriptionToDomain(src sqlitegen.Subscription) *repository.Subscrip
 	}
 }
 
+func sqliteSubscriptionsToDomain(rows []sqlitegen.Subscription) []repository.Subscription {
+	out := make([]repository.Subscription, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteSubscriptionToDomain(r)
+	}
+	return out
+}
+
 func sqliteTaskToDomain(src sqlitegen.Task) *repository.Task {
 	return &repository.Task{
 		CreatedAt:       src.CreatedAt.Time,
@@ -160,6 +184,14 @@ func sqliteTaskToDomain(src sqlitegen.Task) *repository.Task {
 		NextRunAt:       timePtrFromSQLite(src.NextRunAt),
 		UpdatedAt:       src.UpdatedAt.Time,
 	}
+}
+
+func sqliteTasksToDomain(rows []sqlitegen.Task) []repository.Task {
+	out := make([]repository.Task, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteTaskToDomain(r)
+	}
+	return out
 }
 
 func sqliteUserToDomain(src sqlitegen.User) *repository.User {
@@ -240,6 +272,14 @@ func sqliteWebhookEventToDomain(src sqlitegen.WebhookEvent) *repository.WebhookE
 		Status:           src.Status,
 		SubscriptionID:   fromNullString(src.SubscriptionID),
 	}
+}
+
+func sqliteWebhookEventsToDomain(rows []sqlitegen.WebhookEvent) []repository.WebhookEvent {
+	out := make([]repository.WebhookEvent, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteWebhookEventToDomain(r)
+	}
+	return out
 }
 
 func sqliteServerSettingsToDomain(src sqlitegen.ServerSetting) *repository.ServerSettings {

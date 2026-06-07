@@ -70,11 +70,3 @@ func (a *PGAdapter) CountEventLogsByDomain(ctx context.Context, domain string) (
 func (a *PGAdapter) DeleteOldEventLogs(ctx context.Context, before time.Time) error {
 	return a.queries.DeleteOldEventLogs(ctx, before)
 }
-
-func pgEventLogsToDomain(rows []pggen.EventLog) []repository.EventLog {
-	out := make([]repository.EventLog, len(rows))
-	for i, r := range rows {
-		out[i] = *pgEventLogToDomain(r)
-	}
-	return out
-}

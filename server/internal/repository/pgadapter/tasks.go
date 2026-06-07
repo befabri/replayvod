@@ -81,11 +81,3 @@ func (a *PGAdapter) SetTaskNextRun(ctx context.Context, name string) error {
 	}
 	return nil
 }
-
-func pgTasksToDomain(rows []pggen.Task) []repository.Task {
-	out := make([]repository.Task, len(rows))
-	for i, r := range rows {
-		out[i] = *pgTaskToDomain(r)
-	}
-	return out
-}

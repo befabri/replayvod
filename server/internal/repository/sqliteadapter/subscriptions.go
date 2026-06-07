@@ -115,14 +115,6 @@ func (a *SQLiteAdapter) CountActiveSubscriptions(ctx context.Context) (int64, er
 	return a.queries.CountActiveSubscriptions(ctx)
 }
 
-func sqliteSubscriptionsToDomain(rows []sqlitegen.Subscription) []repository.Subscription {
-	out := make([]repository.Subscription, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteSubscriptionToDomain(r)
-	}
-	return out
-}
-
 func stringPtrToNullString(p *string) sql.NullString {
 	if p == nil {
 		return sql.NullString{}
