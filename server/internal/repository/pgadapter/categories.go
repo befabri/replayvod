@@ -485,14 +485,6 @@ func (a *PGAdapter) GetTagByName(ctx context.Context, name string) (*repository.
 	return pgTagToDomain(row), nil
 }
 
-func (a *PGAdapter) UpsertTag(ctx context.Context, name string) (*repository.Tag, error) {
-	row, err := a.queries.UpsertTag(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("pg upsert tag %s: %w", name, err)
-	}
-	return pgTagToDomain(row), nil
-}
-
 func (a *PGAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) {
 	rows, err := a.queries.ListTags(ctx)
 	if err != nil {

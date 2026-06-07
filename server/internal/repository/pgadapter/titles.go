@@ -9,14 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) UpsertTitle(ctx context.Context, name string) (*repository.Title, error) {
-	row, err := a.queries.UpsertTitle(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("pg upsert title: %w", err)
-	}
-	return pgTitleToDomain(row), nil
-}
-
 func (a *PGAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
 	return a.queries.LinkStreamTitle(ctx, pggen.LinkStreamTitleParams{StreamID: streamID, TitleID: titleID})
 }

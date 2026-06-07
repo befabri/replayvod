@@ -10,14 +10,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-func (a *SQLiteAdapter) UpsertTitle(ctx context.Context, name string) (*repository.Title, error) {
-	row, err := a.queries.UpsertTitle(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite upsert title: %w", err)
-	}
-	return sqliteTitleToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
 	return a.queries.LinkStreamTitle(ctx, sqlitegen.LinkStreamTitleParams{StreamID: streamID, TitleID: titleID})
 }

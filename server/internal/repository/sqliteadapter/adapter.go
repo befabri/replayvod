@@ -262,10 +262,6 @@ func (a *SQLiteAdapter) DeleteUserSessions(ctx context.Context, userID string) e
 	return a.queries.DeleteUserSessions(ctx, userID)
 }
 
-func (a *SQLiteAdapter) DeleteExpiredSessions(ctx context.Context) error {
-	return a.queries.DeleteExpiredSessions(ctx)
-}
-
 func (a *SQLiteAdapter) ListUserSessions(ctx context.Context, userID string) ([]repository.SessionInfo, error) {
 	rows, err := a.queries.ListUserSessions(ctx, userID)
 	if err != nil {
@@ -315,10 +311,6 @@ func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expire
 		ExpiresAt: row.ExpiresAt.Time,
 		CreatedAt: row.CreatedAt.Time,
 	}, nil
-}
-
-func (a *SQLiteAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
-	return a.queries.DeleteExpiredAppTokens(ctx)
 }
 
 // Whitelist

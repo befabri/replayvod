@@ -487,14 +487,6 @@ func (a *SQLiteAdapter) GetTagByName(ctx context.Context, name string) (*reposit
 	return sqliteTagToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) UpsertTag(ctx context.Context, name string) (*repository.Tag, error) {
-	row, err := a.queries.UpsertTag(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite upsert tag %s: %w", name, err)
-	}
-	return sqliteTagToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) {
 	rows, err := a.queries.ListTags(ctx)
 	if err != nil {

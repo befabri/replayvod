@@ -189,10 +189,6 @@ func (a *PGAdapter) DeleteUserSessions(ctx context.Context, userID string) error
 	return a.queries.DeleteUserSessions(ctx, userID)
 }
 
-func (a *PGAdapter) DeleteExpiredSessions(ctx context.Context) error {
-	return a.queries.DeleteExpiredSessions(ctx)
-}
-
 func (a *PGAdapter) ListUserSessions(ctx context.Context, userID string) ([]repository.SessionInfo, error) {
 	rows, err := a.queries.ListUserSessions(ctx, userID)
 	if err != nil {
@@ -242,10 +238,6 @@ func (a *PGAdapter) CreateAppToken(ctx context.Context, token string, expiresAt 
 		ExpiresAt: row.ExpiresAt,
 		CreatedAt: row.CreatedAt,
 	}, nil
-}
-
-func (a *PGAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
-	return a.queries.DeleteExpiredAppTokens(ctx)
 }
 
 // Whitelist

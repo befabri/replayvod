@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // genSpec names one generated mapper. name is the function suffix
@@ -124,10 +125,24 @@ var convRules = map[[2]string]string{
 }
 
 type dialect struct {
-	name     string // "pg" / "sqlite"
-	dir      string // adapter package dir
-	genPkg   string // "pggen" / "sqlitegen"
-	genAlias string // import path of the gen package
+	name        string // "pg" / "sqlite"
+	dir         string // adapter package dir
+	genPkg      string // "pggen" / "sqlitegen"
+	genAlias    string // import path of the gen package
+	adapterType string // "PGAdapter" / "SQLiteAdapter"
+}
+
+// genMethods is the allowlist of repository.Repository methods whose bodies are
+// generated. Restricted to the unambiguous shapes: an exec query taking only ctx
+// or scalar args passed positionally, and a one-row query whose scalar args pass
+// positionally and whose result maps through a generated single-row mapper. Args
+// that need a sqlc params struct, not-found translation, or any logic stay
+// hand-written. Signature and classification are inferred from the interface.
+var genMethods = []string{
+	"DeleteExpiredAppTokens",
+	"DeleteExpiredSessions",
+	"UpsertTitle",
+	"UpsertTag",
 }
 
 func main() {
@@ -139,11 +154,15 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	methods, err := interfaceMethods(filepath.Join(*root, "internal/repository/repository.go"), "Repository")
+	if err != nil {
+		fail(err)
+	}
 
 	dialects := []dialect{
-		{name: "pg", dir: "internal/repository/pgadapter", genPkg: "pggen",
+		{name: "pg", dir: "internal/repository/pgadapter", genPkg: "pggen", adapterType: "PGAdapter",
 			genAlias: "github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"},
-		{name: "sqlite", dir: "internal/repository/sqliteadapter", genPkg: "sqlitegen",
+		{name: "sqlite", dir: "internal/repository/sqliteadapter", genPkg: "sqlitegen", adapterType: "SQLiteAdapter",
 			genAlias: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"},
 	}
 
@@ -152,22 +171,35 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
-		src, err := generate(d, domain, rows)
+		mapperSrc, err := generate(d, domain, rows)
 		if err != nil {
-			fail(fmt.Errorf("%s: %w", d.name, err))
+			fail(fmt.Errorf("%s mappers: %w", d.name, err))
 		}
-		out := filepath.Join(*root, d.dir, "mappers_gen.go")
-		if *check {
-			existing, _ := os.ReadFile(out)
-			if !bytes.Equal(existing, src) {
-				fail(fmt.Errorf("%s is stale; run: go run ./tools/repo-adapter-gen", out))
+		methodSrc, err := generateMethods(d, methods)
+		if err != nil {
+			fail(fmt.Errorf("%s methods: %w", d.name, err))
+		}
+		outputs := []struct {
+			path string
+			src  []byte
+			note string
+		}{
+			{filepath.Join(*root, d.dir, "mappers_gen.go"), mapperSrc, fmt.Sprintf("%d types", len(genTypes))},
+			{filepath.Join(*root, d.dir, "methods_gen.go"), methodSrc, fmt.Sprintf("%d methods", len(genMethods))},
+		}
+		for _, o := range outputs {
+			if *check {
+				existing, _ := os.ReadFile(o.path)
+				if !bytes.Equal(existing, o.src) {
+					fail(fmt.Errorf("%s is stale; run: go run ./tools/repo-adapter-gen", o.path))
+				}
+				continue
 			}
-			continue
+			if err := os.WriteFile(o.path, o.src, 0o644); err != nil {
+				fail(err)
+			}
+			fmt.Printf("wrote %s (%s)\n", o.path, o.note)
 		}
-		if err := os.WriteFile(out, src, 0o644); err != nil {
-			fail(err)
-		}
-		fmt.Printf("wrote %s (%d types)\n", out, len(genTypes))
 	}
 }
 
@@ -303,4 +335,153 @@ func renderType(e ast.Expr) string {
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "repo-adapter-gen:", err)
 	os.Exit(1)
+}
+
+type param struct{ name, typ string }
+
+type methodSig struct {
+	params  []param
+	results []string
+}
+
+// interfaceMethods parses the named interface and returns each method's
+// parameter and result types.
+func interfaceMethods(path, ifaceName string) (map[string]methodSig, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]methodSig{}
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != ifaceName {
+				continue
+			}
+			it, ok := ts.Type.(*ast.InterfaceType)
+			if !ok {
+				continue
+			}
+			for _, m := range it.Methods.List {
+				if len(m.Names) == 0 {
+					continue // embedded interface
+				}
+				ft, ok := m.Type.(*ast.FuncType)
+				if !ok {
+					continue
+				}
+				var sig methodSig
+				if ft.Params != nil {
+					for _, p := range ft.Params.List {
+						typ := renderType(p.Type)
+						if len(p.Names) == 0 {
+							sig.params = append(sig.params, param{typ: typ})
+							continue
+						}
+						for _, n := range p.Names {
+							sig.params = append(sig.params, param{name: n.Name, typ: typ})
+						}
+					}
+				}
+				if ft.Results != nil {
+					for _, r := range ft.Results.List {
+						typ := renderType(r.Type)
+						n := len(r.Names)
+						if n == 0 {
+							n = 1
+						}
+						for i := 0; i < n; i++ {
+							sig.results = append(sig.results, typ)
+						}
+					}
+				}
+				out[m.Names[0].Name] = sig
+			}
+		}
+	}
+	return out, nil
+}
+
+// generateMethods renders methods_gen.go for one dialect from the allowlist.
+func generateMethods(d dialect, methods map[string]methodSig) ([]byte, error) {
+	pkgName := filepath.Base(d.dir)
+	var body strings.Builder
+	needFmt, needRepo := false, false
+
+	for _, name := range genMethods {
+		sig, ok := methods[name]
+		if !ok {
+			return nil, fmt.Errorf("interface method %q not found", name)
+		}
+		if len(sig.params) == 0 {
+			return nil, fmt.Errorf("method %q takes no context param", name)
+		}
+		var decls, names []string
+		for i, p := range sig.params {
+			pn := p.name
+			if pn == "" {
+				pn = fmt.Sprintf("a%d", i)
+			}
+			names = append(names, pn)
+			decls = append(decls, pn+" "+p.typ)
+		}
+		ctxName := names[0]
+		argSuffix := ""
+		if len(names) > 1 {
+			argSuffix = ", " + strings.Join(names[1:], ", ")
+		}
+
+		switch {
+		case len(sig.results) == 1 && sig.results[0] == "error":
+			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) error {\n\treturn a.queries.%s(%s%s)\n}\n",
+				d.adapterType, name, strings.Join(decls, ", "), name, ctxName, argSuffix)
+		case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "*") && !strings.Contains(sig.results[0], "."):
+			needFmt, needRepo = true, true
+			// Interface is in package repository, so the result is the bare
+			// "*Title"; qualify it as *repository.Title in the adapter package.
+			dom := strings.TrimPrefix(sig.results[0], "*")
+			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) (*repository.%s, error) {\n", d.adapterType, name, strings.Join(decls, ", "), dom)
+			fmt.Fprintf(&body, "\trow, err := a.queries.%s(%s%s)\n", name, ctxName, argSuffix)
+			fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
+			fmt.Fprintf(&body, "\treturn %s%sToDomain(row), nil\n}\n", d.name, dom)
+		default:
+			return nil, fmt.Errorf("method %q has an unsupported shape (results=%v); hand-write it", name, sig.results)
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "// Code generated by repo-adapter-gen. DO NOT EDIT.\n\npackage %s\n\n", pkgName)
+	b.WriteString("import (\n\t\"context\"\n")
+	if needFmt {
+		b.WriteString("\t\"fmt\"\n")
+	}
+	if needRepo {
+		fmt.Fprintf(&b, "\t%q\n", "github.com/befabri/replayvod/server/internal/repository")
+	}
+	b.WriteString(")\n")
+	b.WriteString(body.String())
+
+	formatted, err := format.Source([]byte(b.String()))
+	if err != nil {
+		return nil, fmt.Errorf("format methods source: %w\n%s", err, b.String())
+	}
+	return formatted, nil
+}
+
+// actionPhrase turns a method name into a lowercase space-separated phrase for
+// error messages, e.g. UpsertTitle -> "upsert title".
+func actionPhrase(name string) string {
+	var b strings.Builder
+	for i, r := range name {
+		if i > 0 && unicode.IsUpper(r) {
+			b.WriteByte(' ')
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
 }
