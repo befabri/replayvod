@@ -89,6 +89,12 @@ jobs:
         run: |
           "$(go env GOPATH)/bin/sqlc" generate
           git diff --exit-code internal/repository/pgadapter/pggen internal/repository/sqliteadapter/sqlitegen
+      # The PG/SQLite adapter row mappers + simple method bodies are generated
+      # from the domain model + the sqlc output above. Regenerate and fail on
+      # drift (also catches a byte-identical hand-written method left
+      # unharvested). Runs after the sqlc gate so the gen input is current.
+      - name: Check committed repository adapter codegen is up to date
+        run: go run ./tools/repo-adapter-gen -check
       # Real ffmpeg/ffprobe integration tests (build tag `ffmpeg`) — the
       # only coverage that catches ffmpeg argv regressions and exercises
       # the full Service.run part-split / resume pipeline end to end.

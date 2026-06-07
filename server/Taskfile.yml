@@ -171,10 +171,21 @@ tasks:
     cmds:
       - go run ./tools/twitch-api-gen -check -out ./internal/twitch/ -schema-in ./tools/twitch-api-gen/testdata/normalized-schema.json
 
+  repo-adapter-gen:
+    desc: Generate PG/SQLite adapter row mappers + simple method bodies, harvesting byte-identical hand-written methods (reads sqlc output, so run after sqlc)
+    cmds:
+      - go run ./tools/repo-adapter-gen
+
+  repo-adapter-gen:check:
+    desc: CI gate — fails when committed adapter *_gen.go is out of sync, or a byte-identical hand-written method is pending harvest
+    cmds:
+      - go run ./tools/repo-adapter-gen -check
+
   gen:
-    desc: Run all code generation (sqlc + trpcgen)
+    desc: Run all code generation (sqlc + repo-adapter-gen + trpcgen)
     cmds:
       - task: sqlc
+      - task: repo-adapter-gen
       - task: trpcgen
 
   migrate:
