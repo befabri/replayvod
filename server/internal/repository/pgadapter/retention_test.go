@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/contracttest"
 )
 
 func retentionHours(v int64) *int64 { return &v }
 
 func seedRetentionSchedule(t *testing.T, ctx context.Context, a *PGAdapter, userID, broadcasterID string, deleteRediff bool, hours *int64, disabled bool) {
 	t.Helper()
-	seedUserChannel(t, ctx, a, userID, broadcasterID)
+	contracttest.SeedUserChannel(t, ctx, a, userID, broadcasterID)
 	if _, err := a.CreateSchedule(ctx, &repository.ScheduleInput{
 		BroadcasterID:    broadcasterID,
 		RequestedBy:      userID,
@@ -219,7 +220,7 @@ func TestRetentionQueries_FilterContracts(t *testing.T) {
 func TestFinalizeRetentionDelete_RollsBackWhenPartDeleteFails(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
-	seedUserChannel(t, ctx, a, "u-retention-tx", "b-retention-tx")
+	contracttest.SeedUserChannel(t, ctx, a, "u-retention-tx", "b-retention-tx")
 
 	video, err := a.CreateVideo(ctx, &repository.VideoInput{
 		JobID:                "job-retention-tx",
@@ -284,7 +285,7 @@ func TestFinalizeRetentionDelete_RollsBackWhenPartDeleteFails(t *testing.T) {
 func TestVideoRetentionRefs_RoundTripAndFKSetNull(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
-	seedUserChannel(t, ctx, a, "u-1", "b-1")
+	contracttest.SeedUserChannel(t, ctx, a, "u-1", "b-1")
 
 	sched, err := a.CreateSchedule(ctx, &repository.ScheduleInput{
 		BroadcasterID: "b-1", RequestedBy: "u-1", Quality: repository.QualityHigh,

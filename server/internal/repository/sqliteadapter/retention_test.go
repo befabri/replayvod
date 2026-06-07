@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/contracttest"
 )
 
 func sqliteRetentionHours(v int64) *int64 { return &v }
@@ -12,7 +13,7 @@ func sqliteRetentionHours(v int64) *int64 { return &v }
 func TestFinalizeRetentionDelete_RollsBackWhenPartDeleteFails(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
-	seedUserChannel(t, ctx, a, "u-retention-tx", "b-retention-tx")
+	contracttest.SeedUserChannel(t, ctx, a, "u-retention-tx", "b-retention-tx")
 
 	video, err := a.CreateVideo(ctx, &repository.VideoInput{
 		JobID:                "job-retention-tx",
