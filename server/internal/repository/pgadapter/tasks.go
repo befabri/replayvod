@@ -20,14 +20,6 @@ func (a *PGAdapter) UpsertTask(ctx context.Context, name, description string, in
 	return pgTaskToDomain(row), nil
 }
 
-func (a *PGAdapter) GetTask(ctx context.Context, name string) (*repository.Task, error) {
-	row, err := a.queries.GetTask(ctx, name)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgTaskToDomain(row), nil
-}
-
 func (a *PGAdapter) ListTasks(ctx context.Context) ([]repository.Task, error) {
 	rows, err := a.queries.ListTasks(ctx)
 	if err != nil {

@@ -87,22 +87,6 @@ func (a *PGAdapter) inTx(ctx context.Context, fn func(q *pggen.Queries, tx pgx.T
 
 // Users
 
-func (a *PGAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
-	row, err := a.queries.GetUser(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgUserToDomain(row), nil
-}
-
-func (a *PGAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
-	row, err := a.queries.GetUserByLogin(ctx, login)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgUserToDomain(row), nil
-}
-
 func (a *PGAdapter) UpsertUser(ctx context.Context, u *repository.User) (*repository.User, error) {
 	row, err := a.queries.UpsertUser(ctx, pggen.UpsertUserParams{
 		ID:              u.ID,

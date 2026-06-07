@@ -28,14 +28,6 @@ func (a *PGAdapter) CreateJob(ctx context.Context, input *repository.JobInput) (
 	return pgJobToDomain(row), nil
 }
 
-func (a *PGAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
-	row, err := a.queries.GetJob(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgJobToDomain(row), nil
-}
-
 func (a *PGAdapter) GetJobByVideoID(ctx context.Context, videoID int64) (*repository.Job, error) {
 	row, err := a.queries.GetJobByVideoID(ctx, videoID)
 	if err != nil {

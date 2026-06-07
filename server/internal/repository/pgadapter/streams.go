@@ -9,14 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) GetStream(ctx context.Context, id string) (*repository.Stream, error) {
-	row, err := a.queries.GetStream(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgStreamToDomain(row), nil
-}
-
 func (a *PGAdapter) UpsertStream(ctx context.Context, s *repository.StreamInput) (*repository.Stream, error) {
 	row, err := a.queries.UpsertStream(ctx, pggen.UpsertStreamParams{
 		ID:            s.ID,

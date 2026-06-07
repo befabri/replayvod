@@ -16,14 +16,6 @@ func (a *PGAdapter) GetChannel(ctx context.Context, broadcasterID string) (*repo
 	return pgChannelToDomain(row), nil
 }
 
-func (a *PGAdapter) GetChannelByLogin(ctx context.Context, login string) (*repository.Channel, error) {
-	row, err := a.queries.GetChannelByLogin(ctx, login)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgChannelToDomain(row), nil
-}
-
 func (a *PGAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error) {
 	row, err := a.queries.UpsertChannel(ctx, pggen.UpsertChannelParams{
 		BroadcasterID:       c.BroadcasterID,

@@ -10,14 +10,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-func (a *SQLiteAdapter) GetStream(ctx context.Context, id string) (*repository.Stream, error) {
-	row, err := a.queries.GetStream(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteStreamToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) UpsertStream(ctx context.Context, s *repository.StreamInput) (*repository.Stream, error) {
 	row, err := a.queries.UpsertStream(ctx, sqlitegen.UpsertStreamParams{
 		ID:            s.ID,

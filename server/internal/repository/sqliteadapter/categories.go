@@ -15,14 +15,6 @@ import (
 
 // Categories
 
-func (a *SQLiteAdapter) GetCategory(ctx context.Context, id string) (*repository.Category, error) {
-	row, err := a.queries.GetCategory(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteCategoryToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetCategoryDetail(ctx context.Context, id string) (*repository.CategoryDetail, error) {
 	row, err := a.queries.GetCategoryDetail(ctx, id)
 	if err != nil {
@@ -43,14 +35,6 @@ func (a *SQLiteAdapter) GetCategoryDetail(ctx context.Context, id string) (*repo
 		VideoCount: row.VideoCount,
 		TotalSize:  row.TotalSize,
 	}, nil
-}
-
-func (a *SQLiteAdapter) GetCategoryByName(ctx context.Context, name string) (*repository.Category, error) {
-	row, err := a.queries.GetCategoryByName(ctx, name)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteCategoryToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) UpsertCategory(ctx context.Context, c *repository.Category) (*repository.Category, error) {
@@ -470,22 +454,6 @@ func sqliteCategoryPageTime(v any) (time.Time, error) {
 }
 
 // Tags
-
-func (a *SQLiteAdapter) GetTag(ctx context.Context, id int64) (*repository.Tag, error) {
-	row, err := a.queries.GetTag(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteTagToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetTagByName(ctx context.Context, name string) (*repository.Tag, error) {
-	row, err := a.queries.GetTagByName(ctx, name)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteTagToDomain(row), nil
-}
 
 func (a *SQLiteAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) {
 	rows, err := a.queries.ListTags(ctx)

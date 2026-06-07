@@ -46,14 +46,6 @@ func (a *PGAdapter) UpsertSubscription(ctx context.Context, input *repository.Su
 	return pgSubscriptionToDomain(row), nil
 }
 
-func (a *PGAdapter) GetSubscription(ctx context.Context, id string) (*repository.Subscription, error) {
-	row, err := a.queries.GetSubscription(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgSubscriptionToDomain(row), nil
-}
-
 func (a *PGAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Context, broadcasterID, subType string) (*repository.Subscription, error) {
 	// sqlc generates broadcaster_id as *string (nullable column); pass by pointer.
 	bid := broadcasterID

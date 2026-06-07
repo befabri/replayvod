@@ -31,3 +31,115 @@ func (a *PGAdapter) UpsertTag(ctx context.Context, name string) (*repository.Tag
 	}
 	return pgTagToDomain(row), nil
 }
+
+func (a *PGAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
+	row, err := a.queries.GetUser(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgUserToDomain(row), nil
+}
+
+func (a *PGAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
+	row, err := a.queries.GetUserByLogin(ctx, login)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgUserToDomain(row), nil
+}
+
+func (a *PGAdapter) GetChannelByLogin(ctx context.Context, login string) (*repository.Channel, error) {
+	row, err := a.queries.GetChannelByLogin(ctx, login)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgChannelToDomain(row), nil
+}
+
+func (a *PGAdapter) GetCategory(ctx context.Context, id string) (*repository.Category, error) {
+	row, err := a.queries.GetCategory(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgCategoryToDomain(row), nil
+}
+
+func (a *PGAdapter) GetCategoryByName(ctx context.Context, name string) (*repository.Category, error) {
+	row, err := a.queries.GetCategoryByName(ctx, name)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgCategoryToDomain(row), nil
+}
+
+func (a *PGAdapter) GetTag(ctx context.Context, id int64) (*repository.Tag, error) {
+	row, err := a.queries.GetTag(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgTagToDomain(row), nil
+}
+
+func (a *PGAdapter) GetTagByName(ctx context.Context, name string) (*repository.Tag, error) {
+	row, err := a.queries.GetTagByName(ctx, name)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgTagToDomain(row), nil
+}
+
+func (a *PGAdapter) GetStream(ctx context.Context, id string) (*repository.Stream, error) {
+	row, err := a.queries.GetStream(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgStreamToDomain(row), nil
+}
+
+func (a *PGAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
+	row, err := a.queries.GetJob(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgJobToDomain(row), nil
+}
+
+func (a *PGAdapter) GetVideoPart(ctx context.Context, id int64) (*repository.VideoPart, error) {
+	row, err := a.queries.GetVideoPart(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgVideoPartToDomain(row), nil
+}
+
+func (a *PGAdapter) GetSubscription(ctx context.Context, id string) (*repository.Subscription, error) {
+	row, err := a.queries.GetSubscription(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgSubscriptionToDomain(row), nil
+}
+
+func (a *PGAdapter) GetTask(ctx context.Context, name string) (*repository.Task, error) {
+	row, err := a.queries.GetTask(ctx, name)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgTaskToDomain(row), nil
+}
+
+func (a *PGAdapter) GetWebhookEvent(ctx context.Context, id int64) (*repository.WebhookEvent, error) {
+	row, err := a.queries.GetWebhookEvent(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgWebhookEventToDomain(row), nil
+}
+
+func (a *PGAdapter) GetVideo(ctx context.Context, id int64) (*repository.Video, error) {
+	row, err := a.queries.GetVideo(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgVideoToDomain(row), nil
+}

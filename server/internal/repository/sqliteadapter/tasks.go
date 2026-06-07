@@ -21,14 +21,6 @@ func (a *SQLiteAdapter) UpsertTask(ctx context.Context, name, description string
 	return sqliteTaskToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetTask(ctx context.Context, name string) (*repository.Task, error) {
-	row, err := a.queries.GetTask(ctx, name)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteTaskToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) ListTasks(ctx context.Context) ([]repository.Task, error) {
 	rows, err := a.queries.ListTasks(ctx)
 	if err != nil {

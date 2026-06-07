@@ -143,6 +143,20 @@ var genMethods = []string{
 	"DeleteExpiredSessions",
 	"UpsertTitle",
 	"UpsertTag",
+	"GetUser",
+	"GetUserByLogin",
+	"GetChannelByLogin",
+	"GetCategory",
+	"GetCategoryByName",
+	"GetTag",
+	"GetTagByName",
+	"GetStream",
+	"GetJob",
+	"GetVideoPart",
+	"GetSubscription",
+	"GetTask",
+	"GetWebhookEvent",
+	"GetVideo",
 }
 
 func main() {
@@ -441,13 +455,21 @@ func generateMethods(d dialect, methods map[string]methodSig) ([]byte, error) {
 			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) error {\n\treturn a.queries.%s(%s%s)\n}\n",
 				d.adapterType, name, strings.Join(decls, ", "), name, ctxName, argSuffix)
 		case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "*") && !strings.Contains(sig.results[0], "."):
-			needFmt, needRepo = true, true
+			needRepo = true
 			// Interface is in package repository, so the result is the bare
 			// "*Title"; qualify it as *repository.Title in the adapter package.
 			dom := strings.TrimPrefix(sig.results[0], "*")
 			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) (*repository.%s, error) {\n", d.adapterType, name, strings.Join(decls, ", "), dom)
 			fmt.Fprintf(&body, "\trow, err := a.queries.%s(%s%s)\n", name, ctxName, argSuffix)
-			fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
+			// Get* may miss a row; mapErr translates the driver's no-rows error
+			// to repository.ErrNotFound. Other reads always return a row, so they
+			// wrap with context instead.
+			if strings.HasPrefix(name, "Get") {
+				fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, mapErr(err)\n\t}\n")
+			} else {
+				needFmt = true
+				fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
+			}
 			fmt.Fprintf(&body, "\treturn %s%sToDomain(row), nil\n}\n", d.name, dom)
 		default:
 			return nil, fmt.Errorf("method %q has an unsupported shape (results=%v); hand-write it", name, sig.results)

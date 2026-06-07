@@ -28,14 +28,6 @@ func (a *SQLiteAdapter) CreateJob(ctx context.Context, input *repository.JobInpu
 	return sqliteJobToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
-	row, err := a.queries.GetJob(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteJobToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetJobByVideoID(ctx context.Context, videoID int64) (*repository.Job, error) {
 	row, err := a.queries.GetJobByVideoID(ctx, videoID)
 	if err != nil {

@@ -53,14 +53,6 @@ func closeOpenVideoMetadataSpansWith(ctx context.Context, q *sqlitegen.Queries, 
 	return nil
 }
 
-func (a *SQLiteAdapter) GetVideo(ctx context.Context, id int64) (*repository.Video, error) {
-	row, err := a.queries.GetVideo(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*repository.Video, error) {
 	row, err := a.queries.GetVideoByJobID(ctx, jobID)
 	if err != nil {

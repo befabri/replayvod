@@ -19,14 +19,6 @@ func (a *SQLiteAdapter) GetChannel(ctx context.Context, broadcasterID string) (*
 	return sqliteChannelToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetChannelByLogin(ctx context.Context, login string) (*repository.Channel, error) {
-	row, err := a.queries.GetChannelByLogin(ctx, login)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteChannelToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error) {
 	row, err := a.queries.UpsertChannel(ctx, sqlitegen.UpsertChannelParams{
 		BroadcasterID:       c.BroadcasterID,

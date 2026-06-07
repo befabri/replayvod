@@ -82,22 +82,6 @@ func (a *SQLiteAdapter) inTx(ctx context.Context, fn func(q *sqlitegen.Queries, 
 	return nil
 }
 
-func (a *SQLiteAdapter) GetUser(ctx context.Context, id string) (*repository.User, error) {
-	row, err := a.queries.GetUser(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteUserToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetUserByLogin(ctx context.Context, login string) (*repository.User, error) {
-	row, err := a.queries.GetUserByLogin(ctx, login)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteUserToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) UpsertUser(ctx context.Context, u *repository.User) (*repository.User, error) {
 	row, err := a.queries.UpsertUser(ctx, sqlitegen.UpsertUserParams{
 		ID:              u.ID,

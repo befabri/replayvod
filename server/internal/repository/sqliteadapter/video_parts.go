@@ -40,14 +40,6 @@ func (a *SQLiteAdapter) FinalizeVideoPart(ctx context.Context, input *repository
 	})
 }
 
-func (a *SQLiteAdapter) GetVideoPart(ctx context.Context, id int64) (*repository.VideoPart, error) {
-	row, err := a.queries.GetVideoPart(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoPartToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*repository.VideoPart, error) {
 	row, err := a.queries.GetVideoPartByIndex(ctx, sqlitegen.GetVideoPartByIndexParams{
 		VideoID:   videoID,
