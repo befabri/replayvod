@@ -9,6 +9,8 @@ import {
 } from "@/components/layout/titled-layout";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { EmptyPanel } from "@/components/ui/empty-panel";
+import { ChannelFavoriteButton } from "@/features/channels/components/ChannelFavoriteButton";
 import { useChannel } from "@/features/channels/queries";
 import { useLiveSet } from "@/features/streams-live";
 import { ChannelDownloadDialog } from "@/features/videos/components/ChannelDownloadDialog";
@@ -90,6 +92,11 @@ function ChannelDetailPage() {
 						)}
 					</div>
 					<div className="flex items-center gap-2 shrink-0">
+						<ChannelFavoriteButton
+							broadcasterId={channel.data.broadcaster_id}
+							favorite={channel.data.user_state?.favorite ?? false}
+							withLabel
+						/>
 						<a
 							href={`https://twitch.tv/${channel.data.broadcaster_login}`}
 							target="_blank"
@@ -121,7 +128,7 @@ function ChannelDetailPage() {
 
 			{videos.isLoading && <VideoGridLoading className="mt-0" variant="wide" />}
 			{videos.data && videoItems.length === 0 && (
-				<div className="text-muted-foreground">{t("videos.empty")}</div>
+				<EmptyPanel>{t("videos.empty")}</EmptyPanel>
 			)}
 			{videos.data && videoItems.length > 0 && (
 				<>
