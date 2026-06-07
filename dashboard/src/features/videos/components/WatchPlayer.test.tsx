@@ -284,6 +284,7 @@ vi.mock("@vidstack/react/player/layouts/default", async () => {
 
 afterEach(() => {
 	cleanup();
+	vi.restoreAllMocks();
 	vidstackMock.player.canPlay = false;
 	vidstackMock.player.canSetVolume = true;
 	vidstackMock.player.currentTime = 0;
@@ -306,6 +307,41 @@ afterEach(() => {
 });
 
 describe("WatchPlayer multipart boundaries", () => {
+	it("emits throttled playback progress and flushes on pause", () => {
+		const onProgress = vi.fn();
+		vi.spyOn(Date, "now").mockReturnValue(1_000);
+		vidstackMock.player.paused = true;
+
+		render(
+			<WatchPlayer playlist={continuousPlaylist()} onProgress={onProgress} />,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "play" }));
+		vidstackMock.player.currentTime = 12;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		expect(onProgress).toHaveBeenCalledTimes(1);
+		expect(onProgress).toHaveBeenLastCalledWith(12, false, 1_000);
+
+		vidstackMock.player.currentTime = 20;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		expect(onProgress).toHaveBeenCalledTimes(1);
+
+		fireEvent.click(screen.getByRole("button", { name: "pause" }));
+		expect(onProgress).toHaveBeenCalledTimes(2);
+		expect(onProgress).toHaveBeenLastCalledWith(20, false, 1_001);
+	});
+
+	it("emits completed progress at the end of continuous playback", () => {
+		const onProgress = vi.fn();
+
+		render(
+			<WatchPlayer playlist={continuousPlaylist()} onProgress={onProgress} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "ended" }));
+
+		expect(onProgress).toHaveBeenCalledWith(120, true, expect.any(Number));
+	});
+
 	it("resumes on the next part and restores playback rate after natural playback advances", async () => {
 		const playlist = multipartPlaylist();
 		vidstackMock.player.paused = false;

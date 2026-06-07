@@ -1,6 +1,6 @@
 import { ArrowsInIcon, ArrowsOutIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { API_URL } from "@/env";
 import {
 	useAudioWaveform,
 	useMergedTimeline,
+	useUpdateWatchProgress,
 	useVideo,
 } from "@/features/videos";
 import { RemoveVideoButton } from "@/features/videos/components/RemoveVideoButton";
@@ -23,6 +24,7 @@ import {
 	VideoMetaGrid,
 } from "@/features/videos/components/VideoDetails";
 import { VideoInfo } from "@/features/videos/components/VideoInfo";
+import { WatchLaterButton } from "@/features/videos/components/WatchLaterButton";
 import { WatchPlayer } from "@/features/videos/components/WatchPlayer";
 import { useCanManageVideos } from "@/features/videos/permissions";
 import { buildRecordingPlaylist } from "@/features/videos/playback";
@@ -83,6 +85,25 @@ function WatchPage() {
 		!!playlist && playable && playlist.isAudioOnly && playlist.parts.length > 0;
 	const { data: audioWaveform, isFetching: isAudioWaveformFetching } =
 		useAudioWaveform(id, audioWaveformEnabled);
+	const updateWatchProgress = useUpdateWatchProgress();
+	const handleWatchProgress = useCallback(
+		(positionSeconds: number, completed: boolean, observedAtMs: number) => {
+			if (
+				!Number.isFinite(positionSeconds) ||
+				!Number.isFinite(observedAtMs) ||
+				id <= 0
+			) {
+				return;
+			}
+			updateWatchProgress.mutate({
+				video_id: id,
+				position_seconds: Math.max(0, positionSeconds),
+				completed,
+				observed_at_ms: Math.max(1, Math.trunc(observedAtMs)),
+			});
+		},
+		[id, updateWatchProgress],
+	);
 
 	const [layout, setLayout] = useLocalStorageState<WatchLayout>(
 		LAYOUT_STORAGE_KEY,
@@ -146,6 +167,12 @@ function WatchPage() {
 	}
 
 	const isWide = layout === "wide";
+	const savedOffsetSeconds =
+		!video.user_state?.completed_at &&
+		(video.user_state?.last_position_seconds ?? 0) > 5
+			? video.user_state?.last_position_seconds
+			: undefined;
+	const playerInitialOffsetSeconds = initialOffsetSeconds ?? savedOffsetSeconds;
 
 	return (
 		<div
@@ -159,7 +186,8 @@ function WatchPage() {
 					<WatchPlayer
 						key={playlist.videoId}
 						playlist={playlist}
-						initialOffsetSeconds={initialOffsetSeconds}
+						initialOffsetSeconds={playerInitialOffsetSeconds}
+						onProgress={handleWatchProgress}
 						audioWaveform={audioWaveform ?? null}
 						audioWaveformLoading={
 							audioWaveformEnabled &&
@@ -172,6 +200,11 @@ function WatchPage() {
 					video={video}
 					headerAction={
 						<div className="flex items-center gap-2">
+							<WatchLaterButton
+								videoId={video.id}
+								watchLater={video.user_state?.watch_later ?? false}
+								withLabel
+							/>
 							{canManage ? (
 								<RemoveVideoButton
 									videoId={video.id}

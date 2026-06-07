@@ -34,6 +34,7 @@ vi.mock("@/features/videos", () => ({
 	useDownloadCapacity: () => ({ data: { max_concurrent: 2 } }),
 	useVideoTimeline: () => ({ data: undefined }),
 	useCancelDownload: () => ({ mutate: vi.fn(), isPending: false }),
+	useSetWatchLater: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLiveSeconds", () => ({ useLiveSeconds: () => 0 }));
@@ -131,6 +132,7 @@ describe("RunningDownloads", () => {
 		render(createElement(RunningDownloads));
 		expect(screen.getAllByText("Streamer").length).toBeGreaterThan(0);
 		expect(screen.queryByText("fallback-name")).toBeNull();
+		expect(screen.getByLabelText("videos.watch_later.add")).toBeTruthy();
 		expect(screen.getByText("dashboard.active_count:1")).toBeTruthy();
 	});
 });

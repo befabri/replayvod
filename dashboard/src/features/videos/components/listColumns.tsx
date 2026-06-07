@@ -10,6 +10,7 @@ import { formatBytes, formatDuration } from "@/features/videos/format";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
 import { VideoStatusBadge } from "./VideoStatusBadge";
+import { WatchLaterButton } from "./WatchLaterButton";
 
 export function videoListColumns(
 	t: TFunction,
@@ -92,17 +93,7 @@ export function videoListColumns(
 			cell: ({ row }) => {
 				const video = row.original;
 				const isDone = video.status === "DONE";
-				// Only terminal recordings get row actions: DONE rows can be
-				// watched/inspected/removed; FAILED rows can only be removed. A
-				// FAILED row therefore has nothing to offer a viewer, so its cell
-				// collapses to null. In-flight and queued recordings are managed
-				// (cancelled) from Downloads.
-				if (!isDone && video.status !== "FAILED") {
-					return null;
-				}
-				if (!isDone && !canManage) {
-					return null;
-				}
+				const canRemove = canManage && (isDone || video.status === "FAILED");
 				return (
 					<div className="flex items-center justify-end gap-1.5">
 						{isDone ? (
@@ -113,6 +104,10 @@ export function videoListColumns(
 									t={t}
 									className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 								/>
+								<WatchLaterButton
+									videoId={video.id}
+									watchLater={video.user_state?.watch_later ?? false}
+								/>
 								<Link
 									to="/dashboard/watch/$videoId"
 									params={{ videoId: String(video.id) }}
@@ -122,8 +117,13 @@ export function videoListColumns(
 									{t("videos.watch")}
 								</Link>
 							</>
-						) : null}
-						{canManage ? <RemoveVideoButton videoId={video.id} /> : null}
+						) : (
+							<WatchLaterButton
+								videoId={video.id}
+								watchLater={video.user_state?.watch_later ?? false}
+							/>
+						)}
+						{canRemove ? <RemoveVideoButton videoId={video.id} /> : null}
 					</div>
 				);
 			},

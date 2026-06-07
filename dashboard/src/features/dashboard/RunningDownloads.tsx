@@ -16,6 +16,7 @@ import {
 	useVideoTimeline,
 } from "@/features/videos";
 import { TimelineChangeContent } from "@/features/videos/components/timelinePopover";
+import { WatchLaterButton } from "@/features/videos/components/WatchLaterButton";
 import { formatBytes, formatPlaybackTime } from "@/features/videos/format";
 import { useCanManageVideos } from "@/features/videos/permissions";
 import { useLiveSeconds } from "@/hooks/useLiveSeconds";
@@ -28,10 +29,7 @@ import {
 	recordingElapsedSeconds,
 } from "./runningDownloadsTimeline";
 
-// The live download pipeline, in execution order. The downloader walks these
-// stages (see emitter.setStage(...) in downloader.go); the row renders them as
-// a breadcrumb so an operator reads what's finished, what's running and what's
-// left rather than a single opaque status word.
+// Matches the downloader stage order and renders as the active-row breadcrumb.
 const STAGE_PIPELINE = [
 	"auth",
 	"playlist",
@@ -48,9 +46,6 @@ export function RunningDownloads({ limit }: { limit?: number }) {
 	const { data: capacity } = useDownloadCapacity();
 	const rows = data ?? [];
 	const maxConcurrent = capacity?.max_concurrent ?? 0;
-	// `limit` turns this into the dashboard-home peek: render only the first
-	// few rows and link to the full Downloads page. The count badge still
-	// reflects the true active total, not the truncated view.
 	const visible = limit != null ? rows.slice(0, limit) : rows;
 	const hasMore = limit != null && rows.length > limit;
 
@@ -90,9 +85,6 @@ export function RunningDownloads({ limit }: { limit?: number }) {
 								key={row.video.job_id}
 								row={row}
 								sampleAt={dataUpdatedAt}
-								// Cancel is offered on the full Downloads page, not the
-								// dashboard-home peek (limit set) where it'd be an easy
-								// misclick beside a glanceable readout.
 								cancelable={limit == null}
 							/>
 						))}
@@ -113,10 +105,6 @@ export function RunningDownloads({ limit }: { limit?: number }) {
 	);
 }
 
-// One active recording, laid out as an instrument readout: identity + live
-// throughput on top, the stage pipeline and metric line in the middle, and a
-// slim part-timeline strip at the bottom whose details live in per-part hover
-// popovers.
 function RunningDownloadRow({
 	row,
 	sampleAt,
@@ -129,11 +117,6 @@ function RunningDownloadRow({
 	const channelName = row.video.broadcaster_name || row.video.display_name;
 	const estimatedBytes = estimateTotalBytes(row.bytes_written, row.percent);
 
-	// Media-clock length of the recording so far. Drives the band widths and the
-	// metadata-marker positions; everything on the strip shares this axis. When
-	// the recording reports a live media offset we extrapolate it forward at 1x
-	// between SSE samples so the elapsed clock (and the live band/popover that
-	// ride it) keep ticking instead of freezing until the next push.
 	const hasMediaClock = isFinitePositive(row.media_offset_seconds);
 	const scaleSeconds = useLiveSeconds(
 		recordingElapsedSeconds(row),
@@ -142,8 +125,7 @@ function RunningDownloadRow({
 	);
 	const hasTimeline = scaleSeconds > 0;
 
-	// Poll the title/category timeline while the recording runs so a mid-stream
-	// change shows up as a new segment. Disabled until there's a media axis.
+	// Poll while the recording runs so mid-stream title/category changes appear.
 	const { data: timeline } = useVideoTimeline(row.video.id, hasTimeline, {
 		refetchInterval: 15_000,
 	});
@@ -163,13 +145,7 @@ function RunningDownloadRow({
 				: [],
 		[hasTimeline, markers, scaleSeconds],
 	);
-	// Parts are a storage/upload concern, not content — surfaced as a count in the
-	// metric line rather than drawn on the (content) timeline. part_index is the
-	// downloader's current part number (1-based), i.e. the count of parts so far.
 	const partCount = hasTimeline ? Math.max(1, row.part_index || 1) : 0;
-	// The current category + title — the last segment's metadata — shown as text
-	// under the channel name (what's being recorded right now), mirroring the
-	// "Just went live" card.
 	const current = segments.at(-1);
 	const currentLabel = [current?.category?.name, current?.title?.name]
 		.filter(Boolean)
@@ -194,7 +170,6 @@ function RunningDownloadRow({
 					</Link>
 					<div className="min-w-0">
 						<div className="flex min-w-0 items-center gap-2">
-							{/* Static record indicator — recording is live, no pulse. */}
 							<span
 								aria-hidden="true"
 								className="size-1.5 shrink-0 rounded-full bg-destructive"
@@ -218,6 +193,10 @@ function RunningDownloadRow({
 					<span className="font-mono text-sm text-foreground tabular-nums">
 						{row.speed || "—"}
 					</span>
+					<WatchLaterButton
+						videoId={row.video.id}
+						watchLater={row.video.user_state?.watch_later ?? false}
+					/>
 					{cancelable ? (
 						<CancelDownloadButton jobId={row.video.job_id} />
 					) : null}
@@ -245,9 +224,6 @@ function RunningDownloadRow({
 	);
 }
 
-// CancelDownloadButton stops an in-flight recording. The downloader's Cancel is
-// a no-op for an unknown job, so a stale row can't error here; the live feed
-// drops the row once the run goroutine exits.
 function CancelDownloadButton({ jobId }: { jobId: string }) {
 	const { t } = useTranslation();
 	const cancel = useCancelDownload();
@@ -269,14 +245,10 @@ function CancelDownloadButton({ jobId }: { jobId: string }) {
 	);
 }
 
-// StagePipeline renders the download lifecycle as a breadcrumb, highlighting the
-// live stage with finished stages dimmed and upcoming ones faint.
 function StagePipeline({ stage }: { stage: string }) {
 	const rawIndex = STAGE_PIPELINE.indexOf(
 		stage.toLowerCase() as (typeof STAGE_PIPELINE)[number],
 	);
-	// Stages emitted after the pipeline (store/done) or unknown tokens collapse to
-	// "everything finished" so the breadcrumb never strands a stale live marker.
 	const currentIndex = rawIndex === -1 ? STAGE_PIPELINE.length : rawIndex;
 
 	return (
@@ -309,9 +281,6 @@ function StagePipeline({ stage }: { stage: string }) {
 	);
 }
 
-// DownloadMetrics is the mono readout: only the figures that carry signal for a
-// live recording, separated by middots. Open-ended recordings have no ETA, so
-// that figure appears only when the server actually reports one.
 function DownloadMetrics({
 	row,
 	scaleSeconds,
@@ -333,7 +302,6 @@ function DownloadMetrics({
 			: formatBytes(row.bytes_written),
 	);
 	figures.push(row.video.quality);
-	// Part count only matters once the recording has actually split.
 	if (partCount > 1) {
 		figures.push(t("videos.parts_count", { count: partCount }));
 	}
@@ -359,12 +327,6 @@ function DownloadMetrics({
 	);
 }
 
-// DownloadTimeline draws the recording as content segments across the elapsed
-// media clock: one band per period of constant metadata. Bands stay in the
-// primary palette, shaded in two muted tones that flip on each category change —
-// so a category reads as one shade across its title-change seams, adjacent
-// categories always differ, and a single-category recording is just one solid
-// bar. Each band's popover carries its category + title.
 function DownloadTimeline({
 	segments,
 	scaleSeconds,
@@ -374,8 +336,6 @@ function DownloadTimeline({
 	scaleSeconds: number;
 	percent: number;
 }) {
-	// No media axis yet (recording just started / no probed durations): fall back
-	// to a plain percent bar so there's still a progress affordance.
 	if (scaleSeconds <= 0 || segments.length === 0) {
 		const width = percent > 0 ? `${Math.max(percent, 3)}%` : "3%";
 		return (
@@ -387,10 +347,7 @@ function DownloadTimeline({
 
 	const pct = (seconds: number) => `${percentOf(seconds, scaleSeconds)}%`;
 
-	// Per-segment shade: flip the tone whenever the category changes from the
-	// previous segment, so the shade tracks category runs (not raw index). A
-	// title-only change keeps the same category id → same shade, marked only by
-	// the seam between flex bands.
+	// Shade tracks category runs, while title-only changes keep the same tone.
 	const dimShade: boolean[] = [];
 	let dim = false;
 	for (let i = 0; i < segments.length; i++) {
@@ -426,7 +383,6 @@ function DownloadTimeline({
 					))}
 				</div>
 
-				{/* Static live edge — no pulse. */}
 				<span
 					aria-hidden="true"
 					className="absolute top-1/2 right-0 h-3.5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
@@ -436,8 +392,6 @@ function DownloadTimeline({
 	);
 }
 
-// SegmentTooltip is the per-segment popover: the segment's media range plus the
-// category (with box art) and title in effect during it.
 function SegmentTooltip({ segment }: { segment: ContentSegment }) {
 	const { t } = useTranslation();
 	return (

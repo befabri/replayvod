@@ -68,6 +68,9 @@ type CommittedRecordingSeek = {
 	sourceSeconds: number;
 };
 
+const WATCH_PROGRESS_SAVE_INTERVAL_MS = 15_000;
+const WATCH_PROGRESS_SAVE_DELTA_SECONDS = 15;
+
 // WatchPlayer wraps Vidstack's MediaPlayer with the app's defaults so
 // the route can pass one recording-level playlist. Multipart recordings
 // sequence parts in this wrapper with a recording-level time slider that knows
@@ -86,11 +89,17 @@ export function WatchPlayer({
 	audioWaveformLoading,
 	playlist,
 	initialOffsetSeconds,
+	onProgress,
 }: {
 	audioWaveform?: { peaks: number[] } | null;
 	audioWaveformLoading?: boolean;
 	playlist: RecordingPlaylist;
 	initialOffsetSeconds?: number;
+	onProgress?: (
+		positionSeconds: number,
+		completed: boolean,
+		observedAtMs: number,
+	) => void;
 }) {
 	const isCrossOrigin = !!API_URL;
 	const playerRef = useRef<MediaPlayerInstance>(null);
@@ -107,6 +116,11 @@ export function WatchPlayer({
 		expiresAt: number;
 		sourceKey: string;
 	} | null>(null);
+	const lastProgressEmitRef = useRef<{
+		at: number;
+		positionSeconds: number;
+	} | null>(null);
+	const lastProgressObservedAtMsRef = useRef(0);
 	const committedSeekRef = useRef<CommittedRecordingSeek | null>(null);
 	const wasPlayingRef = useRef(false);
 	const mediaRemote = useMediaRemote(playerRef);
@@ -342,6 +356,8 @@ export function WatchPlayer({
 		pendingSeekRef.current = null;
 		pendingUserSeekRef.current = null;
 		committedSeekRef.current = null;
+		lastProgressEmitRef.current = null;
+		lastProgressObservedAtMsRef.current = 0;
 		wasPlayingRef.current = false;
 		// Sync the mode tracker to the new recording so switching videos isn't
 		// mistaken for a mid-session upgrade by the swap effect below.
@@ -397,18 +413,48 @@ export function WatchPlayer({
 		if (pending.resume) void playPlaybackController(player).catch(() => {});
 	}, [currentSourceKey, isAudioSource]);
 
+	const emitWatchProgress = useCallback(
+		(positionSeconds: number, completed = false, force = false) => {
+			if (!onProgress) return;
+			const total = playlist.totalDurationSeconds;
+			const clamped = clamp(positionSeconds, 0, total);
+			if (!completed && clamped < 1) return;
+			const last = lastProgressEmitRef.current;
+			const now = Date.now();
+			if (
+				!force &&
+				last &&
+				now - last.at < WATCH_PROGRESS_SAVE_INTERVAL_MS &&
+				Math.abs(clamped - last.positionSeconds) <
+					WATCH_PROGRESS_SAVE_DELTA_SECONDS
+			) {
+				return;
+			}
+			const observedAtMs = Math.max(
+				now,
+				lastProgressObservedAtMsRef.current + 1,
+			);
+			lastProgressObservedAtMsRef.current = observedAtMs;
+			lastProgressEmitRef.current = { at: now, positionSeconds: clamped };
+			onProgress(clamped, completed, observedAtMs);
+		},
+		[onProgress, playlist.totalDurationSeconds],
+	);
+
 	const handleEnded = useCallback(() => {
 		const sourceKey = currentSourceKey ?? "";
 		if (handledEndedSourceRef.current === sourceKey) return;
 		handledEndedSourceRef.current = sourceKey;
 		if (usesContinuousSource) {
 			setGlobalTime(playlist.totalDurationSeconds);
+			emitWatchProgress(playlist.totalDurationSeconds, true, true);
 			return;
 		}
 		if (!currentPart) return;
 		const next = playlist.parts[currentPart.position + 1];
 		if (!next) {
 			setGlobalTime(playlist.totalDurationSeconds);
+			emitWatchProgress(playlist.totalDurationSeconds, true, true);
 			return;
 		}
 		pendingSeekRef.current = {
@@ -423,6 +469,7 @@ export function WatchPlayer({
 	}, [
 		currentPart,
 		currentSourceKey,
+		emitWatchProgress,
 		isAudioSource,
 		playlist.parts,
 		playlist.totalDurationSeconds,
@@ -463,11 +510,15 @@ export function WatchPlayer({
 				committedSeekRef.current = null;
 			}
 			setGlobalTime(canonicalSeconds);
+			if (player && !player.paused) {
+				emitWatchProgress(canonicalSeconds);
+			}
 		},
 		[
 			continuousDurationSeconds,
 			currentSourceKey,
 			currentPart,
+			emitWatchProgress,
 			isAudioSource,
 			playlist.totalDurationSeconds,
 			usesContinuousSource,
@@ -644,6 +695,7 @@ export function WatchPlayer({
 					onPause={() => {
 						wasPlayingRef.current = false;
 						setAudioPaused(true);
+						emitWatchProgress(globalTime, false, true);
 					}}
 					onPlay={() => {
 						wasPlayingRef.current = true;
@@ -695,6 +747,7 @@ export function WatchPlayer({
 			onKeyDown={handlePlayerKeyDown}
 			onPause={() => {
 				wasPlayingRef.current = false;
+				emitWatchProgress(globalTime, false, true);
 			}}
 			onPlay={() => {
 				wasPlayingRef.current = true;

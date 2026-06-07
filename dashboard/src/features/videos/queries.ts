@@ -1,6 +1,8 @@
 import {
+	type InfiniteData,
 	keepPreviousData,
 	type QueryClient,
+	type QueryKey,
 	useInfiniteQuery,
 	useMutation,
 	useQuery,
@@ -10,11 +12,14 @@ import { useSubscription } from "@trpc/tanstack-react-query";
 import { useMemo, useState } from "react";
 import type {
 	ActiveDownloadResponse,
+	StatisticsResponse,
 	TimelineEvent,
 	TitleItem,
 	VideoCategory,
 	VideoListPageResponse,
 	VideoPageResponse,
+	VideoResponse,
+	VideoUserStateResponse,
 } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
 import { API_URL } from "@/env";
@@ -51,6 +56,8 @@ export type VideoListFilters = {
 	size?: string;
 	window?: string;
 	incompleteOnly?: boolean;
+	watchLaterOnly?: boolean;
+	unwatchedOnly?: boolean;
 	terminalOnly?: boolean;
 	scope?: VideoScope;
 };
@@ -78,22 +85,16 @@ export function useInfiniteVideoPages(
 				size: filters?.size ?? "",
 				window: filters?.window ?? "",
 				incomplete_only: filters?.incompleteOnly ?? false,
+				watch_later_only: filters?.watchLaterOnly ?? false,
+				unwatched_only: filters?.unwatchedOnly ?? false,
 				terminal_only: filters?.terminalOnly ?? false,
 				scope: filters?.scope ?? "",
 			},
 			{
 				getNextPageParam: (lastPage: VideoListPageResponse) =>
 					lastPage.next_cursor ?? undefined,
-				// Keep the previous filter's data mounted while the new
-				// query fires. Paired with a client-side narrowing pass
-				// in the route, the UI stays populated during the
-				// refetch rather than flashing a skeleton on every
-				// filter change.
+				// Keep previous filter data mounted while the next query runs.
 				placeholderData: keepPreviousData,
-				// Callers gate the query on an explicit flag for tabs
-				// that have no backend support (unwatched / favorites)
-				// — we render a "coming soon" body without firing
-				// `video.listPage` for results that wouldn't be shown.
 				enabled: options?.enabled ?? true,
 			},
 		),
@@ -430,17 +431,235 @@ function invalidateVideoCaches(
 	queryClient: QueryClient,
 	trpc: ReturnType<typeof useTRPC>,
 ) {
-	for (const queryKey of [
-		trpc.video.listPage.queryKey(),
-		trpc.video.search.queryKey(),
-		trpc.video.byBroadcaster.queryKey(),
-		trpc.video.byCategory.queryKey(),
-		trpc.video.getById.queryKey(),
-		trpc.video.statistics.queryKey(),
-		trpc.video.statisticsByBroadcaster.queryKey(),
-	]) {
+	for (const queryKey of videoListQueryKeys(trpc)) {
 		queryClient.invalidateQueries({ queryKey });
 	}
+	queryClient.invalidateQueries({ queryKey: trpc.video.getById.pathKey() });
+}
+
+function invalidateVideoListCaches(
+	queryClient: QueryClient,
+	trpc: ReturnType<typeof useTRPC>,
+) {
+	for (const queryKey of videoListQueryKeys(trpc)) {
+		queryClient.invalidateQueries({ queryKey });
+	}
+}
+
+function videoListQueryKeys(trpc: ReturnType<typeof useTRPC>) {
+	return [
+		trpc.video.listPage.pathKey(),
+		trpc.video.search.pathKey(),
+		trpc.video.byBroadcaster.pathKey(),
+		trpc.video.byCategory.pathKey(),
+		trpc.video.statistics.pathKey(),
+		trpc.video.statisticsByBroadcaster.pathKey(),
+	];
+}
+
+type VideoPageLike = { items: VideoResponse[] };
+type QuerySnapshot = Array<[QueryKey, unknown]>;
+
+function optimisticWatchLaterState(
+	video: VideoResponse,
+	watchLater: boolean,
+): VideoUserStateResponse {
+	return {
+		watch_later: watchLater,
+		last_position_seconds: video.user_state?.last_position_seconds ?? 0,
+		watched_at: video.user_state?.watched_at,
+		completed_at: video.user_state?.completed_at,
+		updated_at: new Date().toISOString(),
+	};
+}
+
+function applyVideoUserState(
+	video: VideoResponse,
+	videoId: number,
+	state: VideoUserStateResponse,
+): VideoResponse {
+	if (video.id !== videoId) return video;
+	return {
+		...video,
+		user_state: {
+			...video.user_state,
+			...state,
+		},
+	};
+}
+
+export function applyVideoUserStateToInfiniteVideoPages<
+	TPage extends VideoPageLike,
+>(
+	cache: InfiniteData<TPage> | undefined,
+	videoId: number,
+	state: VideoUserStateResponse,
+	options: {
+		removeWhenNotWatchLater?: boolean;
+		removeWhenWatched?: boolean;
+	} = {},
+): InfiniteData<TPage> | undefined {
+	if (!cache) return cache;
+	let changed = false;
+	const pages = cache.pages.map((page) => {
+		let pageChanged = false;
+		const items: VideoResponse[] = [];
+		for (const video of page.items) {
+			if (video.id !== videoId) {
+				items.push(video);
+				continue;
+			}
+			pageChanged = true;
+			changed = true;
+			if (options.removeWhenNotWatchLater && !state.watch_later) {
+				continue;
+			}
+			if (options.removeWhenWatched && state.watched_at) {
+				continue;
+			}
+			items.push(applyVideoUserState(video, videoId, state));
+		}
+		return pageChanged ? { ...page, items } : page;
+	});
+	return changed ? { ...cache, pages } : cache;
+}
+
+export function applyWatchLaterStateToInfiniteVideoPages<
+	TPage extends VideoPageLike,
+>(
+	cache: InfiniteData<TPage> | undefined,
+	videoId: number,
+	state: VideoUserStateResponse,
+	options: { removeWhenNotWatchLater?: boolean } = {},
+): InfiniteData<TPage> | undefined {
+	return applyVideoUserStateToInfiniteVideoPages(
+		cache,
+		videoId,
+		state,
+		options,
+	);
+}
+
+function applyVideoUserStateToVideoArray(
+	cache: VideoResponse[] | undefined,
+	videoId: number,
+	state: VideoUserStateResponse,
+): VideoResponse[] | undefined {
+	if (!cache) return cache;
+	let changed = false;
+	const next = cache.map((video) => {
+		if (video.id !== videoId) return video;
+		changed = true;
+		return applyVideoUserState(video, videoId, state);
+	});
+	return changed ? next : cache;
+}
+
+function applyWatchLaterDeltaToStats(
+	cache: StatisticsResponse | undefined,
+	watchLater: boolean,
+): StatisticsResponse | undefined {
+	if (!cache) return cache;
+	const delta = watchLater ? 1 : -1;
+	return {
+		...cache,
+		watch_later: Math.max(0, cache.watch_later + delta),
+	};
+}
+
+export function queryKeyHasWatchLaterOnly(queryKey: QueryKey): boolean {
+	return valueHasBoolFlag(queryKey, "watch_later_only");
+}
+
+export function queryKeyHasUnwatchedOnly(queryKey: QueryKey): boolean {
+	return valueHasBoolFlag(queryKey, "unwatched_only");
+}
+
+function valueHasBoolFlag(value: unknown, flag: string): boolean {
+	if (Array.isArray(value))
+		return value.some((part) => valueHasBoolFlag(part, flag));
+	if (!value || typeof value !== "object") return false;
+	if (flag in value && (value as Record<string, unknown>)[flag] === true) {
+		return true;
+	}
+	return Object.values(value).some((part) => valueHasBoolFlag(part, flag));
+}
+
+function snapshotQueries(
+	queryClient: QueryClient,
+	trpc: ReturnType<typeof useTRPC>,
+): QuerySnapshot {
+	return [
+		...queryClient.getQueriesData({ queryKey: trpc.video.listPage.pathKey() }),
+		...queryClient.getQueriesData({
+			queryKey: trpc.video.byBroadcaster.pathKey(),
+		}),
+		...queryClient.getQueriesData({
+			queryKey: trpc.video.byCategory.pathKey(),
+		}),
+		...queryClient.getQueriesData({ queryKey: trpc.video.search.pathKey() }),
+		...queryClient.getQueriesData({ queryKey: trpc.video.getById.pathKey() }),
+		...queryClient.getQueriesData({
+			queryKey: trpc.video.statistics.pathKey(),
+		}),
+	];
+}
+
+function restoreQueries(queryClient: QueryClient, snapshots: QuerySnapshot) {
+	for (const [queryKey, data] of snapshots) {
+		queryClient.setQueryData(queryKey, data);
+	}
+}
+
+export function applyVideoUserStateToVideoCaches(
+	queryClient: QueryClient,
+	trpc: ReturnType<typeof useTRPC>,
+	videoId: number,
+	state: VideoUserStateResponse,
+) {
+	queryClient.setQueriesData<InfiniteData<VideoListPageResponse>>(
+		{ queryKey: trpc.video.listPage.pathKey() },
+		(cache) => applyVideoUserStateToInfiniteVideoPages(cache, videoId, state),
+	);
+	queryClient.setQueriesData<InfiniteData<VideoPageResponse>>(
+		{ queryKey: trpc.video.byBroadcaster.pathKey() },
+		(cache) => applyVideoUserStateToInfiniteVideoPages(cache, videoId, state),
+	);
+	queryClient.setQueriesData<InfiniteData<VideoPageResponse>>(
+		{ queryKey: trpc.video.byCategory.pathKey() },
+		(cache) => applyVideoUserStateToInfiniteVideoPages(cache, videoId, state),
+	);
+	queryClient.setQueriesData<VideoResponse[]>(
+		{ queryKey: trpc.video.search.pathKey() },
+		(cache) => applyVideoUserStateToVideoArray(cache, videoId, state),
+	);
+	queryClient.setQueriesData<VideoResponse>(
+		{ queryKey: trpc.video.getById.pathKey() },
+		(cache) =>
+			cache?.id === videoId
+				? applyVideoUserState(cache, videoId, state)
+				: cache,
+	);
+	queryClient.setQueriesData<InfiniteData<VideoListPageResponse>>(
+		{
+			queryKey: trpc.video.listPage.pathKey(),
+			predicate: (query) => queryKeyHasWatchLaterOnly(query.queryKey),
+		},
+		(cache) =>
+			applyVideoUserStateToInfiniteVideoPages(cache, videoId, state, {
+				removeWhenNotWatchLater: true,
+			}),
+	);
+	queryClient.setQueriesData<InfiniteData<VideoListPageResponse>>(
+		{
+			queryKey: trpc.video.listPage.pathKey(),
+			predicate: (query) => queryKeyHasUnwatchedOnly(query.queryKey),
+		},
+		(cache) =>
+			applyVideoUserStateToInfiniteVideoPages(cache, videoId, state, {
+				removeWhenWatched: true,
+			}),
+	);
 }
 
 export function useTriggerDownload() {
@@ -472,6 +691,89 @@ export function useDeleteVideo() {
 	return useMutation(
 		trpc.video.delete.mutationOptions({
 			onSuccess: () => invalidateVideoCaches(queryClient, trpc),
+		}),
+	);
+}
+
+export function useSetWatchLater() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.video.setWatchLater.mutationOptions({
+			onMutate: async ({ video_id, watch_later }) => {
+				for (const queryKey of videoListQueryKeys(trpc)) {
+					await queryClient.cancelQueries({ queryKey });
+				}
+				await queryClient.cancelQueries({
+					queryKey: trpc.video.getById.pathKey(),
+				});
+				const snapshots = snapshotQueries(queryClient, trpc);
+				let state: VideoUserStateResponse | undefined;
+				for (const [, data] of snapshots) {
+					const video = findVideoInCachedData(data, video_id);
+					if (video) {
+						state = optimisticWatchLaterState(video, watch_later);
+						break;
+					}
+				}
+				state ??= {
+					watch_later,
+					last_position_seconds: 0,
+					updated_at: new Date().toISOString(),
+				};
+				applyVideoUserStateToVideoCaches(queryClient, trpc, video_id, state);
+				queryClient.setQueriesData<StatisticsResponse>(
+					{ queryKey: trpc.video.statistics.pathKey() },
+					(cache) => applyWatchLaterDeltaToStats(cache, watch_later),
+				);
+				return { snapshots };
+			},
+			onError: (_err, _vars, context) => {
+				if (context?.snapshots) {
+					restoreQueries(queryClient, context.snapshots);
+				}
+			},
+			onSuccess: (state, { video_id }) => {
+				applyVideoUserStateToVideoCaches(queryClient, trpc, video_id, state);
+			},
+			onSettled: () => invalidateVideoCaches(queryClient, trpc),
+		}),
+	);
+}
+
+function findVideoInCachedData(
+	data: unknown,
+	videoId: number,
+): VideoResponse | undefined {
+	if (!data) return undefined;
+	if (Array.isArray(data)) {
+		for (const item of data) {
+			const found = findVideoInCachedData(item, videoId);
+			if (found) return found;
+		}
+		return undefined;
+	}
+	if (typeof data !== "object") return undefined;
+	const maybeVideo = data as Partial<VideoResponse>;
+	if (maybeVideo.id === videoId && typeof maybeVideo.job_id === "string") {
+		return maybeVideo as VideoResponse;
+	}
+	for (const value of Object.values(data)) {
+		const found = findVideoInCachedData(value, videoId);
+		if (found) return found;
+	}
+	return undefined;
+}
+
+export function useUpdateWatchProgress() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.video.updateWatchProgress.mutationOptions({
+			onSuccess: (state, { video_id }) => {
+				applyVideoUserStateToVideoCaches(queryClient, trpc, video_id, state);
+				invalidateVideoListCaches(queryClient, trpc);
+			},
 		}),
 	);
 }

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VideoResponse } from "@/api/generated/trpc";
@@ -38,6 +44,10 @@ vi.mock("@tanstack/react-router", async () => {
 vi.mock("@/features/videos", () => ({
 	channelLabel: (video: VideoResponse) =>
 		video.broadcaster_name || video.broadcaster_login || video.broadcaster_id,
+	useSetWatchLater: () => ({
+		isPending: false,
+		mutate: vi.fn(),
+	}),
 	useVideoSnapshots: useVideoSnapshotsMock,
 }));
 
@@ -129,6 +139,12 @@ afterEach(() => {
 });
 
 describe("VideoCard stored preview thumbnail", () => {
+	it("shows watch later on running videos", () => {
+		render(<VideoCard video={video()} canManage={false} />);
+
+		expect(screen.getByLabelText("videos.watch_later.add")).toBeTruthy();
+	});
+
 	it("does not mount stored preview fallback images while the card is off-screen", () => {
 		const { container } = render(
 			<VideoCard video={video()} canManage={false} />,

@@ -11,6 +11,7 @@ import type { VideoResponse, VideoStatus } from "@/api/generated/trpc";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
+import { EmptyPanel } from "@/components/ui/empty-panel";
 import { FilterTabs } from "@/components/ui/filter-tabs";
 import {
 	Select,
@@ -62,25 +63,12 @@ const STATUS_KEYS = [
 ] as const satisfies readonly VideoStatus[];
 type StatusKey = (typeof STATUS_KEYS)[number];
 
-// TabKey scopes the page to a high-level "what am I looking at"
-// view. Replaces the older download-status tab strip — that lifecycle
-// detail moves to a chip filter alongside quality/channel/etc.
-//
-// `unwatched` and `favorites` are wired into the URL and visible in
-// the tab strip but have no server backing yet (no watch_progress or
-// favorites table exists). They render an empty placeholder so the
-// shape of the design is visible without false data.
-const TAB_KEYS = [
-	"all",
-	"this_week",
-	"unwatched",
-	"partial",
-	"favorites",
-] as const;
+const TAB_KEYS = ["all", "this_week", "unwatched", "watch_later"] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 const DURATION_FILTERS = ["short", "medium", "long", "marathon"] as const;
 type DurationFilter = (typeof DURATION_FILTERS)[number];
+const THIS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Sentinel for the "no filter" option in the Select widget. Base UI
 // Select treats each non-empty string value as a distinct option;
@@ -116,9 +104,14 @@ function parseStringParam(raw: unknown): string | undefined {
 	return typeof raw === "string" && raw.length > 0 ? raw : undefined;
 }
 
-export const Route = createFileRoute("/dashboard/videos")({
-	validateSearch: (search: Record<string, unknown>) => ({
-		tab: isOneOf(TAB_KEYS, search.tab) ? search.tab : "all",
+export function validateVideosSearch(search: Record<string, unknown>) {
+	return {
+		tab:
+			search.tab === "favorites"
+				? "watch_later"
+				: isOneOf(TAB_KEYS, search.tab)
+					? search.tab
+					: "all",
 		status: isOneOf(STATUS_KEYS, search.status) ? search.status : undefined,
 		view:
 			search.view === "table" || search.view === "grid"
@@ -130,7 +123,27 @@ export const Route = createFileRoute("/dashboard/videos")({
 		duration: isOneOf(DURATION_FILTERS, search.duration)
 			? search.duration
 			: undefined,
-	}),
+	};
+}
+
+export type VideosSearch = ReturnType<typeof validateVideosSearch>;
+
+export function videosSearchForTabChange(
+	search: VideosSearch,
+	tab: TabKey,
+): VideosSearch {
+	return {
+		...search,
+		tab,
+		status: undefined,
+		quality: undefined,
+		language: undefined,
+		duration: undefined,
+	};
+}
+
+export const Route = createFileRoute("/dashboard/videos")({
+	validateSearch: validateVideosSearch,
 	component: VideosPage,
 });
 
@@ -155,12 +168,6 @@ function VideosPage() {
 
 	const sortConfig = SORT_CONFIG[sortKey];
 
-	// `unwatched` and `favorites` have no backend support yet — no
-	// watch_progress / favorites tables exist. The chrome stays mounted
-	// for those tabs but the body renders a placeholder.
-	const tabHasBackend =
-		tab === "all" || tab === "this_week" || tab === "partial";
-
 	const videos = useInfiniteVideoPages(
 		PAGE_SIZE,
 		status,
@@ -171,9 +178,9 @@ function VideosPage() {
 			language,
 			duration,
 			window: tab === "this_week" ? "this_week" : undefined,
-			incompleteOnly: tab === "partial",
+			watchLaterOnly: tab === "watch_later",
+			unwatchedOnly: tab === "unwatched",
 		},
-		{ enabled: tabHasBackend },
 	);
 	const loadedRows = useMemo(
 		() => videos.data?.pages.flatMap((page) => page.items) ?? [],
@@ -192,13 +199,11 @@ function VideosPage() {
 		rootMargin: "500px 0px",
 	});
 
-	// Per-tab counts come from the statistics endpoint. These are exact
-	// library-wide aggregates, so tabs without backend support stay
-	// undefined instead of showing fake counts.
 	const tabCounts: Partial<Record<TabKey, number>> = {
 		all: stats?.total,
 		this_week: stats?.this_week,
-		partial: stats?.incomplete,
+		unwatched: stats?.unwatched,
+		watch_later: stats?.watch_later,
 	};
 	// Languages grow across the session so the dropdown doesn't
 	// collapse to a single option once the user narrows the server
@@ -257,30 +262,19 @@ function VideosPage() {
 		],
 		[t],
 	);
-	// Client-side narrowing pass over the currently-mounted rows.
-	// With placeholderData: keepPreviousData on the infinite query,
-	// the old filter's rows stay mounted during the refetch — this
-	// pass narrows them to match the new filter so the UI stays
-	// responsive instead of showing stale wider data or a skeleton.
-	// When the server responds, loadedRows becomes the authoritative
-	// result and this pass becomes a no-op.
+	// Narrow previous-query rows while placeholderData keeps them mounted.
 	const filteredVideos = useMemo(
 		() =>
-			loadedRows.filter((video) => {
-				if (quality && video.quality !== quality) return false;
-				if (language && video.language !== language) return false;
-				if (!matchesDurationFilter(video.duration_seconds, duration)) {
-					return false;
-				}
-				return true;
+			filterLoadedVideosForSearch(loadedRows, {
+				tab,
+				status,
+				quality,
+				language,
+				duration,
 			}),
-		[loadedRows, quality, language, duration],
+		[loadedRows, tab, status, quality, language, duration],
 	);
-	const hasLocalFilters = !!(quality || language || duration);
-	// `videos.showing_loaded` is the only form that's always accurate:
-	// stats.by_status can't reflect tab-driven server filters (window,
-	// completion_kind), and any chip filter narrows further on the
-	// client, so the loaded count is what the user actually sees.
+	const hasActiveFilters = !!(status || quality || language || duration);
 	const showingLabel = t("videos.showing_loaded", {
 		shown: filteredVideos.length,
 		loaded: loadedRows.length,
@@ -292,9 +286,13 @@ function VideosPage() {
 		filteredVideos.length === 0 &&
 		!videos.isLoading &&
 		!videos.error;
-	const emptyMessage = hasLocalFilters
+	const emptyMessage = hasActiveFilters
 		? t("videos.no_match")
-		: t("videos.empty");
+		: tab === "watch_later"
+			? t("videos.empty_watch_later")
+			: tab === "unwatched"
+				? t("videos.empty_unwatched")
+				: t("videos.empty");
 	const summary = stats
 		? t("videos.summary", {
 				count: stats.total.toLocaleString(),
@@ -335,7 +333,7 @@ function VideosPage() {
 						onClick={() => setFiltersOpen((open) => !open)}
 						className={cn(
 							"bg-card focus-visible:border-transparent focus-visible:ring-0",
-							filtersOpen &&
+							(filtersOpen || hasActiveFilters) &&
 								"bg-primary text-primary-foreground hover:bg-primary-hover hover:text-primary-foreground",
 						)}
 					>
@@ -350,7 +348,9 @@ function VideosPage() {
 					current={tab}
 					counts={tabCounts}
 					onChange={(next) => {
-						void navigate({ search: (s) => ({ ...s, tab: next }) });
+						void navigate({
+							search: (s) => videosSearchForTabChange(s, next),
+						});
 					}}
 				/>
 
@@ -402,73 +402,56 @@ function VideosPage() {
 					</div>
 				) : null}
 
-				{!tabHasBackend ? (
-					<div className="rounded-xl border border-dashed border-border bg-card/50 px-6 py-12 text-center text-muted-foreground">
-						{t("videos.tab_coming_soon")}
+				{videos.isLoading &&
+					(view === "grid" ? (
+						<VideoGridLoading className="mt-0" />
+					) : (
+						<div className="text-muted-foreground">{t("common.loading")}</div>
+					))}
+
+				{videos.error && (
+					<div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive shadow-sm">
+						{t("videos.failed_to_load")}: {videos.error.message}
 					</div>
-				) : (
-					<>
-						{videos.isLoading &&
-							(view === "grid" ? (
-								<VideoGridLoading className="mt-0" />
-							) : (
-								<div className="text-muted-foreground">
-									{t("common.loading")}
-								</div>
-							))}
-
-						{videos.error && (
-							<div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive shadow-sm">
-								{t("videos.failed_to_load")}: {videos.error.message}
-							</div>
-						)}
-
-						{showEmpty && (
-							<div className="rounded-xl border border-dashed border-border bg-card/50 px-6 py-12 text-center text-muted-foreground">
-								{emptyMessage}
-							</div>
-						)}
-
-						{showNoMatchYet && (
-							<div className="rounded-xl border border-dashed border-border bg-card/50 px-6 py-12 text-center text-muted-foreground">
-								{videos.hasNextPage || videos.isFetchingNextPage
-									? t("videos.no_match_loaded")
-									: t("videos.no_match")}
-							</div>
-						)}
-
-						{filteredVideos.length > 0 &&
-							(view === "grid" ? (
-								<VirtualVideoGrid
-									videos={filteredVideos}
-									canManage={canManage}
-								/>
-							) : (
-								<DataTable
-									columns={columns}
-									data={filteredVideos}
-									emptyMessage={t("videos.empty")}
-									virtualizeRows
-									estimateRowHeight={84}
-								/>
-							))}
-
-						{shouldLoadMore && <div ref={loadMoreRef} className="h-1" />}
-
-						{videos.isFetchingNextPage &&
-							(view === "grid" ? (
-								<VideoGridLoading count={3} />
-							) : (
-								<div className="rounded-xl border border-border bg-card/70 p-4 text-sm text-muted-foreground">
-									{t("common.loading")}
-								</div>
-							))}
-
-						{hasScrolledThroughPages &&
-							!videos.hasNextPage &&
-							!videos.isFetchingNextPage && <VideoGridEnd />}
-					</>
 				)}
+
+				{showEmpty && <EmptyPanel>{emptyMessage}</EmptyPanel>}
+
+				{showNoMatchYet && (
+					<EmptyPanel>
+						{videos.hasNextPage || videos.isFetchingNextPage
+							? t("videos.no_match_loaded")
+							: t("videos.no_match")}
+					</EmptyPanel>
+				)}
+
+				{filteredVideos.length > 0 &&
+					(view === "grid" ? (
+						<VirtualVideoGrid videos={filteredVideos} canManage={canManage} />
+					) : (
+						<DataTable
+							columns={columns}
+							data={filteredVideos}
+							emptyMessage={t("videos.empty")}
+							virtualizeRows
+							estimateRowHeight={84}
+						/>
+					))}
+
+				{shouldLoadMore && <div ref={loadMoreRef} className="h-1" />}
+
+				{videos.isFetchingNextPage &&
+					(view === "grid" ? (
+						<VideoGridLoading count={3} />
+					) : (
+						<div className="rounded-xl border border-border bg-card/70 p-4 text-sm text-muted-foreground">
+							{t("common.loading")}
+						</div>
+					))}
+
+				{hasScrolledThroughPages &&
+					!videos.hasNextPage &&
+					!videos.isFetchingNextPage && <VideoGridEnd />}
 			</div>
 		</TitledLayout>
 	);
@@ -630,6 +613,37 @@ function FilterChipSelect({
 			</SelectContent>
 		</Select>
 	);
+}
+
+export function filterLoadedVideosForSearch(
+	rows: VideoResponse[],
+	search: Pick<
+		VideosSearch,
+		"tab" | "status" | "quality" | "language" | "duration"
+	>,
+	nowMs = Date.now(),
+) {
+	return rows.filter((video) => {
+		if (search.status && video.status !== search.status) return false;
+		if (search.quality && video.quality !== search.quality) return false;
+		if (search.language && video.language !== search.language) return false;
+		if (!matchesDurationFilter(video.duration_seconds, search.duration)) {
+			return false;
+		}
+		return matchesTabFilter(video, search.tab, nowMs);
+	});
+}
+
+function matchesTabFilter(video: VideoResponse, tab: TabKey, nowMs: number) {
+	if (tab === "watch_later") return video.user_state?.watch_later === true;
+	if (tab === "unwatched") {
+		return video.status === "DONE" && !video.user_state?.watched_at;
+	}
+	if (tab === "this_week") {
+		const startedAt = Date.parse(video.start_download_at);
+		return Number.isFinite(startedAt) && startedAt >= nowMs - THIS_WEEK_MS;
+	}
+	return true;
 }
 
 // withSelectedOption makes sure the URL-held filter value has a

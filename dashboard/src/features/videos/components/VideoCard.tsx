@@ -13,16 +13,11 @@ import {
 import { formatBytes, formatDuration } from "@/features/videos/format";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
+import { WatchLaterButton } from "./WatchLaterButton";
 
-// Ms between snapshot swaps on hover. 900ms — middle-ground between
-// snappy (600ms, registered as flicker) and sedate (1200ms, felt slow):
-// readable per-frame, not lagging.
+// Hover preview timing tuned to avoid flicker and accidental fetch fan-out.
 const HOVER_SWAP_INTERVAL_MS = 900;
 
-// Ms of sustained hover before the preview cycle starts. Filters out
-// the mouse sweeping across the grid — users who genuinely stop to
-// look at a card cross this threshold without noticing it, brief
-// pass-throughs don't trigger snapshot fetches or cycling.
 const HOVER_INTENT_DELAY_MS = 700;
 
 const STORED_PREVIEW_RETRY_DELAY_MS = 5000;
@@ -44,18 +39,8 @@ function firstSnapshotURL(video: VideoResponse, cacheBust = 0): string {
 	);
 }
 
-// useHoverSnapshots cycles through a list of snapshot URLs while
-// `active` is true. Returns { current, prev } so the caller can layer
-// them for a crossfade — the prev frame stays visible under the
-// fading-in current, eliminating the brief "flash of hero thumbnail"
-// between swaps.
-//
-// `prev` is null on the very first frame after activation: there's no
-// prior snapshot to fade from, so the caller should fade `current`
-// straight over whatever sits behind it (hero thumbnail). Without this
-// the first crossfade would go `urls[N-1]` → `urls[0]` via the wrap-
-// around modulo, which reads as a jarring "flash of last frame" the
-// instant hover intent resolves. Resets on every re-activation.
+// Returns current and previous frames so the caller can crossfade without
+// flashing back to the hero thumbnail between swaps.
 function useHoverSnapshots(
 	urls: string[],
 	active: boolean,
@@ -84,24 +69,8 @@ function useHoverSnapshots(
 	return { current, prev: prev ?? null };
 }
 
-// IncompleteOverlayBadge marks recordings that didn't capture the
-// full broadcast. One yellow badge with three labels — same visual
-// bucket because the user-facing concept ("this isn't the whole
-// stream") is the same; the wording just clarifies *why* it isn't:
-//
-//   PARTIAL   — completion_kind='partial'. File has gaps inside it
-//               (CDN window-roll, or run failed mid-recording with
-//               only some parts saved). Highest-impact case: data
-//               is actually missing from inside the file.
-//   CANCELLED — completion_kind='cancelled'. Operator stopped the
-//               run while the broadcast was still live. File plays
-//               cleanly, but distinct user intent ("I did this on
-//               purpose") earns its own label.
-//   TRUNCATED — fallback for everything else with truncated=true:
-//               recorder ended without operator action (server
-//               restart with no resume, finalize without
-//               EXT-X-ENDLIST, etc.). File plays cleanly; the
-//               broadcast just continued past where we stopped.
+// One visual bucket for recordings that did not capture the full broadcast;
+// the label names whether it was partial, cancelled, or otherwise truncated.
 function IncompleteOverlayBadge({
 	completionKind,
 	truncated,
@@ -130,9 +99,6 @@ function IncompleteOverlayBadge({
 	);
 }
 
-// ThumbnailOverlay is the neutral pill used for duration/date in the
-// thumbnail's bottom row. The quality badge in the top-left uses its
-// own accent-tinted variant via QualityOverlay below.
 function ThumbnailOverlay({ children }: { children: React.ReactNode }) {
 	return (
 		<span className="rounded-md border border-border/60 bg-background/78 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
@@ -223,10 +189,6 @@ export function VideoCard({
 		}
 	}
 
-	// Hover intent: only mark `previewing` true after the user has
-	// held hover for HOVER_INTENT_DELAY_MS. Cancels on mouseleave so
-	// a pointer passing through the grid doesn't fan out snapshot
-	// fetches or start cycle animations.
 	const [hovered, setHovered] = useState(false);
 	const [previewing, setPreviewing] = useState(false);
 	useEffect(() => {
@@ -241,13 +203,7 @@ export function VideoCard({
 		return () => window.clearTimeout(id);
 	}, [hovered]);
 
-	// The hover time-lapse is for finished recordings only: while a
-	// recording is active, snap00 is enough for the card hero and the
-	// full snapshot list is still changing. Gate the list query on
-	// `previewing` (not raw hover) so the grid doesn't fan out N
-	// storage-probe requests just from the pointer crossing it. Once
-	// a DONE card earns its fetch the result is cached forever
-	// (staleTime: Infinity).
+	// Finished recordings can fetch the full hover time-lapse after hover intent.
 	const { data: snapshotPaths } = useVideoSnapshots(
 		video.id,
 		previewing && video.status === "DONE",
@@ -259,11 +215,6 @@ export function VideoCard({
 	const dateLabel = new Date(video.start_download_at).toLocaleDateString();
 	const sizeLabel = formatBytes(video.size_bytes);
 	const primaryCategoryLabel = video.primary_category_name?.trim() || null;
-	// Stream title is the thing the streamer typed as the broadcast
-	// label — the primary line in the card. Falls back to the
-	// channel display name when Helix didn't surface one (manual
-	// trigger against a channel that just went offline, title
-	// tracking disabled, etc.).
 	const primaryLabel = video.title?.trim() || video.display_name;
 
 	const media = (
@@ -275,13 +226,6 @@ export function VideoCard({
 				onMouseEnter={() => setHovered(true)}
 				onMouseLeave={() => setHovered(false)}
 			>
-				{/* Hero thumbnail is the always-visible base layer.
-				    The snapshot overlay (when present) sits on top
-				    and fades in per frame via `key`-forced remount.
-				    When no snapshot is active (no hover, no data,
-				    or mid-fetch) the hero shows through — that's
-				    why the hero layer is rendered independently
-				    from the hover snapshot overlay. */}
 				{heroThumbnail ? (
 					<img
 						src={heroThumbnail}
@@ -298,13 +242,6 @@ export function VideoCard({
 				<div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-black/5" />
 				{snapshotFrame && (
 					<>
-						{/* Previous frame stays at full opacity as the
-						    layer beneath so the current frame crossfades
-						    over it instead of revealing the hero thumb.
-						    Absent on the very first frame after hover
-						    intent resolves — current fades over the
-						    hero itself, which is what the user expects
-						    when they just arrived at the card. */}
 						{snapshotFrame.prev && (
 							<img
 								src={snapshotFrame.prev}
@@ -312,9 +249,6 @@ export function VideoCard({
 								className="absolute inset-0 h-full w-full object-cover"
 							/>
 						)}
-						{/* Current frame fades in on top. `key` on src
-						    forces a remount on each swap so the CSS
-						    enter animation replays. */}
 						<img
 							key={snapshotFrame.current}
 							src={snapshotFrame.current}
@@ -323,8 +257,6 @@ export function VideoCard({
 						/>
 					</>
 				)}
-				{/* Top-left stack: quality + (optional) PARTIAL marker.
-				    Duration sits bottom-left, date bottom-right. */}
 				<div className="absolute top-2 left-2 flex items-center gap-1.5">
 					<QualityOverlay>{video.quality}</QualityOverlay>
 					<IncompleteOverlayBadge
@@ -387,14 +319,24 @@ export function VideoCard({
 							t={t}
 							className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 						/>
+						<WatchLaterButton
+							videoId={video.id}
+							watchLater={video.user_state?.watch_later ?? false}
+						/>
 						{canManage ? <RemoveVideoButton videoId={video.id} /> : null}
 					</div>
 				) : (
-					<div
-						className="line-clamp-2 font-medium leading-snug"
-						title={primaryLabel}
-					>
-						{primaryLabel}
+					<div className="flex items-start gap-2">
+						<div
+							className="min-w-0 flex-1 line-clamp-2 font-medium leading-snug"
+							title={primaryLabel}
+						>
+							{primaryLabel}
+						</div>
+						<WatchLaterButton
+							videoId={video.id}
+							watchLater={video.user_state?.watch_later ?? false}
+						/>
 					</div>
 				)}
 				<div className="flex items-center gap-2.5 text-sm text-muted-foreground">
