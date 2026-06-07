@@ -27,7 +27,7 @@ func (f *fakeChannelRepo) GetChannelByLogin(context.Context, string) (*repositor
 func (f *fakeChannelRepo) ListChannels(context.Context) ([]repository.Channel, error) {
 	return nil, nil
 }
-func (f *fakeChannelRepo) ListChannelsPage(context.Context, int, string, bool, *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
+func (f *fakeChannelRepo) ListChannelsPage(context.Context, int, string, string, string, *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
 	return &repository.ChannelPage{}, nil
 }
 func (f *fakeChannelRepo) ListUserFollows(context.Context, string) ([]repository.Channel, error) {
@@ -37,6 +37,15 @@ func (f *fakeChannelRepo) SearchChannels(context.Context, string, int) ([]reposi
 	return nil, nil
 }
 func (f *fakeChannelRepo) ListLatestLivePerChannel(context.Context, int) ([]repository.LatestLiveStream, error) {
+	return nil, nil
+}
+func (f *fakeChannelRepo) GetChannelUserState(context.Context, string, string) (*repository.ChannelUserState, error) {
+	return nil, repository.ErrNotFound
+}
+func (f *fakeChannelRepo) ListChannelUserStatesForChannels(context.Context, string, []string) ([]repository.ChannelUserState, error) {
+	return nil, nil
+}
+func (f *fakeChannelRepo) SetChannelFavorite(context.Context, string, string, bool) (*repository.ChannelUserState, error) {
 	return nil, nil
 }
 func (f *fakeChannelRepo) UpsertChannel(_ context.Context, c *repository.Channel) (*repository.Channel, error) {

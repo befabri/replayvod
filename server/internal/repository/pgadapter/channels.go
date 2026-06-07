@@ -54,12 +54,15 @@ func (a *PGAdapter) ListChannels(ctx context.Context) ([]repository.Channel, err
 	return channels, nil
 }
 
-func (a *PGAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
+func (a *PGAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
 	params := pggen.ListChannelsPageAscParams{
-		LiveOnly:   liveOnly,
-		CursorName: pgChannelCursorName(cursor),
-		CursorID:   pgChannelCursorID(cursor),
-		RowLimit:   int32(limit + 1),
+		LiveOnly:       filter == repository.ChannelFilterLive,
+		DownloadedOnly: filter == repository.ChannelFilterDownloaded,
+		FavoriteOnly:   filter == repository.ChannelFilterFavorites,
+		UserID:         userID,
+		CursorName:     pgChannelCursorName(cursor),
+		CursorID:       pgChannelCursorID(cursor),
+		RowLimit:       int32(limit + 1),
 	}
 	var rows []pggen.Channel
 	var err error

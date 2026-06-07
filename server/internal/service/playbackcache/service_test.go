@@ -30,7 +30,7 @@ type fakeRepo struct {
 	events              []string
 }
 
-func (r *fakeRepo) VideoStatsTotals(context.Context) (*repository.VideoStatsTotals, error) {
+func (r *fakeRepo) VideoStatsTotals(context.Context, string) (*repository.VideoStatsTotals, error) {
 	return &repository.VideoStatsTotals{TotalSize: r.statsTotal}, nil
 }
 

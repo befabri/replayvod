@@ -10,6 +10,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 )
 
 // signalRunner is an activeRunner with a controllable SubscribeActive channel,
@@ -102,6 +103,10 @@ func (snapshotVideoRepo) ListVideoPartsForVideos(context.Context, []int64) ([]re
 	return nil, nil
 }
 
+func (snapshotVideoRepo) ListVideoUserStatesForVideos(context.Context, string, []int64) ([]repository.VideoUserState, error) {
+	return nil, nil
+}
+
 func newSnapshotHandler(repo *snapshotDownloadRepo, progress []downloader.Progress) *Handler {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &Handler{
@@ -129,6 +134,10 @@ func recvActiveDownloadsSnapshot(t *testing.T, out <-chan []ActiveDownloadRespon
 	}
 }
 
+func activeDownloadsTestContext(parent context.Context) context.Context {
+	return middleware.WithUser(parent, &repository.User{ID: "u1"})
+}
+
 func TestActiveDownloadsSnapshot_BatchesVideoLookup(t *testing.T) {
 	repo := &snapshotDownloadRepo{videos: map[string]repository.Video{
 		"job-a": {ID: 1, JobID: "job-a", BroadcasterID: "bc-1", DisplayName: "A", Quality: "1080p60"},
@@ -139,7 +148,7 @@ func TestActiveDownloadsSnapshot_BatchesVideoLookup(t *testing.T) {
 		{JobID: "job-b", Stage: "remux", PartIndex: 1, SegmentsTotal: -1, Percent: -1},
 	})
 
-	rows, err := h.activeDownloadsSnapshot(context.Background())
+	rows, err := h.activeDownloadsSnapshot(context.Background(), "u1")
 	if err != nil {
 		t.Fatalf("activeDownloadsSnapshot: %v", err)
 	}
@@ -192,7 +201,7 @@ func TestActiveDownloadsLive_CoalescesBurstOfPokes(t *testing.T) {
 		log: log,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(activeDownloadsTestContext(context.Background()))
 	defer cancel()
 	out, err := h.ActiveDownloadsLive(ctx)
 	if err != nil {
@@ -248,7 +257,7 @@ func TestActiveDownloadsLive_RetriesFailedPendingSnapshot(t *testing.T) {
 		log: log,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(activeDownloadsTestContext(context.Background()))
 	out, err := h.ActiveDownloadsLive(ctx)
 	if err != nil {
 		t.Fatalf("ActiveDownloadsLive: %v", err)
@@ -299,7 +308,7 @@ func TestActiveDownloadsLive_RetriesFailedInitialSnapshot(t *testing.T) {
 		log: log,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(activeDownloadsTestContext(context.Background()))
 	out, err := h.ActiveDownloadsLive(ctx)
 	if err != nil {
 		t.Fatalf("ActiveDownloadsLive: %v", err)
@@ -351,7 +360,7 @@ func TestActiveDownloadsLive_TerminalFlushWaitsForContextWhenSnapshotFails(t *te
 		log: log,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(activeDownloadsTestContext(context.Background()))
 	out, err := h.ActiveDownloadsLive(ctx)
 	if err != nil {
 		t.Fatalf("ActiveDownloadsLive: %v", err)
@@ -395,7 +404,7 @@ func TestActiveDownloadsSnapshot_OmitsJobsWithNoVideoRow(t *testing.T) {
 		{JobID: "job-ghost", Stage: "segments", PartIndex: 1, SegmentsTotal: -1, Percent: -1},
 	})
 
-	rows, err := h.activeDownloadsSnapshot(context.Background())
+	rows, err := h.activeDownloadsSnapshot(context.Background(), "u1")
 	if err != nil {
 		t.Fatalf("activeDownloadsSnapshot: %v", err)
 	}

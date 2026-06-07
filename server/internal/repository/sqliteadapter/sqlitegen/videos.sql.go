@@ -1142,6 +1142,41 @@ func (q *Queries) StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotal
 	return i, err
 }
 
+const statisticsUnwatched = `-- name: StatisticsUnwatched :one
+SELECT CAST(COUNT(*) AS INTEGER) AS unwatched
+FROM videos v
+LEFT JOIN video_user_states vus
+  ON vus.video_id = v.id AND vus.user_id = CAST(? AS text)
+WHERE v.deleted_at IS NULL
+  AND v.status = 'DONE'
+  AND CAST(? AS text) <> ''
+  AND vus.watched_at IS NULL
+`
+
+func (q *Queries) StatisticsUnwatched(ctx context.Context, userID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, statisticsUnwatched, userID, userID)
+	var unwatched int64
+	err := row.Scan(&unwatched)
+	return unwatched, err
+}
+
+const statisticsWatchLater = `-- name: StatisticsWatchLater :one
+SELECT CAST(COUNT(*) AS INTEGER) AS watch_later
+FROM videos v
+INNER JOIN video_user_states vus ON vus.video_id = v.id
+WHERE v.deleted_at IS NULL
+  AND CAST(? AS text) <> ''
+  AND vus.user_id = CAST(? AS text)
+  AND vus.watch_later = 1
+`
+
+func (q *Queries) StatisticsWatchLater(ctx context.Context, userID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, statisticsWatchLater, userID, userID)
+	var watch_later int64
+	err := row.Scan(&watch_later)
+	return watch_later, err
+}
+
 const updateVideoSelectedVariant = `-- name: UpdateVideoSelectedVariant :exec
 UPDATE videos SET
     selected_quality = ?,

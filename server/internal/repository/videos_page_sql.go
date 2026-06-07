@@ -163,8 +163,68 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 	}
 
 	terminal := fmt.Sprintf("\n  AND (NOT %s OR status IN ('DONE', 'FAILED'))", b.phBool(opts.TerminalOnly))
+	watchLater := b.watchLaterSQL(opts)
+	unwatched := b.unwatchedSQL(opts)
 
-	return scope + quality + broadcaster + language + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + terminal
+	return scope + quality + broadcaster + language + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + terminal + watchLater + unwatched
+}
+
+func (b *videoPageBuilder) watchLaterSQL(opts ListVideosOpts) string {
+	if b.d.Postgres {
+		return fmt.Sprintf(`
+	  AND (
+	    NOT %s
+	    OR EXISTS (
+	      SELECT 1 FROM video_user_states vus
+	      WHERE vus.video_id = videos.id
+	        AND vus.user_id = %s
+	        AND vus.watch_later
+	    )
+	  )`, b.phBool(opts.WatchLaterOnly), b.phText(opts.UserID))
+	}
+	return fmt.Sprintf(`
+	  AND (
+	    %s = 0
+	    OR EXISTS (
+	      SELECT 1 FROM video_user_states vus
+	      WHERE vus.video_id = videos.id
+	        AND vus.user_id = %s
+	        AND vus.watch_later = 1
+	    )
+	  )`, b.phBool(opts.WatchLaterOnly), b.phText(opts.UserID))
+}
+
+func (b *videoPageBuilder) unwatchedSQL(opts ListVideosOpts) string {
+	if b.d.Postgres {
+		return fmt.Sprintf(`
+	  AND (
+	    NOT %s
+	    OR (
+	      %s <> ''
+	      AND status = 'DONE'
+	      AND NOT EXISTS (
+	        SELECT 1 FROM video_user_states vus
+	        WHERE vus.video_id = videos.id
+	          AND vus.user_id = %s
+	          AND vus.watched_at IS NOT NULL
+	      )
+	    )
+	  )`, b.phBool(opts.UnwatchedOnly), b.phText(opts.UserID), b.phText(opts.UserID))
+	}
+	return fmt.Sprintf(`
+	  AND (
+	    %s = 0
+	    OR (
+	      %s <> ''
+	      AND status = 'DONE'
+	      AND NOT EXISTS (
+	        SELECT 1 FROM video_user_states vus
+	        WHERE vus.video_id = videos.id
+	          AND vus.user_id = %s
+	          AND vus.watched_at IS NOT NULL
+	      )
+	    )
+	  )`, b.phBool(opts.UnwatchedOnly), b.phText(opts.UserID), b.phText(opts.UserID))
 }
 
 func (b *videoPageBuilder) cursorAndOrderSQL(sort, order string, cursor *VideoListPageCursor) string {

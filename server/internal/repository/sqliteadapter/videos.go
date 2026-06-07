@@ -368,7 +368,7 @@ func (a *SQLiteAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.Vi
 // SQLite engine miscompiles that shape (truncates the const string
 // and bleeds chars into adjacent queries), so the SQLite side is
 // hand-composed from queries that codegen cleanly.
-func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context) (*repository.VideoStatsTotals, error) {
+func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context, userID string) (*repository.VideoStatsTotals, error) {
 	doneRow, err := a.queries.StatisticsTotalsDoneOnly(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite video stats totals (done): %w", err)
@@ -389,6 +389,14 @@ func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context) (*repository.Video
 	if err != nil {
 		return nil, fmt.Errorf("sqlite video stats totals (removed): %w", err)
 	}
+	watchLater, err := a.queries.StatisticsWatchLater(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats totals (watch_later): %w", err)
+	}
+	unwatched, err := a.queries.StatisticsUnwatched(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats totals (unwatched): %w", err)
+	}
 	return &repository.VideoStatsTotals{
 		Total:         doneRow.Total,
 		TotalSize:     doneRow.TotalSize,
@@ -397,6 +405,8 @@ func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context) (*repository.Video
 		Incomplete:    incomplete,
 		Channels:      channels,
 		Removed:       removed,
+		WatchLater:    watchLater,
+		Unwatched:     unwatched,
 	}, nil
 }
 

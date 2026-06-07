@@ -70,6 +70,13 @@ type Channel struct {
 	UpdatedAt           time.Time
 }
 
+const (
+	ChannelFilterAll        = "all"
+	ChannelFilterLive       = "live"
+	ChannelFilterDownloaded = "downloaded"
+	ChannelFilterFavorites  = "favorites"
+)
+
 // ChannelPageCursor is the stable keyset cursor for channel lists.
 // broadcaster_name is compared case-insensitively; broadcaster_id breaks ties.
 type ChannelPageCursor struct {
@@ -81,6 +88,16 @@ type ChannelPageCursor struct {
 type ChannelPage struct {
 	Items      []Channel
 	NextCursor *ChannelPageCursor
+}
+
+// ChannelUserState is one user's library state for one channel.
+// No row means the default state, including not favorited.
+type ChannelUserState struct {
+	UserID        string
+	BroadcasterID string
+	Favorite      bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // UserFollow tracks a user's follow relationship with a channel.
@@ -684,11 +701,8 @@ type VideoMetadataChangeResult struct {
 }
 
 // VideoStatsTotals is the aggregate row for video.statistics.
-// Total/TotalSize/TotalDuration are DONE-only rollups (the user-
-// visible "N recordings · X GB" subtitle). ThisWeek and Incomplete
-// run across all non-deleted rows and feed the videos page tab
-// counters. Incomplete = completion_kind='partial' OR truncated,
-// matching the Partial tab's broader server-side filter.
+// Total/TotalSize/TotalDuration are DONE-only rollups; Incomplete counts
+// partial or truncated recordings.
 type VideoStatsTotals struct {
 	Total         int64
 	TotalSize     int64
@@ -698,7 +712,9 @@ type VideoStatsTotals struct {
 	Channels      int64
 	// Removed counts tombstoned recordings (deleted_at IS NOT NULL). Zero for
 	// the per-broadcaster rollup, which only aggregates live DONE rows.
-	Removed int64
+	Removed    int64
+	WatchLater int64
+	Unwatched  int64
 }
 
 // VideoStatsByStatus is one bucket of the status histogram.
@@ -724,6 +740,10 @@ type RetentionVideo struct {
 // boundary; the adapter falls back to created_at DESC when they are
 // empty or unrecognized. NULL size/duration rows sort to the end.
 type ListVideosOpts struct {
+	// UserID scopes per-user library filters such as watch later and unwatched.
+	// Empty is valid for global surfaces but makes those per-user filters match
+	// nothing.
+	UserID             string
 	Status             string // "" | "PENDING" | "RUNNING" | "DONE" | "FAILED"
 	Sort               string // "" | "created_at" | "duration" | "size" | "channel"
 	Order              string // "" | "asc" | "desc"
@@ -738,12 +758,15 @@ type ListVideosOpts struct {
 	// `start_download_at >= now() - <interval>` predicate. "" means
 	// "no recency filter". The dashboard tab system uses "this_week".
 	Window string // "" | "this_week"
-	// IncompleteOnly narrows the result to "anything that didn't
-	// capture the full broadcast" — completion_kind='partial' OR
-	// truncated. Powers the dashboard's Partial tab, which buckets
-	// gap-rooted partial files alongside cancelled and truncated
-	// recordings under one user-facing concept.
+	// IncompleteOnly narrows to recordings that did not capture the full
+	// broadcast: completion_kind='partial' OR truncated.
 	IncompleteOnly bool
+	// WatchLaterOnly narrows to videos the current user saved for later.
+	WatchLaterOnly bool
+	// UnwatchedOnly narrows to playable recordings the current user has not
+	// started watching yet. A watch-later-only row with no watched_at timestamp
+	// still counts as unwatched.
+	UnwatchedOnly bool
 	// TerminalOnly narrows the result to terminal lifecycle rows (DONE/FAILED).
 	// History uses this with Scope="all" so active PENDING/RUNNING recordings
 	// stay on the Downloads surface instead of leaking into the audit log.
@@ -756,6 +779,20 @@ type ListVideosOpts struct {
 	Scope  string // "" | "active" | "removed" | "all"
 	Limit  int
 	Offset int
+}
+
+// VideoUserState is the current user's library state for one video. Rows are
+// sparse: no row means not saved for later and no playback progress.
+type VideoUserState struct {
+	UserID              string
+	VideoID             int64
+	WatchLater          bool
+	LastPositionSeconds float64
+	LastProgressAtMs    *int64
+	WatchedAt           *time.Time
+	CompletedAt         *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // VideoPageCursor is the stable keyset cursor for channel/category video lists.

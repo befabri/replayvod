@@ -6,6 +6,7 @@ package video
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -14,18 +15,15 @@ import (
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 )
 
-// Service owns video-domain reads: pagination, filtering by
-// status/broadcaster/category, and the dashboard home page's
-// aggregate statistics.
-//
-// Writes belong to DownloadService (trigger/cancel) and the webhook
-// processor (downloader completion).
+// Service owns video-domain reads and per-user playback state.
 type Service struct {
 	repo repository.Repository
 	log  *slog.Logger
 }
 
-// New builds the video read service.
+var errVideoNotBookmarkable = errors.New("video: recording cannot be saved")
+
+// New builds the video service.
 func New(repo repository.Repository, log *slog.Logger) *Service {
 	return &Service{repo: repo, log: log.With("domain", "video")}
 }
@@ -146,8 +144,8 @@ type Statistics struct {
 
 // Stats runs the two aggregate queries together. If either fails the
 // caller gets the error — partial aggregates would be misleading.
-func (s *Service) Stats(ctx context.Context) (*Statistics, error) {
-	totals, err := s.repo.VideoStatsTotals(ctx)
+func (s *Service) Stats(ctx context.Context, userID string) (*Statistics, error) {
+	totals, err := s.repo.VideoStatsTotals(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +218,60 @@ func (s *Service) PartsForVideos(ctx context.Context, videoIDs []int64) (map[int
 
 func (s *Service) PlaybackAsset(ctx context.Context, videoID int64) (*repository.VideoPlaybackAsset, error) {
 	return s.repo.GetVideoPlaybackAsset(ctx, videoID)
+}
+
+func (s *Service) UserState(ctx context.Context, userID string, videoID int64) (*repository.VideoUserState, error) {
+	return s.repo.GetVideoUserState(ctx, userID, videoID)
+}
+
+func (s *Service) UserStatesByVideoID(ctx context.Context, userID string, videos []repository.Video) map[int64]*repository.VideoUserState {
+	out := make(map[int64]*repository.VideoUserState)
+	if userID == "" || len(videos) == 0 {
+		return out
+	}
+	ids := make([]int64, 0, len(videos))
+	seen := make(map[int64]struct{}, len(videos))
+	for _, v := range videos {
+		if _, dup := seen[v.ID]; dup {
+			continue
+		}
+		seen[v.ID] = struct{}{}
+		ids = append(ids, v.ID)
+	}
+	rows, err := s.repo.ListVideoUserStatesForVideos(ctx, userID, ids)
+	if err != nil {
+		s.log.Warn("resolve video user states", "error", err)
+		return out
+	}
+	for i := range rows {
+		out[rows[i].VideoID] = &rows[i]
+	}
+	return out
+}
+
+func (s *Service) SetWatchLater(ctx context.Context, userID string, videoID int64, watchLater bool) (*repository.VideoUserState, error) {
+	if err := s.requireBookmarkableVideo(ctx, videoID); err != nil {
+		return nil, err
+	}
+	return s.repo.SetVideoWatchLater(ctx, userID, videoID, watchLater)
+}
+
+func (s *Service) UpdateWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, observedAtMs int64) (*repository.VideoUserState, error) {
+	return s.repo.UpdateVideoWatchProgress(ctx, userID, videoID, positionSeconds, completed, observedAtMs)
+}
+
+func (s *Service) requireBookmarkableVideo(ctx context.Context, videoID int64) error {
+	v, err := s.repo.GetVideo(ctx, videoID)
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		return repository.ErrNotFound
+	}
+	if v.DeletedAt != nil {
+		return errVideoNotBookmarkable
+	}
+	return nil
 }
 
 // maxSnapshotsPerVideo is the upper bound on the probe-until-404 loop

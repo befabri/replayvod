@@ -493,7 +493,7 @@ func TestSQLiteRoundtrip(t *testing.T) {
 	// Statistics: explicit CAST in SQL should produce int64 and float64,
 	// never interface{}. If sqlc ever stops inferring these correctly this
 	// test fails loudly.
-	totals, err := adapter.VideoStatsTotals(ctx)
+	totals, err := adapter.VideoStatsTotals(ctx, "")
 	if err != nil {
 		t.Fatalf("stats totals: %v", err)
 	}
@@ -1022,6 +1022,16 @@ func gotVideoID(t *testing.T, ctx context.Context, a *SQLiteAdapter, jobID strin
 func TestListChannelsPage_CursorPagination(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
+	if _, err := a.UpsertUser(ctx, &repository.User{
+		ID: "user-channel-favorites", Login: "channel-favorites", DisplayName: "Channel Favorites", Role: "viewer",
+	}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := a.UpsertUser(ctx, &repository.User{
+		ID: "user-channel-other", Login: "channel-other", DisplayName: "Channel Other", Role: "viewer",
+	}); err != nil {
+		t.Fatalf("seed other user: %v", err)
+	}
 
 	channels := []repository.Channel{
 		{BroadcasterID: "1", BroadcasterLogin: "alpha", BroadcasterName: "Alpha"},
@@ -1046,19 +1056,60 @@ func TestListChannelsPage_CursorPagination(t *testing.T) {
 		}
 	}
 
+	seedVideo := func(jobID, broadcasterID string, failed, deleted bool) {
+		t.Helper()
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: jobID,
+			Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
+			BroadcasterID: broadcasterID, Language: "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("seed video %s: %v", jobID, err)
+		}
+		if failed {
+			if err := a.MarkVideoFailed(ctx, v.ID, "seed failed", repository.CompletionKindPartial, true); err != nil {
+				t.Fatalf("mark failed %s: %v", jobID, err)
+			}
+			return
+		}
+		if err := a.MarkVideoDone(ctx, v.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
+			t.Fatalf("mark done %s: %v", jobID, err)
+		}
+		if deleted {
+			if err := a.SoftDeleteVideo(ctx, v.ID, repository.DeletionKindManual); err != nil {
+				t.Fatalf("soft delete %s: %v", jobID, err)
+			}
+		}
+	}
+	seedVideo("job-bravo", "2", false, false)
+	seedVideo("job-bravo-alt-failed", "3", true, false)
+	seedVideo("job-charlie-deleted", "4", false, true)
+	if _, err := a.SetChannelFavorite(ctx, "user-channel-favorites", "1", true); err != nil {
+		t.Fatalf("seed favorite alpha: %v", err)
+	}
+	if _, err := a.SetChannelFavorite(ctx, "user-channel-favorites", "3", true); err != nil {
+		t.Fatalf("seed favorite bravo-alt: %v", err)
+	}
+	if _, err := a.SetChannelFavorite(ctx, "user-channel-other", "2", true); err != nil {
+		t.Fatalf("seed other favorite bravo: %v", err)
+	}
+
 	cases := []struct {
-		name     string
-		sort     string
-		liveOnly bool
-		want     []string
+		name   string
+		sort   string
+		filter string
+		want   []string
 	}{
-		{"name asc", "name_asc", false, []string{"alpha", "bravo", "bravo-alt", "charlie"}},
-		{"name desc", "name_desc", false, []string{"charlie", "bravo-alt", "bravo", "alpha"}},
-		{"live only", "name_asc", true, []string{"alpha", "bravo-alt"}},
+		{"name asc", "name_asc", repository.ChannelFilterAll, []string{"alpha", "bravo", "bravo-alt", "charlie"}},
+		{"name desc", "name_desc", repository.ChannelFilterAll, []string{"charlie", "bravo-alt", "bravo", "alpha"}},
+		{"live only", "name_asc", repository.ChannelFilterLive, []string{"alpha", "bravo-alt"}},
+		{"downloaded only", "name_asc", repository.ChannelFilterDownloaded, []string{"bravo"}},
+		{"favorites only", "name_asc", repository.ChannelFilterFavorites, []string{"alpha", "bravo-alt"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := collectChannelPageLogins(t, ctx, a, 2, tc.sort, tc.liveOnly)
+			got := collectChannelPageLogins(t, ctx, a, 2, tc.sort, tc.filter, "user-channel-favorites")
 			assertStringSlice(t, got, tc.want)
 		})
 	}
@@ -1192,6 +1243,145 @@ func TestListVideosPage_Scope(t *testing.T) {
 	if page.Items[0].DeletedAt == nil {
 		t.Fatal("removed row deleted_at must be set")
 	}
+}
+
+func TestVideoUserStateFiltersAndStatistics(t *testing.T) {
+	ctx := context.Background()
+	a := newTestAdapter(t)
+	userID := "user-video-state"
+	if _, err := a.UpsertUser(ctx, &repository.User{
+		ID: userID, Login: "state", DisplayName: "State", Role: "viewer",
+	}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	otherUserID := "user-video-state-other"
+	if _, err := a.UpsertUser(ctx, &repository.User{
+		ID: otherUserID, Login: "state-other", DisplayName: "State Other", Role: "viewer",
+	}); err != nil {
+		t.Fatalf("seed other user: %v", err)
+	}
+	if _, err := a.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-state", BroadcasterLogin: "state", BroadcasterName: "State",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	mk := func(jobID, status string) *repository.Video {
+		v, err := a.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: "State", Status: status,
+			Quality: repository.QualityHigh, BroadcasterID: "bc-state", Language: "en",
+			RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", jobID, err)
+		}
+		return v
+	}
+	watched := mk("job-state-watched", repository.VideoStatusDone)
+	later := mk("job-state-later", repository.VideoStatusDone)
+	plain := mk("job-state-plain", repository.VideoStatusDone)
+	running := mk("job-state-running", repository.VideoStatusRunning)
+	failed := mk("job-state-failed", repository.VideoStatusFailed)
+
+	if state, err := a.SetVideoWatchLater(ctx, userID, later.ID, true); err != nil {
+		t.Fatalf("set watch later: %v", err)
+	} else if !state.WatchLater {
+		t.Fatal("watch later state not persisted")
+	}
+	if _, err := a.SetVideoWatchLater(ctx, userID, running.ID, true); err != nil {
+		t.Fatalf("set running watch later: %v", err)
+	}
+	if _, err := a.SetVideoWatchLater(ctx, userID, failed.ID, true); err != nil {
+		t.Fatalf("set failed watch later: %v", err)
+	}
+	if _, err := a.SetVideoWatchLater(ctx, otherUserID, watched.ID, true); err != nil {
+		t.Fatalf("set other user watch later: %v", err)
+	}
+	if state, err := a.UpdateVideoWatchProgress(ctx, userID, watched.ID, 42.5, false, 1000); err != nil {
+		t.Fatalf("update progress: %v", err)
+	} else if state.WatchedAt == nil || state.LastPositionSeconds != 42.5 {
+		t.Fatalf("watched state = %+v, want watched_at and 42.5s", state)
+	}
+	if state, err := a.UpdateVideoWatchProgress(ctx, userID, watched.ID, 60, true, 2000); err != nil {
+		t.Fatalf("complete progress: %v", err)
+	} else if state.CompletedAt == nil {
+		t.Fatalf("completed state = %+v, want completed_at", state)
+	}
+	if _, err := a.UpdateVideoWatchProgress(ctx, userID, running.ID, 12, false, 3000); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("running progress err = %v, want ErrNotFound", err)
+	}
+
+	oldWatchedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if _, err := a.db.ExecContext(ctx, "UPDATE video_user_states SET watched_at = ? WHERE user_id = ? AND video_id = ?", sqlitetype.Format(oldWatchedAt), userID, watched.ID); err != nil {
+		t.Fatalf("backdate watched_at: %v", err)
+	}
+	if state, err := a.UpdateVideoWatchProgress(ctx, userID, watched.ID, 90, false, 4000); err != nil {
+		t.Fatalf("second progress: %v", err)
+	} else if state.WatchedAt == nil || !state.WatchedAt.Equal(oldWatchedAt) {
+		t.Fatalf("watched_at = %v, want preserved %v", state.WatchedAt, oldWatchedAt)
+	} else if state.LastPositionSeconds != 90 {
+		t.Fatalf("last_position_seconds = %v, want 90", state.LastPositionSeconds)
+	}
+	if state, err := a.UpdateVideoWatchProgress(ctx, userID, watched.ID, 1, false, 3500); err != nil {
+		t.Fatalf("stale progress: %v", err)
+	} else if state.LastPositionSeconds != 90 {
+		t.Fatalf("stale progress rewound position to %v, want 90", state.LastPositionSeconds)
+	} else if state.LastProgressAtMs == nil || *state.LastProgressAtMs != 4000 {
+		t.Fatalf("stale progress watermark = %v, want 4000", state.LastProgressAtMs)
+	}
+
+	states, err := a.ListVideoUserStatesForVideos(ctx, userID, []int64{watched.ID, later.ID, plain.ID})
+	if err != nil {
+		t.Fatalf("list video user states: %v", err)
+	}
+	if len(states) != 2 {
+		t.Fatalf("state count = %d, want 2; states=%+v", len(states), states)
+	}
+
+	baseOpts := repository.ListVideosOpts{UserID: userID, Sort: "created_at", Order: "desc", Limit: 10}
+	watchLaterOpts := baseOpts
+	watchLaterOpts.WatchLaterOnly = true
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, watchLaterOpts), []string{"job-state-failed", "job-state-running", "job-state-later"})
+
+	unwatchedOpts := baseOpts
+	unwatchedOpts.UnwatchedOnly = true
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, unwatchedOpts), []string{"job-state-plain", "job-state-later"})
+
+	emptyUserUnwatchedOpts := unwatchedOpts
+	emptyUserUnwatchedOpts.UserID = ""
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, emptyUserUnwatchedOpts), []string{})
+
+	totals, err := a.VideoStatsTotals(ctx, userID)
+	if err != nil {
+		t.Fatalf("video stats totals: %v", err)
+	}
+	if totals.WatchLater != 3 || totals.Unwatched != 2 {
+		t.Fatalf("stats watch_later/unwatched = %d/%d, want 3/2", totals.WatchLater, totals.Unwatched)
+	}
+	emptyTotals, err := a.VideoStatsTotals(ctx, "")
+	if err != nil {
+		t.Fatalf("empty-user video stats totals: %v", err)
+	}
+	if emptyTotals.WatchLater != 0 || emptyTotals.Unwatched != 0 {
+		t.Fatalf("empty-user stats watch_later/unwatched = %d/%d, want 0/0", emptyTotals.WatchLater, emptyTotals.Unwatched)
+	}
+	otherTotals, err := a.VideoStatsTotals(ctx, otherUserID)
+	if err != nil {
+		t.Fatalf("other video stats totals: %v", err)
+	}
+	if otherTotals.WatchLater != 1 {
+		t.Fatalf("other stats watch_later = %d, want 1", otherTotals.WatchLater)
+	}
+	otherWatchLaterOpts := baseOpts
+	otherWatchLaterOpts.UserID = otherUserID
+	otherWatchLaterOpts.WatchLaterOnly = true
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, otherWatchLaterOpts), []string{"job-state-watched"})
+
+	if state, err := a.SetVideoWatchLater(ctx, userID, later.ID, false); err != nil {
+		t.Fatalf("unset watch later: %v", err)
+	} else if state.WatchLater {
+		t.Fatal("watch later state stayed true after unset")
+	}
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, a, watchLaterOpts), []string{"job-state-failed", "job-state-running"})
 }
 
 func TestListVideosPage_TerminalOnlyHistoryWhen(t *testing.T) {
@@ -1519,7 +1709,7 @@ func seedVideoPageFixture(t *testing.T, ctx context.Context, a *SQLiteAdapter) {
 	}
 }
 
-func collectChannelPageLogins(t *testing.T, ctx context.Context, a *SQLiteAdapter, limit int, sort string, liveOnly bool) []string {
+func collectChannelPageLogins(t *testing.T, ctx context.Context, a *SQLiteAdapter, limit int, sort string, filter string, userID string) []string {
 	t.Helper()
 	var cursor *repository.ChannelPageCursor
 	out := []string{}
@@ -1527,7 +1717,7 @@ func collectChannelPageLogins(t *testing.T, ctx context.Context, a *SQLiteAdapte
 		if pages > 10 {
 			t.Fatal("channel pagination did not terminate")
 		}
-		page, err := a.ListChannelsPage(ctx, limit, sort, liveOnly, cursor)
+		page, err := a.ListChannelsPage(ctx, limit, sort, filter, userID, cursor)
 		if err != nil {
 			t.Fatalf("ListChannelsPage: %v", err)
 		}

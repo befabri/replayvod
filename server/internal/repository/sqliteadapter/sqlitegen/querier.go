@@ -98,6 +98,7 @@ type Querier interface {
 	GetCategorySearchCache(ctx context.Context, normalizedQuery string) (CategorySearchCache, error)
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
+	GetChannelUserState(ctx context.Context, arg GetChannelUserStateParams) (ChannelUserState, error)
 	GetJob(ctx context.Context, id string) (Job, error)
 	GetJobByVideoID(ctx context.Context, videoID int64) (Job, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (Stream, error)
@@ -121,6 +122,7 @@ type Querier interface {
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
 	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
 	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (VideoPlaybackAsset, error)
+	GetVideoUserState(ctx context.Context, arg GetVideoUserStateParams) (VideoUserState, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	// True when at least one part for this video has been remuxed and
@@ -173,6 +175,7 @@ type Querier interface {
 	ListCategoriesWithVideosPageNameAsc(ctx context.Context, arg ListCategoriesWithVideosPageNameAscParams) ([]Category, error)
 	ListCategoriesWithVideosPageVideoCountDesc(ctx context.Context, arg ListCategoriesWithVideosPageVideoCountDescParams) ([]ListCategoriesWithVideosPageVideoCountDescRow, error)
 	ListCategorySpansForVideo(ctx context.Context, videoID int64) ([]ListCategorySpansForVideoRow, error)
+	ListChannelUserStatesForChannels(ctx context.Context, arg ListChannelUserStatesForChannelsParams) ([]ChannelUserState, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error)
@@ -236,6 +239,7 @@ type Querier interface {
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoPartsForVideos(ctx context.Context, videoIds []int64) ([]VideoPart, error)
 	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
+	ListVideoUserStatesForVideos(ctx context.Context, arg ListVideoUserStatesForVideosParams) ([]VideoUserState, error)
 	// Unified list query with optional status filter and enum-driven sort.
 	// Bind params once in a CTE with explicit casts so sqlc's SQLite output stays
 	// typed through the repeated CASE expressions.
@@ -308,6 +312,7 @@ type Querier interface {
 	// SQLite output stays typed through the repeated CASE/LIKE expressions.
 	SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error)
 	SearchVideos(ctx context.Context, arg SearchVideosParams) ([]Video, error)
+	SetChannelFavorite(ctx context.Context, arg SetChannelFavoriteParams) (ChannelUserState, error)
 	// Freeze the part metadata on the first delivery build, while the video's parts
 	// still exist, so a later retry rebuilds the real part list even after retention
 	// has deleted those parts. Signed download URLs are re-minted per attempt and
@@ -325,6 +330,7 @@ type Querier interface {
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	SetTaskNextRun(ctx context.Context, name string) (Task, error)
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
+	SetVideoWatchLater(ctx context.Context, arg SetVideoWatchLaterParams) (VideoUserState, error)
 	// Tombstone a recording. deletion_kind records why ('retention' | 'manual').
 	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
@@ -348,6 +354,8 @@ type Querier interface {
 	// VideoStatsTotals struct. Postgres still uses the single-query
 	// form; see queries/postgres/videos.sql.
 	StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error)
+	StatisticsUnwatched(ctx context.Context, userID string) (int64, error)
+	StatisticsWatchLater(ctx context.Context, userID string) (int64, error)
 	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
 	// between 0/1 explicitly via CASE for clarity on non-boolean-ish values.
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
@@ -370,6 +378,7 @@ type Querier interface {
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoSelectedVariant(ctx context.Context, arg UpdateVideoSelectedVariantParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
+	UpdateVideoWatchProgress(ctx context.Context, arg UpdateVideoWatchProgressParams) (VideoUserState, error)
 	// Preserves box_art_url, igdb_id, and description on ordinary webhook-path
 	// upserts that only know (id, name). When a non-empty incoming igdb_id changes
 	// the mapped IGDB game, the existing description cache is cleared so it can be

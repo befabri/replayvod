@@ -159,9 +159,12 @@ func (q *Queries) ListChannelsByIDs(ctx context.Context, ids []string) ([]Channe
 const listChannelsPageAsc = `-- name: ListChannelsPageAsc :many
 WITH params AS (
     SELECT CAST(?1 AS integer) AS live_only,
-           CAST(?2 AS text) AS cursor_name,
-           CAST(?3 AS text) AS cursor_id,
-           CAST(?4 AS integer) AS row_limit
+           CAST(?2 AS integer) AS downloaded_only,
+           CAST(?3 AS integer) AS favorite_only,
+           CAST(?4 AS text) AS user_id,
+           CAST(?5 AS text) AS cursor_name,
+           CAST(?6 AS text) AS cursor_id,
+           CAST(?7 AS integer) AS row_limit
 )
 SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
 CROSS JOIN params
@@ -170,6 +173,24 @@ WHERE (
     OR EXISTS (
         SELECT 1 FROM streams s
         WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    params.downloaded_only = 0
+    OR EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.broadcaster_id = c.broadcaster_id
+          AND v.status = 'DONE'
+          AND v.deleted_at IS NULL
+    )
+)
+  AND (
+    params.favorite_only = 0
+    OR EXISTS (
+        SELECT 1 FROM channel_user_states cus
+        WHERE cus.broadcaster_id = c.broadcaster_id
+          AND cus.user_id = params.user_id
+          AND cus.favorite = 1
     )
 )
   AND (
@@ -182,15 +203,21 @@ LIMIT (SELECT row_limit FROM params)
 `
 
 type ListChannelsPageAscParams struct {
-	LiveOnly   int64          `json:"live_only"`
-	CursorName sql.NullString `json:"cursor_name"`
-	CursorID   string         `json:"cursor_id"`
-	RowLimit   int64          `json:"row_limit"`
+	LiveOnly       int64          `json:"live_only"`
+	DownloadedOnly int64          `json:"downloaded_only"`
+	FavoriteOnly   int64          `json:"favorite_only"`
+	UserID         string         `json:"user_id"`
+	CursorName     sql.NullString `json:"cursor_name"`
+	CursorID       string         `json:"cursor_id"`
+	RowLimit       int64          `json:"row_limit"`
 }
 
 func (q *Queries) ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error) {
 	rows, err := q.db.QueryContext(ctx, listChannelsPageAsc,
 		arg.LiveOnly,
+		arg.DownloadedOnly,
+		arg.FavoriteOnly,
+		arg.UserID,
 		arg.CursorName,
 		arg.CursorID,
 		arg.RowLimit,
@@ -231,9 +258,12 @@ func (q *Queries) ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageA
 const listChannelsPageDesc = `-- name: ListChannelsPageDesc :many
 WITH params AS (
     SELECT CAST(?1 AS integer) AS live_only,
-           CAST(?2 AS text) AS cursor_name,
-           CAST(?3 AS text) AS cursor_id,
-           CAST(?4 AS integer) AS row_limit
+           CAST(?2 AS integer) AS downloaded_only,
+           CAST(?3 AS integer) AS favorite_only,
+           CAST(?4 AS text) AS user_id,
+           CAST(?5 AS text) AS cursor_name,
+           CAST(?6 AS text) AS cursor_id,
+           CAST(?7 AS integer) AS row_limit
 )
 SELECT c.broadcaster_id, c.broadcaster_login, c.broadcaster_name, c.broadcaster_language, c.profile_image_url, c.offline_image_url, c.description, c.broadcaster_type, c.view_count, c.created_at, c.updated_at FROM channels c
 CROSS JOIN params
@@ -242,6 +272,24 @@ WHERE (
     OR EXISTS (
         SELECT 1 FROM streams s
         WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    params.downloaded_only = 0
+    OR EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.broadcaster_id = c.broadcaster_id
+          AND v.status = 'DONE'
+          AND v.deleted_at IS NULL
+    )
+)
+  AND (
+    params.favorite_only = 0
+    OR EXISTS (
+        SELECT 1 FROM channel_user_states cus
+        WHERE cus.broadcaster_id = c.broadcaster_id
+          AND cus.user_id = params.user_id
+          AND cus.favorite = 1
     )
 )
   AND (
@@ -254,15 +302,21 @@ LIMIT (SELECT row_limit FROM params)
 `
 
 type ListChannelsPageDescParams struct {
-	LiveOnly   int64          `json:"live_only"`
-	CursorName sql.NullString `json:"cursor_name"`
-	CursorID   string         `json:"cursor_id"`
-	RowLimit   int64          `json:"row_limit"`
+	LiveOnly       int64          `json:"live_only"`
+	DownloadedOnly int64          `json:"downloaded_only"`
+	FavoriteOnly   int64          `json:"favorite_only"`
+	UserID         string         `json:"user_id"`
+	CursorName     sql.NullString `json:"cursor_name"`
+	CursorID       string         `json:"cursor_id"`
+	RowLimit       int64          `json:"row_limit"`
 }
 
 func (q *Queries) ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error) {
 	rows, err := q.db.QueryContext(ctx, listChannelsPageDesc,
 		arg.LiveOnly,
+		arg.DownloadedOnly,
+		arg.FavoriteOnly,
+		arg.UserID,
 		arg.CursorName,
 		arg.CursorID,
 		arg.RowLimit,

@@ -567,7 +567,7 @@ func (s *Service) capacity(ctx context.Context, maxPercent int, currentCacheByte
 			known:         true,
 		}, nil
 	}
-	totals, err := s.repo.VideoStatsTotals(ctx)
+	totals, err := s.repo.VideoStatsTotals(ctx, "")
 	if err != nil {
 		return cacheBudget{}, fmt.Errorf("read library totals for playback cache cap: %w", err)
 	}

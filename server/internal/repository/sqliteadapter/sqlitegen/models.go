@@ -52,6 +52,14 @@ type Channel struct {
 	UpdatedAt           sqlitetype.Time `json:"updated_at"`
 }
 
+type ChannelUserState struct {
+	UserID        string          `json:"user_id"`
+	BroadcasterID string          `json:"broadcaster_id"`
+	Favorite      int64           `json:"favorite"`
+	CreatedAt     sqlitetype.Time `json:"created_at"`
+	UpdatedAt     sqlitetype.Time `json:"updated_at"`
+}
+
 type DownloadSchedule struct {
 	ID               int64            `json:"id"`
 	BroadcasterID    string           `json:"broadcaster_id"`
@@ -390,6 +398,18 @@ type VideoTitleSpan struct {
 	StartedAt       sqlitetype.Time  `json:"started_at"`
 	EndedAt         *sqlitetype.Time `json:"ended_at"`
 	DurationSeconds float64          `json:"duration_seconds"`
+}
+
+type VideoUserState struct {
+	UserID              string           `json:"user_id"`
+	VideoID             int64            `json:"video_id"`
+	WatchLater          int64            `json:"watch_later"`
+	LastPositionSeconds float64          `json:"last_position_seconds"`
+	LastProgressAtMs    sql.NullInt64    `json:"last_progress_at_ms"`
+	WatchedAt           *sqlitetype.Time `json:"watched_at"`
+	CompletedAt         *sqlitetype.Time `json:"completed_at"`
+	CreatedAt           sqlitetype.Time  `json:"created_at"`
+	UpdatedAt           sqlitetype.Time  `json:"updated_at"`
 }
 
 type WebhookEvent struct {

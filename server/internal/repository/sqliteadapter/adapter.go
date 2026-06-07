@@ -178,6 +178,13 @@ func nullFloat64(f *float64) sql.NullFloat64 {
 	return sql.NullFloat64{Float64: *f, Valid: true}
 }
 
+func int64PtrFromSQLite(v sql.NullInt64) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	return &v.Int64
+}
+
 func sqliteTime(t time.Time) sqlitetype.Time {
 	return sqlitetype.NewTime(t)
 }

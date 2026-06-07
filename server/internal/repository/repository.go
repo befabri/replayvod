@@ -59,7 +59,7 @@ type Repository interface {
 	GetChannelByLogin(ctx context.Context, login string) (*Channel, error)
 	UpsertChannel(ctx context.Context, c *Channel) (*Channel, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
-	ListChannelsPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *ChannelPageCursor) (*ChannelPage, error)
+	ListChannelsPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *ChannelPageCursor) (*ChannelPage, error)
 	// ListChannelsByIDs returns the subset of channels whose
 	// broadcaster_id is in ids. Empty ids returns no rows (not an
 	// error). Callers use this to de-reference a batch of Helix-
@@ -71,6 +71,9 @@ type Repository interface {
 	// limit — the same endpoint backs both the combobox "show all" and
 	// the "filter" states without a second query.
 	SearchChannels(ctx context.Context, query string, limit int) ([]Channel, error)
+	GetChannelUserState(ctx context.Context, userID string, broadcasterID string) (*ChannelUserState, error)
+	ListChannelUserStatesForChannels(ctx context.Context, userID string, broadcasterIDs []string) ([]ChannelUserState, error)
+	SetChannelFavorite(ctx context.Context, userID string, broadcasterID string, favorite bool) (*ChannelUserState, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 
 	// User follows
@@ -200,11 +203,15 @@ type Repository interface {
 	FinalizeDelete(ctx context.Context, videoID int64, kind string) error
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	VideoStatsByStatus(ctx context.Context) ([]VideoStatsByStatus, error)
-	VideoStatsTotals(ctx context.Context) (*VideoStatsTotals, error)
+	VideoStatsTotals(ctx context.Context, userID string) (*VideoStatsTotals, error)
 	// VideoStatsTotalsByBroadcaster returns the same totals shape as
 	// VideoStatsTotals but scoped to one broadcaster. Used by the
 	// watch page to surface a "N recordings · X GB" line per channel.
 	VideoStatsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (*VideoStatsTotals, error)
+	GetVideoUserState(ctx context.Context, userID string, videoID int64) (*VideoUserState, error)
+	ListVideoUserStatesForVideos(ctx context.Context, userID string, videoIDs []int64) ([]VideoUserState, error)
+	SetVideoWatchLater(ctx context.Context, userID string, videoID int64, watchLater bool) (*VideoUserState, error)
+	UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, observedAtMs int64) (*VideoUserState, error)
 
 	// Jobs — durable record of a download execution. Broadcaster-level
 	// idempotency + resume-on-restart live here. See models.go Job for

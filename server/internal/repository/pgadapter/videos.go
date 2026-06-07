@@ -345,8 +345,8 @@ func (a *PGAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoS
 	return out, nil
 }
 
-func (a *PGAdapter) VideoStatsTotals(ctx context.Context) (*repository.VideoStatsTotals, error) {
-	row, err := a.queries.StatisticsTotals(ctx)
+func (a *PGAdapter) VideoStatsTotals(ctx context.Context, userID string) (*repository.VideoStatsTotals, error) {
+	row, err := a.queries.StatisticsTotals(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("pg video stats totals: %w", err)
 	}
@@ -358,6 +358,8 @@ func (a *PGAdapter) VideoStatsTotals(ctx context.Context) (*repository.VideoStat
 		Incomplete:    row.Incomplete,
 		Channels:      row.Channels,
 		Removed:       row.Removed,
+		WatchLater:    row.WatchLater,
+		Unwatched:     row.Unwatched,
 	}, nil
 }
 

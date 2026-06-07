@@ -57,12 +57,15 @@ func (a *SQLiteAdapter) ListChannels(ctx context.Context) ([]repository.Channel,
 	return channels, nil
 }
 
-func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, liveOnly bool, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
+func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
 	params := sqlitegen.ListChannelsPageAscParams{
-		LiveOnly:   boolToInt64(liveOnly),
-		CursorName: sqliteChannelCursorName(cursor),
-		CursorID:   sqliteChannelCursorID(cursor),
-		RowLimit:   int64(limit + 1),
+		LiveOnly:       boolToInt64(filter == repository.ChannelFilterLive),
+		DownloadedOnly: boolToInt64(filter == repository.ChannelFilterDownloaded),
+		FavoriteOnly:   boolToInt64(filter == repository.ChannelFilterFavorites),
+		UserID:         userID,
+		CursorName:     sqliteChannelCursorName(cursor),
+		CursorID:       sqliteChannelCursorID(cursor),
+		RowLimit:       int64(limit + 1),
 	}
 	var rows []sqlitegen.Channel
 	var err error

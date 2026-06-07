@@ -11,11 +11,8 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// RegisterRoutes wires the video.* tRPC procedures. Reads are viewer-
-// level; triggers/cancels/progress are admin-only so regular viewers
-// can't burn Twitch/Helix quota. Only the SSE progress stream keeps
-// admin gating at subscribe time — the trpcgo middleware chain closes
-// the stream if the session expires mid-flight.
+// RegisterRoutes wires the video.* tRPC procedures. Library reads and per-user
+// video state are viewer-level; download control stays admin-level.
 //
 // store is used by the Snapshots endpoint to probe for the live-
 // preview JPEGs saved during recording. Passed through so the handler
@@ -42,5 +39,7 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloade
 	trpcgo.MustMutation(tr, "video.triggerDownload", h.TriggerDownload, admin)
 	trpcgo.MustMutation(tr, "video.cancel", h.Cancel, admin)
 	trpcgo.MustMutation(tr, "video.delete", h.Delete, admin)
+	trpcgo.MustMutation(tr, "video.setWatchLater", h.SetWatchLater, viewer)
+	trpcgo.MustMutation(tr, "video.updateWatchProgress", h.UpdateWatchProgress, viewer)
 	trpcgo.MustSubscribe(tr, "video.downloadProgress", h.DownloadProgress, admin)
 }

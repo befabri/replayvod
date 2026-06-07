@@ -25,20 +25,36 @@ func NewHandler(svc *Service, log *slog.Logger) *Handler {
 
 // ChannelResponse is the wire shape for a channel.
 type ChannelResponse struct {
-	BroadcasterID       string    `json:"broadcaster_id"`
-	BroadcasterLogin    string    `json:"broadcaster_login"`
-	BroadcasterName     string    `json:"broadcaster_name"`
-	BroadcasterLanguage *string   `json:"broadcaster_language,omitempty"`
-	ProfileImageURL     *string   `json:"profile_image_url,omitempty"`
-	OfflineImageURL     *string   `json:"offline_image_url,omitempty"`
-	Description         *string   `json:"description,omitempty"`
-	BroadcasterType     *string   `json:"broadcaster_type,omitempty"`
-	ViewCount           int64     `json:"view_count"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	BroadcasterID       string                    `json:"broadcaster_id"`
+	BroadcasterLogin    string                    `json:"broadcaster_login"`
+	BroadcasterName     string                    `json:"broadcaster_name"`
+	BroadcasterLanguage *string                   `json:"broadcaster_language,omitempty"`
+	ProfileImageURL     *string                   `json:"profile_image_url,omitempty"`
+	OfflineImageURL     *string                   `json:"offline_image_url,omitempty"`
+	Description         *string                   `json:"description,omitempty"`
+	BroadcasterType     *string                   `json:"broadcaster_type,omitempty"`
+	ViewCount           int64                     `json:"view_count"`
+	CreatedAt           time.Time                 `json:"created_at"`
+	UpdatedAt           time.Time                 `json:"updated_at"`
+	UserState           *ChannelUserStateResponse `json:"user_state,omitempty"`
 }
 
-func toResponse(c *repository.Channel) ChannelResponse {
+type ChannelUserStateResponse struct {
+	Favorite  bool      `json:"favorite"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toChannelUserStateResponse(state *repository.ChannelUserState) *ChannelUserStateResponse {
+	if state == nil {
+		return nil
+	}
+	return &ChannelUserStateResponse{
+		Favorite:  state.Favorite,
+		UpdatedAt: state.UpdatedAt,
+	}
+}
+
+func toResponse(c *repository.Channel, state *repository.ChannelUserState) ChannelResponse {
 	return ChannelResponse{
 		BroadcasterID:       c.BroadcasterID,
 		BroadcasterLogin:    c.BroadcasterLogin,
@@ -51,7 +67,21 @@ func toResponse(c *repository.Channel) ChannelResponse {
 		ViewCount:           c.ViewCount,
 		CreatedAt:           c.CreatedAt,
 		UpdatedAt:           c.UpdatedAt,
+		UserState:           toChannelUserStateResponse(state),
 	}
+}
+
+func (h *Handler) toChannelResponses(ctx context.Context, channels []repository.Channel) []ChannelResponse {
+	var userID string
+	if user := middleware.GetUser(ctx); user != nil {
+		userID = user.ID
+	}
+	states := h.svc.UserStatesByBroadcasterID(ctx, userID, channels)
+	out := make([]ChannelResponse, len(channels))
+	for i := range channels {
+		out[i] = toResponse(&channels[i], states[channels[i].BroadcasterID])
+	}
+	return out
 }
 
 type GetByIDInput struct {
@@ -63,7 +93,7 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (ChannelRespo
 	if err != nil {
 		return ChannelResponse{}, apierr.Map(h.log, err, "get channel")
 	}
-	return toResponse(c), nil
+	return h.toChannelResponses(ctx, []repository.Channel{*c})[0], nil
 }
 
 type GetByLoginInput struct {
@@ -75,7 +105,7 @@ func (h *Handler) GetByLogin(ctx context.Context, input GetByLoginInput) (Channe
 	if err != nil {
 		return ChannelResponse{}, apierr.Map(h.log, err, "get channel by login")
 	}
-	return toResponse(c), nil
+	return h.toChannelResponses(ctx, []repository.Channel{*c})[0], nil
 }
 
 func (h *Handler) List(ctx context.Context) ([]ChannelResponse, error) {
@@ -83,11 +113,7 @@ func (h *Handler) List(ctx context.Context) ([]ChannelResponse, error) {
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "list channels")
 	}
-	out := make([]ChannelResponse, len(channels))
-	for i := range channels {
-		out[i] = toResponse(&channels[i])
-	}
-	return out, nil
+	return h.toChannelResponses(ctx, channels), nil
 }
 
 type ChannelPageCursor struct {
@@ -103,6 +129,7 @@ type ChannelPageResponse struct {
 type ListPageInput struct {
 	Limit     int                `json:"limit,omitempty" validate:"min=0,max=200"`
 	Sort      string             `json:"sort,omitempty" validate:"omitempty,oneof=name_asc name_desc"`
+	Filter    string             `json:"filter,omitempty" validate:"omitempty,oneof=all live downloaded favorites"`
 	LiveOnly  bool               `json:"live_only,omitempty"`
 	Cursor    *ChannelPageCursor `json:"cursor,omitempty" validate:"omitempty"`
 	Direction string             `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
@@ -117,14 +144,23 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (ChannelPag
 	if sort == "" {
 		sort = "name_asc"
 	}
-	page, err := h.svc.ListPage(ctx, limit, sort, input.LiveOnly, toRepositoryChannelPageCursor(input.Cursor))
+	filter := input.Filter
+	if filter == "" {
+		if input.LiveOnly {
+			filter = repository.ChannelFilterLive
+		} else {
+			filter = repository.ChannelFilterAll
+		}
+	}
+	var userID string
+	if user := middleware.GetUser(ctx); user != nil {
+		userID = user.ID
+	}
+	page, err := h.svc.ListPage(ctx, limit, sort, filter, userID, toRepositoryChannelPageCursor(input.Cursor))
 	if err != nil {
 		return ChannelPageResponse{}, apierr.Map(h.log, err, "list channels page")
 	}
-	out := make([]ChannelResponse, len(page.Items))
-	for i := range page.Items {
-		out[i] = toResponse(&page.Items[i])
-	}
+	out := h.toChannelResponses(ctx, page.Items)
 	return ChannelPageResponse{Items: out, NextCursor: toChannelPageCursor(page.NextCursor)}, nil
 }
 
@@ -137,11 +173,7 @@ func (h *Handler) ListFollowed(ctx context.Context) ([]ChannelResponse, error) {
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "list followed channels")
 	}
-	out := make([]ChannelResponse, len(channels))
-	for i := range channels {
-		out[i] = toResponse(&channels[i])
-	}
-	return out, nil
+	return h.toChannelResponses(ctx, channels), nil
 }
 
 func toRepositoryChannelPageCursor(cursor *ChannelPageCursor) *repository.ChannelPageCursor {
@@ -183,11 +215,24 @@ func (h *Handler) Search(ctx context.Context, input SearchInput) ([]ChannelRespo
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "search channels")
 	}
-	out := make([]ChannelResponse, len(channels))
-	for i := range channels {
-		out[i] = toResponse(&channels[i])
+	return h.toChannelResponses(ctx, channels), nil
+}
+
+type SetFavoriteInput struct {
+	BroadcasterID string `json:"broadcaster_id" validate:"required"`
+	Favorite      bool   `json:"favorite"`
+}
+
+func (h *Handler) SetFavorite(ctx context.Context, input SetFavoriteInput) (ChannelUserStateResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return ChannelUserStateResponse{}, err
 	}
-	return out, nil
+	state, err := h.svc.SetFavorite(ctx, user.ID, input.BroadcasterID, input.Favorite)
+	if err != nil {
+		return ChannelUserStateResponse{}, apierr.Map(h.log, err, "set channel favorite")
+	}
+	return *toChannelUserStateResponse(state), nil
 }
 
 // LatestLiveResponse is the wire shape for one row of channel.latestLive:
@@ -265,5 +310,5 @@ func (h *Handler) SyncFromTwitch(ctx context.Context, input SyncFromTwitchInput)
 		}
 		return ChannelResponse{}, apierr.Map(h.log, err, "sync channel")
 	}
-	return toResponse(c), nil
+	return h.toChannelResponses(ctx, []repository.Channel{*c})[0], nil
 }

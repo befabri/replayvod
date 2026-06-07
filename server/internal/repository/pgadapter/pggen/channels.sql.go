@@ -147,24 +147,48 @@ WHERE (
     )
 )
   AND (
-    $2::text IS NULL
-    OR lower(c.broadcaster_name) > lower($2::text)
-    OR (lower(c.broadcaster_name) = lower($2::text) AND c.broadcaster_id > $3::text)
+    NOT $2::boolean
+    OR EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.broadcaster_id = c.broadcaster_id
+          AND v.status = 'DONE'
+          AND v.deleted_at IS NULL
+    )
+)
+  AND (
+    NOT $3::boolean
+    OR EXISTS (
+        SELECT 1 FROM channel_user_states cus
+        WHERE cus.broadcaster_id = c.broadcaster_id
+          AND cus.user_id = $4::text
+          AND cus.favorite
+    )
+)
+  AND (
+    $5::text IS NULL
+    OR lower(c.broadcaster_name) > lower($5::text)
+    OR (lower(c.broadcaster_name) = lower($5::text) AND c.broadcaster_id > $6::text)
   )
 ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
-LIMIT $4
+LIMIT $7
 `
 
 type ListChannelsPageAscParams struct {
-	LiveOnly   bool    `json:"live_only"`
-	CursorName *string `json:"cursor_name"`
-	CursorID   string  `json:"cursor_id"`
-	RowLimit   int32   `json:"row_limit"`
+	LiveOnly       bool    `json:"live_only"`
+	DownloadedOnly bool    `json:"downloaded_only"`
+	FavoriteOnly   bool    `json:"favorite_only"`
+	UserID         string  `json:"user_id"`
+	CursorName     *string `json:"cursor_name"`
+	CursorID       string  `json:"cursor_id"`
+	RowLimit       int32   `json:"row_limit"`
 }
 
 func (q *Queries) ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error) {
 	rows, err := q.db.Query(ctx, listChannelsPageAsc,
 		arg.LiveOnly,
+		arg.DownloadedOnly,
+		arg.FavoriteOnly,
+		arg.UserID,
 		arg.CursorName,
 		arg.CursorID,
 		arg.RowLimit,
@@ -209,24 +233,48 @@ WHERE (
     )
 )
   AND (
-    $2::text IS NULL
-    OR lower(c.broadcaster_name) < lower($2::text)
-    OR (lower(c.broadcaster_name) = lower($2::text) AND c.broadcaster_id < $3::text)
+    NOT $2::boolean
+    OR EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.broadcaster_id = c.broadcaster_id
+          AND v.status = 'DONE'
+          AND v.deleted_at IS NULL
+    )
+)
+  AND (
+    NOT $3::boolean
+    OR EXISTS (
+        SELECT 1 FROM channel_user_states cus
+        WHERE cus.broadcaster_id = c.broadcaster_id
+          AND cus.user_id = $4::text
+          AND cus.favorite
+    )
+)
+  AND (
+    $5::text IS NULL
+    OR lower(c.broadcaster_name) < lower($5::text)
+    OR (lower(c.broadcaster_name) = lower($5::text) AND c.broadcaster_id < $6::text)
   )
 ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
-LIMIT $4
+LIMIT $7
 `
 
 type ListChannelsPageDescParams struct {
-	LiveOnly   bool    `json:"live_only"`
-	CursorName *string `json:"cursor_name"`
-	CursorID   string  `json:"cursor_id"`
-	RowLimit   int32   `json:"row_limit"`
+	LiveOnly       bool    `json:"live_only"`
+	DownloadedOnly bool    `json:"downloaded_only"`
+	FavoriteOnly   bool    `json:"favorite_only"`
+	UserID         string  `json:"user_id"`
+	CursorName     *string `json:"cursor_name"`
+	CursorID       string  `json:"cursor_id"`
+	RowLimit       int32   `json:"row_limit"`
 }
 
 func (q *Queries) ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error) {
 	rows, err := q.db.Query(ctx, listChannelsPageDesc,
 		arg.LiveOnly,
+		arg.DownloadedOnly,
+		arg.FavoriteOnly,
+		arg.UserID,
 		arg.CursorName,
 		arg.CursorID,
 		arg.RowLimit,

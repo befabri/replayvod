@@ -123,6 +123,16 @@ type VideoResponse struct {
 	// can use /api/v1/videos/{id}/playback/stream; building/failed/unavailable
 	// keep the client-side part sequencer as the fallback.
 	PlaybackArtifact *VideoPlaybackAssetResponse `json:"playback_artifact,omitempty"`
+	// UserState is scoped to the authenticated user.
+	UserState *VideoUserStateResponse `json:"user_state,omitempty"`
+}
+
+type VideoUserStateResponse struct {
+	WatchLater          bool       `json:"watch_later"`
+	LastPositionSeconds float64    `json:"last_position_seconds"`
+	WatchedAt           *time.Time `json:"watched_at,omitempty"`
+	CompletedAt         *time.Time `json:"completed_at,omitempty"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // VideoPartResponse mirrors repository.VideoPart with stable JSON tags.
@@ -167,6 +177,19 @@ func toVideoPlaybackAssetResponse(asset *repository.VideoPlaybackAsset) *VideoPl
 		GeneratedAt:     asset.GeneratedAt,
 		LastAccessedAt:  asset.LastAccessedAt,
 		UpdatedAt:       asset.UpdatedAt,
+	}
+}
+
+func toVideoUserStateResponse(state *repository.VideoUserState) *VideoUserStateResponse {
+	if state == nil {
+		return nil
+	}
+	return &VideoUserStateResponse{
+		WatchLater:          state.WatchLater,
+		LastPositionSeconds: state.LastPositionSeconds,
+		WatchedAt:           state.WatchedAt,
+		CompletedAt:         state.CompletedAt,
+		UpdatedAt:           state.UpdatedAt,
 	}
 }
 
@@ -264,12 +287,14 @@ func formatQualityLabel(quality string, fps *float64) string {
 // missing fields with a per-card channel.getById call, which on a
 // 10-row grid took the batch over trpcgo's 10-procedure ceiling and
 // 400'd the whole dashboard.
-func (h *Handler) toVideoResponses(ctx context.Context, vs []repository.Video) []VideoResponse {
+func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repository.Video) []VideoResponse {
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vs)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vs)
+	userStates := h.video.UserStatesByVideoID(ctx, userID, vs)
 	out := make([]VideoResponse, len(vs))
 	for i := range vs {
 		out[i] = toVideoResponse(&vs[i], channels[vs[i].BroadcasterID], primaryCategories[vs[i].ID])
+		out[i].UserState = toVideoUserStateResponse(userStates[vs[i].ID])
 	}
 	return out
 }
@@ -286,6 +311,10 @@ type ListInput struct {
 }
 
 func (h *Handler) List(ctx context.Context, input ListInput) ([]VideoResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
@@ -299,6 +328,7 @@ func (h *Handler) List(ctx context.Context, input ListInput) ([]VideoResponse, e
 		order = "desc"
 	}
 	vids, err := h.video.List(ctx, repository.ListVideosOpts{
+		UserID: user.ID,
 		Status: input.Status,
 		Sort:   input.Sort,
 		Order:  order,
@@ -308,7 +338,7 @@ func (h *Handler) List(ctx context.Context, input ListInput) ([]VideoResponse, e
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "list videos")
 	}
-	return h.toVideoResponses(ctx, vids), nil
+	return h.toVideoResponses(ctx, user.ID, vids), nil
 }
 
 type VideoListPageCursor struct {
@@ -332,6 +362,8 @@ type ListPageInput struct {
 	Size           string `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
 	Window         string `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
 	IncompleteOnly bool   `json:"incomplete_only,omitempty"`
+	WatchLaterOnly bool   `json:"watch_later_only,omitempty"`
+	UnwatchedOnly  bool   `json:"unwatched_only,omitempty"`
 	// TerminalOnly keeps active in-flight rows out of history-style views while
 	// still allowing those views to include both active terminal rows and
 	// tombstones through Scope="all".
@@ -351,6 +383,10 @@ type VideoListPageResponse struct {
 }
 
 func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListPageResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return VideoListPageResponse{}, err
+	}
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
@@ -366,6 +402,7 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 	durationMin, durationMax := videoDurationFilterBounds(input.Duration)
 	sizeMin, sizeMax := videoSizeFilterBounds(input.Size)
 	page, err := h.video.ListPage(ctx, repository.ListVideosOpts{
+		UserID:             user.ID,
 		Status:             input.Status,
 		Sort:               input.Sort,
 		Order:              order,
@@ -378,6 +415,8 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		SizeMaxBytes:       sizeMax,
 		Window:             input.Window,
 		IncompleteOnly:     input.IncompleteOnly,
+		WatchLaterOnly:     input.WatchLaterOnly,
+		UnwatchedOnly:      input.UnwatchedOnly,
 		TerminalOnly:       input.TerminalOnly,
 		Scope:              input.Scope,
 		Limit:              limit,
@@ -386,7 +425,7 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		return VideoListPageResponse{}, apierr.Map(h.log, err, "list videos")
 	}
 	return VideoListPageResponse{
-		Items:      h.toVideoResponses(ctx, page.Items),
+		Items:      h.toVideoResponses(ctx, user.ID, page.Items),
 		NextCursor: toVideoListPageCursor(page.NextCursor),
 	}, nil
 }
@@ -399,6 +438,10 @@ type SearchInput struct {
 }
 
 func (h *Handler) Search(ctx context.Context, input SearchInput) ([]VideoResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 8
@@ -407,7 +450,7 @@ func (h *Handler) Search(ctx context.Context, input SearchInput) ([]VideoRespons
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "search videos")
 	}
-	return h.toVideoResponses(ctx, vids), nil
+	return h.toVideoResponses(ctx, user.ID, vids), nil
 }
 
 func videoDurationFilterBounds(filter string) (*float64, *float64) {
@@ -622,6 +665,15 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, []repository.Video{*v})
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, []repository.Video{*v})
 	resp := toVideoResponse(v, channels[v.BroadcasterID], primaryCategories[v.ID])
+	if user := middleware.GetUser(ctx); user != nil {
+		if state, err := h.video.UserState(ctx, user.ID, v.ID); err != nil {
+			if !errors.Is(err, repository.ErrNotFound) {
+				h.log.Warn("get video user state", "video_id", v.ID, "user_id", user.ID, "error", err)
+			}
+		} else {
+			resp.UserState = toVideoUserStateResponse(state)
+		}
+	}
 	// Multi-part recordings expose their parts here so the player
 	// can iterate them. A parts lookup failure is logged but doesn't
 	// fail the whole getById — the player's fallback is to stream
@@ -650,6 +702,10 @@ type ByBroadcasterInput struct {
 }
 
 func (h *Handler) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (VideoPageResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return VideoPageResponse{}, err
+	}
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
@@ -659,7 +715,7 @@ func (h *Handler) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (
 		return VideoPageResponse{}, apierr.Map(h.log, err, "list videos by broadcaster")
 	}
 	return VideoPageResponse{
-		Items:      h.toVideoResponses(ctx, page.Items),
+		Items:      h.toVideoResponses(ctx, user.ID, page.Items),
 		NextCursor: toVideoPageCursor(page.NextCursor),
 	}, nil
 }
@@ -672,6 +728,10 @@ type ByCategoryInput struct {
 }
 
 func (h *Handler) ByCategory(ctx context.Context, input ByCategoryInput) (VideoPageResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return VideoPageResponse{}, err
+	}
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
@@ -681,7 +741,7 @@ func (h *Handler) ByCategory(ctx context.Context, input ByCategoryInput) (VideoP
 		return VideoPageResponse{}, apierr.Map(h.log, err, "list videos by category")
 	}
 	return VideoPageResponse{
-		Items:      h.toVideoResponses(ctx, page.Items),
+		Items:      h.toVideoResponses(ctx, user.ID, page.Items),
 		NextCursor: toVideoPageCursor(page.NextCursor),
 	}, nil
 }
@@ -750,17 +810,17 @@ type StatisticsResponse struct {
 	TotalSize     int64         `json:"total_size"`
 	TotalDuration float64       `json:"total_duration_seconds"`
 	ByStatus      []StatsBucket `json:"by_status"`
-	// ThisWeek and Incomplete drive the videos page tab counters.
-	// Incomplete spans completion_kind='partial' OR truncated rows
-	// — the same predicate as the Partial tab's server-side filter.
-	ThisWeek   int64 `json:"this_week"`
-	Incomplete int64 `json:"incomplete"`
+	ThisWeek      int64         `json:"this_week"`
+	Incomplete    int64         `json:"incomplete"`
 	// Channels is the count of distinct broadcasters represented in
 	// the videos table — used by the videos page subtitle.
 	Channels int64 `json:"channels"`
 	// Removed counts tombstoned recordings; drives the History "Removed" tab
 	// count (the only count not derivable from by_status, which is live-only).
 	Removed int64 `json:"removed"`
+	// WatchLater and Unwatched are per authenticated user.
+	WatchLater int64 `json:"watch_later"`
+	Unwatched  int64 `json:"unwatched"`
 }
 
 type ActiveDownloadResponse struct {
@@ -791,7 +851,11 @@ func (h *Handler) DownloadCapacity(ctx context.Context) (DownloadCapacityRespons
 }
 
 func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
-	stats, err := h.video.Stats(ctx)
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return StatisticsResponse{}, err
+	}
+	stats, err := h.video.Stats(ctx, user.ID)
 	if err != nil {
 		return StatisticsResponse{}, apierr.Map(h.log, err, "load statistics")
 	}
@@ -804,11 +868,54 @@ func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 		Incomplete:    stats.Totals.Incomplete,
 		Channels:      stats.Totals.Channels,
 		Removed:       stats.Totals.Removed,
+		WatchLater:    stats.Totals.WatchLater,
+		Unwatched:     stats.Totals.Unwatched,
 	}
 	for i, b := range stats.ByStatus {
 		out.ByStatus[i] = StatsBucket{Status: VideoStatus(b.Status), Count: b.Count}
 	}
 	return out, nil
+}
+
+type SetWatchLaterInput struct {
+	VideoID    int64 `json:"video_id" validate:"required"`
+	WatchLater bool  `json:"watch_later"`
+}
+
+func (h *Handler) SetWatchLater(ctx context.Context, input SetWatchLaterInput) (VideoUserStateResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return VideoUserStateResponse{}, err
+	}
+	state, err := h.video.SetWatchLater(ctx, user.ID, input.VideoID, input.WatchLater)
+	if err != nil {
+		return VideoUserStateResponse{}, apierr.Map(
+			h.log,
+			err,
+			"set watch later",
+			apierr.On(errVideoNotBookmarkable, trpcgo.CodeBadRequest, "video cannot be saved"),
+		)
+	}
+	return *toVideoUserStateResponse(state), nil
+}
+
+type UpdateWatchProgressInput struct {
+	VideoID         int64   `json:"video_id" validate:"required"`
+	PositionSeconds float64 `json:"position_seconds" validate:"min=0"`
+	Completed       bool    `json:"completed"`
+	ObservedAtMs    int64   `json:"observed_at_ms" validate:"required,min=1"`
+}
+
+func (h *Handler) UpdateWatchProgress(ctx context.Context, input UpdateWatchProgressInput) (VideoUserStateResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return VideoUserStateResponse{}, err
+	}
+	state, err := h.video.UpdateWatchProgress(ctx, user.ID, input.VideoID, input.PositionSeconds, input.Completed, input.ObservedAtMs)
+	if err != nil {
+		return VideoUserStateResponse{}, apierr.Map(h.log, err, "update watch progress")
+	}
+	return *toVideoUserStateResponse(state), nil
 }
 
 // ChannelStatisticsInput scopes a per-channel aggregate query.
@@ -839,14 +946,18 @@ func (h *Handler) StatisticsByBroadcaster(ctx context.Context, input ChannelStat
 }
 
 func (h *Handler) ActiveDownloads(ctx context.Context) ([]ActiveDownloadResponse, error) {
-	rows, err := h.activeDownloadsSnapshot(ctx)
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := h.activeDownloadsSnapshot(ctx, user.ID)
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "list active downloads")
 	}
 	return rows, nil
 }
 
-func (h *Handler) activeDownloadsSnapshot(ctx context.Context) ([]ActiveDownloadResponse, error) {
+func (h *Handler) activeDownloadsSnapshot(ctx context.Context, userID string) ([]ActiveDownloadResponse, error) {
 	progress := h.download.ActiveProgress()
 	if len(progress) == 0 {
 		return []ActiveDownloadResponse{}, nil
@@ -874,6 +985,7 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context) ([]ActiveDownload
 	}
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vids)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vids)
+	userStates := h.video.UserStatesByVideoID(ctx, userID, vids)
 
 	// Batch the per-video part lookup: this snapshot runs on every dashboard
 	// poll and every active-downloads SSE wake, so one query for the whole set
@@ -895,6 +1007,7 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context) ([]ActiveDownload
 			continue
 		}
 		resp := toVideoResponse(v, channels[v.BroadcasterID], primaryCategories[v.ID])
+		resp.UserState = toVideoUserStateResponse(userStates[v.ID])
 		if snap.Quality != "" {
 			resp.Quality = formatQualityLabel(snap.Quality, snap.FPS)
 			resp.FPS = snap.FPS
@@ -924,6 +1037,10 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context) ([]ActiveDownload
 var activeDownloadsCoalesceInterval = 250 * time.Millisecond
 
 func (h *Handler) ActiveDownloadsLive(ctx context.Context) (<-chan []ActiveDownloadResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
 	src := h.download.SubscribeActive(ctx)
 	out := make(chan []ActiveDownloadResponse, 8)
 
@@ -935,7 +1052,7 @@ func (h *Handler) ActiveDownloadsLive(ctx context.Context) (<-chan []ActiveDownl
 			delivered   bool
 		}
 		sendSnapshot := func() sendResult {
-			rows, err := h.activeDownloadsSnapshot(ctx)
+			rows, err := h.activeDownloadsSnapshot(ctx, user.ID)
 			if err != nil {
 				h.log.Error("stream active downloads", "error", err)
 				return sendResult{keepRunning: true}

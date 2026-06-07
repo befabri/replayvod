@@ -19,5 +19,6 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, tc *twitch.Cl
 	trpcgo.MustVoidQuery(tr, "channel.listFollowed", h.ListFollowed, viewer)
 	trpcgo.MustQuery(tr, "channel.search", h.Search, viewer)
 	trpcgo.MustQuery(tr, "channel.latestLive", h.LatestLive, viewer)
+	trpcgo.MustMutation(tr, "channel.setFavorite", h.SetFavorite, viewer)
 	trpcgo.MustMutation(tr, "channel.syncFromTwitch", h.SyncFromTwitch, owner)
 }
