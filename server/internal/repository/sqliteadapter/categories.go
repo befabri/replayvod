@@ -535,11 +535,3 @@ func sqliteCategorySearchCacheToDomain(c sqlitegen.CategorySearchCache) (*reposi
 		UpdatedAt:       c.UpdatedAt.Time,
 	}, nil
 }
-
-func sqliteTagToDomain(t sqlitegen.Tag) *repository.Tag {
-	return &repository.Tag{
-		ID:        t.ID,
-		Name:      t.Name,
-		CreatedAt: t.CreatedAt.Time,
-	}
-}

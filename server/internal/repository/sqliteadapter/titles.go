@@ -84,11 +84,3 @@ func (a *SQLiteAdapter) ListTitlesForVideo(ctx context.Context, videoID int64) (
 	}
 	return out, nil
 }
-
-func sqliteTitleToDomain(t sqlitegen.Title) *repository.Title {
-	return &repository.Title{
-		ID:        t.ID,
-		Name:      t.Name,
-		CreatedAt: t.CreatedAt.Time,
-	}
-}

@@ -68,11 +68,3 @@ func (a *PGAdapter) ListTitlesForVideo(ctx context.Context, videoID int64) ([]re
 	}
 	return out, nil
 }
-
-func pgTitleToDomain(t pggen.Title) *repository.Title {
-	return &repository.Title{
-		ID:        t.ID,
-		Name:      t.Name,
-		CreatedAt: t.CreatedAt,
-	}
-}

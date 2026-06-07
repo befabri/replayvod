@@ -533,11 +533,3 @@ func pgCategorySearchCacheToDomain(c pggen.CategorySearchCache) (*repository.Cat
 		UpdatedAt:       c.UpdatedAt,
 	}, nil
 }
-
-func pgTagToDomain(t pggen.Tag) *repository.Tag {
-	return &repository.Tag{
-		ID:        t.ID,
-		Name:      t.Name,
-		CreatedAt: t.CreatedAt,
-	}
-}
