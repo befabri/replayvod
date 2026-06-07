@@ -11,18 +11,12 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// TRPCHandler is the tRPC-transport adapter for the auth domain. Kept
-// thin: DTO conversion, ctx extraction, error-to-trpc-code
-// translation, and cookie side-effects (which the service layer stays
-// out of because they're a tRPC-context concern).
 type TRPCHandler struct {
 	svc        *Service
 	sessionMgr *session.Manager
 	log        *slog.Logger
 }
 
-// NewTRPCHandler wires the tRPC auth procedures onto the domain
-// Service.
 func NewTRPCHandler(svc *Service, sm *session.Manager, log *slog.Logger) *TRPCHandler {
 	return &TRPCHandler{
 		svc:        svc,
@@ -31,8 +25,6 @@ func NewTRPCHandler(svc *Service, sm *session.Manager, log *slog.Logger) *TRPCHa
 	}
 }
 
-// SessionResponse is the shape returned by auth.session — never
-// includes tokens.
 type SessionResponse struct {
 	UserID          string          `json:"user_id"`
 	Login           string          `json:"login"`
@@ -42,8 +34,6 @@ type SessionResponse struct {
 	Role            middleware.Role `json:"role"`
 }
 
-// Session returns the current authenticated user. Pure ctx extraction
-// — no service call needed.
 func (h *TRPCHandler) Session(ctx context.Context) (SessionResponse, error) {
 	user, err := middleware.RequireUser(ctx)
 	if err != nil {
@@ -59,12 +49,10 @@ func (h *TRPCHandler) Session(ctx context.Context) (SessionResponse, error) {
 	}, nil
 }
 
-// LogoutResult signals logout success.
 type LogoutResult struct {
 	OK bool `json:"ok"`
 }
 
-// Logout deletes the current session and clears the cookie.
 func (h *TRPCHandler) Logout(ctx context.Context) (LogoutResult, error) {
 	sess := middleware.GetSession(ctx)
 	if sess == nil {
@@ -77,7 +65,6 @@ func (h *TRPCHandler) Logout(ctx context.Context) (LogoutResult, error) {
 	return LogoutResult{OK: true}, nil
 }
 
-// SessionInfo is a single active session for the list endpoint.
 type SessionInfo struct {
 	HashedID     string    `json:"hashed_id"`
 	ExpiresAt    time.Time `json:"expires_at"`
@@ -116,7 +103,6 @@ func (h *TRPCHandler) ListSessions(ctx context.Context) ([]SessionInfo, error) {
 	return out, nil
 }
 
-// RevokeSessionInput specifies which session to revoke.
 type RevokeSessionInput struct {
 	HashedID string `json:"hashed_id" validate:"required"`
 }

@@ -53,7 +53,6 @@ type FetchLogEntry struct {
 	DurationMs    int64
 }
 
-// Client is the Twitch Helix API client.
 type Client struct {
 	clientID     string
 	clientSecret string
@@ -71,7 +70,6 @@ type Client struct {
 	retryBaseDelay time.Duration
 }
 
-// NewClient creates a new Twitch API client.
 func NewClient(clientID, clientSecret string, log *slog.Logger) *Client {
 	return &Client{
 		clientID:     clientID,
@@ -98,8 +96,6 @@ func (c *Client) SetHTTPClient(httpClient *http.Client) {
 func (c *Client) SetFetchLogRecorder(r FetchLogRecorder) {
 	c.recorder = r
 }
-
-// --- Context token plumbing ---
 
 type userTokenCtxKey struct{}
 type userIDCtxKey struct{}
@@ -136,9 +132,6 @@ func userIDFrom(ctx context.Context) *string {
 	return nil
 }
 
-// --- App access token (client_credentials grant, cached) ---
-
-// appAccessToken returns a cached app access token, refreshing when <5 min remain.
 func (c *Client) appAccessToken(ctx context.Context) (string, error) {
 	c.appTokenMu.Lock()
 	defer c.appTokenMu.Unlock()
@@ -161,8 +154,6 @@ func (c *Client) AppAccessToken(ctx context.Context) (string, error) {
 	return c.appAccessToken(ctx)
 }
 
-// --- Helix error ---
-
 // HelixError is returned when the Twitch API responds with a non-2xx status.
 // RetryAfter carries the server's requested wait (parsed from Retry-After, or
 // Ratelimit-Reset as a fallback) when present, so the retry loop can honor it;
@@ -176,8 +167,6 @@ type HelixError struct {
 func (e *HelixError) Error() string {
 	return fmt.Sprintf("twitch: helix %d: %s", e.Status, e.Body)
 }
-
-// --- HTTP helpers used by generated_client.go ---
 
 func (c *Client) get(ctx context.Context, path string, params any, out any) error {
 	return c.do(ctx, http.MethodGet, path, params, nil, out)
@@ -280,7 +269,6 @@ func (c *Client) doWithRetry(ctx context.Context, method, path string, params, b
 	}
 }
 
-// shouldRetryHelix reports whether a (method, status) pair is worth another try.
 func shouldRetryHelix(method string, status int) bool {
 	if status == http.StatusTooManyRequests {
 		return true
@@ -489,7 +477,6 @@ func extractBroadcasterID(params any) *string {
 	return nil
 }
 
-// isNilLike returns true for nil interfaces and typed-nil pointers.
 func isNilLike(v any) bool {
 	if v == nil {
 		return true
@@ -502,9 +489,6 @@ func isNilLike(v any) bool {
 	return false
 }
 
-// --- OAuth: kept hand-written ---
-
-// TokenResponse is the response from the Twitch token endpoint.
 type TokenResponse struct {
 	AccessToken  string   `json:"access_token"`
 	RefreshToken string   `json:"refresh_token"`
@@ -524,7 +508,6 @@ func (e *TokenRequestError) Error() string {
 	return fmt.Sprintf("token request error %d: %s", e.Status, e.Body)
 }
 
-// ExchangeCode exchanges an authorization code for tokens using PKCE.
 func (c *Client) ExchangeCode(ctx context.Context, code, redirectURI, codeVerifier string) (*TokenResponse, error) {
 	data := url.Values{
 		"client_id":     {c.clientID},
@@ -537,7 +520,6 @@ func (c *Client) ExchangeCode(ctx context.Context, code, redirectURI, codeVerifi
 	return c.tokenRequest(ctx, data)
 }
 
-// RefreshUserToken refreshes a user's access token.
 func (c *Client) RefreshUserToken(ctx context.Context, refreshToken string) (*TokenResponse, error) {
 	data := url.Values{
 		"client_id":     {c.clientID},

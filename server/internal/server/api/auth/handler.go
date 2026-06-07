@@ -30,8 +30,6 @@ type Handler struct {
 	log        *slog.Logger
 }
 
-// NewHandler creates a new auth Chi handler wired to the domain
-// Service.
 func NewHandler(cfg *config.Config, tc *twitch.Client, sm *session.Manager, svc *Service, log *slog.Logger) *Handler {
 	return &Handler{
 		cfg:        cfg,
@@ -42,7 +40,6 @@ func NewHandler(cfg *config.Config, tc *twitch.Client, sm *session.Manager, svc 
 	}
 }
 
-// SetupRoutes registers OAuth routes on the Chi router.
 func (h *Handler) SetupRoutes(r chi.Router) {
 	r.Get("/auth/twitch", h.handleRedirect)
 	r.Get("/auth/twitch/callback", h.handleCallback)

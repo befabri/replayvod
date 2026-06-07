@@ -40,9 +40,6 @@ type Service struct {
 	log         *slog.Logger
 }
 
-// New builds an EventSub service. callbackURL is the public URL
-// Twitch will POST to; secret is the HMAC secret Twitch will sign
-// deliveries with.
 func New(repo repository.Repository, tc *twitch.Client, callbackURL, secret string, log *slog.Logger) *Service {
 	return &Service{
 		repo:        repo,

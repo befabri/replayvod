@@ -10,7 +10,6 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// ctxKeyHTTPRequest stores the *http.Request for tRPC handlers.
 const ctxKeyHTTPRequest contextKey = "http_request"
 
 // RequireUser returns the authenticated user from ctx, or a CodeUnauthorized
@@ -25,19 +24,15 @@ func RequireUser(ctx context.Context) (*repository.User, error) {
 	return user, nil
 }
 
-// WithContextCreator is passed to trpcgo.WithContextCreator.
-// It stores the incoming *http.Request in the context so tRPC middleware can access cookies.
 func WithContextCreator(ctx context.Context, r *http.Request) context.Context {
 	return context.WithValue(ctx, ctxKeyHTTPRequest, r)
 }
 
-// getHTTPRequest returns the *http.Request stored in context.
 func getHTTPRequest(ctx context.Context) *http.Request {
 	r, _ := ctx.Value(ctxKeyHTTPRequest).(*http.Request)
 	return r
 }
 
-// TRPCAuth returns tRPC middleware that validates the session cookie and injects user context.
 func TRPCAuth(sessionMgr *session.Manager, repo repository.Repository, tokenProvider *SessionTokenProvider, log *slog.Logger) trpcgo.Middleware {
 	return func(next trpcgo.HandlerFunc) trpcgo.HandlerFunc {
 		return func(ctx context.Context, input any) (any, error) {
@@ -75,7 +70,6 @@ func TRPCAuth(sessionMgr *session.Manager, repo repository.Repository, tokenProv
 	}
 }
 
-// TRPCRequireRole returns tRPC middleware that enforces a minimum role.
 func TRPCRequireRole(minRole string) trpcgo.Middleware {
 	minLevel := roleLevel[minRole]
 

@@ -12,18 +12,15 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// Handler is the tRPC adapter for the stream domain.
 type Handler struct {
 	svc *Service
 	log *slog.Logger
 }
 
-// NewHandler wires a handler around a stream Service.
 func NewHandler(svc *Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log.With("domain", "stream-api")}
 }
 
-// StreamResponse is the wire shape for a stream record.
 type StreamResponse struct {
 	ID            string     `json:"id"`
 	BroadcasterID string     `json:"broadcaster_id"`

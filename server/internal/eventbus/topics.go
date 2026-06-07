@@ -13,7 +13,6 @@ type Buses struct {
 	RecordingTerminal *Topic[RecordingTerminalEvent]
 }
 
-// New constructs a bus set with sensible buffer sizes.
 func New() *Buses {
 	return &Buses{
 		EventLogs:         NewTopic[EventLogEvent](32),

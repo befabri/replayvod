@@ -25,7 +25,6 @@ type Handler struct {
 	log *slog.Logger
 }
 
-// NewHandler wires the tRPC adapter onto the schedule domain service.
 func NewHandler(svc *schedulesvc.Service, log *slog.Logger) *Handler {
 	return &Handler{
 		svc: svc,

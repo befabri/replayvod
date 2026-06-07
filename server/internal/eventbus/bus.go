@@ -87,7 +87,6 @@ func (t *Topic[T]) Publish(event T) {
 	}
 }
 
-// Count returns the current subscriber count. Test/debug only.
 func (t *Topic[T]) Count() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()

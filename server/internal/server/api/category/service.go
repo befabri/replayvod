@@ -1,7 +1,3 @@
-// Package category owns the category domain: business logic (Service)
-// and the tRPC adapter (Handler). Categories are populated by stream
-// enrichment on stream.online and by on-demand Twitch category searches
-// from scheduling; this surface is read-only from the UI's perspective.
 package category
 
 import (
@@ -61,7 +57,6 @@ const (
 	categorySearchCacheSweepInterval = 10 * time.Minute
 )
 
-// Service is the category domain service.
 type Service struct {
 	repo   categoryRepo
 	twitch categorySearcher
@@ -75,8 +70,6 @@ type Service struct {
 	lastCacheSweep time.Time
 }
 
-// shouldSweepCache reports whether enough time has elapsed to run the cache
-// maintenance again, recording the sweep time when it returns true.
 func (s *Service) shouldSweepCache(now time.Time) bool {
 	s.cacheSweepMu.Lock()
 	defer s.cacheSweepMu.Unlock()
@@ -87,11 +80,8 @@ func (s *Service) shouldSweepCache(now time.Time) bool {
 	return true
 }
 
-// Option customizes the category service. Tests use this to make cache
-// expiry deterministic without sleeping.
 type Option func(*Service)
 
-// WithClock overrides the service clock.
 func WithClock(now func() time.Time) Option {
 	return func(s *Service) {
 		if now != nil {
@@ -100,7 +90,6 @@ func WithClock(now func() time.Time) Option {
 	}
 }
 
-// New builds the service.
 func New(repo categoryRepo, tc categorySearcher, log *slog.Logger, opts ...Option) *Service {
 	if log == nil {
 		log = slog.Default()
@@ -117,18 +106,14 @@ func New(repo categoryRepo, tc categorySearcher, log *slog.Logger, opts ...Optio
 	return s
 }
 
-// GetByID returns a category by Twitch game_id, or ErrNotFound.
 func (s *Service) GetByID(ctx context.Context, id string) (*repository.Category, error) {
 	return s.repo.GetCategory(ctx, id)
 }
 
-// GetDetail returns category metadata plus local recording aggregates for the
-// category detail page.
 func (s *Service) GetDetail(ctx context.Context, id string) (*repository.CategoryDetail, error) {
 	return s.repo.GetCategoryDetail(ctx, id)
 }
 
-// List returns every mirrored category ordered by the repo's list query.
 func (s *Service) List(ctx context.Context) ([]repository.Category, error) {
 	return s.repo.ListCategories(ctx)
 }
@@ -141,7 +126,6 @@ func (s *Service) ListWithVideos(ctx context.Context) ([]repository.Category, er
 	return s.repo.ListCategoriesWithVideos(ctx)
 }
 
-// ListPage returns a cursor-paginated slice of browse/library categories.
 func (s *Service) ListPage(ctx context.Context, limit int, sort string, cursor *repository.CategoryPageCursor) (*repository.CategoryPage, error) {
 	return s.repo.ListCategoriesWithVideosPage(ctx, limit, sort, cursor)
 }

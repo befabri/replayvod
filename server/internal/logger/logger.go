@@ -18,8 +18,6 @@ func init() {
 	slog.SetDefault(slog.New(handler))
 }
 
-// Close releases any resources held by the logger (e.g., open log file).
-// Call this during graceful shutdown.
 func Close() {
 	if logFile != nil {
 		logFile.Close()
@@ -27,7 +25,6 @@ func Close() {
 	}
 }
 
-// ParseLogLevel converts a string log level to slog.Level.
 func ParseLogLevel(level string) slog.Level {
 	switch level {
 	case "debug":
@@ -43,12 +40,10 @@ func ParseLogLevel(level string) slog.Level {
 	}
 }
 
-// SetupLogger configures the global logger with console and optional file output.
 func SetupLogger(output io.Writer, serviceName string, logToFile bool, logDir string) *slog.Logger {
 	return SetupLoggerWithLevel(output, serviceName, logToFile, logDir, slog.LevelDebug)
 }
 
-// SetupLoggerWithLevel configures the global logger with a specific log level.
 func SetupLoggerWithLevel(output io.Writer, serviceName string, logToFile bool, logDir string, level slog.Level) *slog.Logger {
 	var handlers []slog.Handler
 

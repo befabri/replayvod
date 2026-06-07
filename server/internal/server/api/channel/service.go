@@ -1,6 +1,3 @@
-// Package channel owns the channel domain: reading mirrored channel +
-// follow data, and the Twitch-side sync that upserts a channel from
-// /users + /channels endpoints.
 package channel
 
 import (
@@ -27,35 +24,28 @@ type channelRepo interface {
 	UpsertChannel(ctx context.Context, c *repository.Channel) (*repository.Channel, error)
 }
 
-// Service is the channel domain service.
 type Service struct {
 	repo   channelRepo
 	twitch *twitch.Client
 	log    *slog.Logger
 }
 
-// New builds the service.
 func New(repo channelRepo, tc *twitch.Client, log *slog.Logger) *Service {
 	return &Service{repo: repo, twitch: tc, log: log.With("domain", "channel")}
 }
 
-// GetByID returns the mirrored channel row, if any. Returns
-// repository.ErrNotFound if the channel isn't mirrored.
 func (s *Service) GetByID(ctx context.Context, broadcasterID string) (*repository.Channel, error) {
 	return s.repo.GetChannel(ctx, broadcasterID)
 }
 
-// GetByLogin returns the mirrored channel row by login name.
 func (s *Service) GetByLogin(ctx context.Context, login string) (*repository.Channel, error) {
 	return s.repo.GetChannelByLogin(ctx, login)
 }
 
-// List returns every mirrored channel.
 func (s *Service) List(ctx context.Context) ([]repository.Channel, error) {
 	return s.repo.ListChannels(ctx)
 }
 
-// ListPage returns a cursor-paginated slice of mirrored channels.
 func (s *Service) ListPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
 	return s.repo.ListChannelsPage(ctx, limit, sort, normalizeChannelFilter(filter), userID, cursor)
 }
@@ -69,7 +59,6 @@ func normalizeChannelFilter(filter string) string {
 	}
 }
 
-// ListFollowedByUser returns the channels the given user follows.
 func (s *Service) ListFollowedByUser(ctx context.Context, userID string) ([]repository.Channel, error) {
 	return s.repo.ListUserFollows(ctx, userID)
 }
@@ -117,8 +106,6 @@ func (s *Service) SetFavorite(ctx context.Context, userID string, broadcasterID 
 	return s.repo.SetChannelFavorite(ctx, userID, broadcasterID, favorite)
 }
 
-// LatestLive returns the most recent stream per broadcaster (flattened
-// with channel display metadata), newest first, up to limit rows.
 func (s *Service) LatestLive(ctx context.Context, limit int) ([]repository.LatestLiveStream, error) {
 	return s.repo.ListLatestLivePerChannel(ctx, limit)
 }

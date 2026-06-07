@@ -10,18 +10,15 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// Handler is the tRPC adapter for the category domain.
 type Handler struct {
 	svc *Service
 	log *slog.Logger
 }
 
-// NewHandler wires a handler around a category Service.
 func NewHandler(svc *Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log.With("domain", "category-api")}
 }
 
-// CategoryResponse is the wire shape for a category.
 type CategoryResponse struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`

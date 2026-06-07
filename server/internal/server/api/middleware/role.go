@@ -30,7 +30,6 @@ var roleLevel = map[string]int{
 	RoleOwner:  3,
 }
 
-// RequireRole returns middleware that checks if the user has the minimum required role.
 func RequireRole(minRole string) func(http.Handler) http.Handler {
 	minLevel := roleLevel[minRole]
 

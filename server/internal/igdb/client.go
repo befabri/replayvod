@@ -27,7 +27,6 @@ type TokenProvider interface {
 	AppAccessToken(ctx context.Context) (string, error)
 }
 
-// Client is a small APICalypse client for the IGDB endpoints ReplayVOD needs.
 type Client struct {
 	clientID       string
 	tokenProvider  TokenProvider
@@ -37,7 +36,6 @@ type Client struct {
 	retryBaseDelay time.Duration
 }
 
-// Game is the subset of IGDB game fields used for Twitch category enrichment.
 type Game struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`
@@ -46,7 +44,6 @@ type Game struct {
 	URL       string `json:"url"`
 }
 
-// Error is returned when IGDB responds with a non-2xx status.
 type Error struct {
 	Status     int
 	Body       string

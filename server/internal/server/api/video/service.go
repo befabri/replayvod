@@ -1,7 +1,3 @@
-// Package video owns the video domain: metadata reads (Service),
-// download control plane (DownloadService), and the HTTP streaming
-// handler for playback. The domain co-locates the tRPC handler, the
-// Chi byte-range streaming handler, and the two domain services.
 package video
 
 import (
@@ -15,7 +11,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 )
 
-// Service owns video-domain reads and per-user playback state.
 type Service struct {
 	repo repository.Repository
 	log  *slog.Logger
@@ -23,39 +18,30 @@ type Service struct {
 
 var errVideoNotBookmarkable = errors.New("video: recording cannot be saved")
 
-// New builds the video service.
 func New(repo repository.Repository, log *slog.Logger) *Service {
 	return &Service{repo: repo, log: log.With("domain", "video")}
 }
 
-// List returns a paginated page of videos, optionally filtered by
-// status and sorted per opts.Sort/Order. Empty values fall back to
-// created-desc at the SQL layer.
 func (s *Service) List(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
 	return s.repo.ListVideos(ctx, opts)
 }
 
-// ListPage returns a cursor-paginated page of videos for the main library view.
 func (s *Service) ListPage(ctx context.Context, opts repository.ListVideosOpts, cursor *repository.VideoListPageCursor) (*repository.VideoListPage, error) {
 	return s.repo.ListVideosPage(ctx, opts, cursor)
 }
 
-// Search returns a small ranked list of videos for the global navbar search.
 func (s *Service) Search(ctx context.Context, query string, limit int) ([]repository.Video, error) {
 	return s.repo.SearchVideos(ctx, query, limit)
 }
 
-// GetByID returns a single video row or repository.ErrNotFound.
 func (s *Service) GetByID(ctx context.Context, id int64) (*repository.Video, error) {
 	return s.repo.GetVideo(ctx, id)
 }
 
-// ListByBroadcaster returns a cursor-paginated page of videos for a channel.
 func (s *Service) ListByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
 	return s.repo.ListVideosByBroadcaster(ctx, broadcasterID, limit, cursor)
 }
 
-// ListByCategory returns a cursor-paginated page of videos tagged with a category.
 func (s *Service) ListByCategory(ctx context.Context, categoryID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
 	return s.repo.ListVideosByCategory(ctx, categoryID, limit, cursor)
 }
@@ -156,9 +142,6 @@ func (s *Service) Stats(ctx context.Context, userID string) (*Statistics, error)
 	return &Statistics{Totals: totals, ByStatus: buckets}, nil
 }
 
-// StatsByBroadcaster returns the per-channel rollup of finished
-// recordings (count + bytes + duration). Used by the watch page to
-// render a "N recordings · X GB" line under the channel header.
 func (s *Service) StatsByBroadcaster(ctx context.Context, broadcasterID string) (*repository.VideoStatsTotals, error) {
 	return s.repo.VideoStatsTotalsByBroadcaster(ctx, broadcasterID)
 }

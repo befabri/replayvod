@@ -19,14 +19,12 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// Handler is the tRPC adapter around the eventsub domain service.
 type Handler struct {
 	svc       *eventsubsvc.Service
 	configSvc *eventsubconfig.Service
 	log       *slog.Logger
 }
 
-// NewHandler creates a new eventsub tRPC handler.
 func NewHandler(svc *eventsubsvc.Service, configSvc *eventsubconfig.Service, log *slog.Logger) *Handler {
 	return &Handler{
 		svc:       svc,
@@ -152,7 +150,6 @@ func (h *Handler) UpdateConfig(ctx context.Context, input UpdateConfigInput) (Co
 	return stateToResponse(state), nil
 }
 
-// SubscriptionResponse is the wire shape for a Subscription row.
 type SubscriptionResponse struct {
 	ID                string          `json:"id"`
 	Status            string          `json:"status"`
@@ -187,7 +184,6 @@ func subToResponse(s *repository.Subscription) SubscriptionResponse {
 	}
 }
 
-// SnapshotResponse is the wire shape for the quota poll row.
 type SnapshotResponse struct {
 	ID           int64     `json:"id"`
 	Total        int64     `json:"total"`

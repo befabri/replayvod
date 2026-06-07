@@ -51,7 +51,6 @@ type Config struct {
 	OwnerTwitchID string
 }
 
-// Service is the auth domain service.
 type Service struct {
 	repo       repository.Repository
 	sessionMgr *session.Manager
@@ -60,7 +59,6 @@ type Service struct {
 	log        *slog.Logger
 }
 
-// New builds the service.
 func New(repo repository.Repository, sm *session.Manager, tc *twitch.Client, cfg Config, log *slog.Logger) *Service {
 	return &Service{
 		repo:       repo,

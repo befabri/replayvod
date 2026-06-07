@@ -25,14 +25,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// RunFunc is the body of a scheduled task. Returning an error marks
-// the run as failed; returning nil marks it success. The error message
-// is stored on tasks.last_error for the dashboard.
 type RunFunc func(ctx context.Context) error
 
-// Task is a scheduler registration: a unique name, the cadence in
-// seconds (0 = manual-only), a human-readable description, and the
-// body.
 type Task struct {
 	Name            string
 	Description     string
@@ -40,8 +34,6 @@ type Task struct {
 	Run             RunFunc
 }
 
-// Service is the scheduler runtime. Safe for concurrent registration
-// before Start, and safe for concurrent Stop while tasks are running.
 type Service struct {
 	repo repository.Repository
 	log  *slog.Logger
@@ -59,10 +51,6 @@ type Service struct {
 	wg      sync.WaitGroup
 }
 
-// NewService builds a scheduler. pollInterval is how often the ticker
-// checks for due tasks — 15s is a reasonable default; a task with a
-// 1-minute interval will slip up to pollInterval on its firing time.
-// bus may be nil in tests or degraded modes.
 func NewService(repo repository.Repository, log *slog.Logger, pollInterval time.Duration, bus *eventbus.Buses) *Service {
 	if pollInterval <= 0 {
 		pollInterval = 15 * time.Second
@@ -78,9 +66,6 @@ func NewService(repo repository.Repository, log *slog.Logger, pollInterval time.
 	}
 }
 
-// Register adds a task to the scheduler. Call Register before Start;
-// registering after Start is allowed but the new task's interval won't
-// be reflected in the DB until the next startup.
 func (s *Service) Register(t Task) error {
 	if t.Name == "" {
 		return fmt.Errorf("scheduler: task name required")
@@ -97,10 +82,6 @@ func (s *Service) Register(t Task) error {
 	return nil
 }
 
-// Start persists every registered task's metadata to the DB (UpsertTask
-// preserves runtime state) and launches the ticker loop. Start returns
-// after the initial persistence so callers can surface any DB errors;
-// the loop runs in a goroutine.
 func (s *Service) Start(ctx context.Context) error {
 	s.mu.Lock()
 	for _, t := range s.tasks {
@@ -116,8 +97,6 @@ func (s *Service) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop signals the scheduler to exit and blocks until in-flight tasks
-// return. Safe to call more than once; subsequent calls are no-ops.
 func (s *Service) Stop() {
 	s.mu.Lock()
 	if s.stopped {

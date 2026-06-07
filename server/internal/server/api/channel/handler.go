@@ -12,18 +12,15 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// Handler is the tRPC adapter for the channel domain.
 type Handler struct {
 	svc *Service
 	log *slog.Logger
 }
 
-// NewHandler wires a handler around a channel Service.
 func NewHandler(svc *Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log.With("domain", "channel-api")}
 }
 
-// ChannelResponse is the wire shape for a channel.
 type ChannelResponse struct {
 	BroadcasterID       string                    `json:"broadcaster_id"`
 	BroadcasterLogin    string                    `json:"broadcaster_login"`

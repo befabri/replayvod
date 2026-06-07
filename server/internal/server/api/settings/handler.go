@@ -10,13 +10,11 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 )
 
-// Handler is the tRPC adapter for the settings domain.
 type Handler struct {
 	svc *Service
 	log *slog.Logger
 }
 
-// NewHandler wires a handler around a settings Service.
 func NewHandler(svc *Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log.With("domain", "settings-api")}
 }

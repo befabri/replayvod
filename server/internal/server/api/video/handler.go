@@ -26,7 +26,6 @@ type RecordingDeletionRequester interface {
 	RequestManualDelete(ctx context.Context, video *repository.Video) error
 }
 
-// Handler is the tRPC adapter for the video domain.
 type Handler struct {
 	video    *Service
 	download *DownloadService
@@ -35,10 +34,6 @@ type Handler struct {
 	log      *slog.Logger
 }
 
-// NewHandler wires a handler around the two video domain services.
-// storage is used by the Snapshots endpoint to probe for the
-// hover-preview images saved during recording. deletion queues background
-// recording removal for video.delete.
 func NewHandler(video *Service, download *DownloadService, deletion RecordingDeletionRequester, store storage.Storage, log *slog.Logger) *Handler {
 	return &Handler{
 		video:    video,
@@ -135,7 +130,6 @@ type VideoUserStateResponse struct {
 	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
-// VideoPartResponse mirrors repository.VideoPart with stable JSON tags.
 type VideoPartResponse struct {
 	ID              int64    `json:"id"`
 	PartIndex       int32    `json:"part_index"`
@@ -299,9 +293,6 @@ func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repo
 	return out
 }
 
-// ListInput carries the pagination + filter + sort dimensions for
-// video.list. Sort/Order are whitelisted at the validator; the SQL
-// defaults to start_download_at DESC when either is empty.
 type ListInput struct {
 	Limit  int    `json:"limit" validate:"min=0,max=200"`
 	Offset int    `json:"offset" validate:"min=0"`
@@ -492,10 +483,6 @@ type GetByIDInput struct {
 	ID int64 `json:"id" validate:"required"`
 }
 
-// TitleItem is the wire shape for one title in a video's history.
-// ID is the deduplicated titles row; Name is the broadcast label.
-// Listed in the order the titles were first linked to the video
-// (opening title first, change events after).
 type TitleItem struct {
 	ID              int64      `json:"id"`
 	Name            string     `json:"name"`
@@ -508,9 +495,6 @@ type TitlesInput struct {
 	VideoID int64 `json:"video_id" validate:"required"`
 }
 
-// VideoCategory is the wire shape for one category in a video's
-// history. Parallels TitleItem — opening category first, mid-stream
-// game switches after, distinct rows only.
 type VideoCategory struct {
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
@@ -524,29 +508,20 @@ type CategoriesInput struct {
 	VideoID int64 `json:"video_id" validate:"required"`
 }
 
-// VideoPageCursor identifies the last row from the previous page so the
-// next query can continue with stable keyset pagination.
 type VideoPageCursor struct {
 	StartDownloadAt time.Time `json:"start_download_at" validate:"required"`
 	ID              int64     `json:"id" validate:"required"`
 }
 
-// VideoPageResponse is the cursor-paginated envelope for channel/category
-// detail video grids. next_cursor is omitted on the terminal page.
 type VideoPageResponse struct {
 	Items      []VideoResponse  `json:"items"`
 	NextCursor *VideoPageCursor `json:"next_cursor,omitempty"`
 }
 
-// SnapshotsInput identifies a video whose live-recording snapshots
-// should be listed.
 type SnapshotsInput struct {
 	VideoID int64 `json:"video_id" validate:"required"`
 }
 
-// Snapshots returns the ordered list of snapshot paths (relative to
-// the storage root) captured during a recording. The frontend uses
-// this to cycle through thumbnails on hover.
 func (h *Handler) Snapshots(ctx context.Context, input SnapshotsInput) ([]string, error) {
 	paths, err := h.video.ListSnapshots(ctx, h.storage, input.VideoID)
 	if err != nil {
@@ -594,16 +569,11 @@ func (h *Handler) Categories(ctx context.Context, input CategoriesInput) ([]Vide
 	return out, nil
 }
 
-// TimelineTitle is the embedded title payload on a timeline event.
-// Absent at the parent level when the originating channel.update
-// did not carry a title.
 type TimelineTitle struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 }
 
-// TimelineCategory is the embedded category payload on a timeline
-// event. Absent when the originating event did not carry a category.
 type TimelineCategory struct {
 	ID        string  `json:"id"`
 	Name      string  `json:"name"`
@@ -839,13 +809,10 @@ type ActiveDownloadResponse struct {
 	MediaOffsetSeconds *float64      `json:"media_offset_seconds,omitempty"`
 }
 
-// DownloadCapacityResponse reports the service-wide concurrent-download cap so
-// the dashboard can render an "active / max" readout.
 type DownloadCapacityResponse struct {
 	MaxConcurrent int `json:"max_concurrent"`
 }
 
-// DownloadCapacity returns the static concurrent-download cap.
 func (h *Handler) DownloadCapacity(ctx context.Context) (DownloadCapacityResponse, error) {
 	return DownloadCapacityResponse{MaxConcurrent: h.download.MaxConcurrent()}, nil
 }
@@ -923,7 +890,6 @@ type ChannelStatisticsInput struct {
 	BroadcasterID string `json:"broadcaster_id"`
 }
 
-// ChannelStatisticsResponse is the wire shape for video.statisticsByBroadcaster.
 type ChannelStatisticsResponse struct {
 	Total         int64   `json:"total"`
 	TotalSize     int64   `json:"total_size"`
@@ -1163,8 +1129,6 @@ type TriggerDownloadInput struct {
 	ForceH264     bool   `json:"force_h264,omitempty"`
 }
 
-// TriggerDownloadResponse returns the job id so the UI can subscribe
-// to progress.
 type TriggerDownloadResponse struct {
 	JobID   string `json:"job_id"`
 	VideoID int64  `json:"video_id"`

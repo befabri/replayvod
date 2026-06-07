@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// User is the domain model for an authenticated Twitch user.
 type User struct {
 	ID              string
 	Login           string
@@ -30,7 +29,6 @@ type Session struct {
 	CreatedAt       time.Time
 }
 
-// SessionInfo is a read-only view of a session (no encrypted tokens).
 type SessionInfo struct {
 	HashedID     string
 	UserID       string
@@ -41,7 +39,6 @@ type SessionInfo struct {
 	CreatedAt    time.Time
 }
 
-// AppAccessToken is a Twitch app access token (client credentials).
 type AppAccessToken struct {
 	ID        int64
 	Token     string
@@ -49,13 +46,11 @@ type AppAccessToken struct {
 	CreatedAt time.Time
 }
 
-// WhitelistEntry is an allowed Twitch user ID.
 type WhitelistEntry struct {
 	TwitchUserID string
 	AddedAt      time.Time
 }
 
-// Channel is a Twitch broadcaster channel.
 type Channel struct {
 	BroadcasterID       string
 	BroadcasterLogin    string
@@ -84,7 +79,6 @@ type ChannelPageCursor struct {
 	BroadcasterID   string
 }
 
-// ChannelPage is one cursor-paginated slice of channels.
 type ChannelPage struct {
 	Items      []Channel
 	NextCursor *ChannelPageCursor
@@ -100,7 +94,6 @@ type ChannelUserState struct {
 	UpdatedAt     time.Time
 }
 
-// UserFollow tracks a user's follow relationship with a channel.
 type UserFollow struct {
 	UserID        string
 	BroadcasterID string
@@ -108,7 +101,6 @@ type UserFollow struct {
 	Followed      bool
 }
 
-// Category is a Twitch game/category.
 type Category struct {
 	ID                    string
 	Name                  string
@@ -148,7 +140,6 @@ type CategoryPageItem struct {
 	VideoCount    int64
 }
 
-// CategoryPage is one cursor-paginated slice of library categories.
 type CategoryPage struct {
 	Items      []Category
 	NextCursor *CategoryPageCursor
@@ -217,8 +208,6 @@ type CategorySearchCache struct {
 	UpdatedAt       time.Time
 }
 
-// CategorySearchCacheInput is the durable cache payload written after a
-// successful Twitch category search.
 type CategorySearchCacheInput struct {
 	NormalizedQuery string
 	CategoryIDs     []string
@@ -226,14 +215,12 @@ type CategorySearchCacheInput struct {
 	LastAccessedAt  time.Time
 }
 
-// Tag is a stream tag.
 type Tag struct {
 	ID        int64
 	Name      string
 	CreatedAt time.Time
 }
 
-// FetchLog is an audit entry for a Twitch API call.
 type FetchLog struct {
 	ID            int64
 	UserID        *string
@@ -245,7 +232,6 @@ type FetchLog struct {
 	FetchedAt     time.Time
 }
 
-// FetchLogInput is the input for CreateFetchLog.
 type FetchLogInput struct {
 	UserID        *string
 	FetchType     string
@@ -268,7 +254,6 @@ const (
 	QualityHigh   = "HIGH"
 )
 
-// Stream is a single Twitch broadcast session.
 type Stream struct {
 	ID            string
 	BroadcasterID string
@@ -293,7 +278,6 @@ type LatestLiveStream struct {
 	ProfileImageURL  *string
 }
 
-// StreamInput is the upsert payload for a stream snapshot.
 type StreamInput struct {
 	ID            string
 	BroadcasterID string
@@ -633,7 +617,6 @@ type VideoPlaybackAssetInput struct {
 	LastAccessedAt  *time.Time
 }
 
-// Title is a stream/video title string (deduplicated by name).
 type Title struct {
 	ID        int64
 	Name      string
@@ -649,7 +632,6 @@ type TitleSpan struct {
 	DurationSeconds float64
 }
 
-// CategorySpan is one concrete interval during which a video carried a category.
 type CategorySpan struct {
 	Category
 	StartedAt       time.Time
@@ -717,7 +699,6 @@ type VideoStatsTotals struct {
 	Unwatched  int64
 }
 
-// VideoStatsByStatus is one bucket of the status histogram.
 type VideoStatsByStatus struct {
 	Status string
 	Count  int64
@@ -935,7 +916,6 @@ type SubscriptionInput struct {
 	TwitchCreatedAt   time.Time
 }
 
-// EventSubSnapshot is a periodic snapshot of aggregate subscription cost.
 type EventSubSnapshot struct {
 	ID           int64
 	Total        int64
@@ -1096,8 +1076,6 @@ type EventLogInput struct {
 	Data        json.RawMessage
 }
 
-// Settings is a user's display preferences. One row per user, keyed
-// by users.id with ON DELETE CASCADE.
 type Settings struct {
 	UserID         string
 	Timezone       string

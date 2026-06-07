@@ -36,14 +36,6 @@ type streamHydrator interface {
 // the fix.
 var ErrChannelNotSynced = errors.New("video: channel not synced")
 
-// DownloadService owns the download control-plane business logic:
-// trigger (validate channel exists, attach user-token context for
-// Helix attribution, enqueue into the downloader), cancel, and
-// progress subscription.
-//
-// The actual download/ffmpeg pipeline lives in internal/downloader.
-// This service is the operator-facing wrapper that sits between the
-// tRPC transport and that pipeline.
 type DownloadService struct {
 	repo          downloadRepo
 	downloader    downloadRunner
@@ -53,9 +45,6 @@ type DownloadService struct {
 	log           *slog.Logger
 }
 
-// MaxConcurrent reports the service-wide in-flight download cap captured at
-// construction (the downloader's static config). Zero when no downloader is
-// wired (read-only server modes).
 func (s *DownloadService) MaxConcurrent() int {
 	return s.maxConcurrent
 }

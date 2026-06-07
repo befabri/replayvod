@@ -14,14 +14,11 @@ import (
 	"github.com/befabri/replayvod/server/internal/eventbus"
 )
 
-// Handler wraps the bus for tRPC procedure signatures.
 type Handler struct {
 	bus *eventbus.Buses
 	log *slog.Logger
 }
 
-// NewHandler builds an SSE handler bound to a topic set. bus may be
-// nil; each Subscribe method then returns a pre-closed channel.
 func NewHandler(bus *eventbus.Buses, log *slog.Logger) *Handler {
 	return &Handler{
 		bus: bus,
@@ -68,7 +65,6 @@ func (h *Handler) StreamStatus(ctx context.Context) (<-chan eventbus.StreamStatu
 	return h.bus.StreamStatus.Subscribe(ctx), nil
 }
 
-// TaskStatus streams scheduler task lifecycle transitions. Owner-only.
 func (h *Handler) TaskStatus(ctx context.Context) (<-chan eventbus.TaskStatusEvent, error) {
 	if h.bus == nil {
 		ch := make(chan eventbus.TaskStatusEvent)

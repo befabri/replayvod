@@ -1,5 +1,3 @@
-// Package settings owns per-user display preferences. Each user reads
-// and writes their own row; no cross-user access.
 package settings
 
 import (
@@ -19,13 +17,11 @@ const (
 	defaultLanguage       = "en"
 )
 
-// Service is the settings domain service.
 type Service struct {
 	repo repository.Repository
 	log  *slog.Logger
 }
 
-// New builds the service.
 func New(repo repository.Repository, log *slog.Logger) *Service {
 	return &Service{repo: repo, log: log.With("domain", "settings")}
 }
@@ -48,7 +44,6 @@ func (s *Service) Get(ctx context.Context, userID string) (*repository.Settings,
 	})
 }
 
-// Update writes the caller's preferences.
 func (s *Service) Update(ctx context.Context, input *repository.Settings) (*repository.Settings, error) {
 	return s.repo.UpsertSettings(ctx, input)
 }

@@ -10,8 +10,6 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// Handler is the tRPC adapter for the system (admin) domain. All
-// procedures it exposes are owner-gated at the router.
 type Handler struct {
 	svc *Service
 	log *slog.Logger
@@ -64,12 +62,10 @@ func (h *Handler) UpdatePlaybackCacheConfig(ctx context.Context, input UpdatePla
 	return playbackCacheConfigResponse(cfg), nil
 }
 
-// NewHandler wires a handler around a system Service.
 func NewHandler(svc *Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log.With("domain", "system-api")}
 }
 
-// FetchLogEntry is the wire shape for a fetch log entry.
 type FetchLogEntry struct {
 	ID            int64     `json:"id"`
 	UserID        *string   `json:"user_id,omitempty"`

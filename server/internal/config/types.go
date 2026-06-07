@@ -3,7 +3,6 @@ package config
 // Environment contains all settings from .env — infrastructure, secrets, paths.
 // These are static and require a restart to change.
 type Environment struct {
-	// Database
 	DatabaseDriver   string `env:"DATABASE_DRIVER" envDefault:"postgres"`
 	PostgresHost     string `env:"POSTGRES_HOST" envDefault:"127.0.0.1"`
 	PostgresPort     int    `env:"POSTGRES_PORT" envDefault:"5432"`
@@ -13,7 +12,6 @@ type Environment struct {
 	PostgresSSLMode  string `env:"POSTGRES_SSL_MODE" envDefault:"disable"`
 	SQLitePath       string `env:"SQLITE_PATH" envDefault:"./data/replayvod.db"`
 
-	// Twitch
 	TwitchClientID string `env:"TWITCH_CLIENT_ID"`
 	TwitchSecret   string `env:"TWITCH_SECRET"`
 
@@ -34,7 +32,6 @@ type Environment struct {
 	// config.toml is not expected to carry secrets.
 	ServiceAccountOAuthToken string `env:"TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN"`
 
-	// Server
 	Host string `env:"HOST" envDefault:"0.0.0.0"`
 	Port int    `env:"PORT" envDefault:"8080"`
 
@@ -45,13 +42,11 @@ type Environment struct {
 	// leaves the config.toml value alone.
 	DevelopmentOverride *bool `env:"DEVELOPMENT"`
 
-	// Security
 	SessionSecret      string `env:"SESSION_SECRET"`
 	WhitelistEnabled   bool   `env:"WHITELIST_ENABLED" envDefault:"false"`
 	WhitelistedUserIDs string `env:"WHITELISTED_USER_IDS"`
 	OwnerTwitchID      string `env:"OWNER_TWITCH_ID"`
 
-	// URLs
 	CallbackURL        string `env:"-"`
 	WebhookCallbackURL string `env:"WEBHOOK_CALLBACK_URL"`
 	FrontendURL        string `env:"-"`
@@ -97,7 +92,6 @@ type Environment struct {
 	// while this URL stays on the local machine.
 	RelayLocalCallbackURL string `env:"RELAY_LOCAL_CALLBACK_URL"`
 
-	// Paths
 	VideoDir     string `env:"VIDEO_DIR" envDefault:"./data/videos"`
 	ThumbnailDir string `env:"THUMBNAIL_DIR" envDefault:"./data/thumbnails"`
 	DashboardDir string `env:"DASHBOARD_DIR"`
@@ -353,7 +347,6 @@ type PostgresPoolConfig struct {
 	HealthCheckPeriodMs int   `toml:"health_check_period_ms"`
 }
 
-// Config is the combined configuration.
 type Config struct {
 	App        AppConfig
 	Env        Environment

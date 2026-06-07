@@ -15,7 +15,6 @@ import (
 const sessionTokenRefreshSkew = time.Minute
 const latestTokenReuseWindow = 2 * time.Minute
 
-// userTokenRefresher is the narrow Twitch client surface auth middleware needs.
 type userTokenRefresher interface {
 	RefreshUserToken(ctx context.Context, refreshToken string) (*twitch.TokenResponse, error)
 }

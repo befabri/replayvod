@@ -94,7 +94,6 @@ export interface CategoryPageResponse {
   next_cursor?: CategoryPageCursor;
 }
 
-/** CategoryResponse is the wire shape for a category. */
 export interface CategoryResponse {
   id: string;
   name: string;
@@ -139,7 +138,6 @@ export interface ChannelPageResponse {
   next_cursor?: ChannelPageCursor;
 }
 
-/** ChannelResponse is the wire shape for a channel. */
 export interface ChannelResponse {
   broadcaster_id: string;
   broadcaster_login: string;
@@ -172,7 +170,6 @@ export interface ChannelStatisticsInput {
   broadcaster_id: string;
 }
 
-/** ChannelStatisticsResponse is the wire shape for video.statisticsByBroadcaster. */
 export interface ChannelStatisticsResponse {
   total: number;
   total_size: number;
@@ -255,10 +252,6 @@ export interface DeleteResponse {
   id: number;
 }
 
-/**
- * DownloadCapacityResponse reports the service-wide concurrent-download cap so
- * the dashboard can render an "active / max" readout.
- */
 export interface DownloadCapacityResponse {
   max_concurrent: number;
 }
@@ -316,7 +309,6 @@ export interface EventsubListInput {
   offset: number;
 }
 
-/** FetchLogEntry is the wire shape for a fetch log entry. */
 export interface FetchLogEntry {
   id: number;
   user_id?: string;
@@ -413,7 +405,6 @@ export interface ListSubscriptionsResponse {
   total: number;
 }
 
-/** LogoutResult signals logout success. */
 export interface LogoutResult {
   ok: boolean;
 }
@@ -527,7 +518,6 @@ export interface RequestInput {
   video_id: number;
 }
 
-/** RevokeSessionInput specifies which session to revoke. */
 export interface RevokeSessionInput {
   hashed_id: string;
 }
@@ -655,7 +645,6 @@ export interface SearchEventLogsResponse {
  */
 export type ServerMode = "off" | "poll" | "direct" | "relay";
 
-/** SessionInfo is a single active session for the list endpoint. */
 export interface SessionInfo {
   hashed_id: string;
   expires_at: string;
@@ -666,10 +655,6 @@ export interface SessionInfo {
   current: boolean;
 }
 
-/**
- * SessionResponse is the shape returned by auth.session — never
- * includes tokens.
- */
 export interface SessionResponse {
   user_id: string;
   login: string;
@@ -708,7 +693,6 @@ export interface SettingsUpdateInput {
   language: string;
 }
 
-/** SnapshotResponse is the wire shape for the quota poll row. */
 export interface SnapshotResponse {
   id: number;
   total: number;
@@ -717,10 +701,6 @@ export interface SnapshotResponse {
   fetched_at: string;
 }
 
-/**
- * SnapshotsInput identifies a video whose live-recording snapshots
- * should be listed.
- */
 export interface SnapshotsInput {
   video_id: number;
 }
@@ -776,7 +756,6 @@ export interface StreamLiveEvent {
   job_id?: string;
 }
 
-/** StreamResponse is the wire shape for a stream record. */
 export interface StreamResponse {
   id: string;
   broadcaster_id: string;
@@ -820,7 +799,6 @@ export interface SubscribeInput {
   broadcaster_id: string;
 }
 
-/** SubscriptionResponse is the wire shape for a Subscription row. */
 export interface SubscriptionResponse {
   id: string;
   status: string;
@@ -850,7 +828,6 @@ export interface TagLink {
   name: string;
 }
 
-/** TagResponse is the wire shape for a tag row. */
 export interface TagResponse {
   id: number;
   name: string;
@@ -893,10 +870,6 @@ export interface TaskToggleInput {
   enabled: boolean;
 }
 
-/**
- * TimelineCategory is the embedded category payload on a timeline
- * event. Absent when the originating event did not carry a category.
- */
 export interface TimelineCategory {
   id: string;
   name: string;
@@ -919,22 +892,11 @@ export interface TimelineInput {
   video_id: number;
 }
 
-/**
- * TimelineTitle is the embedded title payload on a timeline event.
- * Absent at the parent level when the originating channel.update
- * did not carry a title.
- */
 export interface TimelineTitle {
   id: number;
   name: string;
 }
 
-/**
- * TitleItem is the wire shape for one title in a video's history.
- * ID is the deduplicated titles row; Name is the broadcast label.
- * Listed in the order the titles were first linked to the video
- * (opening title first, change events after).
- */
 export interface TitleItem {
   id: number;
   name: string;
@@ -961,10 +923,6 @@ export interface TriggerDownloadInput {
   force_h264?: boolean;
 }
 
-/**
- * TriggerDownloadResponse returns the job id so the UI can subscribe
- * to progress.
- */
 export interface TriggerDownloadResponse {
   job_id: string;
   video_id: number;
@@ -1028,11 +986,6 @@ export interface VideoByBroadcasterInput {
   direction?: string;
 }
 
-/**
- * VideoCategory is the wire shape for one category in a video's
- * history. Parallels TitleItem — opening category first, mid-stream
- * game switches after, distinct rows only.
- */
 export interface VideoCategory {
   id: string;
   name: string;
@@ -1050,11 +1003,6 @@ export interface VideoGetByIDInput {
   id: number;
 }
 
-/**
- * ListInput carries the pagination + filter + sort dimensions for
- * video.list. Sort/Order are whitelisted at the validator; the SQL
- * defaults to start_download_at DESC when either is empty.
- */
 export interface VideoListInput {
   limit: number;
   offset: number;
@@ -1112,25 +1060,16 @@ export interface VideoOK {
   ok: boolean;
 }
 
-/**
- * VideoPageCursor identifies the last row from the previous page so the
- * next query can continue with stable keyset pagination.
- */
 export interface VideoPageCursor {
   start_download_at: string;
   id: number;
 }
 
-/**
- * VideoPageResponse is the cursor-paginated envelope for channel/category
- * detail video grids. next_cursor is omitted on the terminal page.
- */
 export interface VideoPageResponse {
   items: VideoResponse[];
   next_cursor?: VideoPageCursor;
 }
 
-/** VideoPartResponse mirrors repository.VideoPart with stable JSON tags. */
 export interface VideoPartResponse {
   id: number;
   part_index: number;
@@ -1269,7 +1208,6 @@ export interface VideoSearchInput {
 
 export type VideoStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
 
-/** VideoSummary is a trimmed video view for the request list. */
 export interface VideoSummary {
   id: number;
   filename: string;

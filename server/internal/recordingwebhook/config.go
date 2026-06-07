@@ -52,15 +52,11 @@ type configStore interface {
 	SetRecordingWebhookSecret(ctx context.Context, secret string) error
 }
 
-// Service owns the persisted recording-webhook configuration. It is a thin
-// validating wrapper over the repository, in the same shape as the per-user
-// settings and eventsub-config services.
 type Service struct {
 	repo configStore
 	log  *slog.Logger
 }
 
-// New builds the config service.
 func New(repo configStore, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()

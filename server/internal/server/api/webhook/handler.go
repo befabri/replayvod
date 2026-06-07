@@ -1,12 +1,3 @@
-// Package webhook handles incoming Twitch EventSub webhook deliveries.
-//
-// Twitch verifies endpoint ownership with a challenge round-trip and then
-// POSTs notifications signed with HMAC-SHA256 over id‖timestamp‖body. The
-// handler re-computes the HMAC from the raw body (never the parsed JSON —
-// JSON round-trip changes the byte sequence and invalidates the signature),
-// rejects replay attempts outside the 10-minute window, dedups by
-// Twitch-Eventsub-Message-Id, and dispatches notifications to a domain
-// EventProcessor.
 package webhook
 
 import (
@@ -25,18 +16,11 @@ import (
 
 const maxWebhookBodyBytes = 1 << 20
 
-// EventProcessor is the hook the webhook handler uses to dispatch a decoded
-// notification to domain logic (schedule matcher, auto-download trigger).
-//
-// Implementations must be safe for concurrent use. The handler calls Process
-// synchronously so the request can return 2xx only after Process commits
-// side effects — retries from Twitch on handler timeout are de-duplicated
-// by the ON CONFLICT on webhook_events.event_id.
+// EventProcessor dispatches decoded notifications to domain logic.
 type EventProcessor interface {
 	Process(ctx context.Context, n *twitch.EventSubNotification) error
 }
 
-// Handler serves POST /api/v1/webhook/callback.
 type Handler struct {
 	repo       repository.Repository
 	hmacSecret string
@@ -45,8 +29,6 @@ type Handler struct {
 	maxAge     time.Duration
 }
 
-// NewHandler builds a webhook handler. maxAge of 0 uses
-// twitch.DefaultEventSubMessageMaxAge (10 minutes, per Twitch spec).
 func NewHandler(repo repository.Repository, hmacSecret string, processor EventProcessor, log *slog.Logger) *Handler {
 	return &Handler{
 		repo:       repo,
@@ -56,15 +38,12 @@ func NewHandler(repo repository.Repository, hmacSecret string, processor EventPr
 	}
 }
 
-// SetupRoutes registers the webhook route under /api/v1.
 func (h *Handler) SetupRoutes(r chi.Router) {
 	r.Post("/webhook/callback", h.handleCallback)
 }
 
 func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
-	// Reading the raw body first is load-bearing: HMAC covers the literal
-	// bytes Twitch sent, so we must never let middleware parse or re-encode
-	// the body between now and VerifyEventSubSignature.
+	// HMAC covers the literal bytes Twitch sent, before any JSON parsing.
 	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -77,10 +56,6 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if err := twitch.VerifyEventSubSignature(r.Header, body, h.hmacSecret, h.maxAge); err != nil {
 		h.logVerifyError(err, r)
 		status := http.StatusForbidden
-		// Missing-headers / malformed-timestamp errors are client errors
-		// of a different kind — 400 is the truthful answer, but 403 is
-		// safer because it reveals less; stick with 403 for the signature
-		// path and 400 only for the truly malformed request shape.
 		if !errors.Is(err, twitch.ErrEventSubSignatureMismatch) &&
 			!errors.Is(err, twitch.ErrEventSubMessageReplay) {
 			status = http.StatusBadRequest
@@ -101,20 +76,10 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	input := buildEventInput(eventID, ts, body, notif)
 
-	// DB writes use WithoutCancel so they survive a client/proxy that drops
-	// the connection after our handler starts. Without this, a cancelled
-	// request could record the event on one side and fail to mark it
-	// processed on the other, leaving us with phantom "received" rows.
+	// Keep audit writes alive after a client/proxy disconnect.
 	dbCtx := context.WithoutCancel(r.Context())
 
-	// subscription_id is a FK into subscriptions(id). The verification
-	// handshake arrives BEFORE the row we're mirroring exists locally,
-	// and a notification can race ahead of the mirror insert. In both
-	// cases we still want the webhook audit row — insert a NULL FK
-	// instead of failing. The snapshot self-heal (Phase 6) eventually
-	// reconciles, and ListWebhookEventsBySubscription still works via
-	// the subscription lifecycle because notifications for our own
-	// subs fire after mirror is in place the vast majority of the time.
+	// Verification can arrive before the mirrored subscription row exists.
 	if input.SubscriptionID != nil {
 		if _, err := h.repo.GetSubscription(dbCtx, *input.SubscriptionID); err != nil {
 			if errors.Is(err, repository.ErrNotFound) {
@@ -134,8 +99,6 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	case twitch.MsgTypeNotification:
 		h.handleNotification(w, dbCtx, input, notif)
 	default:
-		// DecodeEventSubWebhook already rejected unknown types, but be
-		// defensive — this is a security boundary.
 		h.log.Warn("unknown webhook message type", "type", notif.MessageType)
 		http.Error(w, "unknown message type", http.StatusBadRequest)
 	}
@@ -143,9 +106,7 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleVerification(w http.ResponseWriter, ctx context.Context, input *repository.WebhookEventInput, challenge string) {
 	if _, err := h.repo.CreateWebhookEvent(ctx, input); err != nil && !errors.Is(err, repository.ErrNotFound) {
-		// A failure to record shouldn't prevent verification — Twitch
-		// needs our challenge echo or the subscription is DOA. Log and
-		// continue.
+		// Echoing the challenge matters more than recording the audit row.
 		h.log.Error("failed to record verification event", "error", err, "event_id", input.EventID)
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -158,7 +119,6 @@ func (h *Handler) handleRevocation(w http.ResponseWriter, ctx context.Context, i
 		h.log.Error("failed to record revocation event", "error", err, "event_id", input.EventID)
 	}
 	if sub.ID != "" {
-		// sub.Status holds Twitch's reason (authorization_revoked, etc.).
 		if err := h.repo.MarkSubscriptionRevoked(ctx, sub.ID, sub.Status); err != nil {
 			h.log.Error("failed to mark subscription revoked", "id", sub.ID, "reason", sub.Status, "error", err)
 		}
@@ -170,9 +130,7 @@ func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context,
 	event, err := h.repo.CreateWebhookEvent(ctx, input)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			// ON CONFLICT DO NOTHING fired — we already processed this
-			// Message-Id. Twitch retries on delivery failure with the
-			// same id, so this path is load-bearing for de-dup.
+			// ON CONFLICT DO NOTHING: this Message-Id was already processed.
 			h.log.Debug("duplicate webhook event, dedupd", "event_id", input.EventID)
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -183,9 +141,7 @@ func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context,
 	}
 
 	if h.processor == nil {
-		// No processor wired — the event is audit-only and no domain side effect
-		// should run. Mark it processed so the stuck-events query remains a true
-		// crash detector instead of paging on intentionally ignored notifications.
+		// Audit-only mode should not trip the stuck-events query.
 		if err := h.repo.MarkWebhookEventProcessed(ctx, event.ID); err != nil {
 			h.log.Error("failed to mark audit-only webhook processed", "error", err, "id", event.ID)
 		}
@@ -200,8 +156,6 @@ func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context,
 		if mark := h.repo.MarkWebhookEventFailed(ctx, event.ID, procErr.Error()); mark != nil {
 			h.log.Error("failed to mark webhook failed", "error", mark, "id", event.ID)
 		}
-		// Still return 204 — Twitch retrying doesn't fix our processor.
-		// The dashboard's failed-events view surfaces this for inspection.
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -211,9 +165,6 @@ func (h *Handler) handleNotification(w http.ResponseWriter, ctx context.Context,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// logVerifyError logs a signature verification failure with the right severity.
-// Signature mismatch from a random scanner is noisy but routine; replay is a
-// smaller class; anything else suggests malformed input or misconfiguration.
 func (h *Handler) logVerifyError(err error, r *http.Request) {
 	ip := r.Header.Get("X-Forwarded-For")
 	if ip == "" {
@@ -230,8 +181,6 @@ func (h *Handler) logVerifyError(err error, r *http.Request) {
 	}
 }
 
-// buildEventInput constructs the audit-log row for a decoded webhook.
-// Payload is the raw body verbatim — retention-trimmed later by the scheduler.
 func buildEventInput(eventID string, ts time.Time, body []byte, notif *twitch.EventSubNotification) *repository.WebhookEventInput {
 	input := &repository.WebhookEventInput{
 		EventID:          eventID,
@@ -243,8 +192,6 @@ func buildEventInput(eventID string, ts time.Time, body []byte, notif *twitch.Ev
 		id := notif.Subscription.ID
 		input.SubscriptionID = &id
 	}
-	// event_type is only meaningful for notifications — verification and
-	// revocation carry subscription metadata, not an event payload.
 	if notif.MessageType == twitch.MsgTypeNotification && notif.Subscription.Type != "" {
 		et := notif.Subscription.Type
 		input.EventType = &et
@@ -257,10 +204,6 @@ func buildEventInput(eventID string, ts time.Time, body []byte, notif *twitch.Ev
 	return input
 }
 
-// parseHeaderTimestamp accepts the RFC3339Nano Twitch sends, falling back to
-// plain RFC3339. A malformed timestamp would have been rejected by
-// VerifyEventSubSignature — this is defense in depth, returning zero time
-// when the value is unparseable.
 func parseHeaderTimestamp(s string) time.Time {
 	if ts, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return ts

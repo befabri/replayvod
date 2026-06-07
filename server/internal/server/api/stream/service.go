@@ -39,14 +39,12 @@ type streamRepo interface {
 	GetStream(ctx context.Context, id string) (*repository.Stream, error)
 }
 
-// Service is the stream domain service.
 type Service struct {
 	repo   streamRepo
 	twitch followedStreamsSource
 	log    *slog.Logger
 }
 
-// New builds the service.
 func New(repo streamRepo, tc followedStreamsSource, log *slog.Logger) *Service {
 	return &Service{repo: repo, twitch: tc, log: log.With("domain", "stream")}
 }

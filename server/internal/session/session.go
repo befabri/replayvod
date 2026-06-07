@@ -18,14 +18,12 @@ const (
 	SessionMaxAge = 30 * 24 * time.Hour // 30 days
 )
 
-// TwitchTokens holds the user's Twitch OAuth tokens (encrypted at rest in DB).
 type TwitchTokens struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
-// Manager handles session creation, lookup, and cookie management.
 type Manager struct {
 	repo         repository.Repository
 	encKey       []byte
@@ -33,7 +31,6 @@ type Manager struct {
 	log          *slog.Logger
 }
 
-// NewManager creates a new session manager.
 func NewManager(repo repository.Repository, sessionSecret string, secureCookie bool, log *slog.Logger) (*Manager, error) {
 	sessionSecret = strings.TrimSpace(sessionSecret)
 	if len(sessionSecret) < 32 {
@@ -51,7 +48,6 @@ func NewManager(repo repository.Repository, sessionSecret string, secureCookie b
 	}, nil
 }
 
-// Create creates a new session for a user and sets the session cookie.
 func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, userID string, tokens *TwitchTokens, r *http.Request) error {
 	rawID, err := GenerateSessionID()
 	if err != nil {
@@ -83,8 +79,6 @@ func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, userID stri
 	return nil
 }
 
-// Get retrieves the session from the request cookie.
-// Returns nil if no valid session exists.
 func (m *Manager) Get(ctx context.Context, r *http.Request) (*repository.Session, error) {
 	cookie, err := r.Cookie(CookieName)
 	if err != nil {
@@ -105,7 +99,6 @@ func (m *Manager) Get(ctx context.Context, r *http.Request) (*repository.Session
 	return sess, nil
 }
 
-// DecryptTokens decrypts the Twitch tokens from a session.
 func (m *Manager) DecryptTokens(sess *repository.Session) (*TwitchTokens, error) {
 	plaintext, err := Decrypt(m.encKey, sess.EncryptedTokens)
 	if err != nil {
@@ -119,7 +112,6 @@ func (m *Manager) DecryptTokens(sess *repository.Session) (*TwitchTokens, error)
 	return &tokens, nil
 }
 
-// UpdateTokens re-encrypts and stores refreshed tokens.
 func (m *Manager) UpdateTokens(ctx context.Context, hashedID string, tokens *TwitchTokens) error {
 	encrypted, err := m.encryptTokens(tokens)
 	if err != nil {
@@ -128,7 +120,6 @@ func (m *Manager) UpdateTokens(ctx context.Context, hashedID string, tokens *Twi
 	return m.repo.UpdateSessionTokens(ctx, hashedID, encrypted)
 }
 
-// Delete removes a session and clears the cookie.
 func (m *Manager) Delete(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	cookie, err := r.Cookie(CookieName)
 	if err != nil {
@@ -144,8 +135,6 @@ func (m *Manager) Delete(ctx context.Context, w http.ResponseWriter, r *http.Req
 	return nil
 }
 
-// DeleteByHash deletes a session by its hashed ID. Used by callers
-// that already have the hashed ID (e.g., tRPC handlers with session in context).
 func (m *Manager) DeleteByHash(ctx context.Context, hashedID string) error {
 	if err := m.repo.DeleteSession(ctx, hashedID); err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
@@ -153,8 +142,6 @@ func (m *Manager) DeleteByHash(ctx context.Context, hashedID string) error {
 	return nil
 }
 
-// ClearCookie returns the cookie value used to clear the session cookie.
-// Useful for tRPC handlers that use trpcgo.SetCookie.
 func (m *Manager) ClearCookie() *http.Cookie {
 	return &http.Cookie{
 		Name:     CookieName,
@@ -167,7 +154,6 @@ func (m *Manager) ClearCookie() *http.Cookie {
 	}
 }
 
-// UpdateActivity updates the session's last_active_at timestamp.
 func (m *Manager) UpdateActivity(ctx context.Context, hashedID string) {
 	if err := m.repo.UpdateSessionActivity(ctx, hashedID); err != nil {
 		// A client that aborts its request (a video player canceling overlapping

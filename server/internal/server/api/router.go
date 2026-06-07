@@ -48,12 +48,9 @@ import (
 
 const bundledDashboardDir = "/app/dashboard"
 
-// SetupRouter creates and configures the Chi router and returns a cleanup
-// hook for the tRPC router lifecycle.
 func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger) (*chi.Mux, func() error) {
 	r := chi.NewRouter()
 
-	// Global middleware
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger(log))
@@ -155,10 +152,6 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	return r, trpcRouter.Close
 }
 
-// setupTRPCRouter builds the tRPC router and dispatches procedure
-// registration to each domain's RegisterRoutes. authSvc + scheduleSvc
-// are the shared domain services constructed by SetupRouter; everything
-// else each domain owns.
 func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, tokenProvider *middleware.SessionTokenProvider, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, webhookDispatcher *recordingwebhook.Dispatcher, log *slog.Logger) *trpcgo.Router {
 	opts := []trpcgo.Option{
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
@@ -244,7 +237,6 @@ func dashboardBuildExists(dashboardDir string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// setupDashboardRoutes serves the dashboard SPA with proper 404→index.html fallback.
 func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
 	if _, err := os.Stat(dashboardDir); os.IsNotExist(err) {
 		log.Warn("Dashboard directory not found, skipping dashboard routes", "path", dashboardDir)
@@ -263,13 +255,11 @@ func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Skip API and tRPC routes (already handled)
 		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/trpc/") {
 			http.NotFound(w, r)
 			return
 		}
 
-		// Try to serve the file if it exists
 		filePath := filepath.Join(dashboardDir, path)
 		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
 			if isStaticAsset(path) {
@@ -284,7 +274,6 @@ func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
 	})
 }
 
-// isStaticAsset returns true for files that should be cached long-term.
 func isStaticAsset(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {

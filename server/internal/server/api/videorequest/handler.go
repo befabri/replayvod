@@ -8,13 +8,11 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 )
 
-// Handler is the tRPC adapter for the video-request domain.
 type Handler struct {
 	svc *Service
 	log *slog.Logger
 }
 
-// NewHandler wires a handler around a video-request Service.
 func NewHandler(svc *Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log.With("domain", "videorequest-api")}
 }
@@ -24,7 +22,6 @@ type ListInput struct {
 	Offset int `json:"offset" validate:"min=0"`
 }
 
-// VideoSummary is a trimmed video view for the request list.
 type VideoSummary struct {
 	ID          int64  `json:"id"`
 	Filename    string `json:"filename"`

@@ -1,22 +1,12 @@
 // Command repo-adapter-gen generates the mechanical parts of the Postgres and
-// SQLite repository adapters from a single source: the row->domain mappers and
-// the boilerplate Repository method bodies.
+// SQLite repository adapters: row->domain mappers and boilerplate method bodies.
 //
-// Mappers (mappers_gen.go): it parses the domain model structs
-// (internal/repository/models.go) and the two sqlc-generated row structs
-// (pggen, sqlitegen), matches their fields by name, and emits pg<Type>ToDomain
-// / sqlite<Type>ToDomain using a type-driven conversion table (convRules). Any
-// field whose (rowType -> domainType) conversion is not in the table is a hard
-// error, so non-1:1 tables stay hand-written and it never silently guesses.
-//
-// Methods (methods_gen.go): it auto-discovers Repository methods that fit a
-// fixed set of shapes (exec / one-row / slice) and emits their bodies. There is
-// no allowlist; a hand-written method is taken over ("harvested", deleting the
-// hand-written copy) only when its generated body is byte-identical to the
-// hand-written one, so the harvest is behavior-preserving. See denyMethods.
-//
-// The repository contract test (internal/repository/contracttest) is the
-// acceptance gate: generated adapters must pass it on both backends unchanged.
+// Mappers (mappers_gen.go) match model and sqlc-row fields by name and convert
+// via convRules; an unmapped conversion is a hard error, so non-1:1 tables stay
+// hand-written. Methods (methods_gen.go) are auto-discovered by shape
+// (exec/one-row/slice), and a hand-written method is harvested only when its
+// generated body is byte-identical. The contract test
+// (internal/repository/contracttest) is the acceptance gate for both backends.
 //
 // Usage:
 //

@@ -412,7 +412,6 @@ type titleWatcher interface {
 // videos.title. channelSubs may also be nil — webhook mode
 // disabled. The recording runs with whichever strategy is wired
 // per `cfg.ServerMode`; main.go constructs only the deps the mode needs.
-// NewService wires up the pipeline components.
 //
 // hydrator is used at download-start to link the opening title +
 // category onto video_titles / video_categories (via
@@ -704,14 +703,10 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		s.mu.Lock()
 		delete(s.active, jobID)
 		s.mu.Unlock()
-		// The video row is already committed. Mark it failed so
-		// it doesn't stay PENDING forever; the UI will surface
-		// the failure.
-		// Pre-run failure (couldn't even create the job row);
-		// no completion to report. "complete" is the inert default.
-		// truncated=false: the broadcast may have still been live, but
-		// nothing was captured here — there's no recording to be
-		// truncated relative to.
+		// Video row is already committed; mark it failed so it doesn't
+		// stay PENDING forever. Pre-run failure (no job row) means nothing
+		// captured: "complete" is the inert default, truncated=false since
+		// there's no recording to truncate against.
 		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("create job row: %v", err), repository.CompletionKindComplete, false)
 		return "", fmt.Errorf("create job row: %w", err)
 	}

@@ -21,18 +21,15 @@ var ErrCannotDemoteSelf = errors.New("system: cannot demote yourself")
 
 var ErrInvalidPlaybackCacheConfig = errors.New("system: invalid playback cache config")
 
-// Service is the system/admin domain service.
 type Service struct {
 	repo repository.Repository
 	log  *slog.Logger
 }
 
-// New builds the service.
 func New(repo repository.Repository, log *slog.Logger) *Service {
 	return &Service{repo: repo, log: log.With("domain", "system")}
 }
 
-// ListUsers returns every user.
 func (s *Service) ListUsers(ctx context.Context) ([]repository.User, error) {
 	return s.repo.ListUsers(ctx)
 }
@@ -54,12 +51,10 @@ func (s *Service) UpdateUserRole(ctx context.Context, callerID, targetID, newRol
 	return s.repo.GetUser(ctx, targetID)
 }
 
-// ListWhitelist returns every entry.
 func (s *Service) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {
 	return s.repo.ListWhitelist(ctx)
 }
 
-// AddToWhitelist is idempotent.
 func (s *Service) AddToWhitelist(ctx context.Context, twitchUserID string) error {
 	return s.repo.AddToWhitelist(ctx, twitchUserID)
 }
@@ -120,16 +115,12 @@ func (s *Service) UpdatePlaybackCacheConfig(ctx context.Context, cfg PlaybackCac
 	}, nil
 }
 
-// FetchLogsFilter carries the paginate-and-filter args for a fetch
-// logs listing. FetchType empty means "all types."
 type FetchLogsFilter struct {
 	Limit     int
 	Offset    int
 	FetchType string
 }
 
-// ListFetchLogs returns a paginated list of Helix call records plus
-// a total count (for the same filter scope).
 func (s *Service) ListFetchLogs(ctx context.Context, f FetchLogsFilter) ([]repository.FetchLog, int64, error) {
 	limit := f.Limit
 	if limit <= 0 {

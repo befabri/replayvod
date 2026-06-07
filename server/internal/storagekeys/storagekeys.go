@@ -27,19 +27,14 @@ const (
 	thumbDir = "thumbnails"
 )
 
-// Video returns the storage key for a recorded video file. name is the stored
-// filename including its container extension (e.g. "rec-part01.mp4").
 func Video(name string) string {
 	return videoDir + "/" + name
 }
 
-// Thumbnail returns the hero-thumbnail key for a part. base is the part's
-// filename WITHOUT its container extension (e.g. "rec-part01"); see Base.
 func Thumbnail(base string) string {
 	return thumbDir + "/" + base + ".jpg"
 }
 
-// Strip returns the sprite-strip key for a part. base is as in Thumbnail.
 func Strip(base string) string {
 	return thumbDir + "/" + base + "-strip.jpg"
 }
@@ -53,8 +48,6 @@ func Snapshot(filename string, index int) string {
 	return fmt.Sprintf("%s/%s-snap%02d.jpg", thumbDir, filename, index)
 }
 
-// Waveform returns the persisted audio waveform artifact key for a recording.
-// filename is the video's base name, matching Snapshot.
 func Waveform(filename string) string {
 	return thumbDir + "/" + filename + "-waveform.json"
 }

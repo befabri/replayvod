@@ -46,8 +46,6 @@ type gamesFetcher interface {
 	GetGames(ctx context.Context, params *twitch.GetGamesParams) ([]twitch.Game, error)
 }
 
-// Service owns the Twitch category metadata sync surface. Lightweight — one
-// instance per process is enough.
 type Service struct {
 	repo   repository.Repository
 	twitch gamesFetcher
@@ -61,9 +59,6 @@ type SyncResult struct {
 	Checked     int
 }
 
-// New builds a Service. tc may be nil; in that case Enrich and
-// SyncMissing return nil without doing anything, mirroring the
-// degraded-mode behavior elsewhere in the codebase.
 func New(repo repository.Repository, tc gamesFetcher, log *slog.Logger) *Service {
 	return &Service{repo: repo, twitch: tc, log: log.With("domain", "categoryart"), now: time.Now}
 }

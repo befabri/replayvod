@@ -9,13 +9,11 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 )
 
-// Handler is the tRPC adapter for the task domain.
 type Handler struct {
 	svc *Service
 	log *slog.Logger
 }
 
-// NewHandler wires a handler around a task Service.
 func NewHandler(svc *Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log.With("domain", "task-api")}
 }

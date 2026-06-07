@@ -9,14 +9,10 @@ import (
 	"strings"
 )
 
-// LocalStorage stores files under Root on the local filesystem.
-// All paths passed to Storage methods are treated as relative to Root.
 type LocalStorage struct {
 	Root string
 }
 
-// NewLocal creates a local filesystem storage backend rooted at dir.
-// The directory is created if it does not already exist.
 func NewLocal(dir string) (*LocalStorage, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create storage root %s: %w", dir, err)
@@ -75,8 +71,6 @@ func (s *LocalStorage) Save(ctx context.Context, path string, r io.Reader) error
 	return nil
 }
 
-// Open returns the file for random-access reads. Used by the video streaming
-// handler where http.ServeContent wants a ReadSeeker.
 func (s *LocalStorage) Open(ctx context.Context, path string) (io.ReadSeekCloser, error) {
 	full, err := s.resolve(path)
 	if err != nil {
@@ -89,8 +83,6 @@ func (s *LocalStorage) Open(ctx context.Context, path string) (io.ReadSeekCloser
 	return f, nil
 }
 
-// Delete removes the file. Missing files are not an error so repeated
-// cleanup attempts are safe.
 func (s *LocalStorage) Delete(ctx context.Context, path string) error {
 	full, err := s.resolve(path)
 	if err != nil {

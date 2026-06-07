@@ -22,7 +22,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
-// Server represents the HTTP server.
 type Server struct {
 	cfg           *config.Config
 	repo          repository.Repository

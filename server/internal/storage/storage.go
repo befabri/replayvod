@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// FileInfo is a minimal metadata view of a stored object.
 type FileInfo struct {
 	Size    int64
 	ModTime time.Time

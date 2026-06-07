@@ -25,8 +25,6 @@ type sender interface {
 	RetryDelivery(ctx context.Context, id int64) (svc.DeliveryRecord, error)
 }
 
-// Handler is the tRPC adapter around the recording-webhook config service and
-// the live dispatcher (for test sends and delivery history).
 type Handler struct {
 	svc      *svc.Service
 	dispatch sender
@@ -73,7 +71,6 @@ func toResponse(c svc.Config) RecordingWebhookConfigResponse {
 	}
 }
 
-// Config returns the current webhook configuration.
 func (h *Handler) Config(ctx context.Context) (RecordingWebhookConfigResponse, error) {
 	cfg, err := h.svc.Get(ctx)
 	if err != nil {

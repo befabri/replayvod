@@ -10,7 +10,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 )
 
-// NewPostgresPool creates a new PostgreSQL connection pool.
 func NewPostgresPool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
 	dsn := cfg.GetPostgresDSN()
 

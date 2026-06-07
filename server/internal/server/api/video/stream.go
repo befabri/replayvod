@@ -29,8 +29,6 @@ import (
 // skip the ERROR log instead of emitting a misleading, alert-tripping 500.
 const statusClientClosed = 499
 
-// clientGone reports whether err is the client abandoning the request (canceled
-// context or deadline) rather than a server-side failure.
 func clientGone(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
@@ -43,10 +41,6 @@ type PlaybackBuilder interface {
 	StartBuild(ctx context.Context, videoID int64)
 }
 
-// StreamHandler wires the Chi video/thumbnail streaming routes. These
-// are NOT tRPC procedures — they need HTTP semantics (range requests,
-// content-type negotiation, file streaming) that JSON RPC can't
-// express.
 type StreamHandler struct {
 	repo     repository.Repository
 	storage  storage.Storage
@@ -71,9 +65,6 @@ type StreamHandler struct {
 
 type StreamHandlerOption func(*StreamHandler)
 
-// NewStreamHandler creates a video streaming handler. verifier authorizes the
-// signed per-part download route (SetupSignedRoutes); it may be nil, in which
-// case that route rejects everything.
 func NewStreamHandler(repo repository.Repository, store storage.Storage, verifier *videodownload.Verifier, log *slog.Logger, opts ...StreamHandlerOption) *StreamHandler {
 	h := &StreamHandler{
 		repo:              repo,
@@ -89,15 +80,10 @@ func NewStreamHandler(repo repository.Repository, store storage.Storage, verifie
 	return h
 }
 
-// WithPlaybackBuilder wires the lazy single-file artifact build triggered the
-// first time a recording's part is streamed. Omit it (or pass nil) to disable
-// the trigger entirely.
 func WithPlaybackBuilder(b PlaybackBuilder) StreamHandlerOption {
 	return func(h *StreamHandler) { h.builder = b }
 }
 
-// WithWaveformGenerator swaps the audio waveform generator. Production uses
-// ffmpeg; tests inject a deterministic fake so they don't need media fixtures.
 func WithWaveformGenerator(g WaveformGenerator) StreamHandlerOption {
 	return func(h *StreamHandler) {
 		if g != nil {
