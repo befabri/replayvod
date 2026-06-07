@@ -10,6 +10,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { EmptyPanel } from "@/components/ui/empty-panel";
 import { VirtualGrid } from "@/components/ui/virtual-grid";
 import {
 	type CategoryResponse,
@@ -76,9 +77,7 @@ function CategoriesPage() {
 			{visible.length === 0 &&
 				!categories.isLoading &&
 				!categories.isFetchingNextPage &&
-				!categories.error && (
-					<div className="text-muted-foreground">{t("categories.empty")}</div>
-				)}
+				!categories.error && <EmptyPanel>{t("categories.empty")}</EmptyPanel>}
 
 			{visible.length > 0 && <CategoryGrid categories={visible} />}
 			{visible.length > 0 && shouldLoadMore && (

@@ -5,6 +5,7 @@ import {
 	TitleBreadcrumbParentLink,
 	TitledLayout,
 } from "@/components/layout/titled-layout";
+import { EmptyPanel } from "@/components/ui/empty-panel";
 import { ExpandableText } from "@/components/ui/expandable-text";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { useCategoryDetail } from "@/features/categories/queries";
@@ -89,7 +90,7 @@ function CategoryDetailPage() {
 
 			{videos.isLoading && <VideoGridLoading className="mt-0" variant="wide" />}
 			{videos.data && videoItems.length === 0 && (
-				<div className="text-muted-foreground">{t("videos.empty")}</div>
+				<EmptyPanel>{t("videos.empty")}</EmptyPanel>
 			)}
 			{videos.data && videoItems.length > 0 && (
 				<>
