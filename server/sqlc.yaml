@@ -221,3 +221,15 @@ sql:
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
           - column: "video_playback_assets.updated_at"
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "video_user_states.watched_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time", pointer: true }
+          - column: "video_user_states.completed_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time", pointer: true }
+          - column: "video_user_states.created_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "video_user_states.updated_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "channel_user_states.created_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "channel_user_states.updated_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }

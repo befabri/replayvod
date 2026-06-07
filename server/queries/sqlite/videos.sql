@@ -314,6 +314,25 @@ SELECT CAST(COUNT(*) AS INTEGER) AS removed
 FROM videos
 WHERE deleted_at IS NOT NULL;
 
+-- name: StatisticsWatchLater :one
+SELECT CAST(COUNT(*) AS INTEGER) AS watch_later
+FROM videos v
+INNER JOIN video_user_states vus ON vus.video_id = v.id
+WHERE v.deleted_at IS NULL
+  AND CAST(@user_id AS text) <> ''
+  AND vus.user_id = CAST(@user_id AS text)
+  AND vus.watch_later = 1;
+
+-- name: StatisticsUnwatched :one
+SELECT CAST(COUNT(*) AS INTEGER) AS unwatched
+FROM videos v
+LEFT JOIN video_user_states vus
+  ON vus.video_id = v.id AND vus.user_id = CAST(@user_id AS text)
+WHERE v.deleted_at IS NULL
+  AND v.status = 'DONE'
+  AND CAST(@user_id AS text) <> ''
+  AND vus.watched_at IS NULL;
+
 -- name: StatisticsTotalsByBroadcaster :one
 -- Per-channel rollup of finished recordings: count + summed bytes +
 -- summed duration. Mirrors StatisticsTotals scoped to one broadcaster

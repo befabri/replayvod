@@ -38,6 +38,24 @@ WHERE (
     )
 )
   AND (
+    NOT @downloaded_only::boolean
+    OR EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.broadcaster_id = c.broadcaster_id
+          AND v.status = 'DONE'
+          AND v.deleted_at IS NULL
+    )
+)
+  AND (
+    NOT @favorite_only::boolean
+    OR EXISTS (
+        SELECT 1 FROM channel_user_states cus
+        WHERE cus.broadcaster_id = c.broadcaster_id
+          AND cus.user_id = @user_id::text
+          AND cus.favorite
+    )
+)
+  AND (
     sqlc.narg('cursor_name')::text IS NULL
     OR lower(c.broadcaster_name) > lower(sqlc.narg('cursor_name')::text)
     OR (lower(c.broadcaster_name) = lower(sqlc.narg('cursor_name')::text) AND c.broadcaster_id > @cursor_id::text)
@@ -52,6 +70,24 @@ WHERE (
     OR EXISTS (
         SELECT 1 FROM streams s
         WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    NOT @downloaded_only::boolean
+    OR EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.broadcaster_id = c.broadcaster_id
+          AND v.status = 'DONE'
+          AND v.deleted_at IS NULL
+    )
+)
+  AND (
+    NOT @favorite_only::boolean
+    OR EXISTS (
+        SELECT 1 FROM channel_user_states cus
+        WHERE cus.broadcaster_id = c.broadcaster_id
+          AND cus.user_id = @user_id::text
+          AND cus.favorite
     )
 )
   AND (

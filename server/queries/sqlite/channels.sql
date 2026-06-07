@@ -31,6 +31,9 @@ SELECT * FROM channels WHERE broadcaster_id IN (sqlc.slice('ids'));
 -- name: ListChannelsPageAsc :many
 WITH params AS (
     SELECT CAST(@live_only AS integer) AS live_only,
+           CAST(@downloaded_only AS integer) AS downloaded_only,
+           CAST(@favorite_only AS integer) AS favorite_only,
+           CAST(@user_id AS text) AS user_id,
            CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
            CAST(@cursor_id AS text) AS cursor_id,
            CAST(@row_limit AS integer) AS row_limit
@@ -45,6 +48,24 @@ WHERE (
     )
 )
   AND (
+    params.downloaded_only = 0
+    OR EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.broadcaster_id = c.broadcaster_id
+          AND v.status = 'DONE'
+          AND v.deleted_at IS NULL
+    )
+)
+  AND (
+    params.favorite_only = 0
+    OR EXISTS (
+        SELECT 1 FROM channel_user_states cus
+        WHERE cus.broadcaster_id = c.broadcaster_id
+          AND cus.user_id = params.user_id
+          AND cus.favorite = 1
+    )
+)
+  AND (
     params.cursor_name IS NULL
     OR lower(c.broadcaster_name) > lower(params.cursor_name)
     OR (lower(c.broadcaster_name) = lower(params.cursor_name) AND c.broadcaster_id > params.cursor_id)
@@ -55,6 +76,9 @@ LIMIT (SELECT row_limit FROM params);
 -- name: ListChannelsPageDesc :many
 WITH params AS (
     SELECT CAST(@live_only AS integer) AS live_only,
+           CAST(@downloaded_only AS integer) AS downloaded_only,
+           CAST(@favorite_only AS integer) AS favorite_only,
+           CAST(@user_id AS text) AS user_id,
            CAST(sqlc.narg('cursor_name') AS text) AS cursor_name,
            CAST(@cursor_id AS text) AS cursor_id,
            CAST(@row_limit AS integer) AS row_limit
@@ -66,6 +90,24 @@ WHERE (
     OR EXISTS (
         SELECT 1 FROM streams s
         WHERE s.broadcaster_id = c.broadcaster_id AND s.ended_at IS NULL
+    )
+)
+  AND (
+    params.downloaded_only = 0
+    OR EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.broadcaster_id = c.broadcaster_id
+          AND v.status = 'DONE'
+          AND v.deleted_at IS NULL
+    )
+)
+  AND (
+    params.favorite_only = 0
+    OR EXISTS (
+        SELECT 1 FROM channel_user_states cus
+        WHERE cus.broadcaster_id = c.broadcaster_id
+          AND cus.user_id = params.user_id
+          AND cus.favorite = 1
     )
 )
   AND (
