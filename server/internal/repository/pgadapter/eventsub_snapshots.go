@@ -56,13 +56,3 @@ func (a *PGAdapter) LinkSnapshotSubscription(ctx context.Context, snapshotID int
 		StatusAtSnapshot: statusAtSnapshot,
 	})
 }
-
-func pgSnapshotToDomain(s pggen.EventsubSnapshot) *repository.EventSubSnapshot {
-	return &repository.EventSubSnapshot{
-		ID:           s.ID,
-		Total:        int64(s.Total),
-		TotalCost:    int64(s.TotalCost),
-		MaxTotalCost: int64(s.MaxTotalCost),
-		FetchedAt:    s.FetchedAt,
-	}
-}

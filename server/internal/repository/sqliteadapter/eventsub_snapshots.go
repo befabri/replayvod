@@ -56,13 +56,3 @@ func (a *SQLiteAdapter) LinkSnapshotSubscription(ctx context.Context, snapshotID
 		StatusAtSnapshot: statusAtSnapshot,
 	})
 }
-
-func sqliteSnapshotToDomain(s sqlitegen.EventsubSnapshot) *repository.EventSubSnapshot {
-	return &repository.EventSubSnapshot{
-		ID:           s.ID,
-		Total:        s.Total,
-		TotalCost:    s.TotalCost,
-		MaxTotalCost: s.MaxTotalCost,
-		FetchedAt:    s.FetchedAt.Time,
-	}
-}

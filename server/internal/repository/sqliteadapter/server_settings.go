@@ -110,23 +110,3 @@ func (a *SQLiteAdapter) EnsureServerHMACSecret(ctx context.Context, secret strin
 	}
 	return nil
 }
-
-func sqliteServerSettingsToDomain(s sqlitegen.ServerSetting) *repository.ServerSettings {
-	return &repository.ServerSettings{
-		ServerMode:                    s.ServerMode,
-		EventSubWebhookCallbackURL:    s.EventsubWebhookCallbackUrl,
-		EventSubRelayIngestURL:        s.EventsubRelayIngestUrl,
-		EventSubRelaySubscribeURL:     s.EventsubRelaySubscribeUrl,
-		EventSubRelayLocalCallbackURL: s.EventsubRelayLocalCallbackUrl,
-		RecordingWebhookEnabled:       s.RecordingWebhookEnabled != 0,
-		RecordingWebhookURL:           s.RecordingWebhookUrl,
-		RecordingWebhookSecret:        s.RecordingWebhookSecret,
-		RecordingWebhookEvents:        s.RecordingWebhookEvents,
-		PlaybackCacheEnabled:          s.PlaybackCacheEnabled != 0,
-		PlaybackCacheMaxPercent:       int(s.PlaybackCacheMaxPercent),
-		PlaybackCacheAutoGenerate:     s.PlaybackCacheAutoGenerate != 0,
-		SchedulesPaused:               s.SchedulesPaused != 0,
-		CreatedAt:                     s.CreatedAt.Time,
-		UpdatedAt:                     s.UpdatedAt.Time,
-	}
-}

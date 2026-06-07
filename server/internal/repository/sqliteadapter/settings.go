@@ -28,14 +28,3 @@ func (a *SQLiteAdapter) UpsertSettings(ctx context.Context, s *repository.Settin
 	}
 	return sqliteSettingsToDomain(row), nil
 }
-
-func sqliteSettingsToDomain(s sqlitegen.Setting) *repository.Settings {
-	return &repository.Settings{
-		UserID:         s.UserID,
-		Timezone:       s.Timezone,
-		DatetimeFormat: s.DatetimeFormat,
-		Language:       s.Language,
-		CreatedAt:      s.CreatedAt.Time,
-		UpdatedAt:      s.UpdatedAt.Time,
-	}
-}

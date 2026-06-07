@@ -28,14 +28,3 @@ func (a *PGAdapter) UpsertSettings(ctx context.Context, s *repository.Settings) 
 	}
 	return pgSettingsToDomain(row), nil
 }
-
-func pgSettingsToDomain(s pggen.Setting) *repository.Settings {
-	return &repository.Settings{
-		UserID:         s.UserID,
-		Timezone:       s.Timezone,
-		DatetimeFormat: s.DatetimeFormat,
-		Language:       s.Language,
-		CreatedAt:      s.CreatedAt,
-		UpdatedAt:      s.UpdatedAt,
-	}
-}

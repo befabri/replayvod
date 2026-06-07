@@ -240,3 +240,44 @@ func pgWebhookEventToDomain(src pggen.WebhookEvent) *repository.WebhookEvent {
 		SubscriptionID:   src.SubscriptionID,
 	}
 }
+
+func pgServerSettingsToDomain(src pggen.ServerSetting) *repository.ServerSettings {
+	return &repository.ServerSettings{
+		CreatedAt:                     src.CreatedAt,
+		EventSubRelayIngestURL:        src.EventsubRelayIngestUrl,
+		EventSubRelayLocalCallbackURL: src.EventsubRelayLocalCallbackUrl,
+		EventSubRelaySubscribeURL:     src.EventsubRelaySubscribeUrl,
+		EventSubWebhookCallbackURL:    src.EventsubWebhookCallbackUrl,
+		PlaybackCacheAutoGenerate:     src.PlaybackCacheAutoGenerate,
+		PlaybackCacheEnabled:          src.PlaybackCacheEnabled,
+		PlaybackCacheMaxPercent:       int(src.PlaybackCacheMaxPercent),
+		RecordingWebhookEnabled:       src.RecordingWebhookEnabled,
+		RecordingWebhookEvents:        src.RecordingWebhookEvents,
+		RecordingWebhookSecret:        src.RecordingWebhookSecret,
+		RecordingWebhookURL:           src.RecordingWebhookUrl,
+		SchedulesPaused:               src.SchedulesPaused,
+		ServerMode:                    src.ServerMode,
+		UpdatedAt:                     src.UpdatedAt,
+	}
+}
+
+func pgSettingsToDomain(src pggen.Setting) *repository.Settings {
+	return &repository.Settings{
+		CreatedAt:      src.CreatedAt,
+		DatetimeFormat: src.DatetimeFormat,
+		Language:       src.Language,
+		Timezone:       src.Timezone,
+		UpdatedAt:      src.UpdatedAt,
+		UserID:         src.UserID,
+	}
+}
+
+func pgSnapshotToDomain(src pggen.EventsubSnapshot) *repository.EventSubSnapshot {
+	return &repository.EventSubSnapshot{
+		FetchedAt:    src.FetchedAt,
+		ID:           src.ID,
+		MaxTotalCost: int64(src.MaxTotalCost),
+		Total:        int64(src.Total),
+		TotalCost:    int64(src.TotalCost),
+	}
+}

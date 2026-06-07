@@ -96,23 +96,3 @@ func (a *PGAdapter) EnsureServerHMACSecret(ctx context.Context, secret string) e
 	}
 	return nil
 }
-
-func pgServerSettingsToDomain(s pggen.ServerSetting) *repository.ServerSettings {
-	return &repository.ServerSettings{
-		ServerMode:                    s.ServerMode,
-		EventSubWebhookCallbackURL:    s.EventsubWebhookCallbackUrl,
-		EventSubRelayIngestURL:        s.EventsubRelayIngestUrl,
-		EventSubRelaySubscribeURL:     s.EventsubRelaySubscribeUrl,
-		EventSubRelayLocalCallbackURL: s.EventsubRelayLocalCallbackUrl,
-		RecordingWebhookEnabled:       s.RecordingWebhookEnabled,
-		RecordingWebhookURL:           s.RecordingWebhookUrl,
-		RecordingWebhookSecret:        s.RecordingWebhookSecret,
-		RecordingWebhookEvents:        s.RecordingWebhookEvents,
-		PlaybackCacheEnabled:          s.PlaybackCacheEnabled,
-		PlaybackCacheMaxPercent:       int(s.PlaybackCacheMaxPercent),
-		PlaybackCacheAutoGenerate:     s.PlaybackCacheAutoGenerate,
-		SchedulesPaused:               s.SchedulesPaused,
-		CreatedAt:                     s.CreatedAt,
-		UpdatedAt:                     s.UpdatedAt,
-	}
-}

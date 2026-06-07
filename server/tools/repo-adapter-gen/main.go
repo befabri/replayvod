@@ -31,26 +31,53 @@ import (
 	"strings"
 )
 
-// genTypes is the allowlist of domain types whose mappers are generated. A type
-// belongs here only if every one of its domain fields maps to a row field with a
-// known conversion (see convRules). Complex/non-1:1 types stay hand-written.
-var genTypes = []string{
-	"Title",
-	"Tag",
-	"Category",
-	"Channel",
-	"ChannelUserState",
-	"EventLog",
-	"Job",
-	"RecordingWebhookDelivery",
-	"Stream",
-	"Subscription",
-	"Task",
-	"User",
-	"VideoPart",
-	"VideoPlaybackAsset",
-	"VideoUserState",
-	"WebhookEvent",
+// genSpec names one generated mapper. name is the function suffix
+// (pg<name>ToDomain). domain/row override the domain struct and sqlc row struct
+// names when they differ from name (e.g. domain EventSubSnapshot from sqlc row
+// EventsubSnapshot, exposed as Snapshot). Empty domain/row default to name.
+type genSpec struct {
+	name   string
+	domain string
+	row    string
+}
+
+func (s genSpec) domainType() string {
+	if s.domain != "" {
+		return s.domain
+	}
+	return s.name
+}
+
+func (s genSpec) rowType() string {
+	if s.row != "" {
+		return s.row
+	}
+	return s.name
+}
+
+// genTypes is the allowlist of types whose mappers are generated. A type belongs
+// here only if every one of its domain fields maps to a row field with a known
+// conversion (see convRules). Complex/non-1:1 types stay hand-written.
+var genTypes = []genSpec{
+	{name: "Title"},
+	{name: "Tag"},
+	{name: "Category"},
+	{name: "Channel"},
+	{name: "ChannelUserState"},
+	{name: "EventLog"},
+	{name: "Job"},
+	{name: "RecordingWebhookDelivery"},
+	{name: "Stream"},
+	{name: "Subscription"},
+	{name: "Task"},
+	{name: "User"},
+	{name: "VideoPart"},
+	{name: "VideoPlaybackAsset"},
+	{name: "VideoUserState"},
+	{name: "WebhookEvent"},
+	{name: "ServerSettings", row: "ServerSetting"},
+	{name: "Settings", row: "Setting"},
+	{name: "Snapshot", domain: "EventSubSnapshot", row: "EventsubSnapshot"},
 }
 
 // convRules maps {sqlcRowFieldType, domainFieldType} to a Go expression template
@@ -145,17 +172,18 @@ func generate(d dialect, domain, rows map[string]map[string]string) ([]byte, err
 	pkgName := filepath.Base(d.dir)
 	var body strings.Builder
 
-	for _, typ := range genTypes {
-		domFields, ok := domain[typ]
+	for _, spec := range genTypes {
+		typ := spec.name
+		domFields, ok := domain[spec.domainType()]
 		if !ok {
-			return nil, fmt.Errorf("domain type %q not found", typ)
+			return nil, fmt.Errorf("domain type %q not found", spec.domainType())
 		}
-		rowFields, ok := rows[typ]
+		rowFields, ok := rows[spec.rowType()]
 		if !ok {
-			return nil, fmt.Errorf("%s row type %q not found", d.genPkg, typ)
+			return nil, fmt.Errorf("%s row type %q not found", d.genPkg, spec.rowType())
 		}
 		fmt.Fprintf(&body, "\nfunc %s%sToDomain(src %s.%s) *repository.%s {\n\treturn &repository.%s{\n",
-			d.name, typ, d.genPkg, typ, typ, typ)
+			d.name, spec.name, d.genPkg, spec.rowType(), spec.domainType(), spec.domainType())
 		// Row fields keyed by lowercased name so we can match across the
 		// initialism-casing differences between sqlc (BoxArtUrl, IgdbID) and the
 		// domain structs (BoxArtURL, IGDBID).

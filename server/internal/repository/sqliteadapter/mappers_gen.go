@@ -241,3 +241,44 @@ func sqliteWebhookEventToDomain(src sqlitegen.WebhookEvent) *repository.WebhookE
 		SubscriptionID:   fromNullString(src.SubscriptionID),
 	}
 }
+
+func sqliteServerSettingsToDomain(src sqlitegen.ServerSetting) *repository.ServerSettings {
+	return &repository.ServerSettings{
+		CreatedAt:                     src.CreatedAt.Time,
+		EventSubRelayIngestURL:        src.EventsubRelayIngestUrl,
+		EventSubRelayLocalCallbackURL: src.EventsubRelayLocalCallbackUrl,
+		EventSubRelaySubscribeURL:     src.EventsubRelaySubscribeUrl,
+		EventSubWebhookCallbackURL:    src.EventsubWebhookCallbackUrl,
+		PlaybackCacheAutoGenerate:     src.PlaybackCacheAutoGenerate != 0,
+		PlaybackCacheEnabled:          src.PlaybackCacheEnabled != 0,
+		PlaybackCacheMaxPercent:       int(src.PlaybackCacheMaxPercent),
+		RecordingWebhookEnabled:       src.RecordingWebhookEnabled != 0,
+		RecordingWebhookEvents:        src.RecordingWebhookEvents,
+		RecordingWebhookSecret:        src.RecordingWebhookSecret,
+		RecordingWebhookURL:           src.RecordingWebhookUrl,
+		SchedulesPaused:               src.SchedulesPaused != 0,
+		ServerMode:                    src.ServerMode,
+		UpdatedAt:                     src.UpdatedAt.Time,
+	}
+}
+
+func sqliteSettingsToDomain(src sqlitegen.Setting) *repository.Settings {
+	return &repository.Settings{
+		CreatedAt:      src.CreatedAt.Time,
+		DatetimeFormat: src.DatetimeFormat,
+		Language:       src.Language,
+		Timezone:       src.Timezone,
+		UpdatedAt:      src.UpdatedAt.Time,
+		UserID:         src.UserID,
+	}
+}
+
+func sqliteSnapshotToDomain(src sqlitegen.EventsubSnapshot) *repository.EventSubSnapshot {
+	return &repository.EventSubSnapshot{
+		FetchedAt:    src.FetchedAt.Time,
+		ID:           src.ID,
+		MaxTotalCost: src.MaxTotalCost,
+		Total:        src.Total,
+		TotalCost:    src.TotalCost,
+	}
+}
