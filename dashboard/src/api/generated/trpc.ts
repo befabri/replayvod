@@ -123,6 +123,7 @@ export interface ChannelGetByIDInput {
 export interface ChannelListPageInput {
   limit?: number;
   sort?: string;
+  filter?: string;
   live_only?: boolean;
   cursor?: ChannelPageCursor;
   direction?: string;
@@ -151,6 +152,7 @@ export interface ChannelResponse {
   view_count: number;
   created_at: string;
   updated_at: string;
+  user_state?: ChannelUserStateResponse;
 }
 
 /**
@@ -175,6 +177,11 @@ export interface ChannelStatisticsResponse {
   total: number;
   total_size: number;
   total_duration_seconds: number;
+}
+
+export interface ChannelUserStateResponse {
+  favorite: boolean;
+  updated_at: string;
 }
 
 export type CompletionKind = "complete" | "partial" | "cancelled";
@@ -672,8 +679,18 @@ export interface SessionResponse {
   role: Role;
 }
 
+export interface SetFavoriteInput {
+  broadcaster_id: string;
+  favorite: boolean;
+}
+
 export interface SetPausedInput {
   paused: boolean;
+}
+
+export interface SetWatchLaterInput {
+  video_id: number;
+  watch_later: boolean;
 }
 
 export interface SettingsResponse {
@@ -713,11 +730,6 @@ export interface StatisticsResponse {
   total_size: number;
   total_duration_seconds: number;
   by_status: StatsBucket[];
-  /**
-   * ThisWeek and Incomplete drive the videos page tab counters.
-   * Incomplete spans completion_kind='partial' OR truncated rows
-   * — the same predicate as the Partial tab's server-side filter.
-   */
   this_week: number;
   incomplete: number;
   /**
@@ -730,6 +742,9 @@ export interface StatisticsResponse {
    * count (the only count not derivable from by_status, which is live-only).
    */
   removed: number;
+  /** WatchLater and Unwatched are per authenticated user. */
+  watch_later: number;
+  unwatched: number;
 }
 
 export interface StatsBucket {
@@ -988,6 +1003,13 @@ export interface UpdateUserRoleInput {
   role: string;
 }
 
+export interface UpdateWatchProgressInput {
+  video_id: number;
+  position_seconds: number;
+  completed: boolean;
+  observed_at_ms: number;
+}
+
 export interface UserInfo {
   id: string;
   login: string;
@@ -1062,6 +1084,8 @@ export interface VideoListPageInput {
   size?: string;
   window?: string;
   incomplete_only?: boolean;
+  watch_later_only?: boolean;
+  unwatched_only?: boolean;
   /**
    * TerminalOnly keeps active in-flight rows out of history-style views while
    * still allowing those views to include both active terminal rows and
@@ -1230,6 +1254,8 @@ export interface VideoResponse {
    * keep the client-side part sequencer as the fallback.
    */
   playback_artifact?: VideoPlaybackAssetResponse;
+  /** UserState is scoped to the authenticated user. */
+  user_state?: VideoUserStateResponse;
 }
 
 /**
@@ -1249,6 +1275,14 @@ export interface VideoSummary {
   filename: string;
   display_name: string;
   status: string;
+}
+
+export interface VideoUserStateResponse {
+  watch_later: boolean;
+  last_position_seconds: number;
+  watched_at?: string;
+  completed_at?: string;
+  updated_at: string;
 }
 
 export interface VideorequestListInput {
@@ -1297,6 +1331,7 @@ type AppRouterRecord = {
     listFollowed: $Query<void, ChannelResponse[]>;
     listPage: $Query<ChannelListPageInput, ChannelPageResponse>;
     search: $Query<ChannelSearchInput, ChannelResponse[]>;
+    setFavorite: $Mutation<SetFavoriteInput, ChannelUserStateResponse>;
     syncFromTwitch: $Mutation<SyncFromTwitchInput, ChannelResponse>;
   };
   eventsub: {
@@ -1377,12 +1412,14 @@ type AppRouterRecord = {
     list: $Query<VideoListInput, VideoResponse[]>;
     listPage: $Query<VideoListPageInput, VideoListPageResponse>;
     search: $Query<VideoSearchInput, VideoResponse[]>;
+    setWatchLater: $Mutation<SetWatchLaterInput, VideoUserStateResponse>;
     snapshots: $Query<SnapshotsInput, string[]>;
     statistics: $Query<void, StatisticsResponse>;
     statisticsByBroadcaster: $Query<ChannelStatisticsInput, ChannelStatisticsResponse>;
     timeline: $Query<TimelineInput, TimelineEvent[]>;
     titles: $Query<TitlesInput, TitleItem[]>;
     triggerDownload: $Mutation<TriggerDownloadInput, TriggerDownloadResponse>;
+    updateWatchProgress: $Mutation<UpdateWatchProgressInput, VideoUserStateResponse>;
   };
   videorequest: {
     mine: $Query<VideorequestListInput, VideoSummary[]>;

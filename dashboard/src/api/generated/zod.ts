@@ -57,6 +57,7 @@ export const ChannelPageCursorSchema = z.object({
 export const ChannelListPageInputSchema = z.object({
   limit: z.int().gte(0).lte(200).optional(),
   sort: z.enum(["name_asc", "name_desc"]).or(z.literal("")).optional(),
+  filter: z.enum(["all", "live", "downloaded", "favorites"]).or(z.literal("")).optional(),
   live_only: z.boolean().optional(),
   cursor: ChannelPageCursorSchema.optional(),
   direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
@@ -182,9 +183,19 @@ export const SearchEventLogsInputSchema = z.object({
   offset: z.int().gte(0),
 }).meta({ id: "SearchEventLogsInput" });
 
+export const SetFavoriteInputSchema = z.object({
+  broadcaster_id: z.string().min(1),
+  favorite: z.boolean(),
+}).meta({ id: "SetFavoriteInput" });
+
 export const SetPausedInputSchema = z.object({
   paused: z.boolean(),
 }).meta({ id: "SetPausedInput" });
+
+export const SetWatchLaterInputSchema = z.object({
+  video_id: z.number(),
+  watch_later: z.boolean(),
+}).meta({ id: "SetWatchLaterInput" });
 
 export const SettingsUpdateInputSchema = z.object({
   timezone: z.string().min(1).max(64),
@@ -254,6 +265,13 @@ export const UpdateUserRoleInputSchema = z.object({
   role: z.enum(["viewer", "admin", "owner"]),
 }).meta({ id: "UpdateUserRoleInput" });
 
+export const UpdateWatchProgressInputSchema = z.object({
+  video_id: z.number(),
+  position_seconds: z.float64().gte(0),
+  completed: z.boolean(),
+  observed_at_ms: z.number().gte(1),
+}).meta({ id: "UpdateWatchProgressInput" });
+
 export const VideoByBroadcasterInputSchema = z.object({
   broadcaster_id: z.string().min(1),
   limit: z.int().gte(0).lte(200),
@@ -298,6 +316,8 @@ export const VideoListPageInputSchema = z.object({
   size: z.enum(["small", "medium", "large"]).or(z.literal("")).optional(),
   window: z.enum(["this_week"]).or(z.literal("")).optional(),
   incomplete_only: z.boolean().optional(),
+  watch_later_only: z.boolean().optional(),
+  unwatched_only: z.boolean().optional(),
   terminal_only: z.boolean().optional().describe("TerminalOnly keeps active in-flight rows out of history-style views while\nstill allowing those views to include both active terminal rows and\ntombstones through Scope=\"all\"."),
   scope: z.enum(["active", "removed", "all"]).or(z.literal("")).optional().describe("Scope selects the tombstone state. Empty/\"active\" keeps the library\ndefault (live recordings only); \"removed\" and \"all\" power the\nremoved-inclusive history surface. Channel/category grids and search\nnever expose this and stay active-only."),
   cursor: VideoListPageCursorSchema.optional(),
