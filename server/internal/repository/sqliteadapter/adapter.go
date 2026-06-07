@@ -137,19 +137,6 @@ func (a *SQLiteAdapter) UpdateUserRole(ctx context.Context, id string, role stri
 
 // Conversion helpers
 
-func sqliteUserToDomain(u sqlitegen.User) *repository.User {
-	return &repository.User{
-		ID:              u.ID,
-		Login:           u.Login,
-		DisplayName:     u.DisplayName,
-		Email:           fromNullString(u.Email),
-		ProfileImageURL: fromNullString(u.ProfileImageUrl),
-		Role:            u.Role,
-		CreatedAt:       u.CreatedAt.Time,
-		UpdatedAt:       u.UpdatedAt.Time,
-	}
-}
-
 func fromNullString(s sql.NullString) *string {
 	if !s.Valid {
 		return nil

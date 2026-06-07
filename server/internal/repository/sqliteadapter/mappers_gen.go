@@ -3,6 +3,7 @@
 package sqliteadapter
 
 import (
+	"encoding/json"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
@@ -20,5 +21,223 @@ func sqliteTagToDomain(src sqlitegen.Tag) *repository.Tag {
 		CreatedAt: src.CreatedAt.Time,
 		ID:        src.ID,
 		Name:      src.Name,
+	}
+}
+
+func sqliteCategoryToDomain(src sqlitegen.Category) *repository.Category {
+	return &repository.Category{
+		BoxArtURL:             fromNullString(src.BoxArtUrl),
+		CreatedAt:             src.CreatedAt.Time,
+		Description:           fromNullString(src.Description),
+		DescriptionCheckedAt:  timePtrFromSQLite(src.DescriptionCheckedAt),
+		GameMetadataCheckedAt: timePtrFromSQLite(src.GameMetadataCheckedAt),
+		ID:                    src.ID,
+		IGDBID:                fromNullString(src.IgdbID),
+		Name:                  src.Name,
+		UpdatedAt:             src.UpdatedAt.Time,
+	}
+}
+
+func sqliteChannelToDomain(src sqlitegen.Channel) *repository.Channel {
+	return &repository.Channel{
+		BroadcasterID:       src.BroadcasterID,
+		BroadcasterLanguage: fromNullString(src.BroadcasterLanguage),
+		BroadcasterLogin:    src.BroadcasterLogin,
+		BroadcasterName:     src.BroadcasterName,
+		BroadcasterType:     fromNullString(src.BroadcasterType),
+		CreatedAt:           src.CreatedAt.Time,
+		Description:         fromNullString(src.Description),
+		OfflineImageURL:     fromNullString(src.OfflineImageUrl),
+		ProfileImageURL:     fromNullString(src.ProfileImageUrl),
+		UpdatedAt:           src.UpdatedAt.Time,
+		ViewCount:           src.ViewCount,
+	}
+}
+
+func sqliteChannelUserStateToDomain(src sqlitegen.ChannelUserState) *repository.ChannelUserState {
+	return &repository.ChannelUserState{
+		BroadcasterID: src.BroadcasterID,
+		CreatedAt:     src.CreatedAt.Time,
+		Favorite:      src.Favorite != 0,
+		UpdatedAt:     src.UpdatedAt.Time,
+		UserID:        src.UserID,
+	}
+}
+
+func sqliteEventLogToDomain(src sqlitegen.EventLog) *repository.EventLog {
+	return &repository.EventLog{
+		ActorUserID: fromNullString(src.ActorUserID),
+		CreatedAt:   src.CreatedAt.Time,
+		Data:        rawMessageFromSQLite(src.Data),
+		Domain:      src.Domain,
+		EventType:   src.EventType,
+		ID:          src.ID,
+		Message:     src.Message,
+		Severity:    src.Severity,
+	}
+}
+
+func sqliteJobToDomain(src sqlitegen.Job) *repository.Job {
+	return &repository.Job{
+		BroadcasterID: src.BroadcasterID,
+		CreatedAt:     src.CreatedAt.Time,
+		Error:         fromNullString(src.Error),
+		FinishedAt:    timePtrFromSQLite(src.FinishedAt),
+		ID:            src.ID,
+		ResumeState:   json.RawMessage(src.ResumeState),
+		StartedAt:     timePtrFromSQLite(src.StartedAt),
+		Status:        src.Status,
+		UpdatedAt:     src.UpdatedAt.Time,
+		VideoID:       src.VideoID,
+	}
+}
+
+func sqliteRecordingWebhookDeliveryToDomain(src sqlitegen.RecordingWebhookDelivery) *repository.RecordingWebhookDelivery {
+	return &repository.RecordingWebhookDelivery{
+		Attempts:      int(src.Attempts),
+		CreatedAt:     src.CreatedAt.Time,
+		DedupeKey:     src.DedupeKey,
+		DeliveredAt:   timePtrFromSQLite(src.DeliveredAt),
+		Event:         src.Event,
+		FrozenParts:   src.FrozenParts,
+		ID:            src.ID,
+		LastAttemptAt: timePtrFromSQLite(src.LastAttemptAt),
+		LastError:     src.LastError,
+		LastStatus:    int(src.LastStatus),
+		MessageID:     src.MessageID,
+		NextAttemptAt: src.NextAttemptAt.Time,
+		Status:        src.Status,
+		Test:          src.Test != 0,
+		UpdatedAt:     src.UpdatedAt.Time,
+		VideoID:       src.VideoID,
+	}
+}
+
+func sqliteStreamToDomain(src sqlitegen.Stream) *repository.Stream {
+	return &repository.Stream{
+		BroadcasterID: src.BroadcasterID,
+		CreatedAt:     src.CreatedAt.Time,
+		EndedAt:       timePtrFromSQLite(src.EndedAt),
+		ID:            src.ID,
+		IsMature:      nullInt64ToBool(src.IsMature),
+		Language:      src.Language,
+		StartedAt:     src.StartedAt.Time,
+		ThumbnailURL:  fromNullString(src.ThumbnailUrl),
+		Type:          src.Type,
+		ViewerCount:   src.ViewerCount,
+	}
+}
+
+func sqliteSubscriptionToDomain(src sqlitegen.Subscription) *repository.Subscription {
+	return &repository.Subscription{
+		BroadcasterID:     fromNullString(src.BroadcasterID),
+		Condition:         json.RawMessage(src.Condition),
+		Cost:              src.Cost,
+		CreatedAt:         src.CreatedAt.Time,
+		ID:                src.ID,
+		RevokedAt:         timePtrFromSQLite(src.RevokedAt),
+		RevokedReason:     fromNullString(src.RevokedReason),
+		Status:            src.Status,
+		TransportCallback: src.TransportCallback,
+		TransportMethod:   src.TransportMethod,
+		TwitchCreatedAt:   src.TwitchCreatedAt.Time,
+		Type:              src.Type,
+		Version:           src.Version,
+	}
+}
+
+func sqliteTaskToDomain(src sqlitegen.Task) *repository.Task {
+	return &repository.Task{
+		CreatedAt:       src.CreatedAt.Time,
+		Description:     src.Description,
+		IntervalSeconds: int32(src.IntervalSeconds),
+		IsEnabled:       src.IsEnabled != 0,
+		LastDurationMs:  int32(src.LastDurationMs),
+		LastError:       fromNullString(src.LastError),
+		LastRunAt:       timePtrFromSQLite(src.LastRunAt),
+		LastStatus:      src.LastStatus,
+		Name:            src.Name,
+		NextRunAt:       timePtrFromSQLite(src.NextRunAt),
+		UpdatedAt:       src.UpdatedAt.Time,
+	}
+}
+
+func sqliteUserToDomain(src sqlitegen.User) *repository.User {
+	return &repository.User{
+		CreatedAt:       src.CreatedAt.Time,
+		DisplayName:     src.DisplayName,
+		Email:           fromNullString(src.Email),
+		ID:              src.ID,
+		Login:           src.Login,
+		ProfileImageURL: fromNullString(src.ProfileImageUrl),
+		Role:            src.Role,
+		UpdatedAt:       src.UpdatedAt.Time,
+	}
+}
+
+func sqliteVideoPartToDomain(src sqlitegen.VideoPart) *repository.VideoPart {
+	return &repository.VideoPart{
+		Codec:           src.Codec,
+		CreatedAt:       src.CreatedAt.Time,
+		DurationSeconds: src.DurationSeconds,
+		EndMediaSeq:     int64PtrFromSQLite(src.EndMediaSeq),
+		FPS:             fromNullFloat64(src.Fps),
+		Filename:        src.Filename,
+		ID:              src.ID,
+		PartIndex:       int32(src.PartIndex),
+		Quality:         src.Quality,
+		SegmentFormat:   src.SegmentFormat,
+		SizeBytes:       src.SizeBytes,
+		StartMediaSeq:   src.StartMediaSeq,
+		Thumbnail:       fromNullString(src.Thumbnail),
+		UpdatedAt:       src.UpdatedAt.Time,
+		VideoID:         src.VideoID,
+	}
+}
+
+func sqliteVideoPlaybackAssetToDomain(src sqlitegen.VideoPlaybackAsset) *repository.VideoPlaybackAsset {
+	return &repository.VideoPlaybackAsset{
+		CreatedAt:       src.CreatedAt.Time,
+		DurationSeconds: fromNullFloat64(src.DurationSeconds),
+		Error:           fromNullString(src.Error),
+		Filename:        fromNullString(src.Filename),
+		GeneratedAt:     timePtrFromSQLite(src.GeneratedAt),
+		LastAccessedAt:  timePtrFromSQLite(src.LastAccessedAt),
+		MimeType:        fromNullString(src.MimeType),
+		SizeBytes:       int64PtrFromSQLite(src.SizeBytes),
+		Status:          src.Status,
+		UpdatedAt:       src.UpdatedAt.Time,
+		VideoID:         src.VideoID,
+	}
+}
+
+func sqliteVideoUserStateToDomain(src sqlitegen.VideoUserState) *repository.VideoUserState {
+	return &repository.VideoUserState{
+		CompletedAt:         timePtrFromSQLite(src.CompletedAt),
+		CreatedAt:           src.CreatedAt.Time,
+		LastPositionSeconds: src.LastPositionSeconds,
+		LastProgressAtMs:    int64PtrFromSQLite(src.LastProgressAtMs),
+		UpdatedAt:           src.UpdatedAt.Time,
+		UserID:              src.UserID,
+		VideoID:             src.VideoID,
+		WatchLater:          src.WatchLater != 0,
+		WatchedAt:           timePtrFromSQLite(src.WatchedAt),
+	}
+}
+
+func sqliteWebhookEventToDomain(src sqlitegen.WebhookEvent) *repository.WebhookEvent {
+	return &repository.WebhookEvent{
+		BroadcasterID:    fromNullString(src.BroadcasterID),
+		Error:            fromNullString(src.Error),
+		EventID:          src.EventID,
+		EventType:        fromNullString(src.EventType),
+		ID:               src.ID,
+		MessageTimestamp: src.MessageTimestamp.Time,
+		MessageType:      src.MessageType,
+		Payload:          rawMessageFromSQLite(src.Payload),
+		ProcessedAt:      timePtrFromSQLite(src.ProcessedAt),
+		ReceivedAt:       src.ReceivedAt.Time,
+		Status:           src.Status,
+		SubscriptionID:   fromNullString(src.SubscriptionID),
 	}
 }

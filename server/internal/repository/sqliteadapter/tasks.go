@@ -82,22 +82,6 @@ func (a *SQLiteAdapter) SetTaskNextRun(ctx context.Context, name string) error {
 	return nil
 }
 
-func sqliteTaskToDomain(t sqlitegen.Task) *repository.Task {
-	return &repository.Task{
-		Name:            t.Name,
-		Description:     t.Description,
-		IntervalSeconds: int32(t.IntervalSeconds),
-		IsEnabled:       int64ToBool(t.IsEnabled),
-		LastRunAt:       timePtrFromSQLite(t.LastRunAt),
-		LastDurationMs:  int32(t.LastDurationMs),
-		LastStatus:      t.LastStatus,
-		LastError:       fromNullString(t.LastError),
-		NextRunAt:       timePtrFromSQLite(t.NextRunAt),
-		CreatedAt:       t.CreatedAt.Time,
-		UpdatedAt:       t.UpdatedAt.Time,
-	}
-}
-
 func sqliteTasksToDomain(rows []sqlitegen.Task) []repository.Task {
 	out := make([]repository.Task, len(rows))
 	for i, r := range rows {

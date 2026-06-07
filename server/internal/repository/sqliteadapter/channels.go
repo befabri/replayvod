@@ -152,22 +152,6 @@ func (a *SQLiteAdapter) UnfollowChannel(ctx context.Context, userID, broadcaster
 	})
 }
 
-func sqliteChannelToDomain(c sqlitegen.Channel) *repository.Channel {
-	return &repository.Channel{
-		BroadcasterID:       c.BroadcasterID,
-		BroadcasterLogin:    c.BroadcasterLogin,
-		BroadcasterName:     c.BroadcasterName,
-		BroadcasterLanguage: fromNullString(c.BroadcasterLanguage),
-		ProfileImageURL:     fromNullString(c.ProfileImageUrl),
-		OfflineImageURL:     fromNullString(c.OfflineImageUrl),
-		Description:         fromNullString(c.Description),
-		BroadcasterType:     fromNullString(c.BroadcasterType),
-		ViewCount:           c.ViewCount,
-		CreatedAt:           c.CreatedAt.Time,
-		UpdatedAt:           c.UpdatedAt.Time,
-	}
-}
-
 func sqliteChannelCursorName(cursor *repository.ChannelPageCursor) sql.NullString {
 	if cursor == nil {
 		return sql.NullString{}

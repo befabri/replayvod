@@ -117,24 +117,6 @@ func (a *PGAdapter) CountActiveSubscriptions(ctx context.Context) (int64, error)
 	return a.queries.CountActiveSubscriptions(ctx)
 }
 
-func pgSubscriptionToDomain(s pggen.Subscription) *repository.Subscription {
-	return &repository.Subscription{
-		ID:                s.ID,
-		Status:            s.Status,
-		Type:              s.Type,
-		Version:           s.Version,
-		Cost:              int64(s.Cost),
-		Condition:         s.Condition,
-		BroadcasterID:     s.BroadcasterID,
-		TransportMethod:   s.TransportMethod,
-		TransportCallback: s.TransportCallback,
-		TwitchCreatedAt:   s.TwitchCreatedAt,
-		CreatedAt:         s.CreatedAt,
-		RevokedAt:         s.RevokedAt,
-		RevokedReason:     s.RevokedReason,
-	}
-}
-
 func pgSubscriptionsToDomain(rows []pggen.Subscription) []repository.Subscription {
 	out := make([]repository.Subscription, len(rows))
 	for i, r := range rows {

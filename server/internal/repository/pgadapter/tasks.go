@@ -82,22 +82,6 @@ func (a *PGAdapter) SetTaskNextRun(ctx context.Context, name string) error {
 	return nil
 }
 
-func pgTaskToDomain(t pggen.Task) *repository.Task {
-	return &repository.Task{
-		Name:            t.Name,
-		Description:     t.Description,
-		IntervalSeconds: t.IntervalSeconds,
-		IsEnabled:       t.IsEnabled,
-		LastRunAt:       t.LastRunAt,
-		LastDurationMs:  t.LastDurationMs,
-		LastStatus:      t.LastStatus,
-		LastError:       t.LastError,
-		NextRunAt:       t.NextRunAt,
-		CreatedAt:       t.CreatedAt,
-		UpdatedAt:       t.UpdatedAt,
-	}
-}
-
 func pgTasksToDomain(rows []pggen.Task) []repository.Task {
 	out := make([]repository.Task, len(rows))
 	for i, r := range rows {

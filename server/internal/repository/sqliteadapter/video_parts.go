@@ -102,33 +102,3 @@ func (a *SQLiteAdapter) HasFinalizedVideoParts(ctx context.Context, videoID int6
 func (a *SQLiteAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
 	return a.queries.DeleteVideoParts(ctx, videoID)
 }
-
-func sqliteVideoPartToDomain(p sqlitegen.VideoPart) *repository.VideoPart {
-	var endMediaSeq *int64
-	if p.EndMediaSeq.Valid {
-		v := p.EndMediaSeq.Int64
-		endMediaSeq = &v
-	}
-	var fps *float64
-	if p.Fps.Valid {
-		v := p.Fps.Float64
-		fps = &v
-	}
-	return &repository.VideoPart{
-		ID:              p.ID,
-		VideoID:         p.VideoID,
-		PartIndex:       int32(p.PartIndex),
-		Filename:        p.Filename,
-		Quality:         p.Quality,
-		FPS:             fps,
-		Codec:           p.Codec,
-		SegmentFormat:   p.SegmentFormat,
-		DurationSeconds: p.DurationSeconds,
-		SizeBytes:       p.SizeBytes,
-		Thumbnail:       fromNullString(p.Thumbnail),
-		StartMediaSeq:   p.StartMediaSeq,
-		EndMediaSeq:     endMediaSeq,
-		CreatedAt:       p.CreatedAt.Time,
-		UpdatedAt:       p.UpdatedAt.Time,
-	}
-}

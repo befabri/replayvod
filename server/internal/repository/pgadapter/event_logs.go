@@ -71,19 +71,6 @@ func (a *PGAdapter) DeleteOldEventLogs(ctx context.Context, before time.Time) er
 	return a.queries.DeleteOldEventLogs(ctx, before)
 }
 
-func pgEventLogToDomain(e pggen.EventLog) *repository.EventLog {
-	return &repository.EventLog{
-		ID:          e.ID,
-		Domain:      e.Domain,
-		EventType:   e.EventType,
-		Severity:    e.Severity,
-		Message:     e.Message,
-		ActorUserID: e.ActorUserID,
-		Data:        e.Data,
-		CreatedAt:   e.CreatedAt,
-	}
-}
-
 func pgEventLogsToDomain(rows []pggen.EventLog) []repository.EventLog {
 	out := make([]repository.EventLog, len(rows))
 	for i, r := range rows {

@@ -3,7 +3,6 @@ package sqliteadapter
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -114,24 +113,6 @@ func (a *SQLiteAdapter) DeleteSubscription(ctx context.Context, id string) error
 
 func (a *SQLiteAdapter) CountActiveSubscriptions(ctx context.Context) (int64, error) {
 	return a.queries.CountActiveSubscriptions(ctx)
-}
-
-func sqliteSubscriptionToDomain(s sqlitegen.Subscription) *repository.Subscription {
-	return &repository.Subscription{
-		ID:                s.ID,
-		Status:            s.Status,
-		Type:              s.Type,
-		Version:           s.Version,
-		Cost:              s.Cost,
-		Condition:         json.RawMessage(s.Condition),
-		BroadcasterID:     fromNullString(s.BroadcasterID),
-		TransportMethod:   s.TransportMethod,
-		TransportCallback: s.TransportCallback,
-		TwitchCreatedAt:   s.TwitchCreatedAt.Time,
-		CreatedAt:         s.CreatedAt.Time,
-		RevokedAt:         timePtrFromSQLite(s.RevokedAt),
-		RevokedReason:     fromNullString(s.RevokedReason),
-	}
 }
 
 func sqliteSubscriptionsToDomain(rows []sqlitegen.Subscription) []repository.Subscription {

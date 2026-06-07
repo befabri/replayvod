@@ -104,18 +104,3 @@ func (a *SQLiteAdapter) ListFailedJobsForRetry(ctx context.Context, before time.
 	}
 	return out, nil
 }
-
-func sqliteJobToDomain(j sqlitegen.Job) *repository.Job {
-	return &repository.Job{
-		ID:            j.ID,
-		VideoID:       j.VideoID,
-		BroadcasterID: j.BroadcasterID,
-		Status:        j.Status,
-		StartedAt:     timePtrFromSQLite(j.StartedAt),
-		FinishedAt:    timePtrFromSQLite(j.FinishedAt),
-		Error:         fromNullString(j.Error),
-		ResumeState:   json.RawMessage(j.ResumeState),
-		CreatedAt:     j.CreatedAt.Time,
-		UpdatedAt:     j.UpdatedAt.Time,
-	}
-}

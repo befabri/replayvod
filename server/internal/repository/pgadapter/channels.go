@@ -143,22 +143,6 @@ func (a *PGAdapter) UnfollowChannel(ctx context.Context, userID, broadcasterID s
 	})
 }
 
-func pgChannelToDomain(c pggen.Channel) *repository.Channel {
-	return &repository.Channel{
-		BroadcasterID:       c.BroadcasterID,
-		BroadcasterLogin:    c.BroadcasterLogin,
-		BroadcasterName:     c.BroadcasterName,
-		BroadcasterLanguage: c.BroadcasterLanguage,
-		ProfileImageURL:     c.ProfileImageUrl,
-		OfflineImageURL:     c.OfflineImageUrl,
-		Description:         c.Description,
-		BroadcasterType:     c.BroadcasterType,
-		ViewCount:           c.ViewCount,
-		CreatedAt:           c.CreatedAt,
-		UpdatedAt:           c.UpdatedAt,
-	}
-}
-
 func pgChannelCursorName(cursor *repository.ChannelPageCursor) *string {
 	if cursor == nil {
 		return nil

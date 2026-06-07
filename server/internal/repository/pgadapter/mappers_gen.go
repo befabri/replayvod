@@ -22,3 +22,221 @@ func pgTagToDomain(src pggen.Tag) *repository.Tag {
 		Name:      src.Name,
 	}
 }
+
+func pgCategoryToDomain(src pggen.Category) *repository.Category {
+	return &repository.Category{
+		BoxArtURL:             src.BoxArtUrl,
+		CreatedAt:             src.CreatedAt,
+		Description:           src.Description,
+		DescriptionCheckedAt:  src.DescriptionCheckedAt,
+		GameMetadataCheckedAt: src.GameMetadataCheckedAt,
+		ID:                    src.ID,
+		IGDBID:                src.IgdbID,
+		Name:                  src.Name,
+		UpdatedAt:             src.UpdatedAt,
+	}
+}
+
+func pgChannelToDomain(src pggen.Channel) *repository.Channel {
+	return &repository.Channel{
+		BroadcasterID:       src.BroadcasterID,
+		BroadcasterLanguage: src.BroadcasterLanguage,
+		BroadcasterLogin:    src.BroadcasterLogin,
+		BroadcasterName:     src.BroadcasterName,
+		BroadcasterType:     src.BroadcasterType,
+		CreatedAt:           src.CreatedAt,
+		Description:         src.Description,
+		OfflineImageURL:     src.OfflineImageUrl,
+		ProfileImageURL:     src.ProfileImageUrl,
+		UpdatedAt:           src.UpdatedAt,
+		ViewCount:           src.ViewCount,
+	}
+}
+
+func pgChannelUserStateToDomain(src pggen.ChannelUserState) *repository.ChannelUserState {
+	return &repository.ChannelUserState{
+		BroadcasterID: src.BroadcasterID,
+		CreatedAt:     src.CreatedAt,
+		Favorite:      src.Favorite,
+		UpdatedAt:     src.UpdatedAt,
+		UserID:        src.UserID,
+	}
+}
+
+func pgEventLogToDomain(src pggen.EventLog) *repository.EventLog {
+	return &repository.EventLog{
+		ActorUserID: src.ActorUserID,
+		CreatedAt:   src.CreatedAt,
+		Data:        src.Data,
+		Domain:      src.Domain,
+		EventType:   src.EventType,
+		ID:          src.ID,
+		Message:     src.Message,
+		Severity:    src.Severity,
+	}
+}
+
+func pgJobToDomain(src pggen.Job) *repository.Job {
+	return &repository.Job{
+		BroadcasterID: src.BroadcasterID,
+		CreatedAt:     src.CreatedAt,
+		Error:         src.Error,
+		FinishedAt:    src.FinishedAt,
+		ID:            src.ID,
+		ResumeState:   src.ResumeState,
+		StartedAt:     src.StartedAt,
+		Status:        src.Status,
+		UpdatedAt:     src.UpdatedAt,
+		VideoID:       src.VideoID,
+	}
+}
+
+func pgRecordingWebhookDeliveryToDomain(src pggen.RecordingWebhookDelivery) *repository.RecordingWebhookDelivery {
+	return &repository.RecordingWebhookDelivery{
+		Attempts:      int(src.Attempts),
+		CreatedAt:     src.CreatedAt,
+		DedupeKey:     src.DedupeKey,
+		DeliveredAt:   src.DeliveredAt,
+		Event:         src.Event,
+		FrozenParts:   src.FrozenParts,
+		ID:            src.ID,
+		LastAttemptAt: src.LastAttemptAt,
+		LastError:     src.LastError,
+		LastStatus:    int(src.LastStatus),
+		MessageID:     src.MessageID,
+		NextAttemptAt: src.NextAttemptAt,
+		Status:        src.Status,
+		Test:          src.Test,
+		UpdatedAt:     src.UpdatedAt,
+		VideoID:       src.VideoID,
+	}
+}
+
+func pgStreamToDomain(src pggen.Stream) *repository.Stream {
+	return &repository.Stream{
+		BroadcasterID: src.BroadcasterID,
+		CreatedAt:     src.CreatedAt,
+		EndedAt:       src.EndedAt,
+		ID:            src.ID,
+		IsMature:      src.IsMature,
+		Language:      src.Language,
+		StartedAt:     src.StartedAt,
+		ThumbnailURL:  src.ThumbnailUrl,
+		Type:          src.Type,
+		ViewerCount:   int64(src.ViewerCount),
+	}
+}
+
+func pgSubscriptionToDomain(src pggen.Subscription) *repository.Subscription {
+	return &repository.Subscription{
+		BroadcasterID:     src.BroadcasterID,
+		Condition:         src.Condition,
+		Cost:              int64(src.Cost),
+		CreatedAt:         src.CreatedAt,
+		ID:                src.ID,
+		RevokedAt:         src.RevokedAt,
+		RevokedReason:     src.RevokedReason,
+		Status:            src.Status,
+		TransportCallback: src.TransportCallback,
+		TransportMethod:   src.TransportMethod,
+		TwitchCreatedAt:   src.TwitchCreatedAt,
+		Type:              src.Type,
+		Version:           src.Version,
+	}
+}
+
+func pgTaskToDomain(src pggen.Task) *repository.Task {
+	return &repository.Task{
+		CreatedAt:       src.CreatedAt,
+		Description:     src.Description,
+		IntervalSeconds: src.IntervalSeconds,
+		IsEnabled:       src.IsEnabled,
+		LastDurationMs:  src.LastDurationMs,
+		LastError:       src.LastError,
+		LastRunAt:       src.LastRunAt,
+		LastStatus:      src.LastStatus,
+		Name:            src.Name,
+		NextRunAt:       src.NextRunAt,
+		UpdatedAt:       src.UpdatedAt,
+	}
+}
+
+func pgUserToDomain(src pggen.User) *repository.User {
+	return &repository.User{
+		CreatedAt:       src.CreatedAt,
+		DisplayName:     src.DisplayName,
+		Email:           src.Email,
+		ID:              src.ID,
+		Login:           src.Login,
+		ProfileImageURL: src.ProfileImageUrl,
+		Role:            src.Role,
+		UpdatedAt:       src.UpdatedAt,
+	}
+}
+
+func pgVideoPartToDomain(src pggen.VideoPart) *repository.VideoPart {
+	return &repository.VideoPart{
+		Codec:           src.Codec,
+		CreatedAt:       src.CreatedAt,
+		DurationSeconds: src.DurationSeconds,
+		EndMediaSeq:     src.EndMediaSeq,
+		FPS:             src.Fps,
+		Filename:        src.Filename,
+		ID:              src.ID,
+		PartIndex:       src.PartIndex,
+		Quality:         src.Quality,
+		SegmentFormat:   src.SegmentFormat,
+		SizeBytes:       src.SizeBytes,
+		StartMediaSeq:   src.StartMediaSeq,
+		Thumbnail:       src.Thumbnail,
+		UpdatedAt:       src.UpdatedAt,
+		VideoID:         src.VideoID,
+	}
+}
+
+func pgVideoPlaybackAssetToDomain(src pggen.VideoPlaybackAsset) *repository.VideoPlaybackAsset {
+	return &repository.VideoPlaybackAsset{
+		CreatedAt:       src.CreatedAt,
+		DurationSeconds: src.DurationSeconds,
+		Error:           src.Error,
+		Filename:        src.Filename,
+		GeneratedAt:     src.GeneratedAt,
+		LastAccessedAt:  src.LastAccessedAt,
+		MimeType:        src.MimeType,
+		SizeBytes:       src.SizeBytes,
+		Status:          src.Status,
+		UpdatedAt:       src.UpdatedAt,
+		VideoID:         src.VideoID,
+	}
+}
+
+func pgVideoUserStateToDomain(src pggen.VideoUserState) *repository.VideoUserState {
+	return &repository.VideoUserState{
+		CompletedAt:         src.CompletedAt,
+		CreatedAt:           src.CreatedAt,
+		LastPositionSeconds: src.LastPositionSeconds,
+		LastProgressAtMs:    src.LastProgressAtMs,
+		UpdatedAt:           src.UpdatedAt,
+		UserID:              src.UserID,
+		VideoID:             src.VideoID,
+		WatchLater:          src.WatchLater,
+		WatchedAt:           src.WatchedAt,
+	}
+}
+
+func pgWebhookEventToDomain(src pggen.WebhookEvent) *repository.WebhookEvent {
+	return &repository.WebhookEvent{
+		BroadcasterID:    src.BroadcasterID,
+		Error:            src.Error,
+		EventID:          src.EventID,
+		EventType:        src.EventType,
+		ID:               src.ID,
+		MessageTimestamp: src.MessageTimestamp,
+		MessageType:      src.MessageType,
+		Payload:          src.Payload,
+		ProcessedAt:      src.ProcessedAt,
+		ReceivedAt:       src.ReceivedAt,
+		Status:           src.Status,
+		SubscriptionID:   src.SubscriptionID,
+	}
+}

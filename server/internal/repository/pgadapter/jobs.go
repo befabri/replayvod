@@ -103,18 +103,3 @@ func (a *PGAdapter) ListFailedJobsForRetry(ctx context.Context, before time.Time
 	}
 	return out, nil
 }
-
-func pgJobToDomain(j pggen.Job) *repository.Job {
-	return &repository.Job{
-		ID:            j.ID,
-		VideoID:       j.VideoID,
-		BroadcasterID: j.BroadcasterID,
-		Status:        j.Status,
-		StartedAt:     j.StartedAt,
-		FinishedAt:    j.FinishedAt,
-		Error:         j.Error,
-		ResumeState:   j.ResumeState,
-		CreatedAt:     j.CreatedAt,
-		UpdatedAt:     j.UpdatedAt,
-	}
-}

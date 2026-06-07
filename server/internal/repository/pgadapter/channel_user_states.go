@@ -48,13 +48,3 @@ func (a *PGAdapter) SetChannelFavorite(ctx context.Context, userID string, broad
 	}
 	return pgChannelUserStateToDomain(row), nil
 }
-
-func pgChannelUserStateToDomain(row pggen.ChannelUserState) *repository.ChannelUserState {
-	return &repository.ChannelUserState{
-		UserID:        row.UserID,
-		BroadcasterID: row.BroadcasterID,
-		Favorite:      row.Favorite,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
-	}
-}

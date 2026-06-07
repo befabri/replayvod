@@ -3,7 +3,6 @@ package sqliteadapter
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -117,27 +116,6 @@ func (a *SQLiteAdapter) CountWebhookEvents(ctx context.Context) (int64, error) {
 
 func (a *SQLiteAdapter) CountWebhookEventsByType(ctx context.Context, eventType string) (int64, error) {
 	return a.queries.CountWebhookEventsByType(ctx, sql.NullString{String: eventType, Valid: true})
-}
-
-func sqliteWebhookEventToDomain(w sqlitegen.WebhookEvent) *repository.WebhookEvent {
-	var payload json.RawMessage
-	if w.Payload.Valid {
-		payload = json.RawMessage(w.Payload.String)
-	}
-	return &repository.WebhookEvent{
-		ID:               w.ID,
-		EventID:          w.EventID,
-		MessageType:      w.MessageType,
-		EventType:        fromNullString(w.EventType),
-		SubscriptionID:   fromNullString(w.SubscriptionID),
-		BroadcasterID:    fromNullString(w.BroadcasterID),
-		MessageTimestamp: w.MessageTimestamp.Time,
-		Payload:          payload,
-		Status:           w.Status,
-		Error:            fromNullString(w.Error),
-		ReceivedAt:       w.ReceivedAt.Time,
-		ProcessedAt:      timePtrFromSQLite(w.ProcessedAt),
-	}
 }
 
 func sqliteWebhookEventsToDomain(rows []sqlitegen.WebhookEvent) []repository.WebhookEvent {

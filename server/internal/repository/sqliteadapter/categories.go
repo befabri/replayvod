@@ -507,20 +507,6 @@ func (a *SQLiteAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) 
 	return tags, nil
 }
 
-func sqliteCategoryToDomain(c sqlitegen.Category) *repository.Category {
-	return &repository.Category{
-		ID:                    c.ID,
-		Name:                  c.Name,
-		BoxArtURL:             fromNullString(c.BoxArtUrl),
-		IGDBID:                fromNullString(c.IgdbID),
-		Description:           fromNullString(c.Description),
-		GameMetadataCheckedAt: timePtrFromSQLite(c.GameMetadataCheckedAt),
-		DescriptionCheckedAt:  timePtrFromSQLite(c.DescriptionCheckedAt),
-		CreatedAt:             c.CreatedAt.Time,
-		UpdatedAt:             c.UpdatedAt.Time,
-	}
-}
-
 func sqliteCategorySearchCacheToDomain(c sqlitegen.CategorySearchCache) (*repository.CategorySearchCache, error) {
 	var categoryIDs []string
 	if err := json.Unmarshal([]byte(c.CategoryIds), &categoryIDs); err != nil {

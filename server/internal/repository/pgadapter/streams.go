@@ -104,21 +104,6 @@ func (a *PGAdapter) ListLatestLivePerChannel(ctx context.Context, limit int) ([]
 	return out, nil
 }
 
-func pgStreamToDomain(s pggen.Stream) *repository.Stream {
-	return &repository.Stream{
-		ID:            s.ID,
-		BroadcasterID: s.BroadcasterID,
-		Type:          s.Type,
-		Language:      s.Language,
-		ThumbnailURL:  s.ThumbnailUrl,
-		ViewerCount:   int64(s.ViewerCount),
-		IsMature:      s.IsMature,
-		StartedAt:     s.StartedAt,
-		EndedAt:       s.EndedAt,
-		CreatedAt:     s.CreatedAt,
-	}
-}
-
 func pgStreamsToDomain(rows []pggen.Stream) []repository.Stream {
 	out := make([]repository.Stream, len(rows))
 	for i, r := range rows {

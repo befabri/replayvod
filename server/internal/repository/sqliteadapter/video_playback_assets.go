@@ -65,22 +65,6 @@ func (a *SQLiteAdapter) DeleteVideoPlaybackAsset(ctx context.Context, videoID in
 	return nil
 }
 
-func sqliteVideoPlaybackAssetToDomain(a sqlitegen.VideoPlaybackAsset) *repository.VideoPlaybackAsset {
-	return &repository.VideoPlaybackAsset{
-		VideoID:         a.VideoID,
-		Status:          a.Status,
-		Filename:        fromNullString(a.Filename),
-		MimeType:        fromNullString(a.MimeType),
-		DurationSeconds: fromNullFloat64(a.DurationSeconds),
-		SizeBytes:       fromNullInt64(a.SizeBytes),
-		Error:           fromNullString(a.Error),
-		GeneratedAt:     timePtrFromSQLite(a.GeneratedAt),
-		LastAccessedAt:  timePtrFromSQLite(a.LastAccessedAt),
-		CreatedAt:       a.CreatedAt.Time,
-		UpdatedAt:       a.UpdatedAt.Time,
-	}
-}
-
 func fromNullInt64(n sql.NullInt64) *int64 {
 	if !n.Valid {
 		return nil

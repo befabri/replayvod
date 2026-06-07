@@ -137,19 +137,6 @@ func (a *PGAdapter) UpdateUserRole(ctx context.Context, id string, role string) 
 	return nil
 }
 
-func pgUserToDomain(u pggen.User) *repository.User {
-	return &repository.User{
-		ID:              u.ID,
-		Login:           u.Login,
-		DisplayName:     u.DisplayName,
-		Email:           u.Email,
-		ProfileImageURL: u.ProfileImageUrl,
-		Role:            u.Role,
-		CreatedAt:       u.CreatedAt,
-		UpdatedAt:       u.UpdatedAt,
-	}
-}
-
 // Sessions
 
 func (a *PGAdapter) CreateSession(ctx context.Context, s *repository.Session) error {

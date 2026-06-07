@@ -62,17 +62,3 @@ func (a *PGAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string,
 	}
 	return pgVideoUserStateToDomain(row), nil
 }
-
-func pgVideoUserStateToDomain(row pggen.VideoUserState) *repository.VideoUserState {
-	return &repository.VideoUserState{
-		UserID:              row.UserID,
-		VideoID:             row.VideoID,
-		WatchLater:          row.WatchLater,
-		LastPositionSeconds: row.LastPositionSeconds,
-		LastProgressAtMs:    row.LastProgressAtMs,
-		WatchedAt:           row.WatchedAt,
-		CompletedAt:         row.CompletedAt,
-		CreatedAt:           row.CreatedAt,
-		UpdatedAt:           row.UpdatedAt,
-	}
-}

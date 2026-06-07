@@ -105,21 +105,6 @@ func (a *SQLiteAdapter) ListLatestLivePerChannel(ctx context.Context, limit int)
 	return out, nil
 }
 
-func sqliteStreamToDomain(s sqlitegen.Stream) *repository.Stream {
-	return &repository.Stream{
-		ID:            s.ID,
-		BroadcasterID: s.BroadcasterID,
-		Type:          s.Type,
-		Language:      s.Language,
-		ThumbnailURL:  fromNullString(s.ThumbnailUrl),
-		ViewerCount:   s.ViewerCount,
-		IsMature:      nullInt64ToBool(s.IsMature),
-		StartedAt:     s.StartedAt.Time,
-		EndedAt:       timePtrFromSQLite(s.EndedAt),
-		CreatedAt:     s.CreatedAt.Time,
-	}
-}
-
 func sqliteStreamsToDomain(rows []sqlitegen.Stream) []repository.Stream {
 	out := make([]repository.Stream, len(rows))
 	for i, r := range rows {

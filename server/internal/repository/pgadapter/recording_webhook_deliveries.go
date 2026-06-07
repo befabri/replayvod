@@ -161,27 +161,6 @@ func pgCreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, q *pggen.Que
 	return nil
 }
 
-func pgRecordingWebhookDeliveryToDomain(d pggen.RecordingWebhookDelivery) *repository.RecordingWebhookDelivery {
-	return &repository.RecordingWebhookDelivery{
-		ID:            d.ID,
-		MessageID:     d.MessageID,
-		DedupeKey:     d.DedupeKey,
-		Event:         d.Event,
-		VideoID:       d.VideoID,
-		Status:        d.Status,
-		Attempts:      int(d.Attempts),
-		LastStatus:    int(d.LastStatus),
-		LastError:     d.LastError,
-		Test:          d.Test,
-		NextAttemptAt: d.NextAttemptAt,
-		LastAttemptAt: d.LastAttemptAt,
-		DeliveredAt:   d.DeliveredAt,
-		CreatedAt:     d.CreatedAt,
-		UpdatedAt:     d.UpdatedAt,
-		FrozenParts:   d.FrozenParts,
-	}
-}
-
 func (a *PGAdapter) SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error {
 	if err := a.queries.SetRecordingWebhookDeliveryFrozenParts(ctx, pggen.SetRecordingWebhookDeliveryFrozenPartsParams{
 		ID:          id,

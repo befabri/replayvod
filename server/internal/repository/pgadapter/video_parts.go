@@ -93,23 +93,3 @@ func (a *PGAdapter) HasFinalizedVideoParts(ctx context.Context, videoID int64) (
 func (a *PGAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
 	return a.queries.DeleteVideoParts(ctx, videoID)
 }
-
-func pgVideoPartToDomain(p pggen.VideoPart) *repository.VideoPart {
-	return &repository.VideoPart{
-		ID:              p.ID,
-		VideoID:         p.VideoID,
-		PartIndex:       p.PartIndex,
-		Filename:        p.Filename,
-		Quality:         p.Quality,
-		FPS:             p.Fps,
-		Codec:           p.Codec,
-		SegmentFormat:   p.SegmentFormat,
-		DurationSeconds: p.DurationSeconds,
-		SizeBytes:       p.SizeBytes,
-		Thumbnail:       p.Thumbnail,
-		StartMediaSeq:   p.StartMediaSeq,
-		EndMediaSeq:     p.EndMediaSeq,
-		CreatedAt:       p.CreatedAt,
-		UpdatedAt:       p.UpdatedAt,
-	}
-}

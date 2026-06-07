@@ -3,7 +3,6 @@ package sqliteadapter
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -75,23 +74,6 @@ func (a *SQLiteAdapter) CountEventLogsByDomain(ctx context.Context, domain strin
 
 func (a *SQLiteAdapter) DeleteOldEventLogs(ctx context.Context, before time.Time) error {
 	return a.queries.DeleteOldEventLogs(ctx, sqliteTime(before))
-}
-
-func sqliteEventLogToDomain(e sqlitegen.EventLog) *repository.EventLog {
-	var data json.RawMessage
-	if e.Data.Valid {
-		data = json.RawMessage(e.Data.String)
-	}
-	return &repository.EventLog{
-		ID:          e.ID,
-		Domain:      e.Domain,
-		EventType:   e.EventType,
-		Severity:    e.Severity,
-		Message:     e.Message,
-		ActorUserID: fromNullString(e.ActorUserID),
-		Data:        data,
-		CreatedAt:   e.CreatedAt.Time,
-	}
 }
 
 func sqliteEventLogsToDomain(rows []sqlitegen.EventLog) []repository.EventLog {

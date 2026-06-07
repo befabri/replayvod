@@ -62,17 +62,3 @@ func (a *SQLiteAdapter) UpdateVideoWatchProgress(ctx context.Context, userID str
 	}
 	return sqliteVideoUserStateToDomain(row), nil
 }
-
-func sqliteVideoUserStateToDomain(row sqlitegen.VideoUserState) *repository.VideoUserState {
-	return &repository.VideoUserState{
-		UserID:              row.UserID,
-		VideoID:             row.VideoID,
-		WatchLater:          row.WatchLater != 0,
-		LastPositionSeconds: row.LastPositionSeconds,
-		LastProgressAtMs:    int64PtrFromSQLite(row.LastProgressAtMs),
-		WatchedAt:           timePtrFromSQLite(row.WatchedAt),
-		CompletedAt:         timePtrFromSQLite(row.CompletedAt),
-		CreatedAt:           row.CreatedAt.Time,
-		UpdatedAt:           row.UpdatedAt.Time,
-	}
-}

@@ -59,19 +59,3 @@ func (a *PGAdapter) DeleteVideoPlaybackAsset(ctx context.Context, videoID int64)
 	}
 	return nil
 }
-
-func pgVideoPlaybackAssetToDomain(a pggen.VideoPlaybackAsset) *repository.VideoPlaybackAsset {
-	return &repository.VideoPlaybackAsset{
-		VideoID:         a.VideoID,
-		Status:          a.Status,
-		Filename:        a.Filename,
-		MimeType:        a.MimeType,
-		DurationSeconds: a.DurationSeconds,
-		SizeBytes:       a.SizeBytes,
-		Error:           a.Error,
-		GeneratedAt:     a.GeneratedAt,
-		LastAccessedAt:  a.LastAccessedAt,
-		CreatedAt:       a.CreatedAt,
-		UpdatedAt:       a.UpdatedAt,
-	}
-}

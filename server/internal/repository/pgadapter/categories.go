@@ -505,20 +505,6 @@ func (a *PGAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) {
 	return tags, nil
 }
 
-func pgCategoryToDomain(c pggen.Category) *repository.Category {
-	return &repository.Category{
-		ID:                    c.ID,
-		Name:                  c.Name,
-		BoxArtURL:             c.BoxArtUrl,
-		IGDBID:                c.IgdbID,
-		Description:           c.Description,
-		GameMetadataCheckedAt: c.GameMetadataCheckedAt,
-		DescriptionCheckedAt:  c.DescriptionCheckedAt,
-		CreatedAt:             c.CreatedAt,
-		UpdatedAt:             c.UpdatedAt,
-	}
-}
-
 func pgCategorySearchCacheToDomain(c pggen.CategorySearchCache) (*repository.CategorySearchCache, error) {
 	var categoryIDs []string
 	if err := json.Unmarshal(c.CategoryIds, &categoryIDs); err != nil {

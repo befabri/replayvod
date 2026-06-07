@@ -48,13 +48,3 @@ func (a *SQLiteAdapter) SetChannelFavorite(ctx context.Context, userID string, b
 	}
 	return sqliteChannelUserStateToDomain(row), nil
 }
-
-func sqliteChannelUserStateToDomain(row sqlitegen.ChannelUserState) *repository.ChannelUserState {
-	return &repository.ChannelUserState{
-		UserID:        row.UserID,
-		BroadcasterID: row.BroadcasterID,
-		Favorite:      row.Favorite != 0,
-		CreatedAt:     row.CreatedAt.Time,
-		UpdatedAt:     row.UpdatedAt.Time,
-	}
-}

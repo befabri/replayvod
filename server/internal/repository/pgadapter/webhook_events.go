@@ -116,23 +116,6 @@ func (a *PGAdapter) CountWebhookEventsByType(ctx context.Context, eventType stri
 	return a.queries.CountWebhookEventsByType(ctx, &et)
 }
 
-func pgWebhookEventToDomain(w pggen.WebhookEvent) *repository.WebhookEvent {
-	return &repository.WebhookEvent{
-		ID:               w.ID,
-		EventID:          w.EventID,
-		MessageType:      w.MessageType,
-		EventType:        w.EventType,
-		SubscriptionID:   w.SubscriptionID,
-		BroadcasterID:    w.BroadcasterID,
-		MessageTimestamp: w.MessageTimestamp,
-		Payload:          w.Payload,
-		Status:           w.Status,
-		Error:            w.Error,
-		ReceivedAt:       w.ReceivedAt,
-		ProcessedAt:      w.ProcessedAt,
-	}
-}
-
 func pgWebhookEventsToDomain(rows []pggen.WebhookEvent) []repository.WebhookEvent {
 	out := make([]repository.WebhookEvent, len(rows))
 	for i, r := range rows {

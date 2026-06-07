@@ -164,27 +164,6 @@ func sqliteCreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, q *sqlit
 	return nil
 }
 
-func sqliteRecordingWebhookDeliveryToDomain(d sqlitegen.RecordingWebhookDelivery) *repository.RecordingWebhookDelivery {
-	return &repository.RecordingWebhookDelivery{
-		ID:            d.ID,
-		MessageID:     d.MessageID,
-		DedupeKey:     d.DedupeKey,
-		Event:         d.Event,
-		VideoID:       d.VideoID,
-		Status:        d.Status,
-		Attempts:      int(d.Attempts),
-		LastStatus:    int(d.LastStatus),
-		LastError:     d.LastError,
-		Test:          d.Test != 0,
-		NextAttemptAt: d.NextAttemptAt.Time,
-		LastAttemptAt: timePtrFromSQLite(d.LastAttemptAt),
-		DeliveredAt:   timePtrFromSQLite(d.DeliveredAt),
-		CreatedAt:     d.CreatedAt.Time,
-		UpdatedAt:     d.UpdatedAt.Time,
-		FrozenParts:   d.FrozenParts,
-	}
-}
-
 func (a *SQLiteAdapter) SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error {
 	if err := a.queries.SetRecordingWebhookDeliveryFrozenParts(ctx, sqlitegen.SetRecordingWebhookDeliveryFrozenPartsParams{
 		ID:          id,
