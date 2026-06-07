@@ -122,11 +122,24 @@
 	"channels": {
 		"title": "Channels",
 		"empty": "No channels yet. Channels will appear here as you follow broadcasters or configure download schedules.",
+		"empty_live": "No channels are live right now.",
+		"empty_downloaded": "No channels have downloaded videos yet.",
+		"empty_favorites": "No favorite channels yet.",
 		"failed_to_load": "Failed to load channels",
 		"sort_asc": "Channel (A-Z)",
 		"sort_desc": "Channel (Z-A)",
 		"filter_all": "All channels",
 		"filter_live": "Live now",
+		"tabs": {
+			"all": "All",
+			"live": "Live now",
+			"downloaded": "Downloaded",
+			"favorites": "Favorites"
+		},
+		"favorite": {
+			"add": "Add to favorites",
+			"remove": "Remove from favorites"
+		},
 		"end_of_list": "End of list",
 		"live_badge": "Live",
 		"open_in_twitch": "Twitch"
@@ -138,6 +151,8 @@
 	"videos": {
 		"title": "Videos",
 		"empty": "No videos yet. Trigger a download from a channel page.",
+		"empty_watch_later": "No videos saved for later.",
+		"empty_unwatched": "No unwatched videos.",
 		"failed_to_load": "Failed to load videos",
 		"not_found": "Video not found.",
 		"watch_recording": "Watch {{title}}",
@@ -175,10 +190,12 @@
 			"all": "All",
 			"this_week": "This week",
 			"unwatched": "Unwatched",
-			"partial": "Partial",
-			"favorites": "Favorites"
+			"watch_later": "Watch later"
 		},
-		"tab_coming_soon": "Coming soon — this view isn't wired up yet.",
+		"watch_later": {
+			"add": "Add to watch later",
+			"remove": "Remove from watch later"
+		},
 		"status_filter": {
 			"any": "any",
 			"DONE": "Done",

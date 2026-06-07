@@ -122,11 +122,24 @@
 	"channels": {
 		"title": "Chaînes",
 		"empty": "Aucune chaîne. Elles apparaîtront ici quand vous suivrez des diffuseurs ou configurerez des planifications.",
+		"empty_live": "Aucune chaîne n'est en direct pour le moment.",
+		"empty_downloaded": "Aucune chaîne n'a encore de vidéo téléchargée.",
+		"empty_favorites": "Aucune chaîne favorite pour le moment.",
 		"failed_to_load": "Impossible de charger les chaînes",
 		"sort_asc": "Chaîne (A-Z)",
 		"sort_desc": "Chaîne (Z-A)",
 		"filter_all": "Toutes les chaînes",
 		"filter_live": "En direct",
+		"tabs": {
+			"all": "Toutes",
+			"live": "En direct",
+			"downloaded": "Téléchargées",
+			"favorites": "Favoris"
+		},
+		"favorite": {
+			"add": "Ajouter aux favoris",
+			"remove": "Retirer des favoris"
+		},
 		"end_of_list": "Fin de la liste",
 		"live_badge": "En direct",
 		"open_in_twitch": "Twitch"
@@ -138,6 +151,8 @@
 	"videos": {
 		"title": "Vidéos",
 		"empty": "Aucune vidéo. Lancez un téléchargement depuis une chaîne.",
+		"empty_watch_later": "Aucune vidéo à regarder plus tard.",
+		"empty_unwatched": "Aucune vidéo non regardée.",
 		"failed_to_load": "Impossible de charger les vidéos",
 		"not_found": "Vidéo introuvable.",
 		"watch_recording": "Regarder {{title}}",
@@ -175,10 +190,12 @@
 			"all": "Toutes",
 			"this_week": "Cette semaine",
 			"unwatched": "Non regardées",
-			"partial": "Partielles",
-			"favorites": "Favoris"
+			"watch_later": "À regarder"
 		},
-		"tab_coming_soon": "Bientôt — cette vue n'est pas encore branchée.",
+		"watch_later": {
+			"add": "Ajouter à À regarder",
+			"remove": "Retirer de À regarder"
+		},
 		"status_filter": {
 			"any": "tous",
 			"DONE": "Terminé",
