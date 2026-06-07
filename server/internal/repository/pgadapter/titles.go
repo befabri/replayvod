@@ -9,14 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
-	return a.queries.LinkStreamTitle(ctx, pggen.LinkStreamTitleParams{StreamID: streamID, TitleID: titleID})
-}
-
-func (a *PGAdapter) LinkVideoTitle(ctx context.Context, videoID int64, titleID int64) error {
-	return a.queries.LinkVideoTitle(ctx, pggen.LinkVideoTitleParams{VideoID: videoID, TitleID: titleID})
-}
-
 func (a *PGAdapter) UpsertVideoTitleSpan(ctx context.Context, videoID int64, titleID int64, at time.Time) error {
 	if err := a.queries.UpsertVideoTitleSpan(ctx, pggen.UpsertVideoTitleSpanParams{
 		VideoID: videoID,

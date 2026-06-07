@@ -59,17 +59,6 @@ func (a *PGAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Context,
 	return pgSubscriptionToDomain(row), nil
 }
 
-func (a *PGAdapter) ListActiveSubscriptions(ctx context.Context, limit, offset int) ([]repository.Subscription, error) {
-	rows, err := a.queries.ListActiveSubscriptions(ctx, pggen.ListActiveSubscriptionsParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list active subscriptions: %w", err)
-	}
-	return pgSubscriptionsToDomain(rows), nil
-}
-
 func (a *PGAdapter) ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID string) ([]repository.Subscription, error) {
 	bid := broadcasterID
 	rows, err := a.queries.ListSubscriptionsByBroadcaster(ctx, &bid)

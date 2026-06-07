@@ -58,17 +58,6 @@ func (a *SQLiteAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Cont
 	return sqliteSubscriptionToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) ListActiveSubscriptions(ctx context.Context, limit, offset int) ([]repository.Subscription, error) {
-	rows, err := a.queries.ListActiveSubscriptions(ctx, sqlitegen.ListActiveSubscriptionsParams{
-		Limit:  int64(limit),
-		Offset: int64(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list active subscriptions: %w", err)
-	}
-	return sqliteSubscriptionsToDomain(rows), nil
-}
-
 func (a *SQLiteAdapter) ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID string) ([]repository.Subscription, error) {
 	rows, err := a.queries.ListSubscriptionsByBroadcaster(ctx, sql.NullString{String: broadcasterID, Valid: true})
 	if err != nil {

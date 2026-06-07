@@ -13,10 +13,6 @@ func (a *PGAdapter) LinkStreamCategory(ctx context.Context, streamID, categoryID
 	return a.queries.LinkStreamCategory(ctx, pggen.LinkStreamCategoryParams{StreamID: streamID, CategoryID: categoryID})
 }
 
-func (a *PGAdapter) LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error {
-	return a.queries.LinkVideoCategory(ctx, pggen.LinkVideoCategoryParams{VideoID: videoID, CategoryID: categoryID})
-}
-
 func (a *PGAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error {
 	if err := a.queries.UpsertVideoCategorySpan(ctx, pggen.UpsertVideoCategorySpanParams{
 		VideoID:    videoID,

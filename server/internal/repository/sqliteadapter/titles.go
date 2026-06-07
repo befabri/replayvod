@@ -10,14 +10,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-func (a *SQLiteAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
-	return a.queries.LinkStreamTitle(ctx, sqlitegen.LinkStreamTitleParams{StreamID: streamID, TitleID: titleID})
-}
-
-func (a *SQLiteAdapter) LinkVideoTitle(ctx context.Context, videoID int64, titleID int64) error {
-	return a.queries.LinkVideoTitle(ctx, sqlitegen.LinkVideoTitleParams{VideoID: videoID, TitleID: titleID})
-}
-
 // UpsertVideoTitleSpan runs the close-previous-span + insert-new-span
 // pair inside a tx so the two writes are atomic — SQLite has no
 // equivalent to pg's single-CTE form, so we split into two sqlc

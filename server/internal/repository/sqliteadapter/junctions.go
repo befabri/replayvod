@@ -15,10 +15,6 @@ func (a *SQLiteAdapter) LinkStreamCategory(ctx context.Context, streamID, catego
 	return a.queries.LinkStreamCategory(ctx, sqlitegen.LinkStreamCategoryParams{StreamID: streamID, CategoryID: categoryID})
 }
 
-func (a *SQLiteAdapter) LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error {
-	return a.queries.LinkVideoCategory(ctx, sqlitegen.LinkVideoCategoryParams{VideoID: videoID, CategoryID: categoryID})
-}
-
 // UpsertVideoCategorySpan runs the close-previous-span + insert-
 // new-span pair in a tx. See UpsertVideoTitleSpan for rationale.
 func (a *SQLiteAdapter) UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error {

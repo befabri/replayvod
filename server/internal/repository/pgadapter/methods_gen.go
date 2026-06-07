@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
 func (a *PGAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
@@ -142,4 +143,24 @@ func (a *PGAdapter) GetVideo(ctx context.Context, id int64) (*repository.Video, 
 		return nil, mapErr(err)
 	}
 	return pgVideoToDomain(row), nil
+}
+
+func (a *PGAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
+	return a.queries.LinkStreamTitle(ctx, pggen.LinkStreamTitleParams{StreamID: streamID, TitleID: titleID})
+}
+
+func (a *PGAdapter) LinkVideoTitle(ctx context.Context, videoID int64, titleID int64) error {
+	return a.queries.LinkVideoTitle(ctx, pggen.LinkVideoTitleParams{VideoID: videoID, TitleID: titleID})
+}
+
+func (a *PGAdapter) LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error {
+	return a.queries.LinkVideoCategory(ctx, pggen.LinkVideoCategoryParams{VideoID: videoID, CategoryID: categoryID})
+}
+
+func (a *PGAdapter) ListActiveSubscriptions(ctx context.Context, limit int, offset int) ([]repository.Subscription, error) {
+	rows, err := a.queries.ListActiveSubscriptions(ctx, pggen.ListActiveSubscriptionsParams{Limit: int32(limit), Offset: int32(offset)})
+	if err != nil {
+		return nil, fmt.Errorf("pg list active subscriptions: %w", err)
+	}
+	return pgSubscriptionsToDomain(rows), nil
 }

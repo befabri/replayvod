@@ -157,6 +157,10 @@ var genMethods = []string{
 	"GetTask",
 	"GetWebhookEvent",
 	"GetVideo",
+	"LinkStreamTitle",
+	"LinkVideoTitle",
+	"LinkVideoCategory",
+	"ListActiveSubscriptions",
 }
 
 func main() {
@@ -181,15 +185,17 @@ func main() {
 	}
 
 	for _, d := range dialects {
-		rows, err := structFields(filepath.Join(*root, d.dir, d.genPkg, "models.go"))
+		// Parse the whole gen package: row structs live in models.go, query
+		// param structs (<Query>Params) in the per-query .sql.go files.
+		gen, err := structFieldsDir(filepath.Join(*root, d.dir, d.genPkg))
 		if err != nil {
 			fail(err)
 		}
-		mapperSrc, err := generate(d, domain, rows)
+		mapperSrc, err := generate(d, domain, gen)
 		if err != nil {
 			fail(fmt.Errorf("%s mappers: %w", d.name, err))
 		}
-		methodSrc, err := generateMethods(d, methods)
+		methodSrc, err := generateMethods(d, methods, gen)
 		if err != nil {
 			fail(fmt.Errorf("%s methods: %w", d.name, err))
 		}
@@ -288,6 +294,30 @@ func generate(d dialect, domain, rows map[string]map[string]string) ([]byte, err
 		return nil, fmt.Errorf("format generated source: %w\n%s", err, b.String())
 	}
 	return formatted, nil
+}
+
+// structFieldsDir parses every .go file in dir and merges their struct
+// definitions. Used for the sqlc gen package, where row structs live in
+// models.go and query param structs live in the per-query .sql.go files.
+func structFieldsDir(dir string) (map[string]map[string]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]string{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		m, err := structFields(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	return out, nil
 }
 
 // structFields parses a Go file and returns, per struct type name, a map of
@@ -422,10 +452,10 @@ func interfaceMethods(path, ifaceName string) (map[string]methodSig, error) {
 }
 
 // generateMethods renders methods_gen.go for one dialect from the allowlist.
-func generateMethods(d dialect, methods map[string]methodSig) ([]byte, error) {
+func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map[string]string) ([]byte, error) {
 	pkgName := filepath.Base(d.dir)
 	var body strings.Builder
-	needFmt, needRepo := false, false
+	needFmt, needRepo, needGen := false, false, false
 
 	for _, name := range genMethods {
 		sig, ok := methods[name]
@@ -445,22 +475,51 @@ func generateMethods(d dialect, methods map[string]methodSig) ([]byte, error) {
 			decls = append(decls, pn+" "+p.typ)
 		}
 		ctxName := names[0]
-		argSuffix := ""
-		if len(names) > 1 {
-			argSuffix = ", " + strings.Join(names[1:], ", ")
+
+		// Build the query call args. A <Method>Params struct in the gen package
+		// means sqlc takes a single struct arg: fill its fields by
+		// case-insensitive name match, casting when the param type differs from
+		// the interface arg type (e.g. PG int32 / SQLite int64 limit/offset).
+		// Otherwise pass the args positionally.
+		call := ctxName
+		if pf, ok := gen[name+"Params"]; ok {
+			needGen = true
+			fieldByNorm := make(map[string]string, len(pf))
+			for fn := range pf {
+				fieldByNorm[strings.ToLower(fn)] = fn
+			}
+			if len(names)-1 != len(pf) {
+				return nil, fmt.Errorf("method %q: %d args but %sParams has %d fields", name, len(names)-1, name, len(pf))
+			}
+			var assigns []string
+			for j := 1; j < len(names); j++ {
+				argName, argType := names[j], sig.params[j].typ
+				field, ok := fieldByNorm[strings.ToLower(argName)]
+				if !ok {
+					return nil, fmt.Errorf("method %q: no %sParams field for arg %q", name, name, argName)
+				}
+				val := argName
+				if pf[field] != argType {
+					val = pf[field] + "(" + argName + ")"
+				}
+				assigns = append(assigns, field+": "+val)
+			}
+			call = fmt.Sprintf("%s, %s.%sParams{%s}", ctxName, d.genPkg, name, strings.Join(assigns, ", "))
+		} else if len(names) > 1 {
+			call = ctxName + ", " + strings.Join(names[1:], ", ")
 		}
 
 		switch {
 		case len(sig.results) == 1 && sig.results[0] == "error":
-			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) error {\n\treturn a.queries.%s(%s%s)\n}\n",
-				d.adapterType, name, strings.Join(decls, ", "), name, ctxName, argSuffix)
+			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) error {\n\treturn a.queries.%s(%s)\n}\n",
+				d.adapterType, name, strings.Join(decls, ", "), name, call)
 		case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "*") && !strings.Contains(sig.results[0], "."):
 			needRepo = true
 			// Interface is in package repository, so the result is the bare
 			// "*Title"; qualify it as *repository.Title in the adapter package.
 			dom := strings.TrimPrefix(sig.results[0], "*")
 			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) (*repository.%s, error) {\n", d.adapterType, name, strings.Join(decls, ", "), dom)
-			fmt.Fprintf(&body, "\trow, err := a.queries.%s(%s%s)\n", name, ctxName, argSuffix)
+			fmt.Fprintf(&body, "\trow, err := a.queries.%s(%s)\n", name, call)
 			// Get* may miss a row; mapErr translates the driver's no-rows error
 			// to repository.ErrNotFound. Other reads always return a row, so they
 			// wrap with context instead.
@@ -471,6 +530,13 @@ func generateMethods(d dialect, methods map[string]methodSig) ([]byte, error) {
 				fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
 			}
 			fmt.Fprintf(&body, "\treturn %s%sToDomain(row), nil\n}\n", d.name, dom)
+		case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "[]") && !strings.Contains(sig.results[0], "."):
+			needFmt, needRepo = true, true
+			elem := strings.TrimPrefix(sig.results[0], "[]")
+			fmt.Fprintf(&body, "\nfunc (a *%s) %s(%s) ([]repository.%s, error) {\n", d.adapterType, name, strings.Join(decls, ", "), elem)
+			fmt.Fprintf(&body, "\trows, err := a.queries.%s(%s)\n", name, call)
+			fmt.Fprintf(&body, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
+			fmt.Fprintf(&body, "\treturn %s%ssToDomain(rows), nil\n}\n", d.name, elem)
 		default:
 			return nil, fmt.Errorf("method %q has an unsupported shape (results=%v); hand-write it", name, sig.results)
 		}
@@ -484,6 +550,9 @@ func generateMethods(d dialect, methods map[string]methodSig) ([]byte, error) {
 	}
 	if needRepo {
 		fmt.Fprintf(&b, "\t%q\n", "github.com/befabri/replayvod/server/internal/repository")
+	}
+	if needGen {
+		fmt.Fprintf(&b, "\t%q\n", d.genAlias)
 	}
 	b.WriteString(")\n")
 	b.WriteString(body.String())

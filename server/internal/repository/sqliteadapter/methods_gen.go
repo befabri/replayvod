@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
 func (a *SQLiteAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
@@ -142,4 +143,24 @@ func (a *SQLiteAdapter) GetVideo(ctx context.Context, id int64) (*repository.Vid
 		return nil, mapErr(err)
 	}
 	return sqliteVideoToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error {
+	return a.queries.LinkStreamTitle(ctx, sqlitegen.LinkStreamTitleParams{StreamID: streamID, TitleID: titleID})
+}
+
+func (a *SQLiteAdapter) LinkVideoTitle(ctx context.Context, videoID int64, titleID int64) error {
+	return a.queries.LinkVideoTitle(ctx, sqlitegen.LinkVideoTitleParams{VideoID: videoID, TitleID: titleID})
+}
+
+func (a *SQLiteAdapter) LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error {
+	return a.queries.LinkVideoCategory(ctx, sqlitegen.LinkVideoCategoryParams{VideoID: videoID, CategoryID: categoryID})
+}
+
+func (a *SQLiteAdapter) ListActiveSubscriptions(ctx context.Context, limit int, offset int) ([]repository.Subscription, error) {
+	rows, err := a.queries.ListActiveSubscriptions(ctx, sqlitegen.ListActiveSubscriptionsParams{Limit: int64(limit), Offset: int64(offset)})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list active subscriptions: %w", err)
+	}
+	return sqliteSubscriptionsToDomain(rows), nil
 }
