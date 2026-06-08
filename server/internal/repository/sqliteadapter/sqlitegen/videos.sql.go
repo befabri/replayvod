@@ -1091,7 +1091,8 @@ SELECT
     CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
     CAST(COALESCE(SUM(duration_seconds), 0) AS REAL) AS total_duration
 FROM videos
-WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NUL
+WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NULL
+  AND 1 = 1.0
 `
 
 type StatisticsTotalsByBroadcasterRow struct {
@@ -1104,6 +1105,8 @@ type StatisticsTotalsByBroadcasterRow struct {
 // summed duration. Mirrors StatisticsTotals scoped to one broadcaster
 // so the watch page can render a "N recordings · X GB" line under the
 // channel name without paginating the full library client-side.
+// sqlc-sqlite v1.30 can truncate the final byte of this generated
+// const, so keep a tautology after the meaningful NULL predicate.
 func (q *Queries) StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error) {
 	row := q.db.QueryRowContext(ctx, statisticsTotalsByBroadcaster, broadcasterID)
 	var i StatisticsTotalsByBroadcasterRow
@@ -1126,15 +1129,13 @@ type StatisticsTotalsDoneOnlyRow struct {
 	TotalDuration float64 `json:"total_duration"`
 }
 
-// StatisticsTotals is split across four atomic queries instead of
-// one combined SELECT. The combined form (with CASE WHEN aggregates
-// in a multi-column SELECT list) triggers a sqlc-on-SQLite codegen
-// bug that truncates trailing chars off subsequent query consts
-// (StatisticsTotalsByBroadcaster ends up with `IS NUL` instead of
-// `IS NULL`). Splitting keeps each query small enough that the
-// parser doesn't trip; the adapter combines them into a single
-// VideoStatsTotals struct. Postgres still uses the single-query
-// form; see queries/postgres/videos.sql.
+// StatisticsTotals is split across atomic queries instead of one
+// combined SELECT. The combined form (with CASE WHEN aggregates in
+// a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
+// that truncates trailing chars off subsequent query consts. The
+// adapter combines these rows into a single VideoStatsTotals struct.
+// Postgres still uses the single-query form; see
+// queries/postgres/videos.sql.
 func (q *Queries) StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error) {
 	row := q.db.QueryRowContext(ctx, statisticsTotalsDoneOnly)
 	var i StatisticsTotalsDoneOnlyRow

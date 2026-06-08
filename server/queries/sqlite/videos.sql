@@ -276,15 +276,13 @@ SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL;
 -- name: StatisticsByStatus :many
 SELECT status, COUNT(*) AS count FROM videos WHERE deleted_at IS NULL GROUP BY status;
 
--- StatisticsTotals is split across four atomic queries instead of
--- one combined SELECT. The combined form (with CASE WHEN aggregates
--- in a multi-column SELECT list) triggers a sqlc-on-SQLite codegen
--- bug that truncates trailing chars off subsequent query consts
--- (StatisticsTotalsByBroadcaster ends up with `IS NUL` instead of
--- `IS NULL`). Splitting keeps each query small enough that the
--- parser doesn't trip; the adapter combines them into a single
--- VideoStatsTotals struct. Postgres still uses the single-query
--- form; see queries/postgres/videos.sql.
+-- StatisticsTotals is split across atomic queries instead of one
+-- combined SELECT. The combined form (with CASE WHEN aggregates in
+-- a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
+-- that truncates trailing chars off subsequent query consts. The
+-- adapter combines these rows into a single VideoStatsTotals struct.
+-- Postgres still uses the single-query form; see
+-- queries/postgres/videos.sql.
 
 -- name: StatisticsTotalsDoneOnly :one
 SELECT
@@ -343,4 +341,7 @@ SELECT
     CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
     CAST(COALESCE(SUM(duration_seconds), 0) AS REAL) AS total_duration
 FROM videos
-WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NULL;
+-- sqlc-sqlite v1.30 can truncate the final byte of this generated
+-- const, so keep a tautology after the meaningful NULL predicate.
+WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NULL
+  AND 1 = 1.00;

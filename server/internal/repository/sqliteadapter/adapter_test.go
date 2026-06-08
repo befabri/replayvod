@@ -436,6 +436,13 @@ func TestSQLiteRoundtrip(t *testing.T) {
 	if totals.Total != 1 || totals.TotalSize != 1_073_741_824 || totals.TotalDuration != 3600.5 {
 		t.Errorf("stats: %+v", *totals)
 	}
+	channelTotals, err := adapter.VideoStatsTotalsByBroadcaster(ctx, "12345")
+	if err != nil {
+		t.Fatalf("channel stats totals: %v", err)
+	}
+	if channelTotals.Total != 1 || channelTotals.TotalSize != 1_073_741_824 || channelTotals.TotalDuration != 3600.5 {
+		t.Errorf("channel stats: %+v", *channelTotals)
+	}
 }
 
 // TestListVideos_ColumnRoundtrip pins every video domain field exposed by

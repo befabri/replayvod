@@ -343,16 +343,16 @@ type Querier interface {
 	// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
 	// so the watch page can render a "N recordings · X GB" line under the
 	// channel name without paginating the full library client-side.
+	// sqlc-sqlite v1.30 can truncate the final byte of this generated
+	// const, so keep a tautology after the meaningful NULL predicate.
 	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
-	// StatisticsTotals is split across four atomic queries instead of
-	// one combined SELECT. The combined form (with CASE WHEN aggregates
-	// in a multi-column SELECT list) triggers a sqlc-on-SQLite codegen
-	// bug that truncates trailing chars off subsequent query consts
-	// (StatisticsTotalsByBroadcaster ends up with `IS NUL` instead of
-	// `IS NULL`). Splitting keeps each query small enough that the
-	// parser doesn't trip; the adapter combines them into a single
-	// VideoStatsTotals struct. Postgres still uses the single-query
-	// form; see queries/postgres/videos.sql.
+	// StatisticsTotals is split across atomic queries instead of one
+	// combined SELECT. The combined form (with CASE WHEN aggregates in
+	// a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
+	// that truncates trailing chars off subsequent query consts. The
+	// adapter combines these rows into a single VideoStatsTotals struct.
+	// Postgres still uses the single-query form; see
+	// queries/postgres/videos.sql.
 	StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error)
 	StatisticsUnwatched(ctx context.Context, userID string) (int64, error)
 	StatisticsWatchLater(ctx context.Context, userID string) (int64, error)
