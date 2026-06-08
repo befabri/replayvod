@@ -32,7 +32,7 @@ export function useLiveSystemEvents() {
 		...trpc.system.events.subscriptionOptions(),
 		onData: () => {
 			queryClient.invalidateQueries({
-				queryKey: trpc.system.eventLogs.queryKey(),
+				queryKey: trpc.system.eventLogs.pathKey(),
 			});
 		},
 		onError: withSessionProbe(),

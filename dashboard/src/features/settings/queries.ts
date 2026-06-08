@@ -13,7 +13,7 @@ export function useUpdateSettings() {
 		trpc.settings.update.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({
-					queryKey: trpc.settings.get.queryKey(),
+					queryKey: trpc.settings.get.pathKey(),
 				});
 			},
 		}),

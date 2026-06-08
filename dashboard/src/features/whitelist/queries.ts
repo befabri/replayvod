@@ -13,7 +13,7 @@ export function useAddWhitelist() {
 		trpc.system.addWhitelist.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({
-					queryKey: trpc.system.listWhitelist.queryKey(),
+					queryKey: trpc.system.listWhitelist.pathKey(),
 				});
 			},
 		}),
@@ -27,7 +27,7 @@ export function useRemoveWhitelist() {
 		trpc.system.removeWhitelist.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({
-					queryKey: trpc.system.listWhitelist.queryKey(),
+					queryKey: trpc.system.listWhitelist.pathKey(),
 				});
 			},
 		}),

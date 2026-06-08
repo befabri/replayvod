@@ -16,10 +16,10 @@ vi.mock("@/api/trpc", () => ({
 				}),
 			},
 			deliveries: {
-				queryKey: () => ["recordingWebhook", "deliveries"],
+				pathKey: () => [["recordingWebhook", "deliveries"]],
 			},
 			config: {
-				queryKey: () => ["recordingWebhook", "config"],
+				pathKey: () => [["recordingWebhook", "config"]],
 			},
 		},
 	}),
@@ -42,11 +42,11 @@ describe("recording webhook queries", () => {
 
 		await waitFor(() => {
 			expect(invalidate).toHaveBeenCalledWith({
-				queryKey: ["recordingWebhook", "deliveries"],
+				queryKey: [["recordingWebhook", "deliveries"]],
 			});
 		});
 		expect(invalidate).toHaveBeenCalledWith({
-			queryKey: ["recordingWebhook", "config"],
+			queryKey: [["recordingWebhook", "config"]],
 		});
 	});
 });

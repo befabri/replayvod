@@ -13,7 +13,7 @@ export function useRequestVideo() {
 		trpc.videorequest.request.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({
-					queryKey: trpc.videorequest.mine.queryKey(),
+					queryKey: trpc.videorequest.mine.pathKey(),
 				});
 			},
 		}),

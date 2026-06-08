@@ -13,7 +13,7 @@ export function useUpdateUserRole() {
 		trpc.system.updateUserRole.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({
-					queryKey: trpc.system.listUsers.queryKey(),
+					queryKey: trpc.system.listUsers.pathKey(),
 				});
 			},
 		}),

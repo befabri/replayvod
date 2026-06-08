@@ -28,7 +28,7 @@ export function useUpdatePlaybackCacheConfig() {
 		trpc.system.updatePlaybackCacheConfig.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({
-					queryKey: trpc.system.playbackCacheConfig.queryKey(),
+					queryKey: trpc.system.playbackCacheConfig.pathKey(),
 				});
 			},
 		}),

@@ -13,7 +13,7 @@ export function useRevokeSession() {
 		trpc.auth.revokeSession.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({
-					queryKey: trpc.auth.sessions.queryKey(),
+					queryKey: trpc.auth.sessions.pathKey(),
 				});
 			},
 		}),

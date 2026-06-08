@@ -136,7 +136,7 @@ export function useLiveSet(): Set<string> {
 		// expired session 401s through the shared cache interceptor on its own.
 		// Adding a probe would just double the request on every reconnect.
 		onError: () => {
-			qc.invalidateQueries({ queryKey: trpc.stream.liveIds.queryKey() });
+			qc.invalidateQueries({ queryKey: trpc.stream.liveIds.pathKey() });
 		},
 	});
 

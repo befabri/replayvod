@@ -14,7 +14,7 @@ export function useToggleTask() {
 	return useMutation(
 		trpc.task.toggle.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.task.list.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.task.list.pathKey() });
 			},
 		}),
 	);
@@ -26,7 +26,7 @@ export function useRunTaskNow() {
 	return useMutation(
 		trpc.task.runNow.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.task.list.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.task.list.pathKey() });
 			},
 		}),
 	);
@@ -43,7 +43,7 @@ export function useLiveTaskStatus() {
 	useSubscription({
 		...trpc.task.status.subscriptionOptions(),
 		onData: () => {
-			queryClient.invalidateQueries({ queryKey: trpc.task.list.queryKey() });
+			queryClient.invalidateQueries({ queryKey: trpc.task.list.pathKey() });
 		},
 		onError: withSessionProbe(),
 	});

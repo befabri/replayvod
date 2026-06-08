@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/api/trpc";
+import { invalidateCaches } from "@/lib/query";
+import { eventsubCaches } from "./cache";
 
 export function useEventSubConfig(options?: { enabled?: boolean }) {
 	const trpc = useTRPC();
@@ -13,13 +15,10 @@ export function useEventSubConfig(options?: { enabled?: boolean }) {
 export function useUpdateEventSubConfig() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
+	const caches = eventsubCaches(trpc);
 	return useMutation(
 		trpc.eventsub.updateConfig.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({
-					queryKey: trpc.eventsub.config.queryKey(),
-				});
-			},
+			onSuccess: () => invalidateCaches(queryClient, caches, ["config"]),
 		}),
 	);
 }
@@ -44,19 +43,15 @@ export function useLatestSnapshot() {
 export function useSnapshotNow() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
+	const caches = eventsubCaches(trpc);
 	return useMutation(
 		trpc.eventsub.snapshot.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({
-					queryKey: trpc.eventsub.latestSnapshot.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.eventsub.listSnapshots.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.eventsub.listSubscriptions.queryKey(),
-				});
-			},
+			onSuccess: () =>
+				invalidateCaches(queryClient, caches, [
+					"latestSnapshot",
+					"listSnapshots",
+					"listSubscriptions",
+				]),
 		}),
 	);
 }
@@ -64,13 +59,11 @@ export function useSnapshotNow() {
 export function useUnsubscribe() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
+	const caches = eventsubCaches(trpc);
 	return useMutation(
 		trpc.eventsub.unsubscribe.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({
-					queryKey: trpc.eventsub.listSubscriptions.queryKey(),
-				});
-			},
+			onSuccess: () =>
+				invalidateCaches(queryClient, caches, ["listSubscriptions"]),
 		}),
 	);
 }
