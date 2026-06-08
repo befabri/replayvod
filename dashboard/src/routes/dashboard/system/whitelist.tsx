@@ -6,8 +6,8 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { QueryTable } from "@/components/ui/query-table";
 import { useAddWhitelist, useWhitelist } from "@/features/whitelist";
 import { whitelistColumns } from "@/features/whitelist/components/columns";
 
@@ -35,7 +35,7 @@ export const Route = createFileRoute("/dashboard/system/whitelist")({
 
 function WhitelistPage() {
 	const { t } = useTranslation();
-	const { data: entries, isLoading, error } = useWhitelist();
+	const entries = useWhitelist();
 	const add = useAddWhitelist();
 	const schema = useMemo(() => whitelistAddSchema(t), [t]);
 	const columns = useMemo(() => whitelistColumns(t), [t]);
@@ -101,22 +101,13 @@ function WhitelistPage() {
 					</div>
 				)}
 
-				{isLoading && (
-					<div className="text-muted-foreground">{t("common.loading")}</div>
-				)}
-				{error && (
-					<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-						{t("whitelist.failed_to_load")}: {error.message}
-					</div>
-				)}
-
-				{entries && (
-					<DataTable
-						columns={columns}
-						data={entries}
-						emptyMessage={t("whitelist.empty")}
-					/>
-				)}
+				<QueryTable
+					query={entries}
+					columns={columns}
+					getRows={(data) => data}
+					emptyMessage={t("whitelist.empty")}
+					errorLabel={t("whitelist.failed_to_load")}
+				/>
 			</div>
 		</TitledLayout>
 	);

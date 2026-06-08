@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
-import { DataTable } from "@/components/ui/data-table";
+import { QueryTable } from "@/components/ui/query-table";
 import { useSessions } from "@/features/sessions";
 import { sessionColumns } from "@/features/sessions/components/columns";
 
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/dashboard/sessions")({
 
 function SessionsPage() {
 	const { t } = useTranslation();
-	const { data, isLoading, error } = useSessions();
+	const sessions = useSessions();
 	const columns = useMemo(() => sessionColumns(t), [t]);
 
 	return (
@@ -21,22 +21,13 @@ function SessionsPage() {
 				{t("sessions.description")}
 			</p>
 
-			{isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
-			)}
-			{error && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-					{t("sessions.failed_to_load")}: {error.message}
-				</div>
-			)}
-
-			{data && (
-				<DataTable
-					columns={columns}
-					data={data}
-					emptyMessage={t("sessions.empty")}
-				/>
-			)}
+			<QueryTable
+				query={sessions}
+				columns={columns}
+				getRows={(data) => data}
+				emptyMessage={t("sessions.empty")}
+				errorLabel={t("sessions.failed_to_load")}
+			/>
 		</TitledLayout>
 	);
 }

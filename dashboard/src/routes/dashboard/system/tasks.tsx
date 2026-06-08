@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
-import { DataTable } from "@/components/ui/data-table";
+import { QueryTable } from "@/components/ui/query-table";
 import { useLiveTaskStatus, useTasks } from "@/features/tasks";
 import { taskColumns } from "@/features/tasks/components/columns";
 
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/dashboard/system/tasks")({
 
 function TasksPage() {
 	const { t } = useTranslation();
-	const { data, isLoading, error } = useTasks();
+	const tasks = useTasks();
 	// Mount the task.status SSE subscription — each lifecycle transition
 	// triggers a task.list re-fetch so the UI reflects running →
 	// success / failed without polling.
@@ -26,22 +26,13 @@ function TasksPage() {
 				{t("tasks.description")}
 			</p>
 
-			{isLoading && (
-				<div className="text-muted-foreground">{t("common.loading")}</div>
-			)}
-			{error && (
-				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-					{t("tasks.failed_to_load")}: {error.message}
-				</div>
-			)}
-
-			{data && (
-				<DataTable
-					columns={columns}
-					data={data.data}
-					emptyMessage={t("tasks.empty")}
-				/>
-			)}
+			<QueryTable
+				query={tasks}
+				columns={columns}
+				getRows={(data) => data.data}
+				emptyMessage={t("tasks.empty")}
+				errorLabel={t("tasks.failed_to_load")}
+			/>
 		</TitledLayout>
 	);
 }
