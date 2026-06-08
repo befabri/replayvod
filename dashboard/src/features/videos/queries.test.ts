@@ -5,12 +5,9 @@ import type {
 	VideoResponse,
 	VideoUserStateResponse,
 } from "@/api/generated/trpc";
-import {
-	applyVideoUserStateToVideoCaches,
-	applyWatchLaterStateToInfiniteVideoPages,
-	queryKeyHasUnwatchedOnly,
-	queryKeyHasWatchLaterOnly,
-} from "./queries";
+import type { useTRPC } from "@/api/trpc";
+import { patchEntity } from "@/lib/query";
+import { videoCaches, videoUserStatePatch } from "./cache";
 
 function video(partial: Partial<VideoResponse>): VideoResponse {
 	return {
@@ -32,150 +29,127 @@ function video(partial: Partial<VideoResponse>): VideoResponse {
 	};
 }
 
-function cache(items: VideoResponse[]): InfiniteData<VideoListPageResponse> {
-	return {
-		pages: [{ items }],
-		pageParams: [undefined],
-	};
+function pages(items: VideoResponse[]): InfiniteData<VideoListPageResponse> {
+	return { pages: [{ items }], pageParams: [undefined] };
 }
 
-const removedState: VideoUserStateResponse = {
+function fakeTrpc(): ReturnType<typeof useTRPC> {
+	const node = (name: string) => ({ pathKey: () => [["video", name]] });
+	return {
+		video: {
+			listPage: node("listPage"),
+			byBroadcaster: node("byBroadcaster"),
+			byCategory: node("byCategory"),
+			search: node("search"),
+			getById: node("getById"),
+			statistics: node("statistics"),
+			statisticsByBroadcaster: node("statisticsByBroadcaster"),
+		},
+	} as unknown as ReturnType<typeof useTRPC>;
+}
+
+const clearedWatchLater: VideoUserStateResponse = {
 	watch_later: false,
 	last_position_seconds: 0,
 	updated_at: "2026-01-02T00:00:00Z",
 };
 
-function fakeTrpcKeys(): Parameters<
-	typeof applyVideoUserStateToVideoCaches
->[1] {
-	const key = (name: string) => ({
-		pathKey: () => [["video", name]],
-	});
-	return {
-		video: {
-			listPage: key("listPage"),
-			byBroadcaster: key("byBroadcaster"),
-			byCategory: key("byCategory"),
-			search: key("search"),
-			getById: key("getById"),
-		},
-	} as Parameters<typeof applyVideoUserStateToVideoCaches>[1];
+function listPageKey(input: Record<string, unknown>) {
+	return [["video", "listPage"], { input, type: "infinite" }];
 }
 
-describe("watch later query cache helpers", () => {
-	it("updates normal cached lists without removing the video", () => {
-		const next = applyWatchLaterStateToInfiniteVideoPages(
-			cache([
-				video({ id: 1, user_state: { ...removedState, watch_later: true } }),
+describe("videoUserStatePatch via patchEntity", () => {
+	it("updates a video in a normal list without removing it", () => {
+		const qc = new QueryClient();
+		const caches = videoCaches(fakeTrpc());
+		qc.setQueryData(
+			listPageKey({ scope: "" }),
+			pages([
+				video({
+					id: 1,
+					user_state: { ...clearedWatchLater, watch_later: true },
+				}),
 			]),
-			1,
-			removedState,
 		);
 
+		patchEntity(qc, caches, videoUserStatePatch(1, clearedWatchLater));
+
+		const next = qc.getQueryData<InfiniteData<VideoListPageResponse>>(
+			listPageKey({ scope: "" }),
+		);
 		expect(next?.pages[0]?.items).toHaveLength(1);
 		expect(next?.pages[0]?.items[0]?.user_state?.watch_later).toBe(false);
 	});
 
-	it("removes the video from watch-later-only cached lists", () => {
-		const next = applyWatchLaterStateToInfiniteVideoPages(
-			cache([
-				video({ id: 1, user_state: { ...removedState, watch_later: true } }),
-				video({ id: 2, user_state: { ...removedState, watch_later: true } }),
-			]),
-			1,
-			removedState,
-			{ removeWhenNotWatchLater: true },
-		);
-
-		expect(next?.pages[0]?.items.map((item) => item.id)).toEqual([2]);
-	});
-
-	it("detects watch-later-only tRPC query keys", () => {
-		expect(
-			queryKeyHasWatchLaterOnly([
-				["video", "listPage"],
-				{ input: { watch_later_only: true }, type: "infinite" },
-			]),
-		).toBe(true);
-		expect(
-			queryKeyHasWatchLaterOnly([
-				["video", "listPage"],
-				{ input: { watch_later_only: false }, type: "infinite" },
-			]),
-		).toBe(false);
-	});
-
-	it("detects unwatched-only tRPC query keys", () => {
-		expect(
-			queryKeyHasUnwatchedOnly([
-				["video", "listPage"],
-				{ input: { unwatched_only: true }, type: "infinite" },
-			]),
-		).toBe(true);
-		expect(
-			queryKeyHasUnwatchedOnly([
-				["video", "listPage"],
-				{ input: { unwatched_only: false }, type: "infinite" },
-			]),
-		).toBe(false);
-	});
-
-	it("updates active tRPC infinite caches matched by endpoint path", () => {
-		const queryClient = new QueryClient();
-		const queryKey = [
-			["video", "listPage"],
-			{ input: { watch_later_only: true }, type: "infinite" },
-		];
-		queryClient.setQueryData(
-			queryKey,
-			cache([
-				video({ id: 1, user_state: { ...removedState, watch_later: true } }),
-				video({ id: 2, user_state: { ...removedState, watch_later: true } }),
-			]),
-		);
-
-		queryClient.setQueriesData<InfiniteData<VideoListPageResponse>>(
-			{
-				queryKey: [["video", "listPage"]],
-				predicate: (query) => queryKeyHasWatchLaterOnly(query.queryKey),
-			},
-			(data) =>
-				applyWatchLaterStateToInfiniteVideoPages(data, 1, removedState, {
-					removeWhenNotWatchLater: true,
+	it("removes an un-flagged video from a watch-later-only list", () => {
+		const qc = new QueryClient();
+		const caches = videoCaches(fakeTrpc());
+		qc.setQueryData(
+			listPageKey({ watch_later_only: true }),
+			pages([
+				video({
+					id: 1,
+					user_state: { ...clearedWatchLater, watch_later: true },
 				}),
+				video({
+					id: 2,
+					user_state: { ...clearedWatchLater, watch_later: true },
+				}),
+			]),
 		);
 
-		const next =
-			queryClient.getQueryData<InfiniteData<VideoListPageResponse>>(queryKey);
+		patchEntity(qc, caches, videoUserStatePatch(1, clearedWatchLater));
+
+		const next = qc.getQueryData<InfiniteData<VideoListPageResponse>>(
+			listPageKey({ watch_later_only: true }),
+		);
 		expect(next?.pages[0]?.items.map((item) => item.id)).toEqual([2]);
 	});
 
-	it("applies progress state to the active video cache and unwatched tab", () => {
-		const queryClient = new QueryClient();
-		const getByIdKey = [["video", "getById"], { input: { id: 1 } }];
-		const unwatchedKey = [
-			["video", "listPage"],
-			{ input: { unwatched_only: true }, type: "infinite" },
-		];
-		queryClient.setQueryData(getByIdKey, video({ id: 1 }));
-		queryClient.setQueryData(
-			unwatchedKey,
-			cache([video({ id: 1 }), video({ id: 2 })]),
+	it("removes a watched video from an unwatched-only list", () => {
+		const qc = new QueryClient();
+		const caches = videoCaches(fakeTrpc());
+		qc.setQueryData(
+			listPageKey({ unwatched_only: true }),
+			pages([video({ id: 1 }), video({ id: 2 })]),
 		);
 
-		applyVideoUserStateToVideoCaches(queryClient, fakeTrpcKeys(), 1, {
-			watch_later: false,
-			last_position_seconds: 45,
-			watched_at: "2026-01-02T00:00:00Z",
-			updated_at: "2026-01-02T00:00:00Z",
-		});
+		patchEntity(
+			qc,
+			caches,
+			videoUserStatePatch(1, {
+				watch_later: false,
+				last_position_seconds: 45,
+				watched_at: "2026-01-02T00:00:00Z",
+				updated_at: "2026-01-02T00:00:00Z",
+			}),
+		);
 
-		const cachedVideo = queryClient.getQueryData<VideoResponse>(getByIdKey);
-		expect(cachedVideo?.user_state?.last_position_seconds).toBe(45);
-		const unwatched =
-			queryClient.getQueryData<InfiniteData<VideoListPageResponse>>(
-				unwatchedKey,
-			);
-		expect(unwatched?.pages[0]?.items.map((item) => item.id)).toEqual([2]);
+		const next = qc.getQueryData<InfiniteData<VideoListPageResponse>>(
+			listPageKey({ unwatched_only: true }),
+		);
+		expect(next?.pages[0]?.items.map((item) => item.id)).toEqual([2]);
+	});
+
+	it("updates the single video cache and merges user_state", () => {
+		const qc = new QueryClient();
+		const caches = videoCaches(fakeTrpc());
+		const getByIdKey = [["video", "getById"], { input: { id: 1 } }];
+		qc.setQueryData(getByIdKey, video({ id: 1 }));
+
+		patchEntity(
+			qc,
+			caches,
+			videoUserStatePatch(1, {
+				watch_later: false,
+				last_position_seconds: 45,
+				watched_at: "2026-01-02T00:00:00Z",
+				updated_at: "2026-01-02T00:00:00Z",
+			}),
+		);
+
+		const next = qc.getQueryData<VideoResponse>(getByIdKey);
+		expect(next?.user_state?.last_position_seconds).toBe(45);
+		expect(next?.user_state?.watched_at).toBe("2026-01-02T00:00:00Z");
 	});
 });

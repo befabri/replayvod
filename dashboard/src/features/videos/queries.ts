@@ -1,8 +1,5 @@
 import {
-	type InfiniteData,
 	keepPreviousData,
-	type QueryClient,
-	type QueryKey,
 	useInfiniteQuery,
 	useMutation,
 	useQuery,
@@ -12,6 +9,7 @@ import { useSubscription } from "@trpc/tanstack-react-query";
 import { useMemo, useState } from "react";
 import type {
 	ActiveDownloadResponse,
+	SetWatchLaterInput,
 	StatisticsResponse,
 	TimelineEvent,
 	TitleItem,
@@ -24,7 +22,9 @@ import type {
 import { useTRPC } from "@/api/trpc";
 import { API_URL } from "@/env";
 import { timelineEventsWithSpanFallback } from "@/features/videos/timeline";
+import { invalidateCaches, optimisticWrite, patchEntity } from "@/lib/query";
 import { withSessionProbe } from "@/stores/auth";
+import { VIDEO_LIST_CACHES, videoCaches, videoUserStatePatch } from "./cache";
 
 // VideoCategory (the category-span row) and VideoTitle (the title-span row) are
 // the generated wire shapes of video.categories / video.titles. VideoTitle
@@ -422,43 +422,89 @@ export function useLiveActiveDownloads() {
 	};
 }
 
-// invalidateVideoCaches refetches every cache a download mutation can
-// shift: the paged list, the per-broadcaster and per-category grids,
-// the single-video record, and both statistics rollups. triggerDownload
-// and cancel both move rows across this set, so it lives in one place
-// rather than drifting apart between the two call sites.
-function invalidateVideoCaches(
-	queryClient: QueryClient,
-	trpc: ReturnType<typeof useTRPC>,
-) {
-	for (const queryKey of videoListQueryKeys(trpc)) {
-		queryClient.invalidateQueries({ queryKey });
-	}
-	queryClient.invalidateQueries({ queryKey: trpc.video.getById.pathKey() });
+export function useTriggerDownload() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const caches = videoCaches(trpc);
+	return useMutation(
+		trpc.video.triggerDownload.mutationOptions({
+			onSuccess: () => invalidateCaches(queryClient, caches),
+		}),
+	);
 }
 
-function invalidateVideoListCaches(
-	queryClient: QueryClient,
-	trpc: ReturnType<typeof useTRPC>,
-) {
-	for (const queryKey of videoListQueryKeys(trpc)) {
-		queryClient.invalidateQueries({ queryKey });
-	}
+export function useCancelDownload() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const caches = videoCaches(trpc);
+	return useMutation(
+		trpc.video.cancel.mutationOptions({
+			onSuccess: () => invalidateCaches(queryClient, caches),
+		}),
+	);
 }
 
-function videoListQueryKeys(trpc: ReturnType<typeof useTRPC>) {
-	return [
-		trpc.video.listPage.pathKey(),
-		trpc.video.search.pathKey(),
-		trpc.video.byBroadcaster.pathKey(),
-		trpc.video.byCategory.pathKey(),
-		trpc.video.statistics.pathKey(),
-		trpc.video.statisticsByBroadcaster.pathKey(),
-	];
+// useDeleteVideo queues a finished recording for background removal. The worker
+// later purges files and tombstones the row (deletion_kind=manual), so the
+// shared cache invalidation refreshes library, search, statistics, and history.
+export function useDeleteVideo() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const caches = videoCaches(trpc);
+	return useMutation(
+		trpc.video.delete.mutationOptions({
+			onSuccess: () => invalidateCaches(queryClient, caches),
+		}),
+	);
 }
 
-type VideoPageLike = { items: VideoResponse[] };
-type QuerySnapshot = Array<[QueryKey, unknown]>;
+export function useSetWatchLater() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const caches = videoCaches(trpc);
+	return useMutation(
+		trpc.video.setWatchLater.mutationOptions(
+			optimisticWrite<VideoUserStateResponse, SetWatchLaterInput>(
+				queryClient,
+				caches,
+				{
+					apply: (qc, { video_id, watch_later }) => {
+						const existing = findCachedVideo(qc, caches, video_id);
+						const state: VideoUserStateResponse = existing
+							? optimisticWatchLaterState(existing, watch_later)
+							: {
+									watch_later,
+									last_position_seconds: 0,
+									updated_at: new Date().toISOString(),
+								};
+						patchEntity(qc, caches, videoUserStatePatch(video_id, state));
+						// Stats is scalar (not row-patched); apply the count delta directly.
+						qc.setQueriesData<StatisticsResponse>(
+							{ queryKey: caches.statistics.pathKey },
+							(cache) => applyWatchLaterDeltaToStats(cache, watch_later),
+						);
+					},
+					applyServer: (qc, state, { video_id }) =>
+						patchEntity(qc, caches, videoUserStatePatch(video_id, state)),
+				},
+			),
+		),
+	);
+}
+
+export function useUpdateWatchProgress() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const caches = videoCaches(trpc);
+	return useMutation(
+		trpc.video.updateWatchProgress.mutationOptions({
+			onSuccess: (state, { video_id }) => {
+				patchEntity(queryClient, caches, videoUserStatePatch(video_id, state));
+				invalidateCaches(queryClient, caches, VIDEO_LIST_CACHES);
+			},
+		}),
+	);
+}
 
 function optimisticWatchLaterState(
 	video: VideoResponse,
@@ -473,88 +519,6 @@ function optimisticWatchLaterState(
 	};
 }
 
-function applyVideoUserState(
-	video: VideoResponse,
-	videoId: number,
-	state: VideoUserStateResponse,
-): VideoResponse {
-	if (video.id !== videoId) return video;
-	return {
-		...video,
-		user_state: {
-			...video.user_state,
-			...state,
-		},
-	};
-}
-
-export function applyVideoUserStateToInfiniteVideoPages<
-	TPage extends VideoPageLike,
->(
-	cache: InfiniteData<TPage> | undefined,
-	videoId: number,
-	state: VideoUserStateResponse,
-	options: {
-		removeWhenNotWatchLater?: boolean;
-		removeWhenWatched?: boolean;
-	} = {},
-): InfiniteData<TPage> | undefined {
-	if (!cache) return cache;
-	let changed = false;
-	const pages = cache.pages.map((page) => {
-		let pageChanged = false;
-		const items: VideoResponse[] = [];
-		for (const video of page.items) {
-			if (video.id !== videoId) {
-				items.push(video);
-				continue;
-			}
-			pageChanged = true;
-			changed = true;
-			if (options.removeWhenNotWatchLater && !state.watch_later) {
-				continue;
-			}
-			if (options.removeWhenWatched && state.watched_at) {
-				continue;
-			}
-			items.push(applyVideoUserState(video, videoId, state));
-		}
-		return pageChanged ? { ...page, items } : page;
-	});
-	return changed ? { ...cache, pages } : cache;
-}
-
-export function applyWatchLaterStateToInfiniteVideoPages<
-	TPage extends VideoPageLike,
->(
-	cache: InfiniteData<TPage> | undefined,
-	videoId: number,
-	state: VideoUserStateResponse,
-	options: { removeWhenNotWatchLater?: boolean } = {},
-): InfiniteData<TPage> | undefined {
-	return applyVideoUserStateToInfiniteVideoPages(
-		cache,
-		videoId,
-		state,
-		options,
-	);
-}
-
-function applyVideoUserStateToVideoArray(
-	cache: VideoResponse[] | undefined,
-	videoId: number,
-	state: VideoUserStateResponse,
-): VideoResponse[] | undefined {
-	if (!cache) return cache;
-	let changed = false;
-	const next = cache.map((video) => {
-		if (video.id !== videoId) return video;
-		changed = true;
-		return applyVideoUserState(video, videoId, state);
-	});
-	return changed ? next : cache;
-}
-
 function applyWatchLaterDeltaToStats(
 	cache: StatisticsResponse | undefined,
 	watchLater: boolean,
@@ -567,178 +531,23 @@ function applyWatchLaterDeltaToStats(
 	};
 }
 
-export function queryKeyHasWatchLaterOnly(queryKey: QueryKey): boolean {
-	return valueHasBoolFlag(queryKey, "watch_later_only");
-}
-
-export function queryKeyHasUnwatchedOnly(queryKey: QueryKey): boolean {
-	return valueHasBoolFlag(queryKey, "unwatched_only");
-}
-
-function valueHasBoolFlag(value: unknown, flag: string): boolean {
-	if (Array.isArray(value))
-		return value.some((part) => valueHasBoolFlag(part, flag));
-	if (!value || typeof value !== "object") return false;
-	if (flag in value && (value as Record<string, unknown>)[flag] === true) {
-		return true;
-	}
-	return Object.values(value).some((part) => valueHasBoolFlag(part, flag));
-}
-
-function snapshotQueries(
-	queryClient: QueryClient,
-	trpc: ReturnType<typeof useTRPC>,
-): QuerySnapshot {
-	return [
-		...queryClient.getQueriesData({ queryKey: trpc.video.listPage.pathKey() }),
-		...queryClient.getQueriesData({
-			queryKey: trpc.video.byBroadcaster.pathKey(),
-		}),
-		...queryClient.getQueriesData({
-			queryKey: trpc.video.byCategory.pathKey(),
-		}),
-		...queryClient.getQueriesData({ queryKey: trpc.video.search.pathKey() }),
-		...queryClient.getQueriesData({ queryKey: trpc.video.getById.pathKey() }),
-		...queryClient.getQueriesData({
-			queryKey: trpc.video.statistics.pathKey(),
-		}),
-	];
-}
-
-function restoreQueries(queryClient: QueryClient, snapshots: QuerySnapshot) {
-	for (const [queryKey, data] of snapshots) {
-		queryClient.setQueryData(queryKey, data);
-	}
-}
-
-export function applyVideoUserStateToVideoCaches(
-	queryClient: QueryClient,
-	trpc: ReturnType<typeof useTRPC>,
+// Scan the loaded video caches for an existing copy, so the optimistic state can
+// preserve fields the mutation doesn't carry (position, watched/completed times).
+function findCachedVideo(
+	queryClient: ReturnType<typeof useQueryClient>,
+	caches: ReturnType<typeof videoCaches>,
 	videoId: number,
-	state: VideoUserStateResponse,
-) {
-	queryClient.setQueriesData<InfiniteData<VideoListPageResponse>>(
-		{ queryKey: trpc.video.listPage.pathKey() },
-		(cache) => applyVideoUserStateToInfiniteVideoPages(cache, videoId, state),
-	);
-	queryClient.setQueriesData<InfiniteData<VideoPageResponse>>(
-		{ queryKey: trpc.video.byBroadcaster.pathKey() },
-		(cache) => applyVideoUserStateToInfiniteVideoPages(cache, videoId, state),
-	);
-	queryClient.setQueriesData<InfiniteData<VideoPageResponse>>(
-		{ queryKey: trpc.video.byCategory.pathKey() },
-		(cache) => applyVideoUserStateToInfiniteVideoPages(cache, videoId, state),
-	);
-	queryClient.setQueriesData<VideoResponse[]>(
-		{ queryKey: trpc.video.search.pathKey() },
-		(cache) => applyVideoUserStateToVideoArray(cache, videoId, state),
-	);
-	queryClient.setQueriesData<VideoResponse>(
-		{ queryKey: trpc.video.getById.pathKey() },
-		(cache) =>
-			cache?.id === videoId
-				? applyVideoUserState(cache, videoId, state)
-				: cache,
-	);
-	queryClient.setQueriesData<InfiniteData<VideoListPageResponse>>(
-		{
-			queryKey: trpc.video.listPage.pathKey(),
-			predicate: (query) => queryKeyHasWatchLaterOnly(query.queryKey),
-		},
-		(cache) =>
-			applyVideoUserStateToInfiniteVideoPages(cache, videoId, state, {
-				removeWhenNotWatchLater: true,
-			}),
-	);
-	queryClient.setQueriesData<InfiniteData<VideoListPageResponse>>(
-		{
-			queryKey: trpc.video.listPage.pathKey(),
-			predicate: (query) => queryKeyHasUnwatchedOnly(query.queryKey),
-		},
-		(cache) =>
-			applyVideoUserStateToInfiniteVideoPages(cache, videoId, state, {
-				removeWhenWatched: true,
-			}),
-	);
-}
-
-export function useTriggerDownload() {
-	const trpc = useTRPC();
-	const queryClient = useQueryClient();
-	return useMutation(
-		trpc.video.triggerDownload.mutationOptions({
-			onSuccess: () => invalidateVideoCaches(queryClient, trpc),
-		}),
-	);
-}
-
-export function useCancelDownload() {
-	const trpc = useTRPC();
-	const queryClient = useQueryClient();
-	return useMutation(
-		trpc.video.cancel.mutationOptions({
-			onSuccess: () => invalidateVideoCaches(queryClient, trpc),
-		}),
-	);
-}
-
-// useDeleteVideo queues a finished recording for background removal. The worker
-// later purges files and tombstones the row (deletion_kind=manual), so the
-// shared cache invalidation refreshes library, search, statistics, and history.
-export function useDeleteVideo() {
-	const trpc = useTRPC();
-	const queryClient = useQueryClient();
-	return useMutation(
-		trpc.video.delete.mutationOptions({
-			onSuccess: () => invalidateVideoCaches(queryClient, trpc),
-		}),
-	);
-}
-
-export function useSetWatchLater() {
-	const trpc = useTRPC();
-	const queryClient = useQueryClient();
-	return useMutation(
-		trpc.video.setWatchLater.mutationOptions({
-			onMutate: async ({ video_id, watch_later }) => {
-				for (const queryKey of videoListQueryKeys(trpc)) {
-					await queryClient.cancelQueries({ queryKey });
-				}
-				await queryClient.cancelQueries({
-					queryKey: trpc.video.getById.pathKey(),
-				});
-				const snapshots = snapshotQueries(queryClient, trpc);
-				let state: VideoUserStateResponse | undefined;
-				for (const [, data] of snapshots) {
-					const video = findVideoInCachedData(data, video_id);
-					if (video) {
-						state = optimisticWatchLaterState(video, watch_later);
-						break;
-					}
-				}
-				state ??= {
-					watch_later,
-					last_position_seconds: 0,
-					updated_at: new Date().toISOString(),
-				};
-				applyVideoUserStateToVideoCaches(queryClient, trpc, video_id, state);
-				queryClient.setQueriesData<StatisticsResponse>(
-					{ queryKey: trpc.video.statistics.pathKey() },
-					(cache) => applyWatchLaterDeltaToStats(cache, watch_later),
-				);
-				return { snapshots };
-			},
-			onError: (_err, _vars, context) => {
-				if (context?.snapshots) {
-					restoreQueries(queryClient, context.snapshots);
-				}
-			},
-			onSuccess: (state, { video_id }) => {
-				applyVideoUserStateToVideoCaches(queryClient, trpc, video_id, state);
-			},
-			onSettled: () => invalidateVideoCaches(queryClient, trpc),
-		}),
-	);
+): VideoResponse | undefined {
+	for (const spec of Object.values(caches)) {
+		if (spec.shape === "scalar") continue;
+		for (const [, data] of queryClient.getQueriesData({
+			queryKey: spec.pathKey,
+		})) {
+			const found = findVideoInCachedData(data, videoId);
+			if (found) return found;
+		}
+	}
+	return undefined;
 }
 
 function findVideoInCachedData(
@@ -763,17 +572,4 @@ function findVideoInCachedData(
 		if (found) return found;
 	}
 	return undefined;
-}
-
-export function useUpdateWatchProgress() {
-	const trpc = useTRPC();
-	const queryClient = useQueryClient();
-	return useMutation(
-		trpc.video.updateWatchProgress.mutationOptions({
-			onSuccess: (state, { video_id }) => {
-				applyVideoUserStateToVideoCaches(queryClient, trpc, video_id, state);
-				invalidateVideoListCaches(queryClient, trpc);
-			},
-		}),
-	);
 }
