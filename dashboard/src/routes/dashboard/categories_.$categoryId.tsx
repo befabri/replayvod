@@ -15,7 +15,7 @@ import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid"
 import { formatBytes } from "@/features/videos/format";
 import { useCanManageVideos } from "@/features/videos/permissions";
 import { useInfiniteVideosByCategory } from "@/features/videos/queries";
-import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
+import { useInfiniteResource } from "@/hooks/useInfiniteResource";
 
 export const Route = createFileRoute("/dashboard/categories_/$categoryId")({
 	component: CategoryDetailPage,
@@ -26,14 +26,11 @@ function CategoryDetailPage() {
 	const { categoryId } = Route.useParams();
 	const category = useCategoryDetail(categoryId);
 	const videos = useInfiniteVideosByCategory(categoryId, 24);
-	const videoItems = videos.data?.pages.flatMap((page) => page.items) ?? [];
-	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
-	const canManage = useCanManageVideos();
-	const loadMoreRef = useInfiniteScrollSentinel({
-		enabled: !!videos.hasNextPage,
-		isLoadingMore: videos.isFetchingNextPage,
-		onLoadMore: () => videos.fetchNextPage(),
+	const resource = useInfiniteResource(videos, {
+		getItems: (page) => page.items,
 	});
+	const videoItems = resource.items;
+	const canManage = useCanManageVideos();
 
 	return (
 		<TitledLayout
@@ -99,13 +96,11 @@ function CategoryDetailPage() {
 						variant="wide"
 						canManage={canManage}
 					/>
-					<div ref={loadMoreRef} className="h-1" />
+					<div ref={resource.loadMoreRef} className="h-1" />
 					{videos.isFetchingNextPage && (
 						<VideoGridLoading count={2} variant="wide" />
 					)}
-					{hasScrolledThroughPages &&
-						!videos.hasNextPage &&
-						!videos.isFetchingNextPage && <VideoGridEnd />}
+					{resource.showEnd && <VideoGridEnd />}
 				</>
 			)}
 		</TitledLayout>

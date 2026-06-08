@@ -18,7 +18,7 @@ import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
 import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading";
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { useInfiniteVideosByBroadcaster } from "@/features/videos/queries";
-import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
+import { useInfiniteResource } from "@/hooks/useInfiniteResource";
 import { authStore, hasRole } from "@/stores/auth";
 
 export const Route = createFileRoute("/dashboard/channels_/$channelId")({
@@ -30,6 +30,9 @@ function ChannelDetailPage() {
 	const { channelId } = Route.useParams();
 	const channel = useChannel(channelId);
 	const videos = useInfiniteVideosByBroadcaster(channelId, 24);
+	const resource = useInfiniteResource(videos, {
+		getItems: (page) => page.items,
+	});
 	const liveSet = useLiveSet();
 	const isLive = liveSet.has(channelId);
 	// Both the direct download (video.triggerDownload) and the schedule tab
@@ -38,13 +41,7 @@ function ChannelDetailPage() {
 	// flow and fail on submit.
 	const user = useSelector(authStore, (s) => s.user);
 	const canDownload = hasRole(user, "admin");
-	const videoItems = videos.data?.pages.flatMap((page) => page.items) ?? [];
-	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
-	const loadMoreRef = useInfiniteScrollSentinel({
-		enabled: !!videos.hasNextPage,
-		isLoadingMore: videos.isFetchingNextPage,
-		onLoadMore: () => videos.fetchNextPage(),
-	});
+	const videoItems = resource.items;
 
 	return (
 		<TitledLayout
@@ -137,13 +134,11 @@ function ChannelDetailPage() {
 						variant="wide"
 						canManage={canDownload}
 					/>
-					<div ref={loadMoreRef} className="h-1" />
+					<div ref={resource.loadMoreRef} className="h-1" />
 					{videos.isFetchingNextPage && (
 						<VideoGridLoading count={2} variant="wide" />
 					)}
-					{hasScrolledThroughPages &&
-						!videos.hasNextPage &&
-						!videos.isFetchingNextPage && <VideoGridEnd />}
+					{resource.showEnd && <VideoGridEnd />}
 				</>
 			)}
 		</TitledLayout>

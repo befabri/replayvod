@@ -18,7 +18,7 @@ import { type ChannelResponse, useInfiniteChannels } from "@/features/channels";
 import { ChannelFavoriteButton } from "@/features/channels/components/ChannelFavoriteButton";
 import { useLiveSet } from "@/features/streams-live";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
-import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
+import { useInfiniteResource } from "@/hooks/useInfiniteResource";
 
 const SORT_MODES = ["name_asc", "name_desc"] as const;
 type SortMode = (typeof SORT_MODES)[number];
@@ -46,24 +46,29 @@ function ChannelsPage() {
 		filter === "downloaded" || filter === "favorites" ? filter : "all";
 	const channels = useInfiniteChannels(sort, channelListFilter);
 	const liveSet = useLiveSet();
-	// filter === "live" is applied client-side against the SSE-
-	// backed liveSet so channels going on- or offline reflect in
-	// real time. The downloaded tab is API-backed because it depends
-	// on local video rows.
-	const visible = useMemo(() => {
-		const all = channels.data?.pages.flatMap((page) => page.items) ?? [];
-		return filter === "live"
-			? all.filter((c) => liveSet.has(c.broadcaster_id))
-			: all;
-	}, [channels.data, filter, liveSet]);
-	const hasScrolledThroughPages = (channels.data?.pages.length ?? 0) > 1;
-	// Avoid draining every channel page when the live filter is active
-	// but the SSE live set says nobody is live.
-	const shouldLoadMore = !!(
-		channels.hasNextPage &&
-		!channels.error &&
-		(filter !== "live" || liveSet.size > 0)
+	const resource = useInfiniteResource(channels, {
+		getItems: (page) => page.items,
+		rootMargin: "500px 0px",
+		// Avoid draining every channel page when the live filter is active but the
+		// SSE live set says nobody is live.
+		shouldLoadMore: ({ query }) =>
+			!!query.hasNextPage &&
+			!query.error &&
+			(filter !== "live" || liveSet.size > 0),
+	});
+	// filter === "live" is applied client-side against the SSE-backed liveSet so
+	// channels going on/offline reflect in real time. The downloaded tab is
+	// API-backed because it depends on local video rows.
+	const visible = useMemo(
+		() =>
+			filter === "live"
+				? resource.items.filter((c) => liveSet.has(c.broadcaster_id))
+				: resource.items,
+		[resource.items, filter, liveSet],
 	);
+	const hasScrolledThroughPages = resource.hasScrolledThroughPages;
+	const shouldLoadMore = resource.shouldLoadMore;
+	const loadMoreRef = resource.loadMoreRef;
 	const showEmpty = !!(
 		visible.length === 0 &&
 		!channels.isLoading &&
@@ -118,13 +123,6 @@ function ChannelsPage() {
 		),
 		[liveSet],
 	);
-	const loadMoreRef = useInfiniteScrollSentinel({
-		enabled: shouldLoadMore,
-		isLoadingMore: channels.isFetchingNextPage,
-		onLoadMore: () => channels.fetchNextPage(),
-		rootMargin: "500px 0px",
-	});
-
 	return (
 		<TitledLayout
 			title={t("nav.channels")}

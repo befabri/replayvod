@@ -31,7 +31,7 @@ import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading"
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { formatBytes } from "@/features/videos/format";
 import { useCanManageVideos } from "@/features/videos/permissions";
-import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
+import { useInfiniteResource } from "@/hooks/useInfiniteResource";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
@@ -182,22 +182,14 @@ function VideosPage() {
 			unwatchedOnly: tab === "unwatched",
 		},
 	);
-	const loadedRows = useMemo(
-		() => videos.data?.pages.flatMap((page) => page.items) ?? [],
-		[videos.data],
-	);
-	const hasScrolledThroughPages = (videos.data?.pages.length ?? 0) > 1;
-	const shouldLoadMore = !!(
-		loadedRows.length > 0 &&
-		videos.hasNextPage &&
-		!videos.error
-	);
-	const loadMoreRef = useInfiniteScrollSentinel({
-		enabled: shouldLoadMore,
-		isLoadingMore: videos.isFetchingNextPage,
-		onLoadMore: () => videos.fetchNextPage(),
+	const resource = useInfiniteResource(videos, {
+		getItems: (page) => page.items,
 		rootMargin: "500px 0px",
 	});
+	const loadedRows = resource.items;
+	const hasScrolledThroughPages = resource.hasScrolledThroughPages;
+	const shouldLoadMore = resource.shouldLoadMore;
+	const loadMoreRef = resource.loadMoreRef;
 
 	const tabCounts: Partial<Record<TabKey, number>> = {
 		all: stats?.total,

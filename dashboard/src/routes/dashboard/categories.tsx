@@ -19,7 +19,7 @@ import {
 } from "@/features/categories";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { VideoGridEnd } from "@/features/videos/components/VideoGridEnd";
-import { useInfiniteScrollSentinel } from "@/hooks/useInfiniteScrollSentinel";
+import { useInfiniteResource } from "@/hooks/useInfiniteResource";
 
 const SORT_MODES = [
 	"name_asc",
@@ -42,15 +42,11 @@ function CategoriesPage() {
 	const { sort } = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const categories = useInfiniteCategoriesWithVideos(sort);
-	const visible = categories.data?.pages.flatMap((page) => page.items) ?? [];
-	const hasScrolledThroughPages = (categories.data?.pages.length ?? 0) > 1;
-	const shouldLoadMore = !!(categories.hasNextPage && !categories.error);
-	const loadMoreRef = useInfiniteScrollSentinel({
-		enabled: shouldLoadMore,
-		isLoadingMore: categories.isFetchingNextPage,
-		onLoadMore: () => categories.fetchNextPage(),
+	const resource = useInfiniteResource(categories, {
+		getItems: (page) => page.items,
 		rootMargin: "500px 0px",
 	});
+	const visible = resource.items;
 
 	return (
 		<TitledLayout
@@ -80,20 +76,15 @@ function CategoriesPage() {
 				!categories.error && <EmptyPanel>{t("categories.empty")}</EmptyPanel>}
 
 			{visible.length > 0 && <CategoryGrid categories={visible} />}
-			{visible.length > 0 && shouldLoadMore && (
-				<div ref={loadMoreRef} className="h-1" />
+			{resource.shouldLoadMore && (
+				<div ref={resource.loadMoreRef} className="h-1" />
 			)}
 			{categories.isFetchingNextPage && (
 				<div className="mt-4 text-muted-foreground text-sm">
 					{t("common.loading")}
 				</div>
 			)}
-			{hasScrolledThroughPages &&
-				!categories.hasNextPage &&
-				!categories.isFetchingNextPage &&
-				visible.length > 0 && (
-					<VideoGridEnd labelKey="categories.end_of_list" />
-				)}
+			{resource.showEnd && <VideoGridEnd labelKey="categories.end_of_list" />}
 		</TitledLayout>
 	);
 }
