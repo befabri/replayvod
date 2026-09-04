@@ -56,10 +56,11 @@ func (h *Handler) UpdateUserRole(ctx context.Context, input UpdateUserRoleInput)
 	if err != nil {
 		return UserInfo{}, err
 	}
-	u, err := h.svc.UpdateUserRole(ctx, caller.ID, input.UserID, input.Role)
+	u, err := h.svc.UpdateUserRole(ctx, caller, input.UserID, input.Role)
 	if err != nil {
 		return UserInfo{}, apierr.Map(h.log, err, "update user role",
-			apierr.On(ErrCannotDemoteSelf, trpcgo.CodeBadRequest, "cannot demote yourself"))
+			apierr.On(ErrCannotDemoteSelf, trpcgo.CodeBadRequest, "cannot demote yourself"),
+			apierr.On(ErrOwnerRoleRequired, trpcgo.CodeForbidden, "owner role required"))
 	}
 	return toUserInfo(u), nil
 }

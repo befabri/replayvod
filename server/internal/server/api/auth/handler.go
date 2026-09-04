@@ -17,6 +17,7 @@ import (
 const (
 	stateCookieName    = "twitch_oauth_state"
 	verifierCookieName = "twitch_oauth_verifier"
+	inviteCookieName   = "twitch_oauth_invite"
 )
 
 // Handler serves the Twitch OAuth Chi routes. Thin by design: state
@@ -82,6 +83,22 @@ func (h *Handler) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	// Ordinary login must clear abandoned invite cookies to avoid
+	// unintended redemption.
+	if inviteToken := r.URL.Query().Get("invite"); inviteToken != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name:     inviteCookieName,
+			Value:    inviteToken,
+			Path:     "/",
+			MaxAge:   300, // 5 minutes
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+		})
+	} else {
+		http.SetCookie(w, &http.Cookie{Name: inviteCookieName, Value: "", Path: "/", MaxAge: -1})
+	}
+
 	authURL := h.twitch.AuthorizeURL(h.cfg.Env.CallbackURL, state, challenge, twitch.DefaultScopes)
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
@@ -114,11 +131,16 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	codeVerifier := verifierCookie.Value
 
-	// Clear state + verifier cookies before running the exchange —
-	// they're single-use and we don't want them lingering if the
-	// exchange errors partway.
+	inviteToken := ""
+	if inviteCookie, err := r.Cookie(inviteCookieName); err == nil {
+		inviteToken = inviteCookie.Value
+	}
+
+	// Clear single-use cookies before exchange so failures cannot leave
+	// reusable credentials.
 	http.SetCookie(w, &http.Cookie{Name: stateCookieName, Value: "", Path: "/", MaxAge: -1})
 	http.SetCookie(w, &http.Cookie{Name: verifierCookieName, Value: "", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: inviteCookieName, Value: "", Path: "/", MaxAge: -1})
 
 	if errMsg := r.URL.Query().Get("error"); errMsg != "" {
 		h.log.Warn("twitch oauth error", "error", errMsg, "description", r.URL.Query().Get("error_description"))
@@ -131,7 +153,7 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.HandleOAuthCallback(r.Context(), code, h.cfg.Env.CallbackURL, codeVerifier)
+	result, err := h.svc.HandleOAuthCallback(r.Context(), code, h.cfg.Env.CallbackURL, codeVerifier, inviteToken)
 	if err != nil {
 		var denied *ErrLoginDenied
 		if errors.As(err, &denied) {

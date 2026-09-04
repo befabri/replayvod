@@ -5,8 +5,10 @@ import { TitledLayout } from "@/components/layout/titled-layout";
 import { QueryTable } from "@/components/ui/query-table";
 import { useLiveTaskStatus, useTasks } from "@/features/tasks";
 import { taskColumns } from "@/features/tasks/components/columns";
+import { requireRole } from "@/lib/route-guards";
 
 export const Route = createFileRoute("/dashboard/system/tasks")({
+	beforeLoad: requireRole("owner"),
 	component: TasksPage,
 });
 

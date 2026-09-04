@@ -15,12 +15,14 @@ import { useEventLogs, useLiveSystemEvents } from "@/features/eventlogs";
 import { eventLogColumns } from "@/features/eventlogs/components/columns";
 import { useFetchLogs } from "@/features/system";
 import { fetchLogColumns } from "@/features/system/components/logColumns";
+import { requireRole } from "@/lib/route-guards";
 
 const PAGE_SIZE = 50;
 
 type Source = "events" | "api";
 
 export const Route = createFileRoute("/dashboard/system/logs")({
+	beforeLoad: requireRole("owner"),
 	component: LogsPage,
 });
 

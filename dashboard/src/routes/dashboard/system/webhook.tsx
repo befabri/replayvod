@@ -6,8 +6,10 @@ import {
 	RecordingWebhookDeliveries,
 	useRecordingWebhookConfig,
 } from "@/features/recording-webhook";
+import { requireRole } from "@/lib/route-guards";
 
 export const Route = createFileRoute("/dashboard/system/webhook")({
+	beforeLoad: requireRole("owner"),
 	component: WebhookPage,
 });
 

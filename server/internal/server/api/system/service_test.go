@@ -128,6 +128,43 @@ func TestUpdatePlaybackCacheConfig_RejectsZeroPercent(t *testing.T) {
 	}
 }
 
+func TestUpdateUserRole_OwnerCarveOut(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	svc := system.New(repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	seed := map[string]string{"owner-1": "owner", "admin-1": "admin", "viewer-1": "viewer"}
+	for id, role := range seed {
+		if _, err := repo.UpsertUser(ctx, &repository.User{ID: id, Login: id, DisplayName: id, Role: role}); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+	owner := &repository.User{ID: "owner-1", Role: "owner"}
+	admin := &repository.User{ID: "admin-1", Role: "admin"}
+
+	got, err := svc.UpdateUserRole(ctx, admin, "viewer-1", "admin")
+	if err != nil {
+		t.Fatalf("admin promotes viewer→admin: %v", err)
+	}
+	if got.Role != "admin" {
+		t.Fatalf("role = %q, want admin", got.Role)
+	}
+
+	if _, err := svc.UpdateUserRole(ctx, admin, "viewer-1", "owner"); !errors.Is(err, system.ErrOwnerRoleRequired) {
+		t.Fatalf("admin grants owner err = %v, want ErrOwnerRoleRequired", err)
+	}
+	if _, err := svc.UpdateUserRole(ctx, admin, "owner-1", "viewer"); !errors.Is(err, system.ErrOwnerRoleRequired) {
+		t.Fatalf("admin demotes owner err = %v, want ErrOwnerRoleRequired", err)
+	}
+
+	if _, err := svc.UpdateUserRole(ctx, owner, "viewer-1", "owner"); err != nil {
+		t.Fatalf("owner grants owner: %v", err)
+	}
+	if _, err := svc.UpdateUserRole(ctx, owner, "owner-1", "viewer"); !errors.Is(err, system.ErrCannotDemoteSelf) {
+		t.Fatalf("owner self-demote err = %v, want ErrCannotDemoteSelf", err)
+	}
+}
+
 func TestRemoveFromWhitelistRevokesUserSessions(t *testing.T) {
 	ctx := context.Background()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -149,7 +186,8 @@ func TestRemoveFromWhitelistRevokesUserSessions(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	if err := svc.RemoveFromWhitelist(ctx, userID); err != nil {
+	admin := &repository.User{ID: "admin-1", Role: "admin"}
+	if err := svc.RemoveFromWhitelist(ctx, admin, userID); err != nil {
 		t.Fatalf("RemoveFromWhitelist: %v", err)
 	}
 	sessions, err := repo.ListUserSessions(ctx, userID)
@@ -161,6 +199,49 @@ func TestRemoveFromWhitelistRevokesUserSessions(t *testing.T) {
 	}
 }
 
+// TestRemoveFromWhitelist_OwnerCarveOut checks that admins cannot revoke owner
+// access.
+func TestRemoveFromWhitelist_OwnerCarveOut(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	svc := system.New(repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "owner-1", Login: "owner1", DisplayName: "Owner", Role: "owner"}); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	for _, id := range []string{"owner-1", "stranger-1"} {
+		if err := repo.AddToWhitelist(ctx, id); err != nil {
+			t.Fatalf("whitelist %s: %v", id, err)
+		}
+	}
+	if err := repo.CreateSession(ctx, &repository.Session{
+		HashedID:        "owner-session",
+		UserID:          "owner-1",
+		EncryptedTokens: []byte("tokens"),
+		ExpiresAt:       time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("seed owner session: %v", err)
+	}
+
+	admin := &repository.User{ID: "admin-1", Role: "admin"}
+	if err := svc.RemoveFromWhitelist(ctx, admin, "owner-1"); !errors.Is(err, system.ErrOwnerRoleRequired) {
+		t.Fatalf("admin de-whitelists owner err = %v, want ErrOwnerRoleRequired", err)
+	}
+	sessions, err := repo.ListUserSessions(ctx, "owner-1")
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("owner sessions after denied removal = %d, %v; want 1 intact", len(sessions), err)
+	}
+
+	if err := svc.RemoveFromWhitelist(ctx, admin, "stranger-1"); err != nil {
+		t.Fatalf("admin removes rowless entry: %v", err)
+	}
+
+	owner := &repository.User{ID: "owner-2", Role: "owner"}
+	if err := svc.RemoveFromWhitelist(ctx, owner, "owner-1"); err != nil {
+		t.Fatalf("owner removes owner entry: %v", err)
+	}
+}
+
 // whitelistFakeRepo drives RemoveFromWhitelist's two error paths in isolation:
 // the whitelist-row removal and the follow-up session revoke fail independently.
 type whitelistFakeRepo struct {
@@ -168,6 +249,13 @@ type whitelistFakeRepo struct {
 	removeErr    error
 	deleteErr    error
 	deleteCalled bool
+}
+
+func (f *whitelistFakeRepo) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
+	return fn(f)
+}
+func (f *whitelistFakeRepo) GetUserForUpdate(context.Context, string) (*repository.User, error) {
+	return &repository.User{Role: "viewer"}, nil
 }
 
 func (f *whitelistFakeRepo) RemoveFromWhitelist(context.Context, string) error { return f.removeErr }
@@ -186,7 +274,7 @@ func TestRemoveFromWhitelist_SessionRevokeFailurePropagates(t *testing.T) {
 	repo := &whitelistFakeRepo{deleteErr: wantErr}
 	svc := system.New(repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	if err := svc.RemoveFromWhitelist(context.Background(), "user-1"); !errors.Is(err, wantErr) {
+	if err := svc.RemoveFromWhitelist(context.Background(), &repository.User{ID: "owner-1", Role: "owner"}, "user-1"); !errors.Is(err, wantErr) {
 		t.Fatalf("RemoveFromWhitelist err = %v, want wrapped %v", err, wantErr)
 	}
 	if !repo.deleteCalled {
@@ -202,7 +290,7 @@ func TestRemoveFromWhitelist_PrimaryRemovalErrorPropagates(t *testing.T) {
 	repo := &whitelistFakeRepo{removeErr: wantErr}
 	svc := system.New(repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	if err := svc.RemoveFromWhitelist(context.Background(), "user-1"); !errors.Is(err, wantErr) {
+	if err := svc.RemoveFromWhitelist(context.Background(), &repository.User{ID: "owner-1", Role: "owner"}, "user-1"); !errors.Is(err, wantErr) {
 		t.Fatalf("err = %v, want %v", err, wantErr)
 	}
 	if repo.deleteCalled {

@@ -88,6 +88,12 @@ export const CreateInputSchema = z.object({
   tag_ids: z.array(z.number()),
 }).meta({ id: "CreateInput" });
 
+export const CreateInviteInputSchema = z.object({
+  role: z.enum(["viewer", "admin"]),
+  ttl_minutes: z.int().gte(5).lte(43200),
+  note: z.string().max(200).or(z.literal("")).optional(),
+}).meta({ id: "CreateInviteInput" });
+
 export const DownloadProgressInputSchema = z.object({
   job_id: z.string().min(1),
 }).meta({ id: "DownloadProgressInput" });
@@ -135,6 +141,10 @@ export const RecordingWebhookUpdateConfigInputSchema = z.object({
 export const RequestInputSchema = z.object({
   video_id: z.number(),
 }).meta({ id: "RequestInput" });
+
+export const RevokeInviteInputSchema = z.object({
+  id: z.number(),
+}).meta({ id: "RevokeInviteInput" });
 
 export const RevokeSessionInputSchema = z.object({
   hashed_id: z.string().min(1),

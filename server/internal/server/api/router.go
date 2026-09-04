@@ -11,6 +11,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/invite"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/auth"
@@ -221,7 +222,7 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	settings.RegisterRoutes(tr, repo, log, viewer)
 	sse.RegisterRoutes(tr, bus, log, viewer, owner)
 	stream.RegisterRoutes(tr, repo, twitchClient, log, viewer)
-	system.RegisterRoutes(tr, repo, log, owner)
+	system.RegisterRoutes(tr, repo, invite.New(repo, cfg.Env.FrontendURL, log), log, admin, owner)
 	tag.RegisterRoutes(tr, repo, log, viewer)
 	task.RegisterRoutes(tr, repo, log, owner)
 	recordingDeleter := retention.New(repo, store, log,

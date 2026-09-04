@@ -10,7 +10,7 @@ import { useSelector } from "@tanstack/react-store";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { FileRouteTypes } from "@/routeTree.gen";
-import { authStore, hasRole } from "@/stores/auth";
+import { authStore, hasRole, type Role } from "@/stores/auth";
 
 // StaticRoute is the subset of router paths that take no params (no `$`
 // segment). The sidebar only links to param-free destinations, so typing
@@ -28,7 +28,8 @@ export type NavChild = {
 export type NavGroup = {
 	icon: Icon;
 	label: string;
-	ownerOnly?: boolean;
+	/** Minimum role required to see the group; omitted = everyone. */
+	roleMin?: Role;
 } & (
 	| { to: StaticRoute; children?: undefined }
 	| { to?: undefined; children: NavChild[] }
@@ -69,7 +70,7 @@ export function useNavGroups(): NavGroup[] {
 			{
 				icon: ShieldCheckIcon,
 				label: t("nav.security"),
-				ownerOnly: true,
+				roleMin: "admin",
 				children: [
 					{ to: "/dashboard/system/users", label: t("nav.users") },
 					{ to: "/dashboard/system/whitelist", label: t("nav.whitelist") },
@@ -78,7 +79,7 @@ export function useNavGroups(): NavGroup[] {
 			{
 				icon: DesktopIcon,
 				label: t("nav.system"),
-				ownerOnly: true,
+				roleMin: "owner",
 				children: [
 					{ to: "/dashboard/system/eventsub", label: t("nav.eventsub") },
 					{ to: "/dashboard/system/webhook", label: t("nav.webhook") },
@@ -96,7 +97,7 @@ export function useVisibleNavGroups(): NavGroup[] {
 	const user = useSelector(authStore, (s) => s.user);
 	const groups = useNavGroups();
 	return useMemo(
-		() => groups.filter((g) => !g.ownerOnly || hasRole(user, "owner")),
+		() => groups.filter((g) => !g.roleMin || hasRole(user, g.roleMin)),
 		[groups, user],
 	);
 }

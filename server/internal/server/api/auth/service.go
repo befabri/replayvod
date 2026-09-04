@@ -108,15 +108,12 @@ type LoginResult struct {
 	Tokens *session.TwitchTokens
 }
 
-// HandleOAuthCallback runs the full code-exchange → whitelist → role →
-// upsert flow for the Twitch OAuth callback. The Chi handler extracts
-// code+codeVerifier from cookies + query string, calls this, and
-// converts the result or ErrLoginDenied into a redirect.
-//
-// redirectURI must match exactly what the authorize URL set for the
-// code exchange — Twitch rejects mismatches with a cryptic error,
-// which is the class of bug this signature makes unambiguous.
-func (s *Service) HandleOAuthCallback(ctx context.Context, code, redirectURI, codeVerifier string) (*LoginResult, error) {
+// HandleOAuthCallback authenticates a Twitch user and returns their account and
+// tokens. An empty inviteToken uses ordinary whitelist checks; a valid invite
+// grants access and may promote the user, while an invalid invite returns
+// ErrLoginDenied. Twitch requires redirectURI to match the authorization
+// request exactly.
+func (s *Service) HandleOAuthCallback(ctx context.Context, code, redirectURI, codeVerifier, inviteToken string) (*LoginResult, error) {
 	tokenResp, err := s.twitch.ExchangeCode(ctx, code, redirectURI, codeVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("exchange code: %w", err)
@@ -131,7 +128,7 @@ func (s *Service) HandleOAuthCallback(ctx context.Context, code, redirectURI, co
 	}
 	tu := users[0]
 
-	if s.cfg.WhitelistEnabled {
+	if s.cfg.WhitelistEnabled && inviteToken == "" {
 		ok, err := s.repo.IsWhitelisted(ctx, tu.ID)
 		if err != nil {
 			return nil, fmt.Errorf("whitelist check: %w", err)
@@ -142,24 +139,21 @@ func (s *Service) HandleOAuthCallback(ctx context.Context, code, redirectURI, co
 		}
 	}
 
-	role := s.resolveRole(ctx, tu.ID)
-
-	// Preserve existing role when the user already exists — Twitch-side
-	// role sync would overwrite dashboard-granted promotions otherwise.
-	if existing, err := s.repo.GetUser(ctx, tu.ID); err == nil && existing != nil {
-		role = existing.Role
-	}
-
-	upserted, err := s.repo.UpsertUser(ctx, &repository.User{
+	profile := &repository.User{
 		ID:              tu.ID,
 		Login:           tu.Login,
 		DisplayName:     tu.DisplayName,
 		Email:           ptr.StringOrNil(tu.Email),
 		ProfileImageURL: ptr.StringOrNil(tu.ProfileImageURL),
-		Role:            role,
-	})
+	}
+	var upserted *repository.User
+	if inviteToken != "" {
+		upserted, err = s.redeemInvite(ctx, inviteToken, profile)
+	} else {
+		upserted, err = s.upsertOAuthUser(ctx, s.repo, profile)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("upsert user: %w", err)
+		return nil, err
 	}
 
 	s.log.Info("user authenticated", "twitch_id", upserted.ID, "login", upserted.Login, "role", upserted.Role)
@@ -174,19 +168,45 @@ func (s *Service) HandleOAuthCallback(ctx context.Context, code, redirectURI, co
 	}, nil
 }
 
+// upsertOAuthUser refreshes the profile without overwriting concurrent role
+// changes.
+func (s *Service) upsertOAuthUser(ctx context.Context, repo repository.Repository, profile *repository.User) (*repository.User, error) {
+	u := *profile
+	existing, err := repo.GetUser(ctx, u.ID)
+	switch {
+	case err == nil:
+		u.Role = existing.Role
+	case errors.Is(err, repository.ErrNotFound):
+		u.Role, err = s.resolveRole(ctx, repo, u.ID)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("lookup user: %w", err)
+	}
+	upserted, err := repo.UpsertUser(ctx, &u)
+	if err != nil {
+		return nil, fmt.Errorf("upsert user: %w", err)
+	}
+	return upserted, nil
+}
+
 // resolveRole decides what role a freshly-logging-in user gets when
 // we haven't seen them before: OwnerTwitchID takes precedence, then
 // "first user wins" owner bootstrap, else plain viewer. Existing
 // users keep their stored role — that check lives in the caller.
-func (s *Service) resolveRole(ctx context.Context, twitchID string) string {
+func (s *Service) resolveRole(ctx context.Context, repo repository.Repository, twitchID string) (string, error) {
 	if s.cfg.OwnerTwitchID != "" && twitchID == s.cfg.OwnerTwitchID {
-		return "owner"
+		return "owner", nil
 	}
-	users, err := s.repo.ListUsers(ctx)
-	if err == nil && len(users) == 0 {
-		return "owner"
+	users, err := repo.ListUsers(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolve initial user role: %w", err)
 	}
-	return "viewer"
+	if len(users) == 0 {
+		return "owner", nil
+	}
+	return "viewer", nil
 }
 
 // SyncUserFollows mirrors the user's Twitch follows into the local

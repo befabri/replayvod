@@ -16,21 +16,28 @@ const ROLE_LABEL_KEYS: Record<Role, UserRoleLabelKey> = {
 
 // RoleSelect is a thin cell component so the mutation hook mounts per
 // row — keeps each row's pending/error state isolated.
+//
+// The owner carve-out mirrors the server: only an owner can grant owner
+// or touch an existing owner's role, so non-owner callers get a locked
+// select on owner rows and no owner option elsewhere.
 function RoleSelect({
 	user,
 	isSelf,
+	callerIsOwner,
 	t,
 }: {
 	user: UserInfo;
 	isSelf: boolean;
+	callerIsOwner: boolean;
 	t: TFunction;
 }) {
 	const update = useUpdateUserRole();
 	const value = isRole(user.role) ? user.role : "";
+	const roles = callerIsOwner ? ROLES : ROLES.filter((r) => r !== "owner");
 	return (
 		<select
 			value={value}
-			disabled={isSelf}
+			disabled={isSelf || (!callerIsOwner && value === "owner")}
 			onChange={(e) => {
 				const role = e.target.value;
 				if (!isRole(role)) return;
@@ -46,7 +53,12 @@ function RoleSelect({
 					{t("users.role_unknown")}
 				</option>
 			)}
-			{ROLES.map((role) => (
+			{!callerIsOwner && value === "owner" && (
+				<option value="owner" disabled>
+					{t(ROLE_LABEL_KEYS.owner)}
+				</option>
+			)}
+			{roles.map((role) => (
 				<option key={role} value={role}>
 					{t(ROLE_LABEL_KEYS[role])}
 				</option>
@@ -57,6 +69,7 @@ function RoleSelect({
 
 export function userColumns(
 	currentUserId: string | undefined,
+	callerIsOwner: boolean,
 	t: TFunction,
 ): ColumnDef<UserInfo>[] {
 	return [
@@ -102,6 +115,7 @@ export function userColumns(
 				<RoleSelect
 					user={row.original}
 					isSelf={row.original.id === currentUserId}
+					callerIsOwner={callerIsOwner}
 					t={t}
 				/>
 			),

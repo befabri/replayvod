@@ -30,6 +30,12 @@ var roleLevel = map[string]int{
 	RoleOwner:  3,
 }
 
+// HasMinRole reports whether role meets minRole in viewer < admin < owner
+// order. Unknown roles rank below viewer.
+func HasMinRole(role, minRole string) bool {
+	return roleLevel[role] >= roleLevel[minRole]
+}
+
 func RequireRole(minRole string) func(http.Handler) http.Handler {
 	minLevel := roleLevel[minRole]
 

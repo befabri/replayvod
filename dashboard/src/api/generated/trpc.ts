@@ -248,6 +248,12 @@ export interface CreateInput {
   tag_ids: number[];
 }
 
+export interface CreateInviteInput {
+  role: string;
+  ttl_minutes: number;
+  note?: string;
+}
+
 export interface DeleteResponse {
   id: number;
 }
@@ -358,6 +364,28 @@ export interface FollowedStreamResponse {
 
 export interface GetByLoginInput {
   login: string;
+}
+
+/**
+ * InviteCreatedInfo includes the redemption URL, which cannot be retrieved
+ * again.
+ */
+export interface InviteCreatedInfo {
+  id: number;
+  url: string;
+  role: Role;
+  expires_at: string;
+}
+
+export interface InviteInfo {
+  id: number;
+  role: Role;
+  note?: string;
+  created_by: string;
+  expires_at: string;
+  redeemed_at?: string;
+  redeemed_by?: string;
+  created_at: string;
 }
 
 export interface LastLiveInput {
@@ -516,6 +544,10 @@ export interface RecordingWebhookUpdateConfigInput {
 
 export interface RequestInput {
   video_id: number;
+}
+
+export interface RevokeInviteInput {
+  id: number;
 }
 
 export interface RevokeSessionInput {
@@ -1316,13 +1348,16 @@ type AppRouterRecord = {
   };
   system: {
     addWhitelist: $Mutation<WhitelistIDInput, SystemOK>;
+    createInvite: $Mutation<CreateInviteInput, InviteCreatedInfo>;
     eventLogs: $Query<EventLogsInput, EventLogsResponse>;
     events: $Subscription<void, EventLogEvent>;
     fetchLogs: $Query<FetchLogsInput, FetchLogsResponse>;
+    listInvites: $Query<void, InviteInfo[]>;
     listUsers: $Query<void, UserInfo[]>;
     listWhitelist: $Query<void, WhitelistEntryInfo[]>;
     playbackCacheConfig: $Query<void, PlaybackCacheConfigResponse>;
     removeWhitelist: $Mutation<WhitelistIDInput, SystemOK>;
+    revokeInvite: $Mutation<RevokeInviteInput, SystemOK>;
     searchEventLogs: $Query<SearchEventLogsInput, SearchEventLogsResponse>;
     updatePlaybackCacheConfig: $Mutation<UpdatePlaybackCacheConfigInput, PlaybackCacheConfigResponse>;
     updateUserRole: $Mutation<UpdateUserRoleInput, UserInfo>;

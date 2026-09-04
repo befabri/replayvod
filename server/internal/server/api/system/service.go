@@ -19,6 +19,10 @@ import (
 // get locked out of every owner-gated procedure.
 var ErrCannotDemoteSelf = errors.New("system: cannot demote yourself")
 
+// ErrOwnerRoleRequired denies non-owners permission to grant owner or modify an
+// owner.
+var ErrOwnerRoleRequired = errors.New("system: owner role required")
+
 var ErrInvalidPlaybackCacheConfig = errors.New("system: invalid playback cache config")
 
 type Service struct {
@@ -34,21 +38,32 @@ func (s *Service) ListUsers(ctx context.Context) ([]repository.User, error) {
 	return s.repo.ListUsers(ctx)
 }
 
-// UpdateUserRole assigns a role, returning the reloaded user row. callerID must
-// be the currently-authenticated user's ID so the self-demotion guard can fire.
-//
-// This does not revoke sessions: role gates load the user row from the
-// repository on every request, so an existing session keeps login state but not
-// stale elevated permissions. Whitelist removal is different because the
-// whitelist is only checked at login.
-func (s *Service) UpdateUserRole(ctx context.Context, callerID, targetID, newRole string) (*repository.User, error) {
-	if callerID == targetID && newRole != "owner" {
+// UpdateUserRole returns the updated user; caller must be the authenticated
+// account. Only owners may grant owner or modify an owner. Sessions remain
+// valid because authorization reads the stored role on each request.
+func (s *Service) UpdateUserRole(ctx context.Context, caller *repository.User, targetID, newRole string) (*repository.User, error) {
+	if caller.ID == targetID && newRole != "owner" {
 		return nil, ErrCannotDemoteSelf
 	}
-	if err := s.repo.UpdateUserRole(ctx, targetID, newRole); err != nil {
+	if caller.Role != "owner" && newRole == "owner" {
+		return nil, ErrOwnerRoleRequired
+	}
+	var updated *repository.User
+	err := s.withManagedUser(ctx, caller, targetID, func(tx repository.Repository, target *repository.User) error {
+		if target == nil {
+			return repository.ErrNotFound
+		}
+		if err := tx.UpdateUserRole(ctx, targetID, newRole); err != nil {
+			return err
+		}
+		var err error
+		updated, err = tx.GetUser(ctx, targetID)
+		return err
+	})
+	if err != nil {
 		return nil, err
 	}
-	return s.repo.GetUser(ctx, targetID)
+	return updated, nil
 }
 
 func (s *Service) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {
@@ -59,22 +74,34 @@ func (s *Service) AddToWhitelist(ctx context.Context, twitchUserID string) error
 	return s.repo.AddToWhitelist(ctx, twitchUserID)
 }
 
-// RemoveFromWhitelist is idempotent — missing entries return nil.
-//
-// Revoking the user's active sessions is the teeth of the de-whitelist:
-// the whitelist is only checked at login, so without this an already
-// logged-in user keeps access until their session expires. Both deletes
-// are idempotent: if the whitelist row is already gone on retry, the
-// session delete still runs again, so surfacing a revoke error gives the
-// admin a useful retry instead of a false OK.
-func (s *Service) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
-	if err := s.repo.RemoveFromWhitelist(ctx, twitchUserID); err != nil {
-		return err
-	}
-	if err := s.repo.DeleteUserSessions(ctx, twitchUserID); err != nil {
-		return fmt.Errorf("revoke sessions after whitelist removal for %s: %w", twitchUserID, err)
-	}
-	return nil
+// RemoveFromWhitelist atomically removes access and revokes sessions; missing
+// entries are allowed. Only owners may remove owner entries, including when
+// removing access would end their sessions.
+func (s *Service) RemoveFromWhitelist(ctx context.Context, caller *repository.User, twitchUserID string) error {
+	return s.withManagedUser(ctx, caller, twitchUserID, func(tx repository.Repository, _ *repository.User) error {
+		if err := tx.RemoveFromWhitelist(ctx, twitchUserID); err != nil {
+			return err
+		}
+		if err := tx.DeleteUserSessions(ctx, twitchUserID); err != nil {
+			return fmt.Errorf("revoke sessions after whitelist removal for %s: %w", twitchUserID, err)
+		}
+		return nil
+	})
+}
+
+// withManagedUser locks the target through authorization and commit. A nil
+// target permits removal of a whitelist entry created before signup.
+func (s *Service) withManagedUser(ctx context.Context, caller *repository.User, targetID string, fn func(repository.Repository, *repository.User) error) error {
+	return s.repo.WithTx(ctx, func(tx repository.Repository) error {
+		target, err := tx.GetUserForUpdate(ctx, targetID)
+		if err != nil && !errors.Is(err, repository.ErrNotFound) {
+			return err
+		}
+		if caller.Role != "owner" && target != nil && target.Role == "owner" {
+			return ErrOwnerRoleRequired
+		}
+		return fn(tx, target)
+	})
 }
 
 type PlaybackCacheConfig struct {

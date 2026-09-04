@@ -3,8 +3,10 @@ import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { PlaybackCacheCard } from "@/features/system/components/PlaybackCacheCard";
 import { usePlaybackCacheConfig } from "@/features/system/queries";
+import { requireRole } from "@/lib/route-guards";
 
 export const Route = createFileRoute("/dashboard/system/playback")({
+	beforeLoad: requireRole("owner"),
 	component: PlaybackCachePage,
 });
 

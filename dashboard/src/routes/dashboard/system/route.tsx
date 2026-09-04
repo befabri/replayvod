@@ -1,15 +1,12 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { hasRole, resolveSession } from "@/stores/auth";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { requireRole } from "@/lib/route-guards";
 
 export const Route = createFileRoute("/dashboard/system")({
 	// The parent /dashboard guard already resolved the session; this adds the
-	// owner-only check in the loader phase so a non-owner is redirected before the
-	// system chrome renders.
-	beforeLoad: async () => {
-		const user = await resolveSession();
-		if (!user) throw redirect({ to: "/login", search: { error: undefined } });
-		if (!hasRole(user, "owner")) throw redirect({ to: "/dashboard" });
-	},
+	// admin check in the loader phase so a viewer is redirected before the
+	// system chrome renders. The owner-only pages (eventsub, webhook,
+	// playback, tasks, logs) layer requireRole("owner") on top per-route.
+	beforeLoad: requireRole("admin"),
 	component: SystemLayout,
 });
 

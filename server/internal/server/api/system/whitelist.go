@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/server/api/apierr"
+	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	"github.com/befabri/trpcgo"
 )
 
 type WhitelistEntryInfo struct {
@@ -40,8 +42,13 @@ func (h *Handler) AddWhitelist(ctx context.Context, input WhitelistIDInput) (OK,
 }
 
 func (h *Handler) RemoveWhitelist(ctx context.Context, input WhitelistIDInput) (OK, error) {
-	if err := h.svc.RemoveFromWhitelist(ctx, input.TwitchUserID); err != nil {
-		return OK{}, apierr.Map(h.log, err, "remove from whitelist")
+	caller, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return OK{}, err
+	}
+	if err := h.svc.RemoveFromWhitelist(ctx, caller, input.TwitchUserID); err != nil {
+		return OK{}, apierr.Map(h.log, err, "remove from whitelist",
+			apierr.On(ErrOwnerRoleRequired, trpcgo.CodeForbidden, "owner role required"))
 	}
 	return OK{OK: true}, nil
 }

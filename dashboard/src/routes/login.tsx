@@ -15,6 +15,8 @@ const ERROR_KEYS = new Set([
 	"access_denied",
 	"invalid_state",
 	"invalid_pkce",
+	"invite_invalid",
+	"invite_self",
 ]);
 
 // Login matches v1: two-column 50/50 color split, all content centered

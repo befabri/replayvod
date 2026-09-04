@@ -13,8 +13,10 @@ import {
 import { subscriptionColumns } from "@/features/eventsub/components/columns";
 import { QuotaCard } from "@/features/eventsub/components/QuotaCard";
 import { SnapshotChart } from "@/features/eventsub/components/SnapshotChart";
+import { requireRole } from "@/lib/route-guards";
 
 export const Route = createFileRoute("/dashboard/system/eventsub")({
+	beforeLoad: requireRole("owner"),
 	component: EventSubPage,
 });
 

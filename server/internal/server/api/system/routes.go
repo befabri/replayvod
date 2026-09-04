@@ -3,20 +3,26 @@ package system
 import (
 	"log/slog"
 
+	"github.com/befabri/replayvod/server/internal/invite"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/trpcgo"
 )
 
-// RegisterRoutes wires system.* tRPC procedures. All owner-only.
-func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, log *slog.Logger, owner *trpcgo.ProcedureBuilder) {
-	h := NewHandler(New(repo, log), log)
+// RegisterRoutes registers admin account management and owner-only server
+// settings.
+func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, invites *invite.Service, log *slog.Logger, admin, owner *trpcgo.ProcedureBuilder) {
+	h := NewHandler(New(repo, log), invites, log)
+
+	trpcgo.MustVoidQuery(tr, "system.listUsers", h.ListUsers, admin)
+	trpcgo.MustMutation(tr, "system.updateUserRole", h.UpdateUserRole, admin)
+	trpcgo.MustVoidQuery(tr, "system.listWhitelist", h.ListWhitelist, admin)
+	trpcgo.MustMutation(tr, "system.addWhitelist", h.AddWhitelist, admin)
+	trpcgo.MustMutation(tr, "system.removeWhitelist", h.RemoveWhitelist, admin)
+	trpcgo.MustMutation(tr, "system.createInvite", h.CreateInvite, admin)
+	trpcgo.MustVoidQuery(tr, "system.listInvites", h.ListInvites, admin)
+	trpcgo.MustMutation(tr, "system.revokeInvite", h.RevokeInvite, admin)
 
 	trpcgo.MustQuery(tr, "system.fetchLogs", h.FetchLogs, owner)
-	trpcgo.MustVoidQuery(tr, "system.listUsers", h.ListUsers, owner)
-	trpcgo.MustMutation(tr, "system.updateUserRole", h.UpdateUserRole, owner)
-	trpcgo.MustVoidQuery(tr, "system.listWhitelist", h.ListWhitelist, owner)
-	trpcgo.MustMutation(tr, "system.addWhitelist", h.AddWhitelist, owner)
-	trpcgo.MustMutation(tr, "system.removeWhitelist", h.RemoveWhitelist, owner)
 	trpcgo.MustVoidQuery(tr, "system.playbackCacheConfig", h.PlaybackCacheConfig, owner)
 	trpcgo.MustMutation(tr, "system.updatePlaybackCacheConfig", h.UpdatePlaybackCacheConfig, owner)
 

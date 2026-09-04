@@ -6,13 +6,15 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/invite"
 	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/trpcgo"
 )
 
 type Handler struct {
-	svc *Service
-	log *slog.Logger
+	svc     *Service
+	invites *invite.Service
+	log     *slog.Logger
 }
 
 type PlaybackCacheConfigResponse struct {
@@ -62,8 +64,8 @@ func (h *Handler) UpdatePlaybackCacheConfig(ctx context.Context, input UpdatePla
 	return playbackCacheConfigResponse(cfg), nil
 }
 
-func NewHandler(svc *Service, log *slog.Logger) *Handler {
-	return &Handler{svc: svc, log: log.With("domain", "system-api")}
+func NewHandler(svc *Service, invites *invite.Service, log *slog.Logger) *Handler {
+	return &Handler{svc: svc, invites: invites, log: log.With("domain", "system-api")}
 }
 
 type FetchLogEntry struct {

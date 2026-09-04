@@ -11,7 +11,10 @@ import {
 test.describe("auth", () => {
 	test("login page shows the Twitch connect action", async ({ page }) => {
 		await page.goto("/login");
-		await expect(page.locator('a[href*="auth/twitch"]')).toBeVisible();
+		// The first route pays Vite's cold compile before the action mounts.
+		await expect(page.locator('a[href*="auth/twitch"]')).toBeVisible({
+			timeout: 30_000,
+		});
 	});
 
 	test("unauthenticated visit to /dashboard redirects to /login", async ({

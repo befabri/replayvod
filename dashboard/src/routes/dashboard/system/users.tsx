@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { QueryTable } from "@/components/ui/query-table";
+import { InvitesSection } from "@/features/invites/components/InvitesSection";
 import { useUsers } from "@/features/users";
 import { userColumns } from "@/features/users/components/columns";
 import { authStore } from "@/stores/auth";
@@ -18,8 +19,8 @@ function UsersPage() {
 	const users = useUsers();
 
 	const columns = useMemo(
-		() => userColumns(currentUser?.id, t),
-		[currentUser?.id, t],
+		() => userColumns(currentUser?.id, currentUser?.role === "owner", t),
+		[currentUser?.id, currentUser?.role, t],
 	);
 
 	return (
@@ -31,6 +32,7 @@ function UsersPage() {
 				emptyMessage={t("users.empty")}
 				errorLabel={t("users.failed_to_load")}
 			/>
+			<InvitesSection />
 		</TitledLayout>
 	);
 }
