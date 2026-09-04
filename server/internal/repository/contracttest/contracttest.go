@@ -28,6 +28,10 @@ type Harness interface {
 	// Repo returns the repository under test. It returns the same instance
 	// for the life of the harness.
 	Repo() repository.Repository
+	// ConcurrentRepo returns an independent connection so Go pool limits
+	// cannot hide missing database locks.
+	ConcurrentRepo(t *testing.T) repository.Repository
+	BackdateScheduleRequests(t *testing.T, at time.Time)
 
 	// BackdateAllSubscriptionsCreated sets created_at on every subscriptions
 	// row to at. Used to force a created_at tie so pagination tie-breaking can
@@ -70,6 +74,17 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Schedule_UpsertPreservesTriggerCount", testScheduleUpsertPreservesTriggerCount)
 	run("Schedule_FilterLinkFailureRollsBack", testScheduleFilterLinkFailureRollsBack)
 
+	run("ScheduleRequest_DecideOnce", testScheduleRequestDecideOnce)
+	run("ScheduleRequest_DuplicatePendingIsErrDuplicate", testScheduleRequestDuplicatePendingIsErrDuplicate)
+	run("ScheduleRequest_ApproveAtomic", testScheduleRequestApproveAtomic)
+	run("ScheduleRequest_ApproveBlocksActiveDuplicate", testScheduleRequestApproveBlocksActiveDuplicate)
+	run("ScheduleRequest_CancelOwnPendingOnly", testScheduleRequestCancelOwnPendingOnly)
+	run("ScheduleRequest_ApprovalFailureRollsBack", testScheduleRequestApprovalFailureRollsBack)
+	run("ScheduleRequest_ConcurrentApprovals", testScheduleRequestConcurrentApprovals)
+	run("ScheduleRequest_ListScopeAndHistory", testScheduleRequestListScopeAndHistory)
+	run("ScheduleRequest_Pagination", testScheduleRequestPagination)
+	run("Schedule_BatchMetadata", testScheduleBatchMetadata)
+
 	// subscriptions
 	run("Subscription_RevokeKeepsRowForAudit", testSubscriptionRevokeKeepsRowForAudit)
 	run("Subscription_ListActiveStableWithTiedCreatedAt", testSubscriptionListActiveStableWithTiedCreatedAt)
@@ -84,6 +99,13 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Task_MarkSuccessRearmsNextRun", testTaskMarkSuccessRearmsNextRun)
 	run("Task_QueuedRunSurvivesMarkSuccess", testTaskQueuedRunSurvivesMarkSuccess)
 	run("Task_SetNextRunMissingReturnsNotFound", testTaskSetNextRunMissingReturnsNotFound)
+
+	run("Invite_RedeemSingleUse", testInviteRedeemSingleUse)
+	run("Invite_RedeemExpiredFailsClosed", testInviteRedeemExpiredFailsClosed)
+	run("Invite_RevokeOnlyPending", testInviteRevokeOnlyPending)
+	run("Invite_ConcurrentRedemption", testInviteConcurrentRedemption)
+	run("Transaction_CommitAndRollback", testTransactionCommitAndRollback)
+	run("UserLock_SerializesRoleChanges", testUserLockSerializesRoleChanges)
 
 	// settings + event logs
 	run("Settings_UpsertInsertThenUpdate", testSettingsUpsertInsertThenUpdate)

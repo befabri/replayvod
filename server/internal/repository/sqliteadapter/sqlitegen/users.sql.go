@@ -8,6 +8,7 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const getUser = `-- name: GetUser :one
@@ -48,6 +49,70 @@ func (q *Queries) GetUserByLogin(ctx context.Context, login string) (User, error
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getUserForUpdate = `-- name: GetUserForUpdate :one
+UPDATE users SET id = id WHERE id = ? RETURNING id, login, display_name, email, profile_image_url, role, created_at, updated_at
+`
+
+// Acquire the transaction's write lock without changing profile fields or
+// timestamps. A plain SELECT cannot lock out a concurrent role change.
+func (q *Queries) GetUserForUpdate(ctx context.Context, id string) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserForUpdate, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Login,
+		&i.DisplayName,
+		&i.Email,
+		&i.ProfileImageUrl,
+		&i.Role,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listUserDisplayNames = `-- name: ListUserDisplayNames :many
+SELECT id, display_name FROM users WHERE id IN (/*SLICE:ids*/?)
+`
+
+type ListUserDisplayNamesRow struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+func (q *Queries) ListUserDisplayNames(ctx context.Context, ids []string) ([]ListUserDisplayNamesRow, error) {
+	query := listUserDisplayNames
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserDisplayNamesRow{}
+	for rows.Next() {
+		var i ListUserDisplayNamesRow
+		if err := rows.Scan(&i.ID, &i.DisplayName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUsers = `-- name: ListUsers :many

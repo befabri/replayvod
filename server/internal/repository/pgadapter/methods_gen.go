@@ -111,6 +111,14 @@ func (a *PGAdapter) GetChannelByLogin(ctx context.Context, login string) (*repos
 	return pgChannelToDomain(row), nil
 }
 
+func (a *PGAdapter) GetInviteByTokenHash(ctx context.Context, tokenHash string) (*repository.Invite, error) {
+	row, err := a.queries.GetInviteByTokenHash(ctx, tokenHash)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgInviteToDomain(row), nil
+}
+
 func (a *PGAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
 	row, err := a.queries.GetJob(ctx, id)
 	if err != nil {
@@ -133,6 +141,14 @@ func (a *PGAdapter) GetLastLiveStream(ctx context.Context, broadcasterID string)
 		return nil, mapErr(err)
 	}
 	return pgStreamToDomain(row), nil
+}
+
+func (a *PGAdapter) GetScheduleRequest(ctx context.Context, id int64) (*repository.ScheduleRequest, error) {
+	row, err := a.queries.GetScheduleRequest(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgScheduleRequestToDomain(row), nil
 }
 
 func (a *PGAdapter) GetServerSettings(ctx context.Context) (*repository.ServerSettings, error) {

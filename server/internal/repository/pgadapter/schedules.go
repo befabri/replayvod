@@ -23,7 +23,7 @@ func (a *PGAdapter) CreateScheduleWithFilters(ctx context.Context, input *reposi
 	err := a.inTx(ctx, func(q *pggen.Queries, _ pgx.Tx) error {
 		row, err := q.CreateSchedule(ctx, pgCreateScheduleParams(input))
 		if err != nil {
-			return fmt.Errorf("pg create schedule: %w", err)
+			return fmt.Errorf("pg create schedule: %w", mapErr(err))
 		}
 		sched := pgScheduleToDomain(row)
 		if err := replacePGScheduleFilters(ctx, q, sched.ID, filters); err != nil {
@@ -185,6 +185,7 @@ func pgCreateScheduleParams(input *repository.ScheduleInput) pggen.CreateSchedul
 	return pggen.CreateScheduleParams{
 		BroadcasterID:    input.BroadcasterID,
 		RequestedBy:      input.RequestedBy,
+		RequestedFrom:    input.RequestedFrom,
 		RecordingType:    settings.RecordingType,
 		Quality:          settings.Quality,
 		ForceH264:        settings.ForceH264,
@@ -244,6 +245,7 @@ func pgScheduleToDomain(s pggen.DownloadSchedule) *repository.DownloadSchedule {
 		ID:               s.ID,
 		BroadcasterID:    s.BroadcasterID,
 		RequestedBy:      s.RequestedBy,
+		RequestedFrom:    s.RequestedFrom,
 		RecordingType:    repository.NormalizeRecordingType(s.RecordingType),
 		Quality:          s.Quality,
 		ForceH264:        s.ForceH264,

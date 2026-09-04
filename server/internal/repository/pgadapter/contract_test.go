@@ -31,6 +31,14 @@ type contractHarness struct {
 
 func (h *contractHarness) Repo() repository.Repository { return h.a }
 
+func (h *contractHarness) ConcurrentRepo(t *testing.T) repository.Repository { return h.a }
+func (h *contractHarness) BackdateScheduleRequests(t *testing.T, at time.Time) {
+	t.Helper()
+	if _, err := h.pool.Exec(context.Background(), "UPDATE schedule_requests SET created_at = $1", at); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (h *contractHarness) BackdateAllSubscriptionsCreated(t *testing.T, at time.Time) {
 	t.Helper()
 	if _, err := h.pool.Exec(context.Background(), "UPDATE subscriptions SET created_at = $1", at); err != nil {

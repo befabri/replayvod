@@ -77,6 +77,7 @@ type DownloadSchedule struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 	RecordingType    string     `json:"recording_type"`
 	ForceH264        bool       `json:"force_h264"`
+	RequestedFrom    *string    `json:"requested_from"`
 }
 
 type DownloadScheduleCategory struct {
@@ -120,6 +121,18 @@ type FetchLog struct {
 	FetchedAt     time.Time `json:"fetched_at"`
 }
 
+type Invite struct {
+	ID         int64      `json:"id"`
+	TokenHash  string     `json:"token_hash"`
+	Role       string     `json:"role"`
+	Note       *string    `json:"note"`
+	CreatedBy  string     `json:"created_by"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	RedeemedAt *time.Time `json:"redeemed_at"`
+	RedeemedBy *string    `json:"redeemed_by"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
 type Job struct {
 	ID            string          `json:"id"`
 	VideoID       int64           `json:"video_id"`
@@ -150,6 +163,18 @@ type RecordingWebhookDelivery struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	FrozenParts   string     `json:"frozen_parts"`
+}
+
+type ScheduleRequest struct {
+	ID            int64      `json:"id"`
+	BroadcasterID string     `json:"broadcaster_id"`
+	RequestedBy   string     `json:"requested_by"`
+	Note          *string    `json:"note"`
+	Status        string     `json:"status"`
+	DecidedBy     *string    `json:"decided_by"`
+	DecidedAt     *time.Time `json:"decided_at"`
+	ScheduleID    *int64     `json:"schedule_id"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 type ServerSetting struct {

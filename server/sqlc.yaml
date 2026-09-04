@@ -233,3 +233,13 @@ sql:
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
           - column: "channel_user_states.updated_at"
             go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "invites.expires_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "invites.redeemed_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time", pointer: true }
+          - column: "invites.created_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }
+          - column: "schedule_requests.decided_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time", pointer: true }
+          - column: "schedule_requests.created_at"
+            go_type: { import: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype", type: "Time" }

@@ -78,6 +78,7 @@ type DownloadSchedule struct {
 	UpdatedAt        sqlitetype.Time  `json:"updated_at"`
 	RecordingType    string           `json:"recording_type"`
 	ForceH264        int64            `json:"force_h264"`
+	RequestedFrom    sql.NullString   `json:"requested_from"`
 }
 
 type DownloadScheduleCategory struct {
@@ -120,6 +121,18 @@ type FetchLog struct {
 	FetchedAt     sqlitetype.Time `json:"fetched_at"`
 }
 
+type Invite struct {
+	ID         int64            `json:"id"`
+	TokenHash  string           `json:"token_hash"`
+	Role       string           `json:"role"`
+	Note       sql.NullString   `json:"note"`
+	CreatedBy  string           `json:"created_by"`
+	ExpiresAt  sqlitetype.Time  `json:"expires_at"`
+	RedeemedAt *sqlitetype.Time `json:"redeemed_at"`
+	RedeemedBy sql.NullString   `json:"redeemed_by"`
+	CreatedAt  sqlitetype.Time  `json:"created_at"`
+}
+
 type Job struct {
 	ID            string           `json:"id"`
 	VideoID       int64            `json:"video_id"`
@@ -150,6 +163,18 @@ type RecordingWebhookDelivery struct {
 	CreatedAt     sqlitetype.Time  `json:"created_at"`
 	UpdatedAt     sqlitetype.Time  `json:"updated_at"`
 	FrozenParts   string           `json:"frozen_parts"`
+}
+
+type ScheduleRequest struct {
+	ID            int64            `json:"id"`
+	BroadcasterID string           `json:"broadcaster_id"`
+	RequestedBy   string           `json:"requested_by"`
+	Note          sql.NullString   `json:"note"`
+	Status        string           `json:"status"`
+	DecidedBy     sql.NullString   `json:"decided_by"`
+	DecidedAt     *sqlitetype.Time `json:"decided_at"`
+	ScheduleID    sql.NullInt64    `json:"schedule_id"`
+	CreatedAt     sqlitetype.Time  `json:"created_at"`
 }
 
 type ServerSetting struct {

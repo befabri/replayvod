@@ -7,19 +7,21 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-// mapErr translates pgx driver errors to portable repository errors.
-// Callers that need a not-found branch should `errors.Is(err, repository.ErrNotFound)`.
 func mapErr(err error) error {
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repository.ErrNotFound
+	}
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" { // unique_violation
+		return repository.ErrDuplicate
 	}
 	return err
 }
@@ -51,19 +53,12 @@ func (a *PGAdapter) Ping(ctx context.Context) error {
 	return nil
 }
 
-// pgBeginner is the minimal surface the adapter needs to open a
-// transaction. *pgxpool.Pool and *pgx.Conn both satisfy it; if the
-// underlying DBTX is already a pgx.Tx the assertion fails and the
-// caller runs without its own transaction (we're already inside one).
 type pgBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// inTx runs fn inside a pgx transaction when the adapter's underlying
-// DBTX supports opening one. Commits on success, rolls back on error
-// or panic. When the DBTX is already a transaction (fn already running
-// inside an outer tx) the call falls through to fn with the existing
-// queries/db and the caller keeps responsibility for commit/rollback.
+// inTx commits fn's writes together or rolls back on error or panic. The
+// underlying DBTX must support opening transactions.
 func (a *PGAdapter) inTx(ctx context.Context, fn func(q *pggen.Queries, tx pgx.Tx) error) error {
 	beginner, ok := a.db.(pgBeginner)
 	if !ok {

@@ -102,7 +102,7 @@ var convRules = map[[2]string]string{
 	{"sqlitetype.Time", "time.Time"}:   "%s.Time",
 	{"*sqlitetype.Time", "*time.Time"}: "timePtrFromSQLite(%s)",
 	{"int64", "bool"}:                  "%s != 0",
-	{"sql.NullInt64", "*int64"}:        "int64PtrFromSQLite(%s)",
+	{"sql.NullInt64", "*int64"}:        "fromNullInt64(%s)",
 	// numeric width/alias conversions (PG int4 -> int32, SQLite INTEGER -> int64)
 	{"int", "int"}:         "%s",
 	{"int32", "int32"}:     "%s",
@@ -149,7 +149,11 @@ type dialect struct {
 //
 // denyMethods force-excludes names that would otherwise be harvested but must
 // stay hand-written (e.g. a trivial-looking method expected to grow logic).
-var denyMethods = map[string]bool{}
+var denyMethods = map[string]bool{
+	// Repository.WithTx owns a transaction and passes a scoped repository
+	// to a callback; sqlc's unrelated WithTx only binds a query object.
+	"WithTx": true,
+}
 
 func main() {
 	root := flag.String("root", ".", "server module root")

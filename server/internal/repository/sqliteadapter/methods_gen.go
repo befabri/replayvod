@@ -98,6 +98,14 @@ func (a *SQLiteAdapter) GetChannelByLogin(ctx context.Context, login string) (*r
 	return sqliteChannelToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) GetInviteByTokenHash(ctx context.Context, tokenHash string) (*repository.Invite, error) {
+	row, err := a.queries.GetInviteByTokenHash(ctx, tokenHash)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteInviteToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) GetJob(ctx context.Context, id string) (*repository.Job, error) {
 	row, err := a.queries.GetJob(ctx, id)
 	if err != nil {
@@ -120,6 +128,14 @@ func (a *SQLiteAdapter) GetLastLiveStream(ctx context.Context, broadcasterID str
 		return nil, mapErr(err)
 	}
 	return sqliteStreamToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetScheduleRequest(ctx context.Context, id int64) (*repository.ScheduleRequest, error) {
+	row, err := a.queries.GetScheduleRequest(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteScheduleRequestToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) GetServerSettings(ctx context.Context) (*repository.ServerSettings, error) {

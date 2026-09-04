@@ -51,6 +51,58 @@ type WhitelistEntry struct {
 	AddedAt      time.Time
 }
 
+// Invite stores a single-use invitation with a SHA-256 token hash. Redeemed
+// invitations remain as audit records.
+type Invite struct {
+	ID         int64
+	TokenHash  string
+	Role       string
+	Note       *string
+	CreatedBy  string
+	ExpiresAt  time.Time
+	RedeemedAt *time.Time
+	RedeemedBy *string
+	CreatedAt  time.Time
+}
+
+type InviteInput struct {
+	TokenHash string
+	Role      string
+	Note      *string
+	CreatedBy string
+	ExpiresAt time.Time
+}
+
+// Schedule request states; APPROVED and REJECTED are terminal.
+const (
+	ScheduleRequestStatusPending  = "PENDING"
+	ScheduleRequestStatusApproved = "APPROVED"
+	ScheduleRequestStatusRejected = "REJECTED"
+)
+
+// ScheduleRequest records a request to automatically record a channel.
+type ScheduleRequest struct {
+	ID            int64
+	BroadcasterID string
+	RequestedBy   string
+	Note          *string
+	Status        string
+	DecidedBy     *string
+	DecidedAt     *time.Time
+	ScheduleID    *int64
+	CreatedAt     time.Time
+}
+
+// ScheduleRequestView includes the channel and requester display metadata.
+type ScheduleRequestView struct {
+	ScheduleRequest
+	BroadcasterLogin string
+	BroadcasterName  string
+	ProfileImageURL  *string
+	RequestedByLogin string
+	RequestedByName  string
+}
+
 type Channel struct {
 	BroadcasterID       string
 	BroadcasterLogin    string
@@ -839,9 +891,12 @@ const (
 // DownloadSchedule is a user-defined auto-record rule matched against
 // incoming stream.online webhooks.
 type DownloadSchedule struct {
-	ID               int64
-	BroadcasterID    string
-	RequestedBy      string
+	ID            int64
+	BroadcasterID string
+	RequestedBy   string
+	// RequestedFrom identifies the requester; RequestedBy is the approving
+	// admin. RequestedFrom is nil for directly created schedules.
+	RequestedFrom    *string
 	RecordingType    string
 	Quality          string
 	ForceH264        bool
@@ -863,6 +918,7 @@ type DownloadSchedule struct {
 type ScheduleInput struct {
 	BroadcasterID    string
 	RequestedBy      string
+	RequestedFrom    *string
 	RecordingType    string
 	Quality          string
 	ForceH264        bool

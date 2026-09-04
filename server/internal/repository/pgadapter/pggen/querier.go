@@ -45,10 +45,12 @@ type Querier interface {
 	CreateClaimedRecordingWebhookDelivery(ctx context.Context, arg CreateClaimedRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
 	CreateEventLog(ctx context.Context, arg CreateEventLogParams) (EventLog, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
+	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateRecordingWebhookDelivery(ctx context.Context, arg CreateRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
 	CreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, arg CreateRecordingWebhookDeliveryIfEnabledParams) (RecordingWebhookDelivery, error)
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (DownloadSchedule, error)
+	CreateScheduleRequest(ctx context.Context, arg CreateScheduleRequestParams) (ScheduleRequest, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) (EventsubSnapshot, error)
 	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
@@ -62,10 +64,12 @@ type Querier interface {
 	// ON CONFLICT DO NOTHING avoids double-processing; the RETURNING is NULL
 	// on conflict so the handler knows the event was already recorded.
 	CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error)
+	DecideScheduleRequest(ctx context.Context, arg DecideScheduleRequestParams) (int64, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredCategorySearchCache(ctx context.Context, expiresAt time.Time) error
 	DeleteExpiredSessions(ctx context.Context) error
+	DeleteInvite(ctx context.Context, id int64) (int64, error)
 	// Retention task path: debug/info rows older than the retention window
 	// are pruned; warn/error rows stay longer (retention task uses a
 	// different cutoff). Partial WHERE keeps the sweep focused.
@@ -81,6 +85,7 @@ type Querier interface {
 	// snapshots get pruned by the scheduler task.
 	DeleteOldSnapshots(ctx context.Context, fetchedAt time.Time) error
 	DeleteSchedule(ctx context.Context, id int64) error
+	DeleteScheduleRequest(ctx context.Context, arg DeleteScheduleRequestParams) (int64, error)
 	DeleteSession(ctx context.Context, hashedID string) error
 	// Hard-delete. Only intended for cleanup after a full system teardown or
 	// rebuild; production code paths should call MarkSubscriptionRevoked.
@@ -114,6 +119,7 @@ type Querier interface {
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
 	GetChannelUserState(ctx context.Context, arg GetChannelUserStateParams) (ChannelUserState, error)
+	GetInviteByTokenHash(ctx context.Context, tokenHash string) (Invite, error)
 	GetJob(ctx context.Context, id string) (Job, error)
 	// The most recent job for a video. Used to wire resume state back to
 	// the download service on restart: a video can accumulate multiple
@@ -124,6 +130,7 @@ type Querier interface {
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
 	GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error)
+	GetScheduleRequest(ctx context.Context, id int64) (ScheduleRequest, error)
 	GetServerHMACSecret(ctx context.Context) (string, error)
 	GetServerSettings(ctx context.Context) (ServerSetting, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
@@ -135,6 +142,7 @@ type Querier interface {
 	GetTask(ctx context.Context, name string) (Task, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByLogin(ctx context.Context, login string) (User, error)
+	GetUserForUpdate(ctx context.Context, id string) (User, error)
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
@@ -224,6 +232,7 @@ type Querier interface {
 	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 	// agree on "exactly at the deadline is still retained".
 	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]ListFinishedVideosForRetentionRow, error)
+	ListInvites(ctx context.Context) ([]Invite, error)
 	// Returns the most recent stream per broadcaster, newest first, joined
 	// with the channel for display metadata. DISTINCT ON requires ordering
 	// by its key first, so the inner query picks the latest per broadcaster
@@ -240,7 +249,11 @@ type Querier interface {
 	// mid-execution. The downloader's resume path runs for each.
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
+	ListScheduleCategoriesByScheduleIDs(ctx context.Context, dollar_1 []int64) ([]ListScheduleCategoriesByScheduleIDsRow, error)
+	ListScheduleRequests(ctx context.Context, arg ListScheduleRequestsParams) ([]ListScheduleRequestsRow, error)
+	ListScheduleRequestsForUser(ctx context.Context, arg ListScheduleRequestsForUserParams) ([]ListScheduleRequestsForUserRow, error)
 	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
+	ListScheduleTagsByScheduleIDs(ctx context.Context, dollar_1 []int64) ([]ListScheduleTagsByScheduleIDsRow, error)
 	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]DownloadSchedule, error)
 	ListSchedulesForUser(ctx context.Context, arg ListSchedulesForUserParams) ([]DownloadSchedule, error)
 	ListSnapshots(ctx context.Context, arg ListSnapshotsParams) ([]EventsubSnapshot, error)
@@ -260,6 +273,7 @@ type Querier interface {
 	// duration until the recording closes.
 	ListTitleSpansForVideo(ctx context.Context, videoID int64) ([]ListTitleSpansForVideoRow, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
+	ListUserDisplayNames(ctx context.Context, dollar_1 []string) ([]ListUserDisplayNamesRow, error)
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -331,6 +345,7 @@ type Querier interface {
 	// Atomic increment + timestamp stamp. Called after a successful auto-download
 	// trigger so the dashboard can show "this schedule fired N times, last at T".
 	RecordScheduleTrigger(ctx context.Context, id int64) error
+	RedeemInvite(ctx context.Context, arg RedeemInviteParams) (int64, error)
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	// Queue an operator-requested deletion. Idempotent for already-queued live
 	// terminal rows; active recordings must be cancelled first.

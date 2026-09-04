@@ -12,6 +12,9 @@ import (
 // errors to this sentinel so services can branch on it portably.
 var ErrNotFound = errors.New("repository: not found")
 
+// ErrDuplicate indicates a uniqueness constraint violation.
+var ErrDuplicate = errors.New("repository: duplicate")
+
 // ErrNoMetadataObserved is returned by RecordVideoMetadataChange when
 // neither a title nor a category was provided. Callers can branch on
 // it (vs. a real DB error) when an upstream poll/webhook delivers an
@@ -26,11 +29,24 @@ type Repository interface {
 	// means the server can serve requests that touch the DB.
 	Ping(ctx context.Context) error
 
+	// WithTx commits the callback's writes together or rolls back on error,
+	// cancellation, or panic. The callback must use only the supplied
+	// repository, which expires when it returns. Nested transactions are
+	// unsupported.
+	WithTx(ctx context.Context, fn func(Repository) error) error
+
 	// Users
 	GetUser(ctx context.Context, id string) (*User, error)
+	// GetUserForUpdate locks the user or its absence until WithTx finishes.
+	// It returns ErrNotFound for a missing user while retaining the lock.
+	// Call it on the transaction repository before other reads to avoid a
+	// stale SQLite snapshot.
+	GetUserForUpdate(ctx context.Context, id string) (*User, error)
 	GetUserByLogin(ctx context.Context, login string) (*User, error)
+	// UpsertUser refreshes profile fields and sets Role only on insert.
 	UpsertUser(ctx context.Context, u *User) (*User, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	ListUserDisplayNames(ctx context.Context, ids []string) (map[string]string, error)
 	UpdateUserRole(ctx context.Context, id string, role string) error
 
 	// Sessions
@@ -53,6 +69,16 @@ type Repository interface {
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	ListWhitelist(ctx context.Context) ([]WhitelistEntry, error)
+
+	CreateInvite(ctx context.Context, input *InviteInput) (*Invite, error)
+	GetInviteByTokenHash(ctx context.Context, tokenHash string) (*Invite, error)
+	// RedeemInvite consumes a pending, unexpired invitation and reports
+	// whether it matched.
+	RedeemInvite(ctx context.Context, tokenHash, redeemedBy string) (bool, error)
+	ListInvites(ctx context.Context) ([]Invite, error)
+	// DeleteInvite revokes an unredeemed invitation and reports whether it
+	// matched.
+	DeleteInvite(ctx context.Context, id int64) (bool, error)
 
 	// Channels
 	GetChannel(ctx context.Context, broadcasterID string) (*Channel, error)
@@ -294,6 +320,21 @@ type Repository interface {
 	AddVideoRequest(ctx context.Context, videoID int64, userID string) error
 	ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]Video, error)
 
+	CreateScheduleRequest(ctx context.Context, broadcasterID, requestedBy string, note *string) (*ScheduleRequest, error)
+	GetScheduleRequest(ctx context.Context, id int64) (*ScheduleRequest, error)
+	ListScheduleRequests(ctx context.Context, limit int, cursor *ScheduleRequestCursor) ([]ScheduleRequestView, error)
+	ListScheduleRequestsForUser(ctx context.Context, userID string, limit int, cursor *ScheduleRequestCursor) ([]ScheduleRequestView, error)
+	// DecideScheduleRequest finalizes a pending request and reports whether
+	// it matched.
+	DecideScheduleRequest(ctx context.Context, id int64, status, decidedBy string, scheduleID *int64) (bool, error)
+	// DeleteScheduleRequest cancels the requester's own pending request and
+	// reports whether it matched.
+	DeleteScheduleRequest(ctx context.Context, id int64, requestedBy string) (bool, error)
+	// ApproveScheduleRequest creates the schedule and its filters and
+	// approves the request atomically. It returns nil, false, nil without
+	// creating a schedule if the request is no longer pending.
+	ApproveScheduleRequest(ctx context.Context, requestID int64, decidedBy string, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, bool, error)
+
 	// Download schedules — auto-record rules matched on stream.online.
 	CreateSchedule(ctx context.Context, input *ScheduleInput) (*DownloadSchedule, error)
 	CreateScheduleWithFilters(ctx context.Context, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, error)
@@ -312,6 +353,8 @@ type Repository interface {
 	LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error
 	UnlinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error
 	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
+	ListScheduleCategoriesByScheduleIDs(ctx context.Context, ids []int64) (map[int64][]Category, error)
+	ListScheduleTagsByScheduleIDs(ctx context.Context, ids []int64) (map[int64][]Tag, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	LinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error
 	UnlinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error

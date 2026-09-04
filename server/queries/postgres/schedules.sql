@@ -1,12 +1,12 @@
 -- name: CreateSchedule :one
 INSERT INTO download_schedules (
-    broadcaster_id, requested_by, recording_type, quality, force_h264,
+    broadcaster_id, requested_by, requested_from, recording_type, quality, force_h264,
     has_min_viewers, min_viewers,
     has_categories, has_tags,
     is_delete_rediff, time_before_delete,
     is_disabled
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING *;
 
 -- name: GetSchedule :one
@@ -98,3 +98,17 @@ SELECT t.* FROM tags t
 INNER JOIN download_schedule_tags dst ON dst.tag_id = t.id
 WHERE dst.schedule_id = $1
 ORDER BY t.name;
+
+-- name: ListScheduleCategoriesByScheduleIDs :many
+SELECT dsc.schedule_id, sqlc.embed(c)
+FROM categories c
+INNER JOIN download_schedule_categories dsc ON dsc.category_id = c.id
+WHERE dsc.schedule_id = ANY($1::bigint[])
+ORDER BY dsc.schedule_id, c.name, c.id;
+
+-- name: ListScheduleTagsByScheduleIDs :many
+SELECT dst.schedule_id, sqlc.embed(t)
+FROM tags t
+INNER JOIN download_schedule_tags dst ON dst.tag_id = t.id
+WHERE dst.schedule_id = ANY($1::bigint[])
+ORDER BY dst.schedule_id, t.name, t.id;

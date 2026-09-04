@@ -49,20 +49,24 @@ type Querier interface {
 	CreateClaimedRecordingWebhookDelivery(ctx context.Context, arg CreateClaimedRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
 	CreateEventLog(ctx context.Context, arg CreateEventLogParams) (EventLog, error)
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
+	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateRecordingWebhookDelivery(ctx context.Context, arg CreateRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
 	CreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, arg CreateRecordingWebhookDeliveryIfEnabledParams) (RecordingWebhookDelivery, error)
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (DownloadSchedule, error)
+	CreateScheduleRequest(ctx context.Context, arg CreateScheduleRequestParams) (ScheduleRequest, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) (EventsubSnapshot, error)
 	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
 	CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error)
 	CreateVideoPart(ctx context.Context, arg CreateVideoPartParams) (VideoPart, error)
 	CreateWebhookEvent(ctx context.Context, arg CreateWebhookEventParams) (WebhookEvent, error)
+	DecideScheduleRequest(ctx context.Context, arg DecideScheduleRequestParams) (int64, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 	DeleteExpiredAppTokens(ctx context.Context) error
 	DeleteExpiredCategorySearchCache(ctx context.Context, expiresAt sqlitetype.Time) error
 	DeleteExpiredSessions(ctx context.Context) error
+	DeleteInvite(ctx context.Context, id int64) (int64, error)
 	DeleteOldEventLogs(ctx context.Context, createdAt sqlitetype.Time) error
 	DeleteOldFetchLogs(ctx context.Context, fetchedAt sqlitetype.Time) error
 	// Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) whose
@@ -73,6 +77,7 @@ type Querier interface {
 	DeleteOldRecordingWebhookDeliveries(ctx context.Context, cutoff sqlitetype.Time) error
 	DeleteOldSnapshots(ctx context.Context, fetchedAt sqlitetype.Time) error
 	DeleteSchedule(ctx context.Context, id int64) error
+	DeleteScheduleRequest(ctx context.Context, arg DeleteScheduleRequestParams) (int64, error)
 	DeleteSession(ctx context.Context, hashedID string) error
 	DeleteSubscription(ctx context.Context, id string) error
 	DeleteUserSessions(ctx context.Context, userID string) error
@@ -99,6 +104,7 @@ type Querier interface {
 	GetChannel(ctx context.Context, broadcasterID string) (Channel, error)
 	GetChannelByLogin(ctx context.Context, broadcasterLogin string) (Channel, error)
 	GetChannelUserState(ctx context.Context, arg GetChannelUserStateParams) (ChannelUserState, error)
+	GetInviteByTokenHash(ctx context.Context, tokenHash string) (Invite, error)
 	GetJob(ctx context.Context, id string) (Job, error)
 	GetJobByVideoID(ctx context.Context, videoID int64) (Job, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (Stream, error)
@@ -106,6 +112,7 @@ type Querier interface {
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
 	GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error)
+	GetScheduleRequest(ctx context.Context, id int64) (ScheduleRequest, error)
 	GetServerHMACSecret(ctx context.Context) (string, error)
 	GetServerSettings(ctx context.Context) (ServerSetting, error)
 	GetSession(ctx context.Context, hashedID string) (Session, error)
@@ -117,6 +124,9 @@ type Querier interface {
 	GetTask(ctx context.Context, name string) (Task, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByLogin(ctx context.Context, login string) (User, error)
+	// Acquire the transaction's write lock without changing profile fields or
+	// timestamps. A plain SELECT cannot lock out a concurrent role change.
+	GetUserForUpdate(ctx context.Context, id string) (User, error)
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
@@ -197,6 +207,7 @@ type Querier interface {
 	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 	// agree on "exactly at the deadline is still retained".
 	ListFinishedVideosForRetention(ctx context.Context, now *sqlitetype.Time) ([]ListFinishedVideosForRetentionRow, error)
+	ListInvites(ctx context.Context) ([]Invite, error)
 	// SQLite has no DISTINCT ON; use ROW_NUMBER() to pick the most recent
 	// stream per broadcaster, then filter to rn=1. Joined with channels so
 	// the caller gets display metadata in one round-trip.
@@ -212,7 +223,11 @@ type Querier interface {
 	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int64) ([]RecordingWebhookDelivery, error)
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
+	ListScheduleCategoriesByScheduleIDs(ctx context.Context, scheduleIds []int64) ([]ListScheduleCategoriesByScheduleIDsRow, error)
+	ListScheduleRequests(ctx context.Context, arg ListScheduleRequestsParams) ([]ListScheduleRequestsRow, error)
+	ListScheduleRequestsForUser(ctx context.Context, arg ListScheduleRequestsForUserParams) ([]ListScheduleRequestsForUserRow, error)
 	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
+	ListScheduleTagsByScheduleIDs(ctx context.Context, scheduleIds []int64) ([]ListScheduleTagsByScheduleIDsRow, error)
 	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]DownloadSchedule, error)
 	ListSchedulesForUser(ctx context.Context, arg ListSchedulesForUserParams) ([]DownloadSchedule, error)
 	ListSnapshots(ctx context.Context, arg ListSnapshotsParams) ([]EventsubSnapshot, error)
@@ -232,6 +247,7 @@ type Querier interface {
 	// adapter asserts the scan value to float64.
 	ListTitleSpansForVideo(ctx context.Context, videoID int64) ([]ListTitleSpansForVideoRow, error)
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
+	ListUserDisplayNames(ctx context.Context, ids []string) ([]ListUserDisplayNamesRow, error)
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	ListUserSessions(ctx context.Context, userID string) ([]ListUserSessionsRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -277,6 +293,7 @@ type Querier interface {
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
 	PruneCategorySearchCache(ctx context.Context, offset int64) error
 	RecordScheduleTrigger(ctx context.Context, id int64) error
+	RedeemInvite(ctx context.Context, arg RedeemInviteParams) (int64, error)
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	// Queue an operator-requested deletion. Idempotent for already-queued live
 	// terminal rows; active recordings must be cancelled first.

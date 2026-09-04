@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/database"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/contracttest"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
@@ -29,6 +30,30 @@ type contractHarness struct {
 }
 
 func (h *contractHarness) Repo() repository.Repository { return h.a }
+
+func (h *contractHarness) ConcurrentRepo(t *testing.T) repository.Repository {
+	t.Helper()
+	var sequence int
+	var name, path string
+	if err := h.db.QueryRow("PRAGMA database_list").Scan(&sequence, &name, &path); err != nil {
+		t.Fatal(err)
+	}
+	other, err := database.NewSQLiteDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = other.Close() })
+	if _, err := other.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		t.Fatal(err)
+	}
+	return New(other)
+}
+func (h *contractHarness) BackdateScheduleRequests(t *testing.T, at time.Time) {
+	t.Helper()
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE schedule_requests SET created_at = ?", sqlitetype.Format(at)); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func (h *contractHarness) BackdateAllSubscriptionsCreated(t *testing.T, at time.Time) {
 	t.Helper()

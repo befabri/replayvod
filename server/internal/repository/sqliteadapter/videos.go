@@ -87,9 +87,9 @@ func (a *SQLiteAdapter) CreateVideo(ctx context.Context, v *repository.VideoInpu
 		Language:                  v.Language,
 		RecordingType:             settings.RecordingType,
 		ForceH264:                 boolToInt64(settings.ForceH264),
-		TriggerScheduleID:         int64PtrToNullInt64(v.TriggerScheduleID),
-		RetentionSourceScheduleID: int64PtrToNullInt64(v.RetentionSourceScheduleID),
-		RetentionWindowHours:      int64PtrToNullInt64(v.RetentionWindowHours),
+		TriggerScheduleID:         toNullInt64(v.TriggerScheduleID),
+		RetentionSourceScheduleID: toNullInt64(v.RetentionSourceScheduleID),
+		RetentionWindowHours:      toNullInt64(v.RetentionWindowHours),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create video: %w", err)
@@ -298,7 +298,7 @@ func (a *SQLiteAdapter) ListFinishedVideosForRetention(ctx context.Context, now 
 			VideoID:              r.ID,
 			BroadcasterID:        r.BroadcasterID,
 			DownloadedAt:         timePtrFromSQLite(r.DownloadedAt),
-			RetentionWindowHours: nullInt64ToInt64Ptr(r.RetentionWindowHours),
+			RetentionWindowHours: fromNullInt64(r.RetentionWindowHours),
 		}
 	}
 	return out, nil
@@ -435,9 +435,9 @@ func sqliteVideoToDomain(v sqlitegen.Video) *repository.Video {
 		DeletionKind:              fromNullString(v.DeletionKind),
 		RecordingType:             v.RecordingType,
 		ForceH264:                 v.ForceH264 != 0,
-		TriggerScheduleID:         nullInt64ToInt64Ptr(v.TriggerScheduleID),
-		RetentionSourceScheduleID: nullInt64ToInt64Ptr(v.RetentionSourceScheduleID),
-		RetentionWindowHours:      nullInt64ToInt64Ptr(v.RetentionWindowHours),
+		TriggerScheduleID:         fromNullInt64(v.TriggerScheduleID),
+		RetentionSourceScheduleID: fromNullInt64(v.RetentionSourceScheduleID),
+		RetentionWindowHours:      fromNullInt64(v.RetentionWindowHours),
 		CompletionKind:            v.CompletionKind,
 		Truncated:                 v.Truncated != 0,
 	}

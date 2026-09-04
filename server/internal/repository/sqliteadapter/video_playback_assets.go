@@ -56,10 +56,3 @@ func (a *SQLiteAdapter) DeleteVideoPlaybackAsset(ctx context.Context, videoID in
 	}
 	return nil
 }
-
-func fromNullInt64(n sql.NullInt64) *int64 {
-	if !n.Valid {
-		return nil
-	}
-	return &n.Int64
-}

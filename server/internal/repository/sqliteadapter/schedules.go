@@ -22,7 +22,7 @@ func (a *SQLiteAdapter) CreateScheduleWithFilters(ctx context.Context, input *re
 	err := a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
 		row, err := q.CreateSchedule(ctx, sqliteCreateScheduleParams(input))
 		if err != nil {
-			return fmt.Errorf("sqlite create schedule: %w", err)
+			return fmt.Errorf("sqlite create schedule: %w", mapErr(err))
 		}
 		sched := sqliteScheduleToDomain(row)
 		if err := replaceSQLiteScheduleFilters(ctx, q, sched.ID, filters); err != nil {
@@ -184,15 +184,16 @@ func sqliteCreateScheduleParams(input *repository.ScheduleInput) sqlitegen.Creat
 	return sqlitegen.CreateScheduleParams{
 		BroadcasterID:    input.BroadcasterID,
 		RequestedBy:      input.RequestedBy,
+		RequestedFrom:    toNullString(input.RequestedFrom),
 		RecordingType:    settings.RecordingType,
 		Quality:          settings.Quality,
 		ForceH264:        boolToInt64(settings.ForceH264),
 		HasMinViewers:    boolToInt64(input.HasMinViewers),
-		MinViewers:       int64PtrToNullInt64(input.MinViewers),
+		MinViewers:       toNullInt64(input.MinViewers),
 		HasCategories:    boolToInt64(input.HasCategories),
 		HasTags:          boolToInt64(input.HasTags),
 		IsDeleteRediff:   boolToInt64(input.IsDeleteRediff),
-		TimeBeforeDelete: int64PtrToNullInt64(input.TimeBeforeDelete),
+		TimeBeforeDelete: toNullInt64(input.TimeBeforeDelete),
 		IsDisabled:       boolToInt64(input.IsDisabled),
 	}
 }
@@ -209,11 +210,11 @@ func sqliteUpdateScheduleParams(id int64, input *repository.ScheduleInput) sqlit
 		Quality:          settings.Quality,
 		ForceH264:        boolToInt64(settings.ForceH264),
 		HasMinViewers:    boolToInt64(input.HasMinViewers),
-		MinViewers:       int64PtrToNullInt64(input.MinViewers),
+		MinViewers:       toNullInt64(input.MinViewers),
 		HasCategories:    boolToInt64(input.HasCategories),
 		HasTags:          boolToInt64(input.HasTags),
 		IsDeleteRediff:   boolToInt64(input.IsDeleteRediff),
-		TimeBeforeDelete: int64PtrToNullInt64(input.TimeBeforeDelete),
+		TimeBeforeDelete: toNullInt64(input.TimeBeforeDelete),
 		IsDisabled:       boolToInt64(input.IsDisabled),
 	}
 }
@@ -243,15 +244,16 @@ func sqliteScheduleToDomain(s sqlitegen.DownloadSchedule) *repository.DownloadSc
 		ID:               s.ID,
 		BroadcasterID:    s.BroadcasterID,
 		RequestedBy:      s.RequestedBy,
+		RequestedFrom:    fromNullString(s.RequestedFrom),
 		RecordingType:    repository.NormalizeRecordingType(s.RecordingType),
 		Quality:          s.Quality,
 		ForceH264:        int64ToBool(s.ForceH264),
 		HasMinViewers:    int64ToBool(s.HasMinViewers),
-		MinViewers:       nullInt64ToInt64Ptr(s.MinViewers),
+		MinViewers:       fromNullInt64(s.MinViewers),
 		HasCategories:    int64ToBool(s.HasCategories),
 		HasTags:          int64ToBool(s.HasTags),
 		IsDeleteRediff:   int64ToBool(s.IsDeleteRediff),
-		TimeBeforeDelete: nullInt64ToInt64Ptr(s.TimeBeforeDelete),
+		TimeBeforeDelete: fromNullInt64(s.TimeBeforeDelete),
 		IsDisabled:       int64ToBool(s.IsDisabled),
 		LastTriggeredAt:  timePtrFromSQLite(s.LastTriggeredAt),
 		TriggerCount:     s.TriggerCount,
@@ -279,18 +281,3 @@ func boolToInt64(b bool) int64 {
 }
 
 func int64ToBool(v int64) bool { return v != 0 }
-
-func int64PtrToNullInt64(p *int64) sql.NullInt64 {
-	if p == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: *p, Valid: true}
-}
-
-func nullInt64ToInt64Ptr(n sql.NullInt64) *int64 {
-	if !n.Valid {
-		return nil
-	}
-	v := n.Int64
-	return &v
-}

@@ -1,6 +1,11 @@
 -- name: GetUser :one
 SELECT * FROM users WHERE id = ?;
 
+-- name: GetUserForUpdate :one
+-- Acquire the transaction's write lock without changing profile fields or
+-- timestamps. A plain SELECT cannot lock out a concurrent role change.
+UPDATE users SET id = id WHERE id = ? RETURNING *;
+
 -- name: GetUserByLogin :one
 SELECT * FROM users WHERE login = ?;
 
@@ -20,3 +25,6 @@ SELECT * FROM users ORDER BY created_at DESC;
 
 -- name: UpdateUserRole :exec
 UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?;
+
+-- name: ListUserDisplayNames :many
+SELECT id, display_name FROM users WHERE id IN (sqlc.slice('ids'));

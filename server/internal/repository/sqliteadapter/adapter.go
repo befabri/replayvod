@@ -7,19 +7,26 @@ import (
 	"fmt"
 	"time"
 
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
-// mapErr translates database/sql driver errors to portable repository errors.
-// Callers that need a not-found branch should `errors.Is(err, repository.ErrNotFound)`.
 func mapErr(err error) error {
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return repository.ErrNotFound
+	}
+	if se, ok := errors.AsType[*sqlite.Error](err); ok {
+		switch se.Code() {
+		case sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
+			return repository.ErrDuplicate
+		}
 	}
 	return err
 }
@@ -50,10 +57,7 @@ func (a *SQLiteAdapter) Ping(ctx context.Context) error {
 	return nil
 }
 
-// sqliteBeginner is the minimal surface the adapter needs to open a
-// transaction. *sql.DB satisfies it; when db is already a *sql.Tx the
-// assertion fails and the caller is expected to be running inside an
-// outer transaction already.
+// sqliteBeginner excludes *sql.Tx, which cannot open a nested transaction.
 type sqliteBeginner interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
@@ -147,13 +151,6 @@ func nullFloat64(f *float64) sql.NullFloat64 {
 		return sql.NullFloat64{}
 	}
 	return sql.NullFloat64{Float64: *f, Valid: true}
-}
-
-func int64PtrFromSQLite(v sql.NullInt64) *int64 {
-	if !v.Valid {
-		return nil
-	}
-	return &v.Int64
 }
 
 func sqliteTime(t time.Time) sqlitetype.Time {
