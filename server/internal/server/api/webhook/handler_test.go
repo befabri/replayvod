@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -154,6 +155,82 @@ func TestWebhook_Verification_EchoesChallenge(t *testing.T) {
 	}
 	if stored.MessageType != repository.WebhookMessageVerification {
 		t.Errorf("MessageType = %q", stored.MessageType)
+	}
+}
+
+// TestWebhook_Verification_ChallengeXSS checks that HTML challenges stay plain
+// text and require authentication.
+func TestWebhook_Verification_ChallengeXSS(t *testing.T) {
+	const challenge = `<script>alert("é & XSS")</script>`
+	signedBody := verificationBody("12345", challenge, "sub-xss")
+	for _, tc := range []struct {
+		name       string
+		body       string
+		secret     string
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name: "unsigned browser form",
+			// A text/plain form joins its input name and value with '='.
+			body:       `{"challenge":"<script>alert()</script>","x":"="}` + "\r\n",
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "invalid webhook\n",
+		},
+		{
+			name:       "forged signature",
+			body:       signedBody,
+			secret:     "attacker-secret",
+			wantStatus: http.StatusForbidden,
+			wantBody:   "invalid webhook\n",
+		},
+		{
+			name:       "signed HTML challenge",
+			body:       signedBody,
+			secret:     testSecret,
+			wantStatus: http.StatusOK,
+			wantBody:   challenge,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !json.Valid([]byte(tc.body)) {
+				t.Fatal("fixture must be valid JSON so parsing cannot mask an authentication regression")
+			}
+			srv, _ := newTestServer(t, &fakeProcessor{})
+			req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/webhook/callback", strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "text/plain")
+			if tc.secret != "" {
+				req.Header.Set(twitch.EventSubHeaderMessageType, string(twitch.MsgTypeVerification))
+				signRequest(req, "verify-xss", time.Now().UTC().Format(time.RFC3339Nano), []byte(tc.body), tc.secret)
+			}
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			got, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != tc.wantStatus {
+				t.Errorf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+			if string(got) != tc.wantBody {
+				t.Errorf("body = %q, want %q", got, tc.wantBody)
+			}
+			if got := resp.Header.Get("Content-Type"); got != "text/plain; charset=utf-8" {
+				t.Errorf("Content-Type = %q, want text/plain; charset=utf-8", got)
+			}
+			if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+				t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+			}
+			if resp.ContentLength != int64(len(tc.wantBody)) {
+				t.Errorf("Content-Length = %d, want %d bytes", resp.ContentLength, len(tc.wantBody))
+			}
+		})
 	}
 }
 

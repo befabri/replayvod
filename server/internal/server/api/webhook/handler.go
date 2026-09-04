@@ -110,6 +110,7 @@ func (h *Handler) handleVerification(w http.ResponseWriter, ctx context.Context,
 		h.log.Error("failed to record verification event", "error", err, "event_id", input.EventID)
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(challenge))
 }
