@@ -3,6 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/relayclient"
@@ -29,11 +30,21 @@ func Logger(log *slog.Logger) func(http.Handler) http.Handler {
 
 			log.Info("request",
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", requestLogPath(r.URL.Path),
 				"status", ww.Status(),
 				"duration", time.Since(start).String(),
 				"bytes", ww.BytesWritten(),
 			)
 		})
 	}
+}
+
+// requestLogPath redacts bearer tokens from invite paths, including malformed
+// SPA routes. The caller must pass the decoded URL.Path and keep the routing
+// path unchanged.
+func requestLogPath(path string) string {
+	if strings.HasPrefix(strings.TrimLeft(path, "/"), "invite/") {
+		return "/invite/[redacted]"
+	}
+	return path
 }

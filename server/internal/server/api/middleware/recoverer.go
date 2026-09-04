@@ -14,7 +14,7 @@ func Recoverer(log *slog.Logger) func(http.Handler) http.Handler {
 				if rec := recover(); rec != nil {
 					log.Error("panic recovered",
 						"error", rec,
-						"path", r.URL.Path,
+						"path", requestLogPath(r.URL.Path),
 						"stack", string(debug.Stack()),
 					)
 					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
