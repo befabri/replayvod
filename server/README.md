@@ -159,6 +159,25 @@ Migrations live in `migrations/{postgres,sqlite}/` as numbered
 binary. They run automatically on start; the `schema_migrations` table tracks
 applied versions.
 
+Each migration and its ledger entry commit together. Concurrent startups lock
+before checking the ledger, so only one process applies a given version. Failed
+or canceled migrations roll back and can be retried on the next start.
+
+Migrations 045–046 add invitations, schedule requests, request attribution, and
+pagination indexes. Existing schedules keep their owner, settings, filters, and
+trigger history; `requested_from` is NULL for directly created schedules. The
+retired `video_requests` table is retained for historical data and downgrades.
+Those rows are not converted to schedule requests: asking for one video does
+not request automatic recording of its channel.
+
+The migration runner only applies `.up.sql` files. Downgrades require applying
+the corresponding `.down.sql` files in reverse order and removing their ledger
+entries in the same transactions. Rolling back 045 discards invitations and
+schedule requests created since the upgrade, while retaining pre-upgrade data.
+If an earlier development version of 045 already dropped `video_requests`,
+editing the migration cannot recover those rows; recovery requires a database
+backup from before that migration.
+
 Use Postgres for production deployments and SQLite for single-host or dev
 setups.
 
