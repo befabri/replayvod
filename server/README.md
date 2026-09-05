@@ -170,8 +170,10 @@ retired `video_requests` table is retained for historical data and downgrades.
 Those rows are not converted to schedule requests: asking for one video does
 not request automatic recording of its channel.
 
-The migration runner only applies `.up.sql` files. Downgrades require applying
-the corresponding `.down.sql` files in reverse order and removing their ledger
+The migration runner only applies `.up.sql` files. The supported rollback target
+is the latest released baseline in the [upgrade suite](tests/upgrade/README.md),
+currently v2.7.3. Stop the application before applying the corresponding
+`.down.sql` files in reverse order and removing their ledger
 entries in the same transactions. Rolling back 045 discards invitations and
 schedule requests created since the upgrade, while retaining pre-upgrade data.
 If an earlier development version of 045 already dropped `video_requests`,
@@ -251,12 +253,14 @@ drift.
 
 ## Testing
 
-Test suites are gated by build tags so the default `go test ./...` stays fast
-and dependency-free.
+The default `go test ./...` includes PostgreSQL 17 containers and SQLite file
+databases. Docker must be running. Additional suites use build tags.
 
 ```bash
-task test                   # unit tests (no tags)
-task test-integration       # //go:build integration  — Docker (Garage S3, pg testcontainer)
+task test                   # unit and database tests, PostgreSQL 17 via Docker
+task test-integration       # additional HTTP and Garage S3 integration tests
+task test-upgrade           # latest published release → candidate Docker image
+task test-upgrade-full      # historical releases, including larger datasets
 task test-ffmpeg            # //go:build ffmpeg       — real ffmpeg/ffprobe
 task test-live              # //go:build live         — real Twitch endpoints (opt-in)
 task vet
@@ -264,6 +268,8 @@ task check                  # vet + test
 ```
 
 Test fixtures for containerised dependencies live in `internal/testdb/`.
+The [upgrade suite](tests/upgrade/README.md) documents frozen baselines, data
+assertions, failure diagnostics, and the checks required before publication.
 
 ## License
 

@@ -44,6 +44,15 @@ import (
 )
 
 func main() {
+	// Diagnostics must work without configuration, credentials, or a database.
+	if len(os.Args) == 2 && os.Args[1] == "--migration-manifest" {
+		if err := writeMigrationManifest(os.Stdout); err != nil {
+			slog.Error("Failed to read embedded migrations", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	configPath := "server/config.toml"
 	if _, err := os.Stat("config.toml"); err == nil {
 		configPath = "config.toml"

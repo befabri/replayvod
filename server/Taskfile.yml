@@ -27,6 +27,21 @@ tasks:
     cmds:
       - go test ./...
 
+  test-upgrade:
+    desc: Build the production image and verify upgrades from existing installations
+    vars:
+      UPGRADE_SCOPE: '{{default "" .UPGRADE_SCOPE}}'
+    cmds:
+      - docker build -t replayvod:upgrade-candidate ..
+      - UPGRADE_CANDIDATE_IMAGE=replayvod:upgrade-candidate UPGRADE_SCOPE={{.UPGRADE_SCOPE}} go test -tags upgrade -count=1 -timeout 25m -v ./tests/upgrade
+
+  test-upgrade-full:
+    desc: Verify all historical baselines with normal and large datasets
+    cmds:
+      - task: test-upgrade
+        vars:
+          UPGRADE_SCOPE: full
+
   cover:
     desc: |
       Write a cross-package coverage profile to target/coverage/coverage.out.

@@ -1,0 +1,11 @@
+development = false
+[storage]
+type = "local"
+local_path = "/app/data"
+[scheduler]
+enabled = false
+[logging]
+log_to_file = false
+log_level = "info"
+[health]
+enabled = true
