@@ -1,48 +1,31 @@
 ---
-type Segment = { l: string; w: string; live?: boolean; danger?: boolean };
-type ChannelStatus = 'live' | 'idle' | 'error';
-type Channel = { name: string; status: ChannelStatus; segments: Segment[] };
+import { channels } from '../demo-channels';
 
-const channels: Channel[] = [
-  {
-    name: 'pixelforge',
-    status: 'live',
-    segments: [
-      { l: '6%', w: '18%' },
-      { l: '36%', w: '22%' },
-      { l: '76%', w: '24%', live: true },
-    ],
-  },
-  {
-    name: 'neon_arena',
-    status: 'live',
-    segments: [
-      { l: '12%', w: '30%' },
-      { l: '70%', w: '30%', live: true },
-    ],
-  },
-  {
-    name: 'quietstream',
-    status: 'idle',
-    segments: [
-      { l: '22%', w: '14%' },
-      { l: '50%', w: '18%' },
-    ],
-  },
-  {
-    name: 'cartographer',
-    status: 'live',
-    segments: [
-      { l: '4%', w: '12%' },
-      { l: '84%', w: '16%', live: true },
-    ],
-  },
-  { name: 'asterfox', status: 'idle', segments: [{ l: '30%', w: '20%' }] },
-  { name: 'mechworks', status: 'idle', segments: [{ l: '14%', w: '6%' }] },
-  { name: 'cinderhex', status: 'idle', segments: [{ l: '56%', w: '8%' }] },
+// Seconds on the clock at first paint (02:14:32). The client script counts up from here.
+const START_SECONDS = 8072;
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const clock = (s: number) =>
+  `${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+
+// Finite work, so unlike the live recording these carry a percentage and an ETA.
+const queued = [
+  { label: `remux · ${channels.gaming}`, pct: 91, eta: '00:03' },
+  { label: `remux · ${channels.creative}`, pct: 34, eta: '00:11' },
 ];
 
-const liveCount = channels.filter((c) => c.status === 'live').length;
+// Logged events keep the time they happened, so these stay put while the clock runs.
+const LOG_AT = 52200;
+const log = [
+  { at: LOG_AT, tag: 'eventsub', msg: `stream.online · ${channels.creative}`, color: '#8390fa' },
+  {
+    at: LOG_AT - 47,
+    tag: 'recorder',
+    msg: `job start · 1080p60 · ${channels.development}`,
+    color: '#a6da95',
+  },
+  { at: LOG_AT - 94, tag: 'scheduler', msg: 'rule match · viewers > 400', color: '#b7bdf8' },
+];
 ---
 
 <section data-reveal class="border-b border-border-soft py-32">
@@ -53,23 +36,25 @@ const liveCount = channels.filter((c) => c.status === 'live').length;
         Live status, <span class="text-primary">not log diving</span>.
       </h3>
       <p class="mb-6 text-[17.5px] leading-[1.6] text-fg">
-        The dashboard shows current channel status, active jobs with progress and ETA, and a tagged event
-        log.
+        The dashboard shows current channel status, active jobs with progress and ETA, and a tagged event log.
       </p>
       <ul class="m-0 list-none p-0">
         {
           [
             {
               label: 'stream.status SSE feed',
-              detail: 'Followed channels go live → row turns purple within a second of the EventSub callback.',
+              detail:
+                'Followed channels go live → row turns purple within a second of the EventSub callback.',
             },
             {
               label: 'Per-job progress',
-              detail: 'Stage (downloading / remuxing / finalizing), bytes written, MB/s, ETA, percent complete.',
+              detail:
+                'Stage (downloading / remuxing / finalizing), bytes written, MB/s, ETA, percent complete.',
             },
             {
               label: 'Tagged event log',
-              detail: 'recorder, eventsub, scheduler, remuxer, storage. Filterable. Persisted to the same DB.',
+              detail:
+                'recorder, eventsub, scheduler, remuxer, storage. Filterable. Persisted to the same DB.',
             },
           ].map((item, i, arr) => (
             <li
@@ -89,74 +74,162 @@ const liveCount = channels.filter((c) => c.status === 'live').length;
       </ul>
     </div>
 
-    <!-- Radar visual. Flat Catppuccin-Macchiato palette matched to the install
-         terminal: warm purple-tinted base, project primary for the NOW marker,
-         peach for the running-recording bar, mint for completed live segments. -->
-    <div
+    <!-- Clock + log. Flat Catppuccin-Macchiato palette matched to the install terminal.
+         A live recording has no end time, so it gets an open-ended bar with elapsed and
+         bytes and never a percentage; only the queued remux shows a percentage and ETA. -->
+    <live-status-panel
+      data-start={START_SECONDS}
       role="img"
-      aria-label="Sample live status panel showing followed channel state for seven channels."
-      class="rounded-xl border border-[#2a2740] bg-[#1c1a2e] p-5 font-mono text-[14px] shadow-[0_18px_44px_rgba(0,0,0,0.35)]"
+      aria-label={`Sample recording panel: ${channels.development} has been recording for two hours, 8.4 gigabytes written at 22.1 megabytes per second, with two queued remux jobs at 91 and 34 percent and three tagged log lines from eventsub, recorder and scheduler.`}
+      class="block rounded-xl border border-[#2a2740] bg-[#1c1a2e] px-6 pt-[26px] pb-[22px] shadow-[0_18px_44px_rgba(0,0,0,0.35)]"
     >
-      <!-- Header -->
-      <div
-        class="mb-3 flex items-center justify-between border-b border-[#2a2740] pb-3 text-[12px] uppercase tracking-[0.14em] text-[#8c8fa1]"
-      >
-        <span>[ stream.status feed ]</span>
-        <span class="flex items-center gap-1.5">
-          <span class="h-1.5 w-1.5 rounded-full bg-primary"></span>
-          <span>{liveCount} active</span>
-        </span>
+      <div class="mb-3 flex items-baseline gap-[9px] font-mono text-[12.5px]">
+        <span class="text-primary">recording</span>
+        <span class="text-[#3b3a5c]">→</span>
+        <span class="text-[#5b5b7a]">remux</span>
+        <span class="text-[#3b3a5c]">→</span>
+        <span class="text-[#5b5b7a]">finalize</span>
       </div>
 
-      <!-- Hour scale -->
-      <div class="mb-2 grid grid-cols-[88px_1fr] gap-3.5">
-        <div></div>
-        <div class="relative h-3 text-[11px] tracking-[0.06em] text-[#7a7c98]">
-          <span class="absolute left-0">−24h</span>
-          <span class="absolute left-1/4 -translate-x-1/2">−18h</span>
-          <span class="absolute left-1/2 -translate-x-1/2">−12h</span>
-          <span class="absolute left-3/4 -translate-x-1/2">−6h</span>
-          <span class="absolute right-0">NOW</span>
+      <div class="mb-4 flex items-end justify-between gap-4">
+        <div
+          data-clock
+          class="font-heading text-[38px] leading-none font-medium tracking-[-0.03em] tabular-nums"
+        >
+          {clock(START_SECONDS)}
+        </div>
+        <div class="text-right font-mono text-[12px] leading-[1.7] text-[#8c8fa1]">
+          <div class="text-fg">8.4 GB</div>
+          <div>22.1 MB/s</div>
         </div>
       </div>
 
-      <!-- Rows -->
-      {
-        channels.map((ch) => (
-          <div class="mb-1.5 grid h-[22px] grid-cols-[88px_1fr] items-center gap-3.5">
-            <div class="flex items-center gap-2 text-[13px] text-[#8c8fa1]">
-              <span
-                class:list={[
-                  'h-1.5 w-1.5 flex-none rounded-full',
-                  ch.status === 'live' && 'bg-primary',
-                  ch.status === 'idle' && 'bg-[#5b5b7a]',
-                  ch.status === 'error' && 'bg-danger',
-                ]}
-              />
-              <span class="truncate">{ch.name}</span>
-            </div>
-            <div class="relative h-2 overflow-hidden rounded-sm bg-[#15131f]">
-              <span class="absolute top-0 bottom-0 left-1/4 w-px bg-[#2a2740]" />
-              <span class="absolute top-0 bottom-0 left-1/2 w-px bg-[#2a2740]" />
-              <span class="absolute top-0 bottom-0 left-3/4 w-px bg-[#2a2740]" />
-              {ch.segments.map((seg) => (
+      <div class="relative h-2 overflow-hidden rounded-[4px] bg-[#15131f]">
+        <span
+          class="absolute inset-0 bg-[linear-gradient(90deg,var(--color-primary),rgba(131,144,250,0.85)_62%,rgba(131,144,250,0.12))]"
+        ></span>
+        <span
+          data-sweep
+          class="absolute inset-y-0 w-1/4 bg-[linear-gradient(90deg,transparent,rgba(204,204,228,0.22),transparent)]"
+        ></span>
+      </div>
+      <div class="mt-2.5 flex gap-4 font-mono text-[11.5px] text-[#8c8fa1]">
+        <span>1080p60</span>
+        <span>→ /recordings</span>
+        <span class="ml-auto text-[#7a7c98]">runs until the stream ends</span>
+      </div>
+
+      <div class="mt-4 flex flex-col gap-2.5 border-t border-[#2a2740] pt-4 font-mono text-[11.5px]">
+        {
+          queued.map((job) => (
+            <div class="flex items-center gap-3">
+              <span class="min-w-[140px] whitespace-nowrap text-[#b7bdf8]">{job.label}</span>
+              <span class="relative h-1.5 flex-1 overflow-hidden rounded-[3px] bg-[#15131f]">
                 <span
-                  class:list={[
-                    'absolute top-0 bottom-0 rounded-sm',
-                    seg.danger
-                      ? 'bg-danger opacity-80'
-                      : seg.live
-                        ? 'bg-[#f5a97f]'
-                        : 'bg-[#a6da95]/55',
-                  ]}
-                  style={`left: ${seg.l}; width: ${seg.w}`}
+                  class="absolute inset-y-0 left-0 rounded-[3px] bg-[#b7bdf8]"
+                  style={`width: ${job.pct}%`}
                 />
-              ))}
-              <span class="absolute inset-y-[-3px] right-0 w-px bg-primary" />
+              </span>
+              <span class="min-w-[104px] text-right text-[#8c8fa1] tabular-nums">
+                {job.pct}% · eta {job.eta}
+              </span>
             </div>
-          </div>
-        ))
-      }
-    </div>
+          ))
+        }
+      </div>
+
+      <div class="mt-4 flex flex-col gap-2 border-t border-[#2a2740] pt-4">
+        {
+          log.map((line) => (
+            <div class="grid grid-cols-[58px_76px_1fr] items-baseline gap-2.5 font-mono text-[12px]">
+              <span class="text-[#5b5b7a] tabular-nums">{clock(line.at)}</span>
+              <span style={`color: ${line.color}`}>{line.tag}</span>
+              <span class="truncate text-[#8c8fa1]">{line.msg}</span>
+            </div>
+          ))
+        }
+      </div>
+    </live-status-panel>
   </div>
 </section>
+
+<style>
+  @keyframes rv-sweep {
+    from {
+      transform: translateX(-120%);
+    }
+    to {
+      transform: translateX(420%);
+    }
+  }
+
+  [data-sweep] {
+    animation: rv-sweep 2.6s linear infinite;
+  }
+
+  live-status-panel[data-paused='true'] [data-sweep] {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-sweep] {
+      animation: none;
+      opacity: 0;
+    }
+  }
+</style>
+
+<script>
+  class LiveStatusPanel extends HTMLElement {
+    private events?: AbortController;
+    private timer?: number;
+
+    connectedCallback() {
+      this.events?.abort();
+      this.events = new AbortController();
+      const { signal } = this.events;
+      const clockEl = this.querySelector<HTMLElement>('[data-clock]');
+      if (!clockEl) return;
+
+      const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+      let elapsed = Number(this.dataset.start ?? 0);
+      let offscreen = false;
+
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const tick = () => {
+        elapsed += 1;
+        clockEl.textContent = `${pad(Math.floor(elapsed / 3600) % 24)}:${pad(
+          Math.floor(elapsed / 60) % 60,
+        )}:${pad(elapsed % 60)}`;
+      };
+
+      const sync = () => {
+        const paused = motion.matches || offscreen || document.hidden;
+        this.dataset.paused = String(paused);
+        if (paused) {
+          clearInterval(this.timer);
+          this.timer = undefined;
+          return;
+        }
+        this.timer ??= window.setInterval(tick, 1000);
+      };
+
+      const observer = new IntersectionObserver(([entry]) => {
+        offscreen = !entry.isIntersecting;
+        sync();
+      });
+      observer.observe(this);
+      signal.addEventListener('abort', () => observer.disconnect(), { once: true });
+      document.addEventListener('visibilitychange', sync, { signal });
+      motion.addEventListener('change', sync, { signal });
+      sync();
+    }
+
+    disconnectedCallback() {
+      clearInterval(this.timer);
+      this.timer = undefined;
+      this.events?.abort();
+    }
+  }
+  if (!customElements.get('live-status-panel')) customElements.define('live-status-panel', LiveStatusPanel);
+</script>

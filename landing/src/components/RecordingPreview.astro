@@ -1,0 +1,260 @@
+---
+import { channels } from '../demo-channels';
+
+const streams = [
+  { channel: channels.chatting, quality: '1080p60', elapsed: '02:14:32', size: '6.8 GB' },
+  { channel: channels.development, quality: '1080p60', elapsed: '01:38:06', size: '4.2 GB' },
+  { channel: channels.music, quality: '1080p30', elapsed: '00:46:18', size: '1.6 GB' },
+];
+const levels = (row: number) =>
+  Array.from(
+    { length: 32 },
+    (_, i) => 18 + Math.round(Math.abs(Math.sin(i * 0.83 + row) * Math.cos(i * 0.32 + row * 0.4)) * 82),
+  );
+---
+
+<figure class="recording-preview" aria-label="Example of three streams recording to local storage">
+  <div class="instance-header">
+    <span class="instance-address">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="7" rx="2" stroke="currentColor" stroke-width="1.5"></rect>
+        <rect x="3" y="14" width="18" height="7" rx="2" stroke="currentColor" stroke-width="1.5"></rect>
+        <path
+          d="M7 6.5h2m3 0h5M7 17.5h2m3 0h5"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"></path>
+      </svg>
+      replayvod.local
+    </span>
+  </div>
+
+  <ul class="recording-streams" aria-label="Active recordings">
+    {
+      streams.map((stream, row) => (
+        <li class="recording-strip">
+          <div class="stream-heading">
+            <h3>
+              {stream.channel}
+              <span class="stream-quality">{stream.quality}</span>
+            </h3>
+            <div class="capture-progress" aria-hidden="true">
+              {levels(row).map((height, i) => (
+                <span style={`--level:${height}%;--delay:${((i + row * 3) % 7) * -0.2}s`} />
+              ))}
+            </div>
+          </div>
+          <div class="stream-details">
+            <span class="stream-path">/recordings/{stream.channel}</span>
+            <span class="stream-progress">
+              <>
+                <span>{stream.elapsed}</span>
+                <span class="stream-size">{stream.size}</span>
+              </>
+            </span>
+          </div>
+        </li>
+      ))
+    }
+  </ul>
+
+  <div class="storage-summary">
+    <div class="storage-details">
+      <span class="storage-path">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"
+          ><path d="M2 4h5l1 2h6v7H2V4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"
+          ></path></svg
+        >
+        /recordings
+      </span>
+      <span>684 GB <span class="storage-total">/ 2 TB</span></span>
+    </div>
+    <meter
+      class="storage-meter"
+      min="0"
+      max="2000"
+      value="684"
+      aria-label="Local storage: 684 GB of 2 TB used">684 GB / 2 TB</meter
+    >
+  </div>
+</figure>
+
+<style>
+  .recording-preview {
+    width: 100%;
+    min-width: 0;
+    max-width: 650px;
+    margin: 0 auto;
+  }
+  .instance-address,
+  .stream-heading,
+  .stream-details,
+  .stream-progress,
+  .storage-details,
+  .storage-path {
+    display: flex;
+    align-items: center;
+  }
+  .instance-header {
+    margin-bottom: 12px;
+  }
+  .instance-address {
+    gap: 9px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-fg-muted);
+  }
+  .instance-address svg {
+    color: var(--color-fg-dim);
+  }
+  .recording-streams {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .recording-strip {
+    padding-block: 24px;
+    border-bottom: 1px solid var(--color-border-soft);
+  }
+  .stream-heading {
+    justify-content: space-between;
+    gap: 20px;
+  }
+  .stream-heading h3 {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    font-family: var(--font-sans);
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+  .stream-quality {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--color-fg-dim);
+  }
+  .capture-progress {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: 0 0 32%;
+    height: 26px;
+  }
+  .capture-progress > span {
+    flex: 1;
+    min-width: 1px;
+    height: var(--level);
+    border-radius: 1px;
+    background: var(--color-primary);
+    opacity: 0.65;
+    animation: capture-level 2.4s ease-in-out 2;
+    animation-delay: var(--delay);
+  }
+  .stream-details {
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-top: 12px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-muted);
+  }
+  .stream-path {
+    overflow-wrap: anywhere;
+    color: var(--color-fg-dim);
+  }
+  .stream-progress {
+    gap: 18px;
+    margin-left: auto;
+  }
+  .stream-size {
+    min-width: 6ch;
+    text-align: right;
+    color: var(--color-fg-dim);
+  }
+  .storage-summary {
+    margin-top: 24px;
+  }
+  .storage-details {
+    justify-content: space-between;
+    gap: 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-muted);
+  }
+  .storage-path {
+    gap: 7px;
+  }
+  .storage-total {
+    color: var(--color-fg-dim);
+  }
+  .storage-meter {
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 3px;
+    margin-top: 12px;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-surface-raised);
+  }
+  .storage-meter::-webkit-meter-bar {
+    height: 3px;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-surface-raised);
+  }
+  .storage-meter::-webkit-meter-optimum-value {
+    background: var(--color-primary);
+    opacity: 0.65;
+  }
+  .storage-meter::-moz-meter-bar {
+    background: var(--color-primary);
+    opacity: 0.65;
+  }
+  @keyframes capture-level {
+    0%,
+    100% {
+      transform: scaleY(1);
+    }
+    50% {
+      transform: scaleY(0.45);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .capture-progress > span {
+      animation: none;
+    }
+  }
+  @media (max-width: 550px) {
+    .recording-strip {
+      padding-block: 21px;
+    }
+    .stream-heading {
+      gap: 12px;
+    }
+    .stream-heading h3 {
+      font-size: 15px;
+    }
+    .capture-progress {
+      flex-basis: 30%;
+      gap: 2px;
+      height: 23px;
+    }
+    .stream-details {
+      font-size: 9px;
+    }
+    .stream-progress {
+      gap: 12px;
+    }
+    .storage-details {
+      font-size: 10px;
+    }
+  }
+</style>

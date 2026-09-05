@@ -1,3 +1,7 @@
+---
+import { channels } from '../demo-channels';
+---
+
 <section id="how" data-reveal class="border-b border-border-soft py-32">
   <div class="mx-auto max-w-[1320px] px-8">
     <div class="mb-12 max-w-[760px]">
@@ -82,13 +86,16 @@
         <!-- Arrow 2. self-center keeps the arrow column centered in the row (parent box) while
              the node columns use items-start so all three icons share the same top edge. -->
         <div class="hidden flex-col items-center self-center md:flex" aria-hidden="true">
-          <span class="mb-2 font-mono text-[11px] uppercase tracking-[0.1em] text-fg-muted">video stream</span>
+          <span class="mb-2 font-mono text-[11px] uppercase tracking-[0.1em] text-fg-muted">video stream</span
+          >
           <div class="flex items-center gap-1">
             <div class="arch-track">
               <span class="absolute inset-0 bg-gradient-to-r from-border via-primary/40 to-border"></span>
               <span class="arch-pulse arch-pulse-delayed"></span>
             </div>
-            <span class="arch-arrow arch-arrow-delayed font-mono text-[16px] leading-none text-primary">▸</span>
+            <span class="arch-arrow arch-arrow-delayed font-mono text-[16px] leading-none text-primary"
+              >▸</span
+            >
           </div>
         </div>
 
@@ -115,7 +122,9 @@
           </div>
           <div class="font-mono text-[13px] uppercase tracking-[0.1em] text-fg-muted">Disk</div>
           <div class="mt-2 text-[16.5px] text-fg">source-quality MP4</div>
-          <div class="mt-2 font-mono text-[12px] text-fg-muted">pixelforge_2026-04-28.mp4</div>
+          <div class="mt-2 font-mono text-[12px] text-fg-muted">
+            {channels.development}_2026-04-28.mp4
+          </div>
         </div>
       </div>
     </div>
