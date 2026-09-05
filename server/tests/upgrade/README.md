@@ -85,8 +85,9 @@ preservation.
   leaves the migration ledger unchanged, and serves the same recordings.
 - For the latest released baseline, down migrations and ledger removal execute
   together with the application stopped. The previous image starts and serves
-  preserved data, then a second upgrade succeeds. New invitations and schedule
-  requests are deliberately lost; approved schedules and playback updates survive.
+  preserved data, then a second upgrade succeeds. State supported by that baseline
+  survives. For the v3.0.0 release, rollback to v2.7.3 deliberately removed new
+  invitations and schedule requests; approved schedules and playback updates survived.
 
 Separate recovery cases start with RUNNING video and job rows on the previous
 schema. A saved remux checkpoint finishes from a pinned synthetic TS segment
@@ -99,7 +100,7 @@ The normal database suite still tests failed and canceled migrations,
 transaction rollback, retry, and concurrent startup. Those precise failure
 injection tests complement this full application upgrade path.
 
-Downgrade support is limited to the latest released baseline (currently v2.7.3),
+Downgrade support is limited to the latest released baseline (currently v3.0.0),
 using the documented manual down SQL procedure. Older retained baselines are
 upgrade checkpoints, not promises of arbitrary cross-release rollback. Future
 migrations must keep this return path working or explicitly revise the rollback
@@ -133,9 +134,10 @@ that leg passing or revise the rollback policy explicitly.
 
 `testdata/manifest.json` pins the application images, source commits, PostgreSQL
 17 image, and SHA-256 hashes of fixture files and released SQL migrations. The
-current baselines are v2.7.3 and v2.7.0, covering installations with and without
-saved playback progress. The database schema is produced by those images at
-runtime, never by selecting migrations from the candidate checkout. Each baseline
+current baselines are v3.0.0, v2.7.3, and v2.7.0, covering installations with
+and without invitations, schedule requests, and saved playback progress. The
+database schema is produced by those images at runtime, never by selecting
+migrations from the candidate checkout. Each baseline
 pins its published index digest for provenance and, under `platform_images`, the
 linux/amd64 and linux/arm64 manifest digests the harness runs, so a cached image
 needs no registry lookup and both architectures coexist in one Docker image

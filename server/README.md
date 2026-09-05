@@ -172,7 +172,8 @@ not request automatic recording of its channel.
 
 The migration runner only applies `.up.sql` files. The supported rollback target
 is the latest released baseline in the [upgrade suite](tests/upgrade/README.md),
-currently v2.7.3. Stop the application before applying the corresponding
+currently v3.0.0. The v3.0.0 release also verified rollback to v2.7.3.
+Stop the application before applying the corresponding
 `.down.sql` files in reverse order and removing their ledger
 entries in the same transactions. Rolling back 045 discards invitations and
 schedule requests created since the upgrade, while retaining pre-upgrade data.
