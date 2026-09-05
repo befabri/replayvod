@@ -19,11 +19,13 @@ const connectFeatures = [
   <div class="mx-auto max-w-[1320px] px-8">
     <div class="mb-16 max-w-[760px]">
       <h2 class="text-display-2 text-balance">
-        Free to run.<span class="text-fg-muted"> $5 if you don't want to fight your router.</span>
+        Free to run<span class="text-fg-muted">, $5 if you don't want to fight your router.</span>
       </h2>
     </div>
 
-    <div class="overflow-hidden rounded-xl border border-[#2a2740] grid grid-cols-1 lg:grid-cols-2 shadow-[0_18px_44px_rgba(0,0,0,0.35)]">
+    <div
+      class="overflow-hidden rounded-xl border border-[#2a2740] grid grid-cols-1 lg:grid-cols-2 shadow-[0_18px_44px_rgba(0,0,0,0.35)]"
+    >
       <!-- Self-host -->
       <div class="flex flex-col border-b border-primary bg-[#1c1a2e] p-9 lg:border-b-0 lg:border-r">
         <div class="mb-5 flex items-baseline justify-between gap-4">
@@ -48,7 +50,6 @@ const connectFeatures = [
 
       <!-- Connect -->
       <div data-pricing-connect class="relative flex flex-col bg-[#1f1d33] p-9">
-
         <div class="mb-5 flex items-start justify-between gap-4">
           <h3 class="text-[26px] font-medium leading-[1.1] tracking-[-0.01em]">Connect</h3>
           <div class="flex flex-col items-end gap-2">
@@ -126,7 +127,9 @@ const connectFeatures = [
     <p class="mt-8 font-mono text-[12px] tracking-[0.04em] text-fg-muted">
       <a href="/legal/terms" class="underline decoration-fg-dim/40 underline-offset-2 hover:text-fg">Terms</a>
       ·
-      <a href="/legal/privacy" class="underline decoration-fg-dim/40 underline-offset-2 hover:text-fg">Privacy</a>
+      <a href="/legal/privacy" class="underline decoration-fg-dim/40 underline-offset-2 hover:text-fg"
+        >Privacy</a
+      >
     </p>
   </div>
 
@@ -162,8 +165,7 @@ const connectFeatures = [
           cta.setAttribute('href', url.pathname + url.search);
           // Trial only applies to monthly. Yearly is a direct purchase, so the
           // CTA copy on yearly should not promise a trial.
-          cta.textContent =
-            plan === 'yearly' ? 'Get Connect yearly →' : 'Start 14-day trial →';
+          cta.textContent = plan === 'yearly' ? 'Get Connect yearly →' : 'Start 14-day trial →';
         }
       }
 
