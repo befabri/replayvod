@@ -11,8 +11,8 @@
 //
 //	go test -tags integration ./internal/e2e/
 //
-// SetupPG pulls postgres:16-alpine on first run (~40 MB); the SQLite
-// side needs no containers.
+// PostgreSQL tests require Docker and use the version shipped in Compose.
+// SQLite tests use local files.
 package e2e_test
 
 import (

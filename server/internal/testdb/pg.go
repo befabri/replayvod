@@ -1,6 +1,6 @@
 // Package testdb provides database fixtures for tests.
 //
-// PG: boot one postgres:16-alpine container per test package via SetupPG
+// PG: boot one postgres:17-alpine container per test package via SetupPG
 // in TestMain. Each test calls NewPGPool(t) to get a fresh migrated DB
 // inside that container. Contributor setup requirement: Docker running.
 //
@@ -39,20 +39,17 @@ type sharedPostgres struct {
 	adminConnStr string
 }
 
-// SetupPG boots a postgres:16-alpine container, runs the test suite, and
-// terminates the container. Intended to be called from TestMain:
+// SetupPG runs m with a shared PostgreSQL 17 container and releases it afterward.
+// Call it from TestMain with Docker running:
 //
 //	func TestMain(m *testing.M) {
 //		os.Exit(testdb.SetupPG(m))
 //	}
-//
-// Only Docker is required on the contributor's machine. First invocation
-// pulls the image (~40 MB, ~10s); subsequent runs reuse.
 func SetupPG(m *testing.M) int {
 	ctx := context.Background()
 
 	ctr, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"postgres:17-alpine",
 		postgres.WithDatabase("postgres"),
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
