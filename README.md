@@ -77,6 +77,9 @@ empty, the first successful login becomes the owner.
 To skip the `--profile` flag on every command, set `COMPOSE_PROFILES=sqlite`
 (or `=postgres`) in `server/.env`.
 
+Read the [release notes](https://github.com/befabri/replayvod/releases) for
+new features, fixes, and any upgrade actions before updating.
+
 Update later by pulling the newest published image:
 
 ```bash
