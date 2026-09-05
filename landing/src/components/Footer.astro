@@ -44,8 +44,7 @@ const cols: FooterCol[] = [
       <!-- Brand blurb -->
       <div class="col-span-2 md:col-span-1">
         <div class="mb-3 font-heading text-[19px] tracking-[-0.04em]">
-          <span class="font-semibold">Replay</span><span class="font-bold text-primary">VOD</span><span
-            class="text-primary">.</span>
+          <span class="font-semibold">Replay</span><span class="font-bold text-primary">VOD</span>
         </div>
         <p class="max-w-[300px] text-[16px] leading-[1.55] text-fg">
           Self-hosted Twitch VOD recorder. Independent open-source project. Not affiliated with, endorsed by,
@@ -57,7 +56,9 @@ const cols: FooterCol[] = [
       {
         cols.map((col) => (
           <div>
-            <div class="mb-3.5 font-mono text-[13px] uppercase tracking-[0.06em] text-fg-muted">{col.head}</div>
+            <div class="mb-3.5 font-mono text-[13px] uppercase tracking-[0.06em] text-fg-muted">
+              {col.head}
+            </div>
             {col.links.map((link) => (
               <a
                 href={link.href}
