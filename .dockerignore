@@ -23,6 +23,7 @@ dashboard/playwright-report
 # Go
 server/bin
 server/tmp
+server/target
 server/data
 server/.scratch
 

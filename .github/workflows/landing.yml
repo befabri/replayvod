@@ -1,6 +1,11 @@
 name: Public CI
 
 on:
+  workflow_call:
+    inputs:
+      upgrade_scope:
+        type: string
+        default: latest
   push:
     branches: [main]
     paths:
@@ -10,7 +15,10 @@ on:
       - 'dashboard/**'
       - 'docker-compose.yml'
       - 'README.md'
-      - '.github/workflows/landing.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/**'
+      - '.github/actions/**'
   pull_request:
     paths:
       - 'landing/**'
@@ -19,9 +27,42 @@ on:
       - 'dashboard/**'
       - 'docker-compose.yml'
       - 'README.md'
-      - '.github/workflows/landing.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+
+permissions:
+  contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      upgrade: ${{ steps.paths.outputs.upgrade }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - id: paths
+        working-directory: server
+        env:
+          UPGRADE_SCOPE: ${{ inputs.upgrade_scope || 'latest' }}
+          UPGRADE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          UPGRADE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: go run ./tools/upgrade-changes
+
+  upgrade:
+    needs: changes
+    if: needs.changes.outputs.upgrade == 'true'
+    uses: ./.github/workflows/upgrade.yml
+    with:
+      scope: ${{ inputs.upgrade_scope || 'latest' }}
+
   landing:
     runs-on: ubuntu-latest
     defaults:
@@ -82,7 +123,10 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
+      - run: go vet ./...
       - run: go test ./...
+      - name: Migration concurrency and cancellation checks
+        run: go test -race -count=1 ./internal/database
       - name: Install sqlc
         run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
       - name: Check committed sqlc output is up to date
