@@ -25,7 +25,9 @@ const accountEnabled = site.connect.accountEnabled;
       >
         <div>
           <p class="mb-3 font-mono text-[11px] uppercase tracking-[0.12em] text-primary">ReplayVOD Connect</p>
-          <h1 class="text-display-2">{accountEnabled ? 'Account dashboard.' : 'Account access is coming soon.'}</h1>
+          <h1 class="text-display-2">
+            {accountEnabled ? 'Account dashboard.' : 'Account access is coming soon.'}
+          </h1>
           <p id="account-subtitle" class="mt-3 max-w-[640px] text-[15.5px] leading-[1.65] text-fg">
             {
               accountEnabled
@@ -37,8 +39,12 @@ const accountEnabled = site.connect.accountEnabled;
         {
           accountEnabled && (
             <div class="flex flex-wrap gap-3">
-              <button id="billing-button" class="btn" type="button">Billing portal</button>
-              <button id="logout-button" class="btn btn-ghost" type="button">Sign out</button>
+              <button id="billing-button" class="btn" type="button">
+                Billing portal
+              </button>
+              <button id="logout-button" class="btn btn-ghost" type="button">
+                Sign out
+              </button>
             </div>
           )
         }
@@ -50,10 +56,11 @@ const accountEnabled = site.connect.accountEnabled;
             'Loading…'
           ) : (
             <>
-              Connect account access is not open yet. <a
-                href="/#pricing"
-                class="text-primary underline underline-offset-2 hover:text-primary-dark">Back to pricing</a
-              >.
+              Connect account access is not open yet.{' '}
+              <a href="/#pricing" class="text-primary underline underline-offset-2 hover:text-primary-dark">
+                Back to pricing
+              </a>
+              .
             </>
           )
         }
@@ -304,9 +311,7 @@ const accountEnabled = site.connect.accountEnabled;
         // better-auth rejects a Content-Type: application/json POST with no
         // body (Unexpected end of JSON input → 500). Send an empty object so
         // the parser is happy.
-        await api('/api/auth/sign-out', { method: 'POST', body: '{}' }).catch(
-          () => null,
-        );
+        await api('/api/auth/sign-out', { method: 'POST', body: '{}' }).catch(() => null);
         window.location.assign('/login');
       });
 

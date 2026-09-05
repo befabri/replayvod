@@ -8,11 +8,9 @@ const accountEnabled = site.connect.accountEnabled;
 
 <AuthLayout
   title={accountEnabled ? 'Confirm sign-in · ReplayVOD Connect' : 'Connect sign-in coming soon · ReplayVOD'}
-  description={
-    accountEnabled
-      ? 'Confirm your ReplayVOD Connect magic link.'
-      : 'ReplayVOD Connect sign-in is not open yet.'
-  }
+  description={accountEnabled
+    ? 'Confirm your ReplayVOD Connect magic link.'
+    : 'ReplayVOD Connect sign-in is not open yet.'}
 >
   <section
     data-magic-link-app
@@ -31,11 +29,7 @@ const accountEnabled = site.connect.accountEnabled;
         {accountEnabled ? 'Finish signing in.' : 'Connect sign-in is not open yet.'}
       </h1>
 
-      <p
-        id="magic-link-status"
-        class="mb-7 text-[16px] leading-[1.6] text-fg-muted"
-        aria-live="polite"
-      >
+      <p id="magic-link-status" class="mb-7 text-[16px] leading-[1.6] text-fg-muted" aria-live="polite">
         {
           accountEnabled
             ? 'Click below to confirm your one-time link. This step keeps email scanners from using the link first.'

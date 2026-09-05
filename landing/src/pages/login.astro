@@ -12,11 +12,9 @@ const connectLabel = site.connect.paymentsEnabled
 
 <AuthLayout
   title={accountEnabled ? 'Sign in · ReplayVOD Connect' : 'Connect account access coming soon · ReplayVOD'}
-  description={
-    accountEnabled
-      ? 'Sign in to your ReplayVOD Connect account.'
-      : 'ReplayVOD Connect account access is not open yet.'
-  }
+  description={accountEnabled
+    ? 'Sign in to your ReplayVOD Connect account.'
+    : 'ReplayVOD Connect account access is not open yet.'}
 >
   <section
     data-login-app
@@ -95,8 +93,14 @@ const connectLabel = site.connect.paymentsEnabled
       accountEnabled && (
         <p class="mt-6 text-center text-[13px] text-fg-muted">
           By signing in you agree to the
-          <a href="/legal/terms" class="underline underline-offset-2 hover:text-fg">Terms</a> and
-          <a href="/legal/privacy" class="underline underline-offset-2 hover:text-fg">Privacy</a> policy.
+          <a href="/legal/terms" class="underline underline-offset-2 hover:text-fg">
+            Terms
+          </a>{' '}
+          and
+          <a href="/legal/privacy" class="underline underline-offset-2 hover:text-fg">
+            Privacy
+          </a>{' '}
+          policy.
         </p>
       )
     }

@@ -22,8 +22,8 @@ import { site } from '../../config';
     Connect is a webhook relay service. It receives signed webhook deliveries on a public URL we provide and
     forwards them to your self-hosted ReplayVOD instance over a long-lived WebSocket connection. The relay
     does not parse, log, or persist webhook payload contents beyond a short reconnect buffer (currently five
-    minutes). It does not store your video recordings, user accounts, or Twitch credentials. Your videos
-    and database remain on the hardware you operate.
+    minutes). It does not store your video recordings, user accounts, or Twitch credentials. Your videos and
+    database remain on the hardware you operate.
   </p>
 
   <h2>2. Your obligations</h2>
@@ -60,16 +60,16 @@ import { site } from '../../config';
     <strong>Refunds.</strong> Within fourteen (14) days of your initial subscription, you may request a full refund
     by emailing
     <a href={`mailto:${site.contact.email}`}>{site.contact.email}</a>. After fourteen days, monthly
-    subscriptions are non-refundable; annual subscriptions are refundable on a pro-rated basis for unused
-    full months. Polar processing fees (typically a few percent) are not refundable.
+    subscriptions are non-refundable; annual subscriptions are refundable on a pro-rated basis for unused full
+    months. Polar processing fees (typically a few percent) are not refundable.
   </p>
 
   <h2>4. Service availability and platform risk</h2>
   <p>
-    Connect depends on third-party platforms — including Cloudflare for infrastructure, Polar for billing,
-    and the Twitch platform for the events we relay. We do not control these platforms. Twitch may at any
-    time, in its sole discretion and without notice, change its developer policies in a way that affects
-    Connect, or terminate the developer accounts of users of this service.
+    Connect depends on third-party platforms — including Cloudflare for infrastructure, Polar for billing, and
+    the Twitch platform for the events we relay. We do not control these platforms. Twitch may at any time, in
+    its sole discretion and without notice, change its developer policies in a way that affects Connect, or
+    terminate the developer accounts of users of this service.
   </p>
   <p>
     If Twitch (or any other upstream platform) takes action that requires us to suspend or shut down Connect,

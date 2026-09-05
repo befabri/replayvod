@@ -7,10 +7,7 @@ const paymentsEnabled = site.connect.paymentsEnabled;
 const accountEnabled = site.connect.accountEnabled;
 ---
 
-<AuthLayout
-  title="Start Connect · ReplayVOD"
-  description="Start a ReplayVOD Connect subscription."
->
+<AuthLayout title="Start Connect · ReplayVOD" description="Start a ReplayVOD Connect subscription.">
   <section
     data-checkout-app
     data-api-base={apiBase}
@@ -43,9 +40,13 @@ const accountEnabled = site.connect.accountEnabled;
           paymentsEnabled ? (
             <>
               <span data-checkout-price>$5 / month</span>
-              <span aria-hidden="true" class="opacity-50">·</span>
+              <span aria-hidden="true" class="opacity-50">
+                ·
+              </span>
               <span data-checkout-trial>14-day trial</span>
-              <span aria-hidden="true" class="opacity-50">·</span>
+              <span aria-hidden="true" class="opacity-50">
+                ·
+              </span>
               <span>cancel anytime in Polar</span>
             </>
           ) : (

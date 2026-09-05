@@ -4,10 +4,18 @@
 // and reverse-proxy compat. Concurrency stays in because it's the hot question.
 const stats = [
   { label: 'Disk per hour', value: '~ 3.5 GB', desc: '1080p60 source bitrate. No re-encode.' },
-  { label: 'EventSub → first byte', value: '< 4 s', desc: 'stream.online callback to first segment on disk.' },
+  {
+    label: 'EventSub → first byte',
+    value: '< 4 s',
+    desc: 'stream.online callback to first segment on disk.',
+  },
   { label: 'Concurrency', value: '32', desc: 'Parallel recordings on a 4-core host.' },
   { label: 'RAM idle / under load', value: '~ 240 MB', desc: '~ 320 MB with eight live recordings.' },
-  { label: 'Architectures', value: 'amd64 · arm64', desc: 'Multi-arch image. Pi 5 with external storage works.' },
+  {
+    label: 'Architectures',
+    value: 'amd64 · arm64',
+    desc: 'Multi-arch image. Pi 5 with external storage works.',
+  },
   { label: 'Reverse proxy', value: 'any', desc: 'Caddy, Nginx, Traefik, HAProxy. Bring your own TLS.' },
 ];
 ---
@@ -30,7 +38,9 @@ const stats = [
               <span class="h-1 w-1 rounded-full bg-primary" />
               {s.label}
             </div>
-            <div class="mb-1.5 font-heading text-[30px] font-normal leading-[1.05] tabular-nums">{s.value}</div>
+            <div class="mb-1.5 font-heading text-[30px] font-normal leading-[1.05] tabular-nums">
+              {s.value}
+            </div>
             <div class="text-[15.5px] leading-[1.55] text-fg-muted">{s.desc}</div>
           </div>
         ))
