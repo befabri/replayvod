@@ -77,15 +77,3 @@ func (a *PGAdapter) ListTagsForVideo(ctx context.Context, videoID int64) ([]repo
 	}
 	return out, nil
 }
-
-func (a *PGAdapter) ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideoRequestsForUser(ctx, pggen.ListVideoRequestsForUserParams{
-		UserID: userID,
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list video requests: %w", err)
-	}
-	return pgVideosToDomain(rows), nil
-}

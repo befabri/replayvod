@@ -317,8 +317,6 @@ type Repository interface {
 	// hydrated. Used by the video.timeline tRPC endpoint.
 	ListVideoMetadataChanges(ctx context.Context, videoID int64) ([]VideoMetadataChange, error)
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
-	AddVideoRequest(ctx context.Context, videoID int64, userID string) error
-	ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]Video, error)
 
 	CreateScheduleRequest(ctx context.Context, broadcasterID, requestedBy string, note *string) (*ScheduleRequest, error)
 	GetScheduleRequest(ctx context.Context, id int64) (*ScheduleRequest, error)

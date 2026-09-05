@@ -1,19 +1,92 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useInfiniteQuery,
+	useMutation,
+	useQueryClient,
+} from "@tanstack/react-query";
+import type { RequestPageResponse } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
 
-export function useMyRequests(limit = 50, offset = 0) {
+export function useMyScheduleRequests() {
 	const trpc = useTRPC();
-	return useQuery(trpc.videorequest.mine.queryOptions({ limit, offset }));
+	return useInfiniteQuery({
+		...trpc.schedule.myRequests.infiniteQueryOptions(
+			{ limit: 50 },
+			{
+				getNextPageParam: (page: RequestPageResponse) =>
+					page.next_cursor ?? undefined,
+			},
+		),
+		select: (data) => data.pages.flatMap((page) => page.items),
+	});
 }
 
-export function useRequestVideo() {
+// useAllScheduleRequests backs the admin review queue; the procedure is
+// admin-gated server-side, so only mount it behind a role check.
+export function useAllScheduleRequests() {
+	const trpc = useTRPC();
+	return useInfiniteQuery({
+		...trpc.schedule.requests.infiniteQueryOptions(
+			{ limit: 50 },
+			{
+				getNextPageParam: (page: RequestPageResponse) =>
+					page.next_cursor ?? undefined,
+			},
+		),
+		select: (data) => data.pages.flatMap((page) => page.items),
+	});
+}
+
+function useInvalidateRequests() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
+	return () => {
+		queryClient.invalidateQueries({
+			queryKey: trpc.schedule.myRequests.pathKey(),
+		});
+		queryClient.invalidateQueries({
+			queryKey: trpc.schedule.requests.pathKey(),
+		});
+	};
+}
+
+export function useCreateScheduleRequest() {
+	const trpc = useTRPC();
+	const invalidate = useInvalidateRequests();
 	return useMutation(
-		trpc.videorequest.request.mutationOptions({
+		trpc.schedule.createRequest.mutationOptions({ onSuccess: invalidate }),
+	);
+}
+
+export function useCancelScheduleRequest() {
+	const trpc = useTRPC();
+	const invalidate = useInvalidateRequests();
+	return useMutation(
+		trpc.schedule.cancelRequest.mutationOptions({ onSuccess: invalidate }),
+	);
+}
+
+export function useRejectScheduleRequest() {
+	const trpc = useTRPC();
+	const invalidate = useInvalidateRequests();
+	return useMutation(
+		trpc.schedule.rejectRequest.mutationOptions({ onSuccess: invalidate }),
+	);
+}
+
+export function useApproveScheduleRequest() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const invalidate = useInvalidateRequests();
+	return useMutation(
+		trpc.schedule.approveRequest.mutationOptions({
 			onSuccess: () => {
+				invalidate();
+				// Approval created a schedule; refresh the schedule lists too.
 				queryClient.invalidateQueries({
-					queryKey: trpc.videorequest.mine.pathKey(),
+					queryKey: trpc.schedule.list.pathKey(),
+				});
+				queryClient.invalidateQueries({
+					queryKey: trpc.schedule.mine.pathKey(),
 				});
 			},
 		}),

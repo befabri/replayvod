@@ -87,6 +87,24 @@ func (r *scheduleRepoFailure) ListSchedulesForUser(ctx context.Context, userID s
 	return r.Repository.ListSchedulesForUser(ctx, userID, limit, offset)
 }
 
+func (r *scheduleRepoFailure) ListScheduleCategoriesByScheduleIDs(ctx context.Context, ids []int64) (map[int64][]repository.Category, error) {
+	for _, id := range ids {
+		if r.categoriesErr != nil && id == r.categoriesScheduleID {
+			return nil, r.categoriesErr
+		}
+	}
+	return r.Repository.ListScheduleCategoriesByScheduleIDs(ctx, ids)
+}
+
+func (r *scheduleRepoFailure) ListScheduleTagsByScheduleIDs(ctx context.Context, ids []int64) (map[int64][]repository.Tag, error) {
+	for _, id := range ids {
+		if r.tagsErr != nil && id == r.tagsScheduleID {
+			return nil, r.tagsErr
+		}
+	}
+	return r.Repository.ListScheduleTagsByScheduleIDs(ctx, ids)
+}
+
 func (r *scheduleRepoFailure) ListScheduleCategories(ctx context.Context, scheduleID int64) ([]repository.Category, error) {
 	if r.categoriesErr != nil && scheduleID == r.categoriesScheduleID {
 		return nil, r.categoriesErr
@@ -274,6 +292,19 @@ func TestCreate_TriggersLiveAfterJunctionsAndReturnsRefreshedSchedule(t *testing
 	if view.Schedule.TriggerCount != 1 || view.Schedule.LastTriggeredAt == nil {
 		t.Fatalf("returned schedule trigger metadata = count %d at %v, want refreshed count=1 with timestamp",
 			view.Schedule.TriggerCount, view.Schedule.LastTriggeredAt)
+	}
+}
+
+func TestCreate_DuplicateMapsToAlreadyScheduled(t *testing.T) {
+	ctx := context.Background()
+	repo := newScheduleServiceRepo(t, ctx, "u-1", "b-1")
+	svc := New(repo, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if _, err := svc.Create(ctx, "u-1", WriteInput{BroadcasterID: "b-1", Quality: repository.QualityHigh}); err != nil {
+		t.Fatalf("first Create: %v", err)
+	}
+	if _, err := svc.Create(ctx, "u-1", WriteInput{BroadcasterID: "b-1", Quality: repository.QualityHigh}); !errors.Is(err, ErrAlreadyScheduled) {
+		t.Fatalf("duplicate Create err = %v, want ErrAlreadyScheduled", err)
 	}
 }
 
@@ -687,18 +718,12 @@ func TestListMineAndGetByID_EnforceVisibilityAndInflateJunctions(t *testing.T) {
 		t.Fatalf("Create second: %v", err)
 	}
 
-	ownerViews, err := svc.List(ctx, "any-owner-id", true, 0, 0)
+	allViews, err := svc.List(ctx, 0, 0)
 	if err != nil {
-		t.Fatalf("List owner: %v", err)
+		t.Fatalf("List: %v", err)
 	}
-	assertScheduleIDs(t, ownerViews, first.Schedule.ID, second.Schedule.ID)
-
-	userViews, err := svc.List(ctx, "u-1", false, 0, 0)
-	if err != nil {
-		t.Fatalf("List user: %v", err)
-	}
-	assertScheduleIDs(t, userViews, first.Schedule.ID)
-	assertLinkedFilters(t, findScheduleView(t, userViews, first.Schedule.ID), "game-1", tag.ID)
+	assertScheduleIDs(t, allViews, first.Schedule.ID, second.Schedule.ID)
+	assertLinkedFilters(t, findScheduleView(t, allViews, first.Schedule.ID), "game-1", tag.ID)
 
 	mineViews, err := svc.Mine(ctx, "u-2", 0, 0)
 	if err != nil {
@@ -829,8 +854,8 @@ func TestReadAndDelete_PropagateRepositoryErrors(t *testing.T) {
 
 	listErr := errors.New("list schedules failed")
 	svc := New(&scheduleRepoFailure{Repository: repo, listErr: listErr}, log)
-	if _, err := svc.List(ctx, "owner-id", true, 50, 0); !errors.Is(err, listErr) {
-		t.Fatalf("List owner err = %v, want listErr", err)
+	if _, err := svc.List(ctx, 50, 0); !errors.Is(err, listErr) {
+		t.Fatalf("List err = %v, want listErr", err)
 	}
 
 	listForUserErr := errors.New("list user schedules failed")
@@ -845,7 +870,7 @@ func TestReadAndDelete_PropagateRepositoryErrors(t *testing.T) {
 		categoriesErr:        categoriesErr,
 		categoriesScheduleID: scheduleID,
 	}, log)
-	if _, err := svc.List(ctx, "owner-id", true, 50, 0); !errors.Is(err, categoriesErr) {
+	if _, err := svc.List(ctx, 50, 0); !errors.Is(err, categoriesErr) {
 		t.Fatalf("List inflate categories err = %v, want categoriesErr", err)
 	}
 

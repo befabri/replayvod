@@ -2,6 +2,22 @@
 
 import { z } from "zod";
 
+export const ApproveRequestInputSchema = z.object({
+  request_id: z.number(),
+  recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  force_h264: z.boolean().optional(),
+  has_min_viewers: z.boolean(),
+  min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
+  has_categories: z.boolean(),
+  has_tags: z.boolean(),
+  is_delete_rediff: z.boolean(),
+  time_before_delete: z.number().optional(),
+  is_disabled: z.boolean(),
+  category_ids: z.array(z.string()),
+  tag_ids: z.array(z.number()),
+}).meta({ id: "ApproveRequestInput" });
+
 export const VideoPageCursorSchema = z.object({
   start_download_at: z.iso.datetime(),
   id: z.number(),
@@ -82,7 +98,7 @@ export const CreateInputSchema = z.object({
   has_categories: z.boolean(),
   has_tags: z.boolean(),
   is_delete_rediff: z.boolean(),
-  time_before_delete: z.number().optional().describe("No struct-tag bound: time_before_delete is only meaningful when\nis_delete_rediff is set, so the schedule service validates it\nconditionally (validateFilterConsistency), matching the DB CHECK. An\nunconditional tag here would reject a stale value on a non-delete schedule\nthat the service and DB both allow."),
+  time_before_delete: z.number().optional(),
   is_disabled: z.boolean(),
   category_ids: z.array(z.string()),
   tag_ids: z.array(z.number()),
@@ -93,6 +109,11 @@ export const CreateInviteInputSchema = z.object({
   ttl_minutes: z.int().gte(5).lte(43200),
   note: z.string().max(200).or(z.literal("")).optional(),
 }).meta({ id: "CreateInviteInput" });
+
+export const CreateRequestInputSchema = z.object({
+  broadcaster_id: z.string().min(1),
+  note: z.string().max(200).or(z.literal("")).optional(),
+}).meta({ id: "CreateRequestInput" });
 
 export const DownloadProgressInputSchema = z.object({
   job_id: z.string().min(1),
@@ -128,6 +149,16 @@ export const LatestLiveInputSchema = z.object({
   limit: z.int().gte(0).lte(100).optional(),
 }).meta({ id: "LatestLiveInput" });
 
+export const RequestPageCursorSchema = z.object({
+  created_at: z.iso.datetime(),
+  id: z.number().gte(1),
+}).meta({ id: "RequestPageCursor" });
+
+export const ListRequestsInputSchema = z.object({
+  limit: z.int().gte(0).lte(200).optional(),
+  cursor: RequestPageCursorSchema.optional(),
+}).meta({ id: "ListRequestsInput" });
+
 export const RecordingWebhookRetryDeliveryInputSchema = z.object({
   id: z.number(),
 }).meta({ id: "RecordingWebhookRetryDeliveryInput" });
@@ -138,9 +169,9 @@ export const RecordingWebhookUpdateConfigInputSchema = z.object({
   events: z.array(z.enum(["recording.completed", "recording.failed"])).max(8).optional(),
 }).meta({ id: "RecordingWebhookUpdateConfigInput" });
 
-export const RequestInputSchema = z.object({
-  video_id: z.number(),
-}).meta({ id: "RequestInput" });
+export const RequestIDInputSchema = z.object({
+  id: z.number(),
+}).meta({ id: "RequestIDInput" });
 
 export const RevokeInviteInputSchema = z.object({
   id: z.number(),
@@ -181,7 +212,7 @@ export const ScheduleUpdateInputSchema = z.object({
   has_categories: z.boolean(),
   has_tags: z.boolean(),
   is_delete_rediff: z.boolean(),
-  time_before_delete: z.number().optional().describe("No struct-tag bound: time_before_delete is only meaningful when\nis_delete_rediff is set, so the schedule service validates it\nconditionally (validateFilterConsistency), matching the DB CHECK. An\nunconditional tag here would reject a stale value on a non-delete schedule\nthat the service and DB both allow."),
+  time_before_delete: z.number().optional(),
   is_disabled: z.boolean(),
   category_ids: z.array(z.string()),
   tag_ids: z.array(z.number()),
@@ -338,11 +369,6 @@ export const VideoSearchInputSchema = z.object({
   query: z.string().max(100),
   limit: z.int().gte(0).lte(50).optional(),
 }).meta({ id: "VideoSearchInput" });
-
-export const VideorequestListInputSchema = z.object({
-  limit: z.int().gte(0).lte(200),
-  offset: z.int().gte(0),
-}).meta({ id: "VideorequestListInput" });
 
 export const WhitelistIDInputSchema = z.object({
   twitch_user_id: z.string().min(1),

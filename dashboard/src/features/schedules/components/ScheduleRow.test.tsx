@@ -28,6 +28,7 @@ function schedule(partial: Partial<ScheduleResponse> = {}): ScheduleResponse {
 		id: 1,
 		broadcaster_id: "b-1",
 		requested_by: "u-1",
+		requested_from_name: "",
 		recording_type: "video",
 		quality: "HIGH",
 		force_h264: false,
@@ -42,12 +43,32 @@ function schedule(partial: Partial<ScheduleResponse> = {}): ScheduleResponse {
 		categories: [],
 		tags: [],
 		...partial,
-	} as ScheduleResponse;
+	};
 }
 
 afterEach(cleanup);
 
 describe("ScheduleRow role gating", () => {
+	it("shows the original requester on an approved schedule", () => {
+		render(
+			createElement(ScheduleRow, {
+				schedule: schedule({
+					requested_by: "admin",
+					requested_from: "viewer",
+					requested_from_name: "Vera Viewer",
+				}),
+				canManage: false,
+			}),
+		);
+		expect(
+			screen.getByText(/schedules.requested_by: Vera Viewer/),
+		).toBeTruthy();
+	});
+
+	it("omits request attribution for a directly created schedule", () => {
+		render(createElement(ScheduleRow, { schedule: schedule() }));
+		expect(screen.queryByText(/schedules.requested_by/)).toBeNull();
+	});
 	it("hides edit and disables the toggle for read-only viewers", () => {
 		render(
 			createElement(ScheduleRow, { schedule: schedule(), canManage: false }),

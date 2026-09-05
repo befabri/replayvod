@@ -11,7 +11,6 @@ import (
 
 type Querier interface {
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
-	AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error
 	ClaimDueRecordingWebhookDelivery(ctx context.Context, now time.Time) (RecordingWebhookDelivery, error)
 	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
 	ClearScheduleTags(ctx context.Context, scheduleID int64) error
@@ -286,7 +285,6 @@ type Querier interface {
 	ListVideoMetadataChangesForVideo(ctx context.Context, videoID int64) ([]ListVideoMetadataChangesForVideoRow, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
 	ListVideoPartsForVideos(ctx context.Context, videoIds []int64) ([]VideoPart, error)
-	ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error)
 	ListVideoUserStatesForVideos(ctx context.Context, arg ListVideoUserStatesForVideosParams) ([]VideoUserState, error)
 	// Unified list query with optional status filter and enum-driven sort.
 	// @status_filter = '' disables the status filter; otherwise filters exactly.

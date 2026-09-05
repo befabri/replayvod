@@ -7,11 +7,9 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// RegisterRoutes wires schedule.* tRPC procedures. Reads are viewer-
-// level (owners see all); writes are admin-only so viewers can't burn
-// Twitch quota auto-downloading. The domain service is passed in
-// rather than constructed here so the webhook processor (separately
-// constructed in router.go) uses the same lifetime.
+// RegisterRoutes registers schedule procedures with viewer reads and admin
+// writes. Pass the same service used by the webhook processor to share its
+// lifetime.
 func RegisterRoutes(tr *trpcgo.Router, svc *schedulesvc.Service, log *slog.Logger, viewer, admin *trpcgo.ProcedureBuilder) {
 	h := NewHandler(svc, log)
 	trpcgo.MustQuery(tr, "schedule.list", h.List, viewer)
@@ -23,4 +21,11 @@ func RegisterRoutes(tr *trpcgo.Router, svc *schedulesvc.Service, log *slog.Logge
 	trpcgo.MustMutation(tr, "schedule.toggle", h.Toggle, admin)
 	trpcgo.MustMutation(tr, "schedule.setPaused", h.SetPaused, admin)
 	trpcgo.MustMutation(tr, "schedule.delete", h.Delete, admin)
+
+	trpcgo.MustMutation(tr, "schedule.createRequest", h.CreateRequest, viewer)
+	trpcgo.MustQuery(tr, "schedule.myRequests", h.MyRequests, viewer)
+	trpcgo.MustMutation(tr, "schedule.cancelRequest", h.CancelRequest, viewer)
+	trpcgo.MustQuery(tr, "schedule.requests", h.Requests, admin)
+	trpcgo.MustMutation(tr, "schedule.approveRequest", h.ApproveRequest, admin)
+	trpcgo.MustMutation(tr, "schedule.rejectRequest", h.RejectRequest, admin)
 }

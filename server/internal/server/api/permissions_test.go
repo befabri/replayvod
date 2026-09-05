@@ -208,3 +208,116 @@ func TestRemoveWhitelistOwnerCarveOutOverHTTP(t *testing.T) {
 		t.Fatalf("owner de-whitelists self = %d, want 200", got)
 	}
 }
+
+func TestScheduleRequestProceduresRoleMatrix(t *testing.T) {
+	h := newPermissionHarness(t)
+
+	viewerTier := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		want   int
+	}{
+		{"createRequest", http.MethodPost, "/trpc/schedule.createRequest", `{"broadcaster_id":"no-such-channel"}`, http.StatusNotFound},
+		{"myRequests", http.MethodGet, "/trpc/schedule.myRequests", "", http.StatusOK},
+		{"cancelRequest", http.MethodPost, "/trpc/schedule.cancelRequest", `{"id":99999}`, http.StatusNotFound},
+	}
+	for _, tc := range viewerTier {
+		t.Run("viewer-tier/"+tc.name, func(t *testing.T) {
+			if got := h.do(tc.method, tc.path, tc.body, nil); got != http.StatusUnauthorized {
+				t.Fatalf("%s without a session = %d, want 401", tc.path, got)
+			}
+			if got := h.do(tc.method, tc.path, tc.body, h.viewer); got != tc.want {
+				t.Fatalf("%s as viewer = %d, want %d", tc.path, got, tc.want)
+			}
+		})
+	}
+
+	adminTier := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		want   int
+	}{
+		{"requests", http.MethodGet, "/trpc/schedule.requests", "", http.StatusOK},
+		{"approveRequest", http.MethodPost, "/trpc/schedule.approveRequest", `{"request_id":99999,"quality":"HIGH","has_min_viewers":false,"has_categories":false,"has_tags":false,"is_delete_rediff":false,"is_disabled":false,"category_ids":[],"tag_ids":[]}`, http.StatusNotFound},
+		{"rejectRequest", http.MethodPost, "/trpc/schedule.rejectRequest", `{"id":99999}`, http.StatusNotFound},
+	}
+	for _, tc := range adminTier {
+		t.Run("admin-tier/"+tc.name, func(t *testing.T) {
+			if got := h.do(tc.method, tc.path, tc.body, nil); got != http.StatusUnauthorized {
+				t.Fatalf("%s without a session = %d, want 401", tc.path, got)
+			}
+			if got := h.do(tc.method, tc.path, tc.body, h.viewer); got != http.StatusForbidden {
+				t.Fatalf("%s as viewer = %d, want 403", tc.path, got)
+			}
+			if got := h.do(tc.method, tc.path, tc.body, h.admin); got != tc.want {
+				t.Fatalf("%s as admin = %d, want %d", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestScheduleRequestLifecycleOverHTTP(t *testing.T) {
+	h := newPermissionHarness(t)
+	ctx := context.Background()
+	if _, err := h.repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "chan-1", BroadcasterLogin: "chan1", BroadcasterName: "Chan One",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	fileBody := `{"broadcaster_id":"chan-1","note":"please"}`
+	if got := h.do(http.MethodPost, "/trpc/schedule.createRequest", fileBody, h.viewer); got != http.StatusOK {
+		t.Fatalf("file request = %d, want 200", got)
+	}
+	if got := h.do(http.MethodPost, "/trpc/schedule.createRequest", fileBody, h.viewer); got != http.StatusBadRequest {
+		t.Fatalf("duplicate pending request = %d, want 400", got)
+	}
+
+	mine, err := h.repo.ListScheduleRequestsForUser(ctx, "perm-viewer-1", 50, nil)
+	if err != nil || len(mine) != 1 {
+		t.Fatalf("list mine = %d, %v; want 1 row", len(mine), err)
+	}
+	reqID := mine[0].ID
+
+	if got := h.do(http.MethodPost, "/trpc/schedule.cancelRequest", fmt.Sprintf(`{"id":%d}`, reqID), h.admin); got != http.StatusNotFound {
+		t.Fatalf("cancel as non-requester = %d, want 404", got)
+	}
+	if got := h.do(http.MethodPost, "/trpc/schedule.cancelRequest", fmt.Sprintf(`{"id":%d}`, reqID), h.viewer); got != http.StatusOK {
+		t.Fatalf("cancel own pending = %d, want 200", got)
+	}
+
+	if got := h.do(http.MethodPost, "/trpc/schedule.createRequest", fileBody, h.viewer); got != http.StatusOK {
+		t.Fatalf("re-file request = %d, want 200", got)
+	}
+	mine, err = h.repo.ListScheduleRequestsForUser(ctx, "perm-viewer-1", 50, nil)
+	if err != nil || len(mine) != 1 {
+		t.Fatalf("list mine after re-file = %d, %v; want 1 row", len(mine), err)
+	}
+	approveBody := fmt.Sprintf(`{"request_id":%d,"quality":"HIGH","has_min_viewers":false,"has_categories":false,"has_tags":false,"is_delete_rediff":false,"is_disabled":false,"category_ids":[],"tag_ids":[]}`, mine[0].ID)
+	if got := h.do(http.MethodPost, "/trpc/schedule.approveRequest", approveBody, h.admin); got != http.StatusOK {
+		t.Fatalf("approve = %d, want 200", got)
+	}
+
+	approved, err := h.repo.GetScheduleRequest(ctx, mine[0].ID)
+	if err != nil {
+		t.Fatalf("reload request: %v", err)
+	}
+	if approved.Status != repository.ScheduleRequestStatusApproved || approved.ScheduleID == nil {
+		t.Fatalf("request after approve = %+v, want APPROVED with schedule linked", approved)
+	}
+	sched, err := h.repo.GetSchedule(ctx, *approved.ScheduleID)
+	if err != nil {
+		t.Fatalf("load created schedule: %v", err)
+	}
+	if sched.BroadcasterID != "chan-1" {
+		t.Fatalf("schedule broadcaster = %q, want chan-1", sched.BroadcasterID)
+	}
+
+	if got := h.do(http.MethodPost, "/trpc/schedule.createRequest", fileBody, h.viewer); got != http.StatusBadRequest {
+		t.Fatalf("request on scheduled channel = %d, want 400", got)
+	}
+}

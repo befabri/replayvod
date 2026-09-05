@@ -107,15 +107,3 @@ func (a *SQLiteAdapter) ListTagsForVideo(ctx context.Context, videoID int64) ([]
 	}
 	return out, nil
 }
-
-func (a *SQLiteAdapter) ListVideoRequestsForUser(ctx context.Context, userID string, limit, offset int) ([]repository.Video, error) {
-	rows, err := a.queries.ListVideoRequestsForUser(ctx, sqlitegen.ListVideoRequestsForUserParams{
-		UserID: userID,
-		Limit:  int64(limit),
-		Offset: int64(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list video requests: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
-}

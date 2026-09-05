@@ -16,16 +16,6 @@ INNER JOIN video_tags vt ON vt.tag_id = t.id
 WHERE vt.video_id = $1
 ORDER BY t.name;
 
--- name: AddVideoRequest :exec
-INSERT INTO video_requests (video_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;
-
--- name: ListVideoRequestsForUser :many
-SELECT v.* FROM videos v
-INNER JOIN video_requests vr ON vr.video_id = v.id
-WHERE vr.user_id = $1 AND v.deleted_at IS NULL
-ORDER BY vr.requested_at DESC
-LIMIT $2 OFFSET $3;
-
 -- name: UpsertVideoCategorySpan :exec
 -- Category analogue of UpsertVideoTitleSpan; see that comment for the
 -- close-then-insert rationale.

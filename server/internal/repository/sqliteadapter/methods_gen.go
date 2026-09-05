@@ -14,10 +14,6 @@ func (a *SQLiteAdapter) AddToWhitelist(ctx context.Context, twitchUserID string)
 	return a.queries.AddToWhitelist(ctx, twitchUserID)
 }
 
-func (a *SQLiteAdapter) AddVideoRequest(ctx context.Context, videoID int64, userID string) error {
-	return a.queries.AddVideoRequest(ctx, sqlitegen.AddVideoRequestParams{VideoID: videoID, UserID: userID})
-}
-
 func (a *SQLiteAdapter) ClearScheduleCategories(ctx context.Context, scheduleID int64) error {
 	return a.queries.ClearScheduleCategories(ctx, scheduleID)
 }

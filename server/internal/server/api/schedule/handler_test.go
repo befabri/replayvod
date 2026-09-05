@@ -42,6 +42,7 @@ func TestScheduleErrRules(t *testing.T) {
 	}{
 		{"not owner -> forbidden", schedulesvc.ErrNotOwner, trpcgo.CodeForbidden},
 		{"invalid filter -> bad request", schedulesvc.ErrInvalidFilter, trpcgo.CodeBadRequest},
+		{"already scheduled -> bad request", schedulesvc.ErrAlreadyScheduled, trpcgo.CodeBadRequest},
 		{"not found -> not found", repository.ErrNotFound, trpcgo.CodeNotFound},
 		{"other -> internal", errors.New("db down"), trpcgo.CodeInternalServerError},
 	}
@@ -61,7 +62,7 @@ func TestUpdate_MissingScheduleIsNotFound(t *testing.T) {
 	h := NewHandler(schedulesvc.New(repo, log), log)
 
 	ctx := middleware.WithUser(context.Background(), &repository.User{ID: "u1", Role: "viewer"})
-	_, err := h.Update(ctx, UpdateInput{ID: 999999, Quality: "HIGH"})
+	_, err := h.Update(ctx, UpdateInput{ID: 999999, ScheduleSettingsInput: ScheduleSettingsInput{Quality: "HIGH"}})
 	requireTRPCCode(t, err, trpcgo.CodeNotFound)
 }
 
@@ -72,7 +73,7 @@ func TestUpdate_RequiresAuth(t *testing.T) {
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
 	h := NewHandler(schedulesvc.New(repo, log), log)
 
-	_, err := h.Update(context.Background(), UpdateInput{ID: 1, Quality: "HIGH"})
+	_, err := h.Update(context.Background(), UpdateInput{ID: 1, ScheduleSettingsInput: ScheduleSettingsInput{Quality: "HIGH"}})
 	requireTRPCCode(t, err, trpcgo.CodeUnauthorized)
 }
 
@@ -94,6 +95,42 @@ func TestSetPaused_RequiresAuth(t *testing.T) {
 
 	_, err := h.SetPaused(context.Background(), SetPausedInput{Paused: true})
 	requireTRPCCode(t, err, trpcgo.CodeUnauthorized)
+}
+
+// TestAdminManagesForeignSchedule checks that handler ownership checks honor
+// admin access.
+func TestAdminManagesForeignSchedule(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	ctx := context.Background()
+	for _, id := range []string{"author-1", "admin-1"} {
+		if _, err := repo.UpsertUser(ctx, &repository.User{ID: id, Login: id, DisplayName: id, Role: "viewer"}); err != nil {
+			t.Fatalf("seed user %s: %v", id, err)
+		}
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	svc := schedulesvc.New(repo, log)
+	created, err := svc.Create(ctx, "author-1", schedulesvc.WriteInput{BroadcasterID: "b-1", Quality: "HIGH"})
+	if err != nil {
+		t.Fatalf("seed schedule: %v", err)
+	}
+	h := NewHandler(svc, log)
+	adminCtx := middleware.WithUser(context.Background(), &repository.User{ID: "admin-1", Role: "admin"})
+
+	if _, err := h.GetByID(adminCtx, GetByIDInput{ID: created.Schedule.ID}); err != nil {
+		t.Fatalf("admin GetByID foreign schedule: %v", err)
+	}
+	if _, err := h.Update(adminCtx, UpdateInput{ID: created.Schedule.ID, ScheduleSettingsInput: ScheduleSettingsInput{Quality: "LOW"}}); err != nil {
+		t.Fatalf("admin Update foreign schedule: %v", err)
+	}
+	if _, err := h.Toggle(adminCtx, ToggleInput{ID: created.Schedule.ID}); err != nil {
+		t.Fatalf("admin Toggle foreign schedule: %v", err)
+	}
+	if _, err := h.Delete(adminCtx, DeleteInput{ID: created.Schedule.ID}); err != nil {
+		t.Fatalf("admin Delete foreign schedule: %v", err)
+	}
 }
 
 // TestPauseState_RoundTrip exercises the full handler path end to end: defaults

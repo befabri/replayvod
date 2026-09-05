@@ -39,6 +39,23 @@ export interface ActiveRuntime {
   polls_helix: boolean;
 }
 
+/** ApproveRequestInput supplies settings for the request's channel. */
+export interface ApproveRequestInput {
+  request_id: number;
+  recording_type?: string;
+  quality: string;
+  force_h264?: boolean;
+  has_min_viewers: boolean;
+  min_viewers?: number;
+  has_categories: boolean;
+  has_tags: boolean;
+  is_delete_rediff: boolean;
+  time_before_delete?: number;
+  is_disabled: boolean;
+  category_ids: string[];
+  tag_ids: number[];
+}
+
 export interface ByCategoryInput {
   category_id: string;
   limit: number;
@@ -235,13 +252,6 @@ export interface CreateInput {
   has_categories: boolean;
   has_tags: boolean;
   is_delete_rediff: boolean;
-  /**
-   * No struct-tag bound: time_before_delete is only meaningful when
-   * is_delete_rediff is set, so the schedule service validates it
-   * conditionally (validateFilterConsistency), matching the DB CHECK. An
-   * unconditional tag here would reject a stale value on a non-delete schedule
-   * that the service and DB both allow.
-   */
   time_before_delete?: number;
   is_disabled: boolean;
   category_ids: string[];
@@ -251,6 +261,11 @@ export interface CreateInput {
 export interface CreateInviteInput {
   role: string;
   ttl_minutes: number;
+  note?: string;
+}
+
+export interface CreateRequestInput {
+  broadcaster_id: string;
   note?: string;
 }
 
@@ -424,6 +439,11 @@ export interface LatestSnapshotResponse {
   snapshot?: SnapshotResponse;
 }
 
+export interface ListRequestsInput {
+  limit?: number;
+  cursor?: RequestPageCursor;
+}
+
 export interface ListSnapshotsResponse {
   data: SnapshotResponse[];
 }
@@ -542,8 +562,22 @@ export interface RecordingWebhookUpdateConfigInput {
   events?: string[];
 }
 
-export interface RequestInput {
-  video_id: number;
+export interface RequestIDInput {
+  id: number;
+}
+
+export interface RequestOK {
+  ok: boolean;
+}
+
+export interface RequestPageCursor {
+  created_at: string;
+  id: number;
+}
+
+export interface RequestPageResponse {
+  items: ScheduleRequestResponse[];
+  next_cursor?: RequestPageCursor;
 }
 
 export interface RevokeInviteInput {
@@ -585,6 +619,25 @@ export interface ScheduleListResponse {
   data: ScheduleResponse[];
 }
 
+export interface ScheduleRequestResponse {
+  id: number;
+  broadcaster_id: string;
+  broadcaster_login: string;
+  broadcaster_name: string;
+  profile_image_url?: string;
+  requested_by: string;
+  requested_by_name: string;
+  note?: string;
+  status: ScheduleRequestStatus;
+  schedule_id?: number;
+  decided_by?: string;
+  decided_at?: string;
+  created_at: string;
+}
+
+/** ScheduleRequestStatus is the request lifecycle enum exposed to API clients. */
+export type ScheduleRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+
 /**
  * ScheduleResponse is the wire shape the dashboard consumes. Categories
  * and tags are inlined so the list page doesn't have to N+1 per row.
@@ -593,6 +646,9 @@ export interface ScheduleResponse {
   id: number;
   broadcaster_id: string;
   requested_by: string;
+  /** RequestedFrom is absent for directly created schedules. */
+  requested_from?: string;
+  requested_from_name: string;
   recording_type: string;
   quality: string;
   force_h264: boolean;
@@ -630,13 +686,6 @@ export interface ScheduleUpdateInput {
   has_categories: boolean;
   has_tags: boolean;
   is_delete_rediff: boolean;
-  /**
-   * No struct-tag bound: time_before_delete is only meaningful when
-   * is_delete_rediff is set, so the schedule service validates it
-   * conditionally (validateFilterConsistency), matching the DB CHECK. An
-   * unconditional tag here would reject a stale value on a non-delete schedule
-   * that the service and DB both allow.
-   */
   time_before_delete?: number;
   is_disabled: boolean;
   category_ids: string[];
@@ -1240,28 +1289,12 @@ export interface VideoSearchInput {
 
 export type VideoStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
 
-export interface VideoSummary {
-  id: number;
-  filename: string;
-  display_name: string;
-  status: string;
-}
-
 export interface VideoUserStateResponse {
   watch_later: boolean;
   last_position_seconds: number;
   watched_at?: string;
   completed_at?: string;
   updated_at: string;
-}
-
-export interface VideorequestListInput {
-  limit: number;
-  offset: number;
-}
-
-export interface VideorequestOK {
-  ok: boolean;
 }
 
 export interface WhitelistEntryInfo {
@@ -1323,12 +1356,18 @@ type AppRouterRecord = {
     updateConfig: $Mutation<RecordingWebhookUpdateConfigInput, RecordingWebhookConfigResponse>;
   };
   schedule: {
+    approveRequest: $Mutation<ApproveRequestInput, ScheduleResponse>;
+    cancelRequest: $Mutation<RequestIDInput, RequestOK>;
     create: $Mutation<CreateInput, ScheduleResponse>;
+    createRequest: $Mutation<CreateRequestInput, RequestOK>;
     delete: $Mutation<ScheduleDeleteInput, DeleteResponse>;
     getById: $Query<ScheduleGetByIDInput, ScheduleResponse>;
     list: $Query<ScheduleListInput, ScheduleListResponse>;
     mine: $Query<ScheduleListInput, ScheduleListResponse>;
+    myRequests: $Query<ListRequestsInput, RequestPageResponse>;
     pauseState: $Query<void, PauseStateResponse>;
+    rejectRequest: $Mutation<RequestIDInput, RequestOK>;
+    requests: $Query<ListRequestsInput, RequestPageResponse>;
     setPaused: $Mutation<SetPausedInput, PauseStateResponse>;
     toggle: $Mutation<ScheduleToggleInput, ScheduleResponse>;
     update: $Mutation<ScheduleUpdateInput, ScheduleResponse>;
@@ -1393,10 +1432,6 @@ type AppRouterRecord = {
     titles: $Query<TitlesInput, TitleItem[]>;
     triggerDownload: $Mutation<TriggerDownloadInput, TriggerDownloadResponse>;
     updateWatchProgress: $Mutation<UpdateWatchProgressInput, VideoUserStateResponse>;
-  };
-  videorequest: {
-    mine: $Query<VideorequestListInput, VideoSummary[]>;
-    request: $Mutation<RequestInput, VideorequestOK>;
   };
 };
 

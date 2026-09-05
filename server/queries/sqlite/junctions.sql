@@ -16,16 +16,6 @@ INNER JOIN video_tags vt ON vt.tag_id = t.id
 WHERE vt.video_id = ?
 ORDER BY t.name;
 
--- name: AddVideoRequest :exec
-INSERT INTO video_requests (video_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING;
-
--- name: ListVideoRequestsForUser :many
-SELECT v.* FROM videos v
-INNER JOIN video_requests vr ON vr.video_id = v.id
-WHERE vr.user_id = ? AND v.deleted_at IS NULL
-ORDER BY vr.requested_at DESC
-LIMIT ? OFFSET ?;
-
 -- name: CloseOtherOpenVideoCategorySpans :exec
 -- Paired with InsertVideoCategorySpan to emulate pg's CTE-driven
 -- upsert. Called first inside the same tx as InsertVideoCategorySpan;

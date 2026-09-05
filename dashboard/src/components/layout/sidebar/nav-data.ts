@@ -59,7 +59,6 @@ export function useNavGroups(): NavGroup[] {
 				label: t("nav.recordings"),
 				children: [
 					{ to: "/dashboard/schedules", label: t("nav.schedules") },
-					{ to: "/dashboard/requests", label: t("nav.requests") },
 					{ to: "/dashboard/downloads", label: t("nav.downloads") },
 					{
 						to: "/dashboard/activity/history",

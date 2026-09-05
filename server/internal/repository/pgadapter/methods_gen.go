@@ -15,10 +15,6 @@ func (a *PGAdapter) AddToWhitelist(ctx context.Context, twitchUserID string) err
 	return a.queries.AddToWhitelist(ctx, twitchUserID)
 }
 
-func (a *PGAdapter) AddVideoRequest(ctx context.Context, videoID int64, userID string) error {
-	return a.queries.AddVideoRequest(ctx, pggen.AddVideoRequestParams{VideoID: videoID, UserID: userID})
-}
-
 func (a *PGAdapter) ClearScheduleCategories(ctx context.Context, scheduleID int64) error {
 	return a.queries.ClearScheduleCategories(ctx, scheduleID)
 }

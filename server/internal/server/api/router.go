@@ -28,7 +28,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/tag"
 	"github.com/befabri/replayvod/server/internal/server/api/task"
 	"github.com/befabri/replayvod/server/internal/server/api/video"
-	"github.com/befabri/replayvod/server/internal/server/api/videorequest"
 	"github.com/befabri/replayvod/server/internal/server/api/webhook"
 	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
@@ -228,7 +227,6 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	recordingDeleter := retention.New(repo, store, log,
 		retention.WithManualDeletionWorkerAvailable(cfg.App.Scheduler.Enabled))
 	video.RegisterRoutes(tr, repo, dl, twitchClient, hydrator, recordingDeleter, store, log, viewer, admin)
-	videorequest.RegisterRoutes(tr, repo, log, viewer)
 
 	return tr
 }

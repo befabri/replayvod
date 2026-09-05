@@ -26,11 +26,8 @@ import (
 
 const immediateLiveTriggerTimeout = 10 * time.Second
 
-// ErrNotOwner is returned when a non-owner tries to mutate a schedule
-// they didn't create. The transport layer maps this to 403 — hiding
-// it as 404 would complicate legitimate "did I really create that?"
-// diagnostics for the author themselves. Role-level owners bypass
-// this check.
+// ErrNotOwner indicates that the caller neither owns the schedule nor has
+// manage-all access.
 var ErrNotOwner = errors.New("schedule: not your schedule")
 
 // ErrInvalidFilter is returned when a has_X toggle is on but the
@@ -72,13 +69,13 @@ func New(repo repository.Repository, log *slog.Logger, opts ...Option) *Service 
 	return s
 }
 
-// View bundles a schedule row with its inlined category/tag
-// junctions. The dashboard renders these per row, so the service
-// inflates them once here rather than forcing N+1 at the transport.
+// View includes a schedule's filters and requester display name.
+// RequestedFromName is empty for directly created schedules.
 type View struct {
-	Schedule   *repository.DownloadSchedule
-	Categories []repository.Category
-	Tags       []repository.Tag
+	Schedule          *repository.DownloadSchedule
+	RequestedFromName string
+	Categories        []repository.Category
+	Tags              []repository.Tag
 }
 
 // WriteInput is the domain-shaped create/update payload. The route
@@ -130,22 +127,13 @@ func (s *Service) SetPaused(ctx context.Context, paused bool) (bool, error) {
 	return settings.SchedulesPaused, nil
 }
 
-// List returns schedules visible to the caller. Owners see everything;
-// everyone else sees only their own. The caller tells the service its
-// role — we don't re-read the user row here.
-func (s *Service) List(ctx context.Context, callerID string, callerIsOwner bool, limit, offset int) ([]View, error) {
+// List returns a page of schedules with filters across all users.
+func (s *Service) List(ctx context.Context, limit, offset int) ([]View, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	var (
-		rows []repository.DownloadSchedule
-		err  error
-	)
-	if callerIsOwner {
-		rows, err = s.repo.ListSchedules(ctx, limit, offset)
-	} else {
-		rows, err = s.repo.ListSchedulesForUser(ctx, callerID, limit, offset)
-	}
+	limit = min(limit, 200)
+	rows, err := s.repo.ListSchedules(ctx, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list schedules: %w", err)
 	}
@@ -159,6 +147,7 @@ func (s *Service) Mine(ctx context.Context, callerID string, limit, offset int) 
 	if limit <= 0 {
 		limit = 50
 	}
+	limit = min(limit, 200)
 	rows, err := s.repo.ListSchedulesForUser(ctx, callerID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list own schedules: %w", err)
@@ -166,17 +155,14 @@ func (s *Service) Mine(ctx context.Context, callerID string, limit, offset int) 
 	return s.inflateAll(ctx, rows)
 }
 
-// GetByID loads and inflates a single schedule, enforcing that the
-// caller is the owner-role user or the schedule's author. Returns
-// repository.ErrNotFound for missing rows and ErrNotOwner for
-// visibility violations — the transport layer distinguishes these for
-// correct HTTP status.
-func (s *Service) GetByID(ctx context.Context, callerID string, callerIsOwner bool, id int64) (*View, error) {
+// GetByID returns a schedule with filters or repository.ErrNotFound. It returns
+// ErrNotOwner unless the caller owns the schedule or has manage-all access.
+func (s *Service) GetByID(ctx context.Context, callerID string, callerCanManageAll bool, id int64) (*View, error) {
 	sched, err := s.repo.GetSchedule(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if !callerIsOwner && sched.RequestedBy != callerID {
+	if !callerCanManageAll && sched.RequestedBy != callerID {
 		return nil, ErrNotOwner
 	}
 	return s.inflateOne(ctx, sched)
@@ -186,27 +172,16 @@ func (s *Service) GetByID(ctx context.Context, callerID string, callerIsOwner bo
 // changed later — UpdateSchedule preserves it — so input validation
 // blocks a malformed create up front.
 func (s *Service) Create(ctx context.Context, callerID string, input WriteInput) (*View, error) {
-	if err := validateFilterConsistency(input); err != nil {
+	scheduleInput, filters, err := buildScheduleInput(callerID, input, nil)
+	if err != nil {
 		return nil, err
 	}
-	recordingSettings := normalizeRecordingSettings(input.RecordingType, input.Quality, input.ForceH264, nil)
-	sched, err := s.repo.CreateScheduleWithFilters(ctx, &repository.ScheduleInput{
-		BroadcasterID:    input.BroadcasterID,
-		RequestedBy:      callerID,
-		RecordingType:    recordingSettings.RecordingType,
-		Quality:          recordingSettings.Quality,
-		ForceH264:        recordingSettings.ForceH264,
-		HasMinViewers:    input.HasMinViewers,
-		MinViewers:       input.MinViewers,
-		HasCategories:    input.HasCategories,
-		HasTags:          input.HasTags,
-		IsDeleteRediff:   input.IsDeleteRediff,
-		TimeBeforeDelete: input.TimeBeforeDelete,
-		IsDisabled:       input.IsDisabled,
-	}, repository.ScheduleFilterInput{
-		CategoryIDs: input.CategoryIDs,
-		TagIDs:      input.TagIDs,
-	})
+	sched, err := s.repo.CreateScheduleWithFilters(ctx, scheduleInput, filters)
+	if errors.Is(err, repository.ErrDuplicate) {
+		// The unique index also covers disabled schedules omitted by
+		// the active-schedule check.
+		return nil, ErrAlreadyScheduled
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create schedule: %w", err)
 	}
@@ -214,43 +189,60 @@ func (s *Service) Create(ctx context.Context, callerID string, input WriteInput)
 	return s.inflateOne(ctx, sched)
 }
 
+// buildScheduleInput validates settings while preserving an existing schedule's
+// owner and channel.
+func buildScheduleInput(requestedBy string, input WriteInput, existing *repository.DownloadSchedule) (*repository.ScheduleInput, repository.ScheduleFilterInput, error) {
+	if err := validateFilterConsistency(input); err != nil {
+		return nil, repository.ScheduleFilterInput{}, err
+	}
+	recordingSettings := normalizeRecordingSettings(input.RecordingType, input.Quality, input.ForceH264, existing)
+	var requestedFrom *string
+	if existing != nil {
+		requestedBy = existing.RequestedBy
+		input.BroadcasterID = existing.BroadcasterID
+		requestedFrom = existing.RequestedFrom
+	}
+	return &repository.ScheduleInput{
+			BroadcasterID:    input.BroadcasterID,
+			RequestedBy:      requestedBy,
+			RequestedFrom:    requestedFrom,
+			RecordingType:    recordingSettings.RecordingType,
+			Quality:          recordingSettings.Quality,
+			ForceH264:        recordingSettings.ForceH264,
+			HasMinViewers:    input.HasMinViewers,
+			MinViewers:       input.MinViewers,
+			HasCategories:    input.HasCategories,
+			HasTags:          input.HasTags,
+			IsDeleteRediff:   input.IsDeleteRediff,
+			TimeBeforeDelete: input.TimeBeforeDelete,
+			IsDisabled:       input.IsDisabled,
+		}, repository.ScheduleFilterInput{
+			CategoryIDs: input.CategoryIDs,
+			TagIDs:      input.TagIDs,
+		}, nil
+}
+
 // Update edits an existing schedule. Preserves broadcaster_id and
 // requested_by from the stored row — a change to either would move
 // schedule ownership, which we forbid. Category/tag sets get replaced
 // to match the input.
-func (s *Service) Update(ctx context.Context, callerID string, callerIsOwner bool, id int64, input WriteInput) (*View, error) {
+func (s *Service) Update(ctx context.Context, callerID string, callerCanManageAll bool, id int64, input WriteInput) (*View, error) {
 	existing, err := s.repo.GetSchedule(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if !callerIsOwner && existing.RequestedBy != callerID {
+	if !callerCanManageAll && existing.RequestedBy != callerID {
 		return nil, ErrNotOwner
 	}
-	if err := validateFilterConsistency(input); err != nil {
+	scheduleInput, filters, err := buildScheduleInput(existing.RequestedBy, input, existing)
+	if err != nil {
 		return nil, err
 	}
 	shouldTrigger, err := s.shouldTriggerLiveAfterUpdate(ctx, existing, input)
 	if err != nil {
 		return nil, err
 	}
-	recordingSettings := normalizeRecordingSettings(input.RecordingType, input.Quality, input.ForceH264, existing)
-	updated, err := s.repo.UpdateScheduleWithFilters(ctx, id, &repository.ScheduleInput{
-		BroadcasterID:    existing.BroadcasterID,
-		RequestedBy:      existing.RequestedBy,
-		RecordingType:    recordingSettings.RecordingType,
-		Quality:          recordingSettings.Quality,
-		ForceH264:        recordingSettings.ForceH264,
-		HasMinViewers:    input.HasMinViewers,
-		MinViewers:       input.MinViewers,
-		HasCategories:    input.HasCategories,
-		HasTags:          input.HasTags,
-		IsDeleteRediff:   input.IsDeleteRediff,
-		TimeBeforeDelete: input.TimeBeforeDelete,
-		IsDisabled:       input.IsDisabled,
-	}, repository.ScheduleFilterInput{
-		CategoryIDs: input.CategoryIDs,
-		TagIDs:      input.TagIDs,
-	})
+	updated, err := s.repo.UpdateScheduleWithFilters(ctx, id, scheduleInput, filters)
 	if err != nil {
 		return nil, fmt.Errorf("update schedule: %w", err)
 	}
@@ -262,12 +254,12 @@ func (s *Service) Update(ctx context.Context, callerID string, callerIsOwner boo
 
 // Toggle flips is_disabled in one write. The dashboard's enable/disable
 // checkbox shouldn't have to roundtrip the whole schedule payload.
-func (s *Service) Toggle(ctx context.Context, callerID string, callerIsOwner bool, id int64) (*View, error) {
+func (s *Service) Toggle(ctx context.Context, callerID string, callerCanManageAll bool, id int64) (*View, error) {
 	existing, err := s.repo.GetSchedule(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if !callerIsOwner && existing.RequestedBy != callerID {
+	if !callerCanManageAll && existing.RequestedBy != callerID {
 		return nil, ErrNotOwner
 	}
 	toggled, err := s.repo.ToggleSchedule(ctx, id)
@@ -279,12 +271,12 @@ func (s *Service) Toggle(ctx context.Context, callerID string, callerIsOwner boo
 }
 
 // Delete removes the schedule and cascades to its junction rows via FK.
-func (s *Service) Delete(ctx context.Context, callerID string, callerIsOwner bool, id int64) error {
+func (s *Service) Delete(ctx context.Context, callerID string, callerCanManageAll bool, id int64) error {
 	existing, err := s.repo.GetSchedule(ctx, id)
 	if err != nil {
 		return err
 	}
-	if !callerIsOwner && existing.RequestedBy != callerID {
+	if !callerCanManageAll && existing.RequestedBy != callerID {
 		return ErrNotOwner
 	}
 	if err := s.repo.DeleteSchedule(ctx, id); err != nil {
@@ -294,25 +286,51 @@ func (s *Service) Delete(ctx context.Context, callerID string, callerIsOwner boo
 }
 
 func (s *Service) inflateOne(ctx context.Context, sched *repository.DownloadSchedule) (*View, error) {
-	cats, err := s.repo.ListScheduleCategories(ctx, sched.ID)
+	views, err := s.inflateAll(ctx, []repository.DownloadSchedule{*sched})
 	if err != nil {
-		return nil, fmt.Errorf("inflate categories: %w", err)
+		return nil, err
 	}
-	tags, err := s.repo.ListScheduleTags(ctx, sched.ID)
-	if err != nil {
-		return nil, fmt.Errorf("inflate tags: %w", err)
-	}
-	return &View{Schedule: sched, Categories: cats, Tags: tags}, nil
+	return &views[0], nil
 }
 
 func (s *Service) inflateAll(ctx context.Context, rows []repository.DownloadSchedule) ([]View, error) {
-	out := make([]View, 0, len(rows))
-	for i := range rows {
-		v, err := s.inflateOne(ctx, &rows[i])
-		if err != nil {
-			return nil, err
+	out := make([]View, len(rows))
+	if len(rows) == 0 {
+		return out, nil
+	}
+	ids := make([]int64, len(rows))
+	requesterIDs := make([]string, 0)
+	seen := make(map[string]struct{})
+	for i, row := range rows {
+		ids[i] = row.ID
+		if row.RequestedFrom != nil {
+			if _, ok := seen[*row.RequestedFrom]; !ok {
+				seen[*row.RequestedFrom] = struct{}{}
+				requesterIDs = append(requesterIDs, *row.RequestedFrom)
+			}
 		}
-		out = append(out, *v)
+	}
+	cats, err := s.repo.ListScheduleCategoriesByScheduleIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("inflate categories: %w", err)
+	}
+	tags, err := s.repo.ListScheduleTagsByScheduleIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("inflate tags: %w", err)
+	}
+	var names map[string]string
+	if len(requesterIDs) > 0 {
+		names, err = s.repo.ListUserDisplayNames(ctx, requesterIDs)
+		if err != nil {
+			return nil, fmt.Errorf("inflate requester names: %w", err)
+		}
+	}
+	for i := range rows {
+		row := &rows[i]
+		out[i] = View{Schedule: row, Categories: cats[row.ID], Tags: tags[row.ID]}
+		if row.RequestedFrom != nil {
+			out[i].RequestedFromName = names[*row.RequestedFrom]
+		}
 	}
 	return out, nil
 }

@@ -116,6 +116,12 @@ export function ScheduleRow({
 								{new Date(schedule.last_triggered_at).toLocaleString()}
 							</>
 						)}
+						{schedule.requested_from_name && (
+							<>
+								{" · "}
+								{t("schedules.requested_by")}: {schedule.requested_from_name}
+							</>
+						)}
 					</div>
 				</div>
 				{/* Status accent: a flat bar across the bottom of this segment,

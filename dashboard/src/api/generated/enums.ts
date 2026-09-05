@@ -27,6 +27,13 @@ export const RoleEnum = {
   owner: "owner",
 } as const;
 
+/** ScheduleRequestStatus is the request lifecycle enum exposed to API clients. */
+export const ScheduleRequestStatusEnum = {
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+} as const;
+
 /**
  * ServerMode is the wire enum for the EventSub delivery mode, surfaced on the
  * config response DTOs so trpcgo emits an "off" | "poll" | "direct" | "relay"

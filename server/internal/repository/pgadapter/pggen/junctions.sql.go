@@ -10,20 +10,6 @@ import (
 	"time"
 )
 
-const addVideoRequest = `-- name: AddVideoRequest :exec
-INSERT INTO video_requests (video_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
-`
-
-type AddVideoRequestParams struct {
-	VideoID int64  `json:"video_id"`
-	UserID  string `json:"user_id"`
-}
-
-func (q *Queries) AddVideoRequest(ctx context.Context, arg AddVideoRequestParams) error {
-	_, err := q.db.Exec(ctx, addVideoRequest, arg.VideoID, arg.UserID)
-	return err
-}
-
 const closeOpenVideoCategorySpans = `-- name: CloseOpenVideoCategorySpans :exec
 UPDATE video_category_spans vcs
    SET ended_at = $1::timestamptz,
@@ -252,70 +238,6 @@ func (q *Queries) ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, e
 	for rows.Next() {
 		var i Tag
 		if err := rows.Scan(&i.ID, &i.Name, &i.CreatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVideoRequestsForUser = `-- name: ListVideoRequestsForUser :many
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.deletion_kind, v.delete_requested_at FROM videos v
-INNER JOIN video_requests vr ON vr.video_id = v.id
-WHERE vr.user_id = $1 AND v.deleted_at IS NULL
-ORDER BY vr.requested_at DESC
-LIMIT $2 OFFSET $3
-`
-
-type ListVideoRequestsForUserParams struct {
-	UserID string `json:"user_id"`
-	Limit  int32  `json:"limit"`
-	Offset int32  `json:"offset"`
-}
-
-func (q *Queries) ListVideoRequestsForUser(ctx context.Context, arg ListVideoRequestsForUserParams) ([]Video, error) {
-	rows, err := q.db.Query(ctx, listVideoRequestsForUser, arg.UserID, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Video{}
-	for rows.Next() {
-		var i Video
-		if err := rows.Scan(
-			&i.ID,
-			&i.JobID,
-			&i.Filename,
-			&i.DisplayName,
-			&i.Status,
-			&i.Quality,
-			&i.BroadcasterID,
-			&i.StreamID,
-			&i.ViewerCount,
-			&i.Language,
-			&i.DurationSeconds,
-			&i.SizeBytes,
-			&i.Thumbnail,
-			&i.Error,
-			&i.StartDownloadAt,
-			&i.DownloadedAt,
-			&i.DeletedAt,
-			&i.RecordingType,
-			&i.ForceH264,
-			&i.Title,
-			&i.CompletionKind,
-			&i.SelectedQuality,
-			&i.SelectedFps,
-			&i.Truncated,
-			&i.TriggerScheduleID,
-			&i.RetentionSourceScheduleID,
-			&i.RetentionWindowHours,
-			&i.DeletionKind,
-			&i.DeleteRequestedAt,
-		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
