@@ -1,17 +1,17 @@
 ---
-type Seg = { t: string; code?: boolean; emph?: boolean };
-type Row = { axis: string; rolled: Seg[]; replayvod: Seg[] };
+type Seg = { t: string; code?: boolean };
+type Row = { axis: string; rolled: Seg[]; replayvod: string };
 
 const rows: Row[] = [
   {
     axis: 'Trigger',
     rolled: [{ t: '30s polling or a minute-cron on the helix API' }],
-    replayvod: [{ t: 'EventSub', emph: true }, { t: ' webhook, ~4s lag' }],
+    replayvod: 'EventSub webhook, ~4s lag',
   },
   {
     axis: 'Resume after disconnect',
     rolled: [{ t: 'ffmpeg', code: true }, { t: ' restarts from byte 0' }],
-    replayvod: [{ t: 'Resumes from the last good chunk' }],
+    replayvod: 'Resumes from the last good chunk',
   },
   {
     axis: 'Per-channel rules',
@@ -20,17 +20,17 @@ const rows: Row[] = [
       { t: 'find -mtime +N -delete', code: true },
       { t: ' to clean up' },
     ],
-    replayvod: [{ t: 'Quality, category, tags, viewer floor, ' }, { t: 'retention window', emph: true }],
+    replayvod: 'Quality, category, tags, viewer floor, retention window',
   },
   {
     axis: 'Metadata',
     rolled: [{ t: 'Filename, plus a JSON sidecar you remember to write' }],
-    replayvod: [{ t: 'Title, category, viewers, language, thumbnails' }],
+    replayvod: 'Title, category, viewers, language, thumbnails',
   },
   {
     axis: 'Visibility',
     rolled: [{ t: 'tail -f', code: true }, { t: ' the journal and hope' }],
-    replayvod: [{ t: 'Tagged event log, live job progress', emph: true }],
+    replayvod: 'Tagged event log, live job progress',
   },
 ];
 ---
@@ -76,11 +76,7 @@ const rows: Row[] = [
                   ),
                 )}
               </div>
-              <div class="text-fg md:border-l md:border-border-soft md:pl-8">
-                {row.replayvod.map((s) =>
-                  s.emph ? <strong class="font-semibold text-fg">{s.t}</strong> : <span>{s.t}</span>,
-                )}
-              </div>
+              <div class="text-fg md:border-l md:border-border-soft md:pl-8">{row.replayvod}</div>
             </div>
           </div>
         ))
