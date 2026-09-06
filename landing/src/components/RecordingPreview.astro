@@ -83,8 +83,12 @@ const levels = (row: number) =>
   .recording-preview {
     width: 100%;
     min-width: 0;
-    max-width: 650px;
-    margin: 0 auto;
+  }
+  @media (min-width: 64rem) {
+    .recording-preview {
+      max-width: 600px;
+      margin-inline-start: auto;
+    }
   }
   .instance-address,
   .stream-heading,
