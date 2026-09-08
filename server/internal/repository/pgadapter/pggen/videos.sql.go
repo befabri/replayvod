@@ -1621,6 +1621,54 @@ func (q *Queries) StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusR
 	return items, nil
 }
 
+const statisticsHistory = `-- name: StatisticsHistory :many
+SELECT
+    status,
+    completion_kind,
+    (deleted_at IS NOT NULL)::BOOLEAN AS removed,
+    COUNT(*) AS count
+FROM videos
+WHERE status IN ('DONE', 'FAILED')
+GROUP BY status, completion_kind, (deleted_at IS NOT NULL)
+`
+
+type StatisticsHistoryRow struct {
+	Status         string `json:"status"`
+	CompletionKind string `json:"completion_kind"`
+	Removed        bool   `json:"removed"`
+	Count          int64  `json:"count"`
+}
+
+// Terminal recordings bucketed for the download-history tabs: by status, by
+// completion kind, and by whether the media is still on disk. Cancelled runs
+// are FAILED rows carrying completion_kind 'cancelled', so the SQL stays a
+// plain group-by and the outcome vocabulary is folded in Go, where the rule
+// lives once.
+func (q *Queries) StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow, error) {
+	rows, err := q.db.Query(ctx, statisticsHistory)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []StatisticsHistoryRow{}
+	for rows.Next() {
+		var i StatisticsHistoryRow
+		if err := rows.Scan(
+			&i.Status,
+			&i.CompletionKind,
+			&i.Removed,
+			&i.Count,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const statisticsTotals = `-- name: StatisticsTotals :one
 SELECT
     COUNT(*) FILTER (WHERE status = 'DONE')::BIGINT AS total,

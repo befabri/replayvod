@@ -461,6 +461,29 @@ const (
 	CompletionKindCancelled = "cancelled"
 )
 
+// VideoOutcome enumerates how a terminal recording ended, which is the split
+// the download history presents. It is not a stored column: status says whether
+// the pipeline succeeded and completion_kind says whether the operator stopped
+// it, and only together do they separate a failure from a cancellation.
+const (
+	VideoOutcomeCompleted = "completed"
+	VideoOutcomeFailed    = "failed"
+	VideoOutcomeCancelled = "cancelled"
+)
+
+// ClassifyVideoOutcome folds a terminal row's status and completion kind into
+// one VideoOutcome. Keep in lockstep with the Outcome predicate in
+// videos_page_sql.go, which expresses the same rule as SQL.
+func ClassifyVideoOutcome(status, completionKind string) string {
+	if status != VideoStatusFailed {
+		return VideoOutcomeCompleted
+	}
+	if completionKind == CompletionKindCancelled {
+		return VideoOutcomeCancelled
+	}
+	return VideoOutcomeFailed
+}
+
 // DeletionKind enumerates the values of videos.deletion_kind, set when a
 // recording is tombstoned. Pinned to constants so the retention sweep and the
 // manual-delete handler don't drift on literals.
@@ -810,6 +833,17 @@ type VideoStatsByStatus struct {
 	Count  int64
 }
 
+// VideoStatsHistoryBucket is one group of the download-history counts: terminal
+// recordings by status, completion kind and tombstone state. Callers fold these
+// into an outcome vocabulary; the query deliberately does not, so the rule that
+// a cancelled run is a FAILED row lives in Go rather than in two dialects.
+type VideoStatsHistoryBucket struct {
+	Status         string
+	CompletionKind string
+	Removed        bool
+	Count          int64
+}
+
 // RetentionVideo is a terminal, still-present recording with a snapshotted
 // retention window. DONE recordings plus FAILED rows that produced a partial or
 // cancelled artifact can own reclaimable objects. DownloadedAt and
@@ -865,6 +899,12 @@ type ListVideosOpts struct {
 	// started watching yet. A watch-later-only row with no watched_at timestamp
 	// still counts as unwatched.
 	UnwatchedOnly bool
+	// Outcome narrows terminal rows to one download outcome: "completed" is a
+	// DONE recording, "failed" a run that broke, "cancelled" a run the operator
+	// stopped (a FAILED row carrying completion_kind 'cancelled'). Empty means
+	// every outcome. Keeping the mapping here is what lets a caller ask for
+	// failures without knowing how a cancellation is stored.
+	Outcome string // "" | "completed" | "failed" | "cancelled"
 	// TerminalOnly narrows the result to terminal lifecycle rows (DONE/FAILED).
 	// History uses this with Scope="all" so active PENDING/RUNNING recordings
 	// stay on the Downloads surface instead of leaking into the audit log.

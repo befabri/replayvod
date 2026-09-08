@@ -1733,6 +1733,53 @@ func (q *Queries) StatisticsChannels(ctx context.Context) (int64, error) {
 	return channels, err
 }
 
+const statisticsHistory = `-- name: StatisticsHistory :many
+SELECT
+    status,
+    completion_kind,
+    CAST((deleted_at IS NOT NULL) AS INTEGER) AS removed,
+    CAST(COUNT(*) AS INTEGER) AS count
+FROM videos
+WHERE status IN ('DONE', 'FAILED')
+GROUP BY status, completion_kind, (deleted_at IS NOT NULL)
+`
+
+type StatisticsHistoryRow struct {
+	Status         string `json:"status"`
+	CompletionKind string `json:"completion_kind"`
+	Removed        int64  `json:"removed"`
+	Count          int64  `json:"count"`
+}
+
+// See queries/postgres/videos.sql for why this stays a plain group-by.
+func (q *Queries) StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow, error) {
+	rows, err := q.db.QueryContext(ctx, statisticsHistory)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []StatisticsHistoryRow{}
+	for rows.Next() {
+		var i StatisticsHistoryRow
+		if err := rows.Scan(
+			&i.Status,
+			&i.CompletionKind,
+			&i.Removed,
+			&i.Count,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const statisticsIncomplete = `-- name: StatisticsIncomplete :one
 SELECT CAST(COUNT(*) AS INTEGER) AS incomplete
 FROM videos
@@ -1803,6 +1850,7 @@ func (q *Queries) StatisticsTotalsByBroadcaster(ctx context.Context, broadcaster
 }
 
 const statisticsTotalsDoneOnly = `-- name: StatisticsTotalsDoneOnly :one
+
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,
     CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
@@ -1816,6 +1864,13 @@ type StatisticsTotalsDoneOnlyRow struct {
 	TotalDuration float64 `json:"total_duration"`
 }
 
+// StatisticsTotals is split across atomic queries instead of one
+// combined SELECT. The combined form (with CASE WHEN aggregates in
+// a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
+// that truncates trailing chars off subsequent query consts. The
+// adapter combines these rows into a single VideoStatsTotals struct.
+// Postgres still uses the single-query form; see
+// queries/postgres/videos.sql.
 func (q *Queries) StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error) {
 	row := q.db.QueryRowContext(ctx, statisticsTotalsDoneOnly)
 	var i StatisticsTotalsDoneOnlyRow

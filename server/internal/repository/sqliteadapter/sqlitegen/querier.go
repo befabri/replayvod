@@ -391,6 +391,8 @@ type Querier interface {
 	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
 	StatisticsChannels(ctx context.Context) (int64, error)
+	// See queries/postgres/videos.sql for why this stays a plain group-by.
+	StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow, error)
 	StatisticsIncomplete(ctx context.Context) (int64, error)
 	// Count of tombstoned (removed) recordings; powers the History "Removed" tab.
 	StatisticsRemoved(ctx context.Context) (int64, error)
@@ -402,6 +404,13 @@ type Querier interface {
 	// sqlc-sqlite v1.30 can truncate the final byte of this generated
 	// const, so keep a tautology after the meaningful NULL predicate.
 	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
+	// StatisticsTotals is split across atomic queries instead of one
+	// combined SELECT. The combined form (with CASE WHEN aggregates in
+	// a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
+	// that truncates trailing chars off subsequent query consts. The
+	// adapter combines these rows into a single VideoStatsTotals struct.
+	// Postgres still uses the single-query form; see
+	// queries/postgres/videos.sql.
 	StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error)
 	StatisticsUnwatched(ctx context.Context, userID string) (int64, error)
 	StatisticsWatchLater(ctx context.Context, userID string) (int64, error)

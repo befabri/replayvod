@@ -338,6 +338,28 @@ func (a *SQLiteAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.Vi
 	return out, nil
 }
 
+func (a *SQLiteAdapter) VideoStatsHistory(ctx context.Context) ([]repository.VideoStatsHistoryBucket, error) {
+	rows, err := a.queries.StatisticsHistory(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite video stats history: %w", err)
+	}
+	out := make([]repository.VideoStatsHistoryBucket, len(rows))
+	for i, r := range rows {
+		out[i] = repository.VideoStatsHistoryBucket{
+			Status:         r.Status,
+			CompletionKind: r.CompletionKind,
+			Removed:        r.Removed != 0,
+			Count:          r.Count,
+		}
+	}
+	return out, nil
+}
+
+// VideoStatsTotals issues four atomic aggregate queries and combines
+// them. The PG path uses one SELECT with FILTER clauses; sqlc's
+// SQLite engine miscompiles that shape (truncates the const string
+// and bleeds chars into adjacent queries), so the SQLite side is
+// hand-composed from queries that codegen cleanly.
 func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context, userID string) (*repository.VideoStatsTotals, error) {
 	doneRow, err := a.queries.StatisticsTotalsDoneOnly(ctx)
 	if err != nil {

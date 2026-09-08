@@ -50,6 +50,10 @@ export type VideoOrder = "asc" | "desc";
 // live recordings only; "removed" and "all" power the removed-inclusive history
 // surface. Only video.listPage honours it; grids and search stay active-only.
 export type VideoScope = "active" | "removed" | "all";
+// VideoOutcome splits terminal recordings the way the download history does.
+// The server maps it onto status + completion_kind, so the dashboard never has
+// to know that a cancellation is stored as a failed row.
+export type VideoOutcome = "completed" | "failed" | "cancelled";
 export type VideoListFilters = {
 	quality?: string;
 	broadcasterId?: string;
@@ -64,6 +68,7 @@ export type VideoListFilters = {
 	unwatchedOnly?: boolean;
 	terminalOnly?: boolean;
 	scope?: VideoScope;
+	outcome?: VideoOutcome;
 };
 
 export function useInfiniteVideoPages(
@@ -94,6 +99,7 @@ export function useInfiniteVideoPages(
 				unwatched_only: filters?.unwatchedOnly ?? false,
 				terminal_only: filters?.terminalOnly ?? false,
 				scope: filters?.scope ?? "",
+				outcome: filters?.outcome ?? "",
 			},
 			{
 				getNextPageParam: (lastPage: VideoListPageResponse) =>
@@ -336,6 +342,19 @@ export function useInfiniteVideosByCategory(categoryId: string, limit = 24) {
 					lastPage.next_cursor ?? undefined,
 			},
 		),
+	);
+}
+
+// useHistoryCounts labels the download-history controls. One call covers every
+// tab under either media scope, so switching scope re-labels the tabs without
+// another round trip.
+export function useHistoryCounts() {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.video.historyCounts.queryOptions(undefined, {
+			refetchInterval: 30_000,
+			refetchOnWindowFocus: true,
+		}),
 	);
 }
 

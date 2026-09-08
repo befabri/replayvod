@@ -164,11 +164,21 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 		incomplete = fmt.Sprintf("\n  AND (%s = 0 OR completion_kind = 'partial' OR truncated = 1)", b.phBool(opts.IncompleteOnly))
 	}
 
+	// Outcome resolves the UI's three-way split over two columns: DONE is
+	// completed, and a FAILED row is a cancellation or a failure depending on
+	// completion_kind (NOT NULL since migration 028, so no COALESCE).
+	outcome := fmt.Sprintf(
+		"\n  AND (%s = '' OR (%s = 'completed' AND status = 'DONE')"+
+			" OR (%s = 'failed' AND status = 'FAILED' AND completion_kind <> 'cancelled')"+
+			" OR (%s = 'cancelled' AND status = 'FAILED' AND completion_kind = 'cancelled'))",
+		b.phText(opts.Outcome), b.phText(opts.Outcome), b.phText(opts.Outcome), b.phText(opts.Outcome),
+	)
+
 	terminal := fmt.Sprintf("\n  AND (NOT %s OR status IN ('DONE', 'FAILED'))", b.phBool(opts.TerminalOnly))
 	watchLater := b.watchLaterSQL(opts)
 	unwatched := b.unwatchedSQL(opts)
 
-	return scope + quality + broadcaster + language + source + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + terminal + watchLater + unwatched
+	return scope + quality + broadcaster + language + source + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + outcome + terminal + watchLater + unwatched
 }
 
 func (b *videoPageBuilder) watchLaterSQL(opts ListVideosOpts) string {

@@ -280,6 +280,25 @@ SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL;
 -- name: StatisticsByStatus :many
 SELECT status, COUNT(*) AS count FROM videos WHERE deleted_at IS NULL GROUP BY status;
 
+-- name: StatisticsHistory :many
+-- See queries/postgres/videos.sql for why this stays a plain group-by.
+SELECT
+    status,
+    completion_kind,
+    CAST((deleted_at IS NOT NULL) AS INTEGER) AS removed,
+    CAST(COUNT(*) AS INTEGER) AS count
+FROM videos
+WHERE status IN ('DONE', 'FAILED')
+GROUP BY status, completion_kind, (deleted_at IS NOT NULL);
+
+-- StatisticsTotals is split across atomic queries instead of one
+-- combined SELECT. The combined form (with CASE WHEN aggregates in
+-- a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
+-- that truncates trailing chars off subsequent query consts. The
+-- adapter combines these rows into a single VideoStatsTotals struct.
+-- Postgres still uses the single-query form; see
+-- queries/postgres/videos.sql.
+
 -- name: StatisticsTotalsDoneOnly :one
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,

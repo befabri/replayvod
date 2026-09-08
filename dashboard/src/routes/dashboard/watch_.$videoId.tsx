@@ -156,7 +156,7 @@ function WatchPage() {
 				</p>
 				<Link
 					to="/dashboard/activity/history"
-					search={{ filter: "removed" }}
+					search={{ outcome: "all", media: "removed" }}
 					className="inline-block mt-4 text-link hover:underline"
 				>
 					{translate("watch.back_to_history")}
@@ -221,7 +221,7 @@ function WatchPage() {
 								) : null}
 								<Link
 									to="/dashboard/activity/history"
-									search={{ filter: "removed" }}
+									search={{ outcome: "all", media: "removed" }}
 									className="text-xs text-link hover:underline"
 								>
 									{translate("watch.view_history")}

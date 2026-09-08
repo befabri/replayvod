@@ -142,6 +142,50 @@ func (s *Service) Stats(ctx context.Context, userID string) (*Statistics, error)
 	return &Statistics{Totals: totals, ByStatus: buckets}, nil
 }
 
+// HistoryCount is one outcome's tally, split by whether the recording's media
+// is still on disk.
+type HistoryCount struct {
+	OnDisk  int64
+	Removed int64
+}
+
+// HistoryCounts tallies every terminal recording for the download-history tabs.
+// All is the three outcomes together, so the caller never has to add them up
+// and can label a tab under either media scope from one round trip.
+type HistoryCounts struct {
+	All       HistoryCount
+	Completed HistoryCount
+	Failed    HistoryCount
+	Cancelled HistoryCount
+}
+
+func (s *Service) HistoryCounts(ctx context.Context) (*HistoryCounts, error) {
+	buckets, err := s.repo.VideoStatsHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := &HistoryCounts{}
+	for _, b := range buckets {
+		var outcome *HistoryCount
+		switch repository.ClassifyVideoOutcome(b.Status, b.CompletionKind) {
+		case repository.VideoOutcomeFailed:
+			outcome = &out.Failed
+		case repository.VideoOutcomeCancelled:
+			outcome = &out.Cancelled
+		default:
+			outcome = &out.Completed
+		}
+		for _, c := range []*HistoryCount{&out.All, outcome} {
+			if b.Removed {
+				c.Removed += b.Count
+			} else {
+				c.OnDisk += b.Count
+			}
+		}
+	}
+	return out, nil
+}
+
 func (s *Service) StatsByBroadcaster(ctx context.Context, broadcasterID string) (*repository.VideoStatsTotals, error) {
 	return s.repo.VideoStatsTotalsByBroadcaster(ctx, broadcasterID)
 }
@@ -188,6 +232,9 @@ func (s *Service) Parts(ctx context.Context, videoID int64) ([]repository.VideoP
 // grouped by video ID. Used by the active-downloads snapshot so it doesn't
 // fan out one Parts query per running recording on every dashboard poll.
 func (s *Service) PartsForVideos(ctx context.Context, videoIDs []int64) (map[int64][]repository.VideoPart, error) {
+	if len(videoIDs) == 0 {
+		return nil, nil
+	}
 	parts, err := s.repo.ListVideoPartsForVideos(ctx, videoIDs)
 	if err != nil {
 		return nil, err

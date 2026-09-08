@@ -320,6 +320,23 @@ func (a *PGAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoS
 	return out, nil
 }
 
+func (a *PGAdapter) VideoStatsHistory(ctx context.Context) ([]repository.VideoStatsHistoryBucket, error) {
+	rows, err := a.queries.StatisticsHistory(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pg video stats history: %w", err)
+	}
+	out := make([]repository.VideoStatsHistoryBucket, len(rows))
+	for i, r := range rows {
+		out[i] = repository.VideoStatsHistoryBucket{
+			Status:         r.Status,
+			CompletionKind: r.CompletionKind,
+			Removed:        r.Removed,
+			Count:          r.Count,
+		}
+	}
+	return out, nil
+}
+
 func (a *PGAdapter) VideoStatsTotals(ctx context.Context, userID string) (*repository.VideoStatsTotals, error) {
 	row, err := a.queries.StatisticsTotals(ctx, userID)
 	if err != nil {

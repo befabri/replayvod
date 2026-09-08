@@ -412,3 +412,109 @@ func testDeleteOldRecordingWebhookDeliveriesPrunesTerminalKeepsActive(t *testing
 		t.Fatalf("recent terminal row was pruned even though updated_at is after cutoff")
 	}
 }
+
+func testVideoHistoryOutcomeCounts(t *testing.T, h Harness) {
+	ctx := context.Background()
+	repo := h.Repo()
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
+		BroadcasterID: "bc-outcome", BroadcasterLogin: "outcome", BroadcasterName: "Outcome",
+	}); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	mk := func(jobID string) *repository.Video {
+		v, err := repo.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: "Outcome", Status: repository.VideoStatusPending,
+			Quality: repository.QualityHigh, BroadcasterID: "bc-outcome", Language: "en",
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", jobID, err)
+		}
+		return v
+	}
+	done := func(jobID string) *repository.Video {
+		v := mk(jobID)
+		if err := repo.MarkVideoDone(ctx, v.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
+			t.Fatalf("mark done %s: %v", jobID, err)
+		}
+		return v
+	}
+	failed := func(jobID, kind string) *repository.Video {
+		v := mk(jobID)
+		if err := repo.MarkVideoFailed(ctx, v.ID, "seed", kind, false); err != nil {
+			t.Fatalf("mark failed %s: %v", jobID, err)
+		}
+		return v
+	}
+	remove := func(v *repository.Video) *repository.Video {
+		if err := repo.SoftDeleteVideo(ctx, v.ID, repository.DeletionKindManual); err != nil {
+			t.Fatalf("soft delete %d: %v", v.ID, err)
+		}
+		return v
+	}
+	// One live and one tombstoned row per outcome, plus a PENDING row that no
+	// history surface may ever count.
+	done("job-done-live")
+	remove(done("job-done-gone"))
+	failed("job-failed-live", repository.CompletionKindComplete)
+	remove(failed("job-failed-gone", repository.CompletionKindPartial))
+	failed("job-cancel-live", repository.CompletionKindCancelled)
+	remove(failed("job-cancel-gone", repository.CompletionKindCancelled))
+	mk("job-pending")
+
+	buckets, err := repo.VideoStatsHistory(ctx)
+	if err != nil {
+		t.Fatalf("VideoStatsHistory: %v", err)
+	}
+	type tally struct{ onDisk, removed int64 }
+	got := map[string]tally{}
+	for _, b := range buckets {
+		if b.Status != repository.VideoStatusDone && b.Status != repository.VideoStatusFailed {
+			t.Fatalf("history buckets must stay terminal, got status %q", b.Status)
+		}
+		outcome := repository.ClassifyVideoOutcome(b.Status, b.CompletionKind)
+		c := got[outcome]
+		if b.Removed {
+			c.removed += b.Count
+		} else {
+			c.onDisk += b.Count
+		}
+		got[outcome] = c
+	}
+	want := map[string]tally{
+		repository.VideoOutcomeCompleted: {onDisk: 1, removed: 1},
+		repository.VideoOutcomeFailed:    {onDisk: 1, removed: 1},
+		repository.VideoOutcomeCancelled: {onDisk: 1, removed: 1},
+	}
+	for outcome, w := range want {
+		if got[outcome] != w {
+			t.Fatalf("counts for %q = %+v, want %+v", outcome, got[outcome], w)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("history counts covered %d outcomes, want %d: %+v", len(got), len(want), got)
+	}
+
+	// The same rule, asked of the list query. Each outcome must return exactly
+	// the rows its bucket counted, in both media scopes.
+	for _, tc := range []struct {
+		outcome string
+		live    string
+		gone    string
+	}{
+		{repository.VideoOutcomeCompleted, "job-done-live", "job-done-gone"},
+		{repository.VideoOutcomeFailed, "job-failed-live", "job-failed-gone"},
+		{repository.VideoOutcomeCancelled, "job-cancel-live", "job-cancel-gone"},
+	} {
+		opts := repository.ListVideosOpts{
+			Sort: "created_at", Order: "desc", Limit: 10,
+			TerminalOnly: true, Outcome: tc.outcome, Scope: "all",
+		}
+		assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, repo, opts), []string{tc.gone, tc.live})
+
+		opts.Scope = "active"
+		assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, repo, opts), []string{tc.live})
+
+		opts.Scope = "removed"
+		assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, repo, opts), []string{tc.gone})
+	}
+}

@@ -33,11 +33,15 @@ vi.mock("@tanstack/react-router", async () => {
 		Link: ({
 			children,
 			params: _params,
-			search: _search,
+			search,
 			to: _to,
 			...props
 		}: LinkProps) =>
-			React.createElement("a", { href: "#", ...props }, children),
+			React.createElement(
+				"a",
+				{ href: "#", "data-search": JSON.stringify(search), ...props },
+				children,
+			),
 	};
 });
 
@@ -228,7 +232,55 @@ describe("VideoCard stored preview thumbnail", () => {
 	});
 });
 
-describe("VideoCard archives", () => {
+describe("VideoCard status and playability", () => {
+	it("marks a running recording as downloading, hides the play overlay, and leads to the queue", () => {
+		render(
+			<VideoCard video={video({ status: "RUNNING" })} canManage={false} />,
+		);
+
+		expect(screen.getByTestId("video-card-status").textContent).toBe(
+			"videos.status.RUNNING",
+		);
+		expect(screen.queryByTestId("video-card-play")).toBeNull();
+		expect(screen.getByLabelText("videos.open_downloads")).toBeTruthy();
+		expect(screen.queryByLabelText("videos.watch_recording")).toBeNull();
+	});
+
+	it("marks a failed recording and leads to its history entry", () => {
+		render(
+			<VideoCard
+				video={video({ status: "FAILED", truncated: false })}
+				canManage={false}
+			/>,
+		);
+
+		expect(screen.getByTestId("video-card-status").textContent).toBe(
+			"videos.status.FAILED",
+		);
+		expect(screen.queryByTestId("video-card-play")).toBeNull();
+		expect(screen.getByLabelText("videos.open_history")).toBeTruthy();
+	});
+
+	it("labels a cancelled recording as cancelled rather than failed", () => {
+		render(
+			<VideoCard
+				video={video({ status: "FAILED", completion_kind: "cancelled" })}
+				canManage={false}
+			/>,
+		);
+
+		expect(screen.getByTestId("video-card-status").textContent).toBe(
+			"videos.status.CANCELLED",
+		);
+		expect(
+			JSON.parse(
+				screen
+					.getByLabelText("videos.open_history")
+					.getAttribute("data-search") ?? "{}",
+			),
+		).toEqual({ outcome: "cancelled", media: "any" });
+	});
+
 	it("marks an archive and shows the date its stream aired", () => {
 		render(
 			<VideoCard
@@ -262,5 +314,13 @@ describe("VideoCard archives", () => {
 		expect(screen.getByTestId("video-card-date").textContent).toBe(
 			new Date("2026-01-01T12:00:00Z").toLocaleDateString(),
 		);
+	});
+
+	it("keeps the play overlay and no status badge on a finished recording", () => {
+		render(<VideoCard video={video({ status: "DONE" })} canManage={false} />);
+
+		expect(screen.getByTestId("video-card-play")).toBeTruthy();
+		expect(screen.queryByTestId("video-card-status")).toBeNull();
+		expect(screen.getByLabelText("videos.watch_recording")).toBeTruthy();
 	});
 });

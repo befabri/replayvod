@@ -454,6 +454,27 @@ export interface GetByLoginInput {
 }
 
 /**
+ * HistoryCountsResponse labels the download-history controls: one entry per
+ * outcome tab, each split by media scope so switching scope re-labels the tabs
+ * without another round trip. All is the three outcomes together.
+ */
+export interface HistoryCountsResponse {
+  all: HistoryScopeCounts;
+  completed: HistoryScopeCounts;
+  failed: HistoryScopeCounts;
+  cancelled: HistoryScopeCounts;
+}
+
+/**
+ * HistoryScopeCounts splits one outcome by whether the recording's media is
+ * still on disk.
+ */
+export interface HistoryScopeCounts {
+  on_disk: number;
+  removed: number;
+}
+
+/**
  * InviteCreatedInfo includes the redemption URL, which cannot be retrieved
  * again.
  */
@@ -1227,6 +1248,13 @@ export interface VideoListPageInput {
   duration?: string;
   size?: string;
   window?: string;
+  /**
+   * Outcome splits terminal rows the way the download history does:
+   * "completed", "failed", or "cancelled" for a run the operator stopped.
+   * The server owns the status + completion_kind mapping, so a client asking
+   * for failures never has to know a cancellation is stored as FAILED.
+   */
+  outcome?: string;
   incomplete_only?: boolean;
   watch_later_only?: boolean;
   unwatched_only?: boolean;
@@ -1393,6 +1421,7 @@ export interface VideoResponse {
    * to avoid N+1 queries on grid views.
    */
   parts?: VideoPartResponse[];
+  has_media?: boolean;
   /**
    * PlaybackArtifact is populated only by GetByID. Ready means the watch page
    * can use /api/v1/videos/{id}/playback/stream; building/failed/unavailable
@@ -1563,6 +1592,7 @@ type AppRouterRecord = {
     downloadCapacity: $Query<void, DownloadCapacityResponse>;
     downloadProgress: $Subscription<DownloadProgressInput, ProgressEvent>;
     getById: $Query<VideoGetByIDInput, VideoResponse>;
+    historyCounts: $Query<void, HistoryCountsResponse>;
     list: $Query<VideoListInput, VideoResponse[]>;
     listPage: $Query<VideoListPageInput, VideoListPageResponse>;
     search: $Query<VideoSearchInput, VideoResponse[]>;

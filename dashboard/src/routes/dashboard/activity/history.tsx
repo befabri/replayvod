@@ -6,101 +6,82 @@ import { TitledLayout } from "@/components/layout/titled-layout";
 import { DataTable } from "@/components/ui/data-table";
 import { FilterTabs } from "@/components/ui/filter-tabs";
 import { Pager } from "@/components/ui/pager";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
+	useHistoryCounts,
 	useInfiniteVideoPages,
-	useStatistics,
 	type VideoOrder,
-	type VideoScope,
 	type VideoSort,
 } from "@/features/videos";
 import {
 	HISTORY_SORT_BY_COLUMN,
-	type HistoryFilter,
+	type HistoryMedia,
+	type HistoryOutcome,
+	type HistoryView,
 	historyColumns,
 } from "@/features/videos/components/activityColumns";
+import {
+	HISTORY_MEDIA_SCOPES,
+	HISTORY_OUTCOMES,
+	historyEmptyKey,
+	historyFilters,
+	historyTabCounts,
+	isHistoryMedia,
+	validateHistorySearch,
+} from "@/features/videos/history";
 import { useCanManageVideos } from "@/features/videos/permissions";
 
 const PAGE_SIZE = 50;
-const FILTERS: HistoryFilter[] = ["all", "failed", "removed"];
-
-function isFilter(value: unknown): value is HistoryFilter {
-	return value === "all" || value === "failed" || value === "removed";
-}
-
-// Each filter maps to a (status, scope) pair. "all" is every recording incl
-// tombstones; "failed" is live failures; "removed" is the tombstoned set.
-const FILTER_QUERY: Record<
-	HistoryFilter,
-	{ status?: string; scope: VideoScope; terminalOnly: boolean }
-> = {
-	all: { status: undefined, scope: "all", terminalOnly: true },
-	failed: { status: "FAILED", scope: "active", terminalOnly: true },
-	removed: { status: undefined, scope: "removed", terminalOnly: true },
-};
-
-const EMPTY_KEY: Record<HistoryFilter, string> = {
-	all: "history.empty_all",
-	failed: "history.empty_failed",
-	removed: "history.empty_removed",
-};
-
 // Newest first by default. The "when" column maps to the server's history_when
 // sort (see HISTORY_SORT_BY_COLUMN).
 const DEFAULT_SORTING: SortingState = [{ id: "when", desc: true }];
 
 type HistoryQueryIdentity = {
-	filter: HistoryFilter;
-	status: string;
-	scope: VideoScope;
-	terminalOnly: boolean;
+	outcome: HistoryOutcome;
+	media: HistoryMedia;
 	sortKey: VideoSort;
 	order: VideoOrder;
 };
 
 function historyQuerySignature(identity: HistoryQueryIdentity): string {
 	return [
-		identity.filter,
-		identity.status,
-		identity.scope,
-		identity.terminalOnly ? "terminal" : "any",
+		identity.outcome,
+		identity.media,
 		identity.sortKey,
 		identity.order,
 	].join("|");
 }
 
 export const Route = createFileRoute("/dashboard/activity/history")({
-	validateSearch: (search: Record<string, unknown>) => ({
-		filter: isFilter(search.filter) ? search.filter : "all",
-	}),
+	validateSearch: validateHistorySearch,
 	component: HistoryPage,
 });
 
 function HistoryPage() {
-	const { filter } = Route.useSearch();
+	const { outcome, media } = Route.useSearch();
 	const navigate = Route.useNavigate();
 	return (
 		<HistoryContent
-			key={filter}
-			filter={filter}
-			onFilterChange={(next) => {
-				void navigate({ search: { filter: next } });
+			key={`${outcome}|${media}`}
+			view={{ outcome, media }}
+			onViewChange={(next) => {
+				void navigate({ search: next });
 			}}
 		/>
 	);
 }
 
 function HistoryContent({
-	filter,
-	onFilterChange,
+	view,
+	onViewChange,
 }: {
-	filter: HistoryFilter;
-	onFilterChange: (next: HistoryFilter) => void;
+	view: HistoryView;
+	onViewChange: (next: HistoryView) => void;
 }) {
 	const { t, i18n } = useTranslation();
 	const [page, setPage] = useState(0);
 	const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
 
-	const { status, scope, terminalOnly } = FILTER_QUERY[filter];
 	// Drive a real server-side sort from the table header. The column id maps to
 	// a VideoSort key; unsortable columns never reach here (enableSorting gates
 	// them), so the fallback is just defensive.
@@ -109,17 +90,10 @@ function HistoryContent({
 		? (HISTORY_SORT_BY_COLUMN[activeSort.id] ?? "created_at")
 		: "created_at";
 	const order: VideoOrder = activeSort && !activeSort.desc ? "asc" : "desc";
-	const querySignature = historyQuerySignature({
-		filter,
-		status: status ?? "",
-		scope,
-		terminalOnly,
-		sortKey,
-		order,
-	});
-	const videos = useInfiniteVideoPages(PAGE_SIZE, status, sortKey, order, {
-		scope,
-		terminalOnly,
+	const querySignature = historyQuerySignature({ ...view, sortKey, order });
+	const videos = useInfiniteVideoPages(PAGE_SIZE, undefined, sortKey, order, {
+		...historyFilters(view),
+		terminalOnly: true,
 	});
 	const loadedPages = videos.data?.pages ?? [];
 	// Resolve the delete permission once for the table; the actions column omits
@@ -127,13 +101,13 @@ function HistoryContent({
 	// that renders null.
 	const canManage = useCanManageVideos();
 	const columns = useMemo(
-		() => historyColumns(t, filter, canManage, i18n.language),
-		[t, filter, canManage, i18n.language],
+		() => historyColumns(t, view, canManage, i18n.language),
+		[t, view, canManage, i18n.language],
 	);
-	const counts = useHistoryCounts();
+	const counts = useHistoryTabCounts(view.media);
 
 	// The async fetchNextPage().then must only advance the page for the exact
-	// query that requested it. Sorting and filter changes both rotate the query
+	// query that requested it. Sorting and view changes both rotate the query
 	// key; a stale completion from the previous key must not mutate the current
 	// paginator.
 	const latestQuerySignature = useRef(querySignature);
@@ -162,7 +136,7 @@ function HistoryContent({
 		!videos.isFetchingNextPage;
 
 	// Cursor pagination: advancing past the loaded pages fetches the next one,
-	// then moves on only if the fetch succeeded and the tab didn't change.
+	// then moves on only if the fetch succeeded and the view didn't change.
 	const goNext = () => {
 		const next = page + 1;
 		if (page < loadedPages.length - 1) {
@@ -186,17 +160,39 @@ function HistoryContent({
 				{t("history.description")}
 			</p>
 
-			<FilterTabs
-				value={filter}
-				onChange={(next) => {
-					onFilterChange(next as HistoryFilter);
-				}}
-				options={FILTERS.map((key) => ({
-					value: key,
-					label: t(`history.filter_${key}`),
-					count: counts[key],
-				}))}
-			/>
+			<div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+				<FilterTabs
+					value={view.outcome}
+					onChange={(next) => {
+						onViewChange({ ...view, outcome: next as HistoryOutcome });
+					}}
+					options={HISTORY_OUTCOMES.map((key) => ({
+						value: key,
+						label: t(`history.outcome_${key}`),
+						count: counts[key],
+					}))}
+				/>
+				<div className="flex items-center gap-2 pb-3">
+					<span className="text-xs text-muted-foreground">
+						{t("history.media_label")}
+					</span>
+					<ToggleGroup
+						value={[view.media]}
+						onValueChange={(next) => {
+							const media = next[0];
+							if (isHistoryMedia(media)) {
+								onViewChange({ ...view, media });
+							}
+						}}
+					>
+						{HISTORY_MEDIA_SCOPES.map((scope) => (
+							<ToggleGroupItem key={scope} value={scope}>
+								{t(`history.scope_${scope}`)}
+							</ToggleGroupItem>
+						))}
+					</ToggleGroup>
+				</div>
+			</div>
 
 			{videos.isLoading && (
 				<div className="mt-6 text-muted-foreground">{t("common.loading")}</div>
@@ -211,14 +207,14 @@ function HistoryContent({
 					<DataTable
 						columns={columns}
 						data={current}
-						emptyMessage={t(EMPTY_KEY[filter])}
+						emptyMessage={t(historyEmptyKey(view))}
 						sorting={sorting}
 						onSortingChange={handleSortingChange}
 						manualSorting
 					/>
 					<Pager
 						page={page}
-						total={counts[filter]}
+						total={counts[view.outcome]}
 						hasNext={canNext}
 						onPrev={() => setPage((p) => Math.max(0, p - 1))}
 						onNext={goNext}
@@ -229,24 +225,12 @@ function HistoryContent({
 	);
 }
 
-// useHistoryCounts derives the per-tab counts from the statistics aggregate.
-// by_status is live-only, so Failed comes from it and All adds the removed
-// count; both are undefined until stats load (the tab then hides its count).
-function useHistoryCounts(): Record<HistoryFilter, number | undefined> {
-	const { data: stats } = useStatistics();
-	return useMemo(() => {
-		if (!stats) {
-			return { all: undefined, failed: undefined, removed: undefined };
-		}
-		const activeTerminal = stats.by_status
-			.filter((b) => b.status === "DONE" || b.status === "FAILED")
-			.reduce((sum, b) => sum + b.count, 0);
-		const failed =
-			stats.by_status.find((b) => b.status === "FAILED")?.count ?? 0;
-		return {
-			all: activeTerminal + stats.removed,
-			failed,
-			removed: stats.removed,
-		};
-	}, [stats]);
+// useHistoryTabCounts labels each outcome tab under the current media scope.
+// The server returns both halves of every outcome, so changing scope re-labels
+// the tabs from cache instead of refetching.
+function useHistoryTabCounts(
+	media: HistoryMedia,
+): Record<HistoryOutcome, number | undefined> {
+	const { data } = useHistoryCounts();
+	return useMemo(() => historyTabCounts(data, media), [data, media]);
 }

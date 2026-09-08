@@ -375,6 +375,7 @@ export const VideoListPageInputSchema = z.object({
   duration: z.enum(["short", "medium", "long", "marathon"]).or(z.literal("")).optional(),
   size: z.enum(["small", "medium", "large"]).or(z.literal("")).optional(),
   window: z.enum(["this_week"]).or(z.literal("")).optional(),
+  outcome: z.enum(["completed", "failed", "cancelled"]).or(z.literal("")).optional().describe("Outcome splits terminal rows the way the download history does:\n\"completed\", \"failed\", or \"cancelled\" for a run the operator stopped.\nThe server owns the status + completion_kind mapping, so a client asking\nfor failures never has to know a cancellation is stored as FAILED."),
   incomplete_only: z.boolean().optional(),
   watch_later_only: z.boolean().optional(),
   unwatched_only: z.boolean().optional(),

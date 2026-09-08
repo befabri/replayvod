@@ -282,6 +282,10 @@ type Repository interface {
 	FinalizeDelete(ctx context.Context, videoID int64, kind string) error
 	CountVideosByStatus(ctx context.Context, status string) (int64, error)
 	VideoStatsByStatus(ctx context.Context) ([]VideoStatsByStatus, error)
+	// VideoStatsHistory returns the terminal recordings grouped by status,
+	// completion kind and tombstone state, which is everything the download
+	// history needs to count its outcome tabs under either media scope.
+	VideoStatsHistory(ctx context.Context) ([]VideoStatsHistoryBucket, error)
 	VideoStatsTotals(ctx context.Context, userID string) (*VideoStatsTotals, error)
 	// VideoStatsTotalsByBroadcaster returns the same totals shape as
 	// VideoStatsTotals but scoped to one broadcaster. Used by the

@@ -11,6 +11,8 @@ import {
 	type VideoResponse,
 } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { videoStatusLabel } from "@/features/videos/labels";
+import { cn } from "@/lib/utils";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
 import { WatchLaterButton } from "./WatchLaterButton";
@@ -69,8 +71,43 @@ function useHoverSnapshots(
 	return { current, prev: prev ?? null };
 }
 
-// One visual bucket for recordings that did not capture the full broadcast;
-// the label names whether it was partial, cancelled, or otherwise truncated.
+// StatusOverlayBadge tells a card that is not playable apart: still
+// downloading, queued, or failed. Finished recordings carry no status badge;
+// the play overlay says it.
+function StatusOverlayBadge({
+	status,
+	completionKind,
+	t,
+}: {
+	status: VideoResponse["status"];
+	completionKind: string;
+	t: TFunction;
+}) {
+	if (status === "DONE") return null;
+	const cancelled = status === "FAILED" && completionKind === "cancelled";
+	const tone =
+		status === "FAILED"
+			? cancelled
+				? "bg-background/78 text-muted-foreground"
+				: "bg-badge-red-bg/85 text-badge-red-fg"
+			: "bg-badge-blue-bg/85 text-badge-blue-fg";
+	return (
+		<span
+			className={cn(
+				"rounded-md px-2 py-0.5 text-xs font-medium backdrop-blur-sm",
+				tone,
+				status === "RUNNING" && "animate-pulse",
+			)}
+			data-testid="video-card-status"
+		>
+			{videoStatusLabel(t, cancelled ? "CANCELLED" : status)}
+		</span>
+	);
+}
+
+// IncompleteOverlayBadge is one visual bucket for recordings that did not
+// capture the full broadcast; the label names whether it was partial,
+// cancelled, or otherwise truncated.
 function IncompleteOverlayBadge({
 	completionKind,
 	truncated,
@@ -273,6 +310,11 @@ export function VideoCard({
 							</span>
 						</ThumbnailOverlay>
 					) : null}
+					<StatusOverlayBadge
+						status={video.status}
+						completionKind={video.completion_kind}
+						t={t}
+					/>
 					<IncompleteOverlayBadge
 						completionKind={video.completion_kind}
 						truncated={video.truncated}
@@ -300,28 +342,57 @@ export function VideoCard({
 						</span>
 					</ThumbnailOverlay>
 				</span>
-				<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-					<div className="flex size-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm opacity-0 transition-opacity duration-150 group-hover/video-card:opacity-100">
-						<PlayIcon weight="fill" className="size-4 translate-x-px" />
+				{video.status === "DONE" ? (
+					<div
+						className="pointer-events-none absolute inset-0 flex items-center justify-center"
+						data-testid="video-card-play"
+					>
+						<div className="flex size-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm opacity-0 transition-opacity duration-150 group-hover/video-card:opacity-100">
+							<PlayIcon weight="fill" className="size-4 translate-x-px" />
+						</div>
 					</div>
-				</div>
+				) : null}
 			</div>
 		</>
 	);
 
+	// Only a finished recording opens the player. A recording still being
+	// downloaded leads to the download queue, a failed one to History where its
+	// error is shown, so every card goes somewhere useful.
+	const mediaLinkClassName =
+		"block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 	const mediaNode =
 		video.status === "DONE" ? (
 			<Link
 				to="/dashboard/watch/$videoId"
 				params={{ videoId: String(video.id) }}
 				search={{ t: undefined }}
-				className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+				className={mediaLinkClassName}
 				aria-label={t("videos.watch_recording", { title: primaryLabel })}
 			>
 				{media}
 			</Link>
+		) : video.status === "FAILED" ? (
+			<Link
+				to="/dashboard/activity/history"
+				search={{
+					outcome:
+						video.completion_kind === "cancelled" ? "cancelled" : "failed",
+					media: "any",
+				}}
+				className={mediaLinkClassName}
+				aria-label={t("videos.open_history", { title: primaryLabel })}
+			>
+				{media}
+			</Link>
 		) : (
-			media
+			<Link
+				to="/dashboard/downloads"
+				className={mediaLinkClassName}
+				aria-label={t("videos.open_downloads", { title: primaryLabel })}
+			>
+				{media}
+			</Link>
 		);
 
 	return (

@@ -273,6 +273,21 @@ SELECT COUNT(*) FROM videos WHERE status = $1 AND deleted_at IS NULL;
 -- name: StatisticsByStatus :many
 SELECT status, COUNT(*) AS count FROM videos WHERE deleted_at IS NULL GROUP BY status;
 
+-- name: StatisticsHistory :many
+-- Terminal recordings bucketed for the download-history tabs: by status, by
+-- completion kind, and by whether the media is still on disk. Cancelled runs
+-- are FAILED rows carrying completion_kind 'cancelled', so the SQL stays a
+-- plain group-by and the outcome vocabulary is folded in Go, where the rule
+-- lives once.
+SELECT
+    status,
+    completion_kind,
+    (deleted_at IS NOT NULL)::BOOLEAN AS removed,
+    COUNT(*) AS count
+FROM videos
+WHERE status IN ('DONE', 'FAILED')
+GROUP BY status, completion_kind, (deleted_at IS NOT NULL);
+
 -- name: StatisticsTotals :one
 -- Library-wide rollups. Total / size / duration restrict to DONE rows
 -- (these are the user-visible numbers in the page subtitle); the two

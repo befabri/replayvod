@@ -434,6 +434,12 @@ type Querier interface {
 	// Tombstone a recording after its objects were deleted.
 	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
+	// Terminal recordings bucketed for the download-history tabs: by status, by
+	// completion kind, and by whether the media is still on disk. Cancelled runs
+	// are FAILED rows carrying completion_kind 'cancelled', so the SQL stays a
+	// plain group-by and the outcome vocabulary is folded in Go, where the rule
+	// lives once.
+	StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow, error)
 	// Library-wide rollups. Total / size / duration restrict to DONE rows
 	// (these are the user-visible numbers in the page subtitle); the two
 	// FILTER-counted columns drive the videos page tab counters and run

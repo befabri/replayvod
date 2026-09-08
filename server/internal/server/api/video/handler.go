@@ -124,7 +124,8 @@ type VideoResponse struct {
 	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
 	// Parts is populated only by GetByID — list endpoints skip it
 	// to avoid N+1 queries on grid views.
-	Parts []VideoPartResponse `json:"parts,omitempty"`
+	Parts    []VideoPartResponse `json:"parts,omitempty"`
+	HasMedia bool                `json:"has_media,omitempty"`
 	// PlaybackArtifact is populated only by GetByID. Ready means the watch page
 	// can use /api/v1/videos/{id}/playback/stream; building/failed/unavailable
 	// keep the client-side part sequencer as the fallback.
@@ -300,10 +301,21 @@ func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repo
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vs)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vs)
 	userStates := h.video.UserStatesByVideoID(ctx, userID, vs)
+	var failedIDs []int64
+	for _, v := range vs {
+		if v.Status == repository.VideoStatusFailed && v.DeletedAt == nil {
+			failedIDs = append(failedIDs, v.ID)
+		}
+	}
+	parts, err := h.video.PartsForVideos(ctx, failedIDs)
+	if err != nil {
+		h.log.Warn("load failed recording media", "error", err)
+	}
 	out := make([]VideoResponse, len(vs))
 	for i := range vs {
 		out[i] = toVideoResponse(&vs[i], channels[vs[i].BroadcasterID], primaryCategories[vs[i].ID])
 		out[i].UserState = toVideoUserStateResponse(userStates[vs[i].ID])
+		out[i].HasMedia = vs[i].DeletedAt == nil && (vs[i].Status == repository.VideoStatusDone || len(parts[vs[i].ID]) > 0)
 	}
 	return out
 }
@@ -365,10 +377,15 @@ type ListPageInput struct {
 	BroadcasterID string `json:"broadcaster_id,omitempty"`
 	Language      string `json:"language,omitempty"`
 	// Source narrows to live recordings or archives of past broadcasts.
-	Source         string `json:"source,omitempty" validate:"omitempty,oneof=live vod"`
-	Duration       string `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
-	Size           string `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
-	Window         string `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
+	Source   string `json:"source,omitempty" validate:"omitempty,oneof=live vod"`
+	Duration string `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
+	Size     string `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
+	Window   string `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
+	// Outcome splits terminal rows the way the download history does:
+	// "completed", "failed", or "cancelled" for a run the operator stopped.
+	// The server owns the status + completion_kind mapping, so a client asking
+	// for failures never has to know a cancellation is stored as FAILED.
+	Outcome        string `json:"outcome,omitempty" validate:"omitempty,oneof=completed failed cancelled"`
 	IncompleteOnly bool   `json:"incomplete_only,omitempty"`
 	WatchLaterOnly bool   `json:"watch_later_only,omitempty"`
 	UnwatchedOnly  bool   `json:"unwatched_only,omitempty"`
@@ -422,6 +439,7 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		SizeMinBytes:       sizeMin,
 		SizeMaxBytes:       sizeMax,
 		Window:             input.Window,
+		Outcome:            input.Outcome,
 		IncompleteOnly:     input.IncompleteOnly,
 		WatchLaterOnly:     input.WatchLaterOnly,
 		UnwatchedOnly:      input.UnwatchedOnly,
@@ -861,6 +879,36 @@ func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 		out.ByStatus[i] = StatsBucket{Status: VideoStatus(b.Status), Count: b.Count}
 	}
 	return out, nil
+}
+
+// HistoryScopeCounts splits one outcome by whether the recording's media is
+// still on disk.
+type HistoryScopeCounts struct {
+	OnDisk  int64 `json:"on_disk"`
+	Removed int64 `json:"removed"`
+}
+
+// HistoryCountsResponse labels the download-history controls: one entry per
+// outcome tab, each split by media scope so switching scope re-labels the tabs
+// without another round trip. All is the three outcomes together.
+type HistoryCountsResponse struct {
+	All       HistoryScopeCounts `json:"all"`
+	Completed HistoryScopeCounts `json:"completed"`
+	Failed    HistoryScopeCounts `json:"failed"`
+	Cancelled HistoryScopeCounts `json:"cancelled"`
+}
+
+func (h *Handler) HistoryCounts(ctx context.Context) (HistoryCountsResponse, error) {
+	counts, err := h.video.HistoryCounts(ctx)
+	if err != nil {
+		return HistoryCountsResponse{}, apierr.Map(h.log, err, "load history counts")
+	}
+	return HistoryCountsResponse{
+		All:       HistoryScopeCounts(counts.All),
+		Completed: HistoryScopeCounts(counts.Completed),
+		Failed:    HistoryScopeCounts(counts.Failed),
+		Cancelled: HistoryScopeCounts(counts.Cancelled),
+	}, nil
 }
 
 type SetWatchLaterInput struct {

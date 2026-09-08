@@ -181,4 +181,5 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Video_ListSortDimensions", testListVideosSortDimensions)
 	run("Video_ListPageTerminalOnlyHistoryWhen", testListVideosPageTerminalOnlyHistoryWhen)
 	run("Video_UserStateFiltersAndStatistics", testVideoUserStateFiltersAndStatistics)
+	run("Video_HistoryOutcomeCounts", testVideoHistoryOutcomeCounts)
 }
