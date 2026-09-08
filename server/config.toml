@@ -5,7 +5,6 @@ poll_interval_minutes = 1
 
 [download]
 max_concurrent = 5
-preferred_quality = "1080"
 segment_concurrency = 4
 network_attempts = 5
 server_error_attempts = 5

@@ -213,7 +213,6 @@ func defaultAppForTest() config.AppConfig {
 		Server: config.ServerConfig{},
 		Download: config.DownloadConfig{
 			MaxConcurrent:        2,
-			PreferredQuality:     "1080",
 			SegmentConcurrency:   4,
 			NetworkAttempts:      5,
 			ServerErrorAttempts:  5,

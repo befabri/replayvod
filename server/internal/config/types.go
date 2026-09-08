@@ -144,10 +144,6 @@ type DownloadConfig struct {
 	// active job shares the same Twitch host budget.
 	MaxConcurrent int `toml:"max_concurrent"`
 
-	// PreferredQuality is retained for config compatibility. Recordings and
-	// schedules save their own quality choice; the downloader uses that value.
-	PreferredQuality string `toml:"preferred_quality"`
-
 	// SegmentConcurrency is the size of the per-job fetcher worker
 	// pool. Default 4. Each worker owns one HTTP request at a time
 	// over the shared transport; the queue feeding them is a
