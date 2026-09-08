@@ -59,64 +59,62 @@ function WhitelistPage() {
 				</DocsLink>
 			}
 		>
-			<div className="max-w-2xl">
-				<p className="text-muted-foreground mb-6 -mt-6">
-					{t("whitelist.description")}
-				</p>
+			<p className="text-muted-foreground mb-6 -mt-6">
+				{t("whitelist.description")}
+			</p>
 
-				<form
-					onSubmit={(e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						void form.handleSubmit();
-					}}
-					className="flex gap-2 mb-6"
+			<form
+				onSubmit={(e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					void form.handleSubmit();
+				}}
+				className="flex gap-2 mb-6"
+			>
+				<form.Field name="twitch_user_id">
+					{(field) => (
+						<Input
+							type="text"
+							value={field.state.value}
+							onChange={(e) => field.handleChange(e.target.value)}
+							onBlur={field.handleBlur}
+							aria-invalid={
+								field.state.meta.errors.length > 0 ? true : undefined
+							}
+							placeholder={t("whitelist.twitch_user_id_placeholder")}
+							className="flex-1"
+						/>
+					)}
+				</form.Field>
+				<form.Subscribe
+					selector={(s) => [s.canSubmit, s.isSubmitting] as const}
 				>
-					<form.Field name="twitch_user_id">
-						{(field) => (
-							<Input
-								type="text"
-								value={field.state.value}
-								onChange={(e) => field.handleChange(e.target.value)}
-								onBlur={field.handleBlur}
-								aria-invalid={
-									field.state.meta.errors.length > 0 ? true : undefined
-								}
-								placeholder={t("whitelist.twitch_user_id_placeholder")}
-								className="flex-1"
-							/>
-						)}
-					</form.Field>
-					<form.Subscribe
-						selector={(s) => [s.canSubmit, s.isSubmitting] as const}
-					>
-						{([canSubmit, isSubmitting]) => (
-							<Button
-								type="submit"
-								disabled={!canSubmit || isSubmitting || add.isPending}
-							>
-								{isSubmitting || add.isPending
-									? t("whitelist.adding")
-									: t("whitelist.add")}
-							</Button>
-						)}
-					</form.Subscribe>
-				</form>
+					{([canSubmit, isSubmitting]) => (
+						<Button
+							type="submit"
+							disabled={!canSubmit || isSubmitting || add.isPending}
+						>
+							{isSubmitting || add.isPending
+								? t("whitelist.adding")
+								: t("whitelist.add")}
+						</Button>
+					)}
+				</form.Subscribe>
+			</form>
 
-				{add.isError && (
-					<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
-						{add.error?.message ?? t("whitelist.failed_to_add")}
-					</div>
-				)}
+			{add.isError && (
+				<div className="mb-4 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-destructive text-sm">
+					{add.error?.message ?? t("whitelist.failed_to_add")}
+				</div>
+			)}
 
-				<QueryTable
-					query={entries}
-					columns={columns}
-					getRows={(data) => data}
-					emptyMessage={t("whitelist.empty")}
-					errorLabel={t("whitelist.failed_to_load")}
-				/>
-			</div>
+			<QueryTable
+				query={entries}
+				columns={columns}
+				getRows={(data) => data}
+				emptyMessage={t("whitelist.empty")}
+				errorLabel={t("whitelist.failed_to_load")}
+			/>
 		</TitledLayout>
 	);
 }

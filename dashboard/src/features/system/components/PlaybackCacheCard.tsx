@@ -125,7 +125,7 @@ export function PlaybackCacheCard({
 
 					<form.Field name="max_percent">
 						{(field) => (
-							<div className="grid gap-1.5 max-w-xs">
+							<div className="grid gap-1.5">
 								<Label htmlFor={field.name}>
 									{t("playback_cache.max_percent")}
 								</Label>

@@ -32,7 +32,7 @@ function WebhookPage() {
 				</div>
 			)}
 			{config.data && (
-				<div className="grid max-w-2xl gap-6">
+				<div className="grid gap-6">
 					<RecordingWebhookCard data={config.data} />
 					<RecordingWebhookDeliveries />
 				</div>

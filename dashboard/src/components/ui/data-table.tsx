@@ -80,6 +80,10 @@ export function DataTable<TData, TValue>({
 		onRowSelectionChange: onRowSelectionChange ?? setInternalRowSelection,
 		enableRowSelection,
 		manualSorting,
+		// A server-sorted table has no unsorted state to return to: clearing the
+		// sort just falls back to whatever default the query uses, under a header
+		// that no longer shows which. Cycle desc/asc instead.
+		enableSortingRemoval: !manualSorting,
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
 	});
@@ -150,7 +154,7 @@ export function DataTable<TData, TValue>({
 										<button
 											type="button"
 											onClick={header.column.getToggleSortingHandler()}
-											className="inline-flex items-center gap-1 hover:text-foreground"
+											className="inline-flex items-center gap-1 uppercase hover:text-foreground"
 										>
 											{flexRender(
 												header.column.columnDef.header,

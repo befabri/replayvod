@@ -230,9 +230,7 @@ function NumberInputRow({
 	errors: unknown[];
 }) {
 	return (
-		<div
-			className={`flex flex-col gap-1 max-w-xs pl-6 ${disabled ? "opacity-50" : ""}`}
-		>
+		<div className={`flex flex-col gap-1 pl-6 ${disabled ? "opacity-50" : ""}`}>
 			<Label htmlFor={id} className="text-xs text-muted-foreground">
 				{label}
 			</Label>

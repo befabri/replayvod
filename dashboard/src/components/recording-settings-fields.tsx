@@ -99,7 +99,7 @@ export function RecordingSettingsFields({
 				</RadioGroup>
 			</div>
 
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+			<div className="grid gap-3">
 				<div className="flex flex-col gap-1">
 					<Label
 						htmlFor={`${id}-quality`}
@@ -128,7 +128,7 @@ export function RecordingSettingsFields({
 					</Select>
 				</div>
 
-				<div className="flex items-start gap-2 pt-1 sm:pt-7">
+				<div className="flex items-start gap-2">
 					<Checkbox
 						id={`${id}-force-h264`}
 						checked={forceH264}

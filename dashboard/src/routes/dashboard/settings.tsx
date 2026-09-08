@@ -14,25 +14,23 @@ function SettingsPage() {
 
 	return (
 		<TitledLayout title={t("settings.title")}>
-			<div className="max-w-2xl">
-				<p className="text-muted-foreground mb-6 -mt-6">
-					{t("settings.description")}
-				</p>
+			<p className="text-muted-foreground mb-6 -mt-6">
+				{t("settings.description")}
+			</p>
 
-				{isLoading && (
-					<div className="text-muted-foreground">{t("common.loading")}</div>
-				)}
-				{error && (
-					<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
-						{t("settings.failed_to_load")}: {error.message}
-					</div>
-				)}
+			{isLoading && (
+				<div className="text-muted-foreground">{t("common.loading")}</div>
+			)}
+			{error && (
+				<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-destructive text-sm">
+					{t("settings.failed_to_load")}: {error.message}
+				</div>
+			)}
 
-				{/* Key on updated_at so a server-side settings change (e.g. another
-				    tab, or the post-save refetch) remounts the form to re-baseline
-				    its defaults — no prop-to-state sync effect needed. */}
-				{data && <SettingsForm key={data.updated_at} data={data} />}
-			</div>
+			{/* Key on updated_at so a server-side settings change (e.g. another
+			    tab, or the post-save refetch) remounts the form to re-baseline
+			    its defaults — no prop-to-state sync effect needed. */}
+			{data && <SettingsForm key={data.updated_at} data={data} />}
 		</TitledLayout>
 	);
 }

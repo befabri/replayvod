@@ -29,7 +29,7 @@ function PlaybackCachePage() {
 				</div>
 			)}
 			{config.data && (
-				<div className="grid max-w-2xl gap-6">
+				<div className="grid gap-6">
 					{/* No version field on the config, so key on the values: a server-side
 					    change (or the post-save refetch) remounts the card to re-baseline
 					    its form defaults — no prop-to-state sync effect needed. */}

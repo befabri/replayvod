@@ -87,7 +87,7 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 
 			<form.Field name="datetime_format">
 				{(field) => (
-					<div className="flex flex-col gap-1 max-w-xs">
+					<div className="flex flex-col gap-1">
 						<Label htmlFor={field.name}>{t("settings.datetime_format")}</Label>
 						<Select
 							value={field.state.value}
@@ -112,7 +112,7 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 
 			<form.Field name="language">
 				{(field) => (
-					<div className="flex flex-col gap-1 max-w-xs">
+					<div className="flex flex-col gap-1">
 						<Label htmlFor={field.name}>{t("settings.language")}</Label>
 						<Select
 							value={field.state.value}
