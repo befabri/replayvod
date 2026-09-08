@@ -29,15 +29,17 @@ type RecordingDeletionRequester interface {
 type Handler struct {
 	video    *Service
 	download *DownloadService
+	archive  *ArchiveService
 	deletion RecordingDeletionRequester
 	storage  storage.Storage
 	log      *slog.Logger
 }
 
-func NewHandler(video *Service, download *DownloadService, deletion RecordingDeletionRequester, store storage.Storage, log *slog.Logger) *Handler {
+func NewHandler(video *Service, download *DownloadService, archive *ArchiveService, deletion RecordingDeletionRequester, store storage.Storage, log *slog.Logger) *Handler {
 	return &Handler{
 		video:    video,
 		download: download,
+		archive:  archive,
 		deletion: deletion,
 		storage:  store,
 		log:      log.With("domain", "video-api"),
@@ -103,7 +105,8 @@ type VideoResponse struct {
 	StartDownloadAt          time.Time  `json:"start_download_at"`
 	DownloadedAt             *time.Time `json:"downloaded_at,omitempty"`
 	// DeletedAt is set on tombstoned (removed) recordings; DeletionKind
-	// records why ("retention" | "manual"). Both nil for live recordings.
+	// records why ("retention" | "manual" | "missing"). Both nil for live
+	// recordings.
 	// Surfaced only on the removed-inclusive history surface (listPage with
 	// scope removed/all); the library default scope never returns these rows.
 	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
@@ -111,6 +114,14 @@ type VideoResponse struct {
 	// DeleteRequestedAt is set while a manual removal is queued but not yet
 	// finalized by the background deletion task.
 	DeleteRequestedAt *time.Time `json:"delete_requested_at,omitempty"`
+	// Source is "live" for a recorded broadcast and "vod" for an archive of a
+	// Twitch VOD. Archives also carry the VOD id and the date the stream
+	// originally aired.
+	Source        VideoSource `json:"source"`
+	TwitchVideoID *string     `json:"twitch_video_id,omitempty"`
+	BroadcastAt   *time.Time  `json:"broadcast_at,omitempty"`
+	// NextRetryAt is set on a failed archive whose next attempt is scheduled.
+	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
 	// Parts is populated only by GetByID — list endpoints skip it
 	// to avoid N+1 queries on grid views.
 	Parts []VideoPartResponse `json:"parts,omitempty"`
@@ -234,6 +245,10 @@ func toVideoResponse(v *repository.Video, ch *repository.Channel, primaryCategor
 		DeletedAt:         v.DeletedAt,
 		DeletionKind:      v.DeletionKind,
 		DeleteRequestedAt: v.DeleteRequestedAt,
+		Source:            VideoSource(v.Source),
+		NextRetryAt:       v.NextRetryAt,
+		TwitchVideoID:     v.TwitchVideoID,
+		BroadcastAt:       v.BroadcastAt,
 	}
 	if ch != nil {
 		resp.BroadcasterLogin = ch.BroadcasterLogin
@@ -342,13 +357,15 @@ type VideoListPageCursor struct {
 }
 
 type ListPageInput struct {
-	Limit          int    `json:"limit" validate:"min=0,max=200"`
-	Status         string `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
-	Sort           string `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel history_when"`
-	Order          string `json:"order,omitempty" validate:"omitempty,oneof=asc desc"`
-	Quality        string `json:"quality,omitempty"`
-	BroadcasterID  string `json:"broadcaster_id,omitempty"`
-	Language       string `json:"language,omitempty"`
+	Limit         int    `json:"limit" validate:"min=0,max=200"`
+	Status        string `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
+	Sort          string `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel history_when broadcast_at"`
+	Order         string `json:"order,omitempty" validate:"omitempty,oneof=asc desc"`
+	Quality       string `json:"quality,omitempty"`
+	BroadcasterID string `json:"broadcaster_id,omitempty"`
+	Language      string `json:"language,omitempty"`
+	// Source narrows to live recordings or archives of past broadcasts.
+	Source         string `json:"source,omitempty" validate:"omitempty,oneof=live vod"`
 	Duration       string `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
 	Size           string `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
 	Window         string `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
@@ -363,9 +380,8 @@ type ListPageInput struct {
 	// default (live recordings only); "removed" and "all" power the
 	// removed-inclusive history surface. Channel/category grids and search
 	// never expose this and stay active-only.
-	Scope     string               `json:"scope,omitempty" validate:"omitempty,oneof=active removed all"`
-	Cursor    *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
-	Direction string               `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
+	Scope  string               `json:"scope,omitempty" validate:"omitempty,oneof=active removed all"`
+	Cursor *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
 }
 
 type VideoListPageResponse struct {
@@ -400,6 +416,7 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		Quality:            input.Quality,
 		BroadcasterID:      input.BroadcasterID,
 		Language:           input.Language,
+		Source:             input.Source,
 		DurationMinSeconds: durationMin,
 		DurationMaxSeconds: durationMax,
 		SizeMinBytes:       sizeMin,
@@ -668,7 +685,6 @@ type ByBroadcasterInput struct {
 	BroadcasterID string           `json:"broadcaster_id" validate:"required"`
 	Limit         int              `json:"limit" validate:"min=0,max=200"`
 	Cursor        *VideoPageCursor `json:"cursor,omitempty" validate:"omitempty"`
-	Direction     string           `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
 }
 
 func (h *Handler) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (VideoPageResponse, error) {
@@ -694,7 +710,6 @@ type ByCategoryInput struct {
 	CategoryID string           `json:"category_id" validate:"required"`
 	Limit      int              `json:"limit" validate:"min=0,max=200"`
 	Cursor     *VideoPageCursor `json:"cursor,omitempty" validate:"omitempty"`
-	Direction  string           `json:"direction,omitempty" validate:"omitempty,oneof=forward backward"`
 }
 
 func (h *Handler) ByCategory(ctx context.Context, input ByCategoryInput) (VideoPageResponse, error) {
@@ -810,11 +825,15 @@ type ActiveDownloadResponse struct {
 }
 
 type DownloadCapacityResponse struct {
-	MaxConcurrent int `json:"max_concurrent"`
+	MaxConcurrent        int `json:"max_concurrent"`
+	ArchiveMaxConcurrent int `json:"archive_max_concurrent"`
 }
 
 func (h *Handler) DownloadCapacity(ctx context.Context) (DownloadCapacityResponse, error) {
-	return DownloadCapacityResponse{MaxConcurrent: h.download.MaxConcurrent()}, nil
+	return DownloadCapacityResponse{
+		MaxConcurrent:        h.download.MaxConcurrent(),
+		ArchiveMaxConcurrent: h.download.ArchiveMaxConcurrent(),
+	}, nil
 }
 
 func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {

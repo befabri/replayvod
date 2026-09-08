@@ -226,6 +226,7 @@ function video(partial: Partial<VideoResponse> = {}): VideoResponse {
 		viewer_count: 0,
 		language: "fr",
 		start_download_at: "2026-01-01T00:00:00Z",
+		source: "live",
 		...partial,
 	};
 }

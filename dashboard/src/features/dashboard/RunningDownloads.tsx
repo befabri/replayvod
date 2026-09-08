@@ -3,6 +3,7 @@ import { Fragment, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActiveDownloadResponse } from "@/api/generated/trpc";
 import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
 	Tooltip,
 	TooltipContent,
@@ -114,6 +115,7 @@ function RunningDownloadRow({
 	sampleAt: number;
 	cancelable: boolean;
 }) {
+	const { t } = useTranslation();
 	const channelName = row.video.broadcaster_name || row.video.display_name;
 	const estimatedBytes = estimateTotalBytes(row.bytes_written, row.percent);
 
@@ -170,10 +172,16 @@ function RunningDownloadRow({
 					</Link>
 					<div className="min-w-0">
 						<div className="flex min-w-0 items-center gap-2">
-							<span
-								aria-hidden="true"
-								className="size-1.5 shrink-0 rounded-full bg-destructive"
-							/>
+							{row.video.source === "vod" ? (
+								<Badge variant="muted" data-testid="running-archive-badge">
+									{t("videos.archive_badge")}
+								</Badge>
+							) : (
+								<span
+									aria-hidden="true"
+									className="size-1.5 shrink-0 rounded-full bg-destructive"
+								/>
+							)}
 							<Link
 								to="/dashboard/channels/$channelId"
 								params={{ channelId: row.video.broadcaster_id }}
@@ -295,6 +303,9 @@ function DownloadMetrics({
 	const { t } = useTranslation();
 
 	const figures: string[] = [];
+	// A finite playlist (a VOD archive) knows its size from the first poll, so
+	// the percentage is real; live recordings report -1 until they finish.
+	if (row.percent >= 0) figures.push(`${Math.round(row.percent)}%`);
 	if (scaleSeconds > 0) figures.push(formatPlaybackTime(scaleSeconds));
 	figures.push(
 		estimatedBytes

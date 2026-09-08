@@ -86,6 +86,7 @@ func pgEventLogsToDomain(rows []pggen.EventLog) []repository.EventLog {
 
 func pgJobToDomain(src pggen.Job) *repository.Job {
 	return &repository.Job{
+		Attempt:       src.Attempt,
 		BroadcasterID: src.BroadcasterID,
 		CreatedAt:     src.CreatedAt,
 		Error:         src.Error,

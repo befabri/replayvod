@@ -7,7 +7,11 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { VideoResponse, VideoStatus } from "@/api/generated/trpc";
+import type {
+	VideoResponse,
+	VideoSource,
+	VideoStatus,
+} from "@/api/generated/trpc";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -40,6 +44,8 @@ type ViewMode = "grid" | "table";
 type SortKey =
 	| "newest"
 	| "oldest"
+	| "streamed_newest"
+	| "streamed_oldest"
 	| "channel_asc"
 	| "channel_desc"
 	| "longest"
@@ -48,6 +54,10 @@ type SortKey =
 const SORT_CONFIG: Record<SortKey, { sort: VideoSort; order: VideoOrder }> = {
 	newest: { sort: "created_at", order: "desc" },
 	oldest: { sort: "created_at", order: "asc" },
+	// An archive sorts by the date its stream aired; a live recording aired
+	// when it was recorded, so both kinds interleave by air date.
+	streamed_newest: { sort: "broadcast_at", order: "desc" },
+	streamed_oldest: { sort: "broadcast_at", order: "asc" },
 	channel_asc: { sort: "channel", order: "asc" },
 	channel_desc: { sort: "channel", order: "desc" },
 	longest: { sort: "duration", order: "desc" },
@@ -68,6 +78,11 @@ type TabKey = (typeof TAB_KEYS)[number];
 
 const DURATION_FILTERS = ["short", "medium", "long", "marathon"] as const;
 type DurationFilter = (typeof DURATION_FILTERS)[number];
+const SOURCE_FILTERS = [
+	"live",
+	"vod",
+] as const satisfies readonly VideoSource[];
+type SourceFilter = (typeof SOURCE_FILTERS)[number];
 const THIS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Sentinel for the "no filter" option in the Select widget. Base UI
@@ -123,6 +138,7 @@ export function validateVideosSearch(search: Record<string, unknown>) {
 		duration: isOneOf(DURATION_FILTERS, search.duration)
 			? search.duration
 			: undefined,
+		source: isOneOf(SOURCE_FILTERS, search.source) ? search.source : undefined,
 	};
 }
 
@@ -139,6 +155,7 @@ export function videosSearchForTabChange(
 		quality: undefined,
 		language: undefined,
 		duration: undefined,
+		source: undefined,
 	};
 }
 
@@ -157,6 +174,7 @@ function VideosPage() {
 		quality,
 		language,
 		duration,
+		source,
 	} = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const [filtersOpen, setFiltersOpen] = useState(false);
@@ -177,6 +195,7 @@ function VideosPage() {
 			quality,
 			language,
 			duration,
+			source,
 			window: tab === "this_week" ? "this_week" : undefined,
 			watchLaterOnly: tab === "watch_later",
 			unwatchedOnly: tab === "unwatched",
@@ -254,6 +273,16 @@ function VideosPage() {
 		],
 		[t],
 	);
+	const sourceOptions = useMemo(
+		() => [
+			{ value: ANY, label: t("videos.source_filter.any") },
+			...SOURCE_FILTERS.map((key) => ({
+				value: key,
+				label: t(`videos.source_filter.${key}` as const),
+			})),
+		],
+		[t],
+	);
 	// Narrow previous-query rows while placeholderData keeps them mounted.
 	const filteredVideos = useMemo(
 		() =>
@@ -263,10 +292,17 @@ function VideosPage() {
 				quality,
 				language,
 				duration,
+				source,
 			}),
-		[loadedRows, tab, status, quality, language, duration],
+		[loadedRows, tab, status, quality, language, duration, source],
 	);
-	const hasActiveFilters = !!(status || quality || language || duration);
+	const hasActiveFilters = !!(
+		status ||
+		quality ||
+		language ||
+		duration ||
+		source
+	);
 	const showingLabel = t("videos.showing_loaded", {
 		shown: filteredVideos.length,
 		loaded: loadedRows.length,
@@ -298,6 +334,7 @@ function VideosPage() {
 		quality?: string;
 		language?: string;
 		duration?: DurationFilter;
+		source?: SourceFilter;
 	}) => {
 		void navigate({ search: (s) => ({ ...s, ...patch }) });
 	};
@@ -384,6 +421,16 @@ function VideosPage() {
 										duration: isOneOf(DURATION_FILTERS, value)
 											? value
 											: undefined,
+									})
+								}
+							/>
+							<FilterChipSelect
+								label={t("videos.filter_source")}
+								value={source ?? ANY}
+								options={sourceOptions}
+								onChange={(value) =>
+									setFilter({
+										source: isOneOf(SOURCE_FILTERS, value) ? value : undefined,
 									})
 								}
 							/>
@@ -611,12 +658,13 @@ export function filterLoadedVideosForSearch(
 	rows: VideoResponse[],
 	search: Pick<
 		VideosSearch,
-		"tab" | "status" | "quality" | "language" | "duration"
+		"tab" | "status" | "quality" | "language" | "duration" | "source"
 	>,
 	nowMs = Date.now(),
 ) {
 	return rows.filter((video) => {
 		if (search.status && video.status !== search.status) return false;
+		if (search.source && video.source !== search.source) return false;
 		if (search.quality && video.quality !== search.quality) return false;
 		if (search.language && video.language !== search.language) return false;
 		if (!matchesDurationFilter(video.duration_seconds, search.duration)) {

@@ -137,12 +137,22 @@ type ServerConfig struct {
 // successful completion escalates the segment to a permanent failure
 // (which then goes through the tolerant/strict mode policy).
 type DownloadConfig struct {
-	// MaxConcurrent caps the number of in-flight jobs service-wide.
-	// Default 2. Combined with SegmentConcurrency, sets the
-	// aggregate host-connection cap (MaxConcurrent *
-	// SegmentConcurrency) on the shared http.Transport — every
-	// active job shares the same Twitch host budget.
+	// MaxConcurrent caps the number of in-flight live recordings service-wide.
+	// Default 2. The shared http.Transport's Twitch host-connection cap is
+	// sized for every job that can run at once, live and archive:
+	// (MaxConcurrent + ArchiveMaxConcurrent) * SegmentConcurrency.
 	MaxConcurrent int `toml:"max_concurrent"`
+
+	// ArchiveMaxConcurrent caps VOD archives running at once, separately from
+	// MaxConcurrent: an archive can wait, a live stream cannot, so archives
+	// never take a live slot. Default 1.
+	ArchiveMaxConcurrent int `toml:"archive_max_concurrent"`
+
+	// ArchiveMaxBytesPerSecond caps the segment download rate of each running
+	// archive so a back-catalogue download cannot starve a live recording on a
+	// home connection. Live recordings are never throttled. 0 (the default)
+	// disables the cap; negative values are clamped to 0 on load.
+	ArchiveMaxBytesPerSecond int64 `toml:"archive_max_bytes_per_second"`
 
 	// SegmentConcurrency is the size of the per-job fetcher worker
 	// pool. Default 4. Each worker owns one HTTP request at a time
@@ -318,6 +328,11 @@ type SchedulerConfig struct {
 	// whose files are gone. 0 disables the scan; playback still tombstones a
 	// recording it finds missing.
 	StorageScanIntervalMinutes int `toml:"storage_scan_interval_minutes"`
+	// ArchivePosterIntervalMinutes is how often archives still without a poster
+	// are looked up on Twitch, which renders a VOD thumbnail some minutes after
+	// the stream ends. 0 disables the task; an archive queued in that window
+	// then keeps whatever the pipeline produces.
+	ArchivePosterIntervalMinutes int `toml:"archive_poster_interval_minutes"`
 }
 
 type LoggingConfig struct {

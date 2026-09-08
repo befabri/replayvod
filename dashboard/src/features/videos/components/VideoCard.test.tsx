@@ -122,6 +122,7 @@ function video(overrides: Partial<VideoResponse> = {}): VideoResponse {
 		duration_seconds: 0,
 		size_bytes: 0,
 		start_download_at: "2026-01-01T12:00:00Z",
+		source: "live",
 		...overrides,
 	};
 }
@@ -223,6 +224,43 @@ describe("VideoCard stored preview thumbnail", () => {
 		});
 		expect(storedPreviewImg(container)?.getAttribute("src")).toBe(
 			`${STORED_PREVIEW_BASE}?rv=1`,
+		);
+	});
+});
+
+describe("VideoCard archives", () => {
+	it("marks an archive and shows the date its stream aired", () => {
+		render(
+			<VideoCard
+				video={video({
+					status: "DONE",
+					source: "vod",
+					twitch_video_id: "77",
+					broadcast_at: "2025-12-24T20:00:00Z",
+					start_download_at: "2026-01-01T12:00:00Z",
+				})}
+				canManage={false}
+			/>,
+		);
+		expect(screen.getByTestId("video-card-archive").textContent).toBe(
+			"videos.archive_badge",
+		);
+		const date = screen.getByTestId("video-card-date");
+		expect(date.textContent).toBe(
+			new Date("2025-12-24T20:00:00Z").toLocaleDateString(),
+		);
+		expect(date.getAttribute("title")).toBe("videos.streamed_on");
+		expect(screen.getByTestId("video-card-archived-on").textContent).toBe(
+			"videos.archived_on",
+		);
+	});
+
+	it("shows the recording date and no archive marker on a live recording", () => {
+		render(<VideoCard video={video({ status: "DONE" })} canManage={false} />);
+		expect(screen.queryByTestId("video-card-archive")).toBeNull();
+		expect(screen.queryByTestId("video-card-archived-on")).toBeNull();
+		expect(screen.getByTestId("video-card-date").textContent).toBe(
+			new Date("2026-01-01T12:00:00Z").toLocaleDateString(),
 		);
 	});
 });

@@ -17,6 +17,7 @@ import type {
 	VideoListPageResponse,
 	VideoPageResponse,
 	VideoResponse,
+	VideoSource,
 	VideoUserStateResponse,
 } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
@@ -42,7 +43,8 @@ export type VideoSort =
 	| "duration"
 	| "size"
 	| "channel"
-	| "history_when";
+	| "history_when"
+	| "broadcast_at";
 export type VideoOrder = "asc" | "desc";
 // VideoScope selects the tombstone state. "active" (the default everywhere) is
 // live recordings only; "removed" and "all" power the removed-inclusive history
@@ -52,6 +54,8 @@ export type VideoListFilters = {
 	quality?: string;
 	broadcasterId?: string;
 	language?: string;
+	// source narrows to live recordings or archives of past broadcasts.
+	source?: VideoSource;
 	duration?: string;
 	size?: string;
 	window?: string;
@@ -81,6 +85,7 @@ export function useInfiniteVideoPages(
 				quality: filters?.quality ?? "",
 				broadcaster_id: filters?.broadcasterId ?? "",
 				language: filters?.language ?? "",
+				source: filters?.source ?? "",
 				duration: filters?.duration ?? "",
 				size: filters?.size ?? "",
 				window: filters?.window ?? "",

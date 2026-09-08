@@ -5,6 +5,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/server/api/channel"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -19,7 +20,8 @@ import (
 // can call Exists() at request time without holding the Storage on
 // the domain Service (which is read-only by design).
 func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, deletion RecordingDeletionRequester, store storage.Storage, log *slog.Logger, viewer, admin *trpcgo.ProcedureBuilder) {
-	h := NewHandler(New(repo, log), NewDownload(repo, dl, tc, hydrator, log), deletion, store, log)
+	archive := NewArchive(repo, dl, tc, channel.New(repo, tc, log), log)
+	h := NewHandler(New(repo, log), NewDownload(repo, dl, tc, hydrator, log), archive, deletion, store, log)
 
 	trpcgo.MustQuery(tr, "video.list", h.List, viewer)
 	trpcgo.MustQuery(tr, "video.listPage", h.ListPage, viewer)
@@ -42,4 +44,13 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloade
 	trpcgo.MustMutation(tr, "video.setWatchLater", h.SetWatchLater, viewer)
 	trpcgo.MustMutation(tr, "video.updateWatchProgress", h.UpdateWatchProgress, viewer)
 	trpcgo.MustSubscribe(tr, "video.downloadProgress", h.DownloadProgress, admin)
+
+	// Back-archiving: reads are viewer-level like the rest of the library,
+	// queueing and removing archives is admin-level like download control.
+	trpcgo.MustQuery(tr, "archive.listChannelVods", h.ListChannelVODs, admin)
+	trpcgo.MustMutation(tr, "archive.enqueue", h.EnqueueArchive, admin)
+	trpcgo.MustVoidQuery(tr, "archive.queue", h.ArchiveQueue, viewer)
+	trpcgo.MustMutation(tr, "archive.dequeue", h.DequeueArchive, admin)
+	trpcgo.MustMutation(tr, "archive.retry", h.RetryArchive, admin)
+	trpcgo.MustMutation(tr, "archive.cancelRetry", h.CancelArchiveRetry, admin)
 }

@@ -45,6 +45,10 @@ type JobConfig struct {
 	// Log is the per-job logger.
 	Log *slog.Logger
 
+	// RateLimiter paces this job's segment bytes; nil is unlimited. Set for
+	// archives so a back-catalogue download cannot starve a live recording.
+	RateLimiter RateLimiter
+
 	// Progress is optional; when non-nil the orchestrator sends
 	// a Progress event after every finished segment (success,
 	// gap, or fatal) and closes the channel before Run returns.
@@ -213,9 +217,13 @@ type Progress struct {
 	// "fetch failures tolerated," and so gap-policy math
 	// (MaxGapRatio) doesn't count ads against the ceiling.
 	SegmentsAdGaps int64
-	BytesWritten   int64
-	Kind           SegmentKind
-	InitURI        string
+	// SegmentsTotal is how many segments this run will fetch, known once the
+	// playlist closed (EXT-X-ENDLIST). Zero while unknown, which is always
+	// the case for a live stream.
+	SegmentsTotal int64
+	BytesWritten  int64
+	Kind          SegmentKind
+	InitURI       string
 }
 
 // JobResult summarizes a completed Run. SegmentsDone counts
@@ -361,6 +369,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		WorkDir: cfg.WorkDir,
 		Workers: cfg.SegmentConcurrency,
 		Log:     log,
+		Limiter: cfg.RateLimiter,
 	}
 
 	// Explicit cancel so a synchronous bootstrap failure
@@ -465,7 +474,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		}
 	}
 
-	abortErr, authErr := drainOutcomes(&cfg, result, results, skipEvents, cancel, shouldIgnoreCanceledSegment, log)
+	abortErr, authErr := drainOutcomes(&cfg, result, results, skipEvents, cancel, shouldIgnoreCanceledSegment, poller.totalSegments.Load, log)
 
 	if authErr != nil {
 		_ = g.Wait()
@@ -533,10 +542,14 @@ func drainOutcomes(
 	skipEvents <-chan SkipEvent,
 	cancel context.CancelFunc,
 	ignoreCanceledSegment func() bool,
+	segmentsTotal func() int64,
 	log *slog.Logger,
 ) (*GapAbortError, error) {
 	var abortErr *GapAbortError
 	var authErr error
+	if segmentsTotal == nil {
+		segmentsTotal = func() int64 { return 0 }
+	}
 
 	resultsCh := results
 	skipEventsCh := skipEvents
@@ -658,7 +671,7 @@ func drainOutcomes(
 					DurationSeconds: res.DurationSeconds,
 				})
 			}
-			emitProgress(cfg.Progress, result)
+			emitProgress(cfg.Progress, result, segmentsTotal())
 
 		case ev, ok := <-skipEventsCh:
 			if !ok {
@@ -798,7 +811,7 @@ func drainOutcomes(
 					"seq", ev.MediaSeq,
 					"reason", ev.Reason)
 			}
-			emitProgress(cfg.Progress, result)
+			emitProgress(cfg.Progress, result, segmentsTotal())
 		}
 	}
 	return abortErr, authErr
@@ -807,7 +820,7 @@ func drainOutcomes(
 // emitProgress does a non-blocking snapshot send onto the Progress
 // channel when non-nil. Nil-safe; drop-on-contention is the spec's
 // Progress contract (cumulative, informational).
-func emitProgress(ch chan<- Progress, r *JobResult) {
+func emitProgress(ch chan<- Progress, r *JobResult, total int64) {
 	if ch == nil {
 		return
 	}
@@ -816,6 +829,7 @@ func emitProgress(ch chan<- Progress, r *JobResult) {
 		SegmentsDone:   r.SegmentsDone,
 		SegmentsGaps:   r.SegmentsGaps,
 		SegmentsAdGaps: r.SegmentsAdGaps,
+		SegmentsTotal:  total,
 		BytesWritten:   r.BytesWritten,
 		Kind:           r.Kind,
 		InitURI:        r.InitURI,

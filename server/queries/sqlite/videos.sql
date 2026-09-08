@@ -12,9 +12,9 @@ INSERT INTO videos (
     job_id, filename, display_name, title, status, quality,
     broadcaster_id, stream_id, viewer_count, language, recording_type,
     force_h264, trigger_schedule_id, retention_source_schedule_id,
-    retention_window_hours
+    retention_window_hours, source, twitch_video_id, broadcast_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateVideoStatus :exec
@@ -34,7 +34,9 @@ UPDATE videos SET
     downloaded_at = datetime('now'),
     duration_seconds = ?,
     size_bytes = ?,
-    thumbnail = ?,
+    -- A run that produced no frame (audio, monochrome video) keeps the poster
+    -- the snapshotter or the archive fetch already stored.
+    thumbnail = COALESCE(?, thumbnail),
     completion_kind = ?,
     truncated = ?
 WHERE id = ?;
@@ -205,7 +207,8 @@ SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at 
 -- Queue an operator-requested deletion. Idempotent for already-queued live
 -- terminal rows; active recordings must be cancelled first.
 UPDATE videos
-SET delete_requested_at = COALESCE(delete_requested_at, datetime('now'))
+SET delete_requested_at = COALESCE(delete_requested_at, datetime('now')),
+    next_retry_at = NULL
 WHERE id = ?
   AND deleted_at IS NULL
   AND status IN ('DONE', 'FAILED')
@@ -277,14 +280,6 @@ SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL;
 -- name: StatisticsByStatus :many
 SELECT status, COUNT(*) AS count FROM videos WHERE deleted_at IS NULL GROUP BY status;
 
--- StatisticsTotals is split across atomic queries instead of one
--- combined SELECT. The combined form (with CASE WHEN aggregates in
--- a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
--- that truncates trailing chars off subsequent query consts. The
--- adapter combines these rows into a single VideoStatsTotals struct.
--- Postgres still uses the single-query form; see
--- queries/postgres/videos.sql.
-
 -- name: StatisticsTotalsDoneOnly :one
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,
@@ -335,7 +330,7 @@ WHERE v.deleted_at IS NULL
 -- name: StatisticsTotalsByBroadcaster :one
 -- Per-channel rollup of finished recordings: count + summed bytes +
 -- summed duration. Mirrors StatisticsTotals scoped to one broadcaster
--- so the watch page can render a "N recordings / X GB" line under the
+-- so the watch page can render a "N recordings and X GB" line under the
 -- channel name without paginating the full library client-side.
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,
@@ -352,6 +347,7 @@ WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NULL
 SELECT videos.id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
+  AND next_retry_at IS NULL
   AND (
     status = 'DONE'
     OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
@@ -365,8 +361,103 @@ ORDER BY videos.id ASC LIMIT CAST(@page_size AS INTEGER);
 UPDATE videos SET deleted_at = datetime('now'), deletion_kind = 'missing'
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
+  AND next_retry_at IS NULL
   AND (
     status = 'DONE'
     OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
   )
   AND videos.id = ?;
+
+-- name: GetOpenVideoByTwitchVideoID :one
+-- An "open" archive is one that still counts against the one-row-per-VOD
+-- rule: not removed, and either not failed or failed with a retry scheduled.
+-- Mirrors idx_videos_open_twitch_video_id.
+SELECT * FROM videos
+WHERE twitch_video_id = ? AND deleted_at IS NULL
+  AND (status <> 'FAILED' OR next_retry_at IS NOT NULL)
+LIMIT 1;
+
+-- name: ListOpenVideosByTwitchVideoIDs :many
+SELECT * FROM videos
+WHERE twitch_video_id IN (sqlc.slice('twitch_video_ids'))
+  AND deleted_at IS NULL AND (status <> 'FAILED' OR next_retry_at IS NOT NULL);
+
+-- name: ListOpenVideosByStreamIDs :many
+-- Live recordings of the given broadcasts that still hold their media, so
+-- the archive browser can tell a VOD was already captured live.
+SELECT * FROM videos
+WHERE stream_id IN (sqlc.slice('stream_ids'))
+  AND source = 'live' AND deleted_at IS NULL AND status <> 'FAILED';
+
+-- name: ListArchiveQueue :many
+SELECT * FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status IN ('PENDING', 'RUNNING')
+ORDER BY start_download_at ASC, id ASC;
+
+-- name: DeleteQueuedArchiveVideo :execrows
+-- Only a queued archive can be dropped outright: nothing has been captured, so
+-- there is no media and no tombstone to keep. Child rows cascade.
+DELETE FROM videos WHERE id = ? AND source = 'vod' AND status = 'PENDING';
+
+-- name: ListRecentArchiveFailures :many
+SELECT * FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED' AND downloaded_at >= ?
+ORDER BY downloaded_at DESC, id DESC LIMIT ?;
+
+-- name: ListArchivesDueForRetry :many
+SELECT * FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED'
+  AND delete_requested_at IS NULL
+  AND next_retry_at IS NOT NULL AND next_retry_at <= ?
+ORDER BY next_retry_at ASC, id ASC LIMIT ?;
+
+-- name: MarkArchiveFailedForRetry :exec
+-- A transient archive failure: the row fails like any other, and the retry
+-- time set in the same statement keeps it open under the one-row-per-VOD
+-- rule so nobody can queue the same VOD twice while it waits.
+UPDATE videos SET
+    status = 'FAILED',
+    downloaded_at = datetime('now'),
+    error = ?,
+    completion_kind = ?,
+    truncated = ?,
+    next_retry_at = ?
+WHERE id = ? AND source = 'vod';
+
+-- name: RequeueArchiveVideo :execrows
+-- Puts a failed archive back in the queue under a fresh job. scheduled_only
+-- restricts the requeue to rows whose retry is still scheduled, so the pump
+-- never revives a retry the operator cancelled a moment earlier.
+UPDATE videos SET
+    status = 'PENDING',
+    job_id = @job_id,
+    error = NULL,
+    downloaded_at = NULL,
+    completion_kind = 'complete',
+    truncated = 0,
+    next_retry_at = NULL
+WHERE id = @id AND source = 'vod' AND status = 'FAILED' AND deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (CAST(@scheduled_only AS INTEGER) = 0 OR next_retry_at IS NOT NULL);
+
+-- name: ClearArchiveRetry :execrows
+UPDATE videos SET next_retry_at = NULL
+WHERE id = ? AND source = 'vod' AND status = 'FAILED' AND next_retry_at IS NOT NULL;
+
+-- name: ListArchivesMissingPoster :many
+-- Keyset page of archives still without a poster, bounded to those queued
+-- after the given instant so a VOD Twitch never renders is not looked up
+-- forever. A failed archive that salvaged parts still shows in the library
+-- and deserves its poster; one that never wrote media does not.
+SELECT * FROM videos
+WHERE source = 'vod' AND thumbnail IS NULL AND deleted_at IS NULL
+  AND (status <> 'FAILED' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  AND twitch_video_id IS NOT NULL AND start_download_at >= @since
+  AND videos.id > CAST(@after_id AS INTEGER)
+ORDER BY id ASC LIMIT CAST(@page_size AS INTEGER);
+
+-- name: SetVideoThumbnailIfMissing :execrows
+-- A poster never replaces a frame the pipeline already produced, and a row
+-- removed while the poster was in flight stays without one.
+UPDATE videos SET thumbnail = ? WHERE id = ? AND thumbnail IS NULL AND deleted_at IS NULL;
+

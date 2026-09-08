@@ -26,7 +26,7 @@ func TestDrainOutcomes_MidStreamWindowRollIsNonAbortingRangeGap(t *testing.T) {
 	skipEvents <- SkipEvent{MediaSeq: 102, EndMediaSeq: 129, Reason: SkipReasonWindowRolled}
 	close(skipEvents)
 
-	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() {}, nil, slog.New(slog.DiscardHandler))
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() {}, nil, nil, slog.New(slog.DiscardHandler))
 
 	if abortErr != nil || authErr != nil {
 		t.Fatalf("window roll must not abort: abortErr=%v authErr=%v", abortErr, authErr)
@@ -52,7 +52,7 @@ func TestDrainOutcomes_MidStreamWindowRollWithoutCallbackDoesNotAdvanceFrontier(
 	close(skipEvents)
 
 	var cancelCalled atomic.Int32
-	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() { cancelCalled.Add(1) }, nil, slog.New(slog.DiscardHandler))
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() { cancelCalled.Add(1) }, nil, nil, slog.New(slog.DiscardHandler))
 	if authErr != nil {
 		t.Fatalf("authErr=%v, want nil", authErr)
 	}
@@ -82,7 +82,7 @@ func TestDrainOutcomes_MidStreamWindowRollTripsGapRatio(t *testing.T) {
 	var calls int
 	cfg.OnMidStreamWindowRoll = func(from, to int64) { calls++ }
 	var cancelCalled atomic.Int32
-	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() { cancelCalled.Add(1) }, nil, slog.New(slog.DiscardHandler))
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, func() { cancelCalled.Add(1) }, nil, nil, slog.New(slog.DiscardHandler))
 	if authErr != nil {
 		t.Fatalf("authErr=%v, want nil", authErr)
 	}
@@ -156,7 +156,7 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 		authErr  error
 	})
 	go func() {
-		abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, nil, slog.New(slog.DiscardHandler))
+		abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, nil, nil, slog.New(slog.DiscardHandler))
 		done <- struct {
 			abortErr *GapAbortError
 			authErr  error
@@ -256,7 +256,7 @@ func TestDrainOutcomes_ContextCanceledFetchDoesNotResolveSegment(t *testing.T) {
 	results <- SegmentResult{MediaSeq: 100, Err: context.Canceled}
 	close(results)
 
-	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, func() bool { return true }, slog.New(slog.DiscardHandler))
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, func() bool { return true }, nil, slog.New(slog.DiscardHandler))
 	if authErr != nil {
 		t.Fatalf("authErr=%v, want nil for parent/scoped context cancellation", authErr)
 	}
@@ -299,7 +299,7 @@ func TestDrainOutcomes_ContextCanceledAfterPlaylistGoneIsGap(t *testing.T) {
 	results <- SegmentResult{MediaSeq: 101, Err: context.Canceled}
 	close(results)
 
-	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, func() bool { return false }, slog.New(slog.DiscardHandler))
+	abortErr, authErr := drainOutcomes(cfg, result, results, skipEvents, cancel, func() bool { return false }, nil, slog.New(slog.DiscardHandler))
 	if authErr != nil {
 		t.Fatalf("authErr=%v, want nil", authErr)
 	}

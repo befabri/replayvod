@@ -139,6 +139,8 @@ func TestValidateTransformations(t *testing.T) {
 		{"backend specific rule is live where a baseline lacks it", map[string]map[string]tableRule{"003_pg_only": {"t": grows()}}, ""},
 		{"backend specific rule is dead once every baseline has it", nil, "every retained baseline contains 003_pg_only"},
 		{"dropped with rename", map[string]map[string]tableRule{"002_second": {"t": {dropped: true, renamedTo: "u"}}}, "dropped and cannot declare other changes"},
+		{"dropped with up values", map[string]map[string]tableRule{"002_second": {"t": {dropped: true, up: restoreLegacyQuality}}}, "dropped and cannot declare other changes"},
+		{"dropped with down values", map[string]map[string]tableRule{"002_second": {"t": {dropped: true, down: restoreLegacyQuality}}}, "dropped and cannot declare other changes"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rules, baselines := tc.rules, m
@@ -153,6 +155,128 @@ func TestValidateTransformations(t *testing.T) {
 		})
 	}
 	if err := validateTransformations(nil, candidates, m); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigrationValueTransformations(t *testing.T) {
+	for _, backend := range []string{"postgres", "sqlite"} {
+		t.Run(backend, func(t *testing.T) {
+			var yes, no any = true, false
+			if backend == "sqlite" {
+				yes, no = float64(1), float64(0)
+			}
+			before := snapshot{
+				"videos": {
+					{"id": float64(1), "status": "DONE", "deleted_at": "old", "deletion_kind": "retention", "thumbnail": "purged", "truncated": no, "quality": "LOW", "title": "keep"},
+					{"id": float64(2), "status": "DONE", "deleted_at": nil, "deletion_kind": nil, "thumbnail": "live", "truncated": yes, "quality": "MEDIUM", "title": "keep"},
+					{"id": float64(3), "status": "FAILED", "deleted_at": nil, "thumbnail": nil, "truncated": yes, "quality": "HIGH"},
+					{"id": float64(4), "status": "FAILED", "deleted_at": nil, "thumbnail": nil, "truncated": yes, "quality": "HIGH"},
+					{"id": float64(5), "status": "FAILED", "deleted_at": nil, "thumbnail": nil, "truncated": yes, "quality": "HIGH"},
+					{"id": float64(6), "status": "FAILED", "deleted_at": "old", "thumbnail": nil, "truncated": yes, "quality": "HIGH"},
+				},
+				"video_parts":        {{"video_id": float64(4), "size_bytes": float64(0)}, {"video_id": float64(5), "size_bytes": float64(42)}},
+				"download_schedules": {{"id": float64(1), "quality": "LOW"}, {"id": float64(2), "quality": "MEDIUM"}},
+				"unrelated":          {{"note": "é日本語", "value": nil}},
+			}
+			original := cloneSnapshot(before)
+			files := fakeMigrations("047_videos_deletion_kind_missing", "049_videos_failed_truncated", "051_recording_quality")
+			p, err := projectionFor(transformations, files, backend, released())
+			if err != nil {
+				t.Fatal(err)
+			}
+			after := cloneSnapshot(before)
+			after["videos"][0]["thumbnail"] = nil
+			after["videos"][2]["truncated"] = no
+			after["videos"][3]["truncated"] = no
+			if err := p.compare(before, after); err != nil {
+				t.Fatal(err)
+			}
+			if err := compareSnapshots(original, before); err != nil {
+				t.Fatalf("comparison mutated historical evidence: %v", err)
+			}
+			for name, corrupt := range map[string]func(snapshot){
+				"missing thumbnail cleanup":    func(s snapshot) { s["videos"][0]["thumbnail"] = "purged" },
+				"live thumbnail erased":        func(s snapshot) { s["videos"][1]["thumbnail"] = nil },
+				"empty failure unchanged":      func(s snapshot) { s["videos"][2]["truncated"] = yes },
+				"stub failure unchanged":       func(s snapshot) { s["videos"][3]["truncated"] = yes },
+				"saved media reclassified":     func(s snapshot) { s["videos"][4]["truncated"] = no },
+				"deleted failure reclassified": func(s snapshot) { s["videos"][5]["truncated"] = no },
+				"unrelated video column":       func(s snapshot) { s["videos"][0]["title"] = "lost" },
+				"missing video":                func(s snapshot) { s["videos"] = s["videos"][1:] },
+				"duplicate video":              func(s snapshot) { s["videos"] = append(s["videos"], s["videos"][0]) },
+				"changed dependent row":        func(s snapshot) { s["video_parts"][1]["size_bytes"] = float64(0) },
+			} {
+				t.Run(name, func(t *testing.T) {
+					broken := cloneSnapshot(after)
+					corrupt(broken)
+					if err := p.compare(before, broken); err == nil {
+						t.Fatal("undeclared data change accepted")
+					}
+				})
+			}
+
+			// Newly written missing tombstones may keep a poster. Down must not
+			// rerun the old up backfill; it only maps unsupported enum values.
+			written := cloneSnapshot(after)
+			written["videos"][0]["deletion_kind"] = "missing"
+			written["videos"][0]["thumbnail"] = "new-retained-poster"
+			written["videos"][2]["quality"] = "BEST"
+			written["download_schedules"][1]["quality"] = "1440"
+			down := cloneSnapshot(written)
+			down["videos"][0]["deletion_kind"] = "manual"
+			down["videos"][2]["quality"] = "HIGH"
+			down["download_schedules"][1]["quality"] = "HIGH"
+			if err := p.compareDown(written, down); err != nil {
+				t.Fatal(err)
+			}
+			broken := cloneSnapshot(down)
+			broken["videos"][0]["quality"] = "HIGH"
+			if err := p.compareDown(written, broken); err == nil {
+				t.Fatal("rollback lost legacy LOW quality without failing")
+			}
+			if err := p.compareDown(written, written); err == nil {
+				t.Fatal("rollback accepted unconverted new quality and deletion values")
+			}
+
+			// A release containing 047 must not get its allowance merely because
+			// 049 also changes videos. Select each value rule independently.
+			partial, err := projectionFor(transformations, files, backend, released("047_videos_deletion_kind_missing"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			partialWant := cloneSnapshot(after)
+			partialWant["videos"][0]["thumbnail"] = "purged"
+			if err := partial.compare(before, partialWant); err != nil {
+				t.Fatal(err)
+			}
+			if err := partial.compare(before, after); err == nil {
+				t.Fatal("already-applied backfill was allowed to change historical data again")
+			}
+		})
+	}
+}
+
+func TestValueTransformationsFollowMigrationOrderInBothDirections(t *testing.T) {
+	rules := map[string]map[string]tableRule{
+		"001_add": {"t": {
+			up:   func(rows []map[string]any, _ snapshot) { rows[0]["v"] = rows[0]["v"].(int) + 1 },
+			down: func(rows []map[string]any, _ snapshot) { rows[0]["v"] = rows[0]["v"].(int) - 1 },
+		}},
+		"002_double": {"t": {
+			up:   func(rows []map[string]any, _ snapshot) { rows[0]["v"] = rows[0]["v"].(int) * 2 },
+			down: func(rows []map[string]any, _ snapshot) { rows[0]["v"] = rows[0]["v"].(int) / 2 },
+		}},
+	}
+	p, err := projectionFor(rules, fakeMigrations("002_double", "001_add"), "sqlite", released())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := snapshot{"t": {{"v": 2}}}, snapshot{"t": {{"v": 6}}}
+	if err := p.compare(before, after); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.compareDown(after, before); err != nil {
 		t.Fatal(err)
 	}
 }

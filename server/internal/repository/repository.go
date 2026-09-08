@@ -203,6 +203,45 @@ type Repository interface {
 	MarkVideoDoneAndEnqueueRecordingWebhook(ctx context.Context, id int64, durationSeconds float64, sizeBytes int64, thumbnail *string, completionKind string, truncated bool, delivery *RecordingWebhookDeliveryInput) error
 	MarkVideoFailedAndEnqueueRecordingWebhook(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, delivery *RecordingWebhookDeliveryInput) error
 	SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error
+	// SetVideoThumbnailIfMissing sets the thumbnail only when the row has none
+	// and reports whether it did.
+	SetVideoThumbnailIfMissing(ctx context.Context, id int64, thumbnail string) (bool, error)
+	// Archives: an "open" archive row is not removed and is either not failed
+	// or failed with a retry scheduled, which is the one-row-per-VOD rule
+	// idx_videos_open_twitch_video_id enforces.
+	GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID string) (*Video, error)
+	ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]Video, error)
+	// ListOpenVideosByStreamIDs returns live recordings of the given
+	// broadcasts that are neither removed nor failed.
+	ListOpenVideosByStreamIDs(ctx context.Context, streamIDs []string) ([]Video, error)
+	// ListArchiveQueue returns queued and running archives, oldest first.
+	ListArchiveQueue(ctx context.Context) ([]Video, error)
+	// ListRecentArchiveFailures returns failed archives that ended at or
+	// after since, newest first, capped at limit rows.
+	ListRecentArchiveFailures(ctx context.Context, since time.Time, limit int) ([]Video, error)
+	// ListArchivesDueForRetry returns failed archives whose scheduled retry is
+	// at or before now, earliest first.
+	ListArchivesDueForRetry(ctx context.Context, now time.Time, limit int) ([]Video, error)
+	// MarkArchiveFailedForRetry fails an archive like MarkVideoFailed and
+	// schedules its next attempt in the same statement, so the row never
+	// leaves the one-row-per-VOD rule.
+	MarkArchiveFailedForRetry(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, nextRetryAt time.Time) error
+	// RequeueArchiveVideo returns a failed archive to PENDING under jobID and
+	// clears its failure. With scheduledOnly, only a row whose retry is still
+	// scheduled qualifies. ErrNotFound when no row qualifies; ErrDuplicate when
+	// another open row already holds the VOD.
+	RequeueArchiveVideo(ctx context.Context, id int64, jobID string, scheduledOnly bool) error
+	// ClearArchiveRetry cancels a scheduled retry; ErrNotFound when none is
+	// scheduled.
+	ClearArchiveRetry(ctx context.Context, id int64) error
+	// ListArchivesMissingPoster returns archives without a poster that were
+	// queued at or after since, oldest first, capped at limit rows.
+	// Pages by id so a run can visit every eligible archive, not just the
+	// oldest batch.
+	ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]Video, error)
+	// DeleteQueuedArchiveVideo hard-deletes a PENDING archive and its job;
+	// ErrNotFound when the row is missing, already started, or not an archive.
+	DeleteQueuedArchiveVideo(ctx context.Context, id int64) error
 	// ListVideos returns a page of videos filtered by opts.Status and
 	// sorted per opts.Sort/Order. Empty Sort/Order default to
 	// created-desc at the SQL layer. Replaces the earlier ListVideos
@@ -260,7 +299,12 @@ type Repository interface {
 	CreateJob(ctx context.Context, input *JobInput) (*Job, error)
 	GetJob(ctx context.Context, id string) (*Job, error)
 	GetJobByVideoID(ctx context.Context, videoID int64) (*Job, error)
-	GetActiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*Job, error)
+	// GetActiveLiveJobByBroadcaster is the live-recording idempotency check;
+	// queued or running archives for the channel are ignored.
+	GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*Job, error)
+	// GetNextQueuedArchiveJob returns the oldest PENDING archive job, or
+	// ErrNotFound when the archive queue is empty.
+	GetNextQueuedArchiveJob(ctx context.Context) (*Job, error)
 	MarkJobRunning(ctx context.Context, id string) error
 	MarkJobDone(ctx context.Context, id string) error
 	MarkJobFailed(ctx context.Context, id string, errMsg string) error

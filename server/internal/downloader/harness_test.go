@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -165,6 +166,16 @@ type twitchEdge struct {
 	aCursor     int
 	aDropped    bool
 	pendingJump int // consumed by next handlePlaylistA after NoteRestart
+
+	// Recorded for archive tests: the last GQL variables and the query of
+	// the last /vod/ usher request.
+	lastGQLVars   map[string]any
+	lastVODUsherQ map[string][]string
+	vodUsherPaths []string
+	gqlBlock      chan struct{} // when non-nil, GQL blocks until closed
+	// segBFailures is how many upcoming fmp4 segment requests answer 503,
+	// standing in for a flaky edge.
+	segBFailures atomic.Int32
 }
 
 type twitchEdgeOpts struct {
@@ -225,6 +236,11 @@ func newTwitchEdge(t *testing.T, opts twitchEdgeOpts) *twitchEdge {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gql", e.handleGQL)
 	mux.HandleFunc("/api/channel/hls/", e.handleUsher)
+	mux.HandleFunc("/vod/", e.handleVODUsher)
+	mux.HandleFunc("/poster.jpg", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("\xff\xd8\xff\xe0 fake jpeg poster"))
+	})
 	mux.HandleFunc("/playlist/A.m3u8", e.handlePlaylistA)
 	mux.HandleFunc("/playlist/B.m3u8", e.handlePlaylistB)
 	mux.HandleFunc("/seg/A/", e.handleSegA)
@@ -284,11 +300,32 @@ func (e *twitchEdge) handleGQL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", http.StatusMethodNotAllowed)
 		return
 	}
+	var body struct {
+		Variables map[string]any `json:"variables"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	e.mu.Lock()
+	e.lastGQLVars = body.Variables
+	block := e.gqlBlock
+	e.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-r.Context().Done():
+			return
+		}
+	}
+	// Both token kinds are always present, as on Twitch; the client must
+	// pick the one matching its request.
 	resp := map[string]any{
 		"data": map[string]any{
 			"streamPlaybackAccessToken": map[string]string{
 				"value":     "fake-token-value",
 				"signature": "fake-signature",
+			},
+			"videoPlaybackAccessToken": map[string]string{
+				"value":     "fake-vod-token-value",
+				"signature": "fake-vod-signature",
 			},
 		},
 	}
@@ -407,6 +444,16 @@ func (e *twitchEdge) handleSegB(w http.ResponseWriter, r *http.Request) {
 	if !ok || idx < 0 || idx >= len(e.fmp4Segs) {
 		http.NotFound(w, r)
 		return
+	}
+	for {
+		left := e.segBFailures.Load()
+		if left <= 0 {
+			break
+		}
+		if e.segBFailures.CompareAndSwap(left, left-1) {
+			http.Error(w, "edge overloaded", http.StatusServiceUnavailable)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "video/iso.segment")
 	_, _ = w.Write(e.fmp4Segs[idx])
@@ -616,3 +663,63 @@ func abs(f float64) float64 {
 	}
 	return f
 }
+
+// handleVODUsher serves the master playlist for /vod/{id}.m3u8: variant B
+// only, which is the harness's finite (EXT-X-ENDLIST) fMP4 playlist, the
+// shape a finished Twitch VOD has.
+func (e *twitchEdge) handleVODUsher(w http.ResponseWriter, r *http.Request) {
+	e.mu.Lock()
+	e.lastVODUsherQ = r.URL.Query()
+	e.vodUsherPaths = append(e.vodUsherPaths, r.URL.Path)
+	e.mu.Unlock()
+	if e.opts.fmp4Count == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	base := e.server.URL
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	b.WriteString("#EXT-X-VERSION:3\n")
+	fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=160x360,CODECS=\"avc1.4d401e,mp4a.40.2\",FRAME-RATE=10.000,VIDEO=\"360p\"\n")
+	fmt.Fprintf(&b, "%s/playlist/B.m3u8\n", base)
+	// Twitch lists audio_only as a regular variant; the harness points it at
+	// the same finite playlist, whose fragments carry an audio track.
+	fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=160000,CODECS=\"mp4a.40.2\",VIDEO=\"audio_only\"\n")
+	fmt.Fprintf(&b, "%s/playlist/B.m3u8\n", base)
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	_, _ = io.WriteString(w, b.String())
+}
+
+// BlockGQL makes every GQL call hang until the returned release func runs,
+// which pins a job in stage 1 so queue tests can observe it as active.
+func (e *twitchEdge) BlockGQL() (release func()) {
+	ch := make(chan struct{})
+	e.mu.Lock()
+	e.gqlBlock = ch
+	e.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			e.mu.Lock()
+			e.gqlBlock = nil
+			e.mu.Unlock()
+			close(ch)
+		})
+	}
+}
+
+func (e *twitchEdge) LastGQLVars() map[string]any {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.lastGQLVars
+}
+
+func (e *twitchEdge) VODUsherRequests() (paths []string, lastQuery map[string][]string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.vodUsherPaths...), e.lastVODUsherQ
+}
+
+// FailFMP4Segments makes the next n fmp4 segment requests answer 503; zero
+// restores normal service.
+func (e *twitchEdge) FailFMP4Segments(n int32) { e.segBFailures.Store(n) }

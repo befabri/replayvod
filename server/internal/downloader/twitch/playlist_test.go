@@ -1,6 +1,8 @@
 package twitch
 
 import (
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -164,4 +166,8 @@ func openFixture(t *testing.T, name string) *os.File {
 		t.Fatalf("open fixture %s: %v", p, err)
 	}
 	return f
+}
+
+func parseMasterPlaylist(r io.Reader) (*Manifest, error) {
+	return (&Client{log: slog.New(slog.DiscardHandler)}).parseMasterPlaylist(r)
 }

@@ -55,6 +55,7 @@ const VIDEOS_LIBRARY_SEARCH = {
 	quality: undefined,
 	language: undefined,
 	duration: undefined,
+	source: undefined,
 } as const;
 
 export const Route = createFileRoute("/dashboard/watch_/$videoId")({

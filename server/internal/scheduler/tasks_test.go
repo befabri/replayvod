@@ -15,6 +15,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/igdb"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/service/archiveposter"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
@@ -89,6 +90,17 @@ func retentionService(t *testing.T) *retention.Service {
 		t.Fatalf("local storage: %v", err)
 	}
 	return retention.New(repo, store, log)
+}
+
+func archivePosterService(t *testing.T) *archiveposter.Service {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	_, repo := newTestScheduler(t)
+	store, err := storage.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("local storage: %v", err)
+	}
+	return archiveposter.New(archiveposter.NewStore(repo, store, &http.Client{Timeout: time.Second}, log), repo, nil, log)
 }
 
 func storageScanService(t *testing.T) *storagescan.Service {
@@ -255,6 +267,7 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 				CategoryMetadataIntervalMinutes:       75,
 				RecordingsRetentionIntervalMinutes:    30,
 				StorageScanIntervalMinutes:            20,
+				ArchivePosterIntervalMinutes:          7,
 			},
 		},
 		ServerMode: config.ServerModeConfig{Mode: config.ServerModeDirect},
@@ -266,6 +279,7 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 		CategoryMetadata: categoryMetadataService(t),
 		Retention:        retentionService(t),
 		StorageScan:      storageScanService(t),
+		ArchivePosters:   archivePosterService(t),
 	})
 	want := map[string]int64{
 		"app_token_cleanup":                      60 * 60,
@@ -289,6 +303,9 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 		// 20 min: a cadence distinct from the daily production default, so a
 		// wire handing storage_scan the daily constant would be caught.
 		taskStorageScan: 20 * 60,
+		// 7 min: distinct from the production default of 5 so a wire handing the
+		// poster task a fixed cadence would be caught.
+		taskArchivePosters: 7 * 60,
 	}
 	assertExactTasks(t, got, want)
 }

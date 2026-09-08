@@ -21,6 +21,7 @@ func (a *PGAdapter) CreateJob(ctx context.Context, input *repository.JobInput) (
 		VideoID:       input.VideoID,
 		BroadcasterID: input.BroadcasterID,
 		ResumeState:   rs,
+		Attempt:       max(input.Attempt, 1),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg create job: %w", err)

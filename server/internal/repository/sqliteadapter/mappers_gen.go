@@ -87,6 +87,7 @@ func sqliteEventLogsToDomain(rows []sqlitegen.EventLog) []repository.EventLog {
 
 func sqliteJobToDomain(src sqlitegen.Job) *repository.Job {
 	return &repository.Job{
+		Attempt:       int32(src.Attempt),
 		BroadcasterID: src.BroadcasterID,
 		CreatedAt:     src.CreatedAt.Time,
 		Error:         fromNullString(src.Error),

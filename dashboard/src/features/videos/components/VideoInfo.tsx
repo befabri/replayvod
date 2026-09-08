@@ -51,6 +51,7 @@ export function VideoInfo({
 	const channelLabel = channel?.broadcaster_name ?? video.broadcaster_id;
 	const titleLabel = video.title?.trim() || video.display_name;
 	const recordedDate = video.downloaded_at ?? video.start_download_at;
+	const isArchive = video.source === "vod";
 	const partCount = videoPartCount(video);
 	const showParts = isMultipartVideo(video);
 	const durationSeconds = recordingDurationSeconds(video);
@@ -123,9 +124,27 @@ export function VideoInfo({
 						{t("videos.parts_count", { count: partCount })}
 					</Badge>
 				) : null}
-				<Badge variant="muted">
-					{t("videos.recorded")} {new Date(recordedDate).toLocaleDateString()}
-				</Badge>
+				{isArchive ? (
+					<>
+						<Badge variant="outline">{t("videos.archive_badge")}</Badge>
+						{video.broadcast_at ? (
+							<Badge variant="muted">
+								{t("videos.streamed_on", {
+									date: new Date(video.broadcast_at).toLocaleDateString(),
+								})}
+							</Badge>
+						) : null}
+						<Badge variant="muted">
+							{t("videos.archived_on", {
+								date: new Date(recordedDate).toLocaleDateString(),
+							})}
+						</Badge>
+					</>
+				) : (
+					<Badge variant="muted">
+						{t("videos.recorded")} {new Date(recordedDate).toLocaleDateString()}
+					</Badge>
+				)}
 			</div>
 
 			<div className="mt-5 flex items-center gap-4 border-y border-foreground/10 py-4">

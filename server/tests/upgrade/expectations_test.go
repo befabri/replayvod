@@ -3,6 +3,7 @@ package upgrade
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"sort"
 	"strings"
 
@@ -22,7 +23,58 @@ const declarationSite = "server/tests/upgrade/expectations_test.go"
 //		"legacy_requests": {dropped: true},
 //		"event_logs":      grows(),
 //	},
-var transformations = map[string]map[string]tableRule{}
+var transformations = map[string]map[string]tableRule{
+	"047_videos_deletion_kind_missing": {
+		"videos": {
+			up: func(rows []map[string]any, _ snapshot) {
+				for _, row := range rows {
+					if row["deleted_at"] != nil && row["deletion_kind"] != "missing" {
+						row["thumbnail"] = nil
+					}
+				}
+			},
+			down: func(rows []map[string]any, _ snapshot) {
+				for _, row := range rows {
+					if row["deletion_kind"] == "missing" {
+						row["deletion_kind"] = "manual"
+					}
+				}
+			},
+		},
+	},
+	"049_videos_failed_truncated": {
+		"videos": {up: func(rows []map[string]any, historical snapshot) {
+			saved := map[any]bool{}
+			for _, part := range historical["video_parts"] {
+				if size, ok := part["size_bytes"].(float64); ok && size > 0 {
+					saved[part["video_id"]] = true
+				}
+			}
+			for _, row := range rows {
+				if row["status"] == "FAILED" && row["deleted_at"] == nil && !saved[row["id"]] {
+					// The JSON probe exposes PG booleans and SQLite integers.
+					if _, ok := row["truncated"].(bool); ok {
+						row["truncated"] = false
+					} else {
+						row["truncated"] = float64(0)
+					}
+				}
+			}
+		}},
+	},
+	"051_recording_quality": {
+		"videos":             {down: restoreLegacyQuality},
+		"download_schedules": {down: restoreLegacyQuality},
+	},
+}
+
+func restoreLegacyQuality(rows []map[string]any, _ snapshot) {
+	for _, row := range rows {
+		if row["quality"] == "1440" || row["quality"] == "BEST" {
+			row["quality"] = "HIGH"
+		}
+	}
+}
 
 // tableRule describes one intentional change to a table.
 type tableRule struct {
@@ -30,6 +82,19 @@ type tableRule struct {
 	renamedTo string
 	columns   map[string]string                          // historical column name to its new name
 	compare   func(before, after []map[string]any) error // replaces the exact row comparison
+	// Value transformations edit a copy of the expected rows, never actual
+	// database rows. All other values and row counts remain exact assertions.
+	// The snapshot supplies historical values from related tables when needed.
+	up, down func(rows []map[string]any, historical snapshot)
+}
+
+func (r tableRule) structural() bool {
+	return r.dropped || r.renamedTo != "" || len(r.columns) != 0 || r.compare != nil
+}
+
+type valueChange struct {
+	table string
+	rule  tableRule
 }
 
 // grows requires every historical row to remain while accepting new rows.
@@ -58,6 +123,7 @@ type projection struct {
 	added   []string             // up migrations the candidate applies to the baseline
 	rules   map[string]tableRule // by historical table name
 	columns schema               // historical columns, set once the baseline is read
+	changes []valueChange        // value transformations in migration order
 }
 
 // projectionFor selects the rules of the migrations the candidate adds to b.
@@ -74,16 +140,31 @@ func projectionFor(rules map[string]map[string]tableRule, candidate fs.FS, backe
 			continue
 		}
 		p.added = append(p.added, version)
-		for table, rule := range rules[version] {
-			if previous, declared := owner[table]; declared {
-				return projection{}, fmt.Errorf("%s: %s is declared by both %s and %s; declare the combined change once", declarationSite, table, previous, version)
+		for _, table := range sortedRuleTables(rules[version]) {
+			rule := rules[version][table]
+			if rule.structural() {
+				if previous, declared := owner[table]; declared {
+					return projection{}, fmt.Errorf("%s: %s is declared by both %s and %s; declare the combined structural change once", declarationSite, table, previous, version)
+				}
+				owner[table] = version
+				p.rules[table] = rule
 			}
-			owner[table] = version
-			p.rules[table] = rule
+			if rule.up != nil || rule.down != nil {
+				p.changes = append(p.changes, valueChange{table: table, rule: rule})
+			}
 		}
 	}
 	sort.Strings(p.added)
 	return p, nil
+}
+
+func sortedRuleTables(rules map[string]tableRule) []string {
+	tables := make([]string, 0, len(rules))
+	for table := range rules {
+		tables = append(tables, table)
+	}
+	sort.Strings(tables)
+	return tables
 }
 
 // queries reads the historical tables through the candidate schema, aliased back
@@ -124,6 +205,43 @@ func (p projection) queries(previous snapshot) map[string]string {
 
 // compare checks the candidate rows against the historical rows under the rules.
 func (p projection) compare(before, after snapshot) error {
+	return p.compareDirection(before, after, false)
+}
+
+func (p projection) compareDown(before, after snapshot) error {
+	return p.compareDirection(before, after, true)
+}
+
+func (p projection) compareDirection(before, after snapshot, down bool) error {
+	expected := cloneSnapshot(before)
+	for i := range p.changes {
+		change := p.changes[i]
+		transform := change.rule.up
+		if down {
+			change = p.changes[len(p.changes)-1-i]
+			transform = change.rule.down
+		}
+		if transform != nil {
+			transform(expected[change.table], before)
+		}
+	}
+	return p.compareExpected(expected, after)
+}
+
+func cloneSnapshot(s snapshot) snapshot {
+	cloned := snapshot{}
+	for table, rows := range s {
+		for _, row := range rows {
+			cloned[table] = append(cloned[table], maps.Clone(row))
+		}
+		if len(rows) == 0 {
+			cloned[table] = nil
+		}
+	}
+	return cloned
+}
+
+func (p projection) compareExpected(before, after snapshot) error {
 	for _, table := range sortedTables(before) {
 		rule := p.rules[table]
 		if rule.dropped {
@@ -176,7 +294,7 @@ func validateTransformations(rules map[string]map[string]tableRule, candidates m
 			return fmt.Errorf("%s: every retained baseline contains %s; remove its rules", declarationSite, version)
 		}
 		for table, rule := range tables {
-			if rule.dropped && (rule.renamedTo != "" || len(rule.columns) != 0 || rule.compare != nil) {
+			if rule.dropped && (rule.renamedTo != "" || len(rule.columns) != 0 || rule.compare != nil || rule.up != nil || rule.down != nil) {
 				return fmt.Errorf("%s: %s.%s is dropped and cannot declare other changes", declarationSite, version, table)
 			}
 		}
@@ -186,19 +304,8 @@ func validateTransformations(rules map[string]map[string]tableRule, candidates m
 
 func quoteIdentifier(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
 
-// candidateMigrations returns the test binary's embedded SQL for a backend. The
-// candidate image is verified to embed the same files, so the checkout is never read.
-func candidateMigrations(backend string) fs.FS {
-	switch backend {
-	case "postgres":
-		return migrations.Postgres()
-	case "sqlite":
-		return migrations.SQLite()
-	default:
-		panic("unknown migration backend: " + backend)
-	}
-}
-
+// embeddedMigrations returns the test binary's embedded SQL. The candidate
+// image is verified to embed the same files, so no checkout files are read.
 func embeddedMigrations() map[string]fs.FS {
 	return map[string]fs.FS{"postgres": migrations.Postgres(), "sqlite": migrations.SQLite()}
 }

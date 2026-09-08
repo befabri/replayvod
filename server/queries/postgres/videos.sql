@@ -12,9 +12,9 @@ INSERT INTO videos (
     job_id, filename, display_name, title, status, quality,
     broadcaster_id, stream_id, viewer_count, language, recording_type,
     force_h264, trigger_schedule_id, retention_source_schedule_id,
-    retention_window_hours
+    retention_window_hours, source, twitch_video_id, broadcast_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 RETURNING *;
 
 -- name: UpdateVideoStatus :exec
@@ -39,7 +39,8 @@ UPDATE videos SET
     downloaded_at = NOW(),
     duration_seconds = $2,
     size_bytes = $3,
-    thumbnail = $4,
+    -- See sqlite/videos.sql MarkVideoDone: a frameless run keeps its poster.
+    thumbnail = COALESCE($4, thumbnail),
     completion_kind = $5,
     truncated = $6
 WHERE id = $1;
@@ -199,7 +200,8 @@ SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at 
 -- Queue an operator-requested deletion. Idempotent for already-queued live
 -- terminal rows; active recordings must be cancelled first.
 UPDATE videos
-SET delete_requested_at = COALESCE(delete_requested_at, NOW())
+SET delete_requested_at = COALESCE(delete_requested_at, NOW()),
+    next_retry_at = NULL
 WHERE id = $1
   AND deleted_at IS NULL
   AND status IN ('DONE', 'FAILED')
@@ -325,6 +327,7 @@ WHERE broadcaster_id = $1 AND status = 'DONE' AND deleted_at IS NULL;
 SELECT videos.id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
+  AND next_retry_at IS NULL
   AND (
     status = 'DONE'
     OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
@@ -338,8 +341,92 @@ ORDER BY videos.id ASC LIMIT @page_size::int;
 UPDATE videos SET deleted_at = NOW(), deletion_kind = 'missing'
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
+  AND next_retry_at IS NULL
   AND (
     status = 'DONE'
     OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
   )
   AND videos.id = $1;
+
+-- name: GetOpenVideoByTwitchVideoID :one
+-- See sqlite/videos.sql GetOpenVideoByTwitchVideoID.
+SELECT * FROM videos
+WHERE twitch_video_id = $1 AND deleted_at IS NULL
+  AND (status <> 'FAILED' OR next_retry_at IS NOT NULL)
+LIMIT 1;
+
+-- name: ListOpenVideosByTwitchVideoIDs :many
+SELECT * FROM videos
+WHERE twitch_video_id = ANY(@twitch_video_ids::text[])
+  AND deleted_at IS NULL AND (status <> 'FAILED' OR next_retry_at IS NOT NULL);
+
+-- name: ListOpenVideosByStreamIDs :many
+-- See sqlite/videos.sql ListOpenVideosByStreamIDs.
+SELECT * FROM videos
+WHERE stream_id = ANY(@stream_ids::text[])
+  AND source = 'live' AND deleted_at IS NULL AND status <> 'FAILED';
+
+-- name: ListArchiveQueue :many
+SELECT * FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status IN ('PENDING', 'RUNNING')
+ORDER BY start_download_at ASC, id ASC;
+
+-- name: DeleteQueuedArchiveVideo :execrows
+-- See sqlite/videos.sql DeleteQueuedArchiveVideo.
+DELETE FROM videos WHERE id = $1 AND source = 'vod' AND status = 'PENDING';
+
+-- name: ListRecentArchiveFailures :many
+SELECT * FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED' AND downloaded_at >= $1
+ORDER BY downloaded_at DESC, id DESC LIMIT $2;
+
+-- name: ListArchivesDueForRetry :many
+SELECT * FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED'
+  AND delete_requested_at IS NULL
+  AND next_retry_at IS NOT NULL AND next_retry_at <= $1
+ORDER BY next_retry_at ASC, id ASC LIMIT $2;
+
+-- name: MarkArchiveFailedForRetry :exec
+-- See sqlite/videos.sql MarkArchiveFailedForRetry.
+UPDATE videos SET
+    status = 'FAILED',
+    downloaded_at = NOW(),
+    error = $2,
+    completion_kind = $3,
+    truncated = $4,
+    next_retry_at = $5
+WHERE id = $1 AND source = 'vod';
+
+-- name: RequeueArchiveVideo :execrows
+-- See sqlite/videos.sql RequeueArchiveVideo.
+UPDATE videos SET
+    status = 'PENDING',
+    job_id = @job_id,
+    error = NULL,
+    downloaded_at = NULL,
+    completion_kind = 'complete',
+    truncated = FALSE,
+    next_retry_at = NULL
+WHERE id = @id AND source = 'vod' AND status = 'FAILED' AND deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (NOT @scheduled_only::boolean OR next_retry_at IS NOT NULL);
+
+-- name: ClearArchiveRetry :execrows
+UPDATE videos SET next_retry_at = NULL
+WHERE id = $1 AND source = 'vod' AND status = 'FAILED' AND next_retry_at IS NOT NULL;
+
+-- name: ListArchivesMissingPoster :many
+-- See sqlite/videos.sql ListArchivesMissingPoster.
+SELECT * FROM videos
+WHERE source = 'vod' AND thumbnail IS NULL AND deleted_at IS NULL
+  AND (status <> 'FAILED' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  AND twitch_video_id IS NOT NULL AND start_download_at >= @since::timestamptz
+  AND videos.id > @after_id::bigint
+ORDER BY id ASC LIMIT @page_size::int;
+
+-- name: SetVideoThumbnailIfMissing :execrows
+-- A poster never replaces a frame the pipeline already produced, and a row
+-- removed while the poster was in flight stays without one.
+UPDATE videos SET thumbnail = $2 WHERE id = $1 AND thumbnail IS NULL AND deleted_at IS NULL;
+

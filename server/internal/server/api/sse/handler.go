@@ -73,3 +73,15 @@ func (h *Handler) TaskStatus(ctx context.Context) (<-chan eventbus.TaskStatusEve
 	}
 	return h.bus.TaskStatus.Subscribe(ctx), nil
 }
+
+// ArchiveQueue streams archive queue membership changes: enqueued, started,
+// completed, failed, dequeued, retry cancelled. Viewer-level like the queue
+// itself; subscribers refetch archive.queue on every event.
+func (h *Handler) ArchiveQueue(ctx context.Context) (<-chan eventbus.ArchiveQueueEvent, error) {
+	if h.bus == nil {
+		ch := make(chan eventbus.ArchiveQueueEvent)
+		close(ch)
+		return ch, nil
+	}
+	return h.bus.ArchiveQueue.Subscribe(ctx), nil
+}

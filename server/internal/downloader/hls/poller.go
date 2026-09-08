@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync/atomic"
 	"time"
 )
 
@@ -148,6 +149,11 @@ type Poller struct {
 	// JobResult.EndList, which is what ultimately distinguishes a complete
 	// recording from a truncated one. Output field, not config.
 	endListSeen bool
+
+	// totalSegments is the number of eligible segments across this run,
+	// published as soon as ENDLIST is observed, before sending the remaining
+	// jobs to workers. Live playlists keep an unknown total (zero).
+	totalSegments atomic.Int64
 }
 
 // PollResult carries metadata observed on the first successful
@@ -254,6 +260,7 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 	lastSeq := p.StartMediaSeq - 1
 	var firstSent bool
 	var warnedWindowRoll bool
+	var emitted int64
 
 	for attempt := 0; ; {
 		pl, err := p.fetchAndParse(ctx)
@@ -347,6 +354,17 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			}
 		}
 
+		if pl.EndList {
+			// Publish before sending to the bounded worker channel. Otherwise
+			// a VOD has no total until virtually all of it has downloaded.
+			total := emitted
+			for _, seg := range pl.Segments {
+				if (seg.MediaSeq > lastSeq || p.RefetchSeqs[seg.MediaSeq]) && !seg.IsAd && seg.Duration > 0 {
+					total++
+				}
+			}
+			p.totalSegments.Store(total)
+		}
 		ext := segmentExt(pl.Kind)
 		for _, seg := range pl.Segments {
 			// Refetch path: a seq this Poller was asked to retry
@@ -410,6 +428,7 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			}
 			select {
 			case out <- job:
+				emitted++
 				if seg.MediaSeq > lastSeq {
 					lastSeq = seg.MediaSeq
 				}
@@ -436,7 +455,8 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 		}
 
 		if pl.EndList {
-			log.Debug("playlist endlist — poller done")
+			log.Debug("playlist endlist — poller done", "segments", emitted)
+			p.totalSegments.Store(emitted)
 			p.endListSeen = true
 			return nil
 		}

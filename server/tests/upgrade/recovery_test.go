@@ -70,12 +70,12 @@ func (h *installation) assertRecoveredRecordings() {
 	}
 	for _, video := range result["videos"] {
 		id := video["id"].(float64)
-		status, kind, truncated := "FAILED", "complete", true
+		status, kind, truncated := "FAILED", "complete", false
 		if id == 6001 {
 			status, truncated = "DONE", false
 		}
 		if id == 6002 {
-			kind = "partial"
+			kind, truncated = "partial", true
 		}
 		if video["status"] != status || video["completion_kind"] != kind || (video["truncated"] == true || video["truncated"] == float64(1)) != truncated {
 			h.t.Fatalf("incorrect recovery classification: %v", video)

@@ -56,11 +56,53 @@ export interface ApproveRequestInput {
   tag_ids: number[];
 }
 
+export interface ArchiveChannelResponse {
+  broadcaster_id: string;
+  login: string;
+  name: string;
+  profile_image_url?: string;
+}
+
+/** ArchiveEnqueueStatus is the wire form of EnqueueStatus. */
+export type ArchiveEnqueueStatus = "queued" | "exists" | "not_found" | "invalid" | "live" | "private" | "error";
+
+/** ArchiveHeldReason is the wire form of HeldReason. */
+export type ArchiveHeldReason = "archive" | "live_recording";
+
+/**
+ * ArchiveQueueEvent fires when an archive joins or leaves the queue, is
+ * picked up by the pump, finishes, fails (with or without a retry scheduled;
+ * the row carries next_retry_at), or has its retry cancelled, so the queue
+ * page refetches instead of polling.
+ */
+export interface ArchiveQueueEvent {
+  kind: ArchiveQueueKind;
+  video_id: number;
+  at: string;
+}
+
+/** ArchiveQueueKind enumerates the archive queue membership changes. */
+export type ArchiveQueueKind = "queued" | "dequeued" | "started" | "completed" | "failed" | "retry_cancelled";
+
+/**
+ * ArchiveQueueResponse is the Archive page: queued and running archives,
+ * oldest first, and the failures of the last seven days, newest first, as
+ * full video rows so the dashboard can reuse its recording components. A
+ * failure with next_retry_at set is waiting for its automatic retry.
+ */
+export interface ArchiveQueueResponse {
+  queue: VideoResponse[];
+  failures: VideoResponse[];
+}
+
+export interface ArchiveVideoInput {
+  video_id: number;
+}
+
 export interface ByCategoryInput {
   category_id: string;
   limit: number;
   cursor?: VideoPageCursor;
-  direction?: string;
 }
 
 export interface CancelInput {
@@ -121,10 +163,8 @@ export interface CategoryResponse {
 }
 
 /**
- * SearchInput drives category.search. Empty Query returns everything
- * up to Limit — the same endpoint backs the combobox "show all"
- * state. Query is capped at 100 chars to bound substring pattern work;
- * plenty of headroom for any realistic game title.
+ * SearchInput drives category.search. An empty Query returns everything up to
+ * Limit. The 100-char cap bounds the substring pattern a caller can send.
  */
 export interface CategorySearchInput {
   query: string;
@@ -169,11 +209,9 @@ export interface ChannelResponse {
 }
 
 /**
- * SearchInput drives channel.search. Empty Query returns everything up
- * to Limit — the same endpoint backs the combobox "show all" state.
- * Query is capped so a malicious caller can't feed a 1 MB ILIKE
- * pattern; 100 chars comfortably covers Twitch logins (max 25) and
- * display names (max 25) with headroom.
+ * SearchInput drives channel.search. An empty Query returns everything up to
+ * Limit. The 100-char cap bounds the pattern a caller can send; Twitch logins
+ * and display names top out at 25.
  */
 export interface ChannelSearchInput {
   query: string;
@@ -194,6 +232,19 @@ export interface ChannelStatisticsResponse {
 export interface ChannelUserStateResponse {
   favorite: boolean;
   updated_at: string;
+}
+
+export interface ChannelVODsInput {
+  /** Channel is a Twitch login or a twitch.tv channel url. */
+  channel: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface ChannelVODsResponse {
+  channel: ArchiveChannelResponse;
+  vods: TwitchVODResponse[];
+  next_cursor?: string;
 }
 
 export type CompletionKind = "complete" | "partial" | "cancelled";
@@ -273,10 +324,33 @@ export interface DeleteResponse {
 
 export interface DownloadCapacityResponse {
   max_concurrent: number;
+  archive_max_concurrent: number;
 }
 
 export interface DownloadProgressInput {
   job_id: string;
+}
+
+export interface EnqueueArchiveInput {
+  /** VODs are Twitch VOD links or ids, one per entry. */
+  vods: string[];
+  recording_type?: string;
+  quality?: string;
+  force_h264?: boolean;
+}
+
+export interface EnqueueArchiveItem {
+  input: string;
+  vod_id?: string;
+  status: ArchiveEnqueueStatus;
+  title?: string;
+  video_id?: number;
+  job_id?: string;
+  message?: string;
+}
+
+export interface EnqueueArchiveResponse {
+  items: EnqueueArchiveItem[];
 }
 
 /**
@@ -405,18 +479,14 @@ export interface LastLiveInput {
   broadcaster_id: string;
 }
 
-/**
- * LatestLiveInput caps result rows. Zero Limit uses a sensible default
- * (8) — enough for a dashboard card without scrolling.
- */
+/** LatestLiveInput caps result rows; a zero Limit means 8. */
 export interface LatestLiveInput {
   limit?: number;
 }
 
 /**
- * LatestLiveResponse is the wire shape for one row of channel.latestLive:
- * stream snapshot + flattened broadcaster display info, so the dashboard
- * can render the card without a follow-up channel.getById per row.
+ * LatestLiveResponse is one row of channel.latestLive. Broadcaster display
+ * fields are flattened in so a client needs no follow-up channel.getById.
  */
 export interface LatestLiveResponse {
   stream_id: string;
@@ -1023,6 +1093,36 @@ export interface TwitchPlaybackStatusResponse {
   expires_at: number;
 }
 
+export interface TwitchVODResponse {
+  id: string;
+  title: string;
+  url: string;
+  type: string;
+  created_at: string;
+  duration_seconds: number;
+  thumbnail_url?: string;
+  view_count: number;
+  language?: string;
+  /**
+   * Viewable is Twitch's "public" or "private"; a private VOD cannot be
+   * archived.
+   */
+  viewable?: string;
+  /**
+   * Live is true while the VOD's broadcast is still on air, so it cannot be
+   * archived yet.
+   */
+  live?: boolean;
+  /**
+   * ArchivedVideoID and ArchivedStatus are set when the library already
+   * holds this VOD (queued, downloading, done, or recorded live), and
+   * HeldReason says which of those it is.
+   */
+  archived_video_id?: number;
+  archived_status?: VideoStatus;
+  held_reason?: ArchiveHeldReason;
+}
+
 export interface UnsubscribeInput {
   id: string;
   reason?: string;
@@ -1078,7 +1178,6 @@ export interface VideoByBroadcasterInput {
   broadcaster_id: string;
   limit: number;
   cursor?: VideoPageCursor;
-  direction?: string;
 }
 
 export interface VideoCategory {
@@ -1123,6 +1222,8 @@ export interface VideoListPageInput {
   quality?: string;
   broadcaster_id?: string;
   language?: string;
+  /** Source narrows to live recordings or archives of past broadcasts. */
+  source?: string;
   duration?: string;
   size?: string;
   window?: string;
@@ -1143,7 +1244,6 @@ export interface VideoListPageInput {
    */
   scope?: string;
   cursor?: VideoListPageCursor;
-  direction?: string;
 }
 
 export interface VideoListPageResponse {
@@ -1266,7 +1366,8 @@ export interface VideoResponse {
   downloaded_at?: string;
   /**
    * DeletedAt is set on tombstoned (removed) recordings; DeletionKind
-   * records why ("retention" | "manual"). Both nil for live recordings.
+   * records why ("retention" | "manual" | "missing"). Both nil for live
+   * recordings.
    * Surfaced only on the removed-inclusive history surface (listPage with
    * scope removed/all); the library default scope never returns these rows.
    */
@@ -1277,6 +1378,16 @@ export interface VideoResponse {
    * finalized by the background deletion task.
    */
   delete_requested_at?: string;
+  /**
+   * Source is "live" for a recorded broadcast and "vod" for an archive of a
+   * Twitch VOD. Archives also carry the VOD id and the date the stream
+   * originally aired.
+   */
+  source: VideoSource;
+  twitch_video_id?: string;
+  broadcast_at?: string;
+  /** NextRetryAt is set on a failed archive whose next attempt is scheduled. */
+  next_retry_at?: string;
   /**
    * Parts is populated only by GetByID — list endpoints skip it
    * to avoid N+1 queries on grid views.
@@ -1300,6 +1411,8 @@ export interface VideoSearchInput {
   query: string;
   limit?: number;
 }
+
+export type VideoSource = "live" | "vod";
 
 export type VideoStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
 
@@ -1325,6 +1438,15 @@ type $Mutation<TInput, TOutput> = TRPCMutationProcedure<{ input: TInput; output:
 type $Subscription<TInput, TOutput> = TRPCSubscriptionProcedure<{ input: TInput; output: TOutput; meta: object }>;
 
 type AppRouterRecord = {
+  archive: {
+    cancelRetry: $Mutation<ArchiveVideoInput, VideoOK>;
+    dequeue: $Mutation<ArchiveVideoInput, VideoOK>;
+    enqueue: $Mutation<EnqueueArchiveInput, EnqueueArchiveResponse>;
+    listChannelVods: $Query<ChannelVODsInput, ChannelVODsResponse>;
+    queue: $Query<void, ArchiveQueueResponse>;
+    queueLive: $Subscription<void, ArchiveQueueEvent>;
+    retry: $Mutation<ArchiveVideoInput, VideoOK>;
+  };
   auth: {
     logout: $Mutation<void, LogoutResult>;
     revokeSession: $Mutation<RevokeSessionInput, LogoutResult>;

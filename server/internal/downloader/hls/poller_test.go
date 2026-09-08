@@ -637,3 +637,26 @@ func TestPollerRun_GoneErrorBubbles(t *testing.T) {
 		t.Fatalf("Run=%v, want ErrPlaylistGone", err)
 	}
 }
+
+func TestPollerPublishesVODTotalBeforeWorkerChannelDrains(t *testing.T) {
+	playlist := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n" +
+		"#EXTINF:1,\n0.ts\n#EXTINF:1,\n1.ts\n#EXTINF:1,\n2.ts\n#EXTINF:1,\n3.ts\n#EXT-X-ENDLIST\n"
+	srv := sequencePlaylistServer(t, playlist)
+	p := &Poller{URL: srv.URL, HTTPClient: srv.Client(), StartMediaSeq: 2, RefetchSeqs: map[int64]bool{0: true}}
+	first := make(chan PollResult, 1)
+	out := make(chan segmentJob) // no buffered drain can hide a late total
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- p.Run(ctx, first, out) }()
+	select {
+	case <-out:
+	case <-time.After(time.Second):
+		t.Fatal("poller did not emit")
+	}
+	if got := p.totalSegments.Load(); got != 3 {
+		t.Fatalf("early total=%d, want refetch + two remaining segments", got)
+	}
+	cancel()
+	<-done
+}

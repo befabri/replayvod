@@ -144,6 +144,7 @@ type Job struct {
 	ResumeState   string           `json:"resume_state"`
 	CreatedAt     sqlitetype.Time  `json:"created_at"`
 	UpdatedAt     sqlitetype.Time  `json:"updated_at"`
+	Attempt       int64            `json:"attempt"`
 }
 
 type RecordingWebhookDelivery struct {
@@ -352,6 +353,10 @@ type Video struct {
 	DeleteRequestedAt         *sqlitetype.Time `json:"delete_requested_at"`
 	DeletionKind              sql.NullString   `json:"deletion_kind"`
 	Quality                   string           `json:"quality"`
+	Source                    string           `json:"source"`
+	TwitchVideoID             sql.NullString   `json:"twitch_video_id"`
+	BroadcastAt               *sqlitetype.Time `json:"broadcast_at"`
+	NextRetryAt               *sqlitetype.Time `json:"next_retry_at"`
 }
 
 type VideoCategory struct {

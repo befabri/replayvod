@@ -586,4 +586,8 @@ func TestRun_ProgressChannelClosedOnTermination(t *testing.T) {
 	if last.SegmentsDone != 3 {
 		t.Errorf("last Progress SegmentsDone=%d, want 3", last.SegmentsDone)
 	}
+	// A closed (VOD) playlist reports a real total instead of leaving it unknown.
+	if last.SegmentsTotal != 3 {
+		t.Errorf("last Progress SegmentsTotal=%d, want 3", last.SegmentsTotal)
+	}
 }

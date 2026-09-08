@@ -15,6 +15,11 @@ describe("validateVideosSearch", () => {
 		expect(validateVideosSearch({ tab: "unwatched" }).tab).toBe("unwatched");
 	});
 
+	it("keeps a known source filter and drops an unknown one", () => {
+		expect(validateVideosSearch({ source: "vod" }).source).toBe("vod");
+		expect(validateVideosSearch({ source: "clips" }).source).toBeUndefined();
+	});
+
 	it("preserves the old favorites URL as watch later", () => {
 		expect(validateVideosSearch({ tab: "favorites" }).tab).toBe("watch_later");
 	});
@@ -43,6 +48,33 @@ describe("validateVideosSearch", () => {
 			language: undefined,
 			duration: undefined,
 		});
+	});
+
+	it("narrows placeholder rows by source", () => {
+		const rows = [
+			video({ id: 1 }),
+			{ ...video({ id: 2 }), source: "vod" as const },
+		];
+		const search = {
+			tab: "all" as const,
+			status: undefined,
+			quality: undefined,
+			language: undefined,
+			duration: undefined,
+		};
+		expect(
+			filterLoadedVideosForSearch(rows, { ...search, source: "vod" }).map(
+				(v) => v.id,
+			),
+		).toEqual([2]);
+		expect(
+			filterLoadedVideosForSearch(rows, { ...search, source: "live" }).map(
+				(v) => v.id,
+			),
+		).toEqual([1]);
+		expect(
+			filterLoadedVideosForSearch(rows, { ...search, source: undefined }),
+		).toHaveLength(2);
 	});
 
 	it("narrows placeholder rows by current tab and status", () => {
@@ -83,6 +115,7 @@ describe("validateVideosSearch", () => {
 				quality: undefined,
 				language: undefined,
 				duration: undefined,
+				source: undefined,
 			}).map((row) => row.id),
 		).toEqual([1]);
 	});
@@ -94,11 +127,13 @@ describe("validateVideosSearch", () => {
 				id: 1,
 				status: "DONE",
 				start_download_at: "2026-06-06T12:00:00Z",
+				source: "live",
 			}),
 			video({
 				id: 2,
 				status: "DONE",
 				start_download_at: "2026-06-06T12:00:00Z",
+				source: "live",
 				user_state: {
 					watch_later: false,
 					last_position_seconds: 10,
@@ -110,11 +145,13 @@ describe("validateVideosSearch", () => {
 				id: 3,
 				status: "RUNNING",
 				start_download_at: "2026-06-06T12:00:00Z",
+				source: "live",
 			}),
 			video({
 				id: 4,
 				status: "DONE",
 				start_download_at: "2026-05-01T12:00:00Z",
+				source: "live",
 			}),
 		];
 
@@ -125,6 +162,7 @@ describe("validateVideosSearch", () => {
 				quality: undefined,
 				language: undefined,
 				duration: undefined,
+				source: undefined,
 			}).map((row) => row.id),
 		).toEqual([1, 4]);
 
@@ -137,6 +175,7 @@ describe("validateVideosSearch", () => {
 					quality: undefined,
 					language: undefined,
 					duration: undefined,
+					source: undefined,
 				},
 				nowMs,
 			).map((row) => row.id),
@@ -160,6 +199,7 @@ function video(overrides: Partial<VideoResponse> = {}): VideoResponse {
 		viewer_count: overrides.viewer_count ?? 0,
 		language: overrides.language ?? "en",
 		start_download_at: overrides.start_download_at ?? "2026-06-07T00:00:00Z",
+		source: "live",
 		user_state: overrides.user_state,
 	};
 }

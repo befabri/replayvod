@@ -29,11 +29,9 @@ const (
 	playbackAccessTokenSHA256 = "ed230aa1e33e07eebb8928504583da78a5173989fadfb1ac94be06a04f3cdbe9"
 )
 
-// gqlPersistedQuery is the envelope Twitch expects for a persisted
-// query call. OperationName is the stored operation (see
-// playbackAccessTokenOp); Variables carries the query-specific input
-// (login + isLive etc. for playback token); Extensions.PersistedQuery
-// is the hash lookup that tells Twitch which canned query to run.
+// gqlPersistedQuery is the envelope Twitch expects for a persisted query
+// call: the extensions hash, not the operation name, selects which canned
+// query runs.
 type gqlPersistedQuery struct {
 	OperationName string         `json:"operationName"`
 	Variables     map[string]any `json:"variables"`
@@ -72,12 +70,28 @@ type gqlError struct {
 	Message string `json:"message"`
 }
 
+// playbackTarget names what a playback token is for: a live channel by
+// login, or a VOD by id. Exactly one field is set.
+type playbackTarget struct {
+	login string
+	vodID string
+}
+
+func (t playbackTarget) isVOD() bool { return t.vodID != "" }
+
+func (t playbackTarget) String() string {
+	if t.isVOD() {
+		return "vod " + t.vodID
+	}
+	return t.login
+}
+
 // PlaybackToken performs the GQL PlaybackAccessToken_Template call
 // for a live channel. login is the broadcaster login (lowercase, as
 // Twitch expects it). Returns the signed playback token used to
 // fetch the master playlist.
 //
-// Client-Integrity fallback (streamlink plugins/twitch.py:517-545):
+// Client-Integrity fallback, as in streamlink's twitch plugin:
 //  1. First attempt: no integrity header.
 //  2. If error / empty value / retryable auth failure: acquire
 //     integrity, retry once.
@@ -89,9 +103,24 @@ type gqlError struct {
 // Authorization: OAuth header. The caller owns its validation and storage;
 // an ordinary third-party Twitch Connect grant is not a playback credential.
 func (c *Client) PlaybackToken(ctx context.Context, login, accessToken string) (PlaybackToken, error) {
-	c.log.Debug("playback token attempt", "login", login, "authenticated", accessToken != "")
+	return c.playbackToken(ctx, playbackTarget{login: login}, accessToken)
+}
+
+// VODPlaybackToken is the VOD counterpart of PlaybackToken: the same GQL
+// operation with isVod set, answered under videoPlaybackAccessToken. The
+// token authorizes the usher /vod/ master playlist; VOD media playlists
+// and segments are served without it.
+func (c *Client) VODPlaybackToken(ctx context.Context, vodID, accessToken string) (PlaybackToken, error) {
+	if vodID == "" {
+		return PlaybackToken{}, fmt.Errorf("twitch: empty vod id")
+	}
+	return c.playbackToken(ctx, playbackTarget{vodID: vodID}, accessToken)
+}
+
+func (c *Client) playbackToken(ctx context.Context, target playbackTarget, accessToken string) (PlaybackToken, error) {
+	c.log.Debug("playback token attempt", "target", target.String(), "authenticated", accessToken != "")
 	// First attempt — no integrity.
-	token, err := c.playbackAttempt(ctx, login, accessToken, "")
+	token, err := c.playbackAttempt(ctx, target, accessToken, "")
 	if err == nil && !token.Empty() {
 		return token, nil
 	}
@@ -106,7 +135,7 @@ func (c *Client) PlaybackToken(ctx context.Context, login, accessToken string) (
 		return PlaybackToken{}, err
 	}
 
-	c.log.Debug("playback token retry with integrity", "login", login, "error", err)
+	c.log.Debug("playback token retry with integrity", "target", target.String(), "error", err)
 
 	integrity, iErr := c.integrity.Acquire(ctx, c)
 	if iErr != nil {
@@ -119,7 +148,7 @@ func (c *Client) PlaybackToken(ctx context.Context, login, accessToken string) (
 		return PlaybackToken{}, fmt.Errorf("integrity acquire failed: %w", iErr)
 	}
 
-	token, err = c.playbackAttempt(ctx, login, accessToken, integrity)
+	token, err = c.playbackAttempt(ctx, target, accessToken, integrity)
 	if err != nil {
 		return PlaybackToken{}, err
 	}
@@ -145,14 +174,14 @@ var ErrPlaybackTokenEmpty = errors.New("twitch: empty playback token")
 // Client-Integrity header value (empty on the first attempt); the
 // Device-Id header is always sent so Twitch can correlate if we do
 // need to acquire integrity.
-func (c *Client) playbackAttempt(ctx context.Context, login, accessToken, integrity string) (PlaybackToken, error) {
+func (c *Client) playbackAttempt(ctx context.Context, target playbackTarget, accessToken, integrity string) (PlaybackToken, error) {
 	body := gqlPersistedQuery{
 		OperationName: playbackAccessTokenOp,
 		Variables: map[string]any{
-			"isLive":     true,
-			"login":      login,
-			"isVod":      false,
-			"vodID":      "",
+			"isLive":     !target.isVOD(),
+			"login":      target.login,
+			"isVod":      target.isVOD(),
+			"vodID":      target.vodID,
 			"playerType": "site",
 			"platform":   "web",
 		},
@@ -216,7 +245,7 @@ func (c *Client) playbackAttempt(ctx context.Context, login, accessToken, integr
 	if len(parsed.Errors) > 0 {
 		msg := parsed.Errors[0].Message
 		c.log.Debug("playback token gql error",
-			"login", login,
+			"target", target.String(),
 			"status", resp.StatusCode,
 			"message", msg,
 			"integrity", integrity != "",
@@ -235,12 +264,18 @@ func (c *Client) playbackAttempt(ctx context.Context, login, accessToken, integr
 		return PlaybackToken{}, NewAuthError(resp.StatusCode, bodyBytes)
 	}
 
-	if parsed.Data == nil || parsed.Data.StreamPlaybackAccessToken == nil {
+	if parsed.Data == nil {
 		// 2xx + no data + no errors is Twitch's way of saying
 		// "channel unknown" for some accounts. Surface as empty
 		// to trigger the integrity fallback once, then fail.
 		return PlaybackToken{}, nil
 	}
 	raw := parsed.Data.StreamPlaybackAccessToken
+	if target.isVOD() {
+		raw = parsed.Data.VideoPlaybackAccessToken
+	}
+	if raw == nil {
+		return PlaybackToken{}, nil
+	}
 	return PlaybackToken{Value: raw.Value, Signature: raw.Signature}, nil
 }

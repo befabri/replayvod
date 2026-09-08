@@ -6,6 +6,7 @@ import { TimestampValue } from "@/components/ui/timestamp";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes } from "@/features/videos/format";
 import { cn } from "@/lib/utils";
+import { VideoThumbnail } from "./listColumns";
 import { RemovedBadge } from "./RemovedBadge";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { VideoStatusBadge } from "./VideoStatusBadge";
@@ -21,6 +22,106 @@ function channelColumn(t: TFunction): ColumnDef<VideoResponse> {
 		header: t("history.col_channel"),
 		cell: ({ row }) => <ChannelCell row={row.original} />,
 	};
+}
+
+// RecordingCell identifies a row at a glance: the poster while one is still in
+// storage (a missing-media tombstone keeps it, every other removal purges it),
+// the channel link, and the stream title underneath. Poster and title both open
+// the player, so the row needs no Watch button of its own.
+export function RecordingCell({
+	row,
+	t,
+}: {
+	row: VideoResponse;
+	t: TFunction;
+}) {
+	const title = row.title?.trim();
+	const subtitle = title && title !== channelLabel(row) ? title : null;
+	// Only a finished recording that still has its media opens the player; a
+	// tombstone or a failure has nothing to play, so it stays plain content.
+	const watchable = !row.deleted_at && row.status === "DONE";
+	return (
+		<div
+			className={cn(
+				"flex min-w-0 items-center gap-3",
+				row.deleted_at && "opacity-50",
+			)}
+		>
+			<PosterCell
+				row={row}
+				label={subtitle ?? channelLabel(row)}
+				watchable={watchable}
+				t={t}
+			/>
+			<div className="min-w-0">
+				<ChannelCell row={row} />
+				{subtitle ? (
+					<TitleCell row={row} title={subtitle} watchable={watchable} />
+				) : null}
+			</div>
+		</div>
+	);
+}
+
+const FOCUS_RING =
+	"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+
+function PosterCell({
+	row,
+	label,
+	watchable,
+	t,
+}: {
+	row: VideoResponse;
+	label: string;
+	watchable: boolean;
+	t: TFunction;
+}) {
+	const poster = <VideoThumbnail video={row} t={t} />;
+	if (!watchable) {
+		return poster;
+	}
+	return (
+		<Link
+			to="/dashboard/watch/$videoId"
+			params={{ videoId: String(row.id) }}
+			search={{ t: undefined }}
+			className={cn("block shrink-0 rounded-md", FOCUS_RING)}
+			aria-label={t("videos.watch_recording", { title: label })}
+		>
+			{poster}
+		</Link>
+	);
+}
+
+function TitleCell({
+	row,
+	title,
+	watchable,
+}: {
+	row: VideoResponse;
+	title: string;
+	watchable: boolean;
+}) {
+	const className = "block max-w-xs truncate text-xs text-muted-foreground";
+	if (!watchable) {
+		return (
+			<span className={className} title={title}>
+				{title}
+			</span>
+		);
+	}
+	return (
+		<Link
+			to="/dashboard/watch/$videoId"
+			params={{ videoId: String(row.id) }}
+			search={{ t: undefined }}
+			className={cn(className, "transition-colors hover:text-link", FOCUS_RING)}
+			title={title}
+		>
+			{title}
+		</Link>
+	);
 }
 
 // ChannelCell links the channel name to its channel page (broadcaster_id), the

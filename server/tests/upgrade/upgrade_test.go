@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	videoapi "github.com/befabri/replayvod/server/internal/server/api/video"
 )
 
 func TestUpgrade(t *testing.T) {
@@ -40,7 +42,7 @@ func TestUpgrade(t *testing.T) {
 		b, backend, size := c.baseline, c.backend, c.size
 		t.Run(b.Version+"/"+backend+"/"+size, func(t *testing.T) {
 			previousImage := baselineImage(t, b, arch)
-			p, err := projectionFor(transformations, candidateMigrations(backend), backend, b)
+			p, err := projectionFor(transformations, embeddedMigrations()[backend], backend, b)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,8 +128,12 @@ func (h *installation) seed(b baseline, size string) {
 	}
 	if size == "large" {
 		sql = append(sql, string(fixture(h.t, "large.sql")))
-		if h.backend == "postgres" {
-			sql = append(sql, "SELECT setval(pg_get_serial_sequence('videos', 'id'), (SELECT MAX(id) FROM videos))")
+	}
+	if h.backend == "postgres" {
+		// Supplemental frozen fixtures use explicit IDs too, so synchronize
+		// sequences after every profile, regardless of dataset size.
+		for _, table := range []string{"videos", "video_parts"} {
+			sql = append(sql, fmt.Sprintf("SELECT setval(pg_get_serial_sequence('%s', 'id'), (SELECT MAX(id) FROM %s))", table, table))
 		}
 	}
 	h.probe(probeRequest{Exec: sql, Files: map[string][]byte{"videos/upgrade-recording-part00.mp4": fixture(h.t, "recording.mp4")}})
@@ -231,7 +237,7 @@ func (h *installation) assertOldLedger(before, after snapshot) {
 func (h *installation) assertLedger(historical map[string]string, current bool) {
 	versions := map[string]bool{}
 	if current {
-		files, err := fs.Glob(candidateMigrations(h.backend), "*.up.sql")
+		files, err := fs.Glob(embeddedMigrations()[h.backend], "*.up.sql")
 		if err != nil {
 			h.t.Fatal(err)
 		}
@@ -310,6 +316,10 @@ func (h *installation) seedServed() {
 // Only the candidate speaks the current API, so field assertions live here.
 func (h *installation) verifyPreserved(position float64) {
 	h.seedServed()
+	video := h.rpc("GET", "video.getById", "c", map[string]any{"id": 1}, 200).(map[string]any)
+	if video["source"] != "live" || video["twitch_video_id"] != nil || video["broadcast_at"] != nil {
+		h.t.Fatalf("historical recording was not backfilled as live: %v", video)
+	}
 	schedule := h.rpc("GET", "schedule.getById", "b", map[string]any{"id": 1}, 200).(map[string]any)
 	for name, expected := range map[string]any{"quality": "MEDIUM", "trigger_count": float64(17), "requested_by": "1002", "min_viewers": float64(250), "is_disabled": false} {
 		if schedule[name] != expected {
@@ -339,7 +349,7 @@ func (h *installation) writeApplication() {
 	h.rpc("GET", "system.listUsers", "b", nil, 200)
 	h.rpc("GET", "system.listUsers", "c", nil, 403)
 	h.rpc("POST", "system.createInvite", "b", map[string]any{"role": "viewer", "ttl_minutes": 60, "note": "Upgrade verification"}, 200)
-	h.rpc("POST", "video.updateWatchProgress", "c", map[string]any{"video_id": 1, "position_seconds": 150.25, "observed_at_ms": 2000000000}, 200)
+	h.rpc("POST", "video.updateWatchProgress", "c", videoapi.UpdateWatchProgressInput{VideoID: 1, PositionSeconds: 150.25}, 200)
 	h.rpc("POST", "schedule.createRequest", "c", map[string]any{"broadcaster_id": "2002", "note": "Keep after restart"}, 200)
 	h.rpc("POST", "schedule.createRequest", "c", map[string]any{"broadcaster_id": "2002"}, 400)
 	requests := h.rpc("GET", "schedule.myRequests", "c", map[string]any{"limit": 1}, 200).(map[string]any)["items"].([]any)
@@ -360,6 +370,12 @@ func (h *installation) writeApplication() {
 	if inserted <= previous {
 		h.t.Fatalf("recording ID sequence moved backwards: %v <= %v", inserted, previous)
 	}
+	// Exercise the down migrations with values the old release cannot read.
+	// The directional rules must normalize only these fields on rollback.
+	h.probe(probeRequest{Exec: []string{
+		"UPDATE videos SET quality = 'BEST', deletion_kind = 'missing', deleted_at = '2025-04-01 00:00:00' WHERE id = 8003",
+		"UPDATE download_schedules SET quality = '1440' WHERE id = 2",
+	}})
 	h.assertNewFeatures()
 }
 

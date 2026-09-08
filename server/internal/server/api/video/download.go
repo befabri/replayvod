@@ -37,16 +37,21 @@ type streamHydrator interface {
 var ErrChannelNotSynced = errors.New("video: channel not synced")
 
 type DownloadService struct {
-	repo          downloadRepo
-	downloader    downloadRunner
-	twitch        *twitch.Client
-	hydrator      streamHydrator
-	maxConcurrent int
-	log           *slog.Logger
+	repo                 downloadRepo
+	downloader           downloadRunner
+	twitch               *twitch.Client
+	hydrator             streamHydrator
+	maxConcurrent        int
+	archiveMaxConcurrent int
+	log                  *slog.Logger
 }
 
 func (s *DownloadService) MaxConcurrent() int {
 	return s.maxConcurrent
+}
+
+func (s *DownloadService) ArchiveMaxConcurrent() int {
+	return s.archiveMaxConcurrent
 }
 
 // NewDownload builds the download control-plane service. hydrator is
@@ -55,17 +60,19 @@ func (s *DownloadService) MaxConcurrent() int {
 // therefore the manual path fills videos.stream_id safely, since the
 // FK-parent row is guaranteed to exist by the time CreateVideo runs.
 func NewDownload(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, log *slog.Logger) *DownloadService {
-	maxConcurrent := 0
+	maxConcurrent, archiveMaxConcurrent := 0, 0
 	if dl != nil {
 		maxConcurrent = dl.MaxConcurrent()
+		archiveMaxConcurrent = dl.ArchiveMaxConcurrent()
 	}
 	return &DownloadService{
-		repo:          repo,
-		downloader:    dl,
-		twitch:        tc,
-		hydrator:      hydrator,
-		maxConcurrent: maxConcurrent,
-		log:           log.With("domain", "download"),
+		repo:                 repo,
+		downloader:           dl,
+		twitch:               tc,
+		hydrator:             hydrator,
+		maxConcurrent:        maxConcurrent,
+		archiveMaxConcurrent: archiveMaxConcurrent,
+		log:                  log.With("domain", "download"),
 	}
 }
 

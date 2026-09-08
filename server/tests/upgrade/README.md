@@ -110,8 +110,8 @@ policy and upgrade notes before release.
 
 The preservation check reads every historical table through the candidate
 schema using the historical column names and expects identical rows. Added
-columns and tables are ignored. A migration that renames a column or table,
-drops a table, or legitimately adds rows to an existing table declares that in
+columns and tables are ignored. A migration that changes existing values,
+renames a column or table, drops a table, or adds rows to an existing table declares that in
 `expectations_test.go`, keyed by its version and the historical table name. A rule
 applies only to baselines that lack the migration; baselines that already
 contain it keep the exact check, and `go test ./tests/upgrade` rejects rules
@@ -124,11 +124,28 @@ rule is a reviewed change to the compatibility contract; do not exclude tables
 from the comparison. Column names are captured from the catalog when the
 baseline is read, so renames apply to tables that held no rows.
 
-The rollback leg applies the same rules in both directions. A growing table must
+Value changes use separate `up` and `down` functions that update a copy of the
+expected historical rows. Every other field and every row still has to match
+exactly. Functions receive the original snapshot for predicates involving related
+tables, such as whether a recording has saved parts. Value rules run in migration
+order on upgrade and reverse order on downgrade. Multiple migrations may change
+the same table; each rule is selected only when the baseline lacks that migration.
+An omitted direction preserves values exactly, including irreversible backfills.
+Structural rules still require one combined declaration per historical table.
+
+The rollback leg uses `down` value rules, then the second upgrade uses `up`. A growing table must
 keep every row across the downgrade and the second upgrade, and a dropped
 table's rows are not expected back, so dropping a table is a rollback data loss
 that the upgrade notes must state. A rule for the latest baseline must keep
 that leg passing or revise the rollback policy explicitly.
+
+The supplemental `migration-cleanups.sql` fixture exercises purged thumbnails,
+empty failed recordings, unfinished part rows, and failures with saved media.
+Its checksum and baseline profiles are pinned alongside the original fixtures.
+The candidate also writes new quality and deletion-kind values before rollback.
+The ordinary database suite tests each migration boundary on both backends,
+including all legacy/new quality choices, playback-session loss on downgrade,
+and the live-source default for historical recordings.
 
 ## Historical baselines
 

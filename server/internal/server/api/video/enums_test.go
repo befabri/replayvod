@@ -33,6 +33,16 @@ func TestWireEnumParity(t *testing.T) {
 		}
 	}
 
+	source := map[VideoSource]string{
+		VideoSourceLive: repository.VideoSourceLive,
+		VideoSourceVOD:  repository.VideoSourceVOD,
+	}
+	for got, want := range source {
+		if string(got) != want {
+			t.Errorf("VideoSource %q != repository %q", got, want)
+		}
+	}
+
 	playback := map[PlaybackAssetStatus]string{
 		PlaybackAssetStatusBuilding:    repository.PlaybackAssetStatusBuilding,
 		PlaybackAssetStatusReady:       repository.PlaybackAssetStatusReady,

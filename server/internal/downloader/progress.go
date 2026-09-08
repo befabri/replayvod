@@ -186,9 +186,12 @@ func (p *progressEmitter) bridge(hp hls.Progress) {
 	p.segmentsDone = p.baselineDone + hp.SegmentsDone
 	p.segmentsGaps = p.baselineGaps + hp.SegmentsGaps
 	p.segmentsAdGaps = p.baselineAdGaps + hp.SegmentsAdGaps
-	// Keep segmentsTot as the orchestrator last set it — hls
-	// doesn't currently report total. A later phase can set it
-	// on the final event.
+	// A closed (VOD) playlist reports how many segments this run fetches;
+	// add the segments earlier runs already accounted for. Live playlists
+	// report zero and the total stays unknown until finalize.
+	if hp.SegmentsTotal > 0 {
+		p.segmentsTot = p.baselineDone + p.baselineGaps + hp.SegmentsTotal
+	}
 	p.samples = appendSample(p.samples, byteSample{at: time.Now(), bytes: p.bytesWritten})
 	snap := p.snapshotLocked()
 	p.mu.Unlock()

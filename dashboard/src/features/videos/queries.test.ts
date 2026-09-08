@@ -25,6 +25,7 @@ function video(partial: Partial<VideoResponse>): VideoResponse {
 		viewer_count: partial.viewer_count ?? 0,
 		language: partial.language ?? "en",
 		start_download_at: partial.start_download_at ?? "2026-01-01T00:00:00Z",
+		source: "live",
 		user_state: partial.user_state,
 	};
 }

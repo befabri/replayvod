@@ -95,3 +95,31 @@ export function useRelativeTime(iso: string | undefined): string | undefined {
 	}, [iso]);
 	return iso ? formatRelative(iso, i18n.language) : undefined;
 }
+
+// formatUntil is formatRelative for an instant still ahead ("in 5 minutes").
+// Past instants read as "now", which is what a countdown that has just
+// elapsed should say while the server catches up.
+export function formatUntil(iso: string, locale: string): string {
+	const then = new Date(iso).getTime();
+	const diffSec = Math.max(0, Math.round((then - Date.now()) / 1000));
+	const rtf = getRtf(locale);
+	if (diffSec < 60) return rtf.format(diffSec, "second");
+	const diffMin = Math.round(diffSec / 60);
+	if (diffMin < 60) return rtf.format(diffMin, "minute");
+	const diffHr = Math.round(diffMin / 60);
+	if (diffHr < 24) return rtf.format(diffHr, "hour");
+	return rtf.format(Math.round(diffHr / 24), "day");
+}
+
+// useUntil returns formatUntil(iso) and re-renders every half minute so a
+// countdown keeps moving while the page stays open.
+export function useUntil(iso: string | undefined): string | undefined {
+	const { i18n } = useTranslation();
+	const [, tick] = useState(0);
+	useEffect(() => {
+		if (!iso) return;
+		const id = window.setInterval(() => tick((n) => n + 1), 30_000);
+		return () => window.clearInterval(id);
+	}, [iso]);
+	return iso ? formatUntil(iso, i18n.language) : undefined;
+}

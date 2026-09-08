@@ -127,9 +127,17 @@ type CompletedSegmentAccounting struct {
 type ResumeState struct {
 	Stage Stage `json:"stage"`
 
+	// PosterURL is durable queue metadata. Fetch only once the job owns a
+	// running slot, so queued rows never own objects that dequeue could orphan.
+	PosterURL string `json:"poster_url,omitempty"`
+
 	// CaptureError seals an interrupted capture for remux/store on restart.
 	// Once set, no new segments are acquired and completion remains FAILED/partial.
 	CaptureError string `json:"capture_error,omitempty"`
+	// CaptureRetryable records whether the sealed capture's cause was one the
+	// archive retry policy would retry, since the typed cause does not
+	// survive the checkpoint.
+	CaptureRetryable bool `json:"capture_retryable,omitempty"`
 
 	// CurrentPartIndex starts at 1 and increments on each
 	// variant/codec/container split.

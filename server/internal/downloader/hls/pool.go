@@ -49,6 +49,9 @@ type Pool struct {
 	// Log is the per-job logger. Pool-level fields land under
 	// domain=hls.pool.
 	Log *slog.Logger
+
+	// Limiter paces segment bytes for this job; nil is unlimited.
+	Limiter RateLimiter
 }
 
 // Run consumes jobs from in until the channel is closed, fans out
@@ -128,7 +131,7 @@ func (p *Pool) runOne(ctx context.Context, log *slog.Logger, job segmentJob) Seg
 	}
 	defer writer.Abort()
 
-	n, err := p.Fetcher.Fetch(ctx, job.Segment.URI, writer, job.TargetDuration)
+	n, err := p.Fetcher.FetchLimited(ctx, job.Segment.URI, writer, job.TargetDuration, p.Limiter)
 	if err != nil {
 		// Fetcher drained the body and logged internally; we
 		// surface the error for the orchestrator's gap policy.

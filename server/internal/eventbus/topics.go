@@ -11,6 +11,7 @@ type Buses struct {
 	StreamStatus      *Topic[StreamStatusEvent]
 	TaskStatus        *Topic[TaskStatusEvent]
 	RecordingTerminal *Topic[RecordingTerminalEvent]
+	ArchiveQueue      *Topic[ArchiveQueueEvent]
 }
 
 func New() *Buses {
@@ -20,7 +21,30 @@ func New() *Buses {
 		StreamStatus:      NewTopic[StreamStatusEvent](32),
 		TaskStatus:        NewTopic[TaskStatusEvent](32),
 		RecordingTerminal: NewTopic[RecordingTerminalEvent](16),
+		ArchiveQueue:      NewTopic[ArchiveQueueEvent](32),
 	}
+}
+
+// ArchiveQueueKind enumerates the archive queue membership changes.
+type ArchiveQueueKind string
+
+const (
+	ArchiveQueued         ArchiveQueueKind = "queued"
+	ArchiveDequeued       ArchiveQueueKind = "dequeued"
+	ArchiveStarted        ArchiveQueueKind = "started"
+	ArchiveCompleted      ArchiveQueueKind = "completed"
+	ArchiveFailed         ArchiveQueueKind = "failed"
+	ArchiveRetryCancelled ArchiveQueueKind = "retry_cancelled"
+)
+
+// ArchiveQueueEvent fires when an archive joins or leaves the queue, is
+// picked up by the pump, finishes, fails (with or without a retry scheduled;
+// the row carries next_retry_at), or has its retry cancelled, so the queue
+// page refetches instead of polling.
+type ArchiveQueueEvent struct {
+	Kind    ArchiveQueueKind `json:"kind"`
+	VideoID int64            `json:"video_id"`
+	At      time.Time        `json:"at"`
 }
 
 // EventLogEvent mirrors a row appended to event_logs. Published from

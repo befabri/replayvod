@@ -9,9 +9,10 @@ export const Route = createFileRoute("/dashboard/downloads")({
 
 // The Downloads page is the full live view of in-flight recordings: the same
 // SSE-fed card the dashboard home shows as a top-N peek, here uncapped and with
-// a cancel control. There is no "pending/queued" state to show — the downloader
-// rejects at capacity rather than queuing, and crash orphans are recovered (or
-// failed) by the boot-time resume sweep, so "running now" is the whole story.
+// a cancel control. Live recordings have no queued state (the downloader
+// rejects at capacity rather than queuing), so "running now" is the whole
+// story for them; VOD archives do queue, and their queue lives on the Archive
+// page while a running archive shows here like any other job.
 function DownloadsPage() {
 	const { t } = useTranslation();
 	return (

@@ -67,8 +67,8 @@ func (a *PGAdapter) DeleteVideoParts(ctx context.Context, videoID int64) error {
 	return a.queries.DeleteVideoParts(ctx, videoID)
 }
 
-func (a *PGAdapter) GetActiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
-	row, err := a.queries.GetActiveJobByBroadcaster(ctx, broadcasterID)
+func (a *PGAdapter) GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
+	row, err := a.queries.GetActiveLiveJobByBroadcaster(ctx, broadcasterID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -137,6 +137,14 @@ func (a *PGAdapter) GetLastLiveStream(ctx context.Context, broadcasterID string)
 		return nil, mapErr(err)
 	}
 	return pgStreamToDomain(row), nil
+}
+
+func (a *PGAdapter) GetNextQueuedArchiveJob(ctx context.Context) (*repository.Job, error) {
+	row, err := a.queries.GetNextQueuedArchiveJob(ctx)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgJobToDomain(row), nil
 }
 
 func (a *PGAdapter) GetScheduleRequest(ctx context.Context, id int64) (*repository.ScheduleRequest, error) {
@@ -305,6 +313,14 @@ func (a *PGAdapter) ListActiveSubscriptions(ctx context.Context, limit, offset i
 		return nil, fmt.Errorf("pg list active subscriptions: %w", err)
 	}
 	return pgSubscriptionsToDomain(rows), nil
+}
+
+func (a *PGAdapter) ListArchiveQueue(ctx context.Context) ([]repository.Video, error) {
+	rows, err := a.queries.ListArchiveQueue(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pg list archive queue: %w", err)
+	}
+	return pgVideosToDomain(rows), nil
 }
 
 func (a *PGAdapter) ListDueTasks(ctx context.Context) ([]repository.Task, error) {

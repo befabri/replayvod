@@ -213,6 +213,13 @@ export function VideoCard({
 
 	const label = channelLabel(video);
 	const dateLabel = new Date(video.start_download_at).toLocaleDateString();
+	// An archive shows the date its stream aired where a live recording shows
+	// its recording date; the download date moves to the meta line.
+	const isArchive = video.source === "vod";
+	const airedLabel =
+		isArchive && video.broadcast_at
+			? new Date(video.broadcast_at).toLocaleDateString()
+			: null;
 	const sizeLabel = formatBytes(video.size_bytes);
 	const primaryCategoryLabel = video.primary_category_name?.trim() || null;
 	const primaryLabel = video.title?.trim() || video.display_name;
@@ -259,6 +266,13 @@ export function VideoCard({
 				)}
 				<div className="absolute top-2 left-2 flex items-center gap-1.5">
 					<QualityOverlay>{video.quality}</QualityOverlay>
+					{isArchive ? (
+						<ThumbnailOverlay>
+							<span data-testid="video-card-archive">
+								{t("videos.archive_badge")}
+							</span>
+						</ThumbnailOverlay>
+					) : null}
 					<IncompleteOverlayBadge
 						completionKind={video.completion_kind}
 						truncated={video.truncated}
@@ -273,7 +287,18 @@ export function VideoCard({
 					</span>
 				) : null}
 				<span className="absolute bottom-2 right-2">
-					<ThumbnailOverlay>{dateLabel}</ThumbnailOverlay>
+					<ThumbnailOverlay>
+						<span
+							data-testid="video-card-date"
+							title={
+								airedLabel
+									? t("videos.streamed_on", { date: airedLabel })
+									: undefined
+							}
+						>
+							{airedLabel ?? dateLabel}
+						</span>
+					</ThumbnailOverlay>
 				</span>
 				<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
 					<div className="flex size-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm opacity-0 transition-opacity duration-150 group-hover/video-card:opacity-100">
@@ -363,6 +388,14 @@ export function VideoCard({
 						</Link>
 						<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 							<span>{sizeLabel}</span>
+							{isArchive ? (
+								<>
+									<span className="opacity-40">·</span>
+									<span data-testid="video-card-archived-on">
+										{t("videos.archived_on", { date: dateLabel })}
+									</span>
+								</>
+							) : null}
 							{video.status === "DONE" && primaryCategoryLabel ? (
 								<>
 									<span className="opacity-40">·</span>

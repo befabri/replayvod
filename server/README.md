@@ -181,6 +181,20 @@ If an earlier development version of 045 already dropped `video_requests`,
 editing the migration cannot recover those rows; recovery requires a database
 backup from before that migration.
 
+Migrations 047–052 preserve existing recordings and schedules while adding missing
+media tombstones, Twitch playback credentials, higher recording quality limits,
+archived VOD metadata, and archive retries (`jobs.attempt` numbers the attempts
+of a recording; `videos.next_retry_at` keeps a failed archive held under the
+one-row-per-VOD rule until its retry runs or is cancelled). The data cleanups clear thumbnail paths on old
+tombstones and clear `truncated` on undeleted failed recordings with no saved
+part (`size_bytes > 0`); unfinished part rows do not count as captured media.
+These two cleanups are irreversible. Manual rollback to v3.0.0 maps `missing`
+to `manual` and `1440`/`BEST` to `HIGH`, discards the Twitch playback connection,
+and removes archive source/ID/broadcast-date metadata, scheduled retries, and
+attempt numbers. Recording rows and media remain, but a subsequent upgrade treats
+them as live recordings and requires reconnecting Twitch playback. Restore a pre-upgrade backup when those losses
+are unacceptable.
+
 Use Postgres for production deployments and SQLite for single-host or dev
 setups.
 

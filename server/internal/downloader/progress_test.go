@@ -382,3 +382,29 @@ func TestProgressEmitter_NonBlockingOnFullChannel(t *testing.T) {
 		t.Fatal("emitter wedged on full channel")
 	}
 }
+
+func TestProgressEmitter_BridgeUsesReportedTotal(t *testing.T) {
+	ch := make(chan Progress, 16)
+	em := newProgressEmitter("job-1", "video", ch)
+	// A live playlist reports no total: percent stays unknown.
+	em.bridge(hls.Progress{SegmentsDone: 2, BytesWritten: 200})
+	if snap, _ := drain(ch); snap.Percent != -1 || snap.SegmentsTotal != -1 {
+		t.Fatalf("live progress percent=%v total=%d, want unknown", snap.Percent, snap.SegmentsTotal)
+	}
+	// A closed (VOD) playlist reports its size, so percent is meaningful
+	// from the first event on.
+	em.bridge(hls.Progress{SegmentsDone: 25, BytesWritten: 2500, SegmentsTotal: 100})
+	snap, _ := drain(ch)
+	if snap.SegmentsTotal != 100 || snap.Percent != 25 {
+		t.Fatalf("vod progress total=%d percent=%v, want 100/25", snap.SegmentsTotal, snap.Percent)
+	}
+	// A resumed run adds the segments earlier attempts already accounted for.
+	em2 := newProgressEmitter("job-2", "video", ch)
+	em2.bridge(hls.Progress{SegmentsDone: 40, BytesWritten: 4000})
+	em2.startAttempt()
+	em2.bridge(hls.Progress{SegmentsDone: 10, BytesWritten: 1000, SegmentsTotal: 60})
+	snap, _ = drain(ch)
+	if snap.SegmentsTotal != 100 || snap.SegmentsDone != 50 || snap.Percent != 50 {
+		t.Fatalf("resumed progress = done %d total %d percent %v, want 50/100/50", snap.SegmentsDone, snap.SegmentsTotal, snap.Percent)
+	}
+}

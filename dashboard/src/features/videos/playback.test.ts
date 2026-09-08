@@ -374,6 +374,7 @@ function video(partial: Partial<VideoResponse>): VideoResponse {
 		language: "en",
 		duration_seconds: 120,
 		start_download_at: "2026-01-01T00:00:00Z",
+		source: "live",
 		...partial,
 	};
 }

@@ -37,3 +37,10 @@ const (
 	PlaybackAssetStatusFailed      PlaybackAssetStatus = repository.PlaybackAssetStatusFailed
 	PlaybackAssetStatusUnavailable PlaybackAssetStatus = repository.PlaybackAssetStatusUnavailable
 )
+
+type VideoSource string
+
+const (
+	VideoSourceLive VideoSource = repository.VideoSourceLive
+	VideoSourceVOD  VideoSource = repository.VideoSourceVOD
+)

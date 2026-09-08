@@ -16,7 +16,8 @@ const videosPageColumnsSQL = `SELECT
     duration_seconds, size_bytes, thumbnail, error,
     start_download_at, downloaded_at, deleted_at, deletion_kind, delete_requested_at,
     recording_type, force_h264, title, completion_kind, truncated,
-    trigger_schedule_id, retention_source_schedule_id, retention_window_hours
+    trigger_schedule_id, retention_source_schedule_id, retention_window_hours,
+    source, twitch_video_id, broadcast_at, next_retry_at
 FROM videos
 WHERE 1=1`
 
@@ -144,6 +145,7 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 	)
 	broadcaster := fmt.Sprintf("\n  AND (%s = '' OR broadcaster_id = %s)", b.phText(opts.BroadcasterID), b.phText(opts.BroadcasterID))
 	language := fmt.Sprintf("\n  AND (%s = '' OR language = %s)", b.phText(opts.Language), b.phText(opts.Language))
+	source := fmt.Sprintf("\n  AND (%s = '' OR source = %s)", b.phText(opts.Source), b.phText(opts.Source))
 	durationMin := fmt.Sprintf("\n  AND (%s IS NULL OR duration_seconds >= %s)", b.phFloatPtr(opts.DurationMinSeconds), b.phFloatPtr(opts.DurationMinSeconds))
 	durationMax := fmt.Sprintf("\n  AND (%s IS NULL OR duration_seconds < %s)", b.phFloatPtr(opts.DurationMaxSeconds), b.phFloatPtr(opts.DurationMaxSeconds))
 	sizeMin := fmt.Sprintf("\n  AND (%s IS NULL OR size_bytes >= %s)", b.phIntPtr(opts.SizeMinBytes), b.phIntPtr(opts.SizeMinBytes))
@@ -166,7 +168,7 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 	watchLater := b.watchLaterSQL(opts)
 	unwatched := b.unwatchedSQL(opts)
 
-	return scope + quality + broadcaster + language + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + terminal + watchLater + unwatched
+	return scope + quality + broadcaster + language + source + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + terminal + watchLater + unwatched
 }
 
 func (b *videoPageBuilder) watchLaterSQL(opts ListVideosOpts) string {
@@ -252,6 +254,9 @@ func (b *videoPageBuilder) cursorAndOrderSQL(sort, order string, cursor *VideoLi
 	num := func() string { return b.phFloatPtr(curNum) }
 	bigint := func() string { return b.phIntPtr(curInt) }
 	historyWhen := "COALESCE(deleted_at, downloaded_at, start_download_at)"
+	// An archive sorts by the date its stream aired; a live recording aired
+	// when it was recorded.
+	broadcastWhen := "COALESCE(broadcast_at, start_download_at)"
 
 	switch sort + ":" + order {
 	case "created_at:asc":
@@ -266,6 +271,14 @@ ORDER BY %s ASC, id ASC`, sortTime(), historyWhen, sortTime(), historyWhen, sort
 		return fmt.Sprintf(`
   AND (%s IS NULL OR %s < %s OR (%s = %s AND id < %s))
 ORDER BY %s DESC, id DESC`, sortTime(), historyWhen, sortTime(), historyWhen, sortTime(), id(), historyWhen)
+	case "broadcast_at:asc":
+		return fmt.Sprintf(`
+  AND (%s IS NULL OR %s > %s OR (%s = %s AND id > %s))
+ORDER BY %s ASC, id ASC`, sortTime(), broadcastWhen, sortTime(), broadcastWhen, sortTime(), id(), broadcastWhen)
+	case "broadcast_at:desc":
+		return fmt.Sprintf(`
+  AND (%s IS NULL OR %s < %s OR (%s = %s AND id < %s))
+ORDER BY %s DESC, id DESC`, sortTime(), broadcastWhen, sortTime(), broadcastWhen, sortTime(), id(), broadcastWhen)
 	case "channel:asc":
 		return fmt.Sprintf(`
   AND (%s IS NULL OR display_name > %s

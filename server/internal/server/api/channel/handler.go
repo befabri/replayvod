@@ -192,11 +192,9 @@ func toChannelPageCursor(cursor *repository.ChannelPageCursor) *ChannelPageCurso
 	}
 }
 
-// SearchInput drives channel.search. Empty Query returns everything up
-// to Limit — the same endpoint backs the combobox "show all" state.
-// Query is capped so a malicious caller can't feed a 1 MB ILIKE
-// pattern; 100 chars comfortably covers Twitch logins (max 25) and
-// display names (max 25) with headroom.
+// SearchInput drives channel.search. An empty Query returns everything up to
+// Limit. The 100-char cap bounds the pattern a caller can send; Twitch logins
+// and display names top out at 25.
 type SearchInput struct {
 	Query string `json:"query" validate:"max=100"`
 	Limit int    `json:"limit,omitempty" validate:"min=0,max=200"`
@@ -231,9 +229,8 @@ func (h *Handler) SetFavorite(ctx context.Context, input SetFavoriteInput) (Chan
 	return *toChannelUserStateResponse(state), nil
 }
 
-// LatestLiveResponse is the wire shape for one row of channel.latestLive:
-// stream snapshot + flattened broadcaster display info, so the dashboard
-// can render the card without a follow-up channel.getById per row.
+// LatestLiveResponse is one row of channel.latestLive. Broadcaster display
+// fields are flattened in so a client needs no follow-up channel.getById.
 type LatestLiveResponse struct {
 	StreamID         string     `json:"stream_id"`
 	BroadcasterID    string     `json:"broadcaster_id"`
@@ -249,8 +246,7 @@ type LatestLiveResponse struct {
 	EndedAt          *time.Time `json:"ended_at,omitempty"`
 }
 
-// LatestLiveInput caps result rows. Zero Limit uses a sensible default
-// (8) — enough for a dashboard card without scrolling.
+// LatestLiveInput caps result rows; a zero Limit means 8.
 type LatestLiveInput struct {
 	Limit int `json:"limit,omitempty" validate:"min=0,max=100"`
 }
@@ -288,8 +284,8 @@ type SyncFromTwitchInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 }
 
-// SyncFromTwitch uses the caller's user access token so rate-limit +
-// fetch-log attribution stays accurate.
+// SyncFromTwitch refreshes the channel from Twitch with the caller's user
+// access token, so rate limits and fetch logs are attributed to that user.
 func (h *Handler) SyncFromTwitch(ctx context.Context, input SyncFromTwitchInput) (ChannelResponse, error) {
 	user, err := middleware.RequireUser(ctx)
 	if err != nil {

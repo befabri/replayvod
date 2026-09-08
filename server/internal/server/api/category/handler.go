@@ -137,10 +137,8 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (CategoryPa
 	}, nil
 }
 
-// SearchInput drives category.search. Empty Query returns everything
-// up to Limit — the same endpoint backs the combobox "show all"
-// state. Query is capped at 100 chars to bound substring pattern work;
-// plenty of headroom for any realistic game title.
+// SearchInput drives category.search. An empty Query returns everything up to
+// Limit. The 100-char cap bounds the substring pattern a caller can send.
 type SearchInput struct {
 	Query string `json:"query" validate:"max=100"`
 	Limit int    `json:"limit,omitempty" validate:"min=0,max=200"`

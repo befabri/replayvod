@@ -144,6 +144,7 @@ type Job struct {
 	ResumeState   json.RawMessage `json:"resume_state"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+	Attempt       int32           `json:"attempt"`
 }
 
 type RecordingWebhookDelivery struct {
@@ -352,6 +353,10 @@ type Video struct {
 	RetentionWindowHours      *int32     `json:"retention_window_hours"`
 	DeletionKind              *string    `json:"deletion_kind"`
 	DeleteRequestedAt         *time.Time `json:"delete_requested_at"`
+	Source                    string     `json:"source"`
+	TwitchVideoID             *string    `json:"twitch_video_id"`
+	BroadcastAt               *time.Time `json:"broadcast_at"`
+	NextRetryAt               *time.Time `json:"next_retry_at"`
 }
 
 type VideoCategory struct {

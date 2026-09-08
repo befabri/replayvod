@@ -54,8 +54,8 @@ func (a *SQLiteAdapter) DeleteVideoParts(ctx context.Context, videoID int64) err
 	return a.queries.DeleteVideoParts(ctx, videoID)
 }
 
-func (a *SQLiteAdapter) GetActiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
-	row, err := a.queries.GetActiveJobByBroadcaster(ctx, broadcasterID)
+func (a *SQLiteAdapter) GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*repository.Job, error) {
+	row, err := a.queries.GetActiveLiveJobByBroadcaster(ctx, broadcasterID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -124,6 +124,14 @@ func (a *SQLiteAdapter) GetLastLiveStream(ctx context.Context, broadcasterID str
 		return nil, mapErr(err)
 	}
 	return sqliteStreamToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetNextQueuedArchiveJob(ctx context.Context) (*repository.Job, error) {
+	row, err := a.queries.GetNextQueuedArchiveJob(ctx)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteJobToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) GetScheduleRequest(ctx context.Context, id int64) (*repository.ScheduleRequest, error) {
@@ -292,6 +300,14 @@ func (a *SQLiteAdapter) ListActiveSubscriptions(ctx context.Context, limit, offs
 		return nil, fmt.Errorf("sqlite list active subscriptions: %w", err)
 	}
 	return sqliteSubscriptionsToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) ListArchiveQueue(ctx context.Context) ([]repository.Video, error) {
+	rows, err := a.queries.ListArchiveQueue(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list archive queue: %w", err)
+	}
+	return sqliteVideosToDomain(rows), nil
 }
 
 func (a *SQLiteAdapter) ListDueTasks(ctx context.Context) ([]repository.Task, error) {

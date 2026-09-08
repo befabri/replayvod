@@ -13,6 +13,19 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
+const clearArchiveRetry = `-- name: ClearArchiveRetry :execrows
+UPDATE videos SET next_retry_at = NULL
+WHERE id = ? AND source = 'vod' AND status = 'FAILED' AND next_retry_at IS NOT NULL
+`
+
+func (q *Queries) ClearArchiveRetry(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearArchiveRetry, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countVideosByStatus = `-- name: CountVideosByStatus :one
 SELECT COUNT(*) FROM videos WHERE status = ? AND deleted_at IS NULL
 `
@@ -29,28 +42,31 @@ INSERT INTO videos (
     job_id, filename, display_name, title, status, quality,
     broadcaster_id, stream_id, viewer_count, language, recording_type,
     force_h264, trigger_schedule_id, retention_source_schedule_id,
-    retention_window_hours
+    retention_window_hours, source, twitch_video_id, broadcast_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at
 `
 
 type CreateVideoParams struct {
-	JobID                     string         `json:"job_id"`
-	Filename                  string         `json:"filename"`
-	DisplayName               string         `json:"display_name"`
-	Title                     string         `json:"title"`
-	Status                    string         `json:"status"`
-	Quality                   string         `json:"quality"`
-	BroadcasterID             string         `json:"broadcaster_id"`
-	StreamID                  sql.NullString `json:"stream_id"`
-	ViewerCount               int64          `json:"viewer_count"`
-	Language                  string         `json:"language"`
-	RecordingType             string         `json:"recording_type"`
-	ForceH264                 int64          `json:"force_h264"`
-	TriggerScheduleID         sql.NullInt64  `json:"trigger_schedule_id"`
-	RetentionSourceScheduleID sql.NullInt64  `json:"retention_source_schedule_id"`
-	RetentionWindowHours      sql.NullInt64  `json:"retention_window_hours"`
+	JobID                     string           `json:"job_id"`
+	Filename                  string           `json:"filename"`
+	DisplayName               string           `json:"display_name"`
+	Title                     string           `json:"title"`
+	Status                    string           `json:"status"`
+	Quality                   string           `json:"quality"`
+	BroadcasterID             string           `json:"broadcaster_id"`
+	StreamID                  sql.NullString   `json:"stream_id"`
+	ViewerCount               int64            `json:"viewer_count"`
+	Language                  string           `json:"language"`
+	RecordingType             string           `json:"recording_type"`
+	ForceH264                 int64            `json:"force_h264"`
+	TriggerScheduleID         sql.NullInt64    `json:"trigger_schedule_id"`
+	RetentionSourceScheduleID sql.NullInt64    `json:"retention_source_schedule_id"`
+	RetentionWindowHours      sql.NullInt64    `json:"retention_window_hours"`
+	Source                    string           `json:"source"`
+	TwitchVideoID             sql.NullString   `json:"twitch_video_id"`
+	BroadcastAt               *sqlitetype.Time `json:"broadcast_at"`
 }
 
 func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video, error) {
@@ -70,6 +86,9 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		arg.TriggerScheduleID,
 		arg.RetentionSourceScheduleID,
 		arg.RetentionWindowHours,
+		arg.Source,
+		arg.TwitchVideoID,
+		arg.BroadcastAt,
 	)
 	var i Video
 	err := row.Scan(
@@ -102,12 +121,81 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		&i.DeleteRequestedAt,
 		&i.DeletionKind,
 		&i.Quality,
+		&i.Source,
+		&i.TwitchVideoID,
+		&i.BroadcastAt,
+		&i.NextRetryAt,
+	)
+	return i, err
+}
+
+const deleteQueuedArchiveVideo = `-- name: DeleteQueuedArchiveVideo :execrows
+DELETE FROM videos WHERE id = ? AND source = 'vod' AND status = 'PENDING'
+`
+
+// Only a queued archive can be dropped outright: nothing has been captured, so
+// there is no media and no tombstone to keep. Child rows cascade.
+func (q *Queries) DeleteQueuedArchiveVideo(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteQueuedArchiveVideo, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getOpenVideoByTwitchVideoID = `-- name: GetOpenVideoByTwitchVideoID :one
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
+WHERE twitch_video_id = ? AND deleted_at IS NULL
+  AND (status <> 'FAILED' OR next_retry_at IS NOT NULL)
+LIMIT 1
+`
+
+// An "open" archive is one that still counts against the one-row-per-VOD
+// rule: not removed, and either not failed or failed with a retry scheduled.
+// Mirrors idx_videos_open_twitch_video_id.
+func (q *Queries) GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID sql.NullString) (Video, error) {
+	row := q.db.QueryRowContext(ctx, getOpenVideoByTwitchVideoID, twitchVideoID)
+	var i Video
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.Filename,
+		&i.DisplayName,
+		&i.Status,
+		&i.BroadcasterID,
+		&i.StreamID,
+		&i.ViewerCount,
+		&i.Language,
+		&i.DurationSeconds,
+		&i.SizeBytes,
+		&i.Thumbnail,
+		&i.Error,
+		&i.StartDownloadAt,
+		&i.DownloadedAt,
+		&i.DeletedAt,
+		&i.RecordingType,
+		&i.ForceH264,
+		&i.Title,
+		&i.CompletionKind,
+		&i.SelectedQuality,
+		&i.SelectedFps,
+		&i.Truncated,
+		&i.TriggerScheduleID,
+		&i.RetentionSourceScheduleID,
+		&i.RetentionWindowHours,
+		&i.DeleteRequestedAt,
+		&i.DeletionKind,
+		&i.Quality,
+		&i.Source,
+		&i.TwitchVideoID,
+		&i.BroadcastAt,
+		&i.NextRetryAt,
 	)
 	return i, err
 }
 
 const getVideo = `-- name: GetVideo :one
-SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos WHERE id = ?
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos WHERE id = ?
 `
 
 func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
@@ -143,12 +231,16 @@ func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
 		&i.DeleteRequestedAt,
 		&i.DeletionKind,
 		&i.Quality,
+		&i.Source,
+		&i.TwitchVideoID,
+		&i.BroadcastAt,
+		&i.NextRetryAt,
 	)
 	return i, err
 }
 
 const getVideoByJobID = `-- name: GetVideoByJobID :one
-SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos WHERE job_id = ?
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos WHERE job_id = ?
 `
 
 func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, error) {
@@ -184,8 +276,221 @@ func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, err
 		&i.DeleteRequestedAt,
 		&i.DeletionKind,
 		&i.Quality,
+		&i.Source,
+		&i.TwitchVideoID,
+		&i.BroadcastAt,
+		&i.NextRetryAt,
 	)
 	return i, err
+}
+
+const listArchiveQueue = `-- name: ListArchiveQueue :many
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status IN ('PENDING', 'RUNNING')
+ORDER BY start_download_at ASC, id ASC
+`
+
+func (q *Queries) ListArchiveQueue(ctx context.Context) ([]Video, error) {
+	rows, err := q.db.QueryContext(ctx, listArchiveQueue)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+			&i.DeleteRequestedAt,
+			&i.DeletionKind,
+			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listArchivesDueForRetry = `-- name: ListArchivesDueForRetry :many
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED'
+  AND delete_requested_at IS NULL
+  AND next_retry_at IS NOT NULL AND next_retry_at <= ?
+ORDER BY next_retry_at ASC, id ASC LIMIT ?
+`
+
+type ListArchivesDueForRetryParams struct {
+	NextRetryAt *sqlitetype.Time `json:"next_retry_at"`
+	Limit       int64            `json:"limit"`
+}
+
+func (q *Queries) ListArchivesDueForRetry(ctx context.Context, arg ListArchivesDueForRetryParams) ([]Video, error) {
+	rows, err := q.db.QueryContext(ctx, listArchivesDueForRetry, arg.NextRetryAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+			&i.DeleteRequestedAt,
+			&i.DeletionKind,
+			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listArchivesMissingPoster = `-- name: ListArchivesMissingPoster :many
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
+WHERE source = 'vod' AND thumbnail IS NULL AND deleted_at IS NULL
+  AND (status <> 'FAILED' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  AND twitch_video_id IS NOT NULL AND start_download_at >= ?1
+  AND videos.id > CAST(?2 AS INTEGER)
+ORDER BY id ASC LIMIT CAST(?3 AS INTEGER)
+`
+
+type ListArchivesMissingPosterParams struct {
+	Since    sqlitetype.Time `json:"since"`
+	AfterID  int64           `json:"after_id"`
+	PageSize int64           `json:"page_size"`
+}
+
+// Keyset page of archives still without a poster, bounded to those queued
+// after the given instant so a VOD Twitch never renders is not looked up
+// forever. A failed archive that salvaged parts still shows in the library
+// and deserves its poster; one that never wrote media does not.
+func (q *Queries) ListArchivesMissingPoster(ctx context.Context, arg ListArchivesMissingPosterParams) ([]Video, error) {
+	rows, err := q.db.QueryContext(ctx, listArchivesMissingPoster, arg.Since, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+			&i.DeleteRequestedAt,
+			&i.DeletionKind,
+			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listFinishedVideosForRetention = `-- name: ListFinishedVideosForRetention :many
@@ -253,6 +558,222 @@ func (q *Queries) ListFinishedVideosForRetention(ctx context.Context, now *sqlit
 	return items, nil
 }
 
+const listOpenVideosByStreamIDs = `-- name: ListOpenVideosByStreamIDs :many
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
+WHERE stream_id IN (/*SLICE:stream_ids*/?)
+  AND source = 'live' AND deleted_at IS NULL AND status <> 'FAILED'
+`
+
+// Live recordings of the given broadcasts that still hold their media, so
+// the archive browser can tell a VOD was already captured live.
+func (q *Queries) ListOpenVideosByStreamIDs(ctx context.Context, streamIds []sql.NullString) ([]Video, error) {
+	query := listOpenVideosByStreamIDs
+	var queryParams []interface{}
+	if len(streamIds) > 0 {
+		for _, v := range streamIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:stream_ids*/?", strings.Repeat(",?", len(streamIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:stream_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+			&i.DeleteRequestedAt,
+			&i.DeletionKind,
+			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenVideosByTwitchVideoIDs = `-- name: ListOpenVideosByTwitchVideoIDs :many
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
+WHERE twitch_video_id IN (/*SLICE:twitch_video_ids*/?)
+  AND deleted_at IS NULL AND (status <> 'FAILED' OR next_retry_at IS NOT NULL)
+`
+
+func (q *Queries) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIds []sql.NullString) ([]Video, error) {
+	query := listOpenVideosByTwitchVideoIDs
+	var queryParams []interface{}
+	if len(twitchVideoIds) > 0 {
+		for _, v := range twitchVideoIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:twitch_video_ids*/?", strings.Repeat(",?", len(twitchVideoIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:twitch_video_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+			&i.DeleteRequestedAt,
+			&i.DeletionKind,
+			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentArchiveFailures = `-- name: ListRecentArchiveFailures :many
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
+WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED' AND downloaded_at >= ?
+ORDER BY downloaded_at DESC, id DESC LIMIT ?
+`
+
+type ListRecentArchiveFailuresParams struct {
+	DownloadedAt *sqlitetype.Time `json:"downloaded_at"`
+	Limit        int64            `json:"limit"`
+}
+
+func (q *Queries) ListRecentArchiveFailures(ctx context.Context, arg ListRecentArchiveFailuresParams) ([]Video, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentArchiveFailures, arg.DownloadedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+			&i.DeleteRequestedAt,
+			&i.DeletionKind,
+			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVideos = `-- name: ListVideos :many
 WITH params AS (
     SELECT CAST(?1 AS text) AS status_filter,
@@ -260,7 +781,7 @@ WITH params AS (
            CAST(?3 AS integer) AS row_limit,
            CAST(?4 AS integer) AS row_offset
 )
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality, v.source, v.twitch_video_id, v.broadcast_at, v.next_retry_at FROM videos v
 CROSS JOIN params
 WHERE v.deleted_at IS NULL
   AND (params.status_filter = '' OR v.status = params.status_filter)
@@ -334,6 +855,10 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
 			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -355,7 +880,7 @@ WITH params AS (
            CAST(?3 AS integer) AS cursor_id,
            CAST(?4 AS integer) AS row_limit
 )
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality, v.source, v.twitch_video_id, v.broadcast_at, v.next_retry_at FROM videos v
 CROSS JOIN params
 WHERE v.broadcaster_id = params.broadcaster_id
   AND v.deleted_at IS NULL
@@ -419,6 +944,10 @@ func (q *Queries) ListVideosByBroadcasterPage(ctx context.Context, arg ListVideo
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
 			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -440,7 +969,7 @@ WITH params AS (
            CAST(?3 AS integer) AS cursor_id,
            CAST(?4 AS integer) AS row_limit
 )
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality, v.source, v.twitch_video_id, v.broadcast_at, v.next_retry_at FROM videos v
 CROSS JOIN params
 INNER JOIN video_categories vc ON vc.video_id = v.id
 WHERE vc.category_id = params.category_id
@@ -505,6 +1034,10 @@ func (q *Queries) ListVideosByCategoryPage(ctx context.Context, arg ListVideosBy
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
 			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -520,7 +1053,7 @@ func (q *Queries) ListVideosByCategoryPage(ctx context.Context, arg ListVideosBy
 }
 
 const listVideosByJobIDs = `-- name: ListVideosByJobIDs :many
-SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos WHERE job_id IN (/*SLICE:job_ids*/?)
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos WHERE job_id IN (/*SLICE:job_ids*/?)
 `
 
 func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error) {
@@ -572,6 +1105,10 @@ func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Vi
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
 			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -590,6 +1127,7 @@ const listVideosForStorageScan = `-- name: ListVideosForStorageScan :many
 SELECT videos.id, videos.filename, videos.status FROM videos
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
+  AND next_retry_at IS NULL
   AND (
     status = 'DONE'
     OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
@@ -634,7 +1172,7 @@ func (q *Queries) ListVideosForStorageScan(ctx context.Context, arg ListVideosFo
 }
 
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
-SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
 
 func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, error) {
@@ -676,6 +1214,10 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
 			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -691,7 +1233,7 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 }
 
 const listVideosPendingManualDelete = `-- name: ListVideosPendingManualDelete :many
-SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NOT NULL
   AND status IN ('DONE', 'FAILED')
@@ -749,6 +1291,10 @@ func (q *Queries) ListVideosPendingManualDelete(ctx context.Context, rowLimit in
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
 			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -763,13 +1309,48 @@ func (q *Queries) ListVideosPendingManualDelete(ctx context.Context, rowLimit in
 	return items, nil
 }
 
+const markArchiveFailedForRetry = `-- name: MarkArchiveFailedForRetry :exec
+UPDATE videos SET
+    status = 'FAILED',
+    downloaded_at = datetime('now'),
+    error = ?,
+    completion_kind = ?,
+    truncated = ?,
+    next_retry_at = ?
+WHERE id = ? AND source = 'vod'
+`
+
+type MarkArchiveFailedForRetryParams struct {
+	Error          sql.NullString   `json:"error"`
+	CompletionKind string           `json:"completion_kind"`
+	Truncated      int64            `json:"truncated"`
+	NextRetryAt    *sqlitetype.Time `json:"next_retry_at"`
+	ID             int64            `json:"id"`
+}
+
+// A transient archive failure: the row fails like any other, and the retry
+// time set in the same statement keeps it open under the one-row-per-VOD
+// rule so nobody can queue the same VOD twice while it waits.
+func (q *Queries) MarkArchiveFailedForRetry(ctx context.Context, arg MarkArchiveFailedForRetryParams) error {
+	_, err := q.db.ExecContext(ctx, markArchiveFailedForRetry,
+		arg.Error,
+		arg.CompletionKind,
+		arg.Truncated,
+		arg.NextRetryAt,
+		arg.ID,
+	)
+	return err
+}
+
 const markVideoDone = `-- name: MarkVideoDone :exec
 UPDATE videos SET
     status = 'DONE',
     downloaded_at = datetime('now'),
     duration_seconds = ?,
     size_bytes = ?,
-    thumbnail = ?,
+    -- A run that produced no frame (audio, monochrome video) keeps the poster
+    -- the snapshotter or the archive fetch already stored.
+    thumbnail = COALESCE(?, thumbnail),
     completion_kind = ?,
     truncated = ?
 WHERE id = ?
@@ -829,11 +1410,12 @@ func (q *Queries) MarkVideoFailed(ctx context.Context, arg MarkVideoFailedParams
 
 const requestVideoDelete = `-- name: RequestVideoDelete :one
 UPDATE videos
-SET delete_requested_at = COALESCE(delete_requested_at, datetime('now'))
+SET delete_requested_at = COALESCE(delete_requested_at, datetime('now')),
+    next_retry_at = NULL
 WHERE id = ?
   AND deleted_at IS NULL
   AND status IN ('DONE', 'FAILED')
-RETURNING id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality
+RETURNING id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at
 `
 
 // Queue an operator-requested deletion. Idempotent for already-queued live
@@ -871,8 +1453,43 @@ func (q *Queries) RequestVideoDelete(ctx context.Context, id int64) (Video, erro
 		&i.DeleteRequestedAt,
 		&i.DeletionKind,
 		&i.Quality,
+		&i.Source,
+		&i.TwitchVideoID,
+		&i.BroadcastAt,
+		&i.NextRetryAt,
 	)
 	return i, err
+}
+
+const requeueArchiveVideo = `-- name: RequeueArchiveVideo :execrows
+UPDATE videos SET
+    status = 'PENDING',
+    job_id = ?1,
+    error = NULL,
+    downloaded_at = NULL,
+    completion_kind = 'complete',
+    truncated = 0,
+    next_retry_at = NULL
+WHERE id = ?2 AND source = 'vod' AND status = 'FAILED' AND deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (CAST(?3 AS INTEGER) = 0 OR next_retry_at IS NOT NULL)
+`
+
+type RequeueArchiveVideoParams struct {
+	JobID         string `json:"job_id"`
+	ID            int64  `json:"id"`
+	ScheduledOnly int64  `json:"scheduled_only"`
+}
+
+// Puts a failed archive back in the queue under a fresh job. scheduled_only
+// restricts the requeue to rows whose retry is still scheduled, so the pump
+// never revives a retry the operator cancelled a moment earlier.
+func (q *Queries) RequeueArchiveVideo(ctx context.Context, arg RequeueArchiveVideoParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requeueArchiveVideo, arg.JobID, arg.ID, arg.ScheduledOnly)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const searchVideos = `-- name: SearchVideos :many
@@ -931,7 +1548,7 @@ matched AS (
     LEFT JOIN category_matches cm ON cm.video_id = v.id
     WHERE v.deleted_at IS NULL
 )
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality, v.source, v.twitch_video_id, v.broadcast_at, v.next_retry_at FROM videos v
 INNER JOIN matched m ON m.id = v.id
 WHERE m.empty_query
    OR m.title_contains
@@ -997,6 +1614,10 @@ func (q *Queries) SearchVideos(ctx context.Context, arg SearchVideosParams) ([]V
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
 			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1023,6 +1644,25 @@ type SetVideoThumbnailParams struct {
 func (q *Queries) SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error {
 	_, err := q.db.ExecContext(ctx, setVideoThumbnail, arg.Thumbnail, arg.ID)
 	return err
+}
+
+const setVideoThumbnailIfMissing = `-- name: SetVideoThumbnailIfMissing :execrows
+UPDATE videos SET thumbnail = ? WHERE id = ? AND thumbnail IS NULL AND deleted_at IS NULL
+`
+
+type SetVideoThumbnailIfMissingParams struct {
+	Thumbnail sql.NullString `json:"thumbnail"`
+	ID        int64          `json:"id"`
+}
+
+// A poster never replaces a frame the pipeline already produced, and a row
+// removed while the poster was in flight stays without one.
+func (q *Queries) SetVideoThumbnailIfMissing(ctx context.Context, arg SetVideoThumbnailIfMissingParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setVideoThumbnailIfMissing, arg.Thumbnail, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const softDeleteVideo = `-- name: SoftDeleteVideo :exec
@@ -1151,7 +1791,7 @@ type StatisticsTotalsByBroadcasterRow struct {
 
 // Per-channel rollup of finished recordings: count + summed bytes +
 // summed duration. Mirrors StatisticsTotals scoped to one broadcaster
-// so the watch page can render a "N recordings / X GB" line under the
+// so the watch page can render a "N recordings and X GB" line under the
 // channel name without paginating the full library client-side.
 // sqlc-sqlite v1.30 can truncate the final byte of this generated
 // const, so keep a tautology after the meaningful NULL predicate.
@@ -1163,7 +1803,6 @@ func (q *Queries) StatisticsTotalsByBroadcaster(ctx context.Context, broadcaster
 }
 
 const statisticsTotalsDoneOnly = `-- name: StatisticsTotalsDoneOnly :one
-
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,
     CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
@@ -1177,13 +1816,6 @@ type StatisticsTotalsDoneOnlyRow struct {
 	TotalDuration float64 `json:"total_duration"`
 }
 
-// StatisticsTotals is split across atomic queries instead of one
-// combined SELECT. The combined form (with CASE WHEN aggregates in
-// a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
-// that truncates trailing chars off subsequent query consts. The
-// adapter combines these rows into a single VideoStatsTotals struct.
-// Postgres still uses the single-query form; see
-// queries/postgres/videos.sql.
 func (q *Queries) StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error) {
 	row := q.db.QueryRowContext(ctx, statisticsTotalsDoneOnly)
 	var i StatisticsTotalsDoneOnlyRow
@@ -1230,6 +1862,7 @@ const tombstoneMissingVideo = `-- name: TombstoneMissingVideo :execrows
 UPDATE videos SET deleted_at = datetime('now'), deletion_kind = 'missing'
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NULL
+  AND next_retry_at IS NULL
   AND (
     status = 'DONE'
     OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))

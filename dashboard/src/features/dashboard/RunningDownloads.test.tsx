@@ -66,6 +66,7 @@ function video(partial: Partial<VideoResponse> = {}): VideoResponse {
 		viewer_count: 0,
 		language: "en",
 		start_download_at: "2026-06-03T00:00:00Z",
+		source: "live",
 		...partial,
 	};
 }
@@ -134,5 +135,28 @@ describe("RunningDownloads", () => {
 		expect(screen.queryByText("fallback-name")).toBeNull();
 		expect(screen.getByLabelText("videos.watch_later.add")).toBeTruthy();
 		expect(screen.getByText("dashboard.active_count:1")).toBeTruthy();
+	});
+
+	it("marks a running archive instead of showing the live dot", () => {
+		live.data = [
+			row({ video: video({ id: 1, job_id: "vod", source: "vod" }) }),
+			row({ video: video({ id: 2, job_id: "live" }) }),
+		];
+		render(createElement(RunningDownloads));
+		expect(screen.getAllByTestId("running-archive-badge")).toHaveLength(1);
+		expect(screen.getByText("videos.archive_badge")).toBeTruthy();
+	});
+
+	it("shows a percentage only when the run knows its size", () => {
+		// A VOD archive reports its total from the first poll; a live
+		// recording reports -1 until it ends.
+		live.data = [
+			row({ video: video({ job_id: "vod" }), percent: 42.4, eta: "3m" }),
+			row({ video: video({ id: 2, job_id: "live" }), percent: -1 }),
+		];
+		render(createElement(RunningDownloads));
+		expect(screen.getByText("42%")).toBeTruthy();
+		expect(screen.getAllByText(/%$/).length).toBe(1);
+		expect(screen.getByText("dashboard.eta_left")).toBeTruthy();
 	});
 });

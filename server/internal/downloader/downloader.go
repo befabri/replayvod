@@ -61,6 +61,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/playbackauth"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/archiveposter"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
@@ -132,7 +133,19 @@ type Params struct {
 	TriggerScheduleID         *int64
 	RetentionSourceScheduleID *int64
 	RetentionWindowHours      *int64
+
+	// VODID selects the archive path: stages 1 to 3 resolve this Twitch VOD
+	// instead of the live channel, and the live-only pollers (preview
+	// snapshots, title tracking) are skipped. BroadcastAt is the VOD's
+	// original air date and lands on the video row.
+	VODID       string
+	BroadcastAt *time.Time
+	// PosterURL is the VOD's thumbnail on Twitch. It is fetched when the
+	// archive starts and is the only poster an audio archive receives.
+	PosterURL string
 }
+
+func (p Params) isVOD() bool { return p.VODID != "" }
 
 // Progress is the per-segment cumulative snapshot pushed to the
 // per-job channel. Shape matches the spec's DownloadProgress so
@@ -225,8 +238,11 @@ type Service struct {
 	metaWatcher         titleWatcher
 	channelSubs         ChannelUpdateSubscriber
 
-	mu              sync.Mutex
-	active          map[string]*download
+	mu     sync.Mutex
+	active map[string]*download
+	// pumpMu serializes PumpArchiveQueue and DequeueArchive so a queued
+	// archive is started or removed by exactly one caller.
+	pumpMu          sync.Mutex
 	activeSubs      map[int]chan struct{}
 	nextActiveSubID int
 
@@ -247,15 +263,30 @@ type Service struct {
 	// terminal video update; this bus only nudges the dispatcher to poll now
 	// instead of waiting for its next interval.
 	bus *eventbus.Buses
+
+	// posters fetches a VOD's Twitch thumbnail when an archive starts.
+	posters *archiveposter.Store
+
+	// stopRetry ends the periodic archive retry pump; Resume starts it once,
+	// Shutdown closes it once.
+	stopRetry     chan struct{}
+	retryOnce     sync.Once
+	stopRetryOnce sync.Once
 }
 
 // download is the per-job state kept in memory. cancel propagates
 // a user Cancel() to every stage (playlist, fetch, remux, probe,
 // thumbnail) via one shared ctx.
 type download struct {
-	jobID          string
-	videoID        int64
-	broadcasterID  string
+	jobID         string
+	videoID       int64
+	broadcasterID string
+	vod           bool
+	// attempt is the job's attempt number, which picks the retry backoff
+	// when an archive fails for a transient reason.
+	attempt int32
+	// limiter paces an archive's segment bytes; nil for live recordings.
+	limiter        hls.RateLimiter
 	cancel         context.CancelFunc
 	userCancelled  bool
 	progressCh     chan Progress
@@ -431,10 +462,10 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 
 	tw := twitch.New(twitch.Config{}, domainLog)
 
-	// Shared HTTP client for segment fetches. MaxConnsPerHost is
-	// the service-wide cap on concurrent Twitch edge connections;
-	// spec Stage 4 sizes it as MaxConcurrent × SegmentConcurrency.
-	aggregateHostCap := max(1, cfg.App.Download.MaxConcurrent) * max(1, cfg.App.Download.SegmentConcurrency)
+	// Shared HTTP client for segment fetches. MaxConnsPerHost is the
+	// service-wide cap on concurrent Twitch edge connections, sized for
+	// every live and archive job that can run at once.
+	aggregateHostCap := segmentHostConnectionCap(cfg.App.Download)
 	segTransport := &http.Transport{
 		MaxConnsPerHost:       aggregateHostCap,
 		MaxIdleConnsPerHost:   aggregateHostCap,
@@ -466,6 +497,8 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		channelSubs: channelSubs,
 		active:      make(map[string]*download),
 		activeSubs:  make(map[int]chan struct{}),
+		posters:     archiveposter.NewStore(repo, store, &http.Client{Timeout: 15 * time.Second}, domainLog),
+		stopRetry:   make(chan struct{}),
 	}
 	// Only assign the watcher when non-nil: storing a typed-nil
 	// *MetadataWatcher into the titleWatcher interface field would make
@@ -500,6 +533,12 @@ func (s *Service) SetPlaybackCredentials(credentials PlaybackCredentials) {
 // SetPlaybackCredentials: leave it unset (e.g. in tests) to disable publishing.
 func (s *Service) SetEventBus(bus *eventbus.Buses) {
 	s.bus = bus
+}
+
+// SetPosterStore shares the poster store with the backfill task, so a start
+// and a backfill for the same archive settle the key between them.
+func (s *Service) SetPosterStore(posters *archiveposter.Store) {
+	s.posters = posters
 }
 
 // publishRecordingTerminal fans a terminal-recording wake-up hint out to the
@@ -591,13 +630,13 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		return "", ErrShuttingDown
 	}
 	for _, existing := range s.active {
-		if existing.broadcasterID == p.BroadcasterID {
+		if !existing.vod && existing.broadcasterID == p.BroadcasterID {
 			s.mu.Unlock()
 			return "", ErrBusy
 		}
 	}
 	maxConcurrent := s.MaxConcurrent()
-	if len(s.active) >= maxConcurrent {
+	if s.activeLiveCountLocked() >= maxConcurrent {
 		s.mu.Unlock()
 		return "", fmt.Errorf("downloader: at max concurrent downloads (%d): %w", maxConcurrent, ErrAtCapacity)
 	}
@@ -607,7 +646,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	// in-memory active map no longer knows about. ErrNotFound is
 	// the happy path; any other error is a DB problem worth
 	// surfacing.
-	switch existing, err := s.repo.GetActiveJobByBroadcaster(ctx, p.BroadcasterID); {
+	switch existing, err := s.repo.GetActiveLiveJobByBroadcaster(ctx, p.BroadcasterID); {
 	case err == nil && existing != nil:
 		s.mu.Unlock()
 		return "", ErrBusy
@@ -622,6 +661,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	d := &download{
 		jobID:         jobID,
 		broadcasterID: p.BroadcasterID,
+		attempt:       1,
 		progressCh:    make(chan Progress, 16),
 		startedAt:     time.Now(),
 		resume:        NewResumeState(),
@@ -695,6 +735,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		ID:            jobID,
 		VideoID:       vid.ID,
 		BroadcasterID: p.BroadcasterID,
+		Attempt:       1,
 	}); err != nil {
 		s.mu.Lock()
 		delete(s.active, jobID)
@@ -815,6 +856,11 @@ func (s *Service) ListActiveProgress() []Progress {
 // concurrently with shutdown wins: ErrCancelled still records.
 func (s *Service) Shutdown() {
 	s.shuttingDown.Store(true)
+	s.stopRetryOnce.Do(func() {
+		if s.stopRetry != nil {
+			close(s.stopRetry)
+		}
+	})
 	s.mu.Lock()
 	for _, d := range s.active {
 		if d.cancel != nil {
@@ -859,6 +905,15 @@ func (s *Service) Shutdown() {
 // Safe to call multiple times: jobs already in s.active are
 // skipped on subsequent calls.
 func (s *Service) Resume(ctx context.Context) error {
+	if err := s.resumeRunning(ctx); err != nil {
+		return err
+	}
+	s.PumpArchiveQueue(ctx)
+	s.startArchiveRetryLoop()
+	return nil
+}
+
+func (s *Service) resumeRunning(ctx context.Context) error {
 	jobs, err := s.repo.ListRunningJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("list running jobs: %w", err)
@@ -877,6 +932,9 @@ func (s *Service) Resume(ctx context.Context) error {
 	for i := range jobs {
 		job := jobs[i]
 		if err := s.restartJob(ctx, &job); err != nil {
+			if errors.Is(err, ErrShuttingDown) || ctx.Err() != nil {
+				return err
+			}
 			s.log.Error("resume job failed",
 				"job_id", job.ID,
 				"video_id", job.VideoID,
@@ -959,28 +1017,51 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 		StreamID:         vid.StreamID,
 		RecordingType:    vid.RecordingType,
 		ForceH264:        vid.ForceH264,
+		BroadcastAt:      vid.BroadcastAt,
+	}
+	if vid.Source == repository.VideoSourceVOD && vid.TwitchVideoID != nil {
+		p.VODID = *vid.TwitchVideoID
 	}
 
 	d := &download{
 		jobID:         job.ID,
 		videoID:       vid.ID,
 		broadcasterID: job.BroadcasterID,
+		vod:           p.isVOD(),
+		attempt:       job.Attempt,
 		progressCh:    make(chan Progress, 16),
 		startedAt:     time.Now(),
 		resume:        state,
+	}
+	if d.vod {
+		d.limiter = archiveRateLimiter(s.cfg.App.Download)
 	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	d.cancel = cancel
 
+	// Archives are capped by the queue pump, not here: a RUNNING archive
+	// found at boot always resumes. The wg.Add sits under the lock with the
+	// shutdown check so a pump racing Shutdown can never Add after Wait.
 	s.mu.Lock()
+	if s.shuttingDown.Load() {
+		s.mu.Unlock()
+		cancel()
+		return ErrShuttingDown
+	}
+	if _, exists := s.active[job.ID]; exists {
+		s.mu.Unlock()
+		cancel()
+		return nil
+	}
 	maxConcurrent := s.MaxConcurrent()
-	if len(s.active) >= maxConcurrent {
+	if !d.vod && s.activeLiveCountLocked() >= maxConcurrent {
 		s.mu.Unlock()
 		cancel()
 		return fmt.Errorf("at max concurrent downloads (%d); cannot resume", maxConcurrent)
 	}
 	s.active[job.ID] = d
+	s.wg.Add(1)
 	s.mu.Unlock()
 
 	cleanupReserved := true
@@ -995,6 +1076,7 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 			delete(s.active, job.ID)
 		}
 		s.mu.Unlock()
+		s.wg.Done()
 		s.notifyActiveChanged()
 	}()
 
@@ -1002,15 +1084,17 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 	// failDownload's shutdown branch). Reopen on any resume so AUTH,
 	// PLAYLIST, or post-BeginNewPart crashes don't permanently strand
 	// the prior title/category at zero live duration. The SQL is a
-	// no-op when an open span already exists.
-	if err := s.repo.ResumeVideoMetadataSpans(ctx, vid.ID, time.Now().UTC()); err != nil {
-		return fmt.Errorf("resume video metadata spans: %w", err)
+	// no-op when an open span already exists. Archives track no live
+	// metadata, so they never own a span.
+	if !d.vod {
+		if err := s.repo.ResumeVideoMetadataSpans(ctx, vid.ID, time.Now().UTC()); err != nil {
+			return fmt.Errorf("resume video metadata spans: %w", err)
+		}
 	}
 
 	// vid.Filename is the deterministic base name chosen at
 	// original Start(); reuse it so the remuxed path is stable
 	// across restart.
-	s.wg.Add(1)
 	cleanupReserved = false
 	s.notifyActiveChanged()
 	go s.run(runCtx, d, p, vid.Filename)
@@ -1136,6 +1220,9 @@ func (s *Service) startTitleTracking(
 // write land.
 func (s *Service) run(ctx context.Context, d *download, p Params, filename string) {
 	log := s.log.With("job_id", d.jobID, "broadcaster_login", p.BroadcasterLogin)
+	if d.vod {
+		log = log.With("vod_id", p.VODID)
+	}
 	dbCtx := context.WithoutCancel(ctx)
 
 	defer func() {
@@ -1144,6 +1231,8 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		delete(s.active, d.jobID)
 		s.mu.Unlock()
 		s.notifyActiveChanged()
+		// Before wg.Done so the counter never reads zero while a pump adds.
+		s.pumpAfterJobEnd()
 		s.wg.Done()
 	}()
 
@@ -1152,6 +1241,14 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	}
 	if err := s.repo.MarkJobRunning(dbCtx, d.jobID); err != nil {
 		log.Error("failed to mark job running", "error", err)
+	}
+
+	if d.vod && d.resume.PosterURL != "" && s.storage != nil {
+		// This work shares run's cancellation and wait-group lifetime. Never
+		// overwrite a frame already finalized before a restart.
+		if v, err := s.repo.GetVideo(ctx, d.videoID); err == nil && v.Thumbnail == nil {
+			s.posters.Fetch(ctx, d.videoID, filename, d.resume.PosterURL)
+		}
 	}
 
 	// Normalize the recording type early — everything downstream
@@ -1203,8 +1300,10 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 
 	// Capture Twitch preview frames during recording. The first
 	// successful snapshot becomes the row thumbnail immediately.
-	// Best-effort; skipped only when no storage backend is wired.
-	if s.storage != nil {
+	// Best-effort; skipped when no storage backend is wired and for
+	// archives, whose channel is not live (the stage 8 part thumbnail
+	// becomes the row thumbnail instead).
+	if s.storage != nil && !d.vod {
 		snapCtx, cancelSnap := context.WithCancel(ctx)
 		mediaPollerCancels = append(mediaPollerCancels, cancelSnap)
 		snapper := thumbnail.NewSnapshotter(thumbnail.SnapshotterConfig{
@@ -1275,9 +1374,14 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// only the at-start title. The poll watcher's cancel is registered with the
 	// media pollers so it's torn down after the part loop; the webhook
 	// unsubscribe is returned and deferred to run's exit.
-	stopTitleTracking := s.startTitleTracking(ctx, p, d.videoID, log, func(cancel context.CancelFunc) {
-		mediaPollerCancels = append(mediaPollerCancels, cancel)
-	}, d)
+	// An archive keeps the VOD title it was queued with: there is no live
+	// channel to follow.
+	stopTitleTracking := func() {}
+	if !d.vod {
+		stopTitleTracking = s.startTitleTracking(ctx, p, d.videoID, log, func(cancel context.CancelFunc) {
+			mediaPollerCancels = append(mediaPollerCancels, cancel)
+		}, d)
+	}
 	defer stopTitleTracking()
 
 	if d.resume.CurrentPartIndex > 1 {
@@ -1362,6 +1466,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 					// intent before remux so a restart never resumes live acquisition or
 					// turns this interrupted recording into a successful completion.
 					d.resume.CaptureError = playbackCaptureFailure(err)
+					d.resume.CaptureRetryable = archiveRetryable(err)
 					d.resume.SetStage(StagePrepareInput)
 					if hlsResult.Kind != "" {
 						d.resume.SegmentFormat = string(hlsResult.Kind)
@@ -1469,7 +1574,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 			return
 		}
 		if d.resume.CaptureError != "" {
-			s.failDownload(dbCtx, d, log, errors.New(d.resume.CaptureError))
+			s.failDownload(dbCtx, d, log, sealedCaptureFailure(d.resume))
 			return
 		}
 		parts = append(parts, *pr)
@@ -1506,8 +1611,10 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// here — that residual race is closed by MarkVideoDone's
 	// internal span close on the terminal transition.
 	stopMediaPollers()
-	if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
-		log.Warn("close video metadata spans", "video_id", d.videoID, "error", err)
+	if !d.vod {
+		if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
+			log.Warn("close video metadata spans", "video_id", d.videoID, "error", err)
+		}
 	}
 
 	// First non-empty thumbRel wins (not just parts[0]) so a
@@ -1573,6 +1680,9 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// recording (see StreamHandler.streamPart), so only watched videos cost
 	// anything.
 	s.publishRecordingTerminal(d.videoID, eventbus.RecordingCompleted)
+	if d.vod {
+		s.publishArchiveQueue(eventbus.ArchiveCompleted, d.videoID)
+	}
 }
 
 // partResult carries the per-part bookkeeping that runPart hands
@@ -2526,6 +2636,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			Progress:           hlsProgress,
 			StartMediaSeq:      startSeq,
 			ClassifyAuth:       classifyTwitchAuth,
+			RateLimiter:        d.limiter,
 			// Per-part gap policy: seed the new attempt's
 			// counters with the cumulative totals so the first-
 			// content-segment guard and MaxGapRatio evaluate
@@ -2756,13 +2867,19 @@ func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.S
 			return twitch.SelectedVariant{}, fmt.Errorf("resolve Twitch playback connection: %w", err)
 		}
 	}
-	token, err := s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, accessToken)
+	playbackToken := func(accessToken string) (twitch.PlaybackToken, error) {
+		if p.isVOD() {
+			return s.twitch.VODPlaybackToken(ctx, p.VODID, accessToken)
+		}
+		return s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, accessToken)
+	}
+	token, err := playbackToken(accessToken)
 	if err != nil {
 		var authErr *twitch.AuthError
 		if s.playbackCredentials != nil && accessToken != "" && errors.As(err, &authErr) && authErr.Status == http.StatusUnauthorized {
 			checkErr := s.playbackCredentials.RecheckRejected(ctx, accessToken)
 			if errors.Is(checkErr, playbackauth.ErrRejected) {
-				token, err = s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, "")
+				token, err = playbackToken("")
 			} else if checkErr != nil {
 				return twitch.SelectedVariant{}, fmt.Errorf("resolve Twitch playback connection: %w", checkErr)
 			}
@@ -2771,7 +2888,12 @@ func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.S
 			return twitch.SelectedVariant{}, fmt.Errorf("playback token: %w", err)
 		}
 	}
-	manifest, err := s.twitch.FetchMasterPlaylist(ctx, p.BroadcasterLogin, token, opts)
+	var manifest *twitch.Manifest
+	if p.isVOD() {
+		manifest, err = s.twitch.FetchVODMasterPlaylist(ctx, p.VODID, token, opts)
+	} else {
+		manifest, err = s.twitch.FetchMasterPlaylist(ctx, p.BroadcasterLogin, token, opts)
+	}
 	if err != nil {
 		return twitch.SelectedVariant{}, fmt.Errorf("master playlist: %w", err)
 	}
@@ -2897,9 +3019,7 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	s.mu.Unlock()
 
 	if s.shuttingDown.Load() && !userCancelled {
-		if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
-			log.Warn("close video metadata spans on shutdown", "video_id", d.videoID, "error", err)
-		}
+		s.closeMetadataSpans(dbCtx, d, log, "shutdown")
 		// Job stays RUNNING for next boot's Resume. Do NOT set
 		// cleanupScratch — segments on disk are what Resume
 		// needs to pick up from PrepareInput without re-
@@ -2915,14 +3035,16 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	}
 
 	recorded := cause
-	if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
-		log.Warn("close video metadata spans on failure", "video_id", d.videoID, "error", err)
-	}
+	s.closeMetadataSpans(dbCtx, d, log, "failure")
 	if userCancelled {
 		recorded = ErrCancelled
 		log.Info("download cancelled by user")
 	} else {
 		log.Error("download failed", "error", cause)
+	}
+	message := recorded.Error()
+	if d.vod {
+		message = archiveFailureMessage(recorded)
 	}
 	// completion_kind for terminal failures, in priority order:
 	//
@@ -2972,11 +3094,34 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	// broadcast.
 	cutShort := userCancelled || d.resume.HadWindowRoll || !d.resume.EndListSeen
 	truncated := failedRunTruncated(partsKnown, hasPart, cutShort)
+
+	// An archive that failed for a passing reason gets another attempt
+	// later. The failure is not terminal for the recording, so no webhook
+	// fires and the dispatcher is not woken; the retry either completes the
+	// archive or the last attempt fails it for good below.
+	if d.vod && !userCancelled {
+		if delay, ok := archiveRetryDelay(d.attempt); ok && archiveRetryable(cause) {
+			retryAt := time.Now().UTC().Add(delay)
+			if err := s.repo.MarkArchiveFailedForRetry(dbCtx, d.videoID, message, failCompletionKind, truncated, retryAt); err != nil {
+				log.Error("failed to schedule archive retry; failing for good", "error", err)
+			} else {
+				if err := s.repo.MarkJobFailed(dbCtx, d.jobID, message); err != nil {
+					log.Error("failed to mark job failed", "error", err)
+				}
+				d.cleanupScratch = true
+				log.Warn("archive failed; retry scheduled",
+					"attempt", d.attempt, "retry_at", retryAt, "error", cause)
+				s.publishArchiveQueue(eventbus.ArchiveFailed, d.videoID)
+				return
+			}
+		}
+	}
+
 	delivery := s.recordingWebhookDelivery(d.videoID, recordingwebhook.EventFailed)
-	if err := s.repo.MarkVideoFailedAndEnqueueRecordingWebhook(dbCtx, d.videoID, recorded.Error(), failCompletionKind, truncated, delivery); err != nil {
+	if err := s.repo.MarkVideoFailedAndEnqueueRecordingWebhook(dbCtx, d.videoID, message, failCompletionKind, truncated, delivery); err != nil {
 		log.Error("failed to mark video failed", "error", err)
 	}
-	if err := s.repo.MarkJobFailed(dbCtx, d.jobID, recorded.Error()); err != nil {
+	if err := s.repo.MarkJobFailed(dbCtx, d.jobID, message); err != nil {
 		log.Error("failed to mark job failed", "error", err)
 	}
 	// Terminal-for-this-attempt outcome: the job is now FAILED
@@ -2988,6 +3133,21 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	// the shutdown branch returned early above, so an interrupted recording that
 	// stays RUNNING for resume never queues or wakes a webhook.
 	s.publishRecordingTerminal(d.videoID, eventbus.RecordingFailed)
+	if d.vod {
+		s.publishArchiveQueue(eventbus.ArchiveFailed, d.videoID)
+	}
+}
+
+// closeMetadataSpans closes the live title and category spans of a recording
+// that stopped acquiring media. Archives track no live metadata and own no
+// span, so nothing is written for them.
+func (s *Service) closeMetadataSpans(dbCtx context.Context, d *download, log *slog.Logger, reason string) {
+	if d.vod {
+		return
+	}
+	if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
+		log.Warn("close video metadata spans on "+reason, "video_id", d.videoID, "error", err)
+	}
 }
 
 // classifyTwitchAuth wires the twitch-specific entitlement-code

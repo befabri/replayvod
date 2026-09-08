@@ -5,6 +5,10 @@ poll_interval_minutes = 1
 
 [download]
 max_concurrent = 5
+archive_max_concurrent = 1
+# Cap each running archive's download rate in bytes per second so it cannot
+# starve a live recording. 0 disables the cap.
+archive_max_bytes_per_second = 0
 segment_concurrency = 4
 network_attempts = 5
 server_error_attempts = 5
@@ -54,6 +58,9 @@ recordings_retention_interval_minutes = 60
 # How often to check that every finished recording's media is still in
 # storage and tombstone the ones whose files are gone. 0 disables the scan.
 storage_scan_interval_minutes = 1440
+# How often archives still missing a poster are looked up on Twitch, which
+# renders a VOD thumbnail a few minutes after the stream ends. 0 disables it.
+archive_poster_interval_minutes = 5
 # Prune terminal (delivered/rejected/failed) rows from the recording-webhook
 # delivery outbox older than this many days. Queued/in-flight rows are never
 # pruned. 0 disables the sweep (the table then grows unbounded).

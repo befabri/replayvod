@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/secrets"
 	"github.com/befabri/replayvod/server/internal/server"
 	"github.com/befabri/replayvod/server/internal/server/api"
+	"github.com/befabri/replayvod/server/internal/service/archiveposter"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
@@ -258,6 +260,8 @@ func main() {
 		channelSubs = &channelSubsAdapter{es: eventsubSvc}
 	}
 	dl := downloader.NewService(cfg, repo, store, hydrator, metaWatcher, channelSubs, log)
+	posters := archiveposter.NewStore(repo, store, &http.Client{Timeout: 15 * time.Second}, log)
+	dl.SetPosterStore(posters)
 	playbackCache := playbackcache.New(repo, store, filepath.Join(cfg.Env.ScratchDir, "playback-cache"), "", log)
 	hydrator.SetMediaOffsetResolver(dl)
 	recordings := api.NewRecordingServices(cfg, repo, store, log)
@@ -392,6 +396,7 @@ func main() {
 			CategoryMetadata: categoryMetaSvc,
 			Retention:        recordings.Retention,
 			StorageScan:      recordings.StorageScan,
+			ArchivePosters:   archiveposter.New(posters, repo, twitchClient, log),
 		}, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
 			shutdown(1)

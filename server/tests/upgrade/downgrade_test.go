@@ -14,7 +14,7 @@ func (h *installation) downgrade(candidate, previous string, b baseline, origina
 	retained := h.projectSnapshot(original, "before-downgrade", p)
 	h.stop()
 	h.maintenance(candidate, "rollback")
-	files, err := fs.Glob(candidateMigrations(h.backend), "*.up.sql")
+	files, err := fs.Glob(embeddedMigrations()[h.backend], "*.up.sql")
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func (h *installation) downgrade(candidate, previous string, b baseline, origina
 		if _, released := b.MigrationSHA256["server/migrations/"+h.backend+"/"+filepath.Base(file)]; released {
 			continue
 		}
-		down, err := fs.ReadFile(candidateMigrations(h.backend), strings.TrimSuffix(file, ".up.sql")+".down.sql")
+		down, err := fs.ReadFile(embeddedMigrations()[h.backend], strings.TrimSuffix(file, ".up.sql")+".down.sql")
 		if err != nil {
 			h.t.Fatal(err)
 		}
@@ -37,7 +37,7 @@ func (h *installation) downgrade(candidate, previous string, b baseline, origina
 	h.start(previous, "downgraded")
 	actual := h.takeSnapshot(original, "downgraded")
 	// The rules hold on the way back too; a dropped table's rows are not expected back.
-	if err := p.compare(withoutLedger(retained), withoutLedger(actual)); err != nil {
+	if err := p.compareDown(withoutLedger(retained), withoutLedger(actual)); err != nil {
 		h.t.Fatalf("downgrade lost retained data: %v", err)
 	}
 	h.assertLedger(b.MigrationSHA256, false)

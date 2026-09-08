@@ -495,11 +495,10 @@ func (h *Hydrator) RecordChannelUpdate(ctx context.Context, broadcasterID string
 	if broadcasterID == "" || (meta.Title == "" && meta.CategoryID == "") {
 		return nil
 	}
-	// Find the active recording. ErrNotFound = no recording in
-	// flight; the subscription is presumably a stale orphan (boot
-	// reconcile will clean it up) or the ending-recording raced
-	// the unsubscribe. Either way, nothing to link.
-	job, err := h.repo.GetActiveJobByBroadcaster(ctx, broadcasterID)
+	// Only live recordings receive channel updates. No live job is normal
+	// when this broadcaster has archives only; otherwise an ending recording
+	// may have raced unsubscribe or reconciliation may still owe cleanup.
+	job, err := h.repo.GetActiveLiveJobByBroadcaster(ctx, broadcasterID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil

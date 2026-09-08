@@ -18,6 +18,10 @@ export const ApproveRequestInputSchema = z.object({
   tag_ids: z.array(z.number()),
 }).meta({ id: "ApproveRequestInput" });
 
+export const ArchiveVideoInputSchema = z.object({
+  video_id: z.number(),
+}).meta({ id: "ArchiveVideoInput" });
+
 export const VideoPageCursorSchema = z.object({
   start_download_at: z.iso.datetime(),
   id: z.number(),
@@ -27,7 +31,6 @@ export const ByCategoryInputSchema = z.object({
   category_id: z.string().min(1),
   limit: z.int().gte(0).lte(200),
   cursor: VideoPageCursorSchema.optional(),
-  direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
 }).meta({ id: "ByCategoryInput" });
 
 export const CancelInputSchema = z.object({
@@ -86,6 +89,12 @@ export const ChannelStatisticsInputSchema = z.object({
   broadcaster_id: z.string(),
 }).meta({ id: "ChannelStatisticsInput" });
 
+export const ChannelVODsInputSchema = z.object({
+  channel: z.string().min(1).describe("Channel is a Twitch login or a twitch.tv channel url."),
+  cursor: z.string().optional(),
+  limit: z.int().gte(1).lte(100).or(z.literal(0)).optional(),
+}).meta({ id: "ChannelVODsInput" });
+
 export const CreateInputSchema = z.object({
   broadcaster_id: z.string().min(1),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
@@ -116,6 +125,13 @@ export const CreateRequestInputSchema = z.object({
 export const DownloadProgressInputSchema = z.object({
   job_id: z.string().min(1),
 }).meta({ id: "DownloadProgressInput" });
+
+export const EnqueueArchiveInputSchema = z.object({
+  vods: z.array(z.string().min(1)).min(1).max(50).describe("VODs are Twitch VOD links or ids, one per entry."),
+  recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH", "1440", "BEST"]).or(z.literal("")).optional(),
+  force_h264: z.boolean().optional(),
+}).meta({ id: "EnqueueArchiveInput" });
 
 export const EventLogsInputSchema = z.object({
   limit: z.int().gte(0).lte(500),
@@ -320,7 +336,6 @@ export const VideoByBroadcasterInputSchema = z.object({
   broadcaster_id: z.string().min(1),
   limit: z.int().gte(0).lte(200),
   cursor: VideoPageCursorSchema.optional(),
-  direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
 }).meta({ id: "VideoByBroadcasterInput" });
 
 export const VideoDeleteInputSchema = z.object({
@@ -351,11 +366,12 @@ export const VideoListPageCursorSchema = z.object({
 export const VideoListPageInputSchema = z.object({
   limit: z.int().gte(0).lte(200),
   status: z.enum(["PENDING", "RUNNING", "DONE", "FAILED"]).or(z.literal("")).optional(),
-  sort: z.enum(["created_at", "duration", "size", "channel", "history_when"]).or(z.literal("")).optional(),
+  sort: z.enum(["created_at", "duration", "size", "channel", "history_when", "broadcast_at"]).or(z.literal("")).optional(),
   order: z.enum(["asc", "desc"]).or(z.literal("")).optional(),
   quality: z.string().optional(),
   broadcaster_id: z.string().optional(),
   language: z.string().optional(),
+  source: z.enum(["live", "vod"]).or(z.literal("")).optional().describe("Source narrows to live recordings or archives of past broadcasts."),
   duration: z.enum(["short", "medium", "long", "marathon"]).or(z.literal("")).optional(),
   size: z.enum(["small", "medium", "large"]).or(z.literal("")).optional(),
   window: z.enum(["this_week"]).or(z.literal("")).optional(),
@@ -365,7 +381,6 @@ export const VideoListPageInputSchema = z.object({
   terminal_only: z.boolean().optional().describe("TerminalOnly keeps active in-flight rows out of history-style views while\nstill allowing those views to include both active terminal rows and\ntombstones through Scope=\"all\"."),
   scope: z.enum(["active", "removed", "all"]).or(z.literal("")).optional().describe("Scope selects the tombstone state. Empty/\"active\" keeps the library\ndefault (live recordings only); \"removed\" and \"all\" power the\nremoved-inclusive history surface. Channel/category grids and search\nnever expose this and stay active-only."),
   cursor: VideoListPageCursorSchema.optional(),
-  direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
 }).meta({ id: "VideoListPageInput" });
 
 export const VideoSearchInputSchema = z.object({

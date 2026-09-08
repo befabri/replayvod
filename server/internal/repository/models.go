@@ -424,6 +424,32 @@ type Video struct {
 	// (CDN rolled past us, then we stopped while live), or complete
 	// AND truncated (file is whole but the broadcast went on).
 	Truncated bool
+	// Source is "live" for a recording captured from a broadcast and "vod"
+	// for an archive of a Twitch VOD downloaded after the fact. TwitchVideoID
+	// and BroadcastAt are set only for archives: the VOD id on Twitch and the
+	// date the stream originally aired.
+	Source        string
+	TwitchVideoID *string
+	BroadcastAt   *time.Time
+	// NextRetryAt is set on a failed archive whose next attempt is scheduled.
+	// The row stays open under the one-row-per-VOD rule until the retry runs
+	// or is cancelled. Always nil for live recordings.
+	NextRetryAt *time.Time
+}
+
+// VideoSource enumerates videos.source.
+const (
+	VideoSourceLive = "live"
+	VideoSourceVOD  = "vod"
+)
+
+// VideoSourceOrLive applies the creation-input default shared by both adapters.
+// Persisted rows already have a constrained source and must be read as stored.
+func VideoSourceOrLive(source string) string {
+	if source == "" {
+		return VideoSourceLive
+	}
+	return source
 }
 
 // VideoCompletionKind enumerates the values of videos.completion_kind.
@@ -475,6 +501,11 @@ type VideoInput struct {
 	TriggerScheduleID         *int64
 	RetentionSourceScheduleID *int64
 	RetentionWindowHours      *int64
+	// Source empty means live. Archives set VideoSourceVOD plus the VOD id and
+	// the original broadcast date.
+	Source        string
+	TwitchVideoID *string
+	BroadcastAt   *time.Time
 }
 
 // RecordingType enumerates the two recording modes. Stored on
@@ -570,12 +601,15 @@ type Job struct {
 	VideoID       int64
 	BroadcasterID string
 	Status        string
-	StartedAt     *time.Time
-	FinishedAt    *time.Time
-	Error         *string
-	ResumeState   json.RawMessage
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// Attempt numbers this job among the attempts of its video, starting at 1.
+	// Archive retries create a new job per attempt.
+	Attempt     int32
+	StartedAt   *time.Time
+	FinishedAt  *time.Time
+	Error       *string
+	ResumeState json.RawMessage
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // JobInput is the creation payload for a new job row. Status defaults to
@@ -586,6 +620,8 @@ type JobInput struct {
 	VideoID       int64
 	BroadcasterID string
 	ResumeState   json.RawMessage
+	// Attempt is 1-based; zero means the first attempt.
+	Attempt int32
 }
 
 // VideoPart is one output segment of a video. A job with no
@@ -803,9 +839,11 @@ type ListVideosOpts struct {
 	// UserID scopes per-user library filters such as watch later and unwatched.
 	// Empty is valid for global surfaces but makes those per-user filters match
 	// nothing.
-	UserID             string
-	Status             string // "" | "PENDING" | "RUNNING" | "DONE" | "FAILED"
-	Sort               string // "" | "created_at" | "duration" | "size" | "channel"
+	UserID string
+	Status string // "" | "PENDING" | "RUNNING" | "DONE" | "FAILED"
+	Sort   string // "" | "created_at" | "duration" | "size" | "channel" | "history_when" | "broadcast_at"
+	// Source narrows to live recordings or archives; "" returns both.
+	Source             string // "" | "live" | "vod"
 	Order              string // "" | "asc" | "desc"
 	Quality            string
 	BroadcasterID      string

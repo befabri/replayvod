@@ -40,6 +40,7 @@ func TestGetDefaultAppConfig(t *testing.T) {
 		},
 		Download: DownloadConfig{
 			MaxConcurrent:        2,
+			ArchiveMaxConcurrent: 1,
 			SegmentConcurrency:   4,
 			NetworkAttempts:      5,
 			ServerErrorAttempts:  5,
@@ -72,6 +73,7 @@ func TestGetDefaultAppConfig(t *testing.T) {
 			SessionCleanupIntervalMinutes:         120,
 			RecordingsRetentionIntervalMinutes:    60,
 			StorageScanIntervalMinutes:            1440,
+			ArchivePosterIntervalMinutes:          5,
 		},
 		Logging: LoggingConfig{
 			LogToFile: false,

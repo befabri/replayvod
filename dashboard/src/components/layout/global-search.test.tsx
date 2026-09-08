@@ -208,6 +208,7 @@ function video(overrides: Partial<VideoResponse> = {}): VideoResponse {
 		viewer_count: 10,
 		language: "en",
 		start_download_at: "2026-06-03T00:00:00Z",
+		source: "live",
 		...overrides,
 	};
 }

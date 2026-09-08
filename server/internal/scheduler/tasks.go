@@ -10,6 +10,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/service/archiveposter"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
@@ -23,6 +24,7 @@ const (
 	taskCategoryArtSync           = "category_art_sync"
 	taskCategoryMetadataSync      = "category_metadata_sync"
 	taskStorageScan               = "storage_scan"
+	taskArchivePosters            = "archive_posters"
 )
 
 type StandardTaskDeps struct {
@@ -31,6 +33,7 @@ type StandardTaskDeps struct {
 	CategoryMetadata *categorymeta.Service
 	Retention        *retention.Service
 	StorageScan      *storagescan.Service
+	ArchivePosters   *archiveposter.Service
 }
 
 // RegisterStandardTasks wires the default scheduled jobs against a scheduler
@@ -264,6 +267,29 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 					if report.Tombstoned > 0 || report.Partial > 0 {
 						log.Info("storage scan: recordings with missing media",
 							"scanned", report.Scanned, "tombstoned", report.Tombstoned, "partial", report.Partial)
+					}
+					return err
+				},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	if deps.ArchivePosters != nil {
+		if m := sc.ArchivePosterIntervalMinutes; m > 0 {
+			if err := s.Register(Task{
+				Name:            taskArchivePosters,
+				Description:     "Fetch the Twitch poster of archives queued before Twitch had rendered one",
+				IntervalSeconds: int64(m) * 60,
+				Run: func(ctx context.Context) error {
+					report, err := deps.ArchivePosters.Backfill(ctx)
+					if report.Stored > 0 {
+						log.Info("archive posters: stored posters", "count", report.Stored, "checked", report.Checked)
+					}
+					if err == nil && !report.Complete {
+						log.Info("archive posters: deadline reached; the next run continues after the last archive attempted",
+							"checked", report.Checked)
 					}
 					return err
 				},

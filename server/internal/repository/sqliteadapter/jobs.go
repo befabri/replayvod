@@ -21,6 +21,7 @@ func (a *SQLiteAdapter) CreateJob(ctx context.Context, input *repository.JobInpu
 		VideoID:       input.VideoID,
 		BroadcasterID: input.BroadcasterID,
 		ResumeState:   rs,
+		Attempt:       int64(max(input.Attempt, 1)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite create job: %w", err)

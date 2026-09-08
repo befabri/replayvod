@@ -9,6 +9,7 @@ func getDefaultAppConfig() AppConfig {
 		},
 		Download: DownloadConfig{
 			MaxConcurrent:        2,
+			ArchiveMaxConcurrent: 1,
 			SegmentConcurrency:   4,
 			NetworkAttempts:      5,
 			ServerErrorAttempts:  5,
@@ -41,6 +42,7 @@ func getDefaultAppConfig() AppConfig {
 			SessionCleanupIntervalMinutes:         120,
 			RecordingsRetentionIntervalMinutes:    60,
 			StorageScanIntervalMinutes:            1440,
+			ArchivePosterIntervalMinutes:          5,
 		},
 		Logging: LoggingConfig{
 			LogToFile: false,
@@ -73,6 +75,7 @@ func orDefault[T cmp.Ordered](v, def T) T {
 func validateAppConfig(config *AppConfig) {
 	config.Server.PollIntervalMinutes = orDefault(config.Server.PollIntervalMinutes, 1)
 	config.Download.MaxConcurrent = orDefault(config.Download.MaxConcurrent, 2)
+	config.Download.ArchiveMaxConcurrent = orDefault(config.Download.ArchiveMaxConcurrent, 1)
 	config.Download.SegmentConcurrency = orDefault(config.Download.SegmentConcurrency, 4)
 	config.Download.NetworkAttempts = orDefault(config.Download.NetworkAttempts, 5)
 	config.Download.ServerErrorAttempts = orDefault(config.Download.ServerErrorAttempts, 5)
@@ -93,6 +96,9 @@ func validateAppConfig(config *AppConfig) {
 		config.Download.MaxPartSeconds = 0
 	}
 	config.Download.MaxPartCount = orDefault(config.Download.MaxPartCount, 1024)
+	if config.Download.ArchiveMaxBytesPerSecond < 0 {
+		config.Download.ArchiveMaxBytesPerSecond = 0
+	}
 	config.PostgresPool.MaxConns = orDefault(config.PostgresPool.MaxConns, 25)
 	config.PostgresPool.MinConns = orDefault(config.PostgresPool.MinConns, 5)
 	// MinConns can't exceed MaxConns or pgxpool rejects the config at open.

@@ -5,6 +5,8 @@ import {
 	getCoreRowModel,
 	getSortedRowModel,
 	type OnChangeFn,
+	type Row,
+	type RowSelectionState,
 	type SortingState,
 	useReactTable,
 } from "@tanstack/react-table";
@@ -37,6 +39,10 @@ export function DataTable<TData, TValue>({
 	sorting: controlledSorting,
 	onSortingChange,
 	manualSorting = false,
+	rowSelection: controlledRowSelection,
+	onRowSelectionChange,
+	enableRowSelection,
+	getRowId,
 }: {
 	columns: ColumnDef<TData, TValue>[];
 	data: TData[];
@@ -47,17 +53,32 @@ export function DataTable<TData, TValue>({
 	sorting?: SortingState;
 	onSortingChange?: OnChangeFn<SortingState>;
 	manualSorting?: boolean;
+	// Row selection is the table's own state, so a select column reads it off
+	// `row`/`table` in its cell rather than closing over it. That keeps the
+	// column definitions stable across a click instead of rebuilding them.
+	// Pass `getRowId` alongside it so a selection survives the rows moving
+	// (a sort, a page appended) instead of being keyed by index.
+	rowSelection?: RowSelectionState;
+	onRowSelectionChange?: OnChangeFn<RowSelectionState>;
+	enableRowSelection?: boolean | ((row: Row<TData>) => boolean);
+	getRowId?: (originalRow: TData, index: number, parent?: Row<TData>) => string;
 }) {
 	const [internalSorting, setInternalSorting] = useState<SortingState>([]);
 	const sorting = controlledSorting ?? internalSorting;
+	const [internalRowSelection, setInternalRowSelection] =
+		useState<RowSelectionState>({});
+	const rowSelection = controlledRowSelection ?? internalRowSelection;
 	const bodyRef = useRef<HTMLTableSectionElement | null>(null);
 	const [scrollMargin, setScrollMargin] = useState(0);
 
 	const table = useReactTable({
 		data,
 		columns,
-		state: { sorting },
+		getRowId,
+		state: { sorting, rowSelection },
 		onSortingChange: onSortingChange ?? setInternalSorting,
+		onRowSelectionChange: onRowSelectionChange ?? setInternalRowSelection,
+		enableRowSelection,
 		manualSorting,
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
@@ -175,6 +196,7 @@ export function DataTable<TData, TValue>({
 							<TableRow
 								key={row.id}
 								data-index={virtualRow?.index}
+								data-state={row.getIsSelected() ? "selected" : undefined}
 								ref={virtualizeRows ? rowVirtualizer.measureElement : undefined}
 							>
 								{row.getVisibleCells().map((cell) => (

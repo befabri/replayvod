@@ -192,6 +192,15 @@ func (e *FetchError) Unwrap() error { return e.Cause }
 //
 //nolint:gocyclo // State machine; splitting hurts readability.
 func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter, targetDuration time.Duration) (int64, error) {
+	return f.FetchLimited(ctx, url, w, targetDuration, nil)
+}
+
+// FetchLimited is Fetch with the body copy paced by limiter; nil means
+// unlimited. The pace applies to the segment bytes only, not to retries
+// or the request itself.
+//
+//nolint:gocyclo // State machine; splitting hurts readability.
+func (f *Fetcher) FetchLimited(ctx context.Context, url string, w *PartWriter, targetDuration time.Duration, limiter RateLimiter) (int64, error) {
 	// Per-playlist targetDuration overrides the Fetcher's config
 	// default for the 404/410 CDN-lag retry cadence. Spec Stage 4
 	// sleeps half of the playlist's EXT-X-TARGETDURATION between
@@ -315,7 +324,7 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter, targetDu
 		}
 
 		// 2xx body copy.
-		n, copyErr := f.copyBody(w, resp.Body)
+		n, copyErr := f.copyBody(ctx, w, resp.Body, limiter)
 		// Always drain — if copyErr hit mid-body, remaining bytes
 		// would break keep-alive.
 		drainAndClose(resp)
@@ -372,7 +381,7 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, w *PartWriter, targetDu
 // splice is available for a response body that doesn't expose
 // a syscall.Conn), so probing would hide the pool from the
 // hot path. See writer.go's ReadFrom doc for the longer story.
-func (f *Fetcher) copyBody(w io.Writer, r io.ReadCloser) (int64, error) {
+func (f *Fetcher) copyBody(ctx context.Context, w io.Writer, r io.ReadCloser, limiter RateLimiter) (int64, error) {
 	buf := f.bufPool.Get().(*[]byte)
 	defer f.bufPool.Put(buf)
 
@@ -399,7 +408,7 @@ func (f *Fetcher) copyBody(w io.Writer, r io.ReadCloser) (int64, error) {
 	}()
 
 	counter := &countingReader{r: r, n: &bytesRead}
-	return io.CopyBuffer(writeOnly{w}, counter, *buf)
+	return io.CopyBuffer(writeOnly{w}, newThrottledReader(ctx, counter, limiter), *buf)
 }
 
 // watchThroughput samples bytesRead at window/3 cadence and closes

@@ -77,7 +77,7 @@ func NormalizeVideoListSort(opts ListVideosOpts) (string, string) {
 	sort := opts.Sort
 	order := opts.Order
 	switch sort {
-	case "created_at", "duration", "size", "channel", "history_when":
+	case "created_at", "duration", "size", "channel", "history_when", "broadcast_at":
 	default:
 		return "created_at", "desc"
 	}
@@ -130,6 +130,9 @@ func VideoListCursorFromVideo(v *Video, opts ListVideosOpts) *VideoListPageCurso
 	case "history_when":
 		sortTime := VideoHistoryWhen(v)
 		cursor.SortTime = &sortTime
+	case "broadcast_at":
+		sortTime := VideoBroadcastWhen(v)
+		cursor.SortTime = &sortTime
 	}
 	return cursor
 }
@@ -164,4 +167,15 @@ func ToVideoPage(items []Video, limit int) *VideoPage {
 	next := page.Items[len(page.Items)-1]
 	page.NextCursor = &VideoPageCursor{StartDownloadAt: next.StartDownloadAt, ID: next.ID}
 	return page
+}
+
+// VideoBroadcastWhen is the date a recording's stream aired: the Twitch air
+// date for an archive, the recording start for a live capture. It is the sort
+// key for broadcast_at, keeping display order and cursor pagination in
+// lockstep.
+func VideoBroadcastWhen(v *Video) time.Time {
+	if v.BroadcastAt != nil {
+		return *v.BroadcastAt
+	}
+	return v.StartDownloadAt
 }

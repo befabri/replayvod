@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	ApproveRequestInputSchema,
 	CreateInputSchema,
+	EnqueueArchiveInputSchema,
 	ScheduleUpdateInputSchema,
 	TriggerDownloadInputSchema,
 } from "@/api/generated/zod";
@@ -21,6 +22,7 @@ const QUALITY_BEARING_SCHEMAS = {
 	ScheduleUpdateInput: ScheduleUpdateInputSchema,
 	ApproveRequestInput: ApproveRequestInputSchema,
 	TriggerDownloadInput: TriggerDownloadInputSchema,
+	EnqueueArchiveInput: EnqueueArchiveInputSchema,
 };
 
 type ZodNode = {

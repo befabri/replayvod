@@ -152,6 +152,17 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Video_MetadataDurationsTracksHistory", testVideoMetadataDurationsTracksHistoryAndPrimaryCategory)
 	run("Video_ManualDeleteQueueWaitsForWebhookFrozenParts", testManualDeleteQueueWaitsForWebhookFrozenParts)
 
+	// archives
+	run("Archive_VideoRoundTrip", testArchiveVideoRoundTrip)
+	run("Archive_OpenRowPerVOD", testArchiveOpenRowPerVOD)
+	run("Archive_QueueOrderAndDequeue", testArchiveQueueOrderAndDequeue)
+	run("Archive_RetryLifecycle", testArchiveRetryLifecycle)
+	run("Archive_StreamMatchAndMissingPoster", testArchiveStreamMatchAndMissingPoster)
+	run("Archive_RetryYieldsToQueuedDelete", testArchiveRetryYieldsToQueuedDelete)
+	run("Archive_SourceFilterAndBroadcastSort", testArchiveSourceFilterAndBroadcastSort)
+	run("Video_StreamLinkRequiresKnownStream", testVideoStreamLinkRequiresKnownStream)
+	run("Video_MarkDoneKeepsPosterWithoutFrame", testMarkVideoDoneKeepsPosterWithoutFrame)
+
 	// server settings + recording webhook + schedules pause
 	run("Settings_SetSchedulesPausedRoundTripAndIsolation", testSetSchedulesPausedRoundTripAndIsolation)
 	run("Settings_ServerHMACSecretPreservedAcrossUpsert", testServerHMACSecretPreservedAcrossUpsert)

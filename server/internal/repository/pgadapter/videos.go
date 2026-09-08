@@ -89,9 +89,12 @@ func (a *PGAdapter) CreateVideo(ctx context.Context, v *repository.VideoInput) (
 		TriggerScheduleID:         v.TriggerScheduleID,
 		RetentionSourceScheduleID: v.RetentionSourceScheduleID,
 		RetentionWindowHours:      int64PtrToInt32Ptr(v.RetentionWindowHours),
+		Source:                    repository.VideoSourceOrLive(v.Source),
+		TwitchVideoID:             v.TwitchVideoID,
+		BroadcastAt:               v.BroadcastAt,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("pg create video: %w", err)
+		return nil, fmt.Errorf("pg create video: %w", mapErr(err))
 	}
 	return pgVideoToDomain(row), nil
 }
@@ -378,6 +381,10 @@ func pgVideoToDomain(v pggen.Video) *repository.Video {
 		RetentionWindowHours:      int32PtrToInt64Ptr(v.RetentionWindowHours),
 		CompletionKind:            v.CompletionKind,
 		Truncated:                 v.Truncated,
+		Source:                    v.Source,
+		TwitchVideoID:             v.TwitchVideoID,
+		BroadcastAt:               v.BroadcastAt,
+		NextRetryAt:               v.NextRetryAt,
 	}
 }
 
@@ -424,6 +431,10 @@ func scanPGVideos(rows pgx.Rows) ([]repository.Video, error) {
 			&row.TriggerScheduleID,
 			&row.RetentionSourceScheduleID,
 			&row.RetentionWindowHours,
+			&row.Source,
+			&row.TwitchVideoID,
+			&row.BroadcastAt,
+			&row.NextRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -469,6 +480,36 @@ func (a *PGAdapter) ListVideosForStorageScan(ctx context.Context, afterID int64,
 	return out, nil
 }
 
+func (a *PGAdapter) GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID string) (*repository.Video, error) {
+	row, err := a.queries.GetOpenVideoByTwitchVideoID(ctx, &twitchVideoID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgVideoToDomain(row), nil
+}
+
+func (a *PGAdapter) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]repository.Video, error) {
+	if len(twitchVideoIDs) == 0 {
+		return []repository.Video{}, nil
+	}
+	rows, err := a.queries.ListOpenVideosByTwitchVideoIDs(ctx, twitchVideoIDs)
+	if err != nil {
+		return nil, fmt.Errorf("pg list open videos by twitch video ids: %w", err)
+	}
+	return pgVideosToDomain(rows), nil
+}
+
+func (a *PGAdapter) DeleteQueuedArchiveVideo(ctx context.Context, id int64) error {
+	n, err := a.queries.DeleteQueuedArchiveVideo(ctx, id)
+	if err != nil {
+		return fmt.Errorf("pg delete queued archive video: %w", err)
+	}
+	if n == 0 {
+		return repository.ErrNotFound
+	}
+	return nil
+}
+
 // GetVideoForStorageScan reuses the eligibility query, without treating zero as a wildcard.
 func (a *PGAdapter) GetVideoForStorageScan(ctx context.Context, id int64) (*repository.StorageScanVideo, error) {
 	if id <= 0 {
@@ -490,4 +531,82 @@ func (a *PGAdapter) TombstoneMissingVideo(ctx context.Context, id int64) (bool, 
 	}
 	n, err := a.queries.TombstoneMissingVideo(ctx, id)
 	return n > 0, err
+}
+
+func (a *PGAdapter) ListOpenVideosByStreamIDs(ctx context.Context, streamIDs []string) ([]repository.Video, error) {
+	if len(streamIDs) == 0 {
+		return []repository.Video{}, nil
+	}
+	rows, err := a.queries.ListOpenVideosByStreamIDs(ctx, streamIDs)
+	if err != nil {
+		return nil, fmt.Errorf("pg list open videos by stream ids: %w", err)
+	}
+	return pgVideosToDomain(rows), nil
+}
+
+func (a *PGAdapter) ListRecentArchiveFailures(ctx context.Context, since time.Time, limit int) ([]repository.Video, error) {
+	rows, err := a.queries.ListRecentArchiveFailures(ctx, pggen.ListRecentArchiveFailuresParams{DownloadedAt: &since, Limit: int32(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("pg list recent archive failures: %w", err)
+	}
+	return pgVideosToDomain(rows), nil
+}
+
+func (a *PGAdapter) ListArchivesDueForRetry(ctx context.Context, now time.Time, limit int) ([]repository.Video, error) {
+	rows, err := a.queries.ListArchivesDueForRetry(ctx, pggen.ListArchivesDueForRetryParams{NextRetryAt: &now, Limit: int32(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("pg list archives due for retry: %w", err)
+	}
+	return pgVideosToDomain(rows), nil
+}
+
+func (a *PGAdapter) MarkArchiveFailedForRetry(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, nextRetryAt time.Time) error {
+	return a.queries.MarkArchiveFailedForRetry(ctx, pggen.MarkArchiveFailedForRetryParams{
+		ID:             id,
+		Error:          &errMsg,
+		CompletionKind: completionKind,
+		Truncated:      truncated,
+		NextRetryAt:    &nextRetryAt,
+	})
+}
+
+func (a *PGAdapter) RequeueArchiveVideo(ctx context.Context, id int64, jobID string, scheduledOnly bool) error {
+	n, err := a.queries.RequeueArchiveVideo(ctx, pggen.RequeueArchiveVideoParams{JobID: jobID, ID: id, ScheduledOnly: scheduledOnly})
+	if err != nil {
+		return fmt.Errorf("pg requeue archive video: %w", mapErr(err))
+	}
+	if n == 0 {
+		return repository.ErrNotFound
+	}
+	return nil
+}
+
+func (a *PGAdapter) ClearArchiveRetry(ctx context.Context, id int64) error {
+	n, err := a.queries.ClearArchiveRetry(ctx, id)
+	if err != nil {
+		return fmt.Errorf("pg clear archive retry: %w", err)
+	}
+	if n == 0 {
+		return repository.ErrNotFound
+	}
+	return nil
+}
+
+func (a *PGAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]repository.Video, error) {
+	if afterID < 0 || limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("invalid poster page")
+	}
+	rows, err := a.queries.ListArchivesMissingPoster(ctx, pggen.ListArchivesMissingPosterParams{Since: since, AfterID: afterID, PageSize: int32(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("pg list archives missing poster: %w", err)
+	}
+	return pgVideosToDomain(rows), nil
+}
+
+func (a *PGAdapter) SetVideoThumbnailIfMissing(ctx context.Context, id int64, thumbnail string) (bool, error) {
+	n, err := a.queries.SetVideoThumbnailIfMissing(ctx, pggen.SetVideoThumbnailIfMissingParams{ID: id, Thumbnail: &thumbnail})
+	if err != nil {
+		return false, fmt.Errorf("pg set video thumbnail if missing: %w", err)
+	}
+	return n > 0, nil
 }
