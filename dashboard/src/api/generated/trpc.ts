@@ -691,6 +691,10 @@ export interface RevokeSessionInput {
  */
 export type Role = "viewer" | "admin" | "owner";
 
+export interface RotateInviteInput {
+  id: number;
+}
+
 export interface RunNowInput {
   name: string;
 }
@@ -1566,6 +1570,7 @@ type AppRouterRecord = {
     playbackCacheConfig: $Query<void, PlaybackCacheConfigResponse>;
     removeWhitelist: $Mutation<WhitelistIDInput, SystemOK>;
     revokeInvite: $Mutation<RevokeInviteInput, SystemOK>;
+    rotateInvite: $Mutation<RotateInviteInput, InviteCreatedInfo>;
     searchEventLogs: $Query<SearchEventLogsInput, SearchEventLogsResponse>;
     updatePlaybackCacheConfig: $Mutation<UpdatePlaybackCacheConfigInput, PlaybackCacheConfigResponse>;
     updateUserRole: $Mutation<UpdateUserRoleInput, UserInfo>;

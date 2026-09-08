@@ -103,7 +103,9 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Invite_RedeemSingleUse", testInviteRedeemSingleUse)
 	run("Invite_RedeemExpiredFailsClosed", testInviteRedeemExpiredFailsClosed)
 	run("Invite_RevokeOnlyPending", testInviteRevokeOnlyPending)
+	run("Invite_RotateOnlyPending", testInviteRotateOnlyPending)
 	run("Invite_ConcurrentRedemption", testInviteConcurrentRedemption)
+	run("Invite_ConcurrentRotateAndRedeem", testInviteConcurrentRotateAndRedeem)
 	run("Transaction_CommitAndRollback", testTransactionCommitAndRollback)
 	run("UserLock_SerializesRoleChanges", testUserLockSerializesRoleChanges)
 

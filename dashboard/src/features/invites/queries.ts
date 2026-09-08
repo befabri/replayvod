@@ -33,3 +33,19 @@ export function useRevokeInvite() {
 		}),
 	);
 }
+
+export function useRotateInvite() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.system.rotateInvite.mutationOptions({
+			// A rejected rotate usually means the row was redeemed or expired
+			// meanwhile; refresh so the table catches up.
+			onSettled: () => {
+				queryClient.invalidateQueries({
+					queryKey: trpc.system.listInvites.pathKey(),
+				});
+			},
+		}),
+	);
+}

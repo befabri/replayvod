@@ -60,7 +60,7 @@ func TestCreateInviteValidationOverHTTP(t *testing.T) {
 		{"below minimum TTL", `{"role":"viewer","ttl_minutes":4}`},
 		{"above maximum TTL", `{"role":"viewer","ttl_minutes":43201}`},
 		{"fractional TTL", `{"role":"viewer","ttl_minutes":5.5}`},
-		{"long note", fmt.Sprintf(`{"role":"viewer","ttl_minutes":60,"note":%q}`, strings.Repeat("é", 201))},
+		{"long note", fmt.Sprintf(`{"role":"viewer","ttl_minutes":60,"note":%q}`, strings.Repeat("é", 61))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			permissionResponse(t, h, http.MethodPost, "/trpc/system.createInvite", tc.body, h.owner, http.StatusBadRequest)
@@ -78,7 +78,7 @@ func TestCreateInviteValidationOverHTTP(t *testing.T) {
 		{"admin", 43200},
 	} {
 		t.Run(fmt.Sprintf("valid %s TTL %d", tc.role, tc.ttl), func(t *testing.T) {
-			note := strings.Repeat("é", 200)
+			note := strings.Repeat("é", 60)
 			before := time.Now().Add(time.Duration(tc.ttl) * time.Minute).Truncate(time.Second)
 			rr := permissionResponse(t, h, http.MethodPost, "/trpc/system.createInvite",
 				fmt.Sprintf(`{"role":%q,"ttl_minutes":%d,"note":%q}`, tc.role, tc.ttl, note), h.admin, http.StatusOK)
@@ -151,5 +151,60 @@ func TestInviteListAndRevokeOverHTTP(t *testing.T) {
 	pendingRaw := strings.TrimPrefix(pending.URL, "http://localhost:3000/invite/")
 	if ok, err := h.repo.RedeemInvite(ctx, invite.HashToken(pendingRaw), "perm-viewer-1"); err != nil || ok {
 		t.Fatalf("revoked invite redeemed: %v, %v", ok, err)
+	}
+}
+
+func TestRotateInviteOverHTTP(t *testing.T) {
+	h := newPermissionHarness(t)
+	ctx := context.Background()
+	const prefix = "http://localhost:3000/invite/"
+	rotate := func(id int64, status int) *httptest.ResponseRecorder {
+		return permissionResponse(t, h, http.MethodPost, "/trpc/system.rotateInvite", fmt.Sprintf(`{"id":%d}`, id), h.admin, status)
+	}
+
+	for _, body := range []string{`{}`, `{"id":0}`, `{"id":"7"}`} {
+		permissionResponse(t, h, http.MethodPost, "/trpc/system.rotateInvite", body, h.admin, http.StatusBadRequest)
+	}
+	rotate(99999, http.StatusNotFound)
+
+	created := decodePermissionData[system.InviteCreatedInfo](t, permissionResponse(t, h, http.MethodPost, "/trpc/system.createInvite", `{"role":"admin","ttl_minutes":60,"note":"for bob"}`, h.admin, http.StatusOK))
+	oldRaw := strings.TrimPrefix(created.URL, prefix)
+	rotated := decodePermissionData[system.InviteCreatedInfo](t, rotate(created.ID, http.StatusOK))
+	if rotated.ID != created.ID || rotated.Role != created.Role || !rotated.ExpiresAt.Equal(created.ExpiresAt) {
+		t.Fatalf("rotated = %+v, want the same invite as %+v", rotated, created)
+	}
+	newRaw := strings.TrimPrefix(rotated.URL, prefix)
+	if decoded, err := hex.DecodeString(newRaw); err != nil || len(decoded) != 32 || newRaw == oldRaw {
+		t.Fatalf("rotated URL must carry a fresh 32-byte token: %q, %v", rotated.URL, err)
+	}
+	if _, err := h.repo.GetInviteByTokenHash(ctx, invite.HashToken(oldRaw)); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("old token still resolves: %v", err)
+	}
+	stored, err := h.repo.GetInviteByTokenHash(ctx, invite.HashToken(newRaw))
+	if err != nil || stored.ID != created.ID || stored.CreatedBy != "perm-admin-1" || stored.Note == nil || *stored.Note != "for bob" || stored.RedeemedAt != nil {
+		t.Fatalf("rotated row = %+v, %v; want the original invite under the new hash", stored, err)
+	}
+	listed := permissionResponse(t, h, http.MethodGet, "/trpc/system.listInvites", "", h.admin, http.StatusOK)
+	for _, forbidden := range []string{oldRaw, newRaw, invite.HashToken(newRaw), `"url"`} {
+		if strings.Contains(listed.Body.String(), forbidden) {
+			t.Fatalf("list response exposes invite credential %q", forbidden)
+		}
+	}
+
+	if ok, err := h.repo.RedeemInvite(ctx, invite.HashToken(newRaw), "perm-viewer-1"); err != nil || !ok {
+		t.Fatalf("redeem rotated link = %v, %v", ok, err)
+	}
+	rotate(created.ID, http.StatusNotFound)
+
+	expired, err := h.repo.CreateInvite(ctx, &repository.InviteInput{
+		TokenHash: "rotate-http-expired", Role: "viewer", CreatedBy: "perm-admin-1",
+		ExpiresAt: time.Now().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotate(expired.ID, http.StatusNotFound)
+	if got, err := h.repo.GetInviteByTokenHash(ctx, "rotate-http-expired"); err != nil || got.ID != expired.ID {
+		t.Fatalf("expired invite after rejected rotate = %+v, %v; want untouched", got, err)
 	}
 }

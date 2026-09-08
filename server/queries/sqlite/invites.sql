@@ -16,3 +16,9 @@ SELECT * FROM invites ORDER BY created_at DESC, id DESC;
 
 -- name: DeleteInvite :execrows
 DELETE FROM invites WHERE id = ? AND redeemed_at IS NULL;
+
+-- name: RotateInviteToken :one
+UPDATE invites
+SET token_hash = ?
+WHERE id = ? AND redeemed_at IS NULL AND expires_at > datetime('now')
+RETURNING *;

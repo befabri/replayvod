@@ -67,3 +67,36 @@ func TestCreateWriteFailureReturnsNoShareableToken(t *testing.T) {
 		t.Fatalf("failed creation persisted invite: %+v, %v", rows, err)
 	}
 }
+
+func TestRotateIssuesFreshTokenAndRetiresOld(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "admin", Login: "admin", DisplayName: "Admin", Role: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	svc := New(repo, "https://dashboard.example", slog.New(slog.NewJSONHandler(&logs, nil)))
+	oldRaw, created, err := svc.Create(ctx, "admin", "viewer", time.Hour, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRaw, rotated, err := svc.Rotate(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newRaw == "" || newRaw == oldRaw || rotated.ID != created.ID || rotated.TokenHash != HashToken(newRaw) {
+		t.Fatalf("rotate = (%q, %+v), want a fresh token on the same invite", newRaw, rotated)
+	}
+	if ok, err := repo.RedeemInvite(ctx, HashToken(oldRaw), "viewer"); err != nil || ok {
+		t.Fatalf("old link redeemed = %v, %v; want rejected", ok, err)
+	}
+	if ok, err := repo.RedeemInvite(ctx, HashToken(newRaw), "viewer"); err != nil || !ok {
+		t.Fatalf("new link redeemed = %v, %v; want accepted", ok, err)
+	}
+	if _, _, err := svc.Rotate(ctx, created.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rotate redeemed = %v, want ErrNotFound", err)
+	}
+	if out := logs.String(); strings.Contains(out, oldRaw) || strings.Contains(out, newRaw) || strings.Contains(out, rotated.TokenHash) || !strings.Contains(out, "invite link rotated") {
+		t.Fatal("rotation logs must identify the action without exposing tokens or hashes")
+	}
+}

@@ -14,7 +14,7 @@ import (
 type CreateInviteInput struct {
 	Role       string  `json:"role" validate:"required,oneof=viewer admin"`
 	TTLMinutes int     `json:"ttl_minutes" validate:"required,min=5,max=43200"`
-	Note       *string `json:"note,omitempty" validate:"omitempty,max=200"`
+	Note       *string `json:"note,omitempty" validate:"omitempty,max=60"`
 }
 
 // InviteCreatedInfo includes the redemption URL, which cannot be retrieved
@@ -89,4 +89,24 @@ func (h *Handler) RevokeInvite(ctx context.Context, input RevokeInviteInput) (OK
 			apierr.On(invite.ErrNotFound, trpcgo.CodeNotFound, "invite not found"))
 	}
 	return OK{OK: true}, nil
+}
+
+type RotateInviteInput struct {
+	ID int64 `json:"id" validate:"required"`
+}
+
+// RotateInvite issues a fresh redemption URL for a pending invitation; the
+// previous link stops working.
+func (h *Handler) RotateInvite(ctx context.Context, input RotateInviteInput) (InviteCreatedInfo, error) {
+	raw, inv, err := h.invites.Rotate(ctx, input.ID)
+	if err != nil {
+		return InviteCreatedInfo{}, apierr.Map(h.log, err, "rotate invite",
+			apierr.On(invite.ErrNotFound, trpcgo.CodeNotFound, "invite not found"))
+	}
+	return InviteCreatedInfo{
+		ID:        inv.ID,
+		URL:       h.invites.URL(raw),
+		Role:      middleware.Role(inv.Role),
+		ExpiresAt: inv.ExpiresAt,
+	}, nil
 }

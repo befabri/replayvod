@@ -14,7 +14,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// ErrNotFound is returned by Revoke for unknown or redeemed invitations.
+// ErrNotFound is returned by Revoke and Rotate when no pending invitation
+// matches.
 var ErrNotFound = errors.New("invite: not found")
 
 // GenerateToken returns 32 cryptographically random bytes encoded as hex.
@@ -84,4 +85,22 @@ func (s *Service) Revoke(ctx context.Context, id int64) error {
 	}
 	s.log.Info("invite revoked", "id", id)
 	return nil
+}
+
+// Rotate replaces the token of a pending invitation and returns the new raw
+// token, which cannot be recovered later. The previous link stops working.
+func (s *Service) Rotate(ctx context.Context, id int64) (string, *repository.Invite, error) {
+	raw, err := GenerateToken()
+	if err != nil {
+		return "", nil, err
+	}
+	inv, err := s.repo.RotateInviteToken(ctx, id, HashToken(raw))
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return "", nil, ErrNotFound
+		}
+		return "", nil, fmt.Errorf("rotate invite: %w", err)
+	}
+	s.log.Info("invite link rotated", "id", inv.ID)
+	return raw, inv, nil
 }

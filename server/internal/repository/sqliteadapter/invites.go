@@ -66,3 +66,11 @@ func (a *SQLiteAdapter) DeleteInvite(ctx context.Context, id int64) (bool, error
 	}
 	return affected > 0, nil
 }
+
+func (a *SQLiteAdapter) RotateInviteToken(ctx context.Context, id int64, tokenHash string) (*repository.Invite, error) {
+	row, err := a.queries.RotateInviteToken(ctx, sqlitegen.RotateInviteTokenParams{TokenHash: tokenHash, ID: id})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteInviteToDomain(row), nil
+}

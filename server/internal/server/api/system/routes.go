@@ -21,6 +21,7 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, invites *invi
 	trpcgo.MustMutation(tr, "system.createInvite", h.CreateInvite, admin)
 	trpcgo.MustVoidQuery(tr, "system.listInvites", h.ListInvites, admin)
 	trpcgo.MustMutation(tr, "system.revokeInvite", h.RevokeInvite, admin)
+	trpcgo.MustMutation(tr, "system.rotateInvite", h.RotateInvite, admin)
 
 	trpcgo.MustQuery(tr, "system.fetchLogs", h.FetchLogs, owner)
 	trpcgo.MustVoidQuery(tr, "system.playbackCacheConfig", h.PlaybackCacheConfig, owner)

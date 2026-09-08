@@ -201,3 +201,112 @@ func testInviteConcurrentRedemption(t *testing.T, h Harness) {
 		t.Fatalf("winner=%q, invite=%+v; want one winner with matching audit data", winner, stored)
 	}
 }
+
+func testInviteRotateOnlyPending(t *testing.T, h Harness) {
+	ctx := context.Background()
+	repo := h.Repo()
+	creator := seedInviteCreator(t, repo)
+
+	pending, err := repo.CreateInvite(ctx, &repository.InviteInput{
+		TokenHash: "rotate-old", Role: "admin", CreatedBy: creator,
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create pending: %v", err)
+	}
+
+	rotated, err := repo.RotateInviteToken(ctx, pending.ID, "rotate-new")
+	if err != nil {
+		t.Fatalf("rotate pending: %v", err)
+	}
+	if rotated.ID != pending.ID || rotated.TokenHash != "rotate-new" || rotated.Role != "admin" || rotated.RedeemedAt != nil {
+		t.Errorf("rotated row = %+v, want the same invite with the new hash", rotated)
+	}
+	if ok, err := repo.RedeemInvite(ctx, "rotate-old", "twitch-99"); err != nil || ok {
+		t.Errorf("old token redeemed = %v, %v; want rejected", ok, err)
+	}
+	if ok, err := repo.RedeemInvite(ctx, "rotate-new", "twitch-99"); err != nil || !ok {
+		t.Errorf("new token redeemed = %v, %v; want accepted", ok, err)
+	}
+	if _, err := repo.RotateInviteToken(ctx, pending.ID, "rotate-after-redeem"); !errors.Is(err, repository.ErrNotFound) {
+		t.Errorf("rotate redeemed = %v, want ErrNotFound", err)
+	}
+
+	expired, err := repo.CreateInvite(ctx, &repository.InviteInput{
+		TokenHash: "rotate-expired", Role: "viewer", CreatedBy: creator,
+		ExpiresAt: time.Now().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("create expired: %v", err)
+	}
+	if _, err := repo.RotateInviteToken(ctx, expired.ID, "rotate-revived"); !errors.Is(err, repository.ErrNotFound) {
+		t.Errorf("rotate expired = %v, want ErrNotFound", err)
+	}
+	if _, err := repo.RotateInviteToken(ctx, expired.ID+1000, "rotate-unknown"); !errors.Is(err, repository.ErrNotFound) {
+		t.Errorf("rotate unknown = %v, want ErrNotFound", err)
+	}
+	if got, err := repo.GetInviteByTokenHash(ctx, "rotate-expired"); err != nil || got.TokenHash != "rotate-expired" {
+		t.Errorf("expired row after failed rotate = %+v, %v; want untouched", got, err)
+	}
+}
+
+// testInviteConcurrentRotateAndRedeem pins the race between an admin
+// issuing a new link and the invitee redeeming the old one: exactly one
+// side wins, and the old token is dead either way.
+func testInviteConcurrentRotateAndRedeem(t *testing.T, h Harness) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	repo := h.Repo()
+	creator := seedInviteCreator(t, repo)
+	inv, err := repo.CreateInvite(ctx, &repository.InviteInput{TokenHash: "race-old", Role: "viewer", CreatedBy: creator, ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		redeemed  bool
+		redeemErr error
+		rotateErr error
+	)
+	start := make(chan struct{})
+	done := make(chan struct{}, 2)
+	go func() {
+		<-start
+		redeemed, redeemErr = repo.RedeemInvite(ctx, "race-old", "twitch-99")
+		done <- struct{}{}
+	}()
+	go func() {
+		<-start
+		_, rotateErr = repo.RotateInviteToken(ctx, inv.ID, "race-new")
+		done <- struct{}{}
+	}()
+	close(start)
+	<-done
+	<-done
+	if redeemErr != nil {
+		t.Fatalf("redeem: %v", redeemErr)
+	}
+	if rotateErr != nil && !errors.Is(rotateErr, repository.ErrNotFound) {
+		t.Fatalf("rotate: %v", rotateErr)
+	}
+	rotated := rotateErr == nil
+	if redeemed == rotated {
+		t.Fatalf("redeemed=%v rotated=%v; exactly one side must win", redeemed, rotated)
+	}
+	hash := "race-old"
+	if rotated {
+		hash = "race-new"
+	}
+	stored, err := repo.GetInviteByTokenHash(ctx, hash)
+	if err != nil {
+		t.Fatalf("get %s: %v", hash, err)
+	}
+	if redeemed && (stored.RedeemedAt == nil || stored.RedeemedBy == nil || *stored.RedeemedBy != "twitch-99") {
+		t.Errorf("redeem won but row is not marked redeemed: %+v", stored)
+	}
+	if rotated && stored.RedeemedAt != nil {
+		t.Errorf("rotate won but row is marked redeemed: %+v", stored)
+	}
+	if ok, err := repo.RedeemInvite(ctx, "race-old", "twitch-100"); err != nil || ok {
+		t.Errorf("old token redeemed after the race = %v, %v; want rejected", ok, err)
+	}
+}

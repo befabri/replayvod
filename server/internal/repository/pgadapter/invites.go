@@ -66,3 +66,11 @@ func (a *PGAdapter) DeleteInvite(ctx context.Context, id int64) (bool, error) {
 	}
 	return affected > 0, nil
 }
+
+func (a *PGAdapter) RotateInviteToken(ctx context.Context, id int64, tokenHash string) (*repository.Invite, error) {
+	row, err := a.queries.RotateInviteToken(ctx, pggen.RotateInviteTokenParams{ID: id, TokenHash: tokenHash})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgInviteToDomain(row), nil
+}

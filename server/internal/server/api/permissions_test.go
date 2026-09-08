@@ -96,6 +96,7 @@ func TestSystemProceduresRoleMatrix(t *testing.T) {
 		{"listInvites", http.MethodGet, "/trpc/system.listInvites", "", http.StatusOK},
 		{"createInvite", http.MethodPost, "/trpc/system.createInvite", `{"role":"viewer","ttl_minutes":60}`, http.StatusOK},
 		{"revokeInvite", http.MethodPost, "/trpc/system.revokeInvite", `{"id":99999}`, http.StatusNotFound},
+		{"rotateInvite", http.MethodPost, "/trpc/system.rotateInvite", `{"id":99999}`, http.StatusNotFound},
 	}
 	for _, tc := range adminTier {
 		t.Run("admin-tier/"+tc.name, func(t *testing.T) {

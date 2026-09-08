@@ -118,7 +118,7 @@ export const CreateInputSchema = z.object({
 export const CreateInviteInputSchema = z.object({
   role: z.enum(["viewer", "admin"]).check(z.minLength(1)),
   ttl_minutes: z.int().gte(5).lte(43200),
-  note: z.string().max(200).optional(),
+  note: z.string().max(60).optional(),
 }).meta({ id: "CreateInviteInput" });
 
 export const CreateRequestInputSchema = z.object({
@@ -198,6 +198,10 @@ export const RevokeInviteInputSchema = z.object({
 export const RevokeSessionInputSchema = z.object({
   hashed_id: z.string().min(1),
 }).meta({ id: "RevokeSessionInput" });
+
+export const RotateInviteInputSchema = z.object({
+  id: z.number(),
+}).meta({ id: "RotateInviteInput" });
 
 export const RunNowInputSchema = z.object({
   name: z.string().min(1),

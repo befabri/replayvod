@@ -9,7 +9,7 @@ import { mockTrpc, SESSION, trpcOk } from "./support/trpc";
 type Role = "viewer" | "admin" | "owner";
 
 const NOW = "2026-06-01T12:00:00Z";
-const OWNER_PAGES = ["eventsub", "webhook", "playback", "tasks", "logs"];
+const OWNER_PAGES = ["eventsub", "webhook", "playback", "twitch", "tasks", "logs"];
 
 const USERS = [
 	{
@@ -87,11 +87,9 @@ test.describe("viewer permissions", () => {
 	}) => {
 		await loginAs(page, "viewer");
 		await page.goto("/dashboard");
-		// First spec in the file pays the Vite dev server's cold route
-		// compile; this assertion doubles as the warm-up barrier.
 		await expect(
 			page.getByRole("button", { name: "Library", exact: true }),
-		).toBeVisible({ timeout: 30_000 });
+		).toBeVisible();
 		await expect(
 			page.getByRole("button", { name: "Security", exact: true }),
 		).toHaveCount(0);
@@ -321,6 +319,133 @@ test("only unredeemed invites can be revoked", async ({ page }) => {
 	const redeemed = page.getByRole("row", { name: /Redeemed link/ });
 	await expect(redeemed).toBeVisible();
 	await expect(redeemed.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+});
+
+test("a pending invite can issue a new link that is shown once", async ({
+	page,
+}) => {
+	const base = {
+		id: 1,
+		role: "viewer",
+		created_by: "u-self",
+		created_at: NOW,
+		expires_at: "2099-01-01T00:00:00Z",
+		note: "Pending link",
+	};
+	const freshUrl = "http://localhost:39173/invite/fresh-token";
+	let rotated = 0;
+	await mockTrpc(page, (procs) => {
+		if (procs.includes("system.rotateInvite")) {
+			rotated++;
+			return {
+				status: 200,
+				body: trpcOk([
+					{ id: 1, role: "viewer", expires_at: base.expires_at, url: freshUrl },
+				]),
+			};
+		}
+		return {
+			status: 200,
+			body: trpcOk(
+				procs.map((proc) =>
+					proc === "system.listInvites"
+						? [
+								base,
+								{
+									...base,
+									id: 2,
+									note: "Expired link",
+									expires_at: "2000-01-01T00:00:00Z",
+								},
+								{
+									...base,
+									id: 3,
+									note: "Redeemed link",
+									redeemed_at: NOW,
+									redeemed_by: "u-viewer",
+								},
+							]
+						: dataFor("admin", proc),
+				),
+			),
+		};
+	});
+	await page.goto("/dashboard/system/users");
+	// The users table shows the Twitch ID so "Redeemed by" can be matched.
+	await expect(page.getByRole("row", { name: /Vera Viewer/ })).toContainText(
+		"u-viewer",
+	);
+	for (const name of [/Expired link/, /Redeemed link/]) {
+		await expect(
+			page.getByRole("row", { name }).getByRole("button", { name: "New link" }),
+		).toHaveCount(0);
+	}
+	await expect(page.getByText(freshUrl)).toHaveCount(0);
+	await page
+		.getByRole("row", { name: /Pending link/ })
+		.getByRole("button", { name: "New link" })
+		.click();
+	await expect(page.getByText(freshUrl)).toBeVisible();
+	expect(rotated).toBe(1);
+	// The link lives only in page state: a refresh must not bring it back.
+	await page.reload();
+	await expect(
+		page.getByRole("heading", { name: "Invites", exact: true }),
+	).toBeVisible();
+	await expect(page.getByText(freshUrl)).toHaveCount(0);
+});
+
+test("a rejected new link reports the failure and refreshes the row", async ({
+	page,
+}) => {
+	const base = {
+		id: 1,
+		role: "viewer",
+		created_by: "u-self",
+		created_at: NOW,
+		expires_at: "2099-01-01T00:00:00Z",
+		note: "Pending link",
+	};
+	let rotateAttempted = false;
+	await mockTrpc(page, (procs) => {
+		if (procs.includes("system.rotateInvite")) {
+			rotateAttempted = true;
+			return {
+				status: 404,
+				body: [
+					{
+						error: {
+							message: "invite not found",
+							code: -32004,
+							data: { code: "NOT_FOUND", httpStatus: 404 },
+						},
+					},
+				],
+			};
+		}
+		return {
+			status: 200,
+			body: trpcOk(
+				procs.map((proc) => {
+					if (proc !== "system.listInvites") return dataFor("admin", proc);
+					// The invite expired between the first render and the click;
+					// the refetch after the failed rotate reveals it.
+					return [
+						rotateAttempted
+							? { ...base, expires_at: "2000-01-01T00:00:00Z" }
+							: base,
+					];
+				}),
+			),
+		};
+	});
+	await page.goto("/dashboard/system/users");
+	const row = page.getByRole("row", { name: /Pending link/ });
+	await row.getByRole("button", { name: "New link" }).click();
+	await expect(page.getByText("Failed to create a new link")).toBeVisible();
+	await expect(row).toContainText("Expired");
+	await expect(row.getByRole("button", { name: "New link" })).toHaveCount(0);
+	await expect(row.getByRole("button", { name: "Revoke" })).toBeVisible();
 });
 
 test.describe("owner permissions", () => {

@@ -350,6 +350,7 @@ type Querier interface {
 	// duplicate-send). attempts is reset for a fresh budget. A non-matching id
 	// returns no row, which the adapter maps to ErrNotFound.
 	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
+	RotateInviteToken(ctx context.Context, arg RotateInviteTokenParams) (Invite, error)
 	SaveTwitchPlaybackSession(ctx context.Context, arg SaveTwitchPlaybackSessionParams) error
 	// Case-insensitive substring match on name. unicode_lower is registered by the
 	// SQLite adapter so SQLite matches Go/Postgres Unicode case folding for category

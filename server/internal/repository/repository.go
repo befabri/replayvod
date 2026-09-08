@@ -87,6 +87,9 @@ type Repository interface {
 	// DeleteInvite revokes an unredeemed invitation and reports whether it
 	// matched.
 	DeleteInvite(ctx context.Context, id int64) (bool, error)
+	// RotateInviteToken replaces the token hash of a pending, unexpired
+	// invitation or returns ErrNotFound.
+	RotateInviteToken(ctx context.Context, id int64, tokenHash string) (*Invite, error)
 
 	// Channels
 	GetChannel(ctx context.Context, broadcasterID string) (*Channel, error)

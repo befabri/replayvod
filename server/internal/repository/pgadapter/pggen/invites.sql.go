@@ -132,3 +132,32 @@ func (q *Queries) RedeemInvite(ctx context.Context, arg RedeemInviteParams) (int
 	}
 	return result.RowsAffected(), nil
 }
+
+const rotateInviteToken = `-- name: RotateInviteToken :one
+UPDATE invites
+SET token_hash = $2
+WHERE id = $1 AND redeemed_at IS NULL AND expires_at > NOW()
+RETURNING id, token_hash, role, note, created_by, expires_at, redeemed_at, redeemed_by, created_at
+`
+
+type RotateInviteTokenParams struct {
+	ID        int64  `json:"id"`
+	TokenHash string `json:"token_hash"`
+}
+
+func (q *Queries) RotateInviteToken(ctx context.Context, arg RotateInviteTokenParams) (Invite, error) {
+	row := q.db.QueryRow(ctx, rotateInviteToken, arg.ID, arg.TokenHash)
+	var i Invite
+	err := row.Scan(
+		&i.ID,
+		&i.TokenHash,
+		&i.Role,
+		&i.Note,
+		&i.CreatedBy,
+		&i.ExpiresAt,
+		&i.RedeemedAt,
+		&i.RedeemedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}

@@ -108,6 +108,16 @@ export function userColumns(
 			),
 		},
 		{
+			accessorKey: "id",
+			header: t("users.col_id"),
+			enableSorting: true,
+			cell: ({ row }) => (
+				<span className="font-mono text-muted-foreground">
+					{row.original.id}
+				</span>
+			),
+		},
+		{
 			accessorKey: "role",
 			header: t("users.col_role"),
 			enableSorting: true,

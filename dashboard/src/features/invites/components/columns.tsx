@@ -1,8 +1,17 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import type { InviteInfo, InviteStatus } from "@/features/invites";
-import { inviteStatus, useRevokeInvite } from "@/features/invites";
+import type {
+	InviteCreatedInfo,
+	InviteInfo,
+	InviteStatus,
+} from "@/features/invites";
+import {
+	inviteStatus,
+	useRevokeInvite,
+	useRotateInvite,
+} from "@/features/invites";
 
 type InviteStatusLabelKey =
 	| "invites.status_pending"
@@ -19,15 +28,61 @@ const STATUS_VARIANTS: Record<InviteStatus, "default" | "emerald" | "muted"> = {
 	expired: "muted",
 };
 
-// RevokeButton is a thin cell component so the mutation hook mounts per
-// row — keeps each row's pending state isolated.
-function RevokeButton({ id, t }: { id: number; t: TFunction }) {
+// InviteActions is how row actions reach the section that owns the
+// copy-once panel: a freshly issued link to show, or a revoked invite
+// whose link must stop being offered.
+export type InviteActions = {
+	onIssued: (info: InviteCreatedInfo) => void;
+	onRevoked: (id: number) => void;
+};
+
+// Row buttons mount their own mutation hook so each row's pending state
+// stays isolated.
+function RotateButton({
+	id,
+	onIssued,
+	t,
+}: {
+	id: number;
+	onIssued: InviteActions["onIssued"];
+	t: TFunction;
+}) {
+	const rotate = useRotateInvite();
+	return (
+		<button
+			type="button"
+			disabled={rotate.isPending}
+			onClick={() =>
+				rotate.mutate(
+					{ id },
+					{
+						onSuccess: (info) => onIssued(info),
+						onError: () => toast.error(t("invites.failed_to_rotate")),
+					},
+				)
+			}
+			className="text-link hover:underline disabled:opacity-60"
+		>
+			{t("invites.new_link")}
+		</button>
+	);
+}
+
+function RevokeButton({
+	id,
+	onRevoked,
+	t,
+}: {
+	id: number;
+	onRevoked: InviteActions["onRevoked"];
+	t: TFunction;
+}) {
 	const revoke = useRevokeInvite();
 	return (
 		<button
 			type="button"
 			disabled={revoke.isPending}
-			onClick={() => revoke.mutate({ id })}
+			onClick={() => revoke.mutate({ id }, { onSuccess: () => onRevoked(id) })}
 			className="text-destructive hover:underline disabled:opacity-60"
 		>
 			{t("invites.revoke")}
@@ -35,7 +90,10 @@ function RevokeButton({ id, t }: { id: number; t: TFunction }) {
 	);
 }
 
-export function inviteColumns(t: TFunction): ColumnDef<InviteInfo>[] {
+export function inviteColumns(
+	t: TFunction,
+	actions: InviteActions,
+): ColumnDef<InviteInfo>[] {
 	return [
 		{
 			accessorKey: "note",
@@ -96,13 +154,27 @@ export function inviteColumns(t: TFunction): ColumnDef<InviteInfo>[] {
 				<span className="text-right w-full block">{t("common.actions")}</span>
 			),
 			enableSorting: false,
-			cell: ({ row }) => (
-				<div className="text-right">
-					{inviteStatus(row.original) !== "redeemed" && (
-						<RevokeButton id={row.original.id} t={t} />
-					)}
-				</div>
-			),
+			cell: ({ row }) => {
+				const status = inviteStatus(row.original);
+				return (
+					<div className="flex justify-end gap-3 whitespace-nowrap">
+						{status === "pending" && (
+							<RotateButton
+								id={row.original.id}
+								onIssued={actions.onIssued}
+								t={t}
+							/>
+						)}
+						{status !== "redeemed" && (
+							<RevokeButton
+								id={row.original.id}
+								onRevoked={actions.onRevoked}
+								t={t}
+							/>
+						)}
+					</div>
+				);
+			},
 		},
 	];
 }

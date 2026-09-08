@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -10,6 +11,7 @@ import {
 import { createElement } from "react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { InviteActions } from "./columns";
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({ t: (key: string) => key }),
@@ -18,16 +20,25 @@ vi.mock("sonner", () => ({
 	toast: { success: vi.fn(), error: vi.fn() },
 }));
 // The wire submission and the copy-once panel are under test; the
-// invites table is not.
+// invites table is not, but its row actions are captured so the test can
+// drive the panel the way a row would.
 vi.mock("@/components/ui/query-table", () => ({
 	QueryTable: () => null,
 }));
+const table = vi.hoisted(() => ({
+	actions: undefined as InviteActions | undefined,
+}));
+vi.mock("@/features/invites/components/columns", () => ({
+	inviteColumns: (_t: unknown, actions: InviteActions) => {
+		table.actions = actions;
+		return [];
+	},
+}));
 const create = {
-	mutateAsync: vi.fn(async () => ({})),
+	mutateAsync: vi.fn(async () => ({}) as { id: number; url: string }),
 	isPending: false,
 	isError: false,
 	error: null as Error | null,
-	data: undefined as { url: string } | undefined,
 };
 vi.mock("@/features/invites", () => ({
 	useInvites: () => ({ data: [], isLoading: false, isError: false }),
@@ -36,11 +47,13 @@ vi.mock("@/features/invites", () => ({
 
 import { InvitesSection } from "./InvitesSection";
 
+const URL = "https://dash.example/invite/raw-token";
+
 beforeEach(() => {
 	create.mutateAsync.mockClear();
-	create.data = undefined;
 	create.isError = false;
 	create.error = null;
+	table.actions = undefined;
 	vi.clearAllMocks();
 });
 afterEach(() => {
@@ -48,18 +61,24 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function fillAndSubmit({ role, note }: { role?: string; note?: string }) {
+async function choose(combobox: string, option: string) {
+	fireEvent.click(screen.getByRole("combobox", { name: combobox }));
+	const item = await screen.findByRole("option", { name: option });
+	fireEvent.pointerDown(item, { pointerType: "mouse", button: 0 });
+	fireEvent.click(item);
+	await waitFor(() =>
+		expect(
+			screen.getByRole("combobox", { name: combobox }).textContent,
+		).toContain(option),
+	);
+}
+
+async function fillAndSubmit({ role, note }: { role?: string; note?: string }) {
 	render(createElement(InvitesSection));
-	if (role) {
-		fireEvent.change(screen.getByLabelText("invites.col_role"), {
-			target: { value: role },
-		});
-	}
-	fireEvent.change(screen.getByLabelText("invites.col_expires"), {
-		target: { value: "60" },
-	});
+	if (role) await choose("invites.col_role", `users.role_${role}`);
+	await choose("invites.field_ttl", "invites.ttl_1h");
 	if (note !== undefined) {
-		fireEvent.change(screen.getByPlaceholderText("invites.note_placeholder"), {
+		fireEvent.change(screen.getByLabelText("invites.col_note"), {
 			target: { value: note },
 		});
 	}
@@ -68,7 +87,7 @@ function fillAndSubmit({ role, note }: { role?: string; note?: string }) {
 
 describe("InvitesSection create flow", () => {
 	it("submits ttl_minutes as a number and the note trimmed", async () => {
-		fillAndSubmit({ role: "admin", note: "  for bob  " });
+		await fillAndSubmit({ role: "admin", note: "  for bob  " });
 		await waitFor(() => {
 			expect(create.mutateAsync).toHaveBeenCalledWith({
 				role: "admin",
@@ -79,7 +98,7 @@ describe("InvitesSection create flow", () => {
 	});
 
 	it("drops an empty note instead of sending it", async () => {
-		fillAndSubmit({ note: "   " });
+		await fillAndSubmit({ note: "   " });
 		await waitFor(() => {
 			expect(create.mutateAsync).toHaveBeenCalledWith({
 				role: "viewer",
@@ -89,19 +108,19 @@ describe("InvitesSection create flow", () => {
 		});
 	});
 
-	it("shows the copy-once URL panel when the invite was created", () => {
-		create.data = { url: "https://dash.example/invite/raw-token" };
-		render(createElement(InvitesSection));
-		expect(screen.getByText("invites.url_ready")).toBeTruthy();
-		expect(
-			screen.getByText("https://dash.example/invite/raw-token"),
-		).toBeTruthy();
+	it("shows the copy-once URL panel when the invite was created", async () => {
+		create.mutateAsync.mockResolvedValueOnce({ id: 7, url: URL });
+		await fillAndSubmit({});
+		await waitFor(() => {
+			expect(screen.getByText("invites.url_ready")).toBeTruthy();
+		});
+		expect(screen.getByText(URL)).toBeTruthy();
 		expect(screen.getByRole("button", { name: "invites.copy" })).toBeTruthy();
 	});
 
 	it("keeps the form usable after a rejected create and lets the admin retry", async () => {
 		create.mutateAsync.mockRejectedValueOnce(new Error("create unavailable"));
-		fillAndSubmit({ role: "admin", note: "for bob" });
+		await fillAndSubmit({ role: "admin", note: "for bob" });
 		await waitFor(() => {
 			expect(create.mutateAsync).toHaveBeenCalledTimes(1);
 			expect(
@@ -111,8 +130,7 @@ describe("InvitesSection create flow", () => {
 			).toBe(false);
 		});
 		expect(
-			screen.getByPlaceholderText<HTMLInputElement>("invites.note_placeholder")
-				.value,
+			screen.getByLabelText<HTMLInputElement>("invites.col_note").value,
 		).toBe("for bob");
 		expect(screen.queryByText("invites.url_ready")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "invites.create" }));
@@ -128,20 +146,59 @@ describe("InvitesSection create flow", () => {
 		false,
 		true,
 	])("reports clipboard failure=%s when copying the returned URL", async (fail) => {
-		const url = "https://dash.example/invite/raw-token";
 		const writeText = vi.fn(async () => {
 			if (fail) throw new Error("clipboard unavailable");
 		});
 		vi.stubGlobal("navigator", { clipboard: { writeText } });
-		create.data = { url };
-		render(createElement(InvitesSection));
-		fireEvent.click(screen.getByRole("button", { name: "invites.copy" }));
+		create.mutateAsync.mockResolvedValueOnce({ id: 7, url: URL });
+		await fillAndSubmit({});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "invites.copy" }),
+		);
 		await waitFor(() => {
-			expect(writeText).toHaveBeenCalledWith(url);
+			expect(writeText).toHaveBeenCalledWith(URL);
 			expect(fail ? toast.error : toast.success).toHaveBeenCalledWith(
 				fail ? "invites.url_copy_failed" : "invites.url_copied",
 			);
 		});
-		expect(screen.getByText(url)).toBeTruthy();
+		expect(screen.getByText(URL)).toBeTruthy();
+	});
+});
+
+describe("InvitesSection table-issued links", () => {
+	it("shows a link issued from a row and drops it once that invite is revoked", () => {
+		render(createElement(InvitesSection));
+		expect(screen.queryByText("invites.url_ready")).toBeNull();
+		const fresh = "https://dash.example/invite/fresh-token";
+		act(() => {
+			table.actions?.onIssued({
+				id: 7,
+				url: fresh,
+				role: "viewer",
+				expires_at: "2026-06-02T12:00:00Z",
+			});
+		});
+		expect(screen.getByText(fresh)).toBeTruthy();
+		act(() => table.actions?.onRevoked(8));
+		expect(screen.getByText(fresh)).toBeTruthy();
+		act(() => table.actions?.onRevoked(7));
+		expect(screen.queryByText("invites.url_ready")).toBeNull();
+	});
+
+	it("replaces the created link with the one issued from a row", async () => {
+		create.mutateAsync.mockResolvedValueOnce({ id: 7, url: URL });
+		await fillAndSubmit({});
+		expect(await screen.findByText(URL)).toBeTruthy();
+		const fresh = "https://dash.example/invite/fresh-token";
+		act(() => {
+			table.actions?.onIssued({
+				id: 9,
+				url: fresh,
+				role: "admin",
+				expires_at: "2026-06-02T12:00:00Z",
+			});
+		});
+		expect(screen.getByText(fresh)).toBeTruthy();
+		expect(screen.queryByText(URL)).toBeNull();
 	});
 });

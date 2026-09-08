@@ -390,6 +390,7 @@ type Querier interface {
 	// budget. A non-matching id (missing, or not in a retryable state) returns no
 	// row, which the adapter maps to ErrNotFound so the API can 404.
 	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
+	RotateInviteToken(ctx context.Context, arg RotateInviteTokenParams) (Invite, error)
 	SaveTwitchPlaybackSession(ctx context.Context, arg SaveTwitchPlaybackSessionParams) error
 	// Case-insensitive substring match on name. Ranks exact name match
 	// first, then prefix match, then substring match, then alphabetical.
