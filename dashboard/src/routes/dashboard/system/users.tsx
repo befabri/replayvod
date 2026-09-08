@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { DocsLink } from "@/components/layout/docs-link";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { QueryTable } from "@/components/ui/query-table";
 import { InvitesSection } from "@/features/invites/components/InvitesSection";
@@ -24,7 +25,10 @@ function UsersPage() {
 	);
 
 	return (
-		<TitledLayout title={t("users.title")}>
+		<TitledLayout
+			title={t("users.title")}
+			actions={<DocsLink page="access/">{t("docs.access")}</DocsLink>}
+		>
 			<QueryTable
 				query={users}
 				columns={columns}

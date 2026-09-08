@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
+import { DocsLink } from "@/components/layout/docs-link";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +51,14 @@ function WhitelistPage() {
 	});
 
 	return (
-		<TitledLayout title={t("whitelist.title")}>
+		<TitledLayout
+			title={t("whitelist.title")}
+			actions={
+				<DocsLink page="access/#manage-the-whitelist">
+					{t("docs.whitelist")}
+				</DocsLink>
+			}
+		>
 			<div className="max-w-2xl">
 				<p className="text-muted-foreground mb-6 -mt-6">
 					{t("whitelist.description")}

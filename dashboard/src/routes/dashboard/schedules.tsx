@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { DocsLink } from "@/components/layout/docs-link";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { ScheduleRequestResponse } from "@/features/requests";
@@ -47,14 +48,15 @@ function SchedulesPage() {
 			title={t("schedules.title")}
 			description={t("schedules.description")}
 			actions={
-				// Header controls only when there's something to manage. On the empty
-				// page the EmptyState carries the sole create CTA (no duplicate).
-				hasSchedules ? (
-					<>
-						{canManage && <PauseAllButton />}
-						{cta}
-					</>
-				) : null
+				<>
+					<DocsLink page="schedules/">{t("docs.schedules")}</DocsLink>
+					{hasSchedules && (
+						<>
+							{canManage && <PauseAllButton />}
+							{cta}
+						</>
+					)}
+				</>
 			}
 		>
 			<SchedulesPausedBanner />

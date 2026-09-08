@@ -65,6 +65,13 @@
 		"toggle_theme": "Toggle theme",
 		"archive": "Archive"
 	},
+	"docs": {
+		"title": "Documentation",
+		"new_tab": "opens in a new tab",
+		"schedules": "Schedules guide",
+		"access": "Users & invitations guide",
+		"whitelist": "Managing access"
+	},
 	"auth": {
 		"login": "Login with Twitch",
 		"logout": "Sign out",

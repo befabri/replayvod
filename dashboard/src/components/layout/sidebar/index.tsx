@@ -3,6 +3,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { DocsLink } from "@/components/layout/docs-link";
 import {
 	Tooltip,
 	TooltipContent,
@@ -143,8 +144,17 @@ export function Sidebar() {
 					</nav>
 				</TooltipProvider>
 
-				<div className="hidden border-t border-sidebar-border/70 p-2 md:block">
-					<CollapseToggle compact={compact} />
+				<div className="border-t border-sidebar-border/70 p-2">
+					<DocsLink
+						compact={compact}
+						className={cn(
+							"flex h-9 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+							compact ? "w-11 justify-center" : "w-full gap-3 px-3",
+						)}
+					/>
+					<div className="hidden md:block">
+						<CollapseToggle compact={compact} />
+					</div>
 				</div>
 			</aside>
 		</>
