@@ -6,10 +6,12 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -31,6 +33,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/twitch"
+	"github.com/befabri/trpcgo"
 )
 
 const routerWebhookSecret = "router-webhook-secret"
@@ -763,7 +766,7 @@ func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
 	}
 }
 
-func TestInfiniteQueryDirectionInputIsAccepted(t *testing.T) {
+func TestInfiniteQueryInputAcrossTransports(t *testing.T) {
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sessionMgr, err := session.NewManager(repo, "infinite-direction-session-secret-0123456789", false, log)
@@ -789,43 +792,138 @@ func TestInfiniteQueryDirectionInputIsAccepted(t *testing.T) {
 		})
 	}
 	viewer := mintSessionCookie(t, repo, sessionMgr, "infinite-direction-viewer", "viewer")
+	admin := mintSessionCookie(t, repo, sessionMgr, "infinite-direction-admin", "admin")
 
 	cases := []struct {
 		name  string
 		path  string
-		input string
+		input map[string]any
+		admin bool
 	}{
 		{
 			name:  "channel list page",
 			path:  "/trpc/channel.listPage",
-			input: `{"0":{"limit":60,"sort":"name_asc","live_only":false,"direction":"forward"}}`,
+			input: map[string]any{"limit": 60, "sort": "name_asc", "live_only": false},
 		},
 		{
 			name:  "video list page",
 			path:  "/trpc/video.listPage",
-			input: `{"0":{"limit":24,"direction":"forward"}}`,
+			input: map[string]any{"limit": 24},
 		},
 		{
 			name:  "video by broadcaster",
 			path:  "/trpc/video.byBroadcaster",
-			input: `{"0":{"broadcaster_id":"56649026","limit":24,"direction":"forward"}}`,
+			input: map[string]any{"broadcaster_id": "56649026", "limit": 24},
 		},
 		{
 			name:  "video by category",
 			path:  "/trpc/video.byCategory",
-			input: `{"0":{"category_id":"509658","limit":24,"direction":"forward"}}`,
+			input: map[string]any{"category_id": "509658", "limit": 24},
 		},
+		{
+			name:  "category list page",
+			path:  "/trpc/category.listPage",
+			input: map[string]any{"limit": 24},
+		},
+		{
+			name:  "my schedule requests",
+			path:  "/trpc/schedule.myRequests",
+			input: map[string]any{"limit": 50},
+		},
+		{
+			name:  "schedule requests",
+			path:  "/trpc/schedule.requests",
+			input: map[string]any{"limit": 50},
+			admin: true,
+		},
+	}
+	transports := []struct {
+		name   string
+		method string
+		batch  bool
+	}{
+		{"single GET", http.MethodGet, false},
+		{"batch GET", http.MethodGet, true},
+		{"single POST", http.MethodPost, false},
+		{"batch POST", http.MethodPost, true},
+	}
+	// trpcgo drops direction for cursor queries even with POST method override.
+	// That protocol exception must preserve strict decoding and cursor validation.
+	inputs := []struct {
+		name       string
+		fields     map[string]any
+		wantStatus int
+	}{
+		{"forward", map[string]any{"direction": "forward"}, http.StatusOK},
+		{"backward", map[string]any{"direction": "backward"}, http.StatusOK},
+		{"unknown field", map[string]any{"direction": "forward", "unexpected": true}, http.StatusBadRequest},
+		{"invalid cursor", map[string]any{"direction": "forward", "cursor": map[string]any{}}, http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tc.path+"?batch=1&input="+url.QueryEscape(tc.input), nil)
-			req.AddCookie(viewer)
-			rr := httptest.NewRecorder()
+			cookie := viewer
+			if tc.admin {
+				cookie = admin
+			}
+			for _, transport := range transports {
+				for _, input := range inputs {
+					t.Run(transport.name+"/"+input.name, func(t *testing.T) {
+						fields := maps.Clone(tc.input)
+						maps.Copy(fields, input.fields)
+						var payload any = fields
+						query := url.Values{}
+						if transport.batch {
+							query.Set("batch", "1")
+							payload = map[string]any{"0": fields}
+						}
+						raw, err := json.Marshal(payload)
+						if err != nil {
+							t.Fatal(err)
+						}
+						var body io.Reader
+						if transport.method == http.MethodGet {
+							query.Set("input", string(raw))
+						} else {
+							body = bytes.NewReader(raw)
+						}
+						req := httptest.NewRequest(transport.method, tc.path+"?"+query.Encode(), body)
+						if transport.method == http.MethodPost {
+							req.Header.Set("Content-Type", "application/json")
+							// Cookie-bearing POST queries still pass through CSRF protection.
+							req.Header.Set("Origin", "http://example.com")
+						}
+						req.AddCookie(cookie)
+						rr := httptest.NewRecorder()
 
-			router.ServeHTTP(rr, req)
+						router.ServeHTTP(rr, req)
 
-			if rr.Code != http.StatusOK {
-				t.Fatalf("%s status = %d, want %d; body: %s", tc.path, rr.Code, http.StatusOK, rr.Body.String())
+						if rr.Code != input.wantStatus {
+							t.Fatalf("status = %d, want %d; body: %s", rr.Code, input.wantStatus, rr.Body.String())
+						}
+						response := rr.Body.Bytes()
+						if transport.batch {
+							var results []json.RawMessage
+							if err := json.Unmarshal(response, &results); err != nil || len(results) != 1 {
+								t.Fatalf("expected one batch result: %s; error: %v", response, err)
+							}
+							response = results[0]
+						}
+						var envelope struct {
+							Result json.RawMessage    `json:"result"`
+							Error  *trpcgo.ErrorShape `json:"error"`
+						}
+						if err := json.Unmarshal(response, &envelope); err != nil {
+							t.Fatalf("decode tRPC response: %v; body: %s", err, response)
+						}
+						if input.wantStatus == http.StatusOK {
+							if len(envelope.Result) == 0 || envelope.Error != nil {
+								t.Fatalf("expected a tRPC result: %s", response)
+							}
+						} else if envelope.Error == nil || envelope.Error.Code != trpcgo.CodeBadRequest || envelope.Error.Data.Code != "BAD_REQUEST" {
+							t.Fatalf("expected a tRPC BAD_REQUEST: %s", response)
+						}
+					})
+				}
 			}
 		})
 	}

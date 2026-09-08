@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/befabri/replayvod/server/internal/config"
@@ -50,13 +52,7 @@ const bundledDashboardDir = "/app/dashboard"
 
 func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger) (*chi.Mux, func() error) {
 	r := chi.NewRouter()
-
-	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
-	r.Use(middleware.Logger(log))
-	r.Use(middleware.Recoverer(log))
 	trustedBrowserOrigins := cfg.TrustedBrowserOrigins()
-	r.Use(middleware.CORS(trustedBrowserOrigins))
 
 	// Pprof endpoints, dev-only. Production config.toml leaves
 	// Development=false so this never listens on a hardened deploy.
@@ -133,11 +129,16 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 			log.Warn("invalid trusted origin for CSRF protection", "origin", origin, "error", err)
 		}
 	}
+	trpcHandler := trpc.NewHandler(trpcRouter, "/trpc",
+		trpc.WithPublicOrigins(trustedBrowserOrigins...),
+	)
 	r.Group(func(r chi.Router) {
 		r.Use(csrfProtection.Handler)
-		r.Handle("/trpc/*", trpc.NewHandler(trpcRouter, "/trpc",
-			trpc.WithPublicOrigins(trustedBrowserOrigins...),
-		))
+		// Per method rather than a catch-all so routedMethods sees what tRPC
+		// serves and chi answers anything else with 405.
+		for _, method := range trpc.Methods() {
+			r.Method(method, "/trpc/*", trpcHandler)
+		}
 	})
 
 	// SPA fallback. Docker images place the built dashboard at
@@ -149,7 +150,39 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		setupDashboardRoutes(r, bundledDashboardDir, log)
 	}
 
-	return r, trpcRouter.Close
+	root := chi.NewRouter()
+	root.Use(chimiddleware.RequestID)
+	root.Use(chimiddleware.RealIP)
+	root.Use(middleware.Logger(log))
+	root.Use(middleware.Recoverer(log))
+	// The method list is read from r, so CORS must be mounted here, after
+	// every route is registered.
+	root.Use(middleware.CORS(trustedBrowserOrigins, routedMethods(r), trpc.RequestHeaders()))
+	root.Mount("/", r)
+	return root, trpcRouter.Close
+}
+
+// routedMethods returns the methods the routes register explicitly, sorted.
+// Catch-all handlers are skipped because chi expands them to every method.
+func routedMethods(routes chi.Routes) []string {
+	seen := map[string]bool{}
+	var walk func(chi.Routes)
+	walk = func(routes chi.Routes) {
+		for _, route := range routes.Routes() {
+			if route.SubRoutes != nil {
+				walk(route.SubRoutes)
+				continue
+			}
+			if _, catchAll := route.Handlers["*"]; catchAll {
+				continue
+			}
+			for method := range route.Handlers {
+				seen[method] = true
+			}
+		}
+	}
+	walk(routes)
+	return slices.Sorted(maps.Keys(seen))
 }
 
 func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, tokenProvider *middleware.SessionTokenProvider, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, webhookDispatcher *recordingwebhook.Dispatcher, log *slog.Logger) *trpcgo.Router {

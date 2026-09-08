@@ -6,7 +6,11 @@ import (
 	"github.com/go-chi/cors"
 )
 
-func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
+// CORS returns middleware that lets pages from allowedOrigins read responses
+// to allowedMethods and send allowedHeaders with credentials. go-chi/cors
+// gates actual requests by method as well as preflights, so allowedMethods
+// must cover every routed method.
+func CORS(allowedOrigins, allowedMethods, allowedHeaders []string) func(http.Handler) http.Handler {
 	if len(allowedOrigins) == 0 {
 		return func(next http.Handler) http.Handler {
 			return next
@@ -15,8 +19,8 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 
 	return cors.Handler(cors.Options{
 		AllowedOrigins:   allowedOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Content-Type", "X-CSRF-Token"},
+		AllowedMethods:   allowedMethods,
+		AllowedHeaders:   allowedHeaders,
 		AllowCredentials: true,
 		MaxAge:           300,
 	})
