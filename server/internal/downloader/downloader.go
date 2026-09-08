@@ -2753,7 +2753,7 @@ func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.S
 		if errors.Is(err, playbackauth.ErrRejected) {
 			accessToken = ""
 		} else if err != nil {
-			return twitch.SelectedVariant{}, fmt.Errorf("Twitch playback connection: %w", err)
+			return twitch.SelectedVariant{}, fmt.Errorf("resolve Twitch playback connection: %w", err)
 		}
 	}
 	token, err := s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, accessToken)
@@ -2764,7 +2764,7 @@ func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.S
 			if errors.Is(checkErr, playbackauth.ErrRejected) {
 				token, err = s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, "")
 			} else if checkErr != nil {
-				return twitch.SelectedVariant{}, fmt.Errorf("Twitch playback connection: %w", checkErr)
+				return twitch.SelectedVariant{}, fmt.Errorf("resolve Twitch playback connection: %w", checkErr)
 			}
 		}
 		if err != nil {

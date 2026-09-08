@@ -22,11 +22,6 @@ type Environment struct {
 	// service share a single in-memory value.
 	HMACSecret string `env:"HMAC_SECRET"`
 
-	// Deprecated: retained to warn existing installations. Third-party OAuth
-	// refresh tokens do not authorize website playback. The owner now connects
-	// an encrypted website session through System > Twitch downloads.
-	ServiceAccountOAuthToken string `env:"TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN"`
-
 	Host string `env:"HOST" envDefault:"0.0.0.0"`
 	Port int    `env:"PORT" envDefault:"8080"`
 

@@ -57,6 +57,7 @@ func TestCredentialTransportUsesSocketPeerBeforeRealIP(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var allowed bool
+			//nolint:staticcheck // Pin the peer guard against the production proxy-rewrite middleware.
 			handler := CaptureTransportPeer(chimiddleware.RealIP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				allowed = credentialRequestAllowed(r, "")
 			})))

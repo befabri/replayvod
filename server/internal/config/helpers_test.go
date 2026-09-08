@@ -8,15 +8,14 @@ import (
 
 func TestRedactedConfigRedactsSensitiveEnvironmentFields(t *testing.T) {
 	cfg := &Config{Env: Environment{
-		PostgresPassword:         "pg-secret",
-		SessionSecret:            "session-secret",
-		TwitchSecret:             "twitch-secret",
-		HMACSecret:               "hmac-secret",
-		ServiceAccountOAuthToken: "refresh-token",
-		RelayIngestURL:           "https://relay.example/u/token-secret-123456",
-		RelaySubscribeURL:        "wss://relay.example/u/token-secret/subscribe",
-		WebhookCallbackURL:       "https://replayvod.example/api/v1/webhook/callback",
-		RelayLocalCallbackURL:    "http://127.0.0.1:8080/api/v1/webhook/callback",
+		PostgresPassword:      "pg-secret",
+		SessionSecret:         "session-secret",
+		TwitchSecret:          "twitch-secret",
+		HMACSecret:            "hmac-secret",
+		RelayIngestURL:        "https://relay.example/u/token-secret-123456",
+		RelaySubscribeURL:     "wss://relay.example/u/token-secret/subscribe",
+		WebhookCallbackURL:    "https://replayvod.example/api/v1/webhook/callback",
+		RelayLocalCallbackURL: "http://127.0.0.1:8080/api/v1/webhook/callback",
 	}}
 
 	redacted := cfg.RedactedConfig()
@@ -32,7 +31,6 @@ func TestRedactedConfigRedactsSensitiveEnvironmentFields(t *testing.T) {
 	assertRedacted("SessionSecret", redacted.Env.SessionSecret)
 	assertRedacted("TwitchSecret", redacted.Env.TwitchSecret)
 	assertRedacted("HMACSecret", redacted.Env.HMACSecret)
-	assertRedacted("ServiceAccountOAuthToken", redacted.Env.ServiceAccountOAuthToken)
 	assertRedacted("RelaySubscribeURL", redacted.Env.RelaySubscribeURL)
 
 	if redacted.Env.RelayIngestURL != "https://relay.example/u/REDACTED" {

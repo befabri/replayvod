@@ -21,7 +21,7 @@ var (
 	ErrRejected     = errors.New("the Twitch session has expired or been revoked; reconnect with a fresh auth-token cookie")
 	ErrWrongClient  = errors.New("this is not a Twitch website session; use the auth-token cookie from twitch.tv, not a Twitch Connect token")
 	ErrChanged      = errors.New("the Twitch playback connection changed; retry playback resolution")
-	ErrUnavailable  = errors.New("Twitch session validation is temporarily unavailable; try again")
+	ErrUnavailable  = errors.New("the Twitch session validation is temporarily unavailable; try again")
 )
 
 var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{20,512}$`)
@@ -77,7 +77,9 @@ func (v *TwitchValidator) Validate(ctx context.Context, token string) (Identity,
 		}
 		return Identity{}, ErrUnavailable
 	}
-	defer resp.Body.Close()
+	// Body reads below determine validity; a cleanup error must not replace
+	// an authoritative validation response.
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusUnauthorized {
 		return Identity{}, ErrRejected
 	}

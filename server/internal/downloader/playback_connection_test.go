@@ -51,7 +51,9 @@ func TestPlaybackConnectionSuppliesWebsiteTokenOnlyToGQL(t *testing.T) {
 		if r.URL.Query().Get("supported_codecs") != "h265,h264" {
 			t.Error("incorrect codec announcement")
 		}
-		fmt.Fprintf(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=9805284,RESOLUTION=1920x1080,FRAME-RATE=60,CODECS=\"hev1.1.6.L150.90,mp4a.40.2\"\n%s/1080.m3u8\n", base)
+		if _, err := fmt.Fprintf(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=9805284,RESOLUTION=1920x1080,FRAME-RATE=60,CODECS=\"hev1.1.6.L150.90,mp4a.40.2\"\n%s/1080.m3u8\n", base); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer edge.Close()
 	base = edge.URL
@@ -143,7 +145,9 @@ func TestPlaybackResolutionReloadsSessionAfterStaleGQLRejection(t *testing.T) {
 				if r.Header.Get("Authorization") != "" {
 					t.Error("credential sent to CDN")
 				}
-				fmt.Fprintf(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=200000,RESOLUTION=1280x720,CODECS=\"avc1.4d401f,mp4a.40.2\"\n%s/media.m3u8\n", base)
+				if _, err := fmt.Fprintf(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=200000,RESOLUTION=1280x720,CODECS=\"avc1.4d401f,mp4a.40.2\"\n%s/media.m3u8\n", base); err != nil {
+					t.Error(err)
+				}
 			}))
 			defer edge.Close()
 			base = edge.URL

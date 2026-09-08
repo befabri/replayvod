@@ -262,9 +262,6 @@ func main() {
 	hydrator.SetMediaOffsetResolver(dl)
 	recordings := api.NewRecordingServices(cfg, repo, store, log)
 	dl.SetPlaybackCredentials(recordings.PlaybackAuth)
-	if cfg.Env.ServiceAccountOAuthToken != "" {
-		log.Warn("TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN is no longer used for playback; connect a Twitch website session in System > Twitch downloads")
-	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

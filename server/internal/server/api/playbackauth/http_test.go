@@ -46,7 +46,11 @@ func TestPlaybackConnectionHTTPLifecycle(t *testing.T) {
 	v := &httpValidator{}
 	h := &Handler{svc: svc.New(repo, strings.Repeat("s", 32), v), log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	router := trpcgo.NewRouter(trpcgo.WithContextCreator(middleware.WithContextCreator), trpcgo.WithValidator(validate.V.Struct))
-	defer router.Close()
+	t.Cleanup(func() {
+		if err := router.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	trpcgo.MustMutation(router, "twitchPlayback.connect", h.Connect, trpcgo.Procedure().Use(middleware.TRPCCredentialTransport("")))
 	trpcgo.MustVoidQuery(router, "twitchPlayback.status", h.Status)
 	trpcgo.MustVoidMutation(router, "twitchPlayback.check", h.Check)
@@ -66,7 +70,11 @@ func TestPlaybackConnectionHTTPLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer response.Body.Close()
+		defer func() {
+			if err := response.Body.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
 		raw, err := io.ReadAll(response.Body)
 		if err != nil {
 			t.Fatal(err)

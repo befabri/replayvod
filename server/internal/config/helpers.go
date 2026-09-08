@@ -31,7 +31,6 @@ func (c *Config) RedactedConfig() Config {
 	redacted.Env.SessionSecret = "[REDACTED]"
 	redacted.Env.TwitchSecret = "[REDACTED]"
 	redacted.Env.HMACSecret = "[REDACTED]"
-	redacted.Env.ServiceAccountOAuthToken = "[REDACTED]"
 	redacted.Env.RelaySubscribeURL = "[REDACTED]"
 	redacted.Env.RelayIngestURL = redactRelayURLToken(redacted.Env.RelayIngestURL)
 	redacted.Env.WebhookCallbackURL = redactRelayURLToken(redacted.Env.WebhookCallbackURL)
