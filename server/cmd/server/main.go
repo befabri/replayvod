@@ -260,15 +260,10 @@ func main() {
 	dl := downloader.NewService(cfg, repo, store, hydrator, metaWatcher, channelSubs, log)
 	playbackCache := playbackcache.New(repo, store, filepath.Join(cfg.Env.ScratchDir, "playback-cache"), "", log)
 	hydrator.SetMediaOffsetResolver(dl)
+	recordings := api.NewRecordingServices(cfg, repo, store, log)
+	dl.SetPlaybackCredentials(recordings.PlaybackAuth)
 	if cfg.Env.ServiceAccountOAuthToken != "" {
-		dl.SetOAuthRefresher(func(ctx context.Context, refreshToken string) (string, time.Time, error) {
-			resp, err := twitchClient.RefreshUserToken(ctx, refreshToken)
-			if err != nil {
-				return "", time.Time{}, err
-			}
-			expiresAt := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
-			return resp.AccessToken, expiresAt, nil
-		})
+		log.Warn("TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN is no longer used for playback; connect a Twitch website session in System > Twitch downloads")
 	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -294,7 +289,6 @@ func main() {
 	eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
 
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	recordings := api.NewRecordingServices(cfg, repo, store, log)
 	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, eventProcessor, webhookDispatcher, playbackCache, log, recordings)
 	serverReady := make(chan error, 1)
 	go srv.Start(serverReady)

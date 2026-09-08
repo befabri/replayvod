@@ -22,14 +22,9 @@ type Environment struct {
 	// service share a single in-memory value.
 	HMACSecret string `env:"HMAC_SECRET"`
 
-	// ServiceAccountOAuthToken is an optional Twitch user refresh token
-	// (not an access token) used for authenticated playback — unlocks
-	// ad-free recording on Turbo accounts and HEVC variants on channels
-	// whose transcode ladder serves HEVC only to authenticated viewers.
-	// Empty disables authenticated playback (anonymous requests only,
-	// works for public non-subscriber-only streams). Lives in the env
-	// rather than config.toml because it's a long-lived secret;
-	// config.toml is not expected to carry secrets.
+	// Deprecated: retained to warn existing installations. Third-party OAuth
+	// refresh tokens do not authorize website playback. The owner now connects
+	// an encrypted website session through System > Twitch downloads.
 	ServiceAccountOAuthToken string `env:"TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN"`
 
 	Host string `env:"HOST" envDefault:"0.0.0.0"`

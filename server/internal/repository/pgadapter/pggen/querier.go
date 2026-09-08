@@ -89,6 +89,7 @@ type Querier interface {
 	// Hard-delete. Only intended for cleanup after a full system teardown or
 	// rebuild; production code paths should call MarkSubscriptionRevoked.
 	DeleteSubscription(ctx context.Context, id string) error
+	DeleteTwitchPlaybackSession(ctx context.Context) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 	DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error
@@ -139,6 +140,7 @@ type Querier interface {
 	GetTag(ctx context.Context, id int64) (Tag, error)
 	GetTagByName(ctx context.Context, name string) (Tag, error)
 	GetTask(ctx context.Context, name string) (Task, error)
+	GetTwitchPlaybackSession(ctx context.Context) (TwitchPlaybackSession, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByLogin(ctx context.Context, login string) (User, error)
 	GetUserForUpdate(ctx context.Context, id string) (User, error)
@@ -363,6 +365,7 @@ type Querier interface {
 	// budget. A non-matching id (missing, or not in a retryable state) returns no
 	// row, which the adapter maps to ErrNotFound so the API can 404.
 	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
+	SaveTwitchPlaybackSession(ctx context.Context, arg SaveTwitchPlaybackSessionParams) error
 	// Case-insensitive substring match on name. Ranks exact name match
 	// first, then prefix match, then substring match, then alphabetical.
 	// Mirrors queries/postgres/channels.sql SearchChannels so both
@@ -439,6 +442,7 @@ type Querier interface {
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
 	UpdateStreamViewers(ctx context.Context, arg UpdateStreamViewersParams) error
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) error
+	UpdateTwitchPlaybackSessionValidation(ctx context.Context, arg UpdateTwitchPlaybackSessionValidationParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoSelectedVariant(ctx context.Context, arg UpdateVideoSelectedVariantParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error

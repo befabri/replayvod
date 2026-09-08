@@ -79,6 +79,7 @@ type Querier interface {
 	DeleteScheduleRequest(ctx context.Context, arg DeleteScheduleRequestParams) (int64, error)
 	DeleteSession(ctx context.Context, hashedID string) error
 	DeleteSubscription(ctx context.Context, id string) error
+	DeleteTwitchPlaybackSession(ctx context.Context) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 	DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error
@@ -121,6 +122,7 @@ type Querier interface {
 	GetTag(ctx context.Context, id int64) (Tag, error)
 	GetTagByName(ctx context.Context, name string) (Tag, error)
 	GetTask(ctx context.Context, name string) (Task, error)
+	GetTwitchPlaybackSession(ctx context.Context) (TwitchPlaybackSession, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByLogin(ctx context.Context, login string) (User, error)
 	// Acquire the transaction's write lock without changing profile fields or
@@ -312,6 +314,7 @@ type Querier interface {
 	// duplicate-send). attempts is reset for a fresh budget. A non-matching id
 	// returns no row, which the adapter maps to ErrNotFound.
 	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
+	SaveTwitchPlaybackSession(ctx context.Context, arg SaveTwitchPlaybackSessionParams) error
 	// Case-insensitive substring match on name. unicode_lower is registered by the
 	// SQLite adapter so SQLite matches Go/Postgres Unicode case folding for category
 	// search. Bind params once in a CTE with explicit casts so sqlc's SQLite output
@@ -395,6 +398,7 @@ type Querier interface {
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
 	UpdateStreamViewers(ctx context.Context, arg UpdateStreamViewersParams) error
 	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) error
+	UpdateTwitchPlaybackSessionValidation(ctx context.Context, arg UpdateTwitchPlaybackSessionValidationParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoSelectedVariant(ctx context.Context, arg UpdateVideoSelectedVariantParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error

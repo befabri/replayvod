@@ -127,6 +127,10 @@ type CompletedSegmentAccounting struct {
 type ResumeState struct {
 	Stage Stage `json:"stage"`
 
+	// CaptureError seals an interrupted capture for remux/store on restart.
+	// Once set, no new segments are acquired and completion remains FAILED/partial.
+	CaptureError string `json:"capture_error,omitempty"`
+
 	// CurrentPartIndex starts at 1 and increments on each
 	// variant/codec/container split.
 	CurrentPartIndex int32 `json:"current_part_index"`

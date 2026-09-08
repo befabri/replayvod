@@ -14,6 +14,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/invite"
+	"github.com/befabri/replayvod/server/internal/playbackauth"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/auth"
@@ -21,6 +22,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/channel"
 	"github.com/befabri/replayvod/server/internal/server/api/eventsub"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
+	playbackauthapi "github.com/befabri/replayvod/server/internal/server/api/playbackauth"
 	recordingwebhookapi "github.com/befabri/replayvod/server/internal/server/api/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/server/api/schedule"
 	"github.com/befabri/replayvod/server/internal/server/api/settings"
@@ -54,14 +56,16 @@ const bundledDashboardDir = "/app/dashboard"
 // RecordingServices is shared by HTTP and scheduler workers. Keeping construction
 // at the composition root makes deletion availability and scan progress agree.
 type RecordingServices struct {
-	Retention   *retention.Service
-	StorageScan *storagescan.Service
+	Retention    *retention.Service
+	StorageScan  *storagescan.Service
+	PlaybackAuth *playbackauth.Service
 }
 
 func NewRecordingServices(cfg *config.Config, repo repository.Repository, store storage.Storage, log *slog.Logger) *RecordingServices {
 	return &RecordingServices{
-		Retention:   retention.New(repo, store, log, retention.WithManualDeletionWorkerAvailable(cfg.App.Scheduler.Enabled)),
-		StorageScan: storagescan.New(repo, store, log),
+		Retention:    retention.New(repo, store, log, retention.WithManualDeletionWorkerAvailable(cfg.App.Scheduler.Enabled)),
+		StorageScan:  storagescan.New(repo, store, log),
+		PlaybackAuth: playbackauth.New(repo, cfg.Env.SessionSecret, playbackauth.NewTwitchValidator()),
 	}
 }
 
@@ -104,7 +108,6 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	if recordings == nil {
 		recordings = NewRecordingServices(cfg, repo, store, log)
 	}
-	recordingDeleter := recordings.Retention
 	// The video stream handler also serves signed, unauthenticated per-part
 	// download URLs (handed to recording-webhook consumers). The verifier shares
 	// the server HMAC secret; the route is registered outside the session
@@ -146,7 +149,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	})
 
 	// tRPC router with CSRF/origin protection.
-	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, tokenProvider, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, webhookDispatcher, recordingDeleter, log)
+	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, tokenProvider, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, webhookDispatcher, recordings, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range trustedBrowserOrigins {
 		if err := csrfProtection.AddTrustedOrigin(origin); err != nil {
@@ -176,6 +179,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 
 	root := chi.NewRouter()
 	root.Use(chimiddleware.RequestID)
+	root.Use(middleware.CaptureTransportPeer)
 	root.Use(chimiddleware.RealIP)
 	root.Use(middleware.Logger(log))
 	root.Use(middleware.Recoverer(log))
@@ -209,7 +213,7 @@ func routedMethods(routes chi.Routes) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, tokenProvider *middleware.SessionTokenProvider, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, webhookDispatcher *recordingwebhook.Dispatcher, recordingDeleter *retention.Service, log *slog.Logger) *trpcgo.Router {
+func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, tokenProvider *middleware.SessionTokenProvider, twitchClient *twitch.Client, dl *downloader.Service, hydrator *streammeta.Hydrator, store storage.Storage, bus *eventbus.Buses, authSvc *auth.Service, scheduleSvc *schedulesvc.Service, webhookDispatcher *recordingwebhook.Dispatcher, recordings *RecordingServices, log *slog.Logger) *trpcgo.Router {
 	opts := []trpcgo.Option{
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
 		trpcgo.WithValidator(validate.V.Struct),
@@ -276,12 +280,13 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	recordingwebhookapi.RegisterRoutes(tr, repo, webhookDispatcher, log, owner)
 	schedule.RegisterRoutes(tr, scheduleSvc, log, viewer, admin)
 	settings.RegisterRoutes(tr, repo, log, viewer)
+	playbackauthapi.RegisterRoutes(tr, recordings.PlaybackAuth, cfg.PublicAPIBaseURL(), log, owner)
 	sse.RegisterRoutes(tr, bus, log, viewer, owner)
 	stream.RegisterRoutes(tr, repo, twitchClient, log, viewer)
 	system.RegisterRoutes(tr, repo, invite.New(repo, cfg.Env.FrontendURL, log), log, admin, owner)
 	tag.RegisterRoutes(tr, repo, log, viewer)
 	task.RegisterRoutes(tr, repo, log, owner)
-	video.RegisterRoutes(tr, repo, dl, twitchClient, hydrator, recordingDeleter, store, log, viewer, admin)
+	video.RegisterRoutes(tr, repo, dl, twitchClient, hydrator, recordings.Retention, store, log, viewer, admin)
 
 	return tr
 }

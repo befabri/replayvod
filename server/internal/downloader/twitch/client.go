@@ -66,11 +66,6 @@ type Client struct {
 	// integrity tokens against it.
 	deviceID string
 
-	// serviceAccountRefreshToken, if set, enables authenticated
-	// playback (Turbo ad-skip + HEVC unlock per spec). Empty
-	// means anonymous playback, which is the common case.
-	serviceAccountRefreshToken string
-
 	// integrity holds the current client-integrity token and its
 	// expiry. Acquired on demand, cached in memory, refreshed
 	// only on repeated auth failures. Never persisted to disk.
@@ -105,11 +100,6 @@ type Config struct {
 	// DeviceID overrides the auto-generated device ID. Tests use
 	// this to assert that request headers carry a stable value.
 	DeviceID string
-
-	// ServiceAccountRefreshToken enables authenticated playback
-	// when non-empty. See Config.ServiceAccountOAuthToken in the
-	// main config for operator docs.
-	ServiceAccountRefreshToken string
 
 	// GQLURL / IntegrityURL / UsherBaseURL override the production
 	// Twitch endpoints. Empty = production defaults. Tests stand up
@@ -153,15 +143,14 @@ func New(cfg Config, log *slog.Logger) *Client {
 		usherEndpoint = defaultUsherBaseURL
 	}
 	return &Client{
-		http:                       httpClient,
-		log:                        log.With("domain", "twitch.stream"),
-		clientID:                   clientID,
-		userAgent:                  userAgent,
-		deviceID:                   deviceID,
-		serviceAccountRefreshToken: cfg.ServiceAccountRefreshToken,
-		integrity:                  newIntegrityCache(),
-		gqlURL:                     gqlEndpoint,
-		integrityURL:               integrityEndpoint,
-		usherBaseURL:               usherEndpoint,
+		http:         httpClient,
+		log:          log.With("domain", "twitch.stream"),
+		clientID:     clientID,
+		userAgent:    userAgent,
+		deviceID:     deviceID,
+		integrity:    newIntegrityCache(),
+		gqlURL:       gqlEndpoint,
+		integrityURL: integrityEndpoint,
+		usherBaseURL: usherEndpoint,
 	}
 }

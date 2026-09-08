@@ -109,6 +109,7 @@ func Run(t *testing.T, newHarness Factory) {
 
 	// settings + event logs
 	run("Settings_UpsertInsertThenUpdate", testSettingsUpsertInsertThenUpdate)
+	run("TwitchPlaybackSession", testTwitchPlaybackSession)
 	run("EventLog_DeleteOldSkipsWarnAndError", testEventLogDeleteOldSkipsWarnAndError)
 
 	// video metadata changes

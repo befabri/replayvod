@@ -5,10 +5,10 @@ import { z } from "zod";
 export const ApproveRequestInputSchema = z.object({
   request_id: z.number(),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
-  quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH"]).check(z.minLength(1)),
   force_h264: z.boolean().optional(),
   has_min_viewers: z.boolean(),
-  min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
+  min_viewers: z.number().gte(0).optional(),
   has_categories: z.boolean(),
   has_tags: z.boolean(),
   is_delete_rediff: z.boolean(),
@@ -53,7 +53,6 @@ export const CategoryListPageInputSchema = z.object({
   limit: z.int().gte(0).lte(200).optional(),
   sort: z.enum(["name_asc", "latest_video_desc", "video_count_desc"]).or(z.literal("")).optional(),
   cursor: CategoryPageCursorSchema.optional(),
-  direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
 }).meta({ id: "CategoryListPageInput" });
 
 export const CategorySearchInputSchema = z.object({
@@ -76,7 +75,6 @@ export const ChannelListPageInputSchema = z.object({
   filter: z.enum(["all", "live", "downloaded", "favorites"]).or(z.literal("")).optional(),
   live_only: z.boolean().optional(),
   cursor: ChannelPageCursorSchema.optional(),
-  direction: z.enum(["forward", "backward"]).or(z.literal("")).optional(),
 }).meta({ id: "ChannelListPageInput" });
 
 export const ChannelSearchInputSchema = z.object({
@@ -91,10 +89,10 @@ export const ChannelStatisticsInputSchema = z.object({
 export const CreateInputSchema = z.object({
   broadcaster_id: z.string().min(1),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
-  quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH"]).check(z.minLength(1)),
   force_h264: z.boolean().optional(),
   has_min_viewers: z.boolean(),
-  min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
+  min_viewers: z.number().gte(0).optional(),
   has_categories: z.boolean(),
   has_tags: z.boolean(),
   is_delete_rediff: z.boolean(),
@@ -105,14 +103,14 @@ export const CreateInputSchema = z.object({
 }).meta({ id: "CreateInput" });
 
 export const CreateInviteInputSchema = z.object({
-  role: z.enum(["viewer", "admin"]),
+  role: z.enum(["viewer", "admin"]).check(z.minLength(1)),
   ttl_minutes: z.int().gte(5).lte(43200),
-  note: z.string().max(200).or(z.literal("")).optional(),
+  note: z.string().max(200).optional(),
 }).meta({ id: "CreateInviteInput" });
 
 export const CreateRequestInputSchema = z.object({
   broadcaster_id: z.string().min(1),
-  note: z.string().max(200).or(z.literal("")).optional(),
+  note: z.string().max(200).optional(),
 }).meta({ id: "CreateRequestInput" });
 
 export const DownloadProgressInputSchema = z.object({
@@ -205,10 +203,10 @@ export const ScheduleToggleInputSchema = z.object({
 export const ScheduleUpdateInputSchema = z.object({
   id: z.number(),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
-  quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH"]).check(z.minLength(1)),
   force_h264: z.boolean().optional(),
   has_min_viewers: z.boolean(),
-  min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
+  min_viewers: z.number().gte(0).optional(),
   has_categories: z.boolean(),
   has_tags: z.boolean(),
   is_delete_rediff: z.boolean(),
@@ -240,8 +238,8 @@ export const SetWatchLaterInputSchema = z.object({
 
 export const SettingsUpdateInputSchema = z.object({
   timezone: z.string().min(1).max(64),
-  datetime_format: z.enum(["ISO", "EU", "US"]),
-  language: z.enum(["en", "fr"]),
+  datetime_format: z.enum(["ISO", "EU", "US"]).check(z.minLength(1)),
+  language: z.enum(["en", "fr"]).check(z.minLength(1)),
 }).meta({ id: "SettingsUpdateInput" });
 
 export const SnapshotsInputSchema = z.object({
@@ -282,13 +280,18 @@ export const TriggerDownloadInputSchema = z.object({
   force_h264: z.boolean().optional(),
 }).meta({ id: "TriggerDownloadInput" });
 
+export const TwitchPlaybackConnectInputSchema = z.object({
+  session_token: z.string().min(1).max(1024),
+  consent: z.boolean().describe("Consent is mandatory even for direct API callers. This session is used\nby the entire shared recorder, not just the signed-in dashboard user."),
+}).meta({ id: "TwitchPlaybackConnectInput" });
+
 export const UnsubscribeInputSchema = z.object({
   id: z.string().min(1),
   reason: z.string().optional(),
 }).meta({ id: "UnsubscribeInput" });
 
 export const UpdateConfigInputSchema = z.object({
-  mode: z.enum(["off", "poll", "direct", "relay"]),
+  mode: z.enum(["off", "poll", "direct", "relay"]).check(z.minLength(1)),
   webhook_callback_url: z.string().optional(),
   relay_ingest_url: z.string().optional(),
   relay_subscribe_url: z.string().optional(),
@@ -303,7 +306,7 @@ export const UpdatePlaybackCacheConfigInputSchema = z.object({
 
 export const UpdateUserRoleInputSchema = z.object({
   user_id: z.string().min(1),
-  role: z.enum(["viewer", "admin", "owner"]),
+  role: z.enum(["viewer", "admin", "owner"]).check(z.minLength(1)),
 }).meta({ id: "UpdateUserRoleInput" });
 
 export const UpdateWatchProgressInputSchema = z.object({

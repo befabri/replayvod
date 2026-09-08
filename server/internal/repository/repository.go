@@ -59,6 +59,14 @@ type Repository interface {
 	DeleteExpiredSessions(ctx context.Context) error
 	ListUserSessions(ctx context.Context, userID string) ([]SessionInfo, error)
 
+	// Twitch website session for the shared recorder (separate from app login).
+	GetTwitchPlaybackSession(ctx context.Context) (*TwitchPlaybackSession, error)
+	SaveTwitchPlaybackSession(ctx context.Context, session *TwitchPlaybackSession) error
+	// Compare the encrypted token so stale validation cannot invalidate a
+	// replacement. Once rejected, only Save can restore the connection.
+	UpdateTwitchPlaybackSessionValidation(ctx context.Context, session *TwitchPlaybackSession) error
+	DeleteTwitchPlaybackSession(ctx context.Context) error
+
 	// App Access Tokens
 	GetLatestAppToken(ctx context.Context) (*AppAccessToken, error)
 	CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*AppAccessToken, error)

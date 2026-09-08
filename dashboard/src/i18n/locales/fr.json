@@ -1,8 +1,37 @@
 {
+	"twitch_playback": {
+		"https_required": "Utilisez HTTPS pour le tableau de bord et l’API avant de connecter une session Twitch. HTTP est autorisé uniquement sur cet ordinateur (localhost).",
+		"title": "Téléchargements Twitch",
+		"card_title": "Compte de lecture Twitch",
+		"description": "Connectez une session du site Twitch pour permettre à l’enregistreur de demander les flux avec les accès de ce compte.",
+		"connected": "Connecté",
+		"disconnected": "Lecture anonyme",
+		"reconnect_required": "Reconnexion nécessaire",
+		"connect": "Valider et connecter",
+		"replace": "Valider et remplacer",
+		"check": "Vérifier la connexion",
+		"disconnect": "Déconnecter",
+		"shared_hint": "Ce compte est utilisé pour tous les enregistrements manuels et planifiés de ce serveur. Les enregistrements restent accessibles à toutes les personnes ayant accès à la bibliothèque. Seul le propriétaire du serveur peut gérer cette connexion.",
+		"reconnect_hint": "Reconnectez une session Twitch valide ou déconnectez le compte pour enregistrer anonymement. Une session refusée bloque les nouvelles demandes de lecture.",
+		"how_to": "Où trouver votre session Twitch",
+		"step_login": "Ouvrez twitch.tv et connectez-vous au compte à utiliser.",
+		"step_devtools": "Ouvrez les outils de développement (F12). Dans Chrome, choisissez Application → Cookies → https://www.twitch.tv. Dans Firefox ou Zen, choisissez Stockage → Cookies → https://www.twitch.tv.",
+		"step_cookie": "Trouvez le cookie nommé auth-token et copiez uniquement sa valeur. Collez-la ci-dessous. Ne copiez pas tous les cookies et n’exécutez pas de scripts dans la console.",
+		"token_label": "Valeur du cookie Twitch auth-token",
+		"token_hint": "La valeur est masquée, stockée chiffrée et ne sera plus affichée. Le champ est vidé à l’envoi. Les jetons Twitch Connect ne fonctionnent pas ici.",
+		"consent": "Je fais confiance à ce serveur pour stocker ma session Twitch et l’utiliser pour tous les enregistrements. Cet identifiant peut donner accès au compte au-delà de la lecture.",
+		"quality_hint": "Choisissez 1440p ou Meilleure disponible pour votre enregistrement ou planification. Twitch doit proposer cette qualité au compte connecté. Le 1440p peut nécessiter HEVC ; Forcer H.264 peut réduire la qualité disponible.",
+		"connect_success": "Session Twitch connectée.",
+		"check_success": "Connexion vérifiée.",
+		"disconnect_success": "Session Twitch enregistrée supprimée. Les prochaines demandes de lecture seront anonymes. Cela ne déconnecte pas le compte de Twitch.",
+		"failed": "Impossible de modifier la connexion. Réessayez.",
+		"load_failed": "Impossible de charger la connexion de lecture Twitch."
+	},
 	"app": {
 		"name": "ReplayVOD"
 	},
 	"nav": {
+		"twitch_playback": "Téléchargements Twitch",
 		"dashboard": "Tableau de bord",
 		"library": "Bibliothèque",
 		"recordings": "Enregistrements",

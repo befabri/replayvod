@@ -294,6 +294,16 @@ type Title struct {
 	CreatedAt sqlitetype.Time `json:"created_at"`
 }
 
+type TwitchPlaybackSession struct {
+	ID             int64  `json:"id"`
+	TwitchUserID   string `json:"twitch_user_id"`
+	TwitchLogin    string `json:"twitch_login"`
+	EncryptedToken []byte `json:"encrypted_token"`
+	ExpiresAt      int64  `json:"expires_at"`
+	CheckedAt      int64  `json:"checked_at"`
+	NeedsReconnect int64  `json:"needs_reconnect"`
+}
+
 type User struct {
 	ID              string          `json:"id"`
 	Login           string          `json:"login"`

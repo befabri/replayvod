@@ -58,6 +58,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader/thumbnail"
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/playbackauth"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
@@ -212,16 +213,16 @@ type Service struct {
 	storage storage.Storage
 	log     *slog.Logger
 
-	twitch      *twitch.Client
-	fetcher     *hls.Fetcher
-	remuxer     *remux.Remuxer
-	probe       *probe.Probe
-	thumb       *thumbnail.Generator
-	waveforms   waveform.Generator
-	svcAcct     *serviceAccount
-	hydrator    *streammeta.Hydrator
-	metaWatcher titleWatcher
-	channelSubs ChannelUpdateSubscriber
+	twitch              *twitch.Client
+	fetcher             *hls.Fetcher
+	remuxer             *remux.Remuxer
+	probe               *probe.Probe
+	thumb               *thumbnail.Generator
+	waveforms           waveform.Generator
+	playbackCredentials PlaybackCredentials
+	hydrator            *streammeta.Hydrator
+	metaWatcher         titleWatcher
+	channelSubs         ChannelUpdateSubscriber
 
 	mu              sync.Mutex
 	active          map[string]*download
@@ -427,9 +428,7 @@ type titleWatcher interface {
 func NewService(cfg *config.Config, repo repository.Repository, store storage.Storage, hydrator *streammeta.Hydrator, metaWatcher *streammeta.MetadataWatcher, channelSubs ChannelUpdateSubscriber, log *slog.Logger) *Service {
 	domainLog := log.With("domain", "downloader")
 
-	tw := twitch.New(twitch.Config{
-		ServiceAccountRefreshToken: cfg.Env.ServiceAccountOAuthToken,
-	}, domainLog)
+	tw := twitch.New(twitch.Config{}, domainLog)
 
 	// Shared HTTP client for segment fetches. MaxConnsPerHost is
 	// the service-wide cap on concurrent Twitch edge connections;
@@ -462,7 +461,6 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		probe:       &probe.Probe{Log: domainLog},
 		thumb:       &thumbnail.Generator{Log: domainLog},
 		waveforms:   waveform.FFmpegGenerator{},
-		svcAcct:     newServiceAccount(cfg.Env.ServiceAccountOAuthToken, domainLog),
 		hydrator:    hydrator,
 		channelSubs: channelSubs,
 		active:      make(map[string]*download),
@@ -483,25 +481,22 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 	return s
 }
 
-// SetOAuthRefresher wires in the service-account token-exchange
-// callback. Must be called after NewService if
-// TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN is set in the environment
-// — without a refresher the service account falls back to
-// anonymous playback.
-//
-// The callback typically wraps the Helix client's
-// RefreshUserToken. Taken as a narrow interface (TokenRefresher)
-// rather than the full client so internal/downloader doesn't
-// depend on internal/twitch.
-func (s *Service) SetOAuthRefresher(r TokenRefresher) {
-	if s.svcAcct != nil {
-		s.svcAcct.setRefresher(r)
-	}
+// PlaybackCredentials supplies the current website session to recording jobs
+// without coupling them to how it is stored or validated.
+type PlaybackCredentials interface {
+	Token(context.Context) (string, error)
+	RecheckRejected(context.Context, string) error
+}
+
+// SetPlaybackCredentials must be called before Resume and before any job is
+// accepted.
+func (s *Service) SetPlaybackCredentials(credentials PlaybackCredentials) {
+	s.playbackCredentials = credentials
 }
 
 // SetEventBus wires in the eventbus so terminal transitions publish a
 // RecordingTerminal event for the outbound webhook dispatcher. Optional, like
-// SetOAuthRefresher: leave it unset (e.g. in tests) to disable publishing.
+// SetPlaybackCredentials: leave it unset (e.g. in tests) to disable publishing.
 func (s *Service) SetEventBus(bus *eventbus.Buses) {
 	s.bus = bus
 }
@@ -842,7 +837,7 @@ func (s *Service) Shutdown() {
 
 // Resume restores in-flight downloads after a process restart.
 // Must be called by the server bootstrap AFTER NewService +
-// SetOAuthRefresher and BEFORE the HTTP server starts accepting
+// SetPlaybackCredentials and BEFORE the HTTP server starts accepting
 // requests — otherwise a concurrent Start() could race with
 // resume over the in-memory active map or concurrency cap.
 //
@@ -1361,6 +1356,20 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 						"part_index", d.resume.CurrentPartIndex,
 						"parts", len(parts),
 						"reason", err)
+				} else if ctx.Err() == nil && isPlaybackResolutionFailure(err) && currentPartHasCommittedMedia(hlsResult, d.resume) {
+					// Seal the current media before marking FAILED/partial. Persist the
+					// intent before remux so a restart never resumes live acquisition or
+					// turns this interrupted recording into a successful completion.
+					d.resume.CaptureError = playbackCaptureFailure(err)
+					d.resume.SetStage(StagePrepareInput)
+					if hlsResult.Kind != "" {
+						d.resume.SegmentFormat = string(hlsResult.Kind)
+					}
+					if hlsResult.Kind == "" {
+						hlsResult = synthesizeHLSResultFromResume(d.resume, segmentKindForResume(segmentsDir, d.resume))
+					}
+					s.checkpointResume(dbCtx, d, log)
+					log.Warn("playback recovery failed; finalizing captured media", "reason", d.resume.CaptureError)
 				} else {
 					s.failDownload(dbCtx, d, log, err)
 					return
@@ -1456,6 +1465,10 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		pr, err := s.runPart(ctx, dbCtx, d, p, filename, segmentsDir, hlsResult, emitter, log)
 		if err != nil {
 			s.failDownload(dbCtx, d, log, err)
+			return
+		}
+		if d.resume.CaptureError != "" {
+			s.failDownload(dbCtx, d, log, errors.New(d.resume.CaptureError))
 			return
 		}
 		parts = append(parts, *pr)
@@ -1779,7 +1792,7 @@ func synthesizeHLSResultFromResume(resume *ResumeState, kind hls.SegmentKind) *h
 }
 
 func shouldSkipSegmentFetch(resume *ResumeState) bool {
-	return resume.Stage.AtOrAfter(StagePrepareInput) || resume.PendingSplit
+	return resume.Stage.AtOrAfter(StagePrepareInput) || resume.PendingSplit || resume.CaptureError != ""
 }
 
 func gapSeqCount(gaps []Gap) int64 {
@@ -2384,16 +2397,12 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 	for {
 		// Stages 1-3: fresh signed URL.
 		emitter.setStage("auth")
-		variant, err := s.resolveVariantURL(ctx, p, selectOpts)
+		variant, err := retryPlaybackResolution(ctx, func(attemptCtx context.Context) (twitch.SelectedVariant, error) {
+			return s.resolveVariantURL(attemptCtx, p, selectOpts)
+		})
 		if err != nil {
-			// Any resolveVariantURL failure — permanent entitlement
-			// or transient — bails the whole loop. The loop's
-			// purpose is to re-run Stages 1-3 when HLS segment
-			// fetch surfaces an auth error; it does not re-run
-			// on a Stage 1-3 failure itself. Auth-refresh budget
-			// is intentionally not consumed here so a flaky GQL
-			// call doesn't burn a retry slot before hls.Run even
-			// starts.
+			// Retryable resolution failures have exhausted their independent
+			// budget. The caller can seal already captured media before failing.
 			return agg, err
 		}
 		// Variant lock across auth-refresh iterations: an in-
@@ -2732,17 +2741,34 @@ func foldHLSAttemptResult(agg, result *hls.JobResult, resume *ResumeState, unres
 // selected variant — URL plus quality + codec metadata the
 // progress emitter surfaces to the UI.
 //
-// When a service account is configured, the playback-token GQL
-// call carries Authorization: OAuth <access_token> — unlocks
-// ad-free playback on Turbo accounts and HEVC variants on
-// channels whose transcode ladder serves HEVC to authenticated
-// viewers. A refresh failure or unset refresh token falls back
-// to anonymous playback rather than failing the job.
+// An owner-connected website session is passed only to Twitch's playback-token
+// endpoint. It is never forwarded to the playlist/segment CDN. Rejected sessions
+// fall back to anonymous playback while the owner reconnects.
 func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.SelectOptions) (twitch.SelectedVariant, error) {
-	accessToken := s.svcAcct.Token(ctx)
+	var accessToken string
+	if s.playbackCredentials != nil {
+		var err error
+		accessToken, err = s.playbackCredentials.Token(ctx)
+		if errors.Is(err, playbackauth.ErrRejected) {
+			accessToken = ""
+		} else if err != nil {
+			return twitch.SelectedVariant{}, fmt.Errorf("Twitch playback connection: %w", err)
+		}
+	}
 	token, err := s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, accessToken)
 	if err != nil {
-		return twitch.SelectedVariant{}, fmt.Errorf("playback token: %w", err)
+		var authErr *twitch.AuthError
+		if s.playbackCredentials != nil && accessToken != "" && errors.As(err, &authErr) && authErr.Status == http.StatusUnauthorized {
+			checkErr := s.playbackCredentials.RecheckRejected(ctx, accessToken)
+			if errors.Is(checkErr, playbackauth.ErrRejected) {
+				token, err = s.twitch.PlaybackToken(ctx, p.BroadcasterLogin, "")
+			} else if checkErr != nil {
+				return twitch.SelectedVariant{}, fmt.Errorf("Twitch playback connection: %w", checkErr)
+			}
+		}
+		if err != nil {
+			return twitch.SelectedVariant{}, fmt.Errorf("playback token: %w", err)
+		}
 	}
 	manifest, err := s.twitch.FetchMasterPlaylist(ctx, p.BroadcasterLogin, token, opts)
 	if err != nil {

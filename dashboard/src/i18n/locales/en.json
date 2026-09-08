@@ -1,8 +1,37 @@
 {
+	"twitch_playback": {
+		"https_required": "Use HTTPS for both the dashboard and API before connecting a Twitch session. HTTP is allowed only on this computer (localhost).",
+		"title": "Twitch downloads",
+		"card_title": "Twitch playback account",
+		"description": "Connect a Twitch website session to let the recorder request streams with that account’s access.",
+		"connected": "Connected",
+		"disconnected": "Anonymous playback",
+		"reconnect_required": "Reconnect required",
+		"connect": "Validate and connect",
+		"replace": "Validate and replace",
+		"check": "Check connection",
+		"disconnect": "Disconnect",
+		"shared_hint": "This account is used for all manual and scheduled recordings on this server. Recordings remain available to everyone with library access. Only the server owner can manage this connection.",
+		"reconnect_hint": "Reconnect with a fresh Twitch session, or disconnect to record anonymously. A rejected session stops new playback requests.",
+		"how_to": "Where to find your Twitch session",
+		"step_login": "Open twitch.tv and sign in to the account you want to use.",
+		"step_devtools": "Open Developer Tools (F12). In Chrome, choose Application → Cookies → https://www.twitch.tv. In Firefox or Zen, choose Storage → Cookies → https://www.twitch.tv.",
+		"step_cookie": "Find the cookie named auth-token and copy only its value. Paste it below. Do not copy all cookies or run scripts in the console.",
+		"token_label": "Twitch auth-token cookie value",
+		"token_hint": "The value is hidden, stored encrypted, and never shown again. The field clears when you submit. Twitch Connect tokens do not work here.",
+		"consent": "I trust this server to store my Twitch session and use it for all recordings. This credential can grant account access beyond playback.",
+		"quality_hint": "Choose 1440p or Best available in your recording or schedule. Twitch must offer that quality to the connected account. 1440p may require HEVC; Force H.264 can reduce the available quality.",
+		"connect_success": "Twitch session connected.",
+		"check_success": "Connection checked.",
+		"disconnect_success": "Saved Twitch session removed. Future playback requests will use anonymous access. This does not sign the account out of Twitch.",
+		"failed": "Could not update the connection. Try again.",
+		"load_failed": "Could not load the Twitch playback connection."
+	},
 	"app": {
 		"name": "ReplayVOD"
 	},
 	"nav": {
+		"twitch_playback": "Twitch downloads",
 		"dashboard": "Dashboard",
 		"library": "Library",
 		"recordings": "Recordings",

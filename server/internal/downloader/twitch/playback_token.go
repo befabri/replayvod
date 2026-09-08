@@ -85,11 +85,9 @@ type gqlError struct {
 //     orchestrator can classify it (permanent entitlement vs.
 //     exhausted retries).
 //
-// Authenticated playback: if ServiceAccountRefreshToken is set on
-// the client and accessToken is non-empty, we include it as an
-// Authorization: OAuth header. accessToken is passed in rather than
-// fetched here because refresh-token → access-token exchange lives
-// in the project's existing OAuth plumbing, not in this package.
+// Authenticated playback: a non-empty website session is included as an
+// Authorization: OAuth header. The caller owns its validation and storage;
+// an ordinary third-party Twitch Connect grant is not a playback credential.
 func (c *Client) PlaybackToken(ctx context.Context, login, accessToken string) (PlaybackToken, error) {
 	c.log.Debug("playback token attempt", "login", login, "authenticated", accessToken != "")
 	// First attempt — no integrity.
@@ -187,7 +185,10 @@ func (c *Client) playbackAttempt(ctx context.Context, login, accessToken, integr
 		req.Header.Set("Client-Integrity", integrity)
 	}
 
-	resp, err := c.http.Do(req)
+	// A redirect must never forward the website session to another endpoint.
+	client := *c.http
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
 	if err != nil {
 		return PlaybackToken{}, fmt.Errorf("gql request: %w", err)
 	}

@@ -125,6 +125,10 @@ func TestSystemProceduresRoleMatrix(t *testing.T) {
 		{"eventLogs", http.MethodGet, queryWithInput("/trpc/system.eventLogs", `{"limit":10,"offset":0}`), "", http.StatusOK},
 		{"searchEventLogs", http.MethodGet, queryWithInput("/trpc/system.searchEventLogs", `{"query":"x","limit":10,"offset":0}`), "", http.StatusOK},
 		{"playbackCacheConfig", http.MethodGet, "/trpc/system.playbackCacheConfig", "", http.StatusOK},
+		{"twitchPlaybackStatus", http.MethodGet, "/trpc/twitchPlayback.status", "", http.StatusOK},
+		{"twitchPlaybackCheck", http.MethodPost, "/trpc/twitchPlayback.check", "", http.StatusOK},
+		{"twitchPlaybackDisconnect", http.MethodPost, "/trpc/twitchPlayback.disconnect", "", http.StatusOK},
+		{"twitchPlaybackConnect", http.MethodPost, "/trpc/twitchPlayback.connect", `{"session_token":"invalid","consent":true}`, http.StatusBadRequest},
 		{"updatePlaybackCacheConfig", http.MethodPost, "/trpc/system.updatePlaybackCacheConfig", `{"enabled":false,"max_percent":10,"auto_generate":false}`, http.StatusOK},
 	}
 	for _, tc := range ownerTier {

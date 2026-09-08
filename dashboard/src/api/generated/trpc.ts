@@ -96,7 +96,6 @@ export interface CategoryListPageInput {
   limit?: number;
   sort?: string;
   cursor?: CategoryPageCursor;
-  direction?: string;
 }
 
 export interface CategoryPageCursor {
@@ -142,7 +141,6 @@ export interface ChannelListPageInput {
   filter?: string;
   live_only?: boolean;
   cursor?: ChannelPageCursor;
-  direction?: string;
 }
 
 export interface ChannelPageCursor {
@@ -1009,6 +1007,22 @@ export interface TriggerDownloadResponse {
   video_id: number;
 }
 
+export interface TwitchPlaybackConnectInput {
+  session_token: string;
+  /**
+   * Consent is mandatory even for direct API callers. This session is used
+   * by the entire shared recorder, not just the signed-in dashboard user.
+   */
+  consent: boolean;
+}
+
+export interface TwitchPlaybackStatusResponse {
+  state: string;
+  login: string;
+  checked_at: number;
+  expires_at: number;
+}
+
 export interface UnsubscribeInput {
   id: string;
   reason?: string;
@@ -1409,6 +1423,12 @@ type AppRouterRecord = {
     runNow: $Mutation<RunNowInput, TaskResponse>;
     status: $Subscription<void, TaskStatusEvent>;
     toggle: $Mutation<TaskToggleInput, TaskResponse>;
+  };
+  twitchPlayback: {
+    check: $Mutation<void, TwitchPlaybackStatusResponse>;
+    connect: $Mutation<TwitchPlaybackConnectInput, TwitchPlaybackStatusResponse>;
+    disconnect: $Mutation<void, TwitchPlaybackStatusResponse>;
+    status: $Query<void, TwitchPlaybackStatusResponse>;
   };
   video: {
     activeDownloads: $Query<void, ActiveDownloadResponse[]>;

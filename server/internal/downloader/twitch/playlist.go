@@ -25,8 +25,8 @@ import (
 // parameter here and the Stage 3 codec filter. Keeping them in
 // one place prevents the drift where a caller opts AV1 into the
 // fetch but not the select (or vice versa) and then can't explain
-// why selection picks the "wrong" codec. Only EnableAV1 is read
-// here; the rest of SelectOptions is ignored by the fetch.
+// why selection picks the "wrong" codec. EnableAV1, DisableHEVC and ForceH264
+// control the codecs announced to Twitch.
 //
 // 4xx responses are wrapped in AuthError so the caller can run
 // them through classifyAuthError — a 403 on usher usually means
@@ -39,11 +39,11 @@ func (c *Client) FetchMasterPlaylist(ctx context.Context, login string, token Pl
 		return nil, fmt.Errorf("twitch: empty playback token")
 	}
 
-	supported := "h265,h264"
-	if opts.EnableAV1 {
-		supported = "av1,h265,h264"
+	supported := "h264"
+	if !opts.ForceH264 {
+		if !opts.DisableHEVC { supported = "h265," + supported }
+		if opts.EnableAV1 { supported = "av1," + supported }
 	}
-
 	q := url.Values{}
 	q.Set("platform", "web")
 	q.Set("p", strconv.Itoa(randomCacheBuster()))

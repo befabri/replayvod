@@ -46,6 +46,18 @@ type AppAccessToken struct {
 	CreatedAt time.Time
 }
 
+// TwitchPlaybackSession is the owner-managed website credential for the shared
+// recorder. It must never be returned by an API; only status/account metadata is
+// public to the owner. Timestamps are Unix seconds; ExpiresAt may be unknown (0).
+type TwitchPlaybackSession struct {
+	TwitchUserID   string
+	TwitchLogin    string
+	EncryptedToken []byte
+	ExpiresAt      int64
+	CheckedAt      int64
+	NeedsReconnect bool
+}
+
 type WhitelistEntry struct {
 	TwitchUserID string
 	AddedAt      time.Time
