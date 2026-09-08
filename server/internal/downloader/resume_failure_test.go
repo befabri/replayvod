@@ -80,6 +80,9 @@ func TestResume_FailedRestartClassifiesPartialWhenPartsFinalized(t *testing.T) {
 		t.Fatalf("salvaged completion_kind = %q, want %q (finalized parts must keep it in retention)",
 			gotSalvaged.CompletionKind, repository.CompletionKindPartial)
 	}
+	if !gotSalvaged.Truncated {
+		t.Fatal("failed restart with saved media must remain truncated")
+	}
 
 	gotLost, err := s.repo.GetVideo(ctx, lost)
 	if err != nil {
@@ -91,5 +94,8 @@ func TestResume_FailedRestartClassifiesPartialWhenPartsFinalized(t *testing.T) {
 	if gotLost.CompletionKind != repository.CompletionKindComplete {
 		t.Fatalf("lost completion_kind = %q, want %q (no finalized parts to reclaim)",
 			gotLost.CompletionKind, repository.CompletionKindComplete)
+	}
+	if gotLost.Truncated {
+		t.Fatal("failed restart without saved media must not be truncated")
 	}
 }

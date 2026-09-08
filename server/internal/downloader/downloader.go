@@ -888,27 +888,30 @@ func (s *Service) Resume(ctx context.Context) error {
 				"error", err)
 			errMsg := fmt.Sprintf("resume: %v", err)
 			_ = s.repo.MarkJobFailed(ctx, job.ID, errMsg)
-			// For truncated, mirror the run-time rule: a resume that picks up at
-			// REMUX/STORE with the playlist's ENDLIST already observed is a
-			// post-broadcast failure, not a live-recording-cut-short. Default to
-			// truncated=true if the saved resume_state is unreadable (we can't
-			// tell, and "looks incomplete" is the safer loud signal).
-			truncated := true
-			if state, perr := UnmarshalResumeState(job.ResumeState); perr == nil {
-				truncated = state.HadWindowRoll || !state.EndListSeen
-			}
 			// completion_kind mirrors the run-time failure path: a job that
 			// already finalized parts before this failed restart owns
 			// reclaimable objects, so stamp it "partial" to keep it inside the
 			// retention sweep (which only sees DONE plus FAILED partial/cancelled).
 			// Leaving it "complete" would strand those uploaded parts. A repo
 			// error keeps the safe "complete" default rather than mis-stamping.
-			failKind := repository.CompletionKindComplete
-			if hasPart, herr := s.repo.HasFinalizedVideoParts(ctx, job.VideoID); herr != nil {
+			hasPart, herr := s.repo.HasFinalizedVideoParts(ctx, job.VideoID)
+			partsKnown := herr == nil
+			if herr != nil {
 				s.log.Warn("resume failure: check finalized parts", "video_id", job.VideoID, "error", herr)
-			} else if hasPart {
+			}
+			failKind := repository.CompletionKindComplete
+			if partsKnown && hasPart {
 				failKind = repository.CompletionKindPartial
 			}
+			// A resume that picks up at REMUX/STORE with the playlist's ENDLIST
+			// already observed is a post-broadcast failure, not a recording cut
+			// short. An unreadable resume_state reads as cut short, so doubt
+			// shows as truncated.
+			cutShort := true
+			if state, perr := UnmarshalResumeState(job.ResumeState); perr == nil {
+				cutShort = state.HadWindowRoll || !state.EndListSeen
+			}
+			truncated := failedRunTruncated(partsKnown, hasPart, cutShort)
 			// A recording that was RUNNING from a prior process and can't be
 			// resumed is terminating in failure — exactly what a
 			// recording.failed consumer expects to hear. Enqueue the webhook in
@@ -2916,32 +2919,32 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	// fine. On its own error we keep the existing safe default
 	// (complete) and log; better than mis-stamping a partial label
 	// because of a transient repo glitch.
+	// dbCtx is context.WithoutCancel(parentCtx) at the top of run()
+	// so a canceled parent doesn't bleed into terminal writes —
+	// any error here is a real repo failure, not the run's own
+	// cancellation. Safe-default to complete on error rather than
+	// risk mis-stamping partial.
+	hasPart, err := s.repo.HasFinalizedVideoParts(dbCtx, d.videoID)
+	partsKnown := err == nil
+	if err != nil {
+		log.Warn("classify failure: check finalized parts", "video_id", d.videoID, "error", err)
+	}
 	failCompletionKind := repository.CompletionKindComplete
 	switch {
 	case userCancelled:
 		failCompletionKind = repository.CompletionKindCancelled
-	default:
-		// dbCtx is context.WithoutCancel(parentCtx) at the top of run()
-		// so a canceled parent doesn't bleed into terminal writes —
-		// any error here is a real repo failure, not the run's own
-		// cancellation. Safe-default to complete on error rather than
-		// risk mis-stamping partial.
-		hasPart, err := s.repo.HasFinalizedVideoParts(dbCtx, d.videoID)
-		if err != nil {
-			log.Warn("classify failure: check finalized parts", "video_id", d.videoID, "error", err)
-		} else if hasPart {
-			failCompletionKind = repository.CompletionKindPartial
-		}
+	case partsKnown && hasPart:
+		failCompletionKind = repository.CompletionKindPartial
 	}
-	// truncated for FAILED: same axes as the success path. Cancelled
-	// runs imply truncated (operator stopped a live recording).
-	// HadWindowRoll implies truncated (CDN advanced past us, broadcast
-	// kept going). EndListSeen=false implies truncated (playlist never
-	// closed, recorder ended early). A REMUX/STORE failure after
-	// EndListSeen=true is a *post-broadcast* failure — the artifact
-	// wasn't produced, but the recording wasn't cut short relative to
-	// the broadcast.
-	truncated := userCancelled || d.resume.HadWindowRoll || !d.resume.EndListSeen
+	// cutShort: a cancel is the operator stopping a live recording, a
+	// window roll means the CDN advanced past us while the broadcast
+	// kept going, and EndListSeen=false means the playlist never closed
+	// and the recorder ended early. A REMUX/STORE failure after
+	// EndListSeen=true is a post-broadcast failure: the artifact wasn't
+	// produced, but the recording wasn't cut short relative to the
+	// broadcast.
+	cutShort := userCancelled || d.resume.HadWindowRoll || !d.resume.EndListSeen
+	truncated := failedRunTruncated(partsKnown, hasPart, cutShort)
 	delivery := s.recordingWebhookDelivery(d.videoID, recordingwebhook.EventFailed)
 	if err := s.repo.MarkVideoFailedAndEnqueueRecordingWebhook(dbCtx, d.videoID, recorded.Error(), failCompletionKind, truncated, delivery); err != nil {
 		log.Error("failed to mark video failed", "error", err)
