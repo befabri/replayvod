@@ -519,3 +519,42 @@ func sqliteCursorID(cursor *repository.VideoPageCursor) int64 {
 
 // Pure page/cursor helpers now live in repository (pagination.go) so both
 // adapters share one copy.
+
+// ListVideosForStorageScan bounds each query even if a caller passes an invalid limit.
+func (a *SQLiteAdapter) ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]repository.StorageScanVideo, error) {
+	if afterID < 0 || limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("invalid storage scan page")
+	}
+	rows, err := a.queries.ListVideosForStorageScan(ctx, sqlitegen.ListVideosForStorageScanParams{AfterID: afterID, PageSize: int64(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list videos for storage scan: %w", err)
+	}
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
+	}
+	return out, nil
+}
+
+// GetVideoForStorageScan reuses the eligibility query, without treating zero as a wildcard.
+func (a *SQLiteAdapter) GetVideoForStorageScan(ctx context.Context, id int64) (*repository.StorageScanVideo, error) {
+	if id <= 0 {
+		return nil, repository.ErrNotFound
+	}
+	rows, err := a.ListVideosForStorageScan(ctx, id-1, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 || rows[0].VideoID != id {
+		return nil, repository.ErrNotFound
+	}
+	return &rows[0], nil
+}
+
+func (a *SQLiteAdapter) TombstoneMissingVideo(ctx context.Context, id int64) (bool, error) {
+	if id <= 0 {
+		return false, repository.ErrNotFound
+	}
+	n, err := a.queries.TombstoneMissingVideo(ctx, id)
+	return n > 0, err
+}

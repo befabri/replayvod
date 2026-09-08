@@ -1,13 +1,19 @@
 // @vitest-environment jsdom
 
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from "react";
+import {
+	StrictMode,
+	type ButtonHTMLAttributes,
+	type MouseEvent,
+	type ReactNode,
+} from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RecordingPlaylist } from "@/features/videos/playback";
 import { WatchPlayer } from "./WatchPlayer";
@@ -283,6 +289,8 @@ vi.mock("@vidstack/react/player/layouts/default", async () => {
 });
 
 afterEach(() => {
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
 	cleanup();
 	vi.restoreAllMocks();
 	vidstackMock.player.canPlay = false;
@@ -1013,3 +1021,432 @@ function mockRect(
 			toJSON: () => ({}),
 		}) as DOMRect;
 }
+
+function singlePartPlaylist(): RecordingPlaylist {
+	const base = multipartPlaylist();
+	return {
+		...base,
+		totalDurationSeconds: 60,
+		parts: base.parts.slice(0, 1),
+		markers: [],
+	};
+}
+
+function stubProbe(status: number | Error) {
+	const probe = vi.fn(async () => {
+		if (status instanceof Error) throw status;
+		return { ok: status >= 200 && status < 300, status } as Response;
+	});
+	vi.stubGlobal("fetch", probe);
+	return probe;
+}
+
+describe("WatchPlayer unavailable media", () => {
+	it("replaces the player with a file-missing panel when the source is gone", async () => {
+		const probe = stubProbe(404);
+		const onMediaUnavailable = vi.fn();
+
+		render(
+			<WatchPlayer
+				playlist={singlePartPlaylist()}
+				onMediaUnavailable={onMediaUnavailable}
+				unavailableActions={<span>remove-action</span>}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "error" }));
+
+		const panel = await screen.findByTestId("media-unavailable");
+		expect(panel.getAttribute("data-kind")).toBe("gone");
+		expect(panel.textContent).toContain("watch.media_gone_title");
+		expect(panel.textContent).toContain("remove-action");
+		expect(screen.queryByTestId("media-player")).toBeNull();
+		expect(onMediaUnavailable).toHaveBeenCalledWith("gone");
+		expect(probe).toHaveBeenCalledWith(
+			"/part-1.mp4",
+			expect.objectContaining({ method: "HEAD" }),
+		);
+	});
+
+	it("offers a retry that reloads the source after a transient failure", async () => {
+		stubProbe(new Error("network down"));
+		const onMediaUnavailable = vi.fn();
+
+		render(
+			<WatchPlayer
+				playlist={singlePartPlaylist()}
+				onMediaUnavailable={onMediaUnavailable}
+				unavailableActions={<span>remove-action</span>}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "error" }));
+
+		const panel = await screen.findByTestId("media-unavailable");
+		expect(panel.getAttribute("data-kind")).toBe("failed");
+		expect(panel.textContent).not.toContain("remove-action");
+		expect(onMediaUnavailable).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "watch.retry" }));
+
+		expect(screen.queryByTestId("media-unavailable")).toBeNull();
+		expect(screen.getByTestId("media-player").getAttribute("data-src")).toBe(
+			"/part-1.mp4",
+		);
+	});
+
+	it("keeps the continuous-to-parts fallback ahead of the panel", async () => {
+		const probe = stubProbe(404);
+
+		render(<WatchPlayer playlist={continuousPlaylist()} />);
+		fireEvent.click(screen.getByRole("button", { name: "error" }));
+
+		expect(screen.getByTestId("media-player").getAttribute("data-src")).toBe(
+			"/part-1.mp4",
+		);
+		await waitFor(() => expect(probe).not.toHaveBeenCalled());
+		expect(screen.queryByTestId("media-unavailable")).toBeNull();
+	});
+
+	it("shows the panel for an audio source that cannot load", async () => {
+		stubProbe(410);
+		const onMediaUnavailable = vi.fn();
+
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				onMediaUnavailable={onMediaUnavailable}
+			/>,
+		);
+		fireEvent.error(getAudioElement());
+
+		const panel = await screen.findByTestId("media-unavailable");
+		expect(panel.getAttribute("data-kind")).toBe("removed");
+		expect(screen.queryByTestId("audio-controls")).toBeNull();
+		expect(screen.queryByRole("button", { name: "watch.retry" })).toBeNull();
+		expect(onMediaUnavailable).toHaveBeenCalledWith("removed");
+	});
+
+	it("probes a source that never becomes playable and surfaces a gone file", async () => {
+		vi.useFakeTimers();
+		const probe = stubProbe(404);
+		const onMediaUnavailable = vi.fn();
+
+		render(
+			<WatchPlayer
+				playlist={singlePartPlaylist()}
+				onMediaUnavailable={onMediaUnavailable}
+			/>,
+		);
+		await vi.advanceTimersByTimeAsync(19_000);
+		expect(probe).not.toHaveBeenCalled();
+
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(probe).toHaveBeenCalledTimes(1);
+		// The probe resolves on the microtask queue and React flushes the state
+		// change on the faked scheduler, so drain both before reading the DOM.
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(50);
+		});
+		expect(
+			screen.getByTestId("media-unavailable").getAttribute("data-kind"),
+		).toBe("gone");
+		expect(onMediaUnavailable).toHaveBeenCalledWith("gone");
+	});
+
+	it("does not probe a source that already reached canplay", async () => {
+		vi.useFakeTimers();
+		const probe = stubProbe(404);
+
+		render(<WatchPlayer playlist={singlePartPlaylist()} />);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		await vi.advanceTimersByTimeAsync(25_000);
+
+		expect(probe).not.toHaveBeenCalled();
+		expect(screen.queryByTestId("media-unavailable")).toBeNull();
+	});
+
+	it("starts a full watchdog deadline for a new source", async () => {
+		vi.useFakeTimers();
+		const probe = stubProbe(404);
+		render(<WatchPlayer playlist={multipartPlaylist()} />);
+		await act(() => vi.advanceTimersByTimeAsync(16_000));
+		fireEvent.click(screen.getByRole("button", { name: /Second title/ }));
+		await act(() => vi.advanceTimersByTimeAsync(19_999));
+		expect(probe).not.toHaveBeenCalled();
+		await act(() => vi.advanceTimersByTimeAsync(1));
+		expect(probe).toHaveBeenCalledExactlyOnceWith(
+			"/part-2.mp4",
+			expect.objectContaining({ method: "HEAD" }),
+		);
+	});
+
+	it("cancels the watchdog when the player unmounts", async () => {
+		vi.useFakeTimers();
+		const probe = stubProbe(404);
+		const onMediaUnavailable = vi.fn();
+		const { unmount } = render(
+			<WatchPlayer
+				playlist={singlePartPlaylist()}
+				onMediaUnavailable={onMediaUnavailable}
+			/>,
+		);
+		await act(() => vi.advanceTimersByTimeAsync(16_000));
+		unmount();
+		await act(() => vi.advanceTimersByTimeAsync(20_000));
+		expect(probe).not.toHaveBeenCalled();
+		expect(onMediaUnavailable).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["video", singlePartPlaylist, 404, "gone"],
+		["audio", audioPlaylist, 410, "removed"],
+	] as const)("keeps the %s watchdog deadline through callback changes and notifies the latest callback", async (_name, makePlaylist, status, kind) => {
+		vi.useFakeTimers();
+		const probe = stubProbe(status);
+		const playlist = makePlaylist();
+		const callbacks = Array.from({ length: 5 }, () => vi.fn());
+		const { rerender } = render(
+			<StrictMode>
+				<WatchPlayer playlist={playlist} onMediaUnavailable={callbacks[0]} />
+			</StrictMode>,
+		);
+		for (let i = 1; i < callbacks.length; i++) {
+			await act(() => vi.advanceTimersByTimeAsync(4_000));
+			rerender(
+				<StrictMode>
+					<WatchPlayer
+						playlist={{ ...playlist }}
+						onMediaUnavailable={callbacks[i]}
+					/>
+				</StrictMode>,
+			);
+		}
+		await act(() => vi.advanceTimersByTimeAsync(3_999));
+		expect(probe).not.toHaveBeenCalled();
+		await act(() => vi.advanceTimersByTimeAsync(1));
+		expect(probe).toHaveBeenCalledTimes(1);
+		expect(
+			screen.getByTestId("media-unavailable").getAttribute("data-kind"),
+		).toBe(kind);
+		expect(callbacks[4]).toHaveBeenCalledExactlyOnceWith(kind);
+		for (const previous of callbacks.slice(0, -1)) {
+			expect(previous).not.toHaveBeenCalled();
+		}
+	});
+});
+
+describe("WatchPlayer stale probe results", () => {
+	function deferredProbe() {
+		let resolve: (status: number) => void = () => {};
+		const probe = vi.fn(
+			() =>
+				new Promise<Response>((done) => {
+					resolve = (status) => done({ ok: false, status } as Response);
+				}),
+		);
+		vi.stubGlobal("fetch", probe);
+		return { probe, resolve: (status: number) => resolve(status) };
+	}
+
+	it("delivers an in-flight watchdog result to the latest callback", async () => {
+		vi.useFakeTimers();
+		const { probe, resolve } = deferredProbe();
+		const previous = vi.fn();
+		const latest = vi.fn();
+		const playlist = singlePartPlaylist();
+		const { rerender } = render(
+			<WatchPlayer playlist={playlist} onMediaUnavailable={previous} />,
+		);
+		await act(() => vi.advanceTimersByTimeAsync(20_000));
+		expect(probe).toHaveBeenCalledTimes(1);
+		rerender(<WatchPlayer playlist={playlist} onMediaUnavailable={latest} />);
+		await act(async () => resolve(404));
+		expect(latest).toHaveBeenCalledExactlyOnceWith("gone");
+		expect(previous).not.toHaveBeenCalled();
+		expect(screen.getByTestId("media-unavailable")).toBeTruthy();
+	});
+
+	it("drops an in-flight watchdog result after unmount", async () => {
+		vi.useFakeTimers();
+		const { probe, resolve } = deferredProbe();
+		const onMediaUnavailable = vi.fn();
+		const { unmount } = render(
+			<WatchPlayer
+				playlist={singlePartPlaylist()}
+				onMediaUnavailable={onMediaUnavailable}
+			/>,
+		);
+		await act(() => vi.advanceTimersByTimeAsync(20_000));
+		expect(probe).toHaveBeenCalledTimes(1);
+		unmount();
+		await act(async () => resolve(404));
+		expect(onMediaUnavailable).not.toHaveBeenCalled();
+	});
+
+	it("drops an error probe that resolves after the recording changed", async () => {
+		const { probe, resolve } = deferredProbe();
+		const onMediaUnavailable = vi.fn();
+		const { rerender } = render(
+			<WatchPlayer
+				playlist={singlePartPlaylist()}
+				onMediaUnavailable={onMediaUnavailable}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "error" }));
+		expect(probe).toHaveBeenCalledTimes(1);
+
+		// A different recording with a different source URL takes over before
+		// the probe for the first one comes back.
+		rerender(
+			<WatchPlayer
+				playlist={{ ...continuousPlaylist(), videoId: 66 }}
+				onMediaUnavailable={onMediaUnavailable}
+			/>,
+		);
+		await act(async () => {
+			resolve(404);
+		});
+
+		expect(screen.queryByTestId("media-unavailable")).toBeNull();
+		expect(screen.getByTestId("media-player").getAttribute("data-src")).toBe(
+			"/api/v1/videos/65/playback/stream",
+		);
+		expect(onMediaUnavailable).not.toHaveBeenCalled();
+	});
+
+	it("drops a watchdog probe that resolves after the source changed", async () => {
+		vi.useFakeTimers();
+		const { probe, resolve } = deferredProbe();
+		const onMediaUnavailable = vi.fn();
+		const { rerender } = render(
+			<WatchPlayer
+				playlist={singlePartPlaylist()}
+				onMediaUnavailable={onMediaUnavailable}
+			/>,
+		);
+		await vi.advanceTimersByTimeAsync(21_000);
+		expect(probe).toHaveBeenCalledTimes(1);
+
+		rerender(
+			<WatchPlayer
+				playlist={{ ...continuousPlaylist(), videoId: 66 }}
+				onMediaUnavailable={onMediaUnavailable}
+			/>,
+		);
+		await act(async () => {
+			resolve(410);
+			await vi.advanceTimersByTimeAsync(50);
+		});
+
+		expect(screen.queryByTestId("media-unavailable")).toBeNull();
+		expect(onMediaUnavailable).not.toHaveBeenCalled();
+	});
+});
+
+describe("missing-media recovery", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
+
+	it("deduplicates errors and aborts a probe when the source changes", async () => {
+		let finish!: (value: Response) => void;
+		const fetchImpl = vi.fn(
+			() =>
+				new Promise<Response>((resolve) => {
+					finish = resolve;
+				}),
+		);
+		vi.stubGlobal("fetch", fetchImpl);
+		const unavailable = vi.fn();
+		const { rerender } = render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				onMediaUnavailable={unavailable}
+			/>,
+		);
+		fireEvent.error(getAudioElement());
+		fireEvent.error(getAudioElement());
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		const signal = (
+			fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+		)[1].signal;
+		const next = audioPlaylist();
+		next.parts = [{ ...next.parts[0], src: "/replacement.m4a" }];
+		rerender(<WatchPlayer playlist={next} onMediaUnavailable={unavailable} />);
+		expect(signal?.aborted).toBe(true);
+		await act(async () => finish({ ok: false, status: 404 } as Response));
+		expect(screen.queryByTestId("media-unavailable")).toBeNull();
+		expect(unavailable).not.toHaveBeenCalled();
+	});
+
+	it("aborts in-flight work when the player unmounts", async () => {
+		let finish!: (value: Response) => void;
+		const fetchImpl = vi.fn(
+			() =>
+				new Promise<Response>((resolve) => {
+					finish = resolve;
+				}),
+		);
+		vi.stubGlobal("fetch", fetchImpl);
+		const unavailable = vi.fn();
+		const { unmount } = render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				onMediaUnavailable={unavailable}
+			/>,
+		);
+		fireEvent.error(getAudioElement());
+		const signal = (
+			fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+		)[1].signal;
+		unmount();
+		expect(signal?.aborted).toBe(true);
+		await act(async () => finish({ ok: false, status: 404 } as Response));
+		expect(unavailable).not.toHaveBeenCalled();
+	});
+
+	it("shows a retryable failure for a stalled source even if no native error arrives", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => ({ ok: false, status: 503 }) as Response),
+		);
+		const { rerender } = render(
+			<WatchPlayer playlist={audioPlaylist()} onMediaUnavailable={() => {}} />,
+		);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(15_000);
+		});
+		// An unstable route callback must not postpone the source's load deadline.
+		rerender(
+			<WatchPlayer playlist={audioPlaylist()} onMediaUnavailable={() => {}} />,
+		);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(5_000);
+		});
+		expect(
+			screen.getByTestId("media-unavailable").getAttribute("data-kind"),
+		).toBe("failed");
+		fireEvent.click(screen.getByRole("button", { name: "watch.retry" }));
+		expect(screen.queryByTestId("media-unavailable")).toBeNull();
+		expect(getAudioElement()).not.toBeNull();
+	});
+});
+
+describe("retry playback position", () => {
+	it("restores the viewer's position when the replacement media element becomes ready", async () => {
+		stubProbe(503);
+		render(<WatchPlayer playlist={audioPlaylist()} />);
+		const audio = getAudioElement();
+		fireEvent.canPlay(audio);
+		audio.currentTime = 17;
+		fireEvent.timeUpdate(audio);
+		fireEvent.error(audio);
+		await screen.findByTestId("media-unavailable");
+		fireEvent.click(screen.getByRole("button", { name: "watch.retry" }));
+		const replacement = getAudioElement();
+		expect(replacement).not.toBe(audio);
+		fireEvent.canPlay(replacement);
+		expect(replacement.currentTime).toBe(17);
+	});
+});

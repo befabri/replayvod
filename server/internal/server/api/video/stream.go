@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -41,12 +42,38 @@ type PlaybackBuilder interface {
 	StartBuild(ctx context.Context, videoID int64)
 }
 
+// MissingMarker tombstones a recording whose media is gone from storage; the
+// streaming path calls it after a definitive not-found. It is the storagescan
+// service in production and may be nil, in which case a missing file only
+// answers 404.
+type MissingMarker interface {
+	MarkMissing(ctx context.Context, videoID int64) (bool, error)
+}
+
+const (
+	markMissingTimeout     = 3 * time.Second
+	markMissingCooldown    = time.Minute
+	maxMissingChecks       = 128
+	maxActiveMissingChecks = 8
+)
+
+type missingCheck struct {
+	done      chan struct{}
+	checkedAt time.Time
+	err       error
+}
+
 type StreamHandler struct {
 	repo     repository.Repository
 	storage  storage.Storage
 	verifier *videodownload.Verifier
 	builder  PlaybackBuilder
+	missing  MissingMarker
 	log      *slog.Logger
+	// missingMu protects both active checks and the bounded success cache.
+	missingMu           sync.Mutex
+	missingChecks       map[int64]*missingCheck
+	activeMissingChecks int
 	// warnedMultipart holds video IDs already logged about the multi-part
 	// /stream single-file fallback, so the warning fires once per video rather
 	// than on every request (a player issues a HEAD probe + many range GETs).
@@ -82,6 +109,10 @@ func NewStreamHandler(repo repository.Repository, store storage.Storage, verifie
 
 func WithPlaybackBuilder(b PlaybackBuilder) StreamHandlerOption {
 	return func(h *StreamHandler) { h.builder = b }
+}
+
+func WithMissingMarker(m MissingMarker) StreamHandlerOption {
+	return func(h *StreamHandler) { h.missing = m }
 }
 
 func WithWaveformGenerator(g WaveformGenerator) StreamHandlerOption {
@@ -185,7 +216,7 @@ func (h *StreamHandler) streamVideo(w http.ResponseWriter, r *http.Request) {
 				"served_part", name)
 		}
 	}
-	h.serveStorageFile(w, r, relPath, name)
+	h.serveStorageFile(w, r, video.ID, relPath, name)
 }
 
 // streamPlayback serves only a finished playback artifact. It never builds or
@@ -256,7 +287,7 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 		return
 	case statErr != nil:
 		// Transient stat error: let serveStorageFile re-stat and surface/log it.
-		h.serveStorageFile(w, r, relPath, *asset.Filename)
+		h.serveStorageFile(w, r, id, relPath, *asset.Filename)
 		return
 	}
 	if r.Method == http.MethodGet && isPlaybackSessionStart(r) {
@@ -274,7 +305,7 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 	if asset.MimeType != nil && *asset.MimeType != "" {
 		w.Header().Set("Content-Type", *asset.MimeType)
 	}
-	h.serveStorageFileInfo(w, r, relPath, *asset.Filename, info)
+	h.serveStorageFileInfo(w, r, id, relPath, *asset.Filename, info)
 }
 
 // streamPart serves one recording part through the authenticated dashboard
@@ -305,7 +336,7 @@ func (h *StreamHandler) streamPart(w http.ResponseWriter, r *http.Request) {
 	// once it's ready. Only the authenticated dashboard path triggers builds —
 	// not the signed per-part download route consumers use.
 	h.maybeKickBuild(id)
-	h.serveStorageFile(w, r, relPath, name)
+	h.serveStorageFile(w, r, id, relPath, name)
 }
 
 // maybeKickBuild starts the lazy playback-artifact build for videoID at most
@@ -324,24 +355,22 @@ func (h *StreamHandler) maybeKickBuild(videoID int64) {
 // serveStorageFile streams a storage-relative file with Range support. name is
 // passed to http.ServeContent for content-type sniffing and is the suggested
 // download filename. Any Content-Disposition the caller set on w is preserved.
-func (h *StreamHandler) serveStorageFile(w http.ResponseWriter, r *http.Request, relPath, name string) {
+func (h *StreamHandler) serveStorageFile(w http.ResponseWriter, r *http.Request, videoID int64, relPath, name string) {
 	info, err := h.storage.Stat(r.Context(), relPath)
 	if err != nil {
-		h.log.Error("stat video file failed", "error", err, "path", relPath)
-		http.Error(w, "video file unavailable", http.StatusNotFound)
+		h.failStorageRead(w, r, videoID, relPath, "stat", err)
 		return
 	}
-	h.serveStorageFileInfo(w, r, relPath, name, info)
+	h.serveStorageFileInfo(w, r, videoID, relPath, name, info)
 }
 
 // serveStorageFileInfo is serveStorageFile for a caller that has already
 // Stat'd relPath, so it doesn't repeat the Stat — on S3 that's one fewer
 // HeadObject per request (streamPlayback already Stats for its stale-row check).
-func (h *StreamHandler) serveStorageFileInfo(w http.ResponseWriter, r *http.Request, relPath, name string, info storage.FileInfo) {
+func (h *StreamHandler) serveStorageFileInfo(w http.ResponseWriter, r *http.Request, videoID int64, relPath, name string, info storage.FileInfo) {
 	f, err := h.storage.Open(r.Context(), relPath)
 	if err != nil {
-		h.log.Error("open video file failed", "error", err, "path", relPath)
-		http.Error(w, "video file unavailable", http.StatusNotFound)
+		h.failStorageRead(w, r, videoID, relPath, "open", err)
 		return
 	}
 	defer f.Close()
@@ -358,6 +387,87 @@ func (h *StreamHandler) serveStorageFileInfo(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
 	http.ServeContent(w, r, name, info.ModTime, f)
+}
+
+// failStorageRead answers 404 for a definitive not-found and asks the missing
+// marker to tombstone the recording; any other error is an outage and answers
+// 503 so the player retries.
+func (h *StreamHandler) failStorageRead(w http.ResponseWriter, r *http.Request, videoID int64, relPath, op string, err error) {
+	if errors.Is(err, fs.ErrNotExist) {
+		h.log.Warn("video file missing", "video_id", videoID, "path", relPath)
+		if err := h.markMissing(r.Context(), videoID); err != nil {
+			h.log.Warn("missing-media check failed", "video_id", videoID, "error", err)
+			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		http.Error(w, "video file missing", http.StatusNotFound)
+		return
+	}
+	h.log.Error(op+" video file failed", "error", err, "video_id", videoID, "path", relPath)
+	http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+}
+
+// markMissing completes reconciliation before a 404, allowing an immediate
+// refetch. Both owners and waiters honor request cancellation and a short
+// deadline. No detached work survives the request, and overload returns 503.
+func (h *StreamHandler) markMissing(parent context.Context, videoID int64) error {
+	if h.missing == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(parent, markMissingTimeout)
+	defer cancel()
+	h.missingMu.Lock()
+	if h.missingChecks == nil {
+		h.missingChecks = make(map[int64]*missingCheck)
+	}
+	for id, check := range h.missingChecks {
+		if !check.checkedAt.IsZero() && time.Since(check.checkedAt) >= markMissingCooldown {
+			delete(h.missingChecks, id)
+		}
+	}
+	if check := h.missingChecks[videoID]; check != nil {
+		h.missingMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-check.done:
+			return check.err
+		}
+	}
+	if h.activeMissingChecks >= maxActiveMissingChecks {
+		h.missingMu.Unlock()
+		return errors.New("missing-media checks busy")
+	}
+	if len(h.missingChecks) >= maxMissingChecks {
+		var oldestID int64
+		var oldest time.Time
+		for id, check := range h.missingChecks {
+			if !check.checkedAt.IsZero() && (oldest.IsZero() || check.checkedAt.Before(oldest)) {
+				oldestID, oldest = id, check.checkedAt
+			}
+		}
+		delete(h.missingChecks, oldestID)
+	}
+	check := &missingCheck{done: make(chan struct{})}
+	h.missingChecks[videoID] = check
+	h.activeMissingChecks++
+	h.missingMu.Unlock()
+	_, err := h.missing.MarkMissing(ctx, videoID)
+	if err == nil {
+		err = ctx.Err()
+	}
+	h.missingMu.Lock()
+	check.err = err
+	check.checkedAt = time.Now()
+	h.activeMissingChecks--
+	// Failures are retryable immediately; caching a timeout would make the next
+	// HEAD return 404 without ever having completed reconciliation.
+	if err != nil {
+		delete(h.missingChecks, videoID)
+	}
+	close(check.done)
+	h.missingMu.Unlock()
+	return err
 }
 
 // isPlaybackSessionStart reports whether r is the opening request of a playback
@@ -421,7 +531,7 @@ func (h *StreamHandler) streamSignedPart(w http.ResponseWriter, r *http.Request)
 	// \uXXXX escapes a client can't decode — that case needs a
 	// filename*=UTF-8'' percent-encoded form alongside the plain filename=.
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
-	h.serveStorageFile(w, r, relPath, name)
+	h.serveStorageFile(w, r, id, relPath, name)
 }
 
 func (h *StreamHandler) resolveStreamablePart(ctx context.Context, id int64, partIndex int32, logPrefix string) (relPath, name string, status int, ok bool) {

@@ -223,6 +223,12 @@ type Repository interface {
 	// recordings that own a snapshotted retention policy, can have reclaimable
 	// objects, and are already due at now.
 	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]RetentionVideo, error)
+	// Storage scans use bounded keyset pages and exact-ID eligibility checks.
+	ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]StorageScanVideo, error)
+	GetVideoForStorageScan(ctx context.Context, id int64) (*StorageScanVideo, error)
+	// TombstoneMissingVideo conditionally reconciles a terminal row. It retains
+	// its poster, parts and asset metadata and never authorizes object deletion.
+	TombstoneMissingVideo(ctx context.Context, id int64) (bool, error)
 	// FinalizeDelete is the DB commit marker after object purge: tombstone the
 	// video (recording why via kind) and remove its parts in one transaction so
 	// readers never see a visible row whose part rows were already deleted.

@@ -14,6 +14,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/retention"
+	"github.com/befabri/replayvod/server/internal/service/storagescan"
 )
 
 const (
@@ -21,6 +22,7 @@ const (
 	taskEventSubSnapshot          = "eventsub_snapshot"
 	taskCategoryArtSync           = "category_art_sync"
 	taskCategoryMetadataSync      = "category_metadata_sync"
+	taskStorageScan               = "storage_scan"
 )
 
 type StandardTaskDeps struct {
@@ -28,6 +30,7 @@ type StandardTaskDeps struct {
 	CategoryArt      *categoryart.Service
 	CategoryMetadata *categorymeta.Service
 	Retention        *retention.Service
+	StorageScan      *storagescan.Service
 }
 
 // RegisterStandardTasks wires the default scheduled jobs against a scheduler
@@ -241,6 +244,26 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 					deleted, err := deps.Retention.Sweep(ctx, time.Now())
 					if deleted > 0 {
 						log.Info("recordings retention: deleted expired recordings", "count", deleted)
+					}
+					return err
+				},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	if deps.StorageScan != nil {
+		if m := sc.StorageScanIntervalMinutes; m > 0 {
+			if err := s.Register(Task{
+				Name:            taskStorageScan,
+				Description:     "Tombstone recordings whose media files are gone from storage",
+				IntervalSeconds: int64(m) * 60,
+				Run: func(ctx context.Context) error {
+					report, err := deps.StorageScan.Sweep(ctx)
+					if report.Tombstoned > 0 || report.Partial > 0 {
+						log.Info("storage scan: recordings with missing media",
+							"scanned", report.Scanned, "tombstoned", report.Tombstoned, "partial", report.Partial)
 					}
 					return err
 				},

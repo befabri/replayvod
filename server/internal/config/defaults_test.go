@@ -72,6 +72,7 @@ func TestGetDefaultAppConfig(t *testing.T) {
 			RecordingWebhookDeliveryRetentionDays: 30,
 			SessionCleanupIntervalMinutes:         120,
 			RecordingsRetentionIntervalMinutes:    60,
+			StorageScanIntervalMinutes:            1440,
 		},
 		Logging: LoggingConfig{
 			LogToFile: false,

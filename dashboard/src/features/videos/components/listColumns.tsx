@@ -1,7 +1,8 @@
-import { ImageBrokenIcon } from "@phosphor-icons/react";
+import { FilmSlateIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { TimestampValue } from "@/components/ui/timestamp";
 import { API_URL } from "@/env";
@@ -131,19 +132,31 @@ export function videoListColumns(
 	];
 }
 
-function VideoThumbnail({ video, t }: { video: VideoResponse; t: TFunction }) {
+// VideoThumbnail falls back to the placeholder when a poster's object is gone
+// (a purged thumbnail whose path outlived it, a storage hiccup), so a row with
+// a broken poster looks like one that never had a poster.
+export function VideoThumbnail({
+	video,
+	t,
+}: {
+	video: VideoResponse;
+	t: TFunction;
+}) {
+	const [failedSrc, setFailedSrc] = useState<string | null>(null);
 	const thumbnail = video.thumbnail
 		? `${API_URL}/api/v1/thumbnails/${video.thumbnail.replace(/^thumbnails\//, "")}`
 		: null;
+	const showImage = thumbnail !== null && thumbnail !== failedSrc;
 
 	return (
 		<div className="relative h-16 w-28 overflow-hidden rounded-md bg-muted">
-			{thumbnail ? (
+			{showImage ? (
 				<img
 					src={thumbnail}
 					alt=""
 					className="h-full w-full object-cover"
 					loading="lazy"
+					onError={() => setFailedSrc(thumbnail)}
 				/>
 			) : (
 				<div
@@ -151,7 +164,7 @@ function VideoThumbnail({ video, t }: { video: VideoResponse; t: TFunction }) {
 					role="img"
 					aria-label={t("videos.no_thumbnail")}
 				>
-					<ImageBrokenIcon className="size-5" />
+					<FilmSlateIcon className="size-5" />
 				</div>
 			)}
 			<span className="absolute right-1 bottom-1 rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground">

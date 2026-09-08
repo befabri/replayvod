@@ -331,6 +331,11 @@ type SchedulerConfig struct {
 	// the hour. 0 disables the task (no recording is ever auto-deleted,
 	// regardless of is_delete_rediff).
 	RecordingsRetentionIntervalMinutes int `toml:"recordings_retention_interval_minutes"`
+	// StorageScanIntervalMinutes is how often the storage scan checks that every
+	// finished recording's media is still in storage and tombstones the ones
+	// whose files are gone. 0 disables the scan; playback still tombstones a
+	// recording it finds missing.
+	StorageScanIntervalMinutes int `toml:"storage_scan_interval_minutes"`
 }
 
 type LoggingConfig struct {

@@ -548,6 +548,50 @@ func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Vi
 	return items, nil
 }
 
+const listVideosForStorageScan = `-- name: ListVideosForStorageScan :many
+SELECT videos.id, videos.filename, videos.status FROM videos
+WHERE deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  )
+  AND videos.id > $1::bigint
+ORDER BY videos.id ASC LIMIT $2::int
+`
+
+type ListVideosForStorageScanParams struct {
+	AfterID  int64 `json:"after_id"`
+	PageSize int32 `json:"page_size"`
+}
+
+type ListVideosForStorageScanRow struct {
+	ID       int64  `json:"id"`
+	Filename string `json:"filename"`
+	Status   string `json:"status"`
+}
+
+// Bounded keyset page of terminal recordings safe to reconcile.
+func (q *Queries) ListVideosForStorageScan(ctx context.Context, arg ListVideosForStorageScanParams) ([]ListVideosForStorageScanRow, error) {
+	rows, err := q.db.Query(ctx, listVideosForStorageScan, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVideosForStorageScanRow{}
+	for rows.Next() {
+		var i ListVideosForStorageScanRow
+		if err := rows.Scan(&i.ID, &i.Filename, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
 SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, deletion_kind, delete_requested_at FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
@@ -942,6 +986,7 @@ SET deleted_at = NOW(),
       WHEN delete_requested_at IS NOT NULL THEN 'manual'
       ELSE $2
     END,
+    thumbnail = NULL,
     delete_requested_at = NULL
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -951,7 +996,7 @@ type SoftDeleteVideoParams struct {
 	DeletionKind *string `json:"deletion_kind"`
 }
 
-// Tombstone a recording. deletion_kind records why ('retention' | 'manual').
+// Tombstone a recording after its objects were deleted.
 func (q *Queries) SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error {
 	_, err := q.db.Exec(ctx, softDeleteVideo, arg.ID, arg.DeletionKind)
 	return err
@@ -1077,6 +1122,27 @@ func (q *Queries) StatisticsTotalsByBroadcaster(ctx context.Context, broadcaster
 	var i StatisticsTotalsByBroadcasterRow
 	err := row.Scan(&i.Total, &i.TotalSize, &i.TotalDuration)
 	return i, err
+}
+
+const tombstoneMissingVideo = `-- name: TombstoneMissingVideo :execrows
+UPDATE videos SET deleted_at = NOW(), deletion_kind = 'missing'
+WHERE deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  )
+  AND videos.id = $1
+`
+
+// Preserve objects and their metadata. A concurrent deletion request or state
+// transition wins; discovery must never turn into destructive deletion.
+func (q *Queries) TombstoneMissingVideo(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, tombstoneMissingVideo, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateVideoSelectedVariant = `-- name: UpdateVideoSelectedVariant :exec

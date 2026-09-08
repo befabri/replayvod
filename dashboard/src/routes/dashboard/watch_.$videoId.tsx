@@ -13,6 +13,7 @@ import {
 import { API_URL } from "@/env";
 import {
 	useAudioWaveform,
+	useInvalidateVideo,
 	useMergedTimeline,
 	useUpdateWatchProgress,
 	useVideo,
@@ -105,6 +106,14 @@ function WatchPage() {
 		[id, updateWatchProgress],
 	);
 
+	const invalidateVideo = useInvalidateVideo(id);
+	// The server tombstones a recording whose media it finds gone on the same
+	// 404 the player just hit, so a refetch flips this page into the removed
+	// state instead of leaving the panel up.
+	const handleMediaUnavailable = useCallback(() => {
+		void invalidateVideo();
+	}, [invalidateVideo]);
+
 	const [layout, setLayout] = useLocalStorageState<WatchLayout>(
 		LAYOUT_STORAGE_KEY,
 		"aside",
@@ -137,7 +146,13 @@ function WatchPage() {
 	if (video.deleted_at) {
 		return (
 			<TitledLayout title={video.title?.trim() || video.display_name}>
-				<p className="text-muted-foreground">{translate("watch.removed")}</p>
+				<p className="text-muted-foreground">
+					{translate(
+						video.deletion_kind === "missing"
+							? "watch.removed_missing"
+							: "watch.removed",
+					)}
+				</p>
 				<Link
 					to="/dashboard/activity/history"
 					search={{ filter: "removed" }}
@@ -188,6 +203,30 @@ function WatchPage() {
 						playlist={playlist}
 						initialOffsetSeconds={playerInitialOffsetSeconds}
 						onProgress={handleWatchProgress}
+						onMediaUnavailable={handleMediaUnavailable}
+						unavailableActions={
+							<>
+								{canManage ? (
+									<RemoveVideoButton
+										videoId={video.id}
+										withLabel
+										onRemoved={() =>
+											navigate({
+												to: "/dashboard/videos",
+												search: VIDEOS_LIBRARY_SEARCH,
+											})
+										}
+									/>
+								) : null}
+								<Link
+									to="/dashboard/activity/history"
+									search={{ filter: "removed" }}
+									className="text-xs text-link hover:underline"
+								>
+									{translate("watch.view_history")}
+								</Link>
+							</>
+						}
 						audioWaveform={audioWaveform ?? null}
 						audioWaveformLoading={
 							audioWaveformEnabled &&

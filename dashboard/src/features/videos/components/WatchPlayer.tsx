@@ -30,6 +30,7 @@ import {
 	type KeyboardEvent,
 	type MouseEvent,
 	type PointerEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -38,6 +39,10 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { API_URL } from "@/env";
+import {
+	type MediaFailureKind,
+	MediaUnavailablePanel,
+} from "@/features/videos/components/MediaUnavailablePanel";
 import {
 	TimelineChangeContent,
 	TimelinePartContent,
@@ -48,6 +53,7 @@ import {
 	chapterCuesForRecording,
 	findPartForOffset,
 	globalTimeForPart,
+	probeMediaSource,
 	type RecordingPlaylist,
 	type RecordingPlaylistPart,
 	type RecordingTimelineMarker,
@@ -70,6 +76,7 @@ type CommittedRecordingSeek = {
 
 const WATCH_PROGRESS_SAVE_INTERVAL_MS = 15_000;
 const WATCH_PROGRESS_SAVE_DELTA_SECONDS = 15;
+const MEDIA_LOAD_WATCHDOG_MS = 20_000;
 
 // WatchPlayer wraps Vidstack's MediaPlayer with the app's defaults so
 // the route can pass one recording-level playlist. Multipart recordings
@@ -90,6 +97,8 @@ export function WatchPlayer({
 	playlist,
 	initialOffsetSeconds,
 	onProgress,
+	onMediaUnavailable,
+	unavailableActions,
 }: {
 	audioWaveform?: { peaks: number[] } | null;
 	audioWaveformLoading?: boolean;
@@ -100,6 +109,8 @@ export function WatchPlayer({
 		completed: boolean,
 		observedAtMs: number,
 	) => void;
+	onMediaUnavailable?: (kind: "gone" | "removed") => void;
+	unavailableActions?: ReactNode;
 }) {
 	const isCrossOrigin = !!API_URL;
 	const playerRef = useRef<MediaPlayerInstance>(null);
@@ -137,6 +148,11 @@ export function WatchPlayer({
 	const [partPosition, setPartPosition] = useState(0);
 	const [globalTime, setGlobalTime] = useState(0);
 	const [forcePartSequencer, setForcePartSequencer] = useState(false);
+	const [mediaFailure, setMediaFailure] = useState<MediaFailureKind | null>(
+		null,
+	);
+	// Bumped by Retry so the media element remounts and reloads its source.
+	const [reloadNonce, setReloadNonce] = useState(0);
 	const [audioMuted, setAudioMuted] = useState(false);
 	const [audioPaused, setAudioPaused] = useState(true);
 	const [audioPlaybackRate, setAudioPlaybackRate] = useState(1);
@@ -347,6 +363,7 @@ export function WatchPlayer({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset local playback state when the playlist identity changes.
 	useEffect(() => {
 		setForcePartSequencer(false);
+		setMediaFailure(null);
 		setPartPosition(0);
 		setGlobalTime(0);
 		setAudioMuted(false);
@@ -597,10 +614,84 @@ export function WatchPlayer({
 		setAudioPlaybackRate(audio.playbackRate);
 	}, []);
 
+	// Each source load owns a cancellable probe. Retry and source changes create
+	// a new generation, so an old HEAD can never replace a newer player.
+	const probeRef = useRef<AbortController | null>(null);
+	const probeGeneration = useRef(0);
+	const unavailableCallback = useRef(onMediaUnavailable);
+	useEffect(() => {
+		unavailableCallback.current = onMediaUnavailable;
+	}, [onMediaUnavailable]);
+	useEffect(() => {
+		probeGeneration.current++;
+		probeRef.current?.abort();
+		probeRef.current = null;
+		setMediaFailure(null);
+		return () => {
+			probeGeneration.current++;
+			probeRef.current?.abort();
+			probeRef.current = null;
+		};
+	}, [currentSourceKey, reloadNonce]);
+	const reportMediaFailure = useCallback(() => {
+		const src = currentSourceKey;
+		if (!src || probeRef.current) return;
+		const controller = new AbortController();
+		probeRef.current = controller;
+		const generation = probeGeneration.current;
+		void probeMediaSource(src, fetch, controller.signal).then((result) => {
+			if (controller.signal.aborted || generation !== probeGeneration.current)
+				return;
+			probeRef.current = null;
+			const kind = result === "ok" ? "failed" : result;
+			setMediaFailure(kind);
+			if (kind !== "failed") unavailableCallback.current?.(kind);
+		});
+	}, [currentSourceKey]);
+	useEffect(() => {
+		const src = currentSourceKey;
+		if (!src || mediaFailure) return;
+		const timer = window.setTimeout(() => {
+			if (readySourceKeyRef.current !== src) reportMediaFailure();
+		}, MEDIA_LOAD_WATCHDOG_MS);
+		return () => window.clearTimeout(timer);
+	}, [currentSourceKey, mediaFailure, reloadNonce, reportMediaFailure]);
+
+	const retryMedia = useCallback(() => {
+		probeGeneration.current++;
+		probeRef.current?.abort();
+		probeRef.current = null;
+		// Reload the same source and land back where the viewer was; the
+		// remounted element applies the pending seek once it can play.
+		pendingSeekRef.current = {
+			localSeconds: usesContinuousSource
+				? canonicalToPlayerTime(
+						globalTime,
+						playlist.totalDurationSeconds,
+						continuousDurationSeconds,
+					)
+				: Math.max(0, globalTime - (currentPart?.startSeconds ?? 0)),
+			playbackRate: 1,
+			resume: false,
+		};
+		readySourceKeyRef.current = undefined;
+		setMediaFailure(null);
+		setReloadNonce((nonce) => nonce + 1);
+	}, [
+		continuousDurationSeconds,
+		currentPart,
+		globalTime,
+		playlist.totalDurationSeconds,
+		usesContinuousSource,
+	]);
+
 	if (!currentPart || !currentSource) return null;
 
 	function handleError() {
-		if (!usesContinuousSource || playlist.parts.length <= 1) return;
+		if (!usesContinuousSource || playlist.parts.length <= 1) {
+			reportMediaFailure();
+			return;
+		}
 		const player = isAudioSource ? audioRef.current : playerRef.current;
 		// player.currentTime is on the muxed clock; bring it back to the recording
 		// timeline before locating the part to resume from.
@@ -670,6 +761,17 @@ export function WatchPlayer({
 		</MediaProvider>
 	);
 
+	if (mediaFailure) {
+		return (
+			<MediaUnavailablePanel
+				kind={mediaFailure}
+				onRetry={retryMedia}
+				actions={unavailableActions}
+				compact={isAudioSource}
+			/>
+		);
+	}
+
 	if (isAudioSource) {
 		return (
 			<section
@@ -678,6 +780,7 @@ export function WatchPlayer({
 			>
 				{/* biome-ignore lint/a11y/useMediaCaption: Archived audio-only recordings do not have caption tracks. */}
 				<audio
+					key={reloadNonce}
 					ref={audioRef}
 					src={currentSourceKey}
 					crossOrigin={isCrossOrigin ? "use-credentials" : undefined}
@@ -736,6 +839,7 @@ export function WatchPlayer({
 
 	return (
 		<MediaPlayer
+			key={reloadNonce}
 			ref={playerRef}
 			src={currentSource}
 			title={playlist.title}

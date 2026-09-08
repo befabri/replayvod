@@ -258,6 +258,9 @@ func (s *Service) ProcessManualDeletes(ctx context.Context) (int, error) {
 // manual-delete handler passes the row it fetched for its precheck, so the purge
 // never issues a redundant read.
 func (s *Service) DeleteRecording(ctx context.Context, v *repository.Video, kind string) error {
+	if kind == repository.DeletionKindMissing {
+		return fmt.Errorf("missing media must be reconciled without deleting objects")
+	}
 	parts, err := s.repo.ListVideoParts(ctx, v.ID)
 	if err != nil {
 		return fmt.Errorf("list parts: %w", err)

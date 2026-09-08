@@ -1,9 +1,10 @@
 // Package storage provides a backend-agnostic object store for video files
 // and thumbnails. The Storage interface has one implementation per backend
-// (local FS; S3-compatible for remote). Operators who want to push recordings
-// to non-S3 targets (Google Drive, SFTP, Backblaze, etc.) run an external
-// rclone sync/move against the local VideoDir — the app itself stays focused
-// on record → store, not on archival tiering.
+// (local FS; S3-compatible for remote). Operators who want a copy of their
+// recordings on a non-S3 target (Google Drive, SFTP, Backblaze, etc.) run an
+// external rclone copy or sync from the local data directory. Media moved out
+// of that directory reads as missing to the storage scan, which tombstones the
+// recording.
 package storage
 
 import (
@@ -44,4 +45,13 @@ type Storage interface {
 	// Stat returns metadata for path. Returns an os.ErrNotExist-compatible
 	// error when the object is missing.
 	Stat(ctx context.Context, path string) (FileInfo, error)
+}
+
+// RootProber is implemented by backends that can check their root location is
+// reachable. The storage scan tombstones nothing while the probe fails, so a
+// failed probe cannot read as a vanished library. A successful reachability
+// probe does not authenticate the configured storage location. Backends without
+// this capability cannot automatically tombstone recordings.
+type RootProber interface {
+	ProbeRoot(ctx context.Context) error
 }

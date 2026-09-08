@@ -12,6 +12,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/befabri/replayvod/server/internal/database"
@@ -33,7 +34,12 @@ func newMigrationDB(t *testing.T, backend string) migrationDB {
 	t.Helper()
 	if backend == "postgres" {
 		pool := testdb.NewUnmigratedPGPool(t)
-		db := stdlib.OpenDBFromPool(pool)
+		// Assertions deliberately query several schema versions in one process.
+		// Describe each query afresh: SELECT * changes shape across migrations,
+		// whereas a real application restart starts with an empty plan cache.
+		config := pool.Config().ConnConfig.Copy()
+		config.DefaultQueryExecMode = pgx.QueryExecModeDescribeExec
+		db := stdlib.OpenDB(*config)
 		t.Cleanup(func() { _ = db.Close() })
 		return migrationDB{db, pgadapter.New(pool), migrations.Postgres(), func(ctx context.Context, files fs.FS) error {
 			return database.MigratePostgres(ctx, pool, files)
@@ -442,6 +448,35 @@ func assertMigrationTablesUnchanged(t *testing.T, db *sql.DB, before map[string]
 			t.Errorf("migration changed existing %s data:\nbefore: %v\nafter:  %v", table, snapshot.rows, after.rows)
 		}
 	}
+}
+
+// expectMigrationValue changes one expected cell, keeping every other column
+// and row in the preservation assertion. IDs in both SQL drivers are int64.
+func expectMigrationValue(t *testing.T, snapshots map[string]migrationTableSnapshot, table string, id int64, column string, value any) {
+	t.Helper()
+	snapshot, ok := snapshots[table]
+	if !ok {
+		t.Fatalf("no snapshot for %s", table)
+	}
+	idColumn, valueColumn := -1, -1
+	for i, name := range snapshot.columns {
+		if name == "id" {
+			idColumn = i
+		}
+		if name == column {
+			valueColumn = i
+		}
+	}
+	if idColumn < 0 || valueColumn < 0 {
+		t.Fatalf("snapshot %s lacks id or %s", table, column)
+	}
+	for _, row := range snapshot.rows {
+		if row[idColumn] == id {
+			row[valueColumn] = value
+			return
+		}
+	}
+	t.Fatalf("snapshot %s has no row %d", table, id)
 }
 
 func assertMigrationLedgerPreserved(t *testing.T, db *sql.DB, before migrationTableSnapshot) {

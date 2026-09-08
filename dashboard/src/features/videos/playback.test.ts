@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TimelineEvent, VideoResponse } from "@/api/generated/trpc";
 import {
 	buildPlaylistParts,
@@ -8,6 +8,7 @@ import {
 	chapterCuesForRecording,
 	continuousSourceForVideo,
 	findPartForOffset,
+	probeMediaSource,
 } from "./playback";
 
 describe("buildPlaylistParts", () => {
@@ -401,3 +402,45 @@ function event(partial: Partial<TimelineEvent>): TimelineEvent {
 		...partial,
 	};
 }
+
+describe("probeMediaSource", () => {
+	const src = "https://api.example/api/v1/videos/7/parts/1/stream";
+	const answering = (status: number) =>
+		vi.fn(
+			async () => ({ ok: status >= 200 && status < 300, status }) as Response,
+		);
+
+	it("sends a credentialed HEAD so the status comes from the stream route itself", async () => {
+		const fetchImpl = answering(200);
+
+		await probeMediaSource(src, fetchImpl);
+
+		expect(fetchImpl).toHaveBeenCalledWith(src, {
+			method: "HEAD",
+			credentials: "include",
+			cache: "no-store",
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	it.each([
+		[200, "ok"],
+		[206, "ok"],
+		[404, "gone"],
+		[410, "removed"],
+		[401, "failed"],
+		[503, "failed"],
+	] as const)("maps status %d to %s", async (status, expected) => {
+		expect(await probeMediaSource(src, answering(status))).toBe(expected);
+	});
+
+	it("reports a rejected fetch as a transient failure, never as gone", async () => {
+		// A CORS-blocked response reaches here as a TypeError with no status,
+		// the same shape as a dropped connection.
+		const fetchImpl = vi.fn(async () => {
+			throw new TypeError("Failed to fetch");
+		});
+
+		expect(await probeMediaSource(src, fetchImpl)).toBe("failed");
+	});
+});

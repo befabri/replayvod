@@ -9,6 +9,7 @@ export {
 	useInfiniteVideoPages,
 	useInfiniteVideosByBroadcaster,
 	useInfiniteVideosByCategory,
+	useInvalidateVideo,
 	useLiveActiveDownloads,
 	useMergedTimeline,
 	useSetWatchLater,

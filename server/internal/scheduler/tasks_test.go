@@ -19,6 +19,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/retention"
+	"github.com/befabri/replayvod/server/internal/service/storagescan"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/twitch"
@@ -88,6 +89,17 @@ func retentionService(t *testing.T) *retention.Service {
 		t.Fatalf("local storage: %v", err)
 	}
 	return retention.New(repo, store, log)
+}
+
+func storageScanService(t *testing.T) *storagescan.Service {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	_, repo := newTestScheduler(t)
+	store, err := storage.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("local storage: %v", err)
+	}
+	return storagescan.New(repo, store, log)
 }
 
 // TestRetentionCutoff pins the day-subtraction every daily retention task
@@ -242,6 +254,7 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 				CategoryArtIntervalMinutes:            45,
 				CategoryMetadataIntervalMinutes:       75,
 				RecordingsRetentionIntervalMinutes:    30,
+				StorageScanIntervalMinutes:            20,
 			},
 		},
 		ServerMode: config.ServerModeConfig{Mode: config.ServerModeDirect},
@@ -252,6 +265,7 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 		CategoryArt:      categoryArtService(t),
 		CategoryMetadata: categoryMetadataService(t),
 		Retention:        retentionService(t),
+		StorageScan:      storageScanService(t),
 	})
 	want := map[string]int64{
 		"app_token_cleanup":                      60 * 60,
@@ -272,6 +286,9 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 		// 30 min → 1800s, a poll cadence derived from the field (not a
 		// retention-day count), distinct from every other value above.
 		"recordings_retention": 30 * 60,
+		// 20 min: a cadence distinct from the daily production default, so a
+		// wire handing storage_scan the daily constant would be caught.
+		taskStorageScan: 20 * 60,
 	}
 	assertExactTasks(t, got, want)
 }

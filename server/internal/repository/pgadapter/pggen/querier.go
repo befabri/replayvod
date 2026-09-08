@@ -297,6 +297,8 @@ type Querier interface {
 	ListVideosByBroadcasterPage(ctx context.Context, arg ListVideosByBroadcasterPageParams) ([]Video, error)
 	ListVideosByCategoryPage(ctx context.Context, arg ListVideosByCategoryPageParams) ([]Video, error)
 	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
+	// Bounded keyset page of terminal recordings safe to reconcile.
+	ListVideosForStorageScan(ctx context.Context, arg ListVideosForStorageScanParams) ([]ListVideosForStorageScanRow, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	// Operator-requested deletions that are safe for the background worker to
 	// finalize. The webhook frozen-parts guard mirrors retention: do not delete
@@ -401,7 +403,7 @@ type Querier interface {
 	SetTaskNextRun(ctx context.Context, name string) (Task, error)
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
 	SetVideoWatchLater(ctx context.Context, arg SetVideoWatchLaterParams) (VideoUserState, error)
-	// Tombstone a recording. deletion_kind records why ('retention' | 'manual').
+	// Tombstone a recording after its objects were deleted.
 	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
 	// Library-wide rollups. Total / size / duration restrict to DONE rows
@@ -415,6 +417,9 @@ type Querier interface {
 	// channel name without paginating the full library client-side.
 	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
+	// Preserve objects and their metadata. A concurrent deletion request or state
+	// transition wins; discovery must never turn into destructive deletion.
+	TombstoneMissingVideo(ctx context.Context, id int64) (int64, error)
 	TouchCategorySearchCache(ctx context.Context, arg TouchCategorySearchCacheParams) error
 	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error

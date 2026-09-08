@@ -1384,3 +1384,12 @@ func TestSweep_FinalizeFailureConverges(t *testing.T) {
 		t.Fatalf("video not tombstoned after convergent retry")
 	}
 }
+
+func TestDeleteRecording_RejectsMissingKindBeforeStorageAccess(t *testing.T) {
+	// A discovery path must never enter destructive cleanup, even with a stale
+	// video snapshot. Nil dependencies make accidental storage or DB use fail.
+	s := &Service{}
+	if err := s.DeleteRecording(t.Context(), &repository.Video{ID: 1}, repository.DeletionKindMissing); err == nil {
+		t.Fatal("missing-media discovery authorized object deletion")
+	}
+}

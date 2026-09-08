@@ -261,6 +261,8 @@ type Querier interface {
 	ListVideosByBroadcasterPage(ctx context.Context, arg ListVideosByBroadcasterPageParams) ([]Video, error)
 	ListVideosByCategoryPage(ctx context.Context, arg ListVideosByCategoryPageParams) ([]Video, error)
 	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
+	// Bounded keyset page of terminal recordings safe to reconcile.
+	ListVideosForStorageScan(ctx context.Context, arg ListVideosForStorageScanParams) ([]ListVideosForStorageScanRow, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	// Operator-requested deletions that are safe for the background worker to
 	// finalize. The webhook frozen-parts guard mirrors retention: do not delete
@@ -346,7 +348,7 @@ type Querier interface {
 	SetTaskNextRun(ctx context.Context, name string) (Task, error)
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error
 	SetVideoWatchLater(ctx context.Context, arg SetVideoWatchLaterParams) (VideoUserState, error)
-	// Tombstone a recording. deletion_kind records why ('retention' | 'manual').
+	// See postgres/videos.sql SoftDeleteVideo.
 	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
 	StatisticsChannels(ctx context.Context) (int64, error)
@@ -356,7 +358,7 @@ type Querier interface {
 	StatisticsThisWeek(ctx context.Context) (int64, error)
 	// Per-channel rollup of finished recordings: count + summed bytes +
 	// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
-	// so the watch page can render a "N recordings · X GB" line under the
+	// so the watch page can render a "N recordings / X GB" line under the
 	// channel name without paginating the full library client-side.
 	// sqlc-sqlite v1.30 can truncate the final byte of this generated
 	// const, so keep a tautology after the meaningful NULL predicate.
@@ -374,6 +376,9 @@ type Querier interface {
 	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
 	// between 0/1 explicitly via CASE for clarity on non-boolean-ish values.
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
+	// Preserve objects and their metadata. A concurrent deletion request or state
+	// transition wins; discovery must never turn into destructive deletion.
+	TombstoneMissingVideo(ctx context.Context, id int64) (int64, error)
 	TouchCategorySearchCache(ctx context.Context, arg TouchCategorySearchCacheParams) error
 	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	UnfollowChannel(ctx context.Context, arg UnfollowChannelParams) error

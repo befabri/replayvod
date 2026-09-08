@@ -365,3 +365,32 @@ function lastMarkerAtOrBefore(
 	}
 	return current;
 }
+
+export type MediaProbeResult = "ok" | "gone" | "removed" | "failed";
+
+// probeMediaSource asks the server what happened to a source the media element
+// refused to play. The element itself never exposes the HTTP status, so a HEAD
+// request tells a file that left storage (404) and a removed recording (410)
+// apart from a transient failure worth retrying.
+export async function probeMediaSource(
+	src: string,
+	fetchImpl: typeof fetch = fetch,
+	signal?: AbortSignal,
+): Promise<MediaProbeResult> {
+	try {
+		const response = await fetchImpl(src, {
+			method: "HEAD",
+			credentials: "include",
+			cache: "no-store",
+			signal: signal
+				? AbortSignal.any([signal, AbortSignal.timeout(5_000)])
+				: AbortSignal.timeout(5_000),
+		});
+		if (response.ok) return "ok";
+		if (response.status === 404) return "gone";
+		if (response.status === 410) return "removed";
+		return "failed";
+	} catch {
+		return "failed";
+	}
+}

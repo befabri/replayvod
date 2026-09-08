@@ -206,13 +206,14 @@ WHERE id = $1
 RETURNING *;
 
 -- name: SoftDeleteVideo :exec
--- Tombstone a recording. deletion_kind records why ('retention' | 'manual').
+-- Tombstone a recording after its objects were deleted.
 UPDATE videos
 SET deleted_at = NOW(),
     deletion_kind = CASE
       WHEN delete_requested_at IS NOT NULL THEN 'manual'
       ELSE $2
     END,
+    thumbnail = NULL,
     delete_requested_at = NULL
 WHERE id = $1 AND deleted_at IS NULL;
 
@@ -318,3 +319,27 @@ SELECT
     COALESCE(SUM(duration_seconds), 0)::DOUBLE PRECISION AS total_duration
 FROM videos
 WHERE broadcaster_id = $1 AND status = 'DONE' AND deleted_at IS NULL;
+
+-- name: ListVideosForStorageScan :many
+-- Bounded keyset page of terminal recordings safe to reconcile.
+SELECT videos.id, videos.filename, videos.status FROM videos
+WHERE deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  )
+  AND videos.id > @after_id::bigint
+ORDER BY videos.id ASC LIMIT @page_size::int;
+
+-- name: TombstoneMissingVideo :execrows
+-- Preserve objects and their metadata. A concurrent deletion request or state
+-- transition wins; discovery must never turn into destructive deletion.
+UPDATE videos SET deleted_at = NOW(), deletion_kind = 'missing'
+WHERE deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  )
+  AND videos.id = $1;

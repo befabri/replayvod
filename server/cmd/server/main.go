@@ -27,13 +27,13 @@ import (
 	"github.com/befabri/replayvod/server/internal/scheduler"
 	"github.com/befabri/replayvod/server/internal/secrets"
 	"github.com/befabri/replayvod/server/internal/server"
+	"github.com/befabri/replayvod/server/internal/server/api"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
 	"github.com/befabri/replayvod/server/internal/service/categorymeta"
 	"github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 	"github.com/befabri/replayvod/server/internal/service/livepoll"
 	"github.com/befabri/replayvod/server/internal/service/playbackcache"
-	"github.com/befabri/replayvod/server/internal/service/retention"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -294,7 +294,8 @@ func main() {
 	eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
 
 	log.Info("Server starting", "address", cfg.GetAddress(), "database", cfg.Env.DatabaseDriver)
-	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, eventProcessor, webhookDispatcher, playbackCache, log)
+	recordings := api.NewRecordingServices(cfg, repo, store, log)
+	srv := server.NewServer(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, bus, eventProcessor, webhookDispatcher, playbackCache, log, recordings)
 	serverReady := make(chan error, 1)
 	go srv.Start(serverReady)
 	if err := <-serverReady; err != nil {
@@ -394,12 +395,12 @@ func main() {
 			esvc = eventsubSvc
 		}
 		sched = scheduler.NewService(repo, log, 15*time.Second, bus)
-		retentionSvc := retention.New(repo, store, log)
 		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, scheduler.StandardTaskDeps{
 			EventSub:         esvc,
 			CategoryArt:      artSvc,
 			CategoryMetadata: categoryMetaSvc,
-			Retention:        retentionSvc,
+			Retention:        recordings.Retention,
+			StorageScan:      recordings.StorageScan,
 		}, log); err != nil {
 			log.Error("Failed to register scheduler tasks", "error", err)
 			shutdown(1)

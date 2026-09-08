@@ -381,8 +381,9 @@ type Video struct {
 	// and finalizes the tombstone.
 	DeleteRequestedAt *time.Time
 	// DeletionKind records why a tombstoned recording was removed:
-	// "retention" (auto-pruned by the schedule retention sweep) or
-	// "manual" (an operator removed it). Nil while DeletedAt is nil.
+	// "retention" (auto-pruned by the schedule retention sweep), "manual" (an
+	// operator removed it) or "missing" (its media was gone from storage). Nil
+	// while DeletedAt is nil.
 	DeletionKind  *string
 	RecordingType string
 	ForceH264     bool
@@ -426,6 +427,9 @@ const (
 const (
 	DeletionKindRetention = "retention"
 	DeletionKindManual    = "manual"
+	// DeletionKindMissing marks media that left storage behind ReplayVOD's back;
+	// the storage scan or a playback 404 tombstoned the row.
+	DeletionKindMissing = "missing"
 )
 
 // MaxRetentionWindowHours is the largest time_before_delete value that can be
@@ -766,6 +770,15 @@ type RetentionVideo struct {
 	BroadcasterID        string
 	DownloadedAt         *time.Time
 	RetentionWindowHours *int64
+}
+
+// StorageScanVideo is a live terminal recording the storage scan checks for
+// media. Status tells the scan whether a zero-part row is a legacy single file
+// (DONE) or a failure that never wrote media (FAILED).
+type StorageScanVideo struct {
+	VideoID  int64
+	Filename string
+	Status   string
 }
 
 // ListVideosOpts is the filter+sort payload for ListVideos. Empty Status

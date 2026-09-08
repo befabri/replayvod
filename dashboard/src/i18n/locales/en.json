@@ -326,6 +326,15 @@
 		"remove_confirm": "Remove"
 	},
 	"watch": {
+		"removed_missing": "This recording's files are no longer in storage, so it was removed from the library.",
+		"media_gone_title": "This file is no longer in storage.",
+		"media_gone_body": "The recording's media was deleted or moved outside ReplayVOD. Remove it to clean up its history entry, or retry if storage is back.",
+		"media_removed_title": "This recording was removed.",
+		"media_removed_body": "Its files are no longer available.",
+		"media_failed_title": "Playback failed.",
+		"media_failed_body": "The media could not be loaded. Check your connection and retry.",
+		"retry": "Retry",
+		"view_history": "View history",
 		"not_ready": "This video is not ready to play (status: {{status}}).",
 		"removed": "This recording has been removed and its files are no longer available.",
 		"back_to_videos": "← Back to videos",

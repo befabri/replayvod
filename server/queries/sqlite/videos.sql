@@ -212,13 +212,14 @@ WHERE id = ?
 RETURNING *;
 
 -- name: SoftDeleteVideo :exec
--- Tombstone a recording. deletion_kind records why ('retention' | 'manual').
+-- See postgres/videos.sql SoftDeleteVideo.
 UPDATE videos
 SET deleted_at = datetime('now'),
     deletion_kind = CASE
       WHEN delete_requested_at IS NOT NULL THEN 'manual'
       ELSE ?2
     END,
+    thumbnail = NULL,
     delete_requested_at = NULL
 WHERE id = ?1 AND deleted_at IS NULL;
 
@@ -334,7 +335,7 @@ WHERE v.deleted_at IS NULL
 -- name: StatisticsTotalsByBroadcaster :one
 -- Per-channel rollup of finished recordings: count + summed bytes +
 -- summed duration. Mirrors StatisticsTotals scoped to one broadcaster
--- so the watch page can render a "N recordings · X GB" line under the
+-- so the watch page can render a "N recordings / X GB" line under the
 -- channel name without paginating the full library client-side.
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,
@@ -345,3 +346,27 @@ FROM videos
 -- const, so keep a tautology after the meaningful NULL predicate.
 WHERE broadcaster_id = ? AND status = 'DONE' AND deleted_at IS NULL
   AND 1 = 1.00;
+
+-- name: ListVideosForStorageScan :many
+-- Bounded keyset page of terminal recordings safe to reconcile.
+SELECT videos.id, videos.filename, videos.status FROM videos
+WHERE deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  )
+  AND videos.id > CAST(@after_id AS INTEGER)
+ORDER BY videos.id ASC LIMIT CAST(@page_size AS INTEGER);
+
+-- name: TombstoneMissingVideo :execrows
+-- Preserve objects and their metadata. A concurrent deletion request or state
+-- transition wins; discovery must never turn into destructive deletion.
+UPDATE videos SET deleted_at = datetime('now'), deletion_kind = 'missing'
+WHERE deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+  )
+  AND videos.id = ?;

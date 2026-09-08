@@ -52,6 +52,9 @@ token_cleanup_interval_minutes = 60
 # window (time_before_delete, in hours). This is a poll cadence, not a
 # retention window. 0 disables auto-delete entirely.
 recordings_retention_interval_minutes = 60
+# How often to check that every finished recording's media is still in
+# storage and tombstone the ones whose files are gone. 0 disables the scan.
+storage_scan_interval_minutes = 1440
 # Prune terminal (delivered/rejected/failed) rows from the recording-webhook
 # delivery outbox older than this many days. Queued/in-flight rows are never
 # pruned. 0 disables the sweep (the table then grows unbounded).

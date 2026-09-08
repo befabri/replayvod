@@ -117,6 +117,10 @@ func Run(t *testing.T, newHarness Factory) {
 	// errors
 	run("NotFound_OnMissingGet", testNotFoundOnMissingGet)
 
+	// videos
+	run("Video_ListForStorageScan", testListVideosForStorageScan)
+	run("Video_SoftDeleteThumbnail", testSoftDeleteVideoThumbnail)
+
 	// playback assets
 	run("PlaybackAsset_ReadyToFailedTransition", testPlaybackAssetReadyToFailedTransition)
 	run("PlaybackAsset_ListReadyLRUOrder", testPlaybackAssetListReadyLRUOrder)

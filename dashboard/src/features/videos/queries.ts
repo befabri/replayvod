@@ -6,7 +6,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type {
 	ActiveDownloadResponse,
 	SetWatchLaterInput,
@@ -572,4 +572,21 @@ function findVideoInCachedData(
 		if (found) return found;
 	}
 	return undefined;
+}
+
+// useInvalidateVideo refetches one recording and every list it appears in.
+// The watch page calls it when the player finds the media gone: the server
+// tombstones such a recording before answering that 404, so the refetch flips
+// the page into its removed state and drops the row from the library.
+export function useInvalidateVideo(id: number) {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	return useCallback(() => {
+		// Build descriptors when invalidating so their fresh identity never
+		// becomes a dependency of the callback returned to the watch page.
+		invalidateCaches(queryClient, videoCaches(trpc), VIDEO_LIST_CACHES);
+		return queryClient.invalidateQueries({
+			queryKey: trpc.video.getById.queryKey({ id }),
+		});
+	}, [id, queryClient, trpc]);
 }

@@ -389,3 +389,12 @@ var (
 	_ io.ReadSeekCloser = (*s3ReadSeeker)(nil)
 	_                   = bytes.NewReader // avoid unused import if above patterns change
 )
+
+// ProbeRoot issues a HeadBucket so a missing or inaccessible bucket is reported
+// before any object is judged missing.
+func (s *S3Storage) ProbeRoot(ctx context.Context) error {
+	if _, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(s.bucket)}); err != nil {
+		return fmt.Errorf("storage root unreachable: s3 head bucket %s: %w", s.bucket, err)
+	}
+	return nil
+}

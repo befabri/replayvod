@@ -7,10 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type LocalStorage struct {
-	Root string
+	Root           string
+	probeMu        sync.Mutex
+	rootIdentity   os.FileInfo
+	videosIdentity os.FileInfo
 }
 
 func NewLocal(dir string) (*LocalStorage, error) {
@@ -21,7 +25,12 @@ func NewLocal(dir string) (*LocalStorage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("abs storage root: %w", err)
 	}
-	return &LocalStorage{Root: abs}, nil
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	videos, _ := os.Stat(filepath.Join(abs, "videos"))
+	return &LocalStorage{Root: abs, rootIdentity: info, videosIdentity: videos}, nil
 }
 
 // resolve maps a forward-slash relative path to an absolute local path and
@@ -158,4 +167,36 @@ func copyContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, erro
 			return total, err
 		}
 	}
+}
+
+// ProbeRoot checks reachability and detects a root or media-directory replacement
+// during this process. It cannot authenticate a mount chosen before startup;
+// the scanner's mass-missing guard is still required.
+func (s *LocalStorage) ProbeRoot(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	for i, dir := range []string{s.Root, filepath.Join(s.Root, "videos")} {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		info, err := os.Stat(dir)
+		if err != nil {
+			return fmt.Errorf("storage root unreachable: %w", err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("storage root unreachable: %s is not a directory", dir)
+		}
+		identity := &s.rootIdentity
+		if i == 1 {
+			identity = &s.videosIdentity
+		}
+		if *identity != nil && !os.SameFile(*identity, info) {
+			return fmt.Errorf("storage directory changed: %s", dir)
+		}
+		*identity = info
+	}
+	return ctx.Err()
 }
