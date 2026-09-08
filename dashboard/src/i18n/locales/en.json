@@ -145,6 +145,7 @@
 		"no_results": "No results found"
 	},
 	"dashboard": {
+		"continue_watching": "Continue watching",
 		"running_now": "Running now",
 		"active_count": "{{count}} active",
 		"active_capacity": "{{active}}/{{max}} active",
@@ -211,6 +212,7 @@
 		"not_found_description": "The page you're looking for doesn't exist."
 	},
 	"videos": {
+		"resume_progress": "Resume at {{time}}",
 		"quality_1440": "1440p (maximum)",
 		"quality_best": "Best available",
 		"title": "Videos",
@@ -220,6 +222,8 @@
 		"failed_to_load": "Failed to load videos",
 		"not_found": "Video not found.",
 		"watch_recording": "Watch {{title}}",
+		"open_downloads": "See the download of {{title}}",
+		"open_history": "See why {{title}} failed",
 		"summary": "{{count}} recordings · {{size}} · {{channels}} channels",
 		"showing": "Showing {{shown}} of {{total}}",
 		"showing_loaded": "Showing {{shown}} of {{loaded}} loaded",
@@ -366,11 +370,14 @@
 		"remove": "Remove",
 		"remove_confirm_title": "Remove recording?",
 		"remove_confirm_body": "This permanently deletes the recording's files. It stays in History as removed.",
-		"remove_confirm": "Remove",
-		"open_downloads": "See the download of {{title}}",
-		"open_history": "See why {{title}} failed"
+		"remove_confirm": "Remove"
 	},
 	"watch": {
+		"resumed_from": "Resumed from {{time}}",
+		"start_over": "Start over",
+		"dismiss_resume": "Dismiss",
+		"not_ready": "This video is not ready to play (status: {{status}}).",
+		"removed": "This recording has been removed and its files are no longer available.",
 		"removed_missing": "This recording's files are no longer in storage, so it was removed from the library.",
 		"media_gone_title": "This file is no longer in storage.",
 		"media_gone_body": "The recording's media was deleted or moved outside ReplayVOD. Remove it to clean up its history entry, or retry if storage is back.",
@@ -380,8 +387,6 @@
 		"media_failed_body": "The media could not be loaded. Check your connection and retry.",
 		"retry": "Retry",
 		"view_history": "View history",
-		"not_ready": "This video is not ready to play (status: {{status}}).",
-		"removed": "This recording has been removed and its files are no longer available.",
 		"back_to_videos": "← Back to videos",
 		"back_to_history": "← Back to history",
 		"layout_aside": "History aside",

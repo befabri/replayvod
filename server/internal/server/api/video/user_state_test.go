@@ -18,7 +18,9 @@ type fakeVideoStateRepo struct {
 	getCalls      int
 	setCalls      int
 	progressCalls int
-	observedAtMs  int64
+	progressAt    time.Time
+	continueCalls int
+	continueLimit int
 }
 
 func (r *fakeVideoStateRepo) GetVideo(_ context.Context, id int64) (*repository.Video, error) {
@@ -44,26 +46,47 @@ func (r *fakeVideoStateRepo) SetVideoWatchLater(_ context.Context, userID string
 	}, nil
 }
 
-func (r *fakeVideoStateRepo) UpdateVideoWatchProgress(_ context.Context, userID string, videoID int64, positionSeconds float64, completed bool, observedAtMs int64) (*repository.VideoUserState, error) {
+func (r *fakeVideoStateRepo) UpdateVideoWatchProgress(_ context.Context, userID string, videoID int64, positionSeconds float64, completed bool, at time.Time) (*repository.VideoUserState, error) {
 	if r.video == nil || r.video.ID != videoID || r.video.DeletedAt != nil || r.video.Status != repository.VideoStatusDone {
 		return nil, repository.ErrNotFound
 	}
 	r.progressCalls++
-	r.observedAtMs = observedAtMs
-	now := time.Now()
+	r.progressAt = at
+	progressAtMs := at.UnixMilli()
 	state := &repository.VideoUserState{
 		UserID:              userID,
 		VideoID:             videoID,
 		LastPositionSeconds: positionSeconds,
-		LastProgressAtMs:    &observedAtMs,
-		WatchedAt:           &now,
-		CreatedAt:           now,
-		UpdatedAt:           now,
+		LastProgressAtMs:    &progressAtMs,
+		WatchedAt:           &at,
+		CreatedAt:           at,
+		UpdatedAt:           at,
 	}
 	if completed {
-		state.CompletedAt = &now
+		state.CompletedAt = &at
 	}
 	return state, nil
+}
+
+func (r *fakeVideoStateRepo) ListContinueWatchingVideos(_ context.Context, _ string, limit int) ([]repository.Video, error) {
+	r.continueCalls++
+	r.continueLimit = limit
+	if r.video == nil {
+		return nil, nil
+	}
+	return []repository.Video{*r.video}, nil
+}
+
+func (r *fakeVideoStateRepo) ListVideoUserStatesForVideos(_ context.Context, _ string, _ []int64) ([]repository.VideoUserState, error) {
+	return nil, nil
+}
+
+func (r *fakeVideoStateRepo) ListChannelsByIDs(_ context.Context, _ []string) ([]repository.Channel, error) {
+	return nil, nil
+}
+
+func (r *fakeVideoStateRepo) ListPrimaryCategoriesForVideos(_ context.Context, _ []int64) (map[int64]repository.Category, error) {
+	return nil, nil
 }
 
 func TestVideoUserStateMutationsValidateVideo(t *testing.T) {
@@ -118,7 +141,6 @@ func TestVideoUserStateMutationsValidateVideo(t *testing.T) {
 		_, err := h.UpdateWatchProgress(ctx, UpdateWatchProgressInput{
 			VideoID:         7,
 			PositionSeconds: 12,
-			ObservedAtMs:    1234,
 		})
 		assertTRPCCode(t, err, trpcgo.CodeNotFound)
 		if repo.getCalls != 0 || repo.progressCalls != 0 {
@@ -140,17 +162,43 @@ func TestVideoUserStateMutationsValidateVideo(t *testing.T) {
 			t.Fatalf("watch later state = %+v, calls = %d", out, repo.setCalls)
 		}
 
+		before := time.Now()
 		progress, err := h.UpdateWatchProgress(ctx, UpdateWatchProgressInput{
 			VideoID:         7,
 			PositionSeconds: 12.5,
 			Completed:       true,
-			ObservedAtMs:    5678,
 		})
 		if err != nil {
 			t.Fatalf("UpdateWatchProgress returned error: %v", err)
 		}
-		if progress.LastPositionSeconds != 12.5 || progress.CompletedAt == nil || repo.progressCalls != 1 || repo.observedAtMs != 5678 {
+		if progress.LastPositionSeconds != 12.5 || progress.CompletedAt == nil || repo.progressCalls != 1 {
 			t.Fatalf("progress state = %+v, calls = %d", progress, repo.progressCalls)
+		}
+		// The write is stamped with the server clock, never a client-supplied one.
+		if repo.progressAt.Before(before) || repo.progressAt.After(time.Now()) {
+			t.Fatalf("progress stamped at %v, want within [%v, now]", repo.progressAt, before)
+		}
+	})
+
+	t.Run("continue watching lists the started recordings with user state", func(t *testing.T) {
+		repo := &fakeVideoStateRepo{
+			video: &repository.Video{ID: 7, Status: repository.VideoStatusDone},
+		}
+		h := &Handler{video: New(repo, testClientLogger()), log: testClientLogger()}
+
+		out, err := h.ContinueWatching(ctx, ContinueWatchingInput{})
+		if err != nil {
+			t.Fatalf("ContinueWatching returned error: %v", err)
+		}
+		if len(out) != 1 || out[0].ID != 7 || repo.continueCalls != 1 || repo.continueLimit != 12 {
+			t.Fatalf("continue watching = %+v, calls = %d, limit = %d", out, repo.continueCalls, repo.continueLimit)
+		}
+
+		if _, err := h.ContinueWatching(ctx, ContinueWatchingInput{Limit: 3}); err != nil {
+			t.Fatalf("ContinueWatching returned error: %v", err)
+		}
+		if repo.continueLimit != 3 {
+			t.Fatalf("limit = %d, want 3", repo.continueLimit)
 		}
 	})
 }

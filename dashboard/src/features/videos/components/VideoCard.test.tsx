@@ -143,6 +143,61 @@ afterEach(() => {
 	useVideoSnapshotsMock.mockClear();
 });
 
+describe("VideoCard resume progress", () => {
+	function userState(last_position_seconds: number) {
+		return {
+			watch_later: false,
+			last_position_seconds,
+			watched_at: "2026-01-01T12:30:00Z",
+			updated_at: "2026-01-01T12:30:00Z",
+		};
+	}
+
+	it("shows how far a partly watched recording got", () => {
+		render(
+			<VideoCard
+				video={video({
+					status: "DONE",
+					duration_seconds: 3600,
+					user_state: userState(900),
+				})}
+				canManage={false}
+			/>,
+		);
+		const bar = screen.getByTestId("video-card-progress");
+		expect(bar.getAttribute("aria-valuenow")).toBe("25");
+		expect(bar.getAttribute("aria-label")).toBe("videos.resume_progress");
+	});
+
+	it.each([
+		["never played", undefined],
+		["barely started", 3],
+		["played to the end", 3590],
+	])("shows no bar when %s", (_, position) => {
+		render(
+			<VideoCard
+				video={video({
+					status: "DONE",
+					duration_seconds: 3600,
+					user_state: position == null ? undefined : userState(position),
+				})}
+				canManage={false}
+			/>,
+		);
+		expect(screen.queryByTestId("video-card-progress")).toBeNull();
+	});
+
+	it("shows no bar on a recording still downloading", () => {
+		render(
+			<VideoCard
+				video={video({ duration_seconds: 3600, user_state: userState(900) })}
+				canManage={false}
+			/>,
+		);
+		expect(screen.queryByTestId("video-card-progress")).toBeNull();
+	});
+});
+
 describe("VideoCard stored preview thumbnail", () => {
 	it("shows watch later on running videos", () => {
 		render(<VideoCard video={video()} canManage={false} />);

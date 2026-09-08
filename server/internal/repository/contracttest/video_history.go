@@ -254,36 +254,96 @@ func testVideoUserStateFiltersAndStatistics(t *testing.T, h Harness) {
 	if _, err := repo.SetVideoWatchLater(ctx, otherUserID, watched.ID, true); err != nil {
 		t.Fatalf("set other user watch later: %v", err)
 	}
-	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 42.5, false, 1000); err != nil {
+	at := func(ms int64) time.Time { return time.UnixMilli(ms) }
+	// A short first look is saved but does not count as started.
+	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 12, false, at(1000)); err != nil {
+		t.Fatalf("early progress: %v", err)
+	} else if state.WatchedAt != nil || state.LastPositionSeconds != 12 {
+		t.Fatalf("early state = %+v, want no watched_at and 12s", state)
+	}
+	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 42.5, false, at(2000)); err != nil {
 		t.Fatalf("update progress: %v", err)
 	} else if state.WatchedAt == nil || state.LastPositionSeconds != 42.5 {
 		t.Fatalf("watched state = %+v, want watched_at and 42.5s", state)
 	}
-	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 60, true, 2000); err != nil {
+	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 60, true, at(3000)); err != nil {
 		t.Fatalf("complete progress: %v", err)
 	} else if state.CompletedAt == nil {
 		t.Fatalf("completed state = %+v, want completed_at", state)
 	}
-	if _, err := repo.UpdateVideoWatchProgress(ctx, userID, running.ID, 12, false, 3000); !errors.Is(err, repository.ErrNotFound) {
+	if _, err := repo.UpdateVideoWatchProgress(ctx, userID, running.ID, 12, false, at(4000)); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("running progress err = %v, want ErrNotFound", err)
 	}
 
 	oldWatchedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	h.BackdateVideoUserStateWatched(t, userID, watched.ID, oldWatchedAt)
-	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 90, false, 4000); err != nil {
+	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 90, false, at(5000)); err != nil {
 		t.Fatalf("second progress: %v", err)
 	} else if state.WatchedAt == nil || !state.WatchedAt.Equal(oldWatchedAt) {
 		t.Fatalf("watched_at = %v, want preserved %v", state.WatchedAt, oldWatchedAt)
+	} else if state.CompletedAt == nil {
+		t.Fatalf("completed_at dropped on rewatch: %+v", state)
 	} else if state.LastPositionSeconds != 90 {
 		t.Fatalf("last_position_seconds = %v, want 90", state.LastPositionSeconds)
 	}
-	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 1, false, 3500); err != nil {
-		t.Fatalf("stale progress: %v", err)
-	} else if state.LastPositionSeconds != 90 {
-		t.Fatalf("stale progress rewound position to %v, want 90", state.LastPositionSeconds)
-	} else if state.LastProgressAtMs == nil || *state.LastProgressAtMs != 4000 {
-		t.Fatalf("stale progress watermark = %v, want 4000", state.LastProgressAtMs)
+	// The latest write wins outright: ordering is the server clock, not the
+	// position, so a rewind lands and carries its own stamp.
+	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 1, false, at(6000)); err != nil {
+		t.Fatalf("rewind progress: %v", err)
+	} else if state.LastPositionSeconds != 1 {
+		t.Fatalf("rewind position = %v, want 1", state.LastPositionSeconds)
+	} else if state.LastProgressAtMs == nil || *state.LastProgressAtMs != 6000 {
+		t.Fatalf("progress stamp = %v, want 6000", state.LastProgressAtMs)
 	}
+	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 90, false, at(7000)); err != nil {
+		t.Fatalf("third progress: %v", err)
+	} else if state.LastPositionSeconds != 90 {
+		t.Fatalf("last_position_seconds = %v, want 90", state.LastPositionSeconds)
+	}
+
+	beforeLate, err := repo.GetVideoUserState(ctx, userID, watched.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	late, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 12, true, at(6500))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if late.LastPositionSeconds != 90 || *late.LastProgressAtMs != 7000 || late.ProgressRevision != beforeLate.ProgressRevision || !late.UpdatedAt.Equal(beforeLate.UpdatedAt) {
+		t.Fatalf("late request rewound server state: before=%+v after=%+v", beforeLate, late)
+	}
+	// Equal clock stamps are distinct accepted writes, so a browser can detect
+	// a changed baseline even when both devices wrote in the same millisecond.
+	sameClock, err := repo.UpdateVideoWatchProgress(ctx, userID, watched.ID, 90, false, at(7000))
+	if err != nil || sameClock.ProgressRevision != late.ProgressRevision+1 {
+		t.Fatalf("same-clock revision: %+v, %v", sameClock, err)
+	}
+
+	// A short clip counts as started at a tenth of its length.
+	clip := mk("job-state-clip", repository.VideoStatusDone)
+	if err := repo.MarkVideoDone(ctx, clip.ID, 100, 1, nil, repository.CompletionKindComplete, false); err != nil {
+		t.Fatalf("mark clip done: %v", err)
+	}
+	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, clip.ID, 9, false, at(8000)); err != nil {
+		t.Fatalf("clip early progress: %v", err)
+	} else if state.WatchedAt != nil {
+		t.Fatalf("clip state = %+v, want no watched_at under a tenth", state)
+	}
+	if state, err := repo.UpdateVideoWatchProgress(ctx, userID, clip.ID, 10, false, at(9000)); err != nil {
+		t.Fatalf("clip progress: %v", err)
+	} else if state.WatchedAt == nil {
+		t.Fatalf("clip state = %+v, want watched_at at a tenth", state)
+	}
+
+	// Continue watching: started and unfinished, most recent first. The
+	// never-started recordings stay out, and so does a clip played to its end.
+	assertStringSlice(t, continueWatchingJobIDs(t, ctx, repo, userID, 10), []string{"job-state-clip", "job-state-watched"})
+	assertStringSlice(t, continueWatchingJobIDs(t, ctx, repo, userID, 1), []string{"job-state-clip"})
+	assertStringSlice(t, continueWatchingJobIDs(t, ctx, repo, otherUserID, 10), []string{})
+	if _, err := repo.UpdateVideoWatchProgress(ctx, userID, clip.ID, 100, true, at(10000)); err != nil {
+		t.Fatalf("finish clip: %v", err)
+	}
+	assertStringSlice(t, continueWatchingJobIDs(t, ctx, repo, userID, 10), []string{"job-state-watched"})
 
 	states, err := repo.ListVideoUserStatesForVideos(ctx, userID, []int64{watched.ID, later.ID, plain.ID})
 	if err != nil {
@@ -413,6 +473,10 @@ func testDeleteOldRecordingWebhookDeliveriesPrunesTerminalKeepsActive(t *testing
 	}
 }
 
+// testVideoHistoryOutcomeCounts pins the two halves of the outcome rule
+// together: the SQL predicate in videos_page_sql.go and the Go classifier in
+// models.go must agree on every seeded row, or the history tabs would show a
+// count the list can't produce.
 func testVideoHistoryOutcomeCounts(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -517,4 +581,17 @@ func testVideoHistoryOutcomeCounts(t *testing.T, h Harness) {
 		opts.Scope = "removed"
 		assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, repo, opts), []string{tc.gone})
 	}
+}
+
+func continueWatchingJobIDs(t *testing.T, ctx context.Context, repo repository.Repository, userID string, limit int) []string {
+	t.Helper()
+	vids, err := repo.ListContinueWatchingVideos(ctx, userID, limit)
+	if err != nil {
+		t.Fatalf("list continue watching: %v", err)
+	}
+	out := make([]string, 0, len(vids))
+	for _, v := range vids {
+		out = append(out, v.JobID)
+	}
+	return out
 }

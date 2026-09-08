@@ -9,12 +9,13 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import {
-	StrictMode,
 	type ButtonHTMLAttributes,
 	type MouseEvent,
 	type ReactNode,
+	StrictMode,
 } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { formatPlaybackTime } from "@/features/videos/format";
 import type { RecordingPlaylist } from "@/features/videos/playback";
 import { WatchPlayer } from "./WatchPlayer";
 
@@ -289,10 +290,10 @@ vi.mock("@vidstack/react/player/layouts/default", async () => {
 });
 
 afterEach(() => {
-	vi.useRealTimers();
-	vi.unstubAllGlobals();
 	cleanup();
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+	vi.useRealTimers();
 	vidstackMock.player.canPlay = false;
 	vidstackMock.player.canSetVolume = true;
 	vidstackMock.player.currentTime = 0;
@@ -328,7 +329,7 @@ describe("WatchPlayer multipart boundaries", () => {
 		vidstackMock.player.currentTime = 12;
 		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
 		expect(onProgress).toHaveBeenCalledTimes(1);
-		expect(onProgress).toHaveBeenLastCalledWith(12, false, 1_000);
+		expect(onProgress).toHaveBeenLastCalledWith(12, false);
 
 		vidstackMock.player.currentTime = 20;
 		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
@@ -336,7 +337,7 @@ describe("WatchPlayer multipart boundaries", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "pause" }));
 		expect(onProgress).toHaveBeenCalledTimes(2);
-		expect(onProgress).toHaveBeenLastCalledWith(20, false, 1_001);
+		expect(onProgress).toHaveBeenLastCalledWith(20, false);
 	});
 
 	it("emits completed progress at the end of continuous playback", () => {
@@ -347,7 +348,7 @@ describe("WatchPlayer multipart boundaries", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "ended" }));
 
-		expect(onProgress).toHaveBeenCalledWith(120, true, expect.any(Number));
+		expect(onProgress).toHaveBeenCalledWith(120, true);
 	});
 
 	it("resumes on the next part and restores playback rate after natural playback advances", async () => {
@@ -914,6 +915,299 @@ describe("WatchPlayer multipart boundaries", () => {
 		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
 		expect(vidstackMock.player.currentTime).toBe(30);
 		expect(vidstackMock.player.play).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("WatchPlayer watch progress persistence", () => {
+	function hide(hidden: boolean) {
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue(
+			hidden ? "hidden" : "visible",
+		);
+		act(() => {
+			document.dispatchEvent(new Event("visibilitychange"));
+		});
+	}
+
+	it("flushes the exact position when the tab hides and again on unmount", () => {
+		const onProgress = vi.fn();
+		vi.spyOn(Date, "now").mockReturnValue(1_000);
+		vidstackMock.player.paused = true;
+		const { unmount } = render(
+			<WatchPlayer playlist={continuousPlaylist()} onProgress={onProgress} />,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "play" }));
+		vidstackMock.player.currentTime = 12;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		expect(onProgress).toHaveBeenCalledTimes(1);
+
+		// Inside the throttle window: the periodic save holds back.
+		vidstackMock.player.currentTime = 20;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		expect(onProgress).toHaveBeenCalledTimes(1);
+
+		hide(true);
+		expect(onProgress).toHaveBeenCalledTimes(2);
+		expect(onProgress).toHaveBeenLastCalledWith(20, false);
+
+		// Hidden again without moving: nothing new to save.
+		hide(true);
+		expect(onProgress).toHaveBeenCalledTimes(2);
+
+		// Coming back is not a save point.
+		hide(false);
+		expect(onProgress).toHaveBeenCalledTimes(2);
+
+		vidstackMock.player.currentTime = 25;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		expect(onProgress).toHaveBeenCalledTimes(2);
+		unmount();
+		expect(onProgress).toHaveBeenCalledTimes(3);
+		expect(onProgress).toHaveBeenLastCalledWith(25, false);
+	});
+
+	it("preserves progress when the recording duration is unknown", () => {
+		const onProgress = vi.fn();
+		const playlist = continuousPlaylist();
+		playlist.totalDurationSeconds = 0;
+		vidstackMock.player.paused = true;
+		const { unmount } = render(
+			<WatchPlayer playlist={playlist} onProgress={onProgress} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "play" }));
+		vidstackMock.player.currentTime = 42;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		unmount();
+		expect(onProgress).toHaveBeenLastCalledWith(42, false);
+	});
+
+	it("flushes the position on pagehide", () => {
+		const onProgress = vi.fn();
+		vi.spyOn(Date, "now").mockReturnValue(1_000);
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer playlist={continuousPlaylist()} onProgress={onProgress} />,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "play" }));
+		vidstackMock.player.currentTime = 12;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		vidstackMock.player.currentTime = 20;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		expect(onProgress).toHaveBeenCalledTimes(1);
+
+		act(() => {
+			window.dispatchEvent(new Event("pagehide"));
+		});
+		expect(onProgress).toHaveBeenCalledTimes(2);
+		expect(onProgress).toHaveBeenLastCalledWith(20, false);
+	});
+
+	it("does not write back a seed the viewer never played", () => {
+		const onProgress = vi.fn();
+		vidstackMock.player.paused = true;
+		const { unmount } = render(
+			<WatchPlayer
+				playlist={continuousPlaylist()}
+				initialOffsetSeconds={70}
+				onProgress={onProgress}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		expect(vidstackMock.player.currentTime).toBe(70);
+
+		hide(true);
+		act(() => {
+			window.dispatchEvent(new Event("pagehide"));
+		});
+		unmount();
+		expect(onProgress).not.toHaveBeenCalled();
+	});
+
+	it("saves a deliberate return to the start when the viewer leaves", () => {
+		const onProgress = vi.fn();
+		vi.spyOn(Date, "now").mockReturnValue(1_000);
+		vidstackMock.player.paused = true;
+		const { unmount } = render(
+			<WatchPlayer playlist={continuousPlaylist()} onProgress={onProgress} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		fireEvent.click(screen.getByRole("button", { name: "play" }));
+		vidstackMock.player.currentTime = 40;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		expect(onProgress).toHaveBeenLastCalledWith(40, false);
+
+		fireEvent.keyDown(screen.getByTestId("media-player"), { key: "Home" });
+		unmount();
+		expect(onProgress).toHaveBeenLastCalledWith(0, false);
+	});
+
+	it("does not save a paused seek twice", () => {
+		const onProgress = vi.fn();
+		vi.spyOn(Date, "now").mockReturnValue(1_000);
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer playlist={continuousPlaylist()} onProgress={onProgress} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		fireEvent.click(screen.getByRole("button", { name: "play" }));
+		vidstackMock.player.currentTime = 30;
+		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
+		fireEvent.click(screen.getByRole("button", { name: "pause" }));
+		expect(onProgress).toHaveBeenCalledTimes(1);
+
+		// Seeking while paused moves the place to save; hiding saves it once.
+		fireEvent.keyDown(screen.getByTestId("media-player"), { key: "PageUp" });
+		hide(true);
+		expect(onProgress).toHaveBeenCalledTimes(2);
+		expect(onProgress).toHaveBeenLastCalledWith(90, false);
+		hide(true);
+		expect(onProgress).toHaveBeenCalledTimes(2);
+	});
+
+	it("applies the initial offset under StrictMode's double effect pass", () => {
+		vidstackMock.player.paused = true;
+		render(
+			<StrictMode>
+				<WatchPlayer
+					playlist={continuousPlaylist()}
+					initialOffsetSeconds={70}
+				/>
+			</StrictMode>,
+		);
+
+		expect(
+			screen
+				.getByRole("slider", { name: "watch.seek_recording" })
+				.getAttribute("aria-valuenow"),
+		).toBe("70");
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		expect(vidstackMock.player.currentTime).toBe(70);
+		expect(vidstackMock.player.play).not.toHaveBeenCalled();
+	});
+
+	it("keeps a resumed seek the audio element ignored and retries at the next readiness event", () => {
+		render(
+			<WatchPlayer playlist={audioPlaylist()} initialOffsetSeconds={30} />,
+		);
+		const audio = getAudioElement();
+		let ignoring = true;
+		let stored = 0;
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			get: () => stored,
+			set: (value: number) => {
+				if (!ignoring) stored = value;
+			},
+		});
+
+		fireEvent.loadedMetadata(audio);
+		expect(audio.currentTime).toBe(0);
+
+		ignoring = false;
+		fireEvent.canPlay(audio);
+		expect(audio.currentTime).toBe(30);
+		expect(audio.paused).toBe(true);
+	});
+
+	it("shows where playback resumed and starts over on request", () => {
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer
+				playlist={continuousPlaylist()}
+				initialOffsetSeconds={70}
+				resumedFromSeconds={70}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		expect(vidstackMock.player.currentTime).toBe(70);
+		expect(screen.getByTestId("resume-notice").textContent).toContain(
+			`watch.resumed_from:time=${formatPlaybackTime(70)}`,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "watch.start_over" }));
+		expect(vidstackMock.player.currentTime).toBe(0);
+		expect(
+			screen
+				.getByRole("slider", { name: "watch.seek_recording" })
+				.getAttribute("aria-valuenow"),
+		).toBe("0");
+		expect(screen.queryByTestId("resume-notice")).toBeNull();
+		expect(vidstackMock.player.play).not.toHaveBeenCalled();
+	});
+
+	it("hides the resume notice on dismiss and on its own after a while", () => {
+		vi.useFakeTimers();
+		vidstackMock.player.paused = true;
+		const { unmount } = render(
+			<WatchPlayer
+				playlist={continuousPlaylist()}
+				initialOffsetSeconds={70}
+				resumedFromSeconds={70}
+			/>,
+		);
+		expect(screen.getByTestId("resume-notice")).toBeTruthy();
+		act(() => {
+			vi.advanceTimersByTime(8_000);
+		});
+		expect(screen.queryByTestId("resume-notice")).toBeNull();
+		unmount();
+
+		render(
+			<WatchPlayer
+				playlist={continuousPlaylist()}
+				initialOffsetSeconds={70}
+				resumedFromSeconds={70}
+			/>,
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "watch.dismiss_resume" }),
+		);
+		expect(screen.queryByTestId("resume-notice")).toBeNull();
+		// Dismissing is not a seek: the saved place stays.
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		expect(vidstackMock.player.currentTime).toBe(70);
+	});
+
+	it("shows no notice for a deep link", () => {
+		render(
+			<WatchPlayer playlist={continuousPlaylist()} initialOffsetSeconds={70} />,
+		);
+		expect(screen.queryByTestId("resume-notice")).toBeNull();
+	});
+
+	it("resumes into a later part from a saved offset without autoplay", () => {
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer playlist={multipartPlaylist()} initialOffsetSeconds={75} />,
+		);
+
+		expect(screen.getByTestId("media-player").getAttribute("data-src")).toBe(
+			"/part-2.mp4",
+		);
+		expect(vidstackMock.player.currentTime).toBe(0);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		expect(vidstackMock.player.currentTime).toBe(15);
+		expect(vidstackMock.player.play).not.toHaveBeenCalled();
+		expect(screen.getByText(/watch\.part_status:current=2/)).toBeTruthy();
+	});
+
+	it("applies a saved offset to audio as soon as its metadata is loaded", () => {
+		render(
+			<WatchPlayer playlist={audioPlaylist()} initialOffsetSeconds={30} />,
+		);
+		const audio = getAudioElement();
+		expect(audio.currentTime).toBe(0);
+
+		fireEvent.loadedMetadata(audio);
+		expect(audio.currentTime).toBe(30);
+		expect(audio.paused).toBe(true);
+
+		// canplay after metadata must not seek again or start playback.
+		audio.currentTime = 31;
+		fireEvent.canPlay(audio);
+		expect(audio.currentTime).toBe(31);
+		expect(audio.paused).toBe(true);
 	});
 });
 

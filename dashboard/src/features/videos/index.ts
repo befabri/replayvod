@@ -4,6 +4,7 @@ export {
 	type AudioWaveform,
 	useAudioWaveform,
 	useCancelDownload,
+	useContinueWatching,
 	useDeleteVideo,
 	useDownloadCapacity,
 	useHistoryCounts,
@@ -16,7 +17,6 @@ export {
 	useSetWatchLater,
 	useStatistics,
 	useTriggerDownload,
-	useUpdateWatchProgress,
 	useVideo,
 	useVideoCategories,
 	useVideoSearch,
@@ -30,3 +30,13 @@ export {
 	type VideoSort,
 	type VideoTitle,
 } from "./queries";
+export {
+	type ResumeSeed,
+	resolveResume,
+	resumeOffsetSeconds,
+	useResume,
+} from "./resume";
+export {
+	type LocalWatchProgress,
+	useWatchProgressWriter,
+} from "./watch-progress";

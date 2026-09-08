@@ -1,6 +1,6 @@
 import { ArrowsInIcon, ArrowsOutIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,9 @@ import {
 	useAudioWaveform,
 	useInvalidateVideo,
 	useMergedTimeline,
-	useUpdateWatchProgress,
+	useResume,
 	useVideo,
+	useWatchProgressWriter,
 } from "@/features/videos";
 import { RemoveVideoButton } from "@/features/videos/components/RemoveVideoButton";
 import {
@@ -87,26 +88,7 @@ function WatchPage() {
 		!!playlist && playable && playlist.isAudioOnly && playlist.parts.length > 0;
 	const { data: audioWaveform, isFetching: isAudioWaveformFetching } =
 		useAudioWaveform(id, audioWaveformEnabled);
-	const updateWatchProgress = useUpdateWatchProgress();
-	const handleWatchProgress = useCallback(
-		(positionSeconds: number, completed: boolean, observedAtMs: number) => {
-			if (
-				!Number.isFinite(positionSeconds) ||
-				!Number.isFinite(observedAtMs) ||
-				id <= 0
-			) {
-				return;
-			}
-			updateWatchProgress.mutate({
-				video_id: id,
-				position_seconds: Math.max(0, positionSeconds),
-				completed,
-				observed_at_ms: Math.max(1, Math.trunc(observedAtMs)),
-			});
-		},
-		[id, updateWatchProgress],
-	);
-
+	const writeWatchProgress = useWatchProgressWriter(id);
 	const invalidateVideo = useInvalidateVideo(id);
 	// The server tombstones a recording whose media it finds gone on the same
 	// 404 the player just hit, so a refetch flips this page into the removed
@@ -121,6 +103,16 @@ function WatchPage() {
 		parseWatchLayout,
 		serializeWatchLayout,
 	);
+	// A `?t=` deep link wins; otherwise the player opens at the saved place.
+	const resume = useResume(
+		playable ? video : null,
+		playlist?.totalDurationSeconds ?? 0,
+	);
+	// A write the server never confirmed goes out again on the next visit.
+	useEffect(() => {
+		if (!resume.replay) return;
+		writeWatchProgress(resume.replay.positionSeconds, resume.replay.completed);
+	}, [resume.replay, writeWatchProgress]);
 
 	if (isLoading) {
 		return (
@@ -183,12 +175,8 @@ function WatchPage() {
 	}
 
 	const isWide = layout === "wide";
-	const savedOffsetSeconds =
-		!video.user_state?.completed_at &&
-		(video.user_state?.last_position_seconds ?? 0) > 5
-			? video.user_state?.last_position_seconds
-			: undefined;
-	const playerInitialOffsetSeconds = initialOffsetSeconds ?? savedOffsetSeconds;
+	const playerInitialOffsetSeconds =
+		initialOffsetSeconds ?? resume.offsetSeconds;
 
 	return (
 		<div
@@ -203,7 +191,10 @@ function WatchPage() {
 						key={playlist.videoId}
 						playlist={playlist}
 						initialOffsetSeconds={playerInitialOffsetSeconds}
-						onProgress={handleWatchProgress}
+						resumedFromSeconds={
+							initialOffsetSeconds == null ? resume.offsetSeconds : undefined
+						}
+						onProgress={writeWatchProgress}
 						onMediaUnavailable={handleMediaUnavailable}
 						unavailableActions={
 							<>

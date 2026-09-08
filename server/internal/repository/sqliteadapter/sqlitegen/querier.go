@@ -211,6 +211,9 @@ type Querier interface {
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error)
 	ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error)
+	// Recordings the user started and has not played to the end, most recently
+	// watched first. The dashboard applies its resume policy on top.
+	ListContinueWatchingVideos(ctx context.Context, arg ListContinueWatchingVideosParams) ([]Video, error)
 	ListDueTasks(ctx context.Context) ([]Task, error)
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
@@ -440,6 +443,12 @@ type Querier interface {
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateVideoSelectedVariant(ctx context.Context, arg UpdateVideoSelectedVariantParams) error
 	UpdateVideoStatus(ctx context.Context, arg UpdateVideoStatusParams) error
+	// Progress writes are ordered by the server clock (@progress_at_ms), so
+	// devices with skewed clocks cannot shadow each other. watched_at marks the
+	// recording as started once the position reaches the smaller of
+	// @started_seconds and @started_fraction of the duration, or on completion;
+	// both stamps are kept once set. The params subquery binds each argument
+	// once: sqlite numbers every placeholder separately.
 	UpdateVideoWatchProgress(ctx context.Context, arg UpdateVideoWatchProgressParams) (VideoUserState, error)
 	// Preserves box_art_url, igdb_id, and description on ordinary webhook-path
 	// upserts that only know (id, name). When a non-empty incoming igdb_id changes

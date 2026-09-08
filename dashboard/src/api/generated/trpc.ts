@@ -285,6 +285,10 @@ export interface ConfigResponse {
   active: ActiveRuntime;
 }
 
+export interface ContinueWatchingInput {
+  limit: number;
+}
+
 /**
  * CreateInput captures the full schedule payload the dashboard posts. The
  * CHECK constraints in the schema enforce that each has_X toggle has its
@@ -1181,7 +1185,6 @@ export interface UpdateWatchProgressInput {
   video_id: number;
   position_seconds: number;
   completed: boolean;
-  observed_at_ms: number;
 }
 
 export interface UserInfo {
@@ -1447,6 +1450,7 @@ export type VideoStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
 
 export interface VideoUserStateResponse {
   watch_later: boolean;
+  progress_revision?: number;
   last_position_seconds: number;
   watched_at?: string;
   completed_at?: string;
@@ -1588,6 +1592,7 @@ type AppRouterRecord = {
     byCategory: $Query<ByCategoryInput, VideoPageResponse>;
     cancel: $Mutation<CancelInput, VideoOK>;
     categories: $Query<CategoriesInput, VideoCategory[]>;
+    continueWatching: $Query<ContinueWatchingInput, VideoResponse[]>;
     delete: $Mutation<VideoDeleteInput, VideoOK>;
     downloadCapacity: $Query<void, DownloadCapacityResponse>;
     downloadProgress: $Subscription<DownloadProgressInput, ProgressEvent>;

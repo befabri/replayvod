@@ -3,6 +3,7 @@ package pgadapter
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
@@ -49,16 +50,29 @@ func (a *PGAdapter) SetVideoWatchLater(ctx context.Context, userID string, video
 	return pgVideoUserStateToDomain(row), nil
 }
 
-func (a *PGAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, observedAtMs int64) (*repository.VideoUserState, error) {
+func (a *PGAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, at time.Time) (*repository.VideoUserState, error) {
 	row, err := a.queries.UpdateVideoWatchProgress(ctx, pggen.UpdateVideoWatchProgressParams{
 		UserID:          userID,
 		ID:              videoID,
 		PositionSeconds: positionSeconds,
-		ObservedAtMs:    observedAtMs,
+		ProgressAtMs:    at.UnixMilli(),
 		Completed:       completed,
+		StartedSeconds:  repository.WatchStartedSeconds,
+		StartedFraction: repository.WatchStartedFraction,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg update video watch progress: %w", mapErr(err))
 	}
 	return pgVideoUserStateToDomain(row), nil
+}
+
+func (a *PGAdapter) ListContinueWatchingVideos(ctx context.Context, userID string, limit int) ([]repository.Video, error) {
+	rows, err := a.queries.ListContinueWatchingVideos(ctx, pggen.ListContinueWatchingVideosParams{
+		UserID:   userID,
+		RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pg list continue watching videos: %w", err)
+	}
+	return pgVideosToDomain(rows), nil
 }

@@ -450,6 +450,7 @@ type VideoUserState struct {
 	CompletedAt         *time.Time `json:"completed_at"`
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
+	ProgressRevision    int64      `json:"progress_revision"`
 }
 
 type WebhookEvent struct {

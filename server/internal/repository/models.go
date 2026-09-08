@@ -927,11 +927,21 @@ type VideoUserState struct {
 	WatchLater          bool
 	LastPositionSeconds float64
 	LastProgressAtMs    *int64
+	ProgressRevision    int64
 	WatchedAt           *time.Time
 	CompletedAt         *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
+
+// A recording counts as started, and enters the viewer's history, once the
+// playback position reaches the smaller of WatchStartedSeconds and
+// WatchStartedFraction of its duration. A stray click that plays a second
+// does not mark it watched; a minute-long clip still counts after six seconds.
+const (
+	WatchStartedSeconds  = 30.0
+	WatchStartedFraction = 0.1
+)
 
 // VideoPageCursor is the stable keyset cursor for channel/category video lists.
 // start_download_at is the primary sort; id breaks same-timestamp ties.

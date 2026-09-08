@@ -13,6 +13,7 @@ export function videoCaches(trpc: ReturnType<typeof useTRPC>) {
 		byBroadcaster: { path: trpc.video.byBroadcaster, shape: "infinite" },
 		byCategory: { path: trpc.video.byCategory, shape: "infinite" },
 		search: { path: trpc.video.search, shape: "array" },
+		continueWatching: { path: trpc.video.continueWatching, shape: "array" },
 		getById: { path: trpc.video.getById, shape: "single" },
 		statistics: { path: trpc.video.statistics, shape: "scalar" },
 		statisticsByBroadcaster: {
@@ -29,8 +30,22 @@ export const VIDEO_LIST_CACHES = [
 	"byBroadcaster",
 	"byCategory",
 	"search",
+	"continueWatching",
 	"statistics",
 	"statisticsByBroadcaster",
+] as const;
+
+// The caches a watch-progress write can reorder or filter (history sorts,
+// the unwatched filter, the continue-watching strip). The statistics
+// aggregates count recordings and bytes, which progress never changes, so
+// they stay out: the watch page keeps one mounted and would refetch it on
+// every save.
+export const VIDEO_USER_STATE_CACHES = [
+	"listPage",
+	"byBroadcaster",
+	"byCategory",
+	"search",
+	"continueWatching",
 ] as const;
 
 // Merge the new user_state wherever the row appears, and drop it from filter-only

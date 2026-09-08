@@ -136,6 +136,7 @@ type VideoResponse struct {
 
 type VideoUserStateResponse struct {
 	WatchLater          bool       `json:"watch_later"`
+	ProgressRevision    int64      `json:"progress_revision,omitempty"`
 	LastPositionSeconds float64    `json:"last_position_seconds"`
 	WatchedAt           *time.Time `json:"watched_at,omitempty"`
 	CompletedAt         *time.Time `json:"completed_at,omitempty"`
@@ -192,6 +193,7 @@ func toVideoUserStateResponse(state *repository.VideoUserState) *VideoUserStateR
 	}
 	return &VideoUserStateResponse{
 		WatchLater:          state.WatchLater,
+		ProgressRevision:    state.ProgressRevision,
 		LastPositionSeconds: state.LastPositionSeconds,
 		WatchedAt:           state.WatchedAt,
 		CompletedAt:         state.CompletedAt,
@@ -937,7 +939,6 @@ type UpdateWatchProgressInput struct {
 	VideoID         int64   `json:"video_id" validate:"required"`
 	PositionSeconds float64 `json:"position_seconds" validate:"min=0"`
 	Completed       bool    `json:"completed"`
-	ObservedAtMs    int64   `json:"observed_at_ms" validate:"required,min=1"`
 }
 
 func (h *Handler) UpdateWatchProgress(ctx context.Context, input UpdateWatchProgressInput) (VideoUserStateResponse, error) {
@@ -945,11 +946,33 @@ func (h *Handler) UpdateWatchProgress(ctx context.Context, input UpdateWatchProg
 	if err != nil {
 		return VideoUserStateResponse{}, err
 	}
-	state, err := h.video.UpdateWatchProgress(ctx, user.ID, input.VideoID, input.PositionSeconds, input.Completed, input.ObservedAtMs)
+	state, err := h.video.UpdateWatchProgress(ctx, user.ID, input.VideoID, input.PositionSeconds, input.Completed)
 	if err != nil {
 		return VideoUserStateResponse{}, apierr.Map(h.log, err, "update watch progress")
 	}
 	return *toVideoUserStateResponse(state), nil
+}
+
+type ContinueWatchingInput struct {
+	Limit int `json:"limit" validate:"min=0,max=50"`
+}
+
+// ContinueWatching lists the recordings the user is partway through, most
+// recently watched first, for the dashboard's continue-watching strip.
+func (h *Handler) ContinueWatching(ctx context.Context, input ContinueWatchingInput) ([]VideoResponse, error) {
+	user, err := middleware.RequireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 12
+	}
+	vids, err := h.video.ContinueWatching(ctx, user.ID, limit)
+	if err != nil {
+		return nil, apierr.Map(h.log, err, "list continue watching")
+	}
+	return h.toVideoResponses(ctx, user.ID, vids), nil
 }
 
 // ChannelStatisticsInput scopes a per-channel aggregate query.

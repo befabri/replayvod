@@ -516,18 +516,12 @@ export function useSetWatchLater() {
 	);
 }
 
-export function useUpdateWatchProgress() {
+// useContinueWatching lists the recordings the user is partway through, most
+// recently watched first. The strip applies the resume policy on top, so ask
+// for more than it shows.
+export function useContinueWatching(limit = 12) {
 	const trpc = useTRPC();
-	const queryClient = useQueryClient();
-	const caches = videoCaches(trpc);
-	return useMutation(
-		trpc.video.updateWatchProgress.mutationOptions({
-			onSuccess: (state, { video_id }) => {
-				patchEntity(queryClient, caches, videoUserStatePatch(video_id, state));
-				invalidateCaches(queryClient, caches, VIDEO_LIST_CACHES);
-			},
-		}),
-	);
+	return useQuery(trpc.video.continueWatching.queryOptions({ limit }));
 }
 
 function optimisticWatchLaterState(

@@ -3,6 +3,7 @@ import { useSelector } from "@tanstack/react-store";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import {
+	ContinueWatching,
 	LastLiveStatistics,
 	RunningDownloads,
 	ScheduleStatistics,
@@ -38,6 +39,7 @@ function DashboardHome() {
 				<LastLiveStatistics />
 				<ScheduleStatistics />
 			</div>
+			<ContinueWatching />
 			<LiveStreamsCard />
 			<div className="mt-6">
 				<RunningDownloads limit={3} />

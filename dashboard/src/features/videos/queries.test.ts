@@ -42,6 +42,7 @@ function fakeTrpc(): ReturnType<typeof useTRPC> {
 			byBroadcaster: node("byBroadcaster"),
 			byCategory: node("byCategory"),
 			search: node("search"),
+			continueWatching: node("continueWatching"),
 			getById: node("getById"),
 			statistics: node("statistics"),
 			statisticsByBroadcaster: node("statisticsByBroadcaster"),

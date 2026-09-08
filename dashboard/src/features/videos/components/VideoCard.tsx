@@ -10,9 +10,14 @@ import {
 	useVideoSnapshots,
 	type VideoResponse,
 } from "@/features/videos";
-import { formatBytes, formatDuration } from "@/features/videos/format";
+import {
+	formatBytes,
+	formatDuration,
+	formatPlaybackTime,
+} from "@/features/videos/format";
 import { videoStatusLabel } from "@/features/videos/labels";
-import { cn } from "@/lib/utils";
+import { resumeOffsetSeconds } from "@/features/videos/resume";
+import { clamp, cn } from "@/lib/utils";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
 import { WatchLaterButton } from "./WatchLaterButton";
@@ -260,6 +265,16 @@ export function VideoCard({
 	const sizeLabel = formatBytes(video.size_bytes);
 	const primaryCategoryLabel = video.primary_category_name?.trim() || null;
 	const primaryLabel = video.title?.trim() || video.display_name;
+	// The bar shows where playback resumes; a finished or barely started
+	// recording shows none, matching what the player would do.
+	const resumeSeconds =
+		video.status === "DONE"
+			? resumeOffsetSeconds(video.user_state, video.duration_seconds ?? 0)
+			: undefined;
+	const resumePercent =
+		resumeSeconds != null && video.duration_seconds
+			? clamp((resumeSeconds / video.duration_seconds) * 100, 0, 100)
+			: null;
 
 	const media = (
 		<>
@@ -342,6 +357,24 @@ export function VideoCard({
 						</span>
 					</ThumbnailOverlay>
 				</span>
+				{resumePercent != null && resumeSeconds != null ? (
+					<div
+						className="absolute inset-x-0 bottom-0 h-1 bg-white/25"
+						role="progressbar"
+						aria-valuemin={0}
+						aria-valuemax={100}
+						aria-valuenow={Math.round(resumePercent)}
+						aria-label={t("videos.resume_progress", {
+							time: formatPlaybackTime(resumeSeconds),
+						})}
+						data-testid="video-card-progress"
+					>
+						<div
+							className="h-full bg-primary"
+							style={{ width: `${resumePercent}%` }}
+						/>
+					</div>
+				) : null}
 				{video.status === "DONE" ? (
 					<div
 						className="pointer-events-none absolute inset-0 flex items-center justify-center"

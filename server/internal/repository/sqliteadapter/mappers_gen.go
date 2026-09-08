@@ -250,6 +250,7 @@ func sqliteVideoUserStateToDomain(src sqlitegen.VideoUserState) *repository.Vide
 		CreatedAt:           src.CreatedAt.Time,
 		LastPositionSeconds: src.LastPositionSeconds,
 		LastProgressAtMs:    fromNullInt64(src.LastProgressAtMs),
+		ProgressRevision:    src.ProgressRevision,
 		UpdatedAt:           src.UpdatedAt.Time,
 		UserID:              src.UserID,
 		VideoID:             src.VideoID,

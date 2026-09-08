@@ -294,7 +294,14 @@ type Repository interface {
 	GetVideoUserState(ctx context.Context, userID string, videoID int64) (*VideoUserState, error)
 	ListVideoUserStatesForVideos(ctx context.Context, userID string, videoIDs []int64) ([]VideoUserState, error)
 	SetVideoWatchLater(ctx context.Context, userID string, videoID int64, watchLater bool) (*VideoUserState, error)
-	UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, observedAtMs int64) (*VideoUserState, error)
+	// UpdateVideoWatchProgress records where userID is in a finished
+	// recording. Writes are ordered by `at` (the server clock), and
+	// watched_at is set once the position passes the started threshold
+	// (see WatchStartedSeconds) or the write reports completion.
+	UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, at time.Time) (*VideoUserState, error)
+	// ListContinueWatchingVideos returns finished recordings userID started
+	// and has not played to the end, most recently watched first.
+	ListContinueWatchingVideos(ctx context.Context, userID string, limit int) ([]Video, error)
 
 	// Jobs — durable record of a download execution. Broadcaster-level
 	// idempotency + resume-on-restart live here. See models.go Job for

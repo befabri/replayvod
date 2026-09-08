@@ -14,7 +14,7 @@ import { API_URL } from "@/env";
 
 // The link chain lives in dashboardLinks: subscriptions (task.status,
 // stream.live, system.events, video.downloadProgress) over Server-Sent
-// Events, with credential import guarded before batching.
+// Events, keepalive writes on their own request, batching for the rest.
 export const trpcClient = createTRPCClient<AppRouter>({
 	links: dashboardLinks({
 		apiUrl: API_URL,

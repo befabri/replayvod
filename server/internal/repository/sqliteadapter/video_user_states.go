@@ -3,6 +3,7 @@ package sqliteadapter
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
@@ -49,16 +50,29 @@ func (a *SQLiteAdapter) SetVideoWatchLater(ctx context.Context, userID string, v
 	return sqliteVideoUserStateToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, observedAtMs int64) (*repository.VideoUserState, error) {
+func (a *SQLiteAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, at time.Time) (*repository.VideoUserState, error) {
 	row, err := a.queries.UpdateVideoWatchProgress(ctx, sqlitegen.UpdateVideoWatchProgressParams{
 		UserID:          userID,
 		PositionSeconds: positionSeconds,
-		ObservedAtMs:    observedAtMs,
+		ProgressAtMs:    at.UnixMilli(),
 		Completed:       boolToInt64(completed),
+		StartedSeconds:  repository.WatchStartedSeconds,
+		StartedFraction: repository.WatchStartedFraction,
 		ID:              videoID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite update video watch progress: %w", mapErr(err))
 	}
 	return sqliteVideoUserStateToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) ListContinueWatchingVideos(ctx context.Context, userID string, limit int) ([]repository.Video, error) {
+	rows, err := a.queries.ListContinueWatchingVideos(ctx, sqlitegen.ListContinueWatchingVideosParams{
+		UserID:   userID,
+		RowLimit: int64(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite list continue watching videos: %w", err)
+	}
+	return sqliteVideosToDomain(rows), nil
 }

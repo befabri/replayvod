@@ -11,7 +11,7 @@ import (
 )
 
 const getVideoUserState = `-- name: GetVideoUserState :one
-SELECT user_id, video_id, watch_later, last_position_seconds, last_progress_at_ms, watched_at, completed_at, created_at, updated_at FROM video_user_states WHERE user_id = ? AND video_id = ?
+SELECT user_id, video_id, watch_later, last_position_seconds, last_progress_at_ms, watched_at, completed_at, created_at, updated_at, progress_revision FROM video_user_states WHERE user_id = ? AND video_id = ?
 `
 
 type GetVideoUserStateParams struct {
@@ -32,12 +32,91 @@ func (q *Queries) GetVideoUserState(ctx context.Context, arg GetVideoUserStatePa
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ProgressRevision,
 	)
 	return i, err
 }
 
+const listContinueWatchingVideos = `-- name: ListContinueWatchingVideos :many
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality, v.source, v.twitch_video_id, v.broadcast_at, v.next_retry_at FROM videos v
+INNER JOIN video_user_states vus
+    ON vus.video_id = v.id AND vus.user_id = CAST(?1 AS TEXT)
+WHERE v.deleted_at IS NULL
+  AND v.status = 'DONE'
+  AND vus.watched_at IS NOT NULL
+  AND vus.last_position_seconds > 0
+  AND (v.duration_seconds IS NULL OR v.duration_seconds <= 0
+       OR vus.last_position_seconds < v.duration_seconds - 1)
+ORDER BY vus.last_progress_at_ms DESC, v.id DESC
+LIMIT CAST(?2 AS INTEGER)
+`
+
+type ListContinueWatchingVideosParams struct {
+	UserID   string `json:"user_id"`
+	RowLimit int64  `json:"row_limit"`
+}
+
+// Recordings the user started and has not played to the end, most recently
+// watched first. The dashboard applies its resume policy on top.
+func (q *Queries) ListContinueWatchingVideos(ctx context.Context, arg ListContinueWatchingVideosParams) ([]Video, error) {
+	rows, err := q.db.QueryContext(ctx, listContinueWatchingVideos, arg.UserID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Video{}
+	for rows.Next() {
+		var i Video
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Filename,
+			&i.DisplayName,
+			&i.Status,
+			&i.BroadcasterID,
+			&i.StreamID,
+			&i.ViewerCount,
+			&i.Language,
+			&i.DurationSeconds,
+			&i.SizeBytes,
+			&i.Thumbnail,
+			&i.Error,
+			&i.StartDownloadAt,
+			&i.DownloadedAt,
+			&i.DeletedAt,
+			&i.RecordingType,
+			&i.ForceH264,
+			&i.Title,
+			&i.CompletionKind,
+			&i.SelectedQuality,
+			&i.SelectedFps,
+			&i.Truncated,
+			&i.TriggerScheduleID,
+			&i.RetentionSourceScheduleID,
+			&i.RetentionWindowHours,
+			&i.DeleteRequestedAt,
+			&i.DeletionKind,
+			&i.Quality,
+			&i.Source,
+			&i.TwitchVideoID,
+			&i.BroadcastAt,
+			&i.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVideoUserStatesForVideos = `-- name: ListVideoUserStatesForVideos :many
-SELECT user_id, video_id, watch_later, last_position_seconds, last_progress_at_ms, watched_at, completed_at, created_at, updated_at FROM video_user_states
+SELECT user_id, video_id, watch_later, last_position_seconds, last_progress_at_ms, watched_at, completed_at, created_at, updated_at, progress_revision FROM video_user_states
 WHERE user_id = ? AND video_id IN (/*SLICE:video_ids*/?)
 `
 
@@ -76,6 +155,7 @@ func (q *Queries) ListVideoUserStatesForVideos(ctx context.Context, arg ListVide
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ProgressRevision,
 		); err != nil {
 			return nil, err
 		}
@@ -96,7 +176,7 @@ VALUES (?, ?, ?, datetime('now'))
 ON CONFLICT(user_id, video_id) DO UPDATE SET
     watch_later = excluded.watch_later,
     updated_at = datetime('now')
-RETURNING user_id, video_id, watch_later, last_position_seconds, last_progress_at_ms, watched_at, completed_at, created_at, updated_at
+RETURNING user_id, video_id, watch_later, last_position_seconds, last_progress_at_ms, watched_at, completed_at, created_at, updated_at, progress_revision
 `
 
 type SetVideoWatchLaterParams struct {
@@ -118,71 +198,75 @@ func (q *Queries) SetVideoWatchLater(ctx context.Context, arg SetVideoWatchLater
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ProgressRevision,
 	)
 	return i, err
 }
 
 const updateVideoWatchProgress = `-- name: UpdateVideoWatchProgress :one
 INSERT INTO video_user_states (
-    user_id, video_id, last_position_seconds, last_progress_at_ms, watched_at, completed_at, updated_at
+    user_id, video_id, last_position_seconds, last_progress_at_ms, progress_revision, watched_at, completed_at, updated_at
 )
 SELECT
-    ?, v.id, MAX(0, CAST(? AS REAL)),
-    CAST(? AS INTEGER), datetime('now'),
-    CASE WHEN CAST(? AS INTEGER) != 0 THEN datetime('now') ELSE NULL END,
+    ?, v.id, MAX(0, p.position_seconds),
+    p.progress_at_ms, 1,
+    CASE
+        WHEN p.completed != 0
+          OR p.position_seconds >= CASE
+              WHEN v.duration_seconds > 0
+              THEN MIN(p.started_seconds, v.duration_seconds * p.started_fraction)
+              ELSE p.started_seconds
+          END
+        THEN datetime('now') ELSE NULL
+    END,
+    CASE WHEN p.completed != 0 THEN datetime('now') ELSE NULL END,
     datetime('now')
 FROM videos v
+CROSS JOIN (
+    SELECT
+        CAST(? AS REAL) AS position_seconds,
+        CAST(? AS INTEGER) AS progress_at_ms,
+        CAST(? AS INTEGER) AS completed,
+        CAST(? AS REAL) AS started_seconds,
+        CAST(? AS REAL) AS started_fraction
+) AS p
 WHERE v.id = ?
   AND v.deleted_at IS NULL
   AND v.status = 'DONE'
 ON CONFLICT(user_id, video_id) DO UPDATE SET
-    last_position_seconds = CASE
-        WHEN video_user_states.last_progress_at_ms IS NULL
-          OR excluded.last_progress_at_ms >= video_user_states.last_progress_at_ms
-        THEN excluded.last_position_seconds
-        ELSE video_user_states.last_position_seconds
-    END,
-    last_progress_at_ms = CASE
-        WHEN video_user_states.last_progress_at_ms IS NULL
-          OR excluded.last_progress_at_ms >= video_user_states.last_progress_at_ms
-        THEN excluded.last_progress_at_ms
-        ELSE video_user_states.last_progress_at_ms
-    END,
-    watched_at = CASE
-        WHEN video_user_states.last_progress_at_ms IS NULL
-          OR excluded.last_progress_at_ms >= video_user_states.last_progress_at_ms
-        THEN COALESCE(video_user_states.watched_at, excluded.watched_at)
-        ELSE video_user_states.watched_at
-    END,
-    completed_at = CASE
-        WHEN video_user_states.last_progress_at_ms IS NULL
-          OR excluded.last_progress_at_ms >= video_user_states.last_progress_at_ms
-        THEN COALESCE(excluded.completed_at, video_user_states.completed_at)
-        ELSE video_user_states.completed_at
-    END,
-    updated_at = CASE
-        WHEN video_user_states.last_progress_at_ms IS NULL
-          OR excluded.last_progress_at_ms >= video_user_states.last_progress_at_ms
-        THEN datetime('now')
-        ELSE video_user_states.updated_at
-    END
-RETURNING user_id, video_id, watch_later, last_position_seconds, last_progress_at_ms, watched_at, completed_at, created_at, updated_at
+    progress_revision = CASE WHEN excluded.last_progress_at_ms >= COALESCE(video_user_states.last_progress_at_ms, 0) THEN video_user_states.progress_revision + 1 ELSE video_user_states.progress_revision END,
+    last_position_seconds = CASE WHEN excluded.last_progress_at_ms >= COALESCE(video_user_states.last_progress_at_ms, 0) THEN excluded.last_position_seconds ELSE video_user_states.last_position_seconds END,
+    last_progress_at_ms = CASE WHEN excluded.last_progress_at_ms >= COALESCE(video_user_states.last_progress_at_ms, 0) THEN excluded.last_progress_at_ms ELSE video_user_states.last_progress_at_ms END,
+    watched_at = CASE WHEN excluded.last_progress_at_ms >= COALESCE(video_user_states.last_progress_at_ms, 0) THEN COALESCE(video_user_states.watched_at, excluded.watched_at) ELSE video_user_states.watched_at END,
+    completed_at = CASE WHEN excluded.last_progress_at_ms >= COALESCE(video_user_states.last_progress_at_ms, 0) THEN COALESCE(excluded.completed_at, video_user_states.completed_at) ELSE video_user_states.completed_at END,
+    updated_at = CASE WHEN excluded.last_progress_at_ms >= COALESCE(video_user_states.last_progress_at_ms, 0) THEN datetime('now') ELSE video_user_states.updated_at END
+RETURNING user_id, video_id, watch_later, last_position_seconds, last_progress_at_ms, watched_at, completed_at, created_at, updated_at, progress_revision
 `
 
 type UpdateVideoWatchProgressParams struct {
 	UserID          string  `json:"user_id"`
 	PositionSeconds float64 `json:"position_seconds"`
-	ObservedAtMs    int64   `json:"observed_at_ms"`
+	ProgressAtMs    int64   `json:"progress_at_ms"`
 	Completed       int64   `json:"completed"`
+	StartedSeconds  float64 `json:"started_seconds"`
+	StartedFraction float64 `json:"started_fraction"`
 	ID              int64   `json:"id"`
 }
 
+// Progress writes are ordered by the server clock (@progress_at_ms), so
+// devices with skewed clocks cannot shadow each other. watched_at marks the
+// recording as started once the position reaches the smaller of
+// @started_seconds and @started_fraction of the duration, or on completion;
+// both stamps are kept once set. The params subquery binds each argument
+// once: sqlite numbers every placeholder separately.
 func (q *Queries) UpdateVideoWatchProgress(ctx context.Context, arg UpdateVideoWatchProgressParams) (VideoUserState, error) {
 	row := q.db.QueryRowContext(ctx, updateVideoWatchProgress,
 		arg.UserID,
 		arg.PositionSeconds,
-		arg.ObservedAtMs,
+		arg.ProgressAtMs,
 		arg.Completed,
+		arg.StartedSeconds,
+		arg.StartedFraction,
 		arg.ID,
 	)
 	var i VideoUserState
@@ -196,6 +280,7 @@ func (q *Queries) UpdateVideoWatchProgress(ctx context.Context, arg UpdateVideoW
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ProgressRevision,
 	)
 	return i, err
 }

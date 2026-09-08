@@ -249,6 +249,7 @@ func pgVideoUserStateToDomain(src pggen.VideoUserState) *repository.VideoUserSta
 		CreatedAt:           src.CreatedAt,
 		LastPositionSeconds: src.LastPositionSeconds,
 		LastProgressAtMs:    src.LastProgressAtMs,
+		ProgressRevision:    src.ProgressRevision,
 		UpdatedAt:           src.UpdatedAt,
 		UserID:              src.UserID,
 		VideoID:             src.VideoID,

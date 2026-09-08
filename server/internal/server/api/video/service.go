@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -286,8 +287,12 @@ func (s *Service) SetWatchLater(ctx context.Context, userID string, videoID int6
 	return s.repo.SetVideoWatchLater(ctx, userID, videoID, watchLater)
 }
 
-func (s *Service) UpdateWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, observedAtMs int64) (*repository.VideoUserState, error) {
-	return s.repo.UpdateVideoWatchProgress(ctx, userID, videoID, positionSeconds, completed, observedAtMs)
+func (s *Service) UpdateWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool) (*repository.VideoUserState, error) {
+	return s.repo.UpdateVideoWatchProgress(ctx, userID, videoID, positionSeconds, completed, time.Now())
+}
+
+func (s *Service) ContinueWatching(ctx context.Context, userID string, limit int) ([]repository.Video, error) {
+	return s.repo.ListContinueWatchingVideos(ctx, userID, limit)
 }
 
 func (s *Service) requireBookmarkableVideo(ctx context.Context, videoID int64) error {

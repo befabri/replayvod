@@ -43,6 +43,7 @@ import {
 	type MediaFailureKind,
 	MediaUnavailablePanel,
 } from "@/features/videos/components/MediaUnavailablePanel";
+import { ResumeNotice } from "@/features/videos/components/ResumeNotice";
 import {
 	TimelineChangeContent,
 	TimelinePartContent,
@@ -66,6 +67,9 @@ type RecordingSeekOptions = {
 	resume?: boolean;
 	trigger?: Event;
 	mode?: RecordingSeekMode;
+	// initial marks the resume or deep-link seek applied on load, which is
+	// not something the viewer did.
+	initial?: boolean;
 };
 
 type CommittedRecordingSeek = {
@@ -76,6 +80,10 @@ type CommittedRecordingSeek = {
 
 const WATCH_PROGRESS_SAVE_INTERVAL_MS = 15_000;
 const WATCH_PROGRESS_SAVE_DELTA_SECONDS = 15;
+const SEEK_READBACK_TOLERANCE_SECONDS = 0.5;
+const RESUME_NOTICE_MS = 8_000;
+// After this long with neither playback nor an error, the source is probed; a
+// definitive 404/410 opens the unavailable panel, anything else keeps waiting.
 const MEDIA_LOAD_WATCHDOG_MS = 20_000;
 
 // WatchPlayer wraps Vidstack's MediaPlayer with the app's defaults so
@@ -96,6 +104,7 @@ export function WatchPlayer({
 	audioWaveformLoading,
 	playlist,
 	initialOffsetSeconds,
+	resumedFromSeconds,
 	onProgress,
 	onMediaUnavailable,
 	unavailableActions,
@@ -104,12 +113,15 @@ export function WatchPlayer({
 	audioWaveformLoading?: boolean;
 	playlist: RecordingPlaylist;
 	initialOffsetSeconds?: number;
-	onProgress?: (
-		positionSeconds: number,
-		completed: boolean,
-		observedAtMs: number,
-	) => void;
+	// resumedFromSeconds is the saved position the initial offset came from;
+	// it shows the "resumed from" notice with its start-over action.
+	resumedFromSeconds?: number;
+	onProgress?: (positionSeconds: number, completed: boolean) => void;
+	// onMediaUnavailable fires once the server confirms the source is gone or
+	// the recording removed, so the page can refetch the video.
 	onMediaUnavailable?: (kind: "gone" | "removed") => void;
+	// unavailableActions fills the panel's action slot with the route's remove
+	// button and history link.
 	unavailableActions?: ReactNode;
 }) {
 	const isCrossOrigin = !!API_URL;
@@ -131,9 +143,14 @@ export function WatchPlayer({
 		at: number;
 		positionSeconds: number;
 	} | null>(null);
-	const lastProgressObservedAtMsRef = useRef(0);
+
 	const committedSeekRef = useRef<CommittedRecordingSeek | null>(null);
 	const wasPlayingRef = useRef(false);
+	// viewerEngagedRef flips once the viewer plays or seeks. Until then the
+	// position is the cold-load seed (saved place or deep link), and leaving
+	// the page must not write it back as progress.
+	const viewerEngagedRef = useRef(false);
+	const globalTimeRef = useRef(0);
 	const mediaRemote = useMediaRemote(playerRef);
 	// Tracks the previous continuous-vs-parts mode so the effect below can detect
 	// a parts → single-file upgrade (the lazily-built artifact appearing
@@ -157,6 +174,7 @@ export function WatchPlayer({
 	const [audioPaused, setAudioPaused] = useState(true);
 	const [audioPlaybackRate, setAudioPlaybackRate] = useState(1);
 	const [audioVolume, setAudioVolume] = useState(1);
+	const [resumeNoticeDismissed, setResumeNoticeDismissed] = useState(false);
 
 	// Use the continuous single-file source whenever the API exposes one. It's
 	// built lazily (the first play kicks the concat), so it can appear partway
@@ -249,6 +267,7 @@ export function WatchPlayer({
 				playlist.totalDurationSeconds,
 			);
 			if (!target) return;
+			if (!options?.initial) viewerEngagedRef.current = true;
 			const player = isAudioSource ? audioRef.current : playerRef.current;
 			const resume = options?.resume ?? (player ? !player.paused : false);
 			const mode = options?.mode ?? "commit";
@@ -371,11 +390,16 @@ export function WatchPlayer({
 		setAudioPlaybackRate(1);
 		setAudioVolume(1);
 		pendingSeekRef.current = null;
+		// The initial seek re-applies after a reset: under StrictMode's double
+		// effect pass this reset runs again after it, and would otherwise strand
+		// the deferred seek.
+		appliedInitialSeekRef.current = null;
 		pendingUserSeekRef.current = null;
 		committedSeekRef.current = null;
 		lastProgressEmitRef.current = null;
-		lastProgressObservedAtMsRef.current = 0;
 		wasPlayingRef.current = false;
+		viewerEngagedRef.current = false;
+		setResumeNoticeDismissed(false);
 		// Sync the mode tracker to the new recording so switching videos isn't
 		// mistaken for a mid-session upgrade by the swap effect below.
 		prevUsesContinuousRef.current = playlist.continuousSource != null;
@@ -414,7 +438,7 @@ export function WatchPlayer({
 		const key = `${playlist.videoId}:${initialOffsetSeconds}`;
 		if (appliedInitialSeekRef.current === key) return;
 		appliedInitialSeekRef.current = key;
-		seekToGlobal(initialOffsetSeconds, { resume: false });
+		seekToGlobal(initialOffsetSeconds, { resume: false, initial: true });
 	}, [initialOffsetSeconds, playlist.videoId, seekToGlobal]);
 
 	const handleCanPlay = useCallback(() => {
@@ -424,18 +448,38 @@ export function WatchPlayer({
 		const pending = pendingSeekRef.current;
 		const player = isAudioSource ? audioRef.current : playerRef.current;
 		if (!pending || !player) return;
-		pendingSeekRef.current = null;
 		player.currentTime = pending.localSeconds;
+		// A media element reports the new position synchronously. When it ignored
+		// the assignment (iOS Safari before it has enough data), keep the seek for
+		// the next readiness event instead of dropping it. Vidstack updates its
+		// clock asynchronously, so only the raw element is checked.
+		if (
+			isAudioSource &&
+			Math.abs(player.currentTime - pending.localSeconds) >
+				SEEK_READBACK_TOLERANCE_SECONDS
+		) {
+			return;
+		}
+		pendingSeekRef.current = null;
 		player.playbackRate = pending.playbackRate;
 		if (pending.resume) void playPlaybackController(player).catch(() => {});
 	}, [currentSourceKey, isAudioSource]);
 
+	// Saves are throttled while playing; `force` is for the moments that must
+	// land exactly (pause, tab hidden, page unload, unmount). A forced save
+	// skips a position already saved, and a position under a second is only
+	// worth saving when forced: the viewer deliberately went back to the start.
 	const emitWatchProgress = useCallback(
 		(positionSeconds: number, completed = false, force = false) => {
 			if (!onProgress) return;
+			if (!completed && !viewerEngagedRef.current) return;
 			const total = playlist.totalDurationSeconds;
-			const clamped = clamp(positionSeconds, 0, total);
-			if (!completed && clamped < 1) return;
+			if (!Number.isFinite(positionSeconds)) return;
+			const clamped =
+				total > 0
+					? clamp(positionSeconds, 0, total)
+					: Math.max(0, positionSeconds);
+			if (!completed && clamped < 1 && !force) return;
 			const last = lastProgressEmitRef.current;
 			const now = Date.now();
 			if (
@@ -447,16 +491,91 @@ export function WatchPlayer({
 			) {
 				return;
 			}
-			const observedAtMs = Math.max(
-				now,
-				lastProgressObservedAtMsRef.current + 1,
-			);
-			lastProgressObservedAtMsRef.current = observedAtMs;
+			if (force && !completed && last?.positionSeconds === clamped) return;
 			lastProgressEmitRef.current = { at: now, positionSeconds: clamped };
-			onProgress(clamped, completed, observedAtMs);
+			onProgress(clamped, completed);
 		},
 		[onProgress, playlist.totalDurationSeconds],
 	);
+
+	useEffect(() => {
+		globalTimeRef.current = globalTime;
+	}, [globalTime]);
+
+	// readLiveGlobalTime asks the media element where it is right now. The
+	// globalTime state trails it by up to one timeupdate (a quarter second),
+	// which is too coarse for the exact saves on pause and unload.
+	const readLiveGlobalTime = useCallback(() => {
+		const player = isAudioSource ? audioRef.current : playerRef.current;
+		if (
+			!player ||
+			!currentPart ||
+			readySourceKeyRef.current !== currentSourceKey ||
+			!Number.isFinite(player.currentTime)
+		) {
+			return globalTimeRef.current;
+		}
+		return usesContinuousSource
+			? playerTimeToCanonical(
+					player.currentTime,
+					playlist.totalDurationSeconds,
+					continuousDurationSeconds,
+				)
+			: globalTimeForPart(currentPart, player.currentTime);
+	}, [
+		continuousDurationSeconds,
+		currentPart,
+		currentSourceKey,
+		isAudioSource,
+		playlist.totalDurationSeconds,
+		usesContinuousSource,
+	]);
+
+	const flushWatchProgressRef = useRef(() => {});
+	useEffect(() => {
+		flushWatchProgressRef.current = () =>
+			emitWatchProgress(readLiveGlobalTime(), false, true);
+	}, [emitWatchProgress, readLiveGlobalTime]);
+
+	// Throttled saves leave up to 15s unsaved, so the exact position is flushed
+	// when the tab hides, the page unloads, or the player unmounts (navigating
+	// away, switching recordings). The write rides a keepalive request and
+	// survives the unload.
+	useEffect(() => {
+		const flush = () => flushWatchProgressRef.current();
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === "hidden") flush();
+		};
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+		window.addEventListener("pagehide", flush);
+		return () => {
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
+			window.removeEventListener("pagehide", flush);
+			flush();
+		};
+	}, []);
+
+	const showResumeNotice = resumedFromSeconds != null && !resumeNoticeDismissed;
+	useEffect(() => {
+		if (!showResumeNotice) return;
+		const timer = window.setTimeout(
+			() => setResumeNoticeDismissed(true),
+			RESUME_NOTICE_MS,
+		);
+		return () => window.clearTimeout(timer);
+	}, [showResumeNotice]);
+	const startOver = useCallback(() => {
+		setResumeNoticeDismissed(true);
+		seekToGlobal(0);
+	}, [seekToGlobal]);
+	const resumeNotice =
+		showResumeNotice && resumedFromSeconds != null ? (
+			<ResumeNotice
+				offsetSeconds={resumedFromSeconds}
+				onStartOver={startOver}
+				onDismiss={() => setResumeNoticeDismissed(true)}
+			/>
+		) : null;
 
 	const handleEnded = useCallback(() => {
 		const sourceKey = currentSourceKey ?? "";
@@ -622,6 +741,7 @@ export function WatchPlayer({
 	useEffect(() => {
 		unavailableCallback.current = onMediaUnavailable;
 	}, [onMediaUnavailable]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: A source change or retry must cancel the previous probe.
 	useEffect(() => {
 		probeGeneration.current++;
 		probeRef.current?.abort();
@@ -648,6 +768,7 @@ export function WatchPlayer({
 			if (kind !== "failed") unavailableCallback.current?.(kind);
 		});
 	}, [currentSourceKey]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Retrying the same source must start a fresh watchdog.
 	useEffect(() => {
 		const src = currentSourceKey;
 		if (!src || mediaFailure) return;
@@ -794,14 +915,21 @@ export function WatchPlayer({
 						setAudioPaused(event.currentTarget.paused);
 						setAudioPlaybackRate(event.currentTarget.playbackRate);
 						setAudioVolume(event.currentTarget.volume);
+						// Metadata is enough to seek. With preload="metadata" some
+						// browsers hold canplay back until play, which would leave a
+						// resumed recording sitting at 0 until then.
+						handleCanPlay();
 					}}
+					onLoadedData={handleCanPlay}
+					onPlaying={handleCanPlay}
 					onPause={() => {
 						wasPlayingRef.current = false;
 						setAudioPaused(true);
-						emitWatchProgress(globalTime, false, true);
+						flushWatchProgressRef.current();
 					}}
 					onPlay={() => {
 						wasPlayingRef.current = true;
+						viewerEngagedRef.current = true;
 						setAudioPaused(false);
 					}}
 					onRateChange={(event) => {
@@ -833,46 +961,51 @@ export function WatchPlayer({
 					onSeekForward={() => seekToGlobal(globalTime + 10)}
 				/>
 				<div className="rv-audio-recording-timeline">{recordingTimeline}</div>
+				{resumeNotice}
 			</section>
 		);
 	}
 
 	return (
-		<MediaPlayer
-			key={reloadNonce}
-			ref={playerRef}
-			src={currentSource}
-			title={playlist.title}
-			crossOrigin={isCrossOrigin ? "use-credentials" : null}
-			playsInline
-			onCanPlay={handleCanPlay}
-			onEnded={handleEnded}
-			onError={handleError}
-			onKeyDown={handlePlayerKeyDown}
-			onPause={() => {
-				wasPlayingRef.current = false;
-				emitWatchProgress(globalTime, false, true);
-			}}
-			onPlay={() => {
-				wasPlayingRef.current = true;
-			}}
-			onTimeUpdate={handleEventTimeUpdate}
-			className="rounded-lg overflow-hidden bg-black shadow-sm"
-		>
-			<MediaStateBridge
+		<div className="flex flex-col gap-2">
+			<MediaPlayer
+				key={reloadNonce}
+				ref={playerRef}
+				src={currentSource}
+				title={playlist.title}
+				crossOrigin={isCrossOrigin ? "use-credentials" : null}
+				playsInline
 				onCanPlay={handleCanPlay}
 				onEnded={handleEnded}
-				onPausedChange={handlePausedChange}
-				onTimeUpdate={syncPlaybackTime}
-			/>
-			{mediaProvider}
-			<DefaultVideoLayout
-				icons={defaultLayoutIcons}
-				slots={{
-					timeSlider: recordingTimeline,
+				onError={handleError}
+				onKeyDown={handlePlayerKeyDown}
+				onPause={() => {
+					wasPlayingRef.current = false;
+					flushWatchProgressRef.current();
 				}}
-			/>
-		</MediaPlayer>
+				onPlay={() => {
+					wasPlayingRef.current = true;
+					viewerEngagedRef.current = true;
+				}}
+				onTimeUpdate={handleEventTimeUpdate}
+				className="rounded-lg overflow-hidden bg-black shadow-sm"
+			>
+				<MediaStateBridge
+					onCanPlay={handleCanPlay}
+					onEnded={handleEnded}
+					onPausedChange={handlePausedChange}
+					onTimeUpdate={syncPlaybackTime}
+				/>
+				{mediaProvider}
+				<DefaultVideoLayout
+					icons={defaultLayoutIcons}
+					slots={{
+						timeSlider: recordingTimeline,
+					}}
+				/>
+			</MediaPlayer>
+			{resumeNotice}
+		</div>
 	);
 }
 

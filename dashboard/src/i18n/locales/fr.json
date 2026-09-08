@@ -145,6 +145,7 @@
 		"no_results": "Aucun résultat"
 	},
 	"dashboard": {
+		"continue_watching": "Reprendre la lecture",
 		"running_now": "En cours",
 		"active_count": "{{count}} actives",
 		"active_capacity": "{{active}}/{{max}} actives",
@@ -211,6 +212,7 @@
 		"not_found_description": "La page que vous cherchez n'existe pas."
 	},
 	"videos": {
+		"resume_progress": "Reprendre à {{time}}",
 		"quality_1440": "1440p (maximum)",
 		"quality_best": "Meilleure disponible",
 		"title": "Vidéos",
@@ -220,6 +222,8 @@
 		"failed_to_load": "Impossible de charger les vidéos",
 		"not_found": "Vidéo introuvable.",
 		"watch_recording": "Regarder {{title}}",
+		"open_downloads": "Voir le téléchargement de {{title}}",
+		"open_history": "Voir pourquoi {{title}} a échoué",
 		"summary": "{{count}} enregistrements · {{size}} · {{channels}} chaînes",
 		"showing": "Affichage de {{shown}} sur {{total}}",
 		"showing_loaded": "Affichage de {{shown}} sur {{loaded}} chargées",
@@ -366,11 +370,14 @@
 		"remove": "Supprimer",
 		"remove_confirm_title": "Supprimer l'enregistrement ?",
 		"remove_confirm_body": "Cela supprime définitivement les fichiers de l'enregistrement. Il reste dans l'historique comme supprimé.",
-		"remove_confirm": "Supprimer",
-		"open_downloads": "Voir le téléchargement de {{title}}",
-		"open_history": "Voir pourquoi {{title}} a échoué"
+		"remove_confirm": "Supprimer"
 	},
 	"watch": {
+		"resumed_from": "Reprise à {{time}}",
+		"start_over": "Recommencer",
+		"dismiss_resume": "Fermer",
+		"not_ready": "Cette vidéo n'est pas prête à être lue (statut : {{status}}).",
+		"removed": "Cet enregistrement a été supprimé et ses fichiers ne sont plus disponibles.",
 		"removed_missing": "Les fichiers de cet enregistrement ne sont plus dans le stockage, il a donc été retiré de la bibliothèque.",
 		"media_gone_title": "Ce fichier n'est plus dans le stockage.",
 		"media_gone_body": "Le média de l'enregistrement a été supprimé ou déplacé en dehors de ReplayVOD. Supprimez-le pour nettoyer son entrée d'historique, ou réessayez si le stockage est de retour.",
@@ -380,8 +387,6 @@
 		"media_failed_body": "Le média n'a pas pu être chargé. Vérifiez votre connexion et réessayez.",
 		"retry": "Réessayer",
 		"view_history": "Voir l'historique",
-		"not_ready": "Cette vidéo n'est pas prête à être lue (statut : {{status}}).",
-		"removed": "Cet enregistrement a été supprimé et ses fichiers ne sont plus disponibles.",
 		"back_to_videos": "← Retour aux vidéos",
 		"back_to_history": "← Retour à l'historique",
 		"layout_aside": "Historique latéral",

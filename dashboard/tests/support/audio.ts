@@ -1,4 +1,6 @@
 import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Route } from "@playwright/test";
 
 // A four second AAC clip and a byte-range responder for it, shared by the
@@ -43,6 +45,29 @@ export const audioFixture = Buffer.from(
 
 export function fulfillAudioFixture(route: Route) {
 	return fulfillRangeFixture(route, audioFixture, "audio/mp4");
+}
+
+// silentWavFixture builds a PCM WAV of silence (8 kHz, 8-bit, mono) for specs
+// that need more playback than the four second clip above; resume only kicks
+// in five seconds into a recording. Chromium decodes it natively.
+export function silentWavFixture(seconds: number) {
+	const sampleRate = 8000;
+	const dataLength = seconds * sampleRate;
+	const header = Buffer.alloc(44);
+	header.write("RIFF", 0);
+	header.writeUInt32LE(36 + dataLength, 4);
+	header.write("WAVE", 8);
+	header.write("fmt ", 12);
+	header.writeUInt32LE(16, 16);
+	header.writeUInt16LE(1, 20);
+	header.writeUInt16LE(1, 22);
+	header.writeUInt32LE(sampleRate, 24);
+	header.writeUInt32LE(sampleRate, 28);
+	header.writeUInt16LE(1, 32);
+	header.writeUInt16LE(8, 34);
+	header.write("data", 36);
+	header.writeUInt32LE(dataLength, 40);
+	return Buffer.concat([header, Buffer.alloc(dataLength, 0x80)]);
 }
 
 // fulfillRangeFixture answers a media request the way the stream route does:
@@ -103,3 +128,9 @@ export async function fulfillRangeFixture(
 		body: fixture,
 	});
 }
+
+// videoFixture is a thirty second H.264/AAC clip generated with ffmpeg
+// (tests/fixtures/resume-30s.mp4), the container the server records.
+export const videoFixture = readFileSync(
+	resolve(process.cwd(), "tests/fixtures/resume-30s.mp4"),
+);

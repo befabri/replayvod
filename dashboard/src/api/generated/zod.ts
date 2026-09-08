@@ -95,6 +95,10 @@ export const ChannelVODsInputSchema = z.object({
   limit: z.int().gte(1).lte(100).or(z.literal(0)).optional(),
 }).meta({ id: "ChannelVODsInput" });
 
+export const ContinueWatchingInputSchema = z.object({
+  limit: z.int().gte(0).lte(50),
+}).meta({ id: "ContinueWatchingInput" });
+
 export const CreateInputSchema = z.object({
   broadcaster_id: z.string().min(1),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
@@ -329,7 +333,6 @@ export const UpdateWatchProgressInputSchema = z.object({
   video_id: z.number(),
   position_seconds: z.float64().gte(0),
   completed: z.boolean(),
-  observed_at_ms: z.number().gte(1),
 }).meta({ id: "UpdateWatchProgressInput" });
 
 export const VideoByBroadcasterInputSchema = z.object({

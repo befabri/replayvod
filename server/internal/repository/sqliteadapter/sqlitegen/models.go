@@ -450,6 +450,7 @@ type VideoUserState struct {
 	CompletedAt         *sqlitetype.Time `json:"completed_at"`
 	CreatedAt           sqlitetype.Time  `json:"created_at"`
 	UpdatedAt           sqlitetype.Time  `json:"updated_at"`
+	ProgressRevision    int64            `json:"progress_revision"`
 }
 
 type WebhookEvent struct {
