@@ -316,6 +316,8 @@ const (
 	QualityLow    = "LOW"
 	QualityMedium = "MEDIUM"
 	QualityHigh   = "HIGH"
+	Quality1440   = "1440"
+	QualityBest   = "BEST"
 )
 
 type Stream struct {

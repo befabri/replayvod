@@ -231,6 +231,22 @@ func TestBestSchedule_PicksModeQualityAndBreaksTiesByID(t *testing.T) {
 			wantID: 1,
 		},
 		{
+			name: "1440 beats the existing High limit",
+			input: []*repository.DownloadSchedule{
+				{ID: 1, Quality: repository.QualityHigh},
+				{ID: 2, Quality: repository.Quality1440},
+			},
+			wantID: 2,
+		},
+		{
+			name: "Best available beats a height cap",
+			input: []*repository.DownloadSchedule{
+				{ID: 1, Quality: repository.Quality1440},
+				{ID: 2, Quality: repository.QualityBest},
+			},
+			wantID: 2,
+		},
+		{
 			name: "ties on HIGH break to lower ID",
 			input: []*repository.DownloadSchedule{
 				{ID: 42, Quality: repository.QualityHigh},

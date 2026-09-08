@@ -64,7 +64,6 @@ type DownloadSchedule struct {
 	ID               int64            `json:"id"`
 	BroadcasterID    string           `json:"broadcaster_id"`
 	RequestedBy      string           `json:"requested_by"`
-	Quality          string           `json:"quality"`
 	HasMinViewers    int64            `json:"has_min_viewers"`
 	MinViewers       sql.NullInt64    `json:"min_viewers"`
 	HasCategories    int64            `json:"has_categories"`
@@ -79,6 +78,7 @@ type DownloadSchedule struct {
 	RecordingType    string           `json:"recording_type"`
 	ForceH264        int64            `json:"force_h264"`
 	RequestedFrom    sql.NullString   `json:"requested_from"`
+	Quality          string           `json:"quality"`
 }
 
 type DownloadScheduleCategory struct {
@@ -328,7 +328,6 @@ type Video struct {
 	Filename                  string           `json:"filename"`
 	DisplayName               string           `json:"display_name"`
 	Status                    string           `json:"status"`
-	Quality                   string           `json:"quality"`
 	BroadcasterID             string           `json:"broadcaster_id"`
 	StreamID                  sql.NullString   `json:"stream_id"`
 	ViewerCount               int64            `json:"viewer_count"`
@@ -352,6 +351,7 @@ type Video struct {
 	RetentionWindowHours      sql.NullInt64    `json:"retention_window_hours"`
 	DeleteRequestedAt         *sqlitetype.Time `json:"delete_requested_at"`
 	DeletionKind              sql.NullString   `json:"deletion_kind"`
+	Quality                   string           `json:"quality"`
 }
 
 type VideoCategory struct {

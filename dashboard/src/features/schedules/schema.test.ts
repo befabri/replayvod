@@ -186,3 +186,16 @@ describe("ScheduleFormSchema category and tag filter validation", () => {
 		).toBe(true);
 	});
 });
+
+it.each(["1440", "BEST"])("accepts saved schedule quality %s", (quality) => {
+	expect(ScheduleFormSchema.parse({ ...base, quality }).quality).toBe(quality);
+});
+it.each([
+	"",
+	"ULTRA",
+	"2160",
+])("rejects unsupported schedule quality %s", (quality) => {
+	expect(ScheduleFormSchema.safeParse({ ...base, quality }).success).toBe(
+		false,
+	);
+});

@@ -29,8 +29,10 @@ export const ScheduleFormSchema = CreateInputSchema.pick({
 			.string()
 			.min(1)
 			.regex(/^\d+$/, "broadcaster_id must be numeric"),
+		// quality is not narrowed here: the picked generated field is already the
+		// exact enum the form offers. recording_type and force_h264 are, because
+		// the generated shapes widen them for older clients ("" / optional).
 		recording_type: z.enum(["video", "audio"]),
-		quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
 		force_h264: z.boolean(),
 		// The generated schema still carries the backend's historical
 		// unconditional bounds. The service validates this field only when

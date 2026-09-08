@@ -210,6 +210,8 @@
 		"not_found_description": "The page you're looking for doesn't exist."
 	},
 	"videos": {
+		"quality_1440": "1440p (maximum)",
+		"quality_best": "Best available",
 		"title": "Videos",
 		"empty": "No videos yet. Trigger a download from a channel page.",
 		"empty_watch_later": "No videos saved for later.",
@@ -399,6 +401,8 @@
 		"by_status": "By status"
 	},
 	"schedules": {
+		"quality_1440": "1440p (maximum)",
+		"quality_best": "Best available",
 		"title": "Auto-download schedules",
 		"description": "When a channel goes live, matching schedules automatically start a download.",
 		"failed_to_load": "Failed to load schedules",

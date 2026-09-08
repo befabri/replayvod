@@ -32,7 +32,7 @@ INSERT INTO videos (
     retention_window_hours
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind
+RETURNING id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality
 `
 
 type CreateVideoParams struct {
@@ -78,7 +78,6 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		&i.Filename,
 		&i.DisplayName,
 		&i.Status,
-		&i.Quality,
 		&i.BroadcasterID,
 		&i.StreamID,
 		&i.ViewerCount,
@@ -102,12 +101,13 @@ func (q *Queries) CreateVideo(ctx context.Context, arg CreateVideoParams) (Video
 		&i.RetentionWindowHours,
 		&i.DeleteRequestedAt,
 		&i.DeletionKind,
+		&i.Quality,
 	)
 	return i, err
 }
 
 const getVideo = `-- name: GetVideo :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind FROM videos WHERE id = ?
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos WHERE id = ?
 `
 
 func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
@@ -119,7 +119,6 @@ func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
 		&i.Filename,
 		&i.DisplayName,
 		&i.Status,
-		&i.Quality,
 		&i.BroadcasterID,
 		&i.StreamID,
 		&i.ViewerCount,
@@ -143,12 +142,13 @@ func (q *Queries) GetVideo(ctx context.Context, id int64) (Video, error) {
 		&i.RetentionWindowHours,
 		&i.DeleteRequestedAt,
 		&i.DeletionKind,
+		&i.Quality,
 	)
 	return i, err
 }
 
 const getVideoByJobID = `-- name: GetVideoByJobID :one
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind FROM videos WHERE job_id = ?
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos WHERE job_id = ?
 `
 
 func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, error) {
@@ -160,7 +160,6 @@ func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, err
 		&i.Filename,
 		&i.DisplayName,
 		&i.Status,
-		&i.Quality,
 		&i.BroadcasterID,
 		&i.StreamID,
 		&i.ViewerCount,
@@ -184,6 +183,7 @@ func (q *Queries) GetVideoByJobID(ctx context.Context, jobID string) (Video, err
 		&i.RetentionWindowHours,
 		&i.DeleteRequestedAt,
 		&i.DeletionKind,
+		&i.Quality,
 	)
 	return i, err
 }
@@ -260,7 +260,7 @@ WITH params AS (
            CAST(?3 AS integer) AS row_limit,
            CAST(?4 AS integer) AS row_offset
 )
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality FROM videos v
 CROSS JOIN params
 WHERE v.deleted_at IS NULL
   AND (params.status_filter = '' OR v.status = params.status_filter)
@@ -310,7 +310,6 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 			&i.Filename,
 			&i.DisplayName,
 			&i.Status,
-			&i.Quality,
 			&i.BroadcasterID,
 			&i.StreamID,
 			&i.ViewerCount,
@@ -334,6 +333,7 @@ func (q *Queries) ListVideos(ctx context.Context, arg ListVideosParams) ([]Video
 			&i.RetentionWindowHours,
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
+			&i.Quality,
 		); err != nil {
 			return nil, err
 		}
@@ -355,7 +355,7 @@ WITH params AS (
            CAST(?3 AS integer) AS cursor_id,
            CAST(?4 AS integer) AS row_limit
 )
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality FROM videos v
 CROSS JOIN params
 WHERE v.broadcaster_id = params.broadcaster_id
   AND v.deleted_at IS NULL
@@ -395,7 +395,6 @@ func (q *Queries) ListVideosByBroadcasterPage(ctx context.Context, arg ListVideo
 			&i.Filename,
 			&i.DisplayName,
 			&i.Status,
-			&i.Quality,
 			&i.BroadcasterID,
 			&i.StreamID,
 			&i.ViewerCount,
@@ -419,6 +418,7 @@ func (q *Queries) ListVideosByBroadcasterPage(ctx context.Context, arg ListVideo
 			&i.RetentionWindowHours,
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
+			&i.Quality,
 		); err != nil {
 			return nil, err
 		}
@@ -440,7 +440,7 @@ WITH params AS (
            CAST(?3 AS integer) AS cursor_id,
            CAST(?4 AS integer) AS row_limit
 )
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality FROM videos v
 CROSS JOIN params
 INNER JOIN video_categories vc ON vc.video_id = v.id
 WHERE vc.category_id = params.category_id
@@ -481,7 +481,6 @@ func (q *Queries) ListVideosByCategoryPage(ctx context.Context, arg ListVideosBy
 			&i.Filename,
 			&i.DisplayName,
 			&i.Status,
-			&i.Quality,
 			&i.BroadcasterID,
 			&i.StreamID,
 			&i.ViewerCount,
@@ -505,6 +504,7 @@ func (q *Queries) ListVideosByCategoryPage(ctx context.Context, arg ListVideosBy
 			&i.RetentionWindowHours,
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
+			&i.Quality,
 		); err != nil {
 			return nil, err
 		}
@@ -520,7 +520,7 @@ func (q *Queries) ListVideosByCategoryPage(ctx context.Context, arg ListVideosBy
 }
 
 const listVideosByJobIDs = `-- name: ListVideosByJobIDs :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind FROM videos WHERE job_id IN (/*SLICE:job_ids*/?)
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos WHERE job_id IN (/*SLICE:job_ids*/?)
 `
 
 func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error) {
@@ -548,7 +548,6 @@ func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Vi
 			&i.Filename,
 			&i.DisplayName,
 			&i.Status,
-			&i.Quality,
 			&i.BroadcasterID,
 			&i.StreamID,
 			&i.ViewerCount,
@@ -572,6 +571,7 @@ func (q *Queries) ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Vi
 			&i.RetentionWindowHours,
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
+			&i.Quality,
 		); err != nil {
 			return nil, err
 		}
@@ -634,7 +634,7 @@ func (q *Queries) ListVideosForStorageScan(ctx context.Context, arg ListVideosFo
 }
 
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
 
 func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, error) {
@@ -652,7 +652,6 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 			&i.Filename,
 			&i.DisplayName,
 			&i.Status,
-			&i.Quality,
 			&i.BroadcasterID,
 			&i.StreamID,
 			&i.ViewerCount,
@@ -676,6 +675,7 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 			&i.RetentionWindowHours,
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
+			&i.Quality,
 		); err != nil {
 			return nil, err
 		}
@@ -691,7 +691,7 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 }
 
 const listVideosPendingManualDelete = `-- name: ListVideosPendingManualDelete :many
-SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind FROM videos
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality FROM videos
 WHERE deleted_at IS NULL
   AND delete_requested_at IS NOT NULL
   AND status IN ('DONE', 'FAILED')
@@ -725,7 +725,6 @@ func (q *Queries) ListVideosPendingManualDelete(ctx context.Context, rowLimit in
 			&i.Filename,
 			&i.DisplayName,
 			&i.Status,
-			&i.Quality,
 			&i.BroadcasterID,
 			&i.StreamID,
 			&i.ViewerCount,
@@ -749,6 +748,7 @@ func (q *Queries) ListVideosPendingManualDelete(ctx context.Context, rowLimit in
 			&i.RetentionWindowHours,
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
+			&i.Quality,
 		); err != nil {
 			return nil, err
 		}
@@ -833,7 +833,7 @@ SET delete_requested_at = COALESCE(delete_requested_at, datetime('now'))
 WHERE id = ?
   AND deleted_at IS NULL
   AND status IN ('DONE', 'FAILED')
-RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind
+RETURNING id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality
 `
 
 // Queue an operator-requested deletion. Idempotent for already-queued live
@@ -847,7 +847,6 @@ func (q *Queries) RequestVideoDelete(ctx context.Context, id int64) (Video, erro
 		&i.Filename,
 		&i.DisplayName,
 		&i.Status,
-		&i.Quality,
 		&i.BroadcasterID,
 		&i.StreamID,
 		&i.ViewerCount,
@@ -871,6 +870,7 @@ func (q *Queries) RequestVideoDelete(ctx context.Context, id int64) (Video, erro
 		&i.RetentionWindowHours,
 		&i.DeleteRequestedAt,
 		&i.DeletionKind,
+		&i.Quality,
 	)
 	return i, err
 }
@@ -931,7 +931,7 @@ matched AS (
     LEFT JOIN category_matches cm ON cm.video_id = v.id
     WHERE v.deleted_at IS NULL
 )
-SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.quality, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind FROM videos v
+SELECT v.id, v.job_id, v.filename, v.display_name, v.status, v.broadcaster_id, v.stream_id, v.viewer_count, v.language, v.duration_seconds, v.size_bytes, v.thumbnail, v.error, v.start_download_at, v.downloaded_at, v.deleted_at, v.recording_type, v.force_h264, v.title, v.completion_kind, v.selected_quality, v.selected_fps, v.truncated, v.trigger_schedule_id, v.retention_source_schedule_id, v.retention_window_hours, v.delete_requested_at, v.deletion_kind, v.quality FROM videos v
 INNER JOIN matched m ON m.id = v.id
 WHERE m.empty_query
    OR m.title_contains
@@ -973,7 +973,6 @@ func (q *Queries) SearchVideos(ctx context.Context, arg SearchVideosParams) ([]V
 			&i.Filename,
 			&i.DisplayName,
 			&i.Status,
-			&i.Quality,
 			&i.BroadcasterID,
 			&i.StreamID,
 			&i.ViewerCount,
@@ -997,6 +996,7 @@ func (q *Queries) SearchVideos(ctx context.Context, arg SearchVideosParams) ([]V
 			&i.RetentionWindowHours,
 			&i.DeleteRequestedAt,
 			&i.DeletionKind,
+			&i.Quality,
 		); err != nil {
 			return nil, err
 		}

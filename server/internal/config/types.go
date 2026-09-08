@@ -149,12 +149,8 @@ type DownloadConfig struct {
 	// active job shares the same Twitch host budget.
 	MaxConcurrent int `toml:"max_concurrent"`
 
-	// PreferredQuality is the starting quality for new jobs, as a
-	// numeric string ("1080", "720", "480", "360", "160"). The
-	// Stage 3 fallback chain downgrades from here if the requested
-	// quality isn't available on the master playlist. New jobs
-	// always start at this value; prior jobs' downgrades don't
-	// stick across jobs.
+	// PreferredQuality is retained for config compatibility. Recordings and
+	// schedules save their own quality choice; the downloader uses that value.
 	PreferredQuality string `toml:"preferred_quality"`
 
 	// SegmentConcurrency is the size of the per-job fetcher worker

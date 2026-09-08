@@ -1125,7 +1125,7 @@ func (h *Handler) ActiveDownloadsLive(ctx context.Context) (<-chan []ActiveDownl
 type TriggerDownloadInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 	RecordingType string `json:"recording_type,omitempty" validate:"omitempty,oneof=video audio"`
-	Quality       string `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH"`
+	Quality       string `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH 1440 BEST"`
 	ForceH264     bool   `json:"force_h264,omitempty"`
 }
 

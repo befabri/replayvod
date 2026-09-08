@@ -2,32 +2,19 @@ package twitch
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 )
 
 // ErrNoAudioRendition is returned when SelectVariant is called
 // with RecordingType="audio" against a manifest that has no
-// audio_only rendition. Unobserved in any of the spec's 10
-// captures, but defensible — Twitch could drop it for a channel
-// without us noticing until a job fails.
+// audio_only rendition.
 var ErrNoAudioRendition = errors.New("twitch: no audio_only rendition in master playlist")
 
 // ErrNoAcceptableVariant is returned when Stage 3 filters leave
-// zero variants matching the caller's codec + quality constraints.
-// Seen in practice when ForceH264=true against a hypothetical HEVC-
-// only channel (none observed), or EnableAV1=false + an AV1-only
-// manifest.
+// zero variants matching the caller's codec + quality constraints,
+// for instance ForceH264 against an HEVC-only channel.
 var ErrNoAcceptableVariant = errors.New("twitch: no variant matches codec + quality constraints")
-
-// qualityFallbackChain mirrors the v1 fallback matrix
-// (.docs/spec/download-pipeline.md Stage 3). Requested quality
-// resolves by trying itself first, then each fallback in order.
-var qualityFallbackChain = map[string][]string{
-	"1080": {"1080", "720", "480", "360"},
-	"720":  {"720", "480", "360"},
-	"480":  {"480", "360", "160"},
-	"360":  {"360", "160"},
-	"160":  {"160"},
-}
 
 // SelectOptions carries everything the Stage 3 selector needs.
 // None of the boolean flags are mutually exclusive; all filters
@@ -37,9 +24,8 @@ type SelectOptions struct {
 	// all codec/quality logic and picks the audio_only rendition.
 	RecordingType string
 
-	// Quality is the requested numeric-string height ("1080" ...
-	// "160"). Empty defaults to "1080" — same default as the
-	// v1 downloader. Ignored when RecordingType="audio".
+	// Quality is a maximum numeric height (including nonstandard heights),
+	// or "best" for no cap. Empty/invalid defaults to 1080. Ignored for audio.
 	Quality string
 
 	// EnableAV1 opts into AV1 variants at Stage 3. Matches
@@ -52,15 +38,12 @@ type SelectOptions struct {
 	DisableHEVC bool
 
 	// ForceH264 is the per-job override (videos.force_h264).
-	// Drops both HEVC and AV1 before the quality chain runs.
-	// When true, effectively restricts the pool to H.264 variants.
+	// Drops both HEVC and AV1, leaving an H.264-only pool.
 	ForceH264 bool
 }
 
 // SelectVariant is Stage 3: given a parsed master playlist and the
 // operator's preferences, return exactly the variant to record.
-// Ordering inside SelectOptions doesn't matter — the filter is
-// commutative.
 func SelectVariant(m *Manifest, opts SelectOptions) (SelectedVariant, error) {
 	if m.isEmpty() {
 		return SelectedVariant{}, ErrNoAcceptableVariant
@@ -72,10 +55,21 @@ func SelectVariant(m *Manifest, opts SelectOptions) (SelectedVariant, error) {
 	if len(pool) == 0 {
 		return SelectedVariant{}, ErrNoAcceptableVariant
 	}
-	for _, want := range fallbackChain(opts.Quality) {
-		if best := pickByCodecPreference(pool, want); best != nil {
-			return selectedFrom(best), nil
+	limit := qualityLimit(opts.Quality)
+	var best *Variant
+	bestHeight := 0
+	for i := range pool {
+		v := &pool[i]
+		height, err := strconv.Atoi(v.Quality)
+		if err != nil || height <= 0 || (limit > 0 && height > limit) {
+			continue
 		}
+		if best == nil || height > bestHeight || (height == bestHeight && betterVariant(v, best)) {
+			best, bestHeight = v, height
+		}
+	}
+	if best != nil {
+		return selectedFrom(best), nil
 	}
 	return SelectedVariant{}, ErrNoAcceptableVariant
 }
@@ -100,10 +94,9 @@ func selectAudioVariant(m *Manifest) (SelectedVariant, error) {
 	return SelectedVariant{}, ErrNoAudioRendition
 }
 
-// acceptableVariants drops the renditions a video job can never pick: audio_only
-// (a manifest-shape fixture that keeps the response matching what Twitch ships
-// the web player), codecs the options exclude, and any whose height is unknown
-// and so has no place on the fallback chain.
+// acceptableVariants drops the renditions a video job can never pick:
+// audio_only, codecs the options exclude, and any whose height the manifest
+// does not state.
 func acceptableVariants(m *Manifest, opts SelectOptions) []Variant {
 	pool := make([]Variant, 0, len(m.Variants))
 	for _, v := range m.Variants {
@@ -121,17 +114,26 @@ func acceptableVariants(m *Manifest, opts SelectOptions) []Variant {
 	return pool
 }
 
-// fallbackChain resolves a requested quality to its highest-to-lowest search
-// order. An empty request defaults to 1080; a non-standard one (e.g. "1440")
-// borrows the 1080 chain, the search order Twitch actually supports.
-func fallbackChain(requested string) []string {
-	if requested == "" {
-		requested = "1080"
+// qualityLimit returns the maximum height a request allows, or 0 for no cap.
+func qualityLimit(requested string) int {
+	if strings.EqualFold(requested, "best") {
+		return 0
 	}
-	if chain, ok := qualityFallbackChain[requested]; ok {
-		return chain
+	height, err := strconv.Atoi(requested)
+	if err != nil || height <= 0 {
+		return 1080
 	}
-	return qualityFallbackChain["1080"]
+	return height
+}
+
+// betterVariant reports whether candidate should displace current at the same
+// height: codec preference decides first, then frame rate rather than playlist
+// order.
+func betterVariant(candidate, current *Variant) bool {
+	if codecRank(candidate.Codec) != codecRank(current.Codec) {
+		return codecRank(candidate.Codec) > codecRank(current.Codec)
+	}
+	return candidate.FPS > current.FPS
 }
 
 // selectedFrom builds the result for a chosen variant, reporting frame rate by
@@ -167,38 +169,9 @@ func codecAllowed(codec string, opts SelectOptions) bool {
 	return false
 }
 
-// pickByCodecPreference finds the best variant for a target
-// quality. If multiple variants match the same quality, prefer
-// HEVC over H.264 and AV1 over HEVC (matching the spec's "prefer
-// hvc1 over avc1 at equal quality" rule). The preference order
-// lives in codecRank below.
-//
-// Returns nil when no variant matches.
-func pickByCodecPreference(pool []Variant, quality string) *Variant {
-	var best *Variant
-	bestRank := -1
-	for i := range pool {
-		v := &pool[i]
-		if v.Quality != quality {
-			continue
-		}
-		rank := codecRank(v.Codec)
-		if rank > bestRank {
-			best = v
-			bestRank = rank
-		}
-	}
-	return best
-}
-
-// codecRank orders codecs by "prefer when equal quality." Higher is
-// better. H.264 is the baseline; HEVC is the spec's preferred codec
-// when Twitch offers it; AV1 is an optional third tier that only
-// wins over H.264, not over HEVC. Rationale: the spec's Overview
-// flags HEVC as "supported and preferred whenever Twitch offers
-// it" and AV1 as "optional behind config" — HEVC is the mature
-// codec on this pipeline, AV1 is experimental. Unknown codecs
-// rank -1 and never win.
+// codecRank orders codecs by preference at equal quality; higher wins. H.264
+// is the baseline, HEVC is preferred when Twitch offers it, and AV1 only beats
+// H.264. Unknown codecs rank -1 and never win.
 func codecRank(codec string) int {
 	switch codec {
 	case CodecH265:
