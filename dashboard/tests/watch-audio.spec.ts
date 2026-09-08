@@ -1,5 +1,5 @@
-import { audioDurationSeconds, fulfillAudioFixture } from "./support/audio";
 import { expect, test, type Page } from "@playwright/test";
+import { audioDurationSeconds, fulfillAudioFixture } from "./support/audio";
 import { mockTrpc, trpcOk, validSession } from "./support/trpc";
 
 const recordedAt = "2026-06-05T12:00:00Z";
@@ -18,8 +18,15 @@ test.describe("audio watch player", () => {
 
 		await page.getByRole("button", { name: "Play", exact: true }).click();
 		await expect
-			.poll(async () =>
-				page.locator("audio").evaluate((audio: HTMLMediaElement) => audio.ended),
+			.poll(
+				async () =>
+					page
+						.locator("audio")
+						.evaluate((audio: HTMLMediaElement) => audio.ended),
+				// The fixture plays for audioDurationSeconds in real time, so the
+				// default 5s poll leaves about a second of headroom and loses it
+				// under load. Wait long enough for playback itself.
+				{ timeout: 30_000 },
 			)
 			.toBe(true);
 		await expect(recordingSlider).toHaveAttribute(
@@ -94,8 +101,15 @@ test.describe("audio watch player", () => {
 
 		await page.getByRole("button", { name: "Play", exact: true }).click();
 		await expect
-			.poll(async () =>
-				page.locator("audio").evaluate((audio: HTMLMediaElement) => audio.ended),
+			.poll(
+				async () =>
+					page
+						.locator("audio")
+						.evaluate((audio: HTMLMediaElement) => audio.ended),
+				// The fixture plays for audioDurationSeconds in real time, so the
+				// default 5s poll leaves about a second of headroom and loses it
+				// under load. Wait long enough for playback itself.
+				{ timeout: 30_000 },
 			)
 			.toBe(true);
 
