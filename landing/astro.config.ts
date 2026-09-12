@@ -1,5 +1,6 @@
 import { defineConfig } from 'astro/config';
 import { execSync } from 'node:child_process';
+import mdx from '@astrojs/mdx';
 import starlight from '@astrojs/starlight';
 import sitemap from '@astrojs/sitemap';
 
@@ -64,12 +65,23 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Use',
+          items: [
+            { label: 'Watching recordings', slug: 'docs/library' },
+            { label: 'Downloads & history', slug: 'docs/activity' },
+            { label: 'Your account', slug: 'docs/account' },
+          ],
+        },
+        {
           label: 'Configure',
           items: [
             { label: 'Configuration', slug: 'docs/configuration' },
             { label: 'Storage', slug: 'docs/storage' },
             { label: 'Recording', slug: 'docs/recording' },
             { label: 'Schedules & title tracking', slug: 'docs/schedules' },
+            { label: 'Archive VODs', slug: 'docs/archive' },
+            { label: 'Twitch playback account', slug: 'docs/twitch-playback' },
+            { label: 'Playback cache', slug: 'docs/playback-cache' },
             { label: 'EventSub', slug: 'docs/eventsub' },
             { label: 'Recording webhook', slug: 'docs/webhook' },
             { label: 'Connect relay', slug: 'docs/connect' },
@@ -78,6 +90,7 @@ export default defineConfig({
         {
           label: 'Operations',
           items: [
+            { label: 'Users & invitations', slug: 'docs/access' },
             { label: 'Backup & restore', slug: 'docs/backup' },
             { label: 'Troubleshooting', slug: 'docs/troubleshooting' },
           ],
@@ -99,6 +112,9 @@ export default defineConfig({
         },
       ],
     }),
+    // Starlight adds this itself, but without `gfm` the MDX pipeline drops tables.
+    // Must stay after starlight() so expressive-code is registered first.
+    mdx({ optimize: true, gfm: true }),
   ],
   vite: {
     plugins: [tailwindcss()]

@@ -1,17 +1,21 @@
 ---
 title: Install
-description: Install ReplayVOD on macOS, Linux, or Windows.
+description: Install ReplayVOD with Docker Compose or build it from source.
 ---
 
-import { FileTree, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
+import { TabItem, Tabs } from '@astrojs/starlight/components';
 
-ReplayVOD ships as a Docker Compose stack. On macOS and Linux a one-line installer wraps the same steps; on Windows, clone the repo and run Docker Compose yourself.
+Use the installer on macOS or Linux, or run Docker Compose manually on any supported platform. For a local setup with your first recording schedule, follow the [Quickstart](/docs/quickstart/).
 
 ## Requirements
 
-- A Twitch developer application (for `TWITCH_CLIENT_ID` and `TWITCH_SECRET`).
-- Docker (Docker Desktop on Windows).
-- `ffmpeg` is bundled in the Docker image.
+For a Docker install, you need:
+
+- Docker with Compose. On Windows, use Docker Desktop.
+- A Twitch developer application and its **Client ID** and **Client Secret**. See [Register a Twitch app](/docs/quickstart/#1-register-a-twitch-app).
+- Storage for recordings and temporary download files.
+
+The Docker image includes `ffmpeg`, `ffprobe`, and the dashboard.
 
 ## Installer (macOS / Linux)
 
@@ -19,23 +23,13 @@ ReplayVOD ships as a Docker Compose stack. On macOS and Linux a one-line install
 curl -fsSL https://replayvod.com/install.sh | sh
 ```
 
-The installer:
+The installer asks for an install directory, version, database profile, public URL, and Twitch app credentials. It creates `server/.env`, generates a session secret, and offers to start the containers.
 
-<Steps>
-
-1. Asks where to install ReplayVOD. The default is `~/replayvod/`.
-2. Asks for a version tag or branch. Press Enter for the latest release tag.
-3. Asks for a database profile. The default is `sqlite`; choose `postgres` if you want Compose to start Postgres too.
-4. Asks for the public URL. Press Enter for local-only `http://localhost:8080`, or enter your HTTPS domain for a public server.
-5. Writes `server/.env` from the example and generates `SESSION_SECRET` locally.
-6. Prompts for `TWITCH_CLIENT_ID` and `TWITCH_SECRET`. The secret prompt is hidden.
-7. Asks whether to start containers now, then runs `docker compose up -d` if you say yes.
-
-</Steps>
+The defaults are `~/replayvod`, the latest release tag, SQLite, and `http://localhost:8080`. Choose the PostgreSQL profile if you want Compose to run a separate database container. Enter an HTTPS URL if you'll access ReplayVOD through a public domain.
 
 ## Manual Docker
 
-Clone the repo and run Docker Compose. This is the only path on Windows, and works on macOS and Linux if you want full control.
+Clone the repository and open the environment file:
 
 <Tabs syncKey="platform">
   <TabItem label="macOS / Linux">
@@ -45,7 +39,6 @@ Clone the repo and run Docker Compose. This is the only path on Windows, and wor
   cd replayvod
   cp server/.env.example server/.env
   $EDITOR server/.env
-  docker compose --env-file server/.env --profile sqlite up -d
   ```
 
   </TabItem>
@@ -56,89 +49,83 @@ Clone the repo and run Docker Compose. This is the only path on Windows, and wor
   Set-Location replayvod
   Copy-Item server/.env.example server/.env
   notepad server/.env
-  docker compose --env-file server/.env --profile sqlite up -d
   ```
 
   </TabItem>
 </Tabs>
 
-Fill `TWITCH_CLIENT_ID` and `TWITCH_SECRET` in `server/.env` before starting, and generate `SESSION_SECRET` (any 32-byte hex string, e.g. `openssl rand -hex 32`). `OWNER_TWITCH_ID` is optional; leave it empty and the first successful login becomes owner. The EventSub HMAC secret is generated and stored in the database automatically.
-
-`docker compose up -d` pulls the prebuilt image `ghcr.io/befabri/replayvod:latest` (linux/amd64 and linux/arm64); add `--build` to build from the local source instead. Use `--profile postgres` to run against Postgres.
-
-## Build from source
-
-Requires Go 1.26+, Node 22+, [Task](https://taskfile.dev/), and `ffmpeg` on `PATH`.
-
-```bash
-git clone https://github.com/befabri/replayvod.git
-cd replayvod
-task setup    # go mod download + npm install
-task dev      # server on :8080, dashboard on :3000
-task build    # production builds
-```
-
-## Install layout
-
-<Tabs syncKey="platform">
-  <TabItem label="macOS / Linux">
-
-  <FileTree>
-
-  - ~/replayvod/
-    - server/
-      - .env
-      - config.toml
-    - docker-compose.yml
-    - data/
-
-  </FileTree>
-
-  </TabItem>
-  <TabItem label="Windows">
-
-  Same layout, wherever you cloned the repo (typically `%USERPROFILE%\replayvod\`):
-
-  <FileTree>
-
-  - replayvod/
-    - server/
-      - .env
-      - config.toml
-    - docker-compose.yml
-    - data/
-
-  </FileTree>
-
-  </TabItem>
-</Tabs>
-
-## Required environment
-
-After install, fill these in `server/.env`:
+Set the required values before starting:
 
 ```text
 TWITCH_CLIENT_ID=...
 TWITCH_SECRET=...
-SESSION_SECRET=...   # installer generates this, or: openssl rand -hex 32
-OWNER_TWITCH_ID=...  # optional; empty = first login becomes owner
+SESSION_SECRET=...
+OWNER_TWITCH_ID=...
 ```
 
-For a public deployment also set:
+Generate `SESSION_SECRET` with `openssl rand -hex 32`, or use the PowerShell example in [Quickstart](/docs/quickstart/#2-install).
+
+`OWNER_TWITCH_ID` is optional. Set your numeric Twitch user ID to reserve ownership for your account. If you leave it empty, the first successful sign-in becomes owner.
+
+Start the SQLite profile:
+
+```bash
+docker compose --env-file server/.env --profile sqlite up -d
+```
+
+Use `--profile postgres` to start ReplayVOD with PostgreSQL. Compose pulls the published `ghcr.io/befabri/replayvod:latest` image for Linux AMD64 or ARM64. Add `--build` to build the image from your local source.
+
+## Build from source
+
+You need Go 1.26+, Node 22.12+, [Task](https://taskfile.dev/), and `ffmpeg` and `ffprobe` on `PATH`.
+
+```bash
+git clone https://github.com/befabri/replayvod.git
+cd replayvod
+cp server/.env.example server/.env
+task setup
+```
+
+Fill in the required values in `server/.env`, then run:
+
+```bash
+task dev      # server on port 8080, dashboard on port 3000
+task build    # build the server and dashboard for production
+```
+
+The build writes `server/bin/replayvod` and `dashboard/dist/client/`. For a manual production install, run the server from `server/`, set `DASHBOARD_DIR` to the built dashboard directory, and set `DEVELOPMENT=false`. See [Development](/docs/contributing/development/) for development tasks and tests.
+
+## Install layout
+
+The checkout contains your configuration and Compose file:
+
+```text
+replayvod/
+├── server/
+│   ├── .env
+│   └── config.toml
+└── docker-compose.yml
+```
+
+Docker stores recordings and SQLite in a named volume mounted at `/app/data`. Logs use a separate volume; PostgreSQL uses its own database volume. Source installs default to `server/data/` when run from `server/`.
+
+The storage root contains `.replayvod-storage`, which identifies the storage belonging to this installation. Keep that file with the media when moving or restoring it. See [Storage](/docs/storage/) and [Backup & restore](/docs/backup/).
+
+The Docker image includes `config.toml`. To use local edits, add the bind mount described in [Configuration](/docs/configuration/#docker-compose).
+
+## Public URL
+
+For a public server, set:
 
 ```text
 PUBLIC_BASE_URL=https://your-domain.example
 ```
 
-The server derives its Twitch OAuth callback and dashboard redirects from
-`PUBLIC_BASE_URL`.
+Register `${PUBLIC_BASE_URL}/api/v1/auth/twitch/callback` as your Twitch app's OAuth redirect URL. The address must match the one users access.
 
 ## Next steps
 
-<Steps>
-
-1. Open [http://localhost:8080](http://localhost:8080) and sign in with Twitch.
-2. Tune [recording behaviour](/docs/recording/) and [storage](/docs/storage/) in `server/config.toml`.
-3. If you need EventSub but can't expose a public HTTPS endpoint, set up the [Connect relay](/docs/connect/).
-
-</Steps>
+1. Open the dashboard and sign in with Twitch.
+2. Configure live detection in **System → EventSub**. Polling works without a public callback; direct EventSub and [Connect](/docs/connect/) receive Twitch notifications.
+3. Create a [recording schedule](/docs/schedules/).
+4. [Invite other users](/docs/access/) and set up [backups](/docs/backup/).

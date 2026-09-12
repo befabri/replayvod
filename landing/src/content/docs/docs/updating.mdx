@@ -1,37 +1,45 @@
 ---
 title: Updating
-description: Update an existing ReplayVOD install.
+description: Update ReplayVOD and check that your recordings and schedules still work.
 ---
 
 import { TabItem, Tabs } from '@astrojs/starlight/components';
 
-ReplayVOD updates in place. Migrations run automatically on start.
+ReplayVOD updates the database automatically when the new version starts.
+
+## Before updating
+
+Read the [release notes](https://github.com/befabri/replayvod/releases) for the versions between your current and target release. Follow any upgrade instructions, then [back up](/docs/backup/) your configuration, database, and media.
+
+## Update
+
+The commands below assume your checkout tracks a branch. If the installer checked out a release tag, fetch tags and check out your target release instead of running `git pull`. Review local configuration changes before switching versions.
 
 <Tabs syncKey="platform">
   <TabItem label="macOS / Linux">
 
   ```bash
   cd ~/replayvod
-  git pull --ff-only   # pick up compose / config changes
+  git pull --ff-only   # update Compose and configuration files
   docker compose --env-file server/.env --profile sqlite pull
   docker compose --env-file server/.env --profile sqlite up -d
   ```
 
-  This pulls the newest published image. Use `--profile postgres` if your install runs Postgres, or add `--build` to the `up` step to rebuild from source instead of pulling.
+  Use `--profile postgres` for PostgreSQL. These commands pull the image configured in your Compose file. Add `--build` to the `up` command if you build from local source.
 
   </TabItem>
   <TabItem label="Windows">
 
-  Run from wherever you cloned the repo:
+  Open PowerShell in the parent of your ReplayVOD directory:
 
   ```powershell
   Set-Location replayvod
-  git pull --ff-only   # pick up compose / config changes
+  git pull --ff-only   # update Compose and configuration files
   docker compose --env-file server/.env --profile sqlite pull
   docker compose --env-file server/.env --profile sqlite up -d
   ```
 
-  This pulls the newest published image. Use `--profile postgres` if your install runs Postgres, or add `--build` to the `up` step to rebuild from source instead of pulling.
+  Use `--profile postgres` for PostgreSQL. These commands pull the image configured in your Compose file. Add `--build` to the `up` command if you build from local source.
 
   </TabItem>
   <TabItem label="Build from source">
@@ -42,14 +50,13 @@ ReplayVOD updates in place. Migrations run automatically on start.
   task build
   ```
 
+  Stop the running server before replacing its binary and dashboard files, then start it with the new build.
+
   </TabItem>
 </Tabs>
 
 ## After updating
 
-- Visit the dashboard once and confirm the **Schedules** and **Live** pages still render.
-- If you bumped between major versions, skim the GitHub release notes for breaking changes to `server/.env` or `server/config.toml`.
-
-## Rollback
-
-The recorder rolls back by checking out the previous tag and rebuilding. Database migrations are reversible (`.down.sql` pairs ship in the binary), but stepping the schema down is a manual operation; in practice rollbacks are easier to do by restoring from a [backup](/docs/backup/) than by reverting migrations.
+1. Sign in and check your existing rules in **Recordings → Schedules**.
+2. Open **Library → Videos** and play an existing recording.
+3. Check **System → EventSub** and resolve any setup or restart message.

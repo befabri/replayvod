@@ -1,0 +1,45 @@
+---
+title: Downloads & history
+description: Check active downloads, review failures, and restore recordings with missing files.
+---
+
+Open **Recordings → Downloads** to check active recordings, or **Recordings → History** to review completed, failed, and removed recordings. Everyone can view these pages. Admins and owners can cancel, restore, and remove recordings.
+
+## What's recording now
+
+**Downloads** shows each active recording's progress and elapsed time, with an estimate of the time remaining when available. The counter above the list shows how many recording slots are in use. The **Dashboard** also shows a preview of active downloads.
+
+Live recordings need a free slot to start. If the server reaches `max_concurrent`, it can't start another live recording. See [Recording](/docs/recording/#concurrency) to change this limit.
+
+[Archives](/docs/archive/) have a separate queue on the Archive page. They appear in Downloads once they start downloading.
+
+To stop a running recording, select **Cancel**. ReplayVOD keeps the footage already captured and marks the recording **CANCELLED**.
+
+## What happened
+
+In **History**, use **Status** to show all recordings, only **Failed** recordings, or only **Cancelled** recordings. For failed recordings, check the **Error** column for the reason.
+
+The **Media** column shows whether the recording's files are available:
+
+| Media | Meaning |
+| ----- | ------- |
+| **On disk** | The files are available in storage. |
+| **Deleted by you** | A user removed the recording through the dashboard. |
+| **Auto-cleanup** | ReplayVOD deleted the recording after its schedule's auto-delete period. |
+| **Missing** | Files were removed from storage outside ReplayVOD. |
+
+Use the **Unavailable** filter to find recordings marked **Missing**.
+
+## Bring back a recording whose files went missing
+
+ReplayVOD marks a recording **Missing** if its files are deleted or moved outside the app. It keeps the recording's details and previews so you can restore it if you recover the files.
+
+1. Put every part of the recording back in its original location.
+2. Open **History** and select the **Unavailable** filter.
+3. Select **Restore** on the recording.
+
+Restore checks that every part is present. If files are still missing, it reports how many. The storage scan also restores recordings automatically; it runs daily by default.
+
+If you no longer have the files, select **Remove** to delete the remaining previews and part details. You can't restore the recording after this. Its entry stays in History.
+
+If files are missing but the recording hasn't been marked, check whether [storage is attached](/docs/troubleshooting/#storage-is-not-attached). The scan pauses when ReplayVOD can't access or identify its storage.

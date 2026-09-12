@@ -1,52 +1,77 @@
 ---
 title: Schedules & title tracking
-description: Recording rules and how stream titles are captured during a recording.
+description: Choose channels to record, review requests, and capture title changes.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+Open **Recordings → Schedules** to see which channels ReplayVOD records automatically. Each schedule belongs to one channel and can include filters for category, tags, or viewer count.
 
-A **schedule** is a rule that decides whether a live stream gets recorded. Title tracking records title and category changes _during_ an active recording; its behavior is derived from server mode.
+Admins and owners manage schedules. Viewers can request a channel. See [Users & invitations](/docs/access/#choose-a-role) for role permissions.
 
-## Schedules
+## Request a channel
 
-Schedules are managed from the dashboard, not from a config file. Open **Schedules** and create a rule.
+As a viewer:
 
-A rule has recording settings:
+1. Open **Schedules** and select **Request a channel**.
+2. Search for the channel and select it. Add a note if you want to explain what you'd like recorded.
+3. Select **Request channel**.
 
-| Setting      | What it does |
-| ------------ | ------------ |
-| Mode         | Record video, or record the Twitch `audio_only` rendition as audio only. |
-| Quality      | Video mode only: preferred HLS video variant for streams matching this rule. |
-| Force H.264  | Video mode only: prefer H.264 variants when a channel offers HEVC/AV1. |
+Search includes channels followed by people who have signed in to this server. If a channel is missing, follow it on Twitch and sign out and back in to ReplayVOD.
 
-A rule can match on:
+Your request appears under **My requests**. **Pending** means it hasn't been reviewed, **Approved** means an admin created a schedule, and **Rejected** means it was declined. Select **Cancel** to withdraw a pending request. Use **Show more** to load older requests.
 
-| Filter   | What it does |
-| -------- | ------------ |
-| Channel  | Restrict the rule to specific followed channels. |
-| Category | Match by Twitch category / game ID. |
-| Tag      | Match if the broadcaster set a given tag. |
-| Viewers  | Minimum viewer count threshold. |
+You can have one pending request per channel. Check existing schedules before requesting a channel that's already being recorded.
 
-Rules are independent. Multiple matching rules don't multiply the recording — one stream produces one VOD.
+Approval creates a schedule for live streams. To save a past broadcast, ask an admin to [archive it](/docs/archive/).
 
-A rule with no filters matches every live stream from every followed channel; useful as a "record everything" rule.
+## Review requests
+
+Admins and owners see **Channel requests** above the schedule list when requests exist.
+
+Select **Approve**, choose the recording settings, and select **Approve** again. The form already has the requested channel selected. You can add filters and an auto-delete period.
+
+The schedule appears in the list with **Requested by** showing who asked for it. If the channel is live and matches the schedule, recording can start immediately when automatic recording is enabled and capacity is available.
+
+Select **Reject** to decline a request. If the channel already has a suitable schedule, reject the duplicate request. Use **Show more** to review older requests.
+
+## Create a schedule
+
+Select **New schedule**, choose the channel and settings, then select **Create**.
+
+| Setting | What it does |
+| ------- | ------------ |
+| Mode | Record video or audio only. |
+| Quality | Set the maximum video resolution. ReplayVOD uses the highest available resolution within that limit. |
+| Force H.264 | Prefer H.264 for video recordings. |
+
+Quality and Force H.264 apply only to video. See [Recording](/docs/recording/#quality) for quality selection and [Twitch playback account](/docs/twitch-playback/) for authenticated playback.
+
+Optional filters limit which broadcasts match:
+
+| Filter | Requirement |
+| ------ | ----------- |
+| Category | The stream is in the selected Twitch category. |
+| Tag | The stream has the selected tag. |
+| Viewers | The stream meets the minimum viewer count. |
+
+Leave the optional filters empty to record every stream from the channel. When several schedules match the same stream, ReplayVOD records it once.
+
+You can also enable automatic deletion and set the number of hours after stream end. ReplayVOD removes expired recordings during its background cleanup.
+
+## Pause automatic recording
+
+Disable an individual schedule to stop using that rule. **Pause all** pauses automatic recording across schedules; select **Resume** to enable it again.
 
 ## Title tracking
 
-Streams often change title and category mid-broadcast. ReplayVOD captures that history while a recording is active and shows it in the **Titles** badge on the video card.
+ReplayVOD can capture title and category changes during a recording. Open the recording's **Stream timeline** to view that history and jump to a change.
 
-Configured in **System → EventSub** or with `SERVER_MODE`:
+The owner configures tracking in **System → EventSub**, or the server operator sets `SERVER_MODE`:
 
-| Server mode | Title behavior |
-| ----------- | -------------- |
-| `poll`      | Polls Helix every `[server].poll_interval_minutes`. Works on any deployment. |
-| `direct`    | Subscribes to `channel.update` EventSub per recording through your public `WEBHOOK_CALLBACK_URL`. |
-| `relay`     | Subscribes to `channel.update` EventSub per recording through the Connect relay URLs. |
-| `off`       | Only the at-start title and category are stored. |
+| Mode | How title changes are captured |
+| ---- | ------------------------------ |
+| `poll` | Checks Twitch every `[server].poll_interval_minutes`. |
+| `direct` | Receives `channel.update` events through a public HTTPS callback. |
+| `relay` | Receives `channel.update` events through Connect. |
+| `off` | Saves only the title and category from the start of the recording. |
 
-<Aside type="tip" title="No callback needed for polling">
-  Use `poll` if you do not have a public HTTPS endpoint. Use `direct` or `relay` when you want EventSub push delivery for live detection and title changes.
-</Aside>
-
-`[server].poll_interval_minutes` only applies to `poll` mode.
+Polling works without a public callback. Direct and relay modes use Twitch notifications. See [EventSub](/docs/eventsub/) and [Connect relay](/docs/connect/) for setup.

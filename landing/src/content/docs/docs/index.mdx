@@ -1,28 +1,13 @@
 ---
 title: Introduction
-description: ReplayVOD is a self-hosted Twitch VOD recorder for your homelab.
+description: Record Twitch streams and watch them from your own server.
 ---
 
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-ReplayVOD watches the Twitch channels you follow, records the streams that match your rules, archives them on storage you control, and gives you a dashboard to browse and replay them.
+ReplayVOD is a self-hosted app for recording and watching Twitch streams. Record live streams on demand, set up automatic recording, or save past broadcasts from Twitch. Watch your recordings in your browser, with files stored on your server or in S3-compatible storage.
 
-## What's in the box
-
-<CardGrid>
-  <Card title="Recorder">
-    Auto-records live streams from followed channels, gated by per-schedule rules: quality, viewer threshold, category match, tag match.
-  </Card>
-  <Card title="Dashboard">
-    Browser UI for login, schedules, live status, the recording queue, playback, users, and system pages.
-  </Card>
-  <Card title="Database">
-    SQLite for single-container installs, Postgres for multi-container deployments. Equivalent schema, same features.
-  </Card>
-  <Card title="Connect relay">
-    Optional public EventSub ingress when your network can't expose a public HTTPS callback. Forwards signed webhooks over an outbound WebSocket.
-  </Card>
-</CardGrid>
+Each viewer signs in with Twitch and has their own watch progress, watch later list, and favourite channels.
 
 ## Get started
 
@@ -30,27 +15,27 @@ ReplayVOD watches the Twitch channels you follow, records the streams that match
   <LinkCard
     title="Quickstart"
     href="/docs/quickstart/"
-    description="One command to a running recorder on macOS, Linux, or Windows."
+    description="Install ReplayVOD and save your first live stream or past broadcast."
   />
   <LinkCard
-    title="How it works"
-    href="/docs/concepts/"
-    description="Recording, schedules, EventSub, and the optional Connect relay in plain language."
+    title="Watching recordings"
+    href="/docs/library/"
+    description="Browse the library, resume a video, and save recordings for later."
   />
   <LinkCard
-    title="Install"
-    href="/docs/install/"
-    description="Docker, manual Docker, and build-from-source paths."
+    title="Schedules & title tracking"
+    href="/docs/schedules/"
+    description="Choose what to record or ask an admin to add a channel."
   />
   <LinkCard
-    title="Configuration"
-    href="/docs/configuration/"
-    description="The two config files and the precedence between them."
+    title="Archive VODs"
+    href="/docs/archive/"
+    description="Save past broadcasts while they're still available on Twitch."
   />
 </CardGrid>
 
-## Project links
+## Run your own server
 
-- [GitHub repository](https://github.com/befabri/replayvod)
-- [Twitch trademark notice](/legal/twitch/)
-- [Terms](/legal/terms/) and [Privacy](/legal/privacy/)
+Run ReplayVOD with Docker Compose or build it from source. See the [installation guide](/docs/install/) for setup instructions and [Configuration](/docs/configuration/) for available settings.
+
+[How it works](/docs/concepts/) explains automatic recording, storage, and live detection.

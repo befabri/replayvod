@@ -1,104 +1,114 @@
 ---
 title: config.toml
-description: Every key in server/config.toml, in one table.
+description: Recording, storage, scheduler, logging, and database settings.
 ---
 
-Reference for `server/config.toml`. Grouped by section.
+These tables show the values in the supplied `server/config.toml`, or the server default where the file omits a key. See [Configuration](/docs/configuration/) for how to load an edited file, including with Docker.
 
 ## Top level
 
-| Key            | Default | Notes |
-| -------------- | ------- | ----- |
-| `development`  | `true`  | Enables `/debug` pprof endpoints and looser timeouts. Set `false` in production. |
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `development` | `true` in the supplied file | Enable development diagnostics and timeouts. The Docker image overrides this with `DEVELOPMENT=false`. The server default when omitted is `false`. |
 
 ## `[server]`
 
-| Key               | Default                       | Notes |
-| ----------------- | ----------------------------- | ----- |
-| `poll_interval_minutes` | `1` | Helix poll interval used by `SERVER_MODE=poll` for live detection and title tracking. |
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `poll_interval_minutes` | `1` | Minutes between Twitch checks for live streams and title changes in polling mode. |
 
 ## `[download]`
 
-Recording behaviour. See [Recording](/docs/recording/) for narrative.
+See [Recording](/docs/recording/) for examples and quality settings.
 
-| Key                       | Default  | Notes |
-| ------------------------- | -------- | ----- |
-| `max_concurrent`          | `5`      | Cap on parallel recordings across the server. |
-| `preferred_quality`       | `"1080"` | Target HLS variant. `"1080"`, `"720"`, `"480"`, `"360"`, `"audio_only"`. |
-| `segment_concurrency`     | `4`      | Parallel HLS segment fetches per recording. |
-| `network_attempts`        | `5`      | Retry budget for generic network failures. |
-| `server_error_attempts`   | `5`      | Retry budget for Twitch 5xx. |
-| `cdn_lag_attempts`        | `3`      | Retry budget when a segment isn't on the CDN yet. |
-| `auth_refresh_attempts`   | `2`      | Retry budget for expired playback tokens. |
-| `max_gap_ratio`           | `0.01`   | Tolerated fraction of dropped segments before "incomplete" badge. |
-| `strict`                  | `false`  | If `true`, any gap fails the recording. |
-| `enable_av1`              | `false`  | Allow AV1 variants. |
-| `disable_hevc`            | `false`  | Refuse HEVC variants. |
-| `max_restart_gap_seconds` | `120`    | Stream-drop window for appending to the same VOD. |
-| `max_part_bytes`          | `0`      | Split into a new part once the current part reaches this many bytes (segment boundary). `0` disables; negative values clamp to `0`. |
-| `max_part_seconds`        | `0`      | Split into a new part once the current part reaches this many seconds. `0` disables; negative values clamp to `0`. |
-| `max_part_count`          | `1024`   | Maximum parts produced by configured size/duration splitting. |
-| `signed_url_ttl_hours`    | `168`    | Maximum lifetime of the signed per-part `download_url` in [recording-webhook](/docs/webhook/) payloads; enabled recording auto-delete can cap it sooner. `0` disables signed download URLs. |
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `max_concurrent` | `5` in the supplied file | Maximum simultaneous live recordings. The server default when omitted is `2`. |
+| `archive_max_concurrent` | `1` | Maximum simultaneous archive downloads, separate from live recording slots. |
+| `archive_max_bytes_per_second` | `0` | Download speed limit per archive in bytes per second. `0` means unlimited. |
+| `segment_concurrency` | `4` | Parallel segment downloads per recording. |
+| `network_attempts` | `5` | Attempts per segment after network failures. |
+| `server_error_attempts` | `5` | Attempts per segment after Twitch 5xx errors. |
+| `cdn_lag_attempts` | `3` | Attempts when a segment isn't available on the CDN yet. |
+| `auth_refresh_attempts` | `2` | Attempts to recover from an expired playback token. |
+| `max_gap_ratio` | `0.01` | Maximum tolerated fraction of missing segments before the recorder stops with a gap error. |
+| `strict` | `false` | Stop on any gap when enabled. |
+| `enable_av1` | `false` | Allow AV1 video. |
+| `disable_hevc` | `false` | Exclude HEVC video. |
+| `max_restart_gap_seconds` | `120` | Maximum interruption before a returning stream becomes a separate recording. |
+| `max_part_bytes` | `0` | Split after this many downloaded source bytes. `0` disables size splitting; negative values are treated as `0`. |
+| `max_part_seconds` | `0` | Split after this many seconds. `0` disables duration splitting; negative values are treated as `0`. |
+| `max_part_count` | `1024` | Maximum parts created by size or duration splitting. |
+| `signed_url_ttl_hours` | `168` | Maximum lifetime of download links in [recording webhooks](/docs/webhook/). `0` disables these links. Auto-delete deadlines can shorten their lifetime. |
+
+Part limits are checked between segments, so a part can exceed its source-data limit by one segment. The finished MP4 may be larger or smaller than the downloaded data because its container differs. Leave a margin below any hard file-size limit.
 
 ## `[storage]`
 
-| Key          | Default   | Notes |
-| ------------ | --------- | ----- |
-| `type`       | `"local"` | `"local"` or `"s3"`. |
-| `local_path` | `"./data"`| Used when `type = "local"`. |
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `type` | `"local"` | Storage backend: `"local"` or `"s3"`. |
+| `local_path` | `"./data"` | Storage root for the local backend. |
 
 ## `[storage.s3]`
 
-Used only when `[storage].type = "s3"`.
+Used when `[storage].type = "s3"`.
 
-| Key              | Default | Notes |
-| ---------------- | ------- | ----- |
-| `endpoint`       | _(empty)_ | S3-compatible endpoint URL. Empty means AWS S3. |
-| `bucket`         | _(empty)_ | |
-| `region`         | _(empty)_ | |
-| `access_key`     | _(empty)_ | |
-| `secret_key`     | _(empty)_ | |
-| `use_path_style` | _(unset)_ | Force path-style addressing. Custom endpoints default to path-style. |
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `endpoint` | Empty | Provider endpoint. Empty uses AWS S3. |
+| `bucket` | Empty | Bucket name. |
+| `region` | Empty | Provider region. |
+| `access_key` | Empty | Access key ID. |
+| `secret_key` | Empty | Secret access key. |
+| `use_path_style` | Unset | Override path-style addressing. Custom endpoints use path-style addressing by default. |
 
 ## `[scheduler]`
 
-| Key                                       | Default | Notes |
-| ----------------------------------------- | ------- | ----- |
-| `enabled`                                 | `true`  | Master switch for the scheduled-task runner. |
-| `eventsub_interval_minutes`               | `10`    | EventSub quota-snapshot cadence. |
-| `eventsub_reconcile_interval_minutes`     | `60`    | Periodic full reconcile of EventSub subscriptions. |
-| `category_art_interval_minutes`           | `1440`  | Backfill `box_art_url` and `igdb_id` on categories from Helix `/games`. |
-| `category_metadata_interval_minutes`      | `1440`  | Backfill category descriptions from IGDB games with a known `igdb_id`. |
-| `token_cleanup_interval_minutes`          | `60`    | Drop expired Twitch app tokens. |
-| `session_cleanup_interval_minutes`        | `120`   | Drop expired user session tokens. |
-| `fetch_logs_retention_days`               | `14`    | Retention sweep for the Helix fetch-log table. |
-| `webhook_event_payload_retention_days`    | `7`     | Trims the stored EventSub payload column. |
-| `event_logs_retention_days`               | `14`    | Retention sweep for `debug` + `info` event-log rows. |
-| `recordings_retention_interval_minutes`   | `60`    | Cadence of the per-schedule auto-delete sweep (`time_before_delete`). `0` disables. |
-| `recording_webhook_delivery_retention_days` | `30`  | Prunes terminal (delivered/rejected/failed) [recording-webhook](/docs/webhook/) outbox rows. `0` disables. |
+Intervals control how often tasks run. Retention values control how long data is kept.
+
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `enabled` | `true` | Enable scheduled background tasks. |
+| `thumbnail_interval_minutes` | `5` | Present in the configuration but currently unused by the recorder. |
+| `eventsub_interval_minutes` | `10` | Interval between EventSub quota checks. |
+| `eventsub_reconcile_interval_minutes` | `60` | Interval between subscription checks and repairs. |
+| `category_art_interval_minutes` | `1440` | Interval between category artwork and IGDB ID updates from Twitch. |
+| `category_metadata_interval_minutes` | `1440` | Interval between category description updates from IGDB. |
+| `token_cleanup_interval_minutes` | `60` | Interval between expired Twitch app token cleanups. |
+| `session_cleanup_interval_minutes` | `120` | Interval between expired user session cleanups. |
+| `fetch_logs_retention_days` | `14` | Days to keep Twitch API request logs. |
+| `webhook_event_payload_retention_days` | `7` | Days to keep stored EventSub payloads. |
+| `event_logs_retention_days` | `14` | Days to keep debug and info event logs. |
+| `recordings_retention_interval_minutes` | `60` | Interval between checks for recordings past their auto-delete deadline. `0` disables automatic deletion. |
+| `storage_scan_interval_minutes` | `1440` | Interval between checks for missing or restored media. `0` disables scanning. |
+| `archive_poster_interval_minutes` | `5` | Interval between checks for missing archive posters. `0` disables checking. |
+| `recording_webhook_delivery_retention_days` | `30` | Days to keep delivered, rejected, or failed recording webhook history. `0` disables cleanup. Queued deliveries are kept. |
 
 ## `[logging]`
 
-| Key            | Default    | Notes |
-| -------------- | ---------- | ----- |
-| `log_to_file`  | `false`    | Mirror logs to a file in `log_dir` in addition to stderr. |
-| `log_dir`      | `"./logs"` | Directory for log files. Created on first write. |
-| `log_level`    | `"debug"`  | `debug`, `info`, `warn`, `error`. |
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `log_to_file` | `false` | Write logs to files as well as standard error. |
+| `log_dir` | `"./logs"` | Log directory, created when needed. |
+| `log_level` | `"debug"` | Minimum level: `debug`, `info`, `warn`, or `error`. |
 
 ## `[postgres]`
 
-Pool tuning. Used only when `DATABASE_DRIVER=postgres`.
+Connection pool settings, used when `DATABASE_DRIVER=postgres`.
 
-| Key                       | Default     | Notes |
-| ------------------------- | ----------- | ----- |
-| `max_conns`               | `25`        | |
-| `min_conns`               | `5`         | |
-| `max_conn_lifetime_ms`    | `1800000`   | 30 min. |
-| `max_conn_idle_time_ms`   | `300000`    | 5 min. |
-| `health_check_period_ms`  | `30000`     | 30 s. |
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `max_conns` | `25` | Maximum connections. |
+| `min_conns` | `5` | Minimum connections. |
+| `max_conn_lifetime_ms` | `1800000` | Maximum connection lifetime: 30 minutes. |
+| `max_conn_idle_time_ms` | `300000` | Maximum idle time: 5 minutes. |
+| `health_check_period_ms` | `30000` | Pool health check interval: 30 seconds. |
 
 ## `[health]`
 
-| Key       | Default | Notes |
-| --------- | ------- | ----- |
-| `enabled` | `true`  | Exposes unauthenticated `GET /api/v1/health` (200 on DB ping success, 503 on failure). The bundled Docker healthcheck depends on this. |
+| Key | Default | Effect |
+| --- | ------- | ------ |
+| `enabled` | `true` in the supplied file | Expose `GET /api/v1/health` without authentication. The supplied Docker health check requires it. |
+
+The endpoint returns HTTP 200 when the database responds and storage is attached, or 503 otherwise. The `storage` field is `attached` or `unattached`. Read-only and full storage still count as attached.

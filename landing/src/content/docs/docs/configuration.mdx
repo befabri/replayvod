@@ -1,94 +1,84 @@
 ---
 title: Configuration
-description: How ReplayVOD is configured — the two files, what each one is for, and precedence.
+description: Configure the server with environment variables, config.toml, and the dashboard.
 ---
 
-import { Aside, Card, CardGrid, FileTree } from '@astrojs/starlight/components';
+ReplayVOD uses environment variables for credentials, paths, and connection details, and `config.toml` for recording and storage settings. The owner manages live detection, playback caching, and recording webhooks in the dashboard.
 
-ReplayVOD has two configuration files.
+## Configuration files
 
-<CardGrid>
-  <Card title="server/.env">
-    Credentials, database selection, public URLs, local paths, Connect relay URLs. Treat as secret.
-  </Card>
-  <Card title="server/config.toml">
-    Operational behaviour: download policy, scheduler intervals, logging, storage backend, health endpoint, title-tracking mode.
-  </Card>
-</CardGrid>
+| File | Purpose |
+| ---- | ------- |
+| `server/.env` | Twitch credentials, session secret, database connection, public URL, and paths. |
+| `server/.env.example` | Template with supported environment variables and comments. |
+| `server/config.toml` | Download limits, retries, storage backend, background tasks, and logging. |
 
-<FileTree>
+For a source install, run the server from `server/` so it can find these files. Restart it after changing them.
 
-- replayvod/
-  - server/
-    - .env             secrets, paths, network
-    - .env.example     committed template — every supported var is listed and commented here
-    - config.toml      tuning
-  - docker-compose.yml
-  - data/
+### Docker Compose
 
-</FileTree>
+The supplied Compose file loads `server/.env`. Environment values set in the Compose service, such as container paths, take precedence over values from that file.
 
-## Precedence
+The Docker image includes its own `config.toml`. To use your edited copy, add a read-only bind mount to the recorder service in a Compose override file. For SQLite, create `docker-compose.override.yml` beside `docker-compose.yml`:
 
-`server/.env` always wins. The Go process reads the env file first, then the TOML file. For live/title behavior, a complete `SERVER_MODE` env config also wins over app-managed server settings and skips onboarding. If `SERVER_MODE` is empty, the owner dashboard stores server mode setup in the database, and mode or URL changes are applied on the next server start.
+```yaml
+services:
+  replayvod-sqlite:
+    volumes:
+      - ./server/config.toml:/app/config.toml:ro
+```
 
-The Docker Compose file reads `server/.env` directly. A few `PUBLIC_*` variables are Compose-only — they shape what gets passed into the container without changing the stored values.
+For PostgreSQL, use `replayvod-postgres` as the service name. Apply the override with the same Compose profile you installed:
+
+```bash
+docker compose --env-file server/.env --profile sqlite up -d
+```
+
+Restart the recorder after subsequent TOML edits. After editing environment variables, run `up -d` again so Compose recreates the container with the new values.
 
 ## Required values
+
+Set these in `server/.env` before starting:
 
 ```text
 TWITCH_CLIENT_ID=...
 TWITCH_SECRET=...
 SESSION_SECRET=...
-OWNER_TWITCH_ID=...  # optional; empty = first login becomes owner
+OWNER_TWITCH_ID=...
 ```
 
-The installer generates `SESSION_SECRET`; for manual installs, generate it with `openssl rand -hex 32`. `OWNER_TWITCH_ID` is optional and only preassigns a numeric Twitch user ID as owner; when empty, the first successful login becomes owner. The EventSub HMAC secret is optional: leave it unset and the server generates and stores one in the database on first run, or set `HMAC_SECRET` to seed a specific value the first time.
+`OWNER_TWITCH_ID` is optional. Set it to your numeric Twitch user ID to reserve ownership for your account, or leave it empty so the first successful sign-in becomes owner.
+
+The installer generates `SESSION_SECRET`. For a manual install, generate it with `openssl rand -hex 32`. Back up this secret with the database: ReplayVOD uses it to encrypt account tokens and the connected Twitch playback session.
+
+The EventSub signing secret is generated and saved in the database on first start. `HMAC_SECRET` can supply its initial value; changing that environment variable later doesn't replace the saved secret.
 
 ## Public URLs
 
-For normal deployments, set `PUBLIC_BASE_URL` and let the server derive the
-OAuth callback, frontend redirect URL, and trusted browser origin:
+Set `PUBLIC_BASE_URL` to the address you use to access ReplayVOD:
 
 ```text
 PUBLIC_BASE_URL=https://replayvod.example
 ```
 
-If the dashboard is hosted on a different origin from the API, add it with
-`TRUSTED_ORIGINS`:
+The server uses this address for Twitch sign-in callbacks, dashboard redirects, and signed recording download links.
+
+If you host the dashboard at a different origin from the API, add that origin:
 
 ```text
 TRUSTED_ORIGINS=https://dashboard.example
 ```
 
-Direct EventSub env setup is optional; leaving `SERVER_MODE` empty lets the
-owner configure live/title behavior in the dashboard.
+## Server mode
 
-## By area
+Leave `SERVER_MODE` empty to configure live detection in **System → EventSub**. Restart when the dashboard reports that a mode or URL change requires it.
 
-<CardGrid>
-  <Card title="Storage">
-    Local filesystem or S3-compatible — see [Storage](/docs/storage/).
-  </Card>
-  <Card title="Recording">
-    Quality, codecs, retries, gap tolerance — see [Recording](/docs/recording/).
-  </Card>
-  <Card title="Schedules & title tracking">
-    Recording rules and server modes — see [Schedules](/docs/schedules/).
-  </Card>
-  <Card title="EventSub">
-    Direct EventSub setup — see [EventSub](/docs/eventsub/).
-  </Card>
-  <Card title="Connect relay">
-    Pointing the recorder at a hosted relay — see [Connect relay](/docs/connect/).
-  </Card>
-</CardGrid>
+You can also set `SERVER_MODE` and its required URLs in the environment. A complete environment configuration takes precedence over settings saved in the dashboard. See [EventSub](/docs/eventsub/) for direct mode or [Connect relay](/docs/connect/) for relay mode. `SERVER_MODE=poll` enables polling without a callback URL.
 
-For a flat lookup of every variable or TOML key, see the reference:
+## Other settings
 
-- [Environment variables](/docs/reference/env/)
-- [config.toml](/docs/reference/config-toml/)
-
-<Aside type="caution" title="Don't lose server/.env">
-  `server/.env` contains the secrets used to encrypt sessions and verify webhook HMACs. Losing it invalidates sessions and can break EventSub verification.
-</Aside>
+- [Recording](/docs/recording/): quality, download limits, codecs, and retries.
+- [Storage](/docs/storage/): local disk and S3 configuration.
+- [Schedules & title tracking](/docs/schedules/): recording rules and title history.
+- [Environment variables](/docs/reference/env/): environment reference.
+- [config.toml](/docs/reference/config-toml/): TOML reference.

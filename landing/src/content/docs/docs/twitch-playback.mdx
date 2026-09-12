@@ -1,0 +1,51 @@
+---
+title: Twitch playback account
+description: Connect a Twitch account for recordings that need authenticated playback.
+---
+
+The server owner can connect a Twitch website session in **System → Twitch downloads**. ReplayVOD uses it to access streams and VODs as that account, which may make additional recording qualities available. Recordings stay in the shared library.
+
+This connection is separate from signing in to ReplayVOD with Twitch.
+
+## Connect a session
+
+Use HTTPS for both the dashboard and API. Local connections through `localhost`, `127.0.0.1`, or `[::1]` can use HTTP.
+
+The session token grants access to your Twitch account. Only enter it on a ReplayVOD server you trust.
+
+1. Sign in to [twitch.tv](https://www.twitch.tv), completing two-factor authentication if requested.
+2. Open your browser's developer tools with **F12**. In Chrome, open **Application → Cookies → https://www.twitch.tv**. In Firefox or Zen, open **Storage → Cookies → https://www.twitch.tv**.
+3. Find **auth-token** and copy its value.
+4. Open **System → Twitch downloads** in ReplayVOD. Paste the value, accept the account-use explanation, and select **Validate and connect**.
+
+ReplayVOD checks the session with Twitch before saving it. If validation fails, any previously connected session stays in place.
+
+## Select a recording quality
+
+Schedules and archives let you set a maximum resolution: **Up to 480p**, **Up to 720p**, **Up to 1080p**, **Up to 1440p**, or **No limit**.
+
+ReplayVOD chooses the highest available resolution within your limit. For example, if Twitch offers 1440p and 720p, **Up to 1080p** records at 720p. **No limit** allows the highest available resolution.
+
+For a live channel, **Download now** lists the qualities currently available and records the one you select. Without a connected session, it lists qualities available to anonymous viewers.
+
+Available qualities depend on Twitch, the broadcast, and the connected account. A paid account doesn't guarantee a particular resolution or an ad-free recording. Some higher resolutions use HEVC; **Force H.264** or the server's `disable_hevc` setting can limit the available quality.
+
+Connecting an account doesn't change existing schedules. Edit their quality settings if you want to record at a higher resolution.
+
+## Check or disconnect
+
+Select **Check connection** to check whether the saved session still works. ReplayVOD also checks it periodically when starting playback requests.
+
+**Reconnect required** means the session has expired or been revoked. Connect a new session using the steps above. Until then, ReplayVOD uses anonymous access, so some recording qualities may be unavailable.
+
+Temporary connection errors retry automatically. If a recording fails after capturing footage, ReplayVOD saves the captured portion as a failed partial recording. A failure before any footage is captured leaves no playable file.
+
+Select **Disconnect** to remove the session from ReplayVOD. This doesn't sign your browser out of Twitch or revoke the session on Twitch. An active recording may continue using its current stream URL until that URL needs renewing.
+
+## Server configuration
+
+The session is encrypted in the database using `SESSION_SECRET`. Back up the database and that secret together. If you change the secret, reconnect the playback account.
+
+For a reverse proxy, set `PUBLIC_BASE_URL` to the public HTTPS address. Redirect HTTP to HTTPS, preserve the public `Host` header, and keep the backend listener private. ReplayVOD uses the configured public address to recognise HTTPS terminated at the proxy.
+
+The old `TWITCH_SERVICE_ACCOUNT_REFRESH_TOKEN` setting is no longer supported. Connect the account through the dashboard.

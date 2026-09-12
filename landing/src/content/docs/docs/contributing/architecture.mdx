@@ -1,27 +1,15 @@
 ---
 title: Architecture
-description: How ReplayVOD is built — the contributor view of the recorder, dashboard, and relay.
+description: Server components, database migrations, dashboard transport, and the Connect relay.
 ---
 
-import { Card, CardGrid, FileTree } from '@astrojs/starlight/components';
+import { FileTree } from '@astrojs/starlight/components';
 
-Three deployable pieces.
-
-<CardGrid>
-  <Card title="server (Go)">
-    Single binary. HTTP API, recorder, EventSub manager, scheduler, SSE bus.
-  </Card>
-  <Card title="dashboard (React)">
-    Single-page app. Vite build; the recorder serves the bundle in production.
-  </Card>
-  <Card title="relay (Cloudflare Worker)">
-    Optional public webhook ingress. Stateless fan-out backed by a Durable Object buffer.
-  </Card>
-</CardGrid>
+ReplayVOD has three main components: a Go server, a React dashboard, and an optional Cloudflare Worker relay. The production server serves the dashboard's static build.
 
 ## Server
 
-The server is one Go process. Postgres and SQLite are both supported behind one repository interface. `ffmpeg` and `ffprobe` are required at runtime.
+The server runs the HTTP API, recorder, scheduler, and Twitch integrations in one Go process. PostgreSQL and SQLite implement the same repository interface. Recording requires ffmpeg and ffprobe at runtime.
 
 ### Source layout
 
@@ -30,93 +18,108 @@ The server is one Go process. Postgres and SQLite are both supported behind one 
 - server/
   - cmd/server/ entrypoint
   - internal/
-    - api/ HTTP routes (Chi) + tRPC mount
-    - server/ HTTP lifecycle and router wiring
-    - auth/ Twitch OAuth handler
-    - session/ encrypted token store, cookie sessions
-    - config/ TOML + env loader
-    - database/ pgx pool / sqlite open + migrate runner
+    - server/
+      - api/ HTTP routes (Chi) + tRPC procedures, grouped by domain (auth, schedule, system, …)
+    - invite/ invitation links
+    - session/ encrypted token store, cookie sessions, initial whitelist entries
+    - config/ configuration loading
+    - database/ database connections and migrations
     - repository/
+      - contracttest/ shared tests for both adapters
       - pgadapter/ Postgres adapter (sqlc-generated)
       - sqliteadapter/ SQLite adapter (sqlc-generated)
     - twitch/ Helix client + generated EventSub types
     - service/
-      - eventsub/ subscriptions, quotas, reconcile
-      - streammeta/ title/category hydration + watcher
-      - categoryart/ box-art backfill
-      - schedule/ scheduled-recording rules
+      - eventsub/ subscription management and quotas
+      - streammeta/ title and category tracking
+      - categoryart/ category artwork updates
+      - schedule/ scheduled-recording rules and channel requests
     - downloader/
       - hls/ segment fetcher
       - remux/ ffmpeg wrapper
       - probe/ ffprobe wrapper
       - thumbnail/ JPEG generator
     - scheduler/ task runner with DB-persisted state
-    - eventbus/ generic Topic[T] pub/sub for SSE
+    - eventbus/ typed in-process publish/subscribe
     - relayclient/ WebSocket agent for Connect
-    - storage/ local + S3 backend
+    - storage/ local and S3 backends
     - logger/ slog setup
   - migrations/ versioned .up/.down SQL pairs
   - queries/ sqlc query files
-  - tools/twitch-api-gen/ generator for Helix + EventSub types
-  - config.toml operational config
+  - tests/upgrade/ Docker upgrade and rollback suite against published images
+  - tools/
+    - twitch-api-gen/ generator for Helix + EventSub types
+    - repo-adapter-gen/ generator for the adapters' mappers and method bodies
+    - upgrade-baseline/ records a published release in the upgrade manifest
+    - upgrade-changes/ decides whether CI needs the upgrade suite
+    - publish-images/ pushes the tested images and assembles multi-arch tags
+  - config.toml server settings
   - .env.example credentials and paths
 
 </FileTree>
 
 ### Boot sequence
 
-`cmd/server/main.go` wires everything in this order:
+`server/cmd/server/main.go` creates and connects the services:
 
-1. Load `config.toml` and `.env`. Set up the slog logger.
-2. Open the database (pgx pool or SQLite via `database/sql`) and run embedded migrations.
-3. Build the matching `Repository` adapter.
-4. Construct the Twitch Helix client, encrypted session manager, and storage backend.
-5. Construct the downloader and call `Resume()` to pick up jobs left in `RUNNING` by a previous process.
-6. Open the SSE event bus and start the HTTP server in a goroutine.
-7. If `SERVER_MODE=relay`, dial the Connect relay and start the replay agent.
-8. Reconcile EventSub subscriptions against the current channel set, or start the Helix live poller when `SERVER_MODE=poll`.
-9. Register tasks and start the scheduler.
-10. Block on SIGINT/SIGTERM, then stop the scheduler, HTTP server, and logger in reverse order.
+1. Load configuration, initialise logging, connect to the database, and run migrations.
+2. Select the repository adapter and resolve the server mode from environment or saved settings.
+3. Create the Twitch client, session manager, storage backend, and metadata services.
+4. Create the downloader, event bus, storage health monitor, playback cache, and recording webhook dispatcher.
+5. Recover interrupted download jobs and start the HTTP server.
+6. Start polling or EventSub processing, including the relay client when selected.
+7. Register background tasks and start the scheduler.
+
+Shutdown is triggered by SIGINT or SIGTERM. Services stop and persist the state needed for recovery. Storage checks gate recording, playback builds, and cleanup while a volume is unavailable.
 
 ### Database
 
-Postgres and SQLite share one `Repository` interface in `internal/repository/`. [sqlc](https://sqlc.dev/) turns the SQL files in `queries/{postgres,sqlite}/` into typed Go in `pgadapter/pggen/` and `sqliteadapter/sqlitegen/`.
+The `Repository` interface is in `internal/repository/`. sqlc generates typed query code from `queries/postgres/` and `queries/sqlite/`. Shared contract tests check both adapters against the same behaviour.
 
-Migrations live in `migrations/{postgres,sqlite}/` as numbered `NNN_name.up.sql` / `NNN_name.down.sql` pairs and are embedded into the binary. They run automatically on start; the `schema_migrations` table tracks applied versions.
+Migrations are embedded from `migrations/{postgres,sqlite}/` as numbered `.up.sql` and `.down.sql` pairs. Startup applies pending up migrations. `schema_migrations` records the applied versions and each complete up file's SHA-256 checksum, including comments and formatting.
+
+Before applying changes, the runner rejects missing or modified files in the applied history. Restore the original history and rebuild, or use the server build that applied it. Released migrations must stay unchanged; add a new migration for further schema changes. After editing an unpublished migration, recreate any disposable development database that already ran it.
+
+Older published databases without checksums receive them on first startup. Each new migration and its ledger entry commit together. Concurrent startups lock and validate the history before applying a migration, so only one process applies it. Failed or interrupted migrations roll back and retry at the next startup.
+
+The runner doesn't apply down migrations automatically. Normal rollback uses a backup and its matching server version. A manual rollback requires stopping the application, applying down migrations in reverse order, and removing their ledger entries in the same transactions. Rolling back one migration in isolation can invalidate later migrations.
+
+Some retired tables, such as `video_requests`, remain for downgrade compatibility. The upgrade suite checks migrations and rollback against released baselines. See [Development → Testing](/docs/contributing/development/#testing).
 
 ### Background work
 
-| Component        | Where                          | What it does |
-| ---------------- | ------------------------------ | ------------ |
-| Downloader       | `internal/downloader/`         | HLS pull → segment fetch with retry → ffmpeg remux → ffprobe → thumbnail → upload. State in DB so crashes resume cleanly. |
-| EventSub manager | `internal/service/eventsub/`   | Boot reconcile (delete orphans, create missing) and per-call quota snapshots. |
-| Scheduler        | `internal/scheduler/`          | One ticker, 15 s cadence. Each task has its own row with `next_run_at`, `is_enabled`, `last_error`. |
-| Standard tasks   | `internal/scheduler/tasks.go`  | EventSub reconcile, quota snapshot, category art/IGDB metadata sync, retention sweeps for fetch/event logs and webhook payloads, session and app-token cleanup. |
+| Component | Responsibility |
+| --------- | -------------- |
+| Downloader | Fetch stream segments, retry failures, process media, generate previews, and publish files to storage. Save progress for recovery. |
+| EventSub manager | Create required subscriptions, remove obsolete ones, and track quota usage. |
+| Scheduler | Run tasks at their configured intervals using database state for next run, enabled status, and errors. |
+| Storage services | Check storage identity and capacity, find missing media, restore recovered recordings, and enforce retention. |
+| Playback cache | Build joined files for compatible multipart recordings and enforce cache limits. |
+| Recording webhook dispatcher | Deliver completion and failure events from the persisted queue. |
+
+### Twitch playback sessions
+
+`internal/playbackauth/` validates and stores the owner's Twitch website session. Its encryption key is derived from `SESSION_SECRET`. The API returns connection details without returning the saved token.
+
+Playback resolution uses the connected session when available. Expired or revoked sessions fall back to anonymous access. Temporary failures retry within a bounded period. Captured footage is saved as a failed partial recording if playback cannot recover.
 
 ## Dashboard
 
-React 19 SPA, Vite-built. TanStack Router for file-based routes, TanStack Query plus a tRPC v11 client (HTTP batching + SSE on the same client). UI is Base UI v1 scaffolded with shadcn v4; styling is Tailwind v4. i18n is i18next with English and French; a parity test prevents missing keys.
+The dashboard uses React, TanStack Router, TanStack Query, and a tRPC client. Queries and mutations use HTTP batching; subscriptions share a WebSocket connection. `dashboard/src/api/links.ts` configures that transport.
 
-In dev, Vite proxies `/api/*` and `/trpc/*` to the recorder on port 8080. In production, the recorder serves the prebuilt `dist/` directory directly so the SPA and API share an origin.
+Base UI and shadcn provide UI components, with Tailwind for styling. i18next handles English and French translations. Translation tests check key parity.
 
-Types and Zod schemas come from the Go side via `task trpcgen` and are committed under `dashboard/src/api/generated/`.
+During development, Vite proxies `/api/*` and `/trpc/*` to port 8080. The production build writes static files to `dashboard/dist/client/`, which the Go server serves on the same origin as the API.
+
+Go tRPC procedures generate the TypeScript types, enums, and Zod schemas in `dashboard/src/api/generated/`. Run `task trpcgen` from `server/` after changing those procedures.
 
 ## Relay
 
-Cloudflare Worker plus a Durable Object. Two endpoints:
+The Connect relay uses a Cloudflare Worker and a Durable Object per token:
 
-- `POST /u/{token}` — accepts arbitrary bytes, fans out to subscribers, replies `202` (or echoes a synchronous response for EventSub challenges).
-- `GET /u/{token}/subscribe` — WebSocket. Replays the 5-minute buffer, then streams new events.
+- `POST /u/{token}` accepts notification bodies and forwards them to subscribers. Normal deliveries return `202`; verification challenges wait for a subscriber's response.
+- `GET /u/{token}/subscribe` opens a WebSocket and replays buffered notifications after the supplied cursor.
 
-Stateless except for the Durable Object's per-token buffer. No Twitch credentials, no payload inspection. See [Relay protocol](/docs/contributing/relay-protocol/) for the wire format.
+Notifications are buffered for five minutes. Verification challenges are synchronous and aren't added to the replay buffer. The recorder verifies signatures; the relay forwards bodies without parsing them.
 
-## External integrations
-
-| Integration       | Where                                | Notes |
-| ----------------- | ------------------------------------ | ----- |
-| Twitch Helix      | `internal/twitch/client.go`          | OAuth, streams, games, users, follows, GQL playback tokens. |
-| Twitch EventSub   | `internal/service/eventsub/`         | REST CRUD over generated bindings. |
-| Generated types   | `tools/twitch-api-gen/`              | Parses Twitch HTML docs. Snapshots committed; CI checks drift. |
-| Connect relay     | `internal/relayclient/`              | Outbound WebSocket; replays signed EventSub frames to a local handler. |
-| tRPC              | [`befabri/trpcgo`](https://github.com/befabri/trpcgo) | Server side. `task trpcgen` emits the dashboard's TypeScript client + Zod schemas. |
-| ffmpeg / ffprobe  | `internal/downloader/{remux,probe}/` | Required at runtime. |
+See [Relay protocol](/docs/contributing/relay-protocol/) for frames, acknowledgements, and token validation.

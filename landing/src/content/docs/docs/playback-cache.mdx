@@ -1,0 +1,47 @@
+---
+title: Playback cache
+description: Enable continuous seeking across recordings saved in several parts.
+---
+
+A recording can have several parts after a stream interruption, a quality change, or a configured size or duration limit. The player switches between parts automatically, but the seek bar normally covers only the current part.
+
+The playback cache joins compatible parts into one file so you can seek across the whole recording. It copies the recorded audio and video without re-encoding them. The joined file is shared by everyone watching that recording.
+
+The cache is off by default. Only an owner can configure it in **System → Playback**.
+
+## Turn it on
+
+1. Open **System → Playback**.
+2. Turn on **Enable playback cache** and **Generate on first play**.
+3. Set **Cache size limit**. The default is 10%.
+4. Select **Save playback cache**.
+
+ReplayVOD builds a joined file when someone opens a compatible recording. Both switches must be on for files to be generated automatically.
+
+Turning the cache off stops new builds and automatic cleanup. Existing cached files remain available for playback. To free space, lower the size limit and keep the cache enabled until cleanup runs.
+
+## What it costs
+
+Each cached file uses roughly as much storage as another copy of the recording.
+
+On local storage, the size limit is a percentage of the filesystem's total capacity. Cache builds also reserve 5% of that capacity as free space. On S3, the limit is a percentage of the recorded library's size.
+
+When the cache exceeds its limit, ReplayVOD deletes the files that haven't been played for the longest time. The original recording parts stay in storage. A cached file can be rebuilt when someone plays the recording again.
+
+## Which recordings get a file
+
+A recording needs at least two parts with matching quality, codec, and frame rate. The parts must all be MP4 or all M4A.
+
+Recordings with incompatible parts continue to play part by part. Single-part recordings don't need a cached file.
+
+## While one is building
+
+You can watch the original parts while the joined file is being built. Builds run one at a time. If a build fails, ReplayVOD tries again the next time the recording is opened.
+
+A build may also wait until enough storage is available or the cache limit is raised.
+
+## Housekeeping
+
+ReplayVOD checks the cache limit every few minutes. Deleting a recording also deletes its cached file.
+
+Builds and cleanup pause while [storage is not attached](/docs/troubleshooting/#storage-is-not-attached). When storage is full, builds pause but cache cleanup can still free space.

@@ -1,64 +1,64 @@
 ---
 title: Backup & restore
-description: What to back up and how to restore a ReplayVOD install.
+description: Back up your configuration, database, and recordings, then restore them together.
 ---
 
-import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+Back up the configuration, database, and media together. The database contains recording details and user access; the media files contain the recordings themselves.
 
-A ReplayVOD install has three things worth backing up.
+| What to save | Contents |
+| ------------ | -------- |
+| Configuration | `server/.env`, your `config.toml`, and any Compose overrides. Keep the existing `SESSION_SECRET`. |
+| Database | Schedules, recording details, download progress, accounts, invitations, sessions, and dashboard system settings. |
+| Storage | Recordings, previews, and the `.replayvod-storage` identity file at the storage root. |
 
-<CardGrid>
-  <Card title="server/.env">
-    Secrets used to encrypt sessions and verify webhook HMACs. Tiny, irreplaceable.
-  </Card>
-  <Card title="Database">
-    SQLite file or Postgres DB. Holds schedules, video metadata, segment state, sessions.
-  </Card>
-  <Card title="Media">
-    `VIDEO_DIR` and `THUMBNAIL_DIR`. Usually the largest data set.
-  </Card>
-</CardGrid>
+Store a separate copy of your media even when you use S3. A bucket used as the primary recording store is not itself a backup.
 
 ## Database
 
 ### SQLite
 
-Stop the recorder before copying the file — SQLite write-ahead-log files don't copy atomically with `cp`.
+Stop the recorder before copying the database. If SQLite's `-wal` and `-shm` files remain beside it, keep them with the copy.
+
+The supplied Compose file stores data in a Docker volume at `/app/data`, rather than a `data/` directory on the host. To copy it from the SQLite container, run these commands from the ReplayVOD install directory:
 
 ```bash
-docker compose stop replayvod
-cp data/replayvod.db /backup/replayvod-$(date +%F).db
-docker compose start replayvod
+mkdir -p backup/data
+docker compose --env-file server/.env --profile sqlite stop replayvod-sqlite
+docker compose --env-file server/.env --profile sqlite cp replayvod-sqlite:/app/data/. ./backup/data/
+docker compose --env-file server/.env --profile sqlite start replayvod-sqlite
 ```
 
-Or use [Litestream](https://litestream.io/) for continuous replication without stopping the recorder.
+This copies the entire data directory, including local recordings. Copy `backup/` to your backup destination and save the configuration files too.
+
+For a source install or custom bind mount, stop the server and copy the directory containing `SQLITE_PATH` with your usual backup tool.
 
 ### Postgres
 
-Use your normal Postgres tooling:
+For the supplied PostgreSQL Compose profile, stop the recorder while taking the database and media backup:
 
 ```bash
-pg_dump -h localhost -U postgres replayvod > /backup/replayvod-$(date +%F).sql
+docker compose --env-file server/.env --profile postgres stop replayvod-postgres
+docker compose --env-file server/.env --profile postgres exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > replayvod.sql
 ```
+
+Back up the media and configuration before starting `replayvod-postgres` again. For an external PostgreSQL server, use `pg_dump` with that server's connection settings.
 
 ## Media
 
-`VIDEO_DIR` and `THUMBNAIL_DIR` are plain files. Any file-level backup tool works ([restic](https://restic.net/), `rsync`, your filesystem snapshot tool, etc.).
+For local storage, copy the whole storage directory, including `.replayvod-storage`. The default Compose volume is mounted at `/app/data`; source installs default to `./data`.
 
-Recordings are immutable once finalised, so incremental backups are efficient — only newly-finished VODs change between runs.
+For S3, back up or replicate the bucket's objects, including the identity marker. Keep that backup separate from automatic deletions in the primary bucket.
 
-If you store media in S3, the bucket itself is your backup; replicate it to a second region or provider if you want belt-and-braces.
+Finished recordings don't change, so incremental backups usually need to copy only new recordings. Keep the database backup from the same backup run so recording details match the saved files.
 
 ## Restore
 
-To restore a full install on a new host:
+1. Install the same ReplayVOD version used for the backup. Keep the recorder stopped while restoring.
+2. Restore `server/.env`, `config.toml`, and any Compose overrides. Preserve the original `SESSION_SECRET`.
+3. Restore the SQLite files or import the PostgreSQL dump into an empty database.
+4. Restore the media and `.replayvod-storage` marker to their configured locations. For Docker, restore them into the volume mounted at `/app/data`.
+5. Start ReplayVOD, sign in, and play an existing recording.
 
-1. Re-run the [installer](/docs/install/) on the new host to lay down the directory structure.
-2. Copy the saved `server/.env` over the freshly-generated one.
-3. Restore the database (`cp` the SQLite file, or `psql < dump.sql`).
-4. Restore `VIDEO_DIR` and `THUMBNAIL_DIR`.
-5. Start the stack — migrations will no-op against an already-current schema.
+The database and storage marker must belong to the same installation. If the dashboard reports a mismatch, check that you restored the matching database and storage. See [Storage is not attached](/docs/troubleshooting/#storage-is-not-attached).
 
-<Aside type="caution" title="Don't lose server/.env">
-  Sessions can be recovered by signing in again. The EventSub HMAC secret lives in the database (`server_settings`), so it travels with a database backup and existing subscriptions keep verifying after a restore. Restart the recorder after restoring; the boot reconcile recreates whatever is missing.
-</Aside>
+The EventSub signing secret is stored in the database and returns with that backup. ReplayVOD checks its Twitch subscriptions again after startup.

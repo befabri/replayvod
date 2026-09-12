@@ -1,11 +1,13 @@
 ---
 title: Storage
-description: Choose where ReplayVOD writes recordings — local filesystem or S3-compatible.
+description: Save recordings on a local disk or in S3-compatible storage.
 ---
 
-import { Aside, TabItem, Tabs } from '@astrojs/starlight/components';
+import { TabItem, Tabs } from '@astrojs/starlight/components';
 
-ReplayVOD writes one MP4 per recording, plus thumbnails and a snapshot strip. The storage backend is selected in `server/config.toml`; paths come from `server/.env`.
+ReplayVOD saves video as MP4 and audio-only recordings as M4A. A recording may have several parts, plus previews and other playback files.
+
+Choose the storage backend in `server/config.toml`. With Docker, mount your edited configuration as described in [Configuration](/docs/configuration/#docker-compose).
 
 ## Backends
 
@@ -13,13 +15,12 @@ ReplayVOD writes one MP4 per recording, plus thumbnails and a snapshot strip. Th
   <TabItem label="Local filesystem">
 
   ```toml
-  # server/config.toml
   [storage]
   type = "local"
   local_path = "./data"
   ```
 
-  Paths from `server/.env`:
+  Source installs use these default paths:
 
   ```text
   VIDEO_DIR=./data/videos
@@ -27,17 +28,14 @@ ReplayVOD writes one MP4 per recording, plus thumbnails and a snapshot strip. Th
   SCRATCH_DIR=./data/.scratch
   ```
 
-  Recordings land in `VIDEO_DIR/<channel>/<id>.mp4`. Thumbnails go in `THUMBNAIL_DIR`. The scratch directory holds in-progress segments before remux.
+  The supplied Compose file uses `/app/data` inside a Docker volume and sets these paths under it. A host directory named `data/` is not mounted by default.
 
-  <Aside type="caution" title="Keep SCRATCH_DIR on the same filesystem as VIDEO_DIR">
-    The recorder finalises a video by `os.Rename`-ing from scratch to the destination. Cross-device renames silently turn into a full byte-for-byte copy and can fail mid-way on space pressure.
-  </Aside>
+  Keep the scratch directory on the same filesystem as the recordings. This lets ReplayVOD move finished files into place without copying them across disks. Scratch files are also needed to recover interrupted recordings.
 
   </TabItem>
   <TabItem label="S3-compatible">
 
   ```toml
-  # server/config.toml
   [storage]
   type = "s3"
 
@@ -49,24 +47,30 @@ ReplayVOD writes one MP4 per recording, plus thumbnails and a snapshot strip. Th
   secret_key = "..."
   ```
 
-  Works with AWS S3, [Garage](https://garagehq.deuxfleurs.fr/), Backblaze B2, MinIO, Cloudflare R2, and any other S3-compatible store.
+  Enter your provider's endpoint, bucket, region, and credentials. An empty endpoint uses AWS S3. Custom endpoints use path-style addressing by default.
 
-  Custom endpoints default to path-style addressing. The recorder still uses `SCRATCH_DIR` locally during recording and uploads on completion.
+  ReplayVOD still needs local scratch space while downloading and processing a recording. It uploads finished files to the bucket.
 
   </TabItem>
 </Tabs>
 
 ## Disk sizing
 
-A 1080p stream typically lands around 4–6 GB per hour. ReplayVOD does not transcode — what Twitch served is what gets stored. Plan disk for the channels and retention you want.
+Storage use depends on the stream's bitrate and duration. For example, a stream averaging 8 Mbit/s uses about 3.6 GB per hour before container overhead. ReplayVOD stores the selected stream without re-encoding it.
 
-## Recommended layout
+Allow space for simultaneous downloads, previews, and retained recordings. Enabling the [playback cache](/docs/playback-cache/) also creates a joined copy of compatible multipart recordings, up to the configured cache limit.
 
-```
+## Storage layout
+
+A default local data directory contains:
+
+```text
 data/
-├── videos/        recorded VODs
-├── thumbnails/    poster images and snapshot strips
-└── replayvod.db   SQLite (when DATABASE_DRIVER=sqlite)
+├── .replayvod-storage   installation identity
+├── .scratch/           work in progress
+├── videos/             recorded video and audio files
+├── thumbnails/         posters, snapshot strips, and waveform data
+└── replayvod.db        SQLite database, when selected
 ```
 
-Override individual paths with `VIDEO_DIR`, `THUMBNAIL_DIR`, and `SQLITE_PATH` in `server/.env`.
+Keep `.replayvod-storage` with the media when moving or restoring storage. ReplayVOD checks it against the database before using the volume. See [Backup & restore](/docs/backup/) and [Storage is not attached](/docs/troubleshooting/#storage-is-not-attached).

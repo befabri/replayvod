@@ -1,0 +1,61 @@
+---
+title: Users & invitations
+description: Invite people, assign roles, and control who can sign in.
+---
+
+Everyone signs in with their own Twitch account. Admins and owners manage accounts in **Security → Users**.
+
+## Choose a role
+
+| Role | What they can do |
+| ---- | ---------------- |
+| Viewer | Browse and watch recordings, view schedules, and request channels. |
+| Admin | Also manage recordings and schedules, review requests, invite users, and manage viewer and admin access. |
+| Owner | Also manage other owners and the **System** pages. |
+
+Use **Viewer** for someone who wants to watch and request recordings. Use **Admin** for someone who will help manage recordings and user access. Admins can grant admin access to other people.
+
+Only owners can grant ownership or change another owner's role or whitelist access. You can't change your own role in the Users table.
+
+## Invite someone
+
+1. Open **Security → Users** and find **Invites**.
+2. Choose **Viewer** or **Admin** and a link lifetime: 1 hour, 24 hours, 7 days, or 30 days. The default is 24 hours. Add a note if needed.
+3. Select **Create invite**, then **Copy**. Send the link to the person you're inviting.
+4. They open the link and sign in with Twitch. The invite becomes **Redeemed**, and their account appears in the Users table.
+
+Copy the link before leaving the page. The full link is only shown when you create it. If you lose it, select **New link** to replace it; the previous link stops working.
+
+Each link can be used once by anyone who has it. Create a separate invite for each person. You can't redeem your own invite.
+
+An invite also adds the account to the whitelist, so it works when sign-in is restricted. For an existing account, an invite can raise its role but won't lower it. After joining, the person can use the normal sign-in page.
+
+## Cancel an unused invite
+
+Select **Revoke** beside an unused invite. The link stops working and disappears from the list. Expired links also stop working.
+
+Redeemed invites can't be revoked. Change the person's role or whitelist access to manage their account after they've joined.
+
+## Change someone's role
+
+In **Security → Users**, choose a role from the dropdown beside the account. The change takes effect immediately without requiring the person to sign out.
+
+Admins can switch other viewers and admins between those two roles. An owner can also select **Owner**. Invitation links only offer Viewer and Admin.
+
+## Manage the whitelist
+
+When `WHITELIST_ENABLED=true`, only accounts on the whitelist can sign in. Open **Security → Whitelist**, enter a numeric Twitch user ID, and select **Add**. Changes take effect without a restart.
+
+Adding an ID grants sign-in access. Set the person's role in **Users** after they've joined.
+
+Select **Remove** to remove an ID and sign out that account's active sessions. With the whitelist enabled, the person can't sign in again until access is restored. With it disabled, they can sign back in.
+
+The server adds IDs from `WHITELISTED_USER_IDS` and `OWNER_TWITCH_ID` at every startup. To remove access permanently, remove the ID from both the dashboard and the relevant environment setting. Removing it from only one place is insufficient.
+
+To manage your own signed-in devices, see [Your account](/docs/account/#where-youre-signed-in).
+
+## Trouble joining?
+
+- **Invalid, expired, or used link:** ask for a new invite. If you've already joined, use the normal sign-in page.
+- **Your own invite:** you can't redeem a link you created. Sign in normally.
+- **Account not authorized:** ask an admin for an invite or to add your Twitch user ID to the whitelist.

@@ -1,0 +1,83 @@
+---
+title: Archive VODs
+description: Download past broadcasts from Twitch and keep them in your library.
+---
+
+Open **Recordings → Archive** to download videos that are still available on Twitch. Admins and owners can add archives. Viewers can see the queue.
+
+An archive saves an existing broadcast. To record future streams automatically, create a [schedule](/docs/schedules/).
+
+## Choose how it records
+
+Set **Recording settings** before adding VODs:
+
+| Setting | What it does |
+| ------- | ------------ |
+| Mode | Save video or audio only. |
+| Quality | Set the maximum resolution, from **Up to 480p** to **No limit**. ReplayVOD uses the highest available resolution within that limit. |
+| Force H.264 | Prefer H.264 for video recordings. |
+
+The settings apply to both **Paste links** and **Browse a channel**. They reset to video at **Up to 1080p** when you open the page.
+
+Some higher resolutions require a connected [Twitch playback account](/docs/twitch-playback/).
+
+## Archive from a link
+
+1. Open **Recordings → Archive** and select **Paste links**.
+2. Paste one Twitch VOD link or VOD ID per line, up to 50 at a time.
+3. Select **Add to queue**.
+
+Each line gets a result:
+
+| Result | Meaning |
+| ------ | ------- |
+| **Queued** | Added to the download queue. |
+| **Already in library** | The VOD is already saved. Select **Open recording** to view it. |
+| **Not on Twitch** | Twitch couldn't find that VOD. It may have expired or been deleted. |
+| **Not a VOD link** | Enter a `twitch.tv/videos` link or a VOD ID. |
+| **Still live** | The broadcast hasn't ended. Record it from the channel page, or archive it after it ends. |
+| **Private** | Twitch won't provide access to this VOD. |
+| **Failed** | The VOD couldn't be added. Try again. |
+
+ReplayVOD skips VODs already queued or in the library, so you can submit the same list again without creating duplicates.
+
+## Archive from a channel
+
+1. Select **Browse a channel**.
+2. Enter a channel name or Twitch channel link and select **Look up**.
+3. Select individual VODs or **Select every VOD not yet in the library**.
+4. Select **Archive selected**.
+
+The table lists the videos Twitch still has, including past broadcasts, highlights, and uploads. It shows when each was streamed, its duration, and whether it's already in your library. Select **Load more** for older videos.
+
+You can archive videos from channels that nobody on your server follows.
+
+## Watch the queue
+
+Archives download in queue order, oldest first. They use separate download slots from live recordings, but share the server's network and storage.
+
+A queued archive shows **Waiting for a slot** or **Waiting for storage**. Once it starts, the row shows its progress and estimated time remaining.
+
+Select **Cancel** to stop a running archive, or **Remove** to remove one that hasn't started.
+
+## When an archive fails
+
+**Recent failures** lists failures from the last seven days and their reasons. Temporary failures retry automatically; the row shows when the next attempt is due.
+
+Select **Retry now** to try again, or **Cancel retry** to stop automatic retries. **Not scheduled** means no automatic retry is planned. This includes failures that another attempt is unlikely to fix, such as a deleted VOD.
+
+## Where archives end up
+
+Finished archives appear in **Library → Videos** with an **Archive** badge. Set the **Type** filter to **Archives** to show only archived videos.
+
+If Twitch hasn't generated a poster yet, the archive may initially appear without one. ReplayVOD checks again in the background.
+
+## Settings for the operator
+
+These settings are in `server/config.toml`. See the [full reference](/docs/reference/config-toml/) for other recording options.
+
+| Key | Default | What it does |
+| --- | ------- | ------------ |
+| `[download].archive_max_concurrent` | `1` | Maximum simultaneous archive downloads. |
+| `[download].archive_max_bytes_per_second` | `0` | Download speed limit per archive, in bytes per second. `0` means unlimited. |
+| `[scheduler].archive_poster_interval_minutes` | `5` | How often ReplayVOD checks Twitch for missing archive posters. `0` disables the check. |

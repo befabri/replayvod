@@ -1,11 +1,29 @@
 ---
 title: Quickstart
-description: Get a running ReplayVOD instance in a few minutes.
+description: Install ReplayVOD, record live streams, and save past broadcasts.
 ---
 
-import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
+import { TabItem, Tabs } from '@astrojs/starlight/components';
 
-## 1. Install
+Get ReplayVOD running locally and record your first Twitch stream. This guide uses Docker Compose and SQLite. For other setup options, see the [installation guide](/docs/install/).
+
+## Prerequisites
+
+You'll need Docker with Compose installed. On Windows, use Docker Desktop.
+
+## 1. Register a Twitch app
+
+Create an application in the [Twitch developer console](https://dev.twitch.tv/console/apps). Set its OAuth redirect URL to:
+
+```text
+http://localhost:8080/api/v1/auth/twitch/callback
+```
+
+You'll need the **Client ID** and **Client Secret** during installation.
+
+If you're using a domain, replace `http://localhost:8080` with your site's URL, keeping `/api/v1/auth/twitch/callback` at the end. For example, use `https://replayvod.example/api/v1/auth/twitch/callback` as the redirect URL and set `PUBLIC_BASE_URL=https://replayvod.example` during installation.
+
+## 2. Install
 
 <Tabs syncKey="platform">
   <TabItem label="macOS / Linux">
@@ -14,66 +32,82 @@ import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
   curl -fsSL https://replayvod.com/install.sh | sh
   ```
 
-  The installer creates `~/replayvod`, writes `server/.env` from the example, generates secrets, prompts for your Twitch credentials, then starts the stack.
+  Follow the prompts and enter your Twitch app credentials. For this setup, keep the SQLite profile and `http://localhost:8080` URL. The installer creates the configuration files, generates a session secret, and offers to start ReplayVOD.
 
   </TabItem>
   <TabItem label="Windows">
 
-  Install Docker Desktop, then in PowerShell:
+  In PowerShell, clone the repository and open the environment file:
 
   ```powershell
   git clone https://github.com/befabri/replayvod.git
   Set-Location replayvod
   Copy-Item server/.env.example server/.env
   notepad server/.env
-  docker compose --env-file server/.env --profile sqlite up -d
   ```
 
-  This pulls the prebuilt `ghcr.io/befabri/replayvod:latest` image (add `--build` to build from source). Fill in `TWITCH_CLIENT_ID`, `TWITCH_SECRET`, and `SESSION_SECRET` in `server/.env` before the `docker compose` step. `OWNER_TWITCH_ID` is optional.
+  Set `TWITCH_CLIENT_ID` and `TWITCH_SECRET` to your app credentials. Generate a random session secret in PowerShell:
+
+  ```powershell
+  $sessionBytes = New-Object byte[] 32
+  $sessionRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  $sessionRng.GetBytes($sessionBytes)
+  $sessionRng.Dispose()
+  [BitConverter]::ToString($sessionBytes).Replace("-", "").ToLowerInvariant()
+  ```
+
+  Copy the result into `SESSION_SECRET`, save the file, then start ReplayVOD:
+
+  ```powershell
+  docker compose --env-file server/.env --profile sqlite up -d
+  ```
 
   </TabItem>
 </Tabs>
 
-## 2. Register a Twitch app
-
-Create an application in the [Twitch developer console](https://dev.twitch.tv/console/apps) with this OAuth redirect URL:
-
-```
-http://localhost:8080/api/v1/auth/twitch/callback
-```
-
-Copy the resulting **Client ID** and **Client Secret** when the installer asks.
-
 ## 3. Sign in
 
-<Steps>
+Open [http://localhost:8080](http://localhost:8080) and sign in with Twitch. The first successful sign-in becomes the owner unless you've set `OWNER_TWITCH_ID` to a specific account.
 
-1. Open [http://localhost:8080](http://localhost:8080).
+For automatic recording, open **System → EventSub** and choose polling for a local setup. Restart the server if the dashboard asks you to. Polling checks Twitch for live streams without needing a public callback URL.
 
-2. Sign in with Twitch.
+You can also use [direct EventSub](/docs/eventsub/) or the [Connect relay](/docs/connect/) to receive live notifications from Twitch.
 
-3. If `OWNER_TWITCH_ID` is empty, this first successful login becomes owner.
+## 4. Record your first stream
 
-</Steps>
+Choose whether to record a channel that's live now, save a past broadcast, or record future streams automatically.
 
-## 4. Record your first VOD
+### Record a live stream now
 
-<Steps>
+1. Open **Library → Channels** and select the channel.
+2. Select **Download**, then **Download now**.
+3. Choose video or audio and an available quality, then select **Start download**.
 
-1. Follow the channels you want to record on Twitch.
+The channel must be live. This records the current stream without creating a schedule.
 
-2. In the dashboard, open **Schedules** and create a rule (quality, optional category or tag filter).
+If you can't find a channel, follow it on Twitch, then sign out of ReplayVOD and sign back in. ReplayVOD imports your followed channels when you sign in. This also applies to the channel picker when creating a schedule.
 
-3. The next time a matching stream goes live, ReplayVOD records it.
+### Save a past broadcast
 
-</Steps>
+Open **Recordings → Archive** and paste a Twitch VOD link under **Paste links**, then add it to the queue. You can also use **Browse a channel** to look up a channel by name or link and select its available videos. You don't need to follow the channel on Twitch.
 
-<Aside type="tip" title="No public IP?">
-  EventSub needs a public HTTPS callback. If you can't expose one, set up the [Connect relay](/docs/connect/) — it gives you a public ingest URL without router-port forwarding.
-</Aside>
+See [Archive VODs](/docs/archive/) for recording settings and queue controls.
 
-## Where to next
+### Record a channel automatically
 
-- [How it works](/docs/concepts/) — the mental model.
-- [Configuration](/docs/configuration/) — what `server/.env` and `server/config.toml` actually control.
-- [Troubleshooting](/docs/troubleshooting/) — when something doesn't.
+1. Open **Recordings → Schedules** and select **New schedule**.
+2. Choose the channel and recording quality. Leave the optional filters empty to record every stream from that channel.
+3. Select **Create**.
+
+ReplayVOD records matching streams while the server is running and live detection is enabled. See [Schedules & title tracking](/docs/schedules/) for filters and other options.
+
+Viewers can [request a channel](/docs/schedules/#request-a-channel); admins and owners create schedules.
+
+Live recordings appear in **Recordings → Downloads**; archive downloads appear in **Recordings → Archive**. Watch saved recordings in **Library → Videos**.
+
+## Next steps
+
+- [Watching recordings](/docs/library/): browse the library and resume playback.
+- [Users & invitations](/docs/access/): give other people access.
+- [Configuration](/docs/configuration/): change server settings.
+- [Troubleshooting](/docs/troubleshooting/): diagnose setup and recording problems.

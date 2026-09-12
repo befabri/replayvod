@@ -1,32 +1,21 @@
 ---
 title: Relay protocol
-description: The wire format and self-host instructions for the Connect webhook relay.
+description: Connect relay requests, WebSocket frames, token validation, and self-hosting.
 ---
 
-import { Aside, Steps } from '@astrojs/starlight/components';
+The Connect relay accepts HTTPS POST requests and forwards them to WebSocket subscribers. It uses Cloudflare Workers and Durable Objects, with a separate buffer and set of connections for each token.
 
-The Connect relay is a small Cloudflare Worker that takes HTTPS `POST` events on one side and fans them out to subscribed WebSocket clients on the other. It runs on Workers + Durable Objects, holds no Twitch credentials, and never inspects the bodies it forwards.
+For recorder setup using an existing relay, see [Connect relay](/docs/connect/).
 
-If you just want to point the recorder at a hosted relay, see [Connect relay](/docs/connect/) instead.
+## Responsibilities
 
-## What it does
+The relay forwards notification bodies without parsing or verifying them. The recorder verifies Twitch's HMAC signatures. The relay holds no Twitch credentials or signing secret.
 
-- Accepts HTTPS `POST` at `/u/{token}` with an arbitrary body.
-- Forwards bytes to every open WebSocket on `/u/{token}/subscribe`.
-- Buffers events for up to five minutes so a brief client reconnect doesn't drop them.
-- Echoes a synchronous response back to the original `POST` for webhook verification challenges.
-
-## What it doesn't
-
-- Verify, parse, or log payload bodies. Your client verifies the HMAC.
-- Store events to disk beyond the 5-minute buffer.
-- Hold any Twitch credentials.
-- Tunnel arbitrary HTTP. Only `POST` → WebSocket fan-out.
-- Provide encryption beyond standard HTTPS / WebSocket transport.
+Normal notifications are buffered for up to five minutes to support reconnects. Verification challenges require a synchronous response from the recorder. The relay handles this POST-to-WebSocket exchange only; it doesn't proxy the dashboard or recording files.
 
 ## Tokens
 
-Tokens namespace a Durable Object — each token gets its own buffer and connection set. Multiple clients may subscribe to the same token. Tokens must match `[a-zA-Z0-9_-]{16,128}`.
+Tokens must match `[a-zA-Z0-9_-]{16,128}`. Each token identifies one Durable Object. Multiple clients can subscribe with the same token.
 
 ## Ingest
 
@@ -37,7 +26,7 @@ Content-Type: application/json
 <body>
 ```
 
-Normal async deliveries return `202 Accepted` immediately. For Twitch EventSub verification challenges, the relay waits for the subscribed client to replay the request locally and returns the local handler's response to Twitch.
+Normal notifications return `202 Accepted` immediately. For Twitch EventSub verification challenges, the relay waits for the subscribed client to replay the request locally and returns the local handler's response to Twitch.
 
 ## Subscribe
 
@@ -46,7 +35,7 @@ GET /u/{token}/subscribe?cursor={last_cursor}
 Upgrade: websocket
 ```
 
-On connect, the relay replays any buffered events with a monotonic cursor newer than `cursor`, then streams new events as they arrive.
+On connection, the relay replays buffered notifications with a cursor greater than the supplied value, then sends new notifications. Cursors increase with each stored event.
 
 ### Frames the relay sends
 
@@ -61,7 +50,7 @@ On connect, the relay replays any buffered events with a monotonic cursor newer 
 }
 ```
 
-Headers are forwarded verbatim with lower-cased keys, so the receiving client can reconstruct the original request and verify HMAC signatures itself. The relay does not parse, validate, or filter headers.
+The frame includes the request headers with lowercase names and the base64-encoded body. The receiving client reconstructs the request and verifies its signature. The relay reads the EventSub message-type header to identify verification challenges.
 
 ### Frames the subscriber sends back
 
@@ -77,56 +66,44 @@ After replaying a frame locally, the subscriber posts:
 }
 ```
 
-For normal async deliveries, a non-2xx/3xx dispatch result causes the relay to close that subscriber so it reconnects and replays from the last acknowledged cursor.
+For normal notifications, a non-2xx/3xx result closes the subscriber connection. The client can reconnect using its last acknowledged cursor to retry buffered notifications.
 
 When `requires_response` is `true`, the relay returns the response to the original HTTP caller. This is required for Twitch EventSub verification challenges.
 
-<Aside type="tip" title="Buffer pruning">
-  Expired buffered events are pruned by a Durable Object alarm, not only by later traffic, so the 5-minute buffer doesn't linger indefinitely during quiet periods.
-</Aside>
+A Durable Object alarm removes expired notifications even when no new traffic arrives. Verification challenges are not buffered; they require a connected subscriber.
 
 ## Token validation
 
-Self-hosted deployments can leave token validation unset and use any token matching the pattern above.
+A self-hosted relay can leave token validation unset and accept tokens matching the required pattern.
 
-The hosted Connect deployment validates every ingest and subscribe request against the cloud Worker, so revoked tokens and inactive subscriptions are rejected before reaching the Durable Object:
+To check tokens through the hosted cloud service, configure both values:
 
-```sh
+```text
 TOKEN_VALIDATE_URL=https://api.replayvod.com/relay/tokens/validate
 RELAY_SHARED_SECRET=...
 ```
 
+The Worker checks ingest and subscribe requests before forwarding them to the Durable Object. Revoked tokens and inactive subscriptions are rejected.
+
 ## Self-host
 
-The relay is MIT-licensed and intended to be self-hostable. You need a Cloudflare account and `wrangler` installed.
+Run from `relay/`:
 
-<Steps>
+```bash
+npm install
+npm run dev
+```
 
-1. Install dependencies.
+After configuring your Cloudflare account and Worker bindings in `wrangler.jsonc`, deploy with:
 
-   ```sh
-   cd relay
-   npm install
-   ```
+```bash
+npm run deploy
+```
 
-2. Develop locally.
+Use the deployed Worker's hostname for both relay URLs in ReplayVOD. Configure token validation if you want to restrict which tokens the Worker accepts.
 
-   ```sh
-   npm run dev
-   ```
-
-3. Deploy to your own Workers account.
-
-   ```sh
-   npm run deploy
-   ```
-
-</Steps>
-
-<Aside type="note" title="Cost">
-  Workers Free tier handles a few hundred light users. Workers Paid ($5/mo) handles thousands. Durable Object storage is billed by usage; with a 5-minute TTL the buffer rarely exceeds a few KB per active user.
-</Aside>
+Usage depends on notification volume, connected clients, and buffered events. Check your Cloudflare account's usage and billing for the deployed Worker and Durable Objects.
 
 ## License
 
-The relay is MIT-licensed; the recorder, dashboard, and supporting code are GPL-3.0.
+The relay is MIT-licensed. The recorder, dashboard, and supporting code are GPL-3.0.

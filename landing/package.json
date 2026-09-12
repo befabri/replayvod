@@ -18,6 +18,7 @@
     "format:check": "prettier --check \"src/**/*.{astro,ts,css}\""
   },
   "dependencies": {
+    "@astrojs/mdx": "^5.0.6",
     "@astrojs/sitemap": "^3.7.3",
     "@astrojs/starlight": "^0.39.3",
     "@tailwindcss/vite": "^4.3.0",

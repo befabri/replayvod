@@ -1,42 +1,23 @@
 ---
 title: EventSub
-description: Configure direct EventSub when your recorder has a public HTTPS endpoint.
+description: Receive Twitch live notifications through your server's public HTTPS callback.
 ---
 
-import { Aside, Steps } from '@astrojs/starlight/components';
+Twitch EventSub sends notifications when a channel goes live, goes offline, or changes its title or category. ReplayVOD uses these notifications to start recordings and track stream changes.
 
-EventSub is Twitch's webhook protocol. When a stream goes live, Twitch posts to a callback URL you registered. ReplayVOD uses these subscriptions:
-
-- `stream.online` — drives live indicators and triggers recordings.
-- `stream.offline` — finalises recordings.
-- `channel.update` — feeds [title tracking](/docs/schedules/) in `direct` and `relay` server modes.
-
-If your recorder can't be reached over public HTTPS, see the [Connect relay](/docs/connect/) instead.
+Direct EventSub requires a public HTTPS callback. If your server doesn't have one, use [Connect relay](/docs/connect/) or polling.
 
 ## Requirements
 
-- A publicly reachable HTTPS URL pointing at the recorder's `/api/v1/webhook/callback`.
-- A valid TLS certificate. Twitch refuses self-signed.
-- An EventSub HMAC secret shared between the recorder and Twitch. The recorder generates one on first run and stores it in the database; no configuration needed.
+Your public URL must route requests to `/api/v1/webhook/callback` on the recorder and use a valid TLS certificate. Self-signed certificates aren't accepted.
+
+ReplayVOD generates the EventSub signing secret on first start and stores it in the database.
 
 ## Configure
 
-Use **System → EventSub** in the owner dashboard, or set a complete env config.
-Env config wins over the dashboard when both exist.
+As the owner, open **System → EventSub**, choose direct mode, and enter your public callback URL. Save the settings and restart if the dashboard reports that a restart is required.
 
-Dashboard changes are saved as the desired server mode config. If the dashboard
-shows a restart is required, the current server keeps using the mode it booted
-with until you restart it.
-
-For direct env setup:
-
-```text
-SERVER_MODE=direct
-WEBHOOK_CALLBACK_URL=https://your-domain.example/api/v1/webhook/callback
-```
-
-For normal deployments, `PUBLIC_BASE_URL` still configures OAuth/frontend URLs;
-direct EventSub also needs its callback set explicitly:
+To manage the mode through `server/.env`, set:
 
 ```text
 PUBLIC_BASE_URL=https://your-domain.example
@@ -44,35 +25,32 @@ SERVER_MODE=direct
 WEBHOOK_CALLBACK_URL=https://your-domain.example/api/v1/webhook/callback
 ```
 
-No subscription IDs go in the config. The recorder creates and manages subscriptions itself, and reconciles them on every start.
+`PUBLIC_BASE_URL` configures sign-in and dashboard URLs. Direct EventSub also needs `WEBHOOK_CALLBACK_URL` set explicitly.
 
-## Boot reconcile
+A complete environment configuration takes precedence over dashboard settings. Leave `SERVER_MODE` and the EventSub URL variables empty if you want to manage this in the dashboard.
 
-On each start, the recorder:
+## Subscriptions
 
-<Steps>
+ReplayVOD creates the subscriptions it needs and removes obsolete ones. It checks them on startup and periodically while running. You don't need to enter subscription IDs.
 
-1. Lists current EventSub subscriptions for its app.
-2. Deletes orphaned subscriptions (channels you no longer follow, or stale entries from a previous process crash).
-3. Creates missing subscriptions for the current channel set.
+| Event | Purpose |
+| ----- | ------- |
+| `stream.online` | Update live status and start matching recordings. |
+| `stream.offline` | Notify the recorder that a stream has ended. |
+| `channel.update` | Capture title and category changes during recordings. |
 
-</Steps>
-
-This means it's safe to add or remove followed channels at any time; the next restart reconciles. No manual subscription management is required.
+When you follow a new channel, sign out and back in to ReplayVOD so it can update its channel list.
 
 ## Quotas
 
-Twitch enforces an EventSub subscription quota per app. ReplayVOD tracks current usage in the **System** dashboard tab. If you bump the quota, the dashboard surfaces it.
-
-<Aside type="tip" title="Polling is available without a callback">
-  Use `SERVER_MODE=poll` if you do not have a working public callback. ReplayVOD will poll Helix for live detection and title changes instead of creating EventSub subscriptions.
-</Aside>
+**System → EventSub** shows subscription usage and quota information. If Twitch refuses new subscriptions, check this page and the system logs for the reason.
 
 ## Verifying it works
 
-After a restart, check the **System** tab:
+After restarting, open **System → EventSub** and check that direct mode is active and subscriptions are enabled. Followed channels use `stream.online` and `stream.offline` subscriptions; active recordings can also have `channel.update` subscriptions.
 
-- The EventSub block shows current subscription count.
-- Each followed channel gets one `stream.online` and one `stream.offline` subscription.
+If subscriptions remain pending or fail verification, see [EventSub not delivering](/docs/troubleshooting/#eventsub-not-delivering).
 
-You can also tail the recorder logs — webhook deliveries show up as `eventsub.received` events.
+## Polling without a callback
+
+Select polling in the dashboard, or set `SERVER_MODE=poll` with the EventSub URL variables unset. ReplayVOD checks Twitch for live streams and title changes every `[server].poll_interval_minutes`.

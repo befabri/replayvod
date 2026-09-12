@@ -1,93 +1,150 @@
 ---
 title: Troubleshooting
-description: Common issues and how to resolve them.
+description: Diagnose sign-in, recording, storage, and server problems.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
-Each entry is **symptom → likely cause → fix**.
+Find the symptom below. Owners can also check **System → Logs** for errors and **System → Tasks** for failed background jobs.
 
 ## Recorder won't start
 
 ### "Server mode config invalid"
 
-The recorder refuses to start when env-managed server mode settings are mixed or incomplete. Dashboard-saved invalid settings degrade to setup-required mode so the UI remains reachable.
+The environment settings for live detection are incomplete or conflicting. Direct mode needs a public HTTPS `WEBHOOK_CALLBACK_URL`. Relay mode needs matching ingest and subscribe URLs.
 
-- **Cause** — `SERVER_MODE` is `direct` without a public HTTPS `WEBHOOK_CALLBACK_URL`, `relay` without matching `RELAY_INGEST_URL` / `RELAY_SUBSCRIBE_URL`, or relay URLs were set without a server mode.
-- **Fix** — leave `SERVER_MODE` empty and configure server mode in the dashboard, set `SERVER_MODE=poll`, configure direct EventSub correctly, or set up the [Connect relay](/docs/connect/).
+To configure the mode in the dashboard, clear `SERVER_MODE` and the EventSub and relay URL variables. For polling, set `SERVER_MODE=poll` and leave those URLs unset. See [EventSub](/docs/eventsub/) and [Connect relay](/docs/connect/) for the other modes.
 
 ### "database is locked"
 
-SQLite-only. Two processes are trying to write to the same file.
+Another connection may be holding a SQLite write lock. Check for a second recorder process, an old container, or a backup operation using the same database.
 
-- **Cause** — leftover container from a previous run, or a backup tool holding a write lock.
-- **Fix** — `docker compose down`, confirm no stray `replayvod` process is running, then start again.
+Stop duplicate processes and let any backup finish, then restart the recorder. Keep only one recorder using that SQLite file.
 
 ### "can't find ffmpeg"
 
-Native (non-Docker) install only. The Docker image bundles `ffmpeg`.
+For a source install, install `ffmpeg` and `ffprobe` and make sure they're on `PATH` for the user running ReplayVOD. The Docker image includes both.
 
-- **Cause** — `ffmpeg` isn't on `PATH`.
-- **Fix** — install `ffmpeg` system-wide, or set `PATH` for the recorder's user.
+### "migration … changed after it was applied"
+
+The server's migration files don't match the files used to update this database. Checksums include the complete file, including comments and formatting.
+
+Use the server build that applied the migrations, or restore the original migration files and rebuild. Don't edit the migration ledger to bypass the check. For a disposable development database, recreate it after editing an unpublished migration.
+
+A message saying the database has applied migrations this build doesn't include means the build is missing part of the database's migration history. Use a build with the complete history. For recovery from a backup, see [Backup & restore](/docs/backup/#restore).
 
 ## Twitch sign-in fails
 
 ### Redirect loop after clicking "Sign in with Twitch"
 
-- **Cause** — the OAuth redirect URL on the Twitch app doesn't match what the recorder advertises.
-- **Fix** — open [dev.twitch.tv/console/apps](https://dev.twitch.tv/console/apps), edit your app, set the OAuth redirect to exactly `${PUBLIC_BASE_URL}/api/v1/auth/twitch/callback`.
+Check the OAuth redirect URL in your application on the [Twitch developer console](https://dev.twitch.tv/console/apps). It must match your ReplayVOD address with `/api/v1/auth/twitch/callback` appended.
 
-### "user not allowed"
+For example, with `PUBLIC_BASE_URL=https://replayvod.example`, register `https://replayvod.example/api/v1/auth/twitch/callback`. Apply environment changes before trying again.
 
-- **Cause** — `WHITELIST_ENABLED=true` and the Twitch user isn't in `WHITELISTED_USER_IDS` or `OWNER_TWITCH_ID`.
-- **Fix** — add the user's numeric Twitch ID to `WHITELISTED_USER_IDS` (comma-separated) and restart.
+### "Your Twitch account is not authorized to use this app"
+
+The whitelist is enabled and your account hasn't been granted access. Ask an admin for an invitation or to add your numeric Twitch user ID in **Security → Whitelist**.
+
+If no admin can sign in, the operator can add an ID to `WHITELISTED_USER_IDS` and restart the server. See [Users & invitations](/docs/access/#manage-the-whitelist).
+
+### Invite link doesn't work
+
+An invite works once and has an expiry date. Ask for a new link if it's expired, revoked, or already used. If you've already joined, use the normal sign-in page. You can't redeem an invite you created yourself.
 
 ## Streams aren't being recorded
 
-Walk this list in order:
+Check these in order:
 
-1. **Is the channel followed by your owner account?** ReplayVOD only watches channels followed by users known to it.
-2. **Does any schedule match?** Open **Schedules** in the dashboard. A rule with no filters matches everything; if you have only restrictive rules, nothing matches the live stream.
-3. **Is live detection working?** Open **System → EventSub**. Server mode should be `poll`, `direct`, or `relay` and active. If setup required or restart required is shown, finish setup or restart the server so the recorder can receive live events.
-4. **Is the recorder under-provisioned?** Check `[download].max_concurrent` — running recordings are visible in the **Live** tab.
+1. **Channel list:** someone who has signed in to this server must follow the channel. Sign out and back in after following it on Twitch.
+2. **Schedule:** open **Recordings → Schedules**. Check that the channel has an enabled schedule, the stream matches its filters, and **Pause all** isn't active.
+3. **Live detection:** the owner can check **System → EventSub**. Polling, direct, or relay mode must be active. Complete setup or restart if the page asks you to.
+4. **Capacity:** open **Recordings → Downloads** and check the available slots. `[download].max_concurrent` limits simultaneous live recordings.
+5. **Storage:** resolve any storage banner before expecting a new recording to start.
+
+### The channel isn't found when requesting or creating a schedule
+
+Channel search uses follows imported when people sign in. Follow the channel on Twitch, then sign out and back in to ReplayVOD to refresh the list.
 
 ## EventSub not delivering
 
 ### Subscriptions stuck in `webhook_callback_verification_pending`
 
-- **Cause** — Twitch couldn't verify your callback within a few seconds. Most often a wrong URL, an unreachable host, or HTTP instead of HTTPS.
-- **Fix** — confirm `curl https://your-domain.example/api/v1/webhook/callback` returns 200 from a public host (not just from inside your network). Then restart the recorder; reconcile re-creates the subscriptions.
+Twitch hasn't completed verification of the callback. Check the callback URL, public DNS, TLS certificate, and reverse proxy routing. Twitch must be able to send a POST to `/api/v1/webhook/callback` from outside your network.
+
+A GET request to the callback isn't a verification test; the callback accepts POST requests. After fixing the connection, restart ReplayVOD so it checks and recreates subscriptions as needed.
 
 ### Subscriptions stuck in `webhook_callback_verification_failed`
 
-- **Cause** — verification reached your endpoint but the challenge string in the response body wasn't echoed back verbatim.
-- **Fix** — the recorder handles verification automatically. If you've put a reverse proxy in front of it, ensure the proxy forwards the raw body without modification or rewriting.
+ReplayVOD handles verification challenges automatically. Check that your proxy forwards the request body and Twitch headers unchanged and returns the recorder's response without rewriting it.
 
 ## Recordings come out broken
 
-### "incomplete" badge on a recording
+### PARTIAL badge on a recording
 
-- **Cause** — segment loss exceeded `[download].max_gap_ratio`. The video plays; the badge is a heads-up.
-- **Fix** — investigate network or CDN issues during the broadcast. If routine, raise `max_gap_ratio` (default `0.01`).
+Some footage is missing. Check the logs for network failures, unavailable Twitch segments, or storage errors during the broadcast. The captured footage may still be playable.
+
+`[download].max_gap_ratio` controls how much segment loss the recorder tolerates. Raising it doesn't recover missing footage. See [Gaps and resumes](/docs/recording/#gaps-and-resumes).
 
 ### Recording stops mid-stream
 
-- **Cause** — the recorder considered the stream offline. Common when the broadcaster's connection drops.
-- **Fix** — `[download].max_restart_gap_seconds` controls how long the recorder waits before splitting into two VODs. Raise it if you'd rather get one file with a gap.
+Check whether the broadcaster disconnected, someone cancelled the recording, or the logs report a download failure.
 
-## Logs
+`[download].max_restart_gap_seconds` controls how long an interruption can last before ReplayVOD starts a separate recording. Increase it if brief broadcaster disconnects regularly split your recordings.
+
+## Recordings disappear from the library
+
+### A recording shows Missing in History
+
+The storage scan or a playback request found that the media files were missing. The recording's details remain in **Recordings → History**.
+
+Put every part back in its original location, select the **Unavailable** filter in History, and select **Restore**. The storage scan can also restore it automatically. See [Restoring missing recordings](/docs/activity/#bring-back-a-recording-whose-files-went-missing).
+
+The scan runs daily by default. Set `[scheduler].storage_scan_interval_minutes` to change its interval, or `0` to disable it. Playback requests still check for missing files.
+
+## Storage is not attached
+
+ReplayVOD checks the `.replayvod-storage` file at the storage root against an identity saved in the database. This prevents it from treating an empty or different mounted volume as the original storage.
+
+When storage is unavailable or doesn't match, recording and storage scans pause. Playback shows a retry panel. The server checks storage again every 30 seconds and clears the banner when it recovers.
+
+As the owner, open **System → Storage** for the path and error details. Keep the scratch directory intact during an outage; interrupted recordings need those files to recover.
+
+| Error | What to check |
+| ----- | ------------- |
+| **identity marker .replayvod-storage is missing** | Mount the original volume, or restore its marker from the matching backup. Include the marker whenever you move media. |
+| **storage belongs to a different install** | Check that the database and mounted storage belong together. Restore the matching pair. |
+| **storage unreachable** | Check the mount, storage configuration, network connection, and S3 credentials. |
+| **storage read-only** | Make the volume writable to resume recording. Existing recordings can still play. |
+| **storage full** | Free space, inodes, or quota, or increase capacity. Playback and deletion remain available while storage is full. |
+
+The owner can select **Adopt this storage** to use a replacement volume. This writes the current installation's identity to that volume. The next scan removes recordings from the library if their files aren't present there. Use this only when you intend to replace the original storage.
+
+Monitoring systems can check `/api/v1/health`. It returns HTTP 503 when storage is unattached. Read-only or full storage still counts as attached, so check the dashboard's storage status when diagnosing recording failures.
+
+## Checking the background jobs
+
+Owners can open **System → Tasks** to check storage scans, automatic deletion, subscription updates, metadata updates, and log cleanup. Each task shows its interval, last result, and next run.
+
+After fixing an error, select **Run now** to retry the task. **Pause** stops scheduled runs until you select **Resume**. You can still run a paused task manually.
+
+## Reading the logs
+
+Owners can open **System → Logs** and choose:
+
+- **System events:** recording activity, task runs, sign-ins, and storage changes. Start here when an expected recording or cleanup didn't happen.
+- **API calls:** requests to Twitch, with response status and duration. Check here for rate limits, server errors, or timeouts.
+
+Use filters and search to find events around the time of the problem. Log retention is configured with `event_logs_retention_days` and `fetch_logs_retention_days` in [config.toml](/docs/reference/config-toml/).
+
+## Log files
 
 Enable file logging in `server/config.toml`:
 
 ```toml
 [logging]
 log_to_file = true
-log_dir     = "./logs"
-log_level   = "info"
+log_dir = "./logs"
+log_level = "info"
 ```
 
-`debug` is verbose enough to track down most issues.
+Use `debug` for more detail while investigating. For Docker configuration changes, see [Configuration](/docs/configuration/#docker-compose).
 
-<Aside type="tip" title="Still stuck?">
-  Open an issue on [GitHub](https://github.com/befabri/replayvod/issues) with the recorder version, the relevant `[storage]` and `[download]` settings, and the matching log lines.
-</Aside>
+If you need to report a bug, open a [GitHub issue](https://github.com/befabri/replayvod/issues) with the ReplayVOD version, steps to reproduce it, and relevant log lines. Remove credentials and session tokens before posting.
