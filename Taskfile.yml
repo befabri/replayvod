@@ -4,6 +4,8 @@
 # Then from this repo:
 #   task              # list tasks
 #   task dev          # run server + dashboard concurrently
+#   task server       # run only the Go server (alias of server:dev)
+#   task dashboard    # run only the Vite dev server (alias of dashboard:dev)
 #   task build        # production build of both
 #
 # The repo has two independently-buildable components:
@@ -67,6 +69,7 @@ tasks:
   server:dev:
     dir: server
     desc: Run the Go server with live-reload via `go run`
+    aliases: [server]
     prefix: server
     cmds:
       - go run ./cmd/server
@@ -97,6 +100,7 @@ tasks:
   dashboard:dev:
     dir: dashboard
     desc: Vite dev server on :3000 with backend proxy
+    aliases: [dashboard]
     prefix: dashboard
     cmds:
       - npm run dev
