@@ -221,9 +221,17 @@ type DownloadConfig struct {
 	// duplicated segments. 0 (the default) disables size-based
 	// splitting, preserving single-file behavior; negative values are
 	// clamped to 0 on load. Sized for target uploadable chunks (e.g. a
-	// Telegram 2/4 GB per-file ceiling) and faster seeking; it counts raw
-	// committed segment bytes, so leave margin below a hard limit because a
-	// part can overshoot by up to one segment. Independent of MaxPartSeconds
+	// Telegram 2/4 GB per-file ceiling) and faster seeking.
+	//
+	// What it counts is raw committed SOURCE segment bytes, not the remuxed
+	// part file — that file does not exist until the part seals, so a filling
+	// part has no output size to measure. Remuxing replaces container framing
+	// and can change the size in either direction. The source count can also
+	// overshoot by one segment because the ceiling is tested only after a
+	// whole segment commits. Leave margin below a hard external limit; this
+	// setting does not guarantee a maximum output size. A sealed part whose
+	// file outgrew its source bytes is logged as a warning (partOutgrewSource)
+	// to help diagnose unexpected output sizes. Independent of MaxPartSeconds
 	// — whichever ceiling the part hits first triggers the split.
 	MaxPartBytes int64 `toml:"max_part_bytes"`
 

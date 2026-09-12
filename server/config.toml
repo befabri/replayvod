@@ -22,6 +22,10 @@ max_restart_gap_seconds = 120
 # Optional recording part limits.
 # Start a new part when either the size or duration limit is reached.
 # Splits happen between segments, so none are lost or duplicated.
+# max_part_bytes counts downloaded source segments, not the finished mp4 —
+# a filling part has no output size yet. Muxing changes container framing and
+# may increase or decrease the size. The source count can overshoot by one
+# segment. Leave margin below a hard limit; output size is not guaranteed.
 # Defaults to 0 = disabled; negative values are treated as 0.
 # max_part_bytes = 4000000000
 # max_part_seconds = 3600

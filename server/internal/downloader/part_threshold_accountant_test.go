@@ -127,3 +127,30 @@ func TestPartThresholdAccountant_RecordRangeGapDoesNotSeal(t *testing.T) {
 		t.Fatal("recordRangeGap did not record the lost range")
 	}
 }
+
+// The size-growth diagnostic compares remuxed output with counted source
+// bytes only when an operator has enabled source-size splitting.
+func TestPartOutgrewSource(t *testing.T) {
+	tests := []struct {
+		name         string
+		outputBytes  int64
+		sourceBytes  int64
+		maxPartBytes int64
+		want         bool
+	}{
+		{"output under source needs no warning", 900, 1000, 500, false},
+		{"output equal to source needs no warning", 1000, 1000, 500, false},
+		{"output over source reports growth", 1001, 1000, 500, true},
+		{"ceiling disabled suppresses the warning", 5000, 1000, 0, false},
+		{"negative ceiling is treated as disabled", 5000, 1000, -1, false},
+		{"unaccounted part has nothing to compare", 5000, 0, 500, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := partOutgrewSource(tc.outputBytes, tc.sourceBytes, tc.maxPartBytes); got != tc.want {
+				t.Fatalf("partOutgrewSource(%d, %d, %d) = %v, want %v",
+					tc.outputBytes, tc.sourceBytes, tc.maxPartBytes, got, tc.want)
+			}
+		})
+	}
+}

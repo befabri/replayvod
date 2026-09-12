@@ -1153,3 +1153,149 @@ func TestMultipart_ThresholdCountCapFailsCleanly(t *testing.T) {
 		t.Errorf("video_parts count = %d, want <= 2 (MaxPartCount cap); parts: %+v", len(parts), parts)
 	}
 }
+
+// TestMultipart_StoredPartSizesMatchRemuxedFiles checks byte accounting for
+// recordings split by source size. The stored size must describe the remuxed
+// output even when container changes make it differ from the segment total.
+// Measure the ratio for each fixture without assuming remuxing always shrinks.
+//
+// Source bytes here means every byte fed to the mux: the segments covering the
+// part's media-sequence range, plus — for fMP4 — the initialization section,
+// which is muxed into each part but sits outside the downloader's segment
+// accounting.
+func TestMultipart_StoredPartSizesMatchRemuxedFiles(t *testing.T) {
+	requireFFmpegHarness(t)
+
+	t.Run("mpeg-ts", func(t *testing.T) {
+		opts := defaultEdgeOpts()
+		opts.tsCount = 5
+		opts.windowA = 5 // serve-all window: the continuation never window-rolls
+		opts.dropAfterServed = 0
+		opts.aEndlist = 5
+		opts.fmp4Count = 0
+		opts.baseSeqA = 100
+		edge := newTwitchEdge(t, opts)
+
+		h := newHarnessService(t, edge.URL())
+		defer h.svc.Shutdown()
+		// One byte above a single segment, so the ceiling cuts only after a
+		// second segment commits. That keeps the comparison on multi-segment
+		// parts, the shape a real ceiling produces, rather than on a
+		// degenerate one-segment part.
+		h.svc.cfg.App.Download.MaxPartBytes = int64(len(edge.tsSegments[0])) + 1
+
+		parts := recordForSourceComparison(t, h, "harness_tssource", repository.QualityMedium)
+		if len(parts) < 2 {
+			t.Fatalf("video_parts count = %d, want at least 2 so the ceiling actually cut", len(parts))
+		}
+		for _, p := range parts {
+			// MPEG-TS parts are a concat of the .ts segments; no init section.
+			source := sumFixtureBytes(t, edge.tsSegments, int64(opts.baseSeqA), p)
+			assertStoredPartSize(t, h.storageDir, p, source)
+		}
+	})
+
+	t.Run("fmp4", func(t *testing.T) {
+		opts := defaultEdgeOpts()
+		opts.tsCount = 1 // A is dropped; only needs to exist for fixture generation
+		opts.fmp4Count = 4
+		opts.windowB = 4
+		opts.baseSeqB = 50
+		opts.dropAfterServed = 0
+		edge := newTwitchEdge(t, opts)
+
+		// Drop variant A up front so the master advertises only the fMP4
+		// variant (B); the recording resolves to it on the first poll.
+		edge.mu.Lock()
+		edge.aDropped = true
+		edge.mu.Unlock()
+
+		h := newHarnessService(t, edge.URL())
+		defer h.svc.Shutdown()
+		h.svc.cfg.App.Download.MaxPartBytes = int64(len(edge.fmp4Segs[0])) + 1
+
+		parts := recordForSourceComparison(t, h, "harness_fmp4source", repository.QualityLow)
+		if len(parts) < 2 {
+			t.Fatalf("video_parts count = %d, want at least 2 so the ceiling actually cut", len(parts))
+		}
+		for _, p := range parts {
+			// Every fMP4 part remuxes the init section alongside its .m4s
+			// fragments, so it counts toward the bytes that part was built from.
+			source := sumFixtureBytes(t, edge.fmp4Segs, int64(opts.baseSeqB), p) + int64(len(edge.fmp4Init))
+			assertStoredPartSize(t, h.storageDir, p, source)
+		}
+	})
+}
+
+// recordForSourceComparison runs one recording to completion on the harness and
+// returns its finalized parts.
+func recordForSourceComparison(t *testing.T, h *harnessService, login string, quality string) []repository.VideoPart {
+	t.Helper()
+	if _, err := h.repo.UpsertChannel(context.Background(), &repository.Channel{
+		BroadcasterID:    "test-bid",
+		BroadcasterLogin: login,
+		BroadcasterName:  login,
+	}); err != nil {
+		t.Fatalf("upsert channel: %v", err)
+	}
+	jobID, err := h.svc.Start(context.Background(), Params{
+		BroadcasterID:    "test-bid",
+		BroadcasterLogin: login,
+		DisplayName:      login,
+		Quality:          quality,
+		RecordingType:    twitch.RecordingTypeVideo,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	job, err := h.repo.GetJob(context.Background(), jobID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	waitForVideoStatus(t, h.repo, job.VideoID, repository.VideoStatusDone, 60*time.Second)
+	parts, err := h.repo.ListVideoParts(context.Background(), job.VideoID)
+	if err != nil {
+		t.Fatalf("list parts: %v", err)
+	}
+	return parts
+}
+
+// sumFixtureBytes totals the fixture bytes the edge served across one part's
+// media-sequence range. baseSeq is the media sequence of segs[0].
+func sumFixtureBytes(t *testing.T, segs [][]byte, baseSeq int64, p repository.VideoPart) int64 {
+	t.Helper()
+	if p.EndMediaSeq == nil {
+		t.Fatalf("part %d has no end_media_seq", p.PartIndex)
+	}
+	var total int64
+	for seq := p.StartMediaSeq; seq <= *p.EndMediaSeq; seq++ {
+		idx := seq - baseSeq
+		if idx < 0 || idx >= int64(len(segs)) {
+			t.Fatalf("part %d covers media seq %d, outside the %d-segment fixture",
+				p.PartIndex, seq, len(segs))
+		}
+		total += int64(len(segs[idx]))
+	}
+	return total
+}
+
+// assertStoredPartSize compares the durable size with the actual output and
+// reports how remuxing changed the input size.
+func assertStoredPartSize(t *testing.T, storageDir string, p repository.VideoPart, sourceBytes int64) {
+	t.Helper()
+	path := filepath.Join(storageDir, "videos", p.Filename)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("part %d storage file missing at %q: %v", p.PartIndex, path, err)
+	}
+	if info.Size() != p.SizeBytes {
+		t.Errorf("part %d file size = %d, video_parts.size_bytes = %d (want equal)",
+			p.PartIndex, info.Size(), p.SizeBytes)
+	}
+	if sourceBytes <= 0 || info.Size() <= 0 {
+		t.Fatalf("part %d has invalid source/output sizes: %d/%d", p.PartIndex, sourceBytes, info.Size())
+	}
+	// A ratio above 100% is valid: a source ceiling is not an output bound.
+	t.Logf("part %d muxed to %d bytes from %d bytes of source (%.2f%%)",
+		p.PartIndex, info.Size(), sourceBytes, 100*float64(info.Size())/float64(sourceBytes))
+}

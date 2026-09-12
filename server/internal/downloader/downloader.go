@@ -181,8 +181,12 @@ type Progress struct {
 	//   "metadata" | "thumbnail" | "done"
 	Stage string `json:"stage"`
 
-	// BytesWritten is cumulative across parts — the sum of
-	// successfully committed segment bytes so far.
+	// BytesWritten is cumulative across parts: the stored size of
+	// the parts already remuxed plus the committed segment bytes of
+	// the part still filling. Remuxing can change size in either
+	// direction, so replacing source bytes with the stored size at
+	// a part boundary may raise or lower this estimate. See
+	// MaxPartBytes for why a filling part has no output size yet.
 	BytesWritten int64 `json:"bytes_written"`
 
 	// SegmentsDone + SegmentsGaps + SegmentsAdGaps +
@@ -1367,7 +1371,12 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// the whole recording, not just the still-running part. Empty
 	// for fresh jobs.
 	var parts []partResult
-	var completedSizeBytes int64
+	// capturedBytes seeds resumed progress with the stored size of finalized
+	// parts plus the committed source bytes of the part still filling. That
+	// unfinished part has no remuxed size yet, so its contribution is an
+	// estimate that can move up or down when the part seals. Finalized source
+	// counts are not stored on the part rows; use their durable output sizes.
+	var capturedBytes int64
 	if existingParts, err := s.repo.ListVideoParts(dbCtx, d.videoID); err != nil {
 		s.failDownload(dbCtx, d, log, fmt.Errorf("list existing video parts: %w", err))
 		return
@@ -1387,13 +1396,13 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 				thumbRel:        thumbRel,
 			})
 			d.completedMediaDurationSeconds += ep.DurationSeconds
-			completedSizeBytes += ep.SizeBytes
+			capturedBytes += ep.SizeBytes
 		}
 	}
 	if d.resume != nil && d.resume.PartBytes > 0 {
-		completedSizeBytes += d.resume.PartBytes
+		capturedBytes += d.resume.PartBytes
 	}
-	emitter.seedCompletedBytes(completedSizeBytes)
+	emitter.seedCompletedBytes(capturedBytes)
 	d.refreshMediaOffset()
 
 	// Title tracking: webhook subscribes to channel.update EventSub
@@ -2382,13 +2391,30 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		// the on-disk file later.
 	}
 
+	// size_bytes is the remuxed file; source_bytes is what MaxPartBytes actually
+	// counted while the part filled. Logging both together is what makes the
+	// gap between them visible without reading resume_state out of the database
+	// and probing the file by hand.
+	sourceBytes := int64(0)
+	if d.resume != nil {
+		sourceBytes = d.resume.PartBytes
+	}
 	log.Info("part complete",
 		"part_index", partIndex,
 		"duration_seconds", probeResult.Duration,
 		"size_bytes", probeResult.Size,
+		"source_bytes", sourceBytes,
 		"segments", hlsResult.SegmentsDone,
 		"gaps", hlsResult.SegmentsGaps,
 	)
+	if partOutgrewSource(probeResult.Size, sourceBytes, s.cfg.App.Download.MaxPartBytes) {
+		log.Warn("remuxed part is larger than the source segments the size ceiling counted; allow extra margin below an external file size limit",
+			"part_index", partIndex,
+			"size_bytes", probeResult.Size,
+			"source_bytes", sourceBytes,
+			"max_part_bytes", s.cfg.App.Download.MaxPartBytes,
+		)
+	}
 
 	out := &partResult{
 		filename:        partFilename + kind.OutputExt(),
@@ -2400,6 +2426,19 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		out.thumbRel = *thumbPtr
 	}
 	return out, nil
+}
+
+// partOutgrewSource reports whether a sealed part's remuxed file came out
+// larger than the source segments MaxPartBytes counted while that part filled.
+//
+// Source bytes are available while recording; output size is known only after
+// remuxing replaces the segment containers with the final container. That
+// replacement can increase or decrease size, and fMP4 initialization bytes are
+// outside the segment counter. The configured source ceiling is therefore not
+// a hard output limit. Report observed growth when size splitting is enabled
+// so operators can account for it when choosing an external upload margin.
+func partOutgrewSource(outputBytes, sourceBytes, maxPartBytes int64) bool {
+	return maxPartBytes > 0 && sourceBytes > 0 && outputBytes > sourceBytes
 }
 
 // fetchWithAuthRefresh runs Stages 1-4 (twitch playback token +
