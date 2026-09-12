@@ -3,7 +3,11 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ArchiveQueueResponse, VideoResponse } from "@/api/generated/trpc";
+import type {
+	ArchiveQueueResponse,
+	StorageState,
+	VideoResponse,
+} from "@/api/generated/trpc";
 
 const state = vi.hoisted(() => ({
 	queue: {
@@ -17,6 +21,7 @@ const state = vi.hoisted(() => ({
 	dequeue: { mutate: vi.fn(), isPending: false },
 	retry: { mutate: vi.fn(), isPending: false },
 	cancelRetry: { mutate: vi.fn(), isPending: false },
+	storageState: "attached" as StorageState | undefined,
 	active: { data: undefined as unknown[] | undefined },
 }));
 
@@ -27,6 +32,12 @@ vi.mock("react-i18next", () => ({
 				? `${key}:${vars.count}`
 				: key,
 		i18n: { language: "en" },
+	}),
+}));
+vi.mock("@/features/storage/queries", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/features/storage/queries")>()),
+	useStorageStatus: () => ({
+		data: state.storageState ? { state: state.storageState } : undefined,
 	}),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -80,6 +91,7 @@ function video(partial: Partial<VideoResponse>): VideoResponse {
 
 afterEach(() => {
 	cleanup();
+	state.storageState = "attached";
 	vi.clearAllMocks();
 	state.canManage = true;
 });
@@ -226,4 +238,27 @@ describe("ArchiveQueue", () => {
 		state.queue.isError = false;
 		state.queue.error = null;
 	});
+});
+
+it.each([
+	"unattached",
+	"unreachable",
+	"read_only",
+] as const)("queued archives wait for %s storage and update on recovery", (storageState) => {
+	state.storageState = storageState;
+	state.queue.data = { queue: [video({ status: "PENDING" })], failures: [] };
+	const view = render(createElement(ArchiveQueue));
+	expect(screen.getByText("archive.waiting_storage")).toBeTruthy();
+	state.storageState = "attached";
+	view.rerender(createElement(ArchiveQueue));
+	expect(screen.getByText("archive.waiting")).toBeTruthy();
+	expect(screen.queryByText("archive.waiting_storage")).toBeNull();
+});
+
+it("does not diagnose a storage outage while status is unknown", () => {
+	state.storageState = undefined;
+	state.queue.data = { queue: [video({ status: "PENDING" })], failures: [] };
+	render(createElement(ArchiveQueue));
+	expect(screen.getByText("archive.waiting")).toBeTruthy();
+	expect(screen.queryByText("archive.waiting_storage")).toBeNull();
 });

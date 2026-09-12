@@ -52,6 +52,7 @@
 		"eventsub": "EventSub",
 		"webhook": "Webhook",
 		"playback": "Playback",
+		"storage": "Storage",
 		"tasks": "Tasks",
 		"events": "Events",
 		"open_menu": "Open menu",
@@ -392,9 +393,15 @@
 			"cancelled_tooltip": "You stopped this recording manually while the broadcast was still live."
 		},
 		"remove": "Remove",
+		"remove_failed": "Could not remove the recording",
+		"removal_pending": "Removal queued",
 		"remove_confirm_title": "Remove recording?",
 		"remove_confirm_body": "This permanently deletes the recording's files. It stays in History as removed.",
-		"remove_confirm": "Remove"
+		"remove_confirm": "Remove",
+		"restore": "Restore",
+		"restored_toast": "Recording restored",
+		"restore_failed": "Could not restore the recording",
+		"remove_permanent_confirm_body": "The files are already gone. This deletes the leftover previews and part metadata, so the recording can no longer be restored. It stays in History as removed."
 	},
 	"watch": {
 		"resumed_from": "Resumed from {{time}}",
@@ -434,7 +441,8 @@
 		"events_count_other": "{{count}} events",
 		"recordings_archived_one": "{{count}} recording archived",
 		"recordings_archived_other": "{{count}} recordings archived",
-		"last_stream_ago": "last stream {{when}}"
+		"last_stream_ago": "last stream {{when}}",
+		"removed_missing_actions": "Put the files back and restore it, or remove it for good."
 	},
 	"stats": {
 		"total_videos": "Total videos",
@@ -538,6 +546,7 @@
 		"status_failed": "failed",
 		"status_running": "running",
 		"status_pending": "pending",
+		"status_interrupted": "Interrupted",
 		"status_skipped": "skipped"
 	},
 	"sessions": {
@@ -645,7 +654,10 @@
 		"empty_failed": "No failed recordings.",
 		"empty_cancelled": "Nothing was cancelled.",
 		"empty_on_disk": "No recordings are on disk.",
-		"empty_removed": "Nothing has been removed."
+		"empty_removed": "Nothing has been removed.",
+		"scope_unavailable": "Unavailable",
+		"media_missing_hint": "The files left storage. Put them back and the recording can be restored; the daily scan restores it on its own.",
+		"empty_unavailable": "No recording is waiting for its files."
 	},
 	"events": {
 		"title": "Event logs",
@@ -875,6 +887,7 @@
 		"removed": "Removed from the queue",
 		"remove_failed": "Could not remove it from the queue",
 		"col_progress": "Progress",
+		"waiting_storage": "Waiting for storage",
 		"waiting": "Waiting for a slot",
 		"progress_starting": "Starting…",
 		"eta_left": "{{eta}} left",
@@ -892,5 +905,42 @@
 		"retry_failed": "Could not retry this archive",
 		"retry_cancelled": "Retry cancelled",
 		"cancel_retry_failed": "Could not cancel the retry"
+	},
+	"storage": {
+		"title": "Storage",
+		"page_description": "Where recordings live, and whether this server trusts it.",
+		"card_title": "Attached storage",
+		"card_description": "The server records into, scans and plays from this location only while it carries this install's identity marker.",
+		"state_attached": "Attached",
+		"state_full": "Full",
+		"state_read_only": "Read-only",
+		"state_unattached": "Not attached",
+		"state_unreachable": "Unreachable",
+		"backend": "Backend",
+		"backend_local": "Local directory",
+		"backend_s3": "S3 bucket",
+		"location": "Location",
+		"storage_id": "Identity",
+		"storage_id_hint": "Stored in the database and in the .replayvod-storage marker at the storage root. Keep the marker with the data.",
+		"checked_at": "Last checked",
+		"reason": "Reason",
+		"banner_unattached_title": "Storage is not attached",
+		"banner_unattached_body": "Recording and scanning are paused, and recordings cannot play, until storage is mounted again or adopted.",
+		"banner_full_title": "Storage is full",
+		"banner_full_body": "Recordings play and can be deleted. Recording resumes when space is available.",
+		"banner_read_only_title": "Storage is read-only",
+		"banner_read_only_body": "Recordings play, but nothing records until storage accepts writes again.",
+		"banner_link": "Open storage settings",
+		"adopt": "Adopt this storage",
+		"adopt_title": "Adopt this storage?",
+		"adopt_description": "This claims {{location}} for this install by writing its identity marker. If it is an empty or different volume, the next scan removes every recording it does not hold from the library. Mount the original volume instead if this is a mistake.",
+		"adopt_confirm": "Adopt",
+		"adopted_toast": "Storage adopted. A scan has been scheduled.",
+		"adopted_toast_no_scan": "Storage adopted; automatic scanning is disabled.",
+		"adopted_toast_scan_failed": "Storage adopted, but the scan could not be scheduled. Try running it from Tasks.",
+		"adopt_failed": "Could not adopt storage",
+		"unreachable_hint": "Mount the volume or fix the storage configuration. The server checks again every 30 seconds.",
+		"attached_hint": "Nothing to do. The scan keeps the library in step with what storage holds.",
+		"load_failed": "Failed to load storage status"
 	}
 }

@@ -5,7 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
 // (static files, history fallback), so the browser suite exercises what users
 // run, with no dev-server compilation or devtools in the way. The app talks
 // to a same-origin `/trpc` endpoint (VITE_API_URL defaults to ""), which the
-// specs mock with page.route; no Go backend is needed.
+// specs mock with page.route. The subscription regression spec also starts a
+// small Go fixture to exercise the real WebSocket adapter over HTTP/1.1.
 export default defineConfig({
 	testDir: "./tests",
 	// One shared server keeps parallel workers from contending; serial keeps

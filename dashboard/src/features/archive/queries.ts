@@ -8,7 +8,7 @@ import { useSubscription } from "@trpc/tanstack-react-query";
 import type { ChannelVODsResponse } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
 import { videoCaches } from "@/features/videos/cache";
-import { invalidateCaches } from "@/lib/query";
+import { invalidateCaches, resyncQuery } from "@/lib/query";
 import { withSessionProbe } from "@/stores/auth";
 
 export const CHANNEL_VODS_PAGE_SIZE = 30;
@@ -31,7 +31,7 @@ export function useChannelVods(channel: string | null) {
 	);
 }
 
-// useLiveArchiveQueue follows the archive queue over SSE. The server publishes
+// useLiveArchiveQueue follows archive queue transitions. The server publishes
 // every queue transition (enqueue, start, completion, failure, dequeue, retry
 // cancelled) on archive.queueLive, and each event refetches the queue, so the
 // page follows the pump without polling. Mount it once above the queue.
@@ -40,11 +40,8 @@ export function useLiveArchiveQueue() {
 	const queryClient = useQueryClient();
 	useSubscription({
 		...trpc.archive.queueLive.subscriptionOptions(),
-		onData: () => {
-			void queryClient.invalidateQueries({
-				queryKey: trpc.archive.queue.pathKey(),
-			});
-		},
+		onStarted: () => resyncQuery(queryClient, trpc.archive.queue.pathKey()),
+		onData: () => resyncQuery(queryClient, trpc.archive.queue.pathKey()),
 		onError: withSessionProbe(),
 	});
 }

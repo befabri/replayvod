@@ -84,6 +84,7 @@ export function useNavGroups(): NavGroup[] {
 					{ to: "/dashboard/system/eventsub", label: t("nav.eventsub") },
 					{ to: "/dashboard/system/webhook", label: t("nav.webhook") },
 					{ to: "/dashboard/system/playback", label: t("nav.playback") },
+					{ to: "/dashboard/system/storage", label: t("nav.storage") },
 					{ to: "/dashboard/system/twitch", label: t("nav.twitch_playback") },
 					{ to: "/dashboard/system/tasks", label: t("nav.tasks") },
 					{ to: "/dashboard/system/logs", label: t("nav.logs") },

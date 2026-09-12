@@ -23,7 +23,12 @@ import type {
 import { useTRPC } from "@/api/trpc";
 import { API_URL } from "@/env";
 import { timelineEventsWithSpanFallback } from "@/features/videos/timeline";
-import { invalidateCaches, optimisticWrite, patchEntity } from "@/lib/query";
+import {
+	invalidateCaches,
+	optimisticWrite,
+	patchEntity,
+	resyncQuery,
+} from "@/lib/query";
 import { withSessionProbe } from "@/stores/auth";
 import { VIDEO_LIST_CACHES, videoCaches, videoUserStatePatch } from "./cache";
 
@@ -54,6 +59,7 @@ export type VideoScope = "active" | "removed" | "all";
 // The server maps it onto status + completion_kind, so the dashboard never has
 // to know that a cancellation is stored as a failed row.
 export type VideoOutcome = "completed" | "failed" | "cancelled";
+export type VideoDeletionKind = "retention" | "manual" | "missing";
 export type VideoListFilters = {
 	quality?: string;
 	broadcasterId?: string;
@@ -69,6 +75,9 @@ export type VideoListFilters = {
 	terminalOnly?: boolean;
 	scope?: VideoScope;
 	outcome?: VideoOutcome;
+	// deletionKind narrows tombstones to why they left; only meaningful with
+	// scope "removed" or "all".
+	deletionKind?: VideoDeletionKind;
 };
 
 export function useInfiniteVideoPages(
@@ -100,6 +109,7 @@ export function useInfiniteVideoPages(
 				terminal_only: filters?.terminalOnly ?? false,
 				scope: filters?.scope ?? "",
 				outcome: filters?.outcome ?? "",
+				deletion_kind: filters?.deletionKind ?? "",
 			},
 			{
 				getNextPageParam: (lastPage: VideoListPageResponse) =>
@@ -149,6 +159,7 @@ export function useVideo(id: number) {
 				// the session, since the query unmounts on navigate.
 				refetchInterval: (query) => {
 					const v = query.state.data;
+					if (v?.deleted_at) return false;
 					if (v?.status !== "DONE") return false;
 					const status = v.playback_artifact?.status;
 					if (
@@ -401,14 +412,14 @@ export function useDownloadCapacity() {
 }
 
 // useLiveActiveDownloads streams active downloads via the server's
-// SSE subscription and mirrors each tick into the tanstack-query
+// live subscription and mirrors each tick into the tanstack-query
 // cache under trpc.video.activeDownloads.queryKey(). Mirroring
 // through the cache (rather than a component-local useState) means
 // an unmount/remount keeps the last known state, and any other
 // consumer reading that key sees the same rows.
 //
 // enabled: false ensures mutations that invalidate activeDownloads
-// never refetch through HTTP and race with live SSE writes — the
+// never refetch through HTTP and race with live subscription writes — the
 // subscription is the sole writer for this key while this hook is
 // mounted.
 export function useLiveActiveDownloads() {
@@ -437,7 +448,7 @@ export function useLiveActiveDownloads() {
 
 	return {
 		data,
-		// Wall-clock time of the latest SSE sample, so consumers can extrapolate
+		// Wall-clock time of the latest live sample, so consumers can extrapolate
 		// live counters (elapsed clock) forward between pushes.
 		dataUpdatedAt,
 		isLoading: data === undefined && error == null,
@@ -482,6 +493,27 @@ export function useCancelDownload() {
 	);
 }
 
+// One subscription in the authenticated layout covers every video surface.
+// Notifications represent committed transitions, so unchanged pending rows
+// never poll. Reconnect invalidates snapshots, including inactive caches that
+// will be reread when their page next mounts.
+export function useLiveVideoRemovals() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const resync = () =>
+		Promise.all(
+			Object.values(videoCaches(trpc)).map(({ pathKey }) =>
+				resyncQuery(queryClient, pathKey),
+			),
+		);
+	useSubscription({
+		...trpc.video.removalsLive.subscriptionOptions(),
+		onStarted: resync,
+		onData: resync,
+		onError: withSessionProbe(),
+	});
+}
+
 // useDeleteVideo queues a finished recording for background removal. The worker
 // later purges files and tombstones the row (deletion_kind=manual), so the
 // shared cache invalidation refreshes library, search, statistics, and history.
@@ -491,7 +523,35 @@ export function useDeleteVideo() {
 	const caches = videoCaches(trpc);
 	return useMutation(
 		trpc.video.delete.mutationOptions({
-			onSuccess: () => invalidateCaches(queryClient, caches),
+			onSuccess: (_result, { id }) => {
+				// The API has accepted deletion, but its worker may not run immediately.
+				// Reflect the acknowledged queue state in every mounted surface now.
+				patchEntity<VideoResponse>(queryClient, caches, {
+					match: (video) => video.id === id,
+					update: (video) => ({
+						...video,
+						delete_requested_at:
+							video.delete_requested_at ?? new Date().toISOString(),
+					}),
+				});
+				invalidateCaches(queryClient, caches);
+			},
+		}),
+	);
+}
+
+// useRestoreVideo brings a missing-media tombstone back. The row moves from
+// History into the library, so every video cache and the history counts
+// refetch.
+export function useRestoreVideo() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const caches = videoCaches(trpc);
+	return useMutation(
+		trpc.video.restore.mutationOptions({
+			onSuccess: () => {
+				invalidateCaches(queryClient, caches);
+			},
 		}),
 	);
 }

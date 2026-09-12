@@ -288,6 +288,7 @@ describe("useWatchProgressWriter", () => {
 		});
 		await act(async () => result.current(42, false));
 		expect(fetch).not.toHaveBeenCalled();
+		expect(readLocalWatchProgress("u1", id)).toBeNull();
 	});
 
 	it.each([

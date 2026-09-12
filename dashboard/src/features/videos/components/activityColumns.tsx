@@ -7,7 +7,7 @@ import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes } from "@/features/videos/format";
 import { cn } from "@/lib/utils";
 import { VideoThumbnail } from "./listColumns";
-import { RemoveVideoButton } from "./RemoveVideoButton";
+import { VideoRemovalActions } from "./VideoRemovalActions";
 import { VideoStatusBadge } from "./VideoStatusBadge";
 
 // HistoryOutcome is the download outcome the tabs filter on, and it is the same
@@ -18,7 +18,7 @@ export type HistoryOutcome = "all" | "failed" | "cancelled";
 
 // HistoryMedia is the other axis, the same one the Media column shows: whether
 // the recording's files are still on disk.
-export type HistoryMedia = "any" | "on_disk" | "removed";
+export type HistoryMedia = "any" | "on_disk" | "removed" | "unavailable";
 
 // HistoryView is one cell of the two axes, which together are what the page's
 // two controls select.
@@ -185,7 +185,14 @@ const mediaColumn = (t: TFunction): ColumnDef<VideoResponse> => ({
 export function MediaCell({ row, t }: { row: VideoResponse; t: TFunction }) {
 	if (row.deleted_at) {
 		return (
-			<span className="text-muted-foreground">
+			<span
+				className="text-muted-foreground"
+				title={
+					row.deletion_kind === "missing"
+						? t("history.media_missing_hint")
+						: undefined
+				}
+			>
 				{t(mediaLabelKey(row.deletion_kind))}
 			</span>
 		);
@@ -274,19 +281,10 @@ function actionsColumn(canManage: boolean): ColumnDef<VideoResponse> {
 		id: "actions",
 		header: "",
 		cell: ({ row }) => {
-			const v = row.original;
-			// Tombstones are already gone and in-flight rows are managed from
-			// Downloads. Watching happens on the poster and title now, so removal is
-			// all this cell has left and a viewer sees nothing at all.
-			if (v.deleted_at || (v.status !== "DONE" && v.status !== "FAILED")) {
-				return null;
-			}
-			if (!canManage) {
-				return null;
-			}
+			if (!canManage) return null;
 			return (
 				<div className="flex items-center justify-end gap-2">
-					<RemoveVideoButton videoId={v.id} />
+					<VideoRemovalActions video={row.original} />
 				</div>
 			);
 		},
@@ -318,8 +316,7 @@ function ErrorCell({ error }: { error?: string }) {
 
 // historyColumns returns the column set for one view. Every column has to earn
 // its place: Media says nothing once the scope pins it, Size is empty for a run
-// that never wrote a file, the error only exists on failures, and a tombstone
-// has no actions left.
+// that never wrote a file, and the error only exists on failures.
 export function historyColumns(
 	t: TFunction,
 	view: HistoryView,
@@ -338,9 +335,9 @@ export function historyColumns(
 	if (view.outcome === "failed") {
 		cols.push(errorColumn(t));
 	}
-	if (view.media !== "removed") {
-		cols.push(actionsColumn(canManage));
-	}
+	// Every view can hold a restorable tombstone, so the actions column stays;
+	// its cells decide per row.
+	cols.push(actionsColumn(canManage));
 	// Enable sorting only on columns the server can sort (the header drives a
 	// real server-side sort + page reset; see HISTORY_SORT_BY_COLUMN). Status,
 	// quality, error, and actions stay non-sortable.

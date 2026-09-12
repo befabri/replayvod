@@ -71,3 +71,42 @@ export const validSession: TrpcResolver = (procs) =>
 				body: trpcOk(procs.map((p) => (p === "auth.session" ? SESSION : null))),
 			}
 		: null;
+
+// Exercise subscription-driven cache refreshes alongside mocked HTTP snapshots.
+// The returned publisher broadcasts one procedure's data to every live observer.
+export async function mockSubscription(page: Page, path: string) {
+	const subscribers = new Map<number | string, (data: unknown) => void>();
+	await page.routeWebSocket("**/trpc/ws", (socket) => {
+		socket.onMessage((raw) => {
+			const text = String(raw);
+			if (text === "PING") {
+				socket.send("PONG");
+				return;
+			}
+			const parsed = JSON.parse(text);
+			for (const message of Array.isArray(parsed) ? parsed : [parsed]) {
+				if (message.method === "subscription.stop") {
+					subscribers.delete(message.id);
+					continue;
+				}
+				if (message.params?.path === path) {
+					subscribers.set(message.id, (data) =>
+						socket.send(
+							JSON.stringify({
+								id: message.id,
+								result: { type: "data", data },
+							}),
+						),
+					);
+					socket.send(
+						JSON.stringify({ id: message.id, result: { type: "started" } }),
+					);
+				}
+			}
+		});
+		socket.onClose(() => subscribers.clear());
+	});
+	return (data: unknown = {}) => {
+		for (const send of subscribers.values()) send(data);
+	};
+}

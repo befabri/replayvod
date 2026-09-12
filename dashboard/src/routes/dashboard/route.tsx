@@ -9,7 +9,9 @@ import {
 	SIDEBAR_MARGIN_EXPANDED,
 	Sidebar,
 } from "@/components/layout/sidebar";
+import { StorageBanner } from "@/features/storage/components/StorageBanner";
 import { useLiveStreamStatus } from "@/features/streams-live/queries";
+import { useLiveVideoRemovals } from "@/features/videos/queries";
 import { cn } from "@/lib/utils";
 import { resolveSession, setUser } from "@/stores/auth";
 import { uiStore } from "@/stores/ui";
@@ -39,6 +41,7 @@ function DashboardPending() {
 
 function DashboardLayout() {
 	useLiveStreamStatus();
+	useLiveVideoRemovals();
 	const { user } = Route.useRouteContext();
 	const collapsed = useSelector(uiStore, (s) => s.sidebarCollapsed);
 
@@ -61,6 +64,7 @@ function DashboardLayout() {
 					collapsed ? SIDEBAR_MARGIN_COLLAPSED : SIDEBAR_MARGIN_EXPANDED,
 				)}
 			>
+				<StorageBanner />
 				<Outlet />
 			</main>
 		</div>

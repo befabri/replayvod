@@ -26,10 +26,12 @@ import {
 	VideoMetaGrid,
 } from "@/features/videos/components/VideoDetails";
 import { VideoInfo } from "@/features/videos/components/VideoInfo";
+import { VideoRemovalActions } from "@/features/videos/components/VideoRemovalActions";
 import { WatchLaterButton } from "@/features/videos/components/WatchLaterButton";
 import { WatchPlayer } from "@/features/videos/components/WatchPlayer";
 import { useCanManageVideos } from "@/features/videos/permissions";
 import { buildRecordingPlaylist } from "@/features/videos/playback";
+import { videoRemovalState } from "@/features/videos/removal";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { cn } from "@/lib/utils";
 
@@ -146,6 +148,19 @@ function WatchPage() {
 							: "watch.removed",
 					)}
 				</p>
+				{video.deletion_kind === "missing" && canManage ? (
+					<div
+						className="mt-4 flex flex-wrap items-center gap-4 text-sm"
+						data-testid="removed-missing-actions"
+					>
+						{videoRemovalState(video) === "restorable" && (
+							<span className="text-muted-foreground">
+								{translate("watch.removed_missing_actions")}
+							</span>
+						)}
+						<VideoRemovalActions video={video} withLabel />
+					</div>
+				) : null}
 				<Link
 					to="/dashboard/activity/history"
 					search={{ outcome: "all", media: "removed" }}

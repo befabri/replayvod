@@ -4,7 +4,7 @@ import type {
 	HistoryOutcome,
 	HistoryView,
 } from "./components/activityColumns";
-import type { VideoOutcome, VideoScope } from "./queries";
+import type { VideoDeletionKind, VideoOutcome, VideoScope } from "./queries";
 
 export const HISTORY_OUTCOMES: HistoryOutcome[] = [
 	"all",
@@ -15,6 +15,7 @@ export const HISTORY_MEDIA_SCOPES: HistoryMedia[] = [
 	"any",
 	"on_disk",
 	"removed",
+	"unavailable",
 ];
 
 export function isHistoryMedia(value: unknown): value is HistoryMedia {
@@ -37,21 +38,28 @@ const OUTCOME_PARAM: Record<HistoryOutcome, VideoOutcome | undefined> = {
 	failed: "failed",
 	cancelled: "cancelled",
 };
-const SCOPE_BY_MEDIA: Record<HistoryMedia, VideoScope> = {
-	any: "all",
-	on_disk: "active",
-	removed: "removed",
+// Unavailable is the slice of removed rows whose media went missing and can
+// still come back, so it is the removed scope narrowed by deletion kind.
+const SCOPE_BY_MEDIA: Record<
+	HistoryMedia,
+	{ scope: VideoScope; deletionKind?: VideoDeletionKind }
+> = {
+	any: { scope: "all" },
+	on_disk: { scope: "active" },
+	removed: { scope: "removed" },
+	unavailable: { scope: "removed", deletionKind: "missing" },
 };
 
 export function historyFilters(view: HistoryView) {
 	return {
 		outcome: OUTCOME_PARAM[view.outcome],
-		scope: SCOPE_BY_MEDIA[view.media],
+		...SCOPE_BY_MEDIA[view.media],
 	};
 }
 
 export function historyEmptyKey(view: HistoryView): string {
 	if (view.media === "removed") return "history.empty_removed";
+	if (view.media === "unavailable") return "history.empty_unavailable";
 	if (view.media === "on_disk" && view.outcome === "all")
 		return "history.empty_on_disk";
 	return `history.empty_${view.outcome}`;
@@ -62,8 +70,11 @@ export function historyTabCounts(
 	media: HistoryMedia,
 ): Record<HistoryOutcome, number | undefined> {
 	if (!data) return { all: undefined, failed: undefined, cancelled: undefined };
-	const scoped = (counts: { on_disk: number; removed: number }) =>
-		media === "any" ? counts.on_disk + counts.removed : counts[media];
+	const scoped = (counts: {
+		on_disk: number;
+		removed: number;
+		unavailable: number;
+	}) => (media === "any" ? counts.on_disk + counts.removed : counts[media]);
 	return {
 		all: scoped(data.all),
 		failed: scoped(data.failed),

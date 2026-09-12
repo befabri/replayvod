@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useTRPC } from "@/api/trpc";
+import { resyncQuery } from "@/lib/query";
 import { withSessionProbe } from "@/stores/auth";
 
 export function useTasks() {
@@ -32,7 +33,7 @@ export function useRunTaskNow() {
 	);
 }
 
-// useLiveTaskStatus attaches to the task.status SSE feed and
+// useLiveTaskStatus attaches to the task.status live feed and
 // invalidates the task list on every transition. The list reload
 // (one cheap query) is the simpler path than optimistic patching
 // here — a task row has ~10 fields all of which move on each
@@ -42,9 +43,8 @@ export function useLiveTaskStatus() {
 	const queryClient = useQueryClient();
 	useSubscription({
 		...trpc.task.status.subscriptionOptions(),
-		onData: () => {
-			queryClient.invalidateQueries({ queryKey: trpc.task.list.pathKey() });
-		},
+		onStarted: () => resyncQuery(queryClient, trpc.task.list.pathKey()),
+		onData: () => resyncQuery(queryClient, trpc.task.list.pathKey()),
 		onError: withSessionProbe(),
 	});
 }

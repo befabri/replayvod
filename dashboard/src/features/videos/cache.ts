@@ -15,6 +15,7 @@ export function videoCaches(trpc: ReturnType<typeof useTRPC>) {
 		search: { path: trpc.video.search, shape: "array" },
 		continueWatching: { path: trpc.video.continueWatching, shape: "array" },
 		getById: { path: trpc.video.getById, shape: "single" },
+		historyCounts: { path: trpc.video.historyCounts, shape: "scalar" },
 		statistics: { path: trpc.video.statistics, shape: "scalar" },
 		statisticsByBroadcaster: {
 			path: trpc.video.statisticsByBroadcaster,

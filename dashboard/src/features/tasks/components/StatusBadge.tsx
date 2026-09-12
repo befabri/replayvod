@@ -24,6 +24,7 @@ export function StatusBadge({
 			running: "bg-badge-blue-bg text-badge-blue-fg animate-pulse",
 			pending: "bg-muted text-muted-foreground",
 			skipped: "bg-muted text-muted-foreground",
+			interrupted: "bg-muted text-muted-foreground",
 		}[status] ?? "bg-muted text-muted-foreground";
 	return (
 		<>

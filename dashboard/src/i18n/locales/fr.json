@@ -52,6 +52,7 @@
 		"eventsub": "EventSub",
 		"webhook": "Webhook",
 		"playback": "Lecture",
+		"storage": "Stockage",
 		"tasks": "Tâches",
 		"events": "Événements",
 		"open_menu": "Ouvrir le menu",
@@ -392,9 +393,15 @@
 			"cancelled_tooltip": "Vous avez arrêté cet enregistrement manuellement pendant la diffusion."
 		},
 		"remove": "Supprimer",
+		"remove_failed": "Impossible de supprimer l’enregistrement",
+		"removal_pending": "Suppression en attente",
 		"remove_confirm_title": "Supprimer l'enregistrement ?",
 		"remove_confirm_body": "Cela supprime définitivement les fichiers de l'enregistrement. Il reste dans l'historique comme supprimé.",
-		"remove_confirm": "Supprimer"
+		"remove_confirm": "Supprimer",
+		"restore": "Restaurer",
+		"restored_toast": "Enregistrement restauré",
+		"restore_failed": "Impossible de restaurer l'enregistrement",
+		"remove_permanent_confirm_body": "Les fichiers ont déjà disparu. Ceci supprime les aperçus restants et les métadonnées des parties, l'enregistrement ne pourra donc plus être restauré. Il reste dans l'historique comme supprimé."
 	},
 	"watch": {
 		"resumed_from": "Reprise à {{time}}",
@@ -434,7 +441,8 @@
 		"events_count_other": "{{count}} événements",
 		"recordings_archived_one": "{{count}} enregistrement archivé",
 		"recordings_archived_other": "{{count}} enregistrements archivés",
-		"last_stream_ago": "dernier live {{when}}"
+		"last_stream_ago": "dernier live {{when}}",
+		"removed_missing_actions": "Remettez les fichiers et restaurez-le, ou supprimez-le définitivement."
 	},
 	"stats": {
 		"total_videos": "Vidéos",
@@ -538,6 +546,7 @@
 		"status_failed": "échec",
 		"status_running": "en cours",
 		"status_pending": "en attente",
+		"status_interrupted": "Interrompue",
 		"status_skipped": "ignorée"
 	},
 	"sessions": {
@@ -645,7 +654,10 @@
 		"empty_failed": "Aucun enregistrement échoué.",
 		"empty_cancelled": "Aucun enregistrement annulé.",
 		"empty_on_disk": "Aucun enregistrement sur le disque.",
-		"empty_removed": "Rien n'a été supprimé."
+		"empty_removed": "Rien n'a été supprimé.",
+		"scope_unavailable": "Indisponibles",
+		"media_missing_hint": "Les fichiers ont quitté le stockage. Remettez-les et l'enregistrement pourra être restauré ; l'analyse quotidienne le restaure d'elle-même.",
+		"empty_unavailable": "Aucun enregistrement n'attend ses fichiers."
 	},
 	"events": {
 		"title": "Journal d'événements",
@@ -875,6 +887,7 @@
 		"removed": "Retirée de la file d'attente",
 		"remove_failed": "Impossible de la retirer de la file d'attente",
 		"col_progress": "Progression",
+		"waiting_storage": "En attente du stockage",
 		"waiting": "En attente d'un créneau",
 		"progress_starting": "Démarrage…",
 		"eta_left": "{{eta}} restantes",
@@ -892,5 +905,42 @@
 		"retry_failed": "Impossible de relancer cette archive",
 		"retry_cancelled": "Nouvel essai annulé",
 		"cancel_retry_failed": "Impossible d'annuler le nouvel essai"
+	},
+	"storage": {
+		"title": "Stockage",
+		"page_description": "Où vivent les enregistrements, et si ce serveur lui fait confiance.",
+		"card_title": "Stockage attaché",
+		"card_description": "Le serveur n'enregistre, n'analyse et ne lit depuis cet emplacement que tant qu'il porte le marqueur d'identité de cette installation.",
+		"state_attached": "Attaché",
+		"state_full": "Plein",
+		"state_read_only": "Lecture seule",
+		"state_unattached": "Non attaché",
+		"state_unreachable": "Injoignable",
+		"backend": "Backend",
+		"backend_local": "Dossier local",
+		"backend_s3": "Bucket S3",
+		"location": "Emplacement",
+		"storage_id": "Identité",
+		"storage_id_hint": "Stockée dans la base et dans le marqueur .replayvod-storage à la racine du stockage. Gardez le marqueur avec les données.",
+		"checked_at": "Dernière vérification",
+		"reason": "Raison",
+		"banner_unattached_title": "Le stockage n'est pas attaché",
+		"banner_unattached_body": "L'enregistrement et l'analyse sont en pause, et les enregistrements ne peuvent pas être lus, tant que le stockage n'est pas remonté ou adopté.",
+		"banner_full_title": "Le stockage est plein",
+		"banner_full_body": "Les enregistrements restent lisibles et peuvent être supprimés. L’enregistrement reprend lorsque de l’espace est disponible.",
+		"banner_read_only_title": "Le stockage est en lecture seule",
+		"banner_read_only_body": "Les enregistrements se lisent, mais rien n'est enregistré tant que le stockage refuse les écritures.",
+		"banner_link": "Ouvrir les réglages du stockage",
+		"adopt": "Adopter ce stockage",
+		"adopt_title": "Adopter ce stockage ?",
+		"adopt_description": "Ceci réserve {{location}} à cette installation en y écrivant son marqueur d'identité. S'il s'agit d'un volume vide ou différent, la prochaine analyse retire de la bibliothèque tous les enregistrements qu'il ne contient pas. Remontez plutôt le volume d'origine si c'est une erreur.",
+		"adopt_confirm": "Adopter",
+		"adopted_toast": "Stockage adopté. Une analyse a été planifiée.",
+		"adopted_toast_no_scan": "Stockage adopté ; l’analyse automatique est désactivée.",
+		"adopted_toast_scan_failed": "Stockage adopté, mais l’analyse n’a pas pu être programmée. Relancez-la depuis les tâches.",
+		"adopt_failed": "Impossible d'adopter le stockage",
+		"unreachable_hint": "Montez le volume ou corrigez la configuration du stockage. Le serveur revérifie toutes les 30 secondes.",
+		"attached_hint": "Rien à faire. L'analyse garde la bibliothèque en phase avec ce que contient le stockage.",
+		"load_failed": "Impossible de charger l'état du stockage"
 	}
 }

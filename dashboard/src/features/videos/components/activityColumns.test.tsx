@@ -29,6 +29,13 @@ vi.mock("@tanstack/react-router", async () => {
 vi.mock("@/features/videos", () => ({
 	channelLabel: (video: VideoResponse) =>
 		video.broadcaster_name || video.broadcaster_login || video.broadcaster_id,
+	useDeleteVideo: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+vi.mock("@/features/videos/queries", () => ({
+	useRestoreVideo: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+vi.mock("react-i18next", () => ({
+	useTranslation: () => ({ t: (key: string) => key }),
 }));
 
 import {
@@ -194,9 +201,10 @@ describe("historyColumns", () => {
 		expect(cancelled).not.toContain("error");
 	});
 
-	it("offers no actions once every row is a tombstone", () => {
-		expect(ids({ outcome: "all", media: "removed" })).not.toContain("actions");
-		expect(ids({ outcome: "all", media: "any" })).toContain("actions");
+	it("keeps the actions column in every view, since a removed row may be restorable", () => {
+		for (const media of ["any", "on_disk", "removed", "unavailable"] as const) {
+			expect(ids({ outcome: "all", media })).toContain("actions");
+		}
 	});
 });
 
@@ -212,4 +220,54 @@ it("reports finalized media on failed recordings", () => {
 		/>,
 	);
 	expect(screen.getByText("history.media_present")).toBeTruthy();
+});
+
+describe("actions cell", () => {
+	function renderActions(row: VideoResponse, canManage = true) {
+		const column = historyColumns(
+			t,
+			{ outcome: "all", media: "any" },
+			canManage,
+			"en",
+		).find((col) => col.id === "actions");
+		if (!column || typeof column.cell !== "function") {
+			throw new Error("actions column missing");
+		}
+		const Cell = column.cell as (ctx: {
+			row: { original: VideoResponse };
+		}) => ReactNode;
+		return render(Cell({ row: { original: row } }));
+	}
+
+	it("offers restore and permanent removal on a file-missing tombstone", () => {
+		renderActions(removed());
+		expect(screen.getByRole("button", { name: "videos.restore" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "videos.remove" })).toBeTruthy();
+	});
+
+	it("replaces restore and remove with a queue status while deletion is pending", () => {
+		renderActions(removed({ delete_requested_at: "2026-09-12T12:00:00Z" }));
+		expect(screen.getByRole("status").textContent).toBe(
+			"videos.removal_pending",
+		);
+		expect(screen.queryByRole("button", { name: "videos.restore" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "videos.remove" })).toBeNull();
+	});
+
+	it("offers nothing on a tombstone whose files were purged", () => {
+		for (const kind of ["manual", "retention"]) {
+			const { container } = renderActions(removed({ deletion_kind: kind }));
+			expect(container.querySelectorAll("button")).toHaveLength(0);
+			cleanup();
+		}
+	});
+
+	it("offers only removal on a live recording, and nothing to viewers", () => {
+		renderActions(live());
+		expect(screen.queryByRole("button", { name: "videos.restore" })).toBeNull();
+		expect(screen.getByRole("button", { name: "videos.remove" })).toBeTruthy();
+		cleanup();
+		const { container } = renderActions(removed(), false);
+		expect(container.querySelectorAll("button")).toHaveLength(0);
+	});
 });

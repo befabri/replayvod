@@ -26,7 +26,13 @@ describe("history controls", () => {
 				});
 				expect(historyFilters({ outcome, media })).toEqual({
 					outcome: outcome === "all" ? undefined : outcome,
-					scope: { any: "all", on_disk: "active", removed: "removed" }[media],
+					scope: {
+						any: "all",
+						on_disk: "active",
+						removed: "removed",
+						unavailable: "removed",
+					}[media],
+					...(media === "unavailable" ? { deletionKind: "missing" } : {}),
 				});
 			}
 	});
@@ -73,6 +79,38 @@ describe("history controls", () => {
 			all: 4,
 			failed: 3,
 			cancelled: 0,
+		});
+	});
+});
+
+describe("unavailable media scope", () => {
+	it("is the removed scope narrowed to missing media", () => {
+		expect(historyFilters({ outcome: "all", media: "unavailable" })).toEqual({
+			outcome: undefined,
+			scope: "removed",
+			deletionKind: "missing",
+		});
+		expect(historyEmptyKey({ outcome: "failed", media: "unavailable" })).toBe(
+			"history.empty_unavailable",
+		);
+	});
+
+	it("labels the tabs with the restorable slice of the removed counts", () => {
+		const counts = {
+			all: { on_disk: 8, removed: 4, unavailable: 3 },
+			completed: { on_disk: 5, removed: 1, unavailable: 1 },
+			failed: { on_disk: 2, removed: 3, unavailable: 2 },
+			cancelled: { on_disk: 1, removed: 0, unavailable: 0 },
+		};
+		expect(historyTabCounts(counts, "unavailable")).toEqual({
+			all: 3,
+			failed: 2,
+			cancelled: 0,
+		});
+		expect(historyTabCounts(counts, "any")).toEqual({
+			all: 12,
+			failed: 5,
+			cancelled: 1,
 		});
 	});
 });

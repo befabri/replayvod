@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type {
 	ActiveDownloadResponse,
+	StorageState,
 	VideoResponse,
 } from "@/api/generated/trpc";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,10 @@ import {
 	useLiveArchiveQueue,
 	useRetryArchive,
 } from "@/features/archive/queries";
+import {
+	storageUnwritable,
+	useStorageStatus,
+} from "@/features/storage/queries";
 import { RecordingCell } from "@/features/videos/components/activityColumns";
 import { VideoStatusBadge } from "@/features/videos/components/VideoStatusBadge";
 import { useCanManageVideos } from "@/features/videos/permissions";
@@ -27,16 +32,21 @@ import {
 } from "@/features/videos/queries";
 import { formatAbsolute, useUntil } from "@/lib/format-relative";
 
+const ArchiveStorageContext = createContext<StorageState | undefined>(
+	undefined,
+);
+
 const EMPTY_PROGRESS: ReadonlyMap<string, ActiveDownloadResponse> = new Map();
 const ArchiveProgressContext = createContext(EMPTY_PROGRESS);
 
-// LiveArchiveProgress owns the SSE feed the Downloads page also reads (the
+// LiveArchiveProgress owns the live feed the Downloads page also reads (the
 // queue rows themselves only carry status) and hands the per-job samples down
 // through context. It renders its children untouched, so a tick re-renders the
 // progress cells reading the context and nothing else: not the queue table, and
 // not its column definitions.
 function LiveArchiveProgress({ children }: { children: ReactNode }) {
 	const { data: active } = useLiveActiveDownloads();
+	const { data: storage } = useStorageStatus();
 	useLiveArchiveQueue();
 	const progressByJob = useMemo(() => {
 		const map = new Map<string, ActiveDownloadResponse>();
@@ -44,9 +54,11 @@ function LiveArchiveProgress({ children }: { children: ReactNode }) {
 		return map;
 	}, [active]);
 	return (
-		<ArchiveProgressContext.Provider value={progressByJob}>
-			{children}
-		</ArchiveProgressContext.Provider>
+		<ArchiveStorageContext.Provider value={storage?.state}>
+			<ArchiveProgressContext.Provider value={progressByJob}>
+				{children}
+			</ArchiveProgressContext.Provider>
+		</ArchiveStorageContext.Provider>
 	);
 }
 
@@ -378,10 +390,15 @@ function FailureActions({ row }: { row: VideoResponse }) {
 // and remaining time come from the same live sample.
 function ProgressCell({ row, t }: { row: VideoResponse; t: TFunction }) {
 	const progress = useContext(ArchiveProgressContext).get(row.job_id);
+	const storageState = useContext(ArchiveStorageContext);
 	if (row.status === "PENDING") {
 		return (
 			<span className="text-sm text-muted-foreground">
-				{t("archive.waiting")}
+				{t(
+					storageUnwritable(storageState)
+						? "archive.waiting_storage"
+						: "archive.waiting",
+				)}
 			</span>
 		);
 	}

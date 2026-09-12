@@ -1,6 +1,7 @@
 import { TrashIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDeleteVideo } from "@/features/videos";
 import { cn } from "@/lib/utils";
@@ -18,10 +19,14 @@ export function RemoveVideoButton({
 	withLabel = false,
 	className,
 	onRemoved,
+	permanent = false,
 }: {
 	videoId: number;
 	withLabel?: boolean;
 	className?: string;
+	// permanent removes a missing-media tombstone for good: the confirm names
+	// what is left to delete (previews), since the media is already gone.
+	permanent?: boolean;
 	// onRemoved fires after a successful delete — the watch page uses it to
 	// navigate away from the now-removed recording.
 	onRemoved?: () => void;
@@ -37,6 +42,9 @@ export function RemoveVideoButton({
 				onSuccess: () => {
 					setOpen(false);
 					onRemoved?.();
+				},
+				onError: (err) => {
+					toast.error(err.message || t("videos.remove_failed"));
 				},
 			},
 		);
@@ -68,7 +76,11 @@ export function RemoveVideoButton({
 					open={open}
 					onOpenChange={setOpen}
 					title={t("videos.remove_confirm_title")}
-					description={t("videos.remove_confirm_body")}
+					description={t(
+						permanent
+							? "videos.remove_permanent_confirm_body"
+							: "videos.remove_confirm_body",
+					)}
 					confirmLabel={t("videos.remove_confirm")}
 					cancelLabel={t("common.cancel")}
 					onConfirm={confirm}

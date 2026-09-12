@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useTRPC } from "@/api/trpc";
+import { resyncQuery } from "@/lib/query";
 import { withSessionProbe } from "@/stores/auth";
 
 export function useEventLogs(params: {
@@ -20,7 +21,7 @@ export function useEventLogs(params: {
 	);
 }
 
-// useLiveSystemEvents subscribes to the system.events SSE feed and
+// useLiveSystemEvents subscribes to the system.events live feed and
 // invalidates the event_logs query set on every new row. A full
 // invalidation (not per-page patching) keeps filter + pagination
 // coherent — if we patched one page optimistically, a user on page 2
@@ -30,11 +31,8 @@ export function useLiveSystemEvents() {
 	const queryClient = useQueryClient();
 	useSubscription({
 		...trpc.system.events.subscriptionOptions(),
-		onData: () => {
-			queryClient.invalidateQueries({
-				queryKey: trpc.system.eventLogs.pathKey(),
-			});
-		},
+		onStarted: () => resyncQuery(queryClient, trpc.system.eventLogs.pathKey()),
+		onData: () => resyncQuery(queryClient, trpc.system.eventLogs.pathKey()),
 		onError: withSessionProbe(),
 	});
 }

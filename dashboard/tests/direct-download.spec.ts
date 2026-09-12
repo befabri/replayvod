@@ -31,6 +31,7 @@ async function downloadServer(page: Page, followed = false) {
 		"video.categories": [],
 		"video.titles": [],
 		"video.statisticsByBroadcaster": { total: 0 },
+		"storage.status": { state: "attached" },
 	};
 	await page.route("**/trpc/**", async (route) => {
 		const request = route.request();
