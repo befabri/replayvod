@@ -159,9 +159,25 @@ Migrations live in `migrations/{postgres,sqlite}/` as numbered
 binary. They run automatically on start; the `schema_migrations` table tracks
 applied versions.
 
+Each ledger row also records the SHA-256 checksum of the complete `.up.sql`
+file, using the same bytes as the embedded migration manifest. Comments and
+formatting are included. Before running pending SQL, the runner rejects changed
+or missing applied files. Restore the complete original migration history and
+rebuild, or use the server build that applied it. Released migration files are
+immutable; further schema changes go in new migrations.
+To roll back the database, restore a backup with its matching server version.
+Rolling back only the changed migration can remove schema that later ledger
+entries still mark as applied.
+
+Published builds without checksums have their existing ledger rows stamped on
+the first start, establishing the baseline for subsequent checksum checks.
+Unpublished migrations can be edited directly. After rewriting one that a
+disposable development database has already applied, recreate that database.
+
 Each migration and its ledger entry commit together. Concurrent startups lock
-before checking the ledger, so only one process applies a given version. Failed
-or canceled migrations roll back and can be retried on the next start.
+and validate the full applied history before each pending migration, so only
+one process applies a given version. Failed or canceled migrations roll back
+and can be retried on the next start.
 
 Migrations 045–046 add invitations, schedule requests, request attribution, and
 pagination indexes. Existing schedules keep their owner, settings, filters, and
@@ -177,9 +193,6 @@ Stop the application before applying the corresponding
 `.down.sql` files in reverse order and removing their ledger
 entries in the same transactions. Rolling back 045 discards invitations and
 schedule requests created since the upgrade, while retaining pre-upgrade data.
-If an earlier development version of 045 already dropped `video_requests`,
-editing the migration cannot recover those rows; recovery requires a database
-backup from before that migration.
 
 Migrations 047–052 preserve existing recordings and schedules while adding missing
 media tombstones, Twitch playback credentials, higher recording quality limits,
@@ -217,7 +230,8 @@ setups.
   art/IGDB metadata sync, retention sweeps, and token/session cleanup.
 - **SSE bus** — `internal/eventbus/`. Typed `Topic[T]` with bounded
   subscriber buffers, used to push live indicators and task status to the
-  dashboard via `/api/v1/sse`.
+  dashboard over one multiplexed WebSocket per tab at `/trpc/ws`. Individual
+  tRPC SSE subscriptions remain available to other clients.
 
 ## External integrations
 
