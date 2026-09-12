@@ -93,6 +93,23 @@ func (h *Handler) LastLive(ctx context.Context, input LastLiveInput) (StreamResp
 	return toResponse(stream), nil
 }
 
+type IsLiveInput struct {
+	BroadcasterID string `json:"broadcaster_id" validate:"required"`
+}
+
+// IsLive is an authoritative per-broadcaster check, independent of follows.
+// An upstream failure is an error, never a successful offline verdict.
+func (h *Handler) IsLive(ctx context.Context, input IsLiveInput) (bool, error) {
+	live, err := h.svc.IsLive(ctx, input.BroadcasterID)
+	if twitch.IsUserAuthError(err) {
+		return false, trpcgo.NewError(trpcgo.CodeUnauthorized, "twitch session expired; sign in again")
+	}
+	if err != nil {
+		return false, apierr.Map(h.log, err, "check broadcaster live status")
+	}
+	return live, nil
+}
+
 // FollowedStreamResponse is the wire shape for one row of
 // stream.followed. Most fields come straight from Helix's Stream type;
 // ProfileImageURL comes from the local channels mirror so the

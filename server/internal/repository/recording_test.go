@@ -70,3 +70,20 @@ func TestNormalizeRecordingSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestQualityTierForHeight(t *testing.T) {
+	cases := map[int]string{
+		160:  QualityLow,
+		480:  QualityLow,
+		720:  QualityMedium,
+		936:  QualityHigh,
+		1080: QualityHigh,
+		1440: Quality1440,
+		2160: QualityBest,
+	}
+	for height, want := range cases {
+		if got := QualityTierForHeight(height); got != want {
+			t.Errorf("QualityTierForHeight(%d) = %q, want %q", height, got, want)
+		}
+	}
+}

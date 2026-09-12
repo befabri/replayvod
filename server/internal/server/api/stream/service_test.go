@@ -47,6 +47,10 @@ func (f *fakeFollowedStreamsSource) GetFollowedStreams(_ context.Context, _ *twi
 	return page, twitch.Pagination{Cursor: cursor}, nil
 }
 
+func (f *fakeFollowedStreamsSource) GetStreams(context.Context, *twitch.GetStreamsParams) ([]twitch.Stream, twitch.Pagination, error) {
+	return nil, twitch.Pagination{}, errors.New("unexpected per-broadcaster lookup")
+}
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
@@ -55,7 +59,7 @@ func discardLogger() *slog.Logger {
 // (so UpsertStream + ListChannelsByIDs exercise actual SQL) and a
 // fake Twitch source. Returns both so tests can seed channels + assert
 // mirrored state.
-func newServiceWithRepo(t *testing.T, src followedStreamsSource) (*Service, streamRepo) {
+func newServiceWithRepo(t *testing.T, src streamSource) (*Service, streamRepo) {
 	t.Helper()
 	db := testdb.NewSQLiteDB(t)
 	repo := sqliteadapter.New(db)

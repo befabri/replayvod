@@ -87,6 +87,15 @@ func qualityToHeight(q string) string {
 	}
 }
 
+// qualityCap is the Stage 3 height limit: the exact height when the caller
+// pinned one from the live rendition list, otherwise the tier's cap.
+func (p Params) qualityCap() string {
+	if p.MaxHeight > 0 {
+		return strconv.Itoa(p.MaxHeight)
+	}
+	return qualityToHeight(p.Quality)
+}
+
 // Params describes a single download request. RecordingType +
 // ForceH264 drive Stage 3 variant selection and land on the video
 // row; zero values are the conservative defaults (video + no
@@ -116,6 +125,10 @@ type Params struct {
 	Language     string
 	ViewerCount  int64
 	StreamID     *string
+
+	// MaxHeight pins the recording to an exact rendition height taken from
+	// LiveRenditions. Zero leaves the cap to Quality. Video only.
+	MaxHeight int
 
 	// RecordingType is "video" (default) or "audio". Audio jobs
 	// pick the audio_only rendition at Stage 3 and produce an
@@ -666,6 +679,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		startedAt:     time.Now(),
 		resume:        NewResumeState(),
 	}
+	d.resume.MaxHeight = p.MaxHeight
 	runCtx, cancel := context.WithCancel(context.Background())
 	d.cancel = cancel
 	s.active[jobID] = d
@@ -730,11 +744,23 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 
 	// Job row lives alongside the video row — one per download
 	// attempt. Resume-on-restart reads status IN ('PENDING',
-	// 'RUNNING') jobs at boot and drives recovery off them.
+	// 'RUNNING') jobs at boot and drives recovery off them. The
+	// opening checkpoint goes in with the row so what only the
+	// checkpoint carries (the pinned height) survives a crash
+	// before the first stage boundary.
+	checkpoint, err := d.resume.MarshalJSON()
+	if err != nil {
+		s.mu.Lock()
+		delete(s.active, jobID)
+		s.mu.Unlock()
+		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("encode checkpoint: %v", err), repository.CompletionKindComplete, false)
+		return "", fmt.Errorf("encode checkpoint: %w", err)
+	}
 	if _, err := s.repo.CreateJob(ctx, &repository.JobInput{
 		ID:            jobID,
 		VideoID:       vid.ID,
 		BroadcasterID: p.BroadcasterID,
+		ResumeState:   checkpoint,
 		Attempt:       1,
 	}); err != nil {
 		s.mu.Lock()
@@ -1017,6 +1043,7 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 		StreamID:         vid.StreamID,
 		RecordingType:    vid.RecordingType,
 		ForceH264:        vid.ForceH264,
+		MaxHeight:        state.MaxHeight,
 		BroadcastAt:      vid.BroadcastAt,
 	}
 	if vid.Source == repository.VideoSourceVOD && vid.TwitchVideoID != nil {
@@ -1330,7 +1357,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 
 	selectOpts := twitch.SelectOptions{
 		RecordingType: recordingType,
-		Quality:       qualityToHeight(p.Quality),
+		Quality:       p.qualityCap(),
 		EnableAV1:     s.cfg.App.Download.EnableAV1,
 		DisableHEVC:   s.cfg.App.Download.DisableHEVC,
 		ForceH264:     p.ForceH264,
@@ -2852,11 +2879,72 @@ func foldHLSAttemptResult(agg, result *hls.JobResult, resume *ResumeState, unres
 // resolveVariantURL walks Stages 1-3 and returns the freshly-
 // selected variant — URL plus quality + codec metadata the
 // progress emitter surfaces to the UI.
+func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.SelectOptions) (twitch.SelectedVariant, error) {
+	manifest, _, err := s.resolveManifest(ctx, p, opts)
+	if err != nil {
+		return twitch.SelectedVariant{}, err
+	}
+	variant, err := twitch.SelectVariant(manifest, opts)
+	if err != nil {
+		return twitch.SelectedVariant{}, fmt.Errorf("variant selection: %w", err)
+	}
+	return variant, nil
+}
+
+// LiveRenditions is what Twitch offers a recording started right now for a
+// live channel. Anonymous is true when no playback session was used, so a
+// connected session might reveal more. Media URLs stay inside the package.
+type LiveRenditions struct {
+	Anonymous  bool
+	Renditions []Rendition
+}
+
+// Rendition is one video rendition of a live stream: its height, declared
+// frame rate (0 when the manifest omits it) and codec.
+type Rendition struct {
+	Height int
+	FPS    float64
+	Codec  string
+}
+
+// LiveRenditions resolves the channel's master playlist the way a recording
+// would, through the owner's session when one is connected and under the
+// server's codec settings plus the caller's Force H.264, and lists the video
+// renditions tallest first with each height's preferred codec and frame rate
+// ahead of its alternatives. Force H.264 changes what usher is asked for, so
+// it has to be part of the request rather than a filter on the answer.
+func (s *Service) LiveRenditions(ctx context.Context, login string, forceH264 bool) (LiveRenditions, error) {
+	opts := twitch.SelectOptions{
+		RecordingType: twitch.RecordingTypeVideo,
+		Quality:       "best",
+		EnableAV1:     s.cfg.App.Download.EnableAV1,
+		DisableHEVC:   s.cfg.App.Download.DisableHEVC,
+		ForceH264:     forceH264,
+	}
+	manifest, anonymous, err := s.resolveManifest(ctx, Params{BroadcasterLogin: login}, opts)
+	if err != nil {
+		return LiveRenditions{}, err
+	}
+	pool := twitch.AcceptableVariants(manifest, opts)
+	twitch.SortByPreference(pool)
+	out := LiveRenditions{Anonymous: anonymous, Renditions: make([]Rendition, 0, len(pool))}
+	for _, v := range pool {
+		height, err := strconv.Atoi(v.Quality)
+		if err != nil || height <= 0 {
+			continue
+		}
+		out.Renditions = append(out.Renditions, Rendition{Height: height, FPS: v.FPS, Codec: v.Codec})
+	}
+	return out, nil
+}
+
+// resolveManifest walks Stages 1-2 and returns the master playlist plus
+// whether it was fetched anonymously.
 //
 // An owner-connected website session is passed only to Twitch's playback-token
 // endpoint. It is never forwarded to the playlist/segment CDN. Rejected sessions
 // fall back to anonymous playback while the owner reconnects.
-func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.SelectOptions) (twitch.SelectedVariant, error) {
+func (s *Service) resolveManifest(ctx context.Context, p Params, opts twitch.SelectOptions) (*twitch.Manifest, bool, error) {
 	var accessToken string
 	if s.playbackCredentials != nil {
 		var err error
@@ -2864,7 +2952,7 @@ func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.S
 		if errors.Is(err, playbackauth.ErrRejected) {
 			accessToken = ""
 		} else if err != nil {
-			return twitch.SelectedVariant{}, fmt.Errorf("resolve Twitch playback connection: %w", err)
+			return nil, false, fmt.Errorf("resolve Twitch playback connection: %w", err)
 		}
 	}
 	playbackToken := func(accessToken string) (twitch.PlaybackToken, error) {
@@ -2879,13 +2967,14 @@ func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.S
 		if s.playbackCredentials != nil && accessToken != "" && errors.As(err, &authErr) && authErr.Status == http.StatusUnauthorized {
 			checkErr := s.playbackCredentials.RecheckRejected(ctx, accessToken)
 			if errors.Is(checkErr, playbackauth.ErrRejected) {
-				token, err = playbackToken("")
+				accessToken = ""
+				token, err = playbackToken(accessToken)
 			} else if checkErr != nil {
-				return twitch.SelectedVariant{}, fmt.Errorf("resolve Twitch playback connection: %w", checkErr)
+				return nil, false, fmt.Errorf("resolve Twitch playback connection: %w", checkErr)
 			}
 		}
 		if err != nil {
-			return twitch.SelectedVariant{}, fmt.Errorf("playback token: %w", err)
+			return nil, false, fmt.Errorf("playback token: %w", err)
 		}
 	}
 	var manifest *twitch.Manifest
@@ -2895,13 +2984,9 @@ func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.S
 		manifest, err = s.twitch.FetchMasterPlaylist(ctx, p.BroadcasterLogin, token, opts)
 	}
 	if err != nil {
-		return twitch.SelectedVariant{}, fmt.Errorf("master playlist: %w", err)
+		return nil, false, fmt.Errorf("master playlist: %w", err)
 	}
-	variant, err := twitch.SelectVariant(manifest, opts)
-	if err != nil {
-		return twitch.SelectedVariant{}, fmt.Errorf("variant selection: %w", err)
-	}
-	return variant, nil
+	return manifest, accessToken == "", nil
 }
 
 // kindFromRecordingType maps the spec's recording_type enum to

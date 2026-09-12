@@ -158,6 +158,11 @@ type ResumeState struct {
 	SelectedCodec   string   `json:"selected_codec,omitempty"`
 	SegmentFormat   string   `json:"segment_format,omitempty"`
 
+	// MaxHeight is the exact rendition height pinned at start
+	// (Params.MaxHeight). The videos row only stores the tier, so a
+	// restart reads the ceiling from here.
+	MaxHeight int `json:"max_height,omitempty"`
+
 	// PartStartMediaSequence is the first MediaSeq of the
 	// current part — anchored from the playlist's
 	// EXT-X-MEDIA-SEQUENCE base on the first poll.

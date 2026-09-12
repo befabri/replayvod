@@ -2,6 +2,7 @@ package twitch
 
 import (
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -51,7 +52,7 @@ func SelectVariant(m *Manifest, opts SelectOptions) (SelectedVariant, error) {
 	if opts.RecordingType == RecordingTypeAudio {
 		return selectAudioVariant(m)
 	}
-	pool := acceptableVariants(m, opts)
+	pool := AcceptableVariants(m, opts)
 	if len(pool) == 0 {
 		return SelectedVariant{}, ErrNoAcceptableVariant
 	}
@@ -94,10 +95,11 @@ func selectAudioVariant(m *Manifest) (SelectedVariant, error) {
 	return SelectedVariant{}, ErrNoAudioRendition
 }
 
-// acceptableVariants drops the renditions a video job can never pick:
-// audio_only, codecs the options exclude, and any whose height the manifest
-// does not state.
-func acceptableVariants(m *Manifest, opts SelectOptions) []Variant {
+// AcceptableVariants is the pool SelectVariant chooses from: the manifest's
+// renditions minus audio_only, codecs the options exclude, and any whose
+// height the manifest does not state. Callers that list what a recording
+// could pick from use it directly.
+func AcceptableVariants(m *Manifest, opts SelectOptions) []Variant {
 	pool := make([]Variant, 0, len(m.Variants))
 	for _, v := range m.Variants {
 		if v.IsAudioOnly() {
@@ -124,6 +126,20 @@ func qualityLimit(requested string) int {
 		return 1080
 	}
 	return height
+}
+
+// SortByPreference orders a pool tallest first and, within a height, the way
+// SelectVariant decides between renditions: preferred codec, then frame rate.
+// The first entry of each height is the one a cap at that height records.
+func SortByPreference(pool []Variant) {
+	sort.SliceStable(pool, func(i, j int) bool {
+		hi, _ := strconv.Atoi(pool[i].Quality)
+		hj, _ := strconv.Atoi(pool[j].Quality)
+		if hi != hj {
+			return hi > hj
+		}
+		return betterVariant(&pool[i], &pool[j])
+	})
 }
 
 // betterVariant reports whether candidate should displace current at the same

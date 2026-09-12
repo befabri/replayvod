@@ -159,6 +159,10 @@ export const GetByLoginInputSchema = z.object({
   login: z.string().min(1),
 }).meta({ id: "GetByLoginInput" });
 
+export const IsLiveInputSchema = z.object({
+  broadcaster_id: z.string().min(1),
+}).meta({ id: "IsLiveInput" });
+
 export const LastLiveInputSchema = z.object({
   broadcaster_id: z.string().min(1),
 }).meta({ id: "LastLiveInput" });
@@ -176,6 +180,11 @@ export const ListRequestsInputSchema = z.object({
   limit: z.int().gte(0).lte(200).optional(),
   cursor: RequestPageCursorSchema.optional(),
 }).meta({ id: "ListRequestsInput" });
+
+export const LiveRenditionsInputSchema = z.object({
+  broadcaster_id: z.string().min(1),
+  force_h264: z.boolean().optional(),
+}).meta({ id: "LiveRenditionsInput" });
 
 export const RecordingWebhookRetryDeliveryInputSchema = z.object({
   id: z.number(),
@@ -302,6 +311,7 @@ export const TriggerDownloadInputSchema = z.object({
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
   quality: z.enum(["LOW", "MEDIUM", "HIGH", "1440", "BEST"]).or(z.literal("")).optional(),
   force_h264: z.boolean().optional(),
+  max_height: z.int().gte(1).lte(4320).or(z.literal(0)).optional().describe("MaxHeight pins the recording to one of the heights video.liveRenditions\nlisted. It wins over Quality, which is then stored as the tier the\nheight falls in. Ignored for audio."),
 }).meta({ id: "TriggerDownloadInput" });
 
 export const TwitchPlaybackConnectInputSchema = z.object({

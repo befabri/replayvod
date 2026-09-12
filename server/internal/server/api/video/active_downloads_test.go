@@ -31,6 +31,9 @@ func (a activeRunner) Cancel(string)                                            
 func (a activeRunner) Subscribe(string) <-chan downloader.Progress              { return nil }
 func (a activeRunner) ListActiveProgress() []downloader.Progress                { return a.progress }
 func (a activeRunner) SubscribeActive(context.Context) <-chan struct{}          { return nil }
+func (a activeRunner) LiveRenditions(context.Context, string, bool) (downloader.LiveRenditions, error) {
+	return downloader.LiveRenditions{}, nil
+}
 
 // snapshotDownloadRepo records how ListVideosByJobIDs is called so the test can
 // assert the snapshot batches the lookup instead of querying once per job.

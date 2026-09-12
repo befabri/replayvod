@@ -500,6 +500,10 @@ export interface InviteInfo {
   created_at: string;
 }
 
+export interface IsLiveInput {
+  broadcaster_id: string;
+}
+
 export interface LastLiveInput {
   broadcaster_id: string;
 }
@@ -544,6 +548,36 @@ export interface ListSnapshotsResponse {
 export interface ListSubscriptionsResponse {
   data: SubscriptionResponse[];
   total: number;
+}
+
+/**
+ * LiveRendition is one video rendition of the live stream as the recorder
+ * sees it. FPS is omitted when the manifest does not declare it.
+ */
+export interface LiveRendition {
+  height: number;
+  fps?: number;
+  codec: string;
+}
+
+/**
+ * LiveRenditionsInput names the live channel to inspect. ForceH264 must match
+ * the download that follows: it changes which renditions Twitch offers, not
+ * just which ones are shown.
+ */
+export interface LiveRenditionsInput {
+  broadcaster_id: string;
+  force_h264?: boolean;
+}
+
+/**
+ * LiveRenditionsResponse lists what a download started now could pick from,
+ * tallest first. Anonymous is true when no playback session was used, so a
+ * connected session might reveal more renditions.
+ */
+export interface LiveRenditionsResponse {
+  anonymous: boolean;
+  renditions: LiveRendition[];
 }
 
 export interface LogoutResult {
@@ -1099,6 +1133,12 @@ export interface TriggerDownloadInput {
   recording_type?: string;
   quality?: string;
   force_h264?: boolean;
+  /**
+   * MaxHeight pins the recording to one of the heights video.liveRenditions
+   * listed. It wins over Quality, which is then stored as the tier the
+   * height falls in. Ignored for audio.
+   */
+  max_height?: number;
 }
 
 export interface TriggerDownloadResponse {
@@ -1553,6 +1593,7 @@ type AppRouterRecord = {
     active: $Query<void, StreamResponse[]>;
     byBroadcaster: $Query<StreamByBroadcasterInput, StreamResponse[]>;
     followed: $Query<void, FollowedStreamResponse[]>;
+    isLive: $Query<IsLiveInput, boolean>;
     lastLive: $Query<LastLiveInput, StreamResponse>;
     live: $Subscription<void, StreamLiveEvent>;
     liveIds: $Query<void, string[]>;
@@ -1605,6 +1646,7 @@ type AppRouterRecord = {
     historyCounts: $Query<void, HistoryCountsResponse>;
     list: $Query<VideoListInput, VideoResponse[]>;
     listPage: $Query<VideoListPageInput, VideoListPageResponse>;
+    liveRenditions: $Query<LiveRenditionsInput, LiveRenditionsResponse>;
     search: $Query<VideoSearchInput, VideoResponse[]>;
     setWatchLater: $Mutation<SetWatchLaterInput, VideoUserStateResponse>;
     snapshots: $Query<SnapshotsInput, string[]>;

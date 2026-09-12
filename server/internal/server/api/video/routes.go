@@ -40,6 +40,7 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloade
 	trpcgo.MustVoidQuery(tr, "video.downloadCapacity", h.DownloadCapacity, viewer)
 	trpcgo.MustVoidQuery(tr, "video.activeDownloads", h.ActiveDownloads, viewer)
 	trpcgo.MustVoidSubscribe(tr, "video.activeDownloadsLive", h.ActiveDownloadsLive, viewer)
+	trpcgo.MustQuery(tr, "video.liveRenditions", h.LiveRenditions, admin)
 	trpcgo.MustMutation(tr, "video.triggerDownload", h.TriggerDownload, admin)
 	trpcgo.MustMutation(tr, "video.cancel", h.Cancel, admin)
 	trpcgo.MustMutation(tr, "video.delete", h.Delete, admin)

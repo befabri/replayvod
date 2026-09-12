@@ -320,6 +320,25 @@ const (
 	QualityBest   = "BEST"
 )
 
+// QualityTierForHeight maps a rendition height to the quality choice that
+// contains it. A recording pinned to an exact height stores this tier, so the
+// row satisfies the quality CHECK and the library filter reads it like any
+// other recording.
+func QualityTierForHeight(height int) string {
+	switch {
+	case height <= 480:
+		return QualityLow
+	case height <= 720:
+		return QualityMedium
+	case height <= 1080:
+		return QualityHigh
+	case height <= 1440:
+		return Quality1440
+	default:
+		return QualityBest
+	}
+}
+
 type Stream struct {
 	ID            string
 	BroadcasterID string

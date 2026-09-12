@@ -29,6 +29,10 @@ func (r progressSubscribeRunner) SubscribeActive(context.Context) <-chan struct{
 	return nil
 }
 
+func (r progressSubscribeRunner) LiveRenditions(context.Context, string, bool) (downloader.LiveRenditions, error) {
+	return downloader.LiveRenditions{}, nil
+}
+
 func TestDownloadProgressStreamsMediaOffsetSeconds(t *testing.T) {
 	progress := make(chan downloader.Progress, 1)
 	offset := 12.75

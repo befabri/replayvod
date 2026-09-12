@@ -24,6 +24,7 @@ type downloadRunner interface {
 	Subscribe(jobID string) <-chan downloader.Progress
 	ListActiveProgress() []downloader.Progress
 	SubscribeActive(ctx context.Context) <-chan struct{}
+	LiveRenditions(ctx context.Context, login string, forceH264 bool) (downloader.LiveRenditions, error)
 }
 
 type streamHydrator interface {
@@ -93,7 +94,10 @@ type TriggerInput struct {
 	RecordingType string
 	Quality       string
 	ForceH264     bool
-	UserID        string
+	// MaxHeight pins the recording to an exact rendition height from
+	// LiveRenditions; it wins over Quality and is ignored for audio.
+	MaxHeight int
+	UserID    string
 }
 
 // TriggerResult is what Trigger hands back. JobID is always set;
@@ -110,8 +114,16 @@ type TriggerResult struct {
 // admins must run channel.syncFromTwitch first so the video row's
 // FK is satisfied.
 func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (TriggerResult, error) {
+	// A pinned height is a video notion: it decides at Stage 3 and the row
+	// stores the tier it falls in, so the quality CHECK and the library
+	// filter see a familiar value. Audio keeps whatever quality it was
+	// given, as before.
 	quality := input.Quality
-	if quality == "" {
+	maxHeight := 0
+	if repository.NormalizeRecordingType(input.RecordingType) == repository.RecordingTypeVideo && input.MaxHeight > 0 {
+		maxHeight = input.MaxHeight
+		quality = repository.QualityTierForHeight(maxHeight)
+	} else if quality == "" {
 		quality = repository.QualityHigh
 	}
 	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
@@ -179,6 +191,7 @@ func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (Trig
 		StreamID:         streamID,
 		RecordingType:    settings.RecordingType,
 		ForceH264:        settings.ForceH264,
+		MaxHeight:        maxHeight,
 	})
 	if err != nil {
 		return TriggerResult{}, fmt.Errorf("start download: %w", err)
@@ -232,4 +245,18 @@ func derefString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// LiveRenditions lists what a download started now could record for the
+// channel, resolved through the recorder's playback session under the same
+// codec choice the download would make.
+func (s *DownloadService) LiveRenditions(ctx context.Context, broadcasterID string, forceH264 bool) (downloader.LiveRenditions, error) {
+	ch, err := s.repo.GetChannel(ctx, broadcasterID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return downloader.LiveRenditions{}, ErrChannelNotSynced
+		}
+		return downloader.LiveRenditions{}, fmt.Errorf("get channel: %w", err)
+	}
+	return s.downloader.LiveRenditions(ctx, ch.BroadcasterLogin, forceH264)
 }

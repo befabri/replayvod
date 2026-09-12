@@ -21,12 +21,13 @@ import (
 // hitting a bot account), not a typical-case limit.
 const maxFollowedPages = 10
 
-// followedStreamsSource is the narrow slice of the Twitch client that
-// Followed needs. Kept private to this package so tests can supply a
+// streamSource is the narrow slice of the Twitch client that live reads
+// need. Kept private to this package so tests can supply a
 // fake without pulling in httptest; *twitch.Client satisfies it in
 // production, so callers of New pass the concrete client unchanged.
-type followedStreamsSource interface {
+type streamSource interface {
 	GetFollowedStreams(ctx context.Context, params *twitch.GetFollowedStreamsParams) ([]twitch.Stream, twitch.Pagination, error)
+	GetStreams(ctx context.Context, params *twitch.GetStreamsParams) ([]twitch.Stream, twitch.Pagination, error)
 }
 
 type streamRepo interface {
@@ -41,12 +42,30 @@ type streamRepo interface {
 
 type Service struct {
 	repo   streamRepo
-	twitch followedStreamsSource
+	twitch streamSource
 	log    *slog.Logger
 }
 
-func New(repo streamRepo, tc followedStreamsSource, log *slog.Logger) *Service {
+func New(repo streamRepo, tc streamSource, log *slog.Logger) *Service {
 	return &Service{repo: repo, twitch: tc, log: log.With("domain", "stream")}
+}
+
+// IsLive checks the broadcaster itself. Neither the caller's follows nor the
+// local EventSub mirror can establish that an arbitrary channel is offline.
+func (s *Service) IsLive(ctx context.Context, broadcasterID string) (bool, error) {
+	streams, _, err := s.twitch.GetStreams(ctx, &twitch.GetStreamsParams{
+		UserID: []string{broadcasterID},
+		First:  1,
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, stream := range streams {
+		if stream.UserID == broadcasterID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ListActive returns every currently-live stream (ended_at IS NULL).

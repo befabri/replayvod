@@ -5,10 +5,12 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/downloader"
+	dltwitch "github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
@@ -1217,6 +1219,57 @@ type TriggerDownloadInput struct {
 	RecordingType string `json:"recording_type,omitempty" validate:"omitempty,oneof=video audio"`
 	Quality       string `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH 1440 BEST"`
 	ForceH264     bool   `json:"force_h264,omitempty"`
+	// MaxHeight pins the recording to one of the heights video.liveRenditions
+	// listed. It wins over Quality, which is then stored as the tier the
+	// height falls in. Ignored for audio.
+	MaxHeight int `json:"max_height,omitempty" validate:"omitempty,min=1,max=4320"`
+}
+
+// LiveRenditionsInput names the live channel to inspect. ForceH264 must match
+// the download that follows: it changes which renditions Twitch offers, not
+// just which ones are shown.
+type LiveRenditionsInput struct {
+	BroadcasterID string `json:"broadcaster_id" validate:"required"`
+	ForceH264     bool   `json:"force_h264,omitempty"`
+}
+
+// LiveRendition is one video rendition of the live stream as the recorder
+// sees it. FPS is omitted when the manifest does not declare it.
+type LiveRendition struct {
+	Height int     `json:"height"`
+	FPS    float64 `json:"fps,omitempty"`
+	Codec  string  `json:"codec"`
+}
+
+// LiveRenditionsResponse lists what a download started now could pick from,
+// tallest first. Anonymous is true when no playback session was used, so a
+// connected session might reveal more renditions.
+type LiveRenditionsResponse struct {
+	Anonymous  bool            `json:"anonymous"`
+	Renditions []LiveRendition `json:"renditions"`
+}
+
+func (h *Handler) LiveRenditions(ctx context.Context, input LiveRenditionsInput) (LiveRenditionsResponse, error) {
+	result, err := h.download.LiveRenditions(ctx, input.BroadcasterID, input.ForceH264)
+	if err != nil {
+		// Usher answers 404 for a channel that is not streaming; that is the
+		// dialog's normal offline case, not a fault worth a log line.
+		var authErr *dltwitch.AuthError
+		if errors.As(err, &authErr) && authErr.Status == http.StatusNotFound {
+			return LiveRenditionsResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "the channel is not live")
+		}
+		return LiveRenditionsResponse{}, apierr.Map(h.log, err, "list live renditions",
+			apierr.On(ErrChannelNotSynced, trpcgo.CodeNotFound,
+				"channel not synced — run channel.syncFromTwitch first"))
+	}
+	resp := LiveRenditionsResponse{
+		Anonymous:  result.Anonymous,
+		Renditions: make([]LiveRendition, 0, len(result.Renditions)),
+	}
+	for _, r := range result.Renditions {
+		resp.Renditions = append(resp.Renditions, LiveRendition{Height: r.Height, FPS: r.FPS, Codec: r.Codec})
+	}
+	return resp, nil
 }
 
 type TriggerDownloadResponse struct {
@@ -1234,6 +1287,7 @@ func (h *Handler) TriggerDownload(ctx context.Context, input TriggerDownloadInpu
 		RecordingType: input.RecordingType,
 		Quality:       input.Quality,
 		ForceH264:     input.ForceH264,
+		MaxHeight:     input.MaxHeight,
 		UserID:        user.ID,
 	})
 	if err != nil {

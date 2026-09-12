@@ -39,6 +39,17 @@ type fakeDownloadRunner struct {
 	params   downloader.Params
 	jobID    string
 	startErr error
+
+	renditions          downloader.LiveRenditions
+	renditionsErr       error
+	renditionsLogin     string
+	renditionsForceH264 bool
+}
+
+func (f *fakeDownloadRunner) LiveRenditions(_ context.Context, login string, forceH264 bool) (downloader.LiveRenditions, error) {
+	f.renditionsLogin = login
+	f.renditionsForceH264 = forceH264
+	return f.renditions, f.renditionsErr
 }
 
 func (f *fakeDownloadRunner) Start(_ context.Context, p downloader.Params) (string, error) {
