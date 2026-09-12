@@ -265,7 +265,8 @@ func main() {
 	bus := eventbus.New()
 	dl.SetEventBus(bus)
 	recordings := api.NewRecordingServices(cfg, repo, store, bus, log)
-	playbackCache := playbackcache.New(repo, store, recordings.StorageHealth, filepath.Join(cfg.Env.ScratchDir, "playback-cache"), "", log)
+	playbackCache := playbackcache.New(repo, store, recordings.StorageHealth, filepath.Join(cfg.Env.ScratchDir, "playback-cache"), "", log,
+		playbackcache.WithRecordingLocks(recordings.RecordingLocks))
 	posters := archiveposter.NewStore(repo, store, recordings.StorageHealth, &http.Client{Timeout: 15 * time.Second}, log)
 	dl.SetPosterStore(posters)
 	dl.SetPlaybackCredentials(recordings.PlaybackAuth)

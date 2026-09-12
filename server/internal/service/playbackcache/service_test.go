@@ -58,11 +58,16 @@ func (r *fakeRepo) ListVideoParts(context.Context, int64) ([]repository.VideoPar
 	return r.parts, nil
 }
 
-func (r *fakeRepo) GetVideoPlaybackAsset(context.Context, int64) (*repository.VideoPlaybackAsset, error) {
-	if r.asset == nil {
-		return nil, repository.ErrNotFound
+func (r *fakeRepo) GetVideoPlaybackAsset(_ context.Context, videoID int64) (*repository.VideoPlaybackAsset, error) {
+	if r.asset != nil && (r.asset.VideoID == videoID || r.asset.VideoID == 0) {
+		return r.asset, nil
 	}
-	return r.asset, nil
+	for i := range r.ready {
+		if r.ready[i].VideoID == videoID {
+			return &r.ready[i], nil
+		}
+	}
+	return nil, repository.ErrNotFound
 }
 
 func (r *fakeRepo) UpsertVideoPlaybackAsset(_ context.Context, input *repository.VideoPlaybackAssetInput) (*repository.VideoPlaybackAsset, error) {

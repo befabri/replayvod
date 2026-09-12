@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/downloader/remux"
+	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
@@ -54,13 +55,26 @@ type StorageGate interface {
 	Verify(context.Context) error
 }
 
+type Option func(*Service)
+
+// WithRecordingLocks coordinates publication with retention and manual purge.
+// Supply the same lock set to every service that writes or deletes artifacts.
+func WithRecordingLocks(locks *recordinglock.Locks) Option {
+	return func(s *Service) {
+		if locks != nil {
+			s.recordingLocks = locks
+		}
+	}
+}
+
 type Service struct {
-	repo    repository.Repository
-	store   storage.Storage
-	gate    StorageGate
-	scratch string
-	runner  Runner
-	log     *slog.Logger
+	repo           repository.Repository
+	store          storage.Storage
+	gate           StorageGate
+	scratch        string
+	runner         Runner
+	log            *slog.Logger
+	recordingLocks *recordinglock.Locks
 
 	buildTimeout time.Duration
 
@@ -87,7 +101,7 @@ type Service struct {
 	building map[int64]struct{}
 }
 
-func New(repo repository.Repository, store storage.Storage, gate StorageGate, scratchDir, ffmpegPath string, log *slog.Logger) *Service {
+func New(repo repository.Repository, store storage.Storage, gate StorageGate, scratchDir, ffmpegPath string, log *slog.Logger, opts ...Option) *Service {
 	if scratchDir == "" {
 		scratchDir = filepath.Join(os.TempDir(), "replayvod-playback-cache")
 	}
@@ -96,20 +110,25 @@ func New(repo repository.Repository, store storage.Storage, gate StorageGate, sc
 	}
 	log = log.With("domain", "playback-cache")
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Service{
-		repo:         repo,
-		store:        store,
-		gate:         gate,
-		scratch:      scratchDir,
-		runner:       remuxRunner{remuxer: &remux.Remuxer{FFmpegPath: ffmpegPath, Log: log}},
-		log:          log,
-		buildTimeout: defaultBuildTimeout,
-		fsStat:       statfsBytes,
-		buildCtx:     ctx,
-		cancelBuilds: cancel,
-		sem:          make(chan struct{}, defaultBuildConcurrency),
-		building:     make(map[int64]struct{}),
+	s := &Service{
+		repo:           repo,
+		store:          store,
+		gate:           gate,
+		scratch:        scratchDir,
+		runner:         remuxRunner{remuxer: &remux.Remuxer{FFmpegPath: ffmpegPath, Log: log}},
+		log:            log,
+		buildTimeout:   defaultBuildTimeout,
+		fsStat:         statfsBytes,
+		buildCtx:       ctx,
+		cancelBuilds:   cancel,
+		sem:            make(chan struct{}, defaultBuildConcurrency),
+		building:       make(map[int64]struct{}),
+		recordingLocks: &recordinglock.Locks{},
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *Service) SetRunner(r Runner) {
@@ -252,6 +271,17 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 	if err := s.storageReady(ctx); err != nil {
 		return err
 	}
+	// Preflight and its building row must not outlive a completed purge.
+	// Release ownership for expensive concat, then acquire it for publication.
+	unlock, err := s.recordingLocks.Lock(ctx, videoID)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
 
 	video, err := s.repo.GetVideo(ctx, videoID)
 	if err != nil {
@@ -340,76 +370,45 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 		return err
 	}
 
-	size, err := s.buildArtifact(ctx, filename, ordered)
-	// A storage change is not a verdict about the recording. Leave the build
-	// retryable, and do not clean up a same-named file on the replacement volume.
-	if gateErr := s.storageReady(context.WithoutCancel(ctx)); gateErr != nil {
-		if storage.CanDelete(gateErr) {
-			// A build can consume the last available block. Its artifact is not
-			// ready yet, so ordinary LRU pruning cannot reclaim it. Free it now
-			// while this verified, full volume still permits deletion.
-			return errors.Join(err, gateErr, s.deleteArtifact(context.WithoutCancel(ctx), filename))
-		}
-		return errors.Join(err, gateErr)
+	unlock()
+	unlock = nil
+	artifact, buildErr := s.buildArtifact(ctx, ordered)
+	if artifact != nil {
+		defer artifact.cleanup()
 	}
+
+	// Keep the current row check, object publication and terminal asset row
+	// under the same ownership retention holds through purge and tombstoning.
+	// Concat ran outside this lock, so deleting a recording never waits on it.
+	unlock, err = s.recordingLocks.Lock(ctx, videoID)
 	if err != nil {
-		// Build context may already be canceled/timed out; clean up any partial
-		// artifact and record the outcome on a detached context so it sticks.
-		detached := context.WithoutCancel(ctx)
-		if cleanupErr := s.deleteArtifact(detached, filename); cleanupErr != nil {
-			return errors.Join(err, cleanupErr)
-		}
-		if errors.Is(err, context.Canceled) {
-			// Interrupted by a graceful shutdown — not a real failure. Drop the
-			// building row so the next play rebuilds it (via the no-row path)
-			// instead of leaving a stale 'failed' row, and so a clean stop isn't
-			// surfaced as a failed artifact.
-			if delErr := s.repo.DeleteVideoPlaybackAsset(detached, videoID); delErr != nil {
-				s.log.Warn("clear interrupted playback build row failed", "video_id", videoID, "error", delErr)
-			}
-			return err
-		}
-		_, _ = s.repo.UpsertVideoPlaybackAsset(detached, &repository.VideoPlaybackAssetInput{
-			VideoID: videoID,
-			Status:  repository.PlaybackAssetStatusFailed,
-			Error:   nonEmpty(errorPreview(err)),
-		})
-		return err
+		return errors.Join(buildErr, err)
 	}
-
-	// All terminal verdicts and the ready commit run on a detached context so a
-	// build that finishes just as buildTimeout fires still records its outcome.
+	// Once owned, terminal bookkeeping must survive a client disconnect or
+	// shutdown. Waiting for ownership itself remains cancellable.
 	detached := context.WithoutCancel(ctx)
-
-	// Freshness re-check FIRST, before any terminal verdict. Retention may have
-	// soft-deleted and purged this video while ffmpeg ran (the guard at the top
-	// of BuildNow is stale by now). If it's gone, drop the artifact + row and
-	// return — recording an unavailable/ready row for a soft-deleted video leaks
-	// it (retention does not revisit deleted_at IS NOT NULL).
 	fresh, err := s.repo.GetVideo(detached, videoID)
 	switch {
 	case err != nil && !errors.Is(err, repository.ErrNotFound):
-		// Transient read error: fail safe. Don't commit on an unverified video;
-		// leave the 'building' row so the next play retries.
-		return errors.Join(fmt.Errorf("re-check video before commit: %w", err), s.deleteArtifact(detached, filename))
+		return errors.Join(buildErr, fmt.Errorf("re-check video before commit: %w", err))
 	case errors.Is(err, repository.ErrNotFound) || fresh.Status != repository.VideoStatusDone || fresh.DeletedAt != nil:
-		if err := s.deleteArtifact(detached, filename); err != nil {
-			return err
-		}
-		if delErr := s.repo.DeleteVideoPlaybackAsset(detached, videoID); delErr != nil {
-			s.log.Warn("clear playback row for deleted video failed", "video_id", videoID, "error", delErr)
-		}
-		return nil
+		// Nothing from this build has reached storage. Retention may already
+		// have deleted the building row; its deletion is idempotent.
+		return s.repo.DeleteVideoPlaybackAsset(detached, videoID)
 	}
 
-	// A single artifact larger than the configured cap can never coexist with
-	// the cache; keeping it would make Prune evict every other entry and still
-	// overflow. Drop it and mark it terminally unavailable.
-	//
-	// Terminal, NOT 'failed': the pre-build overshoot-margined defer is the
-	// retryable cap gate that backfills on a raised max_percent. Reaching HERE
-	// means a real overshoot beyond the margin that ffmpeg reproduces
-	// deterministically, so a retryable verdict would relaunch it forever.
+	// A storage change is not a verdict about the recording. Keep the build
+	// retryable and never clean up a same-named file on a replacement volume.
+	if gateErr := s.storageReady(detached); gateErr != nil {
+		if storage.CanDelete(gateErr) {
+			return errors.Join(buildErr, gateErr, s.deleteArtifact(detached, filename))
+		}
+		return errors.Join(buildErr, gateErr)
+	}
+	if buildErr != nil {
+		return s.failBuild(detached, videoID, filename, buildErr)
+	}
+	size := artifact.size
 	if budget.known && size > budget.configured {
 		if err := s.deleteArtifact(detached, filename); err != nil {
 			return err
@@ -418,12 +417,19 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 			fmt.Sprintf("playback artifact %d exceeds cache cap %d", size, budget.configured))
 	}
 
+	publishErr := s.publishArtifact(ctx, filename, artifact)
+	if gateErr := s.storageReady(detached); gateErr != nil {
+		if storage.CanDelete(gateErr) {
+			return errors.Join(publishErr, gateErr, s.deleteArtifact(detached, filename))
+		}
+		return errors.Join(publishErr, gateErr)
+	}
+	if publishErr != nil {
+		return s.failBuild(detached, videoID, filename, publishErr)
+	}
 	at := time.Now().UTC()
 	mime := mimeTypeForExtension(partExtension(ordered[0]))
 	duration := totalDuration(ordered)
-	if err := s.storageReady(detached); err != nil {
-		return err
-	}
 	if _, err := s.repo.UpsertVideoPlaybackAsset(detached, &repository.VideoPlaybackAssetInput{
 		VideoID:         videoID,
 		Status:          repository.PlaybackAssetStatusReady,
@@ -436,8 +442,12 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 	}); err != nil {
 		return errors.Join(err, s.deleteArtifact(detached, filename))
 	}
+	unlock()
+	unlock = nil
 
-	if err := s.pruneWithSettings(detached, settings); err != nil {
+	// Publication is complete. Opportunistic pruning can wait on other
+	// recordings, so it must retain the build's cancellation and deadline.
+	if err := s.pruneWithSettings(ctx, settings); err != nil {
 		s.log.Warn("playback cache prune failed", "error", err)
 	}
 	return nil
@@ -520,26 +530,14 @@ func (s *Service) pruneWithSettings(ctx context.Context, settings playbackConfig
 		if total <= capBytes {
 			break
 		}
-		if err := s.storageDeletionReady(ctx); err != nil {
+		pruned, err := s.pruneEntry(ctx, entry)
+		if err != nil {
 			return err
 		}
-		// Keep the row until object deletion succeeds: it is the durable
-		// retry record and keeps the bytes accounted for during an outage.
-		// A crash after deleting the object leaves a stale ready row; deletion
-		// is idempotent, and streamPlayback already demotes a missing artifact
-		// so readers can fall back to the original recording parts.
-		if entry.Filename != nil {
-			if err := s.deleteArtifact(ctx, *entry.Filename); err != nil {
-				return err
-			}
-		}
-		if err := s.repo.DeleteVideoPlaybackAsset(ctx, entry.VideoID); err != nil {
-			// Stop, don't skip: entries are oldest-first, so continuing would evict
-			// a NEWER artifact to compensate for this older one we couldn't delete —
-			// inverting LRU. Leave the cache briefly over-cap; the next prune retries
-			// this same victim.
-			s.log.Warn("delete playback artifact row during prune failed", "video_id", entry.VideoID, "error", err)
-			return fmt.Errorf("delete playback artifact row %d: %w", entry.VideoID, err)
+		if !pruned {
+			// Publication or access changed this LRU snapshot. Recompute order
+			// and the byte budget on the next pass rather than evict newer work.
+			return nil
 		}
 		if entry.SizeBytes != nil {
 			total -= *entry.SizeBytes
@@ -547,6 +545,53 @@ func (s *Service) pruneWithSettings(ctx context.Context, settings playbackConfig
 		s.log.Info("playback artifact evicted", "video_id", entry.VideoID)
 	}
 	return nil
+}
+
+// pruneEntry holds the same ownership as publication and recording purge. A
+// ready-list snapshot does not authorize deleting a later build at the same key.
+func (s *Service) pruneEntry(ctx context.Context, entry repository.VideoPlaybackAsset) (bool, error) {
+	unlock, err := s.recordingLocks.Lock(ctx, entry.VideoID)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	fresh, err := s.repo.GetVideoPlaybackAsset(ctx, entry.VideoID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if fresh.Status != repository.PlaybackAssetStatusReady ||
+		!sameOptional(fresh.Filename, entry.Filename) ||
+		!sameOptional(fresh.SizeBytes, entry.SizeBytes) ||
+		!sameOptional(fresh.GeneratedAt, entry.GeneratedAt) ||
+		!sameOptional(fresh.LastAccessedAt, entry.LastAccessedAt) {
+		return false, nil
+	}
+	if err := s.storageDeletionReady(ctx); err != nil {
+		return false, err
+	}
+	// Keep the row until object deletion succeeds: it remains the durable
+	// retry record after an outage or a crash between the file and row deletes.
+	if fresh.Filename != nil {
+		if err := s.deleteArtifact(ctx, *fresh.Filename); err != nil {
+			return false, err
+		}
+	}
+	if err := s.repo.DeleteVideoPlaybackAsset(ctx, entry.VideoID); err != nil {
+		// Stop at the oldest victim; skipping it would invert LRU order.
+		s.log.Warn("delete playback artifact row during prune failed", "video_id", entry.VideoID, "error", err)
+		return false, fmt.Errorf("delete playback artifact row %d: %w", entry.VideoID, err)
+	}
+	return true, nil
+}
+
+func sameOptional[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func (s *Service) currentCacheBytes(ctx context.Context) int64 {
@@ -638,23 +683,37 @@ func statfsBytes(root string) (int64, int64, error) {
 	return int64(stat.Blocks) * int64(stat.Bsize), int64(stat.Bavail) * int64(stat.Bsize), nil
 }
 
-func (s *Service) buildArtifact(ctx context.Context, filename string, parts []repository.VideoPart) (int64, error) {
+// preparedArtifact owns only scratch data until publication has exclusive
+// ownership of the recording. Cleanup cannot follow a swapped storage root.
+type preparedArtifact struct {
+	path string
+	size int64
+	dir  string
+}
+
+func (a *preparedArtifact) cleanup() { _ = os.RemoveAll(a.dir) }
+
+func (s *Service) buildArtifact(ctx context.Context, parts []repository.VideoPart) (_ *preparedArtifact, err error) {
 	if err := os.MkdirAll(s.scratch, 0o755); err != nil {
-		return 0, fmt.Errorf("create playback scratch dir: %w", err)
+		return nil, fmt.Errorf("create playback scratch dir: %w", err)
 	}
 	workDir, err := os.MkdirTemp(s.scratch, "build-*")
 	if err != nil {
-		return 0, fmt.Errorf("create playback build dir: %w", err)
+		return nil, fmt.Errorf("create playback build dir: %w", err)
 	}
-	defer os.RemoveAll(workDir) //nolint:errcheck
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
 
 	localParts, err := s.localPartPaths(ctx, workDir, parts)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	listPath := filepath.Join(workDir, "parts.txt")
 	if err := remux.WriteConcatListFile(listPath, localParts); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	// Concat can outlive the verified mount. Keep its output in scratch even
@@ -662,24 +721,45 @@ func (s *Service) buildArtifact(ctx context.Context, filename string, parts []re
 	// LocalStorage.Save pins its root while writing and renaming the artifact.
 	outputPath := filepath.Join(workDir, "playback"+partExtension(parts[0]))
 	if err := s.runner.Concat(ctx, listPath, outputPath); err != nil {
-		return 0, err
+		return nil, err
 	}
 	info, err := os.Stat(outputPath)
 	if err != nil {
-		return 0, fmt.Errorf("stat playback artifact: %w", err)
+		return nil, fmt.Errorf("stat playback artifact: %w", err)
 	}
-	f, err := os.Open(outputPath)
+	return &preparedArtifact{path: outputPath, size: info.Size(), dir: workDir}, nil
+}
+
+func (s *Service) publishArtifact(ctx context.Context, filename string, artifact *preparedArtifact) error {
+	f, err := os.Open(artifact.path)
 	if err != nil {
-		return 0, fmt.Errorf("open playback artifact: %w", err)
+		return fmt.Errorf("open playback artifact: %w", err)
 	}
 	defer f.Close()
 	if err := s.storageReady(ctx); err != nil {
-		return 0, err
+		return err
 	}
 	if err := s.store.Save(ctx, storagekeys.Video(filename), f); err != nil {
-		return 0, fmt.Errorf("save playback artifact: %w", err)
+		return fmt.Errorf("save playback artifact: %w", err)
 	}
-	return info.Size(), nil
+	return nil
+}
+
+// failBuild runs with recording ownership held and trusted storage verified.
+func (s *Service) failBuild(ctx context.Context, videoID int64, filename string, buildErr error) error {
+	if cleanupErr := s.deleteArtifact(ctx, filename); cleanupErr != nil {
+		return errors.Join(buildErr, cleanupErr)
+	}
+	if errors.Is(buildErr, context.Canceled) {
+		// A graceful interruption remains retryable without a failed verdict.
+		return errors.Join(buildErr, s.repo.DeleteVideoPlaybackAsset(ctx, videoID))
+	}
+	_, persistErr := s.repo.UpsertVideoPlaybackAsset(ctx, &repository.VideoPlaybackAssetInput{
+		VideoID: videoID,
+		Status:  repository.PlaybackAssetStatusFailed,
+		Error:   nonEmpty(errorPreview(buildErr)),
+	})
+	return errors.Join(buildErr, persistErr)
 }
 
 func (s *Service) deleteArtifact(ctx context.Context, filename string) error {
