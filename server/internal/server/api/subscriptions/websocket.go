@@ -288,10 +288,26 @@ func (c *connection) handle(req request) {
 	go func() {
 		defer c.workers.Done()
 		defer cancel()
-		defer func() { c.mu.Lock(); delete(c.active, key); c.mu.Unlock() }()
+		var finished sync.Once
+		finish := func(send func()) {
+			finished.Do(func() {
+				// A terminal response permits the client to reuse this ID and
+				// capacity immediately. Keep admission blocked until both the
+				// slot removal and terminal write finish. Deferred cleanup must
+				// never remove a replacement operation using the same ID.
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				delete(c.active, key)
+				if send != nil {
+					send()
+				}
+			})
+		}
+		defer finish(nil)
+		fail := func(err error) { finish(func() { c.fail(ctx, req, err) }) }
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				c.fail(ctx, req, fmt.Errorf("subscription panic: %v", recovered))
+				fail(fmt.Errorf("subscription panic: %v", recovered))
 			}
 		}()
 		if create := c.handler.router.ContextCreator(); create != nil {
@@ -302,7 +318,7 @@ func (c *connection) handle(req request) {
 			var input map[string]json.RawMessage
 			if len(req.Params.Input) > 0 && string(req.Params.Input) != "null" {
 				if err := json.Unmarshal(req.Params.Input, &input); err != nil {
-					c.fail(ctx, req, trpcgo.NewError(trpcgo.CodeBadRequest, "invalid resume input"))
+					fail(trpcgo.NewError(trpcgo.CodeBadRequest, "invalid resume input"))
 					return
 				}
 			}
@@ -315,13 +331,13 @@ func (c *connection) handle(req request) {
 		output, err := c.handler.router.ExecuteEntry(ctx, entry, req.Params.Input)
 		if err != nil {
 			if ctx.Err() == nil {
-				c.fail(ctx, req, err)
+				fail(err)
 			}
 			return
 		}
 		stream := trpcgo.ConsumeStream(output)
 		if stream == nil {
-			c.fail(ctx, req, errors.New("subscription returned no stream"))
+			fail(errors.New("subscription returned no stream"))
 			return
 		}
 		if !c.result(req.ID, "started", nil, "") {
@@ -330,11 +346,11 @@ func (c *connection) handle(req request) {
 		for {
 			data, eventID, _, err := stream.Recv(ctx)
 			if ctx.Err() != nil || err == io.EOF {
-				c.result(req.ID, "stopped", nil, "")
+				finish(func() { c.result(req.ID, "stopped", nil, "") })
 				return
 			}
 			if err != nil {
-				c.fail(ctx, req, err)
+				fail(err)
 				return
 			}
 			if !c.result(req.ID, "data", data, eventID) {

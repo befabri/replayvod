@@ -218,13 +218,55 @@ func TestSubscriptionLimitKeepsExistingFeedsAlive(t *testing.T) {
 		t.Fatalf("limit error: %v", msg)
 	}
 	waitCount(t, running, maxSubscriptions)
-	send(t, conn, `{"id":1,"method":"subscription.stop"}`)
-	receive(t, conn)
-	waitCount(t, running, maxSubscriptions-1)
-	send(t, conn, `{"id":100,"method":"subscription","params":{"path":"feed"}}`)
-	receive(t, conn)
-	receive(t, conn)
+	// A terminal response promises that the operation's slot and ID are free.
+	// Immediately reuse both, including while other feeds fill the limit.
+	for range 100 {
+		send(t, conn, `{"id":1,"method":"subscription.stop"}`)
+		if msg := receive(t, conn); msg["result"].(map[string]any)["type"] != "stopped" {
+			t.Fatalf("stop response: %v", msg)
+		}
+		send(t, conn, `{"id":1,"method":"subscription","params":{"path":"feed"}}`)
+		for _, kind := range []string{"started", "data"} {
+			msg := receive(t, conn)
+			result, ok := msg["result"].(map[string]any)
+			if !ok || result["type"] != kind {
+				t.Fatalf("replacement %s response: %v", kind, msg)
+			}
+		}
+	}
 	waitCount(t, running, maxSubscriptions)
+}
+
+func TestTerminalResponseReleasesRequestID(t *testing.T) {
+	for _, path := range []string{"completed", "broken"} {
+		t.Run(path, func(t *testing.T) {
+			server, _, running := testServer(t)
+			conn := dial(t, server, true)
+			for range 100 {
+				send(t, conn, fmt.Sprintf(`{"id":1,"method":"subscription","params":{"path":%q}}`, path))
+				if path == "completed" {
+					for _, kind := range []string{"started", "stopped"} {
+						if msg := receive(t, conn); msg["result"].(map[string]any)["type"] != kind {
+							t.Fatalf("completion response: %v", msg)
+						}
+					}
+				} else if msg := receive(t, conn); msg["error"] == nil {
+					t.Fatalf("missing execution error: %v", msg)
+				}
+				send(t, conn, `{"id":1,"method":"subscription","params":{"path":"feed"}}`)
+				for _, kind := range []string{"started", "data"} {
+					if msg := receive(t, conn); msg["result"].(map[string]any)["type"] != kind {
+						t.Fatalf("replacement response: %v", msg)
+					}
+				}
+				send(t, conn, `{"id":1,"method":"subscription.stop"}`)
+				if msg := receive(t, conn); msg["result"].(map[string]any)["type"] != "stopped" {
+					t.Fatalf("stop response: %v", msg)
+				}
+			}
+			waitCount(t, running, 0)
+		})
+	}
 }
 
 func TestInvalidFramesCancelAllFeeds(t *testing.T) {
