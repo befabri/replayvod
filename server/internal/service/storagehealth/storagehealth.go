@@ -143,12 +143,11 @@ func (m *Monitor) Attach(ctx context.Context) (Status, error) {
 	return m.probe(ctx, func(ctx context.Context) error { return m.attachLocked(ctx) })
 }
 
-// attachLocked establishes the identity. Without a recorded id and without a
-// marker, the storage is initialized only when it is plainly ours: a library
-// that knows recordings must find at least one of them there, or the volume
-// is an empty mount point standing in for the real one and initializing it
-// would hand the scan the whole library to tombstone. Explicit adoption bypasses
-// this witness.
+// attachLocked establishes the identity. Without a recorded id, an existing
+// marker alone cannot tell whether the volume belongs to this library. Require
+// a known recording before either initializing or accepting a marker; otherwise
+// a restored database could trust a different install's volume and tombstone
+// its whole library. Explicit adoption bypasses this witness.
 func (m *Monitor) attachLocked(ctx context.Context) error {
 	if err := m.loadExpectedLocked(ctx); err != nil {
 		return err
@@ -184,13 +183,13 @@ func (m *Monitor) rememberIdentity(ctx context.Context, res storage.AttachResult
 	return verdictErr
 }
 
-// witnessLibraryLocked refuses to initialize storage that carries no marker
-// and holds none of the recordings the database knows. A library without
+// witnessLibraryLocked refuses to bind an unknown identity to storage that
+// holds none of the recordings the database knows. A library without
 // recordings, or one with at least one recording present, may be initialized;
 // storage that cannot be read is reported as such.
 func (m *Monitor) witnessLibraryLocked(ctx context.Context) error {
-	if _, err := storage.ReadMarker(ctx, m.store); !errors.Is(err, fs.ErrNotExist) {
-		return nil
+	if _, err := storage.ReadMarker(ctx, m.store); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 	candidates, err := m.repo.ListVideosForStorageWitness(ctx, witnessSample)
 	if err != nil {
@@ -225,7 +224,7 @@ func (m *Monitor) witnessLibraryLocked(ctx context.Context) error {
 			}
 		}
 	}
-	return fmt.Errorf("%w: storage carries no identity marker and none of the library's recordings; mount the data volume, or adopt this storage to start over", storage.ErrUnattached)
+	return fmt.Errorf("%w: storage identity is not recorded and none of the library's recordings are present; mount the data volume, or adopt this storage to start over", storage.ErrUnattached)
 }
 
 func (m *Monitor) loadExpectedLocked(ctx context.Context) error {
