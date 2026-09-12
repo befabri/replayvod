@@ -196,19 +196,35 @@ func streamRouteTestServer(t *testing.T, repo repository.Repository, store stora
 	return srv
 }
 
-// getSigned mints a signed URL with the given signer and issues it against srv,
-// rewriting only the origin so the path+query (exp+sig) are exactly as signed.
-func getSigned(t *testing.T, srv *httptest.Server, signer *videodownload.Signer, videoID int64, part int32) *http.Response {
+// doSigned mints a signed URL with the given signer and issues it against srv
+// with the given method, rewriting only the origin so the path+query (exp+sig)
+// are exactly as signed. GET and HEAD share this one path so a test can hold
+// the two methods to the same expectations.
+func doSigned(t *testing.T, srv *httptest.Server, signer *videodownload.Signer, method string, videoID int64, part int32) *http.Response {
 	t.Helper()
 	signed, err := url.Parse(signer.PartURL(videoID, part))
 	if err != nil {
 		t.Fatalf("parse signed URL: %v", err)
 	}
-	resp, err := http.Get(srv.URL + signed.Path + "?" + signed.RawQuery)
+	req, err := http.NewRequest(method, srv.URL+signed.Path+"?"+signed.RawQuery, nil)
 	if err != nil {
-		t.Fatalf("GET: %v", err)
+		t.Fatalf("build %s: %v", method, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s: %v", method, err)
 	}
 	return resp
+}
+
+func getSigned(t *testing.T, srv *httptest.Server, signer *videodownload.Signer, videoID int64, part int32) *http.Response {
+	t.Helper()
+	return doSigned(t, srv, signer, http.MethodGet, videoID, part)
+}
+
+func headSigned(t *testing.T, srv *httptest.Server, signer *videodownload.Signer, videoID int64, part int32) *http.Response {
+	t.Helper()
+	return doSigned(t, srv, signer, http.MethodHead, videoID, part)
 }
 
 func getSessionPart(t *testing.T, srv *httptest.Server, videoID int64, part int32) *http.Response {
@@ -849,6 +865,141 @@ func TestStreamSignedPart_unknownPartIs404(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown part status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// An unattended consumer probes with HEAD before committing to a
+// multi-gigabyte GET: it wants the byte count, the filename to write, and
+// confirmation that ranges are on offer. The route used to register GET only,
+// so the probe drew a 405 and the consumer had no way to size the transfer.
+func TestStreamSignedPart_headProbeReturnsSizeAndFilename(t *testing.T) {
+	body := []byte("part02-bytes-of-a-known-length")
+	store := &signedStorage{bodies: map[string][]byte{"videos/vod-42-02.mp4": body}}
+	repo := &signedRepo{
+		video: doneVideo(),
+		parts: []repository.VideoPart{
+			{PartIndex: 1, Filename: "vod-42-01.mp4"},
+			{PartIndex: 2, Filename: "vod-42-02.mp4"},
+		},
+	}
+	srv := signedRouteTestServer(t, repo, store)
+	signer := videodownload.NewSigner(signTestSecret, "https://app.example", time.Hour)
+
+	resp := headSigned(t, srv, signer, 42, 2)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got, want := resp.ContentLength, int64(len(body)); got != want {
+		t.Fatalf("content-length = %d, want %d", got, want)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	if len(got) != 0 {
+		t.Fatalf("HEAD body length = %d, want 0", len(got))
+	}
+	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="vod-42-02.mp4"` {
+		t.Fatalf("content-disposition = %q, want the part filename as an attachment", cd)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "video/mp4" {
+		t.Fatalf("content-type = %q, want video/mp4", ct)
+	}
+	if ar := resp.Header.Get("Accept-Ranges"); ar != "bytes" {
+		t.Fatalf("accept-ranges = %q, want bytes", ar)
+	}
+}
+
+// HEAD and GET must resolve and authorize identically: same signature check,
+// same part lookup, same status. Anything else either strands a probing
+// consumer (the 405 this pins) or turns HEAD into a cheaper oracle than GET.
+// The table walks every outcome the route can produce so a future change that
+// touches one method fails here rather than in a consumer.
+func TestStreamSignedPart_headMatchesGetAcrossOutcomes(t *testing.T) {
+	valid := videodownload.NewSigner(signTestSecret, "https://app.example", time.Hour)
+	wrongKey := videodownload.NewSigner("not-the-secret", "https://app.example", time.Hour)
+
+	deleted := doneVideo()
+	when := time.Unix(2000, 0)
+	deleted.DeletedAt = &when
+
+	stillRecording := doneVideo()
+	stillRecording.Status = repository.VideoStatusRunning
+
+	onePart := []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.mp4"}}
+	served := func() storage.Storage { return &signedStorage{body: []byte("video-bytes")} }
+
+	tests := []struct {
+		name   string
+		repo   *signedRepo
+		store  storage.Storage
+		signer *videodownload.Signer
+		part   int32
+		want   int
+	}{
+		{"served", &signedRepo{video: doneVideo(), parts: onePart}, served(), valid, 1, http.StatusOK},
+		{"wrong signing key", &signedRepo{video: doneVideo(), parts: onePart}, served(), wrongKey, 1, http.StatusForbidden},
+		{"deleted recording", &signedRepo{video: deleted, parts: onePart}, served(), valid, 1, http.StatusGone},
+		{"unfinished recording", &signedRepo{video: stillRecording, parts: onePart}, served(), valid, 1, http.StatusNotFound},
+		{"unknown part index", &signedRepo{video: doneVideo(), parts: onePart}, served(), valid, 9, http.StatusNotFound},
+		{"media gone from storage", &signedRepo{video: doneVideo(), parts: onePart}, &signedStorage{bodies: map[string][]byte{}}, valid, 1, http.StatusNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := signedRouteTestServer(t, tc.repo, tc.store)
+
+			get := doSigned(t, srv, tc.signer, http.MethodGet, 42, tc.part)
+			defer get.Body.Close()
+			head := doSigned(t, srv, tc.signer, http.MethodHead, 42, tc.part)
+			defer head.Body.Close()
+
+			if get.StatusCode != tc.want {
+				t.Fatalf("GET status = %d, want %d", get.StatusCode, tc.want)
+			}
+			if head.StatusCode != get.StatusCode {
+				t.Fatalf("HEAD status = %d, GET status = %d; the methods must agree", head.StatusCode, get.StatusCode)
+			}
+			body, _ := io.ReadAll(head.Body)
+			if len(body) != 0 {
+				t.Fatalf("HEAD body length = %d, want 0", len(body))
+			}
+		})
+	}
+}
+
+// A consumer resuming an interrupted multi-gigabyte fetch re-requests the tail
+// with a Range header. The route must answer 206 and report the whole size in
+// Content-Range so the consumer can confirm it is resuming the same file.
+func TestStreamSignedPart_rangeRequestIsResumable(t *testing.T) {
+	body := []byte("0123456789abcdef")
+	store := &signedStorage{bodies: map[string][]byte{"videos/vod-42-01.mp4": body}}
+	repo := &signedRepo{video: doneVideo(), parts: []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.mp4"}}}
+	srv := signedRouteTestServer(t, repo, store)
+	signer := videodownload.NewSigner(signTestSecret, "https://app.example", time.Hour)
+
+	signed, err := url.Parse(signer.PartURL(42, 1))
+	if err != nil {
+		t.Fatalf("parse signed URL: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodGet, srv.URL+signed.Path+"?"+signed.RawQuery, nil)
+	if err != nil {
+		t.Fatalf("build GET: %v", err)
+	}
+	req.Header.Set("Range", "bytes=10-")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("status = %d, want 206", resp.StatusCode)
+	}
+	if cr := resp.Header.Get("Content-Range"); cr != "bytes 10-15/16" {
+		t.Fatalf("content-range = %q, want bytes 10-15/16", cr)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	if string(got) != "abcdef" {
+		t.Fatalf("body = %q, want the requested tail", got)
 	}
 }
 

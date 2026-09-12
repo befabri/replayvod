@@ -149,8 +149,16 @@ func (h *StreamHandler) SetupRoutes(r chi.Router, authMiddleware func(http.Handl
 // webhook consumer has no cookie, so the URL's HMAC signature and expiry are the
 // authorization (verified in streamSignedPart). Register it on a router that is
 // NOT wrapped in the auth middleware.
+//
+// HEAD is registered alongside GET because an unattended consumer routinely
+// probes before it fetches: to size the transfer, read the filename out of
+// Content-Disposition, or confirm the link has not expired before committing to
+// a multi-gigabyte body. Both methods run the same signature verification and
+// part resolution, so HEAD never reveals a part GET would refuse — it answers
+// with the same status and headers and no body.
 func (h *StreamHandler) SetupSignedRoutes(r chi.Router) {
 	r.Get("/videos/{id}/parts/{part}/download", h.streamSignedPart)
+	r.Head("/videos/{id}/parts/{part}/download", h.streamSignedPart)
 }
 
 // streamVideo serves a downloaded MP4 with HTTP Range support so the browser
