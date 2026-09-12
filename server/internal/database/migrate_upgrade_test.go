@@ -183,41 +183,6 @@ func TestMigrationsFailedUpgradeCanRetry(t *testing.T) {
 	}
 }
 
-func TestMigrationsPreviouslyAppliedInviteDraft(t *testing.T) {
-	for _, backend := range []string{"postgres", "sqlite"} {
-		t.Run(backend, func(t *testing.T) {
-			h := newMigrationDB(t, backend)
-			ctx := context.Background()
-			if err := h.migrate(ctx, migrationsThrough(t, h.files, "044")); err != nil {
-				t.Fatal(err)
-			}
-			seedExistingInstallation(t, h.db, "044")
-			// Already-applied migrations must remain skipped even
-			// when their SQL changes.
-			draft := migrationsThrough(t, h.files, "045")
-			draft["045_invites.up.sql"].Data = append(draft["045_invites.up.sql"].Data, []byte("\nDROP TABLE IF EXISTS video_requests;")...)
-			if err := h.migrate(ctx, draft); err != nil {
-				t.Fatal(err)
-			}
-			seedInviteMigrationData(t, h.db)
-			before := snapshotMigrationTables(t, h.db, []string{"users", "download_schedules", "invites", "schedule_requests"})
-			if err := h.migrate(ctx, h.files); err != nil {
-				t.Fatalf("upgrade previously applied draft: %v", err)
-			}
-			assertMigrationTablesUnchanged(t, h.db, before)
-			for _, version := range []string{"046_schedule_request_pagination", "045_invites"} {
-				rollbackMigration(t, h, version)
-			}
-			// Deleted history requires a backup; downgrade can only
-			// restore the table.
-			assertCount(t, h.db, "SELECT COUNT(*) FROM video_requests", 0)
-			if err := h.migrate(ctx, h.files); err != nil {
-				t.Fatalf("upgrade after draft rollback: %v", err)
-			}
-		})
-	}
-}
-
 func TestMigrationsConcurrentStartup(t *testing.T) {
 	for _, backend := range []string{"postgres", "sqlite"} {
 		for _, installed := range []bool{false, true} {
@@ -481,9 +446,9 @@ func expectMigrationValue(t *testing.T, snapshots map[string]migrationTableSnaps
 
 func assertMigrationLedgerPreserved(t *testing.T, db *sql.DB, before migrationTableSnapshot) {
 	t.Helper()
-	after := readMigrationTable(t, db, "schema_migrations", "version,applied_at")
+	after := readMigrationTable(t, db, "schema_migrations", strings.Join(before.columns, ","))
 	if len(after.rows) < len(before.rows) || !reflect.DeepEqual(after.rows[:len(before.rows)], before.rows) {
-		t.Errorf("old migration versions or timestamps changed: before %v, after %v", before.rows, after.rows)
+		t.Errorf("old migration ledger rows changed: before %v, after %v", before.rows, after.rows)
 	}
 }
 

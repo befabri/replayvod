@@ -78,12 +78,6 @@ func TestMigrationsVideoSourcePreservesHistoryAndRollback(t *testing.T) {
 			}
 			assertMigrationTablesUnchanged(t, h.db, before)
 			assertCount(t, h.db, `SELECT COUNT(*) FROM videos WHERE source = 'live' AND twitch_video_id IS NULL AND broadcast_at IS NULL`, 2)
-			for _, id := range []int64{71, 72} {
-				video, err := h.repo.GetVideo(ctx, id)
-				if err != nil || video.Source != repository.VideoSourceLive || video.TwitchVideoID != nil || video.BroadcastAt != nil {
-					t.Fatalf("historical video %d: %+v, %v", id, video, err)
-				}
-			}
 			assertRejected(t, h, `UPDATE videos SET source = 'unknown' WHERE id = 71`)
 			execMigrationSQL(t, h.db, `UPDATE videos SET source = 'vod', twitch_video_id = '123', broadcast_at = '2025-01-01 00:00:00' WHERE id = 71`)
 			assertRejected(t, h, `UPDATE videos SET source = 'vod', twitch_video_id = '123' WHERE id = 72`)
@@ -113,6 +107,19 @@ func TestMigrationsVideoSourcePreservesHistoryAndRollback(t *testing.T) {
 			assertCount(t, h.db, `SELECT COUNT(*) FROM videos WHERE source = 'live' AND twitch_video_id IS NULL AND broadcast_at IS NULL`, 2)
 			execMigrationSQL(t, h.db, `UPDATE videos SET source = 'vod', twitch_video_id = '123' WHERE id = 71`)
 			assertRejected(t, h, `UPDATE videos SET source = 'vod', twitch_video_id = '123' WHERE id = 72`)
+			// The repository reads the newest schema, so the domain mapping is
+			// checked once every later migration is applied.
+			if err := h.migrate(ctx, h.files); err != nil {
+				t.Fatal(err)
+			}
+			video, err := h.repo.GetVideo(ctx, 71)
+			if err != nil || video.Source != repository.VideoSourceVOD || video.TwitchVideoID == nil || *video.TwitchVideoID != "123" {
+				t.Fatalf("archived video 71: %+v, %v", video, err)
+			}
+			video, err = h.repo.GetVideo(ctx, 72)
+			if err != nil || video.Source != repository.VideoSourceLive || video.TwitchVideoID != nil || video.BroadcastAt != nil {
+				t.Fatalf("historical video 72: %+v, %v", video, err)
+			}
 		})
 	}
 }

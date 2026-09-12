@@ -218,16 +218,30 @@ func withoutLedger(s snapshot) snapshot {
 	return out
 }
 
+// assertOldLedger checks that the ledger rows written by the older build keep
+// their values. Columns the older build did not have, such as checksum, are
+// left out of the comparison.
 func (h *installation) assertOldLedger(before, after snapshot) {
 	old := map[any]bool{}
+	columns := map[string]bool{}
 	for _, row := range before["schema_migrations"] {
 		old[row["version"]] = true
+		for name := range row {
+			columns[name] = true
+		}
 	}
 	filtered := snapshot{"schema_migrations": {}}
 	for _, row := range after["schema_migrations"] {
-		if old[row["version"]] {
-			filtered["schema_migrations"] = append(filtered["schema_migrations"], row)
+		if !old[row["version"]] {
+			continue
 		}
+		kept := map[string]any{}
+		for name, value := range row {
+			if columns[name] {
+				kept[name] = value
+			}
+		}
+		filtered["schema_migrations"] = append(filtered["schema_migrations"], kept)
 	}
 	if err := compareSnapshots(snapshot{"schema_migrations": before["schema_migrations"]}, filtered); err != nil {
 		h.t.Fatal(err)
