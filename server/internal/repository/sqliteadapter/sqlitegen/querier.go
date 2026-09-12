@@ -399,6 +399,9 @@ type Querier interface {
 	// first attach or adoption; every readiness check compares the marker to it.
 	// Storage bookkeeping preserves the timestamp of the last settings edit.
 	SetStorageID(ctx context.Context, storageID string) (ServerSetting, error)
+	// SetStorageRestoreCursor persists the missing-media restore pass. NULL ends
+	// the pass; zero starts it; a positive id resumes after a completed page.
+	SetStorageRestoreCursor(ctx context.Context, storageRestoreCursor sql.NullInt64) error
 	// SetStorageScanCursor persists the storage scan's resume position (the last
 	// video id of the last completed page; 0 restarts from the beginning).
 	SetStorageScanCursor(ctx context.Context, storageScanCursor int64) error

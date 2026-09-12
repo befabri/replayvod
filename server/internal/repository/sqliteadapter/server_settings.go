@@ -117,3 +117,14 @@ func (a *SQLiteAdapter) SetStorageScanCursor(ctx context.Context, cursor int64) 
 	}
 	return nil
 }
+
+func (a *SQLiteAdapter) SetStorageRestoreCursor(ctx context.Context, cursor *int64) error {
+	var value sql.NullInt64
+	if cursor != nil {
+		value.Int64, value.Valid = *cursor, true
+	}
+	if err := a.queries.SetStorageRestoreCursor(ctx, value); err != nil {
+		return fmt.Errorf("sqlite set storage restore cursor: %w", err)
+	}
+	return nil
+}

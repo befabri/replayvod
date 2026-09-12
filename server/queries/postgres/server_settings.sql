@@ -123,3 +123,11 @@ INSERT INTO server_settings (id, storage_scan_cursor)
 VALUES (1, $1)
 ON CONFLICT (id) DO UPDATE
 SET storage_scan_cursor = EXCLUDED.storage_scan_cursor;
+
+-- SetStorageRestoreCursor persists the missing-media restore pass. NULL ends
+-- the pass; zero starts it; a positive id resumes after a completed page.
+-- name: SetStorageRestoreCursor :exec
+INSERT INTO server_settings (id, storage_restore_cursor)
+VALUES (1, $1)
+ON CONFLICT (id) DO UPDATE
+SET storage_restore_cursor = EXCLUDED.storage_restore_cursor;

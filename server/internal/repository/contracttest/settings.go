@@ -114,3 +114,46 @@ func testStorageIdentityRoundTripAndIsolation(t *testing.T, h Harness) {
 		t.Fatalf("created_at moved on a column write: %v -> %v", created.CreatedAt, got.CreatedAt)
 	}
 }
+
+// The restore phase has its own durable position and must not reset normal
+// scan progress or change the last operator settings edit timestamp.
+func testStorageRestoreCursorRoundTripAndIsolation(t *testing.T, h Harness) {
+	ctx := t.Context()
+	repo := h.Repo()
+	cursor := int64(0)
+	if err := repo.SetStorageRestoreCursor(ctx, &cursor); err != nil {
+		t.Fatal(err)
+	}
+	before, err := repo.GetServerSettings(ctx)
+	if err != nil || before.StorageRestoreCursor == nil || *before.StorageRestoreCursor != 0 {
+		t.Fatalf("created restore cursor = %+v, %v", before, err)
+	}
+	if err := repo.SetStorageScanCursor(ctx, 42); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.SetStorageID(ctx, "identity"); err != nil {
+		t.Fatal(err)
+	}
+	cursor = 71
+	if err := repo.SetStorageRestoreCursor(ctx, &cursor); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.GetServerSettings(ctx)
+	if err != nil || got.StorageRestoreCursor == nil || *got.StorageRestoreCursor != 71 || got.StorageScanCursor != 42 || got.StorageID != "identity" {
+		t.Fatalf("cursor update changed other settings: %+v, %v", got, err)
+	}
+	if !before.CreatedAt.Equal(got.CreatedAt) || !before.UpdatedAt.Equal(got.UpdatedAt) {
+		t.Fatal("storage bookkeeping changed settings timestamps")
+	}
+	cursor = -1
+	if err := repo.SetStorageRestoreCursor(ctx, &cursor); err == nil {
+		t.Fatal("accepted negative restore cursor")
+	}
+	if err := repo.SetStorageRestoreCursor(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repo.GetServerSettings(ctx)
+	if err != nil || got.StorageRestoreCursor != nil || got.StorageScanCursor != 42 || got.StorageID != "identity" {
+		t.Fatalf("reset restore cursor = %+v, %v", got, err)
+	}
+}

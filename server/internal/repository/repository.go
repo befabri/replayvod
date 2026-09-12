@@ -508,6 +508,9 @@ type Repository interface {
 	// SetStorageScanCursor persists the storage scan's resume position; 0
 	// restarts from the beginning of the library.
 	SetStorageScanCursor(ctx context.Context, cursor int64) error
+	// SetStorageRestoreCursor persists a separate restore pass: nil finishes
+	// it, zero starts it, and positive ids record completed pages.
+	SetStorageRestoreCursor(ctx context.Context, cursor *int64) error
 
 	// UpsertRecordingWebhookConfig persists only the recording-webhook config
 	// columns of server_settings (enabled, url, events), leaving server mode,

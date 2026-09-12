@@ -129,9 +129,11 @@ func (s *Service) Sweep(ctx context.Context) (report Report, sweepErr error) {
 	if err := s.verify(ctx); err != nil {
 		return Report{}, err
 	}
-	after := s.loadCursor(ctx)
+	after, restoreAfter := s.loadCursors(ctx)
 	var errs []error
-	for {
+	// A pending restore pass has already finished normal scanning. Resume it
+	// directly so a large library does not spend every deadline scanning again.
+	for restoreAfter == nil {
 		candidates, err := s.repo.ListVideosForStorageScan(ctx, after, scanPageSize)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -141,6 +143,11 @@ func (s *Service) Sweep(ctx context.Context) (report Report, sweepErr error) {
 		}
 		if len(candidates) == 0 {
 			s.saveCursor(ctx, 0)
+			start := int64(0)
+			restoreAfter = &start
+			if err := s.saveRestoreCursor(ctx, restoreAfter); err != nil {
+				return report, errors.Join(append(errs, err)...)
+			}
 			break
 		}
 		verdicts, err := s.inspectPage(ctx, candidates)
@@ -187,14 +194,15 @@ func (s *Service) Sweep(ctx context.Context) (report Report, sweepErr error) {
 		after = candidates[len(candidates)-1].VideoID
 		s.saveCursor(ctx, after)
 	}
-	errs = append(errs, s.restoreReturned(ctx, &report)...)
+	complete, restoreErrs := s.restoreReturned(ctx, &report, *restoreAfter)
+	errs = append(errs, restoreErrs...)
 	if ctx.Err() != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			errs = append(errs, ctx.Err())
 		}
 		return report, errors.Join(errs...)
 	}
-	report.Complete = true
+	report.Complete = complete
 	return report, errors.Join(errs...)
 }
 
@@ -229,33 +237,36 @@ func (s *Service) summarize(ctx context.Context, report Report, sweepErr error) 
 }
 
 // restoreReturned is the sweep's second phase: every missing tombstone whose
-// media is fully present again comes back into the library. Tombstones are
-// few, so the phase pages from the start each run and keeps no cursor.
-func (s *Service) restoreReturned(ctx context.Context, report *Report) []error {
+// media is fully present again comes back into the library. The durable cursor
+// skips completed pages of still-missing files across deadlines and restarts.
+// A partially processed page replays; already restored rows leave the query.
+func (s *Service) restoreReturned(ctx context.Context, report *Report, after int64) (bool, []error) {
 	var errs []error
-	var after int64
 	for {
 		if ctx.Err() != nil {
-			return errs
+			return false, errs
 		}
 		candidates, err := s.repo.ListMissingTombstones(ctx, after, scanPageSize)
 		if err != nil {
 			if ctx.Err() == nil {
 				errs = append(errs, err)
 			}
-			return errs
+			return false, errs
 		}
 		if len(candidates) == 0 {
-			return errs
+			if err := s.saveRestoreCursor(ctx, nil); err != nil {
+				return false, append(errs, err)
+			}
+			return true, errs
 		}
 		verdicts, err := s.inspectPage(ctx, candidates)
 		if ctx.Err() != nil {
-			return errs
+			return false, errs
 		}
 		if err != nil {
 			errs = append(errs, err)
 			if notAttached(err) {
-				return errs
+				return false, errs
 			}
 		}
 		if err == nil {
@@ -274,7 +285,13 @@ func (s *Service) restoreReturned(ctx context.Context, report *Report) []error {
 				report.Restored++
 			}
 		}
+		if ctx.Err() != nil {
+			return false, errs
+		}
 		after = candidates[len(candidates)-1].VideoID
+		if err := s.saveRestoreCursor(ctx, &after); err != nil {
+			return false, append(errs, err)
+		}
 	}
 }
 
@@ -389,15 +406,15 @@ func notAttached(err error) bool {
 	return errors.Is(err, storage.ErrUnreachable) || errors.Is(err, storage.ErrUnattached)
 }
 
-func (s *Service) loadCursor(ctx context.Context) int64 {
+func (s *Service) loadCursors(ctx context.Context) (int64, *int64) {
 	settings, err := s.repo.GetServerSettings(ctx)
 	if err != nil {
 		if !errors.Is(err, repository.ErrNotFound) {
 			s.log.Warn("load storage scan cursor; starting over", "error", err)
 		}
-		return 0
+		return 0, nil
 	}
-	return settings.StorageScanCursor
+	return settings.StorageScanCursor, settings.StorageRestoreCursor
 }
 
 // saveCursor commits the resume position even when the run's context has
@@ -408,6 +425,17 @@ func (s *Service) saveCursor(ctx context.Context, cursor int64) {
 	if err := s.repo.SetStorageScanCursor(saveCtx, cursor); err != nil {
 		s.log.Warn("persist storage scan cursor", "cursor", cursor, "error", err)
 	}
+}
+
+// Saving a completed restore page is independent of the request deadline.
+// Surface a persistence failure so it cannot masquerade as durable progress.
+func (s *Service) saveRestoreCursor(ctx context.Context, cursor *int64) error {
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cursorTimeout)
+	defer cancel()
+	if err := s.repo.SetStorageRestoreCursor(saveCtx, cursor); err != nil {
+		return fmt.Errorf("persist storage restore cursor: %w", err)
+	}
+	return nil
 }
 
 type mediaState int

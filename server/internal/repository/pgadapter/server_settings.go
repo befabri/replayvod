@@ -95,3 +95,10 @@ func (a *PGAdapter) SetStorageScanCursor(ctx context.Context, cursor int64) erro
 	}
 	return nil
 }
+
+func (a *PGAdapter) SetStorageRestoreCursor(ctx context.Context, cursor *int64) error {
+	if err := a.queries.SetStorageRestoreCursor(ctx, cursor); err != nil {
+		return fmt.Errorf("pg set storage restore cursor: %w", err)
+	}
+	return nil
+}

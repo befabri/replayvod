@@ -301,6 +301,7 @@ func sqliteServerSettingsToDomain(src sqlitegen.ServerSetting) *repository.Serve
 		SchedulesPaused:               src.SchedulesPaused != 0,
 		ServerMode:                    src.ServerMode,
 		StorageID:                     src.StorageID,
+		StorageRestoreCursor:          fromNullInt64(src.StorageRestoreCursor),
 		StorageScanCursor:             src.StorageScanCursor,
 		UpdatedAt:                     src.UpdatedAt.Time,
 	}

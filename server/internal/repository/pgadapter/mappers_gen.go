@@ -300,6 +300,7 @@ func pgServerSettingsToDomain(src pggen.ServerSetting) *repository.ServerSetting
 		SchedulesPaused:               src.SchedulesPaused,
 		ServerMode:                    src.ServerMode,
 		StorageID:                     src.StorageID,
+		StorageRestoreCursor:          src.StorageRestoreCursor,
 		StorageScanCursor:             src.StorageScanCursor,
 		UpdatedAt:                     src.UpdatedAt,
 	}

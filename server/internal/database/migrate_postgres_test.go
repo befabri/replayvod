@@ -35,6 +35,7 @@ var expectedServerSettingsColumns = []string{
 	"schedules_paused",
 	"storage_id",
 	"storage_scan_cursor",
+	"storage_restore_cursor",
 }
 
 func TestMain(m *testing.M) {

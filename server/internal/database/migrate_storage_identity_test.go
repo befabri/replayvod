@@ -21,13 +21,12 @@ func TestMigrationsStorageIdentityPreservesSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertMigrationTablesUnchanged(t, h.db, before)
-			settings, err := h.repo.GetServerSettings(ctx)
-			if err != nil || settings.StorageID != "" || settings.StorageScanCursor != 0 {
-				t.Fatalf("upgraded settings = %+v, %v; want empty storage id and cursor 0", settings, err)
+			var id string
+			var cursor int64
+			if err := h.db.QueryRowContext(ctx, "SELECT storage_id, storage_scan_cursor FROM server_settings").Scan(&id, &cursor); err != nil || id != "" || cursor != 0 {
+				t.Fatalf("upgraded storage = %q/%d, %v; want defaults", id, cursor, err)
 			}
-			if _, err := h.repo.SetStorageID(ctx, "cafe"); err != nil {
-				t.Fatal(err)
-			}
+			execMigrationSQL(t, h.db, "UPDATE server_settings SET storage_id = 'cafe'")
 			assertMigrationTablesUnchanged(t, h.db, before)
 			if err := h.repo.SetStorageScanCursor(ctx, 71); err != nil {
 				t.Fatal(err)
@@ -41,9 +40,8 @@ func TestMigrationsStorageIdentityPreservesSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertMigrationTablesUnchanged(t, h.db, before)
-			settings, err = h.repo.GetServerSettings(ctx)
-			if err != nil || settings.StorageID != "" || settings.StorageScanCursor != 0 {
-				t.Fatalf("re-upgraded settings = %+v, %v; want defaults after rollback", settings, err)
+			if err := h.db.QueryRowContext(ctx, "SELECT storage_id, storage_scan_cursor FROM server_settings").Scan(&id, &cursor); err != nil || id != "" || cursor != 0 {
+				t.Fatalf("re-upgraded storage = %q/%d, %v; want defaults", id, cursor, err)
 			}
 		})
 	}

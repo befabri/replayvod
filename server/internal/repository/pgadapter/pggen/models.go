@@ -198,6 +198,7 @@ type ServerSetting struct {
 	SchedulesPaused               bool      `json:"schedules_paused"`
 	StorageID                     string    `json:"storage_id"`
 	StorageScanCursor             int64     `json:"storage_scan_cursor"`
+	StorageRestoreCursor          *int64    `json:"storage_restore_cursor"`
 }
 
 type Session struct {

@@ -175,6 +175,7 @@ func Run(t *testing.T, newHarness Factory) {
 	// server settings + recording webhook + schedules pause
 	run("Settings_SetSchedulesPausedRoundTripAndIsolation", testSetSchedulesPausedRoundTripAndIsolation)
 	run("Settings_StorageIdentityRoundTripAndIsolation", testStorageIdentityRoundTripAndIsolation)
+	run("Settings_StorageRestoreCursorRoundTripAndIsolation", testStorageRestoreCursorRoundTripAndIsolation)
 	run("Settings_ServerHMACSecretPreservedAcrossUpsert", testServerHMACSecretPreservedAcrossUpsert)
 	run("RecordingWebhook_SecretEnsureCASSetUnconditional", testRecordingWebhookSecretEnsureIsCASSetIsUnconditional)
 	run("RecordingWebhook_ConfigRoundTrip", testRecordingWebhookConfigRoundTrip)

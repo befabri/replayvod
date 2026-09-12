@@ -1310,6 +1310,9 @@ type ServerSettings struct {
 	// persisted resume position.
 	StorageID         string
 	StorageScanCursor int64
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// StorageRestoreCursor is nil between passes, zero before the first page,
+	// or the last completed restore page's id while a pass is pending.
+	StorageRestoreCursor *int64
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
