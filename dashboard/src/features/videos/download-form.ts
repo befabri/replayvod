@@ -50,7 +50,7 @@ export function resolveDirectDownloadAvailability(
 
 export type DirectDownloadQuality =
 	| { kind: "loading" }
-	| { kind: "ceiling"; quality: RecordingQuality }
+	| { kind: "ceiling"; quality: RecordingQuality | null }
 	| {
 			kind: "rendition";
 			options: RenditionOption[];
@@ -88,7 +88,19 @@ export function resolveDirectDownloadQuality(
 	) {
 		return { kind: "loading" };
 	}
-	if (options.length === 0) return { kind: "ceiling", quality };
+	if (options.length === 0) {
+		// A failed or empty lookup cannot turn a pinned 936p choice into an
+		// unrestricted 1080p ceiling. Exact ladder heights can keep their limit;
+		// other heights require an explicit fallback choice before submission.
+		return {
+			kind: "ceiling",
+			quality:
+				typeof values.quality === "number" &&
+				RECORDING_QUALITY_HEIGHT[quality] !== values.quality
+					? null
+					: quality,
+		};
+	}
 	return {
 		kind: "rendition",
 		options,

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { RecordingSettingsFields } from "@/components/recording-settings-fields";
 import type { DirectDownloadController } from "@/features/videos/use-direct-download-form";
 import { qualityTierForHeight } from "@/lib/recording-settings";
@@ -11,15 +12,19 @@ export function DirectDownloadFields({
 	controller: DirectDownloadController;
 }) {
 	const { form, values, quality, disabled } = controller;
+	const { t } = useTranslation();
 	return (
 		<RecordingSettingsFields
 			tBase="videos"
 			recordingType={values.recording_type}
 			quality={
-				typeof values.quality === "number"
-					? qualityTierForHeight(values.quality)
-					: values.quality
+				quality.kind === "ceiling"
+					? quality.quality
+					: typeof values.quality === "number"
+						? qualityTierForHeight(values.quality)
+						: values.quality
 			}
+			qualityPlaceholder={t("videos.download.renditions_select")}
 			forceH264={values.force_h264}
 			onRecordingTypeChange={(v) => form.setFieldValue("recording_type", v)}
 			onQualityChange={(v) => form.setFieldValue("quality", v)}

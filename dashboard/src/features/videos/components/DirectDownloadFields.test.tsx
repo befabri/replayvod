@@ -309,6 +309,44 @@ describe("DirectDownloadFields and controller", () => {
 		});
 	});
 
+	it.each([
+		"error",
+		"empty",
+	] as const)("requires a new ceiling instead of raising a nonstandard pin after an %s codec lookup", async (result) => {
+		const view = harness(async (input) => {
+			if (input.force_h264) {
+				if (result === "error") throw new Error("no transcodes");
+				return { anonymous: false, renditions: [] };
+			}
+			return { anonymous: false, renditions: [{ height: 936, codec: "h265" }] };
+		});
+		await waitFor(() => expect(view.controller.ready).toBe(true));
+		act(() => view.controller.form.setFieldValue("quality", 936));
+		fireEvent.click(
+			screen.getByRole("checkbox", { name: "videos.force_h264" }),
+		);
+		await waitFor(() => expect(view.controller.quality.kind).toBe("ceiling"));
+		expect(view.controller.ready).toBe(false);
+		await view.submit();
+		expect(view.onSubmit).not.toHaveBeenCalled();
+		const quality = screen.getByRole("combobox", { name: "videos.quality" });
+		expect(quality.textContent).toBe("videos.download.renditions_select");
+		fireEvent.click(quality);
+		const option = screen.getByRole("option", {
+			name: "videos.quality_medium",
+		});
+		fireEvent.pointerDown(option, { pointerType: "mouse", button: 0 });
+		fireEvent.click(option);
+		await waitFor(() => expect(view.controller.ready).toBe(true));
+		await view.submit();
+		expect(view.onSubmit).toHaveBeenCalledWith({
+			broadcaster_id: "b1",
+			recording_type: "video",
+			quality: "MEDIUM",
+			force_h264: true,
+		});
+	});
+
 	it("allows audio during a pending video lookup and clears the codec", async () => {
 		const view = harness(async () => new Promise(() => {}));
 		await waitFor(() => expect(view.controller.availability).toBe("live"));

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildDirectDownloadPayload,
 	DirectDownloadFormSchema,
+	resolveDirectDownloadQuality,
 } from "./download-form";
 
 describe("buildDirectDownloadPayload", () => {
@@ -95,4 +96,36 @@ it.each([0, -1, 1.5, 4321])("rejects a pinned height of %s", (quality) => {
 			force_h264: false,
 		}).success,
 	).toBe(false);
+});
+
+it.each([
+	480, 720, 1080, 1440,
+])("preserves an exact %ip ceiling when rendition lookup fails", (height) => {
+	const values = {
+		recording_type: "video" as const,
+		quality: height,
+		force_h264: true,
+	};
+	const quality = resolveDirectDownloadQuality(values, true, {
+		data: undefined,
+		status: "error",
+		fetchStatus: "idle",
+	});
+	expect(quality.kind).toBe("ceiling");
+	if (quality.kind !== "ceiling") throw new Error("expected a ceiling");
+	if (quality.quality === null) throw new Error("expected the exact ceiling");
+	expect(
+		buildDirectDownloadPayload("b1", { ...values, quality: quality.quality }),
+	).not.toHaveProperty("max_height");
+});
+it.each([
+	360, 936, 1441, 2160, 4320,
+])("does not round a %ip pin up when rendition lookup fails", (height) => {
+	expect(
+		resolveDirectDownloadQuality(
+			{ recording_type: "video", quality: height, force_h264: true },
+			true,
+			{ data: undefined, status: "error", fetchStatus: "idle" },
+		),
+	).toEqual({ kind: "ceiling", quality: null });
 });

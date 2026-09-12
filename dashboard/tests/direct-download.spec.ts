@@ -14,6 +14,8 @@ async function downloadServer(page: Page, followed = false) {
 		downloads: [] as unknown[],
 		liveCalls: 0,
 		renditionCalls: 0,
+		renditionHeight: undefined as number | undefined,
+		emptyRenditions: false,
 		beforeLive: async () => {},
 		beforeRenditions: async (_h264: boolean) => {},
 	};
@@ -59,9 +61,9 @@ async function downloadServer(page: Page, followed = false) {
 					await state.beforeRenditions(h264);
 					return {
 						anonymous: !state.connected,
-						renditions: [
+						renditions: state.emptyRenditions ? [] : [
 							{
-								height: h264 || !state.connected ? 1080 : 1440,
+								height: state.renditionHeight ?? (h264 || !state.connected ? 1080 : 1440),
 								fps: 60,
 								codec: h264 ? "h264" : "h265",
 							},
@@ -269,3 +271,31 @@ test("connecting through the quality notice refreshes a cached anonymous list on
 	expect(state.renditionCalls).toBe(2);
 	expect(Date.now() - cachedAt).toBeLessThan(30_000);
 });
+
+for (const surface of ["channel", "watch"] as const) {
+	test(`${surface} requires an explicit ceiling when an unavailable codec cannot preserve a nonstandard quality`, async ({ page }) => {
+		const state = await downloadServer(page);
+		state.connected = true;
+		state.renditionHeight = 936;
+		await page.goto(surface === "channel" ? "/dashboard/channels/chan1" : "/dashboard/watch/95");
+		const dialog = await openDownload(page, surface);
+		const picker = dialog.getByTestId("live-rendition-picker");
+		await expect(picker).toContainText("936p60");
+		await picker.click();
+		await page.getByRole("option", { name: "936p60 · HEVC", exact: true }).click();
+		state.emptyRenditions = true;
+		await dialog.getByRole("checkbox", { name: /Force H.264/ }).check();
+		const fallback = dialog.getByRole("combobox", { name: "Quality", exact: true });
+		await expect(fallback).toContainText("Choose a quality");
+		const submit = dialog.getByRole("button", { name: "Start download", exact: true });
+		await expect(submit).toBeDisabled();
+		expect(state.downloads).toEqual([]);
+		await fallback.click();
+		await page.getByRole("option", { name: "Up to 720p", exact: true }).click();
+		await submit.click();
+		await expect(dialog).toHaveCount(0);
+		expect(state.downloads).toEqual([{
+			broadcaster_id: "chan1", recording_type: "video", quality: "MEDIUM", force_h264: true,
+		}]);
+	});
+}

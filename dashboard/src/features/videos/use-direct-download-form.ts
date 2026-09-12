@@ -77,7 +77,9 @@ export function useDirectDownloadForm({
 		!!broadcasterId &&
 		availability === "live" &&
 		quality.kind !== "loading" &&
-		(quality.kind !== "rendition" || quality.height !== null);
+		(quality.kind === "rendition"
+			? quality.height !== null
+			: quality.quality !== null);
 
 	return {
 		form,

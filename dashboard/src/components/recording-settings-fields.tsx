@@ -61,15 +61,17 @@ export function RecordingSettingsFields({
 	tBase,
 	disabled = false,
 	qualityPicker,
+	qualityPlaceholder,
 }: {
 	recordingType: RecordingMode;
 	onRecordingTypeChange: (value: RecordingMode) => void;
-	quality: RecordingQuality;
+	quality: RecordingQuality | null;
 	onQualityChange: (value: RecordingQuality) => void;
 	forceH264: boolean;
 	onForceH264Change: (value: boolean) => void;
 	tBase: string;
 	disabled?: boolean;
+	qualityPlaceholder?: string;
 	qualityPicker?: (props: { id: string; disabled: boolean }) => ReactNode;
 }) {
 	const { t } = useTranslation();
@@ -140,7 +142,7 @@ export function RecordingSettingsFields({
 								items={qualityItems}
 							>
 								<SelectTrigger id={`${id}-quality`}>
-									<SelectValue />
+									<SelectValue placeholder={qualityPlaceholder} />
 								</SelectTrigger>
 								<SelectContent>
 									{qualityItems.map((item) => (
@@ -158,7 +160,9 @@ export function RecordingSettingsFields({
 							>
 								{t(`${tBase}.quality_limit_hint`)}
 							</p>
-							{!settingsDisabled && <QualitySessionHint quality={quality} />}
+							{!settingsDisabled && quality !== null && (
+								<QualitySessionHint quality={quality} />
+							)}
 						</>
 					)}
 				</div>
