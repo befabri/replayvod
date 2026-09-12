@@ -29,7 +29,8 @@ func (c *Client) {{ .MethodName }}(ctx context.Context{{ if .HasParams }}, param
 {{ if .Paginated -}}
 // {{ .MethodName }}All iterates {{ .MethodName }} until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) {{ .MethodName }}All(ctx context.Context{{ if .HasParams }}, params *{{ .ParamsType }}{{ end }}) ([]{{ .ItemType }}, Pagination, error) {
 	var (
 		all  []{{ .ItemType }}
@@ -39,18 +40,26 @@ func (c *Client) {{ .MethodName }}All(ctx context.Context{{ if .HasParams }}, pa
 	if params == nil {
 		params = &{{ .ParamsType }}{}
 	}
-	{{ end -}}
+	for page := 1; ; page++ {
+	{{- else -}}
 	for {
-		page, pagination, err := c.{{ .MethodName }}(ctx{{ if .HasParams }}, params{{ end }})
+	{{- end }}
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.{{ .MethodName }}(ctx{{ if .HasParams }}, params{{ end }})
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
 		}
 		{{ if .HasParams -}}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
+		}
 		params.After = pagination.Cursor
 		{{ else -}}
 		return all, last, nil

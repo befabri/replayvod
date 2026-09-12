@@ -102,7 +102,8 @@ func (c *Client) GetClips(ctx context.Context, params *GetClipsParams) ([]Clip, 
 
 // GetClipsAll iterates GetClips until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) GetClipsAll(ctx context.Context, params *GetClipsParams) ([]Clip, Pagination, error) {
 	var (
 		all  []Clip
@@ -111,15 +112,21 @@ func (c *Client) GetClipsAll(ctx context.Context, params *GetClipsParams) ([]Cli
 	if params == nil {
 		params = &GetClipsParams{}
 	}
-	for {
-		page, pagination, err := c.GetClips(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.GetClips(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}
@@ -139,7 +146,8 @@ func (c *Client) GetEventSubSubscriptions(ctx context.Context, params *GetEventS
 
 // GetEventSubSubscriptionsAll iterates GetEventSubSubscriptions until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) GetEventSubSubscriptionsAll(ctx context.Context, params *GetEventSubSubscriptionsParams) ([]EventSubSubscription, Pagination, error) {
 	var (
 		all  []EventSubSubscription
@@ -148,15 +156,21 @@ func (c *Client) GetEventSubSubscriptionsAll(ctx context.Context, params *GetEve
 	if params == nil {
 		params = &GetEventSubSubscriptionsParams{}
 	}
-	for {
-		page, pagination, err := c.GetEventSubSubscriptions(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.GetEventSubSubscriptions(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}
@@ -176,7 +190,8 @@ func (c *Client) GetFollowedChannels(ctx context.Context, params *GetFollowedCha
 
 // GetFollowedChannelsAll iterates GetFollowedChannels until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) GetFollowedChannelsAll(ctx context.Context, params *GetFollowedChannelsParams) ([]FollowedChannel, Pagination, error) {
 	var (
 		all  []FollowedChannel
@@ -185,15 +200,21 @@ func (c *Client) GetFollowedChannelsAll(ctx context.Context, params *GetFollowed
 	if params == nil {
 		params = &GetFollowedChannelsParams{}
 	}
-	for {
-		page, pagination, err := c.GetFollowedChannels(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.GetFollowedChannels(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}
@@ -213,7 +234,8 @@ func (c *Client) GetFollowedStreams(ctx context.Context, params *GetFollowedStre
 
 // GetFollowedStreamsAll iterates GetFollowedStreams until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) GetFollowedStreamsAll(ctx context.Context, params *GetFollowedStreamsParams) ([]Stream, Pagination, error) {
 	var (
 		all  []Stream
@@ -222,15 +244,21 @@ func (c *Client) GetFollowedStreamsAll(ctx context.Context, params *GetFollowedS
 	if params == nil {
 		params = &GetFollowedStreamsParams{}
 	}
-	for {
-		page, pagination, err := c.GetFollowedStreams(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.GetFollowedStreams(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}
@@ -262,7 +290,8 @@ func (c *Client) GetStreamMarkers(ctx context.Context, params *GetStreamMarkersP
 
 // GetStreamMarkersAll iterates GetStreamMarkers until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) GetStreamMarkersAll(ctx context.Context, params *GetStreamMarkersParams) ([]StreamMarkers, Pagination, error) {
 	var (
 		all  []StreamMarkers
@@ -271,15 +300,21 @@ func (c *Client) GetStreamMarkersAll(ctx context.Context, params *GetStreamMarke
 	if params == nil {
 		params = &GetStreamMarkersParams{}
 	}
-	for {
-		page, pagination, err := c.GetStreamMarkers(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.GetStreamMarkers(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}
@@ -299,7 +334,8 @@ func (c *Client) GetStreams(ctx context.Context, params *GetStreamsParams) ([]St
 
 // GetStreamsAll iterates GetStreams until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) GetStreamsAll(ctx context.Context, params *GetStreamsParams) ([]Stream, Pagination, error) {
 	var (
 		all  []Stream
@@ -308,15 +344,21 @@ func (c *Client) GetStreamsAll(ctx context.Context, params *GetStreamsParams) ([
 	if params == nil {
 		params = &GetStreamsParams{}
 	}
-	for {
-		page, pagination, err := c.GetStreams(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.GetStreams(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}
@@ -336,7 +378,8 @@ func (c *Client) GetTopGames(ctx context.Context, params *GetTopGamesParams) ([]
 
 // GetTopGamesAll iterates GetTopGames until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) GetTopGamesAll(ctx context.Context, params *GetTopGamesParams) ([]Game, Pagination, error) {
 	var (
 		all  []Game
@@ -345,15 +388,21 @@ func (c *Client) GetTopGamesAll(ctx context.Context, params *GetTopGamesParams) 
 	if params == nil {
 		params = &GetTopGamesParams{}
 	}
-	for {
-		page, pagination, err := c.GetTopGames(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.GetTopGames(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}
@@ -385,7 +434,8 @@ func (c *Client) GetVideos(ctx context.Context, params *GetVideosParams) ([]Vide
 
 // GetVideosAll iterates GetVideos until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) GetVideosAll(ctx context.Context, params *GetVideosParams) ([]Video, Pagination, error) {
 	var (
 		all  []Video
@@ -394,15 +444,21 @@ func (c *Client) GetVideosAll(ctx context.Context, params *GetVideosParams) ([]V
 	if params == nil {
 		params = &GetVideosParams{}
 	}
-	for {
-		page, pagination, err := c.GetVideos(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.GetVideos(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}
@@ -433,7 +489,8 @@ func (c *Client) SearchCategories(ctx context.Context, params *SearchCategoriesP
 
 // SearchCategoriesAll iterates SearchCategories until pagination is exhausted.
 // The returned Pagination carries the final page's Total / TotalCost / MaxCost
-// so callers can record quota without rolling their own loop.
+// so callers can record quota without rolling their own loop. A repeated
+// cursor or a listing past maxPaginationPages ends with ErrPaginationStalled.
 func (c *Client) SearchCategoriesAll(ctx context.Context, params *SearchCategoriesParams) ([]SearchCategory, Pagination, error) {
 	var (
 		all  []SearchCategory
@@ -442,15 +499,21 @@ func (c *Client) SearchCategoriesAll(ctx context.Context, params *SearchCategori
 	if params == nil {
 		params = &SearchCategoriesParams{}
 	}
-	for {
-		page, pagination, err := c.SearchCategories(ctx, params)
+	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, Pagination{}, err
+		}
+		items, pagination, err := c.SearchCategories(ctx, params)
 		if err != nil {
 			return nil, Pagination{}, err
 		}
-		all = append(all, page...)
+		all = append(all, items...)
 		last = pagination
 		if pagination.Cursor == "" {
 			return all, last, nil
+		}
+		if err := CheckPageCursor(params.After, pagination.Cursor, page, maxPaginationPages); err != nil {
+			return nil, Pagination{}, err
 		}
 		params.After = pagination.Cursor
 	}

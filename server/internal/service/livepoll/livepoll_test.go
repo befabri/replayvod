@@ -20,6 +20,9 @@ type fakeRepo struct {
 	activeStreams    []repository.Stream
 	channelsErr      error
 	activeStreamsErr error
+	// beforeActive runs at the top of ListActiveStreams; a non-nil result is
+	// returned as the read's error.
+	beforeActive func(ctx context.Context) error
 }
 
 func (r *fakeRepo) ListChannels(context.Context) ([]repository.Channel, error) {
@@ -29,7 +32,12 @@ func (r *fakeRepo) ListChannels(context.Context) ([]repository.Channel, error) {
 	return append([]repository.Channel(nil), r.channels...), nil
 }
 
-func (r *fakeRepo) ListActiveStreams(context.Context) ([]repository.Stream, error) {
+func (r *fakeRepo) ListActiveStreams(ctx context.Context) ([]repository.Stream, error) {
+	if r.beforeActive != nil {
+		if err := r.beforeActive(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if r.activeStreamsErr != nil {
 		return nil, r.activeStreamsErr
 	}
@@ -44,9 +52,17 @@ type fakeTwitch struct {
 	pageSize int      // 0 = every match in a single page
 	err      error    // returned from every GetStreams call when set
 	ticked   chan int // optional: receives the call number on each GetStreams
+	// echoCursor, when set, is returned as the cursor of every page: the
+	// stalled-pagination shape. freshCursor returns a new cursor on every
+	// page instead, so the drain never ends on its own.
+	echoCursor  string
+	freshCursor bool
+	// beforeReply runs with the call number before any reply; a non-nil
+	// result is returned as the call's error.
+	beforeReply func(ctx context.Context, call int) error
 }
 
-func (f *fakeTwitch) GetStreams(_ context.Context, params *twitch.GetStreamsParams) ([]twitch.Stream, twitch.Pagination, error) {
+func (f *fakeTwitch) GetStreams(ctx context.Context, params *twitch.GetStreamsParams) ([]twitch.Stream, twitch.Pagination, error) {
 	f.mu.Lock()
 	f.calls++
 	call := f.calls
@@ -61,8 +77,19 @@ func (f *fakeTwitch) GetStreams(_ context.Context, params *twitch.GetStreamsPara
 		default:
 		}
 	}
+	if f.beforeReply != nil {
+		if err := f.beforeReply(ctx, call); err != nil {
+			return nil, twitch.Pagination{}, err
+		}
+	}
 	if f.err != nil {
 		return nil, twitch.Pagination{}, f.err
+	}
+	if f.echoCursor != "" {
+		return nil, twitch.Pagination{Cursor: f.echoCursor}, nil
+	}
+	if f.freshCursor {
+		return nil, twitch.Pagination{Cursor: strconv.Itoa(call)}, nil
 	}
 
 	allowed := make(map[string]bool, len(params.UserID))
@@ -596,5 +623,200 @@ func stream(id, broadcasterID string, startedAt time.Time) twitch.Stream {
 		UserName:  broadcasterID + "-name",
 		Type:      "live",
 		StartedAt: startedAt,
+	}
+}
+
+// assertQuietLog fails when the captured log carries anything at warn level or
+// above.
+func assertQuietLog(t *testing.T, buf *bytes.Buffer) {
+	t.Helper()
+	for _, level := range []string{"level=WARN", "level=ERROR"} {
+		if bytes.Contains(buf.Bytes(), []byte(level)) {
+			t.Fatalf("unexpected %s entry:\n%s", level, buf.String())
+		}
+	}
+}
+
+// seededService returns a poller whose baseline already holds b-1 live, so a
+// tick that wrongly treats a partial or failed fetch as authoritative would
+// dispatch a spurious stream.offline for it.
+func seededService(tw *fakeTwitch, proc *fakeProcessor, log *slog.Logger) *Service {
+	repo := &fakeRepo{
+		channels:      []repository.Channel{channel("b-1")},
+		activeStreams: []repository.Stream{{ID: "s-1", BroadcasterID: "b-1"}},
+	}
+	return New(repo, tw, proc, time.Minute, log)
+}
+
+// TestFetchLiveRepeatedCursorFailsTheTick pins the progress guard: a Helix
+// reply that echoes the cursor it was given ends the tick with an error on
+// its first reuse instead of draining forever, and nothing is dispatched
+// from the partial page set.
+func TestFetchLiveRepeatedCursorFailsTheTick(t *testing.T) {
+	tw := &fakeTwitch{echoCursor: "same"}
+	proc := &fakeProcessor{}
+	svc := seededService(tw, proc, nil)
+
+	err := svc.tick(context.Background())
+	if !errors.Is(err, twitch.ErrPaginationStalled) {
+		t.Fatalf("tick = %v, want ErrPaginationStalled", err)
+	}
+	if tw.calls != 2 {
+		t.Fatalf("GetStreams calls = %d, want 2 (stall detected on the cursor's first reuse)", tw.calls)
+	}
+	if len(proc.online) != 0 || len(proc.offline) != 0 || len(proc.closeStale) != 0 {
+		t.Fatalf("dispatched online=%d offline=%d closeStale=%d after a stalled drain; want none", len(proc.online), len(proc.offline), len(proc.closeStale))
+	}
+	if _, live := svc.lastLive["b-1"]; !live {
+		t.Fatal("lastLive lost b-1 after a failed fetch")
+	}
+}
+
+// TestFetchLivePageCapFailsTheTick pins the second half of the guard: cursors
+// that keep changing but never end stop at maxGetStreamsPages.
+func TestFetchLivePageCapFailsTheTick(t *testing.T) {
+	tw := &fakeTwitch{freshCursor: true}
+	proc := &fakeProcessor{}
+	svc := seededService(tw, proc, nil)
+
+	err := svc.tick(context.Background())
+	if !errors.Is(err, twitch.ErrPaginationStalled) {
+		t.Fatalf("tick = %v, want ErrPaginationStalled", err)
+	}
+	if tw.calls != maxGetStreamsPages {
+		t.Fatalf("GetStreams calls = %d, want %d (page cap)", tw.calls, maxGetStreamsPages)
+	}
+	if len(proc.offline) != 0 {
+		t.Fatalf("offline dispatches = %d after a capped drain; want none", len(proc.offline))
+	}
+}
+
+// TestFetchLiveStopsOnCancellationBetweenPages pins the in-loop ctx check: a
+// context cancelled while a page is in flight ends the drain before the next
+// request, even when the client itself keeps answering.
+func TestFetchLiveStopsOnCancellationBetweenPages(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tw := &fakeTwitch{freshCursor: true, beforeReply: func(_ context.Context, call int) error {
+		if call == 2 {
+			cancel()
+		}
+		return nil
+	}}
+	svc := seededService(tw, &fakeProcessor{}, nil)
+
+	err := svc.tick(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("tick = %v, want context.Canceled", err)
+	}
+	if tw.calls != 2 {
+		t.Fatalf("GetStreams calls = %d, want 2 (no request after cancellation)", tw.calls)
+	}
+}
+
+// TestRunOnceStaysQuietOnShutdownCancellation pins that a tick cut short by
+// the poller's own shutdown is not reported as a poll failure, while the same
+// error outside shutdown still is.
+func TestRunOnceStaysQuietOnShutdownCancellation(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tw := &fakeTwitch{beforeReply: func(ctx context.Context, _ int) error {
+		cancel()
+		return ctx.Err()
+	}}
+	seededService(tw, &fakeProcessor{}, log).runOnce(ctx)
+	if tw.calls != 1 {
+		t.Fatalf("GetStreams calls = %d, want 1", tw.calls)
+	}
+	assertQuietLog(t, &buf)
+
+	buf.Reset()
+	seededService(&fakeTwitch{err: errors.New("helix down")}, &fakeProcessor{}, log).runOnce(context.Background())
+	if !bytes.Contains(buf.Bytes(), []byte("level=WARN")) {
+		t.Fatalf("a real tick failure was not logged at warn; got:\n%s", buf.String())
+	}
+}
+
+// TestSeedCancellationIsNotCountedAsFailure pins that a baseline read
+// interrupted by shutdown neither advances the seed-failure counter nor
+// reaches the stall alarm, however many times it repeats.
+func TestSeedCancellationIsNotCountedAsFailure(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	repo := &fakeRepo{
+		channels: []repository.Channel{channel("b-1")},
+		beforeActive: func(ctx context.Context) error {
+			cancel()
+			return ctx.Err()
+		},
+	}
+	tw := &fakeTwitch{}
+	svc := New(repo, tw, &fakeProcessor{}, time.Minute, log)
+	for range seedFailureEscalation {
+		svc.runOnce(ctx)
+	}
+	if svc.seedFailures != 0 {
+		t.Fatalf("seedFailures = %d after cancelled seeds, want 0", svc.seedFailures)
+	}
+	if svc.seeded {
+		t.Fatal("seeded = true after a cancelled seed")
+	}
+	if tw.calls != 0 {
+		t.Fatalf("GetStreams calls = %d after cancelled seeds, want 0", tw.calls)
+	}
+	assertQuietLog(t, &buf)
+}
+
+func TestSeededLiveStreamRefreshesIdentityForOfflineEvent(t *testing.T) {
+	repo := &fakeRepo{channels: []repository.Channel{channel("b-1")}, activeStreams: []repository.Stream{{ID: "s-1", BroadcasterID: "b-1"}}}
+	tw := &fakeTwitch{streams: []twitch.Stream{stream("s-1", "b-1", time.Now())}}
+	proc := &fakeProcessor{}
+	svc := New(repo, tw, proc, time.Minute, nil)
+	if err := svc.tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(proc.online) != 0 {
+		t.Fatal("same stream dispatched online again")
+	}
+	repo.channels = nil
+	tw.streams = nil
+	if err := svc.tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(proc.offline) != 1 || proc.offline[0].BroadcasterUserLogin != "b-1-login" {
+		t.Fatalf("offline identity: %+v", proc.offline)
+	}
+}
+
+func TestFailedReplacementKeepsEventualOfflineNotification(t *testing.T) {
+	repo := &fakeRepo{channels: []repository.Channel{channel("b-1")}, activeStreams: []repository.Stream{{ID: "old", BroadcasterID: "b-1"}}}
+	tw := &fakeTwitch{streams: []twitch.Stream{stream("new", "b-1", time.Now())}}
+	proc := &fakeProcessor{onlineErr: errors.New("storage unavailable")}
+	svc := New(repo, tw, proc, time.Minute, nil)
+	if err := svc.tick(t.Context()); err == nil {
+		t.Fatal("expected admission failure")
+	}
+	if len(proc.closeStale) != 1 {
+		t.Fatal("old stream not closed")
+	}
+	proc.onlineErr = nil
+	tw.streams = nil
+	if err := svc.tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(proc.offline) != 1 {
+		t.Fatalf("offline event lost: %+v", proc.offline)
+	}
+	if err := svc.tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(proc.offline) != 1 {
+		t.Fatal("offline event duplicated")
 	}
 }

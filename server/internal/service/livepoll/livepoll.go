@@ -14,6 +14,11 @@ import (
 
 const maxGetStreamsUserIDs = 100
 
+// maxGetStreamsPages bounds one batch's cursor drain. A batch of at most 100
+// broadcasters fits one page at First=100; the headroom covers Helix returning
+// short pages without letting a stalled cursor spin forever.
+const maxGetStreamsPages = 10
+
 // seedFailureEscalation is how many consecutive seed failures we tolerate while
 // logging at warn before escalating to error. Seeding reads the local DB; a few
 // transient misses are unremarkable, but a persistently unreadable store stalls
@@ -102,10 +107,14 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
+// runOnce logs a failed tick unless the poller itself is shutting down, in
+// which case the error is only the cancellation surfacing.
 func (s *Service) runOnce(ctx context.Context) {
-	if err := s.tick(ctx); err != nil {
-		s.log.Warn("live poll tick failed", "error", err)
+	err := s.tick(ctx)
+	if err == nil || ctx.Err() != nil {
+		return
 	}
+	s.log.Warn("live poll tick failed", "error", err)
 }
 
 // tick is one poll iteration: make sure we have a live baseline, fetch who is
@@ -128,9 +137,9 @@ func (s *Service) tick(ctx context.Context) error {
 		return err
 	}
 
-	// Online must run before offline: it mutates lastLive (closing stale rows,
-	// recording newly-live broadcasters), and the offline pass reads the result
-	// to decide who has truly left the live set.
+	// The passes touch disjoint broadcaster sets (online only those in liveNow,
+	// offline only those absent from it), so their order is immaterial; the
+	// errors are joined so one pass cannot skip the other.
 	return errors.Join(
 		s.dispatchOnline(ctx, liveNow),
 		s.dispatchOffline(ctx, liveNow, channelByID),
@@ -142,12 +151,16 @@ func (s *Service) tick(ctx context.Context) error {
 // cannot tell "still live" from "newly live", so every live broadcaster would
 // get a spurious stream.online. A seed failure is returned so the tick aborts
 // and retries next interval; repeated failures escalate past warn so a
-// persistently unreadable store is not silent.
+// persistently unreadable store is not silent. A read cut short by shutdown
+// is neither counted nor logged.
 func (s *Service) ensureSeeded(ctx context.Context) error {
 	if s.seeded {
 		return nil
 	}
 	if err := s.seedActiveStreams(ctx); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
 		s.seedFailures++
 		if s.seedFailures >= seedFailureEscalation {
 			s.log.Error("live poller cannot seed active streams; live/offline detection is stalled until the store recovers",
@@ -185,8 +198,14 @@ func (s *Service) dispatchOnline(ctx context.Context, liveNow map[string]twitch.
 	var dispatchErr error
 	for broadcasterID, stream := range liveNow {
 		prev, wasLive := s.lastLive[broadcasterID]
-		if wasLive && prev.streamID == stream.ID {
-			continue
+		if wasLive {
+			// Refresh identity even when no online dispatch is needed (notably
+			// entries seeded at boot). Keep it if recording admission fails.
+			prev.login, prev.name = stream.UserLogin, stream.UserName
+			s.lastLive[broadcasterID] = prev
+			if prev.streamID == stream.ID {
+				continue
+			}
 		}
 		// The broadcaster is live under a stream ID we have not recorded. If a
 		// different stream was live before (a rerun, or an offline/online blip
@@ -199,7 +218,8 @@ func (s *Service) dispatchOnline(ctx context.Context, liveNow map[string]twitch.
 				dispatchErr = errors.Join(dispatchErr, fmt.Errorf("close stale stream for %s: %w", broadcasterID, err))
 				continue
 			}
-			delete(s.lastLive, broadcasterID)
+			// Retain the live entry until the replacement dispatch succeeds.
+			// Otherwise a failed start would erase the eventual offline event.
 		}
 		if err := s.processor.DispatchStreamOnlineFromStream(ctx, stream); err != nil {
 			dispatchErr = errors.Join(dispatchErr, fmt.Errorf("dispatch stream.online for %s: %w", broadcasterID, err))
@@ -273,9 +293,14 @@ func (s *Service) fetchLive(ctx context.Context, broadcasterIDs []string) (map[s
 		// by an explicit user_id. Without First=100 plus cursor draining, a batch
 		// with more than 20 simultaneously-live broadcasters would silently drop
 		// the tail, and the offline loop would then dispatch spurious
-		// stream.offline events for the dropped (still-live) channels.
+		// stream.offline events for the dropped (still-live) channels. A drain
+		// that stalls fails the whole fetch: a partial live set would report
+		// the unseen tail as offline.
 		cursor := ""
-		for {
+		for page := 1; ; page++ {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			streams, pagination, err := s.twitch.GetStreams(ctx, &twitch.GetStreamsParams{
 				UserID: broadcasterIDs[start:end],
 				Type:   "live",
@@ -293,6 +318,9 @@ func (s *Service) fetchLive(ctx context.Context, broadcasterIDs []string) (map[s
 			}
 			if pagination.Cursor == "" {
 				break
+			}
+			if err := twitch.CheckPageCursor(cursor, pagination.Cursor, page, maxGetStreamsPages); err != nil {
+				return nil, fmt.Errorf("get streams batch %d: %w", start/maxGetStreamsUserIDs+1, err)
 			}
 			cursor = pagination.Cursor
 		}
