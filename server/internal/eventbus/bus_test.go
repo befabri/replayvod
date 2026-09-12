@@ -2,8 +2,51 @@ package eventbus
 
 import (
 	"context"
+	"runtime"
+	"sync"
 	"testing"
 )
+
+// Exercise cancellation while publishers still hold references to subscribers.
+// Waiting for every channel to close also checks that full buffers cannot keep
+// a disconnect blocked. Run under -race to catch unsafe sends even without a panic.
+func TestPublishConcurrentUnsubscribe(t *testing.T) {
+	topic := NewTopic[int](1)
+	ctx, cancel := context.WithCancel(t.Context())
+	var publishers sync.WaitGroup
+	panics := make(chan any, 4)
+	for range cap(panics) {
+		publishers.Go(func() {
+			defer func() {
+				if p := recover(); p != nil {
+					panics <- p
+				}
+			}()
+			for ctx.Err() == nil {
+				topic.Publish(1)
+				runtime.Gosched()
+			}
+		})
+	}
+	t.Cleanup(func() { cancel(); publishers.Wait() })
+	for range 2000 {
+		subCtx, unsubscribe := context.WithCancel(ctx)
+		ch := topic.Subscribe(subCtx)
+		runtime.Gosched()
+		unsubscribe()
+		for range ch {
+		}
+	}
+	cancel()
+	publishers.Wait()
+	close(panics)
+	for p := range panics {
+		t.Errorf("publishing during disconnect panicked: %v", p)
+	}
+	if got := topic.Count(); got != 0 {
+		t.Fatalf("disconnected subscribers remain: %d", got)
+	}
+}
 
 // TestNewTopicBufferDefault pins the per-subscriber buffer sizing: a
 // non-positive bufSize falls back to 16, and a positive value is used

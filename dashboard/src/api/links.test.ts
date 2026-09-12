@@ -1,7 +1,7 @@
 import { createTRPCClient } from "@trpc/client";
 import { describe, expect, it, vi } from "vitest";
 import type { AppRouter } from "@/api/trpc";
-import { dashboardLinks, KEEPALIVE_CONTEXT } from "./links";
+import { dashboardLinks, KEEPALIVE_CONTEXT, subscriptionUrl } from "./links";
 
 const state = {
 	watch_later: false,
@@ -123,4 +123,16 @@ describe("dashboardLinks credential transport", () => {
 			}),
 		);
 	});
+});
+
+it.each([
+	["", "http://localhost:3000/dashboard", "ws://localhost:3000/trpc/ws"],
+	["", "https://replay.example/dashboard", "wss://replay.example/trpc/ws"],
+	[
+		"https://api.example",
+		"https://dashboard.example/",
+		"wss://api.example/trpc/ws",
+	],
+])("resolves the subscription endpoint for %s at %s", (api, page, expected) => {
+	expect(subscriptionUrl(api, page)).toBe(expected);
 });

@@ -18,6 +18,7 @@ const config = defineConfig({
 				changeOrigin: true,
 			},
 			"/trpc": {
+				ws: true,
 				target: "http://localhost:8080",
 				changeOrigin: true,
 			},

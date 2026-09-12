@@ -28,6 +28,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/settings"
 	"github.com/befabri/replayvod/server/internal/server/api/sse"
 	"github.com/befabri/replayvod/server/internal/server/api/stream"
+	"github.com/befabri/replayvod/server/internal/server/api/subscriptions"
 	"github.com/befabri/replayvod/server/internal/server/api/system"
 	"github.com/befabri/replayvod/server/internal/server/api/tag"
 	"github.com/befabri/replayvod/server/internal/server/api/task"
@@ -159,6 +160,8 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	trpcHandler := trpc.NewHandler(trpcRouter, "/trpc",
 		trpc.WithPublicOrigins(trustedBrowserOrigins...),
 	)
+	wsHandler := subscriptions.NewHandler(trpcRouter, trustedBrowserOrigins)
+	r.With(sessionMw).Get("/trpc/ws", wsHandler.ServeHTTP)
 	r.Group(func(r chi.Router) {
 		r.Use(csrfProtection.Handler)
 		// Per method rather than a catch-all so routedMethods sees what tRPC
@@ -187,7 +190,10 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// every route is registered.
 	root.Use(middleware.CORS(trustedBrowserOrigins, routedMethods(r), trpc.RequestHeaders()))
 	root.Mount("/", r)
-	return root, trpcRouter.Close
+	return root, func() error {
+		_ = wsHandler.Close()
+		return trpcRouter.Close()
+	}
 }
 
 // routedMethods returns the methods the routes register explicitly, sorted.

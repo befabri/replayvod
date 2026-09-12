@@ -13,8 +13,8 @@ import { handleApiError, isUnauthorized } from "@/api/unauthorized";
 import { API_URL } from "@/env";
 
 // The link chain lives in dashboardLinks: subscriptions (task.status,
-// stream.live, system.events, video.downloadProgress) over Server-Sent
-// Events, keepalive writes on their own request, batching for the rest.
+// stream.live, system.events, video.downloadProgress) share one WebSocket;
+// keepalive writes use their own request, with batching for the rest.
 export const trpcClient = createTRPCClient<AppRouter>({
 	links: dashboardLinks({
 		apiUrl: API_URL,

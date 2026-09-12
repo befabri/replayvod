@@ -70,13 +70,10 @@ func (t *Topic[T]) Subscribe(ctx context.Context) <-chan T {
 // contract is "latest events delivered" not "every event delivered."
 func (t *Topic[T]) Publish(event T) {
 	t.mu.Lock()
-	targets := make([]chan T, 0, len(t.subs))
+	defer t.mu.Unlock()
+	// Unsubscribe closes channels under this same lock. Keep non-blocking
+	// sends inside it so a disconnect cannot close a pending send's target.
 	for _, ch := range t.subs {
-		targets = append(targets, ch)
-	}
-	t.mu.Unlock()
-
-	for _, ch := range targets {
 		select {
 		case ch <- event:
 		default:

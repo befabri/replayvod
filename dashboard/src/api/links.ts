@@ -1,10 +1,11 @@
 import {
+	createWSClient,
 	httpBatchLink,
 	httpLink,
-	httpSubscriptionLink,
 	type Operation,
 	splitLink,
 	type TRPCLink,
+	wsLink,
 } from "@trpc/client";
 import { credentialTransportLink } from "@/api/credential-transport";
 import type { AppRouter } from "@/api/trpc";
@@ -23,11 +24,11 @@ export function isKeepaliveOp(op: Operation): boolean {
 }
 
 // dashboardLinks composes the dashboard transport. Subscriptions speak
-// Server-Sent Events; keepalive mutations (see KEEPALIVE_CONTEXT) go out one
+// a shared WebSocket; keepalive mutations (see KEEPALIVE_CONTEXT) go out one
 // per request so the flag applies to exactly that write and a batch-mate
 // cannot hold it back; everything else batches. `credentials: "include"` keeps
-// the session cookie on the cross-origin dev flow, and EventSource carries it
-// on its own when served same-origin.
+// the session cookie on the cross-origin dev flow. WebSocket handshakes carry
+// the same cookies and the server checks their Origin before accepting them.
 export function dashboardLinks({
 	apiUrl,
 	credentialsAllowed,
@@ -58,10 +59,7 @@ export function dashboardLinks({
 			}),
 			false: splitLink({
 				condition: (op) => op.type === "subscription",
-				true: httpSubscriptionLink({
-					url,
-					eventSourceOptions: { withCredentials: true },
-				}),
+				true: subscriptionLink(apiUrl),
 				false: httpBatchLink({
 					url,
 					fetch(input, options) {
@@ -71,4 +69,34 @@ export function dashboardLinks({
 			}),
 		}),
 	];
+}
+
+// Initialize on the first subscription, never during SSR or an HTTP-only call.
+// wsLink multiplexes all observers through this client; reconnect restores the
+// active subscriptions and onStarted lets their query caches resynchronize.
+function subscriptionLink(apiUrl: string): TRPCLink<AppRouter> {
+	return (runtime) => {
+		let link: ReturnType<TRPCLink<AppRouter>> | undefined;
+		return (options) => {
+			if (!link) {
+				const client = createWSClient({
+					url: () => subscriptionUrl(apiUrl, window.location.href),
+					lazy: { enabled: true, closeMs: 1_000 },
+					keepAlive: {
+						enabled: true,
+						intervalMs: 25_000,
+						pongTimeoutMs: 10_000,
+					},
+				});
+				link = wsLink<AppRouter>({ client })(runtime);
+			}
+			return link(options);
+		};
+	};
+}
+
+export function subscriptionUrl(apiUrl: string, pageUrl: string): string {
+	const url = new URL(`${apiUrl}/trpc/ws`, pageUrl);
+	url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+	return url.href;
 }
