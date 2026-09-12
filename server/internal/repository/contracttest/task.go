@@ -3,6 +3,8 @@ package contracttest
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -119,5 +121,84 @@ func testTaskSetNextRunMissingReturnsNotFound(t *testing.T, h Harness) {
 
 	if err := repo.SetTaskNextRun(ctx, "missing-task"); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("SetTaskNextRun error = %v, want ErrNotFound", err)
+	}
+}
+
+func testTaskInterruptedRetriesImmediately(t *testing.T, h Harness) {
+	repo := h.Repo()
+	ctx := context.Background()
+	if _, err := repo.UpsertTask(ctx, "interrupt", "daily", 86400); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkTaskFailed(ctx, "interrupt", 2, "old failure"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkTaskRunning(ctx, "interrupt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkTaskInterrupted(ctx, "interrupt", 37); err != nil {
+		t.Fatal(err)
+	}
+	row, err := repo.GetTask(ctx, "interrupt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.LastStatus != repository.TaskStatusInterrupted || row.LastError != nil || row.LastDurationMs != 37 || row.NextRunAt == nil || time.Until(*row.NextRunAt) > time.Second {
+		t.Fatalf("interrupted result: %+v", row)
+	}
+	due, err := repo.ListDueTasks(ctx)
+	if err != nil || len(due) != 1 || due[0].Name != "interrupt" {
+		t.Fatalf("interrupted task not due: %+v %v", due, err)
+	}
+	if _, err := repo.SetTaskEnabled(ctx, "interrupt", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkTaskInterrupted(ctx, "interrupt", 38); err != nil {
+		t.Fatal(err)
+	}
+	due, err = repo.ListDueTasks(ctx)
+	if err != nil || len(due) != 0 {
+		t.Fatalf("interruption re-enabled a paused task: %+v %v", due, err)
+	}
+}
+
+func testTaskAutomaticRunRespectsDisabledState(t *testing.T, h Harness) {
+	repo := h.Repo()
+	ctx := context.Background()
+	if err := repo.ScheduleTaskIfEnabled(ctx, "absent"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("missing: %v", err)
+	}
+	for _, interval := range []int64{0, 60} {
+		name := fmt.Sprint(interval)
+		if _, err := repo.UpsertTask(ctx, name, "scan", interval); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.SetTaskEnabled(ctx, name, false); err != nil {
+			t.Fatal(err)
+		}
+		before, err := repo.GetTask(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.ScheduleTaskIfEnabled(ctx, name); !errors.Is(err, repository.ErrNotFound) {
+			t.Fatalf("disabled: %v", err)
+		}
+		after, err := repo.GetTask(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("disabled task changed: before=%+v after=%+v", before, after)
+		}
+		if _, err := repo.SetTaskEnabled(ctx, name, true); err != nil {
+			t.Fatal(err)
+		}
+		err = repo.ScheduleTaskIfEnabled(ctx, name)
+		if interval == 0 && !errors.Is(err, repository.ErrNotFound) {
+			t.Fatalf("zero interval: %v", err)
+		}
+		if interval > 0 && err != nil {
+			t.Fatal(err)
+		}
 	}
 }

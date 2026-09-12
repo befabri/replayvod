@@ -33,6 +33,8 @@ var expectedServerSettingsColumns = []string{
 	"playback_cache_max_percent",
 	"playback_cache_auto_generate",
 	"schedules_paused",
+	"storage_id",
+	"storage_scan_cursor",
 }
 
 func TestMain(m *testing.M) {

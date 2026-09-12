@@ -102,3 +102,18 @@ func (a *SQLiteAdapter) EnsureServerHMACSecret(ctx context.Context, secret strin
 	}
 	return nil
 }
+
+func (a *SQLiteAdapter) SetStorageID(ctx context.Context, id string) (*repository.ServerSettings, error) {
+	row, err := a.queries.SetStorageID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite set storage id: %w", err)
+	}
+	return sqliteServerSettingsToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) SetStorageScanCursor(ctx context.Context, cursor int64) error {
+	if err := a.queries.SetStorageScanCursor(ctx, cursor); err != nil {
+		return fmt.Errorf("sqlite set storage scan cursor: %w", err)
+	}
+	return nil
+}

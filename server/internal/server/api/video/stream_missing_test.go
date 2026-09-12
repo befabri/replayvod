@@ -5,11 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/service/storagehealth"
+	"github.com/befabri/replayvod/server/internal/storage"
+	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
 // blockingMarker records MarkMissing calls and holds each one until released,
@@ -19,6 +25,72 @@ type blockingMarker struct {
 	calls      []int64
 	release    chan struct{}
 	tombstoned bool
+}
+
+type streamBlockedRoot struct {
+	*storage.LocalStorage
+	block   atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *streamBlockedRoot) ProbeRoot(context.Context) error {
+	if s.block.Load() {
+		s.once.Do(func() { close(s.entered) })
+		<-s.release
+	}
+	return nil
+}
+
+func TestStreamPart_StuckProbeAnswers503WithoutTombstoning(t *testing.T) {
+	local, err := storage.NewLocal(filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &streamBlockedRoot{LocalStorage: local, entered: make(chan struct{}), release: make(chan struct{})}
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	mon := storagehealth.New(repo, store, nil, testClientLogger(), "local", local.Root, storagehealth.WithProbeTimeout(200*time.Millisecond))
+	if _, err := mon.Attach(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete(t.Context(), storage.MarkerPath); err != nil {
+		t.Fatal(err)
+	}
+	if mon.Check(t.Context()).State != storagehealth.StateUnattached {
+		t.Fatal("missing marker did not make storage unattached")
+	}
+	store.block.Store(true)
+	checked := make(chan struct{})
+	go func() { mon.Check(t.Context()); close(checked) }()
+	release := sync.OnceFunc(func() { close(store.release) })
+	t.Cleanup(func() {
+		release()
+		<-checked
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = mon.Verify(ctx)
+	})
+	select {
+	case <-store.entered:
+	case <-time.After(time.Second):
+		t.Fatal("probe did not start")
+	}
+	marker := newBlockingMarker(true)
+	close(marker.release)
+	srv := streamRouteTestServer(t, missingPartRepo(), &signedStorage{bodies: map[string][]byte{}}, testClientLogger(), WithMissingMarker(marker), WithStorageGate(mon))
+	// Release the probe before the HTTP server cleanup if this test catches a
+	// regression that strands an HTTP request inside Ready.
+	t.Cleanup(release)
+	done := getSessionPartAsync(t, srv.URL, 7, 1)
+	select {
+	case status := <-done:
+		if status != http.StatusServiceUnavailable || marker.callCount() != 0 {
+			t.Fatalf("stream = %d, MarkMissing calls = %d", status, marker.callCount())
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("stream request waited for the readiness probe")
+	}
 }
 
 func newBlockingMarker(tombstoned bool) *blockingMarker {
@@ -252,5 +324,46 @@ func TestStreamPart_InconclusiveMissingCheckAnswers503(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
+type gateFunc func() error
+
+func (f gateFunc) Ready() error { return f() }
+
+// TestStreamPart_UnattachedStorageAnswers503WithoutMarking pins that an absent
+// file on storage that is not attached is an outage, never a tombstone: the
+// player gets a retryable 503 and the missing marker is never consulted.
+func TestStreamPart_UnattachedStorageAnswers503WithoutMarking(t *testing.T) {
+	cases := []struct {
+		name       string
+		gate       error
+		wantStatus int
+		wantCalls  int
+	}{
+		{name: "unattached", gate: fmt.Errorf("%w: marker missing", storage.ErrUnattached), wantStatus: http.StatusServiceUnavailable, wantCalls: 0},
+		{name: "unreachable", gate: fmt.Errorf("%w: stat", storage.ErrUnreachable), wantStatus: http.StatusServiceUnavailable, wantCalls: 0},
+		{name: "read-only still reconciles", gate: fmt.Errorf("%w: probe", storage.ErrReadOnly), wantStatus: http.StatusNotFound, wantCalls: 1},
+		{name: "attached", gate: nil, wantStatus: http.StatusNotFound, wantCalls: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := newBlockingMarker(true)
+			close(marker.release)
+			store := &signedStorage{bodies: map[string][]byte{}}
+			gate := gateFunc(func() error { return tc.gate })
+			srv := streamRouteTestServer(t, missingPartRepo(), store, testClientLogger(), WithMissingMarker(marker), WithStorageGate(gate))
+			resp, err := http.Get(fmt.Sprintf("%s/api/v1/videos/7/parts/1/stream", srv.URL))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+			if n := marker.callCount(); n != tc.wantCalls {
+				t.Fatalf("MarkMissing calls = %d, want %d", n, tc.wantCalls)
+			}
+		})
 	}
 }

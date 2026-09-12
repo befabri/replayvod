@@ -860,7 +860,9 @@ type VideoStatsHistoryBucket struct {
 	Status         string
 	CompletionKind string
 	Removed        bool
-	Count          int64
+	// DeletionKind is empty for live rows and names why a tombstone left.
+	DeletionKind string
+	Count        int64
 }
 
 // RetentionVideo is a terminal, still-present recording with a snapshotted
@@ -933,9 +935,12 @@ type ListVideosOpts struct {
 	// returns only tombstoned recordings; "all" returns both. Only the
 	// keyset page query (BuildListVideosPageQuery) honours this; the
 	// channel/category grids and search always stay active-only.
-	Scope  string // "" | "active" | "removed" | "all"
-	Limit  int
-	Offset int
+	Scope string // "" | "active" | "removed" | "all"
+	// DeletionKind narrows tombstones to why they left ("retention", "manual",
+	// "missing"); "" keeps every kind.
+	DeletionKind string
+	Limit        int
+	Offset       int
 }
 
 // VideoUserState is the current user's library state for one video. Rows are
@@ -1207,11 +1212,12 @@ type RecordingWebhookDeliveryInput struct {
 // TaskStatus enumerates the lifecycle values for scheduled tasks.
 // Stored on tasks.last_status with a CHECK constraint matching these.
 const (
-	TaskStatusPending = "pending"
-	TaskStatusRunning = "running"
-	TaskStatusSuccess = "success"
-	TaskStatusFailed  = "failed"
-	TaskStatusSkipped = "skipped"
+	TaskStatusPending     = "pending"
+	TaskStatusRunning     = "running"
+	TaskStatusSuccess     = "success"
+	TaskStatusFailed      = "failed"
+	TaskStatusSkipped     = "skipped"
+	TaskStatusInterrupted = "interrupted"
 )
 
 // Task is a registered scheduled background job. Runtime state
@@ -1299,6 +1305,11 @@ type ServerSettings struct {
 	// schedule processor skips every stream.online auto-download without
 	// touching any schedule's IsDisabled, so resuming restores prior state.
 	SchedulesPaused bool
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// StorageID is the identity the attached storage must carry in its marker;
+	// empty until the first attach. StorageScanCursor is the storage scan's
+	// persisted resume position.
+	StorageID         string
+	StorageScanCursor int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }

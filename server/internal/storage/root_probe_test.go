@@ -14,26 +14,37 @@ import (
 	"testing"
 )
 
-func TestLocalProbeRootRejectsReplacement(t *testing.T) {
+// TestLocalReplacedRootIsJudgedByItsMarker pins that a directory swapped under
+// a running process is neither trusted nor rejected on its own: without the
+// marker it reads as unattached, and once the marker is there (copied with the
+// data, or written by an adoption) it reads as attached again with no restart.
+func TestLocalReplacedRootIsJudgedByItsMarker(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "storage")
-	if err := os.MkdirAll(filepath.Join(root, "videos"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	store, err := NewLocal(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ProbeRoot(t.Context()); err != nil {
+	res, err := Attach(t.Context(), store, "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(root, root+"-old"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "videos"), 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ProbeRoot(t.Context()); err == nil {
-		t.Fatal("accepted replacement root with videos directory")
+	if err := store.ProbeRoot(t.Context()); err != nil {
+		t.Fatalf("a reachable replacement root must probe fine: %v", err)
+	}
+	if err := Ready(t.Context(), store, res.ID); !errors.Is(err, ErrUnattached) {
+		t.Fatalf("replacement without the marker = %v, want ErrUnattached", err)
+	}
+	if err := os.Rename(filepath.Join(root+"-old", MarkerPath), filepath.Join(root, MarkerPath)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ready(t.Context(), store, res.ID); err != nil {
+		t.Fatalf("replacement carrying the marker = %v, want attached", err)
 	}
 }
 func TestLocalProbeRootHonorsCancellation(t *testing.T) {

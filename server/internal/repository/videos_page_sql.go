@@ -146,6 +146,7 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 	broadcaster := fmt.Sprintf("\n  AND (%s = '' OR broadcaster_id = %s)", b.phText(opts.BroadcasterID), b.phText(opts.BroadcasterID))
 	language := fmt.Sprintf("\n  AND (%s = '' OR language = %s)", b.phText(opts.Language), b.phText(opts.Language))
 	source := fmt.Sprintf("\n  AND (%s = '' OR source = %s)", b.phText(opts.Source), b.phText(opts.Source))
+	kind := fmt.Sprintf("\n  AND (%s = '' OR deletion_kind = %s)", b.phText(opts.DeletionKind), b.phText(opts.DeletionKind))
 	durationMin := fmt.Sprintf("\n  AND (%s IS NULL OR duration_seconds >= %s)", b.phFloatPtr(opts.DurationMinSeconds), b.phFloatPtr(opts.DurationMinSeconds))
 	durationMax := fmt.Sprintf("\n  AND (%s IS NULL OR duration_seconds < %s)", b.phFloatPtr(opts.DurationMaxSeconds), b.phFloatPtr(opts.DurationMaxSeconds))
 	sizeMin := fmt.Sprintf("\n  AND (%s IS NULL OR size_bytes >= %s)", b.phIntPtr(opts.SizeMinBytes), b.phIntPtr(opts.SizeMinBytes))
@@ -178,7 +179,7 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 	watchLater := b.watchLaterSQL(opts)
 	unwatched := b.unwatchedSQL(opts)
 
-	return scope + quality + broadcaster + language + source + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + outcome + terminal + watchLater + unwatched
+	return scope + quality + broadcaster + language + source + kind + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + outcome + terminal + watchLater + unwatched
 }
 
 func (b *videoPageBuilder) watchLaterSQL(opts ListVideosOpts) string {

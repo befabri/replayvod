@@ -108,3 +108,30 @@ func TestBuildListVideosPageQuery_DialectFragments(t *testing.T) {
 		t.Errorf("sqlite should emit no :: casts:\n%s", sq)
 	}
 }
+
+// TestBuildListVideosPageQuery_DeletionKindFilter pins the Unavailable history
+// view: scope removed plus the missing kind, bound rather than inlined, and
+// absent when no kind is requested.
+func TestBuildListVideosPageQuery_DeletionKindFilter(t *testing.T) {
+	dialect := VideoPageDialect{Postgres: true, FormatTime: func(t time.Time) any { return t }}
+	q, args := BuildListVideosPageQuery(ListVideosOpts{Scope: "removed", DeletionKind: "missing", Limit: 10}, nil, dialect)
+	if !strings.Contains(q, "deleted_at IS NOT NULL") || !strings.Contains(q, "deletion_kind = $") {
+		t.Fatalf("removed + kind predicates missing:\n%s", q)
+	}
+	if strings.Contains(q, "'missing'") {
+		t.Fatalf("deletion kind must be a bound argument:\n%s", q)
+	}
+	found := false
+	for _, a := range args {
+		if a == "missing" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("deletion kind not bound: %v", args)
+	}
+	q, _ = BuildListVideosPageQuery(ListVideosOpts{Scope: "all", Limit: 10}, nil, dialect)
+	if !strings.Contains(q, "OR deletion_kind = $") {
+		t.Fatalf("empty kind must keep the no-op predicate shape so placeholders stay stable:\n%s", q)
+	}
+}

@@ -300,6 +300,8 @@ func sqliteServerSettingsToDomain(src sqlitegen.ServerSetting) *repository.Serve
 		RecordingWebhookURL:           src.RecordingWebhookUrl,
 		SchedulesPaused:               src.SchedulesPaused != 0,
 		ServerMode:                    src.ServerMode,
+		StorageID:                     src.StorageID,
+		StorageScanCursor:             src.StorageScanCursor,
 		UpdatedAt:                     src.UpdatedAt.Time,
 	}
 }

@@ -196,6 +196,8 @@ type ServerSetting struct {
 	PlaybackCacheMaxPercent       int64           `json:"playback_cache_max_percent"`
 	PlaybackCacheAutoGenerate     int64           `json:"playback_cache_auto_generate"`
 	SchedulesPaused               int64           `json:"schedules_paused"`
+	StorageID                     string          `json:"storage_id"`
+	StorageScanCursor             int64           `json:"storage_scan_cursor"`
 }
 
 type Session struct {

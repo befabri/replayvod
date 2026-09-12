@@ -274,6 +274,8 @@ type Service struct {
 	// the next boot picks it back up per spec line 615.
 	shuttingDown atomic.Bool
 
+	storageGate StorageGate
+
 	// bus, when set via SetEventBus, receives a RecordingTerminal wake-up hint
 	// after each terminal transition (success or non-shutdown failure). The
 	// durable recording-webhook row is written in the same DB transaction as the
@@ -284,11 +286,10 @@ type Service struct {
 	// posters fetches a VOD's Twitch thumbnail when an archive starts.
 	posters *archiveposter.Store
 
-	// stopRetry ends the periodic archive retry pump; Resume starts it once,
-	// Shutdown closes it once.
-	stopRetry     chan struct{}
-	retryOnce     sync.Once
-	stopRetryOnce sync.Once
+	// retryCancel is set once under mu, and cancelled by Shutdown. The loop
+	// belongs to wg just like recording workers.
+	retryCancel   context.CancelFunc
+	retryInterval time.Duration
 }
 
 // download is the per-job state kept in memory. cancel propagates
@@ -514,8 +515,6 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		channelSubs: channelSubs,
 		active:      make(map[string]*download),
 		activeSubs:  make(map[int]chan struct{}),
-		posters:     archiveposter.NewStore(repo, store, &http.Client{Timeout: 15 * time.Second}, domainLog),
-		stopRetry:   make(chan struct{}),
 	}
 	// Only assign the watcher when non-nil: storing a typed-nil
 	// *MetadataWatcher into the titleWatcher interface field would make
@@ -523,7 +522,7 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 	if metaWatcher != nil {
 		s.metaWatcher = metaWatcher
 	}
-	// Scratch-dir sweep is NOT performed here — Resume() owns that
+	// Scratch-dir sweep is NOT performed here — PrepareScratch owns that
 	// step so it can preserve the work dirs of RUNNING jobs before
 	// wiping the rest. Callers that don't resume (tests using
 	// t.TempDir, CLI tools that never see a crash) can skip
@@ -556,6 +555,31 @@ func (s *Service) SetEventBus(bus *eventbus.Buses) {
 // and a backfill for the same archive settle the key between them.
 func (s *Service) SetPosterStore(posters *archiveposter.Store) {
 	s.posters = posters
+}
+
+// StorageGate provides cached admission and fresh verification at storage I/O
+// boundaries. A cached verdict cannot authorize publication of recording data.
+type StorageGate interface {
+	Ready() error
+	Verify(context.Context) error
+}
+
+// SetStorageGate makes Start, Resume and the archive pump refuse while storage
+// is not attached. Admitted recordings wait at storage writes and finalization.
+func (s *Service) SetStorageGate(gate StorageGate) {
+	s.storageGate = gate
+}
+
+// storageReady wraps the gate verdict in ErrStorageUnavailable. Read-only
+// storage refuses too: a recording is a write.
+func (s *Service) storageReady() error {
+	if s.storageGate == nil {
+		return nil
+	}
+	if err := s.storageGate.Ready(); err != nil {
+		return fmt.Errorf("%w: %w", ErrStorageUnavailable, err)
+	}
+	return nil
 }
 
 // publishRecordingTerminal fans a terminal-recording wake-up hint out to the
@@ -641,6 +665,12 @@ func (s *Service) MaxConcurrent() int {
 }
 
 func (s *Service) Start(ctx context.Context, p Params) (string, error) {
+	if s.shuttingDown.Load() {
+		return "", ErrShuttingDown
+	}
+	if err := s.storageReady(); err != nil {
+		return "", err
+	}
 	s.mu.Lock()
 	if s.shuttingDown.Load() {
 		s.mu.Unlock()
@@ -885,13 +915,11 @@ func (s *Service) ListActiveProgress() []Progress {
 // next process boot picks them back up. A user Cancel() taken
 // concurrently with shutdown wins: ErrCancelled still records.
 func (s *Service) Shutdown() {
-	s.shuttingDown.Store(true)
-	s.stopRetryOnce.Do(func() {
-		if s.stopRetry != nil {
-			close(s.stopRetry)
-		}
-	})
 	s.mu.Lock()
+	s.shuttingDown.Store(true)
+	if s.retryCancel != nil {
+		s.retryCancel()
+	}
 	for _, d := range s.active {
 		if d.cancel != nil {
 			d.cancel()
@@ -912,16 +940,29 @@ func (s *Service) Shutdown() {
 	}
 }
 
-// Resume restores in-flight downloads after a process restart.
-// Must be called by the server bootstrap AFTER NewService +
-// SetPlaybackCredentials and BEFORE the HTTP server starts accepting
-// requests — otherwise a concurrent Start() could race with
-// resume over the in-memory active map or concurrency cap.
+// PrepareScratch removes startup leftovers while preserving resumable jobs.
+// Bootstrap must call this before any recording, recovery watcher or playback
+// build can start. Runtime recovery must never sweep a live scratch directory:
+// jobs created after the database snapshot are absent from the protected set.
+func (s *Service) PrepareScratch(ctx context.Context) error {
+	jobs, err := s.repo.ListRunningJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("list jobs for startup scratch cleanup: %w", err)
+	}
+	protected := make(map[string]bool, len(jobs))
+	for _, job := range jobs {
+		protected[job.ID] = true
+	}
+	s.sweepOrphanedTempsExcept(protected)
+	return nil
+}
+
+// Resume restores in-flight downloads after startup or storage recovery.
+// Configure playback credentials and storage before calling it. Scratch
+// cleanup belongs exclusively to PrepareScratch during bootstrap.
 //
 // For every jobs row with status IN ('PENDING','RUNNING'):
 //
-//   - Preserves the job's scratch directory from the orphan sweep
-//     (committed segments + init.mp4 on disk get reused).
 //   - Loads the video + channel rows to reconstruct Params.
 //   - Unmarshals resume_state into *ResumeState.
 //   - Spawns run(), which seeds hls.Run's StartMediaSeq from
@@ -949,12 +990,6 @@ func (s *Service) resumeRunning(ctx context.Context) error {
 		return fmt.Errorf("list running jobs: %w", err)
 	}
 
-	protected := make(map[string]bool, len(jobs))
-	for i := range jobs {
-		protected[jobs[i].ID] = true
-	}
-	s.sweepOrphanedTempsExcept(protected)
-
 	if len(jobs) == 0 {
 		return nil
 	}
@@ -962,8 +997,22 @@ func (s *Service) resumeRunning(ctx context.Context) error {
 	for i := range jobs {
 		job := jobs[i]
 		if err := s.restartJob(ctx, &job); err != nil {
+			if errors.Is(err, errObsoleteJob) {
+				continue
+			}
 			if errors.Is(err, ErrShuttingDown) || ctx.Err() != nil {
 				return err
+			}
+			if errors.Is(err, errArchiveClaim) {
+				// Pending live jobs use the same atomic claim as queued archives.
+				// A database outage must leave their checkpoint recoverable too.
+				return err
+			}
+			if errors.Is(err, ErrStorageUnavailable) {
+				// The job stays RUNNING: its media may sit on the volume that is
+				// missing, and the attach transition runs Resume again.
+				s.log.Warn("resume deferred until storage is attached", "job_id", job.ID, "error", err)
+				continue
 			}
 			s.log.Error("resume job failed",
 				"job_id", job.ID,
@@ -971,7 +1020,6 @@ func (s *Service) resumeRunning(ctx context.Context) error {
 				"broadcaster_id", job.BroadcasterID,
 				"error", err)
 			errMsg := fmt.Sprintf("resume: %v", err)
-			_ = s.repo.MarkJobFailed(ctx, job.ID, errMsg)
 			// completion_kind mirrors the run-time failure path: a job that
 			// already finalized parts before this failed restart owns
 			// reclaimable objects, so stamp it "partial" to keep it inside the
@@ -996,18 +1044,17 @@ func (s *Service) resumeRunning(ctx context.Context) error {
 				cutShort = state.HadWindowRoll || !state.EndListSeen
 			}
 			truncated := failedRunTruncated(partsKnown, hasPart, cutShort)
-			// A recording that was RUNNING from a prior process and can't be
-			// resumed is terminating in failure — exactly what a
-			// recording.failed consumer expects to hear. Enqueue the webhook in
-			// the same transaction as the FAILED transition (as failDownload
-			// does), then wake the dispatcher.
-			delivery := s.recordingWebhookDelivery(job.VideoID, recordingwebhook.EventFailed)
-			_ = s.repo.MarkVideoFailedAndEnqueueRecordingWebhook(ctx, job.VideoID, errMsg, failKind, truncated, delivery)
+			if err := s.markRecordingFailed(ctx, job.ID, job.VideoID, errMsg, failKind, truncated); err != nil {
+				return fmt.Errorf("persist failed resume %s: %w", job.ID, err)
+			}
 			s.publishRecordingTerminal(job.VideoID, eventbus.RecordingFailed)
 		}
 	}
 	return nil
 }
+
+var errObsoleteJob = errors.New("job no longer owns an active recording")
+var errArchiveClaim = errors.New("archive claim could not be persisted")
 
 // restartJob rebuilds a single download's in-memory state from
 // its DB rows + resume_state, inserts it into s.active, and
@@ -1021,15 +1068,20 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 		return nil
 	}
 	s.mu.Unlock()
-
-	state, err := UnmarshalResumeState(job.ResumeState)
-	if err != nil {
-		return fmt.Errorf("parse resume state: %w", err)
+	if err := s.storageReady(); err != nil {
+		return err
 	}
 
 	vid, err := s.repo.GetVideo(ctx, job.VideoID)
 	if err != nil {
 		return fmt.Errorf("load video: %w", err)
+	}
+	if vid.JobID != job.ID || vid.DeletedAt != nil || (vid.Status != repository.VideoStatusPending && vid.Status != repository.VideoStatusRunning) {
+		return errObsoleteJob
+	}
+	state, err := UnmarshalResumeState(job.ResumeState)
+	if err != nil {
+		return fmt.Errorf("parse resume state: %w", err)
 	}
 	chn, err := s.repo.GetChannel(ctx, job.BroadcasterID)
 	if err != nil {
@@ -1123,6 +1175,26 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 		}
 	}
 
+	// Complete setup and admission before claiming queued work. A storage
+	// refusal leaves both rows PENDING without a compensating rollback.
+	if err := s.storageReady(); err != nil {
+		return err
+	}
+	if job.Status == repository.JobStatusPending {
+		if err := s.repo.WithTx(ctx, func(tx repository.Repository) error {
+			if err := tx.MarkJobRunning(ctx, job.ID); err != nil {
+				return err
+			}
+			return tx.UpdateVideoStatus(ctx, job.VideoID, repository.VideoStatusRunning)
+		}); err != nil {
+			return fmt.Errorf("%w: %w", errArchiveClaim, err)
+		}
+	}
+
+	if s.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
+
 	// vid.Filename is the deterministic base name chosen at
 	// original Start(); reuse it so the remuxed path is stable
 	// across restart.
@@ -1145,7 +1217,10 @@ var (
 	ErrBusy         = errors.New("downloader: broadcaster already has an active download")
 	ErrShuttingDown = errors.New("downloader: shutting down")
 	ErrAtCapacity   = errors.New("downloader: at maximum concurrent downloads")
-	ErrCancelled    = errors.New("downloader: cancelled by user")
+	// ErrStorageUnavailable means storage is not attached: no recording may start
+	// or resume until the operator fixes or adopts it.
+	ErrStorageUnavailable = errors.New("downloader: storage is not attached")
+	ErrCancelled          = errors.New("downloader: cancelled by user")
 
 	// ErrVariantChanged fires when a Stage-3 re-select inside
 	// fetchWithAuthRefresh lands on a different (quality, codec)
@@ -1274,7 +1349,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		log.Error("failed to mark job running", "error", err)
 	}
 
-	if d.vod && d.resume.PosterURL != "" && s.storage != nil {
+	if d.vod && d.resume.PosterURL != "" && s.posters != nil {
 		// This work shares run's cancellation and wait-group lifetime. Never
 		// overwrite a frame already finalized before a restart.
 		if v, err := s.repo.GetVideo(ctx, d.videoID); err == nil && v.Thumbnail == nil {
@@ -1342,6 +1417,7 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 		})
 		snapWriter := &storageSnapshotWriter{
 			storage:  s.storage,
+			ready:    func() error { return s.verifyStorage(ctx) },
 			filename: filename,
 			ctx:      ctx,
 			onFirstSnapshotSaved: func(path string) {
@@ -1687,16 +1763,19 @@ func (s *Service) run(ctx context.Context, d *download, p Params, filename strin
 	// (ffmpeg cap, manual stop) ended us early. EndListSeen=true with
 	// no window roll is the only "captured the whole broadcast" path.
 	truncated := hadWindowRoll || !d.resume.EndListSeen
-	delivery := s.recordingWebhookDelivery(d.videoID, recordingwebhook.EventCompleted)
-	if err := s.repo.MarkVideoDoneAndEnqueueRecordingWebhook(dbCtx, d.videoID, aggDuration, aggSize, thumbPtr, completionKind, truncated, delivery); err != nil {
-		log.Error("failed to mark video done", "error", err)
+	if err := s.waitForStorage(ctx); err != nil {
+		s.failDownload(dbCtx, d, log, err)
 		return
 	}
-	if err := s.repo.MarkJobDone(dbCtx, d.jobID); err != nil {
-		log.Error("failed to mark job done", "error", err)
-		// Job row stuck as RUNNING is a DB-consistency smell
-		// but the video output is already committed and
-		// uploaded — no value in surfacing this to the user.
+	delivery := s.recordingWebhookDelivery(d.videoID, recordingwebhook.EventCompleted)
+	if err := s.repo.WithTx(dbCtx, func(tx repository.Repository) error {
+		if err := tx.MarkVideoDoneAndEnqueueRecordingWebhook(dbCtx, d.videoID, aggDuration, aggSize, thumbPtr, completionKind, truncated, delivery); err != nil {
+			return err
+		}
+		return tx.MarkJobDone(dbCtx, d.jobID)
+	}); err != nil {
+		log.Error("failed to persist recording completion; preserving attempt for recovery", "error", err)
+		return
 	}
 	// Terminal success: scratch can be removed. Set the flag
 	// before the defer fires on function return.
@@ -1765,6 +1844,9 @@ func (s *Service) persistAudioWaveform(ctx context.Context, videoID int64, filen
 	if !ok {
 		return nil
 	}
+	if err := s.waitForStorage(ctx); err != nil {
+		return err
+	}
 	resp, err := waveform.Generate(ctx, s.waveforms, waveform.InputResolver{
 		Storage:    s.storage,
 		LocalFiles: localFiles,
@@ -1772,7 +1854,9 @@ func (s *Service) persistAudioWaveform(ctx context.Context, videoID int64, filen
 	if err != nil {
 		return err
 	}
-	return waveform.SaveArtifact(ctx, s.storage, storagekeys.Waveform(filename), plan.Fingerprint, resp)
+	return s.writeToStorage(ctx, func() error {
+		return waveform.SaveArtifact(ctx, s.storage, storagekeys.Waveform(filename), plan.Fingerprint, resp)
+	})
 }
 
 func (s *Service) continueAfterPendingSplit(dbCtx context.Context, d *download, emitter *progressEmitter, log *slog.Logger) (bool, error) {
@@ -2375,6 +2459,9 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	// Finalize the part row. Video-level marks (MarkVideoDone /
 	// MarkJobDone) live in run() so they fire once after all
 	// parts complete.
+	if err := s.waitForStorage(ctx); err != nil {
+		return nil, err
+	}
 	if err := s.repo.FinalizeVideoPart(dbCtx, &repository.VideoPartFinalize{
 		ID:              d.videoPartID,
 		DurationSeconds: probeResult.Duration,
@@ -3086,15 +3173,17 @@ func bridgeHLSProgress(emitter *progressEmitter, in <-chan hls.Progress) {
 // Storage backend at the given relative path. For local storage
 // this is an atomic move; for S3 it uploads bytes.
 func (s *Service) uploadFromScratch(ctx context.Context, scratchPath, storagePath string) error {
-	f, err := os.Open(scratchPath)
-	if err != nil {
-		return fmt.Errorf("open scratch: %w", err)
-	}
-	defer f.Close()
-	if err := s.storage.Save(ctx, filepath.ToSlash(storagePath), f); err != nil {
-		return fmt.Errorf("save to storage: %w", err)
-	}
-	return nil
+	return s.writeToStorage(ctx, func() error {
+		f, err := os.Open(scratchPath)
+		if err != nil {
+			return fmt.Errorf("open scratch: %w", err)
+		}
+		defer f.Close()
+		if err := s.storage.Save(ctx, filepath.ToSlash(storagePath), f); err != nil {
+			return fmt.Errorf("save to storage: %w", err)
+		}
+		return nil
+	})
 }
 
 // setResumeStage latches the next pipeline stage on the in-memory
@@ -3226,12 +3315,17 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	if d.vod && !userCancelled {
 		if delay, ok := archiveRetryDelay(d.attempt); ok && archiveRetryable(cause) {
 			retryAt := time.Now().UTC().Add(delay)
-			if err := s.repo.MarkArchiveFailedForRetry(dbCtx, d.videoID, message, failCompletionKind, truncated, retryAt); err != nil {
-				log.Error("failed to schedule archive retry; failing for good", "error", err)
-			} else {
-				if err := s.repo.MarkJobFailed(dbCtx, d.jobID, message); err != nil {
-					log.Error("failed to mark job failed", "error", err)
+			if err := s.repo.WithTx(dbCtx, func(tx repository.Repository) error {
+				if err := tx.MarkArchiveFailedForRetry(dbCtx, d.videoID, message, failCompletionKind, truncated, retryAt); err != nil {
+					return err
 				}
+				return tx.MarkJobFailed(dbCtx, d.jobID, message)
+			}); err != nil {
+				// Keep the old attempt and its checkpoint recoverable. Neither a
+				// retry nor a terminal event exists until both writes commit.
+				log.Error("failed to persist archive retry; preserving attempt for recovery", "error", err)
+				return
+			} else {
 				d.cleanupScratch = true
 				log.Warn("archive failed; retry scheduled",
 					"attempt", d.attempt, "retry_at", retryAt, "error", cause)
@@ -3241,12 +3335,9 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 		}
 	}
 
-	delivery := s.recordingWebhookDelivery(d.videoID, recordingwebhook.EventFailed)
-	if err := s.repo.MarkVideoFailedAndEnqueueRecordingWebhook(dbCtx, d.videoID, message, failCompletionKind, truncated, delivery); err != nil {
-		log.Error("failed to mark video failed", "error", err)
-	}
-	if err := s.repo.MarkJobFailed(dbCtx, d.jobID, message); err != nil {
-		log.Error("failed to mark job failed", "error", err)
+	if err := s.markRecordingFailed(dbCtx, d.jobID, d.videoID, message, failCompletionKind, truncated); err != nil {
+		log.Error("failed to persist recording failure; preserving attempt for recovery", "error", err)
+		return
 	}
 	// Terminal-for-this-attempt outcome: the job is now FAILED
 	// (user cancel or real failure). FAILED rows are excluded from
@@ -3307,15 +3398,26 @@ func classifyTwitchAuth(status int, body []byte) bool {
 // the whole job is canceled.
 type storageSnapshotWriter struct {
 	storage              storage.Storage
+	ready                func() error
 	filename             string
 	ctx                  context.Context
 	onFirstSnapshotSaved func(path string)
 }
 
 func (w *storageSnapshotWriter) WriteSnapshot(_ context.Context, index int, body io.Reader) error {
+	if w.ready != nil {
+		if err := w.ready(); err != nil {
+			return err
+		}
+	}
 	path := storagekeys.Snapshot(w.filename, index)
 	if err := w.storage.Save(w.ctx, path, body); err != nil {
 		return err
+	}
+	if w.ready != nil {
+		if err := w.ready(); err != nil {
+			return err
+		}
 	}
 	if index == 0 && w.onFirstSnapshotSaved != nil {
 		w.onFirstSnapshotSaved(path)

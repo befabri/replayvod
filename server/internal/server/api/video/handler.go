@@ -15,6 +15,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/apierr"
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 	"github.com/befabri/replayvod/server/internal/service/retention"
+	"github.com/befabri/replayvod/server/internal/service/storagescan"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
@@ -28,21 +29,29 @@ type RecordingDeletionRequester interface {
 	RequestManualDelete(ctx context.Context, video *repository.Video) error
 }
 
+// RecordingRestorer brings a missing-media tombstone back once its media is
+// present again. It is the storagescan service in production.
+type RecordingRestorer interface {
+	Restore(ctx context.Context, id int64) error
+}
+
 type Handler struct {
 	video    *Service
 	download *DownloadService
 	archive  *ArchiveService
 	deletion RecordingDeletionRequester
+	restorer RecordingRestorer
 	storage  storage.Storage
 	log      *slog.Logger
 }
 
-func NewHandler(video *Service, download *DownloadService, archive *ArchiveService, deletion RecordingDeletionRequester, store storage.Storage, log *slog.Logger) *Handler {
+func NewHandler(video *Service, download *DownloadService, archive *ArchiveService, deletion RecordingDeletionRequester, restorer RecordingRestorer, store storage.Storage, log *slog.Logger) *Handler {
 	return &Handler{
 		video:    video,
 		download: download,
 		archive:  archive,
 		deletion: deletion,
+		restorer: restorer,
 		storage:  store,
 		log:      log.With("domain", "video-api"),
 	}
@@ -401,8 +410,11 @@ type ListPageInput struct {
 	// default (live recordings only); "removed" and "all" power the
 	// removed-inclusive history surface. Channel/category grids and search
 	// never expose this and stay active-only.
-	Scope  string               `json:"scope,omitempty" validate:"omitempty,oneof=active removed all"`
-	Cursor *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
+	// DeletionKind narrows tombstones to why they left; only meaningful with
+	// Scope "removed" or "all".
+	DeletionKind string               `json:"deletion_kind,omitempty" validate:"omitempty,oneof=retention manual missing"`
+	Scope        string               `json:"scope,omitempty" validate:"omitempty,oneof=active removed all"`
+	Cursor       *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
 }
 
 type VideoListPageResponse struct {
@@ -449,6 +461,7 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 		UnwatchedOnly:      input.UnwatchedOnly,
 		TerminalOnly:       input.TerminalOnly,
 		Scope:              input.Scope,
+		DeletionKind:       input.DeletionKind,
 		Limit:              limit,
 	}, cursor)
 	if err != nil {
@@ -890,6 +903,9 @@ func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 type HistoryScopeCounts struct {
 	OnDisk  int64 `json:"on_disk"`
 	Removed int64 `json:"removed"`
+	// Unavailable is the part of Removed whose media went missing and can come
+	// back: the tombstones the Unavailable filter lists.
+	Unavailable int64 `json:"unavailable"`
 }
 
 // HistoryCountsResponse labels the download-history controls: one entry per
@@ -1305,6 +1321,8 @@ func (h *Handler) TriggerDownload(ctx context.Context, input TriggerDownloadInpu
 				"a recording is already running for this channel"),
 			apierr.On(downloader.ErrAtCapacity, trpcgo.CodeConflict,
 				"the recorder is at its concurrent-download limit; stop one or raise max_concurrent"),
+			apierr.On(downloader.ErrStorageUnavailable, trpcgo.CodeServiceUnavailable,
+				"storage is not attached; recording is paused until it is"),
 			apierr.On(downloader.ErrShuttingDown, trpcgo.CodeServiceUnavailable,
 				"the server is restarting; try again in a moment"))
 	}
@@ -1342,7 +1360,9 @@ func (h *Handler) Delete(ctx context.Context, input DeleteInput) (OK, error) {
 		return OK{}, apierr.Map(h.log, err, "delete recording",
 			apierr.On(repository.ErrNotFound, trpcgo.CodeNotFound, "recording not found"))
 	}
-	if v.DeletedAt != nil {
+	// A missing-media tombstone is the one kind of removed row that still owns
+	// objects and part rows; removing it permanently purges those.
+	if v.DeletedAt != nil && !isMissingTombstone(v) {
 		return OK{}, trpcgo.NewError(trpcgo.CodeConflict, "recording is already removed")
 	}
 	if v.Status != repository.VideoStatusDone && v.Status != repository.VideoStatusFailed {
@@ -1355,6 +1375,43 @@ func (h *Handler) Delete(ctx context.Context, input DeleteInput) (OK, error) {
 				"recording is already removed"),
 			apierr.On(retention.ErrManualDeletionUnavailable, trpcgo.CodeServiceUnavailable,
 				"recording deletion worker is unavailable"))
+	}
+	return OK{OK: true}, nil
+}
+
+func isMissingTombstone(v *repository.Video) bool {
+	return v.DeletedAt != nil && v.DeletionKind != nil && *v.DeletionKind == repository.DeletionKindMissing
+}
+
+type RestoreInput struct {
+	ID int64 `json:"id" validate:"required"`
+}
+
+// Restore brings a missing-media tombstone back into the library. The scan
+// does the same on its own once the media is back; this is for the operator
+// who just put the files back and is looking at the row.
+func (h *Handler) Restore(ctx context.Context, input RestoreInput) (OK, error) {
+	if _, err := middleware.RequireUser(ctx); err != nil {
+		return OK{}, err
+	}
+	if h.restorer == nil {
+		return OK{}, trpcgo.NewError(trpcgo.CodeServiceUnavailable, "storage scan is unavailable")
+	}
+	err := h.restorer.Restore(ctx, input.ID)
+	var still *storagescan.StillMissingError
+	if errors.As(err, &still) {
+		return OK{}, trpcgo.NewError(trpcgo.CodeConflict, still.Error())
+	}
+	if err != nil {
+		return OK{}, apierr.Map(h.log, err, "restore recording",
+			apierr.On(storagescan.ErrNotRestorable, trpcgo.CodeConflict,
+				"recording is not a missing-media tombstone"),
+			apierr.On(storagescan.ErrArchivedAgain, trpcgo.CodeConflict,
+				"this VOD was archived again; remove one of the two copies first"),
+			apierr.On(storage.ErrUnattached, trpcgo.CodeServiceUnavailable,
+				"storage is not attached"),
+			apierr.On(storage.ErrUnreachable, trpcgo.CodeServiceUnavailable,
+				"storage is unreachable"))
 	}
 	return OK{OK: true}, nil
 }

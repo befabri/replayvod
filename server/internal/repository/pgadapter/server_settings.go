@@ -80,3 +80,18 @@ func (a *PGAdapter) EnsureServerHMACSecret(ctx context.Context, secret string) e
 	}
 	return nil
 }
+
+func (a *PGAdapter) SetStorageID(ctx context.Context, id string) (*repository.ServerSettings, error) {
+	row, err := a.queries.SetStorageID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("pg set storage id: %w", err)
+	}
+	return pgServerSettingsToDomain(row), nil
+}
+
+func (a *PGAdapter) SetStorageScanCursor(ctx context.Context, cursor int64) error {
+	if err := a.queries.SetStorageScanCursor(ctx, cursor); err != nil {
+		return fmt.Errorf("pg set storage scan cursor: %w", err)
+	}
+	return nil
+}

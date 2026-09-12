@@ -16,7 +16,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/playbackauth"
-	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
@@ -204,9 +203,17 @@ func (s *Service) EnqueueVOD(ctx context.Context, p Params) (string, error) {
 func (s *Service) PumpArchiveQueue(ctx context.Context) {
 	s.pumpMu.Lock()
 	defer s.pumpMu.Unlock()
+	// Waiting for storage must not even create the next retry attempt.
+	if s.shuttingDown.Load() || ctx.Err() != nil || s.storageReady() != nil {
+		return
+	}
 	s.requeueDueRetries(ctx)
 	for {
 		if s.shuttingDown.Load() {
+			return
+		}
+		if err := s.storageReady(); err != nil {
+			s.log.Debug("archive queue: paused", "error", err)
 			return
 		}
 		s.mu.Lock()
@@ -222,22 +229,19 @@ func (s *Service) PumpArchiveQueue(ctx context.Context) {
 			}
 			return
 		}
-		// Claim both rows atomically. A failed write leaves a queued pair that
-		// the next pump can retry, never a running job with a pending video.
-		if err := s.repo.WithTx(ctx, func(tx repository.Repository) error {
-			if err := tx.MarkJobRunning(ctx, job.ID); err != nil {
-				return err
-			}
-			return tx.UpdateVideoStatus(ctx, job.VideoID, repository.VideoStatusRunning)
-		}); err != nil {
-			s.log.Error("archive queue: claim job", "job_id", job.ID, "error", err)
-			return
-		}
 		if err := s.restartJob(ctx, job); err != nil {
-			if errors.Is(err, ErrShuttingDown) || ctx.Err() != nil {
-				return // RUNNING is reclaimed by Resume on the next boot.
+			if errors.Is(err, ErrShuttingDown) || errors.Is(err, ErrStorageUnavailable) || ctx.Err() != nil {
+				return // No claim was committed; the pair remains queued.
 			}
-			s.failQueuedArchive(ctx, job, err)
+			if errors.Is(err, errObsoleteJob) || errors.Is(err, errArchiveClaim) {
+				s.log.Error("archive queue: start deferred", "job_id", job.ID, "error", err)
+				return
+			}
+			if err := s.failQueuedArchive(ctx, job, err); err != nil {
+				// The attempt remains queued on persistence failure. Retrying it
+				// immediately would spin on the same row; let the next pump retry.
+				return
+			}
 			continue
 		}
 		s.publishArchiveQueue(eventbus.ArchiveStarted, job.VideoID)
@@ -397,40 +401,50 @@ func (s *Service) retryArchiveLocked(ctx context.Context, videoID int64) error {
 // starts on time even when no job ends and nothing is enqueued. Runs once
 // per service; Shutdown stops it.
 func (s *Service) startArchiveRetryLoop() {
-	if s.stopRetry == nil {
-		return // A Service built without NewService (tests) has no loop to stop.
+	// Admission shares the lock used by Shutdown and job reservations. Once
+	// shutdown starts no new worker can Add after its Wait observes zero.
+	s.mu.Lock()
+	if s.shuttingDown.Load() || s.retryCancel != nil {
+		s.mu.Unlock()
+		return
 	}
-	s.retryOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(archiveRetryPumpInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-s.stopRetry:
-					return
-				case <-ticker.C:
-					s.pumpAfterJobEnd()
-				}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.retryCancel = cancel
+	s.wg.Add(1)
+	s.mu.Unlock()
+	go func() {
+		defer s.wg.Done()
+		interval := s.retryInterval
+		if interval <= 0 {
+			interval = archiveRetryPumpInterval
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.pumpWithTimeout(ctx)
 			}
-		}()
-	})
+		}
+	}()
 }
 
 // failQueuedArchive records a start failure on a queued archive. Nothing was
 // captured, so the row fails "complete" and not truncated, like a live job
 // that never got past setup.
-func (s *Service) failQueuedArchive(ctx context.Context, job *repository.Job, cause error) {
+func (s *Service) failQueuedArchive(ctx context.Context, job *repository.Job, cause error) error {
 	s.log.Error("archive queue: start job failed",
 		"job_id", job.ID, "video_id", job.VideoID, "error", cause)
 	msg := fmt.Sprintf("start archive: %v", cause)
-	_ = s.repo.MarkJobFailed(ctx, job.ID, msg)
-	delivery := s.recordingWebhookDelivery(job.VideoID, recordingwebhook.EventFailed)
-	if err := s.repo.MarkVideoFailedAndEnqueueRecordingWebhook(ctx, job.VideoID, msg, repository.CompletionKindComplete, false, delivery); err != nil {
-		s.log.Error("archive queue: mark video failed", "video_id", job.VideoID, "error", err)
-		return
+	if err := s.markRecordingFailed(ctx, job.ID, job.VideoID, msg, repository.CompletionKindComplete, false); err != nil {
+		s.log.Error("archive queue: persist start failure", "video_id", job.VideoID, "error", err)
+		return err
 	}
 	s.publishArchiveQueue(eventbus.ArchiveFailed, job.VideoID)
 	s.publishRecordingTerminal(job.VideoID, eventbus.RecordingFailed)
+	return nil
 }
 
 // DequeueArchive removes an archive that has not started. A running archive
@@ -460,10 +474,14 @@ func (s *Service) DequeueArchive(ctx context.Context, videoID int64) error {
 // never holds one, but the check is cheap and keeps the rule in one place),
 // and a scheduled retry may have come due.
 func (s *Service) pumpAfterJobEnd() {
+	s.pumpWithTimeout(context.Background())
+}
+
+func (s *Service) pumpWithTimeout(parent context.Context) {
 	if s.shuttingDown.Load() {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	s.PumpArchiveQueue(ctx)
 }

@@ -39,10 +39,9 @@ import (
 const routerWebhookSecret = "router-webhook-secret"
 
 // roleGateRequest drives the real tRPC router and returns the status code.
-// httptest defaults the Host to example.com; it sends a matching same-origin
-// Origin so a POST clears trpcgo's CSRF check and the assertion lands on the
-// role gate under test, not the CSRF gate in front of it. A real browser always
-// sends Origin on a mutation.
+// httptest defaults the Host to example.com, so the request carries a matching
+// same-origin Origin: a POST then clears trpcgo's CSRF check and the assertion
+// lands on the role gate, not the CSRF gate in front of it.
 func roleGateRequest(router http.Handler, method, path, body string, cookie *http.Cookie) int {
 	var rdr io.Reader
 	if body != "" {
@@ -586,13 +585,9 @@ func TestSetupRouter_VideoDeleteUnavailableWhenSchedulerDisabled(t *testing.T) {
 	}
 }
 
-// TestEventSubProceduresAreOwnerGated drives the eventsub.* procedures through
-// the fully wired router and asserts they sit behind the owner role. This is the
-// only thing that catches a routes.go/router.go edit swapping `owner` for a
-// lower-privilege builder: the handler unit tests bypass dispatch entirely, so a
-// viewer reaching these procedures would otherwise go unnoticed. The query is a
-// CSRF-safe GET; the mutations carry valid bodies so the role middleware (which
-// runs after input validation) is what rejects them.
+// TestEventSubProceduresAreOwnerGated drives eventsub.* through the fully
+// wired router. Handler unit tests bypass dispatch, so a routes.go edit
+// swapping owner for a lower-privilege builder shows up only here.
 func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -627,8 +622,6 @@ func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 		return roleGateRequest(router, method, path, body, cookie)
 	}
 
-	// eventsub.config is a void query (GET). Pin the exact role boundary: a
-	// viewer and an admin are both rejected, only an owner gets through.
 	if got := do(http.MethodGet, "/trpc/eventsub.config", "", nil); got != http.StatusUnauthorized {
 		t.Fatalf("eventsub.config without a session = %d, want 401", got)
 	}
@@ -691,11 +684,8 @@ func TestExistingSessionUsesFreshRoleAfterDemotion(t *testing.T) {
 	}
 }
 
-// TestRecordingWebhookProceduresAreOwnerGated is the route-level regression
-// guard for the custom outbound webhook surface. Handler unit tests do not catch
-// a route accidentally registered with `viewer`/`admin`; this drives the real
-// tRPC router so the signing-secret read path and egress-triggering mutations
-// stay owner-only.
+// TestRecordingWebhookProceduresAreOwnerGated drives the real tRPC router so
+// the signing-secret read and the egress-triggering mutations stay owner-only.
 func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -743,9 +733,8 @@ func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
 		{name: "updateConfig", method: http.MethodPost, path: "/trpc/recordingWebhook.updateConfig", body: `{"enabled":false,"url":"","events":[]}`, ownerWant: http.StatusOK},
 		{name: "regenerateSecret", method: http.MethodPost, path: "/trpc/recordingWebhook.regenerateSecret", ownerWant: http.StatusOK},
 		{name: "testDelivery", method: http.MethodPost, path: "/trpc/recordingWebhook.testDelivery", ownerWant: http.StatusOK},
-		// Missing id is the handler's expected owner-visible result here. The
-		// important assertion is that viewer/admin are stopped at the role gate
-		// before the handler can even inspect the id.
+		// An owner reaches the handler, which 404s because delivery 123 does
+		// not exist.
 		{name: "retryDelivery", method: http.MethodPost, path: "/trpc/recordingWebhook.retryDelivery", body: `{"id":123}`, ownerWant: http.StatusNotFound},
 	}
 	for _, tc := range cases {
@@ -929,8 +918,8 @@ func TestInfiniteQueryInputAcrossTransports(t *testing.T) {
 	}
 }
 
-// mintSessionCookie seeds a user with the given role and returns a valid session
-// cookie for them, so router tests can exercise role-gated procedures end to end.
+// mintSessionCookie seeds a user with the given role and returns a valid
+// session cookie for them.
 func mintSessionCookie(t *testing.T, repo repository.Repository, sessionMgr *session.Manager, userID, role string) *http.Cookie {
 	t.Helper()
 	if _, err := repo.UpsertUser(context.Background(), &repository.User{

@@ -257,3 +257,27 @@ func TestNewWiresEveryTopicWithItsBufferSize(t *testing.T) {
 		t.Errorf("TaskStatus buffer cap = %d, want 32", got)
 	}
 }
+
+func TestRemovalNotificationsCoalesceWithoutBlockingPublishers(t *testing.T) {
+	bus := New()
+	events := bus.VideoRemovals.Subscribe(t.Context())
+	for range 1000 {
+		bus.VideoRemovals.Publish(VideoRemovalEvent{})
+	}
+	select {
+	case <-events:
+	default:
+		t.Fatal("lost removal invalidation")
+	}
+	select {
+	case <-events:
+		t.Fatal("removal invalidations did not coalesce")
+	default:
+	}
+	bus.VideoRemovals.Publish(VideoRemovalEvent{})
+	select {
+	case <-events:
+	default:
+		t.Fatal("lost transition after draining earlier invalidation")
+	}
+}

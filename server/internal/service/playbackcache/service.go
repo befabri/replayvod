@@ -50,9 +50,14 @@ type Runner interface {
 	Concat(ctx context.Context, listPath, outputPath string) error
 }
 
+type StorageGate interface {
+	Verify(context.Context) error
+}
+
 type Service struct {
 	repo    repository.Repository
 	store   storage.Storage
+	gate    StorageGate
 	scratch string
 	runner  Runner
 	log     *slog.Logger
@@ -82,7 +87,7 @@ type Service struct {
 	building map[int64]struct{}
 }
 
-func New(repo repository.Repository, store storage.Storage, scratchDir, ffmpegPath string, log *slog.Logger) *Service {
+func New(repo repository.Repository, store storage.Storage, gate StorageGate, scratchDir, ffmpegPath string, log *slog.Logger) *Service {
 	if scratchDir == "" {
 		scratchDir = filepath.Join(os.TempDir(), "replayvod-playback-cache")
 	}
@@ -94,6 +99,7 @@ func New(repo repository.Repository, store storage.Storage, scratchDir, ffmpegPa
 	return &Service{
 		repo:         repo,
 		store:        store,
+		gate:         gate,
 		scratch:      scratchDir,
 		runner:       remuxRunner{remuxer: &remux.Remuxer{FFmpegPath: ffmpegPath, Log: log}},
 		log:          log,
@@ -110,6 +116,23 @@ func (s *Service) SetRunner(r Runner) {
 	if r != nil {
 		s.runner = r
 	}
+}
+
+func (s *Service) storageReady(ctx context.Context) error {
+	if s.gate == nil {
+		return nil
+	}
+	return s.gate.Verify(ctx)
+}
+
+// storageDeletionReady keeps reclamation available when writes exhaust capacity.
+// Like publication, deletion verifies identity at the operation boundary.
+func (s *Service) storageDeletionReady(ctx context.Context) error {
+	err := s.storageReady(ctx)
+	if storage.CanDelete(err) {
+		return nil
+	}
+	return err
 }
 
 // StartBuild kicks off a background build for videoID. It is called lazily the
@@ -212,10 +235,7 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		// Off: don't prune (don't wipe the existing cache) and don't build.
 		return nil
 	}
-	if err := s.pruneWithSettings(ctx, settings); err != nil {
-		s.log.Warn("reconcile prune failed", "error", err)
-	}
-	return nil
+	return s.pruneWithSettings(ctx, settings)
 }
 
 func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
@@ -228,6 +248,9 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 	// wipe the existing cache. autoGenerate gates only the automatic path.
 	if !settings.active() || !settings.autoGenerate {
 		return nil
+	}
+	if err := s.storageReady(ctx); err != nil {
+		return err
 	}
 
 	video, err := s.repo.GetVideo(ctx, videoID)
@@ -307,6 +330,9 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 	}
 
 	filename := playbackFilename(video, ordered[0])
+	if err := s.storageReady(ctx); err != nil {
+		return err
+	}
 	if _, err := s.repo.UpsertVideoPlaybackAsset(ctx, &repository.VideoPlaybackAssetInput{
 		VideoID: videoID,
 		Status:  repository.PlaybackAssetStatusBuilding,
@@ -315,11 +341,24 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 	}
 
 	size, err := s.buildArtifact(ctx, filename, ordered)
+	// A storage change is not a verdict about the recording. Leave the build
+	// retryable, and do not clean up a same-named file on the replacement volume.
+	if gateErr := s.storageReady(context.WithoutCancel(ctx)); gateErr != nil {
+		if storage.CanDelete(gateErr) {
+			// A build can consume the last available block. Its artifact is not
+			// ready yet, so ordinary LRU pruning cannot reclaim it. Free it now
+			// while this verified, full volume still permits deletion.
+			return errors.Join(err, gateErr, s.deleteArtifact(context.WithoutCancel(ctx), filename))
+		}
+		return errors.Join(err, gateErr)
+	}
 	if err != nil {
 		// Build context may already be canceled/timed out; clean up any partial
 		// artifact and record the outcome on a detached context so it sticks.
 		detached := context.WithoutCancel(ctx)
-		s.deleteArtifact(detached, filename)
+		if cleanupErr := s.deleteArtifact(detached, filename); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
 		if errors.Is(err, context.Canceled) {
 			// Interrupted by a graceful shutdown — not a real failure. Drop the
 			// building row so the next play rebuilds it (via the no-row path)
@@ -352,10 +391,11 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 	case err != nil && !errors.Is(err, repository.ErrNotFound):
 		// Transient read error: fail safe. Don't commit on an unverified video;
 		// leave the 'building' row so the next play retries.
-		s.deleteArtifact(detached, filename)
-		return fmt.Errorf("re-check video before commit: %w", err)
+		return errors.Join(fmt.Errorf("re-check video before commit: %w", err), s.deleteArtifact(detached, filename))
 	case errors.Is(err, repository.ErrNotFound) || fresh.Status != repository.VideoStatusDone || fresh.DeletedAt != nil:
-		s.deleteArtifact(detached, filename)
+		if err := s.deleteArtifact(detached, filename); err != nil {
+			return err
+		}
 		if delErr := s.repo.DeleteVideoPlaybackAsset(detached, videoID); delErr != nil {
 			s.log.Warn("clear playback row for deleted video failed", "video_id", videoID, "error", delErr)
 		}
@@ -371,7 +411,9 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 	// means a real overshoot beyond the margin that ffmpeg reproduces
 	// deterministically, so a retryable verdict would relaunch it forever.
 	if budget.known && size > budget.configured {
-		s.deleteArtifact(detached, filename)
+		if err := s.deleteArtifact(detached, filename); err != nil {
+			return err
+		}
 		return s.markUnavailable(detached, videoID,
 			fmt.Sprintf("playback artifact %d exceeds cache cap %d", size, budget.configured))
 	}
@@ -379,6 +421,9 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 	at := time.Now().UTC()
 	mime := mimeTypeForExtension(partExtension(ordered[0]))
 	duration := totalDuration(ordered)
+	if err := s.storageReady(detached); err != nil {
+		return err
+	}
 	if _, err := s.repo.UpsertVideoPlaybackAsset(detached, &repository.VideoPlaybackAssetInput{
 		VideoID:         videoID,
 		Status:          repository.PlaybackAssetStatusReady,
@@ -389,8 +434,7 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 		GeneratedAt:     &at,
 		LastAccessedAt:  &at,
 	}); err != nil {
-		s.deleteArtifact(detached, filename)
-		return err
+		return errors.Join(err, s.deleteArtifact(detached, filename))
 	}
 
 	if err := s.pruneWithSettings(detached, settings); err != nil {
@@ -403,6 +447,9 @@ func (s *Service) BuildNow(ctx context.Context, videoID int64) error {
 // absent, or "" when all parts are present.
 func (s *Service) firstMissingPart(ctx context.Context, parts []repository.VideoPart) (string, error) {
 	for _, part := range parts {
+		if err := s.storageReady(ctx); err != nil {
+			return "", err
+		}
 		exists, err := s.store.Exists(ctx, storagekeys.Video(part.Filename))
 		if err != nil {
 			return "", err
@@ -415,6 +462,9 @@ func (s *Service) firstMissingPart(ctx context.Context, parts []repository.Video
 }
 
 func (s *Service) markUnavailable(ctx context.Context, videoID int64, reason string) error {
+	if err := s.storageReady(ctx); err != nil {
+		return err
+	}
 	_, err := s.repo.UpsertVideoPlaybackAsset(ctx, &repository.VideoPlaybackAssetInput{
 		VideoID: videoID,
 		Status:  repository.PlaybackAssetStatusUnavailable,
@@ -440,6 +490,9 @@ func (s *Service) Prune(ctx context.Context) error {
 func (s *Service) pruneWithSettings(ctx context.Context, settings playbackConfig) error {
 	if !settings.active() {
 		return nil
+	}
+	if err := s.storageDeletionReady(ctx); err != nil {
+		return err
 	}
 	entries, err := s.repo.ListReadyVideoPlaybackAssets(ctx)
 	if err != nil {
@@ -467,24 +520,26 @@ func (s *Service) pruneWithSettings(ctx context.Context, settings playbackConfig
 		if total <= capBytes {
 			break
 		}
-		// Delete the row first: if the storage delete then fails we have at
-		// worst an orphaned file, never a ready row pointing at a gone file that
-		// streamPlayback would 404 on. The orphaned file is NOT reclaimed by a
-		// later prune (prune only walks rows, and this one's row is gone) — it's
-		// cleaned up by retention's deterministic-key delete when the recording
-		// ages out. Until then currentCacheBytes undercounts real disk use.
+		if err := s.storageDeletionReady(ctx); err != nil {
+			return err
+		}
+		// Keep the row until object deletion succeeds: it is the durable
+		// retry record and keeps the bytes accounted for during an outage.
+		// A crash after deleting the object leaves a stale ready row; deletion
+		// is idempotent, and streamPlayback already demotes a missing artifact
+		// so readers can fall back to the original recording parts.
+		if entry.Filename != nil {
+			if err := s.deleteArtifact(ctx, *entry.Filename); err != nil {
+				return err
+			}
+		}
 		if err := s.repo.DeleteVideoPlaybackAsset(ctx, entry.VideoID); err != nil {
 			// Stop, don't skip: entries are oldest-first, so continuing would evict
 			// a NEWER artifact to compensate for this older one we couldn't delete —
 			// inverting LRU. Leave the cache briefly over-cap; the next prune retries
 			// this same victim.
 			s.log.Warn("delete playback artifact row during prune failed", "video_id", entry.VideoID, "error", err)
-			break
-		}
-		if entry.Filename != nil {
-			if err := s.store.Delete(ctx, storagekeys.Video(*entry.Filename)); err != nil {
-				s.log.Warn("delete playback artifact during prune failed", "video_id", entry.VideoID, "filename", *entry.Filename, "error", err)
-			}
+			return fmt.Errorf("delete playback artifact row %d: %w", entry.VideoID, err)
 		}
 		if entry.SizeBytes != nil {
 			total -= *entry.SizeBytes
@@ -603,6 +658,9 @@ func (s *Service) buildArtifact(ctx context.Context, filename string, parts []re
 	}
 
 	if local, ok := s.store.(*storage.LocalStorage); ok {
+		if err := s.storageReady(ctx); err != nil {
+			return 0, err
+		}
 		finalPath, err := local.LocalPath(storagekeys.Video(filename))
 		if err != nil {
 			return 0, err
@@ -635,16 +693,26 @@ func (s *Service) buildArtifact(ctx context.Context, filename string, parts []re
 		return 0, fmt.Errorf("open playback artifact: %w", err)
 	}
 	defer f.Close()
+	if err := s.storageReady(ctx); err != nil {
+		return 0, err
+	}
 	if err := s.store.Save(ctx, storagekeys.Video(filename), f); err != nil {
 		return 0, fmt.Errorf("save playback artifact: %w", err)
 	}
 	return info.Size(), nil
 }
 
-func (s *Service) deleteArtifact(ctx context.Context, filename string) {
+func (s *Service) deleteArtifact(ctx context.Context, filename string) error {
+	if err := s.storageDeletionReady(ctx); err != nil {
+		return err
+	}
 	if err := s.store.Delete(ctx, storagekeys.Video(filename)); err != nil {
 		s.log.Warn("delete playback artifact failed", "filename", filename, "error", err)
+		return err
 	}
+	// A delete that spans an outage cannot prove the expected volume was
+	// cleaned. Keep its row so the same deterministic key is retried.
+	return s.storageDeletionReady(ctx)
 }
 
 func (s *Service) localPartPaths(ctx context.Context, workDir string, parts []repository.VideoPart) ([]string, error) {

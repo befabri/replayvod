@@ -321,3 +321,89 @@ func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 	}
 	t.Fatalf("condition not met within %v", d)
 }
+
+// TestScheduler_Stop_CancelsRunningTask pins shutdown: a task in flight sees
+// its context cancelled and Stop returns as soon as it unwinds, instead of
+// waiting for the ten-minute deadline. The row records a shutdown, not a
+// fault.
+func TestScheduler_Stop_CancelsRunningTask(t *testing.T) {
+	s, repo := newTestScheduler(t)
+	started := make(chan struct{})
+	_ = s.Register(Task{
+		Name: "long", Description: "test", IntervalSeconds: 3600,
+		Run: func(ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("task never started")
+	}
+	done := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not return once the task was cancelled")
+	}
+	got, err := repo.GetTask(context.Background(), "long")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.LastStatus != repository.TaskStatusInterrupted || got.LastError != nil {
+		t.Fatalf("task after shutdown = %+v, want neutral interruption", got)
+	}
+	if got.NextRunAt == nil || time.Until(*got.NextRunAt) > time.Second {
+		t.Fatalf("interrupted task postponed: %+v", got)
+	}
+	logs, err := repo.ListEventLogs(context.Background(), 100, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].EventType != "run_interrupted" || logs[0].Severity != repository.EventLogSeverityInfo {
+		t.Fatalf("shutdown audit = %+v, want one neutral interruption", logs)
+	}
+	// A fresh scheduler must actually run it, not merely display a due date.
+	restarted := NewService(repo, s.log, time.Hour, nil)
+	t.Cleanup(restarted.Stop)
+	rerun := make(chan struct{})
+	_ = restarted.Register(Task{Name: "long", IntervalSeconds: 3600, Run: func(context.Context) error { close(rerun); return nil }})
+	if err := restarted.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-rerun:
+	case <-time.After(2 * time.Second):
+		t.Fatal("interrupted task did not retry at startup")
+	}
+
+}
+
+func TestScheduler_TaskCancellationIsNotShutdown(t *testing.T) {
+	s, repo := newTestScheduler(t)
+	_ = s.Register(Task{Name: "self-cancelled", IntervalSeconds: 3600, Run: func(ctx context.Context) error {
+		own, cancel := context.WithCancel(ctx)
+		cancel()
+		return own.Err()
+	}})
+	if err := s.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 2*time.Second, func() bool {
+		row, err := repo.GetTask(t.Context(), "self-cancelled")
+		return err == nil && row.LastStatus == repository.TaskStatusFailed
+	})
+	row, _ := repo.GetTask(t.Context(), "self-cancelled")
+	if row.LastError == nil || *row.LastError != context.Canceled.Error() {
+		t.Fatalf("own cancellation misclassified: %+v", row)
+	}
+}

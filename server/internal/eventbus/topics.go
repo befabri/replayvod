@@ -11,7 +11,9 @@ type Buses struct {
 	StreamStatus      *Topic[StreamStatusEvent]
 	TaskStatus        *Topic[TaskStatusEvent]
 	RecordingTerminal *Topic[RecordingTerminalEvent]
+	StorageStatus     *Topic[StorageStatusEvent]
 	ArchiveQueue      *Topic[ArchiveQueueEvent]
+	VideoRemovals     *Topic[VideoRemovalEvent]
 }
 
 func New() *Buses {
@@ -21,8 +23,24 @@ func New() *Buses {
 		StreamStatus:      NewTopic[StreamStatusEvent](32),
 		TaskStatus:        NewTopic[TaskStatusEvent](32),
 		RecordingTerminal: NewTopic[RecordingTerminalEvent](16),
+		StorageStatus:     NewTopic[StorageStatusEvent](8),
 		ArchiveQueue:      NewTopic[ArchiveQueueEvent](32),
+		VideoRemovals:     NewTopic[VideoRemovalEvent](1),
 	}
+}
+
+// VideoRemovalEvent invalidates removal-related queries after a committed
+// queue, deletion, missing-media, or restore transition. It carries no row
+// delta: a single buffered notification covers every change before it is read,
+// so bursts coalesce without losing state. Consumers reread the database.
+type VideoRemovalEvent struct{}
+
+// StorageStatusEvent fires on every storage readiness transition (attached,
+// read-only, full, unattached, unreachable). This is a viewer-safe notification;
+// diagnostics belong exclusively to owner-only status details and event logs.
+type StorageStatusEvent struct {
+	State string    `json:"state"`
+	At    time.Time `json:"at"`
 }
 
 // ArchiveQueueKind enumerates the archive queue membership changes.

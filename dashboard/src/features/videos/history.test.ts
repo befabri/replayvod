@@ -49,10 +49,10 @@ describe("history controls", () => {
 
 	it("scopes tab counts without pretending an unloaded count is zero", () => {
 		const counts = {
-			all: { on_disk: 8, removed: 4 },
-			completed: { on_disk: 5, removed: 1 },
-			failed: { on_disk: 2, removed: 3 },
-			cancelled: { on_disk: 1, removed: 0 },
+			all: { on_disk: 8, removed: 4, unavailable: 2 },
+			completed: { on_disk: 5, removed: 1, unavailable: 0 },
+			failed: { on_disk: 2, removed: 3, unavailable: 2 },
+			cancelled: { on_disk: 1, removed: 0, unavailable: 0 },
 		};
 		expect(historyTabCounts(undefined, "any")).toEqual({
 			all: undefined,

@@ -14,7 +14,7 @@ SELECT * FROM jobs WHERE video_id = ? ORDER BY created_at DESC LIMIT 1;
 -- block a live recording nor receive its channel.update metadata.
 SELECT jobs.* FROM jobs
 JOIN videos ON videos.id = jobs.video_id
-WHERE jobs.broadcaster_id = ? AND jobs.status IN ('PENDING', 'RUNNING')
+WHERE videos.job_id = jobs.id AND jobs.broadcaster_id = ? AND jobs.status IN ('PENDING', 'RUNNING')
   AND videos.source = 'live'
 ORDER BY jobs.created_at DESC LIMIT 1;
 
@@ -50,9 +50,19 @@ WHERE id = ?;
 UPDATE jobs SET resume_state = ?, updated_at = datetime('now') WHERE id = ?;
 
 -- name: ListRunningJobs :many
-SELECT * FROM jobs WHERE status = 'RUNNING' ORDER BY started_at ASC;
+SELECT jobs.* FROM jobs
+JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
+WHERE (jobs.status = 'RUNNING' OR (jobs.status = 'PENDING' AND videos.source = 'live'))
+  AND videos.status IN ('PENDING', 'RUNNING') AND videos.deleted_at IS NULL
+ORDER BY jobs.started_at ASC;
 
 -- name: ListFailedJobsForRetry :many
 SELECT * FROM jobs
 WHERE status = 'FAILED' AND finished_at IS NOT NULL AND finished_at < ?
 ORDER BY finished_at ASC LIMIT ?;
+
+-- name: ListRunningLiveBroadcasters :many
+SELECT DISTINCT jobs.broadcaster_id FROM jobs
+JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
+WHERE jobs.status = 'RUNNING' AND videos.source = 'live'
+  AND videos.status IN ('PENDING', 'RUNNING') AND videos.deleted_at IS NULL;

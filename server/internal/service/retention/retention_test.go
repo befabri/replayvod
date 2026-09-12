@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -416,7 +417,7 @@ func TestSweep_SkipsRecordingWithUnfrozenPendingWebhook(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	delivery, err := repo.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
@@ -464,7 +465,7 @@ func TestProcessManualDeletes_WaitsForWebhookFrozenParts(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	delivery, err := repo.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
@@ -553,7 +554,7 @@ func TestRequestManualDelete_RejectsWhenWorkerUnavailableWithoutQueueing(t *test
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog(), WithManualDeletionWorkerAvailable(false))
+	svc := New(repo, store, readyStorage{}, discardLog(), WithManualDeletionWorkerAvailable(false))
 
 	seedChannelUser(t, ctx, repo, "u-delete-worker", "b-delete-worker")
 	v := seedDoneVideo(t, ctx, repo, "job-delete-worker", "rec-delete-worker", "b-delete-worker")
@@ -575,7 +576,7 @@ func TestRequestManualDelete_RejectsDisabledTaskWithoutQueueing(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-delete-task", "b-delete-task")
 	v := seedDoneVideo(t, ctx, repo, "job-delete-task", "rec-delete-task", "b-delete-task")
@@ -603,7 +604,7 @@ func TestRequestManualDelete_WakesExistingFutureTask(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-delete-wakeup", "b-delete-wakeup")
 	v := seedDoneVideo(t, ctx, repo, "job-delete-wakeup", "rec-delete-wakeup", "b-delete-wakeup")
@@ -653,7 +654,7 @@ func TestSweep_DeletesExpiredRecording(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	now := time.Now().Add(48 * time.Hour) // well past the 1h window
@@ -701,7 +702,7 @@ func TestSweep_DeletesLegacySingleFileRecording(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-1", "b-legacy")
 	seedSchedule(t, ctx, repo, "u-1", "b-legacy", true, ptrInt64(1), false)
@@ -750,7 +751,7 @@ func TestSweep_KeepsRecordingWithoutRetentionWindowOnDeleteScheduledBroadcaster(
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-1", "b-mixed")
 	seedSchedule(t, ctx, repo, "u-1", "b-mixed", true, ptrInt64(1), false)
@@ -808,7 +809,7 @@ func TestSweep_DeletesFailedPartialRecording(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-1", "b-failed")
 	seedSchedule(t, ctx, repo, "u-1", "b-failed", true, ptrInt64(1), false)
@@ -877,7 +878,7 @@ func TestSweep_KeepsRecordingInsideWindow(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	now := time.Now().Add(30 * time.Minute) // inside the 1h window
@@ -906,7 +907,7 @@ func TestProcessManualDeletes_StorageFailureLeavesQueueForRetry(t *testing.T) {
 	repo := newTestRepo(t)
 	base := newLocalStore(t)
 	faulty := &faultyStore{Storage: base, failOn: "videos/rec-part01.mp4"}
-	svc := New(repo, faulty, discardLog())
+	svc := New(repo, faulty, readyStorage{}, discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, base)
 	if err := svc.RequestManualDelete(ctx, v); err != nil {
@@ -990,7 +991,7 @@ func TestSweep_PartialFailureRecovers(t *testing.T) {
 	repo := newTestRepo(t)
 	base := newLocalStore(t)
 	faulty := &faultyStore{Storage: base, failOn: "videos/rec-part02.mp4"}
-	svc := New(repo, faulty, discardLog())
+	svc := New(repo, faulty, readyStorage{}, discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, base)
 	now := time.Now().Add(48 * time.Hour)
@@ -1096,7 +1097,7 @@ func TestSweep_SnapshotPurgeFailureKeepsIndexZeroSentinel(t *testing.T) {
 	repo := newTestRepo(t)
 	base := newLocalStore(t)
 	faulty := &faultyStore{Storage: base, failOn: "thumbnails/rec-snap01.jpg"}
-	svc := New(repo, faulty, discardLog())
+	svc := New(repo, faulty, readyStorage{}, discardLog())
 
 	v := seedRecordingWithSnapshots(t, ctx, repo, base, 4)
 	now := time.Now().Add(48 * time.Hour) // past the 1h window
@@ -1164,7 +1165,7 @@ func TestSweep_PurgesSnapshotsBeyondReaderCap(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	const n = 501 // one past the old 500 ceiling that used to strand the tail
 	v := seedRecordingWithSnapshots(t, ctx, repo, store, n)
@@ -1245,7 +1246,7 @@ func TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates(t *testing.T) {
 	repo := newTestRepo(t)
 	base := newLocalStore(t)
 	faulty := &faultyStore{Storage: base, failOn: "videos/recb-part01.mp4"}
-	svc := New(repo, faulty, discardLog())
+	svc := New(repo, faulty, readyStorage{}, discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-1", "b-1")
 	seedSchedule(t, ctx, repo, "u-1", "b-1", true, ptrInt64(1), false)
@@ -1337,7 +1338,7 @@ func TestSweep_FinalizeFailureConverges(t *testing.T) {
 	ctx := context.Background()
 	repo := &finalizeFailRepo{Repository: newTestRepo(t)}
 	store := newLocalStore(t)
-	svc := New(repo, store, discardLog())
+	svc := New(repo, store, readyStorage{}, discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	now := time.Now().Add(48 * time.Hour)
@@ -1391,5 +1392,123 @@ func TestDeleteRecording_RejectsMissingKindBeforeStorageAccess(t *testing.T) {
 	s := &Service{}
 	if err := s.DeleteRecording(t.Context(), &repository.Video{ID: 1}, repository.DeletionKindMissing); err == nil {
 		t.Fatal("missing-media discovery authorized object deletion")
+	}
+}
+
+type storageGateFunc func(context.Context) error
+
+func (f storageGateFunc) Verify(ctx context.Context) error { return f(ctx) }
+
+func TestDeleteRecordingWaitsForStorageAndRecovers(t *testing.T) {
+	for _, refusal := range []error{storage.ErrUnattached, storage.ErrUnreachable, storage.ErrReadOnly} {
+		t.Run(refusal.Error(), func(t *testing.T) {
+			repo, store := newTestRepo(t), newLocalStore(t)
+			ctx := t.Context()
+			v := seedRecordingWithObjects(t, ctx, repo, store)
+			gateErr := refusal
+			svc := New(repo, store, storageGateFunc(func(context.Context) error { return gateErr }), discardLog())
+			if err := svc.DeleteRecording(ctx, v, repository.DeletionKindRetention); !errors.Is(err, refusal) {
+				t.Fatalf("delete while unavailable: %v", err)
+			}
+			assertObjectsExist(t, ctx, store)
+			row, err := repo.GetVideo(ctx, v.ID)
+			if err != nil || row.DeletedAt != nil {
+				t.Fatalf("unavailable storage tombstoned recording: %+v, %v", row, err)
+			}
+			gateErr = nil
+			if err := svc.DeleteRecording(ctx, v, repository.DeletionKindRetention); err != nil {
+				t.Fatal(err)
+			}
+			assertObjectsGone(t, ctx, store)
+		})
+	}
+}
+
+func TestDeleteRecordingDetachDuringPurgePreservesRows(t *testing.T) {
+	repo, store := newTestRepo(t), newLocalStore(t)
+	ctx := t.Context()
+	v := seedRecordingWithObjects(t, ctx, repo, store)
+	calls := 0
+	svc := New(repo, store, storageGateFunc(func(context.Context) error {
+		calls++
+		if calls == 2 {
+			return storage.ErrUnattached
+		}
+		return nil
+	}), discardLog())
+	if err := svc.DeleteRecording(ctx, v, repository.DeletionKindRetention); !errors.Is(err, storage.ErrUnattached) {
+		t.Fatalf("detach: %v", err)
+	}
+	row, err := repo.GetVideo(ctx, v.ID)
+	if err != nil || row.DeletedAt != nil {
+		t.Fatalf("detached storage tombstoned recording: %+v, %v", row, err)
+	}
+	parts, err := repo.ListVideoParts(ctx, v.ID)
+	if err != nil || len(parts) == 0 {
+		t.Fatalf("detached storage discarded parts: %v, %v", parts, err)
+	}
+	if err := svc.DeleteRecording(ctx, v, repository.DeletionKindRetention); err != nil {
+		t.Fatal(err)
+	}
+	assertObjectsGone(t, ctx, store)
+}
+
+func TestDeleteRecordingRequiresStorageGate(t *testing.T) {
+	svc := New(nil, nil, nil, discardLog())
+	if err := svc.DeleteRecording(t.Context(), &repository.Video{ID: 1}, repository.DeletionKindRetention); !errors.Is(err, storage.ErrUnattached) {
+		t.Fatalf("nil gate: %v", err)
+	}
+}
+
+type readyStorage struct{}
+
+func (readyStorage) Verify(context.Context) error { return nil }
+
+func TestRemovalNotificationsFollowCommittedState(t *testing.T) {
+	ctx := t.Context()
+	repo := newTestRepo(t)
+	store := newLocalStore(t)
+	bus := eventbus.New()
+	events := bus.VideoRemovals.Subscribe(ctx)
+	v := seedRecordingWithObjects(t, ctx, repo, store)
+	writable := false
+	svc := New(repo, store, storageGateFunc(func(context.Context) error {
+		if !writable {
+			return storage.ErrUnattached
+		}
+		return nil
+	}), discardLog(), WithEventBus(bus))
+	if err := svc.RequestManualDelete(ctx, v); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-events:
+	default:
+		t.Fatal("queue commit did not notify")
+	}
+	row, err := repo.GetVideo(ctx, v.ID)
+	if err != nil || row.DeleteRequestedAt == nil {
+		t.Fatalf("notification preceded queue commit: %v %v", row, err)
+	}
+	if _, err := svc.ProcessManualDeletes(ctx); err == nil {
+		t.Fatal("expected detached storage error")
+	}
+	select {
+	case <-events:
+		t.Fatal("failed deletion published a transition")
+	default:
+	}
+	writable = true
+	if count, err := svc.ProcessManualDeletes(ctx); err != nil || count != 1 {
+		t.Fatalf("delete: %d %v", count, err)
+	}
+	select {
+	case <-events:
+	default:
+		t.Fatal("deletion commit did not notify")
+	}
+	row, err = repo.GetVideo(ctx, v.ID)
+	if err != nil || row.DeletedAt == nil || row.DeleteRequestedAt != nil {
+		t.Fatalf("notification preceded deletion commit: %v %v", row, err)
 	}
 }

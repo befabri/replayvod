@@ -62,10 +62,13 @@ type sqliteBeginner interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
-// inTx runs fn inside a database/sql transaction when the adapter's
-// underlying DBTX supports opening one. Commits on success, rolls
-// back on error or panic.
+// inTx joins the caller's transaction when present. Otherwise it opens one,
+// committing on success and rolling back on error or panic. Only the owner of
+// the transaction commits it; compound repository methods can compose in WithTx.
 func (a *SQLiteAdapter) inTx(ctx context.Context, fn func(q *sqlitegen.Queries, tx *sql.Tx) error) error {
+	if tx, ok := a.db.(*sql.Tx); ok {
+		return fn(a.queries, tx)
+	}
 	beginner, ok := a.db.(sqliteBeginner)
 	if !ok {
 		return fmt.Errorf("sqlite adapter: underlying db does not support transactions")

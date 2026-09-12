@@ -42,7 +42,7 @@ func TestCapacity(t *testing.T) {
 	}
 
 	t.Run("local percent binds below ceiling", func(t *testing.T) {
-		svc := New(&fakeRepo{}, local, t.TempDir(), "", nil)
+		svc := New(&fakeRepo{}, local, nil, t.TempDir(), "", nil)
 		svc.fsStat = func(string) (int64, int64, error) { return 1000, 900, nil }
 		// configured = 1000/100*10 = 100; ceiling = 0 + 900 - 1000/20(=50) = 850.
 		b, err := svc.capacity(ctx, 10, 0)
@@ -52,7 +52,7 @@ func TestCapacity(t *testing.T) {
 	})
 
 	t.Run("local free-space ceiling binds below percent", func(t *testing.T) {
-		svc := New(&fakeRepo{}, local, t.TempDir(), "", nil)
+		svc := New(&fakeRepo{}, local, nil, t.TempDir(), "", nil)
 		svc.fsStat = func(string) (int64, int64, error) { return 1000, 80, nil }
 		// configured = 1000/100*50 = 500; ceiling = 0 + 80 - 50 = 30 -> current 30,
 		// configured stays 500 (the artifact-size cap is unchanged by free space).
@@ -63,7 +63,7 @@ func TestCapacity(t *testing.T) {
 	})
 
 	t.Run("disk pressure clamps current to zero but not configured", func(t *testing.T) {
-		svc := New(&fakeRepo{}, local, t.TempDir(), "", nil)
+		svc := New(&fakeRepo{}, local, nil, t.TempDir(), "", nil)
 		svc.fsStat = func(string) (int64, int64, error) { return 1000, 10, nil }
 		// ceiling = 0 + 10 - 50 = -40 -> current clamped to 0; configured stays
 		// positive so BuildNow defers (transient) rather than failing permanently.
@@ -74,7 +74,7 @@ func TestCapacity(t *testing.T) {
 	})
 
 	t.Run("current cache bytes raise the ceiling", func(t *testing.T) {
-		svc := New(&fakeRepo{}, local, t.TempDir(), "", nil)
+		svc := New(&fakeRepo{}, local, nil, t.TempDir(), "", nil)
 		svc.fsStat = func(string) (int64, int64, error) { return 1000, 100, nil }
 		// configured = 900; ceiling = current(200) + 100 - 50 = 250 -> current 250.
 		b, _ := svc.capacity(ctx, 90, 200)
@@ -84,7 +84,7 @@ func TestCapacity(t *testing.T) {
 	})
 
 	t.Run("object storage uses library size with no free-space clamp", func(t *testing.T) {
-		svc := New(&fakeRepo{statsTotal: 1000}, stubStore{}, t.TempDir(), "", nil)
+		svc := New(&fakeRepo{statsTotal: 1000}, stubStore{}, nil, t.TempDir(), "", nil)
 		// 1000/100*10 = 100, independent of fsStat (not a local store).
 		b, err := svc.capacity(ctx, 10, 0)
 		if err != nil || !b.known || b.configured != 100 || b.current != 100 || b.buildHeadroom != 100 {
@@ -93,7 +93,7 @@ func TestCapacity(t *testing.T) {
 	})
 
 	t.Run("buildHeadroom excludes existing cache bytes (free space only)", func(t *testing.T) {
-		svc := New(&fakeRepo{}, local, t.TempDir(), "", nil)
+		svc := New(&fakeRepo{}, local, nil, t.TempDir(), "", nil)
 		svc.fsStat = func(string) (int64, int64, error) { return 1000, 100, nil }
 		// configured = 900; reserve = 50; cache currently holds 200.
 		// current (Prune target) re-adds reclaimable cache bytes: min(900, 200+100-50)=250.
@@ -140,7 +140,7 @@ func TestBuildNowDefersOversizeEstimate(t *testing.T) {
 	}
 	savePartFiles(t, ctx, store, repo.parts)
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	svc.capacityOverride = func(int64) (int64, bool) { return 5, true } // cap < 8
 
@@ -171,7 +171,7 @@ func TestBuildNowMarksOversizeOutputUnavailable(t *testing.T) {
 	// Estimate (8) is under cap (20) so the build runs, but the produced file
 	// (100 bytes) exceeds the cap and must be rejected + deleted.
 	runner := &fakeRunner{body: make([]byte, 100)}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	svc.capacityOverride = func(int64) (int64, bool) { return 20, true }
 
@@ -203,7 +203,7 @@ func TestBuildNowSkipsWhenReadyArtifactExists(t *testing.T) {
 		asset:    &repository.VideoPlaybackAsset{VideoID: 42, Status: repository.PlaybackAssetStatusReady, Filename: &name},
 	}
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 
 	if err := svc.BuildNow(ctx, 42); err != nil {
@@ -228,7 +228,7 @@ func TestBuildNowMarksMissingPartUnavailable(t *testing.T) {
 	// Part files are intentionally NOT saved: a row whose source file is gone
 	// must be marked permanently unavailable, not retried by the reconciler.
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	svc.capacityOverride = func(int64) (int64, bool) { return 1 << 40, true }
 
@@ -256,7 +256,7 @@ func TestBuildNowDefersUnderDiskPressureThenRecovers(t *testing.T) {
 	}
 	savePartFiles(t, ctx, store, repo.parts)
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 
 	// Near-full disk: avail(10) < reserve(total/20 = 50), so the current budget
@@ -305,7 +305,7 @@ func TestPruneEvictsActiveCacheUnderDiskPressure(t *testing.T) {
 			{VideoID: 1, Status: repository.PlaybackAssetStatusReady, Filename: &name, SizeBytes: &size, LastAccessedAt: ptrTime(time.Now())},
 		},
 	}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.capacityOverride = func(int64) (int64, bool) { return 0, true } // active but no room
 
 	if err := svc.Prune(ctx); err != nil {
@@ -336,7 +336,7 @@ func TestBuildNowDropsArtifactWhenVideoDeletedMidBuild(t *testing.T) {
 		// A retention sweep soft-deletes the video mid-concat.
 		repo.video.DeletedAt = &deletedAt
 	}}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	svc.capacityOverride = func(int64) (int64, bool) { return 1 << 40, true }
 
@@ -368,7 +368,7 @@ func TestBuildNowFailsSafeOnRecheckError(t *testing.T) {
 	}
 	savePartFiles(t, ctx, store, repo.parts)
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	svc.capacityOverride = func(int64) (int64, bool) { return 1 << 40, true }
 
@@ -410,7 +410,7 @@ func TestBuildNowSkipsRebuildOnExistsError(t *testing.T) {
 		asset:    &repository.VideoPlaybackAsset{VideoID: 42, Status: repository.PlaybackAssetStatusReady, Filename: &name},
 	}
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, existsErrStore{LocalStorage: local, err: errors.New("HeadObject 500")}, t.TempDir(), "", nil)
+	svc := New(repo, existsErrStore{LocalStorage: local, err: errors.New("HeadObject 500")}, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 
 	if err := svc.BuildNow(ctx, 42); err != nil {
@@ -450,7 +450,7 @@ func TestBuildNowDefersWhenArtifactExceedsFreeSpace(t *testing.T) {
 	}
 	savePartFiles(t, ctx, store, parts)
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	// total=1000, avail=100 -> reserve=50. configured=900.
 	// current = min(900, 500+100-50) = 550  (a 300-byte artifact "fits" the cap)
@@ -483,7 +483,7 @@ func TestBuildNowDeletedMidBuildBeatsOversizeVerdict(t *testing.T) {
 	deletedAt := time.Now().UTC()
 	// Output (100) exceeds the cap (20) AND the video is soft-deleted mid-build.
 	runner := &fakeRunner{body: make([]byte, 100), beforeWrite: func() { repo.video.DeletedAt = &deletedAt }}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	svc.capacityOverride = func(int64) (int64, bool) { return 20, true }
 
@@ -526,19 +526,29 @@ func TestPruneStopsOnRowDeleteFailure(t *testing.T) {
 		deleteAssetErr:      errors.New("db unavailable"),
 		deleteAssetErrForID: 1,
 	}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.capacityOverride = func(int64) (int64, bool) { return size, true } // budget fits one; total is two
 
-	if err := svc.Prune(ctx); err != nil {
-		t.Fatalf("Prune: %v", err)
+	if err := svc.Prune(ctx); !errors.Is(err, repo.deleteAssetErr) {
+		t.Fatalf("Prune: %v, want the database deletion error", err)
 	}
-	// Neither evicted: the older one's delete failed and we stopped rather than
-	// evicting the newer to compensate. (Old behavior would evict video 2.)
+	// Keep both rows until the older one's bookkeeping can be cleared. Its
+	// file was deleted first; no newer artifact is evicted to compensate.
 	if len(repo.ready) != 2 {
 		t.Fatalf("ready = %#v, want both kept (no LRU inversion)", repo.ready)
 	}
 	if exists, _ := store.Exists(ctx, storagekeys.Video(newName)); !exists {
 		t.Fatal("newer artifact evicted to compensate for the un-deletable older one (LRU inversion)")
+	}
+	if exists, _ := store.Exists(ctx, storagekeys.Video(oldName)); exists {
+		t.Fatal("old artifact must be deleted before its bookkeeping")
+	}
+	repo.deleteAssetErr = nil
+	if err := svc.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.ready) != 1 || repo.ready[0].VideoID != 2 {
+		t.Fatalf("retry did not converge in LRU order: %+v", repo.ready)
 	}
 }
 
@@ -563,7 +573,7 @@ func TestBuildNowInterruptDropsRowForPromptRetry(t *testing.T) {
 	}
 	savePartFiles(t, ctx, store, repo.parts)
 	runner := &cancelRunner{}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	svc.capacityOverride = func(int64) (int64, bool) { return 1 << 40, true }
 
@@ -607,7 +617,7 @@ func TestCloseCancelsInflightBuild(t *testing.T) {
 	}
 	savePartFiles(t, ctx, store, repo.parts)
 	runner := &blockingRunner{started: make(chan struct{})}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 	svc.capacityOverride = func(int64) (int64, bool) { return 1 << 40, true }
 

@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -216,3 +217,52 @@ func containsAny(s string, needles ...string) bool {
 // `errors.Is` around even when no test currently calls it — the
 // ErrNotFound export would use this path once it lands.
 var _ = errors.Is
+
+// TestS3_IdentityMarkerAttachAndReady pins the marker on a real bucket: a
+// fresh bucket is initialized, a recorded id is verified, a foreign or absent
+// marker reads as unattached, and adopting rewrites it in place.
+func TestS3_IdentityMarkerAttachAndReady(t *testing.T) {
+	ctx := context.Background()
+	s := newS3(t)
+
+	res, err := storage.Attach(ctx, s, "")
+	if err != nil || res.Outcome != storage.AttachInitialized {
+		t.Fatalf("first attach = %+v, %v", res, err)
+	}
+	if err := storage.Ready(ctx, s, res.ID); err != nil {
+		t.Fatalf("ready after init: %v", err)
+	}
+	if again, err := storage.Attach(ctx, s, res.ID); err != nil || again.Outcome != storage.AttachMatched {
+		t.Fatalf("second attach = %+v, %v", again, err)
+	}
+	if adopted, err := storage.Attach(ctx, s, ""); err != nil || adopted.Outcome != storage.AttachAdopted || adopted.ID != res.ID {
+		t.Fatalf("attach without a recorded id = %+v, %v", adopted, err)
+	}
+
+	other, err := storage.NewStorageID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.WriteMarker(ctx, s, other); err != nil {
+		t.Fatalf("write foreign marker: %v", err)
+	}
+	if err := storage.Ready(ctx, s, res.ID); !errors.Is(err, storage.ErrUnattached) {
+		t.Fatalf("ready against a foreign marker = %v, want ErrUnattached", err)
+	}
+	if err := storage.WriteMarker(ctx, s, res.ID); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if err := storage.Ready(ctx, s, res.ID); err != nil {
+		t.Fatalf("ready after adopt: %v", err)
+	}
+
+	if err := s.Delete(ctx, storage.MarkerPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Ready(ctx, s, res.ID); !errors.Is(err, storage.ErrUnattached) {
+		t.Fatalf("ready without a marker = %v, want ErrUnattached", err)
+	}
+	if _, err := storage.ReadMarker(ctx, s); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read of a missing marker = %v, want not-exist", err)
+	}
+}

@@ -236,6 +236,8 @@ type Querier interface {
 	// stream per broadcaster, then filter to rn=1. Joined with channels so
 	// the caller gets display metadata in one round-trip.
 	ListLatestLivePerChannel(ctx context.Context, limit int64) ([]ListLatestLivePerChannelRow, error)
+	// See postgres/videos.sql ListMissingTombstones.
+	ListMissingTombstones(ctx context.Context, arg ListMissingTombstonesParams) ([]ListMissingTombstonesRow, error)
 	// Live recordings of the given broadcasts that still hold their media, so
 	// the archive browser can tell a VOD was already captured live.
 	ListOpenVideosByStreamIDs(ctx context.Context, streamIds []sql.NullString) ([]Video, error)
@@ -251,6 +253,7 @@ type Querier interface {
 	ListRecentArchiveFailures(ctx context.Context, arg ListRecentArchiveFailuresParams) ([]Video, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int64) ([]RecordingWebhookDelivery, error)
 	ListRunningJobs(ctx context.Context) ([]Job, error)
+	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	ListScheduleCategoriesByScheduleIDs(ctx context.Context, scheduleIds []int64) ([]ListScheduleCategoriesByScheduleIDsRow, error)
 	ListScheduleRequests(ctx context.Context, arg ListScheduleRequestsParams) ([]ListScheduleRequestsRow, error)
@@ -293,6 +296,9 @@ type Querier interface {
 	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
 	// Bounded keyset page of terminal recordings safe to reconcile.
 	ListVideosForStorageScan(ctx context.Context, arg ListVideosForStorageScanParams) ([]ListVideosForStorageScanRow, error)
+	// Before initializing markerless storage, account for media even when a retry,
+	// running capture, deletion request or reversible tombstone excludes scanning.
+	ListVideosForStorageWitness(ctx context.Context, pageSize int64) ([]ListVideosForStorageWitnessRow, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	// Operator-requested deletions that are safe for the background worker to
 	// finalize. The webhook frozen-parts guard mirrors retention: do not delete
@@ -315,6 +321,7 @@ type Querier interface {
 	MarkRecordingWebhookDeliveryFinal(ctx context.Context, arg MarkRecordingWebhookDeliveryFinalParams) error
 	MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
+	MarkTaskInterrupted(ctx context.Context, arg MarkTaskInterruptedParams) error
 	MarkTaskRunning(ctx context.Context, name string) error
 	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
 	// See postgres/videos.sql MarkVideoDone for the completion_kind /
@@ -331,12 +338,15 @@ type Querier interface {
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	// Queue an operator-requested deletion. Idempotent for already-queued live
 	// terminal rows; active recordings must be cancelled first.
+	// A missing-media tombstone may be removed permanently too.
 	RequestVideoDelete(ctx context.Context, id int64) (Video, error)
 	// Puts a failed archive back in the queue under a fresh job. scheduled_only
 	// restricts the requeue to rows whose retry is still scheduled, so the pump
 	// never revives a retry the operator cancelled a moment earlier.
 	RequeueArchiveVideo(ctx context.Context, arg RequeueArchiveVideoParams) (int64, error)
 	ResetStaleRecordingWebhookDeliveries(ctx context.Context, arg ResetStaleRecordingWebhookDeliveriesParams) error
+	// See postgres/videos.sql RestoreMissingVideo.
+	RestoreMissingVideo(ctx context.Context, id int64) (int64, error)
 	// See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
 	// uses positional ?1/?2 instead of @video_id/@at_time.
 	ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error
@@ -352,6 +362,7 @@ type Querier interface {
 	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
 	RotateInviteToken(ctx context.Context, arg RotateInviteTokenParams) (Invite, error)
 	SaveTwitchPlaybackSession(ctx context.Context, arg SaveTwitchPlaybackSessionParams) error
+	ScheduleTaskIfEnabled(ctx context.Context, name string) (Task, error)
 	// Case-insensitive substring match on name. unicode_lower is registered by the
 	// SQLite adapter so SQLite matches Go/Postgres Unicode case folding for category
 	// search. Bind params once in a CTE with explicit casts so sqlc's SQLite output
@@ -384,6 +395,13 @@ type Querier interface {
 	// stream.online to decide whether to skip auto-downloads; individual schedule
 	// is_disabled flags are never modified, so resuming restores prior state exactly.
 	SetSchedulesPaused(ctx context.Context, schedulesPaused int64) (ServerSetting, error)
+	// SetStorageID records the identity of the attached storage. Written once on
+	// first attach or adoption; every readiness check compares the marker to it.
+	// Storage bookkeeping preserves the timestamp of the last settings edit.
+	SetStorageID(ctx context.Context, storageID string) (ServerSetting, error)
+	// SetStorageScanCursor persists the storage scan's resume position (the last
+	// video id of the last completed page; 0 restarts from the beginning).
+	SetStorageScanCursor(ctx context.Context, storageScanCursor int64) error
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	SetTaskNextRun(ctx context.Context, name string) (Task, error)
 	SetVideoThumbnail(ctx context.Context, arg SetVideoThumbnailParams) error

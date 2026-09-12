@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -75,7 +76,6 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 	}); err != nil {
 		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
 	}
-	_ = delivering
 
 	rows, err := repo.ListVideosForStorageScan(ctx, 0, 100)
 	if err != nil {
@@ -96,6 +96,61 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 		changed, err := repo.TombstoneMissingVideo(ctx, id)
 		if err != nil || changed {
 			t.Fatalf("ineligible tombstone %d = %v, %v", id, changed, err)
+		}
+	}
+
+	// A failed archive waiting for its retry is not terminal: its part row may
+	// exist before any object does, and the retry, not the scan, owns it.
+	retryVOD := "vod-retrying"
+	retrying, err := repo.CreateVideo(ctx, &repository.VideoInput{
+		JobID: "scan-retrying", Filename: "scan-retrying", DisplayName: "b-scan",
+		Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
+		BroadcasterID: "b-scan", RecordingType: repository.RecordingTypeVideo,
+		Source: repository.VideoSourceVOD, TwitchVideoID: &retryVOD,
+	})
+	if err != nil {
+		t.Fatalf("CreateVideo scan-retrying: %v", err)
+	}
+	if _, err := repo.CreateVideoPart(ctx, &repository.VideoPartInput{
+		VideoID: retrying.ID, PartIndex: 1, Filename: "scan-retrying-part01.mp4",
+		Quality: "1080", Codec: repository.CodecH264, SegmentFormat: repository.SegmentFormatFMP4,
+	}); err != nil {
+		t.Fatalf("CreateVideoPart scan-retrying: %v", err)
+	}
+	if err := repo.MarkArchiveFailedForRetry(ctx, retrying.ID, "upload blipped", repository.CompletionKindComplete, false, time.Now().UTC().Add(time.Minute)); err != nil {
+		t.Fatalf("MarkArchiveFailedForRetry: %v", err)
+	}
+	if rows, err := repo.ListVideosForStorageScan(ctx, 0, 100); err != nil || slices.Contains(scanFilenames(rows), "scan-retrying") {
+		t.Fatalf("scan candidates = %v, %v; want the retrying archive excluded", scanFilenames(rows), err)
+	}
+	if _, err := repo.GetVideoForStorageScan(ctx, retrying.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("retrying archive as a scan candidate err = %v, want ErrNotFound", err)
+	}
+	if changed, err := repo.TombstoneMissingVideo(ctx, retrying.ID); err != nil || changed {
+		t.Fatalf("tombstone of a retrying archive = %v, %v; want refused", changed, err)
+	}
+	// Attachment must see media owners that the reconciliation query excludes.
+	witnesses, err := repo.ListVideosForStorageWitness(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSlice(t, scanFilenames(witnesses), []string{
+		"scan-done", "scan-legacy", "scan-failed-salvage", "scan-pending",
+		"scan-queued", "scan-gone", "scan-delivering", "scan-retrying",
+	})
+	if err := repo.SoftDeleteVideo(ctx, gone.ID, repository.DeletionKindManual); err != nil {
+		t.Fatal(err)
+	}
+	witnesses, err = repo.ListVideosForStorageWitness(ctx, 100)
+	if err != nil || slices.Contains(scanFilenames(witnesses), "scan-gone") {
+		t.Fatalf("permanently removed media still blocks attachment: %+v, %v", witnesses, err)
+	}
+	if witnesses, err := repo.ListVideosForStorageWitness(ctx, 1); err != nil || len(witnesses) != 1 || witnesses[0].VideoID != doneParts.ID {
+		t.Fatalf("bounded witness sample = %+v, %v", witnesses, err)
+	}
+	for _, limit := range []int{0, -1, 1001} {
+		if _, err := repo.ListVideosForStorageWitness(ctx, limit); err == nil {
+			t.Fatalf("invalid witness sample limit %d accepted", limit)
 		}
 	}
 
@@ -201,5 +256,154 @@ func testSoftDeleteVideoThumbnail(t *testing.T, h Harness) {
 	}
 	if got := mk("poster-manual", repository.DeletionKindManual); got.Thumbnail != nil {
 		t.Fatalf("manual tombstone thumbnail = %q, want cleared", *got.Thumbnail)
+	}
+}
+
+// testMissingTombstoneRestoreAndPermanentRemoval pins the reversible tombstone:
+// only the missing kind restores, a queued manual delete wins over a restore,
+// and removing a missing tombstone permanently flips it to manual and clears
+// the poster the purge deleted.
+func testMissingTombstoneRestoreAndPermanentRemoval(t *testing.T, h Harness) {
+	ctx := context.Background()
+	repo := h.Repo()
+	SeedUserChannel(t, ctx, repo, "u-restore", "b-restore")
+
+	mk := func(jobID string) *repository.Video {
+		t.Helper()
+		v, err := repo.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: "b-restore",
+			Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
+			BroadcasterID: "b-restore", RecordingType: repository.RecordingTypeVideo,
+		})
+		if err != nil {
+			t.Fatalf("CreateVideo %s: %v", jobID, err)
+		}
+		if _, err := repo.CreateVideoPart(ctx, &repository.VideoPartInput{
+			VideoID: v.ID, PartIndex: 1, Filename: jobID + "-part01.mp4",
+			Quality: "1080", Codec: repository.CodecH264, SegmentFormat: repository.SegmentFormatFMP4,
+		}); err != nil {
+			t.Fatalf("CreateVideoPart %s: %v", jobID, err)
+		}
+		poster := "thumbnails/" + jobID + "-part01.jpg"
+		if err := repo.MarkVideoDone(ctx, v.ID, 60, 1024, &poster, repository.CompletionKindComplete, false); err != nil {
+			t.Fatalf("MarkVideoDone %s: %v", jobID, err)
+		}
+		return v
+	}
+	missing := mk("restore-missing")
+	queued := mk("restore-queued")
+	live := mk("restore-live")
+	purged := mk("restore-purged")
+	if err := repo.SoftDeleteVideo(ctx, purged.ID, repository.DeletionKindRetention); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []*repository.Video{missing, queued} {
+		if changed, err := repo.TombstoneMissingVideo(ctx, v.ID); err != nil || !changed {
+			t.Fatalf("tombstone %s = %v, %v", v.JobID, changed, err)
+		}
+	}
+
+	rows, err := repo.ListMissingTombstones(ctx, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSlice(t, scanFilenames(rows), []string{"restore-missing", "restore-queued"})
+	if row, err := repo.GetMissingTombstone(ctx, missing.ID); err != nil || row.VideoID != missing.ID || row.Status != repository.VideoStatusDone {
+		t.Fatalf("GetMissingTombstone = %+v, %v", row, err)
+	}
+	for _, id := range []int64{0, -1, live.ID, purged.ID, purged.ID + 1000} {
+		if _, err := repo.GetMissingTombstone(ctx, id); !errors.Is(err, repository.ErrNotFound) {
+			t.Fatalf("GetMissingTombstone(%d) err = %v, want ErrNotFound", id, err)
+		}
+		if err := repo.RestoreMissingVideo(ctx, id); !errors.Is(err, repository.ErrNotFound) {
+			t.Fatalf("RestoreMissingVideo(%d) err = %v, want ErrNotFound", id, err)
+		}
+	}
+
+	// A manual delete may be requested on a missing tombstone; from then on it
+	// is the worker's, not restorable, and no longer listed for the scan.
+	if _, err := repo.RequestVideoDelete(ctx, queued.ID); err != nil {
+		t.Fatalf("RequestVideoDelete on a missing tombstone: %v", err)
+	}
+	pending, err := repo.ListVideosPendingManualDelete(ctx, 10)
+	if err != nil || len(pending) != 1 || pending[0].ID != queued.ID {
+		t.Fatalf("pending manual deletes = %+v, %v; want the queued tombstone", pending, err)
+	}
+	if err := repo.RestoreMissingVideo(ctx, queued.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("restore of a queued tombstone err = %v, want ErrNotFound", err)
+	}
+	rows, err = repo.ListMissingTombstones(ctx, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSlice(t, scanFilenames(rows), []string{"restore-missing"})
+	if err := repo.SoftDeleteVideo(ctx, queued.ID, repository.DeletionKindManual); err != nil {
+		t.Fatalf("SoftDeleteVideo on a queued missing tombstone: %v", err)
+	}
+	got, err := repo.GetVideo(ctx, queued.ID)
+	if err != nil || got.DeletedAt == nil || got.DeletionKind == nil || *got.DeletionKind != repository.DeletionKindManual || got.Thumbnail != nil {
+		t.Fatalf("permanently removed tombstone = %+v, %v; want manual kind and no poster", got, err)
+	}
+	if _, err := repo.RequestVideoDelete(ctx, queued.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("RequestVideoDelete on a manual tombstone err = %v, want ErrNotFound", err)
+	}
+	if _, err := repo.RequestVideoDelete(ctx, purged.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("RequestVideoDelete on a retention tombstone err = %v, want ErrNotFound", err)
+	}
+
+	// Restoring keeps everything the tombstone kept.
+	if err := repo.RestoreMissingVideo(ctx, missing.ID); err != nil {
+		t.Fatalf("RestoreMissingVideo: %v", err)
+	}
+	got, err = repo.GetVideo(ctx, missing.ID)
+	if err != nil || got.DeletedAt != nil || got.DeletionKind != nil || got.Thumbnail == nil {
+		t.Fatalf("restored video = %+v, %v; want live with its poster", got, err)
+	}
+	parts, err := repo.ListVideoParts(ctx, missing.ID)
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("restored parts = %+v, %v", parts, err)
+	}
+	if err := repo.RestoreMissingVideo(ctx, missing.ID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("second restore err = %v, want ErrNotFound", err)
+	}
+	if changed, err := repo.TombstoneMissingVideo(ctx, missing.ID); err != nil || !changed {
+		t.Fatalf("re-tombstone after restore = %v, %v", changed, err)
+	}
+
+	// One open row per VOD: a tombstoned archive whose VOD was archived again
+	// cannot come back until one of the two is gone.
+	vod := "vod-77"
+	mkArchive := func(jobID string) *repository.Video {
+		t.Helper()
+		v, err := repo.CreateVideo(ctx, &repository.VideoInput{
+			JobID: jobID, Filename: jobID, DisplayName: "b-restore",
+			Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
+			BroadcasterID: "b-restore", RecordingType: repository.RecordingTypeVideo,
+			Source: repository.VideoSourceVOD, TwitchVideoID: &vod,
+		})
+		if err != nil {
+			t.Fatalf("CreateVideo %s: %v", jobID, err)
+		}
+		if err := repo.MarkVideoDone(ctx, v.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
+			t.Fatalf("MarkVideoDone %s: %v", jobID, err)
+		}
+		return v
+	}
+	first := mkArchive("restore-vod-first")
+	if changed, err := repo.TombstoneMissingVideo(ctx, first.ID); err != nil || !changed {
+		t.Fatalf("tombstone first archive = %v, %v", changed, err)
+	}
+	second := mkArchive("restore-vod-second")
+	if err := repo.RestoreMissingVideo(ctx, first.ID); !errors.Is(err, repository.ErrDuplicate) {
+		t.Fatalf("restore beside an open re-archive err = %v, want ErrDuplicate", err)
+	}
+	if got, err := repo.GetVideo(ctx, first.ID); err != nil || got.DeletedAt == nil {
+		t.Fatalf("refused restore changed the tombstone: %+v, %v", got, err)
+	}
+	if err := repo.SoftDeleteVideo(ctx, second.ID, repository.DeletionKindManual); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RestoreMissingVideo(ctx, first.ID); err != nil {
+		t.Fatalf("restore once the re-archive is gone: %v", err)
 	}
 }

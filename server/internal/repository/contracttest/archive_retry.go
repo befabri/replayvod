@@ -410,3 +410,64 @@ func testArchiveRetryYieldsToQueuedDelete(t *testing.T, h Harness) {
 		t.Fatal("re-archive reused the row")
 	}
 }
+
+func testRunningJobsOnlyResumeCurrentActiveAttempt(t *testing.T, h Harness) {
+	ctx := context.Background()
+	repo := h.Repo()
+	SeedUserChannel(t, ctx, repo, "u1", "bc-1")
+	archive := seedArchive(t, ctx, repo, "old", "resume", "bc-1")
+	live := seedLiveJob(t, ctx, repo, "live", "bc-1")
+	for _, id := range []string{"old", "live"} {
+		if err := repo.MarkJobRunning(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.MarkArchiveFailedForRetry(ctx, archive.ID, "retry", repository.CompletionKindComplete, false, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateJob(ctx, &repository.JobInput{ID: "current", VideoID: archive.ID, BroadcasterID: "bc-1", Attempt: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RequeueArchiveVideo(ctx, archive.ID, "current", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.MarkJobRunning(ctx, "current"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repo.ListRunningJobs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, j := range rows {
+		ids[j.ID] = true
+	}
+	if len(rows) != 2 || !ids["current"] || !ids["live"] || ids["old"] {
+		t.Fatalf("obsolete attempt resumed: %+v", rows)
+	}
+	broadcasters, err := repo.ListRunningLiveBroadcasters(ctx)
+	if err != nil || len(broadcasters) != 1 || broadcasters[0] != "bc-1" {
+		t.Fatalf("live set: %+v %v", broadcasters, err)
+	}
+	if err := repo.UpdateVideoStatus(ctx, live.ID, repository.VideoStatusDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpdateVideoStatus(ctx, archive.ID, repository.VideoStatusDone); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err = repo.ListRunningJobs(ctx); err != nil || len(rows) != 0 {
+		t.Fatalf("terminal recording resumed: %+v %v", rows, err)
+	}
+	if broadcasters, err = repo.ListRunningLiveBroadcasters(ctx); err != nil || len(broadcasters) != 0 {
+		t.Fatalf("terminal live recording subscribed: %+v %v", broadcasters, err)
+	}
+	// Start persists a pending live attempt before launching its worker. A
+	// crash in that gap still needs recovery; pending archives belong to the
+	// archive queue and must not bypass its admission controls.
+	pending := seedLiveJob(t, ctx, repo, "pending-live", "bc-1")
+	seedArchive(t, ctx, repo, "pending-archive", "not-started", "bc-1")
+	rows, err = repo.ListRunningJobs(ctx)
+	if err != nil || len(rows) != 1 || rows[0].VideoID != pending.ID {
+		t.Fatalf("pending live recovery = %+v, %v", rows, err)
+	}
+}

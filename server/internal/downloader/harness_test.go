@@ -176,6 +176,9 @@ type twitchEdge struct {
 	// segBFailures is how many upcoming fmp4 segment requests answer 503,
 	// standing in for a flaky edge.
 	segBFailures atomic.Int32
+	// A one-based segment index; zero disables the persistent tail outage.
+	segBFailureFrom atomic.Int32
+	segBRequests    []int // protected by mu
 }
 
 type twitchEdgeOpts struct {
@@ -445,6 +448,13 @@ func (e *twitchEdge) handleSegB(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	e.mu.Lock()
+	e.segBRequests = append(e.segBRequests, idx)
+	e.mu.Unlock()
+	if from := e.segBFailureFrom.Load(); from > 0 && int32(idx)+1 >= from {
+		http.Error(w, "edge tail unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	for {
 		left := e.segBFailures.Load()
 		if left <= 0 {
@@ -577,6 +587,7 @@ func newHarnessServiceWithOpts(t *testing.T, edgeURL string, opts harnessOpts) *
 	}
 	log := slog.New(slog.NewTextHandler(logSink, nil))
 	svc := NewService(cfg, repo, store, nil, nil, nil, log)
+	svc.SetPosterStore(testPosterStore(t, repo, store, log))
 
 	// In-package field access avoids adding a test-only constructor
 	// or production URL config knobs.

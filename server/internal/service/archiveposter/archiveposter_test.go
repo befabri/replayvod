@@ -21,6 +21,10 @@ import (
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
+type readyFunc func(context.Context) error
+
+func (f readyFunc) Verify(ctx context.Context) error { return f(ctx) }
+
 type fakeHelix struct {
 	videos map[string]twitch.Video
 	calls  int
@@ -88,7 +92,7 @@ func TestBackfill(t *testing.T) {
 		"2": {ID: "2", ThumbnailURL: "https://vod-secure.twitch.tv/_404/404_processing_%{width}x%{height}.png"},
 		"4": {ID: "4", ThumbnailURL: cdn.URL + "/poster-%{width}x%{height}.jpg"},
 	}}
-	svc := New(NewStore(repo, store, cdn.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
+	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), cdn.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
 	svc.pageSize = 2
 	// A frame produced by the pipeline between the listing and the fetch wins.
 	svc.store.repo = frameRacer{Repository: repo, videoID: framed.ID}
@@ -181,7 +185,7 @@ func TestFetch_LosingFetchKeepsTheObjectTheWinnerReferences(t *testing.T) {
 	}
 	srv := posterServer(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	posters := NewStore(repo, store, srv.Client(), log)
+	posters := NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), log)
 	v := seedArchive(t, repo, "job-1", "1001")
 	key := storagekeys.Snapshot(v.Filename, 0)
 
@@ -240,7 +244,7 @@ func TestFetch_UnreadableRowKeepsTheObject(t *testing.T) {
 	if err := repo.SetVideoThumbnail(ctx, v.ID, storagekeys.Thumbnail(v.Filename+"-part01")); err != nil {
 		t.Fatal(err)
 	}
-	posters := NewStore(unreadableVideoRepo{Repository: repo}, store, srv.Client(), log)
+	posters := NewStore(unreadableVideoRepo{Repository: repo}, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), log)
 	if posters.Fetch(ctx, v.ID, v.Filename, srv.URL+"/a.jpg") {
 		t.Fatal("fetch reported a stored poster")
 	}
@@ -281,7 +285,7 @@ func TestFetch_OneFetchOwnsTheKeyWhileInFlight(t *testing.T) {
 		_, _ = w.Write([]byte("\xff\xd8\xff\xe0jpeg"))
 	}))
 	defer srv.Close()
-	posters := NewStore(repo, store, srv.Client(), slog.New(slog.DiscardHandler))
+	posters := NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), slog.New(slog.DiscardHandler))
 	v := seedArchive(t, repo, "job-1", "1001")
 
 	first := make(chan bool, 1)
@@ -323,7 +327,7 @@ func TestFetch_SkipsRowsThatNeedNoPoster(t *testing.T) {
 		_, _ = w.Write([]byte("\xff\xd8\xff\xe0jpeg"))
 	}))
 	defer srv.Close()
-	posters := NewStore(repo, store, srv.Client(), slog.New(slog.DiscardHandler))
+	posters := NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), slog.New(slog.DiscardHandler))
 
 	framed := seedArchive(t, repo, "job-framed", "1001")
 	if err := repo.SetVideoThumbnail(ctx, framed.ID, "thumbnails/frame.jpg"); err != nil {
@@ -378,7 +382,7 @@ func TestFetch_RemovalDuringFetchLeavesNoPoster(t *testing.T) {
 	repo, store := posterFixture(t)
 	srv := posterServer(t)
 	v := seedArchive(t, repo, "job-1", "1001")
-	posters := NewStore(&removedDuringFetch{Repository: repo, videoID: v.ID}, store, srv.Client(), slog.New(slog.DiscardHandler))
+	posters := NewStore(&removedDuringFetch{Repository: repo, videoID: v.ID}, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), slog.New(slog.DiscardHandler))
 	if posters.Fetch(ctx, v.ID, v.Filename, srv.URL+"/a.jpg") {
 		t.Fatal("fetch stored a poster on a row removed meanwhile")
 	}
@@ -410,7 +414,7 @@ func TestBackfill_VisitsEveryArchiveBeyondOnePage(t *testing.T) {
 		videos[id] = twitch.Video{ID: id, ThumbnailURL: url}
 	}
 	helix := &fakeHelix{videos: videos}
-	svc := New(NewStore(repo, store, cdn.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
+	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), cdn.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
 	svc.pageSize = 2
 	report, err := svc.Backfill(ctx)
 	if err != nil {
@@ -451,7 +455,7 @@ func TestBackfill_ResumesPastArchivesThatExhaustTheDeadline(t *testing.T) {
 		videos[id] = twitch.Video{ID: id, ThumbnailURL: slow.URL + "/" + name + "-%{width}x%{height}.jpg"}
 	}
 	helix := &fakeHelix{videos: videos}
-	svc := New(NewStore(repo, store, slow.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
+	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), slow.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
 	svc.pageSize = 1
 
 	run := func() (Report, error) {
@@ -487,5 +491,103 @@ func TestBackfill_ResumesPastArchivesThatExhaustTheDeadline(t *testing.T) {
 	cancel()
 	if _, err := svc.Backfill(expired); !errors.Is(err, context.Canceled) {
 		t.Fatalf("run with an expired context = %v, want the cancellation surfaced", err)
+	}
+}
+
+func TestFetchWaitsForWritableStorageAndRechecksAfterDownload(t *testing.T) {
+	for _, verdict := range []error{storage.ErrUnattached, storage.ErrUnreachable, storage.ErrReadOnly, storage.ErrFull} {
+		t.Run(verdict.Error(), func(t *testing.T) {
+			repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+			ctx := t.Context()
+			if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "bc-1", BroadcasterLogin: "bc-1", BroadcasterName: "bc-1"}); err != nil {
+				t.Fatal(err)
+			}
+			v := seedArchive(t, repo, "paused-poster", "1")
+			store, err := storage.NewLocal(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var blocked atomic.Bool
+			blocked.Store(true)
+			gate := readyFunc(func(context.Context) error {
+				if blocked.Load() {
+					return verdict
+				}
+				return nil
+			})
+			var calls atomic.Int32
+			var detach atomic.Bool
+			detach.Store(true)
+			cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				if detach.Load() {
+					blocked.Store(true)
+				}
+				w.Header().Set("Content-Type", "image/jpeg")
+				_, _ = io.WriteString(w, "jpeg")
+			}))
+			defer cdn.Close()
+			posters := NewStore(repo, store, gate, cdn.Client(), slog.New(slog.DiscardHandler))
+			if posters.Fetch(ctx, v.ID, v.Filename, cdn.URL) || calls.Load() != 0 {
+				t.Fatal("unavailable storage still fetched a poster")
+			}
+			// Storage disappears while the remote image is being fetched.
+			blocked.Store(false)
+			if posters.Fetch(ctx, v.ID, v.Filename, cdn.URL) || calls.Load() != 1 {
+				t.Fatal("mid-download outage was ignored")
+			}
+			row, err := repo.GetVideo(ctx, v.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if row.Thumbnail != nil {
+				t.Fatal("refused poster changed the row")
+			}
+			if ok, err := store.Exists(ctx, storagekeys.Snapshot(v.Filename, 0)); err != nil || ok {
+				t.Fatalf("refused poster wrote an object: %v %v", ok, err)
+			}
+			// A normal later attempt succeeds after readiness recovers.
+			detach.Store(false)
+			blocked.Store(false)
+			if !posters.Fetch(ctx, v.ID, v.Filename, cdn.URL) {
+				t.Fatal("poster did not recover")
+			}
+		})
+	}
+}
+
+func TestBackfillPausesBeforeHelixWhenStorageIsUnavailable(t *testing.T) {
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	store, err := storage.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	helix := &fakeHelix{}
+	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return storage.ErrUnattached }), http.DefaultClient, slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
+	report, err := svc.Backfill(t.Context())
+	if err != nil || report.Complete || helix.calls != 0 {
+		t.Fatalf("paused backfill: %+v %v calls=%d", report, err, helix.calls)
+	}
+}
+
+func TestBackfillCancellationAfterProgressIsSurfaced(t *testing.T) {
+	repo, store := posterFixture(t)
+	v := seedArchive(t, repo, "interrupted-job", "123")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		<-r.Context().Done()
+	}))
+	defer host.Close()
+	helix := &fakeHelix{videos: map[string]twitch.Video{"123": {ID: "123", ThumbnailURL: host.URL + "/poster.jpg"}}}
+	log := slog.New(slog.DiscardHandler)
+	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), host.Client(), log), repo, helix, log)
+	report, err := svc.Backfill(ctx)
+	if !errors.Is(err, context.Canceled) || report.Complete || report.Checked != 1 {
+		t.Fatalf("cancelled backfill hid interruption: %+v, %v", report, err)
+	}
+	if svc.resumePoint() != v.ID {
+		t.Fatalf("resume point=%d, want %d", svc.resumePoint(), v.ID)
 	}
 }

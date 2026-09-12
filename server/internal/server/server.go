@@ -49,7 +49,7 @@ func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *sessi
 		shared = recordings[0]
 	}
 	if shared == nil {
-		shared = api.NewRecordingServices(cfg, repo, store, log)
+		shared = api.NewRecordingServices(cfg, repo, store, bus, log)
 	}
 	return &Server{
 		cfg:           cfg,

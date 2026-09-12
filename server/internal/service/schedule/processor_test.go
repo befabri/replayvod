@@ -1,10 +1,13 @@
 package schedule
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -1133,5 +1136,66 @@ func TestDispatchStreamOnline_FilterLoadErrorWithoutMatchesReturnsError(t *testi
 	}
 	if gotBroken.TriggerCount != 0 {
 		t.Fatalf("broken schedule trigger_count = %d, want 0 because its filters did not load", gotBroken.TriggerCount)
+	}
+}
+
+// TestDispatchStreamOnline_StorageUnavailableWarnsOncePerOutage pins that a
+// refused start is reported once while storage stays away, not on every poll
+// that re-detects the live stream, and again after a recovery.
+func TestDispatchStreamOnline_StorageUnavailableWarnsOncePerOutage(t *testing.T) {
+	ctx := context.Background()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "u-1", Login: "u1", DisplayName: "U1", Role: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "u-1", Quality: "HIGH"}); err != nil {
+		t.Fatal(err)
+	}
+	event := twitch.StreamOnlineEvent{
+		ID: "s-1", BroadcasterUserID: "b-1", BroadcasterUserLogin: "b1", BroadcasterUserName: "B1", Type: "live",
+	}
+	away := fmt.Errorf("%w: marker missing", downloader.ErrStorageUnavailable)
+	dl := &fakeDownloader{startErr: away}
+	p := NewEventProcessor(repo, dl, nil, nil, nil, log)
+
+	for range 3 {
+		if err := p.DispatchStreamOnline(ctx, event); !errors.Is(err, downloader.ErrStorageUnavailable) {
+			t.Fatalf("dispatch = %v, want ErrStorageUnavailable", err)
+		}
+	}
+	if n := strings.Count(buf.String(), "auto-download paused"); n != 1 {
+		t.Fatalf("paused warnings = %d, want 1; log:\n%s", n, buf.String())
+	}
+	if strings.Contains(buf.String(), "auto-download start failed") {
+		t.Fatal("a storage refusal was logged as a generic start failure")
+	}
+
+	dl.startErr = nil
+	if err := p.DispatchStreamOnline(ctx, event); err != nil {
+		t.Fatalf("dispatch after recovery = %v", err)
+	}
+	if !strings.Contains(buf.String(), "auto-download resumed") {
+		t.Fatal("recovery was not logged")
+	}
+	dl.startErr = away
+	_ = p.DispatchStreamOnline(ctx, event)
+	if n := strings.Count(buf.String(), "auto-download paused"); n != 2 {
+		t.Fatalf("paused warnings after a second outage = %d, want 2", n)
+	}
+
+	// A busy downloader is also proof the gate passed: it re-arms the latch.
+	dl.startErr = downloader.ErrBusy
+	if err := p.DispatchStreamOnline(ctx, event); err != nil {
+		t.Fatalf("busy dispatch = %v, want nil", err)
+	}
+	dl.startErr = away
+	_ = p.DispatchStreamOnline(ctx, event)
+	if n := strings.Count(buf.String(), "auto-download paused"); n != 3 {
+		t.Fatalf("paused warnings after a busy verdict and a third outage = %d, want 3", n)
 	}
 }

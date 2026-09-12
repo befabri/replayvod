@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -89,7 +90,7 @@ func retentionService(t *testing.T) *retention.Service {
 	if err != nil {
 		t.Fatalf("local storage: %v", err)
 	}
-	return retention.New(repo, store, log)
+	return retention.New(repo, store, readyStorage{}, log)
 }
 
 func archivePosterService(t *testing.T) *archiveposter.Service {
@@ -100,7 +101,7 @@ func archivePosterService(t *testing.T) *archiveposter.Service {
 	if err != nil {
 		t.Fatalf("local storage: %v", err)
 	}
-	return archiveposter.New(archiveposter.NewStore(repo, store, &http.Client{Timeout: time.Second}, log), repo, nil, log)
+	return archiveposter.New(archiveposter.NewStore(repo, store, nil, &http.Client{Timeout: time.Second}, log), repo, nil, log)
 }
 
 func storageScanService(t *testing.T) *storagescan.Service {
@@ -111,7 +112,7 @@ func storageScanService(t *testing.T) *storagescan.Service {
 	if err != nil {
 		t.Fatalf("local storage: %v", err)
 	}
-	return storagescan.New(repo, store, log)
+	return storagescan.New(repo, store, nil, log)
 }
 
 // TestRetentionCutoff pins the day-subtraction every daily retention task
@@ -302,7 +303,7 @@ func TestRegisterStandardTasks_FullConfigRegistersExactlyExpectedSet(t *testing.
 		"recordings_retention": 30 * 60,
 		// 20 min: a cadence distinct from the daily production default, so a
 		// wire handing storage_scan the daily constant would be caught.
-		taskStorageScan: 20 * 60,
+		TaskStorageScan: 20 * 60,
 		// 7 min: distinct from the production default of 5 so a wire handing the
 		// poster task a fixed cadence would be caught.
 		taskArchivePosters: 7 * 60,
@@ -920,7 +921,7 @@ func TestRegisterStandardTasks_RecordingsRetentionTaskDeletesExpired(t *testing.
 
 	s := NewService(repo, log, 20*time.Millisecond, nil)
 	cfg := &config.Config{App: config.AppConfig{Scheduler: config.SchedulerConfig{RecordingsRetentionIntervalMinutes: 30}}}
-	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, store, log)}, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, store, readyStorage{}, log)}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 
@@ -1005,7 +1006,7 @@ func TestRegisterStandardTasks_RecordingsRetentionTaskPropagatesError(t *testing
 	store := deleteFailStore{Storage: local, err: boom}
 	s := NewService(repo, log, 20*time.Millisecond, nil)
 	cfg := &config.Config{App: config.AppConfig{Scheduler: config.SchedulerConfig{RecordingsRetentionIntervalMinutes: 30}}}
-	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, store, log)}, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, store, readyStorage{}, log)}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 
@@ -1025,3 +1026,38 @@ func TestRegisterStandardTasks_RecordingsRetentionTaskPropagatesError(t *testing
 		t.Fatal("recording tombstoned despite a failed object purge; retry would never reclaim the bytes")
 	}
 }
+
+func TestRegisterStandardTasksStorageWorkersRequireServiceAndInterval(t *testing.T) {
+	for _, taskName := range []string{TaskStorageScan, taskArchivePosters} {
+		for _, withService := range []bool{false, true} {
+			for _, interval := range []int{0, 7} {
+				t.Run(fmt.Sprintf("%s/service=%v/interval=%d", taskName, withService, interval), func(t *testing.T) {
+					cfg := &config.Config{}
+					deps := StandardTaskDeps{}
+					switch taskName {
+					case TaskStorageScan:
+						cfg.App.Scheduler.StorageScanIntervalMinutes = interval
+						if withService {
+							deps.StorageScan = storageScanService(t)
+						}
+					case taskArchivePosters:
+						cfg.App.Scheduler.ArchivePosterIntervalMinutes = interval
+						if withService {
+							deps.ArchivePosters = archivePosterService(t)
+						}
+					}
+					got := registeredIntervals(t, cfg, deps)
+					seconds, present := got[taskName]
+					want := withService && interval > 0
+					if present != want || (present && seconds != int64(interval)*60) {
+						t.Fatalf("task registered=%v interval=%d, want registered=%v interval=%d", present, seconds, want, interval*60)
+					}
+				})
+			}
+		}
+	}
+}
+
+type readyStorage struct{}
+
+func (readyStorage) Verify(context.Context) error { return nil }

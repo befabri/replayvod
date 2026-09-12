@@ -54,7 +54,7 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 const getActiveLiveJobByBroadcaster = `-- name: GetActiveLiveJobByBroadcaster :one
 SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt FROM jobs
 JOIN videos ON videos.id = jobs.video_id
-WHERE jobs.broadcaster_id = ? AND jobs.status IN ('PENDING', 'RUNNING')
+WHERE videos.job_id = jobs.id AND jobs.broadcaster_id = ? AND jobs.status IN ('PENDING', 'RUNNING')
   AND videos.source = 'live'
 ORDER BY jobs.created_at DESC LIMIT 1
 `
@@ -202,7 +202,11 @@ func (q *Queries) ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobs
 }
 
 const listRunningJobs = `-- name: ListRunningJobs :many
-SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt FROM jobs WHERE status = 'RUNNING' ORDER BY started_at ASC
+SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt FROM jobs
+JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
+WHERE (jobs.status = 'RUNNING' OR (jobs.status = 'PENDING' AND videos.source = 'live'))
+  AND videos.status IN ('PENDING', 'RUNNING') AND videos.deleted_at IS NULL
+ORDER BY jobs.started_at ASC
 `
 
 func (q *Queries) ListRunningJobs(ctx context.Context) ([]Job, error) {
@@ -230,6 +234,36 @@ func (q *Queries) ListRunningJobs(ctx context.Context) ([]Job, error) {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunningLiveBroadcasters = `-- name: ListRunningLiveBroadcasters :many
+SELECT DISTINCT jobs.broadcaster_id FROM jobs
+JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
+WHERE jobs.status = 'RUNNING' AND videos.source = 'live'
+  AND videos.status IN ('PENDING', 'RUNNING') AND videos.deleted_at IS NULL
+`
+
+func (q *Queries) ListRunningLiveBroadcasters(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listRunningLiveBroadcasters)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var broadcaster_id string
+		if err := rows.Scan(&broadcaster_id); err != nil {
+			return nil, err
+		}
+		items = append(items, broadcaster_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

@@ -150,7 +150,7 @@ func TestBuildNowWritesReadyArtifactAfterDownload(t *testing.T) {
 		},
 	}
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 
 	if err := svc.BuildNow(ctx, 42); err != nil {
@@ -192,7 +192,7 @@ func TestBuildNowMarksIncompatiblePartsUnavailable(t *testing.T) {
 		},
 	}
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 
 	if err := svc.BuildNow(ctx, 42); err != nil {
@@ -228,7 +228,7 @@ func TestBuildNowRemovesArtifactWhenReadyRowFails(t *testing.T) {
 		readyErr: errors.New("db unavailable"),
 	}
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 
 	if err := svc.BuildNow(ctx, 42); err == nil {
@@ -266,7 +266,7 @@ func TestPruneEvictsReadyArtifactsByLRU(t *testing.T) {
 			{VideoID: 2, Status: repository.PlaybackAssetStatusReady, Filename: &newName, SizeBytes: &size, LastAccessedAt: ptrTime(now)},
 		},
 	}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	// Budget fits exactly one artifact, forcing eviction of the LRU entry only.
 	svc.capacityOverride = func(int64) (int64, bool) { return size, true }
 
@@ -302,7 +302,7 @@ func TestPruneLeavesCacheWhenDisabled(t *testing.T) {
 			{VideoID: 1, Status: repository.PlaybackAssetStatusReady, Filename: &name, SizeBytes: &size, LastAccessedAt: ptrTime(time.Now())},
 		},
 	}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.capacityOverride = func(int64) (int64, bool) { return 0, true }
 
 	if err := svc.Prune(ctx); err != nil {
@@ -327,7 +327,7 @@ func TestBuildNowDoesNothingWhenDisabled(t *testing.T) {
 		video:    &repository.Video{ID: 42, Status: repository.VideoStatusDone, Filename: "vod-42"},
 	}
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 
 	if err := svc.BuildNow(ctx, 42); err != nil {
@@ -366,7 +366,7 @@ func TestReconcileDoesNotBuildBacklog(t *testing.T) {
 		},
 	}
 	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, t.TempDir(), "", nil)
+	svc := New(repo, store, nil, t.TempDir(), "", nil)
 	svc.SetRunner(runner)
 
 	if err := svc.Reconcile(ctx); err != nil {

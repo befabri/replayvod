@@ -19,7 +19,7 @@ SELECT * FROM jobs WHERE video_id = $1 ORDER BY created_at DESC LIMIT 1;
 -- recording nor receive its channel.update metadata.
 SELECT jobs.* FROM jobs
 JOIN videos ON videos.id = jobs.video_id
-WHERE jobs.broadcaster_id = $1 AND jobs.status IN ('PENDING', 'RUNNING')
+WHERE videos.job_id = jobs.id AND jobs.broadcaster_id = $1 AND jobs.status IN ('PENDING', 'RUNNING')
   AND videos.source = 'live'
 ORDER BY jobs.created_at DESC LIMIT 1;
 
@@ -58,9 +58,13 @@ WHERE id = $1;
 UPDATE jobs SET resume_state = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: ListRunningJobs :many
--- On server startup: every row here is a job whose process crashed
--- mid-execution. The downloader's resume path runs for each.
-SELECT * FROM jobs WHERE status = 'RUNNING' ORDER BY started_at ASC;
+-- Recover interrupted attempts, including live jobs saved before their worker
+-- claimed them. Pending archives remain controlled by the archive queue.
+SELECT jobs.* FROM jobs
+JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
+WHERE (jobs.status = 'RUNNING' OR (jobs.status = 'PENDING' AND videos.source = 'live'))
+  AND videos.status IN ('PENDING', 'RUNNING') AND videos.deleted_at IS NULL
+ORDER BY jobs.started_at ASC;
 
 -- name: ListFailedJobsForRetry :many
 -- Scheduler retry query: FAILED jobs whose finished_at is older than
@@ -69,3 +73,9 @@ SELECT * FROM jobs WHERE status = 'RUNNING' ORDER BY started_at ASC;
 SELECT * FROM jobs
 WHERE status = 'FAILED' AND finished_at IS NOT NULL AND finished_at < $1
 ORDER BY finished_at ASC LIMIT $2;
+
+-- name: ListRunningLiveBroadcasters :many
+SELECT DISTINCT jobs.broadcaster_id FROM jobs
+JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
+WHERE jobs.status = 'RUNNING' AND videos.source = 'live'
+  AND videos.status IN ('PENDING', 'RUNNING') AND videos.deleted_at IS NULL;

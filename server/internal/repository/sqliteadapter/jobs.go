@@ -73,3 +73,7 @@ func (a *SQLiteAdapter) ListFailedJobsForRetry(ctx context.Context, before time.
 	}
 	return out, nil
 }
+
+func (a *SQLiteAdapter) ListRunningLiveBroadcasters(ctx context.Context) ([]string, error) {
+	return a.queries.ListRunningLiveBroadcasters(ctx)
+}

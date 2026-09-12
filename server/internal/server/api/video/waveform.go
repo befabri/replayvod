@@ -131,6 +131,9 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 		return AudioWaveformResponse{}, http.StatusNotFound, nil
 	}
 	key := storagekeys.Waveform(video.Filename)
+	if err := h.storageUnavailable(); err != nil {
+		return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
+	}
 	if resp, hit, err := waveform.LoadArtifact(ctx, h.storage, key, plan.Fingerprint); err != nil {
 		return AudioWaveformResponse{}, http.StatusInternalServerError, err
 	} else if hit {
@@ -138,18 +141,46 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 	}
 
 	return h.waveformFlights.Do(ctx, plan.Fingerprint, func(buildCtx context.Context) (AudioWaveformResponse, int, error) {
+		if err := h.storageUnavailable(); err != nil {
+			return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
+		}
 		if resp, hit, err := waveform.LoadArtifact(buildCtx, h.storage, key, plan.Fingerprint); err != nil {
 			return AudioWaveformResponse{}, http.StatusInternalServerError, err
 		} else if hit {
 			return resp, http.StatusOK, nil
 		}
 
+		if err := h.storageWriteUnavailable(); err != nil {
+			return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
+		}
 		resp, err := waveform.Generate(buildCtx, h.waveformGenerator, waveform.InputResolver{Storage: h.storage}, plan)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return AudioWaveformResponse{}, http.StatusNotFound, nil
 			}
 			return AudioWaveformResponse{}, http.StatusInternalServerError, err
+		}
+		// Generation can outlive a recording's deletion. Check the current row
+		// and publish under the same lock retention holds through its purge and
+		// tombstone, closing the race between the freshness check and Save.
+		unlock, err := h.recordingLocks.Lock(buildCtx, id)
+		if err != nil {
+			return AudioWaveformResponse{}, http.StatusInternalServerError, err
+		}
+		defer unlock()
+		fresh, err := h.repo.GetVideo(buildCtx, id)
+		switch {
+		case errors.Is(err, repository.ErrNotFound):
+			return AudioWaveformResponse{}, http.StatusNotFound, nil
+		case err != nil:
+			return AudioWaveformResponse{}, http.StatusInternalServerError, err
+		case fresh.DeletedAt != nil:
+			return AudioWaveformResponse{}, http.StatusGone, nil
+		case fresh.Status != repository.VideoStatusDone:
+			return AudioWaveformResponse{}, http.StatusNotFound, nil
+		}
+		if err := h.storageWriteUnavailable(); err != nil {
+			return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
 		}
 		if err := waveform.SaveArtifact(buildCtx, h.storage, key, plan.Fingerprint, resp); err != nil {
 			return AudioWaveformResponse{}, http.StatusInternalServerError, err

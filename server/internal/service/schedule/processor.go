@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/downloader"
@@ -38,6 +39,9 @@ type EventProcessor struct {
 	bus        *eventbus.Buses
 	log        *slog.Logger
 	defaultLng string
+	// storagePaused latches the storage refusal so it is logged once per
+	// outage rather than on every re-detected live stream.
+	storagePaused atomic.Bool
 }
 
 // NewEventProcessor builds the webhook dispatcher. twitchClient is
@@ -393,6 +397,17 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 		RetentionWindowHours:      retention.WindowHours,
 	})
 	if startErr != nil {
+		if errors.Is(startErr, downloader.ErrStorageUnavailable) {
+			// Storage is away; say so once, not on every re-detected stream.
+			if p.storagePaused.CompareAndSwap(false, true) {
+				p.log.Warn("auto-download paused until storage is attached",
+					"schedule_id", winner.ID, "broadcaster_id", event.BroadcasterUserID, "error", startErr)
+			}
+			return startErr
+		}
+		// Any other verdict came from past the storage gate, so an outage that
+		// was on is over; the next one is worth a line again.
+		p.storageRecovered()
 		if errors.Is(startErr, downloader.ErrBusy) {
 			// The broadcaster already has an active download, so the online
 			// intent is already satisfied. Treat as an idempotent no-op:
@@ -406,6 +421,7 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 			"error", startErr)
 		return startErr
 	}
+	p.storageRecovered()
 
 	// Bump trigger_count / last_triggered_at on every matching schedule —
 	// operators need to see "this schedule fired" in the dashboard even
@@ -558,4 +574,11 @@ func (p *EventProcessor) loadFilters(ctx context.Context, schedule *repository.D
 		f.Tags = tags
 	}
 	return f, nil
+}
+
+// storageRecovered re-arms the once-per-outage storage warning.
+func (p *EventProcessor) storageRecovered() {
+	if p.storagePaused.CompareAndSwap(true, false) {
+		p.log.Info("auto-download resumed; storage is attached again")
+	}
 }

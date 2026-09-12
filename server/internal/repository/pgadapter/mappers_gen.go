@@ -299,6 +299,8 @@ func pgServerSettingsToDomain(src pggen.ServerSetting) *repository.ServerSetting
 		RecordingWebhookURL:           src.RecordingWebhookUrl,
 		SchedulesPaused:               src.SchedulesPaused,
 		ServerMode:                    src.ServerMode,
+		StorageID:                     src.StorageID,
+		StorageScanCursor:             src.StorageScanCursor,
 		UpdatedAt:                     src.UpdatedAt,
 	}
 }

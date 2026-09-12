@@ -476,6 +476,11 @@ export interface HistoryCountsResponse {
 export interface HistoryScopeCounts {
   on_disk: number;
   removed: number;
+  /**
+   * Unavailable is the part of Removed whose media went missing and can come
+   * back: the tombstones the Unavailable filter lists.
+   */
+  unavailable: number;
 }
 
 /**
@@ -705,6 +710,10 @@ export interface RequestPageCursor {
 export interface RequestPageResponse {
   items: ScheduleRequestResponse[];
   next_cursor?: RequestPageCursor;
+}
+
+export interface RestoreInput {
+  id: number;
 }
 
 export interface RevokeInviteInput {
@@ -942,6 +951,54 @@ export interface StatisticsResponse {
 export interface StatsBucket {
   status: VideoStatus;
   count: number;
+}
+
+export interface StorageAdoptResponse {
+  state: StorageState;
+  reason: string;
+  backend: string;
+  location: string;
+  storage_id: string;
+  checked_at: string;
+  scan_status: StorageScanStatus;
+}
+
+/**
+ * StorageDetailsResponse adds the owner-only facts: why, which backend, where, and
+ * which identity the database expects.
+ */
+export interface StorageDetailsResponse {
+  state: StorageState;
+  reason: string;
+  backend: string;
+  location: string;
+  storage_id: string;
+  checked_at: string;
+}
+
+/**
+ * StorageScanStatus distinguishes an operator-disabled scan from a scheduling
+ * failure after adoption succeeded.
+ */
+export type StorageScanStatus = "scheduled" | "disabled" | "failed";
+
+/** StorageState is the readiness verdict on the wire. */
+export type StorageState = "attached" | "read_only" | "full" | "unattached" | "unreachable";
+
+/**
+ * StorageStatusEvent fires on every storage readiness transition (attached,
+ * read-only, full, unattached, unreachable). This is a viewer-safe notification;
+ * diagnostics belong exclusively to owner-only status details and event logs.
+ */
+export interface StorageStatusEvent {
+  state: string;
+  at: string;
+}
+
+/** StorageStatusResponse is what every signed-in user may see: enough for the banner. */
+export interface StorageStatusResponse {
+  state: StorageState;
+  checked_at: string;
 }
 
 export interface StreamByBroadcasterInput {
@@ -1316,7 +1373,10 @@ export interface VideoListPageInput {
    * default (live recordings only); "removed" and "all" power the
    * removed-inclusive history surface. Channel/category grids and search
    * never expose this and stay active-only.
+   * DeletionKind narrows tombstones to why they left; only meaningful with
+   * Scope "removed" or "all".
    */
+  deletion_kind?: string;
   scope?: string;
   cursor?: VideoListPageCursor;
 }
@@ -1365,6 +1425,15 @@ export interface VideoPlaybackAssetResponse {
   generated_at?: string;
   last_accessed_at?: string;
   updated_at: string;
+}
+
+/**
+ * VideoRemovalEvent invalidates removal-related queries after a committed
+ * queue, deletion, missing-media, or restore transition. It carries no row
+ * delta: a single buffered notification covers every change before it is read,
+ * so bursts coalesce without losing state. Consumers reread the database.
+ */
+export interface VideoRemovalEvent {
 }
 
 /**
@@ -1589,6 +1658,12 @@ type AppRouterRecord = {
     get: $Query<void, SettingsResponse>;
     update: $Mutation<SettingsUpdateInput, SettingsResponse>;
   };
+  storage: {
+    adopt: $Mutation<void, StorageAdoptResponse>;
+    details: $Query<void, StorageDetailsResponse>;
+    status: $Query<void, StorageStatusResponse>;
+    statusLive: $Subscription<void, StorageStatusEvent>;
+  };
   stream: {
     active: $Query<void, StreamResponse[]>;
     byBroadcaster: $Query<StreamByBroadcasterInput, StreamResponse[]>;
@@ -1647,6 +1722,8 @@ type AppRouterRecord = {
     list: $Query<VideoListInput, VideoResponse[]>;
     listPage: $Query<VideoListPageInput, VideoListPageResponse>;
     liveRenditions: $Query<LiveRenditionsInput, LiveRenditionsResponse>;
+    removalsLive: $Subscription<void, VideoRemovalEvent>;
+    restore: $Mutation<RestoreInput, VideoOK>;
     search: $Query<VideoSearchInput, VideoResponse[]>;
     setWatchLater: $Mutation<SetWatchLaterInput, VideoUserStateResponse>;
     snapshots: $Query<SnapshotsInput, string[]>;

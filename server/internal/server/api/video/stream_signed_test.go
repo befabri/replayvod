@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1022,5 +1023,38 @@ func TestPartPath(t *testing.T) {
 	}
 	if _, _, ok := partPath(v, nil, 1); ok {
 		t.Fatal("legacy row has no index 1")
+	}
+}
+
+// TestStreamPlayback_UnattachedStorageKeepsReadyRow pins that an absent
+// artifact on storage that is not attached is an outage, not a stale row: the
+// player gets a retryable 503 and the ready row is left for when storage
+// returns, so no rebuild is queued for a file that never left.
+func TestStreamPlayback_UnattachedStorageKeepsReadyRow(t *testing.T) {
+	artifactName := "vod-42-playback.mp4"
+	artifactMime := "video/mp4"
+	store := &signedStorage{bodies: map[string][]byte{}}
+	repo := &signedRepo{
+		video: doneVideo(),
+		asset: &repository.VideoPlaybackAsset{
+			VideoID:  42,
+			Status:   repository.PlaybackAssetStatusReady,
+			Filename: &artifactName,
+			MimeType: &artifactMime,
+		},
+	}
+	gate := gateFunc(func() error { return fmt.Errorf("%w: marker missing", storage.ErrUnattached) })
+	srv := streamRouteTestServer(t, repo, store, testClientLogger(), WithStorageGate(gate))
+
+	resp, err := http.Get(srv.URL + "/api/v1/videos/42/playback/stream")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+	if repo.deletes != 0 {
+		t.Fatalf("deletes = %d, want 0 (ready row must survive an unattached volume)", repo.deletes)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
@@ -50,6 +51,12 @@ type MissingMarker interface {
 	MarkMissing(ctx context.Context, videoID int64) (bool, error)
 }
 
+// StorageGate reports whether storage may be trusted right now. Nil means
+// always; read-only storage still serves reads.
+type StorageGate interface {
+	Ready() error
+}
+
 const (
 	markMissingTimeout     = 3 * time.Second
 	markMissingCooldown    = time.Minute
@@ -69,6 +76,7 @@ type StreamHandler struct {
 	verifier *videodownload.Verifier
 	builder  PlaybackBuilder
 	missing  MissingMarker
+	gate     StorageGate
 	log      *slog.Logger
 	// missingMu protects both active checks and the bounded success cache.
 	missingMu           sync.Mutex
@@ -88,6 +96,7 @@ type StreamHandler struct {
 	// only holds active work and deletes each entry when that work completes.
 	waveformFlights   *waveformFlights
 	waveformGenerator waveform.Generator
+	recordingLocks    *recordinglock.Locks
 }
 
 type StreamHandlerOption func(*StreamHandler)
@@ -100,6 +109,7 @@ func NewStreamHandler(repo repository.Repository, store storage.Storage, verifie
 		log:               log.With("domain", "video-stream"),
 		waveformFlights:   newWaveformFlights(),
 		waveformGenerator: waveform.FFmpegGenerator{},
+		recordingLocks:    &recordinglock.Locks{},
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -115,10 +125,23 @@ func WithMissingMarker(m MissingMarker) StreamHandlerOption {
 	return func(h *StreamHandler) { h.missing = m }
 }
 
+func WithStorageGate(g StorageGate) StreamHandlerOption {
+	return func(h *StreamHandler) { h.gate = g }
+}
+
 func WithWaveformGenerator(g WaveformGenerator) StreamHandlerOption {
 	return func(h *StreamHandler) {
 		if g != nil {
 			h.waveformGenerator = g
+		}
+	}
+}
+
+// WithRecordingLocks shares final artifact publication with recording deletion.
+func WithRecordingLocks(locks *recordinglock.Locks) StreamHandlerOption {
+	return func(h *StreamHandler) {
+		if locks != nil {
+			h.recordingLocks = locks
 		}
 	}
 }
@@ -280,6 +303,13 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	relPath := storagekeys.Video(*asset.Filename)
+	// Storage that is not attached says nothing about the artifact: answer as an
+	// outage and keep the ready row.
+	if err := h.storageUnavailable(); err != nil {
+		h.log.Warn("playback artifact requested while storage is not attached", "video_id", id, "error", err)
+		http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	// Confirm the file is present before doing anything else. If a ready row
 	// outlived its file (e.g. a retention pass that purged the object but whose
 	// row delete then failed), drop the row so video.getById stops advertising
@@ -351,7 +381,7 @@ func (h *StreamHandler) streamPart(w http.ResponseWriter, r *http.Request) {
 // once per process. The detached context is deliberate: the build outlives this
 // HTTP request (whose context cancels the instant the range read finishes).
 func (h *StreamHandler) maybeKickBuild(videoID int64) {
-	if h.builder == nil {
+	if h.builder == nil || h.storageWriteUnavailable() != nil {
 		return
 	}
 	if _, kicked := h.kickedBuild.LoadOrStore(videoID, struct{}{}); kicked {
@@ -364,6 +394,9 @@ func (h *StreamHandler) maybeKickBuild(videoID int64) {
 // passed to http.ServeContent for content-type sniffing and is the suggested
 // download filename. Any Content-Disposition the caller set on w is preserved.
 func (h *StreamHandler) serveStorageFile(w http.ResponseWriter, r *http.Request, videoID int64, relPath, name string) {
+	if !h.requireReadableStorage(w) {
+		return
+	}
 	info, err := h.storage.Stat(r.Context(), relPath)
 	if err != nil {
 		h.failStorageRead(w, r, videoID, relPath, "stat", err)
@@ -376,6 +409,9 @@ func (h *StreamHandler) serveStorageFile(w http.ResponseWriter, r *http.Request,
 // Stat'd relPath, so it doesn't repeat the Stat — on S3 that's one fewer
 // HeadObject per request (streamPlayback already Stats for its stale-row check).
 func (h *StreamHandler) serveStorageFileInfo(w http.ResponseWriter, r *http.Request, videoID int64, relPath, name string, info storage.FileInfo) {
+	if !h.requireReadableStorage(w) {
+		return
+	}
 	f, err := h.storage.Open(r.Context(), relPath)
 	if err != nil {
 		h.failStorageRead(w, r, videoID, relPath, "open", err)
@@ -402,6 +438,13 @@ func (h *StreamHandler) serveStorageFileInfo(w http.ResponseWriter, r *http.Requ
 // 503 so the player retries.
 func (h *StreamHandler) failStorageRead(w http.ResponseWriter, r *http.Request, videoID int64, relPath, op string, err error) {
 	if errors.Is(err, fs.ErrNotExist) {
+		// An absent file on unattached storage says nothing about the recording:
+		// answer as an outage and never ask for a tombstone.
+		if err := h.storageUnavailable(); err != nil {
+			h.log.Warn("video file missing while storage is not attached", "video_id", videoID, "path", relPath, "error", err)
+			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		h.log.Warn("video file missing", "video_id", videoID, "path", relPath)
 		if err := h.markMissing(r.Context(), videoID); err != nil {
 			h.log.Warn("missing-media check failed", "video_id", videoID, "error", err)
@@ -618,6 +661,9 @@ func (h *StreamHandler) serveThumbnail(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	relPath := "thumbnails/" + path
+	if !h.requireReadableStorage(w) {
+		return
+	}
 
 	f, err := h.storage.Open(ctx, relPath)
 	if err != nil {
@@ -654,4 +700,28 @@ func (h *StreamHandler) videoStreamPath(v *repository.Video, parts []repository.
 		return storagekeys.Video(name), name
 	}
 	return storagekeys.Video(parts[0].Filename), parts[0].Filename
+}
+
+func (h *StreamHandler) requireReadableStorage(w http.ResponseWriter) bool {
+	if err := h.storageUnavailable(); err != nil {
+		http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+// storageUnavailable is the gate verdict for reads: read-only and full storage serve.
+func (h *StreamHandler) storageUnavailable() error {
+	err := h.storageWriteUnavailable()
+	if storage.CanRead(err) {
+		return nil
+	}
+	return err
+}
+
+func (h *StreamHandler) storageWriteUnavailable() error {
+	if h.gate == nil {
+		return nil
+	}
+	return h.gate.Ready()
 }

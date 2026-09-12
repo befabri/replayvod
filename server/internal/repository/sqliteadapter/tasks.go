@@ -53,3 +53,12 @@ func (a *SQLiteAdapter) SetTaskNextRun(ctx context.Context, name string) error {
 	}
 	return nil
 }
+
+func (a *SQLiteAdapter) MarkTaskInterrupted(ctx context.Context, name string, durationMs int64) error {
+	return a.queries.MarkTaskInterrupted(ctx, sqlitegen.MarkTaskInterruptedParams{Name: name, LastDurationMs: durationMs})
+}
+
+func (a *SQLiteAdapter) ScheduleTaskIfEnabled(ctx context.Context, name string) error {
+	_, err := a.queries.ScheduleTaskIfEnabled(ctx, name)
+	return mapErr(err)
+}

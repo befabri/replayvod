@@ -331,6 +331,7 @@ func (a *PGAdapter) VideoStatsHistory(ctx context.Context) ([]repository.VideoSt
 			Status:         r.Status,
 			CompletionKind: r.CompletionKind,
 			Removed:        r.Removed,
+			DeletionKind:   r.DeletionKind,
 			Count:          r.Count,
 		}
 	}
@@ -548,6 +549,64 @@ func (a *PGAdapter) TombstoneMissingVideo(ctx context.Context, id int64) (bool, 
 	}
 	n, err := a.queries.TombstoneMissingVideo(ctx, id)
 	return n > 0, err
+}
+
+func (a *PGAdapter) RestoreMissingVideo(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return repository.ErrNotFound
+	}
+	n, err := a.queries.RestoreMissingVideo(ctx, id)
+	if err != nil {
+		return fmt.Errorf("pg restore missing video: %w", mapErr(err))
+	}
+	if n == 0 {
+		return repository.ErrNotFound
+	}
+	return nil
+}
+
+func (a *PGAdapter) ListMissingTombstones(ctx context.Context, afterID int64, limit int) ([]repository.StorageScanVideo, error) {
+	if afterID < 0 || limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("invalid storage scan page")
+	}
+	rows, err := a.queries.ListMissingTombstones(ctx, pggen.ListMissingTombstonesParams{AfterID: afterID, PageSize: int32(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("pg list missing tombstones: %w", err)
+	}
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
+	}
+	return out, nil
+}
+
+func (a *PGAdapter) ListVideosForStorageWitness(ctx context.Context, limit int) ([]repository.StorageScanVideo, error) {
+	if limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("invalid storage witness sample")
+	}
+	rows, err := a.queries.ListVideosForStorageWitness(ctx, int32(limit))
+	if err != nil {
+		return nil, fmt.Errorf("pg list storage witnesses: %w", err)
+	}
+	out := make([]repository.StorageScanVideo, len(rows))
+	for i, r := range rows {
+		out[i] = repository.StorageScanVideo{VideoID: r.ID, Filename: r.Filename, Status: r.Status}
+	}
+	return out, nil
+}
+
+func (a *PGAdapter) GetMissingTombstone(ctx context.Context, id int64) (*repository.StorageScanVideo, error) {
+	if id <= 0 {
+		return nil, repository.ErrNotFound
+	}
+	rows, err := a.ListMissingTombstones(ctx, id-1, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 || rows[0].VideoID != id {
+		return nil, repository.ErrNotFound
+	}
+	return &rows[0], nil
 }
 
 func (a *PGAdapter) ListOpenVideosByStreamIDs(ctx context.Context, streamIDs []string) ([]repository.Video, error) {

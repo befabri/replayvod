@@ -68,7 +68,13 @@ func newCORSHarness(t *testing.T) *corsHarness {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, store, nil, nil, bus, eventProcessor, nil, nil, log)
+	// Attach the storage like main does; a router without attached storage
+	// answers every missing file as an outage instead of a 404.
+	recordings := NewRecordingServices(cfg, repo, store, bus, log)
+	if _, err := recordings.StorageHealth.Attach(context.Background()); err != nil {
+		t.Fatalf("attach storage: %v", err)
+	}
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, store, nil, nil, bus, eventProcessor, nil, nil, log, recordings)
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {

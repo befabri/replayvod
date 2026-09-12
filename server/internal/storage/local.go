@@ -7,30 +7,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
 type LocalStorage struct {
-	Root           string
-	probeMu        sync.Mutex
-	rootIdentity   os.FileInfo
-	videosIdentity os.FileInfo
+	Root string
 }
 
+// NewLocal never creates the root: an absent directory is an unmounted volume
+// until the first attach (WriteMarker) creates it deliberately.
 func NewLocal(dir string) (*LocalStorage, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("create storage root %s: %w", dir, err)
-	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("abs storage root: %w", err)
 	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return nil, err
-	}
-	videos, _ := os.Stat(filepath.Join(abs, "videos"))
-	return &LocalStorage{Root: abs, rootIdentity: info, videosIdentity: videos}, nil
+	return &LocalStorage{Root: abs}, nil
 }
 
 // resolve maps a forward-slash relative path to an absolute local path and
@@ -46,35 +36,63 @@ func (s *LocalStorage) resolve(p string) (string, error) {
 	return filepath.Join(s.Root, cleaned), nil
 }
 
-// Save writes r to path atomically: copy to "<final>.tmp" first, then rename.
-// On rename failure the temp file is removed so we never leak partial writes.
+// Save writes r to path atomically: copy to a private temporary file, then rename.
+// All operations use the same open root, so a mount replacement cannot redirect
+// a write or its cleanup midway. Only identity initialization may create a root.
 func (s *LocalStorage) Save(ctx context.Context, path string, r io.Reader) error {
 	full, err := s.resolve(path)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if path == MarkerPath {
+		if err := os.MkdirAll(s.Root, 0o755); err != nil {
+			return fmt.Errorf("initialize storage root: %w", err)
+		}
+	}
+	root, err := os.OpenRoot(s.Root)
+	if err != nil {
+		return fmt.Errorf("open storage root: %w", err)
+	}
+	defer root.Close()
+	rel, err := filepath.Rel(s.Root, full)
+	if err != nil {
+		return err
+	}
+	if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 		return fmt.Errorf("create parent dirs: %w", err)
 	}
 
-	tmp := full + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	// Writers for the same object must never share a temporary inode: one
+	// writer could publish it while another is still changing its contents.
+	id, err := NewStorageID()
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(filepath.Dir(rel), ".replayvod-save-"+id+".tmp")
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("open temp file: %w", err)
 	}
 
 	if _, err := copyContext(ctx, f, r); err != nil {
 		f.Close()
-		os.Remove(tmp)
+		root.Remove(tmp)
 		return fmt.Errorf("write file: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
+		root.Remove(tmp)
 		return fmt.Errorf("close temp file: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		root.Remove(tmp)
+		return err
+	}
 
-	if err := os.Rename(tmp, full); err != nil {
-		os.Remove(tmp)
+	if err := root.Rename(tmp, rel); err != nil {
+		root.Remove(tmp)
 		return fmt.Errorf("rename temp to final: %w", err)
 	}
 	return nil
@@ -169,34 +187,56 @@ func copyContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, erro
 	}
 }
 
-// ProbeRoot checks reachability and detects a root or media-directory replacement
-// during this process. It cannot authenticate a mount chosen before startup;
-// the scanner's mass-missing guard is still required.
+// ProbeRoot checks that the root is a reachable directory. Whether it is the
+// right directory is the identity marker's job: a volume swapped under a
+// running process reads as unattached until it carries the marker, and can be
+// adopted without a restart.
 func (s *LocalStorage) ProbeRoot(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	s.probeMu.Lock()
-	defer s.probeMu.Unlock()
-	for i, dir := range []string{s.Root, filepath.Join(s.Root, "videos")} {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		info, err := os.Stat(dir)
-		if err != nil {
-			return fmt.Errorf("storage root unreachable: %w", err)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("storage root unreachable: %s is not a directory", dir)
-		}
-		identity := &s.rootIdentity
-		if i == 1 {
-			identity = &s.videosIdentity
-		}
-		if *identity != nil && !os.SameFile(*identity, info) {
-			return fmt.Errorf("storage directory changed: %s", dir)
-		}
-		*identity = info
+	info, err := os.Stat(s.Root)
+	if err != nil {
+		return fmt.Errorf("storage root unreachable: %w", err)
 	}
-	return ctx.Err()
+	if !info.IsDir() {
+		return fmt.Errorf("storage root unreachable: %s is not a directory", s.Root)
+	}
+	return nil
+}
+
+// ProbeWrite creates, writes, syncs and removes a small file under one open
+// root. Creating an empty file alone can succeed on a disk with no data space.
+func (s *LocalStorage) ProbeWrite(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(s.Root)
+	if err != nil {
+		return fmt.Errorf("storage root not writable: %w", err)
+	}
+	defer root.Close()
+	id, err := NewStorageID()
+	if err != nil {
+		return err
+	}
+	name := ".replayvod-write-probe-" + id
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("storage root not writable: %w", err)
+	}
+	_, probeErr := f.Write([]byte{1})
+	if probeErr == nil {
+		probeErr = f.Sync()
+	}
+	if err := f.Close(); probeErr == nil {
+		probeErr = err
+	}
+	if err := root.Remove(name); probeErr == nil {
+		probeErr = err
+	}
+	if probeErr != nil {
+		return fmt.Errorf("storage root not writable: %w", probeErr)
+	}
+	return nil
 }

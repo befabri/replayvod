@@ -2,8 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"github.com/befabri/replayvod/server/internal/downloader"
+	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/service/storagehealth"
+	"github.com/befabri/replayvod/server/internal/storage"
 	"io"
 	"log/slog"
 	"testing"
@@ -219,5 +224,67 @@ func TestValidateServerMode_AcceptsPoll(t *testing.T) {
 	cfg := config.ServerModeConfig{Mode: config.ServerModePoll}
 	if err := config.ValidateServerMode(cfg); err != nil {
 		t.Fatalf("validateServerMode(poll) = %v, want nil", err)
+	}
+}
+
+type bootStorageMonitor struct{ stopped chan struct{} }
+
+func (m *bootStorageMonitor) Attach(context.Context) (storagehealth.Status, error) {
+	return storagehealth.Status{State: storagehealth.StateUnattached, Reason: "marker missing"}, storage.ErrUnattached
+}
+func (m *bootStorageMonitor) Verify(context.Context) error { return storage.ErrUnattached }
+func (m *bootStorageMonitor) Ready() error                 { return storage.ErrUnattached }
+func (m *bootStorageMonitor) Run(ctx context.Context)      { <-ctx.Done(); close(m.stopped) }
+
+type bootStorageDownloads struct {
+	gate    downloader.StorageGate
+	resumed chan struct{}
+}
+
+func (d *bootStorageDownloads) SetStorageGate(g downloader.StorageGate) { d.gate = g }
+func (d *bootStorageDownloads) Resume(context.Context) error {
+	d.resumed <- struct{}{}
+	return errors.New("injected resume failure")
+}
+func TestAttachStorageWiresGateAndResumesOnlyOnWritableRecovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	mon := &bootStorageMonitor{stopped: make(chan struct{})}
+	dl := &bootStorageDownloads{resumed: make(chan struct{}, 4)}
+	bus := eventbus.New()
+	attachStorage(ctx, mon, bus, dl, slog.New(slog.DiscardHandler))
+	if dl.gate != mon || !errors.Is(dl.gate.Ready(), storage.ErrUnattached) {
+		t.Fatal("downloader did not receive the storage gate")
+	}
+	for _, state := range []string{"unattached", "read_only", "full", "unreachable", "attached", "attached"} {
+		bus.StorageStatus.Publish(eventbus.StorageStatusEvent{State: state})
+	}
+	// The second recovery still runs after the first Resume error. FIFO delivery
+	// means both received calls also prove earlier non-writable events were skipped.
+	for range 2 {
+		select {
+		case <-dl.resumed:
+		case <-time.After(time.Second):
+			t.Fatal("recovery not resumed")
+		}
+	}
+	cancel()
+	select {
+	case <-mon.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("monitor did not stop")
+	}
+	deadline := time.After(time.Second)
+	for bus.StorageStatus.Count() != 0 {
+		select {
+		case <-deadline:
+			t.Fatal("subscription did not stop")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	select {
+	case <-dl.resumed:
+		t.Fatal("non-writable storage resumed downloads")
+	default:
 	}
 }

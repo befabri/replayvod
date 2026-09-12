@@ -11,6 +11,9 @@ import (
 )
 
 func (a *PGAdapter) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
+	if _, ok := a.db.(pgx.Tx); ok {
+		return fmt.Errorf("pg adapter: nested WithTx is unsupported")
+	}
 	return a.inTx(ctx, func(_ *pggen.Queries, tx pgx.Tx) error {
 		return fn(New(tx))
 	})

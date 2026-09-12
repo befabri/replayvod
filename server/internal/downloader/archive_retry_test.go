@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -226,6 +227,14 @@ func TestArchiveFailure_SchedulesRetryThenPumpRequeues(t *testing.T) {
 	if err := f.repo.MarkArchiveFailedForRetry(ctx, v.ID, *failed.Error, failed.CompletionKind, failed.Truncated, time.Now().UTC().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	// A due retry waits through an outage without consuming its next attempt.
+	f.svc.SetStorageGate(gateFunc(unattached))
+	f.svc.PumpArchiveQueue(ctx)
+	waiting, err := f.repo.GetVideo(ctx, v.ID)
+	if err != nil || waiting.JobID != jobID || waiting.Status != repository.VideoStatusFailed || waiting.NextRetryAt == nil || f.activeJobs() != 0 {
+		t.Fatalf("storage outage changed due retry: %+v, %v", waiting, err)
+	}
+	f.svc.SetStorageGate(gateFunc(func() error { return nil }))
 	f.svc.PumpArchiveQueue(ctx)
 	waitUntil(t, "retry to start", func() bool { return f.activeJobs() == 1 })
 	retried, err := f.repo.GetVideo(ctx, v.ID)
@@ -532,4 +541,143 @@ func TestArchiveFailureMessage_NeverLeaksUpstreamText(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestArchiveRetryFailureWritesCommitTogether(t *testing.T) {
+	f := newArchiveFixture(t, 1, 1)
+	ctx := t.Context()
+	id, err := f.svc.EnqueueVOD(ctx, vodParams("bc-1", "rollback"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := f.video(t, id)
+	if err := f.repo.MarkJobRunning(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.repo.UpdateVideoStatus(ctx, v.ID, repository.VideoStatusRunning); err != nil {
+		t.Fatal(err)
+	}
+	bus := eventbus.New()
+	f.svc.SetEventBus(bus)
+	changes := bus.ArchiveQueue.Subscribe(ctx)
+	terminals := bus.RecordingTerminal.Subscribe(ctx)
+	f.svc.repo = &archiveFaultRepo{Repository: f.repo, failJobFailed: true}
+	d := &download{jobID: id, videoID: v.ID, broadcasterID: v.BroadcasterID, vod: true, attempt: 1, resume: NewResumeState()}
+	f.svc.failDownload(ctx, d, discardLog(), fakeNetError{})
+	got := f.video(t, id)
+	job, err := f.repo.GetJob(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != repository.VideoStatusRunning || got.NextRetryAt != nil || job.Status != repository.JobStatusRunning || d.cleanupScratch {
+		t.Fatalf("failed transaction lost recovery state: video=%+v job=%+v cleanup=%v", got, job, d.cleanupScratch)
+	}
+	select {
+	case ev := <-changes:
+		t.Fatalf("uncommitted retry announced: %+v", ev)
+	default:
+	}
+	select {
+	case ev := <-terminals:
+		t.Fatalf("DB failure announced as terminal: %+v", ev)
+	default:
+	}
+	f.svc.repo = f.repo
+	f.svc.failDownload(ctx, d, discardLog(), fakeNetError{})
+	got = f.video(t, id)
+	job, _ = f.repo.GetJob(ctx, id)
+	if got.NextRetryAt == nil || job.Status != repository.JobStatusFailed {
+		t.Fatalf("successful retry bookkeeping: %+v %+v", got, job)
+	}
+}
+
+func TestArchiveStorageOutageLeavesSameAttemptQueued(t *testing.T) {
+	for _, failAt := range []int{2, 3, 4} {
+		t.Run(fmt.Sprint(failAt), func(t *testing.T) {
+			f := newArchiveFixture(t, 1, 1)
+			id, err := f.svc.EnqueueVOD(t.Context(), vodParams("bc-1", "paused"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			f.svc.SetStorageGate(gateFunc(func() error {
+				calls++
+				if calls >= failAt {
+					return unattached()
+				}
+				return nil
+			}))
+			f.svc.PumpArchiveQueue(t.Context())
+			v := f.video(t, id)
+			job, err := f.repo.GetJob(t.Context(), id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if v.Status != repository.VideoStatusPending || v.NextRetryAt != nil || v.Error != nil || job.Status != repository.JobStatusPending || job.Attempt != 1 || f.activeJobs() != 0 {
+				t.Fatalf("storage outage consumed/failed attempt: %+v %+v", v, job)
+			}
+			release := f.edge.hold()
+			defer release()
+			f.svc.SetStorageGate(gateFunc(func() error { return nil }))
+			f.svc.PumpArchiveQueue(t.Context())
+			job, err = f.repo.GetJob(t.Context(), id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if job.Status != repository.JobStatusRunning || job.Attempt != 1 || f.activeJobs() != 1 {
+				t.Fatalf("recovery did not start original attempt: %+v", job)
+			}
+		})
+	}
+}
+
+type blockingRetryRepo struct {
+	repository.Repository
+	block   atomic.Bool
+	entered chan struct{}
+	calls   atomic.Int32
+}
+
+func (r *blockingRetryRepo) ListArchivesDueForRetry(ctx context.Context, before time.Time, limit int) ([]repository.Video, error) {
+	if !r.block.Load() {
+		return r.Repository.ListArchivesDueForRetry(ctx, before, limit)
+	}
+	r.calls.Add(1)
+	select {
+	case r.entered <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func TestArchiveRetryLoopRunsOnceAndShutdownWaitsForIt(t *testing.T) {
+	f := newArchiveFixture(t, 1, 1)
+	f.svc.retryInterval = time.Millisecond
+	repo := &blockingRetryRepo{Repository: f.repo, entered: make(chan struct{}, 2)}
+	f.svc.repo = repo
+	f.svc.SetStorageGate(gateFunc(func() error { return nil }))
+	if err := f.svc.Resume(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Resume(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	repo.block.Store(true)
+	select {
+	case <-repo.entered:
+	case <-time.After(time.Second):
+		t.Fatal("Resume did not start the periodic retry pump")
+	}
+	done := make(chan struct{})
+	go func() { f.svc.Shutdown(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown did not cancel and await the in-flight pump")
+	}
+	if repo.calls.Load() != 1 {
+		t.Fatalf("concurrent/repeated retry workers: %d", repo.calls.Load())
+	}
+	f.svc.startArchiveRetryLoop()
+	f.svc.Shutdown()
 }

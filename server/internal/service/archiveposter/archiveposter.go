@@ -40,20 +40,26 @@ const (
 	pageSize = 100
 )
 
+// Readiness verifies the storage identity before a poster can be written.
+type Readiness interface {
+	Verify(context.Context) error
+}
+
 // Store fetches a poster image and attaches it to an archive.
 type Store struct {
-	repo    repository.Repository
-	storage storage.Storage
-	client  *http.Client
-	log     *slog.Logger
+	repo      repository.Repository
+	storage   storage.Storage
+	readiness Readiness
+	client    *http.Client
+	log       *slog.Logger
 
 	mu       sync.Mutex
 	inFlight map[int64]struct{}
 }
 
-func NewStore(repo repository.Repository, store storage.Storage, client *http.Client, log *slog.Logger) *Store {
+func NewStore(repo repository.Repository, store storage.Storage, readiness Readiness, client *http.Client, log *slog.Logger) *Store {
 	return &Store{
-		repo: repo, storage: store, client: client,
+		repo: repo, storage: store, readiness: readiness, client: client,
 		log:      log.With("domain", "archiveposter"),
 		inFlight: make(map[int64]struct{}),
 	}
@@ -75,16 +81,27 @@ func (s *Store) Fetch(parent context.Context, videoID int64, filename, url strin
 	ctx, cancel := context.WithTimeout(parent, fetchTimeout)
 	defer cancel()
 	log := s.log.With("video_id", videoID)
-	if !s.wantsPoster(ctx, videoID) {
+	if s.verify(ctx) != nil || !s.wantsPoster(ctx, videoID) {
 		return false
 	}
 	data, ok := s.download(ctx, log, url)
 	if !ok {
 		return false
 	}
+	// The image fetch can span a mount change. Recheck immediately before
+	// writing so the network request cannot carry an old readiness verdict.
+	if err := s.verify(ctx); err != nil {
+		return false
+	}
 	key := storagekeys.Snapshot(filename, 0)
 	if err := s.storage.Save(ctx, key, bytes.NewReader(data)); err != nil {
 		log.Warn("save poster", "error", err)
+		return false
+	}
+	// A successful write can finish after its volume disappears. Keep the
+	// thumbnail unset so backfill retries on trusted storage, and avoid
+	// cleaning up a same-named object on the replacement volume.
+	if err := s.verify(ctx); err != nil {
 		return false
 	}
 	set, err := s.repo.SetVideoThumbnailIfMissing(ctx, videoID, key)
@@ -102,10 +119,20 @@ func (s *Store) Fetch(parent context.Context, videoID int64, filename, url strin
 	if s.referencesPoster(cleanupCtx, videoID, key) {
 		return false
 	}
+	if err := s.verify(cleanupCtx); err != nil {
+		return false
+	}
 	if err := s.storage.Delete(cleanupCtx, key); err != nil {
 		log.Warn("clean unreferenced poster", "error", err)
 	}
 	return false
+}
+
+func (s *Store) verify(ctx context.Context) error {
+	if s.readiness == nil {
+		return storage.ErrUnattached
+	}
+	return s.readiness.Verify(ctx)
 }
 
 // claim marks videoID as being fetched for. A second caller while one is in
@@ -203,8 +230,8 @@ func New(store *Store, repo repository.Repository, helix twitch.VideoLookup, log
 
 type Report struct {
 	Checked, Stored int
-	// Complete is false when the run stopped at its deadline with archives
-	// left; the next run continues after the last one attempted.
+	// Complete is false when storage is unavailable or the run stopped with
+	// archives left; the next run continues after the last one attempted.
 	Complete bool
 }
 
@@ -222,6 +249,14 @@ func (s *Service) Backfill(ctx context.Context) (Report, error) {
 	for {
 		if ctx.Err() != nil {
 			return s.stopped(ctx, report, after, attempted)
+		}
+		if err := s.store.verify(ctx); err != nil {
+			if ctx.Err() != nil {
+				return s.stopped(ctx, report, after, attempted)
+			}
+			s.setResumePoint(after)
+			s.log.Debug("poster backfill waiting for writable storage", "error", err)
+			return report, nil
 		}
 		rows, err := s.repo.ListArchivesMissingPoster(ctx, since, after, s.pageSize)
 		if err != nil {
@@ -267,9 +302,10 @@ func (s *Service) Backfill(ctx context.Context) (Report, error) {
 // stopped ends a run cut short by its context. Archives attempted so far are
 // done for this run, so the resume point moves past them and the run counts
 // as progress; a run that attempted nothing surfaces the deadline instead.
+// Explicit cancellation always surfaces so shutdown can retry promptly.
 func (s *Service) stopped(ctx context.Context, report Report, after int64, attempted int) (Report, error) {
 	s.setResumePoint(after)
-	if attempted == 0 {
+	if attempted == 0 || errors.Is(ctx.Err(), context.Canceled) {
 		return report, ctx.Err()
 	}
 	return report, nil

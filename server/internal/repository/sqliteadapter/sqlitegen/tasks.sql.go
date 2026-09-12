@@ -140,6 +140,22 @@ func (q *Queries) MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) 
 	return err
 }
 
+const markTaskInterrupted = `-- name: MarkTaskInterrupted :exec
+UPDATE tasks SET last_status = 'interrupted', last_duration_ms = ?2,
+    last_error = NULL, next_run_at = datetime('now'), updated_at = datetime('now')
+WHERE name = ?1
+`
+
+type MarkTaskInterruptedParams struct {
+	Name           string `json:"name"`
+	LastDurationMs int64  `json:"last_duration_ms"`
+}
+
+func (q *Queries) MarkTaskInterrupted(ctx context.Context, arg MarkTaskInterruptedParams) error {
+	_, err := q.db.ExecContext(ctx, markTaskInterrupted, arg.Name, arg.LastDurationMs)
+	return err
+}
+
 const markTaskRunning = `-- name: MarkTaskRunning :exec
 UPDATE tasks
 SET last_status = 'running',
@@ -177,6 +193,31 @@ type MarkTaskSuccessParams struct {
 func (q *Queries) MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error {
 	_, err := q.db.ExecContext(ctx, markTaskSuccess, arg.Name, arg.LastDurationMs)
 	return err
+}
+
+const scheduleTaskIfEnabled = `-- name: ScheduleTaskIfEnabled :one
+UPDATE tasks SET next_run_at = datetime('now'), updated_at = datetime('now')
+WHERE name = ?1 AND is_enabled = 1 AND interval_seconds > 0
+RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at
+`
+
+func (q *Queries) ScheduleTaskIfEnabled(ctx context.Context, name string) (Task, error) {
+	row := q.db.QueryRowContext(ctx, scheduleTaskIfEnabled, name)
+	var i Task
+	err := row.Scan(
+		&i.Name,
+		&i.Description,
+		&i.IntervalSeconds,
+		&i.IsEnabled,
+		&i.LastRunAt,
+		&i.LastDurationMs,
+		&i.LastStatus,
+		&i.LastError,
+		&i.NextRunAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const setTaskEnabled = `-- name: SetTaskEnabled :one

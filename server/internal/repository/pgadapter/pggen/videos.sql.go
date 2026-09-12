@@ -537,6 +537,47 @@ func (q *Queries) ListFinishedVideosForRetention(ctx context.Context, now time.T
 	return items, nil
 }
 
+const listMissingTombstones = `-- name: ListMissingTombstones :many
+SELECT videos.id, videos.filename, videos.status FROM videos
+WHERE deleted_at IS NOT NULL
+  AND deletion_kind = 'missing'
+  AND delete_requested_at IS NULL
+  AND videos.id > $1::bigint
+ORDER BY videos.id ASC LIMIT $2::int
+`
+
+type ListMissingTombstonesParams struct {
+	AfterID  int64 `json:"after_id"`
+	PageSize int32 `json:"page_size"`
+}
+
+type ListMissingTombstonesRow struct {
+	ID       int64  `json:"id"`
+	Filename string `json:"filename"`
+	Status   string `json:"status"`
+}
+
+// Bounded keyset page of reversible tombstones for the scan's restore phase.
+func (q *Queries) ListMissingTombstones(ctx context.Context, arg ListMissingTombstonesParams) ([]ListMissingTombstonesRow, error) {
+	rows, err := q.db.Query(ctx, listMissingTombstones, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMissingTombstonesRow{}
+	for rows.Next() {
+		var i ListMissingTombstonesRow
+		if err := rows.Scan(&i.ID, &i.Filename, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenVideosByStreamIDs = `-- name: ListOpenVideosByStreamIDs :many
 SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, deletion_kind, delete_requested_at, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
 WHERE stream_id = ANY($1::text[])
@@ -1085,6 +1126,41 @@ func (q *Queries) ListVideosForStorageScan(ctx context.Context, arg ListVideosFo
 	return items, nil
 }
 
+const listVideosForStorageWitness = `-- name: ListVideosForStorageWitness :many
+SELECT videos.id, videos.filename, videos.status FROM videos
+WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
+  AND (status = 'DONE' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
+ORDER BY videos.id ASC LIMIT $1::int
+`
+
+type ListVideosForStorageWitnessRow struct {
+	ID       int64  `json:"id"`
+	Filename string `json:"filename"`
+	Status   string `json:"status"`
+}
+
+// Before initializing markerless storage, account for media even when a retry,
+// running capture, deletion request or reversible tombstone excludes scanning.
+func (q *Queries) ListVideosForStorageWitness(ctx context.Context, pageSize int32) ([]ListVideosForStorageWitnessRow, error) {
+	rows, err := q.db.Query(ctx, listVideosForStorageWitness, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVideosForStorageWitnessRow{}
+	for rows.Next() {
+		var i ListVideosForStorageWitnessRow
+		if err := rows.Scan(&i.ID, &i.Filename, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVideosMissingThumbnail = `-- name: ListVideosMissingThumbnail :many
 SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, deletion_kind, delete_requested_at, source, twitch_video_id, broadcast_at, next_retry_at FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at IS NULL
 `
@@ -1145,7 +1221,7 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 
 const listVideosPendingManualDelete = `-- name: ListVideosPendingManualDelete :many
 SELECT id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, deletion_kind, delete_requested_at, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
-WHERE deleted_at IS NULL
+WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
   AND delete_requested_at IS NOT NULL
   AND status IN ('DONE', 'FAILED')
   AND NOT EXISTS (
@@ -1329,13 +1405,14 @@ UPDATE videos
 SET delete_requested_at = COALESCE(delete_requested_at, NOW()),
     next_retry_at = NULL
 WHERE id = $1
-  AND deleted_at IS NULL
+  AND (deleted_at IS NULL OR deletion_kind = 'missing')
   AND status IN ('DONE', 'FAILED')
 RETURNING id, job_id, filename, display_name, status, quality, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, deletion_kind, delete_requested_at, source, twitch_video_id, broadcast_at, next_retry_at
 `
 
 // Queue an operator-requested deletion. Idempotent for already-queued live
 // terminal rows; active recordings must be cancelled first.
+// A missing-media tombstone may be removed permanently too.
 func (q *Queries) RequestVideoDelete(ctx context.Context, id int64) (Video, error) {
 	row := q.db.QueryRow(ctx, requestVideoDelete, id)
 	var i Video
@@ -1400,6 +1477,25 @@ type RequeueArchiveVideoParams struct {
 // See sqlite/videos.sql RequeueArchiveVideo.
 func (q *Queries) RequeueArchiveVideo(ctx context.Context, arg RequeueArchiveVideoParams) (int64, error) {
 	result, err := q.db.Exec(ctx, requeueArchiveVideo, arg.JobID, arg.ID, arg.ScheduledOnly)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const restoreMissingVideo = `-- name: RestoreMissingVideo :execrows
+UPDATE videos SET deleted_at = NULL, deletion_kind = NULL
+WHERE id = $1
+  AND deleted_at IS NOT NULL
+  AND deletion_kind = 'missing'
+  AND delete_requested_at IS NULL
+`
+
+// Bring a missing-media tombstone back into the library once its media is
+// present again. Only the missing kind is reversible; a queued manual delete
+// wins.
+func (q *Queries) RestoreMissingVideo(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, restoreMissingVideo, id)
 	if err != nil {
 		return 0, err
 	}
@@ -1578,7 +1674,7 @@ SET deleted_at = NOW(),
     END,
     thumbnail = NULL,
     delete_requested_at = NULL
-WHERE id = $1 AND deleted_at IS NULL
+WHERE id = $1 AND (deleted_at IS NULL OR deletion_kind = 'missing')
 `
 
 type SoftDeleteVideoParams struct {
@@ -1626,16 +1722,18 @@ SELECT
     status,
     completion_kind,
     (deleted_at IS NOT NULL)::BOOLEAN AS removed,
+    COALESCE(deletion_kind, '')::TEXT AS deletion_kind,
     COUNT(*) AS count
 FROM videos
 WHERE status IN ('DONE', 'FAILED')
-GROUP BY status, completion_kind, (deleted_at IS NOT NULL)
+GROUP BY status, completion_kind, (deleted_at IS NOT NULL), COALESCE(deletion_kind, '')
 `
 
 type StatisticsHistoryRow struct {
 	Status         string `json:"status"`
 	CompletionKind string `json:"completion_kind"`
 	Removed        bool   `json:"removed"`
+	DeletionKind   string `json:"deletion_kind"`
 	Count          int64  `json:"count"`
 }
 
@@ -1657,6 +1755,7 @@ func (q *Queries) StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow
 			&i.Status,
 			&i.CompletionKind,
 			&i.Removed,
+			&i.DeletionKind,
 			&i.Count,
 		); err != nil {
 			return nil, err

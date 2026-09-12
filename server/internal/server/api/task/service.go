@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -39,4 +40,14 @@ func (s *Service) RunNow(ctx context.Context, name string) (*repository.Task, er
 		return nil, err
 	}
 	return s.repo.GetTask(ctx, name)
+}
+
+// ScheduleIfEnabled requests an automatic run without overriding an operator's
+// pause. The conditional update prevents a concurrent disable from being lost.
+func (s *Service) ScheduleIfEnabled(ctx context.Context, name string) (bool, error) {
+	err := s.repo.ScheduleTaskIfEnabled(ctx, name)
+	if errors.Is(err, repository.ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
 }

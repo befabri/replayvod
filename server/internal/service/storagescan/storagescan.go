@@ -1,7 +1,8 @@
 // Package storagescan reconciles terminal recordings whose media left storage.
 // Discovery only writes a tombstone: it preserves objects and their metadata,
 // including preview images used in history. Manual and retention deletion own
-// destructive cleanup.
+// destructive cleanup. Nothing is judged missing unless storage is attached:
+// reachable and carrying this install's identity marker.
 package storagescan
 
 import (
@@ -13,85 +14,161 @@ import (
 	"sync"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/eventlog"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 )
 
 const (
-	scanPageSize       = 64
-	scanWorkers        = 8
-	inspectTimeout     = 10 * time.Second
-	maxMissingShare    = 0.5
-	minMissingToRefuse = 3
+	scanPageSize   = 64
+	scanWorkers    = 8
+	inspectTimeout = 10 * time.Second
+	cursorTimeout  = 5 * time.Second
+
+	EventDomain            = "storage"
+	EventRecordingMissing  = "recording_missing"
+	EventRecordingRestored = "recording_restored"
+	EventScanReconciled    = "scan_reconciled"
 )
 
-var (
-	ErrStorageUnreachable = errors.New("storage scan: storage root unreachable")
-	ErrTooManyMissing     = errors.New("storage scan: too many recordings missing, refusing to tombstone")
-)
+// ErrNotRestorable means the recording is not a missing-media tombstone whose
+// media can be checked: it is live, removed for good, queued for a manual
+// delete, or a failed tombstone that never owned media.
+var ErrNotRestorable = errors.New("storage scan: recording is not a restorable tombstone")
+
+// ErrStillMissing is the sentinel every StillMissingError matches.
+var ErrStillMissing = errors.New("storage scan: media is still missing")
+
+// ErrArchivedAgain means the VOD was archived anew while the tombstone was
+// missing, and the library keeps one open row per VOD: the operator removes
+// one of the two before the other can come back.
+var ErrArchivedAgain = errors.New("storage scan: this VOD was archived again; remove one of the two copies first")
+
+// StillMissingError reports how much of a tombstone's media is still absent.
+type StillMissingError struct {
+	Missing, Total int
+}
+
+func (e *StillMissingError) Error() string {
+	return fmt.Sprintf("%d of %d parts are still missing", e.Missing, e.Total)
+}
+
+func (e *StillMissingError) Is(target error) bool { return target == ErrStillMissing }
+
+// Readiness answers whether storage may be trusted right now. Verify runs a
+// fresh probe and returns nil only when storage is attached; the error wraps
+// storage.ErrUnreachable, ErrUnattached, ErrReadOnly or ErrFull.
+type Readiness interface {
+	Verify(ctx context.Context) error
+}
+
+type notReady struct{}
+
+func (notReady) Verify(context.Context) error {
+	return fmt.Errorf("%w: no storage readiness monitor", storage.ErrUnreachable)
+}
 
 type Service struct {
 	repo   repository.Repository
 	store  storage.Storage
+	ready  Readiness
+	bus    *eventbus.Buses
 	log    *slog.Logger
 	sweep  chan struct{}
 	probes chan struct{}
-	// Only the sweep holder accesses nextID. Completed pages survive a task
-	// deadline; a later run resumes there, then wraps at the end of the library.
-	nextID int64
 }
 
-func New(repo repository.Repository, store storage.Storage, log *slog.Logger) *Service {
-	return &Service{repo: repo, store: store, log: log.With("domain", "storagescan"), sweep: make(chan struct{}, 1), probes: make(chan struct{}, scanWorkers)}
+type Option func(*Service)
+
+// WithEventBus mirrors reconciliation summaries and individual playback/manual
+// actions onto the SSE bus.
+func WithEventBus(bus *eventbus.Buses) Option {
+	return func(s *Service) { s.bus = bus }
 }
 
-type Report struct{ Scanned, Missing, Partial, Tombstoned int }
+// New builds the scan. A nil readiness fails closed: nothing is ever judged
+// missing without a monitor vouching for the storage.
+func New(repo repository.Repository, store storage.Storage, ready Readiness, log *slog.Logger, opts ...Option) *Service {
+	if ready == nil {
+		ready = notReady{}
+	}
+	s := &Service{
+		repo: repo, store: store, ready: ready,
+		log:    log.With("domain", "storagescan"),
+		sweep:  make(chan struct{}, 1),
+		probes: make(chan struct{}, scanWorkers),
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+type Report struct {
+	Scanned, Missing, Partial, Tombstoned, Restored int
+	// Complete is false when the run stopped with work left; the next run
+	// resumes from the persisted cursor.
+	Complete bool
+}
 
 // Sweep processes bounded pages, batching part reads and limiting concurrent
-// storage probes. Completed pages commit independently, so a large library
-// makes progress within the scheduler's deadline. Suspicious pages fail closed.
-func (s *Service) Sweep(ctx context.Context) (Report, error) {
+// storage probes. Completed pages commit independently and advance a cursor
+// persisted in server settings, so a library too large for one scheduler
+// deadline is finished across runs and restarts. A run that finished at least
+// one page before its deadline is a success with Complete false.
+func (s *Service) Sweep(ctx context.Context) (report Report, sweepErr error) {
 	select {
 	case s.sweep <- struct{}{}:
 		defer func() { <-s.sweep }()
 	case <-ctx.Done():
 		return Report{}, ctx.Err()
 	}
-	var report Report
+	defer func() { s.summarize(ctx, report, sweepErr) }()
+	if err := s.verify(ctx); err != nil {
+		return Report{}, err
+	}
+	after := s.loadCursor(ctx)
 	var errs []error
 	for {
-		candidates, err := s.repo.ListVideosForStorageScan(ctx, s.nextID, scanPageSize)
+		candidates, err := s.repo.ListVideosForStorageScan(ctx, after, scanPageSize)
 		if err != nil {
+			if ctx.Err() != nil {
+				return s.stopped(ctx, report, errs)
+			}
 			return report, errors.Join(append(errs, err)...)
 		}
 		if len(candidates) == 0 {
-			s.nextID = 0
-			return report, errors.Join(errs...)
+			s.saveCursor(ctx, 0)
+			break
 		}
-		states, err := s.inspectPage(ctx, candidates)
+		verdicts, err := s.inspectPage(ctx, candidates)
 		if ctx.Err() != nil {
-			return report, errors.Join(err, ctx.Err())
+			return s.stopped(ctx, report, errs)
 		}
-		if states != nil {
+		if notAttached(err) {
+			return report, errors.Join(append(errs, err)...)
+		}
+		if verdicts != nil {
 			report.Scanned += len(candidates)
 		}
-		for _, state := range states {
-			if state == mediaMissing {
+		for _, v := range verdicts {
+			if v.state == mediaMissing {
 				report.Missing++
 			}
-			if state == mediaPartial {
+			if v.state == mediaPartial {
 				report.Partial++
 			}
 		}
 		if err != nil {
 			errs = append(errs, err)
 		}
-		// Any probe error refuses the page: failed probes must not dilute the
-		// missing-share denominator and turn an outage into a successful scan.
+		// Any probe error refuses the page: a recording that could not be
+		// checked must not be tombstoned on a neighbour's verdict.
 		if err == nil {
 			for i, c := range candidates {
-				if states[i] != mediaMissing {
+				if verdicts[i].state != mediaMissing {
 					continue
 				}
 				changed, err := s.repo.TombstoneMissingVideo(ctx, c.VideoID)
@@ -101,19 +178,172 @@ func (s *Service) Sweep(ctx context.Context) (Report, error) {
 				}
 				if changed {
 					report.Tombstoned++
-					s.log.Info("tombstoned recording with missing media", "video_id", c.VideoID)
 				}
 			}
 		}
 		if ctx.Err() != nil {
-			return report, errors.Join(append(errs, ctx.Err())...)
+			return s.stopped(ctx, report, errs)
 		}
-		s.nextID = candidates[len(candidates)-1].VideoID
+		after = candidates[len(candidates)-1].VideoID
+		s.saveCursor(ctx, after)
+	}
+	errs = append(errs, s.restoreReturned(ctx, &report)...)
+	if ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			errs = append(errs, ctx.Err())
+		}
+		return report, errors.Join(errs...)
+	}
+	report.Complete = true
+	return report, errors.Join(errs...)
+}
+
+// summarize emits one bounded event for the changes this run committed, even
+// when cancellation or an error stopped it partway through. Quiet scans do
+// not add activity rows. Per-recording audit events belong to explicit actions.
+func (s *Service) summarize(ctx context.Context, report Report, sweepErr error) {
+	if report.Tombstoned == 0 && report.Restored == 0 {
+		return
+	}
+	s.notifyRemoval()
+	outcome, severity := "completed", repository.EventLogSeverityInfo
+	failed := sweepErr != nil && !errors.Is(sweepErr, context.Canceled)
+	if !report.Complete {
+		outcome = "paused"
+	}
+	if failed {
+		outcome, severity = "finished with errors", repository.EventLogSeverityWarn
+	}
+	message := fmt.Sprintf("storage scan %s: %d recordings removed from the library for missing media, %d restored", outcome, report.Tombstoned, report.Restored)
+	data := map[string]any{
+		"scanned": report.Scanned, "missing": report.Missing, "partial": report.Partial,
+		"tombstoned": report.Tombstoned, "restored": report.Restored,
+		"complete": report.Complete, "failed": failed,
+	}
+	s.log.Info(message, "complete", report.Complete, "failed", failed)
+	// The scan deadline must not hide changes already committed. Audit failure
+	// is still best effort and cannot change the sweep's reconciliation result.
+	eventCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cursorTimeout)
+	defer cancel()
+	eventlog.Emit(eventCtx, s.repo, s.bus, s.log, EventDomain, EventScanReconciled, severity, message, data)
+}
+
+// restoreReturned is the sweep's second phase: every missing tombstone whose
+// media is fully present again comes back into the library. Tombstones are
+// few, so the phase pages from the start each run and keeps no cursor.
+func (s *Service) restoreReturned(ctx context.Context, report *Report) []error {
+	var errs []error
+	var after int64
+	for {
+		if ctx.Err() != nil {
+			return errs
+		}
+		candidates, err := s.repo.ListMissingTombstones(ctx, after, scanPageSize)
+		if err != nil {
+			if ctx.Err() == nil {
+				errs = append(errs, err)
+			}
+			return errs
+		}
+		if len(candidates) == 0 {
+			return errs
+		}
+		verdicts, err := s.inspectPage(ctx, candidates)
+		if ctx.Err() != nil {
+			return errs
+		}
+		if err != nil {
+			errs = append(errs, err)
+			if notAttached(err) {
+				return errs
+			}
+		}
+		if err == nil {
+			for i, c := range candidates {
+				if verdicts[i].state != mediaPresent || verdicts[i].total == 0 {
+					continue
+				}
+				if err := s.restore(ctx, c); err != nil {
+					if errors.Is(err, ErrArchivedAgain) {
+						s.log.Info("recording not restored; its VOD was archived again", "video_id", c.VideoID)
+						continue
+					}
+					errs = append(errs, err)
+					continue
+				}
+				report.Restored++
+			}
+		}
+		after = candidates[len(candidates)-1].VideoID
 	}
 }
 
-// MarkMissing applies the same outage guard as the scheduled scan. The exact
-// candidate lookup rejects nonpositive IDs and cannot select another recording.
+// Restore brings one missing-media tombstone back once all of its media is
+// present again. Anything still absent is reported with counts; a tombstone
+// that cannot be checked at all is ErrNotRestorable.
+func (s *Service) Restore(ctx context.Context, id int64) error {
+	c, err := s.repo.GetMissingTombstone(ctx, id)
+	if errors.Is(err, repository.ErrNotFound) {
+		return ErrNotRestorable
+	}
+	if err != nil {
+		return err
+	}
+	verdicts, err := s.inspectPage(ctx, []repository.StorageScanVideo{*c})
+	if err != nil {
+		return err
+	}
+	v := verdicts[0]
+	if v.total == 0 {
+		return ErrNotRestorable
+	}
+	if v.state != mediaPresent {
+		return &StillMissingError{Missing: v.gone, Total: v.total}
+	}
+	if err := s.restore(ctx, *c); err != nil {
+		return err
+	}
+	s.log.Info("restored recording; its media is back in storage", "video_id", c.VideoID)
+	s.notifyRemoval()
+	eventlog.Emit(ctx, s.repo, s.bus, s.log, EventDomain, EventRecordingRestored, repository.EventLogSeverityInfo,
+		fmt.Sprintf("recording %d is back in the library: its media returned to storage", c.VideoID),
+		map[string]any{"video_id": c.VideoID, "filename": c.Filename})
+	return nil
+}
+
+func (s *Service) restore(ctx context.Context, c repository.StorageScanVideo) error {
+	if err := s.repo.RestoreMissingVideo(ctx, c.VideoID); err != nil {
+		switch {
+		case errors.Is(err, repository.ErrNotFound):
+			return ErrNotRestorable
+		case errors.Is(err, repository.ErrDuplicate):
+			return ErrArchivedAgain
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Service) notifyRemoval() {
+	if s.bus != nil && s.bus.VideoRemovals != nil {
+		s.bus.VideoRemovals.Publish(eventbus.VideoRemovalEvent{})
+	}
+}
+
+// stopped reports a run cut short by its deadline. The pages it finished are
+// committed and the cursor points past them, so that is progress, not a
+// failure; only a run that finished nothing surfaces the deadline. Explicit
+// cancellation is always surfaced so shutdown can schedule a prompt retry.
+func (s *Service) stopped(ctx context.Context, report Report, errs []error) (Report, error) {
+	if report.Scanned == 0 || errors.Is(ctx.Err(), context.Canceled) {
+		return report, errors.Join(append(errs, ctx.Err())...)
+	}
+	return report, errors.Join(errs...)
+}
+
+// MarkMissing tombstones one recording whose media is gone. The playback path
+// calls it after a definitive not-found; only the target's own parts are
+// inspected, and only on attached storage.
 func (s *Service) MarkMissing(ctx context.Context, id int64) (bool, error) {
 	c, err := s.repo.GetVideoForStorageScan(ctx, id)
 	if errors.Is(err, repository.ErrNotFound) {
@@ -122,47 +352,62 @@ func (s *Service) MarkMissing(ctx context.Context, id int64) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	// Include nearby recordings as an outage sample, with the target guaranteed
-	// to be present. This is a conservative guard, not proof of storage identity.
-	after := max(int64(0), id-scanPageSize/2)
-	candidates, err := s.repo.ListVideosForStorageScan(ctx, after, scanPageSize)
+	verdicts, err := s.inspectPage(ctx, []repository.StorageScanVideo{*c})
 	if err != nil {
 		return false, err
 	}
-	found := false
-	for _, v := range candidates {
-		if v.VideoID == id {
-			found = true
-			break
-		}
+	if verdicts[0].state != mediaMissing {
+		return false, nil
 	}
-	if !found {
-		candidates = append(candidates, *c)
-	}
-	states, err := s.inspectPage(ctx, candidates)
-	if err != nil {
-		return false, err
-	}
-	for i, v := range candidates {
-		if v.VideoID == id && states[i] == mediaMissing {
-			return s.repo.TombstoneMissingVideo(ctx, id)
-		}
-	}
-	return false, nil
+	return s.tombstone(ctx, *c)
 }
 
-func (s *Service) probeRoot(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
+func (s *Service) tombstone(ctx context.Context, c repository.StorageScanVideo) (bool, error) {
+	changed, err := s.repo.TombstoneMissingVideo(ctx, c.VideoID)
+	if err != nil || !changed {
+		return false, err
 	}
-	prober, ok := s.store.(storage.RootProber)
-	if !ok {
-		return fmt.Errorf("%w: backend does not support a root probe", ErrStorageUnreachable)
+	s.notifyRemoval()
+	s.log.Info("tombstoned recording with missing media", "video_id", c.VideoID)
+	eventlog.Emit(ctx, s.repo, s.bus, s.log, EventDomain, EventRecordingMissing, repository.EventLogSeverityInfo,
+		fmt.Sprintf("recording %d removed from the library: its media is missing from storage", c.VideoID),
+		map[string]any{"video_id": c.VideoID, "filename": c.Filename})
+	return true, nil
+}
+
+// verify accepts read-only and full storage: the scan reads objects and writes
+// database rows.
+func (s *Service) verify(ctx context.Context) error {
+	err := s.ready.Verify(ctx)
+	if storage.CanRead(err) {
+		return nil
 	}
-	if err := prober.ProbeRoot(ctx); err != nil {
-		return fmt.Errorf("%w: %w", ErrStorageUnreachable, err)
+	return err
+}
+
+func notAttached(err error) bool {
+	return errors.Is(err, storage.ErrUnreachable) || errors.Is(err, storage.ErrUnattached)
+}
+
+func (s *Service) loadCursor(ctx context.Context) int64 {
+	settings, err := s.repo.GetServerSettings(ctx)
+	if err != nil {
+		if !errors.Is(err, repository.ErrNotFound) {
+			s.log.Warn("load storage scan cursor; starting over", "error", err)
+		}
+		return 0
 	}
-	return nil
+	return settings.StorageScanCursor
+}
+
+// saveCursor commits the resume position even when the run's context has
+// expired: the page it points past is done.
+func (s *Service) saveCursor(ctx context.Context, cursor int64) {
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cursorTimeout)
+	defer cancel()
+	if err := s.repo.SetStorageScanCursor(saveCtx, cursor); err != nil {
+		s.log.Warn("persist storage scan cursor", "cursor", cursor, "error", err)
+	}
 }
 
 type mediaState int
@@ -173,8 +418,15 @@ const (
 	mediaMissing
 )
 
-func (s *Service) inspectPage(ctx context.Context, candidates []repository.StorageScanVideo) ([]mediaState, error) {
-	if err := s.probeRoot(ctx); err != nil {
+// verdict is one recording's inspection: its state plus how many of its
+// media objects are absent, so a refusal can say how much is still missing.
+type verdict struct {
+	state       mediaState
+	gone, total int
+}
+
+func (s *Service) inspectPage(ctx context.Context, candidates []repository.StorageScanVideo) ([]verdict, error) {
+	if err := s.verify(ctx); err != nil {
 		return nil, err
 	}
 	ids := make([]int64, len(candidates))
@@ -189,23 +441,14 @@ func (s *Service) inspectPage(ctx context.Context, candidates []repository.Stora
 	for _, p := range parts {
 		byVideo[p.VideoID] = append(byVideo[p.VideoID], p)
 	}
-	states := make([]mediaState, len(candidates))
+	verdicts := make([]verdict, len(candidates))
 	errs := make([]error, len(candidates))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	for range min(scanWorkers, len(candidates)) {
 		wg.Go(func() {
 			for i := range jobs {
-				select {
-				case s.probes <- struct{}{}:
-				case <-ctx.Done():
-					errs[i] = ctx.Err()
-					continue
-				}
-				probeCtx, cancel := context.WithTimeout(ctx, inspectTimeout)
-				states[i], errs[i] = s.inspect(probeCtx, candidates[i], byVideo[candidates[i].VideoID])
-				cancel()
-				<-s.probes
+				verdicts[i], errs[i] = s.inspectBounded(ctx, candidates[i], byVideo[candidates[i].VideoID])
 			}
 		})
 	}
@@ -215,87 +458,115 @@ func (s *Service) inspectPage(ctx context.Context, candidates []repository.Stora
 		case <-ctx.Done():
 			close(jobs)
 			wg.Wait()
-			return states, ctx.Err()
+			return verdicts, ctx.Err()
 		}
 	}
 	close(jobs)
 	wg.Wait()
 	if err := errors.Join(errs...); err != nil {
-		return states, err
+		return verdicts, err
 	}
-	// Recheck after the probes too, catching a mount disappearing mid-page.
-	if err := s.probeRoot(ctx); err != nil {
-		return states, err
+	// Recheck after the probes too: a volume that detached mid-page would have
+	// answered not-found for every object stat'd after it went away.
+	if err := s.verify(ctx); err != nil {
+		return verdicts, err
 	}
-	missing := 0
-	for _, state := range states {
-		if state == mediaMissing {
-			missing++
-		}
-	}
-	if missing >= minMissingToRefuse && float64(missing) > maxMissingShare*float64(len(candidates)) {
-		return states, fmt.Errorf("%w: %d of %d; verify storage before retrying", ErrTooManyMissing, missing, len(candidates))
-	}
-	return states, nil
+	return verdicts, nil
 }
 
-func (s *Service) inspect(ctx context.Context, c repository.StorageScanVideo, parts []repository.VideoPart) (mediaState, error) {
-	paths := mediaPaths(c.Filename, c.Status, parts)
+// A filesystem syscall can ignore cancellation. Let its caller stop waiting
+// while keeping the global probe slot occupied until the I/O actually returns;
+// repeated requests can strand at most scanWorkers workers across this service.
+// Workers only inspect and cannot publish a tombstone after the caller leaves.
+func (s *Service) inspectBounded(ctx context.Context, c repository.StorageScanVideo, parts []repository.VideoPart) (verdict, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, inspectTimeout)
+	defer cancel()
+	select {
+	case s.probes <- struct{}{}:
+	case <-probeCtx.Done():
+		return verdict{}, probeCtx.Err()
+	}
+	if err := probeCtx.Err(); err != nil {
+		<-s.probes
+		return verdict{}, err
+	}
+	type result struct {
+		verdict verdict
+		err     error
+	}
+	results := make(chan result, 1)
+	go func() {
+		defer func() { <-s.probes }()
+		v, err := s.inspect(probeCtx, c, parts)
+		results <- result{verdict: v, err: err}
+	}()
+	select {
+	case res := <-results:
+		if err := probeCtx.Err(); err != nil {
+			return verdict{}, err
+		}
+		return res.verdict, res.err
+	case <-probeCtx.Done():
+		return verdict{}, probeCtx.Err()
+	}
+}
+
+func (s *Service) inspect(ctx context.Context, c repository.StorageScanVideo, parts []repository.VideoPart) (verdict, error) {
+	paths := storagekeys.MediaPaths(c.Filename, c.Status, parts)
 	if len(paths) == 0 {
-		return mediaPresent, nil
+		return verdict{state: mediaPresent}, nil
 	}
 	gone := 0
 	for _, p := range paths {
 		if err := ctx.Err(); err != nil {
-			return mediaPresent, err
+			return verdict{}, err
 		}
-		_, err := s.store.Stat(ctx, p)
+		err := s.statMedia(ctx, p)
 		switch {
 		case err == nil:
 		case errors.Is(err, fs.ErrNotExist):
 			gone++
 		default:
-			return mediaPresent, fmt.Errorf("stat %s: %w", p, err)
+			return verdict{}, fmt.Errorf("stat %s: %w", p, err)
 		}
 	}
+	v := verdict{gone: gone, total: len(paths)}
 	if gone == 0 {
-		return mediaPresent, nil
+		return v, nil
 	}
 	if gone < len(paths) {
-		return mediaPartial, nil
+		v.state = mediaPartial
+		return v, nil
 	}
 	// A ready continuous-playback artifact may still contain the whole recording.
 	// Preserve that playable copy even when all original parts disappeared.
 	if len(parts) > 1 {
 		asset, err := s.repo.GetVideoPlaybackAsset(ctx, c.VideoID)
 		if err != nil && !errors.Is(err, repository.ErrNotFound) {
-			return mediaPresent, err
+			return verdict{}, err
 		}
 		if err == nil && asset.Status == repository.PlaybackAssetStatusReady && asset.Filename != nil {
-			_, err := s.store.Stat(ctx, storagekeys.Video(*asset.Filename))
+			err := s.statMedia(ctx, storagekeys.Video(*asset.Filename))
 			if err == nil {
-				return mediaPartial, nil
+				v.state = mediaPartial
+				return v, nil
 			}
 			if !errors.Is(err, fs.ErrNotExist) {
-				return mediaPresent, err
+				return verdict{}, err
 			}
 		}
 	}
-	return mediaMissing, nil
+	v.state = mediaMissing
+	return v, nil
 }
 
-// Historical DONE rows predate video_parts and use a single MP4 key, matching
-// playback's zero-part fallback. Failed rows without parts never owned media.
-func mediaPaths(filename, status string, parts []repository.VideoPart) []string {
-	if len(parts) == 0 {
-		if status == repository.VideoStatusDone {
-			return []string{storagekeys.Video(filename + ".mp4")}
-		}
-		return nil
+func (s *Service) statMedia(ctx context.Context, key string) error {
+	info, err := s.store.Stat(ctx, key)
+	if err != nil {
+		return err
 	}
-	paths := make([]string, len(parts))
-	for i, p := range parts {
-		paths[i] = storagekeys.Video(p.Filename)
+	if info.IsDir {
+		return fmt.Errorf("media path %s is a directory", key)
 	}
-	return paths
+	return nil
 }

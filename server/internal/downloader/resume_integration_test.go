@@ -38,10 +38,10 @@ func newTestService(t *testing.T, scratchDir string) *Service {
 	return NewService(cfg, repo, store, nil, nil, nil, discardLog())
 }
 
-func TestResume_EmptyDBSweepsOrphans(t *testing.T) {
+func TestPrepareScratch_EmptyDBSweepsOrphans(t *testing.T) {
 	scratch := t.TempDir()
 	// Seed orphan dirs under scratch — no RUNNING jobs reference
-	// them, so Resume should wipe all three.
+	// them, so startup preparation should wipe all three.
 	for _, name := range []string{"orphan-a", "orphan-b", "orphan-c"} {
 		if err := os.Mkdir(filepath.Join(scratch, name), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", name, err)
@@ -50,8 +50,8 @@ func TestResume_EmptyDBSweepsOrphans(t *testing.T) {
 
 	s := newTestService(t, scratch)
 
-	if err := s.Resume(context.Background()); err != nil {
-		t.Fatalf("Resume on empty DB: %v", err)
+	if err := s.PrepareScratch(context.Background()); err != nil {
+		t.Fatalf("PrepareScratch on empty DB: %v", err)
 	}
 
 	entries, err := os.ReadDir(scratch)

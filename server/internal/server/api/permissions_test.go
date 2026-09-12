@@ -20,13 +20,14 @@ import (
 
 type permissionHarness struct {
 	router http.Handler
+	bus    *eventbus.Buses
 	repo   repository.Repository
 	viewer *http.Cookie
 	admin  *http.Cookie
 	owner  *http.Cookie
 }
 
-func newPermissionHarness(t *testing.T) *permissionHarness {
+func newPermissionHarness(t *testing.T, trustedOrigins ...string) *permissionHarness {
 	t.Helper()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -36,9 +37,10 @@ func newPermissionHarness(t *testing.T) *permissionHarness {
 	}
 	cfg := &config.Config{
 		Env: config.Environment{
-			HMACSecret:  routerWebhookSecret,
-			CallbackURL: "http://localhost:8080/api/v1/auth/twitch/callback",
-			FrontendURL: "http://localhost:3000",
+			HMACSecret:     routerWebhookSecret,
+			TrustedOrigins: trustedOrigins,
+			CallbackURL:    "http://localhost:8080/api/v1/auth/twitch/callback",
+			FrontendURL:    "http://localhost:3000",
 		},
 		ServerMode: config.ServerModeConfig{Source: config.ServerModeConfigSourceUnset},
 	}
@@ -54,6 +56,7 @@ func newPermissionHarness(t *testing.T) *permissionHarness {
 	}
 	return &permissionHarness{
 		router: router,
+		bus:    bus,
 		repo:   repo,
 		viewer: mintSessionCookie(t, repo, sessionMgr, "perm-viewer-1", "viewer"),
 		admin:  mintSessionCookie(t, repo, sessionMgr, "perm-admin-1", "admin"),
@@ -92,6 +95,7 @@ func TestSystemProceduresRoleMatrix(t *testing.T) {
 		{"listWhitelist", http.MethodGet, "/trpc/system.listWhitelist", "", http.StatusOK},
 		{"addWhitelist", http.MethodPost, "/trpc/system.addWhitelist", `{"twitch_user_id":"12345"}`, http.StatusOK},
 		{"removeWhitelist", http.MethodPost, "/trpc/system.removeWhitelist", `{"twitch_user_id":"12345"}`, http.StatusOK},
+		{"liveRenditions", http.MethodGet, queryWithInput("/trpc/video.liveRenditions", `{"broadcaster_id":"perm-missing"}`), "", http.StatusNotFound},
 		{"updateUserRole", http.MethodPost, "/trpc/system.updateUserRole", `{"user_id":"perm-target-1","role":"viewer"}`, http.StatusOK},
 		{"listInvites", http.MethodGet, "/trpc/system.listInvites", "", http.StatusOK},
 		{"createInvite", http.MethodPost, "/trpc/system.createInvite", `{"role":"viewer","ttl_minutes":60}`, http.StatusOK},
@@ -324,5 +328,59 @@ func TestScheduleRequestLifecycleOverHTTP(t *testing.T) {
 
 	if got := h.do(http.MethodPost, "/trpc/schedule.createRequest", fileBody, h.viewer); got != http.StatusBadRequest {
 		t.Fatalf("request on scheduled channel = %d, want 400", got)
+	}
+}
+
+func TestStorageProceduresRoleMatrix(t *testing.T) {
+	h := newPermissionHarness(t)
+	// The harness's backend cannot carry an identity. Routes must remain present
+	// for dashboard diagnosis, while adoption itself fails closed.
+	for _, tc := range []struct {
+		path, method string
+		ownerOnly    bool
+		ownerStatus  int
+	}{
+		{"storage.status", http.MethodGet, false, http.StatusOK},
+		{"storage.details", http.MethodGet, true, http.StatusOK},
+		{"storage.adopt", http.MethodPost, true, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			for _, role := range []struct {
+				name   string
+				cookie *http.Cookie
+			}{{"anonymous", nil}, {"viewer", h.viewer}, {"admin", h.admin}, {"owner", h.owner}} {
+				want := tc.ownerStatus
+				if role.cookie == nil {
+					want = http.StatusUnauthorized
+				} else if tc.ownerOnly && role.name != "owner" {
+					want = http.StatusForbidden
+				}
+				if got := roleGateRequest(h.router, tc.method, "/trpc/"+tc.path, "", role.cookie); got != want {
+					t.Fatalf("%s: HTTP %d, want %d", role.name, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestArchiveAndRestoreMutationsRequireAdmin(t *testing.T) {
+	h := newPermissionHarness(t)
+	for _, tc := range []struct{ path, body string }{{"video.restore", `{"id":99999}`}, {"archive.retry", `{"video_id":99999}`}, {"archive.cancelRetry", `{"video_id":99999}`}} {
+		t.Run(tc.path, func(t *testing.T) {
+			for _, role := range []struct {
+				cookie *http.Cookie
+				want   int
+			}{{nil, http.StatusUnauthorized}, {h.viewer, http.StatusForbidden}} {
+				if got := roleGateRequest(h.router, http.MethodPost, "/trpc/"+tc.path, tc.body, role.cookie); got != role.want {
+					t.Fatalf("HTTP %d, want %d", got, role.want)
+				}
+			}
+			for _, cookie := range []*http.Cookie{h.admin, h.owner} {
+				got := roleGateRequest(h.router, http.MethodPost, "/trpc/"+tc.path, tc.body, cookie)
+				if got == http.StatusUnauthorized || got == http.StatusForbidden {
+					t.Fatalf("manager refused: HTTP %d", got)
+				}
+			}
+		})
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/invite"
 	"github.com/befabri/replayvod/server/internal/playbackauth"
+	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/server/api/auth"
@@ -27,6 +28,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/schedule"
 	"github.com/befabri/replayvod/server/internal/server/api/settings"
 	"github.com/befabri/replayvod/server/internal/server/api/sse"
+	"github.com/befabri/replayvod/server/internal/server/api/storageapi"
 	"github.com/befabri/replayvod/server/internal/server/api/stream"
 	"github.com/befabri/replayvod/server/internal/server/api/subscriptions"
 	"github.com/befabri/replayvod/server/internal/server/api/system"
@@ -39,6 +41,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/playbackcache"
 	"github.com/befabri/replayvod/server/internal/service/retention"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
+	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/service/storagescan"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -60,14 +63,37 @@ type RecordingServices struct {
 	Retention    *retention.Service
 	StorageScan  *storagescan.Service
 	PlaybackAuth *playbackauth.Service
+	// StorageHealth vouches for the storage before anything records into it,
+	// scans it or tombstones from it. Unsupported backends have a monitor that
+	// reports unavailable, keeping the dashboard accessible and storage paused.
+	StorageHealth  *storagehealth.Monitor
+	RecordingLocks *recordinglock.Locks
 }
 
-func NewRecordingServices(cfg *config.Config, repo repository.Repository, store storage.Storage, log *slog.Logger) *RecordingServices {
+func NewRecordingServices(cfg *config.Config, repo repository.Repository, store storage.Storage, bus *eventbus.Buses, log *slog.Logger) *RecordingServices {
+	health := storagehealth.New(repo, store, bus, log, storageBackend(cfg), storageLocation(cfg))
+	locks := &recordinglock.Locks{}
 	return &RecordingServices{
-		Retention:    retention.New(repo, store, log, retention.WithManualDeletionWorkerAvailable(cfg.App.Scheduler.Enabled)),
-		StorageScan:  storagescan.New(repo, store, log),
-		PlaybackAuth: playbackauth.New(repo, cfg.Env.SessionSecret, playbackauth.NewTwitchValidator()),
+		Retention:      retention.New(repo, store, health, log, retention.WithManualDeletionWorkerAvailable(cfg.App.Scheduler.Enabled), retention.WithEventBus(bus), retention.WithRecordingLocks(locks)),
+		StorageScan:    storagescan.New(repo, store, health, log, storagescan.WithEventBus(bus)),
+		PlaybackAuth:   playbackauth.New(repo, cfg.Env.SessionSecret, playbackauth.NewTwitchValidator()),
+		StorageHealth:  health,
+		RecordingLocks: locks,
 	}
+}
+
+func storageBackend(cfg *config.Config) string {
+	if cfg.App.Storage.Type == "s3" {
+		return "s3"
+	}
+	return "local"
+}
+
+func storageLocation(cfg *config.Config) string {
+	if cfg.App.Storage.Type == "s3" {
+		return cfg.App.Storage.S3.Bucket
+	}
+	return cfg.App.Storage.LocalPath
 }
 
 func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger, services ...*RecordingServices) (*chi.Mux, func() error) {
@@ -107,22 +133,28 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		recordings = services[0]
 	}
 	if recordings == nil {
-		recordings = NewRecordingServices(cfg, repo, store, log)
+		recordings = NewRecordingServices(cfg, repo, store, bus, log)
 	}
+	storageGate := recordings.StorageHealth
 	// The video stream handler also serves signed, unauthenticated per-part
 	// download URLs (handed to recording-webhook consumers). The verifier shares
 	// the server HMAC secret; the route is registered outside the session
 	// middleware below since the signature, not a cookie, authorizes it.
-	videoStream := video.NewStreamHandler(
-		repo,
-		store,
-		videodownload.NewVerifier(cfg.Env.HMACSecret),
-		log,
+	streamOpts := []video.StreamHandlerOption{
 		// Lazily build the single-file playback artifact the first time a part is
 		// streamed (i.e. someone actually watches), instead of eagerly on every
 		// recording's completion.
 		video.WithPlaybackBuilder(playbackCache),
 		video.WithMissingMarker(recordings.StorageScan),
+		video.WithStorageGate(recordings.StorageHealth),
+		video.WithRecordingLocks(recordings.RecordingLocks),
+	}
+	videoStream := video.NewStreamHandler(
+		repo,
+		store,
+		videodownload.NewVerifier(cfg.Env.HMACSecret),
+		log,
+		streamOpts...,
 	)
 	// The webhook handler needs the raw body for HMAC verification, so it
 	// must live on the Chi side (no tRPC JSON middleware) and outside the
@@ -139,7 +171,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	sessionMw := middleware.Auth(sessionMgr, repo, tokenProvider, log)
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.App.Health.Enabled {
-			r.Get("/health", healthHandler(repo, log))
+			r.Get("/health", healthHandler(repo, storageGate, log))
 		}
 		authHandler.SetupRoutes(r)
 		videoStream.SetupRoutes(r, sessionMw)
@@ -288,11 +320,16 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	settings.RegisterRoutes(tr, repo, log, viewer)
 	playbackauthapi.RegisterRoutes(tr, recordings.PlaybackAuth, cfg.PublicAPIBaseURL(), log, owner)
 	sse.RegisterRoutes(tr, bus, log, viewer, owner)
+	var scanTasks storageapi.TaskRunner
+	if cfg.App.Scheduler.Enabled && cfg.App.Scheduler.StorageScanIntervalMinutes > 0 {
+		scanTasks = task.New(repo, log)
+	}
+	storageapi.RegisterRoutes(tr, recordings.StorageHealth, scanTasks, log, viewer, owner)
 	stream.RegisterRoutes(tr, repo, twitchClient, log, viewer)
 	system.RegisterRoutes(tr, repo, invite.New(repo, cfg.Env.FrontendURL, log), log, admin, owner)
 	tag.RegisterRoutes(tr, repo, log, viewer)
 	task.RegisterRoutes(tr, repo, log, owner)
-	video.RegisterRoutes(tr, repo, dl, twitchClient, hydrator, recordings.Retention, store, log, viewer, admin)
+	video.RegisterRoutes(tr, repo, dl, twitchClient, hydrator, recordings.Retention, recordings.StorageScan, store, log, viewer, admin)
 
 	return tr
 }

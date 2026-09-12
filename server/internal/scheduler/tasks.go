@@ -2,13 +2,11 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
-	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/archiveposter"
 	"github.com/befabri/replayvod/server/internal/service/categoryart"
@@ -23,7 +21,7 @@ const (
 	taskEventSubSnapshot          = "eventsub_snapshot"
 	taskCategoryArtSync           = "category_art_sync"
 	taskCategoryMetadataSync      = "category_metadata_sync"
-	taskStorageScan               = "storage_scan"
+	TaskStorageScan               = "storage_scan"
 	taskArchivePosters            = "archive_posters"
 )
 
@@ -259,7 +257,7 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 	if deps.StorageScan != nil {
 		if m := sc.StorageScanIntervalMinutes; m > 0 {
 			if err := s.Register(Task{
-				Name:            taskStorageScan,
+				Name:            TaskStorageScan,
 				Description:     "Tombstone recordings whose media files are gone from storage",
 				IntervalSeconds: int64(m) * 60,
 				Run: func(ctx context.Context) error {
@@ -267,6 +265,10 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 					if report.Tombstoned > 0 || report.Partial > 0 {
 						log.Info("storage scan: recordings with missing media",
 							"scanned", report.Scanned, "tombstoned", report.Tombstoned, "partial", report.Partial)
+					}
+					if err == nil && !report.Complete {
+						log.Info("storage scan: deadline reached; the next run resumes where this one stopped",
+							"scanned", report.Scanned)
 					}
 					return err
 				},
@@ -288,7 +290,7 @@ func RegisterStandardTasks(s *Service, cfg *config.Config, repo repository.Repos
 						log.Info("archive posters: stored posters", "count", report.Stored, "checked", report.Checked)
 					}
 					if err == nil && !report.Complete {
-						log.Info("archive posters: deadline reached; the next run continues after the last archive attempted",
+						log.Info("archive posters: backfill paused; the next run continues after the last archive attempted",
 							"checked", report.Checked)
 					}
 					return err
@@ -325,49 +327,4 @@ func registerDisabledTask(s *Service, name, description string) error {
 			return nil
 		},
 	})
-}
-
-// EmitEventLog is a convenience for tasks to append a structured row
-// to event_logs and publish to the SSE bus. Swallows errors (audit
-// logging must not fail the caller) and logs them. bus may be nil —
-// the row still lands in the DB.
-func EmitEventLog(ctx context.Context, repo repository.Repository, bus *eventbus.Buses, log *slog.Logger, domain, eventType, severity, message string, data any) {
-	var raw json.RawMessage
-	var dataMap map[string]any
-	if data != nil {
-		b, err := json.Marshal(data)
-		if err != nil {
-			log.Warn("marshal event log data", "error", err)
-		} else {
-			raw = b
-			// For the SSE payload we want a map so the client sees a
-			// proper JSON object; re-unmarshal into a map so we don't
-			// leak a Go-specific shape. Non-object payloads skip the
-			// bus event (rare enough not to matter).
-			_ = json.Unmarshal(b, &dataMap)
-		}
-	}
-	row, err := repo.CreateEventLog(ctx, &repository.EventLogInput{
-		Domain:    domain,
-		EventType: eventType,
-		Severity:  severity,
-		Message:   message,
-		Data:      raw,
-	})
-	if err != nil {
-		log.Warn("append event log", "domain", domain, "type", eventType, "error", err)
-		return
-	}
-	if bus != nil {
-		bus.EventLogs.Publish(eventbus.EventLogEvent{
-			ID:          row.ID,
-			Domain:      row.Domain,
-			EventType:   row.EventType,
-			Severity:    row.Severity,
-			Message:     row.Message,
-			ActorUserID: row.ActorUserID,
-			Data:        dataMap,
-			CreatedAt:   row.CreatedAt,
-		})
-	}
 }

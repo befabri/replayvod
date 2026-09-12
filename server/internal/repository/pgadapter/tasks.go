@@ -53,3 +53,12 @@ func (a *PGAdapter) SetTaskNextRun(ctx context.Context, name string) error {
 	}
 	return nil
 }
+
+func (a *PGAdapter) MarkTaskInterrupted(ctx context.Context, name string, durationMs int64) error {
+	return a.queries.MarkTaskInterrupted(ctx, pggen.MarkTaskInterruptedParams{Name: name, LastDurationMs: int32(durationMs)})
+}
+
+func (a *PGAdapter) ScheduleTaskIfEnabled(ctx context.Context, name string) error {
+	_, err := a.queries.ScheduleTaskIfEnabled(ctx, name)
+	return mapErr(err)
+}

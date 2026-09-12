@@ -16,12 +16,14 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/eventlog"
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
@@ -48,21 +50,29 @@ type Service struct {
 	poll    time.Duration
 	stopCh  chan struct{}
 	stopped bool
+	started bool
 	wg      sync.WaitGroup
+	// runCtx is the parent of every task run; Stop cancels it so shutdown
+	// waits for tasks to unwind, not for their deadline.
+	runCtx    context.Context
+	cancelRun context.CancelFunc
 }
 
 func NewService(repo repository.Repository, log *slog.Logger, pollInterval time.Duration, bus *eventbus.Buses) *Service {
 	if pollInterval <= 0 {
 		pollInterval = 15 * time.Second
 	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	return &Service{
-		repo:    repo,
-		log:     log.With("domain", "scheduler"),
-		bus:     bus,
-		tasks:   make(map[string]*Task),
-		running: make(map[string]struct{}),
-		poll:    pollInterval,
-		stopCh:  make(chan struct{}),
+		repo:      repo,
+		log:       log.With("domain", "scheduler"),
+		bus:       bus,
+		tasks:     make(map[string]*Task),
+		running:   make(map[string]struct{}),
+		poll:      pollInterval,
+		stopCh:    make(chan struct{}),
+		runCtx:    runCtx,
+		cancelRun: cancelRun,
 	}
 }
 
@@ -84,28 +94,32 @@ func (s *Service) Register(t Task) error {
 
 func (s *Service) Start(ctx context.Context) error {
 	s.mu.Lock()
+	if s.stopped || s.started {
+		s.mu.Unlock()
+		return fmt.Errorf("scheduler: already started or stopped")
+	}
 	for _, t := range s.tasks {
 		if _, err := s.repo.UpsertTask(ctx, t.Name, t.Description, t.IntervalSeconds); err != nil {
 			s.mu.Unlock()
 			return fmt.Errorf("scheduler: register task %q: %w", t.Name, err)
 		}
 	}
-	s.mu.Unlock()
-
+	s.started = true
 	s.wg.Add(1)
+	s.mu.Unlock()
 	go s.loop()
 	return nil
 }
 
 func (s *Service) Stop() {
 	s.mu.Lock()
-	if s.stopped {
-		s.mu.Unlock()
-		return
+	if !s.stopped {
+		s.stopped = true
+		close(s.stopCh)
+		s.cancelRun()
 	}
-	s.stopped = true
-	close(s.stopCh)
 	s.mu.Unlock()
+	// Every caller waits, including a concurrent second Stop.
 	s.wg.Wait()
 }
 
@@ -131,11 +145,14 @@ func (s *Service) loop() {
 }
 
 func (s *Service) tick() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(s.runCtx, 30*time.Second)
 	defer cancel()
 
 	due, err := s.repo.ListDueTasks(ctx)
 	if err != nil {
+		if s.runCtx.Err() != nil {
+			return
+		}
 		s.log.Error("list due tasks", "error", err)
 		return
 	}
@@ -143,6 +160,10 @@ func (s *Service) tick() {
 	for i := range due {
 		name := due[i].Name
 		s.mu.Lock()
+		if s.stopped {
+			s.mu.Unlock()
+			return
+		}
 		t, known := s.tasks[name]
 		if !known {
 			// Unknown task name in the DB — probably an old task whose
@@ -157,9 +178,8 @@ func (s *Service) tick() {
 			continue // already running, wait for next tick
 		}
 		s.running[name] = struct{}{}
-		s.mu.Unlock()
-
 		s.wg.Add(1)
+		s.mu.Unlock()
 		go s.runOne(t)
 	}
 }
@@ -172,10 +192,10 @@ func (s *Service) runOne(t *Task) {
 		s.mu.Unlock()
 	}()
 
-	// Each run gets its own context so a slow task can't block the
-	// next tick. 10-minute ceiling; tasks that reliably exceed this
-	// should override via their own time.WithTimeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	// Each run gets its own context so a slow task can't block the next
+	// tick: a 10-minute ceiling, cut short by Stop. Work that cannot fit
+	// commits in pages and resumes next run, as the storage scan does.
+	ctx, cancel := context.WithTimeout(s.runCtx, 10*time.Minute)
 	defer cancel()
 
 	if err := s.repo.MarkTaskRunning(ctx, t.Name); err != nil {
@@ -193,6 +213,11 @@ func (s *Service) runOne(t *Task) {
 
 	err := t.Run(ctx)
 	if err != nil {
+		if s.runCtx.Err() != nil && errors.Is(err, context.Canceled) {
+			s.log.Info("task interrupted by shutdown", "name", t.Name)
+			s.markInterrupted(t.Name, start)
+			return
+		}
 		s.log.Warn("task run failed", "name", t.Name, "error", err)
 		s.markFailed(t.Name, start, err)
 		return
@@ -229,9 +254,25 @@ func (s *Service) markSuccess(name string, start time.Time) {
 	// on the events page. Keeps the dashboard's task-activity feed
 	// useful without spamming slog: the retention task prunes
 	// debug/info rows so the volume is bounded.
-	EmitEventLog(ctx, s.repo, s.bus, s.log,
+	eventlog.Emit(ctx, s.repo, s.bus, s.log,
 		"task", "run_success", repository.EventLogSeverityInfo,
 		fmt.Sprintf("task %s completed in %dms", name, dur),
+		map[string]any{"task": name, "duration_ms": dur},
+	)
+}
+
+func (s *Service) markInterrupted(name string, start time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dur := time.Since(start).Milliseconds()
+	if err := s.repo.MarkTaskInterrupted(ctx, name, dur); err != nil {
+		s.log.Error("mark task interrupted", "name", name, "error", err)
+		return
+	}
+	s.publishStatus(name, repository.TaskStatusInterrupted, dur, "")
+	eventlog.Emit(ctx, s.repo, s.bus, s.log,
+		"task", "run_interrupted", repository.EventLogSeverityInfo,
+		fmt.Sprintf("task %s interrupted by shutdown; retrying after restart", name),
 		map[string]any{"task": name, "duration_ms": dur},
 	)
 }
@@ -248,7 +289,7 @@ func (s *Service) markFailed(name string, start time.Time, runErr error) {
 	// Failure writes an error event_log — these survive the info-
 	// retention sweep and are the first thing operators look at on
 	// the dashboard's events page during an incident.
-	EmitEventLog(ctx, s.repo, s.bus, s.log,
+	eventlog.Emit(ctx, s.repo, s.bus, s.log,
 		"task", "run_failed", repository.EventLogSeverityError,
 		fmt.Sprintf("task %s failed: %s", name, errMsg),
 		map[string]any{"task": name, "duration_ms": dur, "error": errMsg},

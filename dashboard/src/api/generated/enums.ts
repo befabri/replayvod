@@ -77,6 +77,25 @@ export const ServerModeEnum = {
 } as const;
 
 /**
+ * StorageScanStatus distinguishes an operator-disabled scan from a scheduling
+ * failure after adoption succeeded.
+ */
+export const StorageScanStatusEnum = {
+  scheduled: "scheduled",
+  disabled: "disabled",
+  failed: "failed",
+} as const;
+
+/** StorageState is the readiness verdict on the wire. */
+export const StorageStateEnum = {
+  attached: "attached",
+  read_only: "read_only",
+  full: "full",
+  unattached: "unattached",
+  unreachable: "unreachable",
+} as const;
+
+/**
  * StreamStatusKind enumerates the two transitions StreamStatusEvent
  * carries. Exported as typed constants so consumers (SSE subscribers)
  * can branch on the value without magic strings.

@@ -37,6 +37,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/livepoll"
 	"github.com/befabri/replayvod/server/internal/service/playbackcache"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
+	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -260,18 +261,23 @@ func main() {
 		channelSubs = &channelSubsAdapter{es: eventsubSvc}
 	}
 	dl := downloader.NewService(cfg, repo, store, hydrator, metaWatcher, channelSubs, log)
-	posters := archiveposter.NewStore(repo, store, &http.Client{Timeout: 15 * time.Second}, log)
-	dl.SetPosterStore(posters)
-	playbackCache := playbackcache.New(repo, store, filepath.Join(cfg.Env.ScratchDir, "playback-cache"), "", log)
 	hydrator.SetMediaOffsetResolver(dl)
-	recordings := api.NewRecordingServices(cfg, repo, store, log)
+	bus := eventbus.New()
+	dl.SetEventBus(bus)
+	recordings := api.NewRecordingServices(cfg, repo, store, bus, log)
+	playbackCache := playbackcache.New(repo, store, recordings.StorageHealth, filepath.Join(cfg.Env.ScratchDir, "playback-cache"), "", log)
+	posters := archiveposter.NewStore(repo, store, recordings.StorageHealth, &http.Client{Timeout: 15 * time.Second}, log)
+	dl.SetPosterStore(posters)
 	dl.SetPlaybackCredentials(recordings.PlaybackAuth)
+	if err := dl.PrepareScratch(ctx); err != nil {
+		log.Error("Failed to prepare recording scratch directory", "error", err)
+		os.Exit(1)
+	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	bus := eventbus.New()
-	dl.SetEventBus(bus)
+	attachStorage(signalCtx, recordings.StorageHealth, bus, dl, log)
 
 	publicAPIBaseURL := cfg.PublicAPIBaseURL()
 	webhookSigner := videodownload.NewSigner(cfg.Env.HMACSecret, publicAPIBaseURL, cfg.SignedDownloadURLTTL())
@@ -354,13 +360,13 @@ func main() {
 	}
 
 	if cfg.ServerMode.TracksTitlesViaWebhook() {
-		activeJobs, err := repo.ListRunningJobs(ctx)
+		activeBroadcasters, err := repo.ListRunningLiveBroadcasters(ctx)
 		if err != nil {
 			log.Warn("channel.update reconcile: list running jobs failed", "error", err)
 		} else {
-			active := make(map[string]bool, len(activeJobs))
-			for _, j := range activeJobs {
-				active[j.BroadcasterID] = true
+			active := make(map[string]bool, len(activeBroadcasters))
+			for _, id := range activeBroadcasters {
+				active[id] = true
 			}
 			if err := eventsubSvc.ReconcileChannelUpdateSubs(ctx, active); err != nil {
 				log.Warn("channel.update reconcile failed", "error", err)
@@ -460,4 +466,45 @@ func (a *channelSubsAdapter) SubscribeChannelUpdate(ctx context.Context, broadca
 
 func (a *channelSubsAdapter) UnsubscribeChannelUpdate(ctx context.Context, broadcasterID, reason string) error {
 	return a.es.UnsubscribeChannelUpdate(ctx, broadcasterID, reason)
+}
+
+type storageMonitor interface {
+	downloader.StorageGate
+	Attach(context.Context) (storagehealth.Status, error)
+	Run(context.Context)
+}
+
+type storageDownloads interface {
+	SetStorageGate(downloader.StorageGate)
+	Resume(context.Context) error
+}
+
+// attachStorage establishes the storage identity and keeps it under watch. An
+// unattached volume is not fatal: recording, scanning and playback stay paused
+// and the dashboard says why until the operator fixes or adopts it. Jobs left
+// RUNNING while storage was away resume as soon as it is attached again.
+func attachStorage(ctx context.Context, mon storageMonitor, bus *eventbus.Buses, dl storageDownloads, log *slog.Logger) {
+	dl.SetStorageGate(mon)
+	status, err := mon.Attach(ctx)
+	if status.Readable() && err != nil {
+		log.Warn("Storage cannot accept writes; playback and scanning remain available, recording is paused",
+			"state", status.State, "reason", status.Reason)
+	} else if err != nil {
+		log.Error("Storage is not attached; recording, scanning and playback are paused until it is fixed or adopted",
+			"state", status.State, "reason", status.Reason)
+	} else {
+		log.Info("Storage attached", "backend", status.Backend, "location", status.Location)
+	}
+	events := bus.StorageStatus.Subscribe(ctx)
+	go mon.Run(ctx)
+	go func() {
+		for ev := range events {
+			if ev.State != string(storagehealth.StateAttached) {
+				continue
+			}
+			if err := dl.Resume(ctx); err != nil {
+				log.Error("Failed to resume downloads after storage attached", "error", err)
+			}
+		}
+	}()
 }

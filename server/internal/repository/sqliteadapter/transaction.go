@@ -10,6 +10,9 @@ import (
 )
 
 func (a *SQLiteAdapter) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
+	if _, ok := a.db.(*sql.Tx); ok {
+		return fmt.Errorf("sqlite adapter: nested WithTx is unsupported")
+	}
 	return a.inTx(ctx, func(_ *sqlitegen.Queries, tx *sql.Tx) error {
 		return fn(New(tx))
 	})

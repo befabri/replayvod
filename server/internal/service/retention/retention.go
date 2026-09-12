@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
@@ -59,6 +61,22 @@ var ErrManualDeletionUnavailable = errors.New("manual recording deletion worker 
 // Option tweaks retention service behaviour for the process it is wired into.
 type Option func(*Service)
 
+// WithRecordingLocks shares object publication/deletion ownership with the
+// waveform handler. Configure it before starting either service.
+func WithRecordingLocks(locks *recordinglock.Locks) Option {
+	return func(s *Service) {
+		if locks != nil {
+			s.recordingLocks = locks
+		}
+	}
+}
+
+// StorageGate freshly verifies identity and write readiness. Capacity exhaustion
+// permits deletion; read-only, foreign and unreachable storage do not.
+type StorageGate interface {
+	Verify(context.Context) error
+}
+
 // WithManualDeletionWorkerAvailable tells RequestManualDelete whether this
 // process has a scheduler worker that can drain ManualDeletionTaskName. The
 // scheduler task itself leaves the default true; the API-facing service passes
@@ -70,26 +88,33 @@ func WithManualDeletionWorkerAvailable(available bool) Option {
 	}
 }
 
+func WithEventBus(bus *eventbus.Buses) Option {
+	return func(s *Service) { s.bus = bus }
+}
+
 // Service deletes recordings once their stored retention window elapses. It
 // owns no scheduling of its own — the scheduler's recordings_retention task
 // drives Sweep on an interval.
 type Service struct {
 	repo                          repository.Repository
 	store                         storage.Storage
+	storageGate                   StorageGate
 	log                           *slog.Logger
 	manualDeletionWorkerAvailable bool
+	recordingLocks                *recordinglock.Locks
+	bus                           *eventbus.Buses
 }
 
-// New builds the retention service. store is required: a pass that can't
-// reach the object store would tombstone rows while leaving the files
-// behind — the exact orphan the sweep exists to prevent — so main.go only
-// constructs this once a storage backend is up.
-func New(repo repository.Repository, store storage.Storage, log *slog.Logger, opts ...Option) *Service {
+// New builds the retention service. The composition root supplies a storage
+// gate so cleanup can wait for storage to recover after startup or an outage.
+func New(repo repository.Repository, store storage.Storage, gate StorageGate, log *slog.Logger, opts ...Option) *Service {
 	s := &Service{
 		repo:                          repo,
 		store:                         store,
+		storageGate:                   gate,
 		log:                           log.With("domain", "retention"),
 		manualDeletionWorkerAvailable: true,
+		recordingLocks:                &recordinglock.Locks{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -197,6 +222,7 @@ func (s *Service) RequestManualDelete(ctx context.Context, v *repository.Video) 
 	if _, err := s.repo.RequestVideoDelete(ctx, v.ID); err != nil {
 		return fmt.Errorf("queue manual delete: %w", err)
 	}
+	s.notifyRemoval()
 	if err := s.repo.SetTaskNextRun(ctx, ManualDeletionTaskName); err != nil {
 		// Queueing succeeded. A wakeup failure should not make the API caller
 		// retry and potentially duplicate user-visible work; the interval task
@@ -261,11 +287,24 @@ func (s *Service) DeleteRecording(ctx context.Context, v *repository.Video, kind
 	if kind == repository.DeletionKindMissing {
 		return fmt.Errorf("missing media must be reconciled without deleting objects")
 	}
+	unlock, err := s.recordingLocks.Lock(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := s.verifyStorage(ctx); err != nil {
+		return err
+	}
 	parts, err := s.repo.ListVideoParts(ctx, v.ID)
 	if err != nil {
 		return fmt.Errorf("list parts: %w", err)
 	}
 	if err := s.purgeObjects(ctx, v, parts); err != nil {
+		return err
+	}
+	// A purge can span a mount change. Only finalize against the same attached
+	// storage; otherwise retain the rows so the next pass can finish safely.
+	if err := s.verifyStorage(ctx); err != nil {
 		return err
 	}
 	// FinalizeDelete soft-deletes the video row, so the
@@ -277,9 +316,16 @@ func (s *Service) DeleteRecording(ctx context.Context, v *repository.Video, kind
 	if err := s.repo.FinalizeDelete(ctx, v.ID, kind); err != nil {
 		return fmt.Errorf("finalize db delete: %w", err)
 	}
+	s.notifyRemoval()
 	s.log.Info("deleted recording",
 		"video_id", v.ID, "broadcaster_id", v.BroadcasterID, "parts", len(parts), "kind", kind)
 	return nil
+}
+
+func (s *Service) notifyRemoval() {
+	if s.bus != nil && s.bus.VideoRemovals != nil {
+		s.bus.VideoRemovals.Publish(eventbus.VideoRemovalEvent{})
+	}
 }
 
 // purgeObjects deletes every stored object a recording owns: each part's
@@ -296,7 +342,7 @@ func (s *Service) purgeObjects(ctx context.Context, v *repository.Video, parts [
 		// shape. The legacy thumbnail, if present, is deleted below via the
 		// stored videos.thumbnail key.
 		p := storagekeys.Video(v.Filename + ".mp4")
-		if err := s.store.Delete(ctx, p); err != nil {
+		if err := s.deleteObject(ctx, p); err != nil {
 			return fmt.Errorf("delete object %s: %w", p, err)
 		}
 	} else {
@@ -310,14 +356,14 @@ func (s *Service) purgeObjects(ctx context.Context, v *repository.Video, parts [
 				storagekeys.Thumbnail(base),
 				storagekeys.Strip(base),
 			} {
-				if err := s.store.Delete(ctx, p); err != nil {
+				if err := s.deleteObject(ctx, p); err != nil {
 					return fmt.Errorf("delete object %s: %w", p, err)
 				}
 			}
 		}
 	}
 	if v.Thumbnail != nil {
-		if err := s.store.Delete(ctx, *v.Thumbnail); err != nil {
+		if err := s.deleteObject(ctx, *v.Thumbnail); err != nil {
 			return fmt.Errorf("delete object %s: %w", *v.Thumbnail, err)
 		}
 	}
@@ -329,11 +375,11 @@ func (s *Service) purgeObjects(ctx context.Context, v *repository.Video, parts [
 	// (canCopyConcat requires >= 2 parts), so single-part rows are skipped.
 	if len(parts) > 1 {
 		artifact := storagekeys.PlaybackName(v.Filename, parts[0].Filename)
-		if err := s.store.Delete(ctx, storagekeys.Video(artifact)); err != nil {
+		if err := s.deleteObject(ctx, storagekeys.Video(artifact)); err != nil {
 			return fmt.Errorf("delete object %s: %w", artifact, err)
 		}
 	}
-	if err := s.store.Delete(ctx, storagekeys.Waveform(v.Filename)); err != nil {
+	if err := s.deleteObject(ctx, storagekeys.Waveform(v.Filename)); err != nil {
 		return fmt.Errorf("delete object %s: %w", storagekeys.Waveform(v.Filename), err)
 	}
 	return s.purgeSnapshots(ctx, v.Filename)
@@ -353,6 +399,9 @@ func (s *Service) purgeSnapshots(ctx context.Context, filename string) error {
 	var found []string
 	for i := range maxSnapshotProbe {
 		p := storagekeys.Snapshot(filename, i)
+		if err := s.verifyStorage(ctx); err != nil {
+			return err
+		}
 		exists, err := s.store.Exists(ctx, p)
 		if err != nil {
 			return fmt.Errorf("probe snapshot %s: %w", p, err)
@@ -370,9 +419,33 @@ func (s *Service) purgeSnapshots(ctx context.Context, filename string) error {
 			"filename", filename, "ceiling", maxSnapshotProbe)
 	}
 	for i := len(found) - 1; i >= 0; i-- {
-		if err := s.store.Delete(ctx, found[i]); err != nil {
+		if err := s.deleteObject(ctx, found[i]); err != nil {
 			return fmt.Errorf("delete snapshot %s: %w", found[i], err)
 		}
+	}
+	return nil
+}
+
+// deleteObject verifies each destructive boundary: a purge can outlive the
+// mounted volume, and its initial verdict cannot authorize later deletions.
+// Verify afterward too so the rows remain available for retry if deletion
+// succeeded against storage that became untrusted during the operation.
+func (s *Service) deleteObject(ctx context.Context, path string) error {
+	if err := s.verifyStorage(ctx); err != nil {
+		return err
+	}
+	if err := s.store.Delete(ctx, path); err != nil {
+		return err
+	}
+	return s.verifyStorage(ctx)
+}
+
+func (s *Service) verifyStorage(ctx context.Context) error {
+	if s.storageGate == nil {
+		return storage.ErrUnattached
+	}
+	if err := s.storageGate.Verify(ctx); !storage.CanDelete(err) {
+		return fmt.Errorf("storage unavailable for deletion: %w", err)
 	}
 	return nil
 }

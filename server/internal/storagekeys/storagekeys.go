@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"path"
 	"strings"
+
+	"github.com/befabri/replayvod/server/internal/repository"
 )
 
 const (
@@ -69,4 +71,21 @@ func Base(name string) string {
 // partFilename is the first part's stored filename (e.g. "rec-part01.mp4").
 func PlaybackName(videoFilename, partFilename string) string {
 	return videoFilename + "-playback" + strings.ToLower(path.Ext(partFilename))
+}
+
+// MediaPaths lists the storage keys a recording's media lives at. Historical
+// DONE rows predate video_parts and use a single MP4 key, matching playback's
+// zero-part fallback; failed rows without parts never owned media.
+func MediaPaths(filename, status string, parts []repository.VideoPart) []string {
+	if len(parts) == 0 {
+		if status == repository.VideoStatusDone {
+			return []string{Video(filename + ".mp4")}
+		}
+		return nil
+	}
+	paths := make([]string, len(parts))
+	for i, p := range parts {
+		paths[i] = Video(p.Filename)
+	}
+	return paths
 }

@@ -16,6 +16,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/service/archiveposter"
+	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 	"github.com/befabri/replayvod/server/internal/testdb"
@@ -25,6 +27,15 @@ import (
 // endpoint that can be held open (so a job stays in stage 1 and counts as
 // active) and a usher that answers 404, which the playback resolver treats
 // as final, so a released job fails fast instead of retrying with backoff.
+func testPosterStore(t *testing.T, repo repository.Repository, store storage.Storage, log *slog.Logger) *archiveposter.Store {
+	t.Helper()
+	monitor := storagehealth.New(repo, store, nil, log, "local", "test")
+	if _, err := monitor.Attach(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return archiveposter.NewStore(repo, store, monitor, &http.Client{Timeout: time.Second}, log)
+}
+
 type vodEdge struct {
 	srv *httptest.Server
 
@@ -126,6 +137,7 @@ func newArchiveFixture(t *testing.T, liveCap, archiveCap int) *archiveFixture {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	svc := NewService(cfg, repo, store, nil, nil, nil, log)
+	svc.SetPosterStore(testPosterStore(t, repo, store, log))
 	edge := newVODEdge(t)
 	svc.twitch = twitch.New(twitch.Config{
 		HTTPClient:   &http.Client{Timeout: 10 * time.Second},
@@ -527,12 +539,13 @@ type archiveFaultRepo struct {
 	repository.Repository
 	failCreateJob    bool
 	failVideoRunning bool
+	failJobFailed    bool
 	afterClaim       func()
 }
 
 func (r *archiveFaultRepo) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
 	err := r.Repository.WithTx(ctx, func(tx repository.Repository) error {
-		return fn(&archiveFaultRepo{Repository: tx, failCreateJob: r.failCreateJob, failVideoRunning: r.failVideoRunning})
+		return fn(&archiveFaultRepo{Repository: tx, failCreateJob: r.failCreateJob, failVideoRunning: r.failVideoRunning, failJobFailed: r.failJobFailed})
 	})
 	if err == nil && r.afterClaim != nil {
 		r.afterClaim()
@@ -550,6 +563,13 @@ func (r *archiveFaultRepo) UpdateVideoStatus(ctx context.Context, id int64, stat
 		return errors.New("injected video status failure")
 	}
 	return r.Repository.UpdateVideoStatus(ctx, id, status)
+}
+
+func (r *archiveFaultRepo) MarkJobFailed(ctx context.Context, id, message string) error {
+	if r.failJobFailed {
+		return errors.New("injected job failure write error")
+	}
+	return r.Repository.MarkJobFailed(ctx, id, message)
 }
 
 func TestArchiveEnqueueRollsBackVideoWhenJobInsertFails(t *testing.T) {

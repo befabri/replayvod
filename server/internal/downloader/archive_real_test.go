@@ -4,13 +4,237 @@ package downloader
 
 import (
 	"context"
+	"crypto/sha256"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 )
+
+func TestRealArchive_CompletionFailurePreservesRecovery(t *testing.T) {
+	requireFFmpegHarness(t)
+	edge := newTwitchEdge(t, twitchEdgeOpts{tsCount: 1, fmp4Count: 2, windowA: 1, baseSeqA: 100, baseSeqB: 50})
+	h := newHarnessService(t, edge.URL())
+	t.Cleanup(h.svc.Shutdown)
+	h.svc.repo = &terminalFaultRepo{Repository: h.repo, fail: "job"}
+	seedArchiveChannel(t, h.repo, "archivist")
+	ctx := t.Context()
+	if _, err := h.repo.UpsertRecordingWebhookConfig(ctx, true, "https://hooks.example/test", "recording.completed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.repo.EnsureRecordingWebhookSecret(ctx, "secret"); err != nil {
+		t.Fatal(err)
+	}
+	bus := eventbus.New()
+	h.svc.SetEventBus(bus)
+	terminals := bus.RecordingTerminal.Subscribe(ctx)
+	release := edge.BlockGQL()
+	defer release()
+	jobID, err := enqueueAndPump(h.svc, ctx, Params{
+		BroadcasterID: "archivist", BroadcasterLogin: "archivist", DisplayName: "ARCHIVIST",
+		Title: "completion persistence failure", Quality: repository.QualityHigh, RecordingType: repository.RecordingTypeVideo, VODID: "7171",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := h.svc.Subscribe(jobID)
+	if progress == nil {
+		t.Fatal("recording was not active behind the GQL barrier")
+	}
+	release()
+	timeout := time.NewTimer(time.Minute)
+	defer timeout.Stop()
+waitForExit:
+	for {
+		select {
+		case _, ok := <-progress:
+			if !ok {
+				break waitForExit
+			}
+		case <-timeout.C:
+			t.Fatal("recording did not finish its attempt")
+		}
+	}
+	h.svc.Shutdown()
+	v, err := h.repo.GetVideoByJobID(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := h.repo.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Status != repository.VideoStatusRunning || job.Status != repository.JobStatusRunning {
+		t.Fatalf("partial completion escaped transaction: video=%s job=%s", v.Status, job.Status)
+	}
+	parts, err := h.repo.ListVideoParts(ctx, v.ID)
+	if err != nil || len(parts) != 1 || parts[0].SizeBytes <= 0 {
+		t.Fatalf("media did not finalize before the injected DB error: %+v, %v", parts, err)
+	}
+	if rows, err := h.repo.ListRecordingWebhookDeliveries(ctx, 10); err != nil || len(rows) != 0 {
+		t.Fatalf("uncommitted completion webhook: %+v, %v", rows, err)
+	}
+	select {
+	case ev := <-terminals:
+		t.Fatalf("uncommitted terminal event: %+v", ev)
+	default:
+	}
+	scratch := filepath.Join(h.scratchDir, jobID)
+	if files, err := os.ReadDir(scratch); err != nil || len(files) == 0 {
+		t.Fatalf("recovery scratch lost: %v, %v", files, err)
+	}
+	resumed := resumeOver(t, h, edge.URL())
+	t.Cleanup(resumed.svc.Shutdown)
+	resumed.svc.SetEventBus(bus)
+	if err := resumed.svc.Resume(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitForVideoStatus(t, h.repo, v.ID, repository.VideoStatusDone, time.Minute)
+	resumed.svc.Shutdown()
+	job, err = h.repo.GetJob(ctx, jobID)
+	if err != nil || job.Status != repository.JobStatusDone {
+		t.Fatalf("completion recovery: job=%+v, %v", job, err)
+	}
+	if got, err := h.repo.ListVideoParts(ctx, v.ID); err != nil || len(got) != 1 || got[0].ID != parts[0].ID {
+		t.Fatalf("completion recovery duplicated parts: %+v, %v", got, err)
+	}
+	if rows, err := h.repo.ListRecordingWebhookDeliveries(ctx, 10); err != nil || len(rows) != 1 {
+		t.Fatalf("recovered completion webhook: %+v, %v", rows, err)
+	}
+	select {
+	case ev := <-terminals:
+		if ev.Kind != eventbus.RecordingCompleted {
+			t.Errorf("unexpected terminal: %+v", ev)
+		}
+	default:
+		t.Error("completion recovery did not notify")
+	}
+	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
+		t.Errorf("committed completion did not clear scratch: %v", err)
+	}
+}
+
+// A retry starts from persisted part boundaries after the old attempt's scratch
+// has been discarded. Exercise that handoff across a fresh Service, with real
+// fragments and ffmpeg, and verify both media coverage and preserved bytes.
+func TestRealArchive_RetryPreservesFinalizedParts(t *testing.T) {
+	requireFFmpegHarness(t)
+	opts := twitchEdgeOpts{tsCount: 1, fmp4Count: 6, windowA: 1, baseSeqA: 100, baseSeqB: 50}
+	edge := newTwitchEdge(t, opts)
+	edge.segBFailureFrom.Store(3) // first two segments work; the remaining tail fails
+	h := newHarnessService(t, edge.URL())
+	t.Cleanup(h.svc.Shutdown)
+	h.svc.cfg.App.Download.MaxPartSeconds = 2
+	h.svc.cfg.App.Download.SegmentConcurrency = 1
+	h.svc.cfg.App.Download.MaxGapRatio = 0.01
+	seedArchiveChannel(t, h.repo, "archivist")
+	ctx := t.Context()
+	firstJob, err := enqueueAndPump(h.svc, ctx, Params{
+		BroadcasterID: "archivist", BroadcasterLogin: "archivist", DisplayName: "ARCHIVIST",
+		Title: "retry a partially saved vod", Quality: repository.QualityHigh, RecordingType: repository.RecordingTypeVideo, VODID: "6161",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := h.repo.GetVideoByJobID(ctx, firstJob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := waitForVideoStatus(t, h.repo, v.ID, repository.VideoStatusFailed, 60*time.Second)
+	h.svc.Shutdown()
+	if failed.NextRetryAt == nil {
+		t.Fatal("tail failure did not schedule a retry")
+	}
+	parts, err := h.repo.ListVideoParts(ctx, v.ID)
+	if err != nil || len(parts) == 0 || parts[0].SizeBytes <= 0 {
+		t.Fatalf("first attempt never finalized a part: %+v, %v", parts, err)
+	}
+	preserved := parts[0]
+	assertPartRange(t, preserved, 50, 51)
+	readPart := func(name string) []byte {
+		t.Helper()
+		f, err := h.storage.Open(ctx, storagekeys.Video(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		b, err := io.ReadAll(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	wantHash := sha256.Sum256(readPart(preserved.Filename))
+	edge.segBFailureFrom.Store(0)
+	edge.mu.Lock()
+	edge.segBRequests = nil
+	edge.mu.Unlock()
+	resumed := resumeOver(t, h, edge.URL())
+	t.Cleanup(resumed.svc.Shutdown)
+	resumed.svc.cfg.App.Download.MaxPartSeconds = 2
+	resumed.svc.cfg.App.Download.SegmentConcurrency = 1
+	resumed.svc.cfg.App.Download.MaxGapRatio = 0.01
+	if err := h.repo.MarkArchiveFailedForRetry(ctx, v.ID, *failed.Error, failed.CompletionKind, failed.Truncated, time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	resumed.svc.PumpArchiveQueue(ctx)
+	done := waitForVideoStatus(t, h.repo, v.ID, repository.VideoStatusDone, 60*time.Second)
+	resumed.svc.Shutdown()
+	parts, err = h.repo.ListVideoParts(ctx, v.ID)
+	if err != nil || len(parts) != 3 {
+		t.Fatalf("completed parts=%+v, %v; want three 2-second parts", parts, err)
+	}
+	assertContiguousCoverage(t, parts, 50, 55)
+	if parts[0].ID != preserved.ID || parts[0].Filename != preserved.Filename || sha256.Sum256(readPart(parts[0].Filename)) != wantHash {
+		t.Error("retry replaced an already finalized part")
+	}
+	var duration float64
+	var size int64
+	for _, part := range parts {
+		if part.Quality != preserved.Quality || part.Codec != preserved.Codec || part.SegmentFormat != preserved.SegmentFormat {
+			t.Errorf("retry changed rendition: %+v", part)
+		}
+		if part.SizeBytes <= 0 {
+			t.Errorf("unfinished part survived completion: %+v", part)
+		}
+		duration += part.DurationSeconds
+		size += part.SizeBytes
+	}
+	if done.DurationSeconds == nil || abs(*done.DurationSeconds-duration) > 0.001 || abs(duration-6) > 1 || done.SizeBytes == nil || *done.SizeBytes != size {
+		t.Errorf("incorrect aggregate: duration=%v size=%v; parts sum=%f/%d", done.DurationSeconds, done.SizeBytes, duration, size)
+	}
+	if done.Truncated || done.CompletionKind != repository.CompletionKindComplete || done.NextRetryAt != nil || done.Error != nil {
+		t.Errorf("retry did not complete cleanly: %+v", done)
+	}
+	old, err := h.repo.GetJob(ctx, firstJob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err := h.repo.GetJob(ctx, done.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Status != repository.JobStatusFailed || latest.ID == old.ID || latest.Status != repository.JobStatusDone || latest.Attempt != 2 {
+		t.Errorf("incorrect attempt history: old=%+v latest=%+v", old, latest)
+	}
+	edge.mu.Lock()
+	requests := append([]int(nil), edge.segBRequests...)
+	edge.mu.Unlock()
+	if len(requests) == 0 {
+		t.Fatal("retry fetched no remaining media")
+	}
+	for _, index := range requests {
+		if index < 2 {
+			t.Errorf("retry re-fetched finalized segment %d: %v", index, requests)
+		}
+	}
+}
 
 func seedArchiveChannel(t *testing.T, repo repository.Repository, id string) {
 	t.Helper()
@@ -29,6 +253,9 @@ func TestRealArchive_VODEndToEnd(t *testing.T) {
 	requireFFmpegHarness(t)
 	edge := newTwitchEdge(t, twitchEdgeOpts{tsCount: 1, fmp4Count: 6, windowA: 1, baseSeqA: 100, baseSeqB: 50})
 	h := newHarnessService(t, edge.URL())
+	bus := eventbus.New()
+	h.svc.SetEventBus(bus)
+	events := bus.ArchiveQueue.Subscribe(t.Context())
 	t.Cleanup(h.svc.Shutdown)
 	seedArchiveChannel(t, h.repo, "archivist")
 	ctx := context.Background()
@@ -52,6 +279,19 @@ func TestRealArchive_VODEndToEnd(t *testing.T) {
 		t.Fatalf("video by job: %v", err)
 	}
 	v := waitForVideoStatus(t, h.repo, pending.ID, repository.VideoStatusDone, 60*time.Second)
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+waitForCompletion:
+	for {
+		select {
+		case ev := <-events:
+			if ev.Kind == eventbus.ArchiveCompleted && ev.VideoID == v.ID {
+				break waitForCompletion
+			}
+		case <-deadline.C:
+			t.Fatal("completed archive did not publish the queue update")
+		}
+	}
 
 	if v.Source != repository.VideoSourceVOD || v.TwitchVideoID == nil || *v.TwitchVideoID != "424242" {
 		t.Errorf("row source=%q vod=%v", v.Source, v.TwitchVideoID)

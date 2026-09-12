@@ -72,3 +72,7 @@ func (a *PGAdapter) ListFailedJobsForRetry(ctx context.Context, before time.Time
 	}
 	return out, nil
 }
+
+func (a *PGAdapter) ListRunningLiveBroadcasters(ctx context.Context) ([]string, error) {
+	return a.queries.ListRunningLiveBroadcasters(ctx)
+}

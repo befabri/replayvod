@@ -62,6 +62,21 @@ func TestNilBus_ChannelsPreClosed(t *testing.T) {
 		})
 	})
 
+	t.Run("StorageStatus", func(t *testing.T) {
+		ch, err := h.StorageStatus(context.Background())
+		if err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		assertClosed(t, func() bool {
+			select {
+			case _, ok := <-ch:
+				return !ok
+			default:
+				return false
+			}
+		})
+	})
+
 	t.Run("TaskStatus", func(t *testing.T) {
 		ch, err := h.TaskStatus(context.Background())
 		if err != nil {
@@ -105,6 +120,23 @@ func TestLiveBus_SubscribeAndReceive(t *testing.T) {
 			}
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for EventLogEvent")
+		}
+	})
+
+	t.Run("StorageStatus receives StorageStatusEvent", func(t *testing.T) {
+		ch, err := h.StorageStatus(ctx)
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		want := eventbus.StorageStatusEvent{State: "unattached", At: time.Now().UTC()}
+		bus.StorageStatus.Publish(want)
+		select {
+		case got := <-ch:
+			if got.State != want.State || !got.At.Equal(want.At) {
+				t.Errorf("got %+v, want %+v", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for StorageStatusEvent")
 		}
 	})
 

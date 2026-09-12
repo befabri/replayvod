@@ -59,9 +59,7 @@ type S3Options struct {
 	UsePathStyle bool
 }
 
-// NewS3 builds a backend. Returns an error when required options are
-// missing; the caller (main.go) surfaces that at startup so a bad
-// config fails loudly rather than silently degrading.
+// NewS3 builds a backend. Returns an error when required options are missing.
 func NewS3(ctx context.Context, opts S3Options) (*S3Storage, error) {
 	if opts.Bucket == "" {
 		return nil, fmt.Errorf("s3 storage: bucket required")
@@ -70,12 +68,9 @@ func NewS3(ctx context.Context, opts S3Options) (*S3Storage, error) {
 		return nil, fmt.Errorf("s3 storage: region required")
 	}
 
-	// Enforce all-or-nothing credentials: either both AccessKey and
-	// SecretKey are set (explicit static provider) or both are empty
-	// (delegate to the AWS SDK default chain). Asymmetric config
-	// would silently skip the static provider and fall through to
-	// whatever IAM role / env var happens to be available — operator
-	// thinks their TOML took effect, auth quietly uses something else.
+	// One key without the other would skip the static provider and fall
+	// through to whatever the SDK default chain finds, so a half-filled
+	// TOML is rejected rather than quietly authenticated as something else.
 	if (opts.AccessKey == "") != (opts.SecretKey == "") {
 		return nil, fmt.Errorf("s3 storage: AccessKey and SecretKey must both be set or both be empty")
 	}
@@ -103,12 +98,10 @@ func NewS3(ctx context.Context, opts S3Options) (*S3Storage, error) {
 	})
 
 	// TODO: swap for github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager
-	// when it exits the feature/ prefix and reaches v1 stable. The
-	// deprecation warnings here are aspirational — SDK still supports
-	// this path and the successor is in pre-release territory.
+	// when it exits the feature/ prefix and reaches v1 stable; the
+	// deprecation warnings here fire for a successor still in pre-release.
 	uploader := manager.NewUploader(client, func(u *manager.Uploader) {
-		// 5 MiB parts — S3 minimum. Videos that fit in a single part
-		// skip multipart entirely via the uploader's internal check.
+		// 5 MiB is the S3 minimum; the uploader skips multipart below it.
 		u.PartSize = 5 * 1024 * 1024
 	})
 
@@ -127,7 +120,6 @@ func objectKey(p string) (string, error) {
 	if p == "" {
 		return "", fmt.Errorf("empty path")
 	}
-	// Normalize forward-slash; reject double-slashes / parent refs.
 	cleaned := strings.TrimLeft(p, "/")
 	if cleaned == "" {
 		return "", fmt.Errorf("empty path")
@@ -161,8 +153,8 @@ func (s *S3Storage) Open(ctx context.Context, path string) (io.ReadSeekCloser, e
 	if err != nil {
 		return nil, err
 	}
-	// Probe size with HEAD — the ReadSeekCloser caller (http.ServeContent)
-	// seeks relative to the end before reading, so we need size up front.
+	// http.ServeContent seeks relative to the end before reading, so the
+	// size has to be known up front.
 	head, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -269,12 +261,9 @@ func is404(err error) bool {
 	return false
 }
 
-// errNotFound lets Stat/Open signal a missing object in a way callers
-// detect with errors.Is(err, os.ErrNotExist). The Is method makes this
-// backend satisfy the Storage.Stat contract ("os.ErrNotExist-compatible
-// error when the object is missing"), so cross-backend code — e.g. the
-// playback-cache self-heal that drops a ready row whose object is gone —
-// behaves the same on S3 as on local storage.
+// errNotFound lets Stat and Open signal a missing object through
+// errors.Is(err, os.ErrNotExist), so cross-backend callers behave the
+// same on S3 as on local storage.
 type errNotFound struct {
 	key string
 }
@@ -287,11 +276,10 @@ func (errNotFound) Is(target error) bool {
 	return target == os.ErrNotExist
 }
 
-// s3ReadSeeker issues ranged GetObject calls on Seek/Read so
+// s3ReadSeeker issues ranged GetObject calls on Seek and Read so
 // http.ServeContent can serve byte-range requests without downloading
-// the full object. Not efficient for many small random reads — video
-// streaming does large sequential reads with occasional seeks, which
-// matches the cost profile well.
+// the full object. Many small random reads cost one GET each; video
+// streaming's large sequential reads with occasional seeks do not.
 type s3ReadSeeker struct {
 	ctx    context.Context
 	client *s3.Client
@@ -299,12 +287,11 @@ type s3ReadSeeker struct {
 	key    string
 	size   int64
 	offset int64
-	// Current GET body is held open until the next Seek or Close; a
-	// sequence of sequential Reads reuses this body instead of opening
-	// a new ranged GET per call.
+	// body stays open until the next Seek or Close so sequential Reads
+	// share one ranged GET.
 	body io.ReadCloser
-	// bodyStart tracks the absolute offset the current body was
-	// opened at so sequential reads can match offset == bodyStart+read.
+	// bodyStart is the absolute offset body was opened at; a Read is
+	// sequential when offset == bodyStart+bodyRead.
 	bodyStart int64
 	bodyRead  int64
 }
@@ -326,10 +313,9 @@ func (r *s3ReadSeeker) Read(p []byte) (int, error) {
 	r.offset += int64(n)
 	r.bodyRead += int64(n)
 	if errors.Is(err, io.EOF) && r.offset < r.size {
-		// Server closed the range stream but we haven't read the
-		// whole object yet — pretend it's fine; the next Read opens
-		// a fresh range. Matters for servers that split a single
-		// response across multiple TCP sessions.
+		// Servers may split one response across TCP sessions, so an
+		// early EOF is not the end of the object; the next Read opens
+		// a fresh range.
 		_ = r.body.Close()
 		r.body = nil
 		return n, nil
@@ -365,8 +351,8 @@ func (r *s3ReadSeeker) Close() error {
 	return nil
 }
 
-// openRange issues a GetObject with Range: bytes=off- starting at abs.
-// The body is held on r.body until the next seek or close.
+// openRange starts an open-ended ranged GetObject at abs. The body is
+// held on r.body until the next seek or close.
 func (r *s3ReadSeeker) openRange(abs int64) error {
 	rangeHeader := fmt.Sprintf("bytes=%d-", abs)
 	out, err := r.client.GetObject(r.ctx, &s3.GetObjectInput{
@@ -383,7 +369,6 @@ func (r *s3ReadSeeker) openRange(abs int64) error {
 	return nil
 }
 
-// assert interface satisfaction at compile time.
 var (
 	_ Storage           = (*S3Storage)(nil)
 	_ io.ReadSeekCloser = (*s3ReadSeeker)(nil)

@@ -105,3 +105,21 @@ ON CONFLICT (id) DO UPDATE
 SET hmac_secret = excluded.hmac_secret,
     updated_at  = datetime('now')
 WHERE hmac_secret = '';
+
+-- SetStorageID records the identity of the attached storage. Written once on
+-- first attach or adoption; every readiness check compares the marker to it.
+-- Storage bookkeeping preserves the timestamp of the last settings edit.
+-- name: SetStorageID :one
+INSERT INTO server_settings (id, storage_id)
+VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE
+SET storage_id = excluded.storage_id
+RETURNING *;
+
+-- SetStorageScanCursor persists the storage scan's resume position (the last
+-- video id of the last completed page; 0 restarts from the beginning).
+-- name: SetStorageScanCursor :exec
+INSERT INTO server_settings (id, storage_scan_cursor)
+VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE
+SET storage_scan_cursor = excluded.storage_scan_cursor;

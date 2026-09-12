@@ -69,6 +69,9 @@ func Run(t *testing.T, newHarness Factory) {
 	run := func(name string, fn func(*testing.T, Harness)) {
 		t.Run(name, func(t *testing.T) { fn(t, newHarness(t)) })
 	}
+	run("Recording_TerminalTransaction", testRecordingTerminalTransaction)
+	run("Recording_TerminalOutboxRollback", testRecordingTerminalOutboxRollback)
+	run("Transaction_NestedRejected", testNestedTransactionRejected)
 
 	// schedules
 	run("Schedule_UpsertPreservesTriggerCount", testScheduleUpsertPreservesTriggerCount)
@@ -95,6 +98,9 @@ func Run(t *testing.T, newHarness Factory) {
 	run("WebhookEvent_PayloadRoundTrip", testWebhookEventPayloadRoundTrip)
 
 	// tasks
+	run("Task_InterruptedRetriesImmediately", testTaskInterruptedRetriesImmediately)
+	run("Task_AutomaticRunRespectsDisabledState", testTaskAutomaticRunRespectsDisabledState)
+	run("Archive_RunningJobsOnlyResumeCurrentActiveAttempt", testRunningJobsOnlyResumeCurrentActiveAttempt)
 	run("Task_UpsertPreservesRuntimeState", testTaskUpsertPreservesRuntimeState)
 	run("Task_MarkSuccessRearmsNextRun", testTaskMarkSuccessRearmsNextRun)
 	run("Task_QueuedRunSurvivesMarkSuccess", testTaskQueuedRunSurvivesMarkSuccess)
@@ -123,6 +129,7 @@ func Run(t *testing.T, newHarness Factory) {
 	// videos
 	run("Video_ListForStorageScan", testListVideosForStorageScan)
 	run("Video_SoftDeleteThumbnail", testSoftDeleteVideoThumbnail)
+	run("Video_MissingTombstoneRestoreAndPermanentRemoval", testMissingTombstoneRestoreAndPermanentRemoval)
 
 	// playback assets
 	run("PlaybackAsset_ReadyToFailedTransition", testPlaybackAssetReadyToFailedTransition)
@@ -167,6 +174,7 @@ func Run(t *testing.T, newHarness Factory) {
 
 	// server settings + recording webhook + schedules pause
 	run("Settings_SetSchedulesPausedRoundTripAndIsolation", testSetSchedulesPausedRoundTripAndIsolation)
+	run("Settings_StorageIdentityRoundTripAndIsolation", testStorageIdentityRoundTripAndIsolation)
 	run("Settings_ServerHMACSecretPreservedAcrossUpsert", testServerHMACSecretPreservedAcrossUpsert)
 	run("RecordingWebhook_SecretEnsureCASSetUnconditional", testRecordingWebhookSecretEnsureIsCASSetIsUnconditional)
 	run("RecordingWebhook_ConfigRoundTrip", testRecordingWebhookConfigRoundTrip)

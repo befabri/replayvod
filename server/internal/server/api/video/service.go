@@ -146,8 +146,9 @@ func (s *Service) Stats(ctx context.Context, userID string) (*Statistics, error)
 // HistoryCount is one outcome's tally, split by whether the recording's media
 // is still on disk.
 type HistoryCount struct {
-	OnDisk  int64
-	Removed int64
+	OnDisk      int64
+	Removed     int64
+	Unavailable int64
 }
 
 // HistoryCounts tallies every terminal recording for the download-history tabs.
@@ -177,10 +178,14 @@ func (s *Service) HistoryCounts(ctx context.Context) (*HistoryCounts, error) {
 			outcome = &out.Completed
 		}
 		for _, c := range []*HistoryCount{&out.All, outcome} {
-			if b.Removed {
-				c.Removed += b.Count
-			} else {
+			switch {
+			case !b.Removed:
 				c.OnDisk += b.Count
+			case b.DeletionKind == repository.DeletionKindMissing:
+				c.Removed += b.Count
+				c.Unavailable += b.Count
+			default:
+				c.Removed += b.Count
 			}
 		}
 	}

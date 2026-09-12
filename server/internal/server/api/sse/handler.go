@@ -74,6 +74,18 @@ func (h *Handler) TaskStatus(ctx context.Context) (<-chan eventbus.TaskStatusEve
 	return h.bus.TaskStatus.Subscribe(ctx), nil
 }
 
+// StorageStatus streams storage readiness transitions so the banner and the
+// System card update without polling. The event contains only state and time;
+// owners refetch storage.details for diagnostics through its separate role gate.
+func (h *Handler) StorageStatus(ctx context.Context) (<-chan eventbus.StorageStatusEvent, error) {
+	if h.bus == nil {
+		ch := make(chan eventbus.StorageStatusEvent)
+		close(ch)
+		return ch, nil
+	}
+	return h.bus.StorageStatus.Subscribe(ctx), nil
+}
+
 // ArchiveQueue streams archive queue membership changes: enqueued, started,
 // completed, failed, dequeued, retry cancelled. Viewer-level like the queue
 // itself; subscribers refetch archive.queue on every event.
@@ -84,4 +96,13 @@ func (h *Handler) ArchiveQueue(ctx context.Context) (<-chan eventbus.ArchiveQueu
 		return ch, nil
 	}
 	return h.bus.ArchiveQueue.Subscribe(ctx), nil
+}
+
+func (h *Handler) VideoRemovals(ctx context.Context) (<-chan eventbus.VideoRemovalEvent, error) {
+	if h.bus == nil || h.bus.VideoRemovals == nil {
+		ch := make(chan eventbus.VideoRemovalEvent)
+		close(ch)
+		return ch, nil
+	}
+	return h.bus.VideoRemovals.Subscribe(ctx), nil
 }

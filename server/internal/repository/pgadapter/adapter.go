@@ -57,9 +57,13 @@ type pgBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// inTx commits fn's writes together or rolls back on error or panic. The
-// underlying DBTX must support opening transactions.
+// inTx joins the caller's transaction when present. Otherwise it opens one,
+// committing on success and rolling back on error or panic. Only the owner of
+// the transaction commits it; compound repository methods can compose in WithTx.
 func (a *PGAdapter) inTx(ctx context.Context, fn func(q *pggen.Queries, tx pgx.Tx) error) error {
+	if tx, ok := a.db.(pgx.Tx); ok {
+		return fn(a.queries, tx)
+	}
 	beginner, ok := a.db.(pgBeginner)
 	if !ok {
 		return fmt.Errorf("pg adapter: underlying db does not support transactions")

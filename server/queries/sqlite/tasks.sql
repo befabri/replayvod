@@ -73,3 +73,13 @@ SET next_run_at = datetime('now'),
     updated_at  = datetime('now')
 WHERE name = ?
 RETURNING *;
+
+-- name: MarkTaskInterrupted :exec
+UPDATE tasks SET last_status = 'interrupted', last_duration_ms = ?2,
+    last_error = NULL, next_run_at = datetime('now'), updated_at = datetime('now')
+WHERE name = ?1;
+
+-- name: ScheduleTaskIfEnabled :one
+UPDATE tasks SET next_run_at = datetime('now'), updated_at = datetime('now')
+WHERE name = ?1 AND is_enabled = 1 AND interval_seconds > 0
+RETURNING *;

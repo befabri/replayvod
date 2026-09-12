@@ -199,11 +199,12 @@ SELECT * FROM videos WHERE status = 'DONE' AND thumbnail IS NULL AND deleted_at 
 -- name: RequestVideoDelete :one
 -- Queue an operator-requested deletion. Idempotent for already-queued live
 -- terminal rows; active recordings must be cancelled first.
+-- A missing-media tombstone may be removed permanently too.
 UPDATE videos
 SET delete_requested_at = COALESCE(delete_requested_at, NOW()),
     next_retry_at = NULL
 WHERE id = $1
-  AND deleted_at IS NULL
+  AND (deleted_at IS NULL OR deletion_kind = 'missing')
   AND status IN ('DONE', 'FAILED')
 RETURNING *;
 
@@ -217,7 +218,7 @@ SET deleted_at = NOW(),
     END,
     thumbnail = NULL,
     delete_requested_at = NULL
-WHERE id = $1 AND deleted_at IS NULL;
+WHERE id = $1 AND (deleted_at IS NULL OR deletion_kind = 'missing');
 
 -- name: ListFinishedVideosForRetention :many
 -- Terminal, not-yet-tombstoned recordings whose creation-time retention policy
@@ -253,7 +254,7 @@ WHERE deleted_at IS NULL
 -- finalize. The webhook frozen-parts guard mirrors retention: do not delete
 -- video_parts until any pending/delivering delivery has captured them.
 SELECT * FROM videos
-WHERE deleted_at IS NULL
+WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
   AND delete_requested_at IS NOT NULL
   AND status IN ('DONE', 'FAILED')
   AND NOT EXISTS (
@@ -283,10 +284,11 @@ SELECT
     status,
     completion_kind,
     (deleted_at IS NOT NULL)::BOOLEAN AS removed,
+    COALESCE(deletion_kind, '')::TEXT AS deletion_kind,
     COUNT(*) AS count
 FROM videos
 WHERE status IN ('DONE', 'FAILED')
-GROUP BY status, completion_kind, (deleted_at IS NOT NULL);
+GROUP BY status, completion_kind, (deleted_at IS NOT NULL), COALESCE(deletion_kind, '');
 
 -- name: StatisticsTotals :one
 -- Library-wide rollups. Total / size / duration restrict to DONE rows
@@ -348,6 +350,14 @@ WHERE deleted_at IS NULL
     OR (status = 'FAILED' AND EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
   )
   AND videos.id > @after_id::bigint
+ORDER BY videos.id ASC LIMIT @page_size::int;
+
+-- name: ListVideosForStorageWitness :many
+-- Before initializing markerless storage, account for media even when a retry,
+-- running capture, deletion request or reversible tombstone excludes scanning.
+SELECT videos.id, videos.filename, videos.status FROM videos
+WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
+  AND (status = 'DONE' OR EXISTS (SELECT 1 FROM video_parts vp WHERE vp.video_id = videos.id))
 ORDER BY videos.id ASC LIMIT @page_size::int;
 
 -- name: TombstoneMissingVideo :execrows
@@ -445,3 +455,21 @@ ORDER BY id ASC LIMIT @page_size::int;
 -- removed while the poster was in flight stays without one.
 UPDATE videos SET thumbnail = $2 WHERE id = $1 AND thumbnail IS NULL AND deleted_at IS NULL;
 
+-- name: RestoreMissingVideo :execrows
+-- Bring a missing-media tombstone back into the library once its media is
+-- present again. Only the missing kind is reversible; a queued manual delete
+-- wins.
+UPDATE videos SET deleted_at = NULL, deletion_kind = NULL
+WHERE id = $1
+  AND deleted_at IS NOT NULL
+  AND deletion_kind = 'missing'
+  AND delete_requested_at IS NULL;
+
+-- name: ListMissingTombstones :many
+-- Bounded keyset page of reversible tombstones for the scan's restore phase.
+SELECT videos.id, videos.filename, videos.status FROM videos
+WHERE deleted_at IS NOT NULL
+  AND deletion_kind = 'missing'
+  AND delete_requested_at IS NULL
+  AND videos.id > @after_id::bigint
+ORDER BY videos.id ASC LIMIT @page_size::int;

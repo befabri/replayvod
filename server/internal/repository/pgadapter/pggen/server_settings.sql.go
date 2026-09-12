@@ -57,7 +57,7 @@ func (q *Queries) GetServerHMACSecret(ctx context.Context) (string, error) {
 }
 
 const getServerSettings = `-- name: GetServerSettings :one
-SELECT id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused FROM server_settings WHERE id = 1
+SELECT id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused, storage_id, storage_scan_cursor FROM server_settings WHERE id = 1
 `
 
 func (q *Queries) GetServerSettings(ctx context.Context) (ServerSetting, error) {
@@ -81,6 +81,8 @@ func (q *Queries) GetServerSettings(ctx context.Context) (ServerSetting, error) 
 		&i.PlaybackCacheMaxPercent,
 		&i.PlaybackCacheAutoGenerate,
 		&i.SchedulesPaused,
+		&i.StorageID,
+		&i.StorageScanCursor,
 	)
 	return i, err
 }
@@ -106,7 +108,7 @@ VALUES (1, $1)
 ON CONFLICT (id) DO UPDATE
 SET schedules_paused = EXCLUDED.schedules_paused,
     updated_at       = NOW()
-RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused, storage_id, storage_scan_cursor
 `
 
 // SetSchedulesPaused writes only the global auto-download pause flag, leaving
@@ -134,8 +136,62 @@ func (q *Queries) SetSchedulesPaused(ctx context.Context, schedulesPaused bool) 
 		&i.PlaybackCacheMaxPercent,
 		&i.PlaybackCacheAutoGenerate,
 		&i.SchedulesPaused,
+		&i.StorageID,
+		&i.StorageScanCursor,
 	)
 	return i, err
+}
+
+const setStorageID = `-- name: SetStorageID :one
+INSERT INTO server_settings (id, storage_id)
+VALUES (1, $1)
+ON CONFLICT (id) DO UPDATE
+SET storage_id = EXCLUDED.storage_id
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused, storage_id, storage_scan_cursor
+`
+
+// SetStorageID records the identity of the attached storage. Written once on
+// first attach or adoption; every readiness check compares the marker to it.
+// Storage bookkeeping preserves the timestamp of the last settings edit.
+func (q *Queries) SetStorageID(ctx context.Context, storageID string) (ServerSetting, error) {
+	row := q.db.QueryRow(ctx, setStorageID, storageID)
+	var i ServerSetting
+	err := row.Scan(
+		&i.ID,
+		&i.ServerMode,
+		&i.EventsubWebhookCallbackUrl,
+		&i.EventsubRelayIngestUrl,
+		&i.EventsubRelaySubscribeUrl,
+		&i.EventsubRelayLocalCallbackUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.HmacSecret,
+		&i.RecordingWebhookEnabled,
+		&i.RecordingWebhookUrl,
+		&i.RecordingWebhookSecret,
+		&i.RecordingWebhookEvents,
+		&i.PlaybackCacheEnabled,
+		&i.PlaybackCacheMaxPercent,
+		&i.PlaybackCacheAutoGenerate,
+		&i.SchedulesPaused,
+		&i.StorageID,
+		&i.StorageScanCursor,
+	)
+	return i, err
+}
+
+const setStorageScanCursor = `-- name: SetStorageScanCursor :exec
+INSERT INTO server_settings (id, storage_scan_cursor)
+VALUES (1, $1)
+ON CONFLICT (id) DO UPDATE
+SET storage_scan_cursor = EXCLUDED.storage_scan_cursor
+`
+
+// SetStorageScanCursor persists the storage scan's resume position (the last
+// video id of the last completed page; 0 restarts from the beginning).
+func (q *Queries) SetStorageScanCursor(ctx context.Context, storageScanCursor int64) error {
+	_, err := q.db.Exec(ctx, setStorageScanCursor, storageScanCursor)
+	return err
 }
 
 const upsertPlaybackCacheConfig = `-- name: UpsertPlaybackCacheConfig :one
@@ -151,7 +207,7 @@ SET playback_cache_enabled       = EXCLUDED.playback_cache_enabled,
     playback_cache_max_percent   = EXCLUDED.playback_cache_max_percent,
     playback_cache_auto_generate = EXCLUDED.playback_cache_auto_generate,
     updated_at                   = NOW()
-RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused, storage_id, storage_scan_cursor
 `
 
 type UpsertPlaybackCacheConfigParams struct {
@@ -184,6 +240,8 @@ func (q *Queries) UpsertPlaybackCacheConfig(ctx context.Context, arg UpsertPlayb
 		&i.PlaybackCacheMaxPercent,
 		&i.PlaybackCacheAutoGenerate,
 		&i.SchedulesPaused,
+		&i.StorageID,
+		&i.StorageScanCursor,
 	)
 	return i, err
 }
@@ -201,7 +259,7 @@ SET recording_webhook_enabled = EXCLUDED.recording_webhook_enabled,
     recording_webhook_url     = EXCLUDED.recording_webhook_url,
     recording_webhook_events  = EXCLUDED.recording_webhook_events,
     updated_at                = NOW()
-RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused, storage_id, storage_scan_cursor
 `
 
 type UpsertRecordingWebhookConfigParams struct {
@@ -236,6 +294,8 @@ func (q *Queries) UpsertRecordingWebhookConfig(ctx context.Context, arg UpsertRe
 		&i.PlaybackCacheMaxPercent,
 		&i.PlaybackCacheAutoGenerate,
 		&i.SchedulesPaused,
+		&i.StorageID,
+		&i.StorageScanCursor,
 	)
 	return i, err
 }
@@ -257,7 +317,7 @@ SET server_mode                       = EXCLUDED.server_mode,
     eventsub_relay_subscribe_url      = EXCLUDED.eventsub_relay_subscribe_url,
     eventsub_relay_local_callback_url = EXCLUDED.eventsub_relay_local_callback_url,
     updated_at                        = NOW()
-RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused
+RETURNING id, server_mode, eventsub_webhook_callback_url, eventsub_relay_ingest_url, eventsub_relay_subscribe_url, eventsub_relay_local_callback_url, created_at, updated_at, hmac_secret, recording_webhook_enabled, recording_webhook_url, recording_webhook_secret, recording_webhook_events, playback_cache_enabled, playback_cache_max_percent, playback_cache_auto_generate, schedules_paused, storage_id, storage_scan_cursor
 `
 
 type UpsertServerSettingsParams struct {
@@ -295,6 +355,8 @@ func (q *Queries) UpsertServerSettings(ctx context.Context, arg UpsertServerSett
 		&i.PlaybackCacheMaxPercent,
 		&i.PlaybackCacheAutoGenerate,
 		&i.SchedulesPaused,
+		&i.StorageID,
+		&i.StorageScanCursor,
 	)
 	return i, err
 }

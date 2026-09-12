@@ -200,6 +200,10 @@ export const RequestIDInputSchema = z.object({
   id: z.number(),
 }).meta({ id: "RequestIDInput" });
 
+export const RestoreInputSchema = z.object({
+  id: z.number(),
+}).meta({ id: "RestoreInput" });
+
 export const RevokeInviteInputSchema = z.object({
   id: z.number(),
 }).meta({ id: "RevokeInviteInput" });
@@ -397,7 +401,8 @@ export const VideoListPageInputSchema = z.object({
   watch_later_only: z.boolean().optional(),
   unwatched_only: z.boolean().optional(),
   terminal_only: z.boolean().optional().describe("TerminalOnly keeps active in-flight rows out of history-style views while\nstill allowing those views to include both active terminal rows and\ntombstones through Scope=\"all\"."),
-  scope: z.enum(["active", "removed", "all"]).or(z.literal("")).optional().describe("Scope selects the tombstone state. Empty/\"active\" keeps the library\ndefault (live recordings only); \"removed\" and \"all\" power the\nremoved-inclusive history surface. Channel/category grids and search\nnever expose this and stay active-only."),
+  deletion_kind: z.enum(["retention", "manual", "missing"]).or(z.literal("")).optional().describe("Scope selects the tombstone state. Empty/\"active\" keeps the library\ndefault (live recordings only); \"removed\" and \"all\" power the\nremoved-inclusive history surface. Channel/category grids and search\nnever expose this and stay active-only.\nDeletionKind narrows tombstones to why they left; only meaningful with\nScope \"removed\" or \"all\"."),
+  scope: z.enum(["active", "removed", "all"]).or(z.literal("")).optional(),
   cursor: VideoListPageCursorSchema.optional(),
 }).meta({ id: "VideoListPageInput" });
 

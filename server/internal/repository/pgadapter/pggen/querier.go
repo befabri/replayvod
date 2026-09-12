@@ -256,6 +256,8 @@ type Querier interface {
 	// by its key first, so the inner query picks the latest per broadcaster
 	// and the outer query re-sorts globally by started_at.
 	ListLatestLivePerChannel(ctx context.Context, limit int32) ([]ListLatestLivePerChannelRow, error)
+	// Bounded keyset page of reversible tombstones for the scan's restore phase.
+	ListMissingTombstones(ctx context.Context, arg ListMissingTombstonesParams) ([]ListMissingTombstonesRow, error)
 	// See sqlite/videos.sql ListOpenVideosByStreamIDs.
 	ListOpenVideosByStreamIDs(ctx context.Context, streamIds []string) ([]Video, error)
 	ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIds []string) ([]Video, error)
@@ -267,9 +269,10 @@ type Querier interface {
 	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
 	ListRecentArchiveFailures(ctx context.Context, arg ListRecentArchiveFailuresParams) ([]Video, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int32) ([]RecordingWebhookDelivery, error)
-	// On server startup: every row here is a job whose process crashed
-	// mid-execution. The downloader's resume path runs for each.
+	// Recover interrupted attempts, including live jobs saved before their worker
+	// claimed them. Pending archives remain controlled by the archive queue.
 	ListRunningJobs(ctx context.Context) ([]Job, error)
+	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	ListScheduleCategoriesByScheduleIDs(ctx context.Context, dollar_1 []int64) ([]ListScheduleCategoriesByScheduleIDsRow, error)
 	ListScheduleRequests(ctx context.Context, arg ListScheduleRequestsParams) ([]ListScheduleRequestsRow, error)
@@ -322,6 +325,9 @@ type Querier interface {
 	ListVideosByJobIDs(ctx context.Context, jobIds []string) ([]Video, error)
 	// Bounded keyset page of terminal recordings safe to reconcile.
 	ListVideosForStorageScan(ctx context.Context, arg ListVideosForStorageScanParams) ([]ListVideosForStorageScanRow, error)
+	// Before initializing markerless storage, account for media even when a retry,
+	// running capture, deletion request or reversible tombstone excludes scanning.
+	ListVideosForStorageWitness(ctx context.Context, pageSize int32) ([]ListVideosForStorageWitnessRow, error)
 	ListVideosMissingThumbnail(ctx context.Context) ([]Video, error)
 	// Operator-requested deletions that are safe for the background worker to
 	// finalize. The webhook frozen-parts guard mirrors retention: do not delete
@@ -345,6 +351,7 @@ type Querier interface {
 	// partial UNIQUE index then allows creating a replacement subscription.
 	MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
+	MarkTaskInterrupted(ctx context.Context, arg MarkTaskInterruptedParams) error
 	MarkTaskRunning(ctx context.Context, name string) error
 	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
 	// completion_kind describes the artifact: 'complete' for a clean
@@ -374,10 +381,15 @@ type Querier interface {
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
 	// Queue an operator-requested deletion. Idempotent for already-queued live
 	// terminal rows; active recordings must be cancelled first.
+	// A missing-media tombstone may be removed permanently too.
 	RequestVideoDelete(ctx context.Context, id int64) (Video, error)
 	// See sqlite/videos.sql RequeueArchiveVideo.
 	RequeueArchiveVideo(ctx context.Context, arg RequeueArchiveVideoParams) (int64, error)
 	ResetStaleRecordingWebhookDeliveries(ctx context.Context, arg ResetStaleRecordingWebhookDeliveriesParams) error
+	// Bring a missing-media tombstone back into the library once its media is
+	// present again. Only the missing kind is reversible; a queued manual delete
+	// wins.
+	RestoreMissingVideo(ctx context.Context, id int64) (int64, error)
 	ResumeVideoCategorySpan(ctx context.Context, arg ResumeVideoCategorySpanParams) error
 	// After CloseOpenVideoTitleSpans ran against a prior failed/
 	// suspended recording, reopen a new span starting at at_time
@@ -392,6 +404,7 @@ type Querier interface {
 	RetryRecordingWebhookDelivery(ctx context.Context, arg RetryRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
 	RotateInviteToken(ctx context.Context, arg RotateInviteTokenParams) (Invite, error)
 	SaveTwitchPlaybackSession(ctx context.Context, arg SaveTwitchPlaybackSessionParams) error
+	ScheduleTaskIfEnabled(ctx context.Context, name string) (Task, error)
 	// Case-insensitive substring match on name. Ranks exact name match
 	// first, then prefix match, then substring match, then alphabetical.
 	// Mirrors queries/postgres/channels.sql SearchChannels so both
@@ -425,6 +438,13 @@ type Querier interface {
 	// stream.online to decide whether to skip auto-downloads; individual schedule
 	// is_disabled flags are never modified, so resuming restores prior state exactly.
 	SetSchedulesPaused(ctx context.Context, schedulesPaused bool) (ServerSetting, error)
+	// SetStorageID records the identity of the attached storage. Written once on
+	// first attach or adoption; every readiness check compares the marker to it.
+	// Storage bookkeeping preserves the timestamp of the last settings edit.
+	SetStorageID(ctx context.Context, storageID string) (ServerSetting, error)
+	// SetStorageScanCursor persists the storage scan's resume position (the last
+	// video id of the last completed page; 0 restarts from the beginning).
+	SetStorageScanCursor(ctx context.Context, storageScanCursor int64) error
 	SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) (Task, error)
 	// Manual "run now" path — set next_run_at to now so the scheduler picks
 	// it up on the next tick. Separate from SetTaskEnabled so the caller

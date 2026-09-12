@@ -31,8 +31,8 @@ type Repository interface {
 
 	// WithTx commits the callback's writes together or rolls back on error,
 	// cancellation, or panic. The callback must use only the supplied
-	// repository, which expires when it returns. Nested transactions are
-	// unsupported.
+	// repository, which expires when it returns. Compound repository methods
+	// join that transaction; calling WithTx again inside it is unsupported.
 	WithTx(ctx context.Context, fn func(Repository) error) error
 
 	// Users
@@ -275,10 +275,21 @@ type Repository interface {
 	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]RetentionVideo, error)
 	// Storage scans use bounded keyset pages and exact-ID eligibility checks.
 	ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]StorageScanVideo, error)
+	// ListVideosForStorageWitness samples rows that may still own media,
+	// including active attempts and reversible tombstones excluded from scans.
+	ListVideosForStorageWitness(ctx context.Context, limit int) ([]StorageScanVideo, error)
 	GetVideoForStorageScan(ctx context.Context, id int64) (*StorageScanVideo, error)
 	// TombstoneMissingVideo conditionally reconciles a terminal row. It retains
 	// its poster, parts and asset metadata and never authorizes object deletion.
 	TombstoneMissingVideo(ctx context.Context, id int64) (bool, error)
+	// RestoreMissingVideo brings a missing-media tombstone back into the library.
+	// ErrNotFound when the row is live, another kind, or queued for a manual
+	// delete; parts and objects were never touched, so nothing else changes.
+	RestoreMissingVideo(ctx context.Context, id int64) error
+	// ListMissingTombstones pages the reversible tombstones, oldest id first, for
+	// the scan's restore phase; GetMissingTombstone is the exact lookup.
+	ListMissingTombstones(ctx context.Context, afterID int64, limit int) ([]StorageScanVideo, error)
+	GetMissingTombstone(ctx context.Context, id int64) (*StorageScanVideo, error)
 	// FinalizeDelete is the DB commit marker after object purge: tombstone the
 	// video (recording why via kind) and remove its parts in one transaction so
 	// readers never see a visible row whose part rows were already deleted.
@@ -324,6 +335,7 @@ type Repository interface {
 	MarkJobFailed(ctx context.Context, id string, errMsg string) error
 	UpdateJobResumeState(ctx context.Context, id string, resumeState json.RawMessage) error
 	ListRunningJobs(ctx context.Context) ([]Job, error)
+	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
 	ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]Job, error)
 
 	// Video parts — one row per output segment. A single-part VOD has
@@ -464,6 +476,8 @@ type Repository interface {
 	MarkTaskRunning(ctx context.Context, name string) error
 	MarkTaskSuccess(ctx context.Context, name string, durationMs int64) error
 	MarkTaskFailed(ctx context.Context, name string, durationMs int64, errMsg string) error
+	MarkTaskInterrupted(ctx context.Context, name string, durationMs int64) error
+	ScheduleTaskIfEnabled(ctx context.Context, name string) error
 	SetTaskEnabled(ctx context.Context, name string, enabled bool) (*Task, error)
 	SetTaskNextRun(ctx context.Context, name string) error
 
@@ -488,6 +502,12 @@ type Repository interface {
 	// leaving every other server setting and every schedule's is_disabled
 	// untouched. Returns the persisted settings row.
 	SetSchedulesPaused(ctx context.Context, paused bool) (*ServerSettings, error)
+	// SetStorageID records the identity of the attached storage; every other
+	// setting is left untouched.
+	SetStorageID(ctx context.Context, id string) (*ServerSettings, error)
+	// SetStorageScanCursor persists the storage scan's resume position; 0
+	// restarts from the beginning of the library.
+	SetStorageScanCursor(ctx context.Context, cursor int64) error
 
 	// UpsertRecordingWebhookConfig persists only the recording-webhook config
 	// columns of server_settings (enabled, url, events), leaving server mode,
