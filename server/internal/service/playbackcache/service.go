@@ -657,29 +657,9 @@ func (s *Service) buildArtifact(ctx context.Context, filename string, parts []re
 		return 0, err
 	}
 
-	if local, ok := s.store.(*storage.LocalStorage); ok {
-		if err := s.storageReady(ctx); err != nil {
-			return 0, err
-		}
-		finalPath, err := local.LocalPath(storagekeys.Video(filename))
-		if err != nil {
-			return 0, err
-		}
-		if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
-			return 0, fmt.Errorf("create playback artifact parent: %w", err)
-		}
-		// runner.Concat commits atomically (remux writes <final>.part then
-		// renames), so no temp dance is needed here.
-		if err := s.runner.Concat(ctx, listPath, finalPath); err != nil {
-			return 0, err
-		}
-		info, err := os.Stat(finalPath)
-		if err != nil {
-			return 0, fmt.Errorf("stat playback artifact: %w", err)
-		}
-		return info.Size(), nil
-	}
-
+	// Concat can outlive the verified mount. Keep its output in scratch even
+	// for local storage, then publish through Save after rechecking identity.
+	// LocalStorage.Save pins its root while writing and renaming the artifact.
 	outputPath := filepath.Join(workDir, "playback"+partExtension(parts[0]))
 	if err := s.runner.Concat(ctx, listPath, outputPath); err != nil {
 		return 0, err

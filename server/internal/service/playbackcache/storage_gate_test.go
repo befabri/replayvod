@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -177,6 +178,67 @@ func TestCacheBuildRechecksStorageBeforeUpload(t *testing.T) {
 	}
 	if repo.asset == nil || repo.asset.Status != repository.PlaybackAssetStatusBuilding {
 		t.Errorf("interrupted upload left a terminal verdict: %+v", repo.asset)
+	}
+}
+
+func TestCacheBuildPreservesReplacementVolumeDuringConcat(t *testing.T) {
+	svc, repo, store, runner := cacheStorageFixture(t, nil)
+	ctx := t.Context()
+	expected := strings.Repeat("a", 64)
+	if err := storage.WriteMarker(ctx, store, expected); err != nil {
+		t.Fatal(err)
+	}
+	svc.gate = gateFunc(func() error { return storage.Ready(ctx, store, expected) })
+	name := "vod-42-playback.mp4"
+	path, err := store.LocalPath(storagekeys.Video(name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	detached := filepath.Join(t.TempDir(), "detached")
+	runner.beforeWrite = func() {
+		if err := os.Rename(store.Root, detached); err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.WriteMarker(ctx, store, strings.Repeat("b", 64)); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Save(ctx, storagekeys.Video(name), strings.NewReader("foreign cache")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.BuildNow(ctx, 42); !errors.Is(err, storage.ErrUnattached) {
+		t.Fatalf("build on replacement volume: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "foreign cache" {
+		t.Fatalf("concat overwrote foreign cache: %q, %v", data, err)
+	}
+	if repo.asset == nil || repo.asset.Status != repository.PlaybackAssetStatusBuilding {
+		t.Fatalf("refused publication became terminal: %+v", repo.asset)
+	}
+	if entries, err := os.ReadDir(svc.scratch); err != nil || len(entries) != 0 {
+		t.Fatalf("refused build left temporary output: %v, %v", entries, err)
+	}
+	if err := os.RemoveAll(store.Root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(detached, store.Root); err != nil {
+		t.Fatal(err)
+	}
+	runner.beforeWrite = nil
+	if err := svc.BuildNow(ctx, 42); err != nil {
+		t.Fatalf("retry after restoring expected volume: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != string(runner.body) {
+		t.Fatalf("retry did not publish cache: %q, %v", data, err)
+	}
+	if repo.asset.Status != repository.PlaybackAssetStatusReady {
+		t.Fatalf("retry did not complete: %+v", repo.asset)
+	}
+	if repo.asset.SizeBytes == nil || *repo.asset.SizeBytes != int64(len(runner.body)) {
+		t.Fatalf("published cache has incorrect byte size: %+v", repo.asset)
+	}
+	if entries, err := os.ReadDir(svc.scratch); err != nil || len(entries) != 0 {
+		t.Fatalf("successful build left temporary output: %v, %v", entries, err)
 	}
 }
 
