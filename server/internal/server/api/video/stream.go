@@ -320,17 +320,17 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 	info, statErr := h.storage.Stat(ctx, relPath)
 	switch {
 	case errors.Is(statErr, fs.ErrNotExist):
-		// A cached attached verdict can outlive a mount change. Confirm the
-		// identity before letting an absent artifact discard its ready row.
-		if err := h.verifyStorage(ctx); !storage.CanRead(err) {
-			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+		var status int
+		asset, info, status = h.recheckMissingPlayback(ctx, id)
+		if status != http.StatusOK {
+			message := http.StatusText(status)
+			if status == statusClientClosed {
+				message = "client closed request"
+			}
+			http.Error(w, message, status)
 			return
 		}
-		if delErr := h.repo.DeleteVideoPlaybackAsset(ctx, id); delErr != nil {
-			h.log.Warn("demote stale playback asset failed", "video_id", id, "error", delErr)
-		}
-		http.NotFound(w, r)
-		return
+		relPath = storagekeys.Video(*asset.Filename)
 	case statErr != nil:
 		// Transient stat error: let serveStorageFile re-stat and surface/log it.
 		h.serveStorageFile(w, r, id, relPath, *asset.Filename)
@@ -352,6 +352,56 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", *asset.MimeType)
 	}
 	h.serveStorageFileInfo(w, r, id, relPath, *asset.Filename, info)
+}
+
+// recheckMissingPlayback owns only stale-row reconciliation. A rebuild may
+// have published a different row or filename since the first missing Stat, so
+// inspect the current row and file under the same lock as publication/deletion.
+// Release ownership before streaming or calling the missing-recording marker,
+// whose reconciliation can acquire this same recording lock.
+func (h *StreamHandler) recheckMissingPlayback(ctx context.Context, id int64) (*repository.VideoPlaybackAsset, storage.FileInfo, int) {
+	unlock, err := h.recordingLocks.Lock(ctx, id)
+	if err != nil {
+		return nil, storage.FileInfo{}, statusClientClosed
+	}
+	defer unlock()
+	asset, err := h.repo.GetVideoPlaybackAsset(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, storage.FileInfo{}, http.StatusNotFound
+		}
+		if clientGone(err) {
+			return nil, storage.FileInfo{}, statusClientClosed
+		}
+		h.log.Error("playback stream: recheck asset failed", "error", err, "id", id)
+		return nil, storage.FileInfo{}, http.StatusInternalServerError
+	}
+	if asset.Status != repository.PlaybackAssetStatusReady || asset.Filename == nil {
+		return nil, storage.FileInfo{}, http.StatusNotFound
+	}
+	info, err := h.storage.Stat(ctx, storagekeys.Video(*asset.Filename))
+	if err == nil {
+		return asset, info, http.StatusOK
+	}
+	if clientGone(err) {
+		return nil, storage.FileInfo{}, statusClientClosed
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		h.log.Warn("playback stream: recheck file failed", "error", err, "id", id)
+		return nil, storage.FileInfo{}, http.StatusServiceUnavailable
+	}
+	// A cached attached verdict can outlive a mount change. Confirm identity
+	// before letting even the current absent artifact discard its ready row.
+	if err := h.verifyStorage(ctx); !storage.CanRead(err) {
+		if clientGone(err) {
+			return nil, storage.FileInfo{}, statusClientClosed
+		}
+		return nil, storage.FileInfo{}, http.StatusServiceUnavailable
+	}
+	if err := h.repo.DeleteVideoPlaybackAsset(ctx, id); err != nil {
+		h.log.Warn("demote stale playback asset failed", "video_id", id, "error", err)
+	}
+	return nil, storage.FileInfo{}, http.StatusNotFound
 }
 
 // streamPart serves one recording part through the authenticated dashboard
