@@ -9,6 +9,8 @@ import {
 import {
 	forceH264For,
 	isRecordingQuality,
+	qualityAboveHD,
+	qualityTierForHeight,
 	RECORDING_QUALITIES,
 	RecordingQualitySchema,
 	recordingQualityValue,
@@ -113,5 +115,22 @@ describe("forceH264For", () => {
 		expect(forceH264For("audio", true)).toBe(false);
 		expect(forceH264For("video", true)).toBe(true);
 		expect(forceH264For("video", false)).toBe(false);
+	});
+});
+
+describe("qualityAboveHD", () => {
+	it("flags only the qualities ranked above HIGH", () => {
+		expect(RECORDING_QUALITIES.filter(qualityAboveHD)).toEqual([
+			"BEST",
+			"1440",
+		]);
+	});
+});
+
+describe("qualityTierForHeight", () => {
+	it("files a height under the rung that contains it", () => {
+		expect(
+			[160, 480, 720, 936, 1080, 1440, 2160].map(qualityTierForHeight),
+		).toEqual(["LOW", "LOW", "MEDIUM", "HIGH", "HIGH", "1440", "BEST"]);
 	});
 });

@@ -9,6 +9,7 @@ import {
 	SIDEBAR_MARGIN_EXPANDED,
 	Sidebar,
 } from "@/components/layout/sidebar";
+import { useLiveStreamStatus } from "@/features/streams-live/queries";
 import { cn } from "@/lib/utils";
 import { resolveSession, setUser } from "@/stores/auth";
 import { uiStore } from "@/stores/ui";
@@ -37,6 +38,7 @@ function DashboardPending() {
 }
 
 function DashboardLayout() {
+	useLiveStreamStatus();
 	const { user } = Route.useRouteContext();
 	const collapsed = useSelector(uiStore, (s) => s.sidebarCollapsed);
 

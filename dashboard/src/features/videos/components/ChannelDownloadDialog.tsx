@@ -1,4 +1,3 @@
-import { ArrowRightIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -23,12 +22,7 @@ import {
 } from "@/features/schedules/form";
 import { useCreateSchedule } from "@/features/schedules/queries";
 import type { ScheduleFormValues } from "@/features/schedules/schema";
-import {
-	buildDirectDownloadPayload,
-	useDirectDownloadForm,
-} from "@/features/videos/download-form";
-import { useTriggerDownload } from "@/features/videos/queries";
-import { DirectDownloadFields } from "./DirectDownloadFields";
+import { DirectDownloadForm } from "./DirectDownloadForm";
 
 type DownloadTab = "now" | "schedule";
 
@@ -37,8 +31,8 @@ type DownloadTab = "now" | "schedule";
 // "download now" (records the current live stream, so it only works while
 // the channel is live) and "schedule" (an auto-download rule that fires
 // every time the channel goes live, with the same filters as the
-// schedules page). Tabs keep both one click away; the dialog opens on the
-// tab that's actionable given the channel's current live state.
+// schedules page). The direct form checks the broadcaster when opened;
+// followed-channel membership only supplies the avatar's live indicator.
 export function ChannelDownloadDialog({
 	broadcasterId,
 	broadcasterName,
@@ -89,9 +83,9 @@ function ChannelDownloadDialogBody({
 	onClose: () => void;
 }) {
 	const { t } = useTranslation();
-	// Open on the actionable tab: "now" only does anything while the
-	// channel is live, so offline visitors land on "schedule" instead.
-	const [tab, setTab] = useState<DownloadTab>(isLive ? "now" : "schedule");
+	// Absence from the followed-stream snapshot does not mean offline. Start
+	// with the direct check and offer scheduling once offline is confirmed.
+	const [tab, setTab] = useState<DownloadTab>("now");
 
 	return (
 		<DialogContent className="max-w-xl max-h-[88vh] overflow-y-auto">
@@ -127,9 +121,8 @@ function ChannelDownloadDialogBody({
 				</TabsList>
 
 				<TabsContent value="now" className="mt-4">
-					<DownloadNowTab
+					<DirectDownloadForm
 						broadcasterId={broadcasterId}
-						isLive={isLive}
 						onClose={onClose}
 						onSwitchToSchedule={() => setTab("schedule")}
 					/>
@@ -140,134 +133,6 @@ function ChannelDownloadDialogBody({
 				</TabsContent>
 			</Tabs>
 		</DialogContent>
-	);
-}
-
-function DownloadNowTab({
-	broadcasterId,
-	isLive,
-	onClose,
-	onSwitchToSchedule,
-}: {
-	broadcasterId: string;
-	isLive: boolean;
-	onClose: () => void;
-	onSwitchToSchedule: () => void;
-}) {
-	const { t } = useTranslation();
-	const trigger = useTriggerDownload();
-
-	const form = useDirectDownloadForm(async (value) => {
-		await trigger.mutateAsync(buildDirectDownloadPayload(broadcasterId, value));
-		toast.success(t("videos.triggered"));
-		onClose();
-	});
-
-	return (
-		<form
-			onSubmit={(e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				void form.handleSubmit();
-			}}
-			className="space-y-5"
-		>
-			<LiveStatus isLive={isLive} onSwitchToSchedule={onSwitchToSchedule} />
-
-			<DirectDownloadFields form={form} disabled={!isLive} />
-
-			{trigger.isError && (
-				<div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
-					{trigger.error?.message ?? t("videos.trigger_failed")}
-				</div>
-			)}
-
-			<DialogFooter>
-				<Button
-					type="button"
-					variant="outline"
-					onClick={onClose}
-					disabled={trigger.isPending}
-				>
-					{t("common.cancel")}
-				</Button>
-				<form.Subscribe
-					selector={(s) => [s.canSubmit, s.isSubmitting] as const}
-				>
-					{([canSubmit, isSubmitting]) => (
-						<Button
-							type="submit"
-							disabled={
-								!isLive || !canSubmit || isSubmitting || trigger.isPending
-							}
-						>
-							{isSubmitting || trigger.isPending
-								? t("common.saving")
-								: t("videos.trigger_submit")}
-						</Button>
-					)}
-				</form.Subscribe>
-			</DialogFooter>
-		</form>
-	);
-}
-
-// LiveStatus shows whether direct download is possible right now. Live is
-// the Twitch-red dot (matching the avatar live ring); offline disables
-// the action upstream and nudges the user toward a schedule, which works
-// regardless of live state.
-function LiveStatus({
-	isLive,
-	onSwitchToSchedule,
-}: {
-	isLive: boolean;
-	onSwitchToSchedule: () => void;
-}) {
-	const { t } = useTranslation();
-
-	if (isLive) {
-		return (
-			<div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-				<span
-					aria-hidden="true"
-					className="size-2 shrink-0 animate-pulse rounded-full bg-destructive"
-				/>
-				<span className="font-medium">{t("videos.download.live_now")}</span>
-				<span className="text-muted-foreground">
-					· {t("videos.download.live_now_hint")}
-				</span>
-			</div>
-		);
-	}
-
-	return (
-		<div className="space-y-2 rounded-md border border-border bg-muted/40 px-3 py-3 text-sm">
-			<div className="flex items-center gap-2">
-				<span
-					aria-hidden="true"
-					className="size-2 shrink-0 rounded-full bg-muted-foreground/40"
-				/>
-				<span className="font-medium">{t("videos.download.offline")}</span>
-				<span className="text-muted-foreground">
-					· {t("videos.download.offline_hint")}
-				</span>
-			</div>
-			<div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 pl-4">
-				<span className="text-xs text-muted-foreground">
-					{t("videos.download.offline_schedule_prompt")}
-				</span>
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					onClick={onSwitchToSchedule}
-					className="h-auto px-2 py-1 text-primary hover:text-primary"
-				>
-					{t("videos.download.set_up_schedule")}
-					<ArrowRightIcon weight="bold" className="size-3.5" />
-				</Button>
-			</div>
-		</div>
 	);
 }
 

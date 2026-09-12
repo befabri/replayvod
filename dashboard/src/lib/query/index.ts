@@ -10,6 +10,7 @@ export {
 	keyHasInput,
 	patchEntity,
 	restoreCaches,
+	resyncQuery,
 	snapshotCaches,
 } from "./cache";
 export {

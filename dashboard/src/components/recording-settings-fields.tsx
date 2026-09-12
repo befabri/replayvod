@@ -1,6 +1,7 @@
 import { InfoIcon } from "@phosphor-icons/react";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import { useTranslation } from "react-i18next";
+import { QualitySessionHint } from "@/components/quality-session-hint";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -39,6 +40,15 @@ import { cn } from "@/lib/utils";
 // UX mirror, not the source of truth. `disabled` greys the whole block at once
 // (the channel dialog passes it when the channel is offline).
 //
+// The quality ladder is a list of ceilings, and says so under the picker. A
+// ceiling above 1080p may need the owner's Twitch session, so
+// QualitySessionHint sits there too whenever such a quality is live (video
+// mode, block enabled); see that component for who sees what.
+//
+// `qualityPicker` swaps the ladder for another control under the same label,
+// which the "download now" surface uses to list what the live stream offers.
+// The ladder's hints go with it: the replacement explains itself.
+//
 // `tBase` is the i18n namespace ("schedules" or "videos"); both expose the same
 // recording_mode / mode_* / quality / quality_* / force_h264* keys.
 export function RecordingSettingsFields({
@@ -50,6 +60,7 @@ export function RecordingSettingsFields({
 	onForceH264Change,
 	tBase,
 	disabled = false,
+	qualityPicker,
 }: {
 	recordingType: RecordingMode;
 	onRecordingTypeChange: (value: RecordingMode) => void;
@@ -59,10 +70,15 @@ export function RecordingSettingsFields({
 	onForceH264Change: (value: boolean) => void;
 	tBase: string;
 	disabled?: boolean;
+	qualityPicker?: (props: { id: string; disabled: boolean }) => ReactNode;
 }) {
 	const { t } = useTranslation();
 	const id = useId();
 	const settingsDisabled = disabled || isAudioRecording(recordingType);
+	const qualityItems = RECORDING_QUALITIES.map((value) => ({
+		value,
+		label: t(`${tBase}.quality_${value.toLowerCase()}`),
+	}));
 
 	const handleMode = (value: RecordingMode) => {
 		onRecordingTypeChange(value);
@@ -110,22 +126,41 @@ export function RecordingSettingsFields({
 					>
 						{t(`${tBase}.quality`)}
 					</Label>
-					<Select
-						value={quality}
-						onValueChange={(v) => onQualityChange(v as RecordingQuality)}
-						disabled={settingsDisabled}
-					>
-						<SelectTrigger id={`${id}-quality`}>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{RECORDING_QUALITIES.map((value) => (
-								<SelectItem key={value} value={value}>
-									{t(`${tBase}.quality_${value.toLowerCase()}`)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					{qualityPicker ? (
+						qualityPicker({
+							id: `${id}-quality`,
+							disabled: settingsDisabled,
+						})
+					) : (
+						<>
+							<Select
+								value={quality}
+								onValueChange={(v) => onQualityChange(v as RecordingQuality)}
+								disabled={settingsDisabled}
+								items={qualityItems}
+							>
+								<SelectTrigger id={`${id}-quality`}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{qualityItems.map((item) => (
+										<SelectItem key={item.value} value={item.value}>
+											{item.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p
+								className={cn(
+									"text-xs text-muted-foreground",
+									settingsDisabled && "opacity-50",
+								)}
+							>
+								{t(`${tBase}.quality_limit_hint`)}
+							</p>
+							{!settingsDisabled && <QualitySessionHint quality={quality} />}
+						</>
+					)}
 				</div>
 
 				<div className="flex items-start gap-2">

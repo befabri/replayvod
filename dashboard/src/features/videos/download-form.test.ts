@@ -34,6 +34,37 @@ describe("buildDirectDownloadPayload", () => {
 			force_h264: false,
 		});
 	});
+
+	it("sends a pinned height with the tier it falls under", () => {
+		expect(
+			buildDirectDownloadPayload("b-1", {
+				recording_type: "video",
+				quality: 936,
+				force_h264: false,
+			}),
+		).toEqual({
+			broadcaster_id: "b-1",
+			recording_type: "video",
+			quality: "HIGH",
+			force_h264: false,
+			max_height: 936,
+		});
+	});
+
+	it("drops a pinned height for an audio download", () => {
+		expect(
+			buildDirectDownloadPayload("b-1", {
+				recording_type: "audio",
+				quality: 1440,
+				force_h264: false,
+			}),
+		).toEqual({
+			broadcaster_id: "b-1",
+			recording_type: "audio",
+			quality: "1440",
+			force_h264: false,
+		});
+	});
 });
 
 it.each([
@@ -48,6 +79,15 @@ it.each([
 	expect(buildDirectDownloadPayload("123", values).quality).toBe(quality);
 });
 it.each(["", "ULTRA", "2160"])("rejects unsupported quality %s", (quality) => {
+	expect(
+		DirectDownloadFormSchema.safeParse({
+			recording_type: "video",
+			quality,
+			force_h264: false,
+		}).success,
+	).toBe(false);
+});
+it.each([0, -1, 1.5, 4321])("rejects a pinned height of %s", (quality) => {
 	expect(
 		DirectDownloadFormSchema.safeParse({
 			recording_type: "video",

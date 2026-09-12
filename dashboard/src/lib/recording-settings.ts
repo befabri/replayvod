@@ -28,6 +28,36 @@ export const RECORDING_QUALITIES: readonly RecordingQuality[] = [
 	...RecordingQualitySchema.options,
 ].sort((a, b) => QUALITY_ORDER[a] - QUALITY_ORDER[b]);
 
+// qualityAboveHD reports whether a quality reaches past the 1080p tier, the
+// most Twitch serves an anonymous viewer. Anything ranked above HIGH in the
+// display order qualifies, so a tier added on the server above it (a 2160)
+// is covered without a hand edit. Whether the extra renditions exist depends
+// on the playback session the owner connected; the quality hint uses this to
+// decide when to speak up.
+export function qualityAboveHD(quality: RecordingQuality): boolean {
+	return QUALITY_ORDER[quality] < QUALITY_ORDER.HIGH;
+}
+
+// The ceiling represented by each ladder choice. BEST has no height limit.
+export const RECORDING_QUALITY_HEIGHT: Record<RecordingQuality, number> = {
+	LOW: 480,
+	MEDIUM: 720,
+	HIGH: 1080,
+	"1440": 1440,
+	BEST: Number.POSITIVE_INFINITY,
+};
+
+// qualityTierForHeight is the ladder rung a pinned height falls under. The
+// server stores this tier on the video row next to the exact height, and the
+// payload sends it so both sides agree on what the row will say.
+export function qualityTierForHeight(height: number): RecordingQuality {
+	if (height <= RECORDING_QUALITY_HEIGHT.LOW) return "LOW";
+	if (height <= RECORDING_QUALITY_HEIGHT.MEDIUM) return "MEDIUM";
+	if (height <= RECORDING_QUALITY_HEIGHT.HIGH) return "HIGH";
+	if (height <= RECORDING_QUALITY_HEIGHT["1440"]) return "1440";
+	return "BEST";
+}
+
 export function isRecordingQuality(value: string): value is RecordingQuality {
 	return RecordingQualitySchema.options.includes(value as RecordingQuality);
 }

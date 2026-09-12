@@ -96,6 +96,21 @@ Types and Zod schemas come from the Go side. Regenerate them by running
 Live data (live indicators, task status) arrives over the SSE link wired into
 the same tRPC client, backed by the server's event bus.
 
+### Direct downloads
+
+Use the shared `DirectDownloadForm` for download entry points. It checks
+`stream.isLive` for the selected broadcaster; absence from the followed-channel
+snapshot cannot establish that a channel is offline. The check runs when opened
+or focused and every 30 seconds while mounted. Pending checks and failures block
+submission with distinct messages. Audio recording does not wait for video
+renditions. Live events and reconnects refresh the broadcaster check and
+rendition lists.
+
+Rendition lists depend on the shared Twitch playback session. Successful
+connection, check, and disconnect actions must reset all rendition caches and
+cancel older requests, including for dialogs that are currently closed, so
+returning to a recording form shows the current session's available qualities.
+
 ## Configuration
 
 Environment variables are validated by `src/env.ts` (Zod). Normal Docker and

@@ -135,7 +135,7 @@ describe("ApproveRequestDialog", () => {
 		await waitFor(() =>
 			expect(
 				screen.getByRole("combobox", { name: "schedules.quality" }).textContent,
-			).toContain("LOW"),
+			).toContain("schedules.quality_low"),
 		);
 		fireEvent.click(
 			screen.getByRole("checkbox", { name: "schedules.has_min_viewers" }),

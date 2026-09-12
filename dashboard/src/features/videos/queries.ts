@@ -446,6 +446,20 @@ export function useLiveActiveDownloads() {
 	};
 }
 
+// Only data for this broadcaster and codec can authorize a direct download.
+// Do not carry placeholder data across keys: a new codec may expose a wholly
+// different set of renditions. Failed lookups let the form use its ceiling.
+export function liveRenditionsOptions(
+	trpc: ReturnType<typeof useTRPC>,
+	broadcasterId: string,
+	forceH264: boolean,
+) {
+	return trpc.video.liveRenditions.queryOptions(
+		{ broadcaster_id: broadcasterId, force_h264: forceH264 },
+		{ retry: false, staleTime: 30_000 },
+	);
+}
+
 export function useTriggerDownload() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();

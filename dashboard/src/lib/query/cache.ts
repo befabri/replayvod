@@ -188,3 +188,11 @@ function walkForInput(node: unknown, field: string, value: unknown): boolean {
 	if (field in record && record[field] === value) return true;
 	return Object.values(record).some((part) => walkForInput(part, field, value));
 }
+
+// Live feeds do not replay missed transitions. Cancel even an initial fetch
+// before refetching so a snapshot started before reconnection cannot win.
+export async function resyncQuery(qc: QueryClient, queryKey: QueryKey) {
+	const filter = { queryKey };
+	await qc.cancelQueries(filter);
+	await qc.invalidateQueries(filter);
+}
