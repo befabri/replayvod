@@ -9,7 +9,7 @@ import (
 )
 
 func (c *Config) GetAddress() string {
-	return fmt.Sprintf("%s:%d", c.Env.Host, c.Env.Port)
+	return net.JoinHostPort(c.Env.Host, fmt.Sprint(c.Env.Port))
 }
 
 func (c *Config) GetPostgresDSN() string {

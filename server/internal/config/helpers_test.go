@@ -71,9 +71,11 @@ func TestServerModeCallbackURLUsesRelayIngestURLOnlyInRelayModes(t *testing.T) {
 }
 
 func TestGetAddressJoinsHostAndPort(t *testing.T) {
-	cfg := &Config{Env: Environment{Host: "0.0.0.0", Port: 8080}}
-	if got := cfg.GetAddress(); got != "0.0.0.0:8080" {
-		t.Fatalf("GetAddress() = %q, want %q", got, "0.0.0.0:8080")
+	for _, tc := range []struct{ host, want string }{{"127.0.0.1", "127.0.0.1:8080"}, {"::1", "[::1]:8080"}, {"", ":8080"}} {
+		cfg := Config{Env: Environment{Host: tc.host, Port: 8080}}
+		if got := cfg.GetAddress(); got != tc.want {
+			t.Errorf("host %q: %q, want %q", tc.host, got, tc.want)
+		}
 	}
 }
 

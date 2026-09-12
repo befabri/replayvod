@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -74,7 +73,7 @@ func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *sessi
 func (s *Server) Start(ready chan<- error) {
 	router, closeTRPC := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.hydrator, s.bus, s.processor, s.webhook, s.playbackCache, s.log, s.recordings)
 	s.closeTRPC = closeTRPC
-	addr := fmt.Sprintf("%s:%d", s.cfg.Env.Host, s.cfg.Env.Port)
+	addr := s.cfg.GetAddress()
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		notifyReady(ready, err)
