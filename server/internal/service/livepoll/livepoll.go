@@ -50,9 +50,10 @@ type Processor interface {
 // the broadcaster identity learned from the live Helix stream, so an offline
 // event can still name the channel if its mirror row has since been removed.
 type liveStream struct {
-	streamID string
-	login    string
-	name     string
+	streamID        string
+	login           string
+	name            string
+	pendingDispatch bool
 }
 
 type Service struct {
@@ -203,7 +204,7 @@ func (s *Service) dispatchOnline(ctx context.Context, liveNow map[string]twitch.
 			// entries seeded at boot). Keep it if recording admission fails.
 			prev.login, prev.name = stream.UserLogin, stream.UserName
 			s.lastLive[broadcasterID] = prev
-			if prev.streamID == stream.ID {
+			if prev.streamID == stream.ID && !prev.pendingDispatch {
 				continue
 			}
 		}
@@ -213,14 +214,17 @@ func (s *Service) dispatchOnline(ctx context.Context, liveNow map[string]twitch.
 		// ended_at instead of leaking as perpetually live and polluting the next
 		// restart's seed. CloseStaleStream (not DispatchStreamOffline) because the
 		// broadcaster never left the live set, so the live-dot must not flicker.
-		if wasLive {
+		if wasLive && prev.streamID != stream.ID {
 			if err := s.processor.CloseStaleStream(ctx, broadcasterID); err != nil {
 				dispatchErr = errors.Join(dispatchErr, fmt.Errorf("close stale stream for %s: %w", broadcasterID, err))
 				continue
 			}
-			// Retain the live entry until the replacement dispatch succeeds.
-			// Otherwise a failed start would erase the eventual offline event.
 		}
+		// Hydration can persist this stream before recording admission fails.
+		// Track the observed ID separately from dispatch success so a retry
+		// cannot retire that newly persisted live row as if it were stale.
+		// Retaining it also preserves the eventual offline notification.
+		s.lastLive[broadcasterID] = liveStream{streamID: stream.ID, login: stream.UserLogin, name: stream.UserName, pendingDispatch: true}
 		if err := s.processor.DispatchStreamOnlineFromStream(ctx, stream); err != nil {
 			dispatchErr = errors.Join(dispatchErr, fmt.Errorf("dispatch stream.online for %s: %w", broadcasterID, err))
 			continue

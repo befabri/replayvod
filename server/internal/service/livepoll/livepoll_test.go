@@ -5,13 +5,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/service/schedule"
+	"github.com/befabri/replayvod/server/internal/service/streammeta"
+	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
@@ -415,11 +421,18 @@ func TestTickOnlineDispatchErrorDoesNotSkipOtherBroadcasters(t *testing.T) {
 	if len(proc.online) != 1 || proc.online[0].UserID != "b-2" {
 		t.Fatalf("online dispatches = %+v, want only b-2 success", proc.online)
 	}
-	if _, ok := svc.lastLive["b-1"]; ok {
-		t.Fatal("lastLive contains failed b-1 online dispatch; want retry next tick")
+	if got := svc.lastLive["b-1"]; got.streamID != "s-1" || !got.pendingDispatch {
+		t.Fatalf("failed online dispatch was not retained for retry: %+v", got)
 	}
 	if got := svc.lastLive["b-2"].streamID; got != "s-2" {
 		t.Fatalf("lastLive[b-2].streamID = %q, want s-2", got)
+	}
+	proc.onlineErrByID = nil
+	if err := svc.tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(proc.online) != 2 || proc.online[1].UserID != "b-1" || len(proc.closeStale) != 0 {
+		t.Fatalf("retry did not dispatch only the pending stream: %+v, closed=%v", proc.online, proc.closeStale)
 	}
 }
 
@@ -818,5 +831,80 @@ func TestFailedReplacementKeepsEventualOfflineNotification(t *testing.T) {
 	}
 	if len(proc.offline) != 1 {
 		t.Fatal("offline event duplicated")
+	}
+}
+
+type retryDownloader struct {
+	err   error
+	calls int
+}
+
+func (d *retryDownloader) Start(context.Context, downloader.Params) (string, error) {
+	d.calls++
+	return "job", d.err
+}
+
+func TestReplacementRetryDoesNotEndCurrentLiveStream(t *testing.T) {
+	ctx := t.Context()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "owner", Login: "owner", DisplayName: "Owner", Role: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b-1", BroadcasterLogin: "b1", BroadcasterName: "B1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateSchedule(ctx, &repository.ScheduleInput{BroadcasterID: "b-1", RequestedBy: "owner", Quality: "HIGH"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.UpsertStream(ctx, &repository.StreamInput{ID: "old", BroadcasterID: "b-1", Type: "live", StartedAt: time.Now().Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dl := &retryDownloader{err: downloader.ErrStorageUnavailable}
+	hydrator := streammeta.NewHydrator(repo, nil, streammeta.Config{}, log)
+	processor := schedule.NewEventProcessor(repo, dl, nil, hydrator, nil, log)
+	tw := &fakeTwitch{streams: []twitch.Stream{stream("new", "b-1", time.Now())}}
+	svc := New(repo, tw, processor, time.Minute, log)
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := svc.tick(ctx); !errors.Is(err, downloader.ErrStorageUnavailable) {
+			t.Fatalf("attempt %d: %v", attempt, err)
+		}
+		current, err := repo.GetStream(ctx, "new")
+		if err != nil || current.EndedAt != nil {
+			t.Fatalf("retry retired the current live stream: %+v, %v", current, err)
+		}
+	}
+	old, err := repo.GetStream(ctx, "old")
+	if err != nil || old.EndedAt == nil {
+		t.Fatalf("superseded stream was not retired: %+v, %v", old, err)
+	}
+	// A second stream transition during the same outage must still retire
+	// the previous attempt, while retries of that new ID leave it open.
+	tw.streams = []twitch.Stream{stream("newest", "b-1", time.Now().Add(time.Minute))}
+	if err := svc.tick(ctx); !errors.Is(err, downloader.ErrStorageUnavailable) {
+		t.Fatal(err)
+	}
+	previous, err := repo.GetStream(ctx, "new")
+	if err != nil || previous.EndedAt == nil {
+		t.Fatalf("second transition failed to retire previous stream: %+v, %v", previous, err)
+	}
+	dl.err = nil
+	if err := svc.tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.tick(ctx); err != nil || dl.calls != 4 {
+		t.Fatalf("successful dispatch repeated: calls=%d, %v", dl.calls, err)
+	}
+	current, err := repo.GetStream(ctx, "newest")
+	if err != nil || current.EndedAt != nil {
+		t.Fatalf("successful recovery retired current stream: %+v, %v", current, err)
+	}
+	tw.streams = nil
+	if err := svc.tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	current, err = repo.GetStream(ctx, "newest")
+	if err != nil || current.EndedAt == nil {
+		t.Fatalf("eventual offline did not close current stream: %+v, %v", current, err)
 	}
 }
