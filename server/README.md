@@ -282,6 +282,13 @@ task vet
 task check                  # vet + test
 ```
 
+The optional [test environment recipe](test-environment/Dockerfile) provides Go,
+Git, the C/C++ toolchain and the Docker CLI for an offtest worker. Configure
+remote execution in your local offtest project settings and install its Go shim
+when using a remote test pool. Worker resources, credentials and encryption keys
+are managed by that setup; the ordinary commands above also run directly with Go
+and a local Docker engine.
+
 Test fixtures for containerised dependencies live in `internal/testdb/`.
 The [upgrade suite](tests/upgrade/README.md) documents frozen baselines, data
 assertions, failure diagnostics, and the checks required before publication.

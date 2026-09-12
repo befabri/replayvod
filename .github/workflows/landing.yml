@@ -102,6 +102,10 @@ jobs:
         working-directory: dashboard
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -127,6 +131,13 @@ jobs:
       - run: go test ./...
       - name: Migration concurrency and cancellation checks
         run: go test -race -count=1 ./internal/database
+      - name: Storage and subscription concurrency checks
+        run: >-
+          go test -race -count=1
+          ./internal/storage ./internal/service/storagehealth
+          ./internal/service/storagescan ./internal/recordinglock
+          ./internal/eventbus ./internal/server/api/subscriptions
+          ./internal/scheduler
       - name: Install sqlc
         run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
       - name: Check committed sqlc output is up to date
@@ -146,13 +157,10 @@ jobs:
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Integration tests (ffmpeg)
-        run: |
-          go test -tags ffmpeg -count=1 -run TestReal ./internal/downloader/remux/...
-          go test -tags ffmpeg -count=1 -run "^TestMultipart_|^TestResume_" ./internal/downloader/...
+        run: go test -tags ffmpeg -count=1 ./internal/downloader/...
       - run: go run ./tools/twitch-api-gen -check -out ./internal/twitch/ -schema-in ./tools/twitch-api-gen/testdata/normalized-schema.json
-      # The dashboard's tRPC/Zod/enum bindings are committed so the Node CI
-      # job needs no Go toolchain. Regenerate them here and fail on drift,
-      # mirroring the twitch-api-gen gate above.
+      # Regenerate the dashboard's committed tRPC/Zod/enum bindings here and
+      # fail on drift, mirroring the twitch-api-gen gate above.
       - name: Check committed tRPC bindings are up to date
         run: |
           go tool trpcgo generate -o ../dashboard/src/api/generated/trpc.ts --zod ../dashboard/src/api/generated/zod.ts --enums ../dashboard/src/api/generated/enums.ts ./internal/server/api/...
