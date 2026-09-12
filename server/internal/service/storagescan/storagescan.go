@@ -16,6 +16,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/eventlog"
+	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
@@ -71,16 +72,27 @@ func (notReady) Verify(context.Context) error {
 }
 
 type Service struct {
-	repo   repository.Repository
-	store  storage.Storage
-	ready  Readiness
-	bus    *eventbus.Buses
-	log    *slog.Logger
-	sweep  chan struct{}
-	probes chan struct{}
+	repo           repository.Repository
+	store          storage.Storage
+	ready          Readiness
+	bus            *eventbus.Buses
+	log            *slog.Logger
+	sweep          chan struct{}
+	probes         chan struct{}
+	recordingLocks *recordinglock.Locks
 }
 
 type Option func(*Service)
+
+// WithRecordingLocks shares final missing-media checks with artifact publication
+// and recording deletion. Bulk discovery still runs outside this ownership.
+func WithRecordingLocks(locks *recordinglock.Locks) Option {
+	return func(s *Service) {
+		if locks != nil {
+			s.recordingLocks = locks
+		}
+	}
+}
 
 // WithEventBus mirrors reconciliation summaries and individual playback/manual
 // actions onto the SSE bus.
@@ -96,9 +108,10 @@ func New(repo repository.Repository, store storage.Storage, ready Readiness, log
 	}
 	s := &Service{
 		repo: repo, store: store, ready: ready,
-		log:    log.With("domain", "storagescan"),
-		sweep:  make(chan struct{}, 1),
-		probes: make(chan struct{}, scanWorkers),
+		log:            log.With("domain", "storagescan"),
+		sweep:          make(chan struct{}, 1),
+		probes:         make(chan struct{}, scanWorkers),
+		recordingLocks: &recordinglock.Locks{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -178,9 +191,18 @@ func (s *Service) Sweep(ctx context.Context) (report Report, sweepErr error) {
 				if verdicts[i].state != mediaMissing {
 					continue
 				}
-				changed, err := s.repo.TombstoneMissingVideo(ctx, c.VideoID)
+				// Bulk inspection is discovery only. Publication may have created
+				// a playable copy since that snapshot, so own the recording and
+				// inspect its current media before committing a missing verdict.
+				changed, err := s.markMissing(ctx, c.VideoID, false)
 				if err != nil {
+					if ctx.Err() != nil {
+						return s.stopped(ctx, report, errs)
+					}
 					errs = append(errs, err)
+					if notAttached(err) {
+						return report, errors.Join(errs...)
+					}
 					continue
 				}
 				if changed {
@@ -362,6 +384,15 @@ func (s *Service) stopped(ctx context.Context, report Report, errs []error) (Rep
 // calls it after a definitive not-found; only the target's own parts are
 // inspected, and only on attached storage.
 func (s *Service) MarkMissing(ctx context.Context, id int64) (bool, error) {
+	return s.markMissing(ctx, id, true)
+}
+
+func (s *Service) markMissing(ctx context.Context, id int64, announce bool) (bool, error) {
+	unlock, err := s.recordingLocks.Lock(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	c, err := s.repo.GetVideoForStorageScan(ctx, id)
 	if errors.Is(err, repository.ErrNotFound) {
 		return false, nil
@@ -376,7 +407,10 @@ func (s *Service) MarkMissing(ctx context.Context, id int64) (bool, error) {
 	if verdicts[0].state != mediaMissing {
 		return false, nil
 	}
-	return s.tombstone(ctx, *c)
+	if announce {
+		return s.tombstone(ctx, *c)
+	}
+	return s.repo.TombstoneMissingVideo(ctx, c.VideoID)
 }
 
 func (s *Service) tombstone(ctx context.Context, c repository.StorageScanVideo) (bool, error) {

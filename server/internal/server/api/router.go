@@ -75,7 +75,7 @@ func NewRecordingServices(cfg *config.Config, repo repository.Repository, store 
 	locks := &recordinglock.Locks{}
 	return &RecordingServices{
 		Retention:      retention.New(repo, store, health, log, retention.WithManualDeletionWorkerAvailable(cfg.App.Scheduler.Enabled), retention.WithEventBus(bus), retention.WithRecordingLocks(locks)),
-		StorageScan:    storagescan.New(repo, store, health, log, storagescan.WithEventBus(bus)),
+		StorageScan:    storagescan.New(repo, store, health, log, storagescan.WithEventBus(bus), storagescan.WithRecordingLocks(locks)),
 		PlaybackAuth:   playbackauth.New(repo, cfg.Env.SessionSecret, playbackauth.NewTwitchValidator()),
 		StorageHealth:  health,
 		RecordingLocks: locks,
