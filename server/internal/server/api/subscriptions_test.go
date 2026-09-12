@@ -134,3 +134,63 @@ func TestWebSocketSubscriptionPermissions(t *testing.T) {
 		})
 	}
 }
+
+func TestWebSocketSubscriptionsRecheckRolesAndRevokedSessions(t *testing.T) {
+	h := newPermissionHarness(t)
+	server := httptest.NewServer(h.router)
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/trpc/ws", &websocket.DialOptions{
+		HTTPHeader: http.Header{"Origin": {server.URL}, "Cookie": {h.owner.String()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	check := func(id int, method, path, wantResult, wantError string) {
+		t.Helper()
+		if err := wsjson.Write(ctx, conn, map[string]any{"id": id, "method": method, "params": map[string]any{"path": path}}); err != nil {
+			t.Fatal(err)
+		}
+		var msg struct {
+			ID     int `json:"id"`
+			Result struct {
+				Type string `json:"type"`
+			} `json:"result"`
+			Error struct {
+				Data struct {
+					Code string `json:"code"`
+				} `json:"data"`
+			} `json:"error"`
+		}
+		if err := wsjson.Read(ctx, conn, &msg); err != nil {
+			t.Fatal(err)
+		}
+		if msg.ID != id || msg.Result.Type != wantResult || msg.Error.Data.Code != wantError {
+			t.Fatalf("subscription response=%+v, want id=%d result=%q error=%q", msg, id, wantResult, wantError)
+		}
+	}
+	check(1, "subscription", "task.status", "started", "")
+	check(1, "subscription.stop", "", "stopped", "")
+
+	// The upgrade request still contains the original owner context. Every new
+	// procedure must replace it with the current user and session from storage.
+	if err := h.repo.UpdateUserRole(ctx, "perm-owner-1", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	check(2, "subscription", "task.status", "", "FORBIDDEN")
+	if got := h.do(http.MethodGet, "/trpc/task.status", "", h.owner); got != http.StatusForbidden {
+		t.Fatalf("fresh owner subscription after demotion = %d", got)
+	}
+	check(3, "subscription", "storage.statusLive", "started", "")
+	check(3, "subscription.stop", "", "stopped", "")
+	if err := h.repo.DeleteUserSessions(ctx, "perm-owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	check(4, "subscription", "storage.statusLive", "", "UNAUTHORIZED")
+	check(5, "subscription", "task.status", "", "UNAUTHORIZED")
+	if got := h.do(http.MethodGet, "/trpc/storage.statusLive", "", h.owner); got != http.StatusUnauthorized {
+		t.Fatalf("fresh viewer subscription after revocation = %d", got)
+	}
+}
