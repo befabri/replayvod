@@ -656,7 +656,7 @@
 		"empty_on_disk": "Aucun enregistrement sur le disque.",
 		"empty_removed": "Rien n'a été supprimé.",
 		"scope_unavailable": "Indisponibles",
-		"media_missing_hint": "Les fichiers ont quitté le stockage. Remettez-les et l'enregistrement pourra être restauré ; l'analyse quotidienne le restaure d'elle-même.",
+		"media_missing_hint": "Les fichiers ont quitté le stockage. Remettez-les tous pour restaurer l’enregistrement.",
 		"empty_unavailable": "Aucun enregistrement n'attend ses fichiers."
 	},
 	"events": {

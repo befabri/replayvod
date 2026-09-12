@@ -656,7 +656,7 @@
 		"empty_on_disk": "No recordings are on disk.",
 		"empty_removed": "Nothing has been removed.",
 		"scope_unavailable": "Unavailable",
-		"media_missing_hint": "The files left storage. Put them back and the recording can be restored; the daily scan restores it on its own.",
+		"media_missing_hint": "The files left storage. Put all of them back to restore the recording.",
 		"empty_unavailable": "No recording is waiting for its files."
 	},
 	"events": {
