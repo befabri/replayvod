@@ -313,10 +313,18 @@ func (s *Service) sweepZombies(ctx context.Context, subs []twitch.EventSubSubscr
 		if isSubAlive(sub.Status) {
 			continue
 		}
-		if err := s.Unsubscribe(ctx, sub.ID, "reconcile: zombie sub: status="+sub.Status); err != nil {
-			s.log.Warn("reconcile: delete zombie sub failed",
+		reason := "reconcile: zombie sub: status=" + sub.Status
+		if err := s.Unsubscribe(ctx, sub.ID, reason); err != nil {
+			// Twitch would not take the delete, but the sub is dead either way
+			// and delivers nothing. Retire the local mirror so the create pass
+			// replaces it now instead of leaving detection dark until Twitch
+			// accepts the delete; the next reconcile retries that delete.
+			s.log.Warn("reconcile: delete zombie sub failed; retiring its mirror anyway",
 				"sub_id", sub.ID, "status", sub.Status, "error", err)
-			continue
+			if err := s.repo.MarkSubscriptionRevoked(ctx, sub.ID, reason+" (twitch delete failed)"); err != nil {
+				s.log.Warn("reconcile: retire zombie mirror failed", "sub_id", sub.ID, "error", err)
+				continue
+			}
 		}
 		swept++
 	}
