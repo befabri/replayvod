@@ -331,6 +331,8 @@ type gateFunc func() error
 
 func (f gateFunc) Ready() error { return f() }
 
+func (f gateFunc) Verify(context.Context) error { return f() }
+
 // TestStreamPart_UnattachedStorageAnswers503WithoutMarking pins that an absent
 // file on storage that is not attached is an outage, never a tombstone: the
 // player gets a retryable 503 and the missing marker is never consulted.

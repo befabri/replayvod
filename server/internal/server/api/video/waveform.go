@@ -150,7 +150,7 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 			return resp, http.StatusOK, nil
 		}
 
-		if err := h.storageWriteUnavailable(); err != nil {
+		if err := h.verifyStorage(buildCtx); err != nil {
 			return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
 		}
 		resp, err := waveform.Generate(buildCtx, h.waveformGenerator, waveform.InputResolver{Storage: h.storage}, plan)
@@ -179,7 +179,9 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 		case fresh.Status != repository.VideoStatusDone:
 			return AudioWaveformResponse{}, http.StatusNotFound, nil
 		}
-		if err := h.storageWriteUnavailable(); err != nil {
+		// Generation may outlast the cached readiness lease or a volume swap.
+		// Probe the identity again before publishing to the configured path.
+		if err := h.verifyStorage(buildCtx); err != nil {
 			return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
 		}
 		if err := waveform.SaveArtifact(buildCtx, h.storage, key, plan.Fingerprint, resp); err != nil {

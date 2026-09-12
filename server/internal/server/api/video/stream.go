@@ -51,10 +51,12 @@ type MissingMarker interface {
 	MarkMissing(ctx context.Context, videoID int64) (bool, error)
 }
 
-// StorageGate reports whether storage may be trusted right now. Nil means
-// always; read-only storage still serves reads.
+// StorageGate provides cached readiness for ordinary reads and a fresh probe
+// before artifact publication or destructive reconciliation. Nil means always;
+// read-only storage still serves reads.
 type StorageGate interface {
 	Ready() error
+	Verify(context.Context) error
 }
 
 const (
@@ -318,6 +320,12 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 	info, statErr := h.storage.Stat(ctx, relPath)
 	switch {
 	case errors.Is(statErr, fs.ErrNotExist):
+		// A cached attached verdict can outlive a mount change. Confirm the
+		// identity before letting an absent artifact discard its ready row.
+		if err := h.verifyStorage(ctx); !storage.CanRead(err) {
+			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if delErr := h.repo.DeleteVideoPlaybackAsset(ctx, id); delErr != nil {
 			h.log.Warn("demote stale playback asset failed", "video_id", id, "error", delErr)
 		}
@@ -724,4 +732,11 @@ func (h *StreamHandler) storageWriteUnavailable() error {
 		return nil
 	}
 	return h.gate.Ready()
+}
+
+func (h *StreamHandler) verifyStorage(ctx context.Context) error {
+	if h.gate == nil {
+		return nil
+	}
+	return h.gate.Verify(ctx)
 }

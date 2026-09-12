@@ -8,8 +8,11 @@ import (
 	"testing"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
+	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
 func TestAudioWaveformStorageGate(t *testing.T) {
@@ -130,5 +133,57 @@ func TestAudioWaveformRechecksStorageBeforeSaving(t *testing.T) {
 	}
 	if store.bodies[storagekeys.Waveform(v.Filename)] != nil {
 		t.Error("saved waveform after storage became unattached")
+	}
+}
+
+func TestAudioWaveformRejectsStorageSwapBeforeMonitorRefresh(t *testing.T) {
+	for _, duringGeneration := range []bool{false, true} {
+		name := "before generation"
+		if duringGeneration {
+			name = "during generation"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			store, err := storage.NewLocal(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			monitor := storagehealth.New(sqliteadapter.New(testdb.NewSQLiteDB(t)), store, nil, testClientLogger(), "local", store.Root)
+			if _, err := monitor.Attach(ctx); err != nil {
+				t.Fatal(err)
+			}
+			v := doneVideo()
+			v.RecordingType = repository.RecordingTypeAudio
+			repo := &signedRepo{video: v, parts: []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.m4a", DurationSeconds: 2, SizeBytes: 5}}}
+			if err := store.Save(ctx, "videos/vod-42-01.m4a", strings.NewReader("audio")); err != nil {
+				t.Fatal(err)
+			}
+			swap := func() {
+				if err := storage.WriteMarker(ctx, store, strings.Repeat("b", 64)); err != nil {
+					t.Error(err)
+				}
+				if err := monitor.Ready(); err != nil {
+					t.Errorf("expected unchanged cached readiness, got %v", err)
+				}
+			}
+			generator := &storageChangeWaveformGenerator{afterGenerate: func() {}}
+			if duringGeneration {
+				generator.afterGenerate = swap
+			} else {
+				swap()
+			}
+			srv := streamRouteTestServer(t, repo, store, testClientLogger(), WithStorageGate(monitor), WithWaveformGenerator(generator))
+			resp := getWaveform(t, srv.URL, v.ID)
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusServiceUnavailable {
+				t.Errorf("waveform status=%d, want 503", resp.StatusCode)
+			}
+			if exists, err := store.Exists(ctx, storagekeys.Waveform(v.Filename)); err != nil || exists {
+				t.Errorf("foreign storage modified: waveform=%v err=%v", exists, err)
+			}
+			if !duringGeneration && len(generator.calls) != 0 {
+				t.Error("generated from a foreign volume before refreshing readiness")
+			}
+		})
 	}
 }

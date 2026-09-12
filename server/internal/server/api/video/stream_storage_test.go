@@ -3,11 +3,15 @@ package video
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/storage"
+	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/videodownload"
 	"github.com/go-chi/chi/v5"
 )
@@ -73,5 +77,37 @@ func TestExistingMediaHonorsStorageReadiness(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestMissingPlaybackPreservesAssetBeforeMonitorRefresh(t *testing.T) {
+	store, err := storage.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	monitor := storagehealth.New(sqliteadapter.New(testdb.NewSQLiteDB(t)), store, nil, testClientLogger(), "local", store.Root)
+	if _, err := monitor.Attach(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.WriteMarker(t.Context(), store, strings.Repeat("b", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := monitor.Ready(); err != nil {
+		t.Fatalf("expected unchanged cached readiness, got %v", err)
+	}
+	assetName := "playback.mp4"
+	repo := missingPartRepo()
+	repo.asset = &repository.VideoPlaybackAsset{Status: repository.PlaybackAssetStatusReady, Filename: &assetName}
+	srv := streamRouteTestServer(t, repo, store, testClientLogger(), WithStorageGate(monitor))
+	resp, err := http.Get(srv.URL + "/api/v1/videos/7/playback/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status=%d, want 503", resp.StatusCode)
+	}
+	if repo.deletes != 0 {
+		t.Error("demoted a playback asset based on a foreign volume")
 	}
 }
