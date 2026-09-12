@@ -153,6 +153,8 @@ vi.mock("@vidstack/react", async () => {
 		onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
 		onPause?: () => void;
 		onPlay?: () => void;
+		onFullscreenChange?: (active: boolean) => void;
+		fullscreenOrientation?: string;
 	};
 	const MediaPlayer = React.forwardRef<MockPlayer, MockMediaPlayerProps>(
 		(
@@ -166,6 +168,8 @@ vi.mock("@vidstack/react", async () => {
 				onKeyDown,
 				onPause,
 				onPlay,
+				onFullscreenChange,
+				fullscreenOrientation,
 			},
 			ref,
 		) => {
@@ -176,6 +180,7 @@ vi.mock("@vidstack/react", async () => {
 					"data-testid": "media-player",
 					"data-src": sourceSrc(src),
 					"data-type": sourceType(src),
+					"data-fullscreen-orientation": fullscreenOrientation,
 					onKeyDown,
 					tabIndex: 0,
 				},
@@ -236,6 +241,16 @@ vi.mock("@vidstack/react", async () => {
 							onTimeUpdate?.({ currentTime: vidstackMock.player.currentTime }),
 					},
 					"timeupdate",
+				),
+				React.createElement(
+					"button",
+					{ type: "button", onClick: () => onFullscreenChange?.(true) },
+					"enter fullscreen",
+				),
+				React.createElement(
+					"button",
+					{ type: "button", onClick: () => onFullscreenChange?.(false) },
+					"exit fullscreen",
 				),
 				children,
 			);
@@ -1742,5 +1757,64 @@ describe("retry playback position", () => {
 		expect(replacement).not.toBe(audio);
 		fireEvent.canPlay(replacement);
 		expect(replacement.currentTime).toBe(17);
+	});
+});
+
+describe("fullscreen orientation lock", () => {
+	function stubHandheld(matches: boolean) {
+		const listeners = new Set<() => void>();
+		const query = {
+			matches,
+			addEventListener: (_type: "change", listener: () => void) => {
+				listeners.add(listener);
+			},
+			removeEventListener: (_type: "change", listener: () => void) => {
+				listeners.delete(listener);
+			},
+			set(next: boolean) {
+				query.matches = next;
+				for (const listener of listeners) listener();
+			},
+		};
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn(() => query),
+		);
+		vi.stubGlobal("screen", {
+			orientation: {
+				lock: () => Promise.resolve(),
+				unlock: () => Promise.resolve(),
+			},
+		});
+		return query;
+	}
+
+	function lockType() {
+		return screen
+			.getByTestId("media-player")
+			.getAttribute("data-fullscreen-orientation");
+	}
+
+	// jsdom has neither matchMedia nor screen.orientation.lock, which is the
+	// same shape as a browser that cannot honour the lock.
+	it("leaves the screen alone where the browser cannot lock it", () => {
+		render(<WatchPlayer playlist={continuousPlaylist()} />);
+		expect(lockType()).toBe("none");
+	});
+
+	it("locks landscape on a handheld that exposes the orientation API", () => {
+		stubHandheld(true);
+		render(<WatchPlayer playlist={continuousPlaylist()} />);
+		expect(lockType()).toBe("landscape");
+	});
+
+	it("keeps the lock type steady until the player leaves fullscreen", () => {
+		const query = stubHandheld(true);
+		render(<WatchPlayer playlist={continuousPlaylist()} />);
+		fireEvent.click(screen.getByRole("button", { name: "enter fullscreen" }));
+		act(() => query.set(false));
+		expect(lockType()).toBe("landscape");
+		fireEvent.click(screen.getByRole("button", { name: "exit fullscreen" }));
+		expect(lockType()).toBe("none");
 	});
 });

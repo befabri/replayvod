@@ -49,6 +49,7 @@ import {
 	TimelinePartContent,
 } from "@/features/videos/components/timelinePopover";
 import { formatBytes, formatPlaybackTime } from "@/features/videos/format";
+import { useFullscreenOrientation } from "@/features/videos/fullscreen-orientation";
 import {
 	chapterCuesForPart,
 	chapterCuesForRecording,
@@ -125,6 +126,11 @@ export function WatchPlayer({
 	unavailableActions?: ReactNode;
 }) {
 	const isCrossOrigin = !!API_URL;
+	const [isFullscreen, setIsFullscreen] = useState(false);
+	// Vidstack would lock the screen to landscape on every fullscreen entry;
+	// the hook keeps that to devices whose browser can honour it and holds the
+	// value while fullscreen so each lock is paired with its unlock.
+	const fullscreenOrientation = useFullscreenOrientation(isFullscreen);
 	const playerRef = useRef<MediaPlayerInstance>(null);
 	const audioRef = useRef<HTMLAudioElement>(null);
 	const pendingSeekRef = useRef<{
@@ -797,6 +803,8 @@ export function WatchPlayer({
 		};
 		readySourceKeyRef.current = undefined;
 		setMediaFailure(null);
+		// The remount drops the fullscreen player without a change event.
+		setIsFullscreen(false);
 		setReloadNonce((nonce) => nonce + 1);
 	}, [
 		continuousDurationSeconds,
@@ -974,10 +982,12 @@ export function WatchPlayer({
 				src={currentSource}
 				title={playlist.title}
 				crossOrigin={isCrossOrigin ? "use-credentials" : null}
+				fullscreenOrientation={fullscreenOrientation}
 				playsInline
 				onCanPlay={handleCanPlay}
 				onEnded={handleEnded}
 				onError={handleError}
+				onFullscreenChange={(active) => setIsFullscreen(active)}
 				onKeyDown={handlePlayerKeyDown}
 				onPause={() => {
 					wasPlayingRef.current = false;
