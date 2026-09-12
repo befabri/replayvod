@@ -26,6 +26,10 @@ func main() {
 	connections := 0
 	opened := 0
 	samples := 0
+	expireAfterCheck := false
+	sessionExpired := false
+	refusedHandshakes := 0
+	expiredSessionChecks := 0
 	topic := eventbus.NewTopic[map[string]any](8)
 	trpcgo.MustVoidSubscribe(router, "storage.statusLive", func(ctx context.Context) (<-chan map[string]any, error) {
 		mu.Lock()
@@ -72,6 +76,12 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/trpc/ws", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
+		if sessionExpired {
+			refusedHandshakes++
+			mu.Unlock()
+			http.Error(w, "expired session", http.StatusUnauthorized)
+			return
+		}
 		connections++
 		opened++
 		mu.Unlock()
@@ -85,10 +95,24 @@ func main() {
 		mu.Lock()
 		defer mu.Unlock()
 		result := []any{}
+		status := http.StatusOK
 		for _, path := range strings.Split(strings.TrimPrefix(r.URL.Path, "/trpc/"), ",") {
 			var data any
 			switch path {
 			case "auth.session":
+				if sessionExpired {
+					expiredSessionChecks++
+					status = http.StatusUnauthorized
+					result = append(result, map[string]any{"error": map[string]any{
+						"message": "UNAUTHORIZED", "code": -32001,
+						"data": map[string]any{"code": "UNAUTHORIZED", "httpStatus": http.StatusUnauthorized},
+					}})
+					continue
+				}
+				// Let the HTTP route guard succeed, then expire before the first
+				// WebSocket handshake. Other queries stay successful so only the
+				// global connection failure probe can discover the expired session.
+				sessionExpired = expireAfterCheck
 				data = map[string]any{"user_id": "u1", "login": "alice", "display_name": "Alice", "role": "viewer"}
 			case "storage.status":
 				data = map[string]any{"state": state, "checked_at": "2026-09-12T12:00:00Z"}
@@ -102,12 +126,23 @@ func main() {
 			result = append(result, map[string]any{"result": map[string]any{"data": data}})
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(result)
 	})
 	mux.HandleFunc("/test/stats", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{"connections": connections, "feeds": feeds, "opened": opened, "samples": samples})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"connections": connections, "feeds": feeds, "opened": opened, "samples": samples,
+			"refused_handshakes": refusedHandshakes, "expired_session_checks": expiredSessionChecks,
+		})
+	})
+	mux.HandleFunc("/test/session", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		expireAfterCheck = r.URL.Query().Get("expire_after_check") == "true"
+		sessionExpired = false
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("/test/storage", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()

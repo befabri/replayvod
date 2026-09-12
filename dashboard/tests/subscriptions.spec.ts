@@ -133,3 +133,27 @@ test("continuous traffic stays on one connection beyond the former idle timeout"
 	expect(after.opened - before.opened).toBe(1);
 	expect(after.connections).toBe(1);
 });
+
+test("a refused websocket handshake probes an expired session without another failed query", async ({
+	page,
+	request,
+}) => {
+	const stats = async () => (await request.get(`${origin}/test/stats`)).json();
+	const before = await stats();
+	await request.get(`${origin}/test/session?expire_after_check=true`);
+	try {
+		await page.goto(`${origin}/dashboard`);
+		await expect(page).toHaveURL(/\/login$/);
+		await expect(page.locator('a[href*="auth/twitch"]')).toBeVisible();
+		const after = await stats();
+		expect(after.refused_handshakes).toBeGreaterThan(before.refused_handshakes);
+		// Login boots a new document and may check the session again.
+		expect(after.expired_session_checks).toBeGreaterThan(
+			before.expired_session_checks,
+		);
+		expect(after.opened).toBe(before.opened);
+	} finally {
+		await page.close();
+		await request.get(`${origin}/test/session`);
+	}
+});
