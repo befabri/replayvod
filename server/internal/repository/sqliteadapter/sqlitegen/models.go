@@ -322,6 +322,7 @@ type Task struct {
 	CreatedAt       sqlitetype.Time  `json:"created_at"`
 	UpdatedAt       sqlitetype.Time  `json:"updated_at"`
 	ExecutionID     string           `json:"execution_id"`
+	IsAvailable     int64            `json:"is_available"`
 }
 
 type Title struct {

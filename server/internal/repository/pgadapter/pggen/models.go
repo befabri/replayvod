@@ -322,6 +322,7 @@ type Task struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	ExecutionID     string     `json:"execution_id"`
+	IsAvailable     bool       `json:"is_available"`
 }
 
 type Title struct {
