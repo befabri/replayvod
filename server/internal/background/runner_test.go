@@ -222,6 +222,9 @@ func TestScopeWaitDrainsWithoutCancellingChildren(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+	if err := s.Context().Err(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Wait retained its context after all children exited: %v", err)
+	}
 	if err := s.Go("late", false, func(context.Context) error { return nil }); err == nil {
 		t.Fatal("Wait left admission open")
 	}

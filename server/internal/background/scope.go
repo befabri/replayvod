@@ -77,12 +77,13 @@ func (s *Scope) Join() error {
 	return s.err
 }
 
-// Wait closes admission and joins children without cancelling their contexts.
+// Wait closes admission, joins children, then cancels the scope context.
 func (s *Scope) Wait() error {
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
 	s.wg.Wait()
+	s.cancel(context.Canceled)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.err
