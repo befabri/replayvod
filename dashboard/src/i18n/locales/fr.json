@@ -547,7 +547,8 @@
 		"status_running": "en cours",
 		"status_pending": "en attente",
 		"status_interrupted": "Interrompue",
-		"status_skipped": "ignorée"
+		"status_skipped": "ignorée",
+		"unavailable": "Indisponible avec la configuration actuelle du serveur."
 	},
 	"sessions": {
 		"title": "Sessions actives",

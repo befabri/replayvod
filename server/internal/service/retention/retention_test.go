@@ -591,18 +591,18 @@ func TestRequestManualDelete_WakesExistingFutureTask(t *testing.T) {
 	if _, err := repo.UpsertTask(ctx, ManualDeletionTaskName, ManualDeletionTaskDescription, ManualDeletionIntervalSeconds); err != nil {
 		t.Fatalf("UpsertTask: %v", err)
 	}
-	if err := repo.MarkTaskRunning(ctx, ManualDeletionTaskName); err != nil {
+	if err := repo.ClaimTask(ctx, ManualDeletionTaskName, "execution"); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.MarkTaskSuccess(ctx, ManualDeletionTaskName, 123); err != nil {
-		t.Fatalf("MarkTaskSuccess: %v", err)
+	if err := repo.SettleTask(ctx, ManualDeletionTaskName, "execution", repository.TaskStatusSuccess, 123, ""); err != nil {
+		t.Fatalf("SettleTask: %v", err)
 	}
 	before, err := repo.GetTask(ctx, ManualDeletionTaskName)
 	if err != nil {
 		t.Fatalf("GetTask before queue: %v", err)
 	}
 	if before.NextRunAt == nil {
-		t.Fatal("NextRunAt before queue is nil; MarkTaskSuccess should schedule the next interval")
+		t.Fatal("NextRunAt before queue is nil; successful settlement should schedule the next interval")
 	}
 
 	if err := svc.RequestManualDelete(ctx, v); err != nil {

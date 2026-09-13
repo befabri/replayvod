@@ -243,8 +243,7 @@ type Querier interface {
 	// Recordings the user started and has not played to the end, most recently
 	// watched first. The dashboard applies its resume policy on top.
 	ListContinueWatchingVideos(ctx context.Context, arg ListContinueWatchingVideosParams) ([]Video, error)
-	// Scheduler tick path: enabled tasks whose next_run_at has passed.
-	// The partial index idx_tasks_next_run_at keeps this O(log n).
+	// Eligible work includes scheduled intervals and explicit one-shot requests.
 	ListDueTasks(ctx context.Context) ([]Task, error)
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
@@ -580,9 +579,8 @@ type Querier interface {
 	// soft-delete lifecycle, not Twitch's).
 	UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) (Subscription, error)
 	UpsertTag(ctx context.Context, name string) (Tag, error)
-	// Registered on scheduler startup. Only writes the descriptive columns;
-	// existing rows keep their runtime state (last_run_at, last_status,
-	// etc.) so a redeploy doesn't reset counters.
+	// Registration marks configured tasks available while preserving the operator's
+	// pause and prior execution history.
 	UpsertTask(ctx context.Context, arg UpsertTaskParams) (Task, error)
 	UpsertTitle(ctx context.Context, name string) (Title, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)

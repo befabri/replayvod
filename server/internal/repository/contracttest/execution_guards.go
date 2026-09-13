@@ -161,6 +161,49 @@ func testExecutionRejectsStaleTransitions(t *testing.T, h Harness) {
 	if err := repository.ClaimAttempt(ctx, repo, first, ""); !errors.Is(err, repository.ErrStaleExecution) {
 		t.Fatalf("old execution reclaimed current owner: %v", err)
 	}
+	if _, err := repo.UpsertTask(ctx, "guarded-task", "Guarded task", 60); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "guarded-task", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "guarded-task", "competing"); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("competing task execution replaced running owner: %v", err)
+	}
+	if err := repo.SetTaskNextRun(ctx, "guarded-task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "guarded-task", "queued"); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("queued task run replaced running owner: %v", err)
+	}
+	if due, err := repo.ListDueTasks(ctx); err != nil || len(due) != 0 {
+		t.Fatalf("running task is due: %+v, %v", due, err)
+	}
+	if err := repo.ClaimTask(ctx, "guarded-task", "first"); err != nil {
+		t.Fatalf("same task execution cannot confirm its claim: %v", err)
+	}
+	if err := repo.SettleTask(ctx, "guarded-task", "wrong-token", repository.TaskStatusSuccess, 20, ""); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("wrong task token settled: %v", err)
+	}
+	row, err := repo.GetTask(ctx, "guarded-task")
+	if err != nil || row.ExecutionID != "first" || row.LastStatus != repository.TaskStatusRunning {
+		t.Fatalf("rejected settlement changed task: %+v, %v", row, err)
+	}
+	if err := repo.SettleTask(ctx, "guarded-task", "first", repository.TaskStatusSuccess, 20, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SettleTask(ctx, "guarded-task", "first", repository.TaskStatusFailed, 30, "late failure"); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("terminal task accepted conflicting outcome: %v", err)
+	}
+	if err := repo.SetTaskNextRun(ctx, "guarded-task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "guarded-task", "second"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SettleTask(ctx, "guarded-task", "first", repository.TaskStatusSuccess, 20, ""); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("old task execution settled replacement: %v", err)
+	}
 }
 
 func testRecordingIntentConstraints(t *testing.T, h Harness) {

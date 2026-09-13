@@ -95,6 +95,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("WebhookEvent_PayloadRoundTrip", testWebhookEventPayloadRoundTrip)
 
 	// tasks
+	run("Task_ExplicitRunWithoutInterval", testTaskExplicitRunWithoutInterval)
 	run("Task_InterruptedRetriesImmediately", testTaskInterruptedRetriesImmediately)
 	run("Task_AutomaticRunRespectsDisabledState", testTaskAutomaticRunRespectsDisabledState)
 	run("Archive_RunningJobsOnlyResumeCurrentActiveAttempt", testRunningJobsOnlyResumeCurrentActiveAttempt)
@@ -114,6 +115,8 @@ func Run(t *testing.T, newHarness Factory) {
 
 	// settings + event logs
 	run("Settings_UpsertInsertThenUpdate", testSettingsUpsertInsertThenUpdate)
+	run("Settings_PlaybackCacheConfigIsolation", testPlaybackCacheConfigIsolation)
+	run("Task_AvailabilityGuards", testTaskAvailabilityGuards)
 	run("TwitchPlaybackSession", testTwitchPlaybackSession)
 	run("EventLog_DeleteOldSkipsWarnAndError", testEventLogDeleteOldSkipsWarnAndError)
 

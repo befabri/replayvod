@@ -23,6 +23,7 @@ type TaskResponse struct {
 	Description     string     `json:"description"`
 	IntervalSeconds int32      `json:"interval_seconds"`
 	IsEnabled       bool       `json:"is_enabled"`
+	IsAvailable     bool       `json:"is_available"`
 	LastRunAt       *time.Time `json:"last_run_at,omitempty"`
 	LastDurationMs  int32      `json:"last_duration_ms"`
 	LastStatus      string     `json:"last_status"`
@@ -38,6 +39,7 @@ func toResponse(t *repository.Task) TaskResponse {
 		Description:     t.Description,
 		IntervalSeconds: t.IntervalSeconds,
 		IsEnabled:       t.IsEnabled,
+		IsAvailable:     t.IsAvailable,
 		LastRunAt:       t.LastRunAt,
 		LastDurationMs:  t.LastDurationMs,
 		LastStatus:      t.LastStatus,

@@ -37,8 +37,9 @@ func (q *Queries) GetTask(ctx context.Context, name string) (Task, error) {
 
 const listDueTasks = `-- name: ListDueTasks :many
 SELECT name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id, is_available FROM tasks
-WHERE is_enabled = 1
-  AND interval_seconds > 0
+WHERE is_available = 1 AND is_enabled = 1
+  AND last_status <> 'running'
+  AND (interval_seconds > 0 OR next_run_at IS NOT NULL)
   AND (next_run_at IS NULL OR next_run_at <= datetime('now'))
 ORDER BY CASE WHEN next_run_at IS NULL THEN 0 ELSE 1 END, next_run_at
 `
@@ -203,7 +204,7 @@ func (q *Queries) MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams
 
 const scheduleTaskIfEnabled = `-- name: ScheduleTaskIfEnabled :one
 UPDATE tasks SET next_run_at = datetime('now'), updated_at = datetime('now')
-WHERE name = ?1 AND is_enabled = 1 AND interval_seconds > 0
+WHERE name = ?1 AND is_enabled = 1 AND is_available = 1 AND interval_seconds > 0
 RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id, is_available
 `
 
@@ -232,7 +233,7 @@ const setTaskEnabled = `-- name: SetTaskEnabled :one
 UPDATE tasks
 SET is_enabled  = ?2,
     next_run_at = CASE
-        WHEN ?2 = 1 AND interval_seconds > 0 AND next_run_at IS NULL
+        WHEN ?2 = 1 AND is_available = 1 AND interval_seconds > 0 AND next_run_at IS NULL
         THEN datetime('now')
         ELSE next_run_at
     END,
@@ -271,7 +272,7 @@ const setTaskNextRun = `-- name: SetTaskNextRun :one
 UPDATE tasks
 SET next_run_at = datetime('now'),
     updated_at  = datetime('now')
-WHERE name = ?
+WHERE name = ? AND is_available = 1
 RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id, is_available
 `
 
@@ -297,10 +298,11 @@ func (q *Queries) SetTaskNextRun(ctx context.Context, name string) (Task, error)
 }
 
 const upsertTask = `-- name: UpsertTask :one
-INSERT INTO tasks (name, description, interval_seconds)
-VALUES (?, ?, ?)
+INSERT INTO tasks (name, description, interval_seconds, is_available)
+VALUES (?, ?, ?, 1)
 ON CONFLICT (name) DO UPDATE
-SET description      = excluded.description,
+SET is_available     = 1,
+    description      = excluded.description,
     interval_seconds = excluded.interval_seconds,
     updated_at       = datetime('now')
 RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id, is_available

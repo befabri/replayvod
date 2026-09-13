@@ -1086,6 +1086,7 @@ export interface TaskResponse {
   description: string;
   interval_seconds: number;
   is_enabled: boolean;
+  is_available: boolean;
   last_run_at?: string;
   last_duration_ms: number;
   last_status: string;

@@ -386,37 +386,20 @@ func main() {
 		}
 	}
 
-	var sched *scheduler.Service
+	sched, err := startScheduler(signalCtx, cfg, repo, scheduler.StandardTaskDeps{
+		EventSub:               eventsubSvc,
+		CategoryArt:            artSvc,
+		CategoryMetadata:       categoryMetaSvc,
+		Retention:              recordings.Retention,
+		StorageScan:            recordings.StorageScan,
+		ArchivePosters:         archiveposter.New(posters, repo, twitchClient, log),
+		PlaybackCacheReconcile: playbackCache.Reconcile,
+	}, log, bus)
+	if err != nil {
+		log.Error("Failed to start scheduler", "error", err)
+		shutdown(1)
+	}
 	if cfg.App.Scheduler.Enabled {
-		var esvc *eventsub.Service
-		if cfg.ServerMode.CreatesTwitchSubscriptions() {
-			esvc = eventsubSvc
-		}
-		sched = scheduler.NewService(repo, log, 15*time.Second, bus)
-		if err := scheduler.RegisterStandardTasks(sched, cfg, repo, scheduler.StandardTaskDeps{
-			EventSub:         esvc,
-			CategoryArt:      artSvc,
-			CategoryMetadata: categoryMetaSvc,
-			Retention:        recordings.Retention,
-			StorageScan:      recordings.StorageScan,
-			ArchivePosters:   archiveposter.New(posters, repo, twitchClient, log),
-		}, log); err != nil {
-			log.Error("Failed to register scheduler tasks", "error", err)
-			shutdown(1)
-		}
-		if err := sched.Register(scheduler.Task{
-			Name:            "playback_cache_reconcile",
-			Description:     "Prune the playback-artifact cache to its size cap",
-			IntervalSeconds: 5 * 60,
-			Run:             playbackCache.Reconcile,
-		}); err != nil {
-			log.Error("Failed to register playback cache reconcile task", "error", err)
-			shutdown(1)
-		}
-		if err := sched.Start(ctx); err != nil {
-			log.Error("Failed to start scheduler", "error", err)
-			shutdown(1)
-		}
 		log.Info("Scheduler started")
 	} else {
 		log.Info("Scheduler disabled by config")
@@ -424,9 +407,7 @@ func main() {
 
 	<-signalCtx.Done()
 	log.Info("Shutting down server...")
-	if sched != nil {
-		sched.Stop()
-	}
+	sched.Stop()
 	awaitLivePollShutdown(livePollDone, 5*time.Second, log)
 	shutdown(0)
 }

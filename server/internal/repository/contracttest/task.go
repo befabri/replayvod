@@ -11,10 +11,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// testTaskUpsertPreservesRuntimeState pins that UpsertTask only writes
-// descriptive columns. Runtime counters (last_run_at, last_duration_ms,
-// last_status, next_run_at) must survive a redeploy or operators lose run
-// history.
 func testTaskUpsertPreservesRuntimeState(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -23,10 +19,10 @@ func testTaskUpsertPreservesRuntimeState(t *testing.T, h Harness) {
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
-	if err := repo.MarkTaskRunning(ctx, "token_cleanup"); err != nil {
+	if err := repo.ClaimTask(ctx, "token_cleanup", "execution"); err != nil {
 		t.Fatalf("mark running: %v", err)
 	}
-	if err := repo.MarkTaskSuccess(ctx, "token_cleanup", 1234); err != nil {
+	if err := repo.SettleTask(ctx, "token_cleanup", "execution", repository.TaskStatusSuccess, 1234, ""); err != nil {
 		t.Fatalf("mark success: %v", err)
 	}
 	before, err := repo.GetTask(ctx, "token_cleanup")
@@ -55,9 +51,6 @@ func testTaskUpsertPreservesRuntimeState(t *testing.T, h Harness) {
 	}
 }
 
-// testTaskMarkSuccessRearmsNextRun confirms the interval->next_run arithmetic.
-// The scheduler's due-list query depends on next_run_at being set so the task
-// actually fires again.
 func testTaskMarkSuccessRearmsNextRun(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -66,7 +59,10 @@ func testTaskMarkSuccessRearmsNextRun(t *testing.T, h Harness) {
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	if err := repo.MarkTaskSuccess(ctx, "eventsub_snapshot", 50); err != nil {
+	if err := repo.ClaimTask(ctx, "eventsub_snapshot", "execution"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SettleTask(ctx, "eventsub_snapshot", "execution", repository.TaskStatusSuccess, 50, ""); err != nil {
 		t.Fatalf("mark success: %v", err)
 	}
 	got, err := repo.GetTask(ctx, "eventsub_snapshot")
@@ -74,7 +70,7 @@ func testTaskMarkSuccessRearmsNextRun(t *testing.T, h Harness) {
 		t.Fatalf("get: %v", err)
 	}
 	if got.NextRunAt == nil {
-		t.Fatal("next_run_at must be set after MarkTaskSuccess on an intervaled task")
+		t.Fatal("next_run_at must be set after SettleTask on an intervaled task")
 	}
 	expected := time.Now().Add(60 * time.Second)
 	delta := got.NextRunAt.Sub(expected)
@@ -83,9 +79,6 @@ func testTaskMarkSuccessRearmsNextRun(t *testing.T, h Harness) {
 	}
 }
 
-// testTaskQueuedRunSurvivesMarkSuccess pins that a run queued (SetTaskNextRun)
-// while a task is active is preserved by MarkTaskSuccess rather than being
-// overwritten by the interval rearm.
 func testTaskQueuedRunSurvivesMarkSuccess(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -93,13 +86,13 @@ func testTaskQueuedRunSurvivesMarkSuccess(t *testing.T, h Harness) {
 	if _, err := repo.UpsertTask(ctx, "category_metadata_sync", "Fetch category metadata", 24*60*60); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	if err := repo.MarkTaskRunning(ctx, "category_metadata_sync"); err != nil {
+	if err := repo.ClaimTask(ctx, "category_metadata_sync", "execution"); err != nil {
 		t.Fatalf("mark running: %v", err)
 	}
 	if err := repo.SetTaskNextRun(ctx, "category_metadata_sync"); err != nil {
 		t.Fatalf("set next run: %v", err)
 	}
-	if err := repo.MarkTaskSuccess(ctx, "category_metadata_sync", 50); err != nil {
+	if err := repo.SettleTask(ctx, "category_metadata_sync", "execution", repository.TaskStatusSuccess, 50, ""); err != nil {
 		t.Fatalf("mark success: %v", err)
 	}
 
@@ -130,13 +123,19 @@ func testTaskInterruptedRetriesImmediately(t *testing.T, h Harness) {
 	if _, err := repo.UpsertTask(ctx, "interrupt", "daily", 86400); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.MarkTaskFailed(ctx, "interrupt", 2, "old failure"); err != nil {
+	if err := repo.ClaimTask(ctx, "interrupt", "prior"); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.MarkTaskRunning(ctx, "interrupt"); err != nil {
+	if err := repo.SettleTask(ctx, "interrupt", "prior", repository.TaskStatusFailed, 2, "old failure"); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.MarkTaskInterrupted(ctx, "interrupt", 37); err != nil {
+	if err := repo.SetTaskNextRun(ctx, "interrupt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "interrupt", "execution"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SettleTask(ctx, "interrupt", "execution", repository.TaskStatusInterrupted, 37, ""); err != nil {
 		t.Fatal(err)
 	}
 	row, err := repo.GetTask(ctx, "interrupt")
@@ -153,7 +152,7 @@ func testTaskInterruptedRetriesImmediately(t *testing.T, h Harness) {
 	if _, err := repo.SetTaskEnabled(ctx, "interrupt", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.MarkTaskInterrupted(ctx, "interrupt", 38); err != nil {
+	if err := repo.SettleTask(ctx, "interrupt", "execution", repository.TaskStatusInterrupted, 38, ""); err != nil {
 		t.Fatal(err)
 	}
 	due, err = repo.ListDueTasks(ctx)
@@ -200,5 +199,32 @@ func testTaskAutomaticRunRespectsDisabledState(t *testing.T, h Harness) {
 		if interval > 0 && err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func testTaskExplicitRunWithoutInterval(t *testing.T, h Harness) {
+	repo, ctx := h.Repo(), t.Context()
+	if _, err := repo.UpsertTask(ctx, "manual", "Explicit runs only", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "manual", "unrequested"); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("unrequested claim: %v", err)
+	}
+	if err := repo.SetTaskNextRun(ctx, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	due, err := repo.ListDueTasks(ctx)
+	if err != nil || len(due) != 1 || due[0].Name != "manual" {
+		t.Fatalf("explicit task undiscoverable: %+v %v", due, err)
+	}
+	if err := repo.ClaimTask(ctx, "manual", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SettleTask(ctx, "manual", "first", repository.TaskStatusSuccess, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	due, err = repo.ListDueTasks(ctx)
+	if err != nil || len(due) != 0 {
+		t.Fatalf("one-shot task rearmed: %+v %v", due, err)
 	}
 }

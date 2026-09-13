@@ -11,7 +11,8 @@ export function TaskActions({ task }: { task: TaskResponse }) {
 			<button
 				type="button"
 				onClick={() => runNow.mutate({ name: task.name })}
-				disabled={runNow.isPending}
+				disabled={runNow.isPending || !task.is_available}
+				title={!task.is_available ? t("tasks.unavailable") : undefined}
 				className="text-xs px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-60"
 			>
 				{t("tasks.run_now")}

@@ -1,17 +1,4 @@
-// Package scheduler runs registered background jobs on an interval.
-//
-// Model: each registered Task has a name, description, interval, and a
-// Run func. On startup the scheduler upserts the task into the `tasks`
-// DB table so description/interval stay in sync with code, preserving
-// runtime state (last_run_at, last_status, next_run_at). A single
-// ticker goroutine wakes every pollInterval, asks the repo for
-// "due" tasks (next_run_at <= now AND is_enabled), and runs them
-// concurrency-1 per task (one task can't run in parallel with itself)
-// but many tasks can run simultaneously across the process.
-//
-// An operator flipping is_enabled in the dashboard pauses a task without
-// a restart; bumping next_run_at to now (via SetTaskNextRun) schedules a
-// one-shot immediate run.
+// Package scheduler executes due tasks with ownership held through settlement.
 package scheduler
 
 import (
@@ -22,113 +9,92 @@ import (
 	"sync"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/background"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/eventlog"
 	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/google/uuid"
 )
 
-type RunFunc func(ctx context.Context) error
-
-type Task struct {
-	Name            string
-	Description     string
-	IntervalSeconds int64
-	Run             RunFunc
-}
-
+// Service executes reconciled task handlers and retains ownership through durable settlement.
 type Service struct {
-	repo repository.Repository
-	log  *slog.Logger
-	// bus is optional — nil means task status transitions don't fan
-	// out to SSE subscribers. Useful for tests that build a scheduler
-	// without constructing the full bus graph.
-	bus *eventbus.Buses
+	repo     repository.Repository
+	registry Registry
+	log      *slog.Logger
+	bus      *eventbus.Buses
 
-	mu      sync.Mutex
-	tasks   map[string]*Task
-	running map[string]struct{} // in-flight task names
-	poll    time.Duration
-	stopCh  chan struct{}
-	stopped bool
-	started bool
-	wg      sync.WaitGroup
-	// runCtx is the parent of every task run; Stop cancels it so shutdown
-	// waits for tasks to unwind, not for their deadline.
+	mu        sync.Mutex
+	runner    *background.Runner
+	poll      time.Duration
+	stopped   bool
+	started   bool
+	wg        sync.WaitGroup
 	runCtx    context.Context
 	cancelRun context.CancelFunc
 }
 
-func NewService(repo repository.Repository, log *slog.Logger, pollInterval time.Duration, bus *eventbus.Buses) *Service {
+// NewService binds a registry to repo; callers must reconcile that registry
+// before Start and call Stop before releasing its dependencies.
+func NewService(repo repository.Repository, registry Registry, log *slog.Logger, pollInterval time.Duration, bus *eventbus.Buses) *Service {
 	if pollInterval <= 0 {
 		pollInterval = 15 * time.Second
 	}
-	runCtx, cancelRun := context.WithCancel(context.Background())
 	return &Service{
-		repo:      repo,
-		log:       log.With("domain", "scheduler"),
-		bus:       bus,
-		tasks:     make(map[string]*Task),
-		running:   make(map[string]struct{}),
-		poll:      pollInterval,
-		stopCh:    make(chan struct{}),
-		runCtx:    runCtx,
-		cancelRun: cancelRun,
+		repo:     repo,
+		registry: registry,
+		log:      log.With("domain", "scheduler"),
+		bus:      bus,
+		runner:   background.New(nil),
+		poll:     pollInterval,
 	}
 }
 
-func (s *Service) Register(t Task) error {
-	if t.Name == "" {
-		return fmt.Errorf("scheduler: task name required")
-	}
-	if t.Run == nil {
-		return fmt.Errorf("scheduler: task %q has no Run func", t.Name)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, exists := s.tasks[t.Name]; exists {
-		return fmt.Errorf("scheduler: task %q already registered", t.Name)
-	}
-	s.tasks[t.Name] = &t
-	return nil
-}
-
+// Start launches execution without writing task definitions. ReconcileTasks
+// must have succeeded with the same registry first. It returns immediately;
+// cancellation stops polling and interrupts jobs, and Stop waits for shutdown.
+// An empty registry starts no goroutine.
 func (s *Service) Start(ctx context.Context) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.stopped || s.started {
-		s.mu.Unlock()
 		return fmt.Errorf("scheduler: already started or stopped")
 	}
-	for _, t := range s.tasks {
-		if _, err := s.repo.UpsertTask(ctx, t.Name, t.Description, t.IntervalSeconds); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("scheduler: register task %q: %w", t.Name, err)
-		}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
+	s.runCtx, s.cancelRun = context.WithCancel(ctx)
 	s.started = true
+	if s.registry.Len() == 0 {
+		return nil
+	}
 	s.wg.Add(1)
-	s.mu.Unlock()
 	go s.loop()
 	return nil
 }
 
+// Stop closes admission, cancels execution, and joins every task and settlement.
+// Concurrent callers all wait for the same shutdown.
 func (s *Service) Stop() {
 	s.mu.Lock()
 	if !s.stopped {
 		s.stopped = true
-		close(s.stopCh)
-		s.cancelRun()
+		if s.cancelRun != nil {
+			s.cancelRun()
+		}
+		s.runner.Stop()
 	}
 	s.mu.Unlock()
 	// Every caller waits, including a concurrent second Stop.
 	s.wg.Wait()
+	s.runner.Stop()
+	_ = s.runner.Wait(context.Background())
 }
 
 func (s *Service) loop() {
 	defer s.wg.Done()
+	defer s.runner.Stop()
 
-	// Tick once at startup so a long poll interval doesn't delay the
-	// first run of a "due" task (useful after an outage where every
-	// task is overdue).
+	// Run overdue tasks immediately after startup, without waiting for the poll interval.
 	s.tick()
 
 	ticker := time.NewTicker(s.poll)
@@ -136,7 +102,7 @@ func (s *Service) loop() {
 
 	for {
 		select {
-		case <-s.stopCh:
+		case <-s.runCtx.Done():
 			return
 		case <-ticker.C:
 			s.tick()
@@ -145,6 +111,9 @@ func (s *Service) loop() {
 }
 
 func (s *Service) tick() {
+	if s.runCtx.Err() != nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(s.runCtx, 30*time.Second)
 	defer cancel()
 
@@ -159,74 +128,80 @@ func (s *Service) tick() {
 
 	for i := range due {
 		name := due[i].Name
-		s.mu.Lock()
-		if s.stopped {
-			s.mu.Unlock()
+		if s.runCtx.Err() != nil {
 			return
 		}
-		t, known := s.tasks[name]
+		t, known := s.registry.tasks[name]
 		if !known {
-			// Unknown task name in the DB — probably an old task whose
-			// code got removed. Leave the row alone so a redeploy of
-			// the prior code picks it back up; skip running.
-			s.mu.Unlock()
+			// Database rows inserted after reconciliation can have no local handler.
 			s.log.Warn("due task has no registered runner; skipping", "name", name)
 			continue
 		}
-		if _, busy := s.running[name]; busy {
-			s.mu.Unlock()
-			continue // already running, wait for next tick
+		if err := s.runner.Start("task", name, func(runCtx context.Context) error {
+			s.runOne(runCtx, t)
+			return nil
+		}, nil); err != nil && !errors.Is(err, background.ErrBusy) && !errors.Is(err, background.ErrStopped) {
+			s.log.Error("admit task", "name", name, "error", err)
 		}
-		s.running[name] = struct{}{}
-		s.wg.Add(1)
-		s.mu.Unlock()
-		go s.runOne(t)
 	}
 }
 
-func (s *Service) runOne(t *Task) {
-	defer s.wg.Done()
-	defer func() {
-		s.mu.Lock()
-		delete(s.running, t.Name)
-		s.mu.Unlock()
-	}()
-
-	// Each run gets its own context so a slow task can't block the next
-	// tick: a 10-minute ceiling, cut short by Stop. Work that cannot fit
-	// commits in pages and resumes next run, as the storage scan does.
-	ctx, cancel := context.WithTimeout(s.runCtx, 10*time.Minute)
+func (s *Service) runOne(runCtx context.Context, task Task) {
+	executionID := uuid.NewString()
+	ctx, cancel := context.WithTimeout(runCtx, 10*time.Minute)
 	defer cancel()
-
-	if err := s.repo.MarkTaskRunning(ctx, t.Name); err != nil {
-		s.log.Error("mark task running", "name", t.Name, "error", err)
-	}
-	s.publishStatus(t.Name, repository.TaskStatusRunning, 0, "")
-	start := time.Now()
-
-	defer func() {
-		if r := recover(); r != nil {
-			s.log.Error("task panicked", "name", t.Name, "panic", r)
-			s.markFailed(t.Name, start, fmt.Errorf("panic: %v", r))
-		}
-	}()
-
-	err := t.Run(ctx)
-	if err != nil {
-		if s.runCtx.Err() != nil && errors.Is(err, context.Canceled) {
-			s.log.Info("task interrupted by shutdown", "name", t.Name)
-			s.markInterrupted(t.Name, start)
-			return
-		}
-		s.log.Warn("task run failed", "name", t.Name, "error", err)
-		s.markFailed(t.Name, start, err)
+	// A failed claim starts no effects. The same token resolves lost responses
+	// without clearing a run-now request received after the first claim committed.
+	if err := s.persist(runCtx, func(writeCtx context.Context) error { return s.repo.ClaimTask(writeCtx, task.Name, executionID) }); err != nil {
+		s.log.Error("claim task", "name", task.Name, "error", err)
 		return
 	}
-	s.markSuccess(t.Name, start)
+	s.publishStatus(task.Name, repository.TaskStatusRunning, 0, "")
+	start := time.Now()
+	runErr := background.Call(ctx, task.Run)
+	status, message, severity := repository.TaskStatusSuccess, "", repository.EventLogSeverityInfo
+	if runErr != nil {
+		status, message, severity = repository.TaskStatusFailed, runErr.Error(), repository.EventLogSeverityError
+		if runCtx.Err() != nil && errors.Is(runErr, context.Canceled) {
+			status, message, severity = repository.TaskStatusInterrupted, "", repository.EventLogSeverityInfo
+		}
+	}
+	duration := time.Since(start).Milliseconds()
+	if err := s.persist(runCtx, func(writeCtx context.Context) error {
+		return s.repo.SettleTask(writeCtx, task.Name, executionID, status, duration, message)
+	}); err != nil {
+		s.log.Error("task settlement unresolved", "name", task.Name, "execution_id", executionID, "error", err)
+		return
+	}
+	s.publishStatus(task.Name, status, duration, message)
+	logCtx, logCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer logCancel()
+	eventlog.Emit(logCtx, s.repo, s.bus, s.log, "task", "run_"+status, severity,
+		fmt.Sprintf("task %s %s in %dms", task.Name, status, duration),
+		map[string]any{"task": task.Name, "duration_ms": duration, "error": message})
 }
 
-// publishStatus fans a task lifecycle change onto the SSE bus. No-op
-// when the scheduler was constructed without a bus (tests).
+func (s *Service) persist(ctx context.Context, write func(context.Context) error) error {
+	delay := 100 * time.Millisecond
+	for {
+		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		err := write(writeCtx)
+		cancel()
+		if err == nil || errors.Is(err, repository.ErrStaleExecution) || errors.Is(err, repository.ErrNotFound) || ctx.Err() != nil {
+			return err
+		}
+		s.log.Warn("task persistence deferred", "error", err, "retry_in", delay)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+		delay = min(2*delay, 5*time.Second)
+	}
+}
+
 func (s *Service) publishStatus(name, status string, durationMs int64, errMsg string) {
 	if s.bus == nil {
 		return
@@ -238,60 +213,4 @@ func (s *Service) publishStatus(name, status string, durationMs int64, errMsg st
 		Error:          errMsg,
 		TransitionedAt: time.Now().UTC(),
 	})
-}
-
-func (s *Service) markSuccess(name string, start time.Time) {
-	// Use a short detached context — we want this write to land even
-	// if the parent ctx is cancelled.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	dur := time.Since(start).Milliseconds()
-	s.publishStatus(name, repository.TaskStatusSuccess, dur, "")
-	if err := s.repo.MarkTaskSuccess(ctx, name, dur); err != nil {
-		s.log.Error("mark task success", "name", name, "error", err)
-	}
-	// Successful runs land as info event_logs for operator visibility
-	// on the events page. Keeps the dashboard's task-activity feed
-	// useful without spamming slog: the retention task prunes
-	// debug/info rows so the volume is bounded.
-	eventlog.Emit(ctx, s.repo, s.bus, s.log,
-		"task", "run_success", repository.EventLogSeverityInfo,
-		fmt.Sprintf("task %s completed in %dms", name, dur),
-		map[string]any{"task": name, "duration_ms": dur},
-	)
-}
-
-func (s *Service) markInterrupted(name string, start time.Time) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	dur := time.Since(start).Milliseconds()
-	if err := s.repo.MarkTaskInterrupted(ctx, name, dur); err != nil {
-		s.log.Error("mark task interrupted", "name", name, "error", err)
-		return
-	}
-	s.publishStatus(name, repository.TaskStatusInterrupted, dur, "")
-	eventlog.Emit(ctx, s.repo, s.bus, s.log,
-		"task", "run_interrupted", repository.EventLogSeverityInfo,
-		fmt.Sprintf("task %s interrupted by shutdown; retrying after restart", name),
-		map[string]any{"task": name, "duration_ms": dur},
-	)
-}
-
-func (s *Service) markFailed(name string, start time.Time, runErr error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	dur := time.Since(start).Milliseconds()
-	errMsg := runErr.Error()
-	s.publishStatus(name, repository.TaskStatusFailed, dur, errMsg)
-	if err := s.repo.MarkTaskFailed(ctx, name, dur, errMsg); err != nil {
-		s.log.Error("mark task failed", "name", name, "error", err)
-	}
-	// Failure writes an error event_log — these survive the info-
-	// retention sweep and are the first thing operators look at on
-	// the dashboard's events page during an incident.
-	eventlog.Emit(ctx, s.repo, s.bus, s.log,
-		"task", "run_failed", repository.EventLogSeverityError,
-		fmt.Sprintf("task %s failed: %s", name, errMsg),
-		map[string]any{"task": name, "duration_ms": dur, "error": errMsg},
-	)
 }

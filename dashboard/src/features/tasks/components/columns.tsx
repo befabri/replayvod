@@ -21,6 +21,7 @@ export function taskColumns(t: TFunction): ColumnDef<TaskResponse>[] {
 							{task.description}
 						</div>
 						<div className="text-xs text-muted-foreground mt-1">
+							{!task.is_available && <p>{t("tasks.unavailable")}</p>}
 							{t("tasks.interval")}:{" "}
 							{task.interval_seconds > 0
 								? `${task.interval_seconds}s`
