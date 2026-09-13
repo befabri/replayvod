@@ -488,6 +488,11 @@ type VideoUserState struct {
 	ProgressRevision    int64            `json:"progress_revision"`
 }
 
+type VideoWaveformAsset struct {
+	VideoID int64  `json:"video_id"`
+	Key     string `json:"key"`
+}
+
 type WebhookEvent struct {
 	ID               int64            `json:"id"`
 	EventID          string           `json:"event_id"`
