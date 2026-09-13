@@ -2,11 +2,6 @@ package repository
 
 import "time"
 
-// Pure page/cursor helpers shared by every Repository adapter. They operate only
-// on repository types (no SQL, no dialect), so a single copy keeps the keyset
-// pagination semantics — over-fetch-by-one, cursor derivation, sort allowlist —
-// identical across backends instead of drifting between hand-mirrored adapters.
-
 // ToChannelPage trims an over-fetched channel slice to limit and derives the
 // next cursor from the last kept row. limit <= 0 yields an empty page.
 func ToChannelPage(items []Channel, limit int) *ChannelPage {
@@ -70,14 +65,13 @@ func ToCategoryPage(items []CategoryPageItem, limit int, sort string) *CategoryP
 	return page
 }
 
-// NormalizeVideoListSort clamps opts.Sort/Order to the supported allowlist,
-// defaulting to created_at/desc. It is the single source of truth for which
-// video-list sorts exist.
+// NormalizeVideoListSort returns the supported sort and order, defaulting to
+// created_at descending for an unknown sort and descending for an unknown order.
 func NormalizeVideoListSort(opts ListVideosOpts) (string, string) {
 	sort := opts.Sort
 	order := opts.Order
 	switch sort {
-	case "created_at", "duration", "size", "channel", "history_when", "broadcast_at":
+	case "created_at", "duration", "size", "channel", "history_when", "broadcast_at", "last_watched":
 	default:
 		return "created_at", "desc"
 	}
@@ -87,8 +81,7 @@ func NormalizeVideoListSort(opts ListVideosOpts) (string, string) {
 	return sort, order
 }
 
-// ListVideosPageQueryLimit is the over-fetch-by-one query limit: fetch limit+1
-// rows so the presence of an extra row signals there is a next page.
+// ListVideosPageQueryLimit includes one extra row to detect a following page.
 func ListVideosPageQueryLimit(limit int) int {
 	if limit < 1 {
 		return 1
@@ -112,8 +105,7 @@ func ToVideoListPage(items []Video, opts ListVideosOpts) *VideoListPage {
 	return page
 }
 
-// VideoListCursorFromVideo builds the keyset cursor for v under the given sort,
-// carrying the sort-column value alongside the (start_download_at, id) tie-break.
+// VideoListCursorFromVideo returns the continuation cursor for v and opts.Sort.
 func VideoListCursorFromVideo(v *Video, opts ListVideosOpts) *VideoListPageCursor {
 	if v == nil {
 		return nil
@@ -125,6 +117,8 @@ func VideoListCursorFromVideo(v *Video, opts ListVideosOpts) *VideoListPageCurso
 		cursor.SortNumber = v.DurationSeconds
 	case "size":
 		cursor.SortInt = v.SizeBytes
+	case "last_watched":
+		cursor.SortInt = v.LastProgressAtMs
 	case "channel":
 		cursor.SortText = &v.DisplayName
 	case "history_when":
@@ -137,9 +131,7 @@ func VideoListCursorFromVideo(v *Video, opts ListVideosOpts) *VideoListPageCurso
 	return cursor
 }
 
-// VideoHistoryWhen is the timestamp shown by the History table's "When" column.
-// It is also the sort key for history_when, keeping display order and cursor
-// pagination in lockstep.
+// VideoHistoryWhen returns the shared history display and pagination timestamp.
 func VideoHistoryWhen(v *Video) time.Time {
 	if v == nil {
 		return time.Time{}
@@ -169,10 +161,7 @@ func ToVideoPage(items []Video, limit int) *VideoPage {
 	return page
 }
 
-// VideoBroadcastWhen is the date a recording's stream aired: the Twitch air
-// date for an archive, the recording start for a live capture. It is the sort
-// key for broadcast_at, keeping display order and cursor pagination in
-// lockstep.
+// VideoBroadcastWhen returns the shared air-date display and pagination timestamp.
 func VideoBroadcastWhen(v *Video) time.Time {
 	if v.BroadcastAt != nil {
 		return *v.BroadcastAt

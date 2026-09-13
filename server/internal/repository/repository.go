@@ -214,7 +214,7 @@ type Repository interface {
 	// SetVideoThumbnailIfMissing sets the thumbnail only when the row has none
 	// and reports whether it did.
 	SetVideoThumbnailIfMissing(ctx context.Context, id int64, thumbnail string) (bool, error)
-	// GetOpenArchiveByTwitchVideoID includes failed rows only while a retry is
+	// GetOpenVideoByTwitchVideoID includes failed rows only while a retry is
 	// scheduled, matching the unique open-VOD constraint.
 	GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID string) (*Video, error)
 	ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]Video, error)
@@ -305,13 +305,11 @@ type Repository interface {
 	GetVideoUserState(ctx context.Context, userID string, videoID int64) (*VideoUserState, error)
 	ListVideoUserStatesForVideos(ctx context.Context, userID string, videoIDs []int64) ([]VideoUserState, error)
 	SetVideoWatchLater(ctx context.Context, userID string, videoID int64, watchLater bool) (*VideoUserState, error)
-	// UpdateVideoWatchProgress records where userID is in a finished
-	// recording. Writes are ordered by `at` (the server clock), and
-	// watched_at is set once the position passes the started threshold
-	// (see WatchStartedSeconds) or the write reports completion.
+	// UpdateVideoWatchProgress orders finished-recording progress writes by the
+	// server time at; WatchStartedSeconds and WatchStartedFraction govern watched_at.
 	UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, at time.Time) (*VideoUserState, error)
-	// ListContinueWatchingVideos returns finished recordings userID started
-	// and has not played to the end, most recently watched first.
+	// ListContinueWatchingVideos returns started recordings whose saved position
+	// is resumable under the viewer's preferences, most recently watched first.
 	ListContinueWatchingVideos(ctx context.Context, userID string, limit int) ([]Video, error)
 
 	CreateJob(ctx context.Context, input *JobInput) (*Job, error)
@@ -449,6 +447,9 @@ type Repository interface {
 	DeleteOldEventLogs(ctx context.Context, before time.Time) error
 
 	GetSettings(ctx context.Context, userID string) (*Settings, error)
+	// EnsureSettings creates defaults only when the user has no settings row.
+	EnsureSettings(ctx context.Context, userID string) (*Settings, error)
+	UpdatePlaybackSettings(ctx context.Context, s *Settings) (*Settings, error)
 	UpsertSettings(ctx context.Context, s *Settings) (*Settings, error)
 
 	GetServerSettings(ctx context.Context) (*ServerSettings, error)
@@ -468,26 +469,16 @@ type Repository interface {
 	// it, zero starts it, and positive ids record completed pages.
 	SetStorageRestoreCursor(ctx context.Context, cursor *int64) error
 
-	// UpsertRecordingWebhookConfig persists only the recording-webhook config
-	// columns of server_settings (enabled, url, events), leaving server mode,
-	// the HMAC secret, AND the recording webhook signing secret untouched. The
-	// signing secret has its own two methods so a config save can never clobber
-	// or race it. EnsureRecordingWebhookSecret seeds one only when the slot is
-	// empty (compare-and-swap, like EnsureServerHMACSecret);
-	// SetRecordingWebhookSecret rotates it unconditionally for the owner's
-	// explicit regenerate action.
+	// UpsertRecordingWebhookConfig changes only enabled, url, and events, preserving
+	// all secrets. EnsureRecordingWebhookSecret initializes an empty secret;
+	// SetRecordingWebhookSecret replaces it unconditionally.
 	UpsertRecordingWebhookConfig(ctx context.Context, enabled bool, url, events string) (*ServerSettings, error)
 	EnsureRecordingWebhookSecret(ctx context.Context, secret string) error
 	SetRecordingWebhookSecret(ctx context.Context, secret string) error
 
-	// Recording webhook deliveries — durable at-least-once outbox.
-	// CreateRecordingWebhookDelivery inserts a 'pending' row (the generic
-	// enqueue; CreateRecordingWebhookDeliveryIfEnabled is its config-gated
-	// terminal-path variant). CreateClaimedRecordingWebhookDelivery inserts a
-	// 'delivering' row for the synchronous SendTest path, so the poller never
-	// also claims it. DeleteOldRecordingWebhookDeliveries is the retention sweep
-	// (terminal rows only, by updated_at), mirroring the other log-table
-	// retention queries.
+	// CreateRecordingWebhookDelivery queues an event for at-least-once delivery.
+	// CreateClaimedRecordingWebhookDelivery reserves it for synchronous sending
+	// so the poller cannot also claim it; retention prunes only terminal rows.
 	CreateRecordingWebhookDelivery(ctx context.Context, input *RecordingWebhookDeliveryInput) (*RecordingWebhookDelivery, error)
 	CreateClaimedRecordingWebhookDelivery(ctx context.Context, input *RecordingWebhookDeliveryInput) (*RecordingWebhookDelivery, error)
 	ClaimDueRecordingWebhookDeliveries(ctx context.Context, now time.Time, limit int) ([]RecordingWebhookDelivery, error)

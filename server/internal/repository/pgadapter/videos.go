@@ -31,10 +31,8 @@ func (a *PGAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID int64,
 	return nil
 }
 
-// closeOpenVideoMetadataSpansWith runs both close queries against the
-// supplied Queries handle. Separate from the PGAdapter method so
-// MarkVideoDone/MarkVideoFailed can pass their tx-scoped Queries and
-// share atomicity with the terminal video update that follows.
+// closeOpenVideoMetadataSpansWith accepts the terminal update's transaction so
+// metadata spans and video status commit together.
 func closeOpenVideoMetadataSpansWith(ctx context.Context, q *pggen.Queries, videoID int64, at time.Time) error {
 	at = at.UTC()
 	if err := q.CloseOpenVideoTitleSpans(ctx, pggen.CloseOpenVideoTitleSpansParams{
@@ -339,21 +337,16 @@ func (a *PGAdapter) VideoStatsHistory(ctx context.Context) ([]repository.VideoSt
 }
 
 func (a *PGAdapter) VideoStatsTotals(ctx context.Context, userID string) (*repository.VideoStatsTotals, error) {
-	row, err := a.queries.StatisticsTotals(ctx, userID)
-	if err != nil {
+	query, args := repository.BuildVideoStatsTotalsQuery(userID, repository.VideoPageDialect{Postgres: true})
+	var totals repository.VideoStatsTotals
+	if err := a.db.QueryRow(ctx, query, args...).Scan(
+		&totals.Total, &totals.TotalSize, &totals.TotalDuration,
+		&totals.ThisWeek, &totals.Incomplete, &totals.Channels, &totals.Removed,
+		&totals.WatchLater, &totals.Unwatched, &totals.ContinueWatching,
+	); err != nil {
 		return nil, fmt.Errorf("pg video stats totals: %w", err)
 	}
-	return &repository.VideoStatsTotals{
-		Total:         row.Total,
-		TotalSize:     row.TotalSize,
-		TotalDuration: row.TotalDuration,
-		ThisWeek:      row.ThisWeek,
-		Incomplete:    row.Incomplete,
-		Channels:      row.Channels,
-		Removed:       row.Removed,
-		WatchLater:    row.WatchLater,
-		Unwatched:     row.Unwatched,
-	}, nil
+	return &totals, nil
 }
 
 func (a *PGAdapter) VideoStatsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (*repository.VideoStatsTotals, error) {
@@ -419,6 +412,7 @@ func scanPGVideos(rows pgx.Rows) ([]repository.Video, error) {
 	items := []repository.Video{}
 	for rows.Next() {
 		var row pggen.Video
+		var lastProgressAtMs *int64
 		if err := rows.Scan(
 			&row.ID,
 			&row.JobID,
@@ -453,10 +447,13 @@ func scanPGVideos(rows pgx.Rows) ([]repository.Video, error) {
 			&row.TwitchVideoID,
 			&row.BroadcastAt,
 			&row.NextRetryAt,
+			&lastProgressAtMs,
 		); err != nil {
 			return nil, err
 		}
-		items = append(items, *pgVideoToDomain(row))
+		video := pgVideoToDomain(row)
+		video.LastProgressAtMs = lastProgressAtMs
+		items = append(items, *video)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

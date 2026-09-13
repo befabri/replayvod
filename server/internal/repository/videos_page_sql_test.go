@@ -19,23 +19,25 @@ func TestBuildListVideosPageQuery_PlaceholdersMatchArgs(t *testing.T) {
 		SortText:        strptr("chan"),
 	}
 	base := ListVideosOpts{
-		Status:             "DONE",
-		Quality:            "1080p60",
-		BroadcasterID:      "bc-1",
-		Language:           "en",
-		DurationMinSeconds: &dur,
-		DurationMaxSeconds: &dur,
-		SizeMinBytes:       &sz,
-		SizeMaxBytes:       &sz,
-		Window:             "this_week",
-		IncompleteOnly:     true,
-		Limit:              24,
+		Status:               "DONE",
+		Quality:              "1080p60",
+		BroadcasterID:        "bc-1",
+		Language:             "en",
+		DurationMinSeconds:   &dur,
+		DurationMaxSeconds:   &dur,
+		SizeMinBytes:         &sz,
+		SizeMaxBytes:         &sz,
+		Window:               "this_week",
+		IncompleteOnly:       true,
+		ContinueWatchingOnly: true,
+		Limit:                24,
 	}
 	pg := VideoPageDialect{Postgres: true, FormatTime: func(t time.Time) any { return t }}
 	sqlite := VideoPageDialect{Postgres: false, FormatTime: func(t time.Time) any { return t.String() }}
 
 	sorts := []struct{ sort, order string }{
 		{"created_at", "desc"}, {"created_at", "asc"},
+		{"last_watched", "desc"}, {"last_watched", "asc"},
 		{"history_when", "desc"}, {"history_when", "asc"},
 		{"channel", "asc"}, {"channel", "desc"},
 		{"duration", "asc"}, {"duration", "desc"},
@@ -109,9 +111,6 @@ func TestBuildListVideosPageQuery_DialectFragments(t *testing.T) {
 	}
 }
 
-// TestBuildListVideosPageQuery_DeletionKindFilter pins the Unavailable history
-// view: scope removed plus the missing kind, bound rather than inlined, and
-// absent when no kind is requested.
 func TestBuildListVideosPageQuery_DeletionKindFilter(t *testing.T) {
 	dialect := VideoPageDialect{Postgres: true, FormatTime: func(t time.Time) any { return t }}
 	q, args := BuildListVideosPageQuery(ListVideosOpts{Scope: "removed", DeletionKind: "missing", Limit: 10}, nil, dialect)

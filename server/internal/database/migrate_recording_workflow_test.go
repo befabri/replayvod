@@ -2,6 +2,8 @@ package database_test
 
 import (
 	"encoding/json"
+	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 
@@ -180,14 +182,16 @@ func TestRecordingWorkflowSQLRollbackAndReupgrade(t *testing.T) {
 				for table, snapshot := range historical {
 					expected[table] = readMigrationTable(t, h.db, table, strings.Join(snapshot.columns, ","))
 				}
-				for _, version := range []string{
-					"064_job_stop_requested",
-					"063_task_availability",
-					"062_canonical_recording_timeline", "061_waveform_publication_references",
-					"060_recording_workflow_upgrade", "059_recording_intents",
-					"058_media_publications", "057_execution_ownership",
-				} {
-					rollbackMigration(t, h, version)
+				// Backend-specific migrations must also be undone before reapplying the baseline.
+				paths, err := fs.Glob(h.files, "*.down.sql")
+				if err != nil {
+					t.Fatal(err)
+				}
+				slices.Reverse(paths)
+				for _, path := range paths {
+					if path >= "057_" {
+						rollbackMigration(t, h, strings.TrimSuffix(path, ".down.sql"))
+					}
 				}
 				assertMigrationTablesUnchanged(t, h.db, expected)
 				assertCount(t, h.db, "SELECT count(*) FROM schema_migrations WHERE version >= '057'", 0)

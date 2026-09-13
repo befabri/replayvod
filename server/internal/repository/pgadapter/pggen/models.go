@@ -245,12 +245,15 @@ type Session struct {
 }
 
 type Setting struct {
-	UserID         string    `json:"user_id"`
-	Timezone       string    `json:"timezone"`
-	DatetimeFormat string    `json:"datetime_format"`
-	Language       string    `json:"language"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	UserID                 string    `json:"user_id"`
+	Timezone               string    `json:"timezone"`
+	DatetimeFormat         string    `json:"datetime_format"`
+	Language               string    `json:"language"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+	ResumeMinSeconds       int64     `json:"resume_min_seconds"`
+	ResumeEndMarginSeconds int64     `json:"resume_end_margin_seconds"`
+	ResumeEndMarginPercent int64     `json:"resume_end_margin_percent"`
 }
 
 type SnapshotSubscription struct {

@@ -107,6 +107,7 @@ type Querier interface {
 	// single value and an already-set secret is never overwritten. It also creates
 	// the row if EventSub config has not been saved yet.
 	EnsureServerHMACSecret(ctx context.Context, hmacSecret string) error
+	EnsureSettings(ctx context.Context, userID string) error
 	FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartParams) error
 	// Live only: a queued or running archive for the same channel must neither
 	// block a live recording nor receive its channel.update metadata.
@@ -224,9 +225,6 @@ type Querier interface {
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error)
 	ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error)
-	// Recordings the user started and has not played to the end, most recently
-	// watched first. The dashboard applies its resume policy on top.
-	ListContinueWatchingVideos(ctx context.Context, arg ListContinueWatchingVideosParams) ([]Video, error)
 	ListDueTasks(ctx context.Context) ([]Task, error)
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
@@ -440,30 +438,15 @@ type Querier interface {
 	// See postgres/videos.sql SoftDeleteVideo.
 	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
-	StatisticsChannels(ctx context.Context) (int64, error)
 	// See queries/postgres/videos.sql for why this stays a plain group-by.
 	StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow, error)
-	StatisticsIncomplete(ctx context.Context) (int64, error)
-	// Count of tombstoned (removed) recordings; powers the History "Removed" tab.
-	StatisticsRemoved(ctx context.Context) (int64, error)
-	StatisticsThisWeek(ctx context.Context) (int64, error)
 	// Per-channel rollup of finished recordings: count + summed bytes +
-	// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+	// summed duration. Scopes the library totals to one broadcaster
 	// so the watch page can render a "N recordings and X GB" line under the
 	// channel name without paginating the full library client-side.
 	// sqlc-sqlite v1.30 can truncate the final byte of this generated
 	// const, so keep a tautology after the meaningful NULL predicate.
 	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
-	// StatisticsTotals is split across atomic queries instead of one
-	// combined SELECT. The combined form (with CASE WHEN aggregates in
-	// a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
-	// that truncates trailing chars off subsequent query consts. The
-	// adapter combines these rows into a single VideoStatsTotals struct.
-	// Postgres still uses the single-query form; see
-	// queries/postgres/videos.sql.
-	StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error)
-	StatisticsUnwatched(ctx context.Context, userID string) (int64, error)
-	StatisticsWatchLater(ctx context.Context, userID string) (int64, error)
 	StopJobMetadata(ctx context.Context, arg StopJobMetadataParams) (int64, error)
 	SumReadyPlaybackBytes(ctx context.Context) (int64, error)
 	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
@@ -482,6 +465,8 @@ type Querier interface {
 	// Empty inputs preserve the existing value so callers can safely write
 	// whichever subset Twitch returned.
 	UpdateCategoryGameMetadata(ctx context.Context, arg UpdateCategoryGameMetadataParams) error
+	// Updating playback must preserve locale preferences, including concurrent saves.
+	UpdatePlaybackSettings(ctx context.Context, arg UpdatePlaybackSettingsParams) (Setting, error)
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error

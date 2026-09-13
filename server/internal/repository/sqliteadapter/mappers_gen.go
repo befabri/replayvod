@@ -356,12 +356,15 @@ func sqliteServerSettingsToDomain(src sqlitegen.ServerSetting) *repository.Serve
 
 func sqliteSettingsToDomain(src sqlitegen.Setting) *repository.Settings {
 	return &repository.Settings{
-		CreatedAt:      src.CreatedAt.Time,
-		DatetimeFormat: src.DatetimeFormat,
-		Language:       src.Language,
-		Timezone:       src.Timezone,
-		UpdatedAt:      src.UpdatedAt.Time,
-		UserID:         src.UserID,
+		CreatedAt:              src.CreatedAt.Time,
+		DatetimeFormat:         src.DatetimeFormat,
+		Language:               src.Language,
+		ResumeEndMarginPercent: src.ResumeEndMarginPercent,
+		ResumeEndMarginSeconds: src.ResumeEndMarginSeconds,
+		ResumeMinSeconds:       src.ResumeMinSeconds,
+		Timezone:               src.Timezone,
+		UpdatedAt:              src.UpdatedAt.Time,
+		UserID:                 src.UserID,
 	}
 }
 

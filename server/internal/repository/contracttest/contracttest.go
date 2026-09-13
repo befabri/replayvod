@@ -9,40 +9,28 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// Harness provides the repository under test plus the backend-specific,
-// test-only setup operations the interface does not expose. Each adapter
-// package implements it in its contract_test.go.
+// Harness provides a repository and backend-specific fixture operations.
 type Harness interface {
-	// Repo returns the repository under test. It returns the same instance
-	// for the life of the harness.
+	// Repo returns the same repository instance throughout the harness's lifetime.
 	Repo() repository.Repository
 	// ConcurrentRepo returns an independent connection so Go pool limits
 	// cannot hide missing database locks.
 	ConcurrentRepo(t *testing.T) repository.Repository
 	BackdateScheduleRequests(t *testing.T, at time.Time)
 
-	// BackdateAllSubscriptionsCreated sets created_at on every subscriptions
-	// row to at. Used to force a created_at tie so pagination tie-breaking can
-	// be exercised deterministically.
+	// BackdateAllSubscriptionsCreated forces tied timestamps for pagination tests.
 	BackdateAllSubscriptionsCreated(t *testing.T, at time.Time)
 
-	// BackdateVideoStartDownload sets a single video's start_download_at. The
-	// repository interface doesn't expose this server-managed timestamp, but
-	// recency-ordered list/page queries need deterministic values to assert on.
+	// BackdateVideoStartDownload sets the server-managed timestamp for ordering tests.
 	BackdateVideoStartDownload(t *testing.T, videoID int64, at time.Time)
 
-	// BackdateVideoDownloadedAt sets a video's downloaded_at.
 	BackdateVideoDownloadedAt(t *testing.T, videoID int64, at time.Time)
 
-	// BackdateVideoDeletedAt sets a soft-deleted video's deleted_at.
 	BackdateVideoDeletedAt(t *testing.T, videoID int64, at time.Time)
 
-	// BackdateVideoUserStateWatched sets a (user, video) state's watched_at.
 	BackdateVideoUserStateWatched(t *testing.T, userID string, videoID int64, at time.Time)
 
-	// BackdateRecordingWebhookDelivery sets created_at/updated_at/delivered_at
-	// on a delivery row; nil arguments leave that column unchanged. Used to age
-	// deliveries for retention-pruning tests.
+	// BackdateRecordingWebhookDelivery leaves timestamps unchanged for nil arguments.
 	BackdateRecordingWebhookDelivery(t *testing.T, id int64, createdAt, updatedAt, deliveredAt *time.Time)
 }
 
@@ -187,5 +175,8 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Video_ListSortDimensions", testListVideosSortDimensions)
 	run("Video_ListPageTerminalOnlyHistoryWhen", testListVideosPageTerminalOnlyHistoryWhen)
 	run("Video_UserStateFiltersAndStatistics", testVideoUserStateFiltersAndStatistics)
+	run("Video_StatisticsTotals", testVideoStatisticsTotals)
+	run("User_PlaybackSettings", testUserPlaybackSettings)
+	run("Video_ContinueWatchingPolicyAndOrder", testContinueWatchingPolicyAndOrder)
 	run("Video_HistoryOutcomeCounts", testVideoHistoryOutcomeCounts)
 }

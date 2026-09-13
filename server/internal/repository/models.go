@@ -16,8 +16,8 @@ type User struct {
 	UpdatedAt       time.Time
 }
 
-// Session is a server-side session. The cookie holds only the raw session ID;
-// the hashed_id (SHA-256 of the raw ID) is stored and looked up in the DB.
+// Session stores a SHA-256 hash of the session ID; the browser cookie holds
+// the raw ID, which must never be persisted.
 type Session struct {
 	HashedID        string
 	UserID          string
@@ -360,10 +360,13 @@ type StreamInput struct {
 // Video is a recording and its lifecycle state. ForceH264 excludes HEVC and AV1
 // video renditions; audio recordings ignore it.
 type Video struct {
-	ID          int64
-	JobID       string
-	Filename    string
-	DisplayName string
+	// LastProgressAtMs holds Unix milliseconds for last_watched pages; nil means
+	// no saved progress or a query using another sort.
+	LastProgressAtMs *int64
+	ID               int64
+	JobID            string
+	Filename         string
+	DisplayName      string
 	// Title is the broadcast title observed at admission, or empty when unknown.
 	Title  string
 	Status string
@@ -731,11 +734,8 @@ type VideoPlaybackAsset struct {
 	UpdatedAt       time.Time
 }
 
-// VideoPlaybackAssetInput is one status-discriminated upsert for the playback
-// artifact row. The schema CHECK enforces field consistency: status='ready'
-// requires Filename/MimeType/DurationSeconds/SizeBytes/GeneratedAt/
-// LastAccessedAt to be set; the other statuses require Filename/MimeType/
-// LastAccessedAt to be nil.
+// VideoPlaybackAssetInput requires all media fields for ready assets; other
+// statuses require nil Filename, MimeType, and LastAccessedAt.
 type VideoPlaybackAssetInput struct {
 	VideoID         int64
 	Status          string
@@ -815,9 +815,10 @@ type VideoStatsTotals struct {
 	Channels      int64
 	// Removed counts tombstoned recordings (deleted_at IS NOT NULL). Zero for
 	// the per-broadcaster rollup, which only aggregates live DONE rows.
-	Removed    int64
-	WatchLater int64
-	Unwatched  int64
+	Removed          int64
+	WatchLater       int64
+	Unwatched        int64
+	ContinueWatching int64
 }
 
 type VideoStatsByStatus struct {
@@ -836,11 +837,8 @@ type VideoStatsHistoryBucket struct {
 	Count        int64
 }
 
-// RetentionVideo is a terminal, still-present recording with a snapshotted
-// retention window. DONE recordings plus FAILED rows that produced a partial or
-// cancelled artifact can own reclaimable objects. DownloadedAt and
-// RetentionWindowHours are filtered NOT NULL by the query, so nil values here
-// are invariant breaches.
+// RetentionVideo identifies reclaimable terminal media under a captured retention
+// policy; queries guarantee non-nil DownloadedAt and RetentionWindowHours.
 type RetentionVideo struct {
 	VideoID              int64
 	BroadcasterID        string
@@ -855,17 +853,16 @@ type StorageScanVideo struct {
 	Status   string
 }
 
-// ListVideosOpts is the filter+sort payload for ListVideos. Empty Status
-// means "all statuses". Sort/Order are enum-validated at the handler
-// boundary; the adapter falls back to created_at DESC when they are
-// empty or unrecognized. NULL size/duration rows sort to the end.
+// ListVideosOpts filters and orders recording queries; empty Status includes
+// every status, and unknown sorts default to created_at descending. Page queries
+// place null size, duration, and last-watched values last in either direction.
 type ListVideosOpts struct {
 	// UserID scopes per-user library filters such as watch later and unwatched.
 	// Empty is valid for global surfaces but makes those per-user filters match
 	// nothing.
 	UserID string
 	Status string // "" | "PENDING" | "RUNNING" | "DONE" | "FAILED"
-	Sort   string // "" | "created_at" | "duration" | "size" | "channel" | "history_when" | "broadcast_at"
+	Sort   string // "" | "created_at" | "duration" | "size" | "channel" | "history_when" | "broadcast_at" | "last_watched"
 	// Source narrows to live recordings or archives; "" returns both.
 	Source             string // "" | "live" | "vod"
 	Order              string // "" | "asc" | "desc"
@@ -886,6 +883,8 @@ type ListVideosOpts struct {
 	// started watching yet. A watch-later-only row with no watched_at timestamp
 	// still counts as unwatched.
 	UnwatchedOnly bool
+	// ContinueWatchingOnly lists started recordings with a resumable position.
+	ContinueWatchingOnly bool
 	// Outcome filters terminal status and completion kind using ClassifyVideoOutcome;
 	// empty includes every outcome.
 	Outcome string // "" | "completed" | "failed" | "cancelled"
@@ -916,10 +915,8 @@ type VideoUserState struct {
 	UpdatedAt           time.Time
 }
 
-// A recording counts as started, and enters the viewer's history, once the
-// playback position reaches the smaller of WatchStartedSeconds and
-// WatchStartedFraction of its duration. A stray click that plays a second
-// does not mark it watched; a minute-long clip still counts after six seconds.
+// WatchStartedSeconds and WatchStartedFraction define the smaller playback
+// threshold that marks a recording as watched, independently of resume preferences.
 const (
 	WatchStartedSeconds  = 30.0
 	WatchStartedFraction = 0.1
@@ -939,10 +936,10 @@ type VideoPage struct {
 	NextCursor *VideoPageCursor
 }
 
-// VideoListPageCursor is the stable keyset cursor for video.listPage.
-// SortNumber is used for duration sorts, SortInt for size sorts, SortText for
-// channel sorts, and SortTime for timestamp-derived sorts such as history_when.
-// StartDownloadAt is retained for created_at and as the historical cursor field.
+// VideoListPageCursor preserves the active sort value for video.listPage.
+// SortInt holds bytes for size or Unix milliseconds for last_watched;
+// SortNumber holds duration, SortText holds channel, and SortTime holds derived
+// timestamps. StartDownloadAt and ID identify the last returned recording.
 type VideoListPageCursor struct {
 	SortNumber      *float64
 	SortInt         *int64
@@ -958,8 +955,7 @@ type VideoListPage struct {
 	NextCursor *VideoListPageCursor
 }
 
-// SortKey returns the SQL sort token; invalid columns or orders become
-// created_at-desc, matching the keyset pagination default.
+// SortKey returns the normalized sort and order joined for SQL queries.
 func (o ListVideosOpts) SortKey() string {
 	sort, order := NormalizeVideoListSort(o)
 	return sort + "-" + order
@@ -1049,8 +1045,7 @@ type Subscription struct {
 	RevokedReason     *string
 }
 
-// SubscriptionInput is the create payload, matching what Twitch returns
-// when we call CreateEventSubSubscription.
+// SubscriptionInput mirrors Twitch's subscription creation response.
 type SubscriptionInput struct {
 	ID                string
 	Status            string
@@ -1098,9 +1093,7 @@ type WebhookEvent struct {
 	ProcessedAt      *time.Time
 }
 
-// WebhookEventInput is the create payload for audit logging a received
-// webhook. The handler fills this before dispatching to the event-type
-// specific processor.
+// WebhookEventInput records an incoming webhook before processing begins.
 type WebhookEventInput struct {
 	EventID          string
 	MessageType      string
@@ -1137,11 +1130,9 @@ type RecordingWebhookDelivery struct {
 	DeliveredAt   *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
-	// FrozenParts is the serialized part metadata (paths, sizes, indices; no
-	// URLs), snapshotted on the first delivery build so a retry rebuilds the real
-	// part list even after retention deletes the video's parts. Signed download
-	// URLs are re-minted per attempt, not stored here. Empty until the first
-	// attempt snapshots it.
+	// FrozenParts holds serialized paths, sizes, and indices after the first
+	// delivery build so retries survive part deletion; signed URLs are minted
+	// per attempt and excluded from this snapshot.
 	FrozenParts string
 }
 
@@ -1194,9 +1185,7 @@ const (
 	EventLogSeverityError = "error"
 )
 
-// EventLog is an append-only app-side audit entry. Distinct from
-// webhook_events (inbound Twitch) and fetch_logs (outbound Helix):
-// event_logs records what the app itself did.
+// EventLog records an application action in the append-only audit log.
 type EventLog struct {
 	ID          int64
 	Domain      string
@@ -1220,12 +1209,15 @@ type EventLogInput struct {
 }
 
 type Settings struct {
-	UserID         string
-	Timezone       string
-	DatetimeFormat string
-	Language       string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ResumeMinSeconds       int64
+	ResumeEndMarginSeconds int64
+	ResumeEndMarginPercent int64
+	UserID                 string
+	Timezone               string
+	DatetimeFormat         string
+	Language               string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // ServerSettings stores process-wide settings that are configured through the

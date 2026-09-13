@@ -13,6 +13,7 @@ func TestNormalizeVideoListSort(t *testing.T) {
 		wantSort  string
 		wantOrder string
 	}{
+		{"valid last_watched desc", "last_watched", "desc", "last_watched", "desc"},
 		{"valid duration asc", "duration", "asc", "duration", "asc"},
 		{"valid size desc", "size", "desc", "size", "desc"},
 		{"valid channel asc", "channel", "asc", "channel", "asc"},
@@ -70,5 +71,14 @@ func TestVideoListCursorFromVideo_HistoryWhen(t *testing.T) {
 	}
 	if !cursor.StartDownloadAt.Equal(started) {
 		t.Fatalf("StartDownloadAt = %v, want %v", cursor.StartDownloadAt, started)
+	}
+}
+
+func TestVideoListCursorFromVideo_LastWatched(t *testing.T) {
+	stamp := int64(123456789)
+	v := &Video{ID: 7, LastProgressAtMs: &stamp}
+	cursor := VideoListCursorFromVideo(v, ListVideosOpts{Sort: "last_watched"})
+	if cursor.SortInt == nil || *cursor.SortInt != stamp {
+		t.Fatalf("cursor = %+v", cursor)
 	}
 }

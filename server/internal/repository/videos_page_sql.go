@@ -3,13 +3,11 @@ package repository
 import (
 	"fmt"
 	"time"
+
+	"github.com/befabri/replayvod/server/internal/resumepolicy"
 )
 
-// videosPageColumnsSQL is the shared SELECT/FROM prefix for the dialect-aware
-// keyset query builder. The tombstone (deleted_at) predicate is appended by
-// filtersSQL based on opts.Scope rather than hardcoded here, so this list is
-// the only place the column order is declared (kept in lockstep with
-// scanPGVideo/scanSQLiteVideo).
+// videosPageColumnsSQL must preserve the column order consumed by both adapters.
 const videosPageColumnsSQL = `SELECT
     id, job_id, filename, display_name, status, quality, selected_quality,
     selected_fps, broadcaster_id, stream_id, viewer_count, language,
@@ -18,8 +16,7 @@ const videosPageColumnsSQL = `SELECT
     recording_type, force_h264, title, completion_kind, truncated,
     trigger_schedule_id, retention_source_schedule_id, retention_window_hours,
     source, twitch_video_id, broadcast_at, next_retry_at
-FROM videos
-WHERE 1=1`
+`
 
 // VideoPageDialect supplies the placeholder/cast and timestamp-binding pieces
 // that differ between Postgres and SQLite.
@@ -30,8 +27,6 @@ type VideoPageDialect struct {
 	FormatTime func(time.Time) any
 }
 
-// videoPageBuilder appends bind args as it renders placeholders. Postgres gets
-// distinct $N placeholders; SQLite gets positional ? placeholders.
 type videoPageBuilder struct {
 	d    VideoPageDialect
 	args []any
@@ -111,19 +106,28 @@ func BuildListVideosPageQuery(opts ListVideosOpts, cursor *VideoListPageCursor, 
 	limit := int64(ListVideosPageQueryLimit(opts.Limit))
 	b := &videoPageBuilder{d: d}
 
-	query := videosPageColumnsSQL +
+	progress := "NULL"
+	from := " FROM videos"
+	if sort == "last_watched" {
+		progress = "progress.last_progress_at_ms"
+		join := " LEFT JOIN"
+		if opts.ContinueWatchingOnly {
+			join = " INNER JOIN"
+		}
+		from += join + " video_user_states progress ON progress.video_id = videos.id AND progress.user_id = " + b.phText(opts.UserID)
+	}
+	if opts.ContinueWatchingOnly {
+		from += " LEFT JOIN (SELECT user_id, resume_min_seconds, resume_end_margin_seconds, resume_end_margin_percent FROM settings) resume_settings ON resume_settings.user_id = " + b.phText(opts.UserID)
+	}
+	query := videosPageColumnsSQL + ", " + progress + " AS watch_progress_at_ms" + from + " WHERE 1=1" +
 		fmt.Sprintf("\n  AND (%s = '' OR status = %s)", b.phText(opts.Status), b.phText(opts.Status)) +
-		b.filtersSQL(opts) +
-		b.cursorAndOrderSQL(sort, order, cursor) +
+		b.filtersSQL(opts, sort) +
+		b.cursorAndOrderSQL(sort, order, cursor, opts.ContinueWatchingOnly) +
 		fmt.Sprintf("\nLIMIT %s", b.phID(limit))
 	return query, b.args
 }
 
-func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
-	// Tombstone scope. Default ("" / "active") keeps the historical
-	// active-only behaviour; "removed" returns only tombstones; "all"
-	// drops the predicate entirely. No bind args: the value is a fixed
-	// enum already validated at the handler boundary.
+func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts, sort string) string {
 	var scope string
 	switch opts.Scope {
 	case "removed":
@@ -165,9 +169,7 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 		incomplete = fmt.Sprintf("\n  AND (%s = 0 OR completion_kind = 'partial' OR truncated = 1)", b.phBool(opts.IncompleteOnly))
 	}
 
-	// Outcome resolves the UI's three-way split over two columns: DONE is
-	// completed, and a FAILED row is a cancellation or a failure depending on
-	// completion_kind (NOT NULL since migration 028, so no COALESCE).
+	// This predicate must agree with ClassifyVideoOutcome.
 	outcome := fmt.Sprintf(
 		"\n  AND (%s = '' OR (%s = 'completed' AND status = 'DONE')"+
 			" OR (%s = 'failed' AND status = 'FAILED' AND completion_kind <> 'cancelled')"+
@@ -179,7 +181,35 @@ func (b *videoPageBuilder) filtersSQL(opts ListVideosOpts) string {
 	watchLater := b.watchLaterSQL(opts)
 	unwatched := b.unwatchedSQL(opts)
 
-	return scope + quality + broadcaster + language + source + kind + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + outcome + terminal + watchLater + unwatched
+	return scope + quality + broadcaster + language + source + kind + durationMin + durationMax + sizeMin + sizeMax + window + incomplete + outcome + terminal + watchLater + unwatched + b.continueWatchingSQL(opts, sort)
+}
+
+// continueWatchingEligibilitySQL requires the viewer's progress and
+// resume_settings aliases; list pages and statistics share this predicate.
+func (b *videoPageBuilder) continueWatchingEligibilitySQL() string {
+	return fmt.Sprintf(`
+  AND videos.deleted_at IS NULL
+  AND videos.status = 'DONE'
+  AND progress.watched_at IS NOT NULL
+  AND progress.last_position_seconds >= COALESCE(resume_settings.resume_min_seconds, %s)
+  AND (videos.duration_seconds IS NULL OR videos.duration_seconds <= 0
+    OR progress.last_position_seconds < videos.duration_seconds - CASE
+      WHEN videos.duration_seconds * COALESCE(resume_settings.resume_end_margin_percent, %s) / 100.0 < COALESCE(resume_settings.resume_end_margin_seconds, %s)
+      THEN videos.duration_seconds * COALESCE(resume_settings.resume_end_margin_percent, %s) / 100.0
+      ELSE COALESCE(resume_settings.resume_end_margin_seconds, %s) END)`,
+		b.ph(resumepolicy.MinSeconds, "double precision"),
+		b.ph(resumepolicy.EndMarginPercent, "double precision"), b.ph(resumepolicy.EndMarginSeconds, "double precision"),
+		b.ph(resumepolicy.EndMarginPercent, "double precision"), b.ph(resumepolicy.EndMarginSeconds, "double precision"))
+}
+
+func (b *videoPageBuilder) continueWatchingSQL(opts ListVideosOpts, sort string) string {
+	if !opts.ContinueWatchingOnly {
+		return ""
+	}
+	if sort == "last_watched" {
+		return b.continueWatchingEligibilitySQL()
+	}
+	return " AND EXISTS (SELECT 1 FROM video_user_states progress WHERE progress.video_id = videos.id AND progress.user_id = " + b.phText(opts.UserID) + b.continueWatchingEligibilitySQL() + ")"
 }
 
 func (b *videoPageBuilder) watchLaterSQL(opts ListVideosOpts) string {
@@ -240,7 +270,7 @@ func (b *videoPageBuilder) unwatchedSQL(opts ListVideosOpts) string {
 	  )`, b.phBool(opts.UnwatchedOnly), b.phText(opts.UserID), b.phText(opts.UserID))
 }
 
-func (b *videoPageBuilder) cursorAndOrderSQL(sort, order string, cursor *VideoListPageCursor) string {
+func (b *videoPageBuilder) cursorAndOrderSQL(sort, order string, cursor *VideoListPageCursor, continueWatchingOnly bool) string {
 	present := cursor != nil
 	var (
 		curTime     time.Time
@@ -268,6 +298,26 @@ func (b *videoPageBuilder) cursorAndOrderSQL(sort, order string, cursor *VideoLi
 	// An archive sorts by the date its stream aired; a live recording aired
 	// when it was recorded.
 	broadcastWhen := "COALESCE(broadcast_at, start_download_at)"
+
+	if sort == "last_watched" {
+		op, direction := "<", "DESC"
+		if order == "asc" {
+			op, direction = ">", "ASC"
+		}
+		progress := "progress.last_progress_at_ms"
+		idColumn := "videos.id"
+		if continueWatchingOnly {
+			idColumn = "progress.video_id"
+		}
+		return fmt.Sprintf(`
+  AND (
+    %s IS NULL
+    OR (%s IS NULL AND %s IS NULL AND id %s %s)
+    OR (%s IS NOT NULL AND (%s IS NULL OR %s %s %s OR (%s = %s AND id %s %s)))
+  )
+ORDER BY progress.last_progress_at_ms %s NULLS LAST, %s %s`,
+			t(), bigint(), progress, op, id(), bigint(), progress, progress, op, bigint(), progress, bigint(), op, id(), direction, idColumn, direction)
+	}
 
 	switch sort + ":" + order {
 	case "created_at:asc":

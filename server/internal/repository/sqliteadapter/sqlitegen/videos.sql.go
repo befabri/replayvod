@@ -1837,19 +1837,6 @@ func (q *Queries) StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusR
 	return items, nil
 }
 
-const statisticsChannels = `-- name: StatisticsChannels :one
-SELECT CAST(COUNT(DISTINCT broadcaster_id) AS INTEGER) AS channels
-FROM videos
-WHERE deleted_at IS NULL
-`
-
-func (q *Queries) StatisticsChannels(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, statisticsChannels)
-	var channels int64
-	err := row.Scan(&channels)
-	return channels, err
-}
-
 const statisticsHistory = `-- name: StatisticsHistory :many
 SELECT
     status,
@@ -1900,46 +1887,6 @@ func (q *Queries) StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow
 	return items, nil
 }
 
-const statisticsIncomplete = `-- name: StatisticsIncomplete :one
-SELECT CAST(COUNT(*) AS INTEGER) AS incomplete
-FROM videos
-WHERE deleted_at IS NULL AND (completion_kind = 'partial' OR truncated)
-`
-
-func (q *Queries) StatisticsIncomplete(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, statisticsIncomplete)
-	var incomplete int64
-	err := row.Scan(&incomplete)
-	return incomplete, err
-}
-
-const statisticsRemoved = `-- name: StatisticsRemoved :one
-SELECT CAST(COUNT(*) AS INTEGER) AS removed
-FROM videos
-WHERE deleted_at IS NOT NULL
-`
-
-// Count of tombstoned (removed) recordings; powers the History "Removed" tab.
-func (q *Queries) StatisticsRemoved(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, statisticsRemoved)
-	var removed int64
-	err := row.Scan(&removed)
-	return removed, err
-}
-
-const statisticsThisWeek = `-- name: StatisticsThisWeek :one
-SELECT CAST(COUNT(*) AS INTEGER) AS this_week
-FROM videos
-WHERE deleted_at IS NULL AND start_download_at >= datetime('now', '-7 days')
-`
-
-func (q *Queries) StatisticsThisWeek(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, statisticsThisWeek)
-	var this_week int64
-	err := row.Scan(&this_week)
-	return this_week, err
-}
-
 const statisticsTotalsByBroadcaster = `-- name: StatisticsTotalsByBroadcaster :one
 SELECT
     CAST(COUNT(*) AS INTEGER) AS total,
@@ -1957,7 +1904,7 @@ type StatisticsTotalsByBroadcasterRow struct {
 }
 
 // Per-channel rollup of finished recordings: count + summed bytes +
-// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+// summed duration. Scopes the library totals to one broadcaster
 // so the watch page can render a "N recordings and X GB" line under the
 // channel name without paginating the full library client-side.
 // sqlc-sqlite v1.30 can truncate the final byte of this generated
@@ -1967,70 +1914,6 @@ func (q *Queries) StatisticsTotalsByBroadcaster(ctx context.Context, broadcaster
 	var i StatisticsTotalsByBroadcasterRow
 	err := row.Scan(&i.Total, &i.TotalSize, &i.TotalDuration)
 	return i, err
-}
-
-const statisticsTotalsDoneOnly = `-- name: StatisticsTotalsDoneOnly :one
-
-SELECT
-    CAST(COUNT(*) AS INTEGER) AS total,
-    CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) AS total_size,
-    CAST(COALESCE(SUM(duration_seconds), 0) AS REAL) AS total_duration
-FROM videos WHERE status = 'DONE' AND deleted_at IS NULL
-`
-
-type StatisticsTotalsDoneOnlyRow struct {
-	Total         int64   `json:"total"`
-	TotalSize     int64   `json:"total_size"`
-	TotalDuration float64 `json:"total_duration"`
-}
-
-// StatisticsTotals is split across atomic queries instead of one
-// combined SELECT. The combined form (with CASE WHEN aggregates in
-// a multi-column SELECT list) triggers a sqlc-on-SQLite codegen bug
-// that truncates trailing chars off subsequent query consts. The
-// adapter combines these rows into a single VideoStatsTotals struct.
-// Postgres still uses the single-query form; see
-// queries/postgres/videos.sql.
-func (q *Queries) StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error) {
-	row := q.db.QueryRowContext(ctx, statisticsTotalsDoneOnly)
-	var i StatisticsTotalsDoneOnlyRow
-	err := row.Scan(&i.Total, &i.TotalSize, &i.TotalDuration)
-	return i, err
-}
-
-const statisticsUnwatched = `-- name: StatisticsUnwatched :one
-SELECT CAST(COUNT(*) AS INTEGER) AS unwatched
-FROM videos v
-LEFT JOIN video_user_states vus
-  ON vus.video_id = v.id AND vus.user_id = CAST(?1 AS text)
-WHERE v.deleted_at IS NULL
-  AND v.status = 'DONE'
-  AND CAST(?1 AS text) <> ''
-  AND vus.watched_at IS NULL
-`
-
-func (q *Queries) StatisticsUnwatched(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, statisticsUnwatched, userID)
-	var unwatched int64
-	err := row.Scan(&unwatched)
-	return unwatched, err
-}
-
-const statisticsWatchLater = `-- name: StatisticsWatchLater :one
-SELECT CAST(COUNT(*) AS INTEGER) AS watch_later
-FROM videos v
-INNER JOIN video_user_states vus ON vus.video_id = v.id
-WHERE v.deleted_at IS NULL
-  AND CAST(?1 AS text) <> ''
-  AND vus.user_id = CAST(?1 AS text)
-  AND vus.watch_later = 1
-`
-
-func (q *Queries) StatisticsWatchLater(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, statisticsWatchLater, userID)
-	var watch_later int64
-	err := row.Scan(&watch_later)
-	return watch_later, err
 }
 
 const tombstoneMissingVideo = `-- name: TombstoneMissingVideo :execrows

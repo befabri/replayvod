@@ -1,0 +1,1 @@
+DROP INDEX idx_video_user_states_progress_asc;

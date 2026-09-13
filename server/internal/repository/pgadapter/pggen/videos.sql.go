@@ -1785,73 +1785,6 @@ func (q *Queries) StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow
 	return items, nil
 }
 
-const statisticsTotals = `-- name: StatisticsTotals :one
-SELECT
-    COUNT(*) FILTER (WHERE status = 'DONE')::BIGINT AS total,
-    COALESCE(SUM(size_bytes) FILTER (WHERE status = 'DONE'), 0)::BIGINT AS total_size,
-    COALESCE(SUM(duration_seconds) FILTER (WHERE status = 'DONE'), 0)::DOUBLE PRECISION AS total_duration,
-    COUNT(*) FILTER (WHERE start_download_at >= now() - interval '7 days')::BIGINT AS this_week,
-    -- Incomplete recordings either have interior gaps or stopped before
-    -- the broadcast did.
-    COUNT(*) FILTER (WHERE completion_kind = 'partial' OR truncated)::BIGINT AS incomplete,
-    -- Distinct channels recorded — feeds the page subtitle. Folded
-    -- into this aggregate so the videos route doesn't need a
-    -- separate full-channels-list fetch just to surface a count.
-    COUNT(DISTINCT broadcaster_id)::BIGINT AS channels,
-    -- Removed (tombstoned) recordings. Subquery because the outer WHERE keeps
-    -- this aggregate scoped to live rows; powers the History "Removed" tab count.
-    (SELECT COUNT(*) FROM videos WHERE deleted_at IS NOT NULL)::BIGINT AS removed,
-    (SELECT COUNT(*)
-     FROM videos v
-     INNER JOIN video_user_states vus ON vus.video_id = v.id
-     WHERE v.deleted_at IS NULL
-       AND $1::text <> ''
-       AND vus.user_id = $1::text
-       AND vus.watch_later)::BIGINT AS watch_later,
-    (SELECT COUNT(*)
-     FROM videos v
-     LEFT JOIN video_user_states vus
-       ON vus.video_id = v.id AND vus.user_id = $1::text
-     WHERE v.deleted_at IS NULL
-       AND v.status = 'DONE'
-       AND $1::text <> ''
-       AND vus.watched_at IS NULL)::BIGINT AS unwatched
-FROM videos WHERE deleted_at IS NULL
-`
-
-type StatisticsTotalsRow struct {
-	Total         int64   `json:"total"`
-	TotalSize     int64   `json:"total_size"`
-	TotalDuration float64 `json:"total_duration"`
-	ThisWeek      int64   `json:"this_week"`
-	Incomplete    int64   `json:"incomplete"`
-	Channels      int64   `json:"channels"`
-	Removed       int64   `json:"removed"`
-	WatchLater    int64   `json:"watch_later"`
-	Unwatched     int64   `json:"unwatched"`
-}
-
-// Library-wide rollups. Total / size / duration restrict to DONE rows
-// (these are the user-visible numbers in the page subtitle); the two
-// FILTER-counted columns drive the videos page tab counters and run
-// across all non-deleted rows.
-func (q *Queries) StatisticsTotals(ctx context.Context, userID string) (StatisticsTotalsRow, error) {
-	row := q.db.QueryRow(ctx, statisticsTotals, userID)
-	var i StatisticsTotalsRow
-	err := row.Scan(
-		&i.Total,
-		&i.TotalSize,
-		&i.TotalDuration,
-		&i.ThisWeek,
-		&i.Incomplete,
-		&i.Channels,
-		&i.Removed,
-		&i.WatchLater,
-		&i.Unwatched,
-	)
-	return i, err
-}
-
 const statisticsTotalsByBroadcaster = `-- name: StatisticsTotalsByBroadcaster :one
 SELECT
     COUNT(*)::BIGINT AS total,
@@ -1868,7 +1801,7 @@ type StatisticsTotalsByBroadcasterRow struct {
 }
 
 // Per-channel rollup of finished recordings: count + summed bytes +
-// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+// summed duration. Scopes the library totals to one broadcaster
 // so the watch page can render a "N recordings · X GB" line under the
 // channel name without paginating the full library client-side.
 func (q *Queries) StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error) {

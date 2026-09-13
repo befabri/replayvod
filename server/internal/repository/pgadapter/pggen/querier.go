@@ -116,6 +116,7 @@ type Querier interface {
 	// single value and an already-set secret is never overwritten. It also creates
 	// the row if EventSub config has not been saved yet.
 	EnsureServerHMACSecret(ctx context.Context, hmacSecret string) error
+	EnsureSettings(ctx context.Context, userID string) error
 	FinalizeVideoPart(ctx context.Context, arg FinalizeVideoPartParams) error
 	// Broadcaster-level idempotency check. Returns PENDING or RUNNING
 	// only — terminal rows don't block a new job. Live only: a queued or
@@ -237,9 +238,6 @@ type Querier interface {
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
 	ListChannelsPageAsc(ctx context.Context, arg ListChannelsPageAscParams) ([]Channel, error)
 	ListChannelsPageDesc(ctx context.Context, arg ListChannelsPageDescParams) ([]Channel, error)
-	// Recordings the user started and has not played to the end, most recently
-	// watched first. The dashboard applies its resume policy on top.
-	ListContinueWatchingVideos(ctx context.Context, arg ListContinueWatchingVideosParams) ([]Video, error)
 	// Eligible work includes scheduled intervals and explicit one-shot requests.
 	ListDueTasks(ctx context.Context) ([]Task, error)
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
@@ -485,13 +483,8 @@ type Querier interface {
 	// plain group-by and the outcome vocabulary is folded in Go, where the rule
 	// lives once.
 	StatisticsHistory(ctx context.Context) ([]StatisticsHistoryRow, error)
-	// Library-wide rollups. Total / size / duration restrict to DONE rows
-	// (these are the user-visible numbers in the page subtitle); the two
-	// FILTER-counted columns drive the videos page tab counters and run
-	// across all non-deleted rows.
-	StatisticsTotals(ctx context.Context, userID string) (StatisticsTotalsRow, error)
 	// Per-channel rollup of finished recordings: count + summed bytes +
-	// summed duration. Mirrors StatisticsTotals scoped to one broadcaster
+	// summed duration. Scopes the library totals to one broadcaster
 	// so the watch page can render a "N recordings · X GB" line under the
 	// channel name without paginating the full library client-side.
 	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
@@ -511,6 +504,8 @@ type Querier interface {
 	// Empty inputs preserve the existing value so callers can safely write
 	// whichever subset Twitch returned.
 	UpdateCategoryGameMetadata(ctx context.Context, arg UpdateCategoryGameMetadataParams) error
+	// Updating playback must preserve locale preferences, including concurrent saves.
+	UpdatePlaybackSettings(ctx context.Context, arg UpdatePlaybackSettingsParams) (Setting, error)
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
@@ -545,10 +540,7 @@ type Querier interface {
 	// the signing key. Mirrors EnsureServerHMACSecret's single-concern style.
 	UpsertRecordingWebhookConfig(ctx context.Context, arg UpsertRecordingWebhookConfigParams) (ServerSetting, error)
 	UpsertServerSettings(ctx context.Context, arg UpsertServerSettingsParams) (ServerSetting, error)
-	// Called on first access and on every update. Defaults (UTC / ISO /
-	// en) come from the column defaults when the caller passes empty
-	// strings, but we expect callers to pass concrete values — validation
-	// lives at the tRPC boundary.
+	// Locale updates preserve playback preferences saved by another request.
 	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) (Setting, error)
 	UpsertStream(ctx context.Context, arg UpsertStreamParams) (Stream, error)
 	// Self-heal path: the snapshot poll discovers a sub Twitch has that we

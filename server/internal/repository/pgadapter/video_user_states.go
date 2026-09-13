@@ -67,12 +67,11 @@ func (a *PGAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string,
 }
 
 func (a *PGAdapter) ListContinueWatchingVideos(ctx context.Context, userID string, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListContinueWatchingVideos(ctx, pggen.ListContinueWatchingVideosParams{
-		UserID:   userID,
-		RowLimit: int32(limit),
-	})
+	page, err := a.ListVideosPage(ctx, repository.ListVideosOpts{
+		UserID: userID, Limit: limit, ContinueWatchingOnly: true, Sort: "last_watched", Order: "desc",
+	}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("pg list continue watching videos: %w", err)
+		return nil, err
 	}
-	return pgVideosToDomain(rows), nil
+	return page.Items, nil
 }

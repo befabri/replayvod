@@ -8,6 +8,13 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
+func (a *PGAdapter) EnsureSettings(ctx context.Context, userID string) (*repository.Settings, error) {
+	if err := a.queries.EnsureSettings(ctx, userID); err != nil {
+		return nil, fmt.Errorf("pg ensure settings: %w", mapErr(err))
+	}
+	return a.GetSettings(ctx, userID)
+}
+
 func (a *PGAdapter) UpsertSettings(ctx context.Context, s *repository.Settings) (*repository.Settings, error) {
 	row, err := a.queries.UpsertSettings(ctx, pggen.UpsertSettingsParams{
 		UserID:         s.UserID,
@@ -17,6 +24,19 @@ func (a *PGAdapter) UpsertSettings(ctx context.Context, s *repository.Settings) 
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg upsert settings: %w", err)
+	}
+	return pgSettingsToDomain(row), nil
+}
+
+func (a *PGAdapter) UpdatePlaybackSettings(ctx context.Context, s *repository.Settings) (*repository.Settings, error) {
+	row, err := a.queries.UpdatePlaybackSettings(ctx, pggen.UpdatePlaybackSettingsParams{
+		UserID:                 s.UserID,
+		ResumeMinSeconds:       s.ResumeMinSeconds,
+		ResumeEndMarginSeconds: s.ResumeEndMarginSeconds,
+		ResumeEndMarginPercent: s.ResumeEndMarginPercent,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pg update playback settings: %w", err)
 	}
 	return pgSettingsToDomain(row), nil
 }

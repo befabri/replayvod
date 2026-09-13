@@ -340,6 +340,36 @@ func testVideoUserStateFiltersAndStatistics(t *testing.T, h Harness) {
 	assertStringSlice(t, continueWatchingJobIDs(t, ctx, repo, userID, 10), []string{"job-state-clip", "job-state-watched"})
 	assertStringSlice(t, continueWatchingJobIDs(t, ctx, repo, userID, 1), []string{"job-state-clip"})
 	assertStringSlice(t, continueWatchingJobIDs(t, ctx, repo, otherUserID, 10), []string{})
+	assertContinueCount := func(id string, want int64) {
+		t.Helper()
+		totals, err := repo.VideoStatsTotals(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if totals.ContinueWatching != want {
+			t.Fatalf("continue watching count for %q = %d, want %d", id, totals.ContinueWatching, want)
+		}
+	}
+	assertContinueCount(userID, 2)
+	continueOpts := repository.ListVideosOpts{UserID: userID, ContinueWatchingOnly: true, Limit: 1}
+	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, repo, continueOpts), []string{"job-state-clip", "job-state-watched"})
+	for _, id := range []string{otherUserID, ""} {
+		otherOpts := continueOpts
+		otherOpts.UserID = id
+		assertContinueCount(id, 0)
+		assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, repo, otherOpts), []string{})
+	}
+	for i, position := range []float64{4, 5, 94, 95} {
+		if _, err := repo.UpdateVideoWatchProgress(ctx, userID, clip.ID, position, false, at(int64(9100+i))); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"job-state-watched"}
+		if position == 5 || position == 94 {
+			want = []string{"job-state-clip", "job-state-watched"}
+		}
+		assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, repo, continueOpts), want)
+		assertContinueCount(userID, int64(len(want)))
+	}
 	if _, err := repo.UpdateVideoWatchProgress(ctx, userID, clip.ID, 100, true, at(10000)); err != nil {
 		t.Fatalf("finish clip: %v", err)
 	}
@@ -398,6 +428,21 @@ func testVideoUserStateFiltersAndStatistics(t *testing.T, h Harness) {
 		t.Fatal("watch later state stayed true after unset")
 	}
 	assertStringSlice(t, collectVideoListPageJobIDs(t, ctx, repo, watchLaterOpts), []string{"job-state-failed", "job-state-running"})
+	assertContinueCount(userID, 1)
+	if err := repo.SoftDeleteVideo(ctx, watched.ID, repository.DeletionKindManual); err != nil {
+		t.Fatal(err)
+	}
+	assertContinueCount(userID, 0)
+
+	if err := repo.MarkVideoDone(ctx, clip.ID, 1000, 1, nil, repository.CompletionKindComplete, false); err != nil {
+		t.Fatal(err)
+	}
+	for i, position := range []float64{969, 970} {
+		if _, err := repo.UpdateVideoWatchProgress(ctx, userID, clip.ID, position, false, at(int64(11000+i))); err != nil {
+			t.Fatal(err)
+		}
+		assertContinueCount(userID, int64(1-i))
+	}
 }
 
 func testDeleteOldRecordingWebhookDeliveriesPrunesTerminalKeepsActive(t *testing.T, h Harness) {
@@ -473,10 +518,8 @@ func testDeleteOldRecordingWebhookDeliveriesPrunesTerminalKeepsActive(t *testing
 	}
 }
 
-// testVideoHistoryOutcomeCounts pins the two halves of the outcome rule
-// together: the SQL predicate in videos_page_sql.go and the Go classifier in
-// models.go must agree on every seeded row, or the history tabs would show a
-// count the list can't produce.
+// testVideoHistoryOutcomeCounts checks that each history count equals the
+// number of rows its corresponding list returns.
 func testVideoHistoryOutcomeCounts(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -558,8 +601,6 @@ func testVideoHistoryOutcomeCounts(t *testing.T, h Harness) {
 		t.Fatalf("history counts covered %d outcomes, want %d: %+v", len(got), len(want), got)
 	}
 
-	// The same rule, asked of the list query. Each outcome must return exactly
-	// the rows its bucket counted, in both media scopes.
 	for _, tc := range []struct {
 		outcome string
 		live    string

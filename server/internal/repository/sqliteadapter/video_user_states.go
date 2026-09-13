@@ -67,12 +67,11 @@ func (a *SQLiteAdapter) UpdateVideoWatchProgress(ctx context.Context, userID str
 }
 
 func (a *SQLiteAdapter) ListContinueWatchingVideos(ctx context.Context, userID string, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListContinueWatchingVideos(ctx, sqlitegen.ListContinueWatchingVideosParams{
-		UserID:   userID,
-		RowLimit: int64(limit),
-	})
+	page, err := a.ListVideosPage(ctx, repository.ListVideosOpts{
+		UserID: userID, Limit: limit, ContinueWatchingOnly: true, Sort: "last_watched", Order: "desc",
+	}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite list continue watching videos: %w", err)
+		return nil, err
 	}
-	return sqliteVideosToDomain(rows), nil
+	return page.Items, nil
 }

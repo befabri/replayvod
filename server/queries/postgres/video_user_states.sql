@@ -48,18 +48,3 @@ ON CONFLICT(user_id, video_id) DO UPDATE SET
     completed_at = CASE WHEN excluded.last_progress_at_ms >= COALESCE(video_user_states.last_progress_at_ms, 0) THEN COALESCE(EXCLUDED.completed_at, video_user_states.completed_at) ELSE video_user_states.completed_at END,
     updated_at = CASE WHEN excluded.last_progress_at_ms >= COALESCE(video_user_states.last_progress_at_ms, 0) THEN NOW() ELSE video_user_states.updated_at END
 RETURNING *;
-
--- name: ListContinueWatchingVideos :many
--- Recordings the user started and has not played to the end, most recently
--- watched first. The dashboard applies its resume policy on top.
-SELECT v.* FROM videos v
-INNER JOIN video_user_states vus
-    ON vus.video_id = v.id AND vus.user_id = @user_id::text
-WHERE v.deleted_at IS NULL
-  AND v.status = 'DONE'
-  AND vus.watched_at IS NOT NULL
-  AND vus.last_position_seconds > 0
-  AND (v.duration_seconds IS NULL OR v.duration_seconds <= 0
-       OR vus.last_position_seconds < v.duration_seconds - 1)
-ORDER BY vus.last_progress_at_ms DESC NULLS LAST, v.id DESC
-LIMIT @row_limit::int;

@@ -355,12 +355,15 @@ func pgServerSettingsToDomain(src pggen.ServerSetting) *repository.ServerSetting
 
 func pgSettingsToDomain(src pggen.Setting) *repository.Settings {
 	return &repository.Settings{
-		CreatedAt:      src.CreatedAt,
-		DatetimeFormat: src.DatetimeFormat,
-		Language:       src.Language,
-		Timezone:       src.Timezone,
-		UpdatedAt:      src.UpdatedAt,
-		UserID:         src.UserID,
+		CreatedAt:              src.CreatedAt,
+		DatetimeFormat:         src.DatetimeFormat,
+		Language:               src.Language,
+		ResumeEndMarginPercent: src.ResumeEndMarginPercent,
+		ResumeEndMarginSeconds: src.ResumeEndMarginSeconds,
+		ResumeMinSeconds:       src.ResumeMinSeconds,
+		Timezone:               src.Timezone,
+		UpdatedAt:              src.UpdatedAt,
+		UserID:                 src.UserID,
 	}
 }
 

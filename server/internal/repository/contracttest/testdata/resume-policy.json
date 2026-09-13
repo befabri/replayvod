@@ -1,0 +1,14 @@
+[
+  {"name":"beginning", "duration":3600, "position":0, "resume":false},
+  {"name":"below minimum", "duration":3600, "position":4.9, "resume":false},
+  {"name":"minimum", "duration":3600, "position":5, "resume":true},
+  {"name":"before long cutoff", "duration":3600, "position":3569.9, "resume":true},
+  {"name":"long cutoff", "duration":3600, "position":3570, "resume":false},
+  {"name":"before short cutoff", "duration":60, "position":56.9, "resume":true},
+  {"name":"short cutoff", "duration":60, "position":57, "resume":false},
+  {"name":"unknown duration", "duration":null, "position":5, "resume":true},
+  {"name":"zero duration", "duration":0, "position":5, "resume":true},
+  {"name":"past end", "duration":60, "position":61, "resume":false},
+  {"name":"margin crossover", "duration":600, "position":570, "resume":false},
+  {"name":"before crossover", "duration":600, "position":569.9, "resume":true}
+]

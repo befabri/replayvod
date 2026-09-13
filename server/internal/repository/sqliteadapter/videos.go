@@ -32,10 +32,8 @@ func (a *SQLiteAdapter) ResumeVideoMetadataSpans(ctx context.Context, videoID in
 	return nil
 }
 
-// closeOpenVideoMetadataSpansWith runs both close queries against the
-// supplied Queries handle. Separate from the SQLiteAdapter method so
-// MarkVideoDone/MarkVideoFailed can pass their tx-scoped Queries and
-// share atomicity with the terminal video update that follows.
+// closeOpenVideoMetadataSpansWith accepts the terminal update's transaction so
+// metadata spans and video status commit together.
 func closeOpenVideoMetadataSpansWith(ctx context.Context, q *sqlitegen.Queries, videoID int64, at time.Time) error {
 	ts := sqliteTime(at)
 	if err := q.CloseOpenVideoTitleSpans(ctx, sqlitegen.CloseOpenVideoTitleSpansParams{
@@ -179,9 +177,7 @@ func (a *SQLiteAdapter) MarkVideoFailedAndEnqueueRecordingWebhook(ctx context.Co
 	})
 }
 
-// sqliteBool encodes a Go bool as the int64 0/1 SQLite uses for the
-// truncated column. Pairs with the int64 → bool flatten in
-// sqliteVideoToDomain so the adapter's interface stays plain bool.
+// sqliteBool encodes SQLite booleans as integer 0 or 1.
 func sqliteBool(v bool) int64 {
 	if v {
 		return 1
@@ -356,51 +352,17 @@ func (a *SQLiteAdapter) VideoStatsHistory(ctx context.Context) ([]repository.Vid
 	return out, nil
 }
 
-// VideoStatsTotals issues four atomic aggregate queries and combines
-// them. The PG path uses one SELECT with FILTER clauses; sqlc's
-// SQLite engine miscompiles that shape (truncates the const string
-// and bleeds chars into adjacent queries), so the SQLite side is
-// hand-composed from queries that codegen cleanly.
 func (a *SQLiteAdapter) VideoStatsTotals(ctx context.Context, userID string) (*repository.VideoStatsTotals, error) {
-	doneRow, err := a.queries.StatisticsTotalsDoneOnly(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats totals (done): %w", err)
+	query, args := repository.BuildVideoStatsTotalsQuery(userID, repository.VideoPageDialect{})
+	var totals repository.VideoStatsTotals
+	if err := a.db.QueryRowContext(ctx, query, args...).Scan(
+		&totals.Total, &totals.TotalSize, &totals.TotalDuration,
+		&totals.ThisWeek, &totals.Incomplete, &totals.Channels, &totals.Removed,
+		&totals.WatchLater, &totals.Unwatched, &totals.ContinueWatching,
+	); err != nil {
+		return nil, fmt.Errorf("sqlite video stats totals: %w", err)
 	}
-	thisWeek, err := a.queries.StatisticsThisWeek(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats totals (this_week): %w", err)
-	}
-	incomplete, err := a.queries.StatisticsIncomplete(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats totals (incomplete): %w", err)
-	}
-	channels, err := a.queries.StatisticsChannels(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats totals (channels): %w", err)
-	}
-	removed, err := a.queries.StatisticsRemoved(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats totals (removed): %w", err)
-	}
-	watchLater, err := a.queries.StatisticsWatchLater(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats totals (watch_later): %w", err)
-	}
-	unwatched, err := a.queries.StatisticsUnwatched(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite video stats totals (unwatched): %w", err)
-	}
-	return &repository.VideoStatsTotals{
-		Total:         doneRow.Total,
-		TotalSize:     doneRow.TotalSize,
-		TotalDuration: doneRow.TotalDuration,
-		ThisWeek:      thisWeek,
-		Incomplete:    incomplete,
-		Channels:      channels,
-		Removed:       removed,
-		WatchLater:    watchLater,
-		Unwatched:     unwatched,
-	}, nil
+	return &totals, nil
 }
 
 func (a *SQLiteAdapter) VideoStatsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (*repository.VideoStatsTotals, error) {
@@ -480,11 +442,13 @@ func scanSQLiteVideos(rows *sql.Rows) ([]repository.Video, error) {
 	defer rows.Close()
 	out := []repository.Video{}
 	for rows.Next() {
-		row, err := scanSQLiteVideo(rows)
+		row, lastProgressAtMs, err := scanSQLiteVideo(rows)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, *sqliteVideoToDomain(row))
+		video := sqliteVideoToDomain(row)
+		video.LastProgressAtMs = lastProgressAtMs
+		out = append(out, *video)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -492,8 +456,9 @@ func scanSQLiteVideos(rows *sql.Rows) ([]repository.Video, error) {
 	return out, nil
 }
 
-func scanSQLiteVideo(rows *sql.Rows) (sqlitegen.Video, error) {
+func scanSQLiteVideo(rows *sql.Rows) (sqlitegen.Video, *int64, error) {
 	var row sqlitegen.Video
+	var lastProgressAtMs *int64
 	err := rows.Scan(
 		&row.ID,
 		&row.JobID,
@@ -528,8 +493,9 @@ func scanSQLiteVideo(rows *sql.Rows) (sqlitegen.Video, error) {
 		&row.TwitchVideoID,
 		&row.BroadcastAt,
 		&row.NextRetryAt,
+		&lastProgressAtMs,
 	)
-	return row, err
+	return row, lastProgressAtMs, err
 }
 
 func sqliteCursorStartDownloadAt(cursor *repository.VideoPageCursor) sql.NullString {

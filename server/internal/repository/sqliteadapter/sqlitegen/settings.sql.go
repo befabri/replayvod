@@ -9,8 +9,18 @@ import (
 	"context"
 )
 
+const ensureSettings = `-- name: EnsureSettings :exec
+INSERT INTO settings (user_id) VALUES (?)
+ON CONFLICT (user_id) DO NOTHING
+`
+
+func (q *Queries) EnsureSettings(ctx context.Context, userID string) error {
+	_, err := q.db.ExecContext(ctx, ensureSettings, userID)
+	return err
+}
+
 const getSettings = `-- name: GetSettings :one
-SELECT user_id, timezone, datetime_format, language, created_at, updated_at FROM settings WHERE user_id = ?
+SELECT user_id, timezone, datetime_format, language, created_at, updated_at, resume_min_seconds, resume_end_margin_seconds, resume_end_margin_percent FROM settings WHERE user_id = ?
 `
 
 func (q *Queries) GetSettings(ctx context.Context, userID string) (Setting, error) {
@@ -23,6 +33,50 @@ func (q *Queries) GetSettings(ctx context.Context, userID string) (Setting, erro
 		&i.Language,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResumeMinSeconds,
+		&i.ResumeEndMarginSeconds,
+		&i.ResumeEndMarginPercent,
+	)
+	return i, err
+}
+
+const updatePlaybackSettings = `-- name: UpdatePlaybackSettings :one
+INSERT INTO settings (user_id, resume_min_seconds, resume_end_margin_seconds, resume_end_margin_percent)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (user_id) DO UPDATE SET
+    resume_min_seconds = excluded.resume_min_seconds,
+    resume_end_margin_seconds = excluded.resume_end_margin_seconds,
+    resume_end_margin_percent = excluded.resume_end_margin_percent,
+    updated_at = datetime('now')
+RETURNING user_id, timezone, datetime_format, language, created_at, updated_at, resume_min_seconds, resume_end_margin_seconds, resume_end_margin_percent
+`
+
+type UpdatePlaybackSettingsParams struct {
+	UserID                 string `json:"user_id"`
+	ResumeMinSeconds       int64  `json:"resume_min_seconds"`
+	ResumeEndMarginSeconds int64  `json:"resume_end_margin_seconds"`
+	ResumeEndMarginPercent int64  `json:"resume_end_margin_percent"`
+}
+
+// Updating playback must preserve locale preferences, including concurrent saves.
+func (q *Queries) UpdatePlaybackSettings(ctx context.Context, arg UpdatePlaybackSettingsParams) (Setting, error) {
+	row := q.db.QueryRowContext(ctx, updatePlaybackSettings,
+		arg.UserID,
+		arg.ResumeMinSeconds,
+		arg.ResumeEndMarginSeconds,
+		arg.ResumeEndMarginPercent,
+	)
+	var i Setting
+	err := row.Scan(
+		&i.UserID,
+		&i.Timezone,
+		&i.DatetimeFormat,
+		&i.Language,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ResumeMinSeconds,
+		&i.ResumeEndMarginSeconds,
+		&i.ResumeEndMarginPercent,
 	)
 	return i, err
 }
@@ -35,7 +89,7 @@ SET timezone        = excluded.timezone,
     datetime_format = excluded.datetime_format,
     language        = excluded.language,
     updated_at      = datetime('now')
-RETURNING user_id, timezone, datetime_format, language, created_at, updated_at
+RETURNING user_id, timezone, datetime_format, language, created_at, updated_at, resume_min_seconds, resume_end_margin_seconds, resume_end_margin_percent
 `
 
 type UpsertSettingsParams struct {
@@ -60,6 +114,9 @@ func (q *Queries) UpsertSettings(ctx context.Context, arg UpsertSettingsParams) 
 		&i.Language,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResumeMinSeconds,
+		&i.ResumeEndMarginSeconds,
+		&i.ResumeEndMarginPercent,
 	)
 	return i, err
 }
