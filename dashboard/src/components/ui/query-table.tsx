@@ -15,12 +15,14 @@ export function QueryTable<TData, Row, TValue>({
 	query,
 	columns,
 	getRows,
+	getRowId,
 	emptyMessage,
 	errorLabel,
 }: {
 	query: QueryTableState<TData>;
 	columns: ColumnDef<Row, TValue>[];
 	getRows: (data: TData) => Row[];
+	getRowId?: (row: Row, index: number) => string;
 	emptyMessage: string;
 	errorLabel: string;
 }) {
@@ -39,6 +41,7 @@ export function QueryTable<TData, Row, TValue>({
 				<DataTable
 					columns={columns}
 					data={getRows(query.data)}
+					getRowId={getRowId}
 					emptyMessage={emptyMessage}
 				/>
 			)}

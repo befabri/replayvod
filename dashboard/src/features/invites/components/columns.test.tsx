@@ -108,6 +108,26 @@ describe("invite row actions", () => {
 		}
 	});
 
+	it.each([
+		"rotate",
+		"revoke",
+	])("blocks both actions while %s is in flight", (pendingAction) => {
+		const mutation = pendingAction === "rotate" ? rotate : revoke;
+		mutation.isPending = true;
+		try {
+			renderActions(pending);
+			for (const name of ["invites.new_link", "invites.revoke"]) {
+				const button = screen.getByRole<HTMLButtonElement>("button", { name });
+				expect(button.disabled).toBe(true);
+				fireEvent.click(button);
+			}
+			expect(rotate.mutate).not.toHaveBeenCalled();
+			expect(revoke.mutate).not.toHaveBeenCalled();
+		} finally {
+			mutation.isPending = false;
+		}
+	});
+
 	it("tells the section which invite was revoked", () => {
 		const actions = renderActions(pending);
 		fireEvent.click(screen.getByRole("button", { name: "invites.revoke" }));

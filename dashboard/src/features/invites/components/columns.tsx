@@ -36,57 +36,57 @@ export type InviteActions = {
 	onRevoked: (id: number) => void;
 };
 
-// Row buttons mount their own mutation hook so each row's pending state
-// stays isolated.
-function RotateButton({
-	id,
-	onIssued,
+// Keep rotation and revocation mutually exclusive so a late rotation response
+// cannot put a revoked link back into the copy panel.
+function InviteRowActions({
+	invite,
+	actions,
 	t,
 }: {
-	id: number;
-	onIssued: InviteActions["onIssued"];
+	invite: InviteInfo;
+	actions: InviteActions;
 	t: TFunction;
 }) {
 	const rotate = useRotateInvite();
-	return (
-		<button
-			type="button"
-			disabled={rotate.isPending}
-			onClick={() =>
-				rotate.mutate(
-					{ id },
-					{
-						onSuccess: (info) => onIssued(info),
-						onError: () => toast.error(t("invites.failed_to_rotate")),
-					},
-				)
-			}
-			className="text-link hover:underline disabled:opacity-60"
-		>
-			{t("invites.new_link")}
-		</button>
-	);
-}
-
-function RevokeButton({
-	id,
-	onRevoked,
-	t,
-}: {
-	id: number;
-	onRevoked: InviteActions["onRevoked"];
-	t: TFunction;
-}) {
 	const revoke = useRevokeInvite();
+	const pending = rotate.isPending || revoke.isPending;
+	const status = inviteStatus(invite);
 	return (
-		<button
-			type="button"
-			disabled={revoke.isPending}
-			onClick={() => revoke.mutate({ id }, { onSuccess: () => onRevoked(id) })}
-			className="text-destructive hover:underline disabled:opacity-60"
-		>
-			{t("invites.revoke")}
-		</button>
+		<div className="flex justify-end gap-3 whitespace-nowrap">
+			{status === "pending" && (
+				<button
+					type="button"
+					disabled={pending}
+					onClick={() =>
+						rotate.mutate(
+							{ id: invite.id },
+							{
+								onSuccess: actions.onIssued,
+								onError: () => toast.error(t("invites.failed_to_rotate")),
+							},
+						)
+					}
+					className="text-link hover:underline disabled:opacity-60"
+				>
+					{t("invites.new_link")}
+				</button>
+			)}
+			{status !== "redeemed" && (
+				<button
+					type="button"
+					disabled={pending}
+					onClick={() =>
+						revoke.mutate(
+							{ id: invite.id },
+							{ onSuccess: () => actions.onRevoked(invite.id) },
+						)
+					}
+					className="text-destructive hover:underline disabled:opacity-60"
+				>
+					{t("invites.revoke")}
+				</button>
+			)}
+		</div>
 	);
 }
 
@@ -154,27 +154,9 @@ export function inviteColumns(
 				<span className="text-right w-full block">{t("common.actions")}</span>
 			),
 			enableSorting: false,
-			cell: ({ row }) => {
-				const status = inviteStatus(row.original);
-				return (
-					<div className="flex justify-end gap-3 whitespace-nowrap">
-						{status === "pending" && (
-							<RotateButton
-								id={row.original.id}
-								onIssued={actions.onIssued}
-								t={t}
-							/>
-						)}
-						{status !== "redeemed" && (
-							<RevokeButton
-								id={row.original.id}
-								onRevoked={actions.onRevoked}
-								t={t}
-							/>
-						)}
-					</div>
-				);
-			},
+			cell: ({ row }) => (
+				<InviteRowActions invite={row.original} actions={actions} t={t} />
+			),
 		},
 	];
 }

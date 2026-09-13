@@ -233,6 +233,7 @@ export function InvitesSection() {
 				query={invites}
 				columns={columns}
 				getRows={(data) => data}
+				getRowId={(invite) => String(invite.id)}
 				emptyMessage={t("invites.empty")}
 				errorLabel={t("invites.failed_to_load")}
 			/>
