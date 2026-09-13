@@ -66,6 +66,9 @@ var transformations = map[string]map[string]tableRule{
 		"videos":             {down: restoreLegacyQuality},
 		"download_schedules": {down: restoreLegacyQuality},
 	},
+	"057_execution_ownership": {
+		"videos": {up: failOrphanAdmissions},
+	},
 }
 
 func restoreLegacyQuality(rows []map[string]any, _ snapshot) {

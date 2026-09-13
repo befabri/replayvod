@@ -134,17 +134,19 @@ type Invite struct {
 }
 
 type Job struct {
-	ID            string          `json:"id"`
-	VideoID       int64           `json:"video_id"`
-	BroadcasterID string          `json:"broadcaster_id"`
-	Status        string          `json:"status"`
-	StartedAt     *time.Time      `json:"started_at"`
-	FinishedAt    *time.Time      `json:"finished_at"`
-	Error         *string         `json:"error"`
-	ResumeState   json.RawMessage `json:"resume_state"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
-	Attempt       int32           `json:"attempt"`
+	ID              string          `json:"id"`
+	VideoID         int64           `json:"video_id"`
+	BroadcasterID   string          `json:"broadcaster_id"`
+	Status          string          `json:"status"`
+	StartedAt       *time.Time      `json:"started_at"`
+	FinishedAt      *time.Time      `json:"finished_at"`
+	Error           *string         `json:"error"`
+	ResumeState     json.RawMessage `json:"resume_state"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	Attempt         int32           `json:"attempt"`
+	ExecutionID     string          `json:"execution_id"`
+	AcceptsMetadata bool            `json:"accepts_metadata"`
 }
 
 type RecordingWebhookDelivery struct {
@@ -290,6 +292,7 @@ type Task struct {
 	NextRunAt       *time.Time `json:"next_run_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+	ExecutionID     string     `json:"execution_id"`
 }
 
 type Title struct {

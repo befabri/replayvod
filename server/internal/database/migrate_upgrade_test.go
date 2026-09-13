@@ -310,6 +310,7 @@ func seedExistingInstallation(t *testing.T, db *sql.DB, version string) []string
 		INSERT INTO download_schedule_categories (schedule_id, category_id) VALUES (41, 'game');
 		INSERT INTO download_schedule_tags (schedule_id, tag_id) VALUES (41, 31);
 	`)
+	execMigrationSQL(t, db, `INSERT INTO jobs(id,video_id,broadcaster_id,status,resume_state) VALUES ('job-2',72,'channel','RUNNING','{"stage":"AUTH","current_part_index":1}')`)
 	if _, err := db.ExecContext(context.Background(), `INSERT INTO sessions (hashed_id, user_id, encrypted_tokens, expires_at)
 		VALUES ('session-hash', 'viewer', $1, '2099-01-01 00:00:00')`, []byte{1, 2, 3}); err != nil {
 		t.Fatal(err)

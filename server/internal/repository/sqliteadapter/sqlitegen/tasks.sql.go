@@ -11,7 +11,7 @@ import (
 )
 
 const getTask = `-- name: GetTask :one
-SELECT name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at FROM tasks WHERE name = ?
+SELECT name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id FROM tasks WHERE name = ?
 `
 
 func (q *Queries) GetTask(ctx context.Context, name string) (Task, error) {
@@ -29,12 +29,13 @@ func (q *Queries) GetTask(ctx context.Context, name string) (Task, error) {
 		&i.NextRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExecutionID,
 	)
 	return i, err
 }
 
 const listDueTasks = `-- name: ListDueTasks :many
-SELECT name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at FROM tasks
+SELECT name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id FROM tasks
 WHERE is_enabled = 1
   AND interval_seconds > 0
   AND (next_run_at IS NULL OR next_run_at <= datetime('now'))
@@ -62,6 +63,7 @@ func (q *Queries) ListDueTasks(ctx context.Context) ([]Task, error) {
 			&i.NextRunAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExecutionID,
 		); err != nil {
 			return nil, err
 		}
@@ -77,7 +79,7 @@ func (q *Queries) ListDueTasks(ctx context.Context) ([]Task, error) {
 }
 
 const listTasks = `-- name: ListTasks :many
-SELECT name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at FROM tasks ORDER BY name
+SELECT name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id FROM tasks ORDER BY name
 `
 
 func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
@@ -101,6 +103,7 @@ func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
 			&i.NextRunAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExecutionID,
 		); err != nil {
 			return nil, err
 		}
@@ -198,7 +201,7 @@ func (q *Queries) MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams
 const scheduleTaskIfEnabled = `-- name: ScheduleTaskIfEnabled :one
 UPDATE tasks SET next_run_at = datetime('now'), updated_at = datetime('now')
 WHERE name = ?1 AND is_enabled = 1 AND interval_seconds > 0
-RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at
+RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id
 `
 
 func (q *Queries) ScheduleTaskIfEnabled(ctx context.Context, name string) (Task, error) {
@@ -216,6 +219,7 @@ func (q *Queries) ScheduleTaskIfEnabled(ctx context.Context, name string) (Task,
 		&i.NextRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExecutionID,
 	)
 	return i, err
 }
@@ -230,7 +234,7 @@ SET is_enabled  = ?2,
     END,
     updated_at  = datetime('now')
 WHERE name = ?1
-RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at
+RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id
 `
 
 type SetTaskEnabledParams struct {
@@ -253,6 +257,7 @@ func (q *Queries) SetTaskEnabled(ctx context.Context, arg SetTaskEnabledParams) 
 		&i.NextRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExecutionID,
 	)
 	return i, err
 }
@@ -262,7 +267,7 @@ UPDATE tasks
 SET next_run_at = datetime('now'),
     updated_at  = datetime('now')
 WHERE name = ?
-RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at
+RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id
 `
 
 func (q *Queries) SetTaskNextRun(ctx context.Context, name string) (Task, error) {
@@ -280,6 +285,7 @@ func (q *Queries) SetTaskNextRun(ctx context.Context, name string) (Task, error)
 		&i.NextRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExecutionID,
 	)
 	return i, err
 }
@@ -291,7 +297,7 @@ ON CONFLICT (name) DO UPDATE
 SET description      = excluded.description,
     interval_seconds = excluded.interval_seconds,
     updated_at       = datetime('now')
-RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at
+RETURNING name, description, interval_seconds, is_enabled, last_run_at, last_duration_ms, last_status, last_error, next_run_at, created_at, updated_at, execution_id
 `
 
 type UpsertTaskParams struct {
@@ -315,6 +321,7 @@ func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) (Task, e
 		&i.NextRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExecutionID,
 	)
 	return i, err
 }

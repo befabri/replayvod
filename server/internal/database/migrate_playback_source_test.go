@@ -81,7 +81,7 @@ func TestMigrationsVideoSourcePreservesHistoryAndRollback(t *testing.T) {
 			assertRejected(t, h, `UPDATE videos SET source = 'unknown' WHERE id = 71`)
 			execMigrationSQL(t, h.db, `UPDATE videos SET source = 'vod', twitch_video_id = '123', broadcast_at = '2025-01-01 00:00:00' WHERE id = 71`)
 			assertRejected(t, h, `UPDATE videos SET source = 'vod', twitch_video_id = '123' WHERE id = 72`)
-			assertCount(t, h.db, `SELECT COUNT(*) FROM jobs WHERE attempt = 1`, 1)
+			assertCount(t, h.db, `SELECT COUNT(*) FROM jobs WHERE attempt = 1`, 2)
 			assertCount(t, h.db, `SELECT COUNT(*) FROM videos WHERE next_retry_at IS NULL`, 2)
 			// The one-row-per-VOD rule keeps a failed archive held only while a
 			// retry is scheduled for it.

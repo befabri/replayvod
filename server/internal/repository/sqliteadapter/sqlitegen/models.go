@@ -134,17 +134,19 @@ type Invite struct {
 }
 
 type Job struct {
-	ID            string           `json:"id"`
-	VideoID       int64            `json:"video_id"`
-	BroadcasterID string           `json:"broadcaster_id"`
-	Status        string           `json:"status"`
-	StartedAt     *sqlitetype.Time `json:"started_at"`
-	FinishedAt    *sqlitetype.Time `json:"finished_at"`
-	Error         sql.NullString   `json:"error"`
-	ResumeState   string           `json:"resume_state"`
-	CreatedAt     sqlitetype.Time  `json:"created_at"`
-	UpdatedAt     sqlitetype.Time  `json:"updated_at"`
-	Attempt       int64            `json:"attempt"`
+	ID              string           `json:"id"`
+	VideoID         int64            `json:"video_id"`
+	BroadcasterID   string           `json:"broadcaster_id"`
+	Status          string           `json:"status"`
+	StartedAt       *sqlitetype.Time `json:"started_at"`
+	FinishedAt      *sqlitetype.Time `json:"finished_at"`
+	Error           sql.NullString   `json:"error"`
+	ResumeState     string           `json:"resume_state"`
+	CreatedAt       sqlitetype.Time  `json:"created_at"`
+	UpdatedAt       sqlitetype.Time  `json:"updated_at"`
+	Attempt         int64            `json:"attempt"`
+	ExecutionID     string           `json:"execution_id"`
+	AcceptsMetadata int64            `json:"accepts_metadata"`
 }
 
 type RecordingWebhookDelivery struct {
@@ -290,6 +292,7 @@ type Task struct {
 	NextRunAt       *sqlitetype.Time `json:"next_run_at"`
 	CreatedAt       sqlitetype.Time  `json:"created_at"`
 	UpdatedAt       sqlitetype.Time  `json:"updated_at"`
+	ExecutionID     string           `json:"execution_id"`
 }
 
 type Title struct {
