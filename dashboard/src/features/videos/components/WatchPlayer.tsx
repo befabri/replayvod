@@ -814,7 +814,16 @@ export function WatchPlayer({
 		usesContinuousSource,
 	]);
 
-	if (!currentPart || !currentSource) return null;
+	if (!currentPart || !currentSource) {
+		return (
+			<MediaUnavailablePanel
+				kind="gone"
+				onRetry={() => onMediaUnavailable?.("gone")}
+				actions={unavailableActions}
+				compact={playlist.isAudioOnly}
+			/>
+		);
+	}
 
 	function handleError() {
 		if (!usesContinuousSource || playlist.parts.length <= 1) {

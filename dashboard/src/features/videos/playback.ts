@@ -151,22 +151,6 @@ export function buildPlaylistParts(
 	const rows = [...(video.parts ?? [])].sort(
 		(a, b) => a.part_index - b.part_index,
 	);
-	if (rows.length === 0) {
-		const durationSeconds = positiveOrZero(video.duration_seconds);
-		return [
-			{
-				partIndex: 0,
-				position: 0,
-				src: mediaURL(apiUrl, `/api/v1/videos/${video.id}/stream`),
-				mimeType: video.is_audio_only ? "audio/mp4" : "video/mp4",
-				durationSeconds,
-				sizeBytes: null,
-				startSeconds: 0,
-				endSeconds: durationSeconds,
-				label: "Part 1",
-			},
-		];
-	}
 
 	let cursor = 0;
 	return rows.map((part, position) => {

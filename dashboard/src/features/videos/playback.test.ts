@@ -42,25 +42,8 @@ describe("buildPlaylistParts", () => {
 		);
 	});
 
-	it("falls back to the legacy stream URL for historical rows with no parts", () => {
-		const parts = buildPlaylistParts(video({ parts: undefined }), "");
-
-		expect(parts).toMatchObject([
-			{
-				partIndex: 0,
-				src: "/api/v1/videos/65/stream",
-				durationSeconds: 120,
-			},
-		]);
-	});
-
-	it("uses the server audio-only verdict for legacy rows with no parts", () => {
-		const parts = buildPlaylistParts(
-			video({ is_audio_only: true, parts: undefined }),
-			"",
-		);
-
-		expect(parts[0].mimeType).toBe("audio/mp4");
+	it("requires part references instead of guessing a historical media URL", () => {
+		expect(buildPlaylistParts(video({ parts: undefined }), "")).toEqual([]);
 	});
 
 	it("uses the server audio-only verdict over part filename inference", () => {
