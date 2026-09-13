@@ -26,7 +26,10 @@ func TestHistoryReportsFailedMediaFromParts(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := &Handler{video: New(repo, testClientLogger()), log: testClientLogger()}
-	responses := h.toVideoResponses(ctx, "", rows)
+	responses, err := h.toVideoResponses(ctx, "", rows)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if responses[0].HasMedia || !responses[1].HasMedia {
 		t.Fatalf("failed media classification: %+v", responses)
 	}
@@ -37,7 +40,11 @@ func TestHistoryReportsFailedMediaFromParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.toVideoResponses(ctx, "", []repository.Video{*removed})[0].HasMedia {
+	responses, err = h.toVideoResponses(ctx, "", []repository.Video{*removed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if responses[0].HasMedia {
 		t.Fatal("removed recording reports present media")
 	}
 }

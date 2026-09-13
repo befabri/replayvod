@@ -269,10 +269,13 @@ func formatQualityLabel(quality string, fps *float64) string {
 	return label + strconv.Itoa(int(math.Round(*fps)))
 }
 
-func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repository.Video) []VideoResponse {
+func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repository.Video) ([]VideoResponse, error) {
+	userStates, err := h.video.UserStatesByVideoID(ctx, userID, vs)
+	if err != nil {
+		return nil, apierr.Map(h.log, err, "load video user states")
+	}
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vs)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vs)
-	userStates := h.video.UserStatesByVideoID(ctx, userID, vs)
 	var failedIDs []int64
 	for _, v := range vs {
 		if v.Status == repository.VideoStatusFailed && v.DeletedAt == nil {
@@ -289,7 +292,7 @@ func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repo
 		out[i].UserState = toVideoUserStateResponse(userStates[vs[i].ID])
 		out[i].HasMedia = vs[i].DeletedAt == nil && (vs[i].Status == repository.VideoStatusDone || len(parts[vs[i].ID]) > 0)
 	}
-	return out
+	return out, nil
 }
 
 type ListInput struct {
@@ -325,7 +328,7 @@ func (h *Handler) List(ctx context.Context, input ListInput) ([]VideoResponse, e
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "list videos")
 	}
-	return h.toVideoResponses(ctx, user.ID, vids), nil
+	return h.toVideoResponses(ctx, user.ID, vids)
 }
 
 type VideoListPageCursor struct {
@@ -413,8 +416,12 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 	if err != nil {
 		return VideoListPageResponse{}, apierr.Map(h.log, err, "list videos")
 	}
+	items, err := h.toVideoResponses(ctx, user.ID, page.Items)
+	if err != nil {
+		return VideoListPageResponse{}, err
+	}
 	return VideoListPageResponse{
-		Items:      h.toVideoResponses(ctx, user.ID, page.Items),
+		Items:      items,
 		NextCursor: toVideoListPageCursor(page.NextCursor),
 	}, nil
 }
@@ -438,7 +445,7 @@ func (h *Handler) Search(ctx context.Context, input SearchInput) ([]VideoRespons
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "search videos")
 	}
-	return h.toVideoResponses(ctx, user.ID, vids), nil
+	return h.toVideoResponses(ctx, user.ID, vids)
 }
 
 func videoDurationFilterBounds(filter string) (*float64, *float64) {
@@ -607,6 +614,8 @@ func (h *Handler) Timeline(ctx context.Context, input TimelineInput) ([]Timeline
 	return out, nil
 }
 
+// GetByID returns playback references and saved progress; read failures must not
+// become empty snapshots that reset the player's resume position.
 func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoResponse, error) {
 	v, err := h.video.GetByID(ctx, input.ID)
 	if err != nil {
@@ -618,7 +627,7 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 	if user := middleware.GetUser(ctx); user != nil {
 		if state, err := h.video.UserState(ctx, user.ID, v.ID); err != nil {
 			if !errors.Is(err, repository.ErrNotFound) {
-				h.log.Warn("get video user state", "video_id", v.ID, "user_id", user.ID, "error", err)
+				return VideoResponse{}, apierr.Map(h.log, err, "get video user state")
 			}
 		} else {
 			resp.UserState = toVideoUserStateResponse(state)
@@ -661,8 +670,12 @@ func (h *Handler) ByBroadcaster(ctx context.Context, input ByBroadcasterInput) (
 	if err != nil {
 		return VideoPageResponse{}, apierr.Map(h.log, err, "list videos by broadcaster")
 	}
+	items, err := h.toVideoResponses(ctx, user.ID, page.Items)
+	if err != nil {
+		return VideoPageResponse{}, err
+	}
 	return VideoPageResponse{
-		Items:      h.toVideoResponses(ctx, user.ID, page.Items),
+		Items:      items,
 		NextCursor: toVideoPageCursor(page.NextCursor),
 	}, nil
 }
@@ -686,8 +699,12 @@ func (h *Handler) ByCategory(ctx context.Context, input ByCategoryInput) (VideoP
 	if err != nil {
 		return VideoPageResponse{}, apierr.Map(h.log, err, "list videos by category")
 	}
+	items, err := h.toVideoResponses(ctx, user.ID, page.Items)
+	if err != nil {
+		return VideoPageResponse{}, err
+	}
 	return VideoPageResponse{
-		Items:      h.toVideoResponses(ctx, user.ID, page.Items),
+		Items:      items,
 		NextCursor: toVideoPageCursor(page.NextCursor),
 	}, nil
 }
@@ -912,7 +929,7 @@ func (h *Handler) ContinueWatching(ctx context.Context, input ContinueWatchingIn
 	if err != nil {
 		return nil, apierr.Map(h.log, err, "list continue watching")
 	}
-	return h.toVideoResponses(ctx, user.ID, vids), nil
+	return h.toVideoResponses(ctx, user.ID, vids)
 }
 
 type ChannelStatisticsInput struct {
@@ -972,7 +989,10 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context, userID string) ([
 	}
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vids)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vids)
-	userStates := h.video.UserStatesByVideoID(ctx, userID, vids)
+	userStates, err := h.video.UserStatesByVideoID(ctx, userID, vids)
+	if err != nil {
+		return nil, err
+	}
 
 	videoIDs := make([]int64, 0, len(vids))
 	for i := range vids {

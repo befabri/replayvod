@@ -47,9 +47,8 @@ func (s *Service) ListByCategory(ctx context.Context, categoryID string, limit i
 	return s.repo.ListVideosByCategory(ctx, categoryID, limit, cursor)
 }
 
-// ChannelsByBroadcasterIDs resolves display metadata in one query to avoid
-// per-card HTTP requests exceeding the batch limit. Missing channels and
-// read failures produce missing map entries; callers fall back to DisplayName.
+// ChannelsByBroadcasterIDs batches display metadata to stay within HTTP batch
+// limits; missing channels or read errors require a DisplayName fallback.
 func (s *Service) ChannelsByBroadcasterIDs(ctx context.Context, videos []repository.Video) map[string]*repository.Channel {
 	out := make(map[string]*repository.Channel)
 	if len(videos) == 0 {
@@ -81,8 +80,8 @@ func (s *Service) ChannelsByBroadcasterIDs(ctx context.Context, videos []reposit
 	return out
 }
 
-// PrimaryCategoriesByVideoIDs resolves each video's longest-held category in
-// one query, avoiding per-video history lookups.
+// PrimaryCategoriesByVideoIDs returns each video's longest-held category;
+// missing categories and read failures leave entries absent.
 func (s *Service) PrimaryCategoriesByVideoIDs(ctx context.Context, videos []repository.Video) map[int64]*repository.Category {
 	out := make(map[int64]*repository.Category)
 	if len(videos) == 0 {
@@ -222,10 +221,12 @@ func (s *Service) UserState(ctx context.Context, userID string, videoID int64) (
 	return s.repo.GetVideoUserState(ctx, userID, videoID)
 }
 
-func (s *Service) UserStatesByVideoID(ctx context.Context, userID string, videos []repository.Video) map[int64]*repository.VideoUserState {
+// UserStatesByVideoID returns saved progress and bookmarks for userID;
+// missing entries mean no saved state, while a failed read returns an error.
+func (s *Service) UserStatesByVideoID(ctx context.Context, userID string, videos []repository.Video) (map[int64]*repository.VideoUserState, error) {
 	out := make(map[int64]*repository.VideoUserState)
 	if userID == "" || len(videos) == 0 {
-		return out
+		return out, nil
 	}
 	ids := make([]int64, 0, len(videos))
 	seen := make(map[int64]struct{}, len(videos))
@@ -238,13 +239,12 @@ func (s *Service) UserStatesByVideoID(ctx context.Context, userID string, videos
 	}
 	rows, err := s.repo.ListVideoUserStatesForVideos(ctx, userID, ids)
 	if err != nil {
-		s.log.Warn("resolve video user states", "error", err)
-		return out
+		return nil, err
 	}
 	for i := range rows {
 		out[rows[i].VideoID] = &rows[i]
 	}
-	return out
+	return out, nil
 }
 
 func (s *Service) SetWatchLater(ctx context.Context, userID string, videoID int64, watchLater bool) (*repository.VideoUserState, error) {

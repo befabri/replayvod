@@ -83,10 +83,8 @@ export interface ArchiveQueueEvent {
 export type ArchiveQueueKind = "queued" | "dequeued" | "started" | "completed" | "failed" | "retry_cancelled";
 
 /**
- * ArchiveQueueResponse is the Archive page: queued and running archives,
- * oldest first, and the failures of the last seven days, newest first, as
- * full video rows so the dashboard can reuse its recording components. A
- * failure with next_retry_at set is waiting for its automatic retry.
+ * ArchiveQueueResponse lists queued and running archives oldest first and
+ * failures from the last seven days newest first; NextRetryAt marks scheduled retries.
  */
 export interface ArchiveQueueResponse {
   queue: VideoResponse[];
@@ -232,7 +230,7 @@ export interface ChannelUserStateResponse {
 }
 
 export interface ChannelVODsInput {
-  /** Channel is a Twitch login or a twitch.tv channel url. */
+  /** Channel accepts a Twitch login or twitch.tv channel URL. */
   channel: string;
   cursor?: string;
   limit?: number;
@@ -333,7 +331,7 @@ export interface DownloadProgressInput {
 }
 
 export interface EnqueueArchiveInput {
-  /** VODs are Twitch VOD links or ids, one per entry. */
+  /** VODs accepts Twitch VOD links or IDs, one per entry. */
   vods: string[];
   recording_type?: string;
   quality?: string;
@@ -1188,20 +1186,13 @@ export interface TwitchVODResponse {
   thumbnail_url?: string;
   view_count: number;
   language?: string;
-  /**
-   * Viewable is Twitch's "public" or "private"; a private VOD cannot be
-   * archived.
-   */
+  /** Viewable is Twitch's "public" or "private"; private VODs cannot be archived. */
   viewable?: string;
-  /**
-   * Live is true while the VOD's broadcast is still on air, so it cannot be
-   * archived yet.
-   */
+  /** Live VODs cannot be archived until the broadcast ends. */
   live?: boolean;
   /**
-   * ArchivedVideoID and ArchivedStatus are set when the library already
-   * holds this VOD (queued, downloading, done, or recorded live), and
-   * HeldReason says which of those it is.
+   * ArchivedVideoID and ArchivedStatus include queued, active, and finished
+   * recordings; HeldReason distinguishes an archive from a live recording.
    */
   archived_video_id?: number;
   archived_status?: VideoStatus;

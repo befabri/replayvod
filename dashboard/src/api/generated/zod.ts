@@ -90,7 +90,7 @@ export const ChannelStatisticsInputSchema = z.object({
 }).meta({ id: "ChannelStatisticsInput" });
 
 export const ChannelVODsInputSchema = z.object({
-  channel: z.string().min(1).describe("Channel is a Twitch login or a twitch.tv channel url."),
+  channel: z.string().min(1).describe("Channel accepts a Twitch login or twitch.tv channel URL."),
   cursor: z.string().optional(),
   limit: z.int().gte(1).lte(100).or(z.literal(0)).optional(),
 }).meta({ id: "ChannelVODsInput" });
@@ -131,7 +131,7 @@ export const DownloadProgressInputSchema = z.object({
 }).meta({ id: "DownloadProgressInput" });
 
 export const EnqueueArchiveInputSchema = z.object({
-  vods: z.array(z.string().min(1)).min(1).max(50).describe("VODs are Twitch VOD links or ids, one per entry."),
+  vods: z.array(z.string().min(1)).min(1).max(50).describe("VODs accepts Twitch VOD links or IDs, one per entry."),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
   quality: z.enum(["LOW", "MEDIUM", "HIGH", "1440", "BEST"]).or(z.literal("")).optional(),
   force_h264: z.boolean().optional(),

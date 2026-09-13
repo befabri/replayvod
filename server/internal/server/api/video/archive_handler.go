@@ -33,7 +33,7 @@ const (
 )
 
 type ChannelVODsInput struct {
-	// Channel is a Twitch login or a twitch.tv channel url.
+	// Channel accepts a Twitch login or twitch.tv channel URL.
 	Channel string `json:"channel" validate:"required"`
 	Cursor  string `json:"cursor,omitempty"`
 	Limit   int    `json:"limit,omitempty" validate:"omitempty,min=1,max=100"`
@@ -56,15 +56,12 @@ type TwitchVODResponse struct {
 	ThumbnailURL    string    `json:"thumbnail_url,omitempty"`
 	ViewCount       int       `json:"view_count"`
 	Language        string    `json:"language,omitempty"`
-	// Viewable is Twitch's "public" or "private"; a private VOD cannot be
-	// archived.
+	// Viewable is Twitch's "public" or "private"; private VODs cannot be archived.
 	Viewable string `json:"viewable,omitempty"`
-	// Live is true while the VOD's broadcast is still on air, so it cannot be
-	// archived yet.
+	// Live VODs cannot be archived until the broadcast ends.
 	Live bool `json:"live,omitempty"`
-	// ArchivedVideoID and ArchivedStatus are set when the library already
-	// holds this VOD (queued, downloading, done, or recorded live), and
-	// HeldReason says which of those it is.
+	// ArchivedVideoID and ArchivedStatus include queued, active, and finished
+	// recordings; HeldReason distinguishes an archive from a live recording.
 	ArchivedVideoID *int64             `json:"archived_video_id,omitempty"`
 	ArchivedStatus  *VideoStatus       `json:"archived_status,omitempty"`
 	HeldReason      *ArchiveHeldReason `json:"held_reason,omitempty"`
@@ -131,7 +128,7 @@ func (h *Handler) ListChannelVODs(ctx context.Context, input ChannelVODsInput) (
 }
 
 type EnqueueArchiveInput struct {
-	// VODs are Twitch VOD links or ids, one per entry.
+	// VODs accepts Twitch VOD links or IDs, one per entry.
 	VODs          []string `json:"vods" validate:"required,min=1,max=50,dive,required"`
 	RecordingType string   `json:"recording_type,omitempty" validate:"omitempty,oneof=video audio"`
 	Quality       string   `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH 1440 BEST"`
@@ -186,10 +183,8 @@ func (h *Handler) EnqueueArchive(ctx context.Context, input EnqueueArchiveInput)
 	return resp, nil
 }
 
-// ArchiveQueueResponse is the Archive page: queued and running archives,
-// oldest first, and the failures of the last seven days, newest first, as
-// full video rows so the dashboard can reuse its recording components. A
-// failure with next_retry_at set is waiting for its automatic retry.
+// ArchiveQueueResponse lists queued and running archives oldest first and
+// failures from the last seven days newest first; NextRetryAt marks scheduled retries.
 type ArchiveQueueResponse struct {
 	Queue    []VideoResponse `json:"queue"`
 	Failures []VideoResponse `json:"failures"`
@@ -204,9 +199,17 @@ func (h *Handler) ArchiveQueue(ctx context.Context) (ArchiveQueueResponse, error
 	if err != nil {
 		return ArchiveQueueResponse{}, apierr.Map(h.log, err, "list archive queue")
 	}
+	queue, err := h.toVideoResponses(ctx, user.ID, q.Queue)
+	if err != nil {
+		return ArchiveQueueResponse{}, err
+	}
+	failures, err := h.toVideoResponses(ctx, user.ID, q.Failures)
+	if err != nil {
+		return ArchiveQueueResponse{}, err
+	}
 	return ArchiveQueueResponse{
-		Queue:    h.toVideoResponses(ctx, user.ID, q.Queue),
-		Failures: h.toVideoResponses(ctx, user.ID, q.Failures),
+		Queue:    queue,
+		Failures: failures,
 	}, nil
 }
 
