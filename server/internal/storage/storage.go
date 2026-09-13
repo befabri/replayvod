@@ -1,10 +1,6 @@
-// Package storage provides a backend-agnostic object store for video files
-// and thumbnails. The Storage interface has one implementation per backend
-// (local FS; S3-compatible for remote). Operators who want a copy of their
-// recordings on a non-S3 target (Google Drive, SFTP, Backblaze, etc.) run an
-// external rclone copy or sync from the local data directory. Media moved out
-// of that directory reads as missing to the storage scan, which tombstones the
-// recording.
+// Package storage provides local and S3 object backends. External copies may
+// mirror stored media; moving the originals makes storage scans mark recordings
+// missing.
 package storage
 
 import (
@@ -13,6 +9,7 @@ import (
 	"time"
 )
 
+// FileInfo describes an object or directory returned by Stat.
 type FileInfo struct {
 	Size    int64
 	ModTime time.Time
@@ -25,10 +22,8 @@ type FileInfo struct {
 // location. Implementations are responsible for mapping them to their
 // native conventions (absolute path for local, key for S3).
 type Storage interface {
-	// Save writes r to path, creating parent directories as needed. The full
-	// read is copied; callers typically hand this a file or a subprocess
-	// stdout pipe. Atomicity is best-effort: for local FS we write to a
-	// temp file and rename, but other backends may not guarantee it.
+	// Save copies all of r to path, creating parent directories as needed.
+	// Atomic replacement is backend-dependent; an error may leave stored bytes.
 	Save(ctx context.Context, path string, r io.Reader) error
 
 	// Open returns a ReadSeekCloser so HTTP range requests can serve video
@@ -54,4 +49,16 @@ type Storage interface {
 // this capability cannot automatically tombstone recordings.
 type RootProber interface {
 	ProbeRoot(ctx context.Context) error
+}
+
+// Reader is the object access given to consumers that cannot publish or delete.
+type Reader interface {
+	Open(context.Context, string) (io.ReadSeekCloser, error)
+	Exists(context.Context, string) (bool, error)
+	Stat(context.Context, string) (FileInfo, error)
+}
+
+// Writer permits publication without access to stored objects or deletion.
+type Writer interface {
+	Save(context.Context, string, io.Reader) error
 }
