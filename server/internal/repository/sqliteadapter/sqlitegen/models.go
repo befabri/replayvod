@@ -158,6 +158,26 @@ type MediaPublication struct {
 	DeleteRequested int64  `json:"delete_requested"`
 }
 
+type RecordingIntent struct {
+	ID            string           `json:"id"`
+	BroadcasterID string           `json:"broadcaster_id"`
+	Params        string           `json:"params"`
+	WaitSeconds   int64            `json:"wait_seconds"`
+	Status        string           `json:"status"`
+	CurrentJobID  string           `json:"current_job_id"`
+	LastStreamID  string           `json:"last_stream_id"`
+	WaitUntil     *sqlitetype.Time `json:"wait_until"`
+	StopRequested int64            `json:"stop_requested"`
+	CreatedAt     sqlitetype.Time  `json:"created_at"`
+}
+
+type RecordingIntentVideo struct {
+	IntentID string         `json:"intent_id"`
+	VideoID  int64          `json:"video_id"`
+	Position int64          `json:"position"`
+	StreamID sql.NullString `json:"stream_id"`
+}
+
 type RecordingWebhookDelivery struct {
 	ID            int64            `json:"id"`
 	MessageID     string           `json:"message_id"`
