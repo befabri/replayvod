@@ -218,8 +218,7 @@ func TestSubscriptionLimitKeepsExistingFeedsAlive(t *testing.T) {
 		t.Fatalf("limit error: %v", msg)
 	}
 	waitCount(t, running, maxSubscriptions)
-	// A terminal response promises that the operation's slot and ID are free.
-	// Immediately reuse both, including while other feeds fill the limit.
+	// A terminal response permits immediate reuse of the operation's slot and ID.
 	for range 100 {
 		send(t, conn, `{"id":1,"method":"subscription.stop"}`)
 		if msg := receive(t, conn); msg["result"].(map[string]any)["type"] != "stopped" {
@@ -287,7 +286,7 @@ func TestInvalidFramesCancelAllFeeds(t *testing.T) {
 			send(t, conn, frame)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			// A terminal frame can race with cancellation. Drain until closed.
+			// A terminal frame can arrive before cancellation closes the socket.
 			for {
 				if _, _, err := conn.Read(ctx); err != nil {
 					if ctx.Err() != nil {
@@ -322,8 +321,7 @@ func TestStopMatchesEquivalentRequestIDs(t *testing.T) {
 	}
 }
 
-// The client sends no application messages after subscribing. Native pongs
-// alone must keep an idle or continuously publishing connection alive.
+// TestServerHeartbeat checks liveness using native pongs without application messages.
 func TestServerHeartbeat(t *testing.T) {
 	for _, respond := range []bool{true, false} {
 		t.Run(fmt.Sprintf("respond=%t", respond), func(t *testing.T) {
@@ -344,9 +342,9 @@ func TestServerHeartbeat(t *testing.T) {
 			send(t, conn, `{"id":1,"method":"subscription","params":{"path":"feed"}}`)
 			receive(t, conn)
 			receive(t, conn)
-			done := make(chan error, 1)
-			go func() { _, _, err := conn.Read(ctx); done <- err }()
 			if respond {
+				done := make(chan error, 1)
+				go func() { _, _, err := conn.Read(ctx); done <- err }()
 				deadline := time.After(time.Second)
 				for pings.Load() < 5 {
 					select {
@@ -359,13 +357,29 @@ func TestServerHeartbeat(t *testing.T) {
 				}
 				waitCount(t, running, 1)
 			} else {
-				select {
-				case err := <-done:
-					if err == nil || ctx.Err() != nil {
-						t.Fatalf("heartbeat failed to close dead peer: %v", err)
+				// Cancellation can deliver a stopped frame before closing the socket.
+				stopped := false
+				for {
+					kind, data, err := conn.Read(ctx)
+					if err != nil {
+						if ctx.Err() != nil {
+							t.Fatalf("heartbeat failed to close dead peer: %v", err)
+						}
+						break
 					}
-				case <-ctx.Done():
-					t.Fatal("dead peer left open")
+					var message struct {
+						ID     int `json:"id"`
+						Result struct {
+							Type string `json:"type"`
+						} `json:"result"`
+					}
+					if stopped || kind != websocket.MessageText || json.Unmarshal(data, &message) != nil || message.ID != 1 || message.Result.Type != "stopped" {
+						t.Fatalf("unexpected frame before heartbeat closure: %s", data)
+					}
+					stopped = true
+				}
+				if pings.Load() == 0 {
+					t.Fatal("dead peer closed without a heartbeat probe")
 				}
 				waitCount(t, running, 0)
 			}
