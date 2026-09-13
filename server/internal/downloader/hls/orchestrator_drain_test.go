@@ -106,23 +106,10 @@ func TestDrainOutcomes_MidStreamWindowRollTripsGapRatio(t *testing.T) {
 	}
 }
 
-// TestDrainOutcomes_PostAuthSuccessStillCounted is the regression
-// guard for the fix to the second-pass review finding:
-// "OnEvent is still not fully exact after an auth/abort boundary."
-// Previously the drain loop advanced LastMediaSeq for post-abort
-// outcomes but short-circuited before the counter + OnEvent path,
-// so a seg that landed on disk after the auth trigger would be
-// invisible to resume state even though the next attempt would
-// skip past it.
-//
-// The drain helper is fed by hand so the race window (worker
-// completes a commit after cancel() fires but before its SegmentResult
-// is drained) is deterministic; wiring this through real HTTP +
-// the pool is hostile to the test runner because cancellation
-// propagates to in-flight fetches and kills them before they can
-// succeed.
+// TestDrainOutcomes_PostAuthSuccessStillCounted checks that media committed
+// after cancellation remains visible to recovery below the advanced cursor.
 func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
-	cfg := &JobConfig{}
+	cfg := &JobConfig{GapPolicy: GapPolicy{MaxGapRatio: 1}}
 	result := &JobResult{}
 	results := make(chan SegmentResult, 4)
 	skipEvents := make(chan SkipEvent, 4)
@@ -137,20 +124,7 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 	var events []SegmentEvent
 	cfg.OnEvent = func(ev SegmentEvent) { events = append(events, ev) }
 
-	// Seq 10: auth failure — latches authErr + triggers cancel.
-	// Seq 11: committed success delivered AFTER the auth marker
-	//   is latched (what a worker finishing its in-flight fetch
-	//   would look like once the drain had already processed the
-	//   auth).
-	// Seq 12: stitched-ad skip arriving after abort.
-	// Seq 13: non-auth fetch error arriving after abort — counted
-	//   as an accepted gap since the file is permanently lost.
-	//
-	// Drive the drain concurrently: push the auth first, wait for
-	// cancel() to confirm the latch, then push the post-abort
-	// events. Go's select picks pseudo-randomly among ready cases,
-	// so pre-filling both channels would make the "auth is
-	// processed first" ordering non-deterministic.
+	// Waiting for the auth latch fixes ordering across the two independently drained channels.
 	done := make(chan struct {
 		abortErr *GapAbortError
 		authErr  error
@@ -184,8 +158,7 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 		t.Errorf("abortErr=%v; want nil (auth path, not gap-ratio path)", abortErr)
 	}
 
-	// cancel() called exactly once — the first auth latch only.
-	// Subsequent post-abort outcomes must not re-trigger.
+	// Further drained outcomes must not repeat cancellation.
 	if got := cancelCalled.Load(); got != 1 {
 		t.Errorf("cancel called %d times, want 1", got)
 	}
@@ -206,11 +179,7 @@ func TestDrainOutcomes_PostAuthSuccessStillCounted(t *testing.T) {
 		t.Errorf("SegmentsGaps=%d, want 1 (post-auth fetch error accepted as gap)", result.SegmentsGaps)
 	}
 
-	// OnEvent must see every drained outcome exactly once. Auth
-	// happens-before the post-abort pushes (the test waits on
-	// authSeen), so seq 10 is index 0 by construction. The post-
-	// abort events can interleave — select picks pseudo-randomly
-	// among ready cases — so assert that set without pinning order.
+	// Only the authorization outcome is ordered; subsequent worker and skip events can interleave.
 	if len(events) != 4 {
 		t.Fatalf("len(events)=%d, want 4; events=%+v", len(events), events)
 	}

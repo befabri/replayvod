@@ -155,6 +155,15 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	cfg.GapPolicy.normalize()
 
 	log := cfg.Log.With("domain", "hls.job")
+	// Authentication renewal cannot erase a policy violation from an earlier attempt.
+	result := &JobResult{
+		// Preserve per-part policy counters; bytes and advertisement gaps remain per attempt.
+		SegmentsDone: cfg.SeedSegmentsDone,
+		SegmentsGaps: cfg.SeedSegmentsGaps,
+	}
+	if err := evaluateGapCount(&cfg.GapPolicy, result, 0, 0, errors.New("inherited content loss")); err != nil {
+		return result, err
+	}
 
 	// Bounded queues prevent playlist polling from outrunning segment acquisition.
 	jobChanCap := 2 * max(1, cfg.SegmentConcurrency)
@@ -218,11 +227,6 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	})
 
 	// Initialization must complete before workers can commit fMP4 media.
-	result := &JobResult{
-		// Preserve per-part policy counters; bytes and advertisement gaps remain per attempt.
-		SegmentsDone: cfg.SeedSegmentsDone,
-		SegmentsGaps: cfg.SeedSegmentsGaps,
-	}
 	var pr PollResult
 	select {
 	case pr = <-first:
@@ -259,13 +263,13 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 
 	abortErr, authErr := drainOutcomes(&cfg, result, results, skipEvents, cancel, shouldIgnoreCanceledSegment, poller.totalSegments.Load, log)
 
-	if authErr != nil {
-		_ = g.Wait()
-		return result, authErr
-	}
 	if abortErr != nil {
 		_ = g.Wait()
 		return result, abortErr
+	}
+	if authErr != nil {
+		_ = g.Wait()
+		return result, authErr
 	}
 
 	// Cancellation still returns captured counters for checkpointing.
@@ -287,8 +291,8 @@ func emitEvent(onEvent func(SegmentEvent), ev SegmentEvent) {
 
 // drainOutcomes accounts for outcomes until both channels close, including work
 // completed after cancellation; later attempts advance past the drained cursor.
-// The first authorization or policy failure cancels acquisition and determines
-// the returned error without suppressing subsequent durable accounting.
+// Policy failures take precedence over authorization renewal without suppressing
+// subsequent durable accounting.
 func drainOutcomes(
 	cfg *JobConfig,
 	result *JobResult,
@@ -301,6 +305,7 @@ func drainOutcomes(
 ) (*GapAbortError, error) {
 	var abortErr *GapAbortError
 	var authErr error
+	cancel = sync.OnceFunc(cancel)
 	if segmentsTotal == nil {
 		segmentsTotal = func() int64 { return 0 }
 	}
@@ -331,7 +336,7 @@ func drainOutcomes(
 			if res.Err != nil {
 				// Permanent restrictions must bypass token renewal and fail the job.
 				if IsAuthPermanent(res.Err) {
-					if authErr == nil && abortErr == nil {
+					if abortErr == nil && (authErr == nil || errors.Is(authErr, ErrPlaylistAuth)) {
 						authErr = fmt.Errorf("hls: segment seq=%d permanent auth: %w", res.MediaSeq, ErrPlaylistAuthPermanent)
 						log.Info("segment permanent auth failure; failing job", "seq", res.MediaSeq)
 						cancel()
@@ -359,9 +364,9 @@ func drainOutcomes(
 					})
 					continue
 				}
-				// Preserve the first failure while accounting for gaps that later
+				// Preserve the first policy failure while accounting for gaps that later
 				// attempts skip past with LastMediaSeq.
-				if authErr != nil || abortErr != nil {
+				if abortErr != nil {
 					result.SegmentsGaps++
 					log.Debug("segment gap accepted post-abort", "seq", res.MediaSeq, "error", res.Err)
 					emitEvent(cfg.OnEvent, SegmentEvent{
@@ -428,7 +433,7 @@ func drainOutcomes(
 				advanceSkip()
 				// Malformed manifest entries are content loss; retain their distinct
 				// outcome so recovery records GapReasonMalformed, including after abort.
-				if authErr != nil || abortErr != nil {
+				if abortErr != nil {
 					result.SegmentsGaps++
 					emitEvent(cfg.OnEvent, SegmentEvent{
 						MediaSeq: ev.MediaSeq,
@@ -453,7 +458,7 @@ func drainOutcomes(
 				}
 			case SkipReasonWindowRolled:
 				if cfg.OnMidStreamWindowRoll == nil {
-					if authErr == nil && abortErr == nil {
+					if abortErr == nil {
 						abortErr = &GapAbortError{
 							Reason:  "mid-stream window roll callback not configured",
 							Done:    result.SegmentsDone,
@@ -495,7 +500,7 @@ func drainOutcomes(
 						"post_abort", postAbort)
 					cfg.OnMidStreamWindowRoll(ev.MediaSeq, skipEnd)
 				}
-				if authErr != nil || abortErr != nil {
+				if abortErr != nil {
 					acceptWindowRoll(true)
 				} else if gapErr := evaluateWindowRollGap(&cfg.GapPolicy, result, ev.MediaSeq, skipEnd); gapErr == nil {
 					acceptWindowRoll(false)
@@ -520,7 +525,10 @@ func drainOutcomes(
 			emitProgress(cfg.OnProgress, result, segmentsTotal())
 		}
 	}
-	return abortErr, authErr
+	if abortErr != nil {
+		return abortErr, nil
+	}
+	return nil, authErr
 }
 
 func emitProgress(observe func(Progress), r *JobResult, total int64) {
@@ -543,109 +551,54 @@ func isCanceledSegmentResult(err error) bool {
 }
 
 func evaluateGap(p *GapPolicy, r *JobResult, res SegmentResult) *GapAbortError {
-	if p.Strict {
-		return &GapAbortError{
-			Reason:  "strict mode",
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: res.MediaSeq,
-			LastErr: res.Err,
-		}
-	}
-	if !p.SkipFirstContentGuard && r.SegmentsDone == 0 {
-		return &GapAbortError{
-			Reason:  "no content segment committed yet",
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: res.MediaSeq,
-			LastErr: res.Err,
-		}
-	}
-	gapsAfter := r.SegmentsGaps + 1
-	total := gapsAfter + r.SegmentsDone
-	if float64(gapsAfter)/float64(total) > p.MaxGapRatio {
-		return &GapAbortError{
-			Reason:  fmt.Sprintf("gap ratio %.2f%% over ceiling %.2f%%", 100*float64(gapsAfter)/float64(total), 100*p.MaxGapRatio),
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: res.MediaSeq,
-			LastErr: res.Err,
-		}
-	}
-	return nil
+	return evaluateGapCount(p, r, 1, res.MediaSeq, res.Err)
 }
 
 func evaluateMalformedGap(p *GapPolicy, r *JobResult, seq int64) *GapAbortError {
-	reason := fmt.Errorf("malformed segment: EXTINF <= 0")
-	if p.Strict {
-		return &GapAbortError{
-			Reason:  "strict mode (malformed segment)",
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: seq,
-			LastErr: reason,
-		}
+	err := evaluateGapCount(p, r, 1, seq, errors.New("malformed segment: EXTINF <= 0"))
+	if err != nil {
+		err.Reason += " (malformed segment)"
 	}
-	if !p.SkipFirstContentGuard && r.SegmentsDone == 0 {
-		return &GapAbortError{
-			Reason:  "no content segment committed yet (malformed segment)",
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: seq,
-			LastErr: reason,
-		}
-	}
-	gapsAfter := r.SegmentsGaps + 1
-	total := gapsAfter + r.SegmentsDone
-	if float64(gapsAfter)/float64(total) > p.MaxGapRatio {
-		return &GapAbortError{
-			Reason:  fmt.Sprintf("gap ratio %.2f%% over ceiling %.2f%% (malformed)", 100*float64(gapsAfter)/float64(total), 100*p.MaxGapRatio),
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: seq,
-			LastErr: reason,
-		}
-	}
-	return nil
+	return err
 }
 
 // evaluateWindowRollGap counts the entire lost range when evaluating the gap ratio.
 func evaluateWindowRollGap(p *GapPolicy, r *JobResult, from, to int64) *GapAbortError {
-	lostSegments := to - from + 1
-	if lostSegments < 1 {
-		lostSegments = 1
+	err := evaluateGapCount(p, r, max(1, to-from+1), to, errors.New("playlist window rolled mid-stream"))
+	if err != nil {
+		err.Reason += " (window roll)"
 	}
-	reason := fmt.Errorf("playlist window rolled mid-stream")
-	if p.Strict {
-		return &GapAbortError{
-			Reason:  "strict mode (window roll)",
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: to,
-			LastErr: reason,
+	return err
+}
+
+// evaluateGapCount checks existing loss when additional is zero, as required on renewal.
+func evaluateGapCount(p *GapPolicy, r *JobResult, additional, seq int64, cause error) *GapAbortError {
+	gapsAfter := r.SegmentsGaps + additional
+	if gapsAfter == 0 {
+		return nil
+	}
+	var reason string
+	switch {
+	case p.Strict:
+		reason = "strict mode"
+	case !p.SkipFirstContentGuard && r.SegmentsDone == 0:
+		reason = "no content segment committed yet"
+	default:
+		ratio := float64(gapsAfter) / (float64(gapsAfter) + float64(r.SegmentsDone))
+		if ratio > p.MaxGapRatio {
+			reason = fmt.Sprintf("gap ratio %.2f%% over ceiling %.2f%%", 100*ratio, 100*p.MaxGapRatio)
 		}
 	}
-	if !p.SkipFirstContentGuard && r.SegmentsDone == 0 {
-		return &GapAbortError{
-			Reason:  "no content segment committed yet (window roll)",
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: to,
-			LastErr: reason,
-		}
+	if reason == "" {
+		return nil
 	}
-	gapsAfter := r.SegmentsGaps + lostSegments
-	total := gapsAfter + r.SegmentsDone
-	if float64(gapsAfter)/float64(total) > p.MaxGapRatio {
-		return &GapAbortError{
-			Reason:  fmt.Sprintf("gap ratio %.2f%% over ceiling %.2f%% (window roll)", 100*float64(gapsAfter)/float64(total), 100*p.MaxGapRatio),
-			Done:    r.SegmentsDone,
-			Gaps:    r.SegmentsGaps,
-			LastSeq: to,
-			LastErr: reason,
-		}
+	return &GapAbortError{
+		Reason:  reason,
+		Done:    r.SegmentsDone,
+		Gaps:    r.SegmentsGaps,
+		LastSeq: seq,
+		LastErr: cause,
 	}
-	return nil
 }
 
 // fetchInit must succeed before fMP4 media can be decoded.
