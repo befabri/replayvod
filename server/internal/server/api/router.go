@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader"
@@ -38,6 +40,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/webhook"
 	eventsubsvc "github.com/befabri/replayvod/server/internal/service/eventsub"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
+	"github.com/befabri/replayvod/server/internal/service/followsync"
 	"github.com/befabri/replayvod/server/internal/service/playbackcache"
 	"github.com/befabri/replayvod/server/internal/service/retention"
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
@@ -127,7 +130,8 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	// Chi routes (non-tRPC: OAuth, webhooks, video streaming, thumbnails).
 	// Video/thumbnail routes reuse the session middleware — auth required
 	// for both, and we want the same context population the tRPC side gets.
-	authHandler := auth.NewHandler(cfg, twitchClient, sessionMgr, authSvc, log)
+	followSync := followsync.New(repo, twitchClient, log)
+	authHandler := auth.NewHandler(cfg, twitchClient, sessionMgr, authSvc, followSync, log)
 	var recordings *RecordingServices
 	if len(services) > 0 {
 		recordings = services[0]
@@ -223,8 +227,11 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	root.Use(middleware.CORS(trustedBrowserOrigins, routedMethods(r), trpc.RequestHeaders()))
 	root.Mount("/", r)
 	return root, func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		followSync.Stop()
 		_ = wsHandler.Close()
-		return trpcRouter.Close()
+		return errors.Join(followSync.Wait(ctx), trpcRouter.Close())
 	}
 }
 

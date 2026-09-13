@@ -23,7 +23,6 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// newStubbedTwitch fakes OAuth token exchange and GET /users.
 func newStubbedTwitch(t *testing.T, usersJSON string) *twitch.Client {
 	t.Helper()
 	tc := twitch.NewClient("client-id", "secret", discardLog())
@@ -34,9 +33,6 @@ func newStubbedTwitch(t *testing.T, usersJSON string) *twitch.Client {
 			body = `{"access_token":"access-tok","refresh_token":"refresh-tok","expires_in":3600,"token_type":"bearer"}`
 		case strings.HasSuffix(r.URL.Path, "/users"):
 			body = usersJSON
-		// An empty follow page stops the callback's background sync.
-		case strings.HasSuffix(r.URL.Path, "/channels/followed"):
-			body = `{"data":[],"pagination":{}}`
 		default:
 			t.Errorf("unexpected twitch request: %s", r.URL.String())
 			body = "{}"
@@ -81,7 +77,6 @@ func TestHandleOAuthCallback_PreservesExistingRole(t *testing.T) {
 	if _, err := repo.UpsertUser(ctx, &repository.User{ID: "twitch-1", Login: "streamer", DisplayName: "Streamer", Role: "admin"}); err != nil {
 		t.Fatalf("seed existing user: %v", err)
 	}
-	// Stored roles win over OwnerTwitchID recomputation.
 	s := New(repo, nil, newStubbedTwitch(t, stubUserJSON), Config{OwnerTwitchID: "someone-else"}, discardLog())
 
 	res, err := s.HandleOAuthCallback(ctx, "code", "https://app/callback", "verifier", "")
@@ -258,8 +253,6 @@ func TestHandleOAuthCallback_InviteNeverDemotesOwner(t *testing.T) {
 	}
 }
 
-// TestHandleOAuthCallback_InviteNeverDemotesExistingUser guards against
-// invite-based role downgrades.
 func TestHandleOAuthCallback_InviteNeverDemotesExistingUser(t *testing.T) {
 	ctx := context.Background()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -365,8 +358,6 @@ func (r raceLostRepo) WithTx(ctx context.Context, fn func(repository.Repository)
 	})
 }
 
-// TestHandleOAuthCallback_LostRedemptionRaceLeavesNoUser checks that failed
-// claims cannot create accounts.
 func TestHandleOAuthCallback_LostRedemptionRaceLeavesNoUser(t *testing.T) {
 	ctx := context.Background()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -383,8 +374,6 @@ func TestHandleOAuthCallback_LostRedemptionRaceLeavesNoUser(t *testing.T) {
 	}
 }
 
-// TestHandleOAuthCallback_LostRedemptionRaceKeepsExistingRole checks that
-// failed claims cannot grant roles.
 func TestHandleOAuthCallback_LostRedemptionRaceKeepsExistingRole(t *testing.T) {
 	ctx := context.Background()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -434,10 +423,8 @@ func TestResolveRole(t *testing.T) {
 		{"configured owner, other user, users exist → viewer", "owner-123", "rando-456", oneUser, nil, "viewer"},
 		{"no owner configured, first-ever user → owner", "", "first-1", nil, nil, "owner"},
 		{"no owner configured, later user → viewer", "", "later-2", oneUser, nil, "viewer"},
-		// Bootstrap still wins before the configured owner has logged in.
 		{"configured owner absent, other first user still bootstraps → owner", "owner-123", "rando-456", nil, nil, "owner"},
-		// A failed bootstrap lookup must not permanently prevent
-		// creation of the first owner.
+		// A failed lookup must not grant ownership before the stored users can be checked.
 		{"ListUsers error → no role", "", "x", nil, errors.New("db down"), ""},
 	}
 	for _, tc := range cases {

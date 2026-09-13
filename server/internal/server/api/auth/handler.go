@@ -1,12 +1,10 @@
 package auth
 
 import (
-	"context"
 	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/session"
@@ -20,23 +18,33 @@ const (
 	inviteCookieName   = "twitch_oauth_invite"
 )
 
-// Handler serves the Twitch OAuth Chi routes. Thin by design: state
-// and PKCE cookie plumbing live here (Chi concerns); the code exchange
-// + whitelist + role + user upsert flow lives in Service.
+// Handler serves the Twitch OAuth routes.
 type Handler struct {
 	cfg        *config.Config
 	twitch     *twitch.Client
 	sessionMgr *session.Manager
 	svc        *Service
+	follows    FollowSync
 	log        *slog.Logger
 }
 
-func NewHandler(cfg *config.Config, tc *twitch.Client, sm *session.Manager, svc *Service, log *slog.Logger) *Handler {
+// FollowSync admits work to the application lifetime after session creation.
+type FollowSync interface {
+	Request(userID, accessToken string) error
+}
+
+// NewHandler requires a non-nil FollowSync owned by the application. Its owner
+// must stop and join imports during shutdown; HTTP disconnects do not own them.
+func NewHandler(cfg *config.Config, tc *twitch.Client, sm *session.Manager, svc *Service, follows FollowSync, log *slog.Logger) *Handler {
+	if follows == nil {
+		panic("follow synchronization service required")
+	}
 	return &Handler{
 		cfg:        cfg,
 		twitch:     tc,
 		sessionMgr: sm,
 		svc:        svc,
+		follows:    follows,
 		log:        log.With("domain", "auth"),
 	}
 }
@@ -46,8 +54,6 @@ func (h *Handler) SetupRoutes(r chi.Router) {
 	r.Get("/auth/twitch/callback", h.handleCallback)
 }
 
-// handleRedirect generates state + PKCE, stashes them in short-lived
-// cookies, and bounces the user to Twitch's authorize URL.
 func (h *Handler) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	state, err := twitch.GenerateState()
 	if err != nil {
@@ -103,12 +109,7 @@ func (h *Handler) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
-// handleCallback is the transport-layer counterpart to
-// Service.HandleOAuthCallback: validates state + PKCE cookies, hands
-// the code + verifier off to the service, and turns the result into a
-// cookie + redirect. State tampering (constant-time compare), missing
-// cookies, and provider-returned errors all short-circuit before the
-// service gets invoked.
+// handleCallback validates state and PKCE before exchanging credentials or creating a session.
 func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil || stateCookie.Value == "" {
@@ -171,20 +172,10 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mirror the user's Twitch follows into the local channels +
-	// user_followed_channels tables so the dashboard has something to
-	// show on first login. Runs in the background with a detached
-	// context — the redirect happens immediately, sync errors are
-	// logged but never block login.
-	userID := result.User.ID
-	accessToken := result.Tokens.AccessToken
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := h.svc.SyncUserFollows(ctx, userID, accessToken); err != nil {
-			h.log.Warn("sync user follows failed", "user_id", userID, "error", err)
-		}
-	}()
+	// Failed import admission must not invalidate a completed login.
+	if err := h.follows.Request(result.User.ID, result.Tokens.AccessToken); err != nil {
+		h.log.Warn("admit follow sync", "user_id", result.User.ID, "error", err)
+	}
 
 	http.Redirect(w, r, h.cfg.Env.FrontendURL+"/dashboard", http.StatusTemporaryRedirect)
 }

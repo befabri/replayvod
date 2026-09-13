@@ -28,12 +28,21 @@ func testAuthConfig() *config.Config {
 	}
 }
 
+type followSyncFunc func(string, string) error
+
+func (fn followSyncFunc) Request(userID, accessToken string) error { return fn(userID, accessToken) }
+
+func noFollowSync(t *testing.T) FollowSync {
+	t.Helper()
+	return followSyncFunc(func(string, string) error { t.Error("unexpected follow sync admission"); return nil })
+}
+
 func TestHandleRedirect_InviteCookieFlags(t *testing.T) {
 	for _, host := range []string{"localhost", "0.0.0.0", "replay.example"} {
 		t.Run(host, func(t *testing.T) {
 			cfg := testAuthConfig()
 			cfg.Env.Host = host
-			h := NewHandler(cfg, twitch.NewClient("client-id", "secret", discardLog()), nil, nil, discardLog())
+			h := NewHandler(cfg, twitch.NewClient("client-id", "secret", discardLog()), nil, nil, noFollowSync(t), discardLog())
 			rr := httptest.NewRecorder()
 			h.handleRedirect(rr, httptest.NewRequest(http.MethodGet, "/api/v1/auth/twitch?invite=raw-token", nil))
 			if rr.Code != http.StatusTemporaryRedirect {
@@ -63,7 +72,7 @@ func TestHandleCallback_InvalidOAuthDoesNotConsumeInvite(t *testing.T) {
 	raw := seedInvite(t, repo, "admin", time.Hour)
 	// Nil dependencies make an unexpected code exchange or session creation
 	// fail immediately.
-	h := NewHandler(testAuthConfig(), nil, nil, nil, discardLog())
+	h := NewHandler(testAuthConfig(), nil, nil, nil, noFollowSync(t), discardLog())
 	for _, tc := range []struct {
 		name          string
 		query         string
@@ -127,7 +136,7 @@ func cookieByName(cookies []*http.Cookie, name string) *http.Cookie {
 // TestHandleRedirect_StashesInviteCookie checks that ordinary login clears
 // abandoned invite credentials.
 func TestHandleRedirect_StashesInviteCookie(t *testing.T) {
-	h := NewHandler(testAuthConfig(), twitch.NewClient("client-id", "secret", discardLog()), nil, nil, discardLog())
+	h := NewHandler(testAuthConfig(), twitch.NewClient("client-id", "secret", discardLog()), nil, nil, noFollowSync(t), discardLog())
 
 	rr := httptest.NewRecorder()
 	h.handleRedirect(rr, httptest.NewRequest(http.MethodGet, "/api/v1/auth/twitch?invite=raw-tok-1", nil))
@@ -165,7 +174,18 @@ func TestHandleCallback_RedeemsInviteFromCookie(t *testing.T) {
 	}
 	tc := newStubbedTwitch(t, stubUserJSON)
 	svc := New(repo, sessionMgr, tc, Config{WhitelistEnabled: true}, log)
-	h := NewHandler(testAuthConfig(), tc, sessionMgr, svc, log)
+	var followRequests int
+	follows := followSyncFunc(func(userID, token string) error {
+		followRequests++
+		if userID != "twitch-1" || token != "access-tok" {
+			t.Error("follow sync did not receive the authenticated user's credentials")
+		}
+		if sessions, err := repo.ListUserSessions(ctx, userID); err != nil || len(sessions) != 1 {
+			t.Errorf("follow sync admitted before session creation: %v, %v", sessions, err)
+		}
+		return nil
+	})
+	h := NewHandler(testAuthConfig(), tc, sessionMgr, svc, follows, log)
 
 	raw := seedInvite(t, repo, "admin", time.Hour)
 
@@ -176,6 +196,9 @@ func TestHandleCallback_RedeemsInviteFromCookie(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.handleCallback(rr, req)
 
+	if followRequests != 1 {
+		t.Fatalf("follow sync admissions = %d, want 1", followRequests)
+	}
 	if rr.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("status = %d, want 307 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -215,6 +238,37 @@ func TestHandleCallback_RedeemsInviteFromCookie(t *testing.T) {
 	}
 }
 
+func TestHandleCallbackFollowSyncRejectionPreservesLogin(t *testing.T) {
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	log := discardLog()
+	sessions, err := session.NewManager(repo, "auth-handler-test-session-secret-0123456789", false, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := newStubbedTwitch(t, stubUserJSON)
+	svc := New(repo, sessions, client, Config{}, log)
+	requested := false
+	follows := followSyncFunc(func(string, string) error {
+		requested = true
+		return errors.New("follow synchronization stopped")
+	})
+	h := NewHandler(testAuthConfig(), client, sessions, svc, follows, log)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/twitch/callback?state=state&code=code", nil)
+	req.AddCookie(&http.Cookie{Name: stateCookieName, Value: "state"})
+	req.AddCookie(&http.Cookie{Name: verifierCookieName, Value: "verifier"})
+	rr := httptest.NewRecorder()
+	h.handleCallback(rr, req)
+	if !requested || rr.Code != http.StatusTemporaryRedirect || rr.Header().Get("Location") != "http://localhost:3000/dashboard" {
+		t.Fatalf("follow sync rejection prevented login: requested=%v response=%+v", requested, rr.Result())
+	}
+	if c := cookieByName(rr.Result().Cookies(), session.CookieName); c == nil || c.Value == "" {
+		t.Fatal("follow sync rejection lost the session cookie")
+	}
+	if rows, err := repo.ListUserSessions(t.Context(), "twitch-1"); err != nil || len(rows) != 1 {
+		t.Fatalf("follow sync rejection lost the persisted session: %+v, %v", rows, err)
+	}
+}
+
 func TestHandleCallback_InvalidInviteRedirectsToLoginError(t *testing.T) {
 	ctx := context.Background()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -225,7 +279,7 @@ func TestHandleCallback_InvalidInviteRedirectsToLoginError(t *testing.T) {
 	}
 	tc := newStubbedTwitch(t, stubUserJSON)
 	svc := New(repo, sessionMgr, tc, Config{}, log)
-	h := NewHandler(testAuthConfig(), tc, sessionMgr, svc, log)
+	h := NewHandler(testAuthConfig(), tc, sessionMgr, svc, noFollowSync(t), log)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/twitch/callback?state=state-1&code=code-1", nil)
 	req.AddCookie(&http.Cookie{Name: stateCookieName, Value: "state-1"})
