@@ -44,10 +44,8 @@ func (e *MigrationMissingError) Error() string {
 		strings.Join(e.Versions, ", "))
 }
 
-// MigratePostgres validates the applied migration history and applies pending
-// migrations on a PostgreSQL database.
-// Each migration is wrapped in a transaction so a partial apply cannot leave
-// the DB in an intermediate state.
+// MigratePostgres validates applied history and applies each pending migration
+// in its own transaction.
 func MigratePostgres(ctx context.Context, pool *pgxpool.Pool, migrations fs.FS) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -75,9 +73,8 @@ func withPostgresMigrationTx(ctx context.Context, conn *pgxpool.Conn, fn func(pg
 	})
 }
 
-// MigrateSQLite validates the applied migration history and applies pending
-// migrations on a SQLite database.
-// Each migration is wrapped in a transaction.
+// MigrateSQLite validates applied history and applies each pending migration
+// in its own transaction, retrying migration-lock contention until ctx ends.
 func MigrateSQLite(ctx context.Context, db *sql.DB, migrations fs.FS) error {
 	return runMigrations(ctx, migrations, func(ctx context.Context, fn func(ledger) error) error {
 		return withSQLiteMigrationTx(ctx, db, func(conn *sql.Conn) error {
@@ -95,7 +92,7 @@ func withSQLiteMigrationTx(ctx context.Context, db *sql.DB, fn func(*sql.Conn) e
 		return fmt.Errorf("acquire migration connection: %w", err)
 	}
 	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+	if err := beginSQLiteMigration(ctx, conn); err != nil {
 		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 		return fmt.Errorf("lock migrations: %w", err)
 	}
@@ -245,8 +242,7 @@ type migration struct {
 	checksum string
 }
 
-// readMigrations returns the .up.sql files of the filesystem sorted by name.
-// Rollback files (.down.sql) are ignored.
+// readMigrations returns up migrations and their checksums in filename order.
 func readMigrations(files fs.FS) ([]migration, error) {
 	entries, err := fs.ReadDir(files, ".")
 	if err != nil {
