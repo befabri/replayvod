@@ -15,7 +15,7 @@ import (
 const createJob = `-- name: CreateJob :one
 INSERT INTO jobs (id, video_id, broadcaster_id, status, resume_state, attempt)
 VALUES (?, ?, ?, 'PENDING', ?, ?)
-RETURNING id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata
+RETURNING id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata, stop_requested
 `
 
 type CreateJobParams struct {
@@ -49,12 +49,13 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 		&i.Attempt,
 		&i.ExecutionID,
 		&i.AcceptsMetadata,
+		&i.StopRequested,
 	)
 	return i, err
 }
 
 const getActiveLiveJobByBroadcaster = `-- name: GetActiveLiveJobByBroadcaster :one
-SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt, jobs.execution_id, jobs.accepts_metadata FROM jobs
+SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt, jobs.execution_id, jobs.accepts_metadata, jobs.stop_requested FROM jobs
 JOIN videos ON videos.id = jobs.video_id
 WHERE videos.job_id = jobs.id AND jobs.broadcaster_id = ? AND jobs.status IN ('PENDING', 'RUNNING')
   AND videos.source = 'live'
@@ -80,12 +81,13 @@ func (q *Queries) GetActiveLiveJobByBroadcaster(ctx context.Context, broadcaster
 		&i.Attempt,
 		&i.ExecutionID,
 		&i.AcceptsMetadata,
+		&i.StopRequested,
 	)
 	return i, err
 }
 
 const getJob = `-- name: GetJob :one
-SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata FROM jobs WHERE id = ?
+SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata, stop_requested FROM jobs WHERE id = ?
 `
 
 func (q *Queries) GetJob(ctx context.Context, id string) (Job, error) {
@@ -105,12 +107,13 @@ func (q *Queries) GetJob(ctx context.Context, id string) (Job, error) {
 		&i.Attempt,
 		&i.ExecutionID,
 		&i.AcceptsMetadata,
+		&i.StopRequested,
 	)
 	return i, err
 }
 
 const getJobByVideoID = `-- name: GetJobByVideoID :one
-SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata FROM jobs WHERE video_id = ? ORDER BY created_at DESC LIMIT 1
+SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata, stop_requested FROM jobs WHERE video_id = ? ORDER BY created_at DESC LIMIT 1
 `
 
 func (q *Queries) GetJobByVideoID(ctx context.Context, videoID int64) (Job, error) {
@@ -130,12 +133,13 @@ func (q *Queries) GetJobByVideoID(ctx context.Context, videoID int64) (Job, erro
 		&i.Attempt,
 		&i.ExecutionID,
 		&i.AcceptsMetadata,
+		&i.StopRequested,
 	)
 	return i, err
 }
 
 const getNextQueuedArchiveJob = `-- name: GetNextQueuedArchiveJob :one
-SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt, jobs.execution_id, jobs.accepts_metadata FROM jobs
+SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt, jobs.execution_id, jobs.accepts_metadata, jobs.stop_requested FROM jobs
 JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
 WHERE jobs.status = 'PENDING' AND videos.status = 'PENDING'
   AND videos.source = 'vod' AND videos.deleted_at IS NULL
@@ -161,12 +165,13 @@ func (q *Queries) GetNextQueuedArchiveJob(ctx context.Context) (Job, error) {
 		&i.Attempt,
 		&i.ExecutionID,
 		&i.AcceptsMetadata,
+		&i.StopRequested,
 	)
 	return i, err
 }
 
 const listFailedJobsForRetry = `-- name: ListFailedJobsForRetry :many
-SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata FROM jobs
+SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata, stop_requested FROM jobs
 WHERE status = 'FAILED' AND finished_at IS NOT NULL AND finished_at < ?
 ORDER BY finished_at ASC LIMIT ?
 `
@@ -199,6 +204,7 @@ func (q *Queries) ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobs
 			&i.Attempt,
 			&i.ExecutionID,
 			&i.AcceptsMetadata,
+			&i.StopRequested,
 		); err != nil {
 			return nil, err
 		}
@@ -214,7 +220,7 @@ func (q *Queries) ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobs
 }
 
 const listRunningJobs = `-- name: ListRunningJobs :many
-SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt, jobs.execution_id, jobs.accepts_metadata FROM jobs
+SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt, jobs.execution_id, jobs.accepts_metadata, jobs.stop_requested FROM jobs
 JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
 WHERE (jobs.status = 'RUNNING' OR (jobs.status = 'PENDING' AND videos.source = 'live'))
   AND videos.status IN ('PENDING', 'RUNNING') AND videos.deleted_at IS NULL
@@ -244,6 +250,7 @@ func (q *Queries) ListRunningJobs(ctx context.Context) ([]Job, error) {
 			&i.Attempt,
 			&i.ExecutionID,
 			&i.AcceptsMetadata,
+			&i.StopRequested,
 		); err != nil {
 			return nil, err
 		}

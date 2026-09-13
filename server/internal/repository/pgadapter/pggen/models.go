@@ -147,6 +147,7 @@ type Job struct {
 	Attempt         int32           `json:"attempt"`
 	ExecutionID     string          `json:"execution_id"`
 	AcceptsMetadata bool            `json:"accepts_metadata"`
+	StopRequested   bool            `json:"stop_requested"`
 }
 
 type MediaPublication struct {
