@@ -5,6 +5,7 @@ import { TitledLayout } from "@/components/layout/titled-layout";
 import {
 	ContinueWatching,
 	LastLiveStatistics,
+	LatestRecordings,
 	RunningDownloads,
 	ScheduleStatistics,
 	VideoStatistics,
@@ -39,11 +40,12 @@ function DashboardHome() {
 				<LastLiveStatistics />
 				<ScheduleStatistics />
 			</div>
-			<ContinueWatching />
-			<LiveStreamsCard />
-			<div className="mt-6">
+			<div className="mb-6">
 				<RunningDownloads limit={3} />
 			</div>
+			<ContinueWatching />
+			<LatestRecordings />
+			<LiveStreamsCard />
 		</TitledLayout>
 	);
 }

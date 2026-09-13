@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
 	mockTrpc,
+	procsOf,
 	SESSION,
 	trpcOk,
 	validSession,
@@ -29,6 +30,7 @@ test.describe("dashboard", () => {
 		).toBeVisible();
 		// Nothing started: no continue-watching strip.
 		await expect(page.getByTestId("continue-watching")).toHaveCount(0);
+		await expect(page.getByTestId("latest-recordings")).toHaveCount(0);
 	});
 
 	test("lists the recordings the viewer is partway through", async ({
@@ -76,6 +78,62 @@ test.describe("dashboard", () => {
 			page.getByRole("tab", { name: "Continue watching" }),
 		).toHaveAttribute("aria-selected", "true");
 	});
+});
+
+test("latest recordings shows five completed videos and View all opens the completed library", async ({
+	page,
+}) => {
+	const inputs: Record<string, unknown>[] = [];
+	await mockTrpc(page, (procs, url) => {
+		const batch = JSON.parse(new URL(url).searchParams.get("input") ?? "{}");
+		return {
+			status: 200,
+			body: trpcOk(
+				procs.map((proc, index) => {
+					if (proc === "auth.session") return SESSION;
+					if (proc !== "video.listPage") return null;
+					const input = batch[index];
+					inputs.push(input);
+					const recordings = [6, 5, 4, 3, 2, 1].map((id) =>
+						videoRecording(id, 3600, { title: `Recording ${id}` }),
+					);
+					return { items: recordings.slice(0, input.limit) };
+				}),
+			),
+		};
+	});
+	await page.goto("/dashboard");
+	const latest = page.getByTestId("latest-recordings");
+	await expect(
+		latest.getByRole("heading", { name: "Latest recordings" }),
+	).toBeVisible();
+	await expect(
+		latest.getByRole("link", { name: /^Watch Recording/ }),
+	).toHaveCount(5);
+	await expect(
+		latest.getByRole("link", { name: "Watch Recording 1", exact: true }),
+	).toHaveCount(0);
+	expect(inputs).toContainEqual(
+		expect.objectContaining({
+			limit: 5,
+			status: "DONE",
+			sort: "created_at",
+			order: "desc",
+		}),
+	);
+	await latest.getByRole("link", { name: "View all" }).click();
+	await expect(page).toHaveURL(/status=DONE/);
+	await expect(
+		page.getByRole("link", { name: "Watch Recording 1", exact: true }),
+	).toBeVisible();
+	expect(inputs).toContainEqual(
+		expect.objectContaining({
+			limit: 50,
+			status: "DONE",
+			sort: "created_at",
+			order: "desc",
+		}),
+	);
 });
 
 test("Continue Watching keeps recently watched order through View all and pagination", async ({
@@ -143,4 +201,55 @@ test("Continue Watching keeps recently watched order through View all and pagina
 			(input) => input.sort === "last_watched" && input.order === "desc",
 		),
 	).toBe(true);
+});
+
+test("Latest Recordings shows loading, reports failure, and recovers on retry", async ({
+	page,
+}) => {
+	await mockTrpc(page, validSession);
+	let release: () => void = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let failed = true;
+	await page.route("**/trpc/**", async (route) => {
+		const procs = procsOf(route.request().url());
+		if (!procs.includes("video.listPage")) return route.fallback();
+		await gate;
+		await route.fulfill({
+			status: failed ? 500 : 200,
+			contentType: "application/json",
+			body: JSON.stringify(
+				failed
+					? procs.map(() => ({
+							error: {
+								message: "offline",
+								code: -32603,
+								data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500 },
+							},
+						}))
+					: trpcOk(
+							procs.map((proc) =>
+								proc === "video.listPage"
+									? { items: [videoRecording(90, 3600)] }
+									: null,
+							),
+						),
+			),
+		});
+	});
+	await page.goto("/dashboard");
+	const latest = page.getByTestId("latest-recordings");
+	await expect(latest.getByRole("status", { name: "Loading…" })).toBeVisible();
+	release();
+	await expect(latest.getByRole("alert")).toContainText(
+		"Failed to load videos",
+		{ timeout: 20_000 },
+	);
+	failed = false;
+	await latest.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(
+		latest.getByRole("link", { name: "Watch Resume fixture" }),
+	).toBeVisible();
+	await expect(latest.getByRole("alert")).toHaveCount(0);
 });

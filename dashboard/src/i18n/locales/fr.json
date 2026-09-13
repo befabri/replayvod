@@ -161,6 +161,7 @@
 		"no_results": "Aucun résultat"
 	},
 	"dashboard": {
+		"latest_recordings": "Derniers enregistrements",
 		"continue_watching": "Reprendre la lecture",
 		"running_now": "En cours",
 		"active_count": "{{count}} actives",
