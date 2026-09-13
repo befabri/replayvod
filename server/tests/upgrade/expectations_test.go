@@ -73,6 +73,9 @@ var transformations = map[string]map[string]tableRule{
 		"video_parts": grows(),
 		"jobs":        {up: upgradeRecordingCheckpoints, compare: compareCheckpointRows},
 	},
+	"062_canonical_recording_timeline": {
+		"video_metadata_changes": grows(),
+	},
 }
 
 func restoreLegacyQuality(rows []map[string]any, _ snapshot) {
