@@ -1473,7 +1473,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	if d.workspace != nil {
 		// The remux and an optional healed replacement can coexist with captured input.
 		estimate := d.resume.PartBytes*2 + d.resume.PartBytes/64
-		if err := d.workspace.ReserveAdditional(estimate); err != nil {
+		if err := d.workspace.ReserveAdditional(ctx, estimate); err != nil {
 			d.persistenceErr = err
 			return nil, err
 		}

@@ -477,7 +477,7 @@ func TestScratchStaleOwnerCannotMutateReopenedDirectory(t *testing.T) {
 			_, err := writer.WriteFile(t.Context(), file, []byte("replaced"))
 			return err
 		},
-		"reserve additional": func() error { return writer.ReserveAdditional(100) },
+		"reserve additional": func() error { return writer.ReserveAdditional(t.Context(), 100) },
 		"create": func() error {
 			created, err := writer.create(file.Name())
 			if created != nil {

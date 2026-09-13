@@ -219,7 +219,7 @@ func TestScratchCopyAccountsUnknownSizeAndCleansPartialOutput(t *testing.T) {
 		t.Fatalf("copy = %d bytes, %v", len(body), err)
 	}
 	// Existing input plus the future output must share the same reservation.
-	if err := w.ReserveAdditional(30_000); err != nil {
+	if err := w.ReserveAdditional(t.Context(), 30_000); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := scratch.New("competing", 20_000); !errors.Is(err, storage.ErrFull) {

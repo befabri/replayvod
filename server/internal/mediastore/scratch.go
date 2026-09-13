@@ -18,6 +18,7 @@ import (
 
 // Scratch reserves space on its own filesystem, independently of media storage.
 // Bytes already on disk count toward free-space usage instead of future reservations.
+// New, Open, and Workspace.Reserve may temporarily refuse admission while external files grow.
 type Scratch struct {
 	root string
 	mu   sync.Mutex
@@ -170,30 +171,70 @@ func scanFilesystemUsage(root fs.FS, dir string) (scratchUsage, error) {
 	return scratchUsage{}, errScratchScanChanged
 }
 func (s *Scratch) checkLocked() error {
-	var remaining int64
+	usage, err := s.scanLocked()
+	if err != nil {
+		return err
+	}
+	return s.checkCapacityLocked(usage, nil, 0)
+}
+
+func (s *Scratch) scanLocked() (map[*Workspace]scratchUsage, error) {
 	usage := make(map[*Workspace]scratchUsage, len(s.work))
 	for w := range s.work {
 		used, err := s.usage(w.Dir)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		usage[w] = used
-		remaining += max(w.reserved-used.bytes, 0)
 	}
-	// Read free space last so external growth is charged before its bytes are credited.
-	total, avail, err := s.stat(s.root)
-	if err != nil {
-		return err
+	return usage, nil
+}
+
+// scratchCapacityAttempts bounds work under the accounting lock while ffmpeg grows.
+const (
+	scratchCapacityAttempts = 2
+	scratchRetryDelay       = 10 * time.Millisecond
+)
+
+func (s *Scratch) checkCapacityLocked(usage map[*Workspace]scratchUsage, writer *Workspace, growth int64) error {
+	for range scratchCapacityAttempts {
+		required := growth + pendingScratchBytes(usage, writer)
+		// Read free space last so external growth is charged before its bytes are credited.
+		total, avail, err := s.stat(s.root)
+		if err != nil {
+			return err
+		}
+		if avail < total/20 {
+			return fmt.Errorf("%w: scratch space below filesystem reserve", storage.ErrFull)
+		}
+		available := avail - total/20
+		if required <= available {
+			// Writers must not see mixed accounting snapshots from a partial scan.
+			s.work = usage
+			return nil
+		}
+		refreshed, err := s.scanLocked()
+		if err != nil {
+			return err
+		}
+		// A falling pending balance may already have consumed the space sampled by statfs.
+		if growth+pendingScratchBytes(refreshed, writer) >= required {
+			s.work = refreshed
+			return fmt.Errorf("%w: scratch requires %d bytes, %d available after reserve", storage.ErrFull, required, available)
+		}
+		usage = refreshed
 	}
-	if avail < total/20 {
-		return fmt.Errorf("%w: scratch space below filesystem reserve", storage.ErrFull)
+	return errScratchScanChanged
+}
+
+func pendingScratchBytes(usage map[*Workspace]scratchUsage, writer *Workspace) int64 {
+	var pending int64
+	for workspace, used := range usage {
+		if workspace != writer {
+			pending += max(workspace.reserved-used.bytes, 0)
+		}
 	}
-	// Writers must not see mixed accounting snapshots from a partial scan.
-	s.work = usage
-	if remaining > max(avail-total/20, 0) {
-		return fmt.Errorf("%w: scratch requires %d bytes, %d available after reserve", storage.ErrFull, remaining, max(avail-total/20, 0))
-	}
-	return nil
+	return pending
 }
 
 // Reserve raises the total expected workspace footprint before a new writer.
@@ -201,6 +242,11 @@ func (w *Workspace) Reserve(bytes int64) error {
 	s := w.owner
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return w.reserveLocked(bytes)
+}
+
+func (w *Workspace) reserveLocked(bytes int64) error {
+	s := w.owner
 	if _, ok := s.work[w]; !ok {
 		return errWorkspaceClosed
 	}
@@ -298,50 +344,91 @@ type scratchWriter struct {
 func (b *scratchWriter) Write(p []byte) (int, error) { return b.w.WriteFile(b.ctx, b.file, p) }
 
 // WriteFile accounts for each write while preserving other workspace reservations.
-// file must belong to this workspace; capacity refusals cancel its monitor.
-func (w *Workspace) WriteFile(ctx context.Context, file *os.File, p []byte) (n int, err error) {
-	if err := ctx.Err(); err != nil {
-		return 0, err
-	}
+// It waits for changing capacity snapshots to settle or ctx to be canceled.
+// The file must belong to this workspace; confirmed failures cancel its monitor.
+func (w *Workspace) WriteFile(ctx context.Context, file *os.File, p []byte) (int, error) {
 	s := w.owner
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	path, err := w.pathLocked(file.Name())
-	if err != nil {
-		return 0, err
-	}
-	defer func() {
+	for {
+		s.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			s.mu.Unlock()
+			return 0, err
+		}
+		path, err := w.pathLocked(file.Name())
+		if err != nil {
+			s.mu.Unlock()
+			return 0, err
+		}
+		if err := w.checkGrowthLocked(int64(len(p))); err != nil {
+			retry := errors.Is(err, errScratchScanChanged)
+			if !retry && w.cancel != nil {
+				w.cancel(err)
+			}
+			s.mu.Unlock()
+			if !retry {
+				return 0, err
+			}
+			if err := waitScratchRetry(ctx); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		n, err := file.Write(p)
+		err = errors.Join(err, w.refreshFileUsageLocked(path))
 		if err != nil && w.cancel != nil {
 			w.cancel(err)
 		}
-	}()
-	if err := w.checkGrowthLocked(int64(len(p))); err != nil {
-		return 0, err
+		s.mu.Unlock()
+		return n, err
 	}
-	n, err = file.Write(p)
-	return n, errors.Join(err, w.refreshFileUsageLocked(path))
 }
 
 // Root returns the configured scratch location.
 func (s *Scratch) Root() string { return s.root }
 
-// ReserveAdditional reserves bytes beyond the workspace's current disk usage.
-func (w *Workspace) ReserveAdditional(bytes int64) error {
+// ReserveAdditional reserves bytes beyond the usage observed at the start of the call.
+// It retries changing capacity snapshots until they settle or ctx is canceled.
+func (w *Workspace) ReserveAdditional(ctx context.Context, bytes int64) error {
 	s := w.owner
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, owned := s.work[w]; !owned {
-		return errWorkspaceClosed
+	var target int64
+	initialized := false
+	for {
+		err := func() error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if _, owned := s.work[w]; !owned {
+				return errWorkspaceClosed
+			}
+			if !initialized {
+				used, err := s.usage(w.Dir)
+				if err != nil {
+					return err
+				}
+				// Growth during retries must consume the original target.
+				target = used.bytes + max(bytes, 0)
+				initialized = true
+			}
+			return w.reserveLocked(target)
+		}()
+		if !errors.Is(err, errScratchScanChanged) {
+			return err
+		}
+		if err := waitScratchRetry(ctx); err != nil {
+			return err
+		}
 	}
-	used, err := s.usage(w.Dir)
-	if err != nil {
-		return err
+}
+
+func waitScratchRetry(ctx context.Context) error {
+	timer := time.NewTimer(scratchRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
-	old := w.reserved
-	w.reserved = max(w.reserved, used.bytes+max(bytes, 0))
-	if err := s.checkLocked(); err != nil {
-		w.reserved = old
-		return err
-	}
-	return nil
 }

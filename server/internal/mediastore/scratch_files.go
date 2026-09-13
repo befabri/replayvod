@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/befabri/replayvod/server/internal/storage"
 )
 
 var errWorkspaceClosed = errors.New("scratch workspace closed")
@@ -28,21 +26,7 @@ func (w *Workspace) pathLocked(path string) (string, error) {
 }
 
 func (w *Workspace) checkGrowthLocked(bytes int64) error {
-	s := w.owner
-	total, avail, err := s.stat(s.root)
-	if err != nil {
-		return err
-	}
-	var pending int64
-	for other, used := range s.work {
-		if other != w {
-			pending += max(other.reserved-used.bytes, 0)
-		}
-	}
-	if bytes+pending > max(avail-total/20, 0) {
-		return fmt.Errorf("%w: scratch write", storage.ErrFull)
-	}
-	return nil
+	return w.owner.checkCapacityLocked(w.owner.work, w, bytes)
 }
 
 // Rename moves a file within the workspace without racing accounting scans.
@@ -115,6 +99,7 @@ func (w *Workspace) Remove(path string) error {
 
 // Truncate changes a workspace file's size while preserving other reservations.
 // It leaves the file offset unchanged, as os.File.Truncate does.
+// Growth can return a temporary accounting error without canceling the monitor.
 func (w *Workspace) Truncate(file *os.File, size int64) error {
 	s := w.owner
 	s.mu.Lock()
@@ -132,7 +117,7 @@ func (w *Workspace) truncateLocked(file *os.File, size int64) error {
 	}
 	if size > before.Size() {
 		if err := w.checkGrowthLocked(size - before.Size()); err != nil {
-			if w.cancel != nil {
+			if !errors.Is(err, errScratchScanChanged) && w.cancel != nil {
 				w.cancel(err)
 			}
 			return err
