@@ -149,6 +149,15 @@ type Job struct {
 	AcceptsMetadata bool            `json:"accepts_metadata"`
 }
 
+type MediaPublication struct {
+	Key             string `json:"key"`
+	VideoID         int64  `json:"video_id"`
+	Digest          string `json:"digest"`
+	SizeBytes       int64  `json:"size_bytes"`
+	Unresolved      bool   `json:"unresolved"`
+	DeleteRequested bool   `json:"delete_requested"`
+}
+
 type RecordingWebhookDelivery struct {
 	ID            int64      `json:"id"`
 	MessageID     string     `json:"message_id"`
