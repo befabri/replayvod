@@ -5,16 +5,13 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
 
-// scriptedRunner replays a sequence of (stderr, err) responses —
-// one per Run call. Lets tests drive the retry loop deterministi-
-// cally: first N calls return "single color", then one succeeds
-// (or all fail).
 type scriptedRunner struct {
 	responses []response
 	calls     []call
@@ -51,7 +48,7 @@ func TestGenerate_SucceedsOnFirstTry(t *testing.T) {
 	g := &Generator{Runner: r, Log: slog.New(slog.DiscardHandler)}
 	err := g.Generate(context.Background(), Input{
 		VideoPath:       "/in.mp4",
-		OutputPath:      "/out.jpg",
+		OutputPath:      filepath.Join(t.TempDir(), "out.jpg"),
 		DurationSeconds: 100,
 	})
 	if err != nil {
@@ -63,8 +60,6 @@ func TestGenerate_SucceedsOnFirstTry(t *testing.T) {
 }
 
 func TestGenerate_RetriesOnSingleColor(t *testing.T) {
-	// First two calls hit monochrome, third succeeds. Retry
-	// bumps the -ss offset by 60s each time.
 	r := &scriptedRunner{
 		responses: []response{
 			{stderr: singleColorStderr, err: errors.New("exit 1")},
@@ -75,8 +70,8 @@ func TestGenerate_RetriesOnSingleColor(t *testing.T) {
 	g := &Generator{Runner: r}
 	err := g.Generate(context.Background(), Input{
 		VideoPath:       "/in.mp4",
-		OutputPath:      "/out.jpg",
-		DurationSeconds: 100, // initial offset = 10.0
+		OutputPath:      filepath.Join(t.TempDir(), "out.jpg"),
+		DurationSeconds: 100,
 	})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -84,10 +79,8 @@ func TestGenerate_RetriesOnSingleColor(t *testing.T) {
 	if len(r.calls) != 3 {
 		t.Fatalf("calls=%d, want 3", len(r.calls))
 	}
-	// Each -ss value should be 60s higher than the previous.
 	offsets := make([]string, 0, 3)
 	for _, c := range r.calls {
-		// -y -ss <offset> -i ... — find the offset after "-ss"
 		for i, a := range c.args {
 			if a == "-ss" && i+1 < len(c.args) {
 				offsets = append(offsets, c.args[i+1])
@@ -102,7 +95,6 @@ func TestGenerate_RetriesOnSingleColor(t *testing.T) {
 }
 
 func TestGenerate_ExhaustedRetriesReturnsTyped(t *testing.T) {
-	// Every attempt monochrome → ErrAllTriesSingleColor.
 	resps := make([]response, 5)
 	for i := range resps {
 		resps[i] = response{stderr: singleColorStderr, err: errors.New("exit 1")}
@@ -111,7 +103,7 @@ func TestGenerate_ExhaustedRetriesReturnsTyped(t *testing.T) {
 	g := &Generator{Runner: r, MaxTries: 5}
 	err := g.Generate(context.Background(), Input{
 		VideoPath:       "/in.mp4",
-		OutputPath:      "/out.jpg",
+		OutputPath:      filepath.Join(t.TempDir(), "out.jpg"),
 		DurationSeconds: 50,
 	})
 	if !errors.Is(err, ErrAllTriesSingleColor) {
@@ -123,8 +115,7 @@ func TestGenerate_ExhaustedRetriesReturnsTyped(t *testing.T) {
 }
 
 func TestGenerate_NonSingleColorErrorSurfacesImmediately(t *testing.T) {
-	// A non-monochrome ffmpeg failure (e.g. "Invalid data") must
-	// NOT be retried — that would mask real failures.
+	// Retrying arbitrary ffmpeg errors would mask broken input or invocation.
 	r := &scriptedRunner{
 		responses: []response{
 			{stderr: "Invalid data found when processing input", err: errors.New("exit 1")},
@@ -133,7 +124,7 @@ func TestGenerate_NonSingleColorErrorSurfacesImmediately(t *testing.T) {
 	g := &Generator{Runner: r}
 	err := g.Generate(context.Background(), Input{
 		VideoPath:       "/in.mp4",
-		OutputPath:      "/out.jpg",
+		OutputPath:      filepath.Join(t.TempDir(), "out.jpg"),
 		DurationSeconds: 100,
 	})
 	if err == nil {
@@ -159,7 +150,7 @@ func TestGenerate_CtxCancelPassesThrough(t *testing.T) {
 	cancel()
 	err := g.Generate(ctx, Input{
 		VideoPath:       "/in.mp4",
-		OutputPath:      "/out.jpg",
+		OutputPath:      filepath.Join(t.TempDir(), "out.jpg"),
 		DurationSeconds: 100,
 	})
 	if !errors.Is(err, context.Canceled) {
@@ -172,12 +163,12 @@ func TestInitialOffset(t *testing.T) {
 		duration float64
 		want     float64
 	}{
-		{0, 5},       // fallback when duration unknown
-		{10, 5},      // 10% = 1s → clamped to 5s floor
-		{100, 10},    // 10% = 10s → in range
-		{3000, 300},  // 10% = 300s → in range
-		{10000, 600}, // 10% = 1000s → clamped to 10min ceiling
-		{-10, 5},     // negative treated as unknown
+		{0, 5},
+		{10, 5},
+		{100, 10},
+		{3000, 300},
+		{10000, 600},
+		{-10, 5},
 	}
 	for _, c := range cases {
 		got := initialOffset(c.duration)
@@ -203,9 +194,6 @@ func TestFFmpegArgs_Shape(t *testing.T) {
 }
 
 func TestGenerate_DefaultBudgetAndBump(t *testing.T) {
-	// Zero MaxTries / BumpSeconds → v1 defaults (5 tries, +60s).
-	// Combined with all-monochrome responses: 5 attempts, offsets
-	// 5, 65, 125, 185, 245 (initial 5s because duration=0).
 	resps := make([]response, 5)
 	for i := range resps {
 		resps[i] = response{stderr: singleColorStderr, err: errors.New("exit 1")}
@@ -214,7 +202,7 @@ func TestGenerate_DefaultBudgetAndBump(t *testing.T) {
 	g := &Generator{Runner: r}
 	_ = g.Generate(context.Background(), Input{
 		VideoPath:  "/in.mp4",
-		OutputPath: "/out.jpg",
+		OutputPath: filepath.Join(t.TempDir(), "out.jpg"),
 	})
 	if len(r.calls) != 5 {
 		t.Errorf("calls=%d, want 5", len(r.calls))
@@ -230,7 +218,7 @@ func TestGenerate_DeadlineExceededPassesThrough(t *testing.T) {
 	defer cancel()
 	err := g.Generate(ctx, Input{
 		VideoPath:       "/in.mp4",
-		OutputPath:      "/out.jpg",
+		OutputPath:      filepath.Join(t.TempDir(), "out.jpg"),
 		DurationSeconds: 100,
 	})
 	if !errors.Is(err, context.DeadlineExceeded) {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/downloader/remux"
 	"github.com/befabri/replayvod/server/internal/mediastore"
 	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -268,12 +269,14 @@ type fakeRunner struct {
 	calls       int
 	lists       []string
 	body        []byte
+	files       remux.FileOperations
 	err         error
 	beforeWrite func()
 }
 
-func (r *fakeRunner) Concat(_ context.Context, listPath, outputPath string) error {
+func (r *fakeRunner) Concat(_ context.Context, listPath, outputPath string, files remux.FileOperations) error {
 	r.calls++
+	r.files = files
 	data, err := os.ReadFile(listPath)
 	if err != nil {
 		return err

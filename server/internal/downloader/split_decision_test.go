@@ -13,9 +13,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader/hls"
 )
 
-// TestShouldForceSplitOnRestartGap: the threshold check scales
-// correctly with targetDuration (Twitch typically uses 2s or 6s,
-// not the test fixture's 1s).
+// TestShouldForceSplitOnRestartGap covers the 2s and 6s target durations Twitch
+// uses, beyond the fixture's 1s segments.
 func TestShouldForceSplitOnRestartGap(t *testing.T) {
 	withContent := &ResumeState{PartStarted: true, PartStartMediaSequence: 100, AccountedFrontierMediaSeq: 109}
 	noContent := &ResumeState{}
@@ -51,10 +50,8 @@ func TestShouldForceSplitOnRestartGap(t *testing.T) {
 	}
 }
 
-// TestThresholdLimitReached pins the size/duration ceiling decision used by
-// NoteCommittedSegmentUntilThreshold / advanceUntilThreshold. Either dimension
-// triggers independently; 0/negative disables that dimension; and the boundary
-// is "at or over."
+// TestThresholdLimitReached checks inclusive ceilings; nonpositive limits
+// disable their dimension independently.
 func TestThresholdLimitReached(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -144,9 +141,8 @@ func TestPartEndMediaSeq(t *testing.T) {
 	}
 }
 
-// TestHasPartContent: the PartStart > 0 guard prevents a doom loop
-// after BeginNewPart, where PartStart=frontier=0 would falsely
-// report content via the >= comparison.
+// TestHasPartContent guards against treating a reset zero frontier as content
+// and repeatedly splitting an empty part.
 func TestHasPartContent(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -220,9 +216,7 @@ func TestShouldFinalizeEmptyContinuation(t *testing.T) {
 	if shouldFinalizeEmptyContinuation(1, &hls.JobResult{EndList: true, SegmentsDone: 1}, empty) {
 		t.Fatal("continuation with committed media must be remuxed, not finalized as empty")
 	}
-	// P1: a resumed part whose media was committed BEFORE the crash (this
-	// run sees ENDLIST with SegmentsDone==0) must NOT be finalized as empty
-	// — its durable frontier holds real, non-gap segments.
+	// A durable frontier with media must survive an empty ENDLIST fetch after a crash.
 	resumedWithMedia := &ResumeState{
 		PartStarted:               true,
 		PartStartMediaSequence:    100,
@@ -359,16 +353,8 @@ func TestShouldSkipEmptySplitPart_WindowRollBeforeFirstMedia(t *testing.T) {
 	}
 }
 
-// TestShouldSkipEmptySplitPart_DurableMediaFinalizes pins the run-loop
-// routing fix: a split part that holds durable committed media must NOT
-// be treated as an empty split even when THIS attempt committed nothing
-// new (SegmentsDone==0). Two such shapes: a sealed threshold split whose
-// fold sealed a boundary on resume, and any resumed part whose segments
-// were captured before the crash. Both finalize through (prune+)runPart;
-// without the resume-aware check shouldSkipEmptySplitPart would reanchor
-// and abandon the on-disk segments. A genuinely empty interval (frontier
-// never advanced past the anchor, or advanced only through gaps) is still
-// skipped + reanchored.
+// TestShouldSkipEmptySplitPart_DurableMediaFinalizes guards against abandoning
+// saved segments when a resumed attempt commits no new media.
 func TestShouldSkipEmptySplitPart_DurableMediaFinalizes(t *testing.T) {
 	noNewThisRun := &hls.JobResult{LastMediaSeq: 104, SegmentsDone: 0}
 	if hasCommittedMedia(noNewThisRun) {
@@ -388,8 +374,7 @@ func TestShouldSkipEmptySplitPart_DurableMediaFinalizes(t *testing.T) {
 		t.Fatal("sealed threshold split with durable committed media must finalize, not be skipped")
 	}
 
-	// P1: a plain (non-threshold) pending split whose part already holds
-	// committed frontier media from before the crash must also finalize.
+	// Previously committed media must survive a pending split without a threshold boundary.
 	resumedWithMedia := &ResumeState{
 		PartStarted:               true,
 		PartStartMediaSequence:    100,
@@ -400,8 +385,6 @@ func TestShouldSkipEmptySplitPart_DurableMediaFinalizes(t *testing.T) {
 		t.Fatal("resumed split part with prior on-disk media must finalize, not be reanchored")
 	}
 
-	// A genuinely empty split interval — frontier never advanced past the
-	// part anchor, nothing committed anywhere — is still skipped.
 	emptyInterval := &ResumeState{
 		PartStarted:               true,
 		PartStartMediaSequence:    200,
@@ -568,13 +551,8 @@ func TestPendingThresholdSplitResumeWithEndListNeedsDurableTailProof(t *testing.
 		EndListSeen:                  true,
 	}
 
-	// This is the crash shape from the review finding: ENDLIST was
-	// persisted while the part was still in SEGMENTS, but the durable
-	// resume state does not record the HLS run's real final media
-	// sequence. Synthesizing LastMediaSeq as the split boundary must not
-	// be treated as proof that the broadcast ended exactly at the
-	// boundary; otherwise resume can clear PendingSplit and drop the
-	// continuation tail.
+	// ENDLIST without a recorded final sequence cannot prove the broadcast ended
+	// at the split boundary; treating a synthesized sequence as proof loses the tail.
 	synth := synthesizeHLSResultFromResume(resume, hls.SegmentKindTS)
 	if pendingSplitEndedAtBoundary(resume, synth) {
 		t.Fatalf("pendingSplitEndedAtBoundary=true with only synthesized boundary proof; want false so resume opens/refetches the continuation")
@@ -588,7 +566,7 @@ func TestPruneSegmentsAfterBoundary(t *testing.T) {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
-	if err := pruneSegmentsAfterBoundary(dir, hls.SegmentKindTS, 101); err != nil {
+	if err := pruneSegmentsAfterBoundary(dir, hls.SegmentKindTS, 101, nil); err != nil {
 		t.Fatalf("prune ts: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "100.ts")); err != nil {
@@ -605,14 +583,8 @@ func TestPruneSegmentsAfterBoundary(t *testing.T) {
 	}
 }
 
-// TestIsSplitSignal pins the classification rule the outer part loop
-// uses to decide "finalize this part and re-enter for a new one"
-// vs. "hard-fail the job." Both signal shapes per spec §"Variant
-// loss mid-stream" must classify as split; everything else must not.
-//
-// Wrapped errors must still match — the loop's caller wraps via
-// fmt.Errorf("…: %w", err) before checking. A predicate that only
-// matches bare sentinels would silently miss the real cases.
+// TestIsSplitSignal checks that wrapped split errors still finalize the part
+// and continue acquisition.
 func TestIsSplitSignal(t *testing.T) {
 	cases := []struct {
 		name string
@@ -695,12 +667,8 @@ func TestIsSplitSignal(t *testing.T) {
 	}
 }
 
-// TestMapForcedSplitErr pins the scoped-cancel → split-sentinel
-// translation shared by the restart-gap and size/duration paths. The
-// load-bearing case is "fired but parent ctx cancelled" (a shutdown
-// racing the split): the sentinel must NOT be synthesized then, or it
-// would mask the teardown — the split intent is already checkpointed
-// for resume.
+// TestMapForcedSplitErr checks that a split cannot mask parent cancellation;
+// its checkpointed intent remains available to recovery.
 func TestMapForcedSplitErr(t *testing.T) {
 	injected := errors.New("injected failure")
 	live := context.Background()
@@ -723,9 +691,7 @@ func TestMapForcedSplitErr(t *testing.T) {
 		{"fired, sealed, live, nil err — synthesize threshold sentinel", live, nil, true, true, ErrPartThresholdExceeded, true, nil},
 		{"fired, sealed, live, context.Canceled — synthesize threshold sentinel", live, context.Canceled, true, true, ErrPartThresholdExceeded, true, nil},
 		{"fired, sealed, live, real err — sentinel wins (above-boundary, refetched)", live, injected, true, true, ErrPartThresholdExceeded, true, nil},
-		// Hardening: a fired split WITHOUT a sealed boundary (restart-gap,
-		// or a hypothetical threshold path that forgot to seal) must NOT
-		// mask a genuine non-cancel failure.
+		// An unsealed split cannot hide a non-cancellation failure.
 		{"restart-gap fired (unsealed), live, real err — passthrough genuine failure", live, injected, true, false, ErrRestartGapExceeded, false, injected},
 		{"restart-gap fired (unsealed), live, nil — synthesize", live, nil, true, false, ErrRestartGapExceeded, true, nil},
 	}
@@ -792,10 +758,8 @@ func TestMapForcedSplitErr_ThresholdSplitWinsPostBoundaryWorkerErrors(t *testing
 	}
 }
 
-// TestRefetchSeqsForNextAttempt covers P1 #2: a canceled in-flight fetch
-// left unresolved must be carried into the next attempt's refetch set,
-// not just the auth-errored seqs. Without it the canceled seq sits below
-// the advanced startSeq forever — a permanent hole.
+// TestRefetchSeqsForNextAttempt checks that cancellation carries unresolved
+// sequences into renewal, preventing permanent holes below StartMediaSeq.
 func TestRefetchSeqsForNextAttempt(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -819,12 +783,8 @@ func TestRefetchSeqsForNextAttempt(t *testing.T) {
 	}
 }
 
-// TestRefetchSeqsForNextAttempt_AfterFoldRetriesCanceledSeq mirrors the
-// fetchWithAuthRefresh wiring end to end at the unit level: fold an
-// attempt that canceled seq 101 while seq 102 auth-errored, then build the
-// next attempt's refetch set. 101 must be included so the next hls.Run
-// re-emits it; before the fix only [102] was carried and 101 (below the
-// advanced startSeq 103) was lost.
+// TestRefetchSeqsForNextAttempt_AfterFoldRetriesCanceledSeq checks that folding
+// an authorization failure cannot lose an earlier canceled sequence.
 func TestRefetchSeqsForNextAttempt_AfterFoldRetriesCanceledSeq(t *testing.T) {
 	resume := NewResumeState()
 	resume.StartPart(100)

@@ -5,51 +5,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 )
 
-// CorruptionThreshold is the duration-mismatch ceiling (seconds)
-// above which Stage 9 calls the healing pass. 50s is v1's tuning —
-// enough slack that normal encoder jitter doesn't trip it, tight
-// enough that a genuinely truncated container gets caught.
-//
-// Spec Stage 9: if format.duration and the relevant stream's
-// duration differ by more than this, re-mux with stream copy to
-// rewrite the container's duration field. If the mismatch
-// survives a heal pass, log and keep the un-healed file — a
-// partial VOD is better than none.
+// CorruptionThreshold is the format/stream duration mismatch, in seconds,
+// beyond which a stream-copy repair is attempted.
 const CorruptionThreshold = 50.0
 
-// Heal re-runs ffmpeg with stream copy to fix a container whose
-// format.duration doesn't match its stream duration. Like Run,
-// writes to outputPath+".part" first and atomic-renames on
-// success; on failure or cancellation the partial output is
-// removed.
-//
-// Output is a caller-provided path rather than an in-place
-// overwrite — the caller keeps the un-healed input until it
-// confirms the heal produced a better file. Spec's "log and
-// continue, a partial VOD is better than none" policy relies
-// on having both files available at decision time.
-//
-// Audio mode passes `-c:a copy` so ffmpeg doesn't try to copy
-// a non-existent video stream; video mode passes `-c copy`
-// which matches Run.
-func (r *Remuxer) Heal(ctx context.Context, inputPath, outputPath string, kind Kind) error {
+// Heal stream-copies input into outputPath, committing through files after success.
+// The caller retains inputPath until the repaired output passes validation.
+// Failure removes partial output and preserves both execution and cleanup errors.
+func (r *Remuxer) Heal(ctx context.Context, inputPath, outputPath string, kind Kind, files FileOperations) (err error) {
 	log := r.logOrDiscard()
 	runner := r.runnerOrExec()
 	bin := r.binOrDefault()
+	files = filesOrLocal(files)
 
 	partPath := outputPath + partSuffix
 	args := healArgs(inputPath, partPath, kind)
+	if err := removePartial(files, partPath); err != nil {
+		return fmt.Errorf("remux heal: remove stale partial output: %w", err)
+	}
 
-	// Same cleanup pattern as Run: defer os.Remove gated on a
-	// committed flag so panic / rename-failure / ffmpeg-failure
-	// all land the .part in the bin.
 	committed := false
 	defer func() {
 		if !committed {
-			_ = os.Remove(partPath)
+			if cleanupErr := removePartial(files, partPath); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("remux heal: remove partial output: %w", cleanupErr))
+			}
 		}
 	}()
 
@@ -68,21 +50,13 @@ func (r *Remuxer) Heal(ctx context.Context, inputPath, outputPath string, kind K
 		return fmt.Errorf("remux heal: ffmpeg failed: %w\nstderr:\n%s", runErr, preview)
 	}
 
-	if err := os.Rename(partPath, outputPath); err != nil {
+	if err := files.Rename(partPath, outputPath); err != nil {
 		return fmt.Errorf("remux heal: commit rename %s → %s: %w", partPath, outputPath, err)
 	}
 	committed = true
 	return nil
 }
 
-// healArgs returns the argv for the heal pass. Audio jobs use
-// `-c:a copy` so ffmpeg doesn't complain about the missing video
-// stream; video jobs use `-c copy` (all streams) to stay
-// consistent with Run.
-//
-// `-f mp4` is explicit on both paths — same reason as ffmpegArgs:
-// the output path ends in `.part` and ffmpeg 8.1+ refuses to
-// auto-detect the muxer from that extension.
 func healArgs(inputPath, outputPath string, kind Kind) []string {
 	if kind == KindAudio {
 		return []string{

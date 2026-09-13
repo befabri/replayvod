@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/befabri/replayvod/server/internal/downloader/remux"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
@@ -100,7 +101,7 @@ type storageLossRunner struct {
 	afterStart func()
 }
 
-func (r storageLossRunner) Concat(context.Context, string, string) error {
+func (r storageLossRunner) Concat(context.Context, string, string, remux.FileOperations) error {
 	r.afterStart()
 	return errors.New("storage disconnected during concat")
 }

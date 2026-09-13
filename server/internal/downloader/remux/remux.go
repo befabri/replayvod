@@ -1,23 +1,8 @@
-// Package remux implements Stage 5-6 of the download pipeline:
-// prepare an ffmpeg input description from a directory of HLS
-// fragments and run ffmpeg with -c copy to produce a playable
-// MP4 (video) or M4A (audio).
-//
-// Why a separate package from hls/: the hls fetcher's job is
-// HTTP → disk; remux is disk → disk. They share no state. Keeping
-// them separate means the remux step can be re-run standalone on
-// an orphan .part directory (debug path) without pulling in the
-// HTTP transport + worker pool. It also lets the orchestrator
-// split the work for progress reporting — "fetching" vs
-// "remuxing" are two stages the UI renders separately.
-//
-// This package shells out to ffmpeg because implementing a
-// container muxer in Go is out of scope per spec. ffmpeg with
-// -c copy is a bitstream-copy operation: no transcoding, no A/V
-// re-sync, no quality degradation. Fast even on modest hardware.
+// Package remux prepares local HLS fragments and stream-copies them into MP4 or M4A files.
 package remux
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,34 +11,18 @@ import (
 	"strings"
 )
 
-// Mode distinguishes the two HLS fragment containers. Determines
-// which ffmpeg input format we prepare and how we invoke ffmpeg.
-// Mirrors hls.SegmentKind but duplicated here so this package
-// stays free of hls/ imports — the downloader orchestrator maps
-// between them.
+// Mode selects the HLS fragment format and its ffmpeg input description.
 type Mode string
 
 const (
-	// ModeTS uses ffmpeg's concat demuxer against a segments.txt
-	// listing each fragment's absolute path. Works for raw
-	// MPEG-TS streams, which is what Twitch serves to most
-	// channels.
+	// ModeTS uses the concat demuxer with a segments.txt input list.
 	ModeTS Mode = "ts"
 
-	// ModeFMP4 re-synthesizes a local media playlist
-	// (media.m3u8) that references the on-disk fragments plus
-	// the EXT-X-MAP init segment, and hands that playlist to
-	// ffmpeg. fMP4 fragments can't be concat-demuxed without
-	// their init header.
+	// ModeFMP4 uses a media.m3u8 playlist with the required init segment.
 	ModeFMP4 Mode = "fmp4"
 )
 
-// Kind decides the output extension and is driven by the
-// recording-type config (video vs audio). `.mp4` is an MP4
-// container with audio+video; `.m4a` is an MP4 container with
-// audio only. ffmpeg treats them identically for our -c copy
-// case; the extension is only a hint for file managers + MIME
-// sniffers.
+// Kind selects a video MP4 or audio-only M4A output container.
 type Kind string
 
 const (
@@ -61,10 +30,8 @@ const (
 	KindAudio Kind = "audio"
 )
 
-// OutputExt returns the file extension for the given kind,
-// including the leading dot. Unknown kinds default to .mp4 —
-// safer than an empty extension that would leave the file
-// un-detectable by players and MIME sniffers.
+// OutputExt returns the container extension, including its leading dot.
+// Unknown kinds use .mp4.
 func (k Kind) OutputExt() string {
 	if k == KindAudio {
 		return ".m4a"
@@ -72,27 +39,10 @@ func (k Kind) OutputExt() string {
 	return ".mp4"
 }
 
-// PrepareInput writes ffmpeg's input description into workDir
-// and returns the absolute path to it. The work directory must
-// contain the HLS fragments already committed by the fetcher
-// (`<mediaSeq>.ts` files for TS mode, `<mediaSeq>.m4s` files +
-// `init.mp4` for fMP4 mode).
-//
-// Re-running PrepareInput against the same workDir is safe and
-// idempotent — the generated file is overwritten. Spec Stage 5
-// promises this so the restart path doesn't have to think about
-// leftover input files.
-//
-// The function does NOT call ffmpeg; it only produces the input
-// description. Separating preparation from execution lets the
-// caller inspect the generated input (useful for debugging) or
-// pass it to a mocked exec in tests.
-//
-// Returned paths are absolute so ffmpeg's working directory
-// doesn't affect resolution. The concat demuxer's `-safe 0`
-// handles absolute paths; we still normalize via filepath.Abs
-// so relative workDir arguments work.
-func PrepareInput(workDir string, mode Mode) (string, error) {
+// PrepareInput replaces the input description in workDir and returns its absolute path.
+// The directory must contain committed numeric .ts fragments, or .m4s fragments with init.mp4.
+// Re-running preparation safely replaces an existing description through files.
+func PrepareInput(ctx context.Context, workDir string, mode Mode, files FileOperations) (string, error) {
 	absDir, err := filepath.Abs(workDir)
 	if err != nil {
 		return "", fmt.Errorf("remux: resolve work dir %q: %w", workDir, err)
@@ -107,24 +57,15 @@ func PrepareInput(workDir string, mode Mode) (string, error) {
 
 	switch mode {
 	case ModeTS:
-		return prepareTSConcat(absDir)
+		return prepareTSConcat(ctx, absDir, files)
 	case ModeFMP4:
-		return prepareFMP4Playlist(absDir)
+		return prepareFMP4Playlist(ctx, absDir, files)
 	default:
 		return "", fmt.Errorf("remux: unknown mode %q", mode)
 	}
 }
 
-// prepareTSConcat builds segments.txt for ffmpeg's concat demuxer.
-// Format: one `file '<path>'` line per segment, sorted by
-// numeric media-sequence ascending.
-//
-// Sort order is load-bearing: ffmpeg's concat demuxer walks the
-// file in listed order and does NOT re-sort. Lexicographic sort
-// on "<seq>.ts" would put "10.ts" before "2.ts" — producing a
-// garbled output. The parse-and-sort-numerically step here is
-// the fix.
-func prepareTSConcat(absDir string) (string, error) {
+func prepareTSConcat(ctx context.Context, absDir string, files FileOperations) (string, error) {
 	segs, err := scanSegments(absDir, ".ts")
 	if err != nil {
 		return "", err
@@ -139,18 +80,14 @@ func prepareTSConcat(absDir string) (string, error) {
 	}
 
 	outPath := filepath.Join(absDir, "segments.txt")
-	if err := WriteConcatListFile(outPath, paths); err != nil {
+	if err := WriteConcatListFile(ctx, outPath, paths, files); err != nil {
 		return "", err
 	}
 	return outPath, nil
 }
 
-// ConcatList renders the body of an ffmpeg concat-demuxer list: one
-// `file '<path>'` line per input, in order. The concat demuxer escapes
-// single quotes by closing, escaping, and reopening the quote; none of
-// our paths contain quotes (we control the scratch dir) but we wrap
-// conservatively anyway. The ordering is load-bearing — ffmpeg walks the
-// list as written and never re-sorts.
+// ConcatList renders paths in their given order and escapes embedded single quotes.
+// The ffmpeg concat demuxer reads files in that order.
 func ConcatList(paths []string) string {
 	var b strings.Builder
 	for _, p := range paths {
@@ -159,27 +96,17 @@ func ConcatList(paths []string) string {
 	return b.String()
 }
 
-// WriteConcatListFile writes a concat-demuxer list (see ConcatList) to path.
-// Pair it with RunInput{Mode: ModeTS, InputPath: path} to stream-copy a set of
-// already-muxed files (e.g. finished recording parts) into one container,
-// rather than raw HLS segments scanned from a directory.
-func WriteConcatListFile(path string, paths []string) error {
-	if err := os.WriteFile(path, []byte(ConcatList(paths)), 0o644); err != nil {
+// WriteConcatListFile replaces path with a concat-demuxer input list through files.
+func WriteConcatListFile(ctx context.Context, path string, paths []string, files FileOperations) error {
+	if err := writeInputFile(ctx, path, []byte(ConcatList(paths)), files); err != nil {
 		return fmt.Errorf("remux: write concat list %s: %w", path, err)
 	}
 	return nil
 }
 
-// prepareFMP4Playlist writes media.m3u8 referencing the local
-// init segment + sorted m4s fragments. ffmpeg reads this as a
-// standalone HLS input.
-//
-// Uses EXTINF:0 as the segment duration — correct duration values
-// aren't required for -c copy (ffmpeg trusts the fragment headers)
-// and we'd have to re-parse fragment timestamps to get accurate
-// values, which is extra work for no gain. EXT-X-ENDLIST closes
-// the playlist so ffmpeg knows it's not live.
-func prepareFMP4Playlist(absDir string) (string, error) {
+// prepareFMP4Playlist writes local init and fragment references with ENDLIST.
+// During stream copy, ffmpeg reads durations from fragment headers, so EXTINF can be zero.
+func prepareFMP4Playlist(ctx context.Context, absDir string, files FileOperations) (string, error) {
 	initPath := filepath.Join(absDir, "init.mp4")
 	if _, err := os.Stat(initPath); err != nil {
 		return "", fmt.Errorf("remux: init.mp4 missing in %q: %w", absDir, err)
@@ -205,26 +132,19 @@ func prepareFMP4Playlist(absDir string) (string, error) {
 	b.WriteString("#EXT-X-ENDLIST\n")
 
 	outPath := filepath.Join(absDir, "media.m3u8")
-	if err := os.WriteFile(outPath, []byte(b.String()), 0o644); err != nil {
+	if err := writeInputFile(ctx, outPath, []byte(b.String()), files); err != nil {
 		return "", fmt.Errorf("remux: write media.m3u8: %w", err)
 	}
 	return outPath, nil
 }
 
-// segmentEntry pairs a sortable media-sequence integer with the
-// raw filename. Using an int for sort lets us ascend correctly
-// even when the HLS seq numbers aren't zero-padded.
 type segmentEntry struct {
 	seq      int64
 	filename string
 }
 
-// scanSegments walks the work directory, picks files matching
-// the given extension, and sorts them by numeric media-sequence
-// ascending. Rejects files whose basename isn't a parseable
-// integer — partial files from a crashed run (if any survived
-// the startup sweep), temporary editor swap files, etc., stay
-// out of the ffmpeg input.
+// scanSegments returns matching fragments in numeric media-sequence order.
+// Lexicographic filenames would put segment 10 before segment 2.
 func scanSegments(absDir, ext string) ([]segmentEntry, error) {
 	entries, err := os.ReadDir(absDir)
 	if err != nil {
@@ -242,9 +162,6 @@ func scanSegments(absDir, ext string) ([]segmentEntry, error) {
 		stem := strings.TrimSuffix(name, ext)
 		seq, err := strconv.ParseInt(stem, 10, 64)
 		if err != nil {
-			// Non-numeric filename; skip silently so
-			// init.mp4 / segments.txt / media.m3u8 don't
-			// end up in their own inputs.
 			continue
 		}
 		out = append(out, segmentEntry{seq: seq, filename: name})

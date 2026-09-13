@@ -15,16 +15,13 @@ func writeFile(t *testing.T, path string, content string) {
 }
 
 func TestPrepareInput_TS_NumericSortNotLex(t *testing.T) {
-	// Numeric sort regression: lexicographic order would put
-	// "10.ts" before "2.ts" and produce a garbled output.
-	// Write the files out-of-order to confirm the scan step
-	// does the numeric parse.
+	// Lexicographic ordering would put segment 10 before segment 2.
 	dir := t.TempDir()
 	for _, name := range []string{"10.ts", "2.ts", "0.ts", "1.ts", "100.ts"} {
 		writeFile(t, filepath.Join(dir, name), "x")
 	}
 
-	inputPath, err := PrepareInput(dir, ModeTS)
+	inputPath, err := PrepareInput(t.Context(), dir, ModeTS, nil)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -39,7 +36,6 @@ func TestPrepareInput_TS_NumericSortNotLex(t *testing.T) {
 	}
 	want := []string{"0.ts", "1.ts", "2.ts", "10.ts", "100.ts"}
 	for i, line := range lines {
-		// line format: file '/abs/path/<seq>.ts'
 		if !strings.HasSuffix(line, "/"+want[i]+"'") {
 			t.Errorf("line %d=%q, want suffix /%s'", i, line, want[i])
 		}
@@ -47,8 +43,6 @@ func TestPrepareInput_TS_NumericSortNotLex(t *testing.T) {
 }
 
 func TestPrepareInput_TS_IgnoresNonNumericFiles(t *testing.T) {
-	// init.mp4 / media.m3u8 / segments.txt / stray .part files
-	// shouldn't slip into the concat input.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "0.ts"), "x")
 	writeFile(t, filepath.Join(dir, "1.ts"), "x")
@@ -56,7 +50,7 @@ func TestPrepareInput_TS_IgnoresNonNumericFiles(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "2.ts.part"), "partial") // crashed fetch
 	writeFile(t, filepath.Join(dir, "README"), "hi")
 
-	inputPath, err := PrepareInput(dir, ModeTS)
+	inputPath, err := PrepareInput(t.Context(), dir, ModeTS, nil)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -69,7 +63,7 @@ func TestPrepareInput_TS_IgnoresNonNumericFiles(t *testing.T) {
 
 func TestPrepareInput_TS_EmptyDirFails(t *testing.T) {
 	dir := t.TempDir()
-	_, err := PrepareInput(dir, ModeTS)
+	_, err := PrepareInput(t.Context(), dir, ModeTS, nil)
 	if err == nil {
 		t.Fatal("expected error on empty dir")
 	}
@@ -85,7 +79,7 @@ func TestPrepareInput_FMP4_WritesPlaylistWithMap(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "2.m4s"), "x")
 	writeFile(t, filepath.Join(dir, "1.m4s"), "x")
 
-	inputPath, err := PrepareInput(dir, ModeFMP4)
+	inputPath, err := PrepareInput(t.Context(), dir, ModeFMP4, nil)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -94,8 +88,7 @@ func TestPrepareInput_FMP4_WritesPlaylistWithMap(t *testing.T) {
 	}
 	body, _ := os.ReadFile(inputPath)
 	text := string(body)
-	// EXT-X-MAP must reference the absolute init path so ffmpeg
-	// resolves it regardless of its cwd.
+	// Absolute init paths must resolve independently of ffmpeg's working directory.
 	absInit, _ := filepath.Abs(filepath.Join(dir, "init.mp4"))
 	if !strings.Contains(text, `#EXT-X-MAP:URI="`+absInit+`"`) {
 		t.Errorf("missing absolute EXT-X-MAP for init: %s", text)
@@ -103,7 +96,6 @@ func TestPrepareInput_FMP4_WritesPlaylistWithMap(t *testing.T) {
 	if !strings.Contains(text, "#EXT-X-ENDLIST") {
 		t.Error("missing EXT-X-ENDLIST")
 	}
-	// Segments numeric-sorted.
 	i1 := strings.Index(text, "1.m4s")
 	i2 := strings.Index(text, "2.m4s")
 	i10 := strings.Index(text, "10.m4s")
@@ -115,7 +107,7 @@ func TestPrepareInput_FMP4_WritesPlaylistWithMap(t *testing.T) {
 func TestPrepareInput_FMP4_MissingInitFails(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "0.m4s"), "x")
-	_, err := PrepareInput(dir, ModeFMP4)
+	_, err := PrepareInput(t.Context(), dir, ModeFMP4, nil)
 	if err == nil {
 		t.Fatal("expected error when init.mp4 missing")
 	}
@@ -126,14 +118,14 @@ func TestPrepareInput_FMP4_MissingInitFails(t *testing.T) {
 
 func TestPrepareInput_UnknownMode(t *testing.T) {
 	dir := t.TempDir()
-	_, err := PrepareInput(dir, Mode("weird"))
+	_, err := PrepareInput(t.Context(), dir, Mode("weird"), nil)
 	if err == nil {
 		t.Fatal("expected unknown-mode error")
 	}
 }
 
 func TestPrepareInput_NonExistentDir(t *testing.T) {
-	_, err := PrepareInput("/this/path/does/not/exist/anywhere", ModeTS)
+	_, err := PrepareInput(t.Context(), "/this/path/does/not/exist/anywhere", ModeTS, nil)
 	if err == nil {
 		t.Fatal("expected error on missing dir")
 	}
@@ -143,26 +135,24 @@ func TestPrepareInput_TargetIsFileNotDir(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "afile")
 	writeFile(t, file, "x")
-	_, err := PrepareInput(file, ModeTS)
+	_, err := PrepareInput(t.Context(), file, ModeTS, nil)
 	if err == nil {
 		t.Fatal("expected not-a-directory error")
 	}
 }
 
 func TestPrepareInput_Idempotent(t *testing.T) {
-	// Running PrepareInput twice on the same dir overwrites
-	// cleanly and produces the same output bytes.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "0.ts"), "x")
 	writeFile(t, filepath.Join(dir, "1.ts"), "x")
 
-	first, err := PrepareInput(dir, ModeTS)
+	first, err := PrepareInput(t.Context(), dir, ModeTS, nil)
 	if err != nil {
 		t.Fatalf("first: %v", err)
 	}
 	firstBody, _ := os.ReadFile(first)
 
-	second, err := PrepareInput(dir, ModeTS)
+	second, err := PrepareInput(t.Context(), dir, ModeTS, nil)
 	if err != nil {
 		t.Fatalf("second: %v", err)
 	}
@@ -180,8 +170,7 @@ func TestKind_OutputExt(t *testing.T) {
 	if got := KindAudio.OutputExt(); got != ".m4a" {
 		t.Errorf("audio ext=%s", got)
 	}
-	// Unknown kind falls back to .mp4 rather than producing an
-	// extensionless path (which would break MIME sniffing).
+	// Unknown kinds must retain a recognizable container extension.
 	if got := Kind("weird").OutputExt(); got != ".mp4" {
 		t.Errorf("unknown ext=%s, want .mp4", got)
 	}

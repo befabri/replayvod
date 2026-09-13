@@ -1,15 +1,80 @@
 package playbackcache
 
 import (
+	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/befabri/replayvod/server/internal/downloader/remux"
+	"github.com/befabri/replayvod/server/internal/mediastore"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 )
+
+func TestPlaybackBuildPassesItsWorkspaceToConcat(t *testing.T) {
+	s, repo, _, _, video := publicationFixture(t)
+	parts, err := repo.ListVideoParts(t.Context(), video.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{body: []byte("playback")}
+	s.SetRunner(runner)
+	artifact, err := s.buildArtifact(t.Context(), parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer artifact.cleanup()
+	if runner.files != artifact.workspace {
+		t.Fatal("concat did not receive the artifact's scratch owner")
+	}
+}
+
+type cacheWorkspaceFiles struct {
+	*mediastore.Workspace
+	removes, renames int
+}
+
+func (f *cacheWorkspaceFiles) Remove(path string) error {
+	f.removes++
+	return f.Workspace.Remove(path)
+}
+
+func (f *cacheWorkspaceFiles) Rename(from, to string) error {
+	f.renames++
+	return f.Workspace.Rename(from, to)
+}
+
+type cacheCommand func(context.Context, string, []string, io.Writer) error
+
+func (f cacheCommand) Run(ctx context.Context, binary string, args []string, stderr io.Writer) error {
+	return f(ctx, binary, args, stderr)
+}
+
+func TestPlaybackRemuxCommitsThroughItsWorkspace(t *testing.T) {
+	w, err := mediastore.NewScratch(t.TempDir()).New("playback", 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close(true)
+	files := &cacheWorkspaceFiles{Workspace: w}
+	output := filepath.Join(w.Dir, "playback.mp4")
+	runner := remuxRunner{remuxer: &remux.Remuxer{Runner: cacheCommand(func(_ context.Context, _ string, args []string, _ io.Writer) error {
+		return os.WriteFile(args[len(args)-1], []byte("playback"), 0600)
+	})}}
+	if err := runner.Concat(t.Context(), filepath.Join(w.Dir, "parts.txt"), output, files); err != nil {
+		t.Fatal(err)
+	}
+	if files.removes != 1 || files.renames != 1 {
+		t.Fatalf("remux bypassed workspace: removes=%d renames=%d", files.removes, files.renames)
+	}
+	if data, err := os.ReadFile(output); err != nil || string(data) != "playback" {
+		t.Fatalf("playback output=%q err=%v", data, err)
+	}
+}
 
 func TestLocalPlaybackInputsArePinnedInManagedScratch(t *testing.T) {
 	s, _, raw, _, _ := publicationFixture(t)

@@ -8,11 +8,19 @@ import (
 	"path/filepath"
 )
 
+// FileOperations coordinates segment writes and mutations with scratch accounting.
+type FileOperations interface {
+	WriteFile(context.Context, *os.File, []byte) (int, error)
+	Rename(string, string) error
+	Remove(string) error
+	Truncate(*os.File, int64) error
+}
+
 // PartWriter publishes complete segments by syncing and renaming temporary files.
 // Its zero value is unusable; create one with NewPartWriter and defer Abort.
 type PartWriter struct {
-	writeFile func(context.Context, *os.File, []byte) (int, error)
-	ctx       context.Context
+	files FileOperations
+	ctx   context.Context
 
 	dir string
 
@@ -47,8 +55,8 @@ func (w *PartWriter) Write(p []byte) (int, error) {
 	}
 	var n int
 	var err error
-	if w.writeFile != nil {
-		n, err = w.writeFile(w.ctx, w.file, p)
+	if w.files != nil {
+		n, err = w.files.WriteFile(w.ctx, w.file, p)
 	} else {
 		n, err = w.file.Write(p)
 	}
@@ -59,7 +67,7 @@ func (w *PartWriter) Write(p []byte) (int, error) {
 // BytesWritten returns bytes written since creation or the last Reset, including after Commit.
 func (w *PartWriter) BytesWritten() int64 { return w.bytesWritten }
 
-// FinalPath returns the destination path, relative to the directory supplied to NewPartWriter.
+// FinalPath returns the destination path within the directory supplied to NewPartWriter.
 func (w *PartWriter) FinalPath() string {
 	return filepath.Join(w.dir, w.finalName)
 }
@@ -85,7 +93,11 @@ func (w *PartWriter) Commit() error {
 	w.file = nil
 	partPath := filepath.Join(w.dir, w.finalName+".part")
 	finalPath := w.FinalPath()
-	if err := os.Rename(partPath, finalPath); err != nil {
+	rename := os.Rename
+	if w.files != nil {
+		rename = w.files.Rename
+	}
+	if err := rename(partPath, finalPath); err != nil {
 		return fmt.Errorf("hls writer rename %s → %s: %w", partPath, finalPath, err)
 	}
 	if err := fsyncDir(w.dir); err != nil {
@@ -118,11 +130,14 @@ func (w *PartWriter) Abort() {
 		_ = w.file.Close()
 		w.file = nil
 	}
-	_ = os.Remove(filepath.Join(w.dir, w.finalName+".part"))
+	remove := os.Remove
+	if w.files != nil {
+		remove = w.files.Remove
+	}
+	_ = remove(filepath.Join(w.dir, w.finalName+".part"))
 }
 
-// ErrWriterClosed is returned by Write / Commit after the writer
-// has been sealed via Commit or Abort.
+// ErrWriterClosed indicates that Commit or Abort closed the writer.
 var ErrWriterClosed = fmt.Errorf("hls writer: closed")
 
 // Reset discards partial bytes without releasing the temporary file.
@@ -131,7 +146,11 @@ func (w *PartWriter) Reset() error {
 	if w.file == nil {
 		return ErrWriterClosed
 	}
-	if err := w.file.Truncate(0); err != nil {
+	truncate := w.file.Truncate
+	if w.files != nil {
+		truncate = func(size int64) error { return w.files.Truncate(w.file, size) }
+	}
+	if err := truncate(0); err != nil {
 		return fmt.Errorf("hls writer truncate %s: %w", w.finalName, err)
 	}
 	if _, err := w.file.Seek(0, io.SeekStart); err != nil {

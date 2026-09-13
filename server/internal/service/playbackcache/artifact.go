@@ -45,14 +45,14 @@ func (s *Service) buildArtifact(ctx context.Context, parts []repository.VideoPar
 	}
 
 	listPath := filepath.Join(workDir, "parts.txt")
-	if err := remux.WriteConcatListFile(listPath, localParts); err != nil {
+	if err := remux.WriteConcatListFile(ctx, listPath, localParts, workspace); err != nil {
 		return nil, err
 	}
 
 	// Concat can outlive the verified mount, so its output stays in scratch until
 	// publication rechecks storage identity.
 	outputPath := filepath.Join(workDir, "playback"+partExtension(parts[0]))
-	if err := s.runner.Concat(ctx, listPath, outputPath); err != nil {
+	if err := s.runner.Concat(ctx, listPath, outputPath, workspace); err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(outputPath)
@@ -167,7 +167,7 @@ type remuxRunner struct {
 	remuxer *remux.Remuxer
 }
 
-func (r remuxRunner) Concat(ctx context.Context, listPath, outputPath string) error {
+func (r remuxRunner) Concat(ctx context.Context, listPath, outputPath string, files remux.FileOperations) error {
 	kind := remux.KindVideo
 	if strings.EqualFold(filepath.Ext(outputPath), ".m4a") {
 		kind = remux.KindAudio
@@ -176,6 +176,7 @@ func (r remuxRunner) Concat(ctx context.Context, listPath, outputPath string) er
 		Mode:           remux.ModeTS,
 		Kind:           kind,
 		Faststart:      true,
+		Files:          files,
 		InputPath:      listPath,
 		OutputDir:      filepath.Dir(outputPath),
 		OutputBasename: strings.TrimSuffix(filepath.Base(outputPath), filepath.Ext(outputPath)),

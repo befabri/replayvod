@@ -214,7 +214,7 @@ func (a *recordingAttempt) prepareCapturedPart(ctx context.Context, segmentsDir 
 		return captureFinished, cause
 	}
 	if sealedThresholdSplit {
-		if err := pruneSegmentsAfterBoundary(segmentsDir, result.Kind, d.resume.PendingSplitBoundaryMediaSeq); err != nil {
+		if err := pruneSegmentsAfterBoundary(segmentsDir, result.Kind, d.resume.PendingSplitBoundaryMediaSeq, d.workspace); err != nil {
 			return captureFinished, fmt.Errorf("prune threshold split tail: %w", err)
 		}
 	}

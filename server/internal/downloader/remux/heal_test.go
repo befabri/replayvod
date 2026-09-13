@@ -25,9 +25,6 @@ func TestHealArgs_Video(t *testing.T) {
 }
 
 func TestHealArgs_AudioDropsVideoFlag(t *testing.T) {
-	// audio-only files have no video stream; -c copy is fine
-	// in principle but -c:a copy is explicit and matches what
-	// the spec calls for on the audio heal path.
 	got := healArgs("/in/rec.m4a", "/out/rec.healed.m4a.part", KindAudio)
 	want := []string{
 		"-y",
@@ -48,7 +45,7 @@ func TestRemuxer_Heal_SuccessCommitsAtomicRename(t *testing.T) {
 
 	m := &mockRunner{emulateSuccess: true}
 	r := &Remuxer{Runner: m}
-	err := r.Heal(context.Background(), "/in.mp4", finalPath, KindVideo)
+	err := r.Heal(context.Background(), "/in.mp4", finalPath, KindVideo, nil)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -58,7 +55,6 @@ func TestRemuxer_Heal_SuccessCommitsAtomicRename(t *testing.T) {
 	if _, err := os.Stat(partPath); !os.IsNotExist(err) {
 		t.Errorf(".part should be gone after commit, got err=%v", err)
 	}
-	// Runner was invoked with the .part path.
 	if m.lastArgs[len(m.lastArgs)-1] != partPath {
 		t.Errorf("last arg=%q, want %q", m.lastArgs[len(m.lastArgs)-1], partPath)
 	}
@@ -78,7 +74,7 @@ func TestRemuxer_Heal_FailureCleansPartFile(t *testing.T) {
 		stderrOut: "heal-specific failure",
 	}
 	r := &Remuxer{Runner: m}
-	err := r.Heal(context.Background(), "/in.mp4", finalPath, KindVideo)
+	err := r.Heal(context.Background(), "/in.mp4", finalPath, KindVideo, nil)
 	if err == nil {
 		t.Fatal("want error")
 	}
@@ -103,7 +99,7 @@ func TestRemuxer_Heal_CtxCancelPassesThrough(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := r.Heal(ctx, "/in.mp4", finalPath, KindVideo)
+	err := r.Heal(ctx, "/in.mp4", finalPath, KindVideo, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err=%v, want context.Canceled", err)
 	}
@@ -113,9 +109,6 @@ func TestRemuxer_Heal_CtxCancelPassesThrough(t *testing.T) {
 }
 
 func TestCorruptionThresholdValue(t *testing.T) {
-	// The 50s threshold is a spec-pinned value; pinning it in a
-	// test surfaces a spec change as a test failure rather than
-	// silently drifting tolerance.
 	if CorruptionThreshold != 50.0 {
 		t.Errorf("CorruptionThreshold=%v, want 50.0 (spec Stage 9)", CorruptionThreshold)
 	}

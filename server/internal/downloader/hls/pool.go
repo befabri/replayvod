@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync/atomic"
 
 	"github.com/befabri/replayvod/server/internal/background"
@@ -17,13 +16,13 @@ type SegmentResult struct {
 	BytesWritten int64
 	// DurationSeconds is EXTINF duration and is valid only when Err is nil.
 	DurationSeconds float64
-	Err             error // nil on success
+	Err             error
 }
 
 // Pool runs a bounded set of segment fetchers for one acquisition.
 type Pool struct {
-	// WriteFile may be nil to write directly; managed callers must supply scratch accounting.
-	WriteFile func(context.Context, *os.File, []byte) (int, error)
+	// Files may be nil for direct filesystem access; managed captures supply their workspace.
+	Files FileOperations
 
 	Fetcher *Fetcher
 
@@ -98,7 +97,7 @@ func (p *Pool) runOne(ctx context.Context, log *slog.Logger, job segmentJob) Seg
 		result.Err = fmt.Errorf("hls pool writer: %w", err)
 		return result
 	}
-	writer.ctx, writer.writeFile = ctx, p.WriteFile
+	writer.ctx, writer.files = ctx, p.Files
 	defer writer.Abort()
 
 	n, err := p.Fetcher.FetchLimited(ctx, job.Segment.URI, writer, job.TargetDuration, p.Limiter)

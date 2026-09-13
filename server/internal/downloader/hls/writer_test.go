@@ -19,14 +19,12 @@ func TestPartWriter_CommitAtomicRename(t *testing.T) {
 	if _, err := io.Copy(w, strings.NewReader("hello")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	// Before commit: .part exists, final doesn't.
 	assertExists(t, filepath.Join(dir, "42.ts.part"))
 	assertNotExists(t, filepath.Join(dir, "42.ts"))
 
 	if err := w.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	// After commit: .part gone, final present.
 	assertNotExists(t, filepath.Join(dir, "42.ts.part"))
 	assertExists(t, filepath.Join(dir, "42.ts"))
 
@@ -102,7 +100,6 @@ func TestPartWriter_WriteAfterCommitErrors(t *testing.T) {
 
 func TestPartWriter_RejectStalePartFile(t *testing.T) {
 	dir := t.TempDir()
-	// Pre-create a stale .part from a prior crash.
 	stalePath := filepath.Join(dir, "10.ts.part")
 	if err := os.WriteFile(stalePath, []byte("stale"), 0o644); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -117,9 +114,7 @@ func TestPartWriter_RejectStalePartFile(t *testing.T) {
 }
 
 func TestPartWriter_ReadFromFastPath(t *testing.T) {
-	// os.File implements ReaderFrom in Go 1.15+, so PartWriter.ReadFrom
-	// should copy the source without our bufPool. Behavior-level check:
-	// the final file contents match.
+	// ReadFrom must retain the same accounting and publication behavior as Write.
 	dir := t.TempDir()
 	w, err := NewPartWriter(dir, "rf.ts")
 	if err != nil {
@@ -152,10 +147,7 @@ func TestPartWriter_EmptyFinalNameErrors(t *testing.T) {
 }
 
 func TestPartWriter_ResetReplacesPartialContent(t *testing.T) {
-	// Regression guard for the Phase 4b partial-body-retry bug:
-	// writing, resetting, then writing a fresh body must yield a
-	// committed file equal to *only* the second body — not the
-	// concatenation of the two.
+	// Reset must remove a partial response before a retry writes a replacement body.
 	dir := t.TempDir()
 	w, err := NewPartWriter(dir, "seg.ts")
 	if err != nil {
@@ -228,7 +220,7 @@ func TestPartWriterReadFromCannotBypassScratchBudget(t *testing.T) {
 	refused := errors.New("scratch capacity exhausted")
 	w.ctx = t.Context()
 	calls := 0
-	w.writeFile = func(context.Context, *os.File, []byte) (int, error) { calls++; return 0, refused }
+	w.files = writeFileFunc(func(context.Context, *os.File, []byte) (int, error) { calls++; return 0, refused })
 	n, err := w.ReadFrom(strings.NewReader("segment bytes"))
 	if !errors.Is(err, refused) || n != 0 || calls != 1 {
 		t.Fatalf("copy bypassed budget: n=%d calls=%d error=%v", n, calls, err)

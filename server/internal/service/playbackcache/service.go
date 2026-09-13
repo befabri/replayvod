@@ -27,7 +27,7 @@ const (
 
 // Runner stream-copies the concat list into an atomic, seekable output file.
 type Runner interface {
-	Concat(ctx context.Context, listPath, outputPath string) error
+	Concat(ctx context.Context, listPath, outputPath string, files remux.FileOperations) error
 }
 
 type Option func(*Service)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,8 +17,8 @@ import (
 
 // JobConfig supplies acquisition inputs and synchronous observation callbacks for Run.
 type JobConfig struct {
-	// WriteFile may be nil to write directly; managed callers must supply scratch accounting.
-	WriteFile func(context.Context, *os.File, []byte) (int, error)
+	// Files may be nil for direct filesystem access; managed captures supply their workspace.
+	Files FileOperations
 
 	// MediaPlaylistURL must already include any required authorization query parameters.
 	MediaPlaylistURL string
@@ -182,12 +181,12 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		RefetchSeqs:   refetchMap,
 	}
 	pool := &Pool{
-		WriteFile: cfg.WriteFile,
-		Fetcher:   cfg.Fetcher,
-		WorkDir:   cfg.WorkDir,
-		Workers:   cfg.SegmentConcurrency,
-		Log:       log,
-		Limiter:   cfg.RateLimiter,
+		Files:   cfg.Files,
+		Fetcher: cfg.Fetcher,
+		WorkDir: cfg.WorkDir,
+		Workers: cfg.SegmentConcurrency,
+		Log:     log,
+		Limiter: cfg.RateLimiter,
 	}
 
 	// Synchronous bootstrap and callback failures must cancel and join acquisition workers.
@@ -218,7 +217,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		return err
 	})
 
-	// Fetch fMP4 initialization before starting segment workers.
+	// Initialization must complete before workers can commit fMP4 media.
 	result := &JobResult{
 		// Preserve per-part policy counters; bytes and advertisement gaps remain per attempt.
 		SegmentsDone: cfg.SeedSegmentsDone,
@@ -240,7 +239,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	}
 	if pr.Init != nil {
 		result.InitURI = pr.Init.URI
-		if err := fetchInit(gctx, cfg.Fetcher, cfg.WorkDir, pr.Init.URI, cfg.WriteFile); err != nil {
+		if err := fetchInit(gctx, cfg.Fetcher, cfg.WorkDir, pr.Init.URI, cfg.Files); err != nil {
 			// Without initialization, fMP4 segments cannot be decoded.
 			log.Error("init segment fetch failed; aborting job", "error", err)
 			cancel()
@@ -286,28 +285,10 @@ func emitEvent(onEvent func(SegmentEvent), ev SegmentEvent) {
 	}
 }
 
-// drainOutcomes consumes every SegmentResult + ad-skip event until
-// both channels are closed, maintaining result counters, firing
-// OnEvent, and streaming Progress snapshots. Exported from Run for
-// unit-testability: the drain's behavior after an auth/abort latch
-// needs to be verified directly, and wiring a real CDN race to
-// produce a "commit after cancel" outcome is hostile to the test
-// runner.
-//
-// Every drained outcome advances LastMediaSeq, updates counters,
-// and fires OnEvent + Progress — even after an abort marker is
-// set. Reason: once the worker has finished (file written, error
-// observed, ad skipped) the work has already happened on disk or
-// on the wire; the next attempt will skip past LastMediaSeq and
-// never re-process it, so durable accounting (OnEvent) and totals
-// (counters) must see it. The abort/auth markers latch once to
-// trigger cancel() exactly once and to drive Run's return value —
-// they are NOT used to gate counters or events.
-//
-// The returned (abortErr, authErr) carry whichever marker was
-// latched first; Run's caller errors-out on authErr in preference
-// to abortErr so the auth-refresh loop can distinguish "refresh
-// the token" from "give up."
+// drainOutcomes accounts for outcomes until both channels close, including work
+// completed after cancellation; later attempts advance past the drained cursor.
+// The first authorization or policy failure cancels acquisition and determines
+// the returned error without suppressing subsequent durable accounting.
 func drainOutcomes(
 	cfg *JobConfig,
 	result *JobResult,
@@ -342,23 +323,13 @@ func drainOutcomes(
 					"error", res.Err)
 				continue
 			}
-			// LastMediaSeq advances on every outcome — success,
-			// gap, auth error. The auth-refresh caller uses it
-			// as the next attempt's StartMediaSeq, so advancing
-			// past an auth-errored segment means that segment
-			// is not retried on refresh: it becomes a gap.
-			// Trade-off — on a fast refresh cycle the segment
-			// has usually rolled off the CDN window anyway.
+			// Advancing the cursor requires carrying authorization failures into
+			// AuthErrorSeqs so renewal can retry them below StartMediaSeq.
 			if res.MediaSeq > result.LastMediaSeq {
 				result.LastMediaSeq = res.MediaSeq
 			}
 			if res.Err != nil {
-				// Permanent auth (entitlement restriction,
-				// geoblock): short-circuit the refresh loop —
-				// the outer caller's errors.Is(ErrPlaylistAuth)
-				// check must return false so fetchWithAuthRefresh
-				// bails to the job-level failure path rather
-				// than burning the auth-refresh budget.
+				// Permanent restrictions must bypass token renewal and fail the job.
 				if IsAuthPermanent(res.Err) {
 					if authErr == nil && abortErr == nil {
 						authErr = fmt.Errorf("hls: segment seq=%d permanent auth: %w", res.MediaSeq, ErrPlaylistAuthPermanent)
@@ -372,19 +343,8 @@ func drainOutcomes(
 					})
 					continue
 				}
-				// Retryable auth: the outer auth-refresh loop
-				// handles it. First auth error latches authErr +
-				// cancel(); subsequent ones in the drain tail
-				// still emit OnEvent for accounting but don't
-				// re-trigger.
-				//
-				// AuthErrorSeqs collects every retryable-auth seq
-				// so the next attempt can refetch them with the
-				// fresh URL — without this the output file has a
-				// hole at the seq that tripped the refresh.
-				// Permanent-auth seqs are intentionally NOT in
-				// this list: a refresh won't unlock an
-				// entitlement restriction.
+				// Preserve every retryable authorization failure for renewal, including
+				// outcomes drained after cancellation, to avoid holes below the cursor.
 				if IsAuth(res.Err) {
 					result.AuthErrorSeqs = append(result.AuthErrorSeqs, res.MediaSeq)
 					if authErr == nil && abortErr == nil {
@@ -399,12 +359,8 @@ func drainOutcomes(
 					})
 					continue
 				}
-				// Once aborting (auth or gap), treat subsequent
-				// failures as accepted gaps — the files are lost,
-				// the next attempt will skip past LastMediaSeq.
-				// Not evaluating the policy again avoids
-				// re-assigning abortErr to a later, less-
-				// informative trigger.
+				// Preserve the first failure while accounting for gaps that later
+				// attempts skip past with LastMediaSeq.
 				if authErr != nil || abortErr != nil {
 					result.SegmentsGaps++
 					log.Debug("segment gap accepted post-abort", "seq", res.MediaSeq, "error", res.Err)
@@ -422,9 +378,8 @@ func drainOutcomes(
 						Err:      res.Err,
 					})
 				} else {
-					// Trigger gap: causes the abort, so it is
-					// intentionally not counted or emitted — the
-					// GapAbortError carries its seq + err.
+					// The triggering gap is carried by GapAbortError rather than counted
+					// as accepted loss.
 					abortErr = gapErr
 					log.Warn("segment gap aborts job",
 						"reason", abortErr.Reason,
@@ -463,10 +418,7 @@ func drainOutcomes(
 			switch ev.Reason {
 			case SkipReasonStitchedAd:
 				advanceSkip()
-				// Structurally expected: Twitch-injected ad
-				// content is not a CDN or transport failure.
-				// Counted separately from SegmentsGaps so
-				// MaxGapRatio doesn't trip on ad-heavy streams.
+				// Twitch advertisements are excluded from content-loss policy.
 				result.SegmentsAdGaps++
 				emitEvent(cfg.OnEvent, SegmentEvent{
 					MediaSeq: ev.MediaSeq,
@@ -474,24 +426,8 @@ func drainOutcomes(
 				})
 			case SkipReasonMalformed:
 				advanceSkip()
-				// Real content loss, not structurally expected.
-				// Apply the same gap policy a worker failure
-				// would: first-content-guard aborts if no
-				// content has committed yet, and the running
-				// MaxGapRatio computation aborts a truly
-				// pathological manifest (many zero-duration
-				// segments).
-				//
-				// OutcomeMalformedSkip rather than the generic
-				// OutcomeGapAccepted so resume-state consumers
-				// can attribute the gap to structural manifest
-				// defect (GapReasonMalformed) rather than a
-				// fetch failure.
-				//
-				// When already aborting (prior gap/auth), count
-				// it post-abort — the next attempt's cursor
-				// will skip past, matching the "the skip already
-				// happened" semantics of the results branch.
+				// Malformed manifest entries are content loss; retain their distinct
+				// outcome so recovery records GapReasonMalformed, including after abort.
 				if authErr != nil || abortErr != nil {
 					result.SegmentsGaps++
 					emitEvent(cfg.OnEvent, SegmentEvent{
@@ -576,10 +512,7 @@ func drainOutcomes(
 				}
 			default:
 				advanceSkip()
-				// Unknown reason — defensive fallback. Log +
-				// advance the frontier so we don't stall, but
-				// don't apply any policy. Future reasons get an
-				// explicit case branch above.
+				// Unknown skip reasons must still advance recovery to avoid stalling.
 				log.Warn("unknown skip reason; advancing frontier without policy",
 					"seq", ev.MediaSeq,
 					"reason", ev.Reason)
@@ -716,12 +649,12 @@ func evaluateWindowRollGap(p *GapPolicy, r *JobResult, from, to int64) *GapAbort
 }
 
 // fetchInit must succeed before fMP4 media can be decoded.
-func fetchInit(ctx context.Context, f *Fetcher, workDir, url string, writeFile func(context.Context, *os.File, []byte) (int, error)) error {
+func fetchInit(ctx context.Context, f *Fetcher, workDir, url string, files FileOperations) error {
 	w, err := NewPartWriter(workDir, "init.mp4")
 	if err != nil {
 		return err
 	}
-	w.ctx, w.writeFile = ctx, writeFile
+	w.ctx, w.files = ctx, files
 	defer w.Abort()
 	if _, err := f.Fetch(ctx, url, w, 0); err != nil {
 		return err

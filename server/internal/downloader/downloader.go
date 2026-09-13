@@ -858,7 +858,7 @@ func (s *Service) resumeRunning(ctx context.Context) error {
 	return errors.Join(failures...)
 }
 
-// Each page is bounded independently of library size; no checkpoint write is batched.
+// recoveryPageSize bounds discovery reads; checkpoints are still persisted individually.
 const recoveryPageSize = 100
 
 var errInvalidResume = errors.New("invalid recording checkpoint")
@@ -955,15 +955,10 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 	return nil
 }
 
-// ErrBusy is returned by Start when a download for the broadcaster
-// is already in flight. Callers that want to replace the running
-// download should call Cancel first.
-//
-// ErrAtCapacity is returned by Start when MaxConcurrent downloads are
-// already running. Surfaced to the trigger dialog as an actionable message.
-//
-// ErrCancelled marks a download that was terminated by a user
-// Cancel() rather than crashing. Distinguishing matters for the UI.
+// ErrBusy reports active or recoverable work for the broadcaster; call Cancel
+// before replacing an active download.
+// ErrAtCapacity reports exhausted live recording capacity.
+// ErrCancelled identifies explicit user cancellation.
 var (
 	ErrBusy         = errors.New("downloader: broadcaster already has an active download")
 	ErrShuttingDown = errors.New("downloader: shutting down")
@@ -1002,9 +997,9 @@ func (s *Service) startTitleTracking(
 				"broadcaster_id", p.BroadcasterID, "error", err)
 			return noop
 		}
-		// Unsubscribe under WithoutCancel so a recording cancel doesn't strand
-		// the Twitch sub; 15s timeout caps a single stuck DELETE so it can't eat
-		// Shutdown's 30s budget. Orphans get swept by ReconcileChannelUpdateSubs.
+		// A live context lets unsubscribe finish after cancellation without consuming
+		// Shutdown's full budget; ReconcileChannelUpdateSubs removes subscriptions
+		// left by failed DELETEs.
 		return func() {
 			unsubCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 			defer cancel()
@@ -1356,7 +1351,11 @@ func pendingSplitEndedAtBoundary(resume *ResumeState, hlsResult *hls.JobResult) 
 	return hlsResult.LastMediaSeq <= resume.PendingSplitBoundaryMediaSeq
 }
 
-func pruneSegmentsAfterBoundary(dir string, kind hls.SegmentKind, boundary int64) error {
+func pruneSegmentsAfterBoundary(dir string, kind hls.SegmentKind, boundary int64, workspace *mediastore.Workspace) error {
+	remove := os.Remove
+	if workspace != nil {
+		remove = workspace.Remove
+	}
 	ext := ".ts"
 	if kind == hls.SegmentKindFMP4 {
 		ext = ".m4s"
@@ -1377,7 +1376,7 @@ func pruneSegmentsAfterBoundary(dir string, kind hls.SegmentKind, boundary int64
 		if seq <= boundary {
 			continue
 		}
-		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove post-boundary segment %s: %w", e.Name(), err)
 		}
 	}
@@ -1460,7 +1459,13 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	// Preparation is repeatable after a crash between input creation and the next checkpoint.
 	s.setResumeStage(dbCtx, d, StagePrepareInput, log)
 	emitter.setStage("remux")
-	inputPath, err := remux.PrepareInput(segmentsDir, remuxMode)
+	var files remux.FileOperations
+	remove, rename := os.Remove, os.Rename
+	if d.workspace != nil {
+		files = d.workspace
+		remove, rename = d.workspace.Remove, d.workspace.Rename
+	}
+	inputPath, err := remux.PrepareInput(ctx, segmentsDir, remuxMode, files)
 	if err != nil {
 		return nil, fmt.Errorf("remux prep: %w", err)
 	}
@@ -1476,6 +1481,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	// Remux publishes via rename so an interrupted attempt cannot expose partial output.
 	s.setResumeStage(dbCtx, d, StageRemux, log)
 	remuxIn := remux.RunInput{
+		Files:          files,
 		Mode:           remuxMode,
 		Kind:           kind,
 		InputPath:      inputPath,
@@ -1502,18 +1508,18 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 			"format_duration", probeResult.Duration,
 			"threshold", remux.CorruptionThreshold)
 		healedPath := filepath.Join(jobDir, partFilename+".healed"+kind.OutputExt())
-		if err := s.remuxer.Heal(ctx, remuxedPath, healedPath, kind); err != nil {
+		if err := s.remuxer.Heal(ctx, remuxedPath, healedPath, kind, files); err != nil {
 			log.Warn("heal failed; keeping un-healed file", "error", err)
 		} else if healedResult, probeErr := s.probe.Run(ctx, healedPath); probeErr != nil {
 			log.Warn("re-probe of healed file failed; keeping un-healed", "error", probeErr)
-			_ = os.Remove(healedPath)
+			_ = remove(healedPath)
 		} else if isCorrupt(healedResult, kind) {
 			log.Warn("heal did not resolve corruption; keeping un-healed")
-			_ = os.Remove(healedPath)
+			_ = remove(healedPath)
 		} else {
-			if err := os.Rename(healedPath, remuxedPath); err != nil {
+			if err := rename(healedPath, remuxedPath); err != nil {
 				log.Warn("heal-rename failed; keeping un-healed", "error", err)
-				_ = os.Remove(healedPath)
+				_ = remove(healedPath)
 			} else {
 				probeResult = healedResult
 			}
@@ -1527,6 +1533,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		emitter.setStage("thumbnail")
 		thumbPath := filepath.Join(jobDir, partFilename+".jpg")
 		err := s.thumb.Generate(ctx, thumbnail.Input{
+			Files:           files,
 			VideoPath:       remuxedPath,
 			OutputPath:      thumbPath,
 			DurationSeconds: probeResult.Duration,
@@ -1544,6 +1551,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		if probeResult.Duration > 0 {
 			stripPath := filepath.Join(jobDir, partFilename+"-strip.jpg")
 			if err := s.thumb.GenerateStrip(ctx, thumbnail.StripInput{
+				Files:           files,
 				VideoPath:       remuxedPath,
 				OutputPath:      stripPath,
 				DurationSeconds: probeResult.Duration,
@@ -1742,7 +1750,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		}
 
 		result, err := runHLSAttempt(splitCtx, emitter, hls.JobConfig{
-			WriteFile:          d.workspace.WriteFile,
+			Files:              d.workspace,
 			MediaPlaylistURL:   variant.URL,
 			WorkDir:            segmentsDir,
 			Fetcher:            s.fetcher,

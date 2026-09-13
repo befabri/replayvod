@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/befabri/replayvod/server/internal/downloader/remux"
 )
 
 // blockingRunner lets shutdown tests wait until cancellation reaches concat.
@@ -14,7 +16,7 @@ type blockingRunner struct {
 	ctxErr  error
 }
 
-func (r *blockingRunner) Concat(ctx context.Context, _, _ string) error {
+func (r *blockingRunner) Concat(ctx context.Context, _, _ string, _ remux.FileOperations) error {
 	r.once.Do(func() { close(r.started) })
 	<-ctx.Done()
 	r.ctxErr = ctx.Err()

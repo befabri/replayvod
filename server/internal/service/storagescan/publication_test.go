@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/downloader/remux"
 	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
 
 	"github.com/befabri/replayvod/server/internal/recordinglock"
@@ -58,7 +59,7 @@ func (r *publishingCacheRepo) GetVideoPlaybackAsset(ctx context.Context, id int6
 
 type preparedCacheRunner struct{}
 
-func (preparedCacheRunner) Concat(_ context.Context, _, output string) error {
+func (preparedCacheRunner) Concat(_ context.Context, _, output string, _ remux.FileOperations) error {
 	return os.WriteFile(output, []byte("playback copy"), 0600)
 }
 

@@ -19,11 +19,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/background"
 )
 
-// liveServer simulates a Twitch-ish HLS edge. Polls return a
-// playlist with a sliding window; each poll advances the window
-// by one segment until maxSegments is reached, at which point
-// ENDLIST is appended. Segments serve a deterministic payload so
-// tests can assert exact file contents.
+// liveServer advances a sliding playlist on each poll until ENDLIST, with
+// deterministic segment payloads for file assertions.
 type liveServer struct {
 	t            *testing.T
 	kind         SegmentKind // ts or fmp4
@@ -32,10 +29,7 @@ type liveServer struct {
 	baseSeq      int
 	tickInterval int // target-duration in seconds
 
-	// goneAfter: once the cursor reaches this MediaSeq (inclusive),
-	// the playlist handler returns 404 instead of the manifest body.
-	// Used to simulate Twitch dropping the variant mid-stream. Zero
-	// disables (default behavior).
+	// goneAfter makes the playlist return 404 at this inclusive media sequence; zero disables it.
 	goneAfter int
 
 	mu     sync.Mutex
@@ -73,8 +67,6 @@ func (s *liveServer) ended() bool {
 func (s *liveServer) playlist() string {
 	segs := s.currentSegs()
 	if len(segs) == 0 {
-		// First poll before any segment exists — give the
-		// starting window immediately.
 		s.mu.Lock()
 		s.cursor = s.baseSeq
 		s.mu.Unlock()
@@ -122,9 +114,7 @@ func (s *liveServer) handler() http.Handler {
 			}
 		}
 		body := s.playlist()
-		// Advance the window after serving — the test's tick
-		// accelerates this since each poll forces one segment
-		// to become available. Next poll will expose it.
+		// Expose one new segment per poll without a background ticker.
 		s.advance()
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		_, _ = io.WriteString(w, body)
@@ -184,13 +174,9 @@ func TestRun_TSLiveCompletesOnEndlist(t *testing.T) {
 
 	dir := t.TempDir()
 	cfg := newJob(t, srv, dir)
-	// Collapse the poll tick to keep the test fast.
 	cfg.Log = slog.New(slog.DiscardHandler)
 
-	// Override the Poller's minimum tick via a custom Run path:
-	// easiest is to trust the TargetDuration=1s + a generous
-	// test timeout. The server advances the window on every
-	// poll so we finish within ~6s of wall clock.
+	// The sliding fixture requires several real poll intervals to reach ENDLIST.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -212,7 +198,6 @@ func TestRun_TSLiveCompletesOnEndlist(t *testing.T) {
 	if !result.EndList {
 		t.Error("result.EndList=false after natural ENDLIST completion, want true")
 	}
-	// Each segment file must be on disk with the expected payload.
 	for seq := 100; seq < 105; seq++ {
 		path := filepath.Join(dir, fmt.Sprintf("%d.ts", seq))
 		body, err := os.ReadFile(path)
@@ -259,7 +244,6 @@ func TestRun_FMP4FetchesInitExactlyOnce(t *testing.T) {
 	if result.InitURI == "" {
 		t.Error("InitURI empty")
 	}
-	// Init segment must be on disk with the right payload.
 	body, err := os.ReadFile(filepath.Join(dir, "init.mp4"))
 	if err != nil {
 		t.Fatalf("read init: %v", err)
@@ -280,9 +264,7 @@ func TestRun_FMP4FetchesInitExactlyOnce(t *testing.T) {
 }
 
 func TestRun_DedupAcrossPolls(t *testing.T) {
-	// Window slides, meaning the same segment appears in the
-	// playlist on multiple polls. Only one file per seq must be
-	// written, and the fetch must fire exactly once per seq.
+	// Sliding windows repeat playlist entries; each sequence must be fetched once.
 	s := &liveServer{
 		t:            t,
 		kind:         SegmentKindTS,
@@ -315,8 +297,6 @@ func TestRun_DedupAcrossPolls(t *testing.T) {
 	if result.SegmentsDone != 4 {
 		t.Errorf("SegmentsDone=%d, want 4", result.SegmentsDone)
 	}
-	// Every segment seen by the server should have been fetched
-	// exactly once.
 	segCalls.Range(func(k, v any) bool {
 		n := atomic.LoadInt32(v.(*int32))
 		if n != 1 {
@@ -327,11 +307,8 @@ func TestRun_DedupAcrossPolls(t *testing.T) {
 }
 
 func TestRun_CtxCancelReturnsPartialResult(t *testing.T) {
-	// Canceling mid-flight must not surface as a fatal error —
-	// the caller wants "here's what we got; the rest is on you."
-	// SegmentsDone is not asserted because a slow CI can race
-	// the 500ms budget; the correctness property is "Run returns
-	// cleanly with a result struct and no fatal error."
+	// Cancellation returns partial counters without a fatal error; a slow run may
+	// cancel before any segment finishes, so no specific segment count is required.
 	s := &liveServer{
 		t:            t,
 		kind:         SegmentKindTS,
@@ -420,9 +397,8 @@ func TestRun_EndListFalseWhenPoolCanceledBeforeFinalCommit(t *testing.T) {
 	}
 }
 
-// TestRun_PlaylistGoneBubbles: a 404 on the media playlist
-// mid-stream surfaces as ErrPlaylistGone so the downloader can
-// treat it as a part-split signal, not a transient fetch failure.
+// TestRun_PlaylistGoneBubbles checks the sentinel that makes the downloader
+// split when Twitch removes a rendition.
 func TestRun_PlaylistGoneBubbles(t *testing.T) {
 	s := &liveServer{
 		t:            t,
@@ -467,25 +443,14 @@ func TestRun_PlaylistAuthErrorBubbles(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
-	// Auth error must surface as the sentinel Phase 4d branches
-	// on. String-matching the message would silently rot if the
-	// error text ever changes.
+	// Callers must recognize the authorization sentinel through errors.Is.
 	if !errors.Is(err, ErrPlaylistAuth) {
 		t.Errorf("err=%v, want errors.Is(ErrPlaylistAuth)", err)
 	}
 }
 
-// TestRun_InitFetchFailureStopsGoroutines is the H1 regression
-// guard. A 404 on the init segment must cancel the poller + pool
-// and drain them before Run returns — otherwise segments keep
-// landing on disk and the playlist keeps getting polled after
-// the caller has been told the job failed.
-//
-// Watches both signals: segment fetches (pool-leak shape) AND
-// playlist polls (poller-leak shape). Sleeps past one
-// TargetDuration tick so a leaked poller actually has the chance
-// to re-fetch within the window — a shorter sleep would miss
-// poller-only leaks that wait a full tick before doing anything.
+// TestRun_InitFetchFailureStopsGoroutines checks that a failed initialization
+// cannot leave background fetches or playlist polling after Run returns.
 func TestRun_InitFetchFailureStopsGoroutines(t *testing.T) {
 	const tickInterval = 1 // seconds
 	var segFetches, playlistPolls int32
@@ -525,9 +490,7 @@ func TestRun_InitFetchFailureStopsGoroutines(t *testing.T) {
 		t.Errorf("err=%v, want init segment mention", err)
 	}
 
-	// Capture counts at return time, sleep past one tick + slack
-	// so a leaked poller goroutine would get a chance to re-fetch
-	// the playlist, then verify neither counter advanced.
+	// Wait beyond one poll interval so a leaked poller has time to issue a request.
 	segsBefore := atomic.LoadInt32(&segFetches)
 	pollsBefore := atomic.LoadInt32(&playlistPolls)
 	time.Sleep(time.Duration(tickInterval)*time.Second + 200*time.Millisecond)
@@ -580,11 +543,11 @@ func TestRunWritePanicIsJoinedAndReported(t *testing.T) {
 	defer srv.Close()
 	cfg := newJob(t, srv, t.TempDir())
 	var writers atomic.Int64
-	cfg.WriteFile = func(context.Context, *os.File, []byte) (int, error) {
+	cfg.Files = writeFileFunc(func(context.Context, *os.File, []byte) (int, error) {
 		writers.Add(1)
 		defer writers.Add(-1)
 		panic("write boundary failure")
-	}
+	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, err := Run(ctx, cfg)
@@ -602,11 +565,11 @@ func TestRunObserverPanicJoinsWriters(t *testing.T) {
 	defer srv.Close()
 	cfg := newJob(t, srv, t.TempDir())
 	var writers atomic.Int64
-	cfg.WriteFile = func(_ context.Context, f *os.File, p []byte) (int, error) {
+	cfg.Files = writeFileFunc(func(_ context.Context, f *os.File, p []byte) (int, error) {
 		writers.Add(1)
 		defer writers.Add(-1)
 		return f.Write(p)
-	}
+	})
 	cfg.OnEvent = func(SegmentEvent) { panic("observer failure") }
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

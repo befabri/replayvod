@@ -19,7 +19,7 @@ func TestFMP4InitCannotBypassScratchWriteBudget(t *testing.T) {
 	fetcher := NewFetcher(srv.Client(), FetcherConfig{TransportAttempts: 1, ServerErrorAttempts: 1}, slog.New(slog.DiscardHandler))
 	dir := t.TempDir()
 	writes := 0
-	err := fetchInit(t.Context(), fetcher, dir, srv.URL, func(context.Context, *os.File, []byte) (int, error) { writes++; return 0, storage.ErrFull })
+	err := fetchInit(t.Context(), fetcher, dir, srv.URL, writeFileFunc(func(context.Context, *os.File, []byte) (int, error) { writes++; return 0, storage.ErrFull }))
 	if !errors.Is(err, storage.ErrFull) || writes == 0 {
 		t.Fatalf("init escaped write accounting: writes=%d err=%v", writes, err)
 	}

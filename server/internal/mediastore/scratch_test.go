@@ -12,7 +12,16 @@ import (
 	"github.com/befabri/replayvod/server/internal/storage"
 )
 
-// changingScratchFS mutates a directory between listing and entry inspection.
+func diskUsage(dir string) (int64, error) {
+	usage, err := scanDiskUsage(dir)
+	return usage.bytes, err
+}
+
+func filesystemUsage(root fs.FS) (int64, error) {
+	usage, err := scanFilesystemUsage(root, ".")
+	return usage.bytes, err
+}
+
 type changingScratchFS struct {
 	fs.FS
 	beforeInfo func(string) error
@@ -102,8 +111,7 @@ func TestScratchDeletionRestoresUnwrittenReservation(t *testing.T) {
 	if err := os.Remove(saved); err != nil {
 		t.Fatal(err)
 	}
-	// The deletion frees disk bytes, but the first writer still reserves its
-	// future footprint. Cached usage must not turn that promise into free space.
+	// Deleted bytes remain promised to the first writer's future footprint.
 	if err := peer.Reserve(160_000); !errors.Is(err, storage.ErrFull) {
 		t.Fatalf("removed bytes still credited as written: %v", err)
 	}
@@ -149,9 +157,8 @@ func testScratchSegmentRenames(t *testing.T, reserved int64, size int) {
 	if err := os.WriteFile(partial, make([]byte, size), 0600); err != nil {
 		t.Fatal(err)
 	}
-	// Statfs already charges these bytes. A rename must not charge them again
-	// as future reservation growth, even when available space is below the
-	// original reservation. The unchanged file fits before renaming starts.
+	// Statfs already charges these bytes; renaming must not charge them again
+	// as future reservation growth.
 	available -= int64(size)
 	if err := peer.Reserve(16); err != nil {
 		t.Fatalf("stable segment did not fit before rename: %v", err)
@@ -173,7 +180,7 @@ func testScratchSegmentRenames(t *testing.T, reserved int64, size int) {
 			default:
 			}
 			for _, paths := range [][2]string{{partial, committed}, {committed, partial}} {
-				if err := os.Rename(paths[0], paths[1]); err != nil {
+				if err := writer.Rename(paths[0], paths[1]); err != nil {
 					done <- err
 					return
 				}
@@ -181,8 +188,6 @@ func testScratchSegmentRenames(t *testing.T, reserved int64, size int) {
 		}
 	}()
 	<-started
-	// Admission uses the same shared accounting scan as the monitor. Another
-	// recording must remain usable while this one's segment names change.
 	for range 2000 {
 		if err := peer.Reserve(16); err != nil {
 			t.Fatalf("segment rename changed accounting with %d bytes available: %v", available, err)
@@ -228,7 +233,6 @@ func TestScratchCopyAccountsUnknownSizeAndCleansPartialOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer other.Close(true)
-	// Lower available capacity while copying a reader with no size estimate.
 	scratch.stat = func(string) (int64, int64, error) {
 		used, err := diskUsage(scratch.Root())
 		return 1_000_000, 120_000 - used, err
@@ -243,6 +247,43 @@ func TestScratchCopyAccountsUnknownSizeAndCleansPartialOutput(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(w.Dir, "partial")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("partial output remained: %v", err)
+	}
+}
+
+func TestScratchCopyReplacementRestoresUnwrittenReservation(t *testing.T) {
+	repo, raw, _ := mediaFixture(t)
+	store := managed(t, repo, raw)
+	scratch := store.Scratch()
+	scratch.stat = func(string) (int64, int64, error) {
+		used, err := diskUsage(scratch.Root())
+		return 1_000_000, 600_000 - used, err
+	}
+	writer, err := scratch.New("copy", 400_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close(true)
+	if err := os.WriteFile(filepath.Join(writer.Dir, "input"), make([]byte, 400_000), 0600); err != nil {
+		t.Fatal(err)
+	}
+	peer, err := scratch.New("peer", 140_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close(true)
+	if err := raw.Save(t.Context(), "videos/input", strings.NewReader(strings.Repeat("m", 10_000))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Copy(t.Context(), store, "videos/input", "input"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(peer.Dir, "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if n, err := peer.WriteFile(t.Context(), file, make([]byte, 160_000)); n != 0 || !errors.Is(err, storage.ErrFull) {
+		t.Fatalf("replacement released another writer's reservation: wrote=%d err=%v", n, err)
 	}
 }
 
