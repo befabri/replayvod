@@ -1,13 +1,21 @@
+import { Buffer } from "node:buffer";
 import { expect, test, type Page } from "@playwright/test";
 import { audioDurationSeconds, fulfillAudioFixture } from "./support/audio";
 import { mockTrpc, trpcOk, validSession } from "./support/trpc";
 
 const recordedAt = "2026-06-05T12:00:00Z";
+// A 16x9 PNG standing in for the stored poster.
+const thumbnailFixture = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAABAAAAAJCAIAAAC0SDtlAAABCElEQVR42g3LIQEFIRBAwY1AAAQRkMiLgCAAETYCARAX4SSSCAjEk0TYCET4f/yICE4IQhQeIQtVUKEJr/AJU1jCEUy4gojHeYIneh5P9lSPeprn9Xye6Vme4zHP9f+QcImQiIknkRM1oYmWeBNfYiZW4iQscdM/FFwhFGLhKeRCLWihFd7CV5iFVTgFK9zyD4pTghKVR8lKVVRpyqt8ylSWchRTrv5Dx3VCJ3aeTu7UjnZa5+18ndlZndOxzu3/MHCDMIiDZ5AHdaCDNngH32AO1uAMbHDHP2zcJmzi5tnkTd3opm3ezbeZm7U5G9vc/Q+GM4IRjcfIRjXUaMZrfMY0lnEMM67xA9Zf8wGO3X2RAAAAAElFTkSuQmCC",
+	"base64",
+);
 
 test.describe("audio watch player", () => {
 	test.use({ viewport: { width: 1536, height: 768 } });
 
-	test("can seek away from the visible end progress handle", async ({ page }) => {
+	test("can seek away from the visible end progress handle", async ({
+		page,
+	}) => {
 		await mockWatchAudio(page);
 		await page.goto("/dashboard/watch/65");
 
@@ -38,7 +46,9 @@ test.describe("audio watch player", () => {
 		await expect(thumb).toBeVisible();
 		const box = await thumb.boundingBox();
 		expect(box).not.toBeNull();
-		const railBox = await page.getByTestId("recording-timeline-rail").boundingBox();
+		const railBox = await page
+			.getByTestId("recording-timeline-rail")
+			.boundingBox();
 		expect(railBox).not.toBeNull();
 
 		const startX = box!.x + box!.width - 1;
@@ -65,7 +75,9 @@ test.describe("audio watch player", () => {
 		await page.mouse.up();
 
 		await expect
-			.poll(async () => Number(await recordingSlider.getAttribute("aria-valuenow")))
+			.poll(async () =>
+				Number(await recordingSlider.getAttribute("aria-valuenow")),
+			)
 			.toBeLessThan(audioDurationSeconds);
 		await expect(recordingSlider).toHaveAttribute("aria-valuenow", "1");
 		await expect
@@ -87,6 +99,105 @@ test.describe("audio watch player", () => {
 		await page.getByRole("button", { name: "Play", exact: true }).click();
 		await expectAudioPlaybackToStayPastStart(page);
 	});
+
+	test("keeps the stream thumbnail left of the controls and the waveform", async ({
+		page,
+	}) => {
+		await mockWatchAudio(page);
+		await page.goto("/dashboard/watch/65");
+
+		const thumbnail = page.getByTestId("audio-thumbnail");
+		await expect(thumbnail).toBeVisible({ timeout: 30_000 });
+		await expect
+			.poll(async () =>
+				thumbnail
+					.locator("img")
+					.evaluate((image: HTMLImageElement) => image.naturalHeight),
+			)
+			.toBeGreaterThan(0);
+		const naturalRatio = await thumbnail
+			.locator("img")
+			.evaluate(
+				(image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+			);
+
+		const thumbnailBox = await thumbnail.boundingBox();
+		expect(thumbnailBox).not.toBeNull();
+		const controlsBox = await page.getByTestId("audio-controls").boundingBox();
+		expect(controlsBox).not.toBeNull();
+		const railBox = await page
+			.getByTestId("recording-timeline-rail")
+			.boundingBox();
+		expect(railBox).not.toBeNull();
+
+		// The poster opens the card, both rows starting past it.
+		for (const box of [controlsBox, railBox]) {
+			expect(thumbnailBox!.x + thumbnailBox!.width).toBeLessThanOrEqual(box!.x);
+		}
+		// This fixture matches the poster box's fixed aspect ratio.
+		expect(thumbnailBox!.width / thumbnailBox!.height).toBeCloseTo(
+			naturalRatio,
+			1,
+		);
+		// It rides the middle of the controls and the waveform it stands beside,
+		// and never grows past them.
+		const stackBox = await page.locator(".rv-audio-stack").boundingBox();
+		expect(stackBox).not.toBeNull();
+		expect(thumbnailBox!.y + thumbnailBox!.height / 2).toBeCloseTo(
+			stackBox!.y + stackBox!.height / 2,
+			0,
+		);
+		expect(thumbnailBox!.height).toBeLessThanOrEqual(stackBox!.height);
+	});
+
+	for (const waveform of [true, false]) {
+		test(`shows timeline details below the ${waveform ? "waveform" : "compact scrubber"} above following content`, async ({
+			page,
+		}) => {
+			await mockWatchAudio(page, { timeline: true, waveform });
+			await page.goto("/dashboard/watch/65");
+			await expect(page.getByTestId("audio-waveform")).toHaveCount(
+				waveform ? 1 : 0,
+			);
+			const rail = page.getByTestId("recording-timeline-rail");
+			await expect(rail).toBeVisible();
+			await expect(rail).toHaveCSS("height", waveform ? "80px" : "6px");
+			for (const button of [
+				page.getByRole("button", { name: /A timeline change/ }),
+				page.getByRole("button", { name: /^Part 1,/ }),
+			]) {
+				await button.hover();
+				const popover = button.locator(":scope > span").first();
+				await expect(popover).toBeVisible();
+				const railBox = await rail.boundingBox();
+				const popoverBox = await popover.boundingBox();
+				const followingBox = await page
+					.locator(".rv-watch-player-audio + *")
+					.boundingBox();
+				expect(popoverBox!.y).toBeGreaterThanOrEqual(
+					railBox!.y + railBox!.height,
+				);
+				expect(popoverBox!.y + popoverBox!.height - 4).toBeGreaterThan(
+					followingBox!.y,
+				);
+				// Hover details ignore pointer input. Enable hit testing briefly to
+				// verify that the following content does not paint over the card.
+				expect(
+					await popover.evaluate((element) => {
+						const old = element.style.pointerEvents;
+						element.style.pointerEvents = "auto";
+						const box = element.getBoundingClientRect();
+						const top = document.elementFromPoint(
+							box.x + box.width / 2,
+							box.y + box.height - 4,
+						);
+						element.style.pointerEvents = old;
+						return top !== null && element.contains(top);
+					}),
+				).toBe(true);
+			}
+		});
+	}
 
 	test("can click an earlier waveform position after playback ended", async ({
 		page,
@@ -113,7 +224,9 @@ test.describe("audio watch player", () => {
 			)
 			.toBe(true);
 
-		const railBox = await page.getByTestId("recording-timeline-rail").boundingBox();
+		const railBox = await page
+			.getByTestId("recording-timeline-rail")
+			.boundingBox();
 		expect(railBox).not.toBeNull();
 		await page.mouse.click(
 			railBox!.x + railBox!.width * 0.25,
@@ -152,7 +265,9 @@ test.describe("audio watch player", () => {
 		});
 		await expect(recordingSlider).toBeVisible({ timeout: 30_000 });
 
-		const railBox = await page.getByTestId("recording-timeline-rail").boundingBox();
+		const railBox = await page
+			.getByTestId("recording-timeline-rail")
+			.boundingBox();
 		expect(railBox).not.toBeNull();
 		await page.mouse.click(
 			railBox!.x + railBox!.width - 1,
@@ -191,7 +306,9 @@ test.describe("audio watch player", () => {
 		});
 		await expect(recordingSlider).toBeVisible({ timeout: 30_000 });
 
-		const railBox = await page.getByTestId("recording-timeline-rail").boundingBox();
+		const railBox = await page
+			.getByTestId("recording-timeline-rail")
+			.boundingBox();
 		expect(railBox).not.toBeNull();
 
 		await page.mouse.click(
@@ -229,22 +346,47 @@ async function expectAudioPlaybackToStayPastStart(page: Page) {
 	expect(samples.at(-1) ?? 0).toBeGreaterThan(1);
 }
 
-async function mockWatchAudio(page: Parameters<typeof mockTrpc>[0]) {
+async function mockWatchAudio(
+	page: Parameters<typeof mockTrpc>[0],
+	options: { timeline?: boolean; waveform?: boolean } = {},
+) {
+	const video = audioVideo();
+	if (options.timeline) {
+		video.duration_seconds *= 2;
+		video.parts.push({
+			...video.parts[0],
+			part_index: 2,
+			filename: "steam-nukes-indies-part2.m4a",
+		});
+	}
 	await page.route("**/api/v1/videos/65/waveform", async (route) => {
 		await route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					duration_seconds: audioDurationSeconds,
-					peaks: Array.from({ length: 96 }, (_, index) =>
-						Number((0.2 + Math.abs(Math.sin(index * 0.3)) * 0.75).toFixed(3)),
-					),
-				}),
+			status: 200,
+			contentType: "application/json",
+			body: JSON.stringify({
+				duration_seconds: video.duration_seconds,
+				peaks:
+					options.waveform === false
+						? []
+						: Array.from({ length: 96 }, (_, index) =>
+								Number(
+									(0.2 + Math.abs(Math.sin(index * 0.3)) * 0.75).toFixed(3),
+								),
+							),
+			}),
 		});
 	});
 
 	await page.route("**/api/v1/videos/65/parts/1/stream", async (route) => {
 		await fulfillAudioFixture(route);
+	});
+
+	await page.route("**/api/v1/thumbnails/**", async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: "image/png",
+			body: thumbnailFixture,
+		});
 	});
 
 	await mockTrpc(page, (procs) => {
@@ -255,14 +397,28 @@ async function mockWatchAudio(page: Parameters<typeof mockTrpc>[0]) {
 			return {
 				status: 200,
 				body: trpcOk(
-					procs.map((proc) => (proc === "video.getById" ? audioVideo() : null)),
+					procs.map((proc) => (proc === "video.getById" ? video : null)),
 				),
 			};
 		}
 		if (procs.includes("video.timeline")) {
 			return {
 				status: 200,
-				body: trpcOk(procs.map((proc) => (proc === "video.timeline" ? [] : null))),
+				body: trpcOk(
+					procs.map((proc) =>
+						proc === "video.timeline"
+							? options.timeline
+								? [
+										{
+											occurred_at: recordedAt,
+											media_offset_seconds: audioDurationSeconds,
+											title: { id: 1, name: "A timeline change" },
+										},
+									]
+								: []
+							: null,
+					),
+				),
 			};
 		}
 		if (procs.includes("video.categories")) {
@@ -329,12 +485,12 @@ async function mockWatchAudio(page: Parameters<typeof mockTrpc>[0]) {
 				body: trpcOk(
 					procs.map((proc) =>
 						proc === "video.statisticsByBroadcaster"
-								? {
-										total: 1,
-										total_size: 99_000_000,
-										total_duration_seconds: audioDurationSeconds,
-									}
-								: null,
+							? {
+									total: 1,
+									total_size: 99_000_000,
+									total_duration_seconds: audioDurationSeconds,
+								}
+							: null,
 					),
 				),
 			};
@@ -365,6 +521,7 @@ function audioVideo() {
 		quality: "audio_only",
 		codec: "aac",
 		is_audio_only: true,
+		thumbnail: "thumbnails/steam-nukes-indies.jpg",
 		broadcaster_id: "chan1",
 		broadcaster_login: "thornityco",
 		broadcaster_name: "ThornityCo",
@@ -382,11 +539,11 @@ function audioVideo() {
 				part_index: 1,
 				filename: "steam-nukes-indies-part1.m4a",
 				quality: "audio_only",
-					codec: "aac",
-					segment_format: "fmp4",
-					duration_seconds: audioDurationSeconds,
-					size_bytes: 99_000_000,
-					start_media_seq: 0,
+				codec: "aac",
+				segment_format: "fmp4",
+				duration_seconds: audioDurationSeconds,
+				size_bytes: 99_000_000,
+				start_media_seq: 0,
 				end_media_seq: 12,
 			},
 		],

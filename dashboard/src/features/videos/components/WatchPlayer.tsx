@@ -103,6 +103,7 @@ const MEDIA_LOAD_WATCHDOG_MS = 20_000;
 export function WatchPlayer({
 	audioWaveform,
 	audioWaveformLoading,
+	thumbnailUrl,
 	playlist,
 	initialOffsetSeconds,
 	resumedFromSeconds,
@@ -112,6 +113,9 @@ export function WatchPlayer({
 }: {
 	audioWaveform?: { peaks: number[] } | null;
 	audioWaveformLoading?: boolean;
+	// thumbnailUrl is the recording's stored poster. The audio layout stands it
+	// beside the waveform, where there is no video picture to look at.
+	thumbnailUrl?: string | null;
 	playlist: RecordingPlaylist;
 	initialOffsetSeconds?: number;
 	// resumedFromSeconds is the saved position the initial offset came from;
@@ -878,6 +882,7 @@ export function WatchPlayer({
 			currentPart={currentPart}
 			currentSeconds={globalTime}
 			onSeek={seekToGlobal}
+			popoverSide={isAudioSource ? "bottom" : "top"}
 			showTimeLabels={!isAudioSource}
 			waveformLoading={isAudioSource && audioWaveformLoading}
 			waveformPeaks={isAudioSource ? audioWaveform?.peaks : null}
@@ -962,22 +967,29 @@ export function WatchPlayer({
 						setAudioVolume(event.currentTarget.volume);
 					}}
 				/>
-				<AudioControls
-					paused={audioPaused}
-					muted={audioMuted}
-					volume={audioVolume}
-					canSetVolume
-					currentSeconds={globalTime}
-					playbackRate={audioPlaybackRate}
-					totalSeconds={playlist.totalDurationSeconds}
-					onTogglePlayback={handleAudioTogglePlayback}
-					onToggleMuted={handleAudioToggleMuted}
-					onVolumeChange={handleAudioVolumeChange}
-					onPlaybackRateChange={handleAudioPlaybackRateChange}
-					onSeekBackward={() => seekToGlobal(globalTime - 10)}
-					onSeekForward={() => seekToGlobal(globalTime + 10)}
-				/>
-				<div className="rv-audio-recording-timeline">{recordingTimeline}</div>
+				<div className="rv-audio-body">
+					{thumbnailUrl ? <AudioThumbnail src={thumbnailUrl} /> : null}
+					<div className="rv-audio-stack">
+						<AudioControls
+							paused={audioPaused}
+							muted={audioMuted}
+							volume={audioVolume}
+							canSetVolume
+							currentSeconds={globalTime}
+							playbackRate={audioPlaybackRate}
+							totalSeconds={playlist.totalDurationSeconds}
+							onTogglePlayback={handleAudioTogglePlayback}
+							onToggleMuted={handleAudioToggleMuted}
+							onVolumeChange={handleAudioVolumeChange}
+							onPlaybackRateChange={handleAudioPlaybackRateChange}
+							onSeekBackward={() => seekToGlobal(globalTime - 10)}
+							onSeekForward={() => seekToGlobal(globalTime + 10)}
+						/>
+						<div className="rv-audio-recording-timeline">
+							{recordingTimeline}
+						</div>
+					</div>
+				</div>
 				{resumeNotice}
 			</section>
 		);
@@ -1041,6 +1053,19 @@ function playPlaybackController(
 function pausePlaybackController(player: PlaybackController, trigger?: Event) {
 	const pause = player.pause as (trigger?: Event) => Promise<void> | void;
 	void pause.call(player, trigger);
+}
+
+// A poster whose object is gone leaves the audio layout without a thumbnail
+// rather than with a broken image, the same way the library rows treat one.
+function AudioThumbnail({ src }: { src: string }) {
+	const [failedSrc, setFailedSrc] = useState<string | null>(null);
+	if (src === failedSrc) return null;
+
+	return (
+		<div className="rv-audio-thumbnail" data-testid="audio-thumbnail">
+			<img src={src} alt="" onError={() => setFailedSrc(src)} />
+		</div>
+	);
 }
 
 function AudioControls({
@@ -1208,11 +1233,26 @@ function MediaStateBridge({
 	return null;
 }
 
+// Which way the hover popovers open. The video layout floats them over the
+// frame above the scrubber; the audio card has the navbar just above it, so its
+// popovers drop below the waveform instead.
+type TimelinePopoverSide = "top" | "bottom";
+
+// The waveform lane is the audio scrubber's hero element, so it's tall. Without
+// a waveform (no peaks yet) it collapses to a thin progress bar. Popovers that
+// open downward have to clear the whole lane, and the marker pips sit at its top
+// edge, so belowLane is the lane's own height plus the gap they leave.
+const TIMELINE_LANE = {
+	waveform: { heightClass: "h-24", belowLane: "6.5rem" },
+	compact: { heightClass: "h-5", belowLane: "1.75rem" },
+} as const;
+
 function RecordingTimeline({
 	playlist,
 	currentPart,
 	currentSeconds,
 	onSeek,
+	popoverSide = "top",
 	showTimeLabels = true,
 	waveformLoading,
 	waveformPeaks,
@@ -1221,6 +1261,7 @@ function RecordingTimeline({
 	currentPart: RecordingPlaylistPart;
 	currentSeconds: number;
 	onSeek: (seconds: number, options?: RecordingSeekOptions) => void;
+	popoverSide?: TimelinePopoverSide;
 	showTimeLabels?: boolean;
 	waveformLoading?: boolean;
 	waveformPeaks?: number[] | null;
@@ -1230,9 +1271,8 @@ function RecordingTimeline({
 	const hasDuration = total > 0;
 	const progress = percentOf(currentSeconds, total);
 	const hasWaveform = !!waveformPeaks && waveformPeaks.length > 0;
-	// The waveform lane is the audio scrubber's hero element, so it's tall.
-	// Without a waveform (no peaks yet) it collapses to a thin progress bar.
 	const showWaveformLane = hasWaveform || !!waveformLoading;
+	const lane = TIMELINE_LANE[showWaveformLane ? "waveform" : "compact"];
 	const trackRef = useRef<HTMLDivElement>(null);
 	const timelineSeek = useTimelinePointerSeek<HTMLDivElement>({
 		totalSeconds: total,
@@ -1257,7 +1297,7 @@ function RecordingTimeline({
 					</span>
 				</div>
 			)}
-			<div className={cn("relative", showWaveformLane ? "h-24" : "h-5")}>
+			<div className={cn("relative", lane.heightClass)}>
 				<div
 					role="slider"
 					tabIndex={hasDuration ? 0 : -1}
@@ -1320,6 +1360,7 @@ function RecordingTimeline({
 								totalSeconds={total}
 								onSeek={onSeek}
 								hasWaveform={showWaveformLane}
+								popoverSide={popoverSide}
 								getTrackElement={() => trackRef.current}
 							/>
 						))}
@@ -1341,6 +1382,8 @@ function RecordingTimeline({
 								marker={marker}
 								totalSeconds={total}
 								onSeek={onSeek}
+								belowLane={lane.belowLane}
+								popoverSide={popoverSide}
 							/>
 						))}
 					{hasDuration && (
@@ -1430,12 +1473,14 @@ function PartSegmentButton({
 	getTrackElement,
 	hasWaveform,
 	part,
+	popoverSide,
 	totalSeconds,
 	onSeek,
 }: {
 	getTrackElement: () => HTMLElement | null;
 	hasWaveform: boolean;
 	part: RecordingPlaylistPart;
+	popoverSide: TimelinePopoverSide;
 	totalSeconds: number;
 	onSeek: (seconds: number, options?: RecordingSeekOptions) => void;
 }) {
@@ -1489,7 +1534,9 @@ function PartSegmentButton({
 			<span
 				className="pointer-events-none absolute z-50 hidden w-max max-w-[min(22rem,calc(100vw-4rem))] -translate-x-1/2 rounded-md border border-white/15 bg-black/90 px-3 py-2 text-left text-xs leading-snug text-white shadow-xl ring-1 ring-white/10 backdrop-blur group-hover:block group-focus-visible:block"
 				style={{
-					bottom: "calc(100% + 0.5rem)",
+					...(popoverSide === "bottom"
+						? { top: "calc(100% + 0.5rem)" }
+						: { bottom: "calc(100% + 0.5rem)" }),
 					left: "var(--seg-cursor, 50%)",
 				}}
 			>
@@ -1548,11 +1595,15 @@ function PartSegmentPopoverContent({
 }
 
 function MarkerButton({
+	belowLane,
 	marker,
+	popoverSide,
 	totalSeconds,
 	onSeek,
 }: {
+	belowLane: string;
 	marker: RecordingTimelineMarker;
+	popoverSide: TimelinePopoverSide;
 	totalSeconds: number;
 	onSeek: (seconds: number, options?: RecordingSeekOptions) => void;
 }) {
@@ -1585,7 +1636,11 @@ function MarkerButton({
 					align === "center" && "left-1/2 -translate-x-1/2",
 					align === "end" && "right-0",
 				)}
-				style={{ bottom: "calc(100% + 0.5rem)" }}
+				style={
+					popoverSide === "bottom"
+						? { top: belowLane }
+						: { bottom: "calc(100% + 0.5rem)" }
+				}
 			>
 				<MarkerPopoverContent marker={marker} time={time} />
 			</span>

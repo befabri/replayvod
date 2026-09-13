@@ -35,6 +35,7 @@ import { WatchPlayer } from "@/features/videos/components/WatchPlayer";
 import { useCanManageVideos } from "@/features/videos/permissions";
 import { buildRecordingPlaylist } from "@/features/videos/playback";
 import { videoRemovalState } from "@/features/videos/removal";
+import { localThumbnailURL } from "@/features/videos/thumbnail";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { cn } from "@/lib/utils";
 
@@ -105,6 +106,9 @@ function WatchContent({ id }: { id: number }) {
 	);
 	const audioWaveformEnabled =
 		!!playlist && playable && playlist.isAudioOnly && playlist.parts.length > 0;
+	const thumbnailUrl = video?.thumbnail
+		? localThumbnailURL(video.thumbnail)
+		: null;
 	const { data: audioWaveform, isFetching: isAudioWaveformFetching } =
 		useAudioWaveform(id, audioWaveformEnabled);
 	const writeWatchProgress = useWatchProgressWriter(id);
@@ -252,6 +256,7 @@ function WatchContent({ id }: { id: number }) {
 								</Link>
 							</>
 						}
+						thumbnailUrl={thumbnailUrl}
 						audioWaveform={audioWaveform ?? null}
 						audioWaveformLoading={
 							audioWaveformEnabled &&

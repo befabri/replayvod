@@ -42,6 +42,12 @@
 }
 
 .rv-watch-player-audio {
+	/* The poster is measured against the card, not the window: the watch page
+	   hands this player anything from a narrow aside column to the full content
+	   width. It stops growing once it is as tall as the controls row plus the
+	   waveform lane beside it. */
+	container-type: inline-size;
+	--rv-audio-thumbnail-max-width: calc(9.4rem * 16 / 9);
 	display: flex;
 	flex-direction: column;
 	align-items: stretch;
@@ -61,6 +67,54 @@
 	display: contents;
 }
 
+.rv-audio-body {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	align-items: stretch;
+	gap: 1rem;
+	padding: 0.75rem 1rem 1.1rem;
+}
+
+.rv-audio-stack {
+	display: flex;
+	min-width: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+}
+
+.rv-audio-thumbnail {
+	display: none;
+	position: relative;
+	flex: 0 0 auto;
+	align-self: center;
+	/* Reserve room for a long recording's time readout before sizing the poster.
+	   A fixed aspect ratio keeps source dimensions from changing the layout. */
+	width: min(19cqw, calc(100cqw - 44rem), var(--rv-audio-thumbnail-max-width));
+	aspect-ratio: 16 / 9;
+	overflow: hidden;
+	border-radius: 0.75rem;
+	background: rgb(255 255 255 / 0.06);
+}
+
+/* Out of flow so the poster's own pixel size never feeds back into the box it
+   fills; the ratio above is what decides how much of it shows. */
+.rv-audio-thumbnail img {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+/* The poster earns its place only once the card is wide enough to keep the
+   transport, the readout and the volume on one line beside it. */
+@container (min-width: 50rem) {
+	.rv-audio-thumbnail {
+		display: block;
+	}
+}
+
 .rv-audio-controls {
 	display: flex;
 	width: 100%;
@@ -68,7 +122,7 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
-	padding: 0.75rem 1rem 0.4rem;
+	padding-bottom: 0.4rem;
 }
 
 .rv-audio-transport,
@@ -221,7 +275,7 @@
 	width: 100%;
 	min-width: 0;
 	margin-top: auto;
-	padding: 0.5rem 1rem 1.1rem;
+	padding-top: 0.5rem;
 }
 
 .rv-audio-recording-timeline .vds-recording-time-slider {
@@ -272,12 +326,16 @@
 }
 
 @media (max-width: 640px) {
+	.rv-audio-body {
+		padding: 0.9rem 0.75rem 1.1rem;
+	}
+
 	.rv-audio-controls {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		justify-items: center;
 		gap: 0.65rem;
-		padding: 0.9rem 0.75rem 0.35rem;
+		padding-bottom: 0.35rem;
 	}
 
 	.rv-audio-transport {
@@ -316,9 +374,5 @@
 	.rv-audio-rate-button {
 		min-width: 2.85rem;
 		padding-inline: 0.45rem;
-	}
-
-	.rv-audio-recording-timeline {
-		padding-inline: 0.75rem;
 	}
 }

@@ -5,9 +5,9 @@ import type { TFunction } from "i18next";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { TimestampValue } from "@/components/ui/timestamp";
-import { API_URL } from "@/env";
 import { channelLabel, type VideoResponse } from "@/features/videos";
 import { formatBytes, formatDuration } from "@/features/videos/format";
+import { localThumbnailURL } from "@/features/videos/thumbnail";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
 import { VideoStatusBadge } from "./VideoStatusBadge";
@@ -143,9 +143,7 @@ export function VideoThumbnail({
 	t: TFunction;
 }) {
 	const [failedSrc, setFailedSrc] = useState<string | null>(null);
-	const thumbnail = video.thumbnail
-		? `${API_URL}/api/v1/thumbnails/${video.thumbnail.replace(/^thumbnails\//, "")}`
-		: null;
+	const thumbnail = video.thumbnail ? localThumbnailURL(video.thumbnail) : null;
 	const showImage = thumbnail !== null && thumbnail !== failedSrc;
 
 	return (

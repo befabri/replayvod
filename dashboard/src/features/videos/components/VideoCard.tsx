@@ -4,7 +4,6 @@ import type { TFunction } from "i18next";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
-import { API_URL } from "@/env";
 import { usePlaybackSettings } from "@/features/settings/playback";
 import {
 	channelLabel,
@@ -18,6 +17,7 @@ import {
 } from "@/features/videos/format";
 import { videoStatusLabel } from "@/features/videos/labels";
 import { resumeOffsetSeconds } from "@/features/videos/resume-policy";
+import { localThumbnailURL } from "@/features/videos/thumbnail";
 import { clamp, cn } from "@/lib/utils";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
@@ -31,10 +31,6 @@ const HOVER_INTENT_DELAY_MS = 700;
 const STORED_PREVIEW_RETRY_DELAY_MS = 5000;
 const STORED_PREVIEW_MAX_RETRIES = 3;
 const STORED_PREVIEW_VISIBILITY_ROOT_MARGIN = "300px 0px";
-
-function localThumbnailURL(path: string): string {
-	return `${API_URL}/api/v1/thumbnails/${path.replace(/^thumbnails\//, "")}`;
-}
 
 function cacheBustedURL(url: string, cacheBust: number): string {
 	return cacheBust > 0 ? `${url}?rv=${cacheBust}` : url;

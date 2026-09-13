@@ -39,12 +39,12 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { API_URL } from "@/env";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import { useCategorySearchWithVideos } from "@/features/categories/queries";
 import { useChannelSearch } from "@/features/channels/queries";
 import { channelLabel, useVideoSearch } from "@/features/videos";
 import { VideoStatusBadge } from "@/features/videos/components/VideoStatusBadge";
+import { localThumbnailURL } from "@/features/videos/thumbnail";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { cn } from "@/lib/utils";
 
@@ -458,9 +458,7 @@ function VideoResultRow({
 }) {
 	const title = video.title?.trim() || video.display_name;
 	const channel = channelLabel(video);
-	const thumb = video.thumbnail
-		? `${API_URL}/api/v1/thumbnails/${video.thumbnail.replace(/^thumbnails\//, "")}`
-		: null;
+	const thumb = video.thumbnail ? localThumbnailURL(video.thumbnail) : null;
 	return (
 		<>
 			<div className="flex aspect-video w-20 shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted text-xs text-muted-foreground">

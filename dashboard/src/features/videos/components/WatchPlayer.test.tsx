@@ -542,6 +542,54 @@ describe("WatchPlayer multipart boundaries", () => {
 		).toBeTruthy();
 	});
 
+	it("stands the recording thumbnail ahead of the controls and the waveform", () => {
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				audioWaveform={{ peaks: [0, 0.35, 1, 0.5] }}
+				thumbnailUrl="/api/v1/thumbnails/steam-nukes-indies.jpg"
+			/>,
+		);
+
+		const controls = screen.getByTestId("audio-controls");
+		const thumbnail = screen.getByTestId("audio-thumbnail");
+		expect(thumbnail.querySelector("img")?.getAttribute("src")).toBe(
+			"/api/v1/thumbnails/steam-nukes-indies.jpg",
+		);
+		expect(controls.contains(thumbnail)).toBe(false);
+		for (const beside of [
+			controls,
+			screen.getByRole("slider", { name: "watch.seek_recording" }),
+		]) {
+			expect(
+				thumbnail.compareDocumentPosition(beside) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+		}
+	});
+
+	it("leaves the audio layout without a thumbnail when the recording has none", () => {
+		render(<WatchPlayer playlist={audioPlaylist()} />);
+
+		expect(screen.queryByTestId("audio-thumbnail")).toBeNull();
+		expect(screen.getByTestId("audio-controls")).toBeTruthy();
+	});
+
+	it("drops the audio thumbnail whose image fails to load", () => {
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				thumbnailUrl="/api/v1/thumbnails/gone.jpg"
+			/>,
+		);
+
+		const image = screen.getByTestId("audio-thumbnail").querySelector("img");
+		expect(image).not.toBeNull();
+		fireEvent.error(image as HTMLImageElement);
+
+		expect(screen.queryByTestId("audio-thumbnail")).toBeNull();
+	});
+
 	it("seeks single-part audio from the recording slider after playback ends", () => {
 		render(
 			<WatchPlayer
@@ -933,6 +981,55 @@ describe("WatchPlayer multipart boundaries", () => {
 	});
 });
 
+describe("WatchPlayer timeline popovers", () => {
+	function popoverOf(button: HTMLElement) {
+		const popover = button.querySelector("span");
+		expect(popover).not.toBeNull();
+		return popover as HTMLSpanElement;
+	}
+
+	it("opens the popovers over the video above the scrubber", () => {
+		render(<WatchPlayer playlist={multipartPlaylist()} />);
+
+		const marker = popoverOf(
+			screen.getByRole("button", { name: /watch\.seek_marker/ }),
+		);
+		expect(marker.style.bottom).toBe("calc(100% + 0.5rem)");
+		expect(marker.style.top).toBe("");
+
+		const segment = popoverOf(
+			screen.getByRole("button", { name: /watch\.part_segment:part=1/ }),
+		);
+		expect(segment.style.bottom).toBe("calc(100% + 0.5rem)");
+		expect(segment.style.top).toBe("");
+	});
+
+	// The audio card sits right under the fixed navbar, so upward popovers were
+	// painted behind it. Below the waveform they have the page to spill into.
+	it("drops the popovers below the waveform on the audio card", () => {
+		render(
+			<WatchPlayer
+				playlist={multipartAudioPlaylist()}
+				audioWaveform={{ peaks: [0.2, 0.8, 0.4, 0.9] }}
+			/>,
+		);
+
+		const marker = popoverOf(
+			screen.getByRole("button", { name: /watch\.seek_marker/ }),
+		);
+		// Measured from the lane's top edge, where the marker pip sits: the
+		// waveform lane is 6rem tall, plus the 0.5rem gap.
+		expect(marker.style.top).toBe("6.5rem");
+		expect(marker.style.bottom).toBe("");
+
+		const segment = popoverOf(
+			screen.getByRole("button", { name: /watch\.part_segment:part=1/ }),
+		);
+		expect(segment.style.top).toBe("calc(100% + 0.5rem)");
+		expect(segment.style.bottom).toBe("");
+	});
+});
+
 describe("WatchPlayer watch progress persistence", () => {
 	function hide(hidden: boolean) {
 		vi.spyOn(document, "visibilityState", "get").mockReturnValue(
@@ -1304,6 +1401,19 @@ function audioPlaylist(): RecordingPlaylist {
 				label: "Part 1",
 			},
 		],
+	};
+}
+
+function multipartAudioPlaylist(): RecordingPlaylist {
+	const base = multipartPlaylist();
+	return {
+		...base,
+		isAudioOnly: true,
+		parts: base.parts.map((part) => ({
+			...part,
+			src: part.src.replace(".mp4", ".m4a"),
+			mimeType: "audio/mp4",
+		})),
 	};
 }
 
