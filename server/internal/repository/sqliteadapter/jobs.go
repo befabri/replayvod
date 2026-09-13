@@ -3,9 +3,7 @@ package sqliteadapter
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
@@ -34,44 +32,6 @@ func (a *SQLiteAdapter) MarkJobFailed(ctx context.Context, id string, errMsg str
 		ID:    id,
 		Error: sql.NullString{String: errMsg, Valid: true},
 	})
-}
-
-func (a *SQLiteAdapter) UpdateJobResumeState(ctx context.Context, id string, resumeState json.RawMessage) error {
-	s := string(resumeState)
-	if s == "" {
-		s = "{}"
-	}
-	return a.queries.UpdateJobResumeState(ctx, sqlitegen.UpdateJobResumeStateParams{
-		ID:          id,
-		ResumeState: s,
-	})
-}
-
-func (a *SQLiteAdapter) ListRunningJobs(ctx context.Context) ([]repository.Job, error) {
-	rows, err := a.queries.ListRunningJobs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list running jobs: %w", err)
-	}
-	out := make([]repository.Job, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteJobToDomain(r)
-	}
-	return out, nil
-}
-
-func (a *SQLiteAdapter) ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]repository.Job, error) {
-	rows, err := a.queries.ListFailedJobsForRetry(ctx, sqlitegen.ListFailedJobsForRetryParams{
-		FinishedAt: sqliteTimePtr(&before),
-		Limit:      int64(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list failed jobs for retry: %w", err)
-	}
-	out := make([]repository.Job, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteJobToDomain(r)
-	}
-	return out, nil
 }
 
 func (a *SQLiteAdapter) ListRunningLiveBroadcasters(ctx context.Context) ([]string, error) {

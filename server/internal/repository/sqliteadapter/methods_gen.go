@@ -146,14 +146,6 @@ func (a *SQLiteAdapter) GetMediaPublication(ctx context.Context, key string) (*r
 	return sqliteMediaPublicationToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetNextQueuedArchiveJob(ctx context.Context) (*repository.Job, error) {
-	row, err := a.queries.GetNextQueuedArchiveJob(ctx)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteJobToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) GetRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
 	row, err := a.queries.GetRecordingIntent(ctx, id)
 	if err != nil {
@@ -372,14 +364,6 @@ func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repos
 
 func (a *SQLiteAdapter) MarkJobDone(ctx context.Context, id string) error {
 	return a.queries.MarkJobDone(ctx, id)
-}
-
-func (a *SQLiteAdapter) MarkJobRunning(ctx context.Context, id string) error {
-	return a.queries.MarkJobRunning(ctx, id)
-}
-
-func (a *SQLiteAdapter) MarkTaskRunning(ctx context.Context, name string) error {
-	return a.queries.MarkTaskRunning(ctx, name)
 }
 
 func (a *SQLiteAdapter) MarkWebhookEventProcessed(ctx context.Context, id int64) error {

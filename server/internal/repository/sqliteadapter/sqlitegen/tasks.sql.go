@@ -7,7 +7,6 @@ package sqlitegen
 
 import (
 	"context"
-	"database/sql"
 )
 
 const getTask = `-- name: GetTask :one
@@ -120,86 +119,6 @@ func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
 		return nil, err
 	}
 	return items, nil
-}
-
-const markTaskFailed = `-- name: MarkTaskFailed :exec
-UPDATE tasks
-SET last_status      = 'failed',
-    last_duration_ms = ?2,
-    last_error       = ?3,
-    next_run_at      = CASE
-        WHEN interval_seconds > 0
-        THEN ifnull(next_run_at, datetime('now', '+' || interval_seconds || ' seconds'))
-        ELSE NULL
-    END,
-    updated_at       = datetime('now')
-WHERE name = ?1
-`
-
-type MarkTaskFailedParams struct {
-	Name           string         `json:"name"`
-	LastDurationMs int64          `json:"last_duration_ms"`
-	LastError      sql.NullString `json:"last_error"`
-}
-
-func (q *Queries) MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error {
-	_, err := q.db.ExecContext(ctx, markTaskFailed, arg.Name, arg.LastDurationMs, arg.LastError)
-	return err
-}
-
-const markTaskInterrupted = `-- name: MarkTaskInterrupted :exec
-UPDATE tasks SET last_status = 'interrupted', last_duration_ms = ?2,
-    last_error = NULL, next_run_at = datetime('now'), updated_at = datetime('now')
-WHERE name = ?1
-`
-
-type MarkTaskInterruptedParams struct {
-	Name           string `json:"name"`
-	LastDurationMs int64  `json:"last_duration_ms"`
-}
-
-func (q *Queries) MarkTaskInterrupted(ctx context.Context, arg MarkTaskInterruptedParams) error {
-	_, err := q.db.ExecContext(ctx, markTaskInterrupted, arg.Name, arg.LastDurationMs)
-	return err
-}
-
-const markTaskRunning = `-- name: MarkTaskRunning :exec
-UPDATE tasks
-SET last_status = 'running',
-    last_run_at = datetime('now'),
-    next_run_at = NULL,
-    last_error  = NULL,
-    updated_at  = datetime('now')
-WHERE name = ?
-`
-
-func (q *Queries) MarkTaskRunning(ctx context.Context, name string) error {
-	_, err := q.db.ExecContext(ctx, markTaskRunning, name)
-	return err
-}
-
-const markTaskSuccess = `-- name: MarkTaskSuccess :exec
-UPDATE tasks
-SET last_status      = 'success',
-    last_duration_ms = ?2,
-    next_run_at      = CASE
-        WHEN interval_seconds > 0
-        THEN ifnull(next_run_at, datetime('now', '+' || interval_seconds || ' seconds'))
-        ELSE NULL
-    END,
-    last_error       = NULL,
-    updated_at       = datetime('now')
-WHERE name = ?1
-`
-
-type MarkTaskSuccessParams struct {
-	Name           string `json:"name"`
-	LastDurationMs int64  `json:"last_duration_ms"`
-}
-
-func (q *Queries) MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error {
-	_, err := q.db.ExecContext(ctx, markTaskSuccess, arg.Name, arg.LastDurationMs)
-	return err
 }
 
 const scheduleTaskIfEnabled = `-- name: ScheduleTaskIfEnabled :one

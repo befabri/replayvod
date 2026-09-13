@@ -126,9 +126,6 @@ type Querier interface {
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
 	GetMediaPublication(ctx context.Context, key string) (MediaPublication, error)
-	// Only the job a queued video currently points at qualifies, so a job left
-	// behind by an earlier attempt can never be started.
-	GetNextQueuedArchiveJob(ctx context.Context) (Job, error)
 	// An "open" archive is one that still counts against the one-row-per-VOD
 	// rule: not removed, and either not failed or failed with a retry scheduled.
 	// Mirrors idx_videos_open_twitch_video_id.
@@ -234,7 +231,6 @@ type Querier interface {
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
 	ListEventLogsBySeverity(ctx context.Context, arg ListEventLogsBySeverityParams) ([]EventLog, error)
-	ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
 	ListInvites(ctx context.Context) ([]Invite, error)
@@ -275,7 +271,6 @@ type Querier interface {
 	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 	// agree on "exactly at the deadline is still retained".
 	ListRetentionCandidates(ctx context.Context, arg ListRetentionCandidatesParams) ([]ListRetentionCandidatesRow, error)
-	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	ListScheduleCategoriesByScheduleIDs(ctx context.Context, scheduleIds []int64) ([]ListScheduleCategoriesByScheduleIDsRow, error)
@@ -341,14 +336,9 @@ type Querier interface {
 	MarkCategoryGameMetadataChecked(ctx context.Context, id string) error
 	MarkJobDone(ctx context.Context, id string) error
 	MarkJobFailed(ctx context.Context, arg MarkJobFailedParams) error
-	MarkJobRunning(ctx context.Context, id string) error
 	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, arg MarkRecordingWebhookDeliveryDeliveredParams) error
 	MarkRecordingWebhookDeliveryFinal(ctx context.Context, arg MarkRecordingWebhookDeliveryFinalParams) error
 	MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error
-	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
-	MarkTaskInterrupted(ctx context.Context, arg MarkTaskInterruptedParams) error
-	MarkTaskRunning(ctx context.Context, name string) error
-	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
 	// See postgres/videos.sql MarkVideoDone for the completion_kind /
 	// truncated rationale.
 	MarkVideoDone(ctx context.Context, arg MarkVideoDoneParams) error
@@ -492,7 +482,6 @@ type Querier interface {
 	// Empty inputs preserve the existing value so callers can safely write
 	// whichever subset Twitch returned.
 	UpdateCategoryGameMetadata(ctx context.Context, arg UpdateCategoryGameMetadataParams) error
-	UpdateJobResumeState(ctx context.Context, arg UpdateJobResumeStateParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error

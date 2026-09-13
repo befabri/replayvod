@@ -181,7 +181,7 @@ func TestResume_UnresumableRunningJobFailsAndEnqueuesWebhook(t *testing.T) {
 		t.Fatalf("CreateJob: %v", err)
 	}
 	if err := s.repo.SetJobExecution(ctx, "job-resume", "", false); err != nil {
-		t.Fatalf("MarkJobRunning: %v", err)
+		t.Fatalf("SetJobExecution: %v", err)
 	}
 	if _, err := s.repo.UpsertRecordingWebhookConfig(ctx, true, "https://hooks.example/x", "recording.failed"); err != nil {
 		t.Fatalf("UpsertRecordingWebhookConfig: %v", err)

@@ -20,22 +20,6 @@ func (a *PGAdapter) UpsertTask(ctx context.Context, name, description string, in
 	return pgTaskToDomain(row), nil
 }
 
-func (a *PGAdapter) MarkTaskSuccess(ctx context.Context, name string, durationMs int64) error {
-	return a.queries.MarkTaskSuccess(ctx, pggen.MarkTaskSuccessParams{
-		Name:           name,
-		LastDurationMs: int32(durationMs),
-	})
-}
-
-func (a *PGAdapter) MarkTaskFailed(ctx context.Context, name string, durationMs int64, errMsg string) error {
-	e := errMsg
-	return a.queries.MarkTaskFailed(ctx, pggen.MarkTaskFailedParams{
-		Name:           name,
-		LastDurationMs: int32(durationMs),
-		LastError:      &e,
-	})
-}
-
 func (a *PGAdapter) SetTaskEnabled(ctx context.Context, name string, enabled bool) (*repository.Task, error) {
 	row, err := a.queries.SetTaskEnabled(ctx, pggen.SetTaskEnabledParams{
 		Name:      name,
@@ -52,10 +36,6 @@ func (a *PGAdapter) SetTaskNextRun(ctx context.Context, name string) error {
 		return mapErr(err)
 	}
 	return nil
-}
-
-func (a *PGAdapter) MarkTaskInterrupted(ctx context.Context, name string, durationMs int64) error {
-	return a.queries.MarkTaskInterrupted(ctx, pggen.MarkTaskInterruptedParams{Name: name, LastDurationMs: int32(durationMs)})
 }
 
 func (a *PGAdapter) ScheduleTaskIfEnabled(ctx context.Context, name string) error {

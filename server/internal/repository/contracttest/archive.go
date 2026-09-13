@@ -151,7 +151,7 @@ func testArchiveQueueOrderAndDequeue(t *testing.T, h Harness) {
 	h.BackdateVideoStartDownload(t, second.ID, time.Now().Add(-2*time.Hour))
 	h.BackdateVideoStartDownload(t, third.ID, time.Now().Add(-1*time.Hour))
 	if err := repo.SetJobExecution(ctx, "job-a", "", false); err != nil {
-		t.Fatalf("MarkJobRunning: %v", err)
+		t.Fatalf("SetJobExecution: %v", err)
 	}
 	if err := repo.UpdateVideoStatus(ctx, first.ID, repository.VideoStatusRunning); err != nil {
 		t.Fatalf("UpdateVideoStatus: %v", err)
@@ -173,7 +173,7 @@ func testArchiveQueueOrderAndDequeue(t *testing.T, h Harness) {
 
 	next, err := nextArchiveFixture(ctx, repo)
 	if err != nil || next.ID != "job-b" {
-		t.Fatalf("GetNextQueuedArchiveJob = %v, %v; want job-b", next, err)
+		t.Fatalf("next queued archive = %v, %v; want job-b", next, err)
 	}
 
 	// Video insertion and job insertion need not have the same order. The

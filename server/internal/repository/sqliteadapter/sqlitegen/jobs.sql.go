@@ -8,8 +8,6 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
-
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitetype"
 )
 
 const createJob = `-- name: CreateJob :one
@@ -138,133 +136,6 @@ func (q *Queries) GetJobByVideoID(ctx context.Context, videoID int64) (Job, erro
 	return i, err
 }
 
-const getNextQueuedArchiveJob = `-- name: GetNextQueuedArchiveJob :one
-SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt, jobs.execution_id, jobs.accepts_metadata, jobs.stop_requested FROM jobs
-JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
-WHERE jobs.status = 'PENDING' AND videos.status = 'PENDING'
-  AND videos.source = 'vod' AND videos.deleted_at IS NULL
-ORDER BY videos.start_download_at ASC, videos.id ASC LIMIT 1
-`
-
-// Only the job a queued video currently points at qualifies, so a job left
-// behind by an earlier attempt can never be started.
-func (q *Queries) GetNextQueuedArchiveJob(ctx context.Context) (Job, error) {
-	row := q.db.QueryRowContext(ctx, getNextQueuedArchiveJob)
-	var i Job
-	err := row.Scan(
-		&i.ID,
-		&i.VideoID,
-		&i.BroadcasterID,
-		&i.Status,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.Error,
-		&i.ResumeState,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Attempt,
-		&i.ExecutionID,
-		&i.AcceptsMetadata,
-		&i.StopRequested,
-	)
-	return i, err
-}
-
-const listFailedJobsForRetry = `-- name: ListFailedJobsForRetry :many
-SELECT id, video_id, broadcaster_id, status, started_at, finished_at, error, resume_state, created_at, updated_at, attempt, execution_id, accepts_metadata, stop_requested FROM jobs
-WHERE status = 'FAILED' AND finished_at IS NOT NULL AND finished_at < ?
-ORDER BY finished_at ASC LIMIT ?
-`
-
-type ListFailedJobsForRetryParams struct {
-	FinishedAt *sqlitetype.Time `json:"finished_at"`
-	Limit      int64            `json:"limit"`
-}
-
-func (q *Queries) ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error) {
-	rows, err := q.db.QueryContext(ctx, listFailedJobsForRetry, arg.FinishedAt, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Job{}
-	for rows.Next() {
-		var i Job
-		if err := rows.Scan(
-			&i.ID,
-			&i.VideoID,
-			&i.BroadcasterID,
-			&i.Status,
-			&i.StartedAt,
-			&i.FinishedAt,
-			&i.Error,
-			&i.ResumeState,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Attempt,
-			&i.ExecutionID,
-			&i.AcceptsMetadata,
-			&i.StopRequested,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listRunningJobs = `-- name: ListRunningJobs :many
-SELECT jobs.id, jobs.video_id, jobs.broadcaster_id, jobs.status, jobs.started_at, jobs.finished_at, jobs.error, jobs.resume_state, jobs.created_at, jobs.updated_at, jobs.attempt, jobs.execution_id, jobs.accepts_metadata, jobs.stop_requested FROM jobs
-JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
-WHERE (jobs.status = 'RUNNING' OR (jobs.status = 'PENDING' AND videos.source = 'live'))
-  AND videos.status IN ('PENDING', 'RUNNING') AND videos.deleted_at IS NULL
-ORDER BY jobs.started_at ASC
-`
-
-func (q *Queries) ListRunningJobs(ctx context.Context) ([]Job, error) {
-	rows, err := q.db.QueryContext(ctx, listRunningJobs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Job{}
-	for rows.Next() {
-		var i Job
-		if err := rows.Scan(
-			&i.ID,
-			&i.VideoID,
-			&i.BroadcasterID,
-			&i.Status,
-			&i.StartedAt,
-			&i.FinishedAt,
-			&i.Error,
-			&i.ResumeState,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Attempt,
-			&i.ExecutionID,
-			&i.AcceptsMetadata,
-			&i.StopRequested,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRunningLiveBroadcasters = `-- name: ListRunningLiveBroadcasters :many
 SELECT DISTINCT jobs.broadcaster_id FROM jobs
 JOIN videos ON videos.id = jobs.video_id AND videos.job_id = jobs.id
@@ -324,29 +195,5 @@ type MarkJobFailedParams struct {
 
 func (q *Queries) MarkJobFailed(ctx context.Context, arg MarkJobFailedParams) error {
 	_, err := q.db.ExecContext(ctx, markJobFailed, arg.Error, arg.ID)
-	return err
-}
-
-const markJobRunning = `-- name: MarkJobRunning :exec
-UPDATE jobs SET status = 'RUNNING', started_at = datetime('now'), updated_at = datetime('now')
-WHERE id = ?
-`
-
-func (q *Queries) MarkJobRunning(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, markJobRunning, id)
-	return err
-}
-
-const updateJobResumeState = `-- name: UpdateJobResumeState :exec
-UPDATE jobs SET resume_state = ?, updated_at = datetime('now') WHERE id = ?
-`
-
-type UpdateJobResumeStateParams struct {
-	ResumeState string `json:"resume_state"`
-	ID          string `json:"id"`
-}
-
-func (q *Queries) UpdateJobResumeState(ctx context.Context, arg UpdateJobResumeStateParams) error {
-	_, err := q.db.ExecContext(ctx, updateJobResumeState, arg.ResumeState, arg.ID)
 	return err
 }

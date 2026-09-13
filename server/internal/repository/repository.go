@@ -320,14 +320,9 @@ type Repository interface {
 	// GetActiveLiveJobByBroadcaster is the live-recording idempotency check;
 	// queued or running archives for the channel are ignored.
 	GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*Job, error)
-	GetNextQueuedArchiveJob(ctx context.Context) (*Job, error)
-	MarkJobRunning(ctx context.Context, id string) error
 	MarkJobDone(ctx context.Context, id string) error
 	MarkJobFailed(ctx context.Context, id string, errMsg string) error
-	UpdateJobResumeState(ctx context.Context, id string, resumeState json.RawMessage) error
-	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
-	ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]Job, error)
 
 	CreateVideoPart(ctx context.Context, input *VideoPartInput) (*VideoPart, error)
 	FinalizeVideoPart(ctx context.Context, input *VideoPartFinalize) error
@@ -441,10 +436,6 @@ type Repository interface {
 	GetTask(ctx context.Context, name string) (*Task, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	ListDueTasks(ctx context.Context) ([]Task, error)
-	MarkTaskRunning(ctx context.Context, name string) error
-	MarkTaskSuccess(ctx context.Context, name string, durationMs int64) error
-	MarkTaskFailed(ctx context.Context, name string, durationMs int64, errMsg string) error
-	MarkTaskInterrupted(ctx context.Context, name string, durationMs int64) error
 	ScheduleTaskIfEnabled(ctx context.Context, name string) error
 	SetTaskEnabled(ctx context.Context, name string, enabled bool) (*Task, error)
 	SetTaskNextRun(ctx context.Context, name string) error

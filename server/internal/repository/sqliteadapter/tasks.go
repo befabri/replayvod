@@ -2,7 +2,6 @@ package sqliteadapter
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -21,21 +20,6 @@ func (a *SQLiteAdapter) UpsertTask(ctx context.Context, name, description string
 	return sqliteTaskToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) MarkTaskSuccess(ctx context.Context, name string, durationMs int64) error {
-	return a.queries.MarkTaskSuccess(ctx, sqlitegen.MarkTaskSuccessParams{
-		Name:           name,
-		LastDurationMs: durationMs,
-	})
-}
-
-func (a *SQLiteAdapter) MarkTaskFailed(ctx context.Context, name string, durationMs int64, errMsg string) error {
-	return a.queries.MarkTaskFailed(ctx, sqlitegen.MarkTaskFailedParams{
-		Name:           name,
-		LastDurationMs: durationMs,
-		LastError:      sql.NullString{String: errMsg, Valid: true},
-	})
-}
-
 func (a *SQLiteAdapter) SetTaskEnabled(ctx context.Context, name string, enabled bool) (*repository.Task, error) {
 	row, err := a.queries.SetTaskEnabled(ctx, sqlitegen.SetTaskEnabledParams{
 		Name:      name,
@@ -52,10 +36,6 @@ func (a *SQLiteAdapter) SetTaskNextRun(ctx context.Context, name string) error {
 		return mapErr(err)
 	}
 	return nil
-}
-
-func (a *SQLiteAdapter) MarkTaskInterrupted(ctx context.Context, name string, durationMs int64) error {
-	return a.queries.MarkTaskInterrupted(ctx, sqlitegen.MarkTaskInterruptedParams{Name: name, LastDurationMs: durationMs})
 }
 
 func (a *SQLiteAdapter) ScheduleTaskIfEnabled(ctx context.Context, name string) error {

@@ -159,14 +159,6 @@ func (a *PGAdapter) GetMediaPublication(ctx context.Context, key string) (*repos
 	return pgMediaPublicationToDomain(row), nil
 }
 
-func (a *PGAdapter) GetNextQueuedArchiveJob(ctx context.Context) (*repository.Job, error) {
-	row, err := a.queries.GetNextQueuedArchiveJob(ctx)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgJobToDomain(row), nil
-}
-
 func (a *PGAdapter) GetRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
 	row, err := a.queries.GetRecordingIntent(ctx, id)
 	if err != nil {
@@ -385,14 +377,6 @@ func (a *PGAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repositor
 
 func (a *PGAdapter) MarkJobDone(ctx context.Context, id string) error {
 	return a.queries.MarkJobDone(ctx, id)
-}
-
-func (a *PGAdapter) MarkJobRunning(ctx context.Context, id string) error {
-	return a.queries.MarkJobRunning(ctx, id)
-}
-
-func (a *PGAdapter) MarkTaskRunning(ctx context.Context, name string) error {
-	return a.queries.MarkTaskRunning(ctx, name)
 }
 
 func (a *PGAdapter) MarkWebhookEventProcessed(ctx context.Context, id int64) error {

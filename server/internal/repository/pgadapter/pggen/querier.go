@@ -143,9 +143,6 @@ type Querier interface {
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
 	GetMediaPublication(ctx context.Context, key string) (MediaPublication, error)
-	// Only the job a queued video currently points at qualifies, so a job left
-	// behind by an earlier attempt can never be started.
-	GetNextQueuedArchiveJob(ctx context.Context) (Job, error)
 	// See sqlite/videos.sql GetOpenVideoByTwitchVideoID.
 	GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID *string) (Video, error)
 	GetRecordingIntent(ctx context.Context, id string) (RecordingIntent, error)
@@ -248,10 +245,6 @@ type Querier interface {
 	ListEventLogs(ctx context.Context, arg ListEventLogsParams) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, arg ListEventLogsByDomainParams) ([]EventLog, error)
 	ListEventLogsBySeverity(ctx context.Context, arg ListEventLogsBySeverityParams) ([]EventLog, error)
-	// Scheduler retry query: FAILED jobs whose finished_at is older than
-	// the retry cooldown. Caller filters further (e.g. only retry if the
-	// video's stream is still live).
-	ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
 	ListInvites(ctx context.Context) ([]Invite, error)
@@ -290,9 +283,6 @@ type Querier interface {
 	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 	// agree on "exactly at the deadline is still retained".
 	ListRetentionCandidates(ctx context.Context, arg ListRetentionCandidatesParams) ([]ListRetentionCandidatesRow, error)
-	// Recover interrupted attempts, including live jobs saved before their worker
-	// claimed them. Pending archives remain controlled by the archive queue.
-	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
 	ListScheduleCategoriesByScheduleIDs(ctx context.Context, dollar_1 []int64) ([]ListScheduleCategoriesByScheduleIDsRow, error)
@@ -366,17 +356,12 @@ type Querier interface {
 	MarkCategoryGameMetadataChecked(ctx context.Context, id string) error
 	MarkJobDone(ctx context.Context, id string) error
 	MarkJobFailed(ctx context.Context, arg MarkJobFailedParams) error
-	MarkJobRunning(ctx context.Context, id string) error
 	MarkRecordingWebhookDeliveryDelivered(ctx context.Context, arg MarkRecordingWebhookDeliveryDeliveredParams) error
 	MarkRecordingWebhookDeliveryFinal(ctx context.Context, arg MarkRecordingWebhookDeliveryFinalParams) error
 	// Soft-delete. Called when Twitch sends a revocation message or when we
 	// issue a DELETE via the Helix API. Preserves the row for audit; the
 	// partial UNIQUE index then allows creating a replacement subscription.
 	MarkSubscriptionRevoked(ctx context.Context, arg MarkSubscriptionRevokedParams) error
-	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
-	MarkTaskInterrupted(ctx context.Context, arg MarkTaskInterruptedParams) error
-	MarkTaskRunning(ctx context.Context, name string) error
-	MarkTaskSuccess(ctx context.Context, arg MarkTaskSuccessParams) error
 	// completion_kind describes the artifact: 'complete' for a clean
 	// run with no gaps, 'partial' when resume_state recorded a
 	// restart_window_rolled (CDN dropped data we couldn't recover).
@@ -526,10 +511,6 @@ type Querier interface {
 	// Empty inputs preserve the existing value so callers can safely write
 	// whichever subset Twitch returned.
 	UpdateCategoryGameMetadata(ctx context.Context, arg UpdateCategoryGameMetadataParams) error
-	// Hot path: called after every segment completion, stage transition,
-	// and accepted gap. Single UPDATE keeps the write atomic with respect
-	// to the frontier-advance logic in the downloader.
-	UpdateJobResumeState(ctx context.Context, arg UpdateJobResumeStateParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (DownloadSchedule, error)
 	UpdateSessionActivity(ctx context.Context, hashedID string) error
 	UpdateSessionTokens(ctx context.Context, arg UpdateSessionTokensParams) error
