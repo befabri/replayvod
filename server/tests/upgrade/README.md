@@ -86,8 +86,7 @@ preservation.
 - For the latest released baseline, down migrations and ledger removal execute
   together with the application stopped. The previous image starts and serves
   preserved data, then a second upgrade succeeds. State supported by that baseline
-  survives. For the v3.0.0 release, rollback to v2.7.3 deliberately removed new
-  invitations and schedule requests; approved schedules and playback updates survived.
+  survives.
 
 Separate recovery cases start with RUNNING video and job rows on the previous
 schema. A saved remux checkpoint finishes from a pinned synthetic TS segment
@@ -99,12 +98,6 @@ recording is not. Failed recordings retain the existing HTTP 404 behavior.
 The normal database suite still tests failed and canceled migrations,
 transaction rollback, retry, and concurrent startup. Those precise failure
 injection tests complement this full application upgrade path.
-
-Downgrade support is limited to the latest released baseline (currently v3.0.0),
-using the documented manual down SQL procedure. Older retained baselines are
-upgrade checkpoints, not promises of arbitrary cross-release rollback. Future
-migrations must keep this return path working or explicitly revise the rollback
-policy and upgrade notes before release.
 
 ## Declaring intentional transformations
 
@@ -135,9 +128,7 @@ Structural rules still require one combined declaration per historical table.
 
 The rollback leg uses `down` value rules, then the second upgrade uses `up`. A growing table must
 keep every row across the downgrade and the second upgrade, and a dropped
-table's rows are not expected back, so dropping a table is a rollback data loss
-that the upgrade notes must state. A rule for the latest baseline must keep
-that leg passing or revise the rollback policy explicitly.
+table's rows are not expected back.
 
 The supplemental `migration-cleanups.sql` fixture exercises purged thumbnails,
 empty failed recordings, unfinished part rows, and failures with saved media.
@@ -151,7 +142,7 @@ and the live-source default for historical recordings.
 
 `testdata/manifest.json` pins the application images, source commits, PostgreSQL
 17 image, and SHA-256 hashes of fixture files and released SQL migrations. The
-current baselines are v3.0.0, v2.7.3, and v2.7.0, covering installations with
+current baselines are v3.1.0, v3.0.0, v2.7.3, and v2.7.0, covering installations with
 and without invitations, schedule requests, and saved playback progress. The
 database schema is produced by those images at runtime, never by selecting
 migrations from the candidate checkout. Each baseline
@@ -248,6 +239,5 @@ infrastructure failure blocks publication just like a test failure.
 Keep PR coverage small and deterministic. Add heavier datasets or historical
 checkpoints to the full matrix when they cover a distinct upgrade risk. Record
 startup durations as diagnostics; avoid fragile machine-specific timing promises.
-Green upgrade checks are part of release readiness alongside the existing tests
-and reviewed [upgrade notes](../../../.github/release-notes/next.md). Running this
-suite does not tag, push, or publish a release.
+Green upgrade checks are part of release readiness alongside the existing tests.
+Running this suite does not tag, push, or publish a release.

@@ -82,9 +82,7 @@ Before applying changes, the runner rejects missing or modified files in the app
 
 Older published databases without checksums receive them on first startup. Each new migration and its ledger entry commit together. Concurrent startups lock and validate the history before applying a migration, so only one process applies it. Failed or interrupted migrations roll back and retry at the next startup.
 
-The runner doesn't apply down migrations automatically. Normal rollback uses a backup and its matching server version. A manual rollback requires stopping the application, applying down migrations in reverse order, and removing their ledger entries in the same transactions. Rolling back one migration in isolation can invalidate later migrations.
-
-Some retired tables, such as `video_requests`, remain for downgrade compatibility. The upgrade suite checks migrations and rollback against released baselines. See [Development → Testing](/docs/contributing/development/#testing).
+Some retired tables, such as `video_requests`, remain for historical data. See [Development → Testing](/docs/contributing/development/#testing) for the upgrade checks.
 
 ### Background work
 

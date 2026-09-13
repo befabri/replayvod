@@ -165,9 +165,6 @@ formatting are included. Before running pending SQL, the runner rejects changed
 or missing applied files. Restore the complete original migration history and
 rebuild, or use the server build that applied it. Released migration files are
 immutable; further schema changes go in new migrations.
-To roll back the database, restore a backup with its matching server version.
-Rolling back only the changed migration can remove schema that later ledger
-entries still mark as applied.
 
 Published builds without checksums have their existing ledger rows stamped on
 the first start, establishing the baseline for subsequent checksum checks.
@@ -182,17 +179,9 @@ and can be retried on the next start.
 Migrations 045–046 add invitations, schedule requests, request attribution, and
 pagination indexes. Existing schedules keep their owner, settings, filters, and
 trigger history; `requested_from` is NULL for directly created schedules. The
-retired `video_requests` table is retained for historical data and downgrades.
+retired `video_requests` table is retained for historical data.
 Those rows are not converted to schedule requests: asking for one video does
 not request automatic recording of its channel.
-
-The migration runner only applies `.up.sql` files. The supported rollback target
-is the latest released baseline in the [upgrade suite](tests/upgrade/README.md),
-currently v3.0.0. The v3.0.0 release also verified rollback to v2.7.3.
-Stop the application before applying the corresponding
-`.down.sql` files in reverse order and removing their ledger
-entries in the same transactions. Rolling back 045 discards invitations and
-schedule requests created since the upgrade, while retaining pre-upgrade data.
 
 Migrations 047–052 preserve existing recordings and schedules while adding missing
 media tombstones, Twitch playback credentials, higher recording quality limits,
@@ -201,12 +190,6 @@ of a recording; `videos.next_retry_at` keeps a failed archive held under the
 one-row-per-VOD rule until its retry runs or is cancelled). The data cleanups clear thumbnail paths on old
 tombstones and clear `truncated` on undeleted failed recordings with no saved
 part (`size_bytes > 0`); unfinished part rows do not count as captured media.
-These two cleanups are irreversible. Manual rollback to v3.0.0 maps `missing`
-to `manual` and `1440`/`BEST` to `HIGH`, discards the Twitch playback connection,
-and removes archive source/ID/broadcast-date metadata, scheduled retries, and
-attempt numbers. Recording rows and media remain, but a subsequent upgrade treats
-them as live recordings and requires reconnecting Twitch playback. Restore a pre-upgrade backup when those losses
-are unacceptable.
 
 Use Postgres for production deployments and SQLite for single-host or dev
 setups.
