@@ -77,7 +77,14 @@ export async function mockWatchPage(
 		const answers: Record<string, () => unknown> = {
 			"video.getById": () => current,
 			"video.relatedRecordings": () => ({ items: [] }),
-			"video.timeline": () => [],
+			"video.timeline": () => [
+				{
+					occurred_at: recordedAt,
+					media_offset_seconds: 0,
+					title: { id: 1, name: String(current.title ?? "") },
+					category: { id: "software", name: "Software and Game Development" },
+				},
+			],
 			"video.categories": () => [
 				{
 					id: "software",

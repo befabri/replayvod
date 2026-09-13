@@ -13,7 +13,6 @@ export {
 	useInfiniteVideosByCategory,
 	useInvalidateVideo,
 	useLiveActiveDownloads,
-	useMergedTimeline,
 	useSetWatchLater,
 	useStatistics,
 	useTriggerDownload,

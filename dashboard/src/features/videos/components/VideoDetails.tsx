@@ -14,6 +14,7 @@ import {
 	formatDuration,
 } from "@/features/videos/format";
 import { useVideoCategories, useVideoTitles } from "@/features/videos/queries";
+import { dedupConsecutive } from "@/features/videos/timeline";
 import { cn } from "@/lib/utils";
 
 // VideoMetaGrid is the v1-reference meta block: a hairline-gutter grid
@@ -254,20 +255,6 @@ function TitleEvent({ title }: { title: VideoTitle }) {
 function offsetSeconds(at: string, anchor: string): number {
 	const ms = new Date(at).getTime() - new Date(anchor).getTime();
 	return Math.max(0, Math.round(ms / 1000));
-}
-
-// Run-length dedup: keeps the first row of every consecutive run with
-// an equal key. Mirrors what a viewer would mentally do when reading a
-// timeline of "Delta Force, Delta Force, Just Chatting, Delta Force"
-// — three transitions, not four entries.
-function dedupConsecutive<T>(items: T[], keyOf: (item: T) => unknown): T[] {
-	const out: T[] = [];
-	for (const item of items) {
-		const last = out[out.length - 1];
-		if (last && keyOf(last) === keyOf(item)) continue;
-		out.push(item);
-	}
-	return out;
 }
 
 function countSegments(video: VideoResponse): number | null {

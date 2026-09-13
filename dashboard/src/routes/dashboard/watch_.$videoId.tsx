@@ -2,6 +2,7 @@ import { ArrowsInIcon, ArrowsOutIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import type { TimelineEvent } from "@/api/generated/trpc";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,9 +15,9 @@ import { API_URL } from "@/env";
 import {
 	useAudioWaveform,
 	useInvalidateVideo,
-	useMergedTimeline,
 	useResume,
 	useVideo,
+	useVideoTimeline,
 	useWatchProgressWriter,
 } from "@/features/videos";
 import { RelatedRecordings } from "@/features/videos/components/RelatedRecordings";
@@ -42,6 +43,7 @@ import { cn } from "@/lib/utils";
 // xl+ where the aside layout is two-column — narrower viewports always
 // stack, and the toggle is hidden there.
 type WatchLayout = "aside" | "wide";
+const NO_TIMELINE_EVENTS: TimelineEvent[] = [];
 const LAYOUT_STORAGE_KEY = "watch:layout";
 const parseWatchLayout = (raw: string): WatchLayout | null =>
 	raw === "aside" || raw === "wide" ? raw : null;
@@ -88,7 +90,10 @@ function WatchContent({ id }: { id: number }) {
 	const { data: video, isLoading, error } = useVideo(id);
 	const playable = !!video && video.status === "DONE" && !video.deleted_at;
 	const timelineEnabled = playable;
-	const { data: timelineEvents } = useMergedTimeline(id, timelineEnabled);
+	const { data: timelineEvents = NO_TIMELINE_EVENTS } = useVideoTimeline(
+		id,
+		timelineEnabled,
+	);
 	const playlist = useMemo(
 		() =>
 			video && playable

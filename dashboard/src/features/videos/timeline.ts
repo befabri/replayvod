@@ -1,13 +1,4 @@
 import type { TimelineEvent } from "@/api/generated/trpc";
-import type { VideoCategory, VideoTitle } from "@/features/videos/queries";
-
-export type TimelineCategoryEvent = TimelineEvent & {
-	category: NonNullable<TimelineEvent["category"]>;
-};
-
-export type TimelineTitleEvent = TimelineEvent & {
-	title: NonNullable<TimelineEvent["title"]>;
-};
 
 export type TimelineChangedField = "category" | "title";
 export type TimelineMarkerKind = "category" | "title" | "mixed";
@@ -46,69 +37,6 @@ export function timelineEventKey(event: TimelineEvent): string {
 		event.category?.id ?? "no-category",
 		event.title?.id ?? event.title?.name ?? "no-title",
 	].join(":");
-}
-
-export function categoryTimelineEvents(
-	events: TimelineEvent[] | undefined,
-): TimelineCategoryEvent[] {
-	return dedupConsecutive(
-		(events ?? []).filter(hasCategory),
-		(event) => event.category.id,
-	);
-}
-
-export function titleTimelineEvents(
-	events: TimelineEvent[] | undefined,
-): TimelineTitleEvent[] {
-	return dedupConsecutive(
-		(events ?? []).filter(hasTitle),
-		(event) => event.title.name,
-	);
-}
-
-export function timelineEventsWithSpanFallback(
-	timeline: TimelineEvent[] | undefined,
-	titleSpans: VideoTitle[] | undefined,
-	categorySpans: VideoCategory[] | undefined,
-): TimelineEvent[] {
-	const base = sortTimelineEvents(timeline ?? []);
-	const needsTitleSpans = titleTimelineEvents(base).length === 0;
-	const needsCategorySpans = categoryTimelineEvents(base).length === 0;
-	if (
-		(!needsTitleSpans || !titleSpans?.length) &&
-		(!needsCategorySpans || !categorySpans?.length)
-	) {
-		return base;
-	}
-
-	const byStartedAt = new Map<string, TimelineEvent>();
-	for (const event of base) {
-		upsertTimelineEvent(byStartedAt, event);
-	}
-	if (needsTitleSpans) {
-		for (const title of titleSpans ?? []) {
-			upsertTimelineEvent(byStartedAt, {
-				occurred_at: title.started_at,
-				title: {
-					id: title.id,
-					name: title.name,
-				},
-			});
-		}
-	}
-	if (needsCategorySpans) {
-		for (const category of categorySpans ?? []) {
-			upsertTimelineEvent(byStartedAt, {
-				occurred_at: category.started_at,
-				category: {
-					id: category.id,
-					name: category.name,
-					box_art_url: category.box_art_url ?? undefined,
-				},
-			});
-		}
-	}
-	return sortTimelineEvents([...byStartedAt.values()]);
 }
 
 export function timelineChangeEvents(
@@ -184,24 +112,6 @@ function cleanName(name: string | undefined): string | null {
 	return trimmed ? trimmed : null;
 }
 
-function upsertTimelineEvent(
-	events: Map<string, TimelineEvent>,
-	event: TimelineEvent,
-) {
-	const current = events.get(event.occurred_at);
-	if (!current) {
-		events.set(event.occurred_at, event);
-		return;
-	}
-	events.set(event.occurred_at, {
-		occurred_at: current.occurred_at,
-		media_offset_seconds:
-			current.media_offset_seconds ?? event.media_offset_seconds,
-		title: current.title ?? event.title,
-		category: current.category ?? event.category,
-	});
-}
-
 function sortTimelineEvents(events: TimelineEvent[]): TimelineEvent[] {
 	return [...events].sort((a, b) => {
 		const byTime =
@@ -209,12 +119,4 @@ function sortTimelineEvents(events: TimelineEvent[]): TimelineEvent[] {
 		if (byTime !== 0) return byTime;
 		return (a.media_offset_seconds ?? 0) - (b.media_offset_seconds ?? 0);
 	});
-}
-
-function hasCategory(event: TimelineEvent): event is TimelineCategoryEvent {
-	return event.category != null;
-}
-
-function hasTitle(event: TimelineEvent): event is TimelineTitleEvent {
-	return event.title != null;
 }

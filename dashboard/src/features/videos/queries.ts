@@ -6,12 +6,11 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import type {
 	ActiveDownloadResponse,
 	SetWatchLaterInput,
 	StatisticsResponse,
-	TimelineEvent,
 	TitleItem,
 	VideoCategory,
 	VideoListPageResponse,
@@ -22,7 +21,6 @@ import type {
 } from "@/api/generated/trpc";
 import { useTRPC } from "@/api/trpc";
 import { API_URL } from "@/env";
-import { timelineEventsWithSpanFallback } from "@/features/videos/timeline";
 import {
 	invalidateCaches,
 	optimisticWrite,
@@ -259,11 +257,8 @@ export function useVideoCategories(videoId: number, enabled = true) {
 	);
 }
 
-// useVideoTimeline fetches the merged title + category change events
-// for a recording, ordered chronologically. Each row carries an
-// optional title and an optional category; the schema CHECK on
-// video_metadata_changes guarantees at least one is present. Empty
-// array for recordings predating migration 031.
+// useVideoTimeline fetches the recording's chronological observation log.
+// Each row carries a title, a category, or both.
 export function useVideoTimeline(
 	videoId: number,
 	enabled = true,
@@ -280,42 +275,6 @@ export function useVideoTimeline(
 			},
 		),
 	);
-}
-
-export function useMergedTimeline(
-	videoId: number,
-	enabled = true,
-	options?: VideoTimelineQueryOptions,
-): {
-	data: TimelineEvent[];
-	rawEvents: TimelineEvent[] | undefined;
-	titleSpans: VideoTitle[] | undefined;
-	categorySpans: VideoCategory[] | undefined;
-	isLoading: boolean;
-} {
-	const timelineQuery = useVideoTimeline(videoId, enabled, options);
-	const titleSpansQuery = useVideoTitles(videoId, enabled);
-	const categorySpansQuery = useVideoCategories(videoId, enabled);
-	const data = useMemo(
-		() =>
-			timelineEventsWithSpanFallback(
-				timelineQuery.data,
-				titleSpansQuery.data,
-				categorySpansQuery.data,
-			),
-		[timelineQuery.data, titleSpansQuery.data, categorySpansQuery.data],
-	);
-
-	return {
-		data,
-		rawEvents: timelineQuery.data,
-		titleSpans: titleSpansQuery.data,
-		categorySpans: categorySpansQuery.data,
-		isLoading:
-			timelineQuery.isLoading ||
-			titleSpansQuery.isLoading ||
-			categorySpansQuery.isLoading,
-	};
 }
 
 // useVideoSnapshots returns the ordered list of snapshot storage
