@@ -3,7 +3,9 @@ package testdb
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -12,24 +14,47 @@ import (
 	"github.com/befabri/replayvod/server/migrations"
 )
 
-// NewSQLiteDB returns a fresh migrated SQLite database backed by a tempfile
-// under t.TempDir(). The DB closes on t.Cleanup; the tempfile is cleaned
-// up by t.TempDir itself.
-//
-// Tempfile rather than :memory: because modernc.org/sqlite gives each
-// connection its own private DB under :memory:, which silently breaks
-// isolation whenever the pool opens more than one connection.
+// migratedSQLite caches a closed database image so fixtures avoid repeating historical table rebuilds.
+var migratedSQLite = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "replayvod-test-schema-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "schema.db")
+	db, err := database.NewSQLiteDB(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := database.MigrateSQLite(context.Background(), db, migrations.SQLite()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := db.Close(); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+})
+
+// NewSQLiteDB returns an isolated migrated database and closes it during test cleanup.
 func NewSQLiteDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := database.NewSQLiteDB(dbPath)
+	image, err := migratedSQLite()
+	if err != nil {
+		t.Fatalf("testdb: migrate sqlite template: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "test.db")
+	if err := os.WriteFile(path, image, 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := database.NewSQLiteDB(path)
 	if err != nil {
 		t.Fatalf("testdb: open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-
-	if err := database.MigrateSQLite(context.Background(), db, migrations.SQLite()); err != nil {
-		t.Fatalf("testdb: migrate sqlite: %v", err)
-	}
 	return db
 }
