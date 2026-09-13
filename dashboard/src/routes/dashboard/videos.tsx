@@ -23,6 +23,7 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@/components/ui/select";
+import { usePlaybackSettings } from "@/features/settings/playback";
 import {
 	useInfiniteVideoPages,
 	useStatistics,
@@ -35,6 +36,10 @@ import { VideoGridLoading } from "@/features/videos/components/VideoGridLoading"
 import { VirtualVideoGrid } from "@/features/videos/components/VirtualVideoGrid";
 import { formatBytes } from "@/features/videos/format";
 import { useCanManageVideos } from "@/features/videos/permissions";
+import {
+	isContinueWatchingVideo,
+	type ResumePolicy,
+} from "@/features/videos/resume-policy";
 import { useInfiniteResource } from "@/hooks/useInfiniteResource";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +47,7 @@ const PAGE_SIZE = 50;
 
 type ViewMode = "grid" | "table";
 type SortKey =
+	| "recently_watched"
 	| "newest"
 	| "oldest"
 	| "streamed_newest"
@@ -52,6 +58,7 @@ type SortKey =
 	| "largest";
 
 const SORT_CONFIG: Record<SortKey, { sort: VideoSort; order: VideoOrder }> = {
+	recently_watched: { sort: "last_watched", order: "desc" },
 	newest: { sort: "created_at", order: "desc" },
 	oldest: { sort: "created_at", order: "asc" },
 	// An archive sorts by the date its stream aired; a live recording aired
@@ -73,7 +80,13 @@ const STATUS_KEYS = [
 ] as const satisfies readonly VideoStatus[];
 type StatusKey = (typeof STATUS_KEYS)[number];
 
-const TAB_KEYS = ["all", "this_week", "unwatched", "watch_later"] as const;
+const TAB_KEYS = [
+	"all",
+	"continue_watching",
+	"this_week",
+	"unwatched",
+	"watch_later",
+] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 const DURATION_FILTERS = ["short", "medium", "long", "marathon"] as const;
@@ -132,7 +145,11 @@ export function validateVideosSearch(search: Record<string, unknown>) {
 			search.view === "table" || search.view === "grid"
 				? (search.view as ViewMode)
 				: "grid",
-		sort: isOneOf(SORT_KEYS, search.sort) ? search.sort : "newest",
+		sort: isOneOf(SORT_KEYS, search.sort)
+			? search.sort
+			: search.tab === "continue_watching"
+				? "recently_watched"
+				: "newest",
 		quality: parseStringParam(search.quality),
 		language: parseStringParam(search.language),
 		duration: isOneOf(DURATION_FILTERS, search.duration)
@@ -151,6 +168,12 @@ export function videosSearchForTabChange(
 	return {
 		...search,
 		tab,
+		sort:
+			tab === "continue_watching"
+				? "recently_watched"
+				: search.sort === "recently_watched"
+					? "newest"
+					: search.sort,
 		status: undefined,
 		quality: undefined,
 		language: undefined,
@@ -165,6 +188,7 @@ export const Route = createFileRoute("/dashboard/videos")({
 });
 
 function VideosPage() {
+	const policy = usePlaybackSettings();
 	const { t, i18n } = useTranslation();
 	const {
 		tab,
@@ -199,6 +223,7 @@ function VideosPage() {
 			window: tab === "this_week" ? "this_week" : undefined,
 			watchLaterOnly: tab === "watch_later",
 			unwatchedOnly: tab === "unwatched",
+			continueWatchingOnly: tab === "continue_watching",
 		},
 	);
 	const resource = useInfiniteResource(videos, {
@@ -215,6 +240,7 @@ function VideosPage() {
 		this_week: stats?.this_week,
 		unwatched: stats?.unwatched,
 		watch_later: stats?.watch_later,
+		continue_watching: stats?.continue_watching,
 	};
 	// Languages grow across the session so the dropdown doesn't
 	// collapse to a single option once the user narrows the server
@@ -286,15 +312,30 @@ function VideosPage() {
 	// Narrow previous-query rows while placeholderData keeps them mounted.
 	const filteredVideos = useMemo(
 		() =>
-			filterLoadedVideosForSearch(loadedRows, {
-				tab,
-				status,
-				quality,
-				language,
-				duration,
-				source,
-			}),
-		[loadedRows, tab, status, quality, language, duration, source],
+			filterLoadedVideosForSearch(
+				loadedRows,
+				{
+					tab,
+					status,
+					// The display label omits the requested tier and may add an FPS suffix.
+					quality: videos.isPlaceholderData ? quality : undefined,
+					language,
+					duration,
+					source,
+				},
+				policy,
+			),
+		[
+			loadedRows,
+			tab,
+			status,
+			quality,
+			language,
+			duration,
+			source,
+			policy,
+			videos.isPlaceholderData,
+		],
 	);
 	const hasActiveFilters = !!(
 		status ||
@@ -320,7 +361,9 @@ function VideosPage() {
 			? t("videos.empty_watch_later")
 			: tab === "unwatched"
 				? t("videos.empty_unwatched")
-				: t("videos.empty");
+				: tab === "continue_watching"
+					? t("videos.empty_continue_watching")
+					: t("videos.empty");
 	const summary = stats
 		? t("videos.summary", {
 				count: stats.total.toLocaleString(),
@@ -660,6 +703,7 @@ export function filterLoadedVideosForSearch(
 		VideosSearch,
 		"tab" | "status" | "quality" | "language" | "duration" | "source"
 	>,
+	policy: ResumePolicy,
 	nowMs = Date.now(),
 ) {
 	return rows.filter((video) => {
@@ -670,11 +714,18 @@ export function filterLoadedVideosForSearch(
 		if (!matchesDurationFilter(video.duration_seconds, search.duration)) {
 			return false;
 		}
-		return matchesTabFilter(video, search.tab, nowMs);
+		return matchesTabFilter(video, search.tab, nowMs, policy);
 	});
 }
 
-function matchesTabFilter(video: VideoResponse, tab: TabKey, nowMs: number) {
+function matchesTabFilter(
+	video: VideoResponse,
+	tab: TabKey,
+	nowMs: number,
+	policy: ResumePolicy,
+) {
+	if (tab === "continue_watching")
+		return isContinueWatchingVideo(video, policy);
 	if (tab === "watch_later") return video.user_state?.watch_later === true;
 	if (tab === "unwatched") {
 		return video.status === "DONE" && !video.user_state?.watched_at;

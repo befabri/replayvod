@@ -4,6 +4,90 @@ import { fulfillRangeFixture, videoFixture } from "./support/audio";
 import { mockTrpc, procsOf, SESSION, trpcOk } from "./support/trpc";
 import { mockWatchPage, userState, videoRecording } from "./support/watch";
 
+test("saves playback preferences, refreshes Continue Watching, and survives reload", async ({
+	page,
+}) => {
+	let settings = structuredClone(USER_SETTINGS);
+	const writes: unknown[] = [];
+	const video = videoRecording(41, 100, { user_state: userState(40) });
+	await mockTrpc(page, (procs) => ({
+		status: 200,
+		body: trpcOk(
+			procs.map((proc) => {
+				if (proc === "auth.session") return SESSION;
+				if (proc === "settings.get") return settings;
+				if (proc === "video.statistics")
+					return {
+						total: 1,
+						total_size: 0,
+						channels: 1,
+						continue_watching:
+							settings.playback.resume_min_seconds <= 40 ? 1 : 0,
+					};
+				if (proc === "video.listPage")
+					return {
+						items: settings.playback.resume_min_seconds <= 40 ? [video] : [],
+					};
+				return null;
+			}),
+		),
+	}));
+	await page.route("**/trpc/settings.updatePlayback*", async (route) => {
+		const body = route.request().postDataJSON();
+		const input = body[0] ?? body;
+		writes.push(input);
+		settings = {
+			...settings,
+			playback: input,
+			updated_at: "2026-09-13T12:00:00Z",
+		};
+		const batch =
+			new URL(route.request().url()).searchParams.get("batch") === "1";
+		await route.fulfill({
+			status: 200,
+			contentType: "application/json",
+			body: JSON.stringify(
+				batch ? trpcOk([settings]) : { result: { data: settings } },
+			),
+		});
+	});
+	await page.goto("/dashboard/videos?tab=continue_watching");
+	await expect(
+		page.getByRole("tab", { name: "Continue watching 1" }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Open user menu" }).click();
+	await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+	const form = page.getByRole("form", { name: "Playback" });
+	await page.getByLabel("Time zone", { exact: true }).fill("Europe/Brussels");
+	await expect(form.getByLabel("Resume after (seconds)")).toHaveValue("5");
+	await form.getByLabel("Resume after (seconds)").fill("50");
+	await form.getByLabel("Finish within (seconds)").fill("10");
+	await form.getByLabel("Short recording cap (%)").fill("10");
+	await form.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(form.getByRole("status")).toBeVisible();
+	await expect(page.getByLabel("Time zone", { exact: true })).toHaveValue(
+		"Europe/Brussels",
+	);
+	expect(writes).toEqual([
+		{
+			resume_min_seconds: 50,
+			resume_end_margin_seconds: 10,
+			resume_end_margin_percent: 10,
+		},
+	]);
+	await page.getByRole("button", { name: "Library", exact: true }).click();
+	await page.getByRole("link", { name: "Videos", exact: true }).click();
+	await page.getByRole("tab", { name: "Continue watching 0" }).click();
+	await expect(
+		page.getByText(
+			"No videos to continue. Start watching a video to see it here.",
+		),
+	).toBeVisible();
+	await page.goto("/dashboard/settings");
+	await expect(form.getByLabel("Resume after (seconds)")).toHaveValue("50");
+	await expect(form.getByLabel("Finish within (seconds)")).toHaveValue("10");
+});
+
 test("keeps edits on save failure and prevents out-of-range values", async ({
 	page,
 }) => {

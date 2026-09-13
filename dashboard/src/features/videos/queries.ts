@@ -47,7 +47,8 @@ export type VideoSort =
 	| "size"
 	| "channel"
 	| "history_when"
-	| "broadcast_at";
+	| "broadcast_at"
+	| "last_watched";
 export type VideoOrder = "asc" | "desc";
 // VideoScope selects the tombstone state. "active" (the default everywhere) is
 // live recordings only; "removed" and "all" power the removed-inclusive history
@@ -70,6 +71,7 @@ export type VideoListFilters = {
 	incompleteOnly?: boolean;
 	watchLaterOnly?: boolean;
 	unwatchedOnly?: boolean;
+	continueWatchingOnly?: boolean;
 	terminalOnly?: boolean;
 	scope?: VideoScope;
 	outcome?: VideoOutcome;
@@ -104,6 +106,7 @@ export function useInfiniteVideoPages(
 				incomplete_only: filters?.incompleteOnly ?? false,
 				watch_later_only: filters?.watchLaterOnly ?? false,
 				unwatched_only: filters?.unwatchedOnly ?? false,
+				continue_watching_only: filters?.continueWatchingOnly ?? false,
 				terminal_only: filters?.terminalOnly ?? false,
 				scope: filters?.scope ?? "",
 				outcome: filters?.outcome ?? "",

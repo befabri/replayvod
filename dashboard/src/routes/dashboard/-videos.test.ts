@@ -1,18 +1,39 @@
 import { describe, expect, it } from "vitest";
-
 import type { VideoResponse } from "@/api/generated/trpc";
+import { PLAYBACK_SETTINGS } from "@/test/playback-settings";
 import {
-	filterLoadedVideosForSearch,
+	filterLoadedVideosForSearch as filterWithPolicy,
 	validateVideosSearch,
 	videosSearchForTabChange,
 } from "./videos";
 
 describe("validateVideosSearch", () => {
+	it("defaults Continue Watching to recently watched and preserves explicit sorts", () => {
+		expect(validateVideosSearch({ tab: "continue_watching" }).sort).toBe(
+			"recently_watched",
+		);
+		expect(
+			validateVideosSearch({ tab: "continue_watching", sort: "oldest" }).sort,
+		).toBe("oldest");
+		const search = validateVideosSearch({
+			tab: "all",
+			sort: "oldest",
+			status: "FAILED",
+		});
+		const next = videosSearchForTabChange(search, "continue_watching");
+		expect(next.sort).toBe("recently_watched");
+		expect(next.status).toBeUndefined();
+		expect(videosSearchForTabChange(next, "all").sort).toBe("newest");
+	});
+
 	it("keeps supported library tabs", () => {
 		expect(validateVideosSearch({ tab: "watch_later" }).tab).toBe(
 			"watch_later",
 		);
 		expect(validateVideosSearch({ tab: "unwatched" }).tab).toBe("unwatched");
+		expect(validateVideosSearch({ tab: "continue_watching" }).tab).toBe(
+			"continue_watching",
+		);
 	});
 
 	it("keeps a known source filter and drops an unknown one", () => {
@@ -50,6 +71,33 @@ describe("validateVideosSearch", () => {
 		});
 	});
 
+	it("shows only resumable started recordings, including rewatches", () => {
+		const state = {
+			watch_later: false,
+			last_position_seconds: 60,
+			watched_at: "2026-01-01T00:00:00Z",
+			updated_at: "2026-01-01T00:00:00Z",
+		};
+		const rows = [
+			video({ id: 1 }),
+			video({ id: 2, user_state: state }),
+			video({ id: 3, user_state: { ...state, last_position_seconds: 4 } }),
+			{ ...video({ id: 4, user_state: state }), duration_seconds: 61 },
+			video({
+				id: 5,
+				user_state: { ...state, completed_at: state.watched_at },
+			}),
+			video({ id: 6, status: "RUNNING", user_state: state }),
+			video({ id: 7, user_state: { ...state, watched_at: undefined } }),
+		];
+		expect(
+			filterLoadedVideosForSearch(
+				rows,
+				validateVideosSearch({ tab: "continue_watching" }),
+			).map((row) => row.id),
+		).toEqual([2, 5]);
+	});
+
 	it("narrows placeholder rows by source", () => {
 		const rows = [
 			video({ id: 1 }),
@@ -75,6 +123,19 @@ describe("validateVideosSearch", () => {
 		expect(
 			filterLoadedVideosForSearch(rows, { ...search, source: undefined }),
 		).toHaveLength(2);
+	});
+
+	it("narrows placeholder rows to their known quality labels", () => {
+		const rows = [
+			video({ id: 1, quality: "1080p" }),
+			video({ id: 2, quality: "720p60" }),
+		];
+		expect(
+			filterLoadedVideosForSearch(
+				rows,
+				validateVideosSearch({ quality: "1080p" }),
+			).map((row) => row.id),
+		).toEqual([1]);
 	});
 
 	it("narrows placeholder rows by current tab and status", () => {
@@ -202,4 +263,12 @@ function video(overrides: Partial<VideoResponse> = {}): VideoResponse {
 		source: "live",
 		user_state: overrides.user_state,
 	};
+}
+
+function filterLoadedVideosForSearch(
+	rows: Parameters<typeof filterWithPolicy>[0],
+	search: Parameters<typeof filterWithPolicy>[1],
+	nowMs?: number,
+) {
+	return filterWithPolicy(rows, search, PLAYBACK_SETTINGS, nowMs);
 }

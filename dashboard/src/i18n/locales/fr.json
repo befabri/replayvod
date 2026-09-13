@@ -234,6 +234,7 @@
 		"title": "Vidéos",
 		"empty": "Aucune vidéo. Lancez un téléchargement depuis une chaîne.",
 		"empty_watch_later": "Aucune vidéo à regarder plus tard.",
+		"empty_continue_watching": "Aucune vidéo à reprendre. Commencez à regarder une vidéo pour la retrouver ici.",
 		"empty_unwatched": "Aucune vidéo non regardée.",
 		"failed_to_load": "Impossible de charger les vidéos",
 		"not_found": "Vidéo introuvable.",
@@ -269,6 +270,7 @@
 		"archived_on": "Archivé le {{date}}",
 		"no_match_loaded": "Aucune correspondance parmi les vidéos chargées. D'autres résultats sont en cours de chargement.",
 		"sort": {
+			"recently_watched": "Regardées récemment",
 			"newest": "Plus récent",
 			"oldest": "Plus ancien",
 			"streamed_newest": "Diffusion, plus récente d'abord",
@@ -283,6 +285,7 @@
 		"page": "Page {{n}}",
 		"tabs": {
 			"all": "Toutes",
+			"continue_watching": "Reprendre la lecture",
 			"this_week": "Cette semaine",
 			"unwatched": "Non regardées",
 			"watch_later": "À regarder"

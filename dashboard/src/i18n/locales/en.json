@@ -234,6 +234,7 @@
 		"title": "Videos",
 		"empty": "No videos yet. Trigger a download from a channel page.",
 		"empty_watch_later": "No videos saved for later.",
+		"empty_continue_watching": "No videos to continue. Start watching a video to see it here.",
 		"empty_unwatched": "No unwatched videos.",
 		"failed_to_load": "Failed to load videos",
 		"not_found": "Video not found.",
@@ -269,6 +270,7 @@
 		"archived_on": "Archived {{date}}",
 		"no_match_loaded": "No matches in loaded videos yet. More results are loading.",
 		"sort": {
+			"recently_watched": "Recently watched",
 			"newest": "Newest first",
 			"oldest": "Oldest first",
 			"streamed_newest": "Streamed, newest first",
@@ -283,6 +285,7 @@
 		"page": "Page {{n}}",
 		"tabs": {
 			"all": "All",
+			"continue_watching": "Continue watching",
 			"this_week": "This week",
 			"unwatched": "Unwatched",
 			"watch_later": "Watch later"

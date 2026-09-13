@@ -17,6 +17,11 @@ const useContinueWatchingMock = vi.hoisted(() =>
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({ t: (key: string) => key }),
 }));
+vi.mock("@/components/ui/view-all-link", () => ({
+	ViewAllLink: () => (
+		<a href="/dashboard/videos?tab=continue_watching">View all</a>
+	),
+}));
 vi.mock("@/features/videos/queries", () => ({
 	useContinueWatching: useContinueWatchingMock,
 }));
@@ -83,7 +88,7 @@ describe("ContinueWatching", () => {
 		expect(screen.queryByTestId("continue-watching")).toBeNull();
 	});
 
-	it("shows the resumable recordings, at most six, in the server's order", () => {
+	it("shows the resumable recordings, at most five, in the server's order", () => {
 		useContinueWatchingMock.mockReturnValue({
 			data: [
 				video(1, 600),
@@ -104,6 +109,6 @@ describe("ContinueWatching", () => {
 		).toBeTruthy();
 		expect(
 			screen.getAllByTestId("card").map((card) => card.textContent),
-		).toEqual(["1", "3", "5", "6", "7", "8"]);
+		).toEqual(["1", "3", "5", "6", "7"]);
 	});
 });
