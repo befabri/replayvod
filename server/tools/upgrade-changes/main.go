@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,6 +43,14 @@ func decide(scope, base, head string, pullRequest bool) (bool, error) {
 	}
 	if scope == "full" || strings.Trim(base, "0") == "" {
 		return true, nil
+	}
+	if _, err := git("rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			fmt.Fprintln(os.Stderr, "Base commit is unavailable; running upgrade checks.")
+			return true, nil
+		}
+		return false, err
 	}
 	paths, err := changedPaths(base, head, pullRequest)
 	if err != nil {

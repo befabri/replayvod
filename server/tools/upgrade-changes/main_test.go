@@ -60,6 +60,15 @@ func TestChangedPathsComparePullRequestsAgainstTheMergeBase(t *testing.T) {
 	run("add", ".")
 	run("commit", "-q", "-m", "initial")
 	initial := run("rev-parse", "HEAD")
+	for _, pullRequest := range []bool{false, true} {
+		needed, err := decide("latest", strings.Repeat("1", 40), "HEAD", pullRequest)
+		if err != nil || !needed {
+			t.Fatalf("unavailable base after history rewrite: needed %t, %v", needed, err)
+		}
+	}
+	if _, err := decide("latest", initial, "missing-head", false); err == nil {
+		t.Fatal("invalid head was accepted")
+	}
 	write("server/main.go", "package main")
 	run("add", ".")
 	run("commit", "-q", "-m", "base change")
