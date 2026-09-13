@@ -24,6 +24,7 @@ import {
 	useHistoryCounts,
 	useInfiniteVideoPages,
 	useLiveVideoChanges,
+	useRelatedRecordings,
 	useVideo,
 } from "./queries";
 
@@ -59,26 +60,28 @@ function harness() {
 						JSON.parse(url.searchParams.get("input") ?? "{}").cursor?.id ?? 0,
 					);
 					const data =
-						path === "video.listPage"
-							? {
-									items: [video(95 + cursor)],
-									next_cursor:
-										cursor < 9
-											? {
-													id: cursor + 1,
-													start_download_at: "2026-09-01T00:00:00Z",
-												}
-											: null,
-								}
-							: path === "video.getById"
-								? video(95)
-								: {
-										all: {
-											on_disk: 0,
-											removed: 10,
-											unavailable: removed ? 9 : 10,
-										},
-									};
+						path === "video.relatedRecordings"
+							? { intent_id: "manual", status: "expired", items: [video(95)] }
+							: path === "video.listPage"
+								? {
+										items: [video(95 + cursor)],
+										next_cursor:
+											cursor < 9
+												? {
+														id: cursor + 1,
+														start_download_at: "2026-09-01T00:00:00Z",
+													}
+												: null,
+									}
+								: path === "video.getById"
+									? video(95)
+									: {
+											all: {
+												on_disk: 0,
+												removed: 10,
+												unavailable: removed ? 9 : 10,
+											},
+										};
 					return new Response(JSON.stringify({ result: { data } }), {
 						headers: { "Content-Type": "application/json" },
 					});
@@ -99,6 +102,7 @@ function harness() {
 			return {
 				list: useInfiniteVideoPages(),
 				video: useVideo(95),
+				related: useRelatedRecordings(95),
 				counts: useHistoryCounts(),
 			};
 		},
@@ -133,6 +137,9 @@ it("does not poll loaded pages while deletion waits, and refreshes lists, detail
 	});
 	expect(calls["video.listPage"]).toBe(before["video.listPage"]);
 	expect(calls["video.getById"]).toBe(before["video.getById"]);
+	expect(calls["video.relatedRecordings"]).toBe(
+		before["video.relatedRecordings"],
+	);
 	remove();
 	await act(async () => {
 		await subscription.current?.onData();
@@ -143,6 +150,9 @@ it("does not poll loaded pages while deletion waits, and refreshes lists, detail
 	).toBeUndefined();
 	expect(result.current.video.data?.deletion_kind).toBe("manual");
 	expect(result.current.counts.data?.all.unavailable).toBe(9);
+	expect(
+		calls["video.relatedRecordings"] - before["video.relatedRecordings"],
+	).toBe(1);
 	expect(calls["video.listPage"] - before["video.listPage"]).toBe(10);
 	const after = { ...calls };
 	await act(async () => {

@@ -404,6 +404,15 @@
 		"remove_permanent_confirm_body": "The files are already gone. This deletes the leftover previews and part metadata, so the recording can no longer be restored. It stays in History as removed."
 	},
 	"watch": {
+		"related_title": "Related recordings",
+		"related_waiting": "Waiting for the streamer to return",
+		"related_active": "Recording continuation is active",
+		"related_previous": "Previous recording",
+		"related_next": "Next recording",
+		"related_untitled": "Untitled recording",
+		"related_removed": "Removed",
+		"related_retry": "Retry loading related recordings",
+
 		"resumed_from": "Resumed from {{time}}",
 		"start_over": "Start over",
 		"dismiss_resume": "Dismiss",

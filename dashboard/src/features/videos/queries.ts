@@ -136,6 +136,24 @@ export function useVideoSearch(
 	);
 }
 
+// Video-change notifications refresh continuation windows independently of
+// playback. Keep this query mounted even while a singleton panel is hidden.
+export function useRelatedRecordings(id: number) {
+	const trpc = useTRPC();
+	return useQuery(
+		trpc.video.relatedRecordings.queryOptions(
+			{ id },
+			{
+				enabled: id > 0,
+				// Reuse navigation only within a known related window. Playback data
+				// must still load independently for the destination recording.
+				placeholderData: (previous) =>
+					previous?.items.some((item) => item.id === id) ? previous : undefined,
+			},
+		),
+	);
+}
+
 export function useVideo(id: number) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -169,7 +187,7 @@ export function useVideo(id: number) {
 					) {
 						return false;
 					}
-					return (v.parts?.length ?? 0) >= 2 ? 4000 : false;
+					return (v.parts?.length ?? 0) >= 2 ? 4_000 : false;
 				},
 			},
 		),

@@ -5,8 +5,8 @@ import type {
 import type { useTRPC } from "@/api/trpc";
 import { defineCaches, type EntityPatch, keyHasInput } from "@/lib/query";
 
-// Every cache a video row lives in, plus the two statistics aggregates a
-// download/watch mutation shifts (scalar: invalidated, never row-patched).
+// Every cache a video row lives in, plus derived summaries and aggregates
+// (scalar: invalidated, never patched as full video rows).
 export function videoCaches(trpc: ReturnType<typeof useTRPC>) {
 	return defineCaches({
 		listPage: { path: trpc.video.listPage, shape: "infinite" },
@@ -15,6 +15,7 @@ export function videoCaches(trpc: ReturnType<typeof useTRPC>) {
 		search: { path: trpc.video.search, shape: "array" },
 		continueWatching: { path: trpc.video.continueWatching, shape: "array" },
 		getById: { path: trpc.video.getById, shape: "single" },
+		relatedRecordings: { path: trpc.video.relatedRecordings, shape: "scalar" },
 		historyCounts: { path: trpc.video.historyCounts, shape: "scalar" },
 		statistics: { path: trpc.video.statistics, shape: "scalar" },
 		statisticsByBroadcaster: {
@@ -32,6 +33,7 @@ export const VIDEO_LIST_CACHES = [
 	"byCategory",
 	"search",
 	"continueWatching",
+	"relatedRecordings",
 	"statistics",
 	"statisticsByBroadcaster",
 ] as const;

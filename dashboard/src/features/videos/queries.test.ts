@@ -1,13 +1,46 @@
-import { type InfiniteData, QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import {
+	type InfiniteData,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { createTRPCClient, httpLink } from "@trpc/client";
+import { createElement, type ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
+	RelatedRecordingsResponse,
 	VideoListPageResponse,
 	VideoResponse,
 	VideoUserStateResponse,
 } from "@/api/generated/trpc";
-import type { useTRPC } from "@/api/trpc";
+import { type AppRouter, TRPCProvider, useTRPC } from "@/api/trpc";
 import { patchEntity } from "@/lib/query";
 import { videoCaches, videoUserStatePatch } from "./cache";
+import {
+	useCancelDownload,
+	useDeleteVideo,
+	useLiveVideoChanges,
+	useRelatedRecordings,
+	useRestoreVideo,
+	useVideo,
+} from "./queries";
+
+const subscription = vi.hoisted(() => ({
+	onData: undefined as (() => Promise<unknown>) | undefined,
+	onStarted: undefined as (() => Promise<unknown>) | undefined,
+}));
+vi.mock("@trpc/tanstack-react-query", async (original) => ({
+	...(await original<typeof import("@trpc/tanstack-react-query")>()),
+	useSubscription: (options: typeof subscription) =>
+		Object.assign(subscription, options),
+}));
+
+afterEach(() => {
+	cleanup();
+	vi.useRealTimers();
+});
 
 function video(partial: Partial<VideoResponse>): VideoResponse {
 	return {
@@ -27,6 +60,7 @@ function video(partial: Partial<VideoResponse>): VideoResponse {
 		start_download_at: partial.start_download_at ?? "2026-01-01T00:00:00Z",
 		source: "live",
 		user_state: partial.user_state,
+		...partial,
 	};
 }
 
@@ -44,6 +78,7 @@ function fakeTrpc(): ReturnType<typeof useTRPC> {
 			search: node("search"),
 			continueWatching: node("continueWatching"),
 			getById: node("getById"),
+			relatedRecordings: node("relatedRecordings"),
 			historyCounts: node("historyCounts"),
 			statistics: node("statistics"),
 			statisticsByBroadcaster: node("statisticsByBroadcaster"),
@@ -154,5 +189,211 @@ describe("videoUserStatePatch via patchEntity", () => {
 		const next = qc.getQueryData<VideoResponse>(getByIdKey);
 		expect(next?.user_state?.last_position_seconds).toBe(45);
 		expect(next?.user_state?.watched_at).toBe("2026-01-02T00:00:00Z");
+	});
+});
+
+function hookHarness(
+	respond: (procedure: string, input: { id?: number }) => unknown,
+) {
+	vi.useFakeTimers();
+	const calls: string[] = [];
+	const queryClient = new QueryClient({
+		defaultOptions: {
+			queries: { retry: false, gcTime: Infinity, staleTime: Infinity },
+		},
+	});
+	const trpcClient = createTRPCClient<AppRouter>({
+		links: [
+			httpLink({
+				url: "http://example.test/trpc",
+				fetch: async (input, init) => {
+					const url = new URL(String(input));
+					const procedure = url.pathname.replace("/trpc/", "");
+					calls.push(procedure);
+					const args = JSON.parse(
+						init?.method === "POST"
+							? String(init.body)
+							: (url.searchParams.get("input") ?? "{}"),
+					);
+					const data = await respond(procedure, args);
+					return new Response(JSON.stringify({ result: { data } }), {
+						headers: { "Content-Type": "application/json" },
+					});
+				},
+			}),
+		],
+	});
+	const wrapper = ({ children }: { children: ReactNode }) =>
+		createElement(
+			QueryClientProvider,
+			{ client: queryClient },
+			createElement(TRPCProvider, { trpcClient, queryClient, children }),
+		);
+	return { wrapper, calls, queryClient };
+}
+
+async function advance(ms = 1) {
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(ms);
+	});
+}
+
+function related(
+	status: RelatedRecordingsResponse["status"] = "expired",
+): RelatedRecordingsResponse {
+	return {
+		intent_id: "manual",
+		status,
+		items: [1, 2].map((id) => ({
+			id,
+			job_id: `job-${id}`,
+			position: id,
+			title: `Recording ${id}`,
+			status: "DONE",
+			completion_kind: "complete",
+			started_at: "2026-01-01T00:00:00Z",
+		})),
+	};
+}
+
+describe("related recording cache lifecycle", () => {
+	it.each([
+		"delete",
+		"restore",
+		"cancel",
+	] as const)("%s refreshes related windows even after polling has stopped", async (action) => {
+		let response = related();
+		const { wrapper } = hookHarness((procedure) => {
+			if (procedure === "video.relatedRecordings") return response;
+			response = {
+				...response,
+				items: response.items.map((item) => ({ ...item, title: "Updated" })),
+			};
+			return { ok: true };
+		});
+		const { result } = renderHook(
+			() => ({
+				first: useRelatedRecordings(1),
+				second: useRelatedRecordings(2),
+				remove: useDeleteVideo(),
+				restore: useRestoreVideo(),
+				cancel: useCancelDownload(),
+			}),
+			{ wrapper },
+		);
+		await advance();
+		expect(result.current.first.data?.items[0].title).toBe("Recording 1");
+		await act(async () => {
+			if (action === "delete")
+				await result.current.remove.mutateAsync({ id: 1 });
+			else if (action === "restore")
+				await result.current.restore.mutateAsync({ id: 1 });
+			else await result.current.cancel.mutateAsync({ job_id: "job-1" });
+		});
+		await advance();
+		expect(result.current.first.data?.items[0].title).toBe("Updated");
+		expect(result.current.second.data?.items[0].title).toBe("Updated");
+	});
+
+	it("keeps navigation for a known sibling without reusing the old video or leaking an unrelated window", async () => {
+		const { wrapper } = hookHarness((procedure, { id }) => {
+			if (id !== 1) return new Promise(() => {});
+			return procedure === "video.relatedRecordings"
+				? related()
+				: video({ id });
+		});
+		const { result, rerender } = renderHook(
+			({ id }) => ({
+				related: useRelatedRecordings(id),
+				video: useVideo(id),
+			}),
+			{ wrapper, initialProps: { id: 1 } },
+		);
+		await advance();
+		expect(result.current.video.data?.id).toBe(1);
+		rerender({ id: 2 });
+		expect(result.current.related.data?.items).toHaveLength(2);
+		expect(result.current.related.isPlaceholderData).toBe(true);
+		expect(result.current.video.data).toBeUndefined();
+		rerender({ id: 999 });
+		expect(result.current.related.data).toBeUndefined();
+	});
+});
+
+describe("recording notifications", () => {
+	it.each([
+		"active",
+		"waiting",
+		"stopped",
+		"expired",
+		undefined,
+	] as const)("never polls an intent with status %s", async (status) => {
+		const response = related();
+		response.status = status;
+		response.wait_until = new Date(Date.now() + 120_000).toISOString();
+		const { wrapper, calls } = hookHarness(() => response);
+		renderHook(() => useRelatedRecordings(1), { wrapper });
+		await advance(180_000);
+		expect(calls).toHaveLength(1);
+	});
+
+	it.each([
+		"PENDING",
+		"RUNNING",
+	] as const)("refreshes a %s member on notification, including after intent closure", async (status) => {
+		const response = related("stopped");
+		response.items[1].status = status;
+		const { wrapper, calls } = hookHarness((procedure) =>
+			procedure === "video.relatedRecordings"
+				? response
+				: video({ id: 2, status: response.items[1].status }),
+		);
+		const { result } = renderHook(
+			() => {
+				useLiveVideoChanges();
+				return { related: useRelatedRecordings(1), video: useVideo(2) };
+			},
+			{ wrapper },
+		);
+		await advance(120_000);
+		expect(calls).toHaveLength(2);
+		expect(result.current.video.data?.status).toBe(status);
+		response.items[1].status = "DONE";
+		await act(async () => {
+			await subscription.onData?.();
+		});
+		await advance();
+		expect(result.current.video.data?.status).toBe("DONE");
+		expect(result.current.related.data?.items[1].status).toBe("DONE");
+		expect(calls).toHaveLength(4);
+	});
+
+	it.each([
+		"active",
+		"waiting",
+		"stopped",
+		"expired",
+	] as const)("recovers intent transition to %s on reconnect", async (status) => {
+		const response = related("waiting");
+		const { wrapper, queryClient } = hookHarness(() => response);
+		const { result } = renderHook(
+			() => {
+				useLiveVideoChanges();
+				return { query: useRelatedRecordings(1), trpc: useTRPC() };
+			},
+			{ wrapper },
+		);
+		await advance();
+		const inactiveKey = result.current.trpc.video.relatedRecordings.queryKey({
+			id: 2,
+		});
+		queryClient.setQueryData(inactiveKey, related("waiting"));
+		response.status = status;
+		await act(async () => {
+			await subscription.onStarted?.();
+		});
+		await advance();
+		expect(result.current.query.data?.status).toBe(status);
+		expect(queryClient.getQueryState(inactiveKey)?.isInvalidated).toBe(true);
 	});
 });

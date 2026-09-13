@@ -76,6 +76,7 @@ export async function mockWatchPage(
 		const duration = Number(current.duration_seconds ?? 0);
 		const answers: Record<string, () => unknown> = {
 			"video.getById": () => current,
+			"video.relatedRecordings": () => ({ items: [] }),
 			"video.timeline": () => [],
 			"video.categories": () => [
 				{

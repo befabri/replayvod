@@ -19,6 +19,7 @@ import {
 	useVideo,
 	useWatchProgressWriter,
 } from "@/features/videos";
+import { RelatedRecordings } from "@/features/videos/components/RelatedRecordings";
 import { RemoveVideoButton } from "@/features/videos/components/RemoveVideoButton";
 import {
 	CategoryTimelineCard,
@@ -69,12 +70,21 @@ export const Route = createFileRoute("/dashboard/watch_/$videoId")({
 });
 
 function WatchPage() {
-	const { t: translate } = useTranslation();
 	const { videoId } = Route.useParams();
+	const id = Number(videoId);
+	return (
+		<div className="flex flex-col gap-6">
+			<RelatedRecordings videoId={id} />
+			<WatchContent id={id} />
+		</div>
+	);
+}
+
+function WatchContent({ id }: { id: number }) {
+	const { t: translate } = useTranslation();
 	const { t: initialOffsetSeconds } = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const canManage = useCanManageVideos();
-	const id = Number(videoId);
 	const { data: video, isLoading, error } = useVideo(id);
 	const playable = !!video && video.status === "DONE" && !video.deleted_at;
 	const timelineEnabled = playable;
@@ -121,7 +131,7 @@ function WatchPage() {
 			<div className="text-muted-foreground">{translate("common.loading")}</div>
 		);
 	}
-	if (error) {
+	if (error && !video) {
 		return (
 			<TitledLayout title={translate("videos.failed_to_load")}>
 				<div className="rounded-lg bg-destructive/10 p-4 text-destructive text-sm shadow-sm">

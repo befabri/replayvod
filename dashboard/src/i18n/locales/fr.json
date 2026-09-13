@@ -404,6 +404,15 @@
 		"remove_permanent_confirm_body": "Les fichiers ont déjà disparu. Ceci supprime les aperçus restants et les métadonnées des parties, l'enregistrement ne pourra donc plus être restauré. Il reste dans l'historique comme supprimé."
 	},
 	"watch": {
+		"related_title": "Enregistrements associés",
+		"related_waiting": "En attente du retour du streamer",
+		"related_active": "La poursuite de l’enregistrement est active",
+		"related_previous": "Enregistrement précédent",
+		"related_next": "Enregistrement suivant",
+		"related_untitled": "Enregistrement sans titre",
+		"related_removed": "Supprimé",
+		"related_retry": "Recharger les enregistrements associés",
+
 		"resumed_from": "Reprise à {{time}}",
 		"start_over": "Recommencer",
 		"dismiss_resume": "Fermer",
