@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
@@ -30,6 +31,10 @@ func (f shutdownFollowTransport) RoundTrip(req *http.Request) (*http.Response, e
 }
 
 func TestRouterOwnsLoginFollowImportThroughShutdown(t *testing.T) {
+	synctest.Test(t, testRouterOwnsLoginFollowImportThroughShutdown)
+}
+
+func testRouterOwnsLoginFollowImportThroughShutdown(t *testing.T) {
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
 	log := slog.New(slog.DiscardHandler)
 	raw, err := storage.NewLocal(t.TempDir())
@@ -114,7 +119,7 @@ func TestRouterOwnsLoginFollowImportThroughShutdown(t *testing.T) {
 	select {
 	case err := <-closed:
 		t.Fatalf("router returned before follow I/O joined: %v", err)
-	case <-time.After(20 * time.Millisecond):
+	case <-time.After(31 * time.Second):
 	}
 	unblock.Do(func() { close(release) })
 	select {

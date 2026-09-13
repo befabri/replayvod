@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader"
@@ -198,11 +197,10 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	root.Use(middleware.CORS(trustedBrowserOrigins, routedMethods(r), trpc.RequestHeaders()))
 	root.Mount("/", r)
 	return root, func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
 		followSync.Stop()
 		_ = wsHandler.Close()
-		return errors.Join(videoStream.Close(), followSync.Wait(ctx), trpcRouter.Close())
+		// Cancelled imports must finish using the repository before its owner closes it.
+		return errors.Join(videoStream.Close(), followSync.Wait(context.Background()), trpcRouter.Close())
 	}
 }
 
