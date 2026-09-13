@@ -19,12 +19,11 @@ Reference for `server/config.toml`. Grouped by section.
 
 ## `[download]`
 
-Recording behaviour. See [Recording](/docs/recording/) for narrative.
+Recording behaviour. Set quality on each recording or schedule; see [Recording quality](/docs/recording/#quality). The retired `preferred_quality` key had no effect and is ignored with a deprecation warning.
 
 | Key                       | Default  | Notes |
 | ------------------------- | -------- | ----- |
 | `max_concurrent`          | `5`      | Cap on parallel recordings across the server. |
-| `preferred_quality`       | `"1080"` | Target HLS variant. `"1080"`, `"720"`, `"480"`, `"360"`, `"audio_only"`. |
 | `segment_concurrency`     | `4`      | Parallel HLS segment fetches per recording. |
 | `network_attempts`        | `5`      | Retry budget for generic network failures. |
 | `server_error_attempts`   | `5`      | Retry budget for Twitch 5xx. |

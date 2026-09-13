@@ -1117,15 +1117,11 @@ func (h *Handler) ActiveDownloadsLive(ctx context.Context) (<-chan []ActiveDownl
 	return out, nil
 }
 
-// TriggerDownloadInput starts a manual download for a live broadcaster.
-// RecordingType + ForceH264 are accepted at the API boundary so the
-// dashboard can send them; the native HLS downloader (Phase 4+) will
-// consume them at Stage 3 variant selection. Until then they are
-// recorded on the `videos` row via VideoInput but otherwise ignored.
+// TriggerDownloadInput starts a manual recording; omitted quality defaults to HIGH.
 type TriggerDownloadInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 	RecordingType string `json:"recording_type,omitempty" validate:"omitempty,oneof=video audio"`
-	Quality       string `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH"`
+	Quality       string `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH 1440 BEST"`
 	ForceH264     bool   `json:"force_h264,omitempty"`
 }
 

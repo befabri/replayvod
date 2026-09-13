@@ -20,16 +20,11 @@ import {
 import {
 	forceH264For,
 	isAudioRecording,
+	RECORDING_QUALITIES,
 	type RecordingMode,
 	type RecordingQuality,
 } from "@/lib/recording-settings";
 import { cn } from "@/lib/utils";
-
-const RECORDING_QUALITIES: readonly RecordingQuality[] = [
-	"HIGH",
-	"MEDIUM",
-	"LOW",
-];
 
 // RecordingSettingsFields renders the mode / quality / Force H.264 controls
 // shared by the schedule forms and the "download now" surfaces. It is

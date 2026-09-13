@@ -60,6 +60,17 @@ func TestLoadTOML(t *testing.T) {
 		}
 	})
 
+	t.Run("deprecated preferred quality is tolerated", func(t *testing.T) {
+		path := writeFile(t, t.TempDir(), "config.toml", "[download]\npreferred_quality = \"1440\"\nmax_concurrent = 7\n")
+		app := getDefaultAppConfig()
+		if err := loadTOML(path, &app); err != nil {
+			t.Fatalf("loadTOML(deprecated preferred_quality) = %v, want nil", err)
+		}
+		if app.Download.MaxConcurrent != 7 {
+			t.Fatalf("MaxConcurrent = %d, want 7", app.Download.MaxConcurrent)
+		}
+	})
+
 	t.Run("deprecated sample rate is tolerated", func(t *testing.T) {
 		path := writeFile(t, t.TempDir(), "config.toml", "[logging]\nsample_rate = 0.5\nlog_level = \"warn\"\n")
 		app := getDefaultAppConfig()
@@ -73,6 +84,9 @@ func TestLoadTOML(t *testing.T) {
 }
 
 func TestIsDeprecatedConfigKey(t *testing.T) {
+	if !isDeprecatedConfigKey("download.preferred_quality") {
+		t.Fatal("download.preferred_quality should be recognized as deprecated")
+	}
 	if !isDeprecatedConfigKey("logging.sample_rate") {
 		t.Fatal("logging.sample_rate should be recognized as deprecated")
 	}

@@ -301,9 +301,12 @@ const (
 	VideoStatusDone    = "DONE"
 	VideoStatusFailed  = "FAILED"
 
+	// Recording quality choices; BEST leaves the rendition height uncapped.
 	QualityLow    = "LOW"
 	QualityMedium = "MEDIUM"
 	QualityHigh   = "HIGH"
+	Quality1440   = "1440"
+	QualityBest   = "BEST"
 )
 
 type Stream struct {

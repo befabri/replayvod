@@ -1,33 +1,25 @@
 import type { TFunction } from "i18next";
-import type { ScheduleFormValues } from "./schema";
+import {
+	isRecordingQuality,
+	RECORDING_QUALITIES,
+	type RecordingQuality,
+	recordingQualityValue,
+} from "@/lib/recording-settings";
 
-export const SCHEDULE_QUALITIES = [
-	"HIGH",
-	"MEDIUM",
-	"LOW",
-] as const satisfies readonly ScheduleFormValues["quality"][];
+export const SCHEDULE_QUALITIES = RECORDING_QUALITIES;
 
-export type ScheduleQuality = (typeof SCHEDULE_QUALITIES)[number];
+export type ScheduleQuality = RecordingQuality;
 
-export function isScheduleQuality(value: string): value is ScheduleQuality {
-	return SCHEDULE_QUALITIES.some((quality) => quality === value);
-}
+export const isScheduleQuality = isRecordingQuality;
+export const scheduleQualityValue = recordingQualityValue;
 
-export function scheduleQualityValue(
-	value: string,
-	fallback: ScheduleQuality = "HIGH",
-): ScheduleQuality {
-	return isScheduleQuality(value) ? value : fallback;
-}
-
+// Unknown values from another server version remain readable without a locale key.
 export function scheduleQualityLabel(
 	t: TFunction,
 	quality: ScheduleQuality | string,
 ) {
-	if (quality === "HIGH") return t("schedules.quality_high");
-	if (quality === "MEDIUM") return t("schedules.quality_medium");
-	if (quality === "LOW") return t("schedules.quality_low");
-	return quality;
+	if (!isScheduleQuality(quality)) return quality;
+	return t(`schedules.quality_${quality.toLowerCase()}`);
 }
 
 export function scheduleQualityOptions(t: TFunction) {

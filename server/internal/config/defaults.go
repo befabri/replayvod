@@ -9,7 +9,6 @@ func getDefaultAppConfig() AppConfig {
 		},
 		Download: DownloadConfig{
 			MaxConcurrent:        2,
-			PreferredQuality:     "1080",
 			SegmentConcurrency:   4,
 			NetworkAttempts:      5,
 			ServerErrorAttempts:  5,
@@ -73,7 +72,6 @@ func orDefault[T cmp.Ordered](v, def T) T {
 func validateAppConfig(config *AppConfig) {
 	config.Server.PollIntervalMinutes = orDefault(config.Server.PollIntervalMinutes, 1)
 	config.Download.MaxConcurrent = orDefault(config.Download.MaxConcurrent, 2)
-	config.Download.PreferredQuality = orDefault(config.Download.PreferredQuality, "1080")
 	config.Download.SegmentConcurrency = orDefault(config.Download.SegmentConcurrency, 4)
 	config.Download.NetworkAttempts = orDefault(config.Download.NetworkAttempts, 5)
 	config.Download.ServerErrorAttempts = orDefault(config.Download.ServerErrorAttempts, 5)

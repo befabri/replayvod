@@ -6,7 +6,7 @@ import schedulesvc "github.com/befabri/replayvod/server/internal/service/schedul
 // A nil ForceH264 retains the stored value on update and defaults on creation.
 type ScheduleSettingsInput struct {
 	RecordingType  string `json:"recording_type,omitempty" validate:"omitempty,oneof=video audio"`
-	Quality        string `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH"`
+	Quality        string `json:"quality" validate:"required,oneof=LOW MEDIUM HIGH 1440 BEST"`
 	ForceH264      *bool  `json:"force_h264,omitempty"`
 	HasMinViewers  bool   `json:"has_min_viewers"`
 	MinViewers     *int64 `json:"min_viewers,omitempty" validate:"omitempty,min=0"`

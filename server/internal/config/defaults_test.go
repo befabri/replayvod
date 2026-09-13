@@ -40,7 +40,6 @@ func TestGetDefaultAppConfig(t *testing.T) {
 		},
 		Download: DownloadConfig{
 			MaxConcurrent:        2,
-			PreferredQuality:     "1080",
 			SegmentConcurrency:   4,
 			NetworkAttempts:      5,
 			ServerErrorAttempts:  5,
@@ -110,7 +109,6 @@ func validBaseline() AppConfig {
 	cfg := getDefaultAppConfig()
 	cfg.Server.PollIntervalMinutes = 15
 	cfg.Download.MaxConcurrent = 8
-	cfg.Download.PreferredQuality = "720"
 	cfg.Download.SegmentConcurrency = 6
 	cfg.Download.NetworkAttempts = 9
 	cfg.Download.ServerErrorAttempts = 7
@@ -168,10 +166,6 @@ func TestValidateAppConfigFieldRules(t *testing.T) {
 		{"max concurrent zero clamps", func(c *AppConfig) { c.Download.MaxConcurrent = 0 }, func(c *AppConfig) any { return c.Download.MaxConcurrent }, 2},
 		{"max concurrent negative clamps", func(c *AppConfig) { c.Download.MaxConcurrent = -3 }, func(c *AppConfig) any { return c.Download.MaxConcurrent }, 2},
 		{"max concurrent one stays", func(c *AppConfig) { c.Download.MaxConcurrent = 1 }, func(c *AppConfig) any { return c.Download.MaxConcurrent }, 1},
-
-		// PreferredQuality: clamp "" to "1080".
-		{"preferred quality empty clamps", func(c *AppConfig) { c.Download.PreferredQuality = "" }, func(c *AppConfig) any { return c.Download.PreferredQuality }, "1080"},
-		{"preferred quality custom stays", func(c *AppConfig) { c.Download.PreferredQuality = "480" }, func(c *AppConfig) any { return c.Download.PreferredQuality }, "480"},
 
 		// SegmentConcurrency: clamp <= 0 to 4.
 		{"segment concurrency zero clamps", func(c *AppConfig) { c.Download.SegmentConcurrency = 0 }, func(c *AppConfig) any { return c.Download.SegmentConcurrency }, 4},

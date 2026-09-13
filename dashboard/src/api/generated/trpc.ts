@@ -990,13 +990,7 @@ export interface TitlesInput {
   video_id: number;
 }
 
-/**
- * TriggerDownloadInput starts a manual download for a live broadcaster.
- * RecordingType + ForceH264 are accepted at the API boundary so the
- * dashboard can send them; the native HLS downloader (Phase 4+) will
- * consume them at Stage 3 variant selection. Until then they are
- * recorded on the `videos` row via VideoInput but otherwise ignored.
- */
+/** TriggerDownloadInput starts a manual recording; omitted quality defaults to HIGH. */
 export interface TriggerDownloadInput {
   broadcaster_id: string;
   recording_type?: string;

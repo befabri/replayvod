@@ -181,6 +181,8 @@
 		"not_found_description": "La page que vous cherchez n'existe pas."
 	},
 	"videos": {
+		"quality_1440": "1440p (maximum)",
+		"quality_best": "Meilleure disponible",
 		"title": "Vidéos",
 		"empty": "Aucune vidéo. Lancez un téléchargement depuis une chaîne.",
 		"empty_watch_later": "Aucune vidéo à regarder plus tard.",
@@ -361,6 +363,8 @@
 		"by_status": "Par statut"
 	},
 	"schedules": {
+		"quality_1440": "1440p (maximum)",
+		"quality_best": "Meilleure disponible",
 		"title": "Planifications d'enregistrement",
 		"description": "Quand une chaîne passe en live, les planifications correspondantes lancent automatiquement un téléchargement.",
 		"failed_to_load": "Impossible de charger les planifications",

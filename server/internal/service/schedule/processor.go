@@ -441,13 +441,13 @@ func (p *EventProcessor) dispatchStreamOnline(ctx context.Context, event twitch.
 	return nil
 }
 
-// qualityRank orders the three legal values so HIGH wins ties over
-// MEDIUM and LOW. Using a map keeps this a pure function of the string;
-// future quality additions only need an entry here.
+// qualityRank prefers the least restrictive limit among matching schedules.
 var qualityRank = map[string]int{
 	repository.QualityLow:    1,
 	repository.QualityMedium: 2,
 	repository.QualityHigh:   3,
+	repository.Quality1440:   4,
+	repository.QualityBest:   5,
 }
 
 func recordingTypeRank(recordingType string) int {

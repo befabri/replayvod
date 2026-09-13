@@ -1,15 +1,16 @@
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
-import { forceH264For } from "@/lib/recording-settings";
+import { forceH264For, RecordingQualitySchema } from "@/lib/recording-settings";
 
 // DirectDownloadFormSchema is a client-side narrowing of the tRPC
 // TriggerDownloadInputSchema: the generated schema accepts empty strings
 // (`z.literal("")`) for backward compat, but the form only ever produces
-// the enum values, so we tighten here. broadcaster_id is supplied by the
-// caller, not the form, and lives outside the schema.
+// the enum values, so we tighten here. The quality values still come from
+// the generated schema rather than a copy of the list. broadcaster_id is
+// supplied by the caller, not the form, and lives outside the schema.
 export const DirectDownloadFormSchema = z.object({
 	recording_type: z.enum(["video", "audio"]),
-	quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+	quality: RecordingQualitySchema,
 	force_h264: z.boolean(),
 });
 

@@ -5,7 +5,7 @@ import { z } from "zod";
 export const ApproveRequestInputSchema = z.object({
   request_id: z.number(),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
-  quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH", "1440", "BEST"]),
   force_h264: z.boolean().optional(),
   has_min_viewers: z.boolean(),
   min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
@@ -91,7 +91,7 @@ export const ChannelStatisticsInputSchema = z.object({
 export const CreateInputSchema = z.object({
   broadcaster_id: z.string().min(1),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
-  quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH", "1440", "BEST"]),
   force_h264: z.boolean().optional(),
   has_min_viewers: z.boolean(),
   min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
@@ -205,7 +205,7 @@ export const ScheduleToggleInputSchema = z.object({
 export const ScheduleUpdateInputSchema = z.object({
   id: z.number(),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
-  quality: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH", "1440", "BEST"]),
   force_h264: z.boolean().optional(),
   has_min_viewers: z.boolean(),
   min_viewers: z.number().gte(0).or(z.literal(0)).optional(),
@@ -278,7 +278,7 @@ export const TitlesInputSchema = z.object({
 export const TriggerDownloadInputSchema = z.object({
   broadcaster_id: z.string().min(1),
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
-  quality: z.enum(["LOW", "MEDIUM", "HIGH"]).or(z.literal("")).optional(),
+  quality: z.enum(["LOW", "MEDIUM", "HIGH", "1440", "BEST"]).or(z.literal("")).optional(),
   force_h264: z.boolean().optional(),
 }).meta({ id: "TriggerDownloadInput" });
 

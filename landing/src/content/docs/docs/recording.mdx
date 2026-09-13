@@ -10,7 +10,6 @@ The `[download]` section in `server/config.toml` controls how the recorder pulls
 ```toml
 [download]
 max_concurrent          = 5
-preferred_quality       = "1080"
 segment_concurrency     = 4
 network_attempts        = 5
 server_error_attempts   = 5
@@ -34,11 +33,21 @@ Bump `max_concurrent` if you record many channels at once and have the disk + ne
 
 ## Quality
 
-`preferred_quality` is a target. The recorder picks the closest variant the channel offers. Common values:
+Choose quality when starting a recording or editing its schedule in the dashboard. Each recording saves its own choice; scheduled recordings use the schedule's saved choice.
 
-- `"1080"` — 1080p60 if the channel ladder includes it, else next best.
-- `"720"`, `"480"`, `"360"` — same logic.
-- `"audio_only"` — record audio only.
+| Dashboard choice | API `quality` | Maximum video height |
+| ---------------- | ------------- | -------------------- |
+| Best available | `BEST` | Highest eligible rendition offered by the channel. |
+| 1440p | `1440` | 1440p |
+| High | `HIGH` | 1080p |
+| Medium | `MEDIUM` | 720p |
+| Low | `LOW` | 480p |
+
+The recorder chooses the highest available rendition at or below the limit after applying codec settings. A channel offering 1440p and 720p records at 1440p with **1440p** or **Best available**, and at 720p with **High**. It never raises a selected limit to reach a higher rendition. At equal height it prefers HEVC, then enabled AV1, then H.264, followed by the higher frame rate. If no eligible video rendition fits, the recording fails.
+
+New recording forms default to **High**. The API also uses `HIGH` when a manual recording request omits `quality`; schedule requests must supply a quality. Choose **Audio only** (API `recording_type: "audio"`) separately to record the audio rendition; video quality and codec settings do not apply to audio.
+
+The retired `[download].preferred_quality` config key had no effect on recording selection. Existing config files may retain it: the server ignores it and logs a deprecation warning. Use the recording or schedule quality control instead.
 
 ## Codecs
 

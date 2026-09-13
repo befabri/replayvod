@@ -66,13 +66,12 @@ import (
 	"github.com/befabri/replayvod/server/internal/waveform"
 )
 
-// qualityToHeight maps the repository's coarse Quality enum (LOW /
-// MEDIUM / HIGH) to the numeric-string form the twitch variant
-// selector expects. Unknown quality values default to 1080 — the
-// spec's PreferredQuality — so a config drift doesn't silently
-// pick an unexpected variant.
 func qualityToHeight(q string) string {
 	switch q {
+	case repository.Quality1440:
+		return "1440"
+	case repository.QualityBest:
+		return "best"
 	case repository.QualityHigh:
 		return "1080"
 	case repository.QualityMedium:

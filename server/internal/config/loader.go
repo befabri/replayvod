@@ -137,7 +137,7 @@ func loadTOML(path string, config *AppConfig) error {
 }
 
 func isDeprecatedConfigKey(key string) bool {
-	return key == "logging.sample_rate" || key == "server.allowed_origins"
+	return key == "logging.sample_rate" || key == "server.allowed_origins" || key == "download.preferred_quality"
 }
 
 // GetConfig returns the loaded configuration (thread-safe).

@@ -140,7 +140,7 @@ changes are saved to `server_settings` and applied on the next server start.
 | Section            | Controls |
 | ------------------ | -------- |
 | `[server]`         | CORS allow-list and Helix poll interval |
-| `[download]`       | concurrency caps, preferred quality, retry budgets, gap tolerance, codec policy (AV1/HEVC) |
+| `[download]`       | concurrency caps, retry budgets, gap tolerance, codec policy (AV1/HEVC) |
 | `[storage]`        | `local` vs `s3`; S3 endpoint / bucket / region / keys / path-style |
 | `[scheduler]`      | enabled flag and per-task intervals |
 | `[logging]`        | log level, file output, sample rate |
