@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,10 +26,7 @@ func (f restartRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, erro
 	return f(req)
 }
 
-// TestRestartAppliedEventSubSettings exercises the real restart boundary:
-// owner-saved server_settings are inert until a fresh config is resolved, and a
-// later restart into a non-subscription runtime revokes active Twitch
-// subscriptions left by the previous relay runtime.
+// TestRestartAppliedEventSubSettings covers saved configuration taking effect only after restart.
 func TestRestartAppliedEventSubSettings(t *testing.T) {
 	ctx := context.Background()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -71,6 +69,7 @@ func TestRestartAppliedEventSubSettings(t *testing.T) {
 		t.Fatalf("restart callback URL = %q, want relay ingest %q", boot1.ServerModeCallbackURL(), relayIngest)
 	}
 
+	var createdMu sync.Mutex
 	created := map[string]string{}
 	relayClient := twitchClientForRestart(t, func(req *http.Request) (*http.Response, error) {
 		switch {
@@ -93,7 +92,9 @@ func TestRestartAppliedEventSubSettings(t *testing.T) {
 			if body.Transport.Secret != boot1.Env.HMACSecret {
 				t.Fatalf("create secret = %q, want configured secret", body.Transport.Secret)
 			}
+			createdMu.Lock()
 			created[body.Type] = body.Transport.Callback
+			createdMu.Unlock()
 			id := "restart-" + strings.ReplaceAll(body.Type, ".", "-")
 			return restartTextResponse(http.StatusAccepted, restartEventSubCreateResponse(id, body.Type, body.Version, broadcasterID, body.Transport.Callback)), nil
 		default:

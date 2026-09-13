@@ -128,16 +128,8 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
       - run: go vet ./...
-      - run: go test ./...
-      - name: Migration concurrency and cancellation checks
-        run: go test -race -count=1 ./internal/database
-      - name: Storage and subscription concurrency checks
-        run: >-
-          go test -race -count=1
-          ./internal/storage ./internal/service/storagehealth
-          ./internal/service/storagescan ./internal/recordinglock
-          ./internal/eventbus ./internal/server/api/subscriptions
-          ./internal/scheduler
+      - name: Server tests and race detection
+        run: go test -race -count=1 ./...
       - name: Install sqlc
         run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
       - name: Check committed sqlc output is up to date
