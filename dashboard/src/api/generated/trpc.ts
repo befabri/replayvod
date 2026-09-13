@@ -897,11 +897,13 @@ export interface SetWatchLaterInput {
   watch_later: boolean;
 }
 
+/** SettingsResponse contains the authenticated user's locale and playback preferences. */
 export interface SettingsResponse {
   user_id: string;
   timezone: string;
   datetime_format: string;
   language: string;
+  playback: UpdatePlaybackInput;
   created_at: string;
   updated_at: string;
 }
@@ -935,9 +937,10 @@ export interface StatisticsResponse {
   channels: number;
   /** Removed counts tombstones, which are excluded from ByStatus. */
   removed: number;
-  /** WatchLater and Unwatched are per authenticated user. */
+  /** WatchLater, Unwatched, and ContinueWatching are per authenticated user. */
   watch_later: number;
   unwatched: number;
+  continue_watching: number;
 }
 
 export interface StatsBucket {
@@ -1233,6 +1236,13 @@ export interface UpdatePlaybackCacheConfigInput {
   auto_generate: boolean;
 }
 
+/** UpdatePlaybackInput sets resume thresholds in seconds and whole percentages. */
+export interface UpdatePlaybackInput {
+  resume_min_seconds: number;
+  resume_end_margin_seconds: number;
+  resume_end_margin_percent: number;
+}
+
 export interface UpdateUserRoleInput {
   user_id: string;
   role: string;
@@ -1316,19 +1326,14 @@ export interface VideoListPageInput {
   duration?: string;
   size?: string;
   window?: string;
-  /**
-   * Outcome separates operator cancellations from failures even though both
-   * are stored with FAILED status.
-   */
+  /** Outcome distinguishes operator cancellation from other FAILED recordings. */
   outcome?: string;
   incomplete_only?: boolean;
   watch_later_only?: boolean;
+  continue_watching_only?: boolean;
   unwatched_only?: boolean;
   terminal_only?: boolean;
-  /**
-   * DeletionKind filters tombstones and applies only with Scope removed or all.
-   * An empty Scope defaults to active recordings.
-   */
+  /** DeletionKind applies only with Scope removed or all; empty Scope means active. */
   deletion_kind?: string;
   scope?: string;
   cursor?: VideoListPageCursor;
@@ -1406,10 +1411,7 @@ export interface VideoResponse {
    */
   is_audio_only: boolean;
   broadcaster_id: string;
-  /**
-   * BroadcasterLogin and adjacent channel fields may be empty when the mirror
-   * has no broadcaster; DisplayName remains available as a fallback.
-   */
+  /** BroadcasterLogin and channel metadata may be absent; fall back to DisplayName. */
   broadcaster_login?: string;
   broadcaster_name?: string;
   profile_image_url?: string;
@@ -1437,7 +1439,7 @@ export interface VideoResponse {
   twitch_video_id?: string;
   broadcast_at?: string;
   next_retry_at?: string;
-  /** Parts is populated only by GetByID; list endpoints avoid per-video part queries. */
+  /** Parts is populated by detail and active-download snapshots, not library lists. */
   parts?: VideoPartResponse[];
   has_media?: boolean;
   /**
@@ -1555,6 +1557,7 @@ type AppRouterRecord = {
   settings: {
     get: $Query<void, SettingsResponse>;
     update: $Mutation<SettingsUpdateInput, SettingsResponse>;
+    updatePlayback: $Mutation<UpdatePlaybackInput, SettingsResponse>;
   };
   storage: {
     adopt: $Mutation<void, StorageAdoptResponse>;

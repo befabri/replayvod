@@ -7,11 +7,10 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// RegisterRoutes wires settings.* tRPC procedures. Viewer-level —
-// every authed user gets their own row; lazy-create happens server-
-// side on first Get.
+// RegisterRoutes exposes settings procedures scoped to the authenticated user.
 func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, log *slog.Logger, viewer *trpcgo.ProcedureBuilder) {
 	h := NewHandler(New(repo, log), log)
 	trpcgo.MustVoidQuery(tr, "settings.get", h.Get, viewer)
 	trpcgo.MustMutation(tr, "settings.update", h.Update, viewer)
+	trpcgo.MustMutation(tr, "settings.updatePlayback", h.UpdatePlayback, viewer)
 }

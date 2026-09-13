@@ -74,8 +74,7 @@ type VideoResponse struct {
 	// or playback artifact metadata.
 	IsAudioOnly   bool   `json:"is_audio_only"`
 	BroadcasterID string `json:"broadcaster_id"`
-	// BroadcasterLogin and adjacent channel fields may be empty when the mirror
-	// has no broadcaster; DisplayName remains available as a fallback.
+	// BroadcasterLogin and channel metadata may be absent; fall back to DisplayName.
 	BroadcasterLogin         string     `json:"broadcaster_login,omitempty"`
 	BroadcasterName          string     `json:"broadcaster_name,omitempty"`
 	ProfileImageURL          *string    `json:"profile_image_url,omitempty"`
@@ -101,7 +100,7 @@ type VideoResponse struct {
 	TwitchVideoID     *string     `json:"twitch_video_id,omitempty"`
 	BroadcastAt       *time.Time  `json:"broadcast_at,omitempty"`
 	NextRetryAt       *time.Time  `json:"next_retry_at,omitempty"`
-	// Parts is populated only by GetByID; list endpoints avoid per-video part queries.
+	// Parts is populated by detail and active-download snapshots, not library lists.
 	Parts    []VideoPartResponse `json:"parts,omitempty"`
 	HasMedia bool                `json:"has_media,omitempty"`
 	// PlaybackArtifact is populated only by GetByID. Clients use part streams
@@ -341,7 +340,7 @@ type VideoListPageCursor struct {
 type ListPageInput struct {
 	Limit         int    `json:"limit" validate:"min=0,max=200"`
 	Status        string `json:"status,omitempty" validate:"omitempty,oneof=PENDING RUNNING DONE FAILED"`
-	Sort          string `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel history_when broadcast_at"`
+	Sort          string `json:"sort,omitempty" validate:"omitempty,oneof=created_at duration size channel history_when broadcast_at last_watched"`
 	Order         string `json:"order,omitempty" validate:"omitempty,oneof=asc desc"`
 	Quality       string `json:"quality,omitempty"`
 	BroadcasterID string `json:"broadcaster_id,omitempty"`
@@ -350,15 +349,14 @@ type ListPageInput struct {
 	Duration      string `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
 	Size          string `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
 	Window        string `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
-	// Outcome separates operator cancellations from failures even though both
-	// are stored with FAILED status.
-	Outcome        string `json:"outcome,omitempty" validate:"omitempty,oneof=completed failed cancelled"`
-	IncompleteOnly bool   `json:"incomplete_only,omitempty"`
-	WatchLaterOnly bool   `json:"watch_later_only,omitempty"`
-	UnwatchedOnly  bool   `json:"unwatched_only,omitempty"`
-	TerminalOnly   bool   `json:"terminal_only,omitempty"`
-	// DeletionKind filters tombstones and applies only with Scope removed or all.
-	// An empty Scope defaults to active recordings.
+	// Outcome distinguishes operator cancellation from other FAILED recordings.
+	Outcome              string `json:"outcome,omitempty" validate:"omitempty,oneof=completed failed cancelled"`
+	IncompleteOnly       bool   `json:"incomplete_only,omitempty"`
+	WatchLaterOnly       bool   `json:"watch_later_only,omitempty"`
+	ContinueWatchingOnly bool   `json:"continue_watching_only,omitempty"`
+	UnwatchedOnly        bool   `json:"unwatched_only,omitempty"`
+	TerminalOnly         bool   `json:"terminal_only,omitempty"`
+	// DeletionKind applies only with Scope removed or all; empty Scope means active.
 	DeletionKind string               `json:"deletion_kind,omitempty" validate:"omitempty,oneof=retention manual missing"`
 	Scope        string               `json:"scope,omitempty" validate:"omitempty,oneof=active removed all"`
 	Cursor       *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
@@ -389,27 +387,28 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 	durationMin, durationMax := videoDurationFilterBounds(input.Duration)
 	sizeMin, sizeMax := videoSizeFilterBounds(input.Size)
 	page, err := h.video.ListPage(ctx, repository.ListVideosOpts{
-		UserID:             user.ID,
-		Status:             input.Status,
-		Sort:               input.Sort,
-		Order:              order,
-		Quality:            input.Quality,
-		BroadcasterID:      input.BroadcasterID,
-		Language:           input.Language,
-		Source:             input.Source,
-		DurationMinSeconds: durationMin,
-		DurationMaxSeconds: durationMax,
-		SizeMinBytes:       sizeMin,
-		SizeMaxBytes:       sizeMax,
-		Window:             input.Window,
-		Outcome:            input.Outcome,
-		IncompleteOnly:     input.IncompleteOnly,
-		WatchLaterOnly:     input.WatchLaterOnly,
-		UnwatchedOnly:      input.UnwatchedOnly,
-		TerminalOnly:       input.TerminalOnly,
-		Scope:              input.Scope,
-		DeletionKind:       input.DeletionKind,
-		Limit:              limit,
+		UserID:               user.ID,
+		Status:               input.Status,
+		Sort:                 input.Sort,
+		Order:                order,
+		Quality:              input.Quality,
+		BroadcasterID:        input.BroadcasterID,
+		Language:             input.Language,
+		Source:               input.Source,
+		DurationMinSeconds:   durationMin,
+		DurationMaxSeconds:   durationMax,
+		SizeMinBytes:         sizeMin,
+		SizeMaxBytes:         sizeMax,
+		Window:               input.Window,
+		Outcome:              input.Outcome,
+		IncompleteOnly:       input.IncompleteOnly,
+		WatchLaterOnly:       input.WatchLaterOnly,
+		UnwatchedOnly:        input.UnwatchedOnly,
+		ContinueWatchingOnly: input.ContinueWatchingOnly,
+		TerminalOnly:         input.TerminalOnly,
+		Scope:                input.Scope,
+		DeletionKind:         input.DeletionKind,
+		Limit:                limit,
 	}, cursor)
 	if err != nil {
 		return VideoListPageResponse{}, apierr.Map(h.log, err, "list videos")
@@ -763,9 +762,10 @@ type StatisticsResponse struct {
 	Channels int64 `json:"channels"`
 	// Removed counts tombstones, which are excluded from ByStatus.
 	Removed int64 `json:"removed"`
-	// WatchLater and Unwatched are per authenticated user.
-	WatchLater int64 `json:"watch_later"`
-	Unwatched  int64 `json:"unwatched"`
+	// WatchLater, Unwatched, and ContinueWatching are per authenticated user.
+	WatchLater       int64 `json:"watch_later"`
+	Unwatched        int64 `json:"unwatched"`
+	ContinueWatching int64 `json:"continue_watching"`
 }
 
 type ActiveDownloadResponse struct {
@@ -806,16 +806,17 @@ func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 		return StatisticsResponse{}, apierr.Map(h.log, err, "load statistics")
 	}
 	out := StatisticsResponse{
-		Total:         stats.Totals.Total,
-		TotalSize:     stats.Totals.TotalSize,
-		TotalDuration: stats.Totals.TotalDuration,
-		ByStatus:      make([]StatsBucket, len(stats.ByStatus)),
-		ThisWeek:      stats.Totals.ThisWeek,
-		Incomplete:    stats.Totals.Incomplete,
-		Channels:      stats.Totals.Channels,
-		Removed:       stats.Totals.Removed,
-		WatchLater:    stats.Totals.WatchLater,
-		Unwatched:     stats.Totals.Unwatched,
+		Total:            stats.Totals.Total,
+		TotalSize:        stats.Totals.TotalSize,
+		TotalDuration:    stats.Totals.TotalDuration,
+		ByStatus:         make([]StatsBucket, len(stats.ByStatus)),
+		ThisWeek:         stats.Totals.ThisWeek,
+		Incomplete:       stats.Totals.Incomplete,
+		Channels:         stats.Totals.Channels,
+		Removed:          stats.Totals.Removed,
+		WatchLater:       stats.Totals.WatchLater,
+		Unwatched:        stats.Totals.Unwatched,
+		ContinueWatching: stats.Totals.ContinueWatching,
 	}
 	for i, b := range stats.ByStatus {
 		out.ByStatus[i] = StatsBucket{Status: VideoStatus(b.Status), Count: b.Count}
@@ -896,7 +897,8 @@ type ContinueWatchingInput struct {
 	Limit int `json:"limit" validate:"min=0,max=50"`
 }
 
-// ContinueWatching lists the user's unfinished recordings, most recently watched first.
+// ContinueWatching lists resumable recordings under the user's saved thresholds,
+// most recently watched first, including rewatches of completed recordings.
 func (h *Handler) ContinueWatching(ctx context.Context, input ContinueWatchingInput) ([]VideoResponse, error) {
 	user, err := middleware.RequireUser(ctx)
 	if err != nil {
@@ -1015,7 +1017,6 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context, userID string) ([
 }
 
 // activeDownloadsCoalesceInterval bounds DB snapshot frequency for live progress.
-// It is a var so tests can shrink it.
 var activeDownloadsCoalesceInterval = 250 * time.Millisecond
 
 func (h *Handler) ActiveDownloadsLive(ctx context.Context) (<-chan []ActiveDownloadResponse, error) {
@@ -1167,7 +1168,7 @@ type LiveRenditionsResponse struct {
 func (h *Handler) LiveRenditions(ctx context.Context, input LiveRenditionsInput) (LiveRenditionsResponse, error) {
 	result, err := h.download.LiveRenditions(ctx, input.BroadcasterID, input.ForceH264)
 	if err != nil {
-		// Usher returns 404 for offline channels; this is an expected empty result.
+		// Usher returns 404 when the channel is offline.
 		var authErr *dltwitch.AuthError
 		if errors.As(err, &authErr) && authErr.Status == http.StatusNotFound {
 			return LiveRenditionsResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "the channel is not live")
@@ -1205,8 +1206,7 @@ func (h *Handler) TriggerDownload(ctx context.Context, input TriggerDownloadInpu
 		UserID:        user.ID,
 	})
 	if err != nil {
-		// twitch.IsUserAuthError is a predicate, not an errors.Is sentinel, so
-		// it must be handled before Map (which can't match it).
+		// Map only matches sentinels, so classify Twitch authentication errors first.
 		if twitch.IsUserAuthError(err) {
 			h.log.Warn("trigger download", "error", err, "broadcaster_id", input.BroadcasterID)
 			return TriggerDownloadResponse{}, trpcgo.NewError(trpcgo.CodeUnauthorized,

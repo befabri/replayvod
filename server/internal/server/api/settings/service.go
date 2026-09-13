@@ -8,15 +8,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// Defaults for lazy-created rows. Match the column defaults in the
-// migration; duplicated here so Get can return sensible values without
-// a write round-trip on fresh accounts.
-const (
-	defaultTimezone       = "UTC"
-	defaultDatetimeFormat = "ISO"
-	defaultLanguage       = "en"
-)
-
 type Service struct {
 	repo repository.Repository
 	log  *slog.Logger
@@ -26,8 +17,7 @@ func New(repo repository.Repository, log *slog.Logger) *Service {
 	return &Service{repo: repo, log: log.With("domain", "settings")}
 }
 
-// Get returns the user's settings row, lazy-creating defaults on
-// first access so the UI never has to branch on "no row."
+// Get returns saved settings, inserting database defaults only if none exist.
 func (s *Service) Get(ctx context.Context, userID string) (*repository.Settings, error) {
 	row, err := s.repo.GetSettings(ctx, userID)
 	if err == nil {
@@ -36,14 +26,15 @@ func (s *Service) Get(ctx context.Context, userID string) (*repository.Settings,
 	if !errors.Is(err, repository.ErrNotFound) {
 		return nil, err
 	}
-	return s.repo.UpsertSettings(ctx, &repository.Settings{
-		UserID:         userID,
-		Timezone:       defaultTimezone,
-		DatetimeFormat: defaultDatetimeFormat,
-		Language:       defaultLanguage,
-	})
+	return s.repo.EnsureSettings(ctx, userID)
 }
 
+// Update changes locale preferences without replacing playback preferences.
 func (s *Service) Update(ctx context.Context, input *repository.Settings) (*repository.Settings, error) {
 	return s.repo.UpsertSettings(ctx, input)
+}
+
+// UpdatePlayback changes resume thresholds without replacing locale preferences.
+func (s *Service) UpdatePlayback(ctx context.Context, input *repository.Settings) (*repository.Settings, error) {
+	return s.repo.UpdatePlaybackSettings(ctx, input)
 }

@@ -52,7 +52,6 @@ func TestUpdate_RequiresAuth(t *testing.T) {
 }
 
 func TestGet_LazyCreatesDefaults(t *testing.T) {
-	// Insert the user first for the settings FK.
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
 	_, err := repo.UpsertUser(context.Background(), &repository.User{ID: "u1", Login: "alice", DisplayName: "Alice", Role: "viewer"})
@@ -69,14 +68,17 @@ func TestGet_LazyCreatesDefaults(t *testing.T) {
 	if got.UserID != "u1" {
 		t.Errorf("UserID = %q, want %q", got.UserID, "u1")
 	}
-	if got.Timezone != defaultTimezone {
-		t.Errorf("Timezone = %q, want %q", got.Timezone, defaultTimezone)
+	if got.Timezone != "UTC" {
+		t.Errorf("Timezone = %q, want UTC", got.Timezone)
 	}
-	if got.DatetimeFormat != defaultDatetimeFormat {
-		t.Errorf("DatetimeFormat = %q, want %q", got.DatetimeFormat, defaultDatetimeFormat)
+	if got.DatetimeFormat != "ISO" {
+		t.Errorf("DatetimeFormat = %q, want ISO", got.DatetimeFormat)
 	}
-	if got.Language != defaultLanguage {
-		t.Errorf("Language = %q, want %q", got.Language, defaultLanguage)
+	if got.Language != "en" {
+		t.Errorf("Language = %q, want en", got.Language)
+	}
+	if got.Playback != (UpdatePlaybackInput{ResumeMinSeconds: 5, ResumeEndMarginSeconds: 30, ResumeEndMarginPercent: 5}) {
+		t.Fatalf("unexpected playback defaults: %+v", got.Playback)
 	}
 }
 
@@ -172,5 +174,53 @@ func TestToResponse_FieldMapping(t *testing.T) {
 	}
 	if r.Language != s.Language {
 		t.Errorf("Language: %q != %q", r.Language, s.Language)
+	}
+}
+
+type firstSettingsReadRepo struct {
+	repository.Repository
+	afterMissingRead func() error
+}
+
+func (r *firstSettingsReadRepo) GetSettings(ctx context.Context, userID string) (*repository.Settings, error) {
+	row, err := r.Repository.GetSettings(ctx, userID)
+	if errors.Is(err, repository.ErrNotFound) && r.afterMissingRead != nil {
+		afterMissingRead := r.afterMissingRead
+		r.afterMissingRead = nil
+		if err := afterMissingRead(); err != nil {
+			return nil, err
+		}
+	}
+	return row, err
+}
+
+func TestGetDefaultsPreservesConcurrentFirstSave(t *testing.T) {
+	ctx := middleware.WithUser(t.Context(), &repository.User{ID: "first-save"})
+	r := &firstSettingsReadRepo{Repository: sqliteadapter.New(testdb.NewSQLiteDB(t))}
+	if _, err := r.UpsertUser(ctx, &repository.User{ID: "first-save", Login: "first-save", DisplayName: "First", Role: "viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	r.afterMissingRead = func() error {
+		if _, err := r.UpsertSettings(ctx, &repository.Settings{UserID: "first-save", Timezone: "Europe/Paris", DatetimeFormat: "EU", Language: "fr"}); err != nil {
+			return err
+		}
+		_, err := r.UpdatePlaybackSettings(ctx, &repository.Settings{UserID: "first-save", ResumeMinSeconds: 45, ResumeEndMarginSeconds: 20, ResumeEndMarginPercent: 10})
+		return err
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewHandler(New(r, log), log)
+	got, err := h.Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Timezone != "Europe/Paris" || got.DatetimeFormat != "EU" || got.Language != "fr" || got.Playback != (UpdatePlaybackInput{ResumeMinSeconds: 45, ResumeEndMarginSeconds: 20, ResumeEndMarginPercent: 10}) {
+		t.Fatalf("initial settings read replaced saved preferences: %+v", got)
+	}
+	stored, err := r.Repository.GetSettings(ctx, "first-save")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if toResponse(stored) != got {
+		t.Fatalf("settings response differs from stored preferences: response=%+v stored=%+v", got, stored)
 	}
 }

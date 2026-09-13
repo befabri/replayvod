@@ -342,6 +342,12 @@ export const UpdatePlaybackCacheConfigInputSchema = z.object({
   auto_generate: z.boolean(),
 }).meta({ id: "UpdatePlaybackCacheConfigInput" });
 
+export const UpdatePlaybackInputSchema = z.object({
+  resume_min_seconds: z.int().gte(1).lte(600),
+  resume_end_margin_seconds: z.int().gte(1).lte(600),
+  resume_end_margin_percent: z.int().gte(1).lte(50),
+}).meta({ id: "UpdatePlaybackInput" });
+
 export const UpdateUserRoleInputSchema = z.object({
   user_id: z.string().min(1),
   role: z.enum(["viewer", "admin", "owner"]).check(z.minLength(1)),
@@ -387,7 +393,7 @@ export const VideoListPageCursorSchema = z.object({
 export const VideoListPageInputSchema = z.object({
   limit: z.int().gte(0).lte(200),
   status: z.enum(["PENDING", "RUNNING", "DONE", "FAILED"]).or(z.literal("")).optional(),
-  sort: z.enum(["created_at", "duration", "size", "channel", "history_when", "broadcast_at"]).or(z.literal("")).optional(),
+  sort: z.enum(["created_at", "duration", "size", "channel", "history_when", "broadcast_at", "last_watched"]).or(z.literal("")).optional(),
   order: z.enum(["asc", "desc"]).or(z.literal("")).optional(),
   quality: z.string().optional(),
   broadcaster_id: z.string().optional(),
@@ -396,12 +402,13 @@ export const VideoListPageInputSchema = z.object({
   duration: z.enum(["short", "medium", "long", "marathon"]).or(z.literal("")).optional(),
   size: z.enum(["small", "medium", "large"]).or(z.literal("")).optional(),
   window: z.enum(["this_week"]).or(z.literal("")).optional(),
-  outcome: z.enum(["completed", "failed", "cancelled"]).or(z.literal("")).optional().describe("Outcome separates operator cancellations from failures even though both\nare stored with FAILED status."),
+  outcome: z.enum(["completed", "failed", "cancelled"]).or(z.literal("")).optional().describe("Outcome distinguishes operator cancellation from other FAILED recordings."),
   incomplete_only: z.boolean().optional(),
   watch_later_only: z.boolean().optional(),
+  continue_watching_only: z.boolean().optional(),
   unwatched_only: z.boolean().optional(),
   terminal_only: z.boolean().optional(),
-  deletion_kind: z.enum(["retention", "manual", "missing"]).or(z.literal("")).optional().describe("DeletionKind filters tombstones and applies only with Scope removed or all.\nAn empty Scope defaults to active recordings."),
+  deletion_kind: z.enum(["retention", "manual", "missing"]).or(z.literal("")).optional().describe("DeletionKind applies only with Scope removed or all; empty Scope means active."),
   scope: z.enum(["active", "removed", "all"]).or(z.literal("")).optional(),
   cursor: VideoListPageCursorSchema.optional(),
 }).meta({ id: "VideoListPageInput" });
