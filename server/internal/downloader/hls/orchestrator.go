@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,6 +48,14 @@ type JobConfig struct {
 	// StartMediaSeq excludes earlier sequences except RefetchSeqs; zero starts from the playlist head.
 	StartMediaSeq int64
 
+	// Recovering restores an anchored part's first-window checkpoint and split decision.
+	// It exempts that initial range from gap policy; expired refetches still enforce policy.
+	Recovering bool
+
+	// ResolvedSeqs skips media and permanent gaps reflected in the seeds, plus advertisements.
+	// Authorization gaps remain eligible for refetch and must not be included.
+	ResolvedSeqs []int64
+
 	// OnEvent reports exact outcomes in processing order, which can differ from media sequence order.
 	// Callbacks run sequentially and must finish quickly.
 	OnEvent func(SegmentEvent)
@@ -54,9 +63,8 @@ type JobConfig struct {
 	// OnFirstPoll runs before any segment outcome, allowing callers to persist the acquisition anchor.
 	OnFirstPoll func(PollResult)
 
-	// OnWindowRoll runs before OnFirstPoll when recovery loses the inclusive range [from, to].
-	// The playlist target duration estimates lost time; callers must record the loss to advance
-	// recovery.
+	// OnWindowRoll records the inclusive initial loss [from, to] before OnFirstPoll.
+	// A missing callback is fatal outside Recovering; targetDuration estimates lost time.
 	OnWindowRoll func(from, to int64, targetDuration time.Duration)
 
 	// OnMidStreamWindowRoll records the inclusive lost range [from, to] during capture.
@@ -72,8 +80,8 @@ type JobConfig struct {
 	SeedSegmentsDone int64
 	SeedSegmentsGaps int64
 
-	// RefetchSeqs retries unresolved sequences below StartMediaSeq under a fresh playback URL.
-	// Sequences already absent from the CDN remain gaps.
+	// RefetchSeqs retries unresolved sequences, including those below StartMediaSeq.
+	// Expired sequences must pass gap policy before acquisition can continue.
 	RefetchSeqs []int64
 }
 
@@ -128,6 +136,8 @@ type JobResult struct {
 
 	// EndList requires both ENDLIST and every final queued segment to finish durably.
 	EndList bool
+
+	accounted sequenceRanges
 }
 
 // GapAbortError identifies a content loss that exceeded policy.
@@ -161,6 +171,14 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		SegmentsDone: cfg.SeedSegmentsDone,
 		SegmentsGaps: cfg.SeedSegmentsGaps,
 	}
+	var resolved map[int64]bool
+	if len(cfg.ResolvedSeqs) > 0 {
+		resolved = make(map[int64]bool, len(cfg.ResolvedSeqs))
+		for _, seq := range cfg.ResolvedSeqs {
+			resolved[seq] = true
+			result.accounted.add(seq, seq)
+		}
+	}
 	if err := evaluateGapCount(&cfg.GapPolicy, result, 0, 0, errors.New("inherited content loss")); err != nil {
 		return result, err
 	}
@@ -188,6 +206,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		SkipEvents:    skipEvents,
 		ClassifyAuth:  cfg.ClassifyAuth,
 		RefetchSeqs:   refetchMap,
+		ResolvedSeqs:  resolved,
 	}
 	pool := &Pool{
 		Files:   cfg.Files,
@@ -234,12 +253,9 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		return result, g.Wait()
 	}
 	result.Kind = pr.Kind
-	// Record the lost range before any callback advances the durable frontier.
-	if cfg.OnWindowRoll != nil && pr.WindowRollFrom > 0 && pr.WindowRollTo >= pr.WindowRollFrom {
-		cfg.OnWindowRoll(pr.WindowRollFrom, pr.WindowRollTo, pr.TargetDuration)
-	}
-	if cfg.OnFirstPoll != nil {
-		cfg.OnFirstPoll(pr)
+	// Resolve bootstrap loss before a callback advances the frontier or media workers start.
+	if err := applyInitialLoss(&cfg, result, pr); err != nil {
+		return result, err
 	}
 	if pr.Init != nil {
 		result.InitURI = pr.Init.URI
@@ -281,6 +297,56 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	// ENDLIST alone cannot prove completion if cancellation interrupted the final worker queue.
 	result.EndList = poller.endListSeen && poolCompletedClean.Load() && result.SegmentsCanceled == 0
 	return result, nil
+}
+
+func applyInitialLoss(cfg *JobConfig, result *JobResult, first PollResult) error {
+	windowRolled := first.WindowRollFrom > 0 && first.WindowRollTo >= first.WindowRollFrom
+	var windowLoss int64
+	if windowRolled {
+		windowLoss = result.accounted.additional(first.WindowRollFrom, first.WindowRollTo)
+	}
+	losses := slices.Clone(result.accounted)
+	var additional, lastLost int64
+	if windowRolled && !cfg.Recovering {
+		additional += losses.additional(first.WindowRollFrom, first.WindowRollTo)
+		losses.add(first.WindowRollFrom, first.WindowRollTo)
+		lastLost = first.WindowRollTo
+	}
+	for _, seq := range first.ExpiredRefetchSeqs {
+		additional += losses.additional(seq, seq)
+		losses.add(seq, seq)
+		lastLost = max(lastLost, seq)
+	}
+	cause := errors.New("requested media is no longer in the playlist")
+	if err := evaluateGapCount(&cfg.GapPolicy, result, additional, lastLost, cause); err != nil {
+		return err
+	}
+	if windowLoss > 0 && !cfg.Recovering && cfg.OnWindowRoll == nil {
+		return &GapAbortError{
+			Reason:  "initial window roll callback not configured",
+			Done:    result.SegmentsDone,
+			Gaps:    result.SegmentsGaps,
+			LastSeq: first.WindowRollTo,
+			LastErr: cause,
+		}
+	}
+	result.SegmentsGaps += additional
+	result.accounted = losses
+	result.LastMediaSeq = max(result.LastMediaSeq, lastLost)
+	if windowRolled && windowLoss == 0 {
+		result.LastMediaSeq = max(result.LastMediaSeq, first.WindowRollTo)
+	}
+	// Restart-gap splitting must precede threshold sealing caused by a resolved refetch.
+	if windowLoss > 0 && cfg.OnWindowRoll != nil {
+		cfg.OnWindowRoll(first.WindowRollFrom, first.WindowRollTo, first.TargetDuration)
+	}
+	if cfg.OnFirstPoll != nil {
+		cfg.OnFirstPoll(first)
+	}
+	for _, seq := range first.ExpiredRefetchSeqs {
+		emitEvent(cfg.OnEvent, SegmentEvent{MediaSeq: seq, Outcome: OutcomeRefetchExpired, Err: cause})
+	}
+	return nil
 }
 
 func emitEvent(onEvent func(SegmentEvent), ev SegmentEvent) {
@@ -421,6 +487,8 @@ func drainOutcomes(
 				return skipEnd
 			}
 			switch ev.Reason {
+			case SkipReasonResolved:
+				advanceSkip()
 			case SkipReasonStitchedAd:
 				advanceSkip()
 				// Twitch advertisements are excluded from content-loss policy.
@@ -456,7 +524,27 @@ func drainOutcomes(
 					cancel()
 					continue
 				}
+			case SkipReasonRefetchExpired:
+				advanceSkip()
+				additional := result.accounted.additional(ev.MediaSeq, ev.MediaSeq)
+				cause := errors.New("requested refetch is no longer in the playlist")
+				if abortErr == nil {
+					if err := evaluateGapCount(&cfg.GapPolicy, result, additional, ev.MediaSeq, cause); err != nil {
+						abortErr = err
+						cancel()
+						continue
+					}
+				}
+				result.SegmentsGaps += additional
+				result.accounted.add(ev.MediaSeq, ev.MediaSeq)
+				emitEvent(cfg.OnEvent, SegmentEvent{MediaSeq: ev.MediaSeq, Outcome: OutcomeRefetchExpired, Err: cause})
 			case SkipReasonWindowRolled:
+				skipEnd := max(ev.MediaSeq, ev.EndMediaSeq)
+				lostSegments := result.accounted.additional(ev.MediaSeq, skipEnd)
+				if lostSegments == 0 {
+					advanceSkip()
+					break
+				}
 				if cfg.OnMidStreamWindowRoll == nil {
 					if abortErr == nil {
 						abortErr = &GapAbortError{
@@ -473,16 +561,12 @@ func drainOutcomes(
 					}
 					continue
 				}
-				skipEnd := advanceSkip()
-				lostSegments := skipEnd - ev.MediaSeq + 1
-				if lostSegments < 1 {
-					lostSegments = 1
-				}
-				// Mid-stream rolls are real range gaps; count the whole lost range
-				// before calling durable accounting.
+				advanceSkip()
+				// Count only new loss in the range before calling durable accounting.
 				acceptWindowRoll := func(postAbort bool) {
 					gapsBefore := result.SegmentsGaps
 					result.SegmentsGaps += lostSegments
+					result.accounted.add(ev.MediaSeq, skipEnd)
 					total := result.SegmentsDone + result.SegmentsGaps
 					var gapRatio float64
 					if total > 0 {
@@ -562,9 +646,9 @@ func evaluateMalformedGap(p *GapPolicy, r *JobResult, seq int64) *GapAbortError 
 	return err
 }
 
-// evaluateWindowRollGap counts the entire lost range when evaluating the gap ratio.
+// evaluateWindowRollGap evaluates range loss excluding already accounted refetches.
 func evaluateWindowRollGap(p *GapPolicy, r *JobResult, from, to int64) *GapAbortError {
-	err := evaluateGapCount(p, r, max(1, to-from+1), to, errors.New("playlist window rolled mid-stream"))
+	err := evaluateGapCount(p, r, r.accounted.additional(from, max(from, to)), to, errors.New("playlist window rolled mid-stream"))
 	if err != nil {
 		err.Reason += " (window roll)"
 	}

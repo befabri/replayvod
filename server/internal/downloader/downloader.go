@@ -1309,7 +1309,7 @@ func captureHadWindowRoll(resume *ResumeState) bool {
 	before := resume.HadWindowRoll
 	if !resume.HadWindowRoll {
 		for _, g := range resume.Gaps {
-			if g.Reason == GapReasonRestartWindowRolled {
+			if g.Reason == GapReasonRestartWindowRolled || g.Reason == GapReasonWindowRolled || g.Reason == GapReasonRefetchExpired {
 				resume.HadWindowRoll = true
 				break
 			}
@@ -1637,15 +1637,17 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		maxAuthAttempts = 2
 	}
 
-	agg := &hls.JobResult{}
+	done, gaps := d.resume.policyCounts()
+	agg := &hls.JobResult{SegmentsDone: done, SegmentsGaps: gaps}
+	if d.resume.PartStarted {
+		agg.LastMediaSeq = d.resume.AccountedFrontierMediaSeq
+	}
 	var authAttempts int
 	unresolvedCanceled := map[int64]bool{}
 
-	// Seed authentication retries from the checkpoint so a crash cannot lose pending refetches.
-	refetchSeqs := d.resume.AuthGapSeqs()
-
 	// Authentication refreshes must retain the part's first playlist anchor.
 	bootstrapped := d.resume.PartStarted
+	recovering := bootstrapped
 
 	var startSeq int64
 	if bootstrapped {
@@ -1732,11 +1734,11 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		}
 
 		// Check restart-gap splitting before sealing a size threshold crossed by buffered commits.
-		recordWindowRollGap := func(from, to int64, logMsg string, split func() bool) {
-			boundary, thresholdReached := acct.recordRangeGap(from, to, GapReasonRestartWindowRolled)
+		recordWindowRollGap := func(from, to int64, reason GapReason, logMsg string, split func() bool) {
+			boundary, thresholdReached := acct.recordRangeGap(from, to, reason)
 			d.refreshMediaOffset()
 			log.Warn(logMsg,
-				"reason", GapReasonRestartWindowRolled,
+				"reason", reason,
 				"from", from,
 				"to", to,
 				"lost_segments", to-from+1)
@@ -1749,8 +1751,16 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			s.checkpointResume(dbCtx, d, log)
 		}
 
+		// A playlist can reject authentication before reporting any segment outcomes.
+		// Keep checkpoint retries until media commits or permanent loss resolves them.
+		var authSeqs []int64
+		if d.resume.PartStarted {
+			authSeqs = d.resume.AuthGapSeqs()
+		}
 		result, err := runHLSAttempt(splitCtx, emitter, hls.JobConfig{
 			Files:              d.workspace,
+			Recovering:         recovering,
+			ResolvedSeqs:       d.resume.resolvedSeqs(),
 			MediaPlaylistURL:   variant.URL,
 			WorkDir:            segmentsDir,
 			Fetcher:            s.fetcher,
@@ -1762,12 +1772,14 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			// Authentication refreshes must retain the part's gap-policy history.
 			SeedSegmentsDone: agg.SegmentsDone,
 			SeedSegmentsGaps: agg.SegmentsGaps,
-			RefetchSeqs:      refetchSeqs,
+			RefetchSeqs:      refetchSeqsForNextAttempt(authSeqs, unresolvedCanceled),
 			GapPolicy: hls.GapPolicy{
 				Strict:      s.cfg.App.Download.Strict,
 				MaxGapRatio: s.cfg.App.Download.MaxGapRatio,
 			},
 			OnFirstPoll: func(first hls.PollResult) {
+				// Failed playlist authentication does not consume the restoration snapshot.
+				recovering = false
 				if d.resume.SegmentFormat == "" {
 					d.resume.SegmentFormat = string(first.Kind)
 				}
@@ -1781,7 +1793,11 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			},
 			OnWindowRoll: func(from, to int64, targetDuration time.Duration) {
 				// A large first-poll resume roll starts a new part before threshold sealing.
-				recordWindowRollGap(from, to, "resume gap recorded", func() bool {
+				reason := GapReasonWindowRolled
+				if recovering {
+					reason = GapReasonRestartWindowRolled
+				}
+				recordWindowRollGap(from, to, reason, "resume gap recorded", func() bool {
 					if !shouldForceSplitOnRestartGap(from, to, targetDuration, thresholdSeconds, d.resume) {
 						return false
 					}
@@ -1800,7 +1816,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			},
 			OnMidStreamWindowRoll: func(from, to int64) {
 				// Mid-stream holes stay inside the current part.
-				recordWindowRollGap(from, to, "mid-stream window roll recorded as gap", nil)
+				recordWindowRollGap(from, to, GapReasonWindowRolled, "mid-stream window roll recorded as gap", nil)
 			},
 			OnEvent: func(ev hls.SegmentEvent) {
 				if d.resume.PendingThresholdSplit &&
@@ -1818,6 +1834,8 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 					acct.gap(ev.MediaSeq, GapReasonStitchedAd)
 				case hls.OutcomeMalformedSkip:
 					acct.gap(ev.MediaSeq, GapReasonMalformed)
+				case hls.OutcomeRefetchExpired:
+					acct.gap(ev.MediaSeq, GapReasonRefetchExpired)
 				case hls.OutcomeAuth:
 					acct.authGap(ev.MediaSeq)
 				}
@@ -1837,13 +1855,12 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		s.checkpointResume(dbCtx, d, log)
 		eventsSinceCheckpoint = 0
 
-		refetchSeqs = nil
-
 		// Done and gap counters are seeded per part; bytes and ad gaps are per attempt.
 		if result != nil {
 			foldHLSAttemptResult(agg, result, d.resume, unresolvedCanceled)
-			refetchSeqs = refetchSeqsForNextAttempt(result.AuthErrorSeqs, unresolvedCanceled)
-			startSeq = agg.LastMediaSeq + 1
+			if result.Kind != "" {
+				startSeq = max(startSeq, agg.LastMediaSeq+1, d.resume.AccountedFrontierMediaSeq+1)
+			}
 		}
 
 		if err == nil {

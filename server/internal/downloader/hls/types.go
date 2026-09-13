@@ -1,29 +1,10 @@
-// Package hls implements the media-playlist side of Stage 4 of the
-// download pipeline: parsing the per-variant playlist Twitch's CDN
-// serves, gating on unsupported features, and (in Phase 4b) the
-// segment worker pool that fetches and writes .ts / .m4s files to
-// disk.
-//
-// The master-playlist side (Stage 2) + variant selection (Stage 3)
-// lives in internal/downloader/twitch. The orchestration that
-// stitches them together (Phase 4c) lives in the parent downloader
-// package.
-//
-// Why a separate package from twitch/: the media playlist talks to
-// an arbitrary CDN edge URL — not a Twitch-branded host. The
-// twitch/ package concentrates Twitch-specific auth (gql +
-// integrity + playback token); once a playback token is in hand,
-// segment fetching is generic HLS and doesn't need Twitch's client
-// ID or integrity cache.
+// Package hls parses media playlists and acquires TS or fMP4 fragments from CDN
+// URLs; callers provide signed URLs and manage Twitch authentication separately.
 package hls
 
 import "time"
 
-// SegmentKind distinguishes the two HLS fragment containers we
-// support. "ts" is MPEG-TS (the common case across anonymous
-// captures); "fmp4" is CMAF / fMP4 with an EXT-X-MAP init segment.
-// Spec Stage 4: these are the two supported paths; everything else
-// (byterange, encryption, LL-HLS parts) gets rejected at the gate.
+// SegmentKind identifies MPEG-TS (ts) or CMAF fragments with initialization (fmp4).
 type SegmentKind string
 
 const (
@@ -31,109 +12,69 @@ const (
 	SegmentKindFMP4 SegmentKind = "fmp4"
 )
 
-// SegmentOutcome is the per-segment result class Run reports to a
-// JobConfig.OnEvent callback. Designed for durable accounting
-// (resume-on-restart, accounted-frontier tracking) — distinct from
-// the cumulative Progress stream which is UI-only and lossy.
+// SegmentOutcome classifies exact observations for durable recording accounting.
 type SegmentOutcome string
 
 const (
-	// OutcomeCommitted: worker successfully fetched + renamed.
+	// OutcomeCommitted identifies a durably published segment.
 	OutcomeCommitted SegmentOutcome = "committed"
 
-	// OutcomeGapAccepted: worker failed permanently, gap policy
-	// tolerated it as a gap.
+	// OutcomeGapAccepted identifies content loss permitted by gap policy.
 	OutcomeGapAccepted SegmentOutcome = "gap_accepted"
 
-	// OutcomeAdSkipped: poller filtered a stitched-ad segment
-	// before it was enqueued. Carries the MediaSeq so resume
-	// state records the frontier advance with a typed reason.
+	// OutcomeAdSkipped identifies an advertisement excluded from content-loss policy.
 	OutcomeAdSkipped SegmentOutcome = "ad_skipped"
 
-	// OutcomeAuth: worker hit an auth failure. The orchestrator
-	// escalates via ErrPlaylistAuth; this event lets resume
-	// state record which seq triggered the refresh boundary.
+	// OutcomeAuth identifies a sequence whose authorization failure requires caller handling.
 	OutcomeAuth SegmentOutcome = "auth"
 
-	// OutcomeMalformedSkip: poller filtered a segment with
-	// invariant-violating metadata (EXTINF <= 0) before any
-	// fetch. Recorded as a gap with GapReasonMalformed so
-	// resume state distinguishes structural manifest defects
-	// from fetch/auth failures.
+	// OutcomeRefetchExpired resolves a requested retry that the playlist can no longer serve.
+	OutcomeRefetchExpired SegmentOutcome = "refetch_expired"
+
+	// OutcomeMalformedSkip identifies permitted loss from nonpositive EXTINF metadata.
 	OutcomeMalformedSkip SegmentOutcome = "malformed_skip"
 )
 
-// SegmentEvent is one sequence-level outcome observation. Delivered
-// synchronously to JobConfig.OnEvent from Run's drain goroutine, so
-// the callback sees events in the order Run processed them — no
-// reordering, no duplication. Callbacks must be fast: they block the
-// drain loop. Long-running work belongs behind a channel the
-// callback writes to.
-//
-// Contrast with Progress: Progress is cumulative + lossy (non-
-// blocking send, each event supersedes). SegmentEvent is per-event
-// + exact — the right shape for frontier accounting, audit logs,
-// or anything that needs "did seq N happen?" certainty.
+// SegmentEvent is a synchronous observation from Run, including accepted bootstrap loss.
+// OnFirstPoll precedes these events; callbacks are sequential and must finish quickly.
 type SegmentEvent struct {
-	// MediaSeq of the segment this event describes.
 	MediaSeq int64
 
-	// Outcome classifies what happened.
 	Outcome SegmentOutcome
 
-	// BytesWritten is non-zero only for OutcomeCommitted — the
-	// byte count of the finalized file on disk.
+	// BytesWritten counts published file bytes and is zero unless Outcome is OutcomeCommitted.
 	BytesWritten int64
 
-	// DurationSeconds is the segment's EXTINF, set only for
-	// OutcomeCommitted. Lets durable-accounting consumers sum a
-	// part's wall-clock duration at commit time (e.g. the
-	// size/duration part-split threshold) without re-parsing the
-	// playlist. Zero for every non-committed outcome.
+	// DurationSeconds is EXTINF duration for OutcomeCommitted and zero otherwise.
 	DurationSeconds float64
 
-	// Err carries the underlying cause for OutcomeGapAccepted
-	// and OutcomeAuth. Nil for Committed + AdSkipped.
+	// Err carries the cause of authorization failure or accepted content loss.
 	Err error
 }
 
-// SkipReason classifies why the Poller filtered a segment before
-// it was ever enqueued. Skipped segments never see a worker and never
-// produce bytes on disk. Different reasons map to different downstream
-// accounting: ads are structurally expected and counted separately from
-// real loss; malformed segments and mid-stream window rolls are real
-// content loss and apply gap policy.
+// SkipReason distinguishes policy-exempt advertisements from content lost before fetching.
 type SkipReason string
 
 const (
-	// SkipReasonStitchedAd: segment fell inside a Twitch
-	// stitched-ad pod (EXT-X-DATERANGE CLASS="twitch-stitched-ad").
-	// Structurally expected; does NOT count against MaxGapRatio.
-	// Counted in JobResult.SegmentsAdGaps.
+	// SkipReasonStitchedAd identifies Twitch advertisement metadata excluded from gap policy.
 	SkipReasonStitchedAd SkipReason = "stitched-ad"
 
-	// SkipReasonMalformed: segment had an invariant-violating
-	// EXTINF value (Duration <= 0). Protocol-legal per RFC 8216
-	// but semantically degenerate — a zero-duration fetch produces
-	// empty/broken bytes, silently shortens the remuxed output,
-	// and isn't caught by Stage 9 corruption heal (format +
-	// stream durations come from the same file so they agree on
-	// the shortened reality). The poller skips these before any
-	// fetch; the orchestrator treats them as gaps that count
-	// against MaxGapRatio since, unlike ads, they represent real
-	// content loss.
+	// SkipReasonMalformed identifies nonpositive EXTINF, which silently shortens output
+	// without creating a duration mismatch detectable after remuxing.
 	SkipReasonMalformed SkipReason = "malformed"
 
-	// SkipReasonWindowRolled means a mid-stream CDN refresh jumped past
-	// the poller's frontier, losing [MediaSeq, EndMediaSeq]. This is real
-	// content loss and can recur after the first poll.
+	// SkipReasonWindowRolled covers an inclusive lost range [MediaSeq, EndMediaSeq]
+	// after the initial playlist; it can recur during capture.
 	SkipReasonWindowRolled SkipReason = "window-rolled"
+
+	// SkipReasonRefetchExpired identifies an unresolved retry that can no longer arrive.
+	SkipReasonRefetchExpired SkipReason = "refetch-expired"
+
+	// SkipReasonResolved advances the cursor over durable outcomes without repeating accounting.
+	SkipReasonResolved SkipReason = "resolved"
 )
 
-// SkipEvent is the Poller's "this segment(s) was filtered before
-// enqueue" signal. One channel carries every reason class so the
-// orchestrator's drain loop has a single dispatch point and the
-// Poller doesn't need a parallel channel per defect type.
+// SkipEvent reports a filtered sequence or lost range before acquisition.
 type SkipEvent struct {
 	MediaSeq int64
 	// EndMediaSeq closes the lost range for SkipReasonWindowRolled.
@@ -142,103 +83,55 @@ type SkipEvent struct {
 	Reason      SkipReason
 }
 
-// Segment is one media fragment parsed out of the media playlist.
-// Fields are minimal by design: the parser thins Eyevinn's rich
-// MediaSegment down to what the fetch loop actually consults. All
-// ad-stitching / muted-DMCA / gap-reason metadata gets added in
-// Phase 4b when the fetch loop needs it.
+// Segment represents one fragment with an absolute media sequence and EXTINF metadata.
 type Segment struct {
-	// MediaSeq is the segment's EXT-X-MEDIA-SEQUENCE position
-	// (the playlist's base seqNo plus the segment's offset).
-	// Stable across playlist refreshes: the fetch loop dedupes
-	// by this value.
+	// MediaSeq is the absolute EXT-X-MEDIA-SEQUENCE position, stable across playlist refreshes.
 	MediaSeq int64
 
-	// URI is the segment URL as it appeared in the playlist.
-	// Relative URIs are resolved against the playlist URL by
-	// the parser caller, not here.
+	// URI preserves playlist spelling until the caller resolves relative references.
 	URI string
 
-	// Duration is EXTINF in seconds. Used by the progress
-	// reporter to estimate remaining time; the fetcher doesn't
-	// care.
+	// Duration is EXTINF in seconds.
 	Duration float64
 
-	// Discontinuity is true when the preceding tag was
-	// EXT-X-DISCONTINUITY. The orchestrator's ad-gap logic
-	// walks these boundaries; the fetcher itself just records
-	// the flag.
+	// Discontinuity records the preceding EXT-X-DISCONTINUITY tag.
 	Discontinuity bool
 
-	// IsAd is true when this segment falls inside a Twitch
-	// stitched-ad pod. Attributed by the parser from an
-	// EXT-X-DATERANGE tag with CLASS="twitch-stitched-ad" or
-	// an ID starting with "stitched-ad-", using the segment's
-	// EXT-X-PROGRAM-DATE-TIME to check membership in the
-	// DateRange's [START-DATE, START-DATE+DURATION) interval.
-	//
-	// The poller skips ad segments entirely — they don't enter
-	// the fetch queue, aren't written to disk, and don't count
-	// against the gap policy's MaxGapRatio. Muted-DMCA segments
-	// are NOT ads; only the DateRange class check sets this.
+	// IsAd identifies membership in a Twitch stitched-ad DateRange by program date-time.
+	// Muted-DMCA segments remain content and must not be classified as advertisements.
 	IsAd bool
 }
 
-// InitSegment is the #EXT-X-MAP entry pointing at the fMP4
-// initialization section (usually a small MP4 moov+ftyp). Only
-// present when MediaPlaylist.Kind = SegmentKindFMP4.
+// InitSegment is the EXT-X-MAP initialization required by fMP4 playlists.
 type InitSegment struct {
 	URI string
 }
 
-// MediaPlaylist is the parsed per-variant playlist. All fields
-// except Segments are inputs to the fetch loop's control flow:
-// Kind chooses the segment-file extension, TargetDuration drives
-// the poll interval, EndList is the termination signal for VOD
-// (or post-stream live), MediaSequenceBase anchors the seqNo
-// math on the first refresh.
+// MediaPlaylist is one parsed snapshot; live playlists usually expose a sliding window.
 type MediaPlaylist struct {
-	// Kind distinguishes TS from fMP4. Determined by the
-	// presence of EXT-X-MAP (fMP4) or its absence (TS). Not
-	// by URI suffix — some Twitch fMP4 playlists use .mp4 URIs
-	// and a `.ts`-named variant can theoretically be fMP4.
+	// Kind follows EXT-X-MAP presence, since URI suffixes do not reliably identify the container.
 	Kind SegmentKind
 
-	// Init is the EXT-X-MAP init segment when Kind=fmp4, nil
-	// for TS. A non-nil Init with Kind=ts is malformed and the
-	// parser rejects it before returning.
+	// Init is required for fMP4 and nil for TS.
 	Init *InitSegment
 
-	// TargetDuration is EXT-X-TARGETDURATION rounded to whole
-	// seconds (the spec requires integer values ≥ max actual
-	// segment duration). The poll loop uses this as its tick
-	// interval.
+	// TargetDuration is EXT-X-TARGETDURATION in whole seconds.
 	TargetDuration time.Duration
 
-	// MediaSequenceBase is EXT-X-MEDIA-SEQUENCE — the
-	// MediaSeq of Segments[0]. 0 is a valid base (a freshly
-	// started stream before the window has slid).
+	// MediaSequenceBase is EXT-X-MEDIA-SEQUENCE, including for empty playlists; zero is valid.
 	MediaSequenceBase int64
 
-	// Segments is the ordered list of media fragments in this
-	// playlist snapshot. Live playlists publish a sliding
-	// window; VOD / post-stream publishes the whole thing.
+	// Segments remains in playlist order across the sliding live window.
 	Segments []Segment
 
-	// EndList is true when EXT-X-ENDLIST was present —
-	// "playlist complete, no more segments will be appended."
-	// Fetch loop's termination signal for VOD jobs and for
-	// live jobs whose stream has ended.
+	// EndList records EXT-X-ENDLIST, meaning no further segments can be appended.
 	EndList bool
 }
 
-// Len reports the number of segments in the playlist. Convenience
-// for callers that want the count without range-loop noise.
+// Len returns the number of segments in this snapshot.
 func (p *MediaPlaylist) Len() int { return len(p.Segments) }
 
-// MaxMediaSeq returns the highest MediaSeq in the playlist, or
-// MediaSequenceBase-1 when empty. Used by the poll loop to
-// advance its "highest seen" cursor without re-walking Segments.
+// MaxMediaSeq returns the highest sequence, or MediaSequenceBase-1 when empty.
 func (p *MediaPlaylist) MaxMediaSeq() int64 {
 	if len(p.Segments) == 0 {
 		return p.MediaSequenceBase - 1

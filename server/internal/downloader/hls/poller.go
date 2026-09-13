@@ -8,146 +8,64 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync/atomic"
 	"time"
 )
 
-// segmentJob is the unit of work produced by the poller and
-// consumed by the worker pool. One per segment published by the
-// media playlist, deduped by MediaSeq across poll cycles.
-//
-// Kind + Part name are baked in so the worker doesn't re-derive
-// them; they're stable for the life of a part (changing them is
-// a part-boundary event handled at the orchestrator level).
+// segmentJob fixes the container and filename for one sequence; changing either
+// requires a new recording part.
 type segmentJob struct {
 	Segment   Segment
 	Kind      SegmentKind
 	FinalName string // e.g. "42.ts" or "105.m4s"
 
-	// TargetDuration is the playlist's observed EXT-X-TARGETDURATION
-	// at the poll when this segment was enqueued. The fetcher's CDN-
-	// lag retry (404/410 path) sleeps half of this between attempts
-	// so the cadence tracks the stream's actual window rather than
-	// the Fetcher's 2s default. Propagated per-job because Fetcher
-	// is process-wide shared state.
+	// TargetDuration is the observed EXT-X-TARGETDURATION for this job.
+	// CDN-lag retries use half of it without mutating the shared Fetcher.
 	TargetDuration time.Duration
 }
 
-// Poller polls a media playlist URL on a target-duration tick,
-// diffs the returned segments against the highest mediaSeq it
-// has already enqueued, and sends new segments to out. Termina-
-// tion: playlist EndList → close(out) + return nil. ctx cancel →
-// close(out) + return ctx.Err().
-//
-// Auth errors (401/403 on the playlist fetch) bubble up as the
-// return value so the orchestrator can trigger auth refresh at
-// the master-playlist level. Transient network + server errors
-// are retried in-place with full-jitter backoff for a bounded
-// number of attempts before escalating — a transient edge blip
-// during a live stream shouldn't kill the job.
+// Poller acquires media-playlist snapshots, emitting each eligible sequence once.
+// Callers own authorization renewal; transient playlist failures retry in place.
 type Poller struct {
-	// URL is the signed media-playlist URL. Owned by the
-	// orchestrator; a new Poller is constructed if the URL
-	// changes (e.g. after auth refresh or variant switch).
+	// URL must include the playlist signature; changing it requires a new Poller.
 	URL string
 
-	// HTTPClient is the http.Client used to fetch the playlist.
-	// Distinct from the Fetcher's client so playlist calls can
-	// carry different header defaults and timeouts without
-	// affecting segment throughput.
+	// HTTPClient defaults to http.DefaultClient and may differ from the segment client.
 	HTTPClient *http.Client
 
-	// Log is the per-job logger; fields added by the poller
-	// live under domain=hls.poller.
 	Log *slog.Logger
 
-	// MaxAttempts caps the in-place retry budget for transient
-	// playlist fetch failures. Default 5.
+	// MaxAttempts defaults to five when nonpositive.
 	MaxAttempts int
 
-	// MinTick is the lower bound applied to the observed
-	// TargetDuration. Prevents a pathological manifest with a
-	// 1-second TargetDuration from pounding the CDN. Default
-	// 1 second.
+	// MinTick bounds the poll interval and defaults to one second when nonpositive.
 	MinTick time.Duration
 
-	// BackoffBase + BackoffMax control the full-jitter
-	// exponential sleep between playlist-retry attempts.
-	// Default 200ms / 5s — tuned for playlist fetches which
-	// are small JSON-ish bodies, not for the segment-retry
-	// path (which lives in FetcherConfig). Exposed so Phase
-	// 4d's resume-only Poller path can use a tighter window.
+	// BackoffBase and BackoffMax default to 200ms and 5s for playlist retries.
 	BackoffBase time.Duration
 	BackoffMax  time.Duration
 
-	// StartMediaSeq optionally skips segments whose MediaSeq is
-	// below this threshold. Used by the auth-refresh and
-	// resume-on-restart paths: after a fresh signed URL is
-	// obtained, the Poller should pick up where the previous
-	// attempt left off rather than re-emit already-committed
-	// segments.
-	//
-	// Zero (the default) means "emit everything the playlist
-	// publishes." Set to last_seen_mediaSeq + 1 to resume.
-	//
-	// Window-roll detection: if the playlist's first segment
-	// has MediaSeq > StartMediaSeq the poller logs a warn and
-	// continues from whatever the playlist exposes — those
-	// segments are lost. Full gap-tracking on window roll is a
-	// later phase.
+	// StartMediaSeq excludes earlier sequences except RefetchSeqs; zero starts at the playlist head.
 	StartMediaSeq int64
 
-	// SkipEvents, when non-nil, receives one SkipEvent per segment
-	// the poller filters before enqueue. Covers every skip reason
-	// (stitched ads today; other defect classes added as needed)
-	// on a single channel so the orchestrator's drain loop has one
-	// dispatch point. Reason classifies what happened; callers
-	// branch on it to apply reason-specific accounting and policy.
-	//
-	// The orchestrator creates the channel, consumes alongside
-	// worker results, and closes ownership via the same defer
-	// path that closes the jobs channel. Sequence-level events
-	// (not counters) so resume-on-restart records frontier
-	// advances with typed reasons rather than reconstructing
-	// from deltas.
-	//
-	// Writes use the same select-with-ctx-cancel pattern as jobs:
-	// a slow drain won't wedge the poll loop.
+	// SkipEvents reports filtered sequences and later window/refetch losses.
+	// The caller owns closure; sends stop on cancellation when the consumer is blocked.
 	SkipEvents chan<- SkipEvent
 
-	// ClassifyAuth, when non-nil, inspects a 401/403 response body
-	// and reports whether the failure is permanent (entitlement
-	// code, subscriber-only stream, geoblock). Permanent results
-	// fail the job fast via ErrPlaylistAuthPermanent rather than
-	// burning the auth-refresh budget on a stream we'll never be
-	// allowed to watch. Nil means "always treat as retryable" —
-	// behavior before the hook existed.
+	// ClassifyAuth identifies permanent 401/403 restrictions; nil requests token renewal.
 	ClassifyAuth func(status int, body []byte) (permanent bool)
 
-	// RefetchSeqs lists MediaSeqs that a prior auth-refresh attempt
-	// failed on (worker hit 401/403). The poller emits these
-	// segments on the first poll regardless of StartMediaSeq so
-	// the new signed URL can fill the holes the previous attempt
-	// left behind. Seqs that are no longer in the CDN window
-	// (rolled off) are dropped with a warning and stay as gaps
-	// in the upstream resume state.
-	//
-	// Ownership: the Poller MUTATES this map — each emitted seq is
-	// removed on enqueue, and any remainder after the first poll
-	// is cleared. Callers must construct a fresh map per run
-	// (orchestrator.Run already does this) and not read it again
-	// after handing it off.
-	//
-	// Nil or empty means "no refetch needed" — the usual case on
-	// a fresh run or an auth-refresh-free attempt.
+	// RefetchSeqs bypasses StartMediaSeq for unresolved retries; nil disables refetching.
+	// Run owns and mutates this map, retaining future sequences until visible or expired.
+	// Callers must supply a fresh map and avoid accessing it until Run returns.
 	RefetchSeqs map[int64]bool
 
-	// endListSeen is set true by Run when the playlist returns
-	// EXT-X-ENDLIST — the broadcast ended naturally, as opposed to a
-	// ctx cancel (shutdown, user stop, forced split) or a window roll.
-	// The orchestrator reads it after the poll goroutine joins to stamp
-	// JobResult.EndList, which is what ultimately distinguishes a complete
-	// recording from a truncated one. Output field, not config.
+	// ResolvedSeqs identifies durable media or accepted gaps, taking precedence over RefetchSeqs.
+	// The caller must not change this map while Run is active.
+	ResolvedSeqs map[int64]bool
+
+	// endListSeen is valid after the poller joins; the orchestrator must also verify worker completion.
 	endListSeen bool
 
 	// totalSegments is the number of eligible segments across this run,
@@ -156,74 +74,36 @@ type Poller struct {
 	totalSegments atomic.Int64
 }
 
-// PollResult carries metadata observed on the first successful
-// poll — the orchestrator needs Kind + Init to fetch the init
-// segment (fmp4) before any media segment is fetched, and
-// MediaSequenceBase to seed any downstream accounting that can't
-// wait for the first segment outcome (e.g. resume-state frontier
-// bootstrap, where using the first committed seq as the anchor
-// would drop earlier out-of-order completions).
+// PollResult supplies initialization and initial losses before any media acquisition.
+// Empty live polls defer it so a later window advance cannot lose its recovery anchor.
 type PollResult struct {
 	Kind              SegmentKind
 	Init              *InitSegment
 	TargetDuration    time.Duration
 	MediaSequenceBase int64
 
-	// WindowRollFrom / WindowRollTo report the range of MediaSeqs
-	// the playlist has already rolled past since the caller's
-	// StartMediaSeq. Populated only when both StartMediaSeq > 0
-	// (i.e. a resume attempt) and the first segment's MediaSeq
-	// exceeds it. The lost range is inclusive:
-	// [StartMediaSeq, firstSegmentMediaSeq-1].
-	//
-	// Consumers record this as a restart_window_rolled gap so
-	// the resume frontier can advance past the loss rather than
-	// waiting forever for segments that will never be fetched.
-	// Zero values (both) mean "no window roll observed."
+	// WindowRollFrom and WindowRollTo delimit the inclusive loss before the first playlist head.
+	// Both are zero when StartMediaSeq is zero or the head has not advanced past it.
 	WindowRollFrom int64
 	WindowRollTo   int64
+
+	// ExpiredRefetchSeqs lists unavailable retries once each, in ascending sequence order.
+	ExpiredRefetchSeqs []int64
 }
 
-// ErrPlaylistAuth signals a 401/403 on the playlist fetch. The
-// orchestrator catches this and triggers an auth refresh + new
-// playlist URL, then reconstructs the Poller. Wrapped via
-// errors.Is on the sentinel; errors.As on *FetchError gives the
-// status.
+// ErrPlaylistAuth requests token renewal after a playlist 401/403.
 var ErrPlaylistAuth = errors.New("hls poller: playlist auth error")
 
-// ErrPlaylistAuthPermanent signals a 401/403 the ClassifyAuth hook
-// flagged as permanent — an entitlement restriction no amount of
-// refreshing will fix (subscriber-only, geoblock, VOD manifest
-// restriction). Distinct from ErrPlaylistAuth so the refresh loop
-// in downloader.fetchWithAuthRefresh bails immediately instead of
-// burning its budget. Deliberately not wrapped around
-// ErrPlaylistAuth: callers that `errors.Is(err, ErrPlaylistAuth)`
-// must not accidentally catch the permanent case.
+// ErrPlaylistAuthPermanent identifies an entitlement or geographic restriction
+// that renewal cannot fix; it does not wrap ErrPlaylistAuth.
 var ErrPlaylistAuthPermanent = errors.New("hls poller: playlist auth permanent")
 
-// ErrPlaylistGone signals that the media playlist URL returned
-// 404/410. Per the spec's "Variant loss mid-stream" clause, Twitch
-// surfaces a dropped variant either by removing it from the master
-// or by 404-ing the media playlist; this sentinel is the latter.
-// The downloader's outer loop reclassifies this into a part-split
-// trigger rather than treating it as a transient fetch failure.
+// ErrPlaylistGone identifies a playlist 404/410; Twitch uses it when a rendition
+// disappears, so callers can split the recording and select another rendition.
 var ErrPlaylistGone = errors.New("hls poller: media playlist gone")
 
-// Run executes the poll loop. On the first successful fetch it
-// sends one PollResult onto first (buffered cap 1) so the
-// orchestrator can bootstrap the init segment before the pool
-// starts consuming segment jobs. Subsequent polls only emit
-// segmentJobs; the first poll emits both the PollResult and all
-// initial segments, in that order.
-//
-// Closes out on clean termination (ENDLIST or ctx). The orch-
-// estrator uses that as the signal to drain the pool and report
-// completion.
-//
-// Zero-value Log or HTTPClient are normalized to discard + the
-// default HTTP client — Phase 4d's resume-path uses a stripped-
-// down Poller to observe the current playlist head, and we want
-// that to not panic on the hot path.
+// Run sends one PollResult before jobs, deferring empty live playlists.
+// It closes out on every return; callers own first and SkipEvents.
 func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- segmentJob) error {
 	if p.Log == nil {
 		p.Log = slog.New(slog.DiscardHandler)
@@ -251,12 +131,11 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 
 	defer close(out)
 
-	// lastSeq: highest MediaSeq we've already enqueued. Resume
-	// callers pass StartMediaSeq to skip segments already
-	// committed in a prior attempt; lastSeq starts at
-	// StartMediaSeq-1 so emission begins at StartMediaSeq.
-	// For fresh starts (StartMediaSeq=0) this is -1, which
-	// lets a seq-0 segment through unchanged.
+	for seq := range p.ResolvedSeqs {
+		delete(p.RefetchSeqs, seq)
+	}
+
+	// Starting below the cursor preserves sequence zero on fresh recordings.
 	lastSeq := p.StartMediaSeq - 1
 	var firstSent bool
 	var warnedWindowRoll bool
@@ -268,16 +147,11 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			if isCanceled(ctx, err) {
 				return err
 			}
-			// Auth errors don't retry — orchestrator needs to
-			// refresh the playback token + master playlist and
-			// hand us a new URL. Retrying the old URL with the
-			// old signature won't change the outcome.
+			// The signed URL must change before another authorization attempt can succeed.
 			if errors.Is(err, ErrPlaylistAuth) {
 				return err
 			}
-			// Playlist 404/410: variant dropped mid-run. Retrying
-			// the same URL won't resurface it; the downloader's
-			// outer loop re-runs Stage 3 and opens a new part.
+			// Twitch removes dropped renditions permanently at this URL.
 			if errors.Is(err, ErrPlaylistGone) {
 				return err
 			}
@@ -293,25 +167,22 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 		}
 		attempt = 0
 
-		// Window-roll detection: on the first poll after a
-		// resume attempt, if the playlist has already rolled
-		// past StartMediaSeq we've irreversibly lost those
-		// segments. Flag the range on the first PollResult so
-		// the orchestrator can forward it to the resume-state
-		// writer; without this the accounted frontier would
-		// wait forever for segments the CDN no longer serves.
+		// Initial loss must reach the caller before an accounting anchor can advance past it.
 		var windowRollFrom, windowRollTo int64
-		if p.StartMediaSeq > 0 && !warnedWindowRoll && len(pl.Segments) > 0 {
+		if p.StartMediaSeq > 0 && !warnedWindowRoll && (len(pl.Segments) > 0 || pl.EndList) {
 			warnedWindowRoll = true
-			if pl.Segments[0].MediaSeq > p.StartMediaSeq {
+			if pl.MediaSequenceBase > p.StartMediaSeq {
 				windowRollFrom = p.StartMediaSeq
-				windowRollTo = pl.Segments[0].MediaSeq - 1
+				windowRollTo = pl.MediaSequenceBase - 1
 				log.Warn("playlist window rolled past resume point",
 					"resume_from", p.StartMediaSeq,
-					"playlist_head", pl.Segments[0].MediaSeq,
-					"lost_segments", pl.Segments[0].MediaSeq-p.StartMediaSeq)
+					"playlist_head", pl.MediaSequenceBase,
+					"lost_segments", pl.MediaSequenceBase-p.StartMediaSeq)
 			}
 		}
+
+		expiredRefetches := p.expiredRefetches(pl)
+		hadFirstPoll := firstSent
 
 		// Publish PollResult once, before any segment leaves the poller. Empty
 		// first polls defer this until segments or ENDLIST, otherwise a resume
@@ -319,27 +190,31 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 		if !firstSent && (len(pl.Segments) > 0 || pl.EndList) {
 			select {
 			case first <- PollResult{
-				Kind:              pl.Kind,
-				Init:              pl.Init,
-				TargetDuration:    pl.TargetDuration,
-				MediaSequenceBase: pl.MediaSequenceBase,
-				WindowRollFrom:    windowRollFrom,
-				WindowRollTo:      windowRollTo,
+				Kind:               pl.Kind,
+				Init:               pl.Init,
+				TargetDuration:     pl.TargetDuration,
+				MediaSequenceBase:  pl.MediaSequenceBase,
+				WindowRollFrom:     windowRollFrom,
+				WindowRollTo:       windowRollTo,
+				ExpiredRefetchSeqs: expiredRefetches,
 			}:
 			case <-ctx.Done():
 				return ctx.Err()
 			}
 			firstSent = true
+			for _, seq := range expiredRefetches {
+				delete(p.RefetchSeqs, seq)
+			}
+			expiredRefetches = nil
 		}
 
-		// After at least one segment from this run has been enqueued, a playlist
-		// head beyond lastSeq+1 means the intervening CDN window aged out.
-		// Emit a range skip; first-poll resume rolls use PollResult above.
-		if lastSeq >= p.StartMediaSeq && len(pl.Segments) > 0 {
-			if from, to, ok := midStreamRollRange(pl.Segments[0].MediaSeq, lastSeq); ok {
+		// Once the initial snapshot is reported, later head advances are live loss,
+		// even when earlier snapshots contained no sequences eligible for acquisition.
+		if hadFirstPoll && (len(pl.Segments) > 0 || pl.EndList) {
+			if from, to, ok := midStreamRollRange(pl.MediaSequenceBase, lastSeq); ok {
 				log.Warn("playlist window rolled mid-stream; segments lost",
 					"frontier", lastSeq,
-					"playlist_head", pl.Segments[0].MediaSeq,
+					"playlist_head", pl.MediaSequenceBase,
 					"from", from,
 					"to", to,
 					"lost_segments", to-from+1)
@@ -354,12 +229,23 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			}
 		}
 
+		for _, seq := range expiredRefetches {
+			if p.SkipEvents != nil {
+				select {
+				case p.SkipEvents <- SkipEvent{MediaSeq: seq, Reason: SkipReasonRefetchExpired}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			delete(p.RefetchSeqs, seq)
+		}
+
 		if pl.EndList {
 			// Publish before sending to the bounded worker channel. Otherwise
 			// a VOD has no total until virtually all of it has downloaded.
 			total := emitted
 			for _, seg := range pl.Segments {
-				if (seg.MediaSeq > lastSeq || p.RefetchSeqs[seg.MediaSeq]) && !seg.IsAd && seg.Duration > 0 {
+				if !p.ResolvedSeqs[seg.MediaSeq] && (seg.MediaSeq > lastSeq || p.RefetchSeqs[seg.MediaSeq]) && !seg.IsAd && seg.Duration > 0 {
 					total++
 				}
 			}
@@ -367,21 +253,24 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 		}
 		ext := segmentExt(pl.Kind)
 		for _, seg := range pl.Segments {
-			// Refetch path: a seq this Poller was asked to retry
-			// (auth-errored on the prior attempt) bypasses the
-			// "below lastSeq" dedup so it can be re-enqueued even
-			// if it's trailing the current frontier. Consumed on
-			// emit so subsequent polls in this run don't re-emit.
+			// Unresolved retries bypass the forward cursor until fetched or permanently lost.
 			refetch := p.RefetchSeqs[seg.MediaSeq]
 			if !refetch && seg.MediaSeq <= lastSeq {
 				continue
 			}
+			if p.ResolvedSeqs[seg.MediaSeq] {
+				if p.SkipEvents != nil {
+					select {
+					case p.SkipEvents <- SkipEvent{MediaSeq: seg.MediaSeq, Reason: SkipReasonResolved}:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				lastSeq = max(lastSeq, seg.MediaSeq)
+				continue
+			}
 			if seg.IsAd {
-				// Skip Twitch stitched-ad content entirely —
-				// don't enqueue, don't fetch, don't write.
-				// Emit a sequence-level skip event so the
-				// orchestrator can advance LastMediaSeq and
-				// feed resume/accounted-frontier accounting.
+				// Skipped advertisements still need durable sequence accounting.
 				log.Debug("skipping stitched-ad segment", "seq", seg.MediaSeq)
 				if p.SkipEvents != nil {
 					select {
@@ -397,13 +286,8 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 				continue
 			}
 			if seg.Duration <= 0 {
-				// Invariant violation: EXTINF <= 0 can't represent
-				// real media, and a fetch of such a segment silently
-				// shortens the output — not caught by Stage 9 heal
-				// because format/stream durations both reflect the
-				// shortened reality. Skip before any fetch; let the
-				// orchestrator apply MaxGapRatio so a truly pathological
-				// manifest (many zero-duration segments) aborts the job.
+				// Nonpositive EXTINF silently shortens output, which remux duration checks
+				// cannot detect; report the loss before acquisition so gap policy can reject it.
 				log.Warn("skipping malformed segment (EXTINF <= 0)",
 					"seq", seg.MediaSeq,
 					"duration", seg.Duration)
@@ -438,22 +322,6 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 			}
 		}
 
-		// Any refetch seqs still in the map after the first poll
-		// have rolled off the CDN window — the playlist no longer
-		// serves them. Log and drop so we don't keep checking
-		// every tick; the upstream resume state keeps them as
-		// GapReasonAuth gaps (their original classification).
-		if len(p.RefetchSeqs) > 0 {
-			lost := make([]int64, 0, len(p.RefetchSeqs))
-			for s := range p.RefetchSeqs {
-				lost = append(lost, s)
-			}
-			log.Warn("refetch seqs rolled off CDN window; staying as gaps",
-				"seqs", lost,
-				"lost_count", len(lost))
-			clear(p.RefetchSeqs)
-		}
-
 		if pl.EndList {
 			log.Debug("playlist endlist — poller done", "segments", emitted)
 			p.totalSegments.Store(emitted)
@@ -468,6 +336,25 @@ func (p *Poller) Run(ctx context.Context, first chan<- PollResult, out chan<- se
 	}
 }
 
+// expiredRefetches retains future sequences while a live playlist can still expose them.
+func (p *Poller) expiredRefetches(pl *MediaPlaylist) []int64 {
+	if len(p.RefetchSeqs) == 0 || (len(pl.Segments) == 0 && !pl.EndList) {
+		return nil
+	}
+	present := make(map[int64]bool, len(pl.Segments))
+	for _, seg := range pl.Segments {
+		present[seg.MediaSeq] = true
+	}
+	var expired []int64
+	for seq := range p.RefetchSeqs {
+		if !present[seq] && (seq < pl.MediaSequenceBase || pl.EndList) {
+			expired = append(expired, seq)
+		}
+	}
+	slices.Sort(expired)
+	return expired
+}
+
 // midStreamRollRange reports [lastSeq+1, headSeq-1] when a refreshed playlist
 // has jumped past the next contiguous segment.
 func midStreamRollRange(headSeq, lastSeq int64) (from, to int64, ok bool) {
@@ -477,15 +364,8 @@ func midStreamRollRange(headSeq, lastSeq int64) (from, to int64, ok bool) {
 	return 0, 0, false
 }
 
-// fetchAndParse performs one playlist GET, parses the body, and
-// resolves all URIs (segments + init) against the playlist URL so
-// downstream consumers only ever see absolute URLs. Resolution
-// here — not in the pure parser — keeps ParseMediaPlaylist a
-// file-level function that can be unit-tested without a URL.
-//
-// 401/403 wraps ErrPlaylistAuth so the orchestrator can branch
-// without string-matching. Other non-2xx is returned as-is for
-// the caller's retry logic.
+// fetchAndParse resolves all media and initialization URIs against the playlist URL.
+// Playlist authorization and disappearance retain their sentinel errors.
 func (p *Poller) fetchAndParse(ctx context.Context) (*MediaPlaylist, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
 	if err != nil {
@@ -498,10 +378,7 @@ func (p *Poller) fetchAndParse(ctx context.Context) (*MediaPlaylist, error) {
 	defer drainAndClose(resp)
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		// Classify before concluding "retryable auth" — a
-		// subscriber-only stream returns 401/403 with a JSON
-		// body whose error_code is permanent. Refreshing the
-		// token won't grant access, so bail fast.
+		// Subscriber and geographic restrictions cannot be fixed by token renewal.
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		if p.ClassifyAuth != nil && p.ClassifyAuth(resp.StatusCode, body) {
 			return nil, fmt.Errorf("%w: status %d: %s", ErrPlaylistAuthPermanent, resp.StatusCode, truncateForLog(body))
@@ -509,15 +386,11 @@ func (p *Poller) fetchAndParse(ctx context.Context) (*MediaPlaylist, error) {
 		return nil, fmt.Errorf("%w: status %d", ErrPlaylistAuth, resp.StatusCode)
 	}
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
-		// Variant dropped mid-run — Twitch no longer serves this
-		// media playlist. Distinct from an auth retry: the URL
-		// itself is dead, not expired. Outer loop opens a new
-		// part after re-running Stage 3.
+		// A dropped rendition requires reselection, even if its playback token is still valid.
 		return nil, fmt.Errorf("%w: status %d", ErrPlaylistGone, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Truncated body preview, capped at 512B — playlist
-		// 4xx/5xx bodies are small JSON/plaintext from the CDN.
+		// Bound error previews because CDN failures can return large HTML bodies.
 		preview, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return nil, fmt.Errorf("hls poller: status %d: %s", resp.StatusCode, string(preview))
 	}
@@ -531,9 +404,7 @@ func (p *Poller) fetchAndParse(ctx context.Context) (*MediaPlaylist, error) {
 	return pl, nil
 }
 
-// truncateForLog caps a body preview at 200 bytes + ellipsis so an
-// error-wrapped body doesn't explode a log line when the CDN
-// returns a verbose HTML page instead of a tight JSON body.
+// truncateForLog bounds authorization-body previews to keep CDN error pages out of logs.
 func truncateForLog(b []byte) string {
 	const limit = 200
 	if len(b) <= limit {
@@ -542,11 +413,8 @@ func truncateForLog(b []byte) string {
 	return string(b[:limit]) + "…"
 }
 
-// resolveURIs mutates pl in place, replacing each relative URI
-// (init + segments) with its absolute form resolved against base.
-// Absolute URIs pass through untouched. Twitch's master playlist
-// tends to emit absolute segment URIs; relative ones still happen
-// on some transcode paths and are legal per HLS.
+// resolveURIs replaces relative media and initialization URIs in place;
+// HLS permits both absolute URLs and references relative to the playlist.
 func resolveURIs(pl *MediaPlaylist, base string) error {
 	baseURL, err := url.Parse(base)
 	if err != nil {
@@ -579,9 +447,6 @@ func resolveURIs(pl *MediaPlaylist, base string) error {
 	return nil
 }
 
-// segmentExt returns the filename extension the worker writes
-// based on the container kind. Keeps the "where does the .ts
-// vs .m4s decision live" answer in one place.
 func segmentExt(k SegmentKind) string {
 	if k == SegmentKindFMP4 {
 		return ".m4s"
@@ -589,10 +454,6 @@ func segmentExt(k SegmentKind) string {
 	return ".ts"
 }
 
-// sleepCtx sleeps for d or until ctx is canceled. Returns
-// ctx.Err() on cancel, nil otherwise. Kept local rather than
-// importing twitch/fetch helpers — the poller has its own
-// lifecycle needs and the call site is small.
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil
@@ -607,8 +468,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// isCanceled reports whether err came from ctx cancel/timeout
-// rather than a transport-layer problem worth retrying.
+// isCanceled also treats request failures after context cancellation as terminal.
 func isCanceled(ctx context.Context, err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
