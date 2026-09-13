@@ -13,8 +13,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/server/api/middleware"
 )
 
-// signalRunner is an activeRunner with a controllable SubscribeActive channel,
-// so a test can drive ActiveDownloadsLive's coalescing loop deterministically.
 type signalRunner struct {
 	activeRunner
 	sig <-chan struct{}
@@ -22,12 +20,10 @@ type signalRunner struct {
 
 func (r signalRunner) SubscribeActive(context.Context) <-chan struct{} { return r.sig }
 
-// activeRunner is a downloadRunner whose only meaningful method is
-// ListActiveProgress; the snapshot path touches nothing else on it.
 type activeRunner struct{ progress []downloader.Progress }
 
 func (a activeRunner) Start(context.Context, downloader.Params) (string, error) { return "", nil }
-func (a activeRunner) Cancel(string)                                            {}
+func (a activeRunner) Cancel(string) error                                      { return nil }
 func (a activeRunner) Subscribe(string) <-chan downloader.Progress              { return nil }
 func (a activeRunner) ListActiveProgress() []downloader.Progress                { return a.progress }
 func (a activeRunner) SubscribeActive(context.Context) <-chan struct{}          { return nil }
@@ -35,8 +31,6 @@ func (a activeRunner) LiveRenditions(context.Context, string, bool) (downloader.
 	return downloader.LiveRenditions{}, nil
 }
 
-// snapshotDownloadRepo records how ListVideosByJobIDs is called so the test can
-// assert the snapshot batches the lookup instead of querying once per job.
 type snapshotDownloadRepo struct {
 	videos     map[string]repository.Video
 	callCount  int
@@ -89,9 +83,7 @@ func waitForSnapshotRepoCall(t *testing.T, calls <-chan int, want int) {
 	}
 }
 
-// snapshotVideoRepo satisfies repository.Repository by embedding it (unused
-// methods panic) and stubs the three best-effort enrichment lookups the
-// snapshot makes to empty results.
+// snapshotVideoRepo panics on unexpected repository calls.
 type snapshotVideoRepo struct{ repository.Repository }
 
 func (snapshotVideoRepo) ListChannelsByIDs(context.Context, []string) ([]repository.Channel, error) {
@@ -177,8 +169,8 @@ func TestActiveDownloadsSnapshot_BatchesVideoLookup(t *testing.T) {
 	}
 }
 
-// The interval is huge so the only snapshots are the initial one and the
-// coalesced flush when the source closes.
+// TestActiveDownloadsLive_CoalescesBurstOfPokes disables timer flushes so only
+// the initial snapshot and source closure can publish.
 func TestActiveDownloadsLive_CoalescesBurstOfPokes(t *testing.T) {
 	prev := activeDownloadsCoalesceInterval
 	activeDownloadsCoalesceInterval = time.Hour

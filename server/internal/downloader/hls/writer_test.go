@@ -1,6 +1,7 @@
 package hls
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -215,5 +216,21 @@ func assertNotExists(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("expected %s not to exist, err=%v", path, err)
+	}
+}
+
+func TestPartWriterReadFromCannotBypassScratchBudget(t *testing.T) {
+	w, err := NewPartWriter(t.TempDir(), "segment.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Abort()
+	refused := errors.New("scratch capacity exhausted")
+	w.ctx = t.Context()
+	calls := 0
+	w.writeFile = func(context.Context, *os.File, []byte) (int, error) { calls++; return 0, refused }
+	n, err := w.ReadFrom(strings.NewReader("segment bytes"))
+	if !errors.Is(err, refused) || n != 0 || calls != 1 {
+		t.Fatalf("copy bypassed budget: n=%d calls=%d error=%v", n, calls, err)
 	}
 }

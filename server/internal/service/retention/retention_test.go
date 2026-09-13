@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
@@ -34,9 +36,6 @@ func newLocalStore(t *testing.T) *storage.LocalStorage {
 	return store
 }
 
-// TestExpiredVideoIDs is the pure eligibility decision and the heart of the
-// matrix: the per-recording retention-window comparison against an injected
-// clock and the corrupt-row collection guards.
 func TestExpiredVideoIDs(t *testing.T) {
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	at := func(d time.Duration) *time.Time { x := base.Add(d); return &x }
@@ -79,9 +78,9 @@ func TestExpiredVideoIDs(t *testing.T) {
 		{
 			name: "selects expired across broadcasters, keeps the rest",
 			videos: []repository.RetentionVideo{
-				vid(1, "b1", at(0), hours(1)),             // 2h old, 1h window  -> expired
-				vid(2, "b2", at(0), hours(100)),           // 2h old, 100h window -> kept
-				vid(3, "b1", at(-50*time.Hour), hours(1)), // 52h old, 1h window -> expired
+				vid(1, "b1", at(0), hours(1)),
+				vid(2, "b2", at(0), hours(100)),
+				vid(3, "b1", at(-50*time.Hour), hours(1)),
 			},
 			now:  base.Add(2 * time.Hour),
 			want: []int64{1, 3},
@@ -226,15 +225,10 @@ func seedDoneVideoNoRetention(t *testing.T, ctx context.Context, repo repository
 	return v
 }
 
-// TestRetentionQueries pins the query-side retention filter:
-// ListFinishedVideosForRetention returns visible terminal rows that can own
-// reclaimable objects only when the recording itself has a snapshotted
-// retention window.
 func TestRetentionQueries(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 
-	// b-del: retained recordings plus terminal shapes that should be filtered.
 	seedChannelUser(t, ctx, repo, "u-1", "b-del")
 	seedSchedule(t, ctx, repo, "u-1", "b-del", true, ptrInt64(24), false)
 	vDel := seedDoneVideo(t, ctx, repo, "job-del", "rec-del", "b-del")
@@ -242,28 +236,21 @@ func TestRetentionQueries(t *testing.T) {
 	vCancelled := seedFailedVideo(t, ctx, repo, "job-cancelled", "rec-cancelled", "b-del", repository.CompletionKindCancelled)
 	vFailedNoSalvage := seedFailedVideo(t, ctx, repo, "job-failed-nosalvage", "rec-failed-nosalvage", "b-del", repository.CompletionKindComplete)
 
-	// b-min: same broadcaster shape, but retention now comes from the video row
-	// rather than live schedule rows.
 	seedChannelUser(t, ctx, repo, "u-1", "b-min")
 	seedChannelUser(t, ctx, repo, "u-2", "b-min")
 	seedSchedule(t, ctx, repo, "u-1", "b-min", true, ptrInt64(48), false)
 	seedSchedule(t, ctx, repo, "u-2", "b-min", true, ptrInt64(12), false)
 	vMin := seedDoneVideo(t, ctx, repo, "job-min", "rec-min", "b-min")
 
-	// b-keep: same broadcaster has a delete schedule, but this video has no
-	// snapshotted retention policy (manual/unrelated recording) and must be
-	// excluded.
+	// A current delete schedule must not retroactively enroll unrelated recordings.
 	seedChannelUser(t, ctx, repo, "u-1", "b-keep")
 	seedSchedule(t, ctx, repo, "u-1", "b-keep", true, ptrInt64(1), false)
 	vKeep := seedDoneVideoNoRetention(t, ctx, repo, "job-keep", "rec-keep", "b-keep")
 
-	// b-disabled: disabled delete schedule and no video retention snapshot.
 	seedChannelUser(t, ctx, repo, "u-1", "b-disabled")
 	seedSchedule(t, ctx, repo, "u-1", "b-disabled", true, ptrInt64(24), true)
 	vDisabled := seedDoneVideoNoRetention(t, ctx, repo, "job-disabled", "rec-disabled", "b-disabled")
 
-	// A PENDING (unfinished) and a soft-deleted video: neither is a video
-	// candidate, even with a retention snapshot.
 	if _, err := repo.CreateVideo(ctx, &repository.VideoInput{
 		JobID: "job-pending", Filename: "rec-pending", DisplayName: "b-del", Status: "PENDING",
 		Quality: "HIGH", BroadcasterID: "b-del", RecordingType: repository.RecordingTypeVideo,
@@ -287,12 +274,9 @@ func TestRetentionQueries(t *testing.T) {
 		t.Fatalf("mark not-due video done: %v", err)
 	}
 
-	// Videos: every due DONE visible recording with a retention window plus due
-	// FAILED partial/cancelled rows. FAILED rows without salvage and no-retention
-	// manual/unrelated recordings stay out.
-	videos, err := repo.ListFinishedVideosForRetention(ctx, time.Now().Add(2*time.Hour))
+	videos, err := repo.ListRetentionCandidates(ctx, time.Now().Add(2*time.Hour), 0, 100)
 	if err != nil {
-		t.Fatalf("ListFinishedVideosForRetention: %v", err)
+		t.Fatalf("ListRetentionCandidates: %v", err)
 	}
 	gotVids := make(map[int64]bool, len(videos))
 	for _, v := range videos {
@@ -311,10 +295,6 @@ func TestRetentionQueries(t *testing.T) {
 	}
 }
 
-// objectsFor lists every storage path a two-part recording named "rec"
-// owns in the deletion tests below: part files, per-part thumbnail + strip,
-// the video-level thumbnail, the audio waveform artifact, and two live
-// snapshots.
 func objectsFor() []string {
 	return []string{
 		"videos/rec-part01.mp4",
@@ -330,9 +310,6 @@ func objectsFor() []string {
 	}
 }
 
-// seedRecordingWithObjects builds a finished two-part recording with a
-// snapshotted 1h retention window and writes all of its objects into store.
-// Returns the video.
 func seedRecordingWithObjects(t *testing.T, ctx context.Context, repo repository.Repository, store storage.Storage) *repository.Video {
 	t.Helper()
 	seedChannelUser(t, ctx, repo, "u-1", "b-1")
@@ -359,6 +336,9 @@ func seedRecordingWithObjects(t *testing.T, ctx context.Context, repo repository
 		t.Fatalf("mark done: %v", err)
 	}
 	playbackName := "rec-playback.mp4"
+	if err := repo.SetVideoWaveformKey(ctx, v.ID, "thumbnails/rec-waveform.json"); err != nil {
+		t.Fatal(err)
+	}
 	playbackMime := "video/mp4"
 	dur, size := 60.0, int64(2048)
 	at := time.Now().UTC()
@@ -417,7 +397,7 @@ func TestSweep_SkipsRecordingWithUnfrozenPendingWebhook(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	delivery, err := repo.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
@@ -465,7 +445,7 @@ func TestProcessManualDeletes_WaitsForWebhookFrozenParts(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	delivery, err := repo.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
@@ -554,7 +534,7 @@ func TestRequestManualDelete_RejectsWhenWorkerUnavailableWithoutQueueing(t *test
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog(), WithManualDeletionWorkerAvailable(false))
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog(), WithManualDeletionWorkerAvailable(false))
 
 	seedChannelUser(t, ctx, repo, "u-delete-worker", "b-delete-worker")
 	v := seedDoneVideo(t, ctx, repo, "job-delete-worker", "rec-delete-worker", "b-delete-worker")
@@ -576,7 +556,7 @@ func TestRequestManualDelete_RejectsDisabledTaskWithoutQueueing(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-delete-task", "b-delete-task")
 	v := seedDoneVideo(t, ctx, repo, "job-delete-task", "rec-delete-task", "b-delete-task")
@@ -604,12 +584,15 @@ func TestRequestManualDelete_WakesExistingFutureTask(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-delete-wakeup", "b-delete-wakeup")
 	v := seedDoneVideo(t, ctx, repo, "job-delete-wakeup", "rec-delete-wakeup", "b-delete-wakeup")
 	if _, err := repo.UpsertTask(ctx, ManualDeletionTaskName, ManualDeletionTaskDescription, ManualDeletionIntervalSeconds); err != nil {
 		t.Fatalf("UpsertTask: %v", err)
+	}
+	if err := repo.MarkTaskRunning(ctx, ManualDeletionTaskName); err != nil {
+		t.Fatal(err)
 	}
 	if err := repo.MarkTaskSuccess(ctx, ManualDeletionTaskName, 123); err != nil {
 		t.Fatalf("MarkTaskSuccess: %v", err)
@@ -647,17 +630,14 @@ func TestRequestManualDelete_WakesExistingFutureTask(t *testing.T) {
 	}
 }
 
-// TestSweep_DeletesExpiredRecording covers the happy path end to end: every
-// object removed, part rows gone, video tombstoned — then an idempotent
-// re-run that finds nothing (the tombstone drops it from the candidate set).
 func TestSweep_DeletesExpiredRecording(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
-	now := time.Now().Add(48 * time.Hour) // well past the 1h window
+	now := time.Now().Add(48 * time.Hour)
 
 	deleted, err := svc.Sweep(ctx, now)
 	if err != nil {
@@ -687,8 +667,6 @@ func TestSweep_DeletesExpiredRecording(t *testing.T) {
 		t.Fatalf("video not tombstoned; deleted_at is nil")
 	}
 
-	// Idempotent: the tombstone removes it from the candidate set, so a
-	// second sweep is a no-op rather than an error.
 	deleted, err = svc.Sweep(ctx, now)
 	if err != nil {
 		t.Fatalf("second Sweep: %v", err)
@@ -698,23 +676,24 @@ func TestSweep_DeletesExpiredRecording(t *testing.T) {
 	}
 }
 
-func TestSweep_DeletesLegacySingleFileRecording(t *testing.T) {
+func TestSweep_DeletesSinglePartRecording(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-1", "b-legacy")
 	seedSchedule(t, ctx, repo, "u-1", "b-legacy", true, ptrInt64(1), false)
-	v := seedDoneVideo(t, ctx, repo, "job-legacy", "legacy-rec", "b-legacy")
-	if err := repo.SetVideoThumbnail(ctx, v.ID, "thumbnails/legacy-rec.jpg"); err != nil {
+	v := seedDoneVideo(t, ctx, repo, "job-single", "single-rec", "b-legacy")
+	seedSinglePart(t, repo, v)
+	if err := repo.SetVideoThumbnail(ctx, v.ID, "thumbnails/single-rec.jpg"); err != nil {
 		t.Fatalf("set legacy thumbnail: %v", err)
 	}
 
 	paths := []string{
-		"videos/legacy-rec.mp4",
-		"thumbnails/legacy-rec.jpg",
-		"thumbnails/legacy-rec-snap00.jpg",
+		"videos/single-rec.mp4",
+		"thumbnails/single-rec.jpg",
+		"thumbnails/single-rec-snap00.jpg",
 	}
 	for _, p := range paths {
 		if err := store.Save(ctx, p, strings.NewReader("data")); err != nil {
@@ -751,7 +730,7 @@ func TestSweep_KeepsRecordingWithoutRetentionWindowOnDeleteScheduledBroadcaster(
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-1", "b-mixed")
 	seedSchedule(t, ctx, repo, "u-1", "b-mixed", true, ptrInt64(1), false)
@@ -768,6 +747,8 @@ func TestSweep_KeepsRecordingWithoutRetentionWindowOnDeleteScheduledBroadcaster(
 		t.Fatalf("mark retained done: %v", err)
 	}
 	manual := seedDoneVideoNoRetention(t, ctx, repo, "job-manual", "manual-rec", "b-mixed")
+	seedSinglePart(t, repo, retained)
+	seedSinglePart(t, repo, manual)
 
 	for _, p := range []string{"videos/retained-rec.mp4", "videos/manual-rec.mp4"} {
 		if err := store.Save(ctx, p, strings.NewReader("data")); err != nil {
@@ -809,7 +790,7 @@ func TestSweep_DeletesFailedPartialRecording(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-1", "b-failed")
 	seedSchedule(t, ctx, repo, "u-1", "b-failed", true, ptrInt64(1), false)
@@ -872,16 +853,14 @@ func TestSweep_DeletesFailedPartialRecording(t *testing.T) {
 	}
 }
 
-// TestSweep_KeepsRecordingInsideWindow guards the negative path: a finished
-// recording whose window hasn't elapsed is left fully intact.
 func TestSweep_KeepsRecordingInsideWindow(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
-	now := time.Now().Add(30 * time.Minute) // inside the 1h window
+	now := time.Now().Add(30 * time.Minute)
 
 	deleted, err := svc.Sweep(ctx, now)
 	if err != nil {
@@ -907,7 +886,7 @@ func TestProcessManualDeletes_StorageFailureLeavesQueueForRetry(t *testing.T) {
 	repo := newTestRepo(t)
 	base := newLocalStore(t)
 	faulty := &faultyStore{Storage: base, failOn: "videos/rec-part01.mp4"}
-	svc := New(repo, faulty, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, faulty, readyStorage{}, nil), discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, base)
 	if err := svc.RequestManualDelete(ctx, v); err != nil {
@@ -966,8 +945,6 @@ func TestProcessManualDeletes_StorageFailureLeavesQueueForRetry(t *testing.T) {
 	}
 }
 
-// faultyStore injects a single Delete failure on a chosen path, then
-// delegates — modelling a transient object-store error mid-purge.
 type faultyStore struct {
 	storage.Storage
 	failOn string
@@ -982,16 +959,13 @@ func (f *faultyStore) Delete(ctx context.Context, path string) error {
 	return f.Storage.Delete(ctx, path)
 }
 
-// TestSweep_PartialFailureRecovers pins crash-safety in miniature: a storage
-// failure mid-purge aborts before any DB write, so the recording stays
-// selectable and untombstoned; once the store recovers, the next sweep
-// converges — no orphaned row, no orphaned files.
+// TestSweep_PartialFailureRecovers keeps retryable rows when object deletion fails.
 func TestSweep_PartialFailureRecovers(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	base := newLocalStore(t)
 	faulty := &faultyStore{Storage: base, failOn: "videos/rec-part02.mp4"}
-	svc := New(repo, faulty, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, faulty, readyStorage{}, nil), discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, base)
 	now := time.Now().Add(48 * time.Hour)
@@ -1000,8 +974,7 @@ func TestSweep_PartialFailureRecovers(t *testing.T) {
 		t.Fatalf("Sweep: want error from injected failure, got nil")
 	}
 
-	// The DB must be untouched: purge failed before FinalizeRetentionDelete, so
-	// the recording is still a live candidate.
+	// A failed purge must leave the recording and its parts available for retry.
 	got, err := repo.GetVideo(ctx, v.ID)
 	if err != nil {
 		t.Fatalf("GetVideo: %v", err)
@@ -1017,8 +990,6 @@ func TestSweep_PartialFailureRecovers(t *testing.T) {
 		t.Fatalf("part rows = %d, want 2 (DB must be untouched on failure)", len(parts))
 	}
 
-	// faulty.failed is now set, so the retry's deletes all delegate to the
-	// real store: the sweep converges.
 	deleted, err := svc.Sweep(ctx, now)
 	if err != nil {
 		t.Fatalf("retry Sweep: %v", err)
@@ -1036,11 +1007,8 @@ func TestSweep_PartialFailureRecovers(t *testing.T) {
 	}
 }
 
-// seedRecordingWithSnapshots builds a finished single-part recording with a
-// snapshotted 1h retention window and writes its part objects plus a contiguous
-// run of n live snapshots (snap00..snap0(n-1)). Paths are written as literals,
-// independent of storagekeys, so the test stays an oracle for the keys rather
-// than re-deriving them from the code under test. Returns the video.
+// seedRecordingWithSnapshots uses literal keys so layout drift cannot change both
+// the fixture and the implementation together.
 func seedRecordingWithSnapshots(t *testing.T, ctx context.Context, repo repository.Repository, store storage.Storage, n int) *repository.Video {
 	t.Helper()
 	seedChannelUser(t, ctx, repo, "u-1", "b-1")
@@ -1080,27 +1048,17 @@ func seedRecordingWithSnapshots(t *testing.T, ctx context.Context, repo reposito
 	return v
 }
 
-// TestSweep_SnapshotPurgeFailureKeepsIndexZeroSentinel pins the highest-index-
-// first deletion order in purgeSnapshots. A recording carries a contiguous run
-// of live snapshots (snap00..snap03). A Delete failure mid-purge must leave a
-// contiguous 0..k prefix — crucially including index 0, the probe's sentinel —
-// so the next sweep re-discovers the recording instead of breaking on a hole at
-// index 0 and stranding the tail forever.
-//
-// The injected failure hits snap01. Deleting highest-first (snap03, snap02,
-// snap01, ...) aborts on snap01 before snap00 is reached, so the survivors are
-// exactly {snap00, snap01}. Deleting lowest-first would remove snap00 first and
-// orphan snap01..snap03 behind a hole — this test fails under that order, both
-// on the surviving-sentinel assertion and on the convergent retry.
+// TestSweep_SnapshotPurgeFailureKeepsIndexZeroSentinel leaves a contiguous prefix
+// after failure so the next legacy snapshot discovery cannot miss surviving files.
 func TestSweep_SnapshotPurgeFailureKeepsIndexZeroSentinel(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	base := newLocalStore(t)
 	faulty := &faultyStore{Storage: base, failOn: "thumbnails/rec-snap01.jpg"}
-	svc := New(repo, faulty, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, faulty, readyStorage{}, nil), discardLog())
 
 	v := seedRecordingWithSnapshots(t, ctx, repo, base, 4)
-	now := time.Now().Add(48 * time.Hour) // past the 1h window
+	now := time.Now().Add(48 * time.Hour)
 
 	if _, err := svc.Sweep(ctx, now); err == nil {
 		t.Fatalf("Sweep: want error from injected snapshot-delete failure, got nil")
@@ -1108,8 +1066,6 @@ func TestSweep_SnapshotPurgeFailureKeepsIndexZeroSentinel(t *testing.T) {
 		t.Fatalf("error %q does not name the failing snapshot", err)
 	}
 
-	// Survivors form a contiguous 0..1 prefix: index 0 (the sentinel the probe
-	// keys on) and index 1 (the failed delete) remain; 2 and 3 are gone.
 	for _, i := range []int{0, 1} {
 		if ok, _ := base.Exists(ctx, fmt.Sprintf("thumbnails/rec-snap%02d.jpg", i)); !ok {
 			t.Fatalf("snapshot index %d missing; survivors must be the contiguous 0..1 prefix", i)
@@ -1121,8 +1077,7 @@ func TestSweep_SnapshotPurgeFailureKeepsIndexZeroSentinel(t *testing.T) {
 		}
 	}
 
-	// DB untouched: the snapshot purge runs inside purgeObjects, before any DB
-	// write, so the recording stays a live, untombstoned candidate.
+	// A failed snapshot purge must leave the recording eligible for retry.
 	got, err := repo.GetVideo(ctx, v.ID)
 	if err != nil {
 		t.Fatalf("GetVideo: %v", err)
@@ -1131,9 +1086,6 @@ func TestSweep_SnapshotPurgeFailureKeepsIndexZeroSentinel(t *testing.T) {
 		t.Fatalf("video tombstoned despite a snapshot-purge failure mid-pass")
 	}
 
-	// Store recovered: the next sweep re-discovers the 0..1 prefix (it would be
-	// invisible behind a hole at index 0 under lowest-first deletion) and
-	// converges — every snapshot gone, video tombstoned.
 	deleted, err := svc.Sweep(ctx, now)
 	if err != nil {
 		t.Fatalf("retry Sweep: %v", err)
@@ -1155,19 +1107,15 @@ func TestSweep_SnapshotPurgeFailureKeepsIndexZeroSentinel(t *testing.T) {
 	}
 }
 
-// TestSweep_PurgesSnapshotsBeyondReaderCap pins the orphan fix: a recording can
-// own more live snapshots than the video API's 500-frame reader cap (a long
-// stream captures one every ~5 min), and retention must delete all of them.
-// With 501 contiguous snapshots the sweep tombstones the video in the same pass,
-// so anything left unpurged is stranded forever — the old maxSnapshots=500 probe
-// left snap500 behind. Every snapshot, including index 500, must be gone.
+// TestSweep_PurgesSnapshotsBeyondReaderCap prevents cleanup from stranding
+// snapshots beyond the API reader limit.
 func TestSweep_PurgesSnapshotsBeyondReaderCap(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
-	const n = 501 // one past the old 500 ceiling that used to strand the tail
+	const n = 501
 	v := seedRecordingWithSnapshots(t, ctx, repo, store, n)
 
 	deleted, err := svc.Sweep(ctx, time.Now().Add(48*time.Hour))
@@ -1191,11 +1139,6 @@ func TestSweep_PurgesSnapshotsBeyondReaderCap(t *testing.T) {
 	}
 }
 
-// seedFinishedSinglePart builds one finished single-part recording (DONE; once
-// swept at now+48h it is well past its snapshotted 1h window) under the given
-// broadcaster and filename, and writes its part object, thumbnail, strip, and
-// one snapshot. Job ID and object paths are namespaced by filename so several
-// can coexist. Returns the video.
 func seedFinishedSinglePart(t *testing.T, ctx context.Context, repo repository.Repository, store storage.Storage, broadcasterID, filename string) *repository.Video {
 	t.Helper()
 	v, err := repo.CreateVideo(ctx, &repository.VideoInput{
@@ -1229,24 +1172,14 @@ func seedFinishedSinglePart(t *testing.T, ctx context.Context, repo repository.R
 	return v
 }
 
-// TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates pins Sweep's
-// per-recording error aggregation across a multi-recording pass. Three expired
-// recordings share one broadcaster; a single injected Delete failure hits only
-// recb's part object. The sweep must isolate that failure: reca and recc are
-// fully deleted, recb is left untouched (its purge aborts before any DB write,
-// so it stays a live candidate), the returned count reflects only the two
-// successes, and the joined error names the failed recording. A naive sweep
-// that aborted on the first failure, or counted it as deleted, fails here.
-//
-// recb is always the one that fails regardless of iteration order: the
-// faultyStore's single failure budget is keyed to a path only recb owns. So the
-// assertions don't depend on the query's row order.
+// TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates verifies that a purge
+// failure leaves unrelated recordings deletable, regardless of candidate ordering.
 func TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepo(t)
 	base := newLocalStore(t)
 	faulty := &faultyStore{Storage: base, failOn: "videos/recb-part01.mp4"}
-	svc := New(repo, faulty, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, faulty, readyStorage{}, nil), discardLog())
 
 	seedChannelUser(t, ctx, repo, "u-1", "b-1")
 	seedSchedule(t, ctx, repo, "u-1", "b-1", true, ptrInt64(1), false)
@@ -1262,12 +1195,10 @@ func TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates(t *testing.T) {
 	if !strings.Contains(err.Error(), fmt.Sprintf("recording %d", b.ID)) {
 		t.Fatalf("error %q does not name the failed recording %d", err, b.ID)
 	}
-	// Only the two clean recordings count; the failed one must not inflate it.
 	if deleted != 2 {
 		t.Fatalf("deleted = %d, want 2 (reca + recc; recb failed)", deleted)
 	}
 
-	// reca and recc: fully deleted — tombstoned and their objects gone.
 	for _, v := range []*repository.Video{a, c} {
 		got, err := repo.GetVideo(ctx, v.ID)
 		if err != nil {
@@ -1279,8 +1210,7 @@ func TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates(t *testing.T) {
 	}
 	assertPathsGone(t, ctx, base, []string{"videos/reca-part01.mp4", "videos/recc-part01.mp4"})
 
-	// recb: untouched — purge aborted before FinalizeRetentionDelete, so the
-	// row and its parts survive for the next sweep to retry.
+	// The failed recording retains its part references for the next purge attempt.
 	gotB, err := repo.GetVideo(ctx, b.ID)
 	if err != nil {
 		t.Fatalf("GetVideo recb: %v", err)
@@ -1296,8 +1226,6 @@ func TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates(t *testing.T) {
 		t.Fatalf("failed recording %d parts = %d, want 1 (DB untouched on failure)", b.ID, len(partsB))
 	}
 
-	// Store recovered: the next sweep finds only recb (reca/recc are tombstoned
-	// out of the candidate set) and converges with no error.
 	deleted, err = svc.Sweep(ctx, now)
 	if err != nil {
 		t.Fatalf("retry Sweep: %v", err)
@@ -1314,8 +1242,6 @@ func TestSweep_OneRecordingFailsOthersSucceedAndErrorAggregates(t *testing.T) {
 	}
 }
 
-// finalizeFailRepo fails the first FinalizeDelete, then delegates,
-// modelling a crash/DB hiccup after the object purge but before the commit.
 type finalizeFailRepo struct {
 	repository.Repository
 	failed bool
@@ -1329,16 +1255,13 @@ func (r *finalizeFailRepo) FinalizeDelete(ctx context.Context, videoID int64, ki
 	return r.Repository.FinalizeDelete(ctx, videoID, kind)
 }
 
-// TestSweep_FinalizeFailureConverges pins crash-safety at the DB-commit step:
-// objects are purged before FinalizeRetentionDelete, so when that commit fails
-// the recording is left untombstoned (still a candidate) with its objects
-// already gone. The next sweep re-selects it, re-purges idempotently, and the
-// now-succeeding commit converges — no orphaned row, no double-counting.
+// TestSweep_FinalizeFailureConverges retains retryable rows when database
+// finalization fails after their objects have already been removed.
 func TestSweep_FinalizeFailureConverges(t *testing.T) {
 	ctx := context.Background()
 	repo := &finalizeFailRepo{Repository: newTestRepo(t)}
 	store := newLocalStore(t)
-	svc := New(repo, store, readyStorage{}, discardLog())
+	svc := New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), discardLog())
 
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	now := time.Now().Add(48 * time.Hour)
@@ -1350,10 +1273,8 @@ func TestSweep_FinalizeFailureConverges(t *testing.T) {
 	if deleted != 0 {
 		t.Fatalf("deleted = %d, want 0 (commit failed)", deleted)
 	}
-	// The object purge runs before the commit, so the bytes are already gone...
 	assertObjectsGone(t, ctx, store)
-	// ...but the row must be untouched: an atomic FinalizeRetentionDelete that
-	// failed tombstones nothing and drops no parts, so it stays a candidate.
+	// A failed finalization must retain the recording and part references for retry.
 	got, err := repo.GetVideo(ctx, v.ID)
 	if err != nil {
 		t.Fatalf("GetVideo: %v", err)
@@ -1369,7 +1290,6 @@ func TestSweep_FinalizeFailureConverges(t *testing.T) {
 		t.Fatalf("part rows = %d, want 2 (commit failed, DB untouched)", len(parts))
 	}
 
-	// Next sweep: the re-purge is an idempotent no-op and the commit now lands.
 	deleted, err = svc.Sweep(ctx, now)
 	if err != nil {
 		t.Fatalf("retry Sweep: %v", err)
@@ -1387,8 +1307,7 @@ func TestSweep_FinalizeFailureConverges(t *testing.T) {
 }
 
 func TestDeleteRecording_RejectsMissingKindBeforeStorageAccess(t *testing.T) {
-	// A discovery path must never enter destructive cleanup, even with a stale
-	// video snapshot. Nil dependencies make accidental storage or DB use fail.
+	// Nil dependencies expose any destructive access before rejecting a missing-media request.
 	s := &Service{}
 	if err := s.DeleteRecording(t.Context(), &repository.Video{ID: 1}, repository.DeletionKindMissing); err == nil {
 		t.Fatal("missing-media discovery authorized object deletion")
@@ -1406,7 +1325,7 @@ func TestDeleteRecordingWaitsForStorageAndRecovers(t *testing.T) {
 			ctx := t.Context()
 			v := seedRecordingWithObjects(t, ctx, repo, store)
 			gateErr := refusal
-			svc := New(repo, store, storageGateFunc(func(context.Context) error { return gateErr }), discardLog())
+			svc := New(repo, mediatest.New(t, repo, store, storageGateFunc(func(context.Context) error { return gateErr }), nil), discardLog())
 			if err := svc.DeleteRecording(ctx, v, repository.DeletionKindRetention); !errors.Is(err, refusal) {
 				t.Fatalf("delete while unavailable: %v", err)
 			}
@@ -1429,13 +1348,13 @@ func TestDeleteRecordingDetachDuringPurgePreservesRows(t *testing.T) {
 	ctx := t.Context()
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	calls := 0
-	svc := New(repo, store, storageGateFunc(func(context.Context) error {
+	svc := New(repo, mediatest.New(t, repo, store, storageGateFunc(func(context.Context) error {
 		calls++
 		if calls == 2 {
 			return storage.ErrUnattached
 		}
 		return nil
-	}), discardLog())
+	}), nil), discardLog())
 	if err := svc.DeleteRecording(ctx, v, repository.DeletionKindRetention); !errors.Is(err, storage.ErrUnattached) {
 		t.Fatalf("detach: %v", err)
 	}
@@ -1453,8 +1372,8 @@ func TestDeleteRecordingDetachDuringPurgePreservesRows(t *testing.T) {
 	assertObjectsGone(t, ctx, store)
 }
 
-func TestDeleteRecordingRequiresStorageGate(t *testing.T) {
-	svc := New(nil, nil, nil, discardLog())
+func TestDeleteRecordingRefusesUnavailableStorage(t *testing.T) {
+	svc := New(nil, mediatest.New(t, nil, nil, storageGateFunc(func(context.Context) error { return storage.ErrUnattached }), nil), discardLog())
 	if err := svc.DeleteRecording(t.Context(), &repository.Video{ID: 1}, repository.DeletionKindRetention); !errors.Is(err, storage.ErrUnattached) {
 		t.Fatalf("nil gate: %v", err)
 	}
@@ -1469,15 +1388,15 @@ func TestRemovalNotificationsFollowCommittedState(t *testing.T) {
 	repo := newTestRepo(t)
 	store := newLocalStore(t)
 	bus := eventbus.New()
-	events := bus.VideoRemovals.Subscribe(ctx)
+	events := bus.VideoChanges.Subscribe(ctx)
 	v := seedRecordingWithObjects(t, ctx, repo, store)
 	writable := false
-	svc := New(repo, store, storageGateFunc(func(context.Context) error {
+	svc := New(repo, mediatest.New(t, repo, store, storageGateFunc(func(context.Context) error {
 		if !writable {
 			return storage.ErrUnattached
 		}
 		return nil
-	}), discardLog(), WithEventBus(bus))
+	}), nil), discardLog(), WithEventBus(bus))
 	if err := svc.RequestManualDelete(ctx, v); err != nil {
 		t.Fatal(err)
 	}
@@ -1510,5 +1429,13 @@ func TestRemovalNotificationsFollowCommittedState(t *testing.T) {
 	row, err = repo.GetVideo(ctx, v.ID)
 	if err != nil || row.DeletedAt == nil || row.DeleteRequestedAt != nil {
 		t.Fatalf("notification preceded deletion commit: %v %v", row, err)
+	}
+}
+
+func seedSinglePart(t *testing.T, repo repository.Repository, v *repository.Video) {
+	t.Helper()
+	_, err := repo.CreateVideoPart(t.Context(), &repository.VideoPartInput{VideoID: v.ID, PartIndex: 1, Filename: v.Filename + ".mp4", Quality: v.Quality, Codec: repository.CodecH264, SegmentFormat: "ts"})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

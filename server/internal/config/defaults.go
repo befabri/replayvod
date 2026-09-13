@@ -8,20 +8,21 @@ func getDefaultAppConfig() AppConfig {
 			PollIntervalMinutes: 1,
 		},
 		Download: DownloadConfig{
-			MaxConcurrent:        2,
-			ArchiveMaxConcurrent: 1,
-			SegmentConcurrency:   4,
-			NetworkAttempts:      5,
-			ServerErrorAttempts:  5,
-			CDNLagAttempts:       3,
-			AuthRefreshAttempts:  2,
-			MaxGapRatio:          0.01,
-			Strict:               false,
-			EnableAV1:            false,
-			DisableHEVC:          false,
-			MaxRestartGapSeconds: 120,
-			MaxPartCount:         1024,
-			SignedURLTTLHours:    168,
+			MaxConcurrent:              2,
+			ArchiveMaxConcurrent:       1,
+			SegmentConcurrency:         4,
+			NetworkAttempts:            5,
+			ServerErrorAttempts:        5,
+			CDNLagAttempts:             3,
+			AuthRefreshAttempts:        2,
+			MaxGapRatio:                0.01,
+			Strict:                     false,
+			EnableAV1:                  false,
+			DisableHEVC:                false,
+			MaxRestartGapSeconds:       120,
+			StreamerRestartWaitSeconds: 120,
+			MaxPartCount:               1024,
+			SignedURLTTLHours:          168,
 		},
 		Storage: StorageConfig{
 			Type:      "local",
@@ -60,10 +61,7 @@ func getDefaultAppConfig() AppConfig {
 	}
 }
 
-// orDefault returns def when v is at or below its type's zero value (<= 0 for
-// numbers, "" for strings). It collapses the "reset an unset or non-positive
-// field to its default" guard, which validateAppConfig applies to most fields,
-// to a single expression.
+// orDefault returns def for values at or below their type's zero value.
 func orDefault[T cmp.Ordered](v, def T) T {
 	var zero T
 	if v <= zero {
@@ -81,14 +79,12 @@ func validateAppConfig(config *AppConfig) {
 	config.Download.ServerErrorAttempts = orDefault(config.Download.ServerErrorAttempts, 5)
 	config.Download.CDNLagAttempts = orDefault(config.Download.CDNLagAttempts, 3)
 	config.Download.AuthRefreshAttempts = orDefault(config.Download.AuthRefreshAttempts, 2)
-	// MaxGapRatio must be in [0, 1). 0 = no tolerance (all gaps fail);
-	// >=1 would accept any number of gaps and is nonsensical. Negative
-	// or > 1 silently reset to the default rather than panicking at
-	// startup.
+	// MaxGapRatio accepts zero for no tolerance and rejects one, which would tolerate every gap.
 	if config.Download.MaxGapRatio < 0 || config.Download.MaxGapRatio >= 1 {
 		config.Download.MaxGapRatio = 0.01
 	}
 	config.Download.MaxRestartGapSeconds = orDefault(config.Download.MaxRestartGapSeconds, 120)
+	config.Download.StreamerRestartWaitSeconds = orDefault(config.Download.StreamerRestartWaitSeconds, 120)
 	if config.Download.MaxPartBytes < 0 {
 		config.Download.MaxPartBytes = 0
 	}
@@ -101,8 +97,6 @@ func validateAppConfig(config *AppConfig) {
 	}
 	config.PostgresPool.MaxConns = orDefault(config.PostgresPool.MaxConns, 25)
 	config.PostgresPool.MinConns = orDefault(config.PostgresPool.MinConns, 5)
-	// MinConns can't exceed MaxConns or pgxpool rejects the config at open.
-	// Clamp the floor down to the ceiling rather than failing boot, matching
-	// the silent-reset style of the rest of this function.
+	// MinConns cannot exceed MaxConns or pgxpool rejects the configuration.
 	config.PostgresPool.MinConns = min(config.PostgresPool.MinConns, config.PostgresPool.MaxConns)
 }

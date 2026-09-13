@@ -12,14 +12,9 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// RegisterRoutes wires the video.* tRPC procedures. Library reads and per-user
-// video state are viewer-level; download control stays admin-level.
-//
-// store is used by the Snapshots endpoint to probe for the live-
-// preview JPEGs saved during recording. Passed through so the handler
-// can call Exists() at request time without holding the Storage on
-// the domain Service (which is read-only by design).
-func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, deletion RecordingDeletionRequester, restorer RecordingRestorer, store storage.Storage, log *slog.Logger, viewer, admin *trpcgo.ProcedureBuilder) {
+// RegisterRoutes uses viewer for library reads and per-user state, and admin
+// for recording controls. store must be the shared media reader.
+func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, deletion RecordingDeletionRequester, restorer RecordingRestorer, store storage.Reader, log *slog.Logger, viewer, admin *trpcgo.ProcedureBuilder) {
 	archive := NewArchive(repo, dl, tc, channel.New(repo, tc, log), log)
 	h := NewHandler(New(repo, log), NewDownload(repo, dl, tc, hydrator, log), archive, deletion, restorer, store, log)
 
@@ -28,6 +23,7 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloade
 	trpcgo.MustQuery(tr, "video.search", h.Search, viewer)
 	trpcgo.MustQuery(tr, "video.continueWatching", h.ContinueWatching, viewer)
 	trpcgo.MustQuery(tr, "video.getById", h.GetByID, viewer)
+	trpcgo.MustQuery(tr, "video.relatedRecordings", h.RelatedRecordings, viewer)
 	trpcgo.MustQuery(tr, "video.titles", h.Titles, viewer)
 	trpcgo.MustQuery(tr, "video.categories", h.Categories, viewer)
 	trpcgo.MustQuery(tr, "video.timeline", h.Timeline, viewer)
@@ -49,8 +45,6 @@ func RegisterRoutes(tr *trpcgo.Router, repo repository.Repository, dl *downloade
 	trpcgo.MustMutation(tr, "video.updateWatchProgress", h.UpdateWatchProgress, viewer)
 	trpcgo.MustSubscribe(tr, "video.downloadProgress", h.DownloadProgress, admin)
 
-	// Back-archiving: reads are viewer-level like the rest of the library,
-	// queueing and removing archives is admin-level like download control.
 	trpcgo.MustQuery(tr, "archive.listChannelVods", h.ListChannelVODs, admin)
 	trpcgo.MustMutation(tr, "archive.enqueue", h.EnqueueArchive, admin)
 	trpcgo.MustVoidQuery(tr, "archive.queue", h.ArchiveQueue, viewer)

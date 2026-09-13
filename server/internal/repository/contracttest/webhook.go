@@ -32,7 +32,6 @@ func testSetSchedulesPausedRoundTripAndIsolation(t *testing.T, h Harness) {
 		t.Fatal("SetSchedulesPaused(false) left the flag on")
 	}
 
-	// Isolation: pausing must not clobber an unrelated setting.
 	if _, err := repo.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "relay"}); err != nil {
 		t.Fatalf("UpsertServerSettings: %v", err)
 	}
@@ -50,7 +49,6 @@ func testSetSchedulesPausedRoundTripAndIsolation(t *testing.T, h Harness) {
 		t.Fatalf("ServerMode = %q, want relay (pause write clobbered it)", afterPause.ServerMode)
 	}
 
-	// And an unrelated settings write must leave the pause flag on.
 	if _, err := repo.UpsertServerSettings(ctx, &repository.ServerSettings{ServerMode: "direct"}); err != nil {
 		t.Fatalf("second UpsertServerSettings: %v", err)
 	}
@@ -144,9 +142,7 @@ func testRecordingWebhookConfigRoundTrip(t *testing.T, h Harness) {
 		t.Fatalf("config upsert must not set a secret, got %q", saved.RecordingWebhookSecret)
 	}
 
-	// Re-read through GetServerSettings (SELECT *) to confirm the columns are
-	// readable by the path the config service and dispatcher use, and that the
-	// enabled bool maps back from its stored representation.
+	// The general settings query must map the same columns as the config upsert.
 	row, err := repo.GetServerSettings(ctx)
 	if err != nil {
 		t.Fatalf("GetServerSettings: %v", err)
@@ -544,7 +540,7 @@ func testManualDeleteQueueWaitsForWebhookFrozenParts(t *testing.T, h Harness) {
 		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
 	}
 
-	rows, err := repo.ListVideosPendingManualDelete(ctx, 10)
+	rows, err := repo.ListVideosPendingManualDelete(ctx, 0, 10)
 	if err != nil {
 		t.Fatalf("ListVideosPendingManualDelete before freeze: %v", err)
 	}
@@ -563,7 +559,7 @@ func testManualDeleteQueueWaitsForWebhookFrozenParts(t *testing.T, h Harness) {
 	if err := repo.SetRecordingWebhookDeliveryFrozenParts(ctx, delivery.ID, "[]"); err != nil {
 		t.Fatalf("SetRecordingWebhookDeliveryFrozenParts: %v", err)
 	}
-	rows, err = repo.ListVideosPendingManualDelete(ctx, 10)
+	rows, err = repo.ListVideosPendingManualDelete(ctx, 0, 10)
 	if err != nil {
 		t.Fatalf("ListVideosPendingManualDelete after freeze: %v", err)
 	}
@@ -606,8 +602,6 @@ func testManualDeleteQueueWaitsForWebhookFrozenParts(t *testing.T, h Harness) {
 		t.Fatal("failed terminal DeleteRequestedAt is nil")
 	}
 }
-
-// --- helpers ---
 
 func createWebhookOutboxVideo(t *testing.T, repo repository.Repository, jobID string) *repository.Video {
 	t.Helper()

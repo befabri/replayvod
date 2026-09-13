@@ -1,13 +1,16 @@
 package downloader
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/storagekeys"
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
 
 	"github.com/befabri/replayvod/server/internal/storage"
 )
@@ -48,182 +51,77 @@ func (f *fakeStorage) Open(_ context.Context, _ string) (io.ReadSeekCloser, erro
 	return nil, errors.New("not implemented")
 }
 func (f *fakeStorage) Delete(_ context.Context, _ string) error { return errors.New("not impl") }
-func (f *fakeStorage) Exists(_ context.Context, _ string) (bool, error) {
-	return false, errors.New("not impl")
+func (f *fakeStorage) Exists(_ context.Context, key string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.saves[key]
+	return ok, nil
 }
 func (f *fakeStorage) Stat(_ context.Context, _ string) (storage.FileInfo, error) {
 	return storage.FileInfo{}, errors.New("not impl")
 }
 
-// TestStorageSnapshotWriter_PathTemplate verifies the path shape
-// is exactly what the UI will probe for. The hermetic snapshot
-// tests assert URL shape on the CDN-fetch side; this asserts the
-// storage-write side. Together they cover the full "hit Twitch →
-// store to disk" round trip without needing an integration test
-// against real storage + real HTTP.
+func snapshotWriterFixture(t *testing.T, raw storage.Storage, name string) (*storageSnapshotWriter, repository.Repository) {
+	t.Helper()
+	svc := newTestService(t, t.TempDir())
+	d := seedWebhookAttempt(t, svc, "snapshots")
+	svc.storage = mediatest.New(t, svc.repo, raw, nil, nil)
+	return &storageSnapshotWriter{storage: svc.storage, claim: d.claim(), filename: name}, svc.repo
+}
+
 func TestStorageSnapshotWriter_PathTemplate(t *testing.T) {
 	fs := newFakeStorage()
-	w := &storageSnapshotWriter{
-		storage:  fs,
-		filename: "20260413-rec-abc12345",
-		ctx:      context.Background(),
-	}
-
-	// Three writes: snap00, snap01, snap02. The zero-padded
-	// index is load-bearing because a UI probing snap01..snap99
-	// by convention would otherwise miss single-digit captures
-	// on a recording with 10+ snapshots.
-	for i := 0; i < 3; i++ {
-		if err := w.WriteSnapshot(context.Background(), i, strings.NewReader("snapshot bytes")); err != nil {
-			t.Fatalf("WriteSnapshot(%d): %v", i, err)
+	w, repo := snapshotWriterFixture(t, fs, "recording")
+	for _, i := range []int{0, 1, 9, 10, 47, 99} {
+		if err := w.WriteSnapshot(t.Context(), i, strings.NewReader("frame")); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := fs.saves[storagekeys.Snapshot("recording", i)]; !ok {
+			t.Fatalf("missing snapshot %d", i)
 		}
 	}
-
-	wantPaths := []string{
-		"thumbnails/20260413-rec-abc12345-snap00.jpg",
-		"thumbnails/20260413-rec-abc12345-snap01.jpg",
-		"thumbnails/20260413-rec-abc12345-snap02.jpg",
-	}
-	for _, p := range wantPaths {
-		if _, ok := fs.saves[p]; !ok {
-			t.Errorf("expected save at %q, got paths: %v", p, keys(fs.saves))
-		}
-	}
-	if len(fs.saves) != len(wantPaths) {
-		t.Errorf("saves=%d, want %d", len(fs.saves), len(wantPaths))
+	video, err := repo.GetVideo(t.Context(), w.claim.VideoID)
+	if err != nil || video.Thumbnail == nil || *video.Thumbnail != storagekeys.Snapshot("recording", 0) {
+		t.Fatalf("first snapshot promotion: %+v %v", video, err)
 	}
 }
-
-// TestStorageSnapshotWriter_TwoDigitIndex verifies the zero-
-// padding holds up to 99. A 4-hour recording at 5-minute
-// intervals produces 48 snapshots — well within range.
-func TestStorageSnapshotWriter_TwoDigitIndex(t *testing.T) {
-	fs := newFakeStorage()
-	w := &storageSnapshotWriter{
-		storage:  fs,
-		filename: "long-rec",
-		ctx:      context.Background(),
-	}
-
-	for _, idx := range []int{0, 9, 10, 47, 99} {
-		if err := w.WriteSnapshot(context.Background(), idx, bytes.NewReader([]byte("x"))); err != nil {
-			t.Fatalf("WriteSnapshot(%d): %v", idx, err)
-		}
-	}
-	for _, want := range []string{
-		"thumbnails/long-rec-snap00.jpg",
-		"thumbnails/long-rec-snap09.jpg",
-		"thumbnails/long-rec-snap10.jpg",
-		"thumbnails/long-rec-snap47.jpg",
-		"thumbnails/long-rec-snap99.jpg",
-	} {
-		if _, ok := fs.saves[want]; !ok {
-			t.Errorf("expected save at %q; saves: %v", want, keys(fs.saves))
-		}
-	}
-}
-
-// TestStorageSnapshotWriter_PropagatesStorageError verifies a
-// storage-side failure bubbles out so the Snapshotter's write-
-// error handling (log + skip) gets exercised. If the adapter
-// swallowed errors the Snapshotter would count failed writes as
-// successful captures.
 func TestStorageSnapshotWriter_PropagatesStorageError(t *testing.T) {
-	wantErr := errors.New("disk full")
 	fs := newFakeStorage()
-	fs.saveErrs = map[string]error{
-		"thumbnails/rec-snap00.jpg": wantErr,
+	want := errors.New("disk full")
+	fs.saveErrs = map[string]error{storagekeys.Snapshot("rec", 0): want}
+	w, repo := snapshotWriterFixture(t, fs, "rec")
+	if err := w.WriteSnapshot(t.Context(), 0, strings.NewReader("frame")); !errors.Is(err, want) {
+		t.Fatal(err)
 	}
-	var promoted []string
-	w := &storageSnapshotWriter{
-		storage:              fs,
-		filename:             "rec",
-		ctx:                  context.Background(),
-		onFirstSnapshotSaved: func(path string) { promoted = append(promoted, path) },
-	}
-	err := w.WriteSnapshot(context.Background(), 0, strings.NewReader("bytes"))
-	if !errors.Is(err, wantErr) {
-		t.Errorf("err=%v, want errors.Is(%v)", err, wantErr)
-	}
-	if len(promoted) != 0 {
-		t.Errorf("first snapshot callback ran after failed save: %v", promoted)
+	v, err := repo.GetVideo(t.Context(), w.claim.VideoID)
+	if err != nil || v.Thumbnail != nil {
+		t.Fatalf("failed snapshot promoted: %+v %v", v, err)
 	}
 }
-
-func TestStorageSnapshotWriter_PromotesOnlyFirstSavedSnapshot(t *testing.T) {
+func TestStorageSnapshotWriter_CancellationPreventsPublication(t *testing.T) {
 	fs := newFakeStorage()
-	var promoted []string
-	w := &storageSnapshotWriter{
-		storage:              fs,
-		filename:             "rec",
-		ctx:                  context.Background(),
-		onFirstSnapshotSaved: func(path string) { promoted = append(promoted, path) },
-	}
-
-	for i := 0; i < 3; i++ {
-		if err := w.WriteSnapshot(context.Background(), i, strings.NewReader("bytes")); err != nil {
-			t.Fatalf("WriteSnapshot(%d): %v", i, err)
-		}
-	}
-
-	want := []string{"thumbnails/rec-snap00.jpg"}
-	if strings.Join(promoted, ",") != strings.Join(want, ",") {
-		t.Errorf("promoted=%v, want %v", promoted, want)
-	}
-}
-
-// TestStorageSnapshotWriter_UsesConfiguredCtxNotCall verifies the
-// adapter uses its configured ctx (the recording's long-lived
-// one), not the per-call ctx (the Snapshotter's derived one
-// that's about to cancel). Without this, a snapshot write racing
-// the "recording done" signal would be aborted after the CDN
-// fetch already succeeded.
-func TestStorageSnapshotWriter_UsesConfiguredCtxNotCall(t *testing.T) {
-	// Sentinel ctx we'll watch for.
-	type ctxKey struct{}
-	recordingCtx := context.WithValue(context.Background(), ctxKey{}, "recording")
-	// Per-call ctx that's already canceled — simulates the
-	// Snapshotter's ctx at teardown.
-	callCtx, cancel := context.WithCancel(context.Background())
+	w, _ := snapshotWriterFixture(t, fs, "rec")
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-
-	var seenVal any
-	fs := &ctxInspectingStorage{onSave: func(ctx context.Context) {
-		seenVal = ctx.Value(ctxKey{})
-	}}
-	w := &storageSnapshotWriter{
-		storage:  fs,
-		filename: "rec",
-		ctx:      recordingCtx,
+	if err := w.WriteSnapshot(ctx, 0, strings.NewReader("frame")); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
-	if err := w.WriteSnapshot(callCtx, 0, strings.NewReader("")); err != nil {
-		t.Fatalf("WriteSnapshot: %v", err)
-	}
-	if seenVal != "recording" {
-		t.Errorf("Save received ctx.Value(ctxKey)=%v, want %q — adapter should pass the recording ctx, not the per-call ctx", seenVal, "recording")
+	if len(fs.saves) != 0 {
+		t.Fatal("cancelled child published a snapshot")
 	}
 }
-
-type ctxInspectingStorage struct {
-	onSave func(context.Context)
-}
-
-func (s *ctxInspectingStorage) Save(ctx context.Context, _ string, r io.Reader) error {
-	s.onSave(ctx)
-	_, _ = io.Copy(io.Discard, r)
-	return nil
-}
-func (s *ctxInspectingStorage) Open(_ context.Context, _ string) (io.ReadSeekCloser, error) {
-	return nil, errors.New("not impl")
-}
-func (s *ctxInspectingStorage) Delete(_ context.Context, _ string) error {
-	return errors.New("not impl")
-}
-func (s *ctxInspectingStorage) Exists(_ context.Context, _ string) (bool, error) {
-	return false, errors.New("not impl")
-}
-func (s *ctxInspectingStorage) Stat(_ context.Context, _ string) (storage.FileInfo, error) {
-	return storage.FileInfo{}, errors.New("not impl")
+func TestStorageSnapshotWriter_StoppedAttemptCannotPromote(t *testing.T) {
+	fs := newFakeStorage()
+	w, repo := snapshotWriterFixture(t, fs, "rec")
+	if err := repo.UpdateVideoStatus(t.Context(), w.claim.VideoID, repository.VideoStatusDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.WriteSnapshot(t.Context(), 0, strings.NewReader("frame")); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatal(err)
+	}
+	if len(fs.saves) != 0 {
+		t.Fatal("terminal attempt published a snapshot")
+	}
 }
 
 func keys(m map[string][]byte) []string {
@@ -232,4 +130,43 @@ func keys(m map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// A lost upload response leaves the old physical key owned indefinitely. A
+// resumed sampler can publish a different frame without the late upload
+// overwriting it or promoting the failed first frame to the video thumbnail.
+func TestSnapshotResumeSkipsUnresolvedAndPublishedFrames(t *testing.T) {
+	fs := newFakeStorage()
+	firstKey, nextKey := storagekeys.Snapshot("rec", 0), storagekeys.Snapshot("rec", 1)
+	fs.saveErrs = map[string]error{firstKey: context.DeadlineExceeded}
+	w, repo := snapshotWriterFixture(t, fs, "rec")
+	if err := w.WriteSnapshot(t.Context(), 0, strings.NewReader("old frame")); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	resumed := &storageSnapshotWriter{storage: w.storage, claim: w.claim, filename: w.filename}
+	if err := resumed.WriteSnapshot(t.Context(), 0, strings.NewReader("new frame")); err != nil {
+		t.Fatal(err)
+	}
+	delete(fs.saveErrs, firstKey)
+	if err := fs.Save(t.Context(), firstKey, strings.NewReader("old frame")); err != nil {
+		t.Fatal(err)
+	}
+	if string(fs.saves[nextKey]) != "new frame" {
+		t.Fatal("late upload overwrote a newer snapshot")
+	}
+	v, err := repo.GetVideo(t.Context(), w.claim.VideoID)
+	if err != nil || v.Thumbnail == nil || *v.Thumbnail != nextKey {
+		t.Fatalf("thumbnail=%+v %v", v, err)
+	}
+	pending, err := repo.GetMediaPublication(t.Context(), firstKey)
+	if err != nil || !pending.Unresolved {
+		t.Fatalf("unknown upload retired: %+v %v", pending, err)
+	}
+	resumedAgain := &storageSnapshotWriter{storage: w.storage, claim: w.claim, filename: w.filename}
+	if err := resumedAgain.WriteSnapshot(t.Context(), 0, strings.NewReader("third frame")); err != nil {
+		t.Fatal(err)
+	}
+	if string(fs.saves[storagekeys.Snapshot("rec", 2)]) != "third frame" {
+		t.Fatal("restart reused a published frame key")
+	}
 }

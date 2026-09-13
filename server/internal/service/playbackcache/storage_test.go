@@ -11,39 +11,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
 )
-
-type gateFunc func() error
-
-func (f gateFunc) Ready() error                 { return f() }
-func (f gateFunc) Verify(context.Context) error { return f() }
-
-func cacheStorageFixture(t *testing.T, gate StorageGate) (*Service, *fakeRepo, *storage.LocalStorage, *fakeRunner) {
-	t.Helper()
-	store, err := storage.NewLocal(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	fps := 60.0
-	repo := &fakeRepo{
-		settings: &repository.ServerSettings{PlaybackCacheEnabled: true, PlaybackCacheAutoGenerate: true, PlaybackCacheMaxPercent: 100},
-		video:    &repository.Video{ID: 42, Status: repository.VideoStatusDone, Filename: "vod-42"},
-		parts: []repository.VideoPart{
-			{PartIndex: 1, Filename: "vod-42-01.mp4", Quality: "1080", FPS: &fps, Codec: repository.CodecH264, SegmentFormat: "mp4", DurationSeconds: 10, SizeBytes: 4},
-			{PartIndex: 2, Filename: "vod-42-02.mp4", Quality: "1080", FPS: &fps, Codec: repository.CodecH264, SegmentFormat: "mp4", DurationSeconds: 12, SizeBytes: 4},
-		},
-	}
-	for _, part := range repo.parts {
-		if err := store.Save(t.Context(), storagekeys.Video(part.Filename), strings.NewReader("part")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	runner := &fakeRunner{body: []byte("playback")}
-	svc := New(repo, store, gate, t.TempDir(), "", nil)
-	svc.SetRunner(runner)
-	t.Cleanup(svc.Close)
-	return svc, repo, store, runner
-}
 
 func TestCacheRefusesUnavailableStorage(t *testing.T) {
 	for _, verdict := range []struct {
@@ -53,7 +22,7 @@ func TestCacheRefusesUnavailableStorage(t *testing.T) {
 		{"unattached", storage.ErrUnattached}, {"unreachable", storage.ErrUnreachable}, {"read-only", storage.ErrReadOnly},
 	} {
 		t.Run(verdict.name, func(t *testing.T) {
-			svc, repo, store, runner := cacheStorageFixture(t, gateFunc(func() error { return verdict.err }))
+			svc, repo, store, runner := cacheFixture(t, gateFunc(func() error { return verdict.err }))
 			ctx := t.Context()
 			if err := svc.BuildNow(ctx, 42); !errors.Is(err, verdict.err) {
 				t.Errorf("build error=%v, want %v", err, verdict.err)
@@ -77,7 +46,9 @@ func TestCacheRefusesUnavailableStorage(t *testing.T) {
 					t.Errorf("prune deleted existing cache: exists=%v err=%v", exists, err)
 				}
 			}
-			svc.deleteArtifact(ctx, name)
+			owned, _ := svc.store.Lock(ctx, 42)
+			_ = svc.deleteArtifact(ctx, owned, name)
+			owned.Close()
 			if exists, err := store.Exists(ctx, storagekeys.Video(name)); err != nil || !exists {
 				t.Errorf("cleanup deleted existing cache: exists=%v err=%v", exists, err)
 			}
@@ -86,14 +57,14 @@ func TestCacheRefusesUnavailableStorage(t *testing.T) {
 }
 
 func TestCacheReconcilePreservesForeignStorage(t *testing.T) {
-	svc, repo, store, _ := cacheStorageFixture(t, nil)
+	svc, repo, store, _ := cacheFixture(t, nil)
 	ctx := t.Context()
 	expected := strings.Repeat("a", 64)
 	if err := storage.WriteMarker(ctx, store, strings.Repeat("b", 64)); err != nil {
 		t.Fatal(err)
 	}
-	svc.gate = gateFunc(func() error { return storage.Ready(ctx, store, expected) })
-	if err := svc.gate.Verify(ctx); !errors.Is(err, storage.ErrUnattached) {
+	mediatest.SetGate(svc.store, gateFunc(func() error { return storage.Ready(ctx, store, expected) }))
+	if err := svc.store.Verify(ctx); !errors.Is(err, storage.ErrUnattached) {
 		t.Fatalf("fixture not foreign: %v", err)
 	}
 	name := "vod-42-playback.mp4"
@@ -136,7 +107,7 @@ func (r storageLossRunner) Concat(context.Context, string, string) error {
 
 func TestCacheBuildDoesNotCleanUpAfterStorageChanges(t *testing.T) {
 	var gateErr error
-	svc, repo, store, _ := cacheStorageFixture(t, gateFunc(func() error { return gateErr }))
+	svc, repo, store, _ := cacheFixture(t, gateFunc(func() error { return gateErr }))
 	name := "vod-42-playback.mp4"
 	svc.SetRunner(storageLossRunner{afterStart: func() {
 		gateErr = storage.ErrUnattached
@@ -154,6 +125,7 @@ func TestCacheBuildDoesNotCleanUpAfterStorageChanges(t *testing.T) {
 	if data, err := os.ReadFile(path); err != nil || string(data) != "other install's cache" {
 		t.Errorf("cleanup changed foreign file: %q err=%v", data, err)
 	}
+	assertPlaybackFiles(t, svc, store, name)
 	if repo.asset == nil || repo.asset.Status != repository.PlaybackAssetStatusBuilding {
 		t.Errorf("storage outage recorded a terminal cache verdict: %+v", repo.asset)
 	}
@@ -161,10 +133,9 @@ func TestCacheBuildDoesNotCleanUpAfterStorageChanges(t *testing.T) {
 
 func TestCacheBuildRechecksStorageBeforeUpload(t *testing.T) {
 	var gateErr error
-	svc, repo, store, runner := cacheStorageFixture(t, gateFunc(func() error { return gateErr }))
-	// Expose only the object-storage interface, so concatenation uses scratch
-	// and then Save, as it does for S3.
-	svc.store = struct{ storage.Storage }{store}
+	svc, repo, store, runner := cacheFixture(t, gateFunc(func() error { return gateErr }))
+	// Wrapping the backend forces object-storage capacity budgeting.
+	svc.store = cacheMedia(t, repo, struct{ storage.Storage }{store}, gateFunc(func() error { return gateErr }), nil)
 	svc.capacityOverride = func(int64) (int64, bool) { return 1000, true }
 	runner.beforeWrite = func() { gateErr = storage.ErrReadOnly }
 	if err := svc.BuildNow(t.Context(), 42); !errors.Is(err, storage.ErrReadOnly) {
@@ -173,22 +144,20 @@ func TestCacheBuildRechecksStorageBeforeUpload(t *testing.T) {
 	if runner.calls != 1 {
 		t.Fatalf("concat never ran: %d calls", runner.calls)
 	}
-	if exists, err := store.Exists(t.Context(), storagekeys.Video("vod-42-playback.mp4")); err != nil || exists {
-		t.Errorf("uploaded onto read-only storage: exists=%v err=%v", exists, err)
-	}
+	assertPlaybackFiles(t, svc, store)
 	if repo.asset == nil || repo.asset.Status != repository.PlaybackAssetStatusBuilding {
 		t.Errorf("interrupted upload left a terminal verdict: %+v", repo.asset)
 	}
 }
 
 func TestCacheBuildPreservesReplacementVolumeDuringConcat(t *testing.T) {
-	svc, repo, store, runner := cacheStorageFixture(t, nil)
+	svc, repo, store, runner := cacheFixture(t, nil)
 	ctx := t.Context()
 	expected := strings.Repeat("a", 64)
 	if err := storage.WriteMarker(ctx, store, expected); err != nil {
 		t.Fatal(err)
 	}
-	svc.gate = gateFunc(func() error { return storage.Ready(ctx, store, expected) })
+	mediatest.SetGate(svc.store, gateFunc(func() error { return storage.Ready(ctx, store, expected) }))
 	name := "vod-42-playback.mp4"
 	path, err := store.LocalPath(storagekeys.Video(name))
 	if err != nil {
@@ -212,10 +181,11 @@ func TestCacheBuildPreservesReplacementVolumeDuringConcat(t *testing.T) {
 	if data, err := os.ReadFile(path); err != nil || string(data) != "foreign cache" {
 		t.Fatalf("concat overwrote foreign cache: %q, %v", data, err)
 	}
+	assertPlaybackFiles(t, svc, store, name)
 	if repo.asset == nil || repo.asset.Status != repository.PlaybackAssetStatusBuilding {
 		t.Fatalf("refused publication became terminal: %+v", repo.asset)
 	}
-	if entries, err := os.ReadDir(svc.scratch); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(svc.store.Scratch().Root()); err != nil || len(entries) != 0 {
 		t.Fatalf("refused build left temporary output: %v, %v", entries, err)
 	}
 	if err := os.RemoveAll(store.Root); err != nil {
@@ -228,7 +198,7 @@ func TestCacheBuildPreservesReplacementVolumeDuringConcat(t *testing.T) {
 	if err := svc.BuildNow(ctx, 42); err != nil {
 		t.Fatalf("retry after restoring expected volume: %v", err)
 	}
-	if data, err := os.ReadFile(path); err != nil || string(data) != string(runner.body) {
+	if data, err := os.ReadFile(filepath.Join(store.Root, storagekeys.Video(*repo.asset.Filename))); err != nil || string(data) != string(runner.body) {
 		t.Fatalf("retry did not publish cache: %q, %v", data, err)
 	}
 	if repo.asset.Status != repository.PlaybackAssetStatusReady {
@@ -237,7 +207,7 @@ func TestCacheBuildPreservesReplacementVolumeDuringConcat(t *testing.T) {
 	if repo.asset.SizeBytes == nil || *repo.asset.SizeBytes != int64(len(runner.body)) {
 		t.Fatalf("published cache has incorrect byte size: %+v", repo.asset)
 	}
-	if entries, err := os.ReadDir(svc.scratch); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(svc.store.Scratch().Root()); err != nil || len(entries) != 0 {
 		t.Fatalf("successful build left temporary output: %v, %v", entries, err)
 	}
 }
@@ -257,8 +227,8 @@ func (s storageAfterDelete) Delete(ctx context.Context, path string) error {
 
 func TestCachePruneRechecksStorageBetweenEvictions(t *testing.T) {
 	var gateErr error
-	svc, repo, store, _ := cacheStorageFixture(t, gateFunc(func() error { return gateErr }))
-	svc.store = storageAfterDelete{Storage: store, afterDelete: func() { gateErr = storage.ErrUnattached }}
+	svc, repo, store, _ := cacheFixture(t, gateFunc(func() error { return gateErr }))
+	svc.store = cacheMedia(t, repo, storageAfterDelete{Storage: store, afterDelete: func() { gateErr = storage.ErrUnattached }}, gateFunc(func() error { return gateErr }), nil)
 	svc.capacityOverride = func(int64) (int64, bool) { return 0, true }
 	size := int64(5)
 	for i, name := range []string{"old-cache.mp4", "new-cache.mp4"} {
@@ -277,7 +247,7 @@ func TestCachePruneRechecksStorageBetweenEvictions(t *testing.T) {
 		t.Errorf("next cache file lost: exists=%v err=%v", exists, err)
 	}
 	gateErr = nil
-	svc.store = store
+	svc.store = cacheMedia(t, repo, store, nil, nil)
 	if err := svc.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}

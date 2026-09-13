@@ -95,6 +95,52 @@ func testAttemptCommitConfirmationLost(t *testing.T, h Harness) {
 	}
 }
 
+func testMetadataEligibilityIsTransactional(t *testing.T, h Harness) {
+	ctx := t.Context()
+	repo := h.Repo()
+	SeedUserChannel(t, ctx, repo, "owner", "execution-channel")
+	v, err := repository.CreateAttempt(ctx, repo, executionInput("metadata-owner"), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := repository.AttemptClaim{VideoID: v.ID, JobID: v.JobID, ExecutionID: "first"}
+	if err := repository.ClaimAttempt(ctx, repo, claim, ""); err != nil {
+		t.Fatal(err)
+	}
+	update := repository.VideoMetadataChangeInput{VideoID: v.ID, JobID: v.JobID, ExecutionID: claim.ExecutionID, Title: "First", OccurredAt: time.Now().UTC()}
+	if _, err := repo.RecordVideoMetadataChange(ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.StopAttemptMetadata(ctx, repo, claim, update.OccurredAt.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	update.Title = "Too late"
+	if _, err := repo.RecordVideoMetadataChange(ctx, update); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("interrupted execution reopened metadata: %v", err)
+	}
+	claim.ExecutionID = "second"
+	if err := repository.ClaimAttempt(ctx, repo, claim, "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.RecordVideoMetadataChange(ctx, update); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("old writer attached to new execution: %v", err)
+	}
+	if err := repo.CheckpointAttempt(ctx, v.JobID, "first", json.RawMessage(`{"stale":true}`)); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("stale checkpoint accepted: %v", err)
+	}
+	if err := repo.MarkVideoDone(ctx, v.ID, 1, 1, nil, repository.CompletionKindComplete, false); err != nil {
+		t.Fatal(err)
+	}
+	update.ExecutionID = "second"
+	if _, err := repo.RecordVideoMetadataChange(ctx, update); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("terminal recording reopened metadata: %v", err)
+	}
+	events, err := repo.ListVideoMetadataChanges(ctx, v.ID)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("stale events escaped transaction: %+v %v", events, err)
+	}
+}
+
 func testRecordingIntentAtomicity(t *testing.T, h Harness) {
 	ctx := t.Context()
 	repo := h.Repo()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -20,7 +21,7 @@ type downloadRepo interface {
 
 type downloadRunner interface {
 	Start(ctx context.Context, p downloader.Params) (string, error)
-	Cancel(jobID string)
+	Cancel(jobID string) error
 	Subscribe(jobID string) <-chan downloader.Progress
 	ListActiveProgress() []downloader.Progress
 	SubscribeActive(ctx context.Context) <-chan struct{}
@@ -31,10 +32,7 @@ type streamHydrator interface {
 	Hydrate(ctx context.Context, broadcasterID string) *streammeta.Snapshot
 }
 
-// ErrChannelNotSynced is returned by DownloadService.Trigger when the
-// broadcaster has no channels row. The transport layer maps this to
-// 404 with a pointer to channel.syncFromTwitch so the operator knows
-// the fix.
+// ErrChannelNotSynced means Trigger or LiveRenditions needs a locally synced channel.
 var ErrChannelNotSynced = errors.New("video: channel not synced")
 
 type DownloadService struct {
@@ -55,11 +53,8 @@ func (s *DownloadService) ArchiveMaxConcurrent() int {
 	return s.archiveMaxConcurrent
 }
 
-// NewDownload builds the download control-plane service. hydrator is
-// shared with the schedule processor so manual + auto triggers both
-// upsert the same streams / categories / tags / titles rows — and
-// therefore the manual path fills videos.stream_id safely, since the
-// FK-parent row is guaranteed to exist by the time CreateVideo runs.
+// NewDownload shares hydrator with scheduled recordings so both paths use the
+// same metadata cache.
 func NewDownload(repo repository.Repository, dl *downloader.Service, tc *twitch.Client, hydrator *streammeta.Hydrator, log *slog.Logger) *DownloadService {
 	maxConcurrent, archiveMaxConcurrent := 0, 0
 	if dl != nil {
@@ -77,18 +72,6 @@ func NewDownload(repo repository.Repository, dl *downloader.Service, tc *twitch.
 	}
 }
 
-// TriggerInput carries everything needed to queue a manual download
-// from a tRPC procedure: the broadcaster ID, requested quality, the
-// recording mode + codec preference, and the caller's identity so
-// Helix calls + fetch logs attribute to them rather than the app
-// credential.
-//
-// RecordingType + ForceH264 are persisted on the videos row AND
-// forwarded to the downloader so the native pipeline's Stage 3
-// variant selector picks the right rendition (audio_only vs the
-// quality chain) and applies the codec filter. Operator intent
-// survives across restarts (videos row) and affects the in-flight
-// pipeline (Params).
 type TriggerInput struct {
 	BroadcasterID string
 	RecordingType string
@@ -100,24 +83,18 @@ type TriggerInput struct {
 	UserID    string
 }
 
-// TriggerResult is what Trigger hands back. JobID is always set;
-// VideoID may be zero when the video row was queued but the reload
-// read failed (rare — logged, caller should still surface JobID).
+// TriggerResult always includes JobID on success. VideoID is zero if admission
+// committed but reloading the video failed; callers can still follow JobID.
 type TriggerResult struct {
 	JobID   string
 	VideoID int64
 }
 
-// Trigger validates the channel exists, attaches user identity to
-// the download context, and kicks off the pipeline. Returns
-// ErrChannelNotSynced if the broadcaster has no channels row —
-// admins must run channel.syncFromTwitch first so the video row's
-// FK is satisfied.
+// Trigger starts a manual recording and returns ErrChannelNotSynced when its
+// broadcaster has no local channel row.
 func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (TriggerResult, error) {
-	// A pinned height is a video notion: it decides at Stage 3 and the row
-	// stores the tier it falls in, so the quality CHECK and the library
-	// filter see a familiar value. Audio keeps whatever quality it was
-	// given, as before.
+	// Store the tier containing a pinned video height to satisfy the quality CHECK
+	// and library filters. Audio ignores the height.
 	quality := input.Quality
 	maxHeight := 0
 	if repository.NormalizeRecordingType(input.RecordingType) == repository.RecordingTypeVideo && input.MaxHeight > 0 {
@@ -140,45 +117,39 @@ func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (Trig
 		return TriggerResult{}, fmt.Errorf("get channel: %w", err)
 	}
 
-	// Attach user identity so Helix calls from the download flow are
-	// attributed correctly and fetch logs carry the right user.
+	// Attribute Helix requests and fetch logs to the initiating user.
 	downloadCtx := twitch.WithUserID(ctx, input.UserID)
 
-	// Hydrate from Helix via the shared service: persists streams +
-	// categories + tags + titles rows and returns a snapshot for the
-	// Video row's metadata. Best-effort — any Helix failure yields a
-	// nil snapshot and we proceed with empty title / no stream link.
-	// Same contract as the schedule-processor path, so manual and
-	// auto triggers leave the DB in the same shape.
+	// Helix enrichment is best-effort; a failed lookup leaves metadata empty.
 	var (
-		title        string
-		viewers      int64
-		streamID     *string
-		language     string
-		categoryID   string
-		categoryName string
+		streamStartedAt time.Time
+		title           string
+		viewers         int64
+		streamID        *string
+		language        string
+		categoryID      string
+		categoryName    string
 	)
 	if s.hydrator != nil {
 		if snap := s.hydrator.Hydrate(downloadCtx, ch.BroadcasterID); snap != nil {
+			streamStartedAt = snap.StartedAt
 			title = snap.Title
 			viewers = snap.ViewerCount
 			language = snap.Language
 			categoryID = snap.GameID
 			categoryName = snap.GameName
 			if snap.StreamID != "" {
-				// streams row was upserted — safe to set the FK.
 				id := snap.StreamID
 				streamID = &id
 			}
 		}
 	}
-	// Language falls back to the channel's default only when Helix
-	// didn't give us a per-stream language.
 	if language == "" {
 		language = derefString(ch.BroadcasterLanguage)
 	}
 
 	jobID, err := s.downloader.Start(downloadCtx, downloader.Params{
+		StreamStartedAt:  streamStartedAt,
 		BroadcasterID:    ch.BroadcasterID,
 		BroadcasterLogin: ch.BroadcasterLogin,
 		DisplayName:      ch.BroadcasterName,
@@ -199,26 +170,21 @@ func (s *DownloadService) Trigger(ctx context.Context, input TriggerInput) (Trig
 
 	v, err := s.repo.GetVideoByJobID(ctx, jobID)
 	if err != nil {
-		// Download is already queued; the video row may land a tick
-		// behind the jobID hand-back on slow DBs. Log + surface the
-		// jobID so the dashboard can still subscribe to progress.
+		// Admission already committed; return JobID so progress stays addressable
+		// when this reload fails.
 		s.log.Error("reload video after start", "error", err, "job_id", jobID)
 		return TriggerResult{JobID: jobID}, nil
 	}
 	return TriggerResult{JobID: jobID, VideoID: v.ID}, nil
 }
 
-// Cancel asks the downloader to terminate an active job. No-op when
-// the job has already finished or never existed — the downloader
-// handles that internally; we don't need an error channel for it.
-func (s *DownloadService) Cancel(_ context.Context, jobID string) {
-	s.downloader.Cancel(jobID)
+// Cancel returns the result of the downloader's durable stop request.
+func (s *DownloadService) Cancel(_ context.Context, jobID string) error {
+	return s.downloader.Cancel(jobID)
 }
 
-// Subscribe returns the progress channel for an active job. Returns
-// nil when the job is not (or no longer) active; the transport layer
-// turns nil into a pre-closed SSE stream so clients see a clean
-// completion rather than a hang or error.
+// Subscribe returns nil for inactive jobs; callers should close the progress
+// stream in that case.
 func (s *DownloadService) Subscribe(jobID string) <-chan downloader.Progress {
 	return s.downloader.Subscribe(jobID)
 }
@@ -227,11 +193,9 @@ func (s *DownloadService) ActiveProgress() []downloader.Progress {
 	return s.downloader.ListActiveProgress()
 }
 
-// VideosByJobIDs resolves the video rows for the downloader's active job set in
-// one query so the active-downloads snapshot — which runs on every dashboard
-// poll and SSE wake — doesn't fan out a lookup per running recording. Resolving
-// from the in-memory job IDs (not a page of RUNNING rows) avoids missing new
-// downloads hidden behind stale orphans; job IDs with no video row are omitted.
+// VideosByJobIDs resolves active jobs in one query, omitting missing rows.
+// Use the downloader's job IDs; paging RUNNING rows can hide active work behind
+// orphaned rows from a previous process.
 func (s *DownloadService) VideosByJobIDs(ctx context.Context, jobIDs []string) ([]repository.Video, error) {
 	return s.repo.ListVideosByJobIDs(ctx, jobIDs)
 }

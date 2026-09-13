@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// Exercise cancellation while publishers still hold references to subscribers.
-// Waiting for every channel to close also checks that full buffers cannot keep
-// a disconnect blocked. Run under -race to catch unsafe sends even without a panic.
 func TestPublishConcurrentUnsubscribe(t *testing.T) {
 	topic := NewTopic[int](1)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -48,12 +45,7 @@ func TestPublishConcurrentUnsubscribe(t *testing.T) {
 	}
 }
 
-// TestNewTopicBufferDefault pins the per-subscriber buffer sizing: a
-// non-positive bufSize falls back to 16, and a positive value is used
-// verbatim. The buffer is observable as the capacity of a subscribed channel.
-// Without this the `bufSize <= 0` guard and the 16 default could flip with no
-// test noticing, and a zero-capacity channel would turn every Publish into a
-// synchronous send that the drop-on-full contract exists to avoid.
+// TestNewTopicBufferDefault prevents an unbuffered channel from dropping every publication.
 func TestNewTopicBufferDefault(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -76,10 +68,6 @@ func TestNewTopicBufferDefault(t *testing.T) {
 	}
 }
 
-// TestPublishDelivers pins the core contract: an event published after a
-// subscribe reaches that subscriber. Publish buffers the send before
-// returning, so the receive needs no synchronization beyond the channel
-// itself; no sleep is involved.
 func TestPublishDelivers(t *testing.T) {
 	topic := NewTopic[int](4)
 	ch := topic.Subscribe(t.Context())
@@ -91,10 +79,6 @@ func TestPublishDelivers(t *testing.T) {
 	}
 }
 
-// TestPublishFansOutToAllSubscribers pins that every current subscriber gets
-// its own copy, not just the first one the snapshot loop happens to visit.
-// Map iteration order is random, so both channels are checked after a single
-// Publish; both buffers already hold the event by the time Publish returns.
 func TestPublishFansOutToAllSubscribers(t *testing.T) {
 	topic := NewTopic[string](4)
 	a := topic.Subscribe(t.Context())
@@ -109,12 +93,7 @@ func TestPublishFansOutToAllSubscribers(t *testing.T) {
 	}
 }
 
-// TestPublishDropsOnFullBuffer pins the non-blocking contract: once a
-// subscriber's buffer is full, further publishes drop that subscriber's copy
-// rather than block the publisher. With the select's default branch removed
-// the third Publish would block forever (caught as a timeout); with it intact
-// the buffer holds exactly the first two events in order and the third is
-// gone.
+// TestPublishDropsOnFullBuffer catches a blocking send when the subscriber stops reading.
 func TestPublishDropsOnFullBuffer(t *testing.T) {
 	topic := NewTopic[int](2)
 	ch := topic.Subscribe(t.Context())
@@ -136,12 +115,6 @@ func TestPublishDropsOnFullBuffer(t *testing.T) {
 	}
 }
 
-// TestPublishWithNoSubscribers pins that publishing into an empty topic is a
-// safe no-op. Producers (scheduler, downloader) publish unconditionally
-// whether or not the dashboard is connected, so the zero-subscriber path is
-// the common case, not an edge case. The snapshot slice must be sized from the
-// live subscriber count; a wrong initial length would panic here precisely
-// when there are no subscribers to absorb it.
 func TestPublishWithNoSubscribers(t *testing.T) {
 	topic := NewTopic[int](4)
 	if got := topic.Count(); got != 0 {
@@ -151,9 +124,7 @@ func TestPublishWithNoSubscribers(t *testing.T) {
 	topic.Publish(99) // no subscribers: must not panic
 }
 
-// TestCountTracksSubscribers pins that Count reflects each live subscriber and
-// that distinct subscribes are assigned distinct ids. A dropped `next++` would
-// collapse both subscribers onto the same map key, leaving Count at 1.
+// TestCountTracksSubscribers guards against subscriber ID collisions.
 func TestCountTracksSubscribers(t *testing.T) {
 	topic := NewTopic[int](4)
 	if got := topic.Count(); got != 0 {
@@ -168,12 +139,6 @@ func TestCountTracksSubscribers(t *testing.T) {
 	}
 }
 
-// TestSubscribeUnregistersOnContextCancel pins the auto-cleanup: cancelling a
-// subscriber's context closes its channel and removes it from the subscriber
-// set. Ranging the channel to completion is the synchronization point. It
-// returns only once the unregister goroutine has closed the channel, and the
-// delete runs under the same lock just before that close, so the subsequent
-// Count is guaranteed to observe the removal without any sleep.
 func TestSubscribeUnregistersOnContextCancel(t *testing.T) {
 	topic := NewTopic[int](4)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -184,7 +149,7 @@ func TestSubscribeUnregistersOnContextCancel(t *testing.T) {
 
 	cancel()
 	for range ch {
-		// Block until the unregister goroutine closes ch.
+		// Channel closure follows removal under the topic lock.
 	}
 
 	if got := topic.Count(); got != 0 {
@@ -192,11 +157,7 @@ func TestSubscribeUnregistersOnContextCancel(t *testing.T) {
 	}
 }
 
-// TestPublishAfterUnsubscribeSkipsClosedChannel pins that an unregistered
-// subscriber is genuinely removed from the set before its channel is closed:
-// were the delete skipped, the next Publish would send on a closed channel and
-// panic. A second, still-live subscriber must keep receiving, confirming
-// fan-out continues from the trimmed set.
+// TestPublishAfterUnsubscribeSkipsClosedChannel catches sends to stale subscriber references.
 func TestPublishAfterUnsubscribeSkipsClosedChannel(t *testing.T) {
 	topic := NewTopic[int](4)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -205,7 +166,7 @@ func TestPublishAfterUnsubscribeSkipsClosedChannel(t *testing.T) {
 
 	cancel()
 	for range gone {
-		// Block until the cancelled subscriber's channel closes.
+		// Channel closure synchronizes the following publish with unsubscription.
 	}
 	if got := topic.Count(); got != 1 {
 		t.Fatalf("Count after one cancel = %d, want 1", got)
@@ -218,10 +179,6 @@ func TestPublishAfterUnsubscribeSkipsClosedChannel(t *testing.T) {
 	}
 }
 
-// TestNewWiresEveryTopicWithItsBufferSize pins that New constructs all four
-// topics and gives each the buffer size the dashboard feeds were tuned for.
-// The size is read back as the capacity of a subscribed channel, so a flipped
-// constant or a topic left nil surfaces here.
 func TestNewWiresEveryTopicWithItsBufferSize(t *testing.T) {
 	buses := New()
 	if buses == nil {
@@ -258,26 +215,32 @@ func TestNewWiresEveryTopicWithItsBufferSize(t *testing.T) {
 	}
 }
 
-func TestRemovalNotificationsCoalesceWithoutBlockingPublishers(t *testing.T) {
+func TestVideoChangesCoalesceWithoutBlockingPublishers(t *testing.T) {
 	bus := New()
-	events := bus.VideoRemovals.Subscribe(t.Context())
+	events := bus.VideoChanges.Subscribe(t.Context())
 	for range 1000 {
-		bus.VideoRemovals.Publish(VideoRemovalEvent{})
+		bus.NotifyVideoChange()
 	}
 	select {
 	case <-events:
 	default:
-		t.Fatal("lost removal invalidation")
+		t.Fatal("lost video invalidation")
 	}
 	select {
 	case <-events:
-		t.Fatal("removal invalidations did not coalesce")
+		t.Fatal("video invalidations did not coalesce")
 	default:
 	}
-	bus.VideoRemovals.Publish(VideoRemovalEvent{})
+	bus.NotifyVideoChange()
 	select {
 	case <-events:
 	default:
 		t.Fatal("lost transition after draining earlier invalidation")
 	}
+}
+
+func TestVideoChangesOptionalBus(t *testing.T) {
+	var absent *Buses
+	absent.NotifyVideoChange()
+	(&Buses{}).NotifyVideoChange()
 }

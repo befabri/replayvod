@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/storagehealth"
@@ -42,6 +44,12 @@ type storageLossAfterPartRepo struct {
 	after func() error
 }
 
+func (r storageLossAfterPartRepo) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
+	return r.Repository.WithTx(ctx, func(tx repository.Repository) error {
+		return fn(storageLossAfterPartRepo{Repository: tx, after: r.after})
+	})
+}
+
 func (r storageLossAfterPartRepo) FinalizeVideoPart(ctx context.Context, input *repository.VideoPartFinalize) error {
 	if err := r.Repository.FinalizeVideoPart(ctx, input); err != nil {
 		return err
@@ -57,13 +65,13 @@ func TestRealArchive_MountLostDuringUploadCannotFinalizeOrCleanScratch(t *testin
 	ctx := t.Context()
 	seedArchiveChannel(t, h.repo, "archivist")
 	store := &detachOnSaveStorage{LocalStorage: h.storage.(*storage.LocalStorage)}
-	h.svc.storage = store
+	h.svc.storage = mediatest.NewAt(t, h.svc.repo, store, nil, nil, h.scratchDir)
 	mon := storagehealth.New(h.repo, store, nil, h.svc.log, "local", h.storageDir)
 	if _, err := mon.Attach(ctx); err != nil {
 		t.Fatal(err)
 	}
 	gate := newObservedStorageGate(mon)
-	h.svc.SetStorageGate(gate)
+	setDownloaderGate(t, h.svc, gate)
 	detached := filepath.Join(t.TempDir(), "detached-storage")
 	store.detach = func() error {
 		if err := os.Rename(h.storageDir, detached); err != nil {
@@ -133,7 +141,7 @@ func TestRealArchive_StorageOutageBeforeCompletion(t *testing.T) {
 	}
 	gate := newObservedStorageGate(mon)
 	refused := gate.refused
-	h.svc.SetStorageGate(gate)
+	setDownloaderGate(t, h.svc, gate)
 	h.svc.repo = storageLossAfterPartRepo{Repository: h.repo, after: func() error {
 		if err := storage.WriteMarker(ctx, h.storage, strings.Repeat("f", 64)); err != nil {
 			return err
@@ -190,7 +198,7 @@ func TestRealArchive_StorageOutagePreservesActiveAttempt(t *testing.T) {
 			}
 			gate := newObservedStorageGate(mon)
 			refused := gate.refused
-			h.svc.SetStorageGate(gate)
+			setDownloaderGate(t, h.svc, gate)
 			bus := eventbus.New()
 			h.svc.SetEventBus(bus)
 			terminals := bus.RecordingTerminal.Subscribe(ctx)
@@ -273,7 +281,7 @@ func TestRealArchive_StorageOutagePreservesActiveAttempt(t *testing.T) {
 			if restart {
 				h = resumeOver(t, h, edge.URL())
 				t.Cleanup(h.svc.Shutdown)
-				h.svc.SetStorageGate(mon)
+				setDownloaderGate(t, h.svc, mon)
 				if err := h.svc.Resume(ctx); err != nil {
 					t.Fatal(err)
 				}

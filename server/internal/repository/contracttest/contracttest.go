@@ -1,17 +1,5 @@
-// Package contracttest is the backend-agnostic behavioral contract for
-// repository.Repository. It runs one suite of subtests against any adapter via
-// a Factory, so the Postgres and SQLite adapters are held to the same behavior
-// by a single suite instead of two hand-maintained mirror test trees.
-//
-// Like net/http/httptest, this is a normal (non _test.go) package that imports
-// testing on purpose: each adapter package wires it up from its own
-// contract_test.go by passing a Factory.
-//
-// It depends only on the repository package. It does not import the adapters,
-// their sqlc-generated packages, testdb, or any backend glue. Anything a test
-// needs that the repository interface deliberately does not expose (e.g.
-// backdating server-managed timestamps) goes through the Harness, whose
-// dialect-specific implementation lives in each adapter's test file.
+// Package contracttest runs the repository behavior contract against both
+// adapters; backend-specific fixture operations belong to Harness.
 package contracttest
 
 import (
@@ -76,11 +64,14 @@ func Run(t *testing.T, newHarness Factory) {
 	run("CreateAttemptAtomic", testCreateAttemptAtomic)
 	run("RecordingIntentAtomicity", testRecordingIntentAtomicity)
 	run("RecordingIntentConstraints", testRecordingIntentConstraints)
+	run("ExecutionRejectsStaleTransitions", testExecutionRejectsStaleTransitions)
 	run("AttemptStopSurvivesCheckpointsAndFencesWriters", testAttemptStopSurvivesCheckpointsAndFencesWriters)
 	run("StoppedAttemptDiscovery", testStoppedAttemptDiscovery)
+	run("StoppedAdmissionRejectsInitialMetadata", testStoppedAdmissionRejectsInitialMetadata)
+	run("PlaybackAsset_PaginationWithTiedTimestamps", testPlaybackAssetPaginationWithTiedTimestamps)
 	run("AttemptCommitConfirmationLost", testAttemptCommitConfirmationLost)
+	run("MetadataEligibilityIsTransactional", testMetadataEligibilityIsTransactional)
 
-	// schedules
 	run("Schedule_UpsertPreservesTriggerCount", testScheduleUpsertPreservesTriggerCount)
 	run("Schedule_FilterLinkFailureRollsBack", testScheduleFilterLinkFailureRollsBack)
 
@@ -100,7 +91,6 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Subscription_ListActiveStableWithTiedCreatedAt", testSubscriptionListActiveStableWithTiedCreatedAt)
 	run("Subscription_ActiveUniquePerBroadcasterType", testSubscriptionActiveUniquePerBroadcasterType)
 
-	// webhook events
 	run("WebhookEvent_DedupOnConflict", testWebhookEventDedupOnConflict)
 	run("WebhookEvent_PayloadRoundTrip", testWebhookEventPayloadRoundTrip)
 
@@ -127,7 +117,6 @@ func Run(t *testing.T, newHarness Factory) {
 	run("TwitchPlaybackSession", testTwitchPlaybackSession)
 	run("EventLog_DeleteOldSkipsWarnAndError", testEventLogDeleteOldSkipsWarnAndError)
 
-	// video metadata changes
 	run("VideoMetadataChange_RoundTripsMediaOffset", testVideoMetadataChangeRoundTripsMediaOffset)
 
 	// errors
@@ -138,7 +127,6 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Video_SoftDeleteThumbnail", testSoftDeleteVideoThumbnail)
 	run("Video_MissingTombstoneRestoreAndPermanentRemoval", testMissingTombstoneRestoreAndPermanentRemoval)
 
-	// playback assets
 	run("PlaybackAsset_ReadyToFailedTransition", testPlaybackAssetReadyToFailedTransition)
 	run("PlaybackAsset_ListReadyLRUOrder", testPlaybackAssetListReadyLRUOrder)
 	run("PlaybackAsset_TouchMovesToBackOfLRU", testPlaybackAssetTouchMovesToBackOfLRU)
@@ -168,7 +156,6 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Video_MetadataDurationsTracksHistory", testVideoMetadataDurationsTracksHistoryAndPrimaryCategory)
 	run("Video_ManualDeleteQueueWaitsForWebhookFrozenParts", testManualDeleteQueueWaitsForWebhookFrozenParts)
 
-	// archives
 	run("Archive_VideoRoundTrip", testArchiveVideoRoundTrip)
 	run("Archive_OpenRowPerVOD", testArchiveOpenRowPerVOD)
 	run("Archive_QueueOrderAndDequeue", testArchiveQueueOrderAndDequeue)
@@ -179,7 +166,6 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Video_StreamLinkRequiresKnownStream", testVideoStreamLinkRequiresKnownStream)
 	run("Video_MarkDoneKeepsPosterWithoutFrame", testMarkVideoDoneKeepsPosterWithoutFrame)
 
-	// server settings + recording webhook + schedules pause
 	run("Settings_SetSchedulesPausedRoundTripAndIsolation", testSetSchedulesPausedRoundTripAndIsolation)
 	run("Settings_StorageIdentityRoundTripAndIsolation", testStorageIdentityRoundTripAndIsolation)
 	run("Settings_StorageRestoreCursorRoundTripAndIsolation", testStorageRestoreCursorRoundTripAndIsolation)
@@ -194,7 +180,6 @@ func Run(t *testing.T, newHarness Factory) {
 	run("RecordingWebhook_ResetStaleDeliveries", testResetStaleRecordingWebhookDeliveries)
 	run("RecordingWebhook_DeleteOldPrunesTerminalKeepsActive", testDeleteOldRecordingWebhookDeliveriesPrunesTerminalKeepsActive)
 
-	// videos: scope / history / user-state (need backdate hooks)
 	run("Video_ListPageScope", testListVideosPageScope)
 	run("Video_ListSortDimensions", testListVideosSortDimensions)
 	run("Video_ListPageTerminalOnlyHistoryWhen", testListVideosPageTerminalOnlyHistoryWhen)

@@ -40,6 +40,14 @@ export const PlaybackAssetStatusEnum = {
   unavailable: "unavailable",
 } as const;
 
+/** RecordingIntentStatus is omitted when a recording has no continuation intent. */
+export const RecordingIntentStatusEnum = {
+  active: "active",
+  waiting: "waiting",
+  stopped: "stopped",
+  expired: "expired",
+} as const;
+
 /**
  * Role is the wire enum for a user's role, surfaced on the api/system and
  * api/auth response DTOs so trpcgo emits a "viewer" | "admin" | "owner" union
@@ -95,11 +103,7 @@ export const StorageStateEnum = {
   unreachable: "unreachable",
 } as const;
 
-/**
- * StreamStatusKind enumerates the two transitions StreamStatusEvent
- * carries. Exported as typed constants so consumers (SSE subscribers)
- * can branch on the value without magic strings.
- */
+/** StreamStatusKind identifies an online or offline transition. */
 export const StreamStatusKindEnum = {
   online: "online",
   offline: "offline",

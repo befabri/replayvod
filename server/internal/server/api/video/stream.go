@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/befabri/replayvod/server/internal/recordinglock"
+	"github.com/befabri/replayvod/server/internal/mediastore"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
@@ -21,32 +21,22 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// statusClientClosed mirrors nginx's non-standard 499 "client closed request".
-// Go's net/http has no constant for it. A browser playing a multi-part recording
-// fires many overlapping Range GETs and aborts the in-flight ones on every seek
-// or part switch; if such an abort lands while a request is still in its
-// metadata phase (the GetVideo/ListVideoParts lookups before any bytes flow),
-// the repo call returns context.Canceled. That's the client's doing, not a
-// server fault, so we reply 499 — the body never reaches the gone client — and
-// skip the ERROR log instead of emitting a misleading, alert-tripping 500.
+// statusClientClosed is nginx's non-standard 499. Browsers abort Range requests
+// on seeks; metadata reads cancelled by those aborts should not report server errors.
 const statusClientClosed = 499
 
 func clientGone(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-// PlaybackBuilder kicks a background build of a recording's single-file
-// playback artifact. The streaming path calls it lazily (the first time a part
-// is actually watched) so only viewed recordings cost a concat; it is the
-// playbackcache service in production and may be nil (builds simply don't fire).
+// PlaybackBuilder admits work independently of the HTTP request and must
+// coalesce concurrent requests for the same recording.
 type PlaybackBuilder interface {
-	StartBuild(ctx context.Context, videoID int64)
+	StartBuild(ctx context.Context, videoID int64) error
 }
 
-// MissingMarker tombstones a recording whose media is gone from storage; the
-// streaming path calls it after a definitive not-found. It is the storagescan
-// service in production and may be nil, in which case a missing file only
-// answers 404.
+// MissingMarker reconciles definitive missing-media reads. A nil marker
+// leaves the recording unchanged and the request returns 404.
 type MissingMarker interface {
 	MarkMissing(ctx context.Context, videoID int64) (bool, error)
 }
@@ -74,36 +64,22 @@ type missingCheck struct {
 
 type StreamHandler struct {
 	repo     repository.Repository
-	storage  storage.Storage
+	storage  *mediastore.Store
 	verifier *videodownload.Verifier
 	builder  PlaybackBuilder
 	missing  MissingMarker
-	gate     StorageGate
 	log      *slog.Logger
 	// missingMu protects both active checks and the bounded success cache.
 	missingMu           sync.Mutex
 	missingChecks       map[int64]*missingCheck
 	activeMissingChecks int
-	// warnedMultipart holds video IDs already logged about the multi-part
-	// /stream single-file fallback, so the warning fires once per video rather
-	// than on every request (a player issues a HEAD probe + many range GETs).
-	warnedMultipart sync.Map
-	// kickedBuild holds video IDs whose lazy playback-artifact build this process
-	// has already kicked, so a view (HEAD probe + many range GETs across parts)
-	// triggers StartBuild once rather than on every request. StartBuild is itself
-	// idempotent; this just avoids the goroutine churn.
-	kickedBuild sync.Map
-	// waveformFlights deduplicates concurrent rebuilds of the same missing or
-	// stale waveform artifact. Durable caching lives in object storage; this map
-	// only holds active work and deletes each entry when that work completes.
-	waveformFlights   *waveformFlights
-	waveformGenerator waveform.Generator
-	recordingLocks    *recordinglock.Locks
+	waveformFlights     *waveformFlights
+	waveformGenerator   waveform.Generator
 }
 
 type StreamHandlerOption func(*StreamHandler)
 
-func NewStreamHandler(repo repository.Repository, store storage.Storage, verifier *videodownload.Verifier, log *slog.Logger, opts ...StreamHandlerOption) *StreamHandler {
+func NewStreamHandler(repo repository.Repository, store *mediastore.Store, verifier *videodownload.Verifier, log *slog.Logger, opts ...StreamHandlerOption) *StreamHandler {
 	h := &StreamHandler{
 		repo:              repo,
 		storage:           store,
@@ -111,7 +87,6 @@ func NewStreamHandler(repo repository.Repository, store storage.Storage, verifie
 		log:               log.With("domain", "video-stream"),
 		waveformFlights:   newWaveformFlights(),
 		waveformGenerator: waveform.FFmpegGenerator{},
-		recordingLocks:    &recordinglock.Locks{},
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -127,10 +102,6 @@ func WithMissingMarker(m MissingMarker) StreamHandlerOption {
 	return func(h *StreamHandler) { h.missing = m }
 }
 
-func WithStorageGate(g StorageGate) StreamHandlerOption {
-	return func(h *StreamHandler) { h.gate = g }
-}
-
 func WithWaveformGenerator(g WaveformGenerator) StreamHandlerOption {
 	return func(h *StreamHandler) {
 		if g != nil {
@@ -139,27 +110,11 @@ func WithWaveformGenerator(g WaveformGenerator) StreamHandlerOption {
 	}
 }
 
-// WithRecordingLocks shares final artifact publication with recording deletion.
-func WithRecordingLocks(locks *recordinglock.Locks) StreamHandlerOption {
-	return func(h *StreamHandler) {
-		if locks != nil {
-			h.recordingLocks = locks
-		}
-	}
-}
-
-// SetupRoutes registers /videos/{id}/stream and /thumbnails/{path} on
-// the given Chi router. Both require an authenticated session — a
-// viewer at minimum — so we apply the auth middleware at the group
-// level.
-//
-// authMiddleware is the session middleware; passed in rather than
-// constructed here so the same instance is shared with the tRPC path.
+// SetupRoutes registers session-authenticated media routes. Pass the same
+// session middleware used by the tRPC routes.
 func (h *StreamHandler) SetupRoutes(r chi.Router, authMiddleware func(http.Handler) http.Handler) {
 	r.Group(func(r chi.Router) {
 		r.Use(authMiddleware)
-		r.Get("/videos/{id}/stream", h.streamVideo)
-		r.Head("/videos/{id}/stream", h.streamVideo)
 		r.Get("/videos/{id}/playback/stream", h.streamPlayback)
 		r.Head("/videos/{id}/playback/stream", h.streamPlayback)
 		r.Get("/videos/{id}/parts/{part}/stream", h.streamPart)
@@ -169,92 +124,14 @@ func (h *StreamHandler) SetupRoutes(r chi.Router, authMiddleware func(http.Handl
 	})
 }
 
-// SetupSignedRoutes registers the signed per-part download route. Unlike
-// SetupRoutes it is deliberately NOT behind the session middleware: a recording
-// webhook consumer has no cookie, so the URL's HMAC signature and expiry are the
-// authorization (verified in streamSignedPart). Register it on a router that is
-// NOT wrapped in the auth middleware.
-//
-// HEAD is registered alongside GET because an unattended consumer routinely
-// probes before it fetches: to size the transfer, read the filename out of
-// Content-Disposition, or confirm the link has not expired before committing to
-// a multi-gigabyte body. Both methods run the same signature verification and
-// part resolution, so HEAD never reveals a part GET would refuse — it answers
-// with the same status and headers and no body.
+// SetupSignedRoutes must be registered outside session middleware: the URL
+// signature and expiry authorize webhook consumers without cookies. HEAD
+// probes use the same authorization and part resolution as GET.
 func (h *StreamHandler) SetupSignedRoutes(r chi.Router) {
 	r.Get("/videos/{id}/parts/{part}/download", h.streamSignedPart)
 	r.Head("/videos/{id}/parts/{part}/download", h.streamSignedPart)
 }
 
-// streamVideo serves a downloaded MP4 with HTTP Range support so the browser
-// can seek. http.ServeContent does all the heavy lifting (206 Partial
-// Content, Content-Range headers, conditional requests).
-func (h *StreamHandler) streamVideo(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		http.Error(w, "invalid video id", http.StatusBadRequest)
-		return
-	}
-
-	ctx := r.Context()
-	video, err := h.repo.GetVideo(ctx, id)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			http.NotFound(w, r)
-			return
-		}
-		if clientGone(err) {
-			http.Error(w, "client closed request", statusClientClosed)
-			return
-		}
-		h.log.Error("get video failed", "error", err, "id", id)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Only DONE videos are streamable. PENDING/RUNNING don't have a file
-	// yet; FAILED never will.
-	if video.Status != repository.VideoStatusDone {
-		http.Error(w, "video not available", http.StatusNotFound)
-		return
-	}
-	if video.DeletedAt != nil {
-		http.Error(w, "video deleted", http.StatusGone)
-		return
-	}
-
-	parts, err := h.repo.ListVideoParts(ctx, video.ID)
-	if err != nil {
-		if clientGone(err) {
-			http.Error(w, "client closed request", statusClientClosed)
-			return
-		}
-		h.log.Error("list video parts failed", "error", err, "id", id)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	// Open through the storage layer so S3 Just Works alongside local.
-	relPath, name := h.videoStreamPath(video, parts)
-	if len(parts) > 1 {
-		// Legacy single-URL fallback: /stream plays only part 01. The dashboard
-		// uses /playback/stream or /parts/{n}/stream instead; this path exists
-		// for external clients / old bookmarks. Warn once per video — a player
-		// fires a HEAD probe plus many range GETs, so per-request logging would
-		// flood the logs for a single view.
-		if _, warned := h.warnedMultipart.LoadOrStore(video.ID, struct{}{}); !warned {
-			h.log.Warn("multi-part recording streamed via single-file fallback; only part 01 plays on /stream (use /playback/stream or /parts/{n}/stream)",
-				"video_id", video.ID,
-				"part_count", len(parts),
-				"served_part", name)
-		}
-	}
-	h.serveStorageFile(w, r, video.ID, relPath, name)
-}
-
-// streamPlayback serves only a finished playback artifact. It never builds or
-// concatenates on request; clients fall back to /parts/{n}/stream until
-// video.getById reports a ready artifact.
 func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
@@ -312,13 +189,12 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	// Confirm the file is present before doing anything else. If a ready row
-	// outlived its file (e.g. a retention pass that purged the object but whose
-	// row delete then failed), drop the row so video.getById stops advertising
-	// the artifact and the watch page falls back to /parts; the reconciler
-	// rebuilds it. Only act on a definitive not-found.
+	// Only a definitive missing file can demote a ready artifact to part playback.
 	info, statErr := h.storage.Stat(ctx, relPath)
 	switch {
+	case clientGone(statErr) || ctx.Err() != nil:
+		http.Error(w, "client closed request", statusClientClosed)
+		return
 	case errors.Is(statErr, fs.ErrNotExist):
 		var status int
 		asset, info, status = h.recheckMissingPlayback(ctx, id)
@@ -332,22 +208,16 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 		}
 		relPath = storagekeys.Video(*asset.Filename)
 	case statErr != nil:
-		// Transient stat error: let serveStorageFile re-stat and surface/log it.
 		h.serveStorageFile(w, r, id, relPath, *asset.Filename)
 		return
 	}
 	if r.Method == http.MethodGet && isPlaybackSessionStart(r) {
-		// LRU bump. A playing client issues a HEAD probe plus many Range GETs per
-		// view/seek; touching on each would be a write storm (and on SQLite would
-		// serialize against live recording writes). Touch only at the start of a
-		// playback session.
+		// Touching every Range chunk would serialize SQLite writes against recording.
 		if err := h.repo.TouchVideoPlaybackAsset(ctx, id); err != nil {
 			h.log.Warn("touch playback asset failed", "video_id", id, "error", err)
 		}
 	}
-	// Serve the recorded Content-Type rather than re-deriving it from the
-	// filename suffix, so the stored mime_type is authoritative. Reuse the
-	// FileInfo from the stale-row check so we don't Stat the object twice.
+	// The stored MIME type is authoritative; reuse the Stat result below.
 	if asset.MimeType != nil && *asset.MimeType != "" {
 		w.Header().Set("Content-Type", *asset.MimeType)
 	}
@@ -360,11 +230,11 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 // Release ownership before streaming or calling the missing-recording marker,
 // whose reconciliation can acquire this same recording lock.
 func (h *StreamHandler) recheckMissingPlayback(ctx context.Context, id int64) (*repository.VideoPlaybackAsset, storage.FileInfo, int) {
-	unlock, err := h.recordingLocks.Lock(ctx, id)
+	unlock, err := h.storage.Lock(ctx, id)
 	if err != nil {
 		return nil, storage.FileInfo{}, statusClientClosed
 	}
-	defer unlock()
+	defer unlock.Close()
 	asset, err := h.repo.GetVideoPlaybackAsset(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -404,10 +274,6 @@ func (h *StreamHandler) recheckMissingPlayback(ctx context.Context, id int64) (*
 	return nil, storage.FileInfo{}, http.StatusNotFound
 }
 
-// streamPart serves one recording part through the authenticated dashboard
-// session path. The watch player uses this route to sequence multi-part
-// recordings client-side without relying on signed download URLs or forcing a
-// Content-Disposition attachment.
 func (h *StreamHandler) streamPart(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
@@ -425,32 +291,24 @@ func (h *StreamHandler) streamPart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(status), status)
 		return
 	}
-	// Someone is actually watching this recording: lazily kick the single-file
-	// playback artifact build (once per video for this process). The builder
-	// no-ops for single-part recordings, already-built ones, and oversized ones;
-	// the player keeps sequencing parts meanwhile and upgrades to the artifact
-	// once it's ready. Only the authenticated dashboard path triggers builds —
-	// not the signed per-part download route consumers use.
-	h.maybeKickBuild(id)
+	if r.Method == http.MethodGet && isPlaybackSessionStart(r) {
+		h.maybeKickBuild(id)
+	}
 	h.serveStorageFile(w, r, id, relPath, name)
 }
 
-// maybeKickBuild starts the lazy playback-artifact build for videoID at most
-// once per process. The detached context is deliberate: the build outlives this
-// HTTP request (whose context cancels the instant the range read finishes).
+// maybeKickBuild lets later views retry failures or evictions; the builder owns
+// concurrent deduplication and the build outlives this HTTP request.
 func (h *StreamHandler) maybeKickBuild(videoID int64) {
 	if h.builder == nil || h.storageWriteUnavailable() != nil {
 		return
 	}
-	if _, kicked := h.kickedBuild.LoadOrStore(videoID, struct{}{}); kicked {
-		return
+	if err := h.builder.StartBuild(context.Background(), videoID); err != nil {
+		h.log.Warn("playback build admission failed", "video_id", videoID, "error", err)
 	}
-	h.builder.StartBuild(context.Background(), videoID)
 }
 
-// serveStorageFile streams a storage-relative file with Range support. name is
-// passed to http.ServeContent for content-type sniffing and is the suggested
-// download filename. Any Content-Disposition the caller set on w is preserved.
+// serveStorageFile supports ranges and preserves the caller's Content-Disposition.
 func (h *StreamHandler) serveStorageFile(w http.ResponseWriter, r *http.Request, videoID int64, relPath, name string) {
 	if !h.requireReadableStorage(w) {
 		return
@@ -463,9 +321,7 @@ func (h *StreamHandler) serveStorageFile(w http.ResponseWriter, r *http.Request,
 	h.serveStorageFileInfo(w, r, videoID, relPath, name, info)
 }
 
-// serveStorageFileInfo is serveStorageFile for a caller that has already
-// Stat'd relPath, so it doesn't repeat the Stat — on S3 that's one fewer
-// HeadObject per request (streamPlayback already Stats for its stale-row check).
+// serveStorageFileInfo reuses a previous Stat result to avoid a second S3 HeadObject.
 func (h *StreamHandler) serveStorageFileInfo(w http.ResponseWriter, r *http.Request, videoID int64, relPath, name string, info storage.FileInfo) {
 	if !h.requireReadableStorage(w) {
 		return
@@ -477,11 +333,7 @@ func (h *StreamHandler) serveStorageFileInfo(w http.ResponseWriter, r *http.Requ
 	}
 	defer f.Close()
 
-	// http.ServeContent needs modtime for ETag/If-Modified-Since and the
-	// display name for range/content handling. Set the known recording media
-	// types ourselves so an audio-only .m4a part is served as audio/mp4 instead
-	// of inheriting the browser-stream endpoint's video/mp4 default. A caller
-	// that already set Content-Type (e.g. streamPlayback's stored mime) wins.
+	// Serve audio-only .m4a as audio/mp4; the caller's stored Content-Type wins.
 	if w.Header().Get("Content-Type") == "" {
 		if contentType := contentTypeForRecordingFile(name); contentType != "" {
 			w.Header().Set("Content-Type", contentType)
@@ -579,13 +431,8 @@ func (h *StreamHandler) markMissing(parent context.Context, videoID int64) error
 	return err
 }
 
-// isPlaybackSessionStart reports whether r is the opening request of a playback
-// session rather than a seek or a continuation chunk. An HTML5 <video> element
-// opens with either a plain GET or `Range: bytes=0-` (browsers commonly probe
-// range support up front), while seeks and continuation reads request a
-// non-zero start. Bumping the LRU clock only here captures a real "watched now"
-// signal without a write per range chunk — and, crucially, without freezing the
-// clock for the common case where the browser always sends a Range.
+// isPlaybackSessionStart reports whether the request opens playback. Browsers
+// use a plain GET or Range: bytes=0-; nonzero ranges are seeks or continuations.
 func isPlaybackSessionStart(r *http.Request) bool {
 	rng := r.Header.Get("Range")
 	return rng == "" || strings.HasPrefix(rng, "bytes=0-")
@@ -603,11 +450,8 @@ func contentTypeForRecordingFile(name string) string {
 	}
 }
 
-// streamSignedPart serves one recorded part's bytes for a signed, expiring,
-// unauthenticated URL (videodownload mints these for recording-webhook
-// consumers). The query-string HMAC signature and expiry are the authorization
-// — there is no session — so a bad or expired signature is a flat 403 that
-// reveals nothing about whether the video or the part exists.
+// streamSignedPart validates the expiring signature before looking up media
+// so invalid URLs reveal nothing about video or part existence.
 func (h *StreamHandler) streamSignedPart(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
@@ -631,14 +475,9 @@ func (h *StreamHandler) streamSignedPart(w http.ResponseWriter, r *http.Request)
 		http.Error(w, http.StatusText(status), status)
 		return
 	}
-	// Force a download (not inline render) for the unattended consumer. name is
-	// always ASCII: partPath returns either buildFilename's output
-	// (<UTC-timestamp>-<lowercase-login>-<hex-jobID>-partNN.<ext>) or the legacy
-	// videos.filename + ".mp4", and a Twitch login is [a-z0-9_]. So fmt %q is a
-	// valid RFC 6266 quoted-string here (it escapes any " or \, and nothing in
-	// that charset needs more). If a filename ever carries non-ASCII, %q emits
-	// \uXXXX escapes a client can't decode — that case needs a
-	// filename*=UTF-8'' percent-encoded form alongside the plain filename=.
+	// Stored filenames contain only ASCII timestamps, Twitch logins and UUIDs,
+	// so %q produces a valid RFC 6266 quoted-string. Non-ASCII filenames would
+	// require a percent-encoded filename*=UTF-8'' parameter.
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	h.serveStorageFile(w, r, id, relPath, name)
 }
@@ -677,16 +516,8 @@ func (h *StreamHandler) resolveStreamablePart(ctx context.Context, id int64, par
 	return relPath, name, http.StatusOK, true
 }
 
-// partPath resolves the storage-relative path and suggested filename for one
-// part index. A recording with no part rows is a historical single-file row:
-// only index 0 is valid and maps to the legacy videos.filename + ".mp4".
-func partPath(v *repository.Video, parts []repository.VideoPart, index int32) (relPath, name string, ok bool) {
-	if len(parts) == 0 {
-		if index == 0 {
-			return storagekeys.Video(v.Filename + ".mp4"), v.Filename + ".mp4", true
-		}
-		return "", "", false
-	}
+// partPath resolves only stored part references; filenames must never be guessed.
+func partPath(_ *repository.Video, parts []repository.VideoPart, index int32) (relPath, name string, ok bool) {
 	for _, p := range parts {
 		if p.PartIndex == index {
 			return storagekeys.Video(p.Filename), p.Filename, true
@@ -695,12 +526,6 @@ func partPath(v *repository.Video, parts []repository.VideoPart, index int32) (r
 	return "", "", false
 }
 
-// serveThumbnail streams the thumbnail JPEG directly from the thumbnails
-// subtree. We strip the /thumbnails/ prefix so the URL path maps directly to
-// a storage-relative path.
-//
-// Unlike videos, thumbnails don't need range support — they're small enough
-// to serve whole. io.Copy is fine here.
 func (h *StreamHandler) serveThumbnail(w http.ResponseWriter, r *http.Request) {
 	// chi's "/*" wildcard gives us everything after /thumbnails/
 	path := chi.URLParam(r, "*")
@@ -708,9 +533,7 @@ func (h *StreamHandler) serveThumbnail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// Prevent escaping the thumbnails subdir — strip any leading slashes and
-	// reject path traversal attempts. The storage layer does its own check
-	// too (defense in depth).
+	// Reject escapes from the thumbnails prefix even if the storage root permits them.
 	path = strings.TrimLeft(path, "/")
 	if strings.Contains(path, "..") {
 		http.Error(w, "invalid path", http.StatusBadRequest)
@@ -737,27 +560,9 @@ func (h *StreamHandler) serveThumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "image/jpeg")
-	// Thumbnails are content-addressable (filename includes the job UUID),
-	// so once generated they never change. A long immutable cache is safe.
+	// The job UUID separates thumbnail names across recordings.
 	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
 	http.ServeContent(w, r, path, info.ModTime, f)
-}
-
-// videoStreamPath reads from video_parts.filename — the
-// authoritative source of the on-disk path.
-//
-// Multi-part recordings fall back to part 01 on /stream. The dashboard uses
-// either a ready playback artifact or the authenticated part route instead, so
-// /stream stays a cheap legacy endpoint and never performs request-time concat.
-//
-// Fallback to videos.filename + ".mp4" covers historical rows that
-// predate the video_parts schema.
-func (h *StreamHandler) videoStreamPath(v *repository.Video, parts []repository.VideoPart) (relPath, name string) {
-	if len(parts) == 0 {
-		name := v.Filename + ".mp4"
-		return storagekeys.Video(name), name
-	}
-	return storagekeys.Video(parts[0].Filename), parts[0].Filename
 }
 
 func (h *StreamHandler) requireReadableStorage(w http.ResponseWriter) bool {
@@ -778,15 +583,15 @@ func (h *StreamHandler) storageUnavailable() error {
 }
 
 func (h *StreamHandler) storageWriteUnavailable() error {
-	if h.gate == nil {
+	if h.storage == nil {
 		return nil
 	}
-	return h.gate.Ready()
+	return h.storage.Ready()
 }
 
 func (h *StreamHandler) verifyStorage(ctx context.Context) error {
-	if h.gate == nil {
+	if h.storage == nil {
 		return nil
 	}
-	return h.gate.Verify(ctx)
+	return h.storage.Verify(ctx)
 }

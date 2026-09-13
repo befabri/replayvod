@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/config"
+	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 )
 
@@ -97,7 +98,7 @@ func TestStartTitleTracking_WebhookSubscribesAndCleanupUnsubscribes(t *testing.T
 	s := newTitleTrackingService(config.ServerModeDirect, subs, nil)
 
 	var pollers int
-	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, 7, discardLog(),
+	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, repository.AttemptClaim{VideoID: 7}, discardLog(),
 		func(context.CancelFunc) { pollers++ }, nil)
 
 	if subs.subscribeCount() != 1 {
@@ -125,7 +126,7 @@ func TestStartTitleTracking_WebhookSubscribeFailureHasNoPollFallback(t *testing.
 	s := newTitleTrackingService(config.ServerModeDirect, subs, watcher)
 
 	var pollers int
-	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, 7, discardLog(),
+	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, repository.AttemptClaim{VideoID: 7}, discardLog(),
 		func(context.CancelFunc) { pollers++ }, nil)
 	cleanup()
 
@@ -153,7 +154,7 @@ func TestStartTitleTracking_PollStartsWatcher(t *testing.T) {
 	var registered []context.CancelFunc
 	offsetProvider := staticTitleTrackingOffset{seconds: 12.5, ok: true}
 	cleanup := s.startTitleTracking(context.Background(),
-		Params{BroadcasterID: "b-1", Title: "Opening", CategoryID: "cat-1"}, 42, discardLog(),
+		Params{BroadcasterID: "b-1", Title: "Opening", CategoryID: "cat-1"}, repository.AttemptClaim{VideoID: 42}, discardLog(),
 		func(c context.CancelFunc) { registered = append(registered, c) }, offsetProvider)
 
 	select {
@@ -193,7 +194,7 @@ func TestStartTitleTracking_OffDoesNothing(t *testing.T) {
 	s := newTitleTrackingService(config.ServerModeOff, subs, watcher)
 
 	var pollers int
-	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, 7, discardLog(),
+	cleanup := s.startTitleTracking(context.Background(), Params{BroadcasterID: "b-1"}, repository.AttemptClaim{VideoID: 7}, discardLog(),
 		func(context.CancelFunc) { pollers++ }, nil)
 	cleanup()
 

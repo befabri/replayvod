@@ -2,9 +2,7 @@ package eventbus
 
 import "time"
 
-// Buses collects every topic the app publishes. One struct passed
-// to services and subscription handlers so we have a single source
-// of truth for "what live feeds exist."
+// Buses holds the process topics shared by services and subscribers.
 type Buses struct {
 	EventLogs         *Topic[EventLogEvent]
 	StreamLive        *Topic[StreamLiveEvent]
@@ -13,9 +11,10 @@ type Buses struct {
 	RecordingTerminal *Topic[RecordingTerminalEvent]
 	StorageStatus     *Topic[StorageStatusEvent]
 	ArchiveQueue      *Topic[ArchiveQueueEvent]
-	VideoRemovals     *Topic[VideoRemovalEvent]
+	VideoChanges      *Topic[VideoChangeEvent]
 }
 
+// New initializes every process topic with a bounded subscriber buffer.
 func New() *Buses {
 	return &Buses{
 		EventLogs:         NewTopic[EventLogEvent](32),
@@ -25,15 +24,22 @@ func New() *Buses {
 		RecordingTerminal: NewTopic[RecordingTerminalEvent](16),
 		StorageStatus:     NewTopic[StorageStatusEvent](8),
 		ArchiveQueue:      NewTopic[ArchiveQueueEvent](32),
-		VideoRemovals:     NewTopic[VideoRemovalEvent](1),
+		VideoChanges:      NewTopic[VideoChangeEvent](1),
 	}
 }
 
-// VideoRemovalEvent invalidates removal-related queries after a committed
-// queue, deletion, missing-media, or restore transition. It carries no row
-// delta: a single buffered notification covers every change before it is read,
-// so bursts coalesce without losing state. Consumers reread the database.
-type VideoRemovalEvent struct{}
+// VideoChangeEvent invalidates video snapshots after a committed recording,
+// intent, removal, or restore transition. It carries no row delta: one buffered
+// notification covers every change before it is read. Consumers reread the DB.
+// Reconnecting clients reread snapshots to cover changes while disconnected.
+type VideoChangeEvent struct{}
+
+// NotifyVideoChange invalidates video snapshots after commit; a nil bus is safe.
+func (b *Buses) NotifyVideoChange() {
+	if b != nil && b.VideoChanges != nil {
+		b.VideoChanges.Publish(VideoChangeEvent{})
+	}
+}
 
 // StorageStatusEvent fires on every storage readiness transition (attached,
 // read-only, full, unattached, unreachable). This is a viewer-safe notification;
@@ -55,19 +61,15 @@ const (
 	ArchiveRetryCancelled ArchiveQueueKind = "retry_cancelled"
 )
 
-// ArchiveQueueEvent fires when an archive joins or leaves the queue, is
-// picked up by the pump, finishes, fails (with or without a retry scheduled;
-// the row carries next_retry_at), or has its retry cancelled, so the queue
-// page refetches instead of polling.
+// ArchiveQueueEvent invalidates the queue snapshot after a membership or state
+// change; clients reread the row for retry details.
 type ArchiveQueueEvent struct {
 	Kind    ArchiveQueueKind `json:"kind"`
 	VideoID int64            `json:"video_id"`
 	At      time.Time        `json:"at"`
 }
 
-// EventLogEvent mirrors a row appended to event_logs. Published from
-// the same code path that writes the row so SSE subscribers see each
-// event within the same goroutine the DB insert runs on.
+// EventLogEvent carries an event log row after its insertion succeeds.
 type EventLogEvent struct {
 	ID          int64          `json:"id"`
 	Domain      string         `json:"domain"`
@@ -79,12 +81,7 @@ type EventLogEvent struct {
 	CreatedAt   time.Time      `json:"created_at"`
 }
 
-// StreamLiveEvent fires when stream.online dispatches a matching
-// schedule. Pushed from the schedule processor on every successful
-// auto-download trigger — consumed by the dashboard's "Just went
-// live" card. Scoped to match-firings specifically because the card
-// cares about "we started recording this" events, not the general
-// online/offline signal (that's StreamStatusEvent).
+// StreamLiveEvent reports a successful recording trigger from matching schedules.
 type StreamLiveEvent struct {
 	BroadcasterID    string    `json:"broadcaster_id"`
 	BroadcasterLogin string    `json:"broadcaster_login"`
@@ -95,9 +92,7 @@ type StreamLiveEvent struct {
 	JobID            string    `json:"job_id,omitempty"`
 }
 
-// StreamStatusKind enumerates the two transitions StreamStatusEvent
-// carries. Exported as typed constants so consumers (SSE subscribers)
-// can branch on the value without magic strings.
+// StreamStatusKind identifies an online or offline transition.
 type StreamStatusKind string
 
 const (
@@ -105,15 +100,8 @@ const (
 	StreamStatusOffline StreamStatusKind = "offline"
 )
 
-// StreamStatusEvent fires on every stream.online and stream.offline
-// EventSub webhook, unconditional of schedule matches. This is the
-// delta feed for the dashboard's live-indicator Set — subscribers
-// compose it with an initial stream.liveIds snapshot to maintain an
-// accurate "currently live" membership Set without polling.
-//
-// Distinct from StreamLiveEvent: that one is the schedule-match /
-// recording-started firing; this one is the pure status transition.
-// Both can fire for the same stream.online webhook.
+// StreamStatusEvent reports online and offline webhooks regardless of schedule
+// matches; subscribers combine it with a stream.liveIds snapshot.
 type StreamStatusEvent struct {
 	Kind             StreamStatusKind `json:"kind"`
 	BroadcasterID    string           `json:"broadcaster_id"`
@@ -128,12 +116,10 @@ type StreamStatusEvent struct {
 type RecordingTerminalKind string
 
 const (
-	// RecordingCompleted is published from the downloader's MarkVideoDone path
-	// (a recording that finalized at least to DONE). Maps to recording.completed.
+	// RecordingCompleted wakes delivery of recording.completed after a DONE commit.
 	RecordingCompleted RecordingTerminalKind = "completed"
-	// RecordingFailed is published from the downloader's failDownload path on a
-	// real failure or operator cancel (NOT a shutdown interrupt, which stays
-	// RUNNING for resume). Maps to recording.failed.
+	// RecordingFailed wakes delivery of recording.failed after failure or operator
+	// cancellation; shutdown leaves the recording resumable and emits neither kind.
 	RecordingFailed RecordingTerminalKind = "failed"
 )
 
@@ -146,9 +132,7 @@ type RecordingTerminalEvent struct {
 	Kind    RecordingTerminalKind `json:"kind"`
 }
 
-// TaskStatusEvent fires on every scheduler task transition (start,
-// success, failure). Subscribers see the same lifecycle the DB row
-// reflects, but in real time.
+// TaskStatusEvent reports a committed scheduler transition.
 type TaskStatusEvent struct {
 	Name           string    `json:"name"`
 	Status         string    `json:"status"`

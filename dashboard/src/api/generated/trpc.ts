@@ -70,10 +70,8 @@ export type ArchiveEnqueueStatus = "queued" | "exists" | "not_found" | "invalid"
 export type ArchiveHeldReason = "archive" | "live_recording";
 
 /**
- * ArchiveQueueEvent fires when an archive joins or leaves the queue, is
- * picked up by the pump, finishes, fails (with or without a retry scheduled;
- * the row carries next_retry_at), or has its retry cancelled, so the queue
- * page refetches instead of polling.
+ * ArchiveQueueEvent invalidates the queue snapshot after a membership or state
+ * change; clients reread the row for retry details.
  */
 export interface ArchiveQueueEvent {
   kind: ArchiveQueueKind;
@@ -218,7 +216,6 @@ export interface ChannelSearchInput {
   limit?: number;
 }
 
-/** ChannelStatisticsInput scopes a per-channel aggregate query. */
 export interface ChannelStatisticsInput {
   broadcaster_id: string;
 }
@@ -373,11 +370,7 @@ export interface EventLogEntry {
   created_at: string;
 }
 
-/**
- * EventLogEvent mirrors a row appended to event_logs. Published from
- * the same code path that writes the row so SSE subscribers see each
- * event within the same goroutine the DB insert runs on.
- */
+/** EventLogEvent carries an event log row after its insertion succeeds. */
 export interface EventLogEvent {
   id: number;
   domain: string;
@@ -458,9 +451,8 @@ export interface GetByLoginInput {
 }
 
 /**
- * HistoryCountsResponse labels the download-history controls: one entry per
- * outcome tab, each split by media scope so switching scope re-labels the tabs
- * without another round trip. All is the three outcomes together.
+ * HistoryCountsResponse splits terminal outcomes by media scope. All is the
+ * sum of Completed, Failed and Cancelled.
  */
 export interface HistoryCountsResponse {
   all: HistoryScopeCounts;
@@ -469,17 +461,10 @@ export interface HistoryCountsResponse {
   cancelled: HistoryScopeCounts;
 }
 
-/**
- * HistoryScopeCounts splits one outcome by whether the recording's media is
- * still on disk.
- */
 export interface HistoryScopeCounts {
   on_disk: number;
   removed: number;
-  /**
-   * Unavailable is the part of Removed whose media went missing and can come
-   * back: the tombstones the Unavailable filter lists.
-   */
+  /** Unavailable counts missing-media tombstones within Removed that can be restored. */
   unavailable: number;
 }
 
@@ -555,10 +540,7 @@ export interface ListSubscriptionsResponse {
   total: number;
 }
 
-/**
- * LiveRendition is one video rendition of the live stream as the recorder
- * sees it. FPS is omitted when the manifest does not declare it.
- */
+/** LiveRendition omits FPS when the manifest does not declare it. */
 export interface LiveRendition {
   height: number;
   fps?: number;
@@ -566,9 +548,8 @@ export interface LiveRendition {
 }
 
 /**
- * LiveRenditionsInput names the live channel to inspect. ForceH264 must match
- * the download that follows: it changes which renditions Twitch offers, not
- * just which ones are shown.
+ * LiveRenditionsInput must use the intended download's ForceH264 value because
+ * it changes the renditions Twitch offers.
  */
 export interface LiveRenditionsInput {
   broadcaster_id: string;
@@ -606,12 +587,8 @@ export interface PlaybackCacheConfigResponse {
 }
 
 /**
- * ProgressEvent is the wire shape for a download progress update.
- * Matches downloader.Progress but pinned to a JSON-stable schema.
- *
- * Cumulative semantics: each event fully replaces the previous,
- * so subscribers that miss intermediate events (slow render, SSE
- * reconnect) stay consistent once they receive the next one.
+ * ProgressEvent is a cumulative snapshot. Each event replaces the previous
+ * one, so skipped updates do not lose state.
  */
 export interface ProgressEvent {
   job_id: string;
@@ -631,6 +608,9 @@ export interface ProgressEvent {
   recording_type?: string;
   media_offset_seconds?: number;
 }
+
+/** RecordingIntentStatus is omitted when a recording has no continuation intent. */
+export type RecordingIntentStatus = "active" | "waiting" | "stopped" | "expired";
 
 /**
  * RecordingWebhookConfigResponse is the owner-facing webhook config. Secret is
@@ -692,6 +672,24 @@ export interface RecordingWebhookUpdateConfigInput {
   enabled: boolean;
   url?: string;
   events?: string[];
+}
+
+export interface RelatedRecordingResponse {
+  id: number;
+  job_id: string;
+  title: string;
+  status: VideoStatus;
+  completion_kind: CompletionKind;
+  deleted_at?: string;
+  started_at: string;
+  position: number;
+}
+
+export interface RelatedRecordingsResponse {
+  intent_id?: string;
+  status?: RecordingIntentStatus;
+  wait_until?: string;
+  items: RelatedRecordingResponse[];
 }
 
 export interface RequestIDInput {
@@ -933,15 +931,9 @@ export interface StatisticsResponse {
   by_status: StatsBucket[];
   this_week: number;
   incomplete: number;
-  /**
-   * Channels is the count of distinct broadcasters represented in
-   * the videos table — used by the videos page subtitle.
-   */
+  /** Channels counts distinct broadcasters represented in the videos table. */
   channels: number;
-  /**
-   * Removed counts tombstoned recordings; drives the History "Removed" tab
-   * count (the only count not derivable from by_status, which is live-only).
-   */
+  /** Removed counts tombstones, which are excluded from ByStatus. */
   removed: number;
   /** WatchLater and Unwatched are per authenticated user. */
   watch_later: number;
@@ -1007,14 +999,7 @@ export interface StreamByBroadcasterInput {
   offset: number;
 }
 
-/**
- * StreamLiveEvent fires when stream.online dispatches a matching
- * schedule. Pushed from the schedule processor on every successful
- * auto-download trigger — consumed by the dashboard's "Just went
- * live" card. Scoped to match-firings specifically because the card
- * cares about "we started recording this" events, not the general
- * online/offline signal (that's StreamStatusEvent).
- */
+/** StreamLiveEvent reports a successful recording trigger from matching schedules. */
 export interface StreamLiveEvent {
   broadcaster_id: string;
   broadcaster_login: string;
@@ -1038,15 +1023,8 @@ export interface StreamResponse {
 }
 
 /**
- * StreamStatusEvent fires on every stream.online and stream.offline
- * EventSub webhook, unconditional of schedule matches. This is the
- * delta feed for the dashboard's live-indicator Set — subscribers
- * compose it with an initial stream.liveIds snapshot to maintain an
- * accurate "currently live" membership Set without polling.
- *
- * Distinct from StreamLiveEvent: that one is the schedule-match /
- * recording-started firing; this one is the pure status transition.
- * Both can fire for the same stream.online webhook.
+ * StreamStatusEvent reports online and offline webhooks regardless of schedule
+ * matches; subscribers combine it with a stream.liveIds snapshot.
  */
 export interface StreamStatusEvent {
   kind: StreamStatusKind;
@@ -1057,11 +1035,7 @@ export interface StreamStatusEvent {
   at: string;
 }
 
-/**
- * StreamStatusKind enumerates the two transitions StreamStatusEvent
- * carries. Exported as typed constants so consumers (SSE subscribers)
- * can branch on the value without magic strings.
- */
+/** StreamStatusKind identifies an online or offline transition. */
 export type StreamStatusKind = "online" | "offline";
 
 export interface SubscribeInput {
@@ -1121,11 +1095,7 @@ export interface TaskResponse {
   updated_at: string;
 }
 
-/**
- * TaskStatusEvent fires on every scheduler task transition (start,
- * success, failure). Subscribers see the same lifecycle the DB row
- * reflects, but in real time.
- */
+/** TaskStatusEvent reports a committed scheduler transition. */
 export interface TaskStatusEvent {
   name: string;
   status: string;
@@ -1145,11 +1115,7 @@ export interface TimelineCategory {
   box_art_url?: string;
 }
 
-/**
- * TimelineEvent is the wire shape for one merged title+category
- * change row. The schema-level CHECK guarantees at least one of
- * title/category is present.
- */
+/** TimelineEvent contains at least one of Title and Category. */
 export interface TimelineEvent {
   occurred_at: string;
   media_offset_seconds?: number;
@@ -1178,23 +1144,12 @@ export interface TitlesInput {
   video_id: number;
 }
 
-/**
- * TriggerDownloadInput starts a manual download for a live broadcaster.
- * RecordingType + ForceH264 are accepted at the API boundary so the
- * dashboard can send them; the native HLS downloader (Phase 4+) will
- * consume them at Stage 3 variant selection. Until then they are
- * recorded on the `videos` row via VideoInput but otherwise ignored.
- */
 export interface TriggerDownloadInput {
   broadcaster_id: string;
   recording_type?: string;
   quality?: string;
   force_h264?: boolean;
-  /**
-   * MaxHeight pins the recording to one of the heights video.liveRenditions
-   * listed. It wins over Quality, which is then stored as the tier the
-   * height falls in. Ignored for audio.
-   */
+  /** MaxHeight overrides Quality with the containing tier and is ignored for audio. */
   max_height?: number;
 }
 
@@ -1314,6 +1269,15 @@ export interface VideoCategory {
   duration_seconds: number;
 }
 
+/**
+ * VideoChangeEvent invalidates video snapshots after a committed recording,
+ * intent, removal, or restore transition. It carries no row delta: one buffered
+ * notification covers every change before it is read. Consumers reread the DB.
+ * Reconnecting clients reread snapshots to cover changes while disconnected.
+ */
+export interface VideoChangeEvent {
+}
+
 export interface VideoDeleteInput {
   id: number;
 }
@@ -1347,34 +1311,22 @@ export interface VideoListPageInput {
   quality?: string;
   broadcaster_id?: string;
   language?: string;
-  /** Source narrows to live recordings or archives of past broadcasts. */
   source?: string;
   duration?: string;
   size?: string;
   window?: string;
   /**
-   * Outcome splits terminal rows the way the download history does:
-   * "completed", "failed", or "cancelled" for a run the operator stopped.
-   * The server owns the status + completion_kind mapping, so a client asking
-   * for failures never has to know a cancellation is stored as FAILED.
+   * Outcome separates operator cancellations from failures even though both
+   * are stored with FAILED status.
    */
   outcome?: string;
   incomplete_only?: boolean;
   watch_later_only?: boolean;
   unwatched_only?: boolean;
-  /**
-   * TerminalOnly keeps active in-flight rows out of history-style views while
-   * still allowing those views to include both active terminal rows and
-   * tombstones through Scope="all".
-   */
   terminal_only?: boolean;
   /**
-   * Scope selects the tombstone state. Empty/"active" keeps the library
-   * default (live recordings only); "removed" and "all" power the
-   * removed-inclusive history surface. Channel/category grids and search
-   * never expose this and stay active-only.
-   * DeletionKind narrows tombstones to why they left; only meaningful with
-   * Scope "removed" or "all".
+   * DeletionKind filters tombstones and applies only with Scope removed or all.
+   * An empty Scope defaults to active recordings.
    */
   deletion_kind?: string;
   scope?: string;
@@ -1427,71 +1379,35 @@ export interface VideoPlaybackAssetResponse {
   updated_at: string;
 }
 
-/**
- * VideoRemovalEvent invalidates removal-related queries after a committed
- * queue, deletion, missing-media, or restore transition. It carries no row
- * delta: a single buffered notification covers every change before it is read,
- * so bursts coalesce without losing state. Consumers reread the database.
- */
-export interface VideoRemovalEvent {
-}
-
-/**
- * VideoResponse is the wire shape for a video record. broadcaster_*
- * and profile_image_url come from a JOIN-equivalent channel lookup
- * that the service layer does in bulk once per response — the frontend
- * renders the video card's avatar + channel link without a per-row
- * channel.getById, which would trip trpcgo's batching ceiling on a
- * full grid.
- */
 export interface VideoResponse {
   id: number;
   job_id: string;
   filename: string;
   display_name: string;
-  /**
-   * Title is the stream title at download-start time. Empty when
-   * Twitch didn't surface a title (manual trigger on an offline
-   * channel); the UI falls back to display_name in that case.
-   */
+  /** Title is empty when Twitch supplied no title; clients may fall back to DisplayName. */
   title: string;
   status: VideoStatus;
-  /**
-   * CompletionKind distinguishes clean-end from partial/cancelled
-   * recordings. See repository.CompletionKind* constants. The UI
-   * renders a secondary badge (PARTIAL) for DONE+partial and
-   * replaces the FAILED badge with CANCELLED when the operator
-   * explicitly cancelled.
-   */
   completion_kind: CompletionKind;
   /**
-   * Truncated is true when the recording stopped before the
-   * broadcast ended — operator cancel, mid-run failure, or a clean
-   * finalize that never observed EXT-X-ENDLIST. Orthogonal to
-   * CompletionKind. The dashboard's videos page uses this to
-   * distinguish "we have the whole stream" from "we only have the
-   * part of the broadcast we recorded for."
+   * Truncated means recording stopped before the broadcast ended, independently
+   * of CompletionKind. A clean finalize without EXT-X-ENDLIST can be truncated.
    */
   truncated: boolean;
   /**
-   * Quality is the display label for the selected recorded rendition
-   * when Stage 3 has picked one (e.g. 1080p60). Before that it falls
-   * back to the requested quality enum (HIGH/MEDIUM/LOW).
+   * Quality is the selected rendition label (for example, 1080p60), or the
+   * requested quality tier before selection.
    */
   quality: string;
   fps?: number;
   /**
-   * IsAudioOnly is the server-owned playback classification. Clients use this
-   * instead of re-deriving audio-ness from file extensions, MIME types, or
-   * playback artifact metadata that can disagree during migrations/backfills.
+   * IsAudioOnly is authoritative; clients must not infer it from file extensions
+   * or playback artifact metadata.
    */
   is_audio_only: boolean;
   broadcaster_id: string;
   /**
-   * BroadcasterLogin / BroadcasterName / ProfileImageURL come from
-   * the channels mirror. When the broadcaster isn't locally synced
-   * (rare but possible for historical videos) these are empty and
-   * the frontend falls back to DisplayName + initials avatar.
+   * BroadcasterLogin and adjacent channel fields may be empty when the mirror
+   * has no broadcaster; DisplayName remains available as a fallback.
    */
   broadcaster_login?: string;
   broadcaster_name?: string;
@@ -1508,13 +1424,7 @@ export interface VideoResponse {
   error?: string;
   start_download_at: string;
   downloaded_at?: string;
-  /**
-   * DeletedAt is set on tombstoned (removed) recordings; DeletionKind
-   * records why ("retention" | "manual" | "missing"). Both nil for live
-   * recordings.
-   * Surfaced only on the removed-inclusive history surface (listPage with
-   * scope removed/all); the library default scope never returns these rows.
-   */
+  /** DeletedAt marks a tombstone; DeletionKind is retention, manual or missing. */
   deleted_at?: string;
   deletion_kind?: string;
   /**
@@ -1522,36 +1432,23 @@ export interface VideoResponse {
    * finalized by the background deletion task.
    */
   delete_requested_at?: string;
-  /**
-   * Source is "live" for a recorded broadcast and "vod" for an archive of a
-   * Twitch VOD. Archives also carry the VOD id and the date the stream
-   * originally aired.
-   */
   source: VideoSource;
   twitch_video_id?: string;
   broadcast_at?: string;
-  /** NextRetryAt is set on a failed archive whose next attempt is scheduled. */
   next_retry_at?: string;
-  /**
-   * Parts is populated only by GetByID — list endpoints skip it
-   * to avoid N+1 queries on grid views.
-   */
+  /** Parts is populated only by GetByID; list endpoints avoid per-video part queries. */
   parts?: VideoPartResponse[];
   has_media?: boolean;
   /**
-   * PlaybackArtifact is populated only by GetByID. Ready means the watch page
-   * can use /api/v1/videos/{id}/playback/stream; building/failed/unavailable
-   * keep the client-side part sequencer as the fallback.
+   * PlaybackArtifact is populated only by GetByID. Clients use part streams
+   * unless the artifact is ready.
    */
   playback_artifact?: VideoPlaybackAssetResponse;
   /** UserState is scoped to the authenticated user. */
   user_state?: VideoUserStateResponse;
 }
 
-/**
- * SearchInput drives video.search for the global navbar search. Query is
- * capped to bound LIKE/ILIKE work across titles, broadcasters, and categories.
- */
+/** SearchInput caps Query to bound LIKE/ILIKE work across joined metadata. */
 export interface VideoSearchInput {
   query: string;
   limit?: number;
@@ -1713,6 +1610,7 @@ type AppRouterRecord = {
     byCategory: $Query<ByCategoryInput, VideoPageResponse>;
     cancel: $Mutation<CancelInput, VideoOK>;
     categories: $Query<CategoriesInput, VideoCategory[]>;
+    changesLive: $Subscription<void, VideoChangeEvent>;
     continueWatching: $Query<ContinueWatchingInput, VideoResponse[]>;
     delete: $Mutation<VideoDeleteInput, VideoOK>;
     downloadCapacity: $Query<void, DownloadCapacityResponse>;
@@ -1722,7 +1620,7 @@ type AppRouterRecord = {
     list: $Query<VideoListInput, VideoResponse[]>;
     listPage: $Query<VideoListPageInput, VideoListPageResponse>;
     liveRenditions: $Query<LiveRenditionsInput, LiveRenditionsResponse>;
-    removalsLive: $Subscription<void, VideoRemovalEvent>;
+    relatedRecordings: $Query<VideoGetByIDInput, RelatedRecordingsResponse>;
     restore: $Mutation<RestoreInput, VideoOK>;
     search: $Query<VideoSearchInput, VideoResponse[]>;
     setWatchLater: $Mutation<SetWatchLaterInput, VideoUserStateResponse>;

@@ -255,16 +255,6 @@ type Querier interface {
 	ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
-	// Terminal, not-yet-tombstoned recordings whose creation-time retention policy
-	// snapshot is due at @now. DONE rows own watchable artifacts; FAILED
-	// partial/cancelled rows may own finalized parts, thumbnails, strips, and
-	// snapshots. FAILED rows without salvage are excluded so retention does not
-	// erase error-only diagnostics. Recordings without retention_window_hours are
-	// explicitly outside retention, even if the same broadcaster currently has a
-	// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
-	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
-	// agree on "exactly at the deadline is still retained".
-	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]ListFinishedVideosForRetentionRow, error)
 	ListInvites(ctx context.Context) ([]Invite, error)
 	// Returns the most recent stream per broadcaster, newest first, joined
 	// with the channel for display metadata. DISTINCT ON requires ordering
@@ -283,7 +273,7 @@ type Querier interface {
 	// label without round-tripping every row.
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
 	ListQueuedArchiveJobs(ctx context.Context, arg ListQueuedArchiveJobsParams) ([]ListQueuedArchiveJobsRow, error)
-	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
+	ListReadyVideoPlaybackAssets(ctx context.Context, arg ListReadyVideoPlaybackAssetsParams) ([]VideoPlaybackAsset, error)
 	ListRecentArchiveFailures(ctx context.Context, arg ListRecentArchiveFailuresParams) ([]Video, error)
 	ListRecordingIntentJobs(ctx context.Context, arg ListRecordingIntentJobsParams) ([]Job, error)
 	ListRecordingPublications(ctx context.Context, arg ListRecordingPublicationsParams) ([]MediaPublication, error)
@@ -291,6 +281,16 @@ type Querier interface {
 	ListRecoverableRecordingIntents(ctx context.Context, arg ListRecoverableRecordingIntentsParams) ([]RecordingIntent, error)
 	ListRecoveryJobs(ctx context.Context, arg ListRecoveryJobsParams) ([]Job, error)
 	ListRelatedRecordings(ctx context.Context, videoID int64) ([]ListRelatedRecordingsRow, error)
+	// Terminal, not-yet-tombstoned recordings whose creation-time retention policy
+	// snapshot is due at @now. DONE rows own watchable artifacts; FAILED
+	// partial/cancelled rows may own finalized parts, thumbnails, strips, and
+	// snapshots. FAILED rows without salvage are excluded so retention does not
+	// erase error-only diagnostics. Recordings without retention_window_hours are
+	// explicitly outside retention, even if the same broadcaster currently has a
+	// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
+	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
+	// agree on "exactly at the deadline is still retained".
+	ListRetentionCandidates(ctx context.Context, arg ListRetentionCandidatesParams) ([]ListRetentionCandidatesRow, error)
 	// Recover interrupted attempts, including live jobs saved before their worker
 	// claimed them. Pending archives remain controlled by the archive queue.
 	ListRunningJobs(ctx context.Context) ([]Job, error)
@@ -355,7 +355,7 @@ type Querier interface {
 	// Operator-requested deletions that are safe for the background worker to
 	// finalize. The webhook frozen-parts guard mirrors retention: do not delete
 	// video_parts until any pending/delivering delivery has captured them.
-	ListVideosPendingManualDelete(ctx context.Context, rowLimit int32) ([]Video, error)
+	ListVideosPendingManualDelete(ctx context.Context, arg ListVideosPendingManualDeleteParams) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
 	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
@@ -512,6 +512,7 @@ type Querier interface {
 	// channel name without paginating the full library client-side.
 	StatisticsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (StatisticsTotalsByBroadcasterRow, error)
 	StopJobMetadata(ctx context.Context, arg StopJobMetadataParams) (int64, error)
+	SumReadyPlaybackBytes(ctx context.Context) (int64, error)
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	// Preserve objects and their metadata. A concurrent deletion request or state
 	// transition wins; discovery must never turn into destructive deletion.

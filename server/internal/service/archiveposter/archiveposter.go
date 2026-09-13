@@ -1,14 +1,5 @@
-// Package archiveposter gives a VOD archive its poster: the thumbnail Twitch
-// renders for the VOD, stored as the recording's first snapshot. The
-// downloader fetches it when an archive starts; the scheduler task revisits
-// archives Twitch had not rendered a frame for at that time, since the
-// placeholder it serves until then is never stored.
-//
-// Both paths share one Store and one storage key per archive, so ownership of
-// that key is settled here: a fetch already in flight for an archive owns the
-// key until it finishes, a row that already has a poster is never fetched
-// for, and a lost update only ever deletes an object the row does not point
-// at.
+// Package archiveposter stores Twitch VOD posters as recording snapshots.
+// Fetch and backfill share ownership; failed uploads retain their own keys.
 package archiveposter
 
 import (
@@ -23,8 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/mediastore"
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
@@ -32,43 +23,34 @@ import (
 const (
 	maxPosterBytes = 8 << 20
 	fetchTimeout   = 30 * time.Second
-	// Window bounds how long after being queued an archive is still looked up
-	// for a poster. Twitch renders a VOD thumbnail within minutes of the
-	// stream ending; a VOD it never renders is not polled forever.
+	// Window limits retries for posters Twitch never renders after a VOD ends.
 	Window = 24 * time.Hour
-	// pageSize is one Helix lookup: at most 100 ids per call.
+	// pageSize is the Helix limit of 100 video IDs per lookup.
 	pageSize = 100
 )
 
-// Readiness verifies the storage identity before a poster can be written.
-type Readiness interface {
-	Verify(context.Context) error
-}
-
 // Store fetches a poster image and attaches it to an archive.
 type Store struct {
-	repo      repository.Repository
-	storage   storage.Storage
-	readiness Readiness
-	client    *http.Client
-	log       *slog.Logger
+	repo    repository.Repository
+	storage *mediastore.Store
+	client  *http.Client
+	log     *slog.Logger
 
 	mu       sync.Mutex
 	inFlight map[int64]struct{}
 }
 
-func NewStore(repo repository.Repository, store storage.Storage, readiness Readiness, client *http.Client, log *slog.Logger) *Store {
+// NewStore creates shared poster ownership for downloader and backfill requests.
+func NewStore(repo repository.Repository, store *mediastore.Store, client *http.Client, log *slog.Logger) *Store {
 	return &Store{
-		repo: repo, storage: store, readiness: readiness, client: client,
+		repo: repo, storage: store, client: client,
 		log:      log.With("domain", "archiveposter"),
 		inFlight: make(map[int64]struct{}),
 	}
 }
 
-// Fetch saves the image at url as the recording's first snapshot and makes it
-// the row poster unless the row already has one. Best effort: the placeholder
-// Twitch serves while it renders, a non-JPEG answer, or a failed download
-// leave the row untouched. Reports whether a poster was stored.
+// Fetch stores a usable JPEG poster when the recording has none.
+// Each upload uses a fresh snapshot position because prior uploads may finish late.
 func (s *Store) Fetch(parent context.Context, videoID int64, filename, url string) bool {
 	if url == "" || twitch.IsVideoThumbnailPlaceholder(url) {
 		return false
@@ -88,32 +70,47 @@ func (s *Store) Fetch(parent context.Context, videoID int64, filename, url strin
 	if !ok {
 		return false
 	}
-	// The image fetch can span a mount change. Recheck immediately before
-	// writing so the network request cannot carry an old readiness verdict.
+	// A mount change during the fetch invalidates the earlier readiness verdict.
 	if err := s.verify(ctx); err != nil {
 		return false
 	}
-	key := storagekeys.Snapshot(filename, 0)
-	if err := s.storage.Save(ctx, key, bytes.NewReader(data)); err != nil {
+	owned, err := s.storage.Lock(ctx, videoID)
+	if err != nil {
+		return false
+	}
+	defer owned.Close()
+	if !s.wantsPoster(ctx, videoID) {
+		return false
+	}
+	// An uncertain upload may finish after a retry fetches different CDN bytes.
+	index, err := owned.NextSnapshotIndex(ctx, filename, 0)
+	if err != nil {
+		log.Warn("reserve poster snapshot", "error", err)
+		return false
+	}
+	key := storagekeys.Snapshot(filename, index)
+	if err := owned.Save(ctx, key, bytes.NewReader(data)); err != nil {
 		log.Warn("save poster", "error", err)
 		return false
 	}
-	// A successful write can finish after its volume disappears. Keep the
-	// thumbnail unset so backfill retries on trusted storage, and avoid
-	// cleaning up a same-named object on the replacement volume.
+	// A mount lost during upload must leave the reference unset for retry on trusted storage.
 	if err := s.verify(ctx); err != nil {
 		return false
 	}
-	set, err := s.repo.SetVideoThumbnailIfMissing(ctx, videoID, key)
+	var set bool
+	err = owned.Commit(ctx, func(tx repository.Repository) error {
+		var e error
+		set, e = tx.SetVideoThumbnailIfMissing(ctx, videoID, key)
+		return e
+	})
 	if err != nil {
 		log.Warn("set thumbnail", "error", err)
 	}
 	if err == nil && set {
 		return true
 	}
-	// The row got a poster or left the library meanwhile. Another writer may
-	// have referenced this very key, so only an object the row does not point
-	// at is garbage; an unreadable row keeps it for the recording's purge.
+	// An uncertain commit may have referenced this key; preserve it unless a fresh
+	// read proves it unreferenced, including when that read fails.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	if s.referencesPoster(cleanupCtx, videoID, key) {
@@ -122,22 +119,15 @@ func (s *Store) Fetch(parent context.Context, videoID int64, filename, url strin
 	if err := s.verify(cleanupCtx); err != nil {
 		return false
 	}
-	if err := s.storage.Delete(cleanupCtx, key); err != nil {
+	if err := owned.Delete(cleanupCtx, key); err != nil {
 		log.Warn("clean unreferenced poster", "error", err)
 	}
 	return false
 }
 
-func (s *Store) verify(ctx context.Context) error {
-	if s.readiness == nil {
-		return storage.ErrUnattached
-	}
-	return s.readiness.Verify(ctx)
-}
+func (s *Store) verify(ctx context.Context) error { return s.storage.Verify(ctx) }
 
-// claim marks videoID as being fetched for. A second caller while one is in
-// flight backs off: the first either stores the poster or leaves the row for
-// the next backfill run.
+// claim excludes concurrent fetches for the same recording.
 func (s *Store) claim(videoID int64) (func(), bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -152,9 +142,7 @@ func (s *Store) claim(videoID int64) (func(), bool) {
 	}, true
 }
 
-// wantsPoster reads the row before spending a download: a poster already set
-// or a removed row never needs one. An unreadable row is fetched for anyway;
-// the conditional update decides.
+// wantsPoster permits an unreadable row; publication rechecks eligibility transactionally.
 func (s *Store) wantsPoster(ctx context.Context, videoID int64) bool {
 	v, err := s.repo.GetVideo(ctx, videoID)
 	if err != nil {
@@ -208,15 +196,12 @@ type Service struct {
 	now      func() time.Time
 	pageSize int
 
-	// resumeAfter is where the next run starts: the last archive a run cut
-	// short by its deadline attempted, so slow posters never pin the start of
-	// the list. A run that reaches the end resets it.
+	// resumeAfter advances past slow posters across deadlines and resets at the end.
 	mu          sync.Mutex
 	resumeAfter int64
 }
 
-// New builds the backfill over the Store the downloader shares, so a start
-// and a backfill for the same archive can never race each other.
+// New shares poster ownership with the downloader through store.
 func New(store *Store, repo repository.Repository, helix twitch.VideoLookup, log *slog.Logger) *Service {
 	return &Service{
 		store:    store,
@@ -228,6 +213,7 @@ func New(store *Store, repo repository.Repository, helix twitch.VideoLookup, log
 	}
 }
 
+// Report counts checked archives and posters stored during a backfill run.
 type Report struct {
 	Checked, Stored int
 	// Complete is false when storage is unavailable or the run stopped with
@@ -235,12 +221,8 @@ type Report struct {
 	Complete bool
 }
 
-// Backfill visits every recent poster-less archive, one Helix lookup per page,
-// and stores the poster of each whose thumbnail is no longer the placeholder.
-// Paging by id means a placeholder that persists never shadows the archives
-// queued after it, and a run cut short by its deadline is progress, not a
-// failure: the next run picks up after the last archive this one attempted,
-// so a few slow poster hosts cannot pin the start of the list run after run.
+// Backfill visits recent archives in pages and stores available Twitch posters.
+// Runs interrupted after progress resume beyond the last attempted archive.
 func (s *Service) Backfill(ctx context.Context) (Report, error) {
 	var report Report
 	since := s.now().UTC().Add(-Window)
@@ -299,10 +281,7 @@ func (s *Service) Backfill(ctx context.Context) (Report, error) {
 	}
 }
 
-// stopped ends a run cut short by its context. Archives attempted so far are
-// done for this run, so the resume point moves past them and the run counts
-// as progress; a run that attempted nothing surfaces the deadline instead.
-// Explicit cancellation always surfaces so shutdown can retry promptly.
+// stopped saves progress and surfaces cancellation or a deadline before any work.
 func (s *Service) stopped(ctx context.Context, report Report, after int64, attempted int) (Report, error) {
 	s.setResumePoint(after)
 	if attempted == 0 || errors.Is(ctx.Err(), context.Canceled) {

@@ -8,11 +8,16 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
+
+	"github.com/befabri/replayvod/server/internal/storage"
+
+	"github.com/befabri/replayvod/server/internal/background"
 
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/storagekeys"
 	"github.com/befabri/replayvod/server/internal/waveform"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 const (
@@ -23,9 +28,11 @@ type WaveformGenerator = waveform.Generator
 
 type AudioWaveformResponse = waveform.Response
 
+// waveformFlights shares active rebuilds only; completed artifacts live in storage.
 type waveformFlights struct {
-	mu    sync.Mutex
-	calls map[string]*waveformFlight
+	runner *background.Runner
+	mu     sync.Mutex
+	calls  map[string]*waveformFlight
 }
 
 type waveformFlight struct {
@@ -36,7 +43,7 @@ type waveformFlight struct {
 }
 
 func newWaveformFlights() *waveformFlights {
-	return &waveformFlights{calls: make(map[string]*waveformFlight)}
+	return &waveformFlights{runner: background.New(nil), calls: make(map[string]*waveformFlight)}
 }
 
 func (f *waveformFlights) Do(ctx context.Context, key string, fn func(context.Context) (AudioWaveformResponse, int, error)) (AudioWaveformResponse, int, error) {
@@ -47,22 +54,39 @@ func (f *waveformFlights) Do(ctx context.Context, key string, fn func(context.Co
 	}
 	call := &waveformFlight{done: make(chan struct{})}
 	f.calls[key] = call
+	err := f.runner.Start("waveform", key+"/"+uuid.NewString(), func(buildCtx context.Context) error {
+		call.resp, call.status, call.err = fn(buildCtx)
+		return call.err
+	}, func(runErr error) {
+		if runErr != nil && call.err == nil {
+			call.err, call.status = runErr, http.StatusInternalServerError
+		}
+		close(call.done)
+		f.mu.Lock()
+		if f.calls[key] == call {
+			delete(f.calls, key)
+		}
+		f.mu.Unlock()
+	})
+	if err != nil {
+		delete(f.calls, key)
+		f.mu.Unlock()
+		return AudioWaveformResponse{}, http.StatusInternalServerError, err
+	}
 	f.mu.Unlock()
-
-	go f.run(ctx, key, call, fn)
-
 	return waitForWaveformFlight(ctx, call)
 }
 
-func (f *waveformFlights) run(ctx context.Context, key string, call *waveformFlight, fn func(context.Context) (AudioWaveformResponse, int, error)) {
-	call.resp, call.status, call.err = fn(context.WithoutCancel(ctx))
-	close(call.done)
+func (f *waveformFlights) Close(ctx context.Context) error {
+	f.runner.Stop()
+	return f.runner.Wait(ctx)
+}
 
-	f.mu.Lock()
-	if f.calls[key] == call {
-		delete(f.calls, key)
-	}
-	f.mu.Unlock()
+// Close rejects new waveform work and waits up to 30 seconds for active work.
+func (h *StreamHandler) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return h.waveformFlights.Close(ctx)
 }
 
 func waitForWaveformFlight(ctx context.Context, call *waveformFlight) (AudioWaveformResponse, int, error) {
@@ -130,12 +154,11 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 	if !ok {
 		return AudioWaveformResponse{}, http.StatusNotFound, nil
 	}
-	key := storagekeys.Waveform(video.Filename)
 	if err := h.storageUnavailable(); err != nil {
 		return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
 	}
-	if resp, hit, err := waveform.LoadArtifact(ctx, h.storage, key, plan.Fingerprint); err != nil {
-		return AudioWaveformResponse{}, http.StatusInternalServerError, err
+	if resp, hit, err := waveform.LoadRecording(ctx, h.storage, id, plan.Fingerprint); err != nil {
+		return AudioWaveformResponse{}, waveformErrorStatus(err), err
 	} else if hit {
 		return resp, http.StatusOK, nil
 	}
@@ -144,8 +167,8 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 		if err := h.storageUnavailable(); err != nil {
 			return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
 		}
-		if resp, hit, err := waveform.LoadArtifact(buildCtx, h.storage, key, plan.Fingerprint); err != nil {
-			return AudioWaveformResponse{}, http.StatusInternalServerError, err
+		if resp, hit, err := waveform.LoadRecording(buildCtx, h.storage, id, plan.Fingerprint); err != nil {
+			return AudioWaveformResponse{}, waveformErrorStatus(err), err
 		} else if hit {
 			return resp, http.StatusOK, nil
 		}
@@ -158,16 +181,15 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 			if errors.Is(err, fs.ErrNotExist) {
 				return AudioWaveformResponse{}, http.StatusNotFound, nil
 			}
-			return AudioWaveformResponse{}, http.StatusInternalServerError, err
+			return AudioWaveformResponse{}, waveformErrorStatus(err), err
 		}
-		// Generation can outlive a recording's deletion. Check the current row
-		// and publish under the same lock retention holds through its purge and
-		// tombstone, closing the race between the freshness check and Save.
-		unlock, err := h.recordingLocks.Lock(buildCtx, id)
+		// Generation can outlive deletion. Hold publication ownership through the
+		// freshness check and Save so retention cannot purge between them.
+		unlock, err := h.storage.Lock(buildCtx, id)
 		if err != nil {
 			return AudioWaveformResponse{}, http.StatusInternalServerError, err
 		}
-		defer unlock()
+		defer unlock.Close()
 		fresh, err := h.repo.GetVideo(buildCtx, id)
 		switch {
 		case errors.Is(err, repository.ErrNotFound):
@@ -184,8 +206,8 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 		if err := h.verifyStorage(buildCtx); err != nil {
 			return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
 		}
-		if err := waveform.SaveArtifact(buildCtx, h.storage, key, plan.Fingerprint, resp); err != nil {
-			return AudioWaveformResponse{}, http.StatusInternalServerError, err
+		if err := waveform.SaveArtifact(buildCtx, unlock, fresh.Filename, plan.Fingerprint, resp); err != nil {
+			return AudioWaveformResponse{}, waveformErrorStatus(err), err
 		}
 		return resp, http.StatusOK, nil
 	})
@@ -220,4 +242,13 @@ func buildWaveformPlan(video *repository.Video, parts []repository.VideoPart) (w
 		}
 	}
 	return waveform.BuildPlan(video.ID, video.RecordingType, video.DurationSeconds, inputs)
+}
+
+func waveformErrorStatus(err error) int {
+	for _, cause := range []error{storage.ErrUnattached, storage.ErrUnreachable, storage.ErrReadOnly, storage.ErrFull} {
+		if errors.Is(err, cause) {
+			return http.StatusServiceUnavailable
+		}
+	}
+	return http.StatusInternalServerError
 }

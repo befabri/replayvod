@@ -111,7 +111,6 @@ func testArchiveOpenRowPerVOD(t *testing.T, h Harness) {
 	}
 	second := seedArchive(t, ctx, repo, "job-2", "500", "bc-1")
 
-	// Nor does a removed one.
 	if err := repo.SoftDeleteVideo(ctx, second.ID, repository.DeletionKindManual); err != nil {
 		t.Fatalf("SoftDeleteVideo: %v", err)
 	}
@@ -151,7 +150,7 @@ func testArchiveQueueOrderAndDequeue(t *testing.T, h Harness) {
 	h.BackdateVideoStartDownload(t, first.ID, time.Now().Add(-3*time.Hour))
 	h.BackdateVideoStartDownload(t, second.ID, time.Now().Add(-2*time.Hour))
 	h.BackdateVideoStartDownload(t, third.ID, time.Now().Add(-1*time.Hour))
-	if err := repo.MarkJobRunning(ctx, "job-a"); err != nil {
+	if err := repo.SetJobExecution(ctx, "job-a", "", false); err != nil {
 		t.Fatalf("MarkJobRunning: %v", err)
 	}
 	if err := repo.UpdateVideoStatus(ctx, first.ID, repository.VideoStatusRunning); err != nil {
@@ -172,9 +171,7 @@ func testArchiveQueueOrderAndDequeue(t *testing.T, h Harness) {
 		}
 	}
 
-	// The next job to start is the oldest still-pending archive, never the
-	// running one and never a live job.
-	next, err := repo.GetNextQueuedArchiveJob(ctx)
+	next, err := nextArchiveFixture(ctx, repo)
 	if err != nil || next.ID != "job-b" {
 		t.Fatalf("GetNextQueuedArchiveJob = %v, %v; want job-b", next, err)
 	}
@@ -186,13 +183,11 @@ func testArchiveQueueOrderAndDequeue(t *testing.T, h Harness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err = repo.GetNextQueuedArchiveJob(ctx)
+	next, err = nextArchiveFixture(ctx, repo)
 	if err != nil || next.VideoID != queue[0].ID || next.VideoID != third.ID {
 		t.Fatalf("queue and picker disagree after reordering: next=%+v, queue=%+v, err=%v", next, queue, err)
 	}
 
-	// The live idempotency check only sees live jobs: bc-2 has a queued archive
-	// and nothing live, bc-1 has both.
 	if _, err := repo.GetActiveLiveJobByBroadcaster(ctx, "bc-2"); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("bc-2 active live job err = %v, want ErrNotFound", err)
 	}
@@ -218,14 +213,14 @@ func testArchiveQueueOrderAndDequeue(t *testing.T, h Harness) {
 		t.Fatalf("dequeue live row err = %v, want ErrNotFound", err)
 	}
 
-	next, err = repo.GetNextQueuedArchiveJob(ctx)
+	next, err = nextArchiveFixture(ctx, repo)
 	if err != nil || next.ID != "job-c" {
 		t.Fatalf("after dequeue next = %v, %v; want job-c", next, err)
 	}
 	if err := repo.DeleteQueuedArchiveVideo(ctx, third.ID); err != nil {
 		t.Fatalf("DeleteQueuedArchiveVideo third: %v", err)
 	}
-	if _, err := repo.GetNextQueuedArchiveJob(ctx); !errors.Is(err, repository.ErrNotFound) {
+	if _, err := nextArchiveFixture(ctx, repo); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("empty queue err = %v, want ErrNotFound", err)
 	}
 }
@@ -250,7 +245,6 @@ func testMarkVideoDoneKeepsPosterWithoutFrame(t *testing.T, h Harness) {
 		t.Fatalf("thumbnail after frameless done = %v, %v; want the stored poster", got.Thumbnail, err)
 	}
 
-	// A frame from the pipeline still replaces the early poster.
 	video := seedArchive(t, ctx, repo, "job-video", "9002", "bc-1")
 	if err := repo.SetVideoThumbnail(ctx, video.ID, "thumbnails/job-video-snap00.jpg"); err != nil {
 		t.Fatalf("SetVideoThumbnail: %v", err)
@@ -264,7 +258,6 @@ func testMarkVideoDoneKeepsPosterWithoutFrame(t *testing.T, h Harness) {
 		t.Fatalf("thumbnail after done with frame = %v, %v; want %q", got.Thumbnail, err, frame)
 	}
 
-	// The webhook-enqueueing variant shares the rule.
 	both := seedArchive(t, ctx, repo, "job-both", "9003", "bc-1")
 	if err := repo.SetVideoThumbnail(ctx, both.ID, "thumbnails/job-both-snap00.jpg"); err != nil {
 		t.Fatalf("SetVideoThumbnail: %v", err)
@@ -311,4 +304,15 @@ func testVideoStreamLinkRequiresKnownStream(t *testing.T, h Harness) {
 	if err != nil || got.StreamID == nil || *got.StreamID != known {
 		t.Fatalf("linked archive = %+v, %v; want stream %q", got, err, known)
 	}
+}
+
+func nextArchiveFixture(ctx context.Context, repo repository.Repository) (*repository.Job, error) {
+	rows, err := repo.ListQueuedArchiveJobs(ctx, time.Time{}, 0, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, repository.ErrNotFound
+	}
+	return repo.GetJob(ctx, rows[0].JobID)
 }

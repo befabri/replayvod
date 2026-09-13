@@ -42,8 +42,6 @@ type corsHarness struct {
 	admin  *http.Cookie
 }
 
-// newCORSHarness builds the real router for a split deployment with a local
-// store.
 func newCORSHarness(t *testing.T) *corsHarness {
 	t.Helper()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -58,6 +56,7 @@ func newCORSHarness(t *testing.T) *corsHarness {
 	}
 	cfg := &config.Config{
 		Env: config.Environment{
+			ScratchDir:     t.TempDir(),
 			HMACSecret:     routerWebhookSecret,
 			PublicBaseURL:  "https://api.example",
 			CallbackURL:    "https://api.example/api/v1/auth/twitch/callback",
@@ -68,8 +67,7 @@ func newCORSHarness(t *testing.T) *corsHarness {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	// Attach the storage like main does; a router without attached storage
-	// answers every missing file as an outage instead of a 404.
+	// Unattached storage reports outages even for missing files.
 	recordings := NewRecordingServices(cfg, repo, store, bus, log)
 	if _, err := recordings.StorageHealth.Attach(context.Background()); err != nil {
 		t.Fatalf("attach storage: %v", err)
@@ -93,8 +91,7 @@ func newCORSHarness(t *testing.T) *corsHarness {
 	}
 }
 
-// seedRecording creates a finished recording with parts part rows. Only the
-// part indexes listed in present get media in the store.
+// seedRecording writes media only for the indexes in present.
 func (h *corsHarness) seedRecording(t *testing.T, jobID string, parts int, present ...int) int64 {
 	t.Helper()
 	ctx := context.Background()
@@ -178,8 +175,7 @@ func TestStreamRoutesExposeStatusToCrossOriginProbe(t *testing.T) {
 	if err := h.repo.SoftDeleteVideo(ctx, removed, repository.DeletionKindManual); err != nil {
 		t.Fatalf("SoftDeleteVideo: %v", err)
 	}
-	// Part 1 stays so the 404 does not tombstone the recording; it runs last
-	// because each 404 kicks the missing marker in the background.
+	// Keep part 1 so missing part 2 does not tombstone the recording.
 	missing := h.seedRecording(t, "cors-missing", 2, 1)
 
 	routes := []struct {

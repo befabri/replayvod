@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 )
@@ -27,8 +29,7 @@ func (f fixture) scanSummaries(t *testing.T) []repository.EventLog {
 			summaries = append(summaries, row)
 		}
 	}
-	// Event timestamps can tie within a SQLite second; select the newest row
-	// by its identity instead of depending on unspecified tie ordering.
+	// SQLite event timestamps can tie within a second; IDs determine the newest event.
 	slices.SortFunc(summaries, func(a, b repository.EventLog) int { return cmp.Compare(b.ID, a.ID) })
 	return summaries
 }
@@ -84,7 +85,7 @@ func TestSweepSummarizesMultiplePagesAndRestoresWithoutEventFlood(t *testing.T) 
 	f := newFixture(t)
 	bus := eventbus.New()
 	events := bus.EventLogs.Subscribe(t.Context())
-	svc := New(f.repo, f.store, f.mon, discardLog(), WithEventBus(bus))
+	svc := New(f.repo, mediatest.New(t, f.repo, f.store, f.mon, nil), discardLog(), WithEventBus(bus))
 	const total = scanPageSize + 3
 	for i := range total {
 		f.seed(t, fmt.Sprintf("bulk-%d", i), 1)
@@ -140,7 +141,7 @@ func TestSweepSummarySurvivesCancellationAndResumesWithoutDoubleCounting(t *test
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 	repo := &pageTrackingRepo{Repository: f.repo, cancelOn: 2, cancel: cancel}
-	report, err := New(repo, f.store, f.mon, discardLog(), WithEventBus(bus)).Sweep(ctx)
+	report, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog(), WithEventBus(bus)).Sweep(ctx)
 	if !errors.Is(err, context.Canceled) || report.Complete || report.Tombstoned != scanPageSize {
 		t.Fatalf("interrupted sweep = %+v, %v", report, err)
 	}
@@ -152,7 +153,7 @@ func TestSweepSummarySurvivesCancellationAndResumesWithoutDoubleCounting(t *test
 	nextScanEvent(t, events, EventScanReconciled)
 	noScanEvent(t, events)
 
-	report, err = New(f.repo, f.store, f.mon, discardLog(), WithEventBus(bus)).Sweep(f.ctx)
+	report, err = New(f.repo, mediatest.New(t, f.repo, f.store, f.mon, nil), discardLog(), WithEventBus(bus)).Sweep(f.ctx)
 	if err != nil || !report.Complete || report.Tombstoned != 1 {
 		t.Fatalf("resumed sweep = %+v, %v", report, err)
 	}
@@ -185,7 +186,7 @@ func TestSweepSummaryCountsOnlyCommittedChangesWhenOneUpdateFails(t *testing.T) 
 	f.seed(t, "gone-2", 1)
 	failure := errors.New("injected tombstone failure")
 	repo := &failTombstoneRepo{Repository: f.repo, id: failed.ID, err: failure}
-	report, err := New(repo, f.store, f.mon, discardLog()).Sweep(f.ctx)
+	report, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog()).Sweep(f.ctx)
 	if !errors.Is(err, failure) || report.Tombstoned != 2 || report.Missing != 3 {
 		t.Fatalf("partly failed sweep = %+v, %v", report, err)
 	}
@@ -218,7 +219,7 @@ func TestSweepSummaryKeepsRestoreCommittedJustBeforeCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 	repo := &cancelAfterRestoreRepo{Repository: f.repo, cancel: cancel}
-	report, err := New(repo, f.store, f.mon, discardLog()).Sweep(ctx)
+	report, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog()).Sweep(ctx)
 	if !errors.Is(err, context.Canceled) || report.Complete || report.Restored != 1 {
 		t.Fatalf("interrupted restore = %+v, %v", report, err)
 	}
@@ -244,7 +245,7 @@ func TestSweepDoesNotAnnounceTombstoneWhenManualDeleteWins(t *testing.T) {
 	v := f.seed(t, "manual-wins", 1)
 	bus := eventbus.New()
 	events := bus.EventLogs.Subscribe(t.Context())
-	report, err := New(deleteBeforeTombstoneRepo{f.repo}, f.store, f.mon, discardLog(), WithEventBus(bus)).Sweep(f.ctx)
+	report, err := New(deleteBeforeTombstoneRepo{f.repo}, mediatest.New(t, deleteBeforeTombstoneRepo{f.repo}, f.store, f.mon, nil), discardLog(), WithEventBus(bus)).Sweep(f.ctx)
 	if err != nil || report.Missing != 1 || report.Tombstoned != 0 {
 		t.Fatalf("sweep = %+v, %v", report, err)
 	}
@@ -283,7 +284,7 @@ func TestSweepSummaryDoesNotCountRestoreWhenManualDeleteWins(t *testing.T) {
 	f.save(t, "videos/delete-wins-part01.mp4")
 	f.save(t, "videos/returned-part01.mp4")
 	repo := deleteBeforeRestoreRepo{Repository: f.repo, id: deleted.ID}
-	report, err := New(repo, f.store, f.mon, discardLog()).Sweep(f.ctx)
+	report, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog()).Sweep(f.ctx)
 	if !errors.Is(err, ErrNotRestorable) || report.Restored != 1 {
 		t.Fatalf("restore race = %+v, %v", report, err)
 	}
@@ -305,7 +306,7 @@ func TestSweepAuditFailureDoesNotUndoReconciliationOrPublishPhantomRow(t *testin
 	v := f.seed(t, "gone", 1)
 	bus := eventbus.New()
 	events := bus.EventLogs.Subscribe(t.Context())
-	report, err := New(failScanAuditRepo{f.repo}, f.store, f.mon, discardLog(), WithEventBus(bus)).Sweep(f.ctx)
+	report, err := New(failScanAuditRepo{f.repo}, mediatest.New(t, failScanAuditRepo{f.repo}, f.store, f.mon, nil), discardLog(), WithEventBus(bus)).Sweep(f.ctx)
 	if err != nil || report.Tombstoned != 1 {
 		t.Fatalf("sweep after audit failure = %+v, %v", report, err)
 	}
@@ -321,7 +322,7 @@ func TestPlaybackMissingAndManualRestoreKeepIndividualEvents(t *testing.T) {
 	v := f.seed(t, "individual", 1)
 	bus := eventbus.New()
 	events := bus.EventLogs.Subscribe(t.Context())
-	svc := New(f.repo, f.store, f.mon, discardLog(), WithEventBus(bus))
+	svc := New(f.repo, mediatest.New(t, f.repo, f.store, f.mon, nil), discardLog(), WithEventBus(bus))
 	if changed, err := svc.MarkMissing(f.ctx, v.ID); err != nil || !changed {
 		t.Fatalf("MarkMissing = %v, %v", changed, err)
 	}
@@ -350,8 +351,8 @@ func TestPlaybackMissingAndManualRestoreKeepIndividualEvents(t *testing.T) {
 func TestRemovalNotificationsCoverScanAndRestore(t *testing.T) {
 	f := newFixture(t)
 	bus := eventbus.New()
-	events := bus.VideoRemovals.Subscribe(t.Context())
-	svc := New(f.repo, f.store, f.mon, discardLog(), WithEventBus(bus))
+	events := bus.VideoChanges.Subscribe(t.Context())
+	svc := New(f.repo, mediatest.New(t, f.repo, f.store, f.mon, nil), discardLog(), WithEventBus(bus))
 	v := f.seed(t, "notify", 1)
 	if report, err := svc.Sweep(f.ctx); err != nil || report.Tombstoned != 1 {
 		t.Fatalf("scan: %+v %v", report, err)

@@ -259,7 +259,7 @@ func TestPlaybackCaptureFailureResumesFinalizationWithoutTwitch(t *testing.T) {
 			if _, err := h.repo.CreateJob(ctx, &repository.JobInput{ID: jobID, VideoID: video.ID, BroadcasterID: "123", ResumeState: encoded}); err != nil {
 				t.Fatal(err)
 			}
-			if err := h.repo.MarkJobRunning(ctx, jobID); err != nil {
+			if err := h.repo.SetJobExecution(ctx, jobID, "", false); err != nil {
 				t.Fatal(err)
 			}
 			if err := h.svc.Resume(ctx); err != nil {

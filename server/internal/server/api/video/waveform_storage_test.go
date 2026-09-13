@@ -11,7 +11,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/storage"
-	"github.com/befabri/replayvod/server/internal/storagekeys"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
@@ -42,7 +41,7 @@ func TestAudioWaveformStorageGate(t *testing.T) {
 				// artifact; switch the gate only after the request has completed.
 				var gateErr error
 				gate := gateFunc(func() error { return gateErr })
-				h := NewStreamHandler(repo, store, nil, testClientLogger(), WithStorageGate(gate), WithWaveformGenerator(generator))
+				h := NewStreamHandler(repo, streamMedia(t, repo, store, gate, nil), nil, testClientLogger(), WithWaveformGenerator(generator))
 				if cached {
 					if _, status, err := h.audioWaveform(t.Context(), v.ID); err != nil || status != http.StatusOK {
 						t.Fatalf("seed cached waveform: status=%d err=%v", status, err)
@@ -62,8 +61,8 @@ func TestAudioWaveformStorageGate(t *testing.T) {
 				if len(generator.calls) != before {
 					t.Error("generated waveform while storage was unavailable for writes")
 				}
-				if !cached && store.bodies[storagekeys.Waveform(v.Filename)] != nil {
-					t.Error("wrote a waveform despite refused storage")
+				if !cached {
+					assertNoWaveformPublished(t, repo, v.ID)
 				}
 				if !storage.CanRead(verdict.err) && len(store.opened) != 0 {
 					t.Errorf("read refused storage: %v", store.opened)
@@ -100,9 +99,7 @@ func TestAudioWaveformRefusesForeignStorage(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("status=%d, want 503", resp.StatusCode)
 	}
-	if exists, err := store.Exists(ctx, storagekeys.Waveform(v.Filename)); err != nil || exists {
-		t.Errorf("foreign storage was modified: waveform=%v err=%v", exists, err)
-	}
+	assertNoWaveformPublished(t, repo, v.ID)
 	if len(generator.calls) != 0 {
 		t.Error("generated waveform from foreign audio")
 	}
@@ -126,14 +123,12 @@ func TestAudioWaveformRechecksStorageBeforeSaving(t *testing.T) {
 	store := &signedStorage{bodies: map[string][]byte{"videos/vod-42-01.m4a": []byte("audio")}}
 	var gateErr error
 	generator := &storageChangeWaveformGenerator{afterGenerate: func() { gateErr = storage.ErrUnattached }}
-	h := NewStreamHandler(repo, store, nil, testClientLogger(), WithStorageGate(gateFunc(func() error { return gateErr })), WithWaveformGenerator(generator))
+	h := NewStreamHandler(repo, streamMedia(t, repo, store, gateFunc(func() error { return gateErr }), nil), nil, testClientLogger(), WithWaveformGenerator(generator))
 	_, status, _ := h.audioWaveform(t.Context(), v.ID)
 	if status != http.StatusServiceUnavailable {
 		t.Errorf("status=%d, want 503", status)
 	}
-	if store.bodies[storagekeys.Waveform(v.Filename)] != nil {
-		t.Error("saved waveform after storage became unattached")
-	}
+	assertNoWaveformPublished(t, repo, v.ID)
 }
 
 func TestAudioWaveformRejectsStorageSwapBeforeMonitorRefresh(t *testing.T) {
@@ -178,9 +173,7 @@ func TestAudioWaveformRejectsStorageSwapBeforeMonitorRefresh(t *testing.T) {
 			if resp.StatusCode != http.StatusServiceUnavailable {
 				t.Errorf("waveform status=%d, want 503", resp.StatusCode)
 			}
-			if exists, err := store.Exists(ctx, storagekeys.Waveform(v.Filename)); err != nil || exists {
-				t.Errorf("foreign storage modified: waveform=%v err=%v", exists, err)
-			}
+			assertNoWaveformPublished(t, repo, v.ID)
 			if !duringGeneration && len(generator.calls) != 0 {
 				t.Error("generated from a foreign volume before refreshing readiness")
 			}

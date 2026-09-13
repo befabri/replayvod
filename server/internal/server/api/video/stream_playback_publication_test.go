@@ -151,9 +151,7 @@ func TestMissingPlaybackCannotDiscardPublishedReplacement(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("request did not check the old missing artifact")
 			}
-			// Publish while the HTTP request still holds the old not-found result.
-			// This is the real Save/upsert sequence under publication ownership,
-			// with actual SQLite rows and local bytes, without a synthetic row mock.
+			// Publish while the HTTP request still holds its stale not-found result.
 			publishCtx, cancelPublish := context.WithTimeout(t.Context(), time.Second)
 			defer cancelPublish()
 			unlock, err := locks.Lock(publishCtx, video.ID)
@@ -278,7 +276,7 @@ func TestMissingPlaybackCancellationDoesNotWaitForPublisher(t *testing.T) {
 	missing := make(chan struct{})
 	observed := sync.OnceFunc(func() { close(missing) })
 	store := &playbackStatBarrier{Storage: local, afterMissingStat: func(context.Context) { observed() }}
-	h := NewStreamHandler(repo, store, nil, testClientLogger(), WithStorageGate(monitor), WithRecordingLocks(locks))
+	h := NewStreamHandler(repo, streamMedia(t, repo, store, monitor, locks), nil, testClientLogger())
 	router := chi.NewRouter()
 	h.SetupRoutes(router, func(next http.Handler) http.Handler { return next })
 	ctx, cancel := context.WithCancel(t.Context())

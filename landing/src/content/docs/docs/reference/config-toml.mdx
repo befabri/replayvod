@@ -35,7 +35,8 @@ See [Recording](/docs/recording/) for examples and quality settings.
 | `strict` | `false` | Stop on any gap when enabled. |
 | `enable_av1` | `false` | Allow AV1 video. |
 | `disable_hevc` | `false` | Exclude HEVC video. |
-| `max_restart_gap_seconds` | `120` | Maximum interruption before a returning stream becomes a separate recording. |
+| `max_restart_gap_seconds` | `120` | Maximum interruption within a recording before capture continues in another part. |
+| `streamer_restart_wait_seconds` | `120` | How long a manual recording waits after the broadcast ends. |
 | `max_part_bytes` | `0` | Split after this many downloaded source bytes. `0` disables size splitting; negative values are treated as `0`. |
 | `max_part_seconds` | `0` | Split after this many seconds. `0` disables duration splitting; negative values are treated as `0`. |
 | `max_part_count` | `1024` | Maximum parts created by size or duration splitting. |

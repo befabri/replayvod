@@ -4,7 +4,49 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
+
+func TestShippedConfigUsesKnownKeysAndRestartDefault(t *testing.T) {
+	app := getDefaultAppConfig()
+	metadata, err := toml.DecodeFile("../../config.toml", &app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys := metadata.Undecoded(); len(keys) != 0 {
+		t.Fatalf("shipped config contains unknown keys: %v", keys)
+	}
+	if app.Download.StreamerRestartWaitSeconds != 120 {
+		t.Fatalf("restart wait = %d", app.Download.StreamerRestartWaitSeconds)
+	}
+	if !metadata.IsDefined("download", "streamer_restart_wait_seconds") {
+		t.Fatal("restart wait missing from shipped config")
+	}
+}
+
+func TestDevelopmentEnvironmentOverridesTOML(t *testing.T) {
+	for _, fileValue := range []string{"true", "false"} {
+		for _, override := range []string{"", "true", "false"} {
+			t.Run(fileValue+"/"+override, func(t *testing.T) {
+				clearServerModeEnv(t)
+				t.Setenv("DEVELOPMENT", override)
+				path := writeFile(t, t.TempDir(), "config.toml", "development = "+fileValue+"\n")
+				cfg, err := loadConfig(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := fileValue == "true"
+				if override != "" {
+					want = override == "true"
+				}
+				if cfg.App.Development != want {
+					t.Fatalf("development=%v want=%v", cfg.App.Development, want)
+				}
+			})
+		}
+	}
+}
 
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()

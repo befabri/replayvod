@@ -31,6 +31,7 @@ import (
 	schedulesvc "github.com/befabri/replayvod/server/internal/service/schedule"
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/session"
+	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/testdb"
 	"github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/trpcgo"
@@ -38,10 +39,21 @@ import (
 
 const routerWebhookSecret = "router-webhook-secret"
 
-// roleGateRequest drives the real tRPC router and returns the status code.
-// httptest defaults the Host to example.com, so the request carries a matching
-// same-origin Origin: a POST then clears trpcgo's CSRF check and the assertion
-// lands on the role gate, not the CSRF gate in front of it.
+func TestSetupRouterRequiresSharedRecordingServices(t *testing.T) {
+	for _, recordings := range []*RecordingServices{nil, {}} {
+		t.Run(fmt.Sprintf("%v", recordings), func(t *testing.T) {
+			defer func() {
+				if got := recover(); got != "shared recording services required" {
+					t.Fatalf("missing safety wiring: panic=%v", got)
+				}
+			}()
+			SetupRouter(&config.Config{}, nil, nil, nil, nil, nil, nil, eventbus.New(), nil, nil, nil, slog.Default(), recordings)
+		})
+	}
+}
+
+// roleGateRequest adds the matching Origin required by trpcgo's CSRF check
+// so POST assertions reach authorization.
 func roleGateRequest(router http.Handler, method, path, body string, cookie *http.Cookie) int {
 	var rdr io.Reader
 	if body != "" {
@@ -124,7 +136,7 @@ func TestSetupRouter_ServerModeControlsWebhookProcessor(t *testing.T) {
 			t.Cleanup(cancelStatus)
 			statusCh := bus.StreamStatus.Subscribe(statusCtx)
 
-			router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+			router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 			if closeTRPC != nil {
 				t.Cleanup(func() {
 					if err := closeTRPC(); err != nil {
@@ -273,7 +285,7 @@ func TestSetupRouter_ImmediateScheduleTriggerHonorsServerMode(t *testing.T) {
 			dl := &routerDownloadRecorder{}
 			hydrator := streammeta.NewHydrator(repo, nil, streammeta.Config{}, log)
 			eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
-			router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, twitchClient, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+			router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, twitchClient, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 			if closeTRPC != nil {
 				t.Cleanup(func() {
 					if err := closeTRPC(); err != nil {
@@ -403,7 +415,7 @@ func TestSetupRouter_ImmediateScheduleTriggerMatchesCategoryCriteria(t *testing.
 			dl := &routerDownloadRecorder{}
 			hydrator := streammeta.NewHydrator(repo, nil, streammeta.Config{}, log)
 			eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
-			router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, twitchClient, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+			router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, twitchClient, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 			if closeTRPC != nil {
 				t.Cleanup(func() {
 					if err := closeTRPC(); err != nil {
@@ -459,7 +471,7 @@ func TestSetupRouterServesConfiguredDashboardDir(t *testing.T) {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, nil, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -498,7 +510,7 @@ func TestTRPCMutationTrustsPublicBaseOriginBehindProxy(t *testing.T) {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -543,7 +555,7 @@ func TestSetupRouter_VideoDeleteUnavailableWhenSchedulerDisabled(t *testing.T) {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -585,9 +597,8 @@ func TestSetupRouter_VideoDeleteUnavailableWhenSchedulerDisabled(t *testing.T) {
 	}
 }
 
-// TestEventSubProceduresAreOwnerGated drives eventsub.* through the fully
-// wired router. Handler unit tests bypass dispatch, so a routes.go edit
-// swapping owner for a lower-privilege builder shows up only here.
+// TestEventSubProceduresAreOwnerGated checks route registration; direct handler
+// tests bypass the role middleware.
 func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -605,7 +616,7 @@ func TestEventSubProceduresAreOwnerGated(t *testing.T) {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -663,7 +674,7 @@ func TestExistingSessionUsesFreshRoleAfterDemotion(t *testing.T) {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -704,7 +715,7 @@ func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
 	dispatcher := recordingwebhook.NewDispatcher(repo, nil, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, dispatcher, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, dispatcher, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -733,8 +744,7 @@ func TestRecordingWebhookProceduresAreOwnerGated(t *testing.T) {
 		{name: "updateConfig", method: http.MethodPost, path: "/trpc/recordingWebhook.updateConfig", body: `{"enabled":false,"url":"","events":[]}`, ownerWant: http.StatusOK},
 		{name: "regenerateSecret", method: http.MethodPost, path: "/trpc/recordingWebhook.regenerateSecret", ownerWant: http.StatusOK},
 		{name: "testDelivery", method: http.MethodPost, path: "/trpc/recordingWebhook.testDelivery", ownerWant: http.StatusOK},
-		// An owner reaches the handler, which 404s because delivery 123 does
-		// not exist.
+		// The owner reaches the handler; delivery 123 does not exist.
 		{name: "retryDelivery", method: http.MethodPost, path: "/trpc/recordingWebhook.retryDelivery", body: `{"id":123}`, ownerWant: http.StatusNotFound},
 	}
 	for _, tc := range cases {
@@ -772,7 +782,7 @@ func TestInfiniteQueryInputAcrossTransports(t *testing.T) {
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -918,8 +928,6 @@ func TestInfiniteQueryInputAcrossTransports(t *testing.T) {
 	}
 }
 
-// mintSessionCookie seeds a user with the given role and returns a valid
-// session cookie for them.
 func mintSessionCookie(t *testing.T, repo repository.Repository, sessionMgr *session.Manager, userID, role string) *http.Cookie {
 	t.Helper()
 	if _, err := repo.UpsertUser(context.Background(), &repository.User{
@@ -980,3 +988,18 @@ func routerNotificationBody(broadcasterID, subID, eventID string) string {
 		}
 	}`, subID, broadcasterID, eventID, broadcasterID)
 }
+
+func (*routerDownloadRecorder) ObserveStreamOnline(twitch.Stream) {}
+func testRecordingServices(t *testing.T, cfg *config.Config, repo repository.Repository, bus *eventbus.Buses, log *slog.Logger) *RecordingServices {
+	t.Helper()
+	raw, err := storage.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Env.ScratchDir == "" {
+		cfg.Env.ScratchDir = t.TempDir()
+	}
+	return NewRecordingServices(cfg, repo, raw, bus, log)
+}
+
+func (*routerDownloadRecorder) ObserveStreamOffline(string) {}

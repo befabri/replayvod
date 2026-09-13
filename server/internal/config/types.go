@@ -1,7 +1,6 @@
 package config
 
-// Environment contains all settings from .env — infrastructure, secrets, paths.
-// These are static and require a restart to change.
+// Environment contains infrastructure settings loaded from environment variables at startup.
 type Environment struct {
 	DatabaseDriver   string `env:"DATABASE_DRIVER" envDefault:"postgres"`
 	PostgresHost     string `env:"POSTGRES_HOST" envDefault:"127.0.0.1"`
@@ -15,21 +14,14 @@ type Environment struct {
 	TwitchClientID string `env:"TWITCH_CLIENT_ID"`
 	TwitchSecret   string `env:"TWITCH_SECRET"`
 
-	// HMACSecret is the EventSub webhook signing secret. The database is the
-	// source of truth (see internal/secrets); this optional env var only seeds
-	// an empty slot on first boot and is ignored afterward. At startup the
-	// resolved value is written back here so the webhook handler and EventSub
-	// service share a single in-memory value.
+	// HMACSecret seeds the database secret only on first boot; startup replaces it with the saved
+	// value.
 	HMACSecret string `env:"HMAC_SECRET"`
 
 	Host string `env:"HOST" envDefault:"0.0.0.0"`
 	Port int    `env:"PORT" envDefault:"8080"`
 
-	// DevelopmentOverride, when set, forces AppConfig.Development regardless of
-	// config.toml. The Docker image sets DEVELOPMENT=false so the published
-	// image always runs in production mode (no pprof, no tRPC dev watcher),
-	// while config.toml stays the local-dev default. Pointer so unset (nil)
-	// leaves the config.toml value alone.
+	// DevelopmentOverride takes precedence over config.toml; nil leaves the file setting unchanged.
 	DevelopmentOverride *bool `env:"DEVELOPMENT"`
 
 	SessionSecret      string `env:"SESSION_SECRET"`
@@ -41,71 +33,36 @@ type Environment struct {
 	WebhookCallbackURL string `env:"WEBHOOK_CALLBACK_URL"`
 	FrontendURL        string `env:"-"`
 
-	// PublicBaseURL is the absolute scheme://host the API is publicly
-	// reachable at. This is the primary URL knob for normal deployments: when
-	// set, CallbackURL and FrontendURL are derived from it. It is also used to
-	// build absolute URLs handed to external consumers, specifically the
-	// recording webhook's signed part-download links.
+	// PublicBaseURL is an absolute scheme://host used to derive callback, frontend, and
+	// signed-download URLs.
 	PublicBaseURL string `env:"PUBLIC_BASE_URL"`
 
 	TrustedOrigins []string `env:"TRUSTED_ORIGINS"`
 
-	// ServerMode selects how this recorder detects live channels and title
-	// updates: "off" disables automation, "poll" polls Helix, "direct" uses
-	// WebhookCallbackURL, and "relay" uses RelayIngestURL + RelaySubscribeURL.
-	// Empty means server mode is app-managed and should be configured through
-	// the owner onboarding UI.
+	// ServerMode accepts "off", "poll", "direct", or "relay"; empty enables app-managed configuration.
 	ServerMode string `env:"SERVER_MODE"`
 
-	// ServerModeEnvConfigured is derived from SERVER_MODE after parsing.
-	// It is not itself an environment variable.
 	ServerModeEnvConfigured bool `env:"-"`
 
-	// RelayIngestURL is the public HTTPS URL Twitch posts to when
-	// ServerMode is "relay", e.g. "https://relay.replayvod.com/u/<token>".
-	// It is intentionally separate from WebhookCallbackURL so direct and relay
-	// delivery modes do not reuse the same knob for different meanings.
+	// RelayIngestURL is the public HTTPS endpoint Twitch posts to in relay mode.
 	RelayIngestURL string `env:"RELAY_INGEST_URL"`
 
-	// RelaySubscribeURL points the optional Connect agent at a hosted
-	// relay's WebSocket endpoint, e.g.
-	// "wss://relay.replayvod.com/u/<token>/subscribe". When set, the
-	// agent connects to the relay and replays each ingested EventSub
-	// frame to RelayLocalCallbackURL. It is required when ServerMode is
-	// "relay".
+	// RelaySubscribeURL is the relay WebSocket endpoint and is required in relay mode.
 	RelaySubscribeURL string `env:"RELAY_SUBSCRIBE_URL"`
 
-	// RelayLocalCallbackURL is the local webhook handler the optional
-	// relay agent replays frames into. Leave empty for the default
-	// http://127.0.0.1:<PORT>/api/v1/webhook/callback. This is separate
-	// from RelayIngestURL: RelayIngestURL is the public URL Twitch sends to,
-	// while this URL stays on the local machine.
+	// RelayLocalCallbackURL defaults to http://127.0.0.1:<PORT>/api/v1/webhook/callback.
 	RelayLocalCallbackURL string `env:"RELAY_LOCAL_CALLBACK_URL"`
 
 	VideoDir     string `env:"VIDEO_DIR" envDefault:"./data/videos"`
 	ThumbnailDir string `env:"THUMBNAIL_DIR" envDefault:"./data/thumbnails"`
 	DashboardDir string `env:"DASHBOARD_DIR"`
 
-	// ScratchDir is where subprocess downloads (ffmpeg) land
-	// before being uploaded to the configured Storage backend.
-	//
-	// Default keeps scratch on the same filesystem as VideoDir. This
-	// is deliberate for the local-storage case: LocalStorage.Save
-	// uses os.Rename under the hood, which is metadata-only within a
-	// filesystem but falls back to copy+unlink across devices.
-	// Pointing ScratchDir at os.TempDir() (often tmpfs on Linux) when
-	// VideoDir lives on spinning disk turns a 10 GB "rename" into
-	// minutes of wasted I/O.
-	//
-	// The S3 backend doesn't care where scratch lives — Save streams
-	// the file out over the network and the rename penalty doesn't
-	// apply. Operators on S3 with spare RAM may prefer pointing
-	// ScratchDir at a tmpfs mount so large writes don't churn the
-	// data disk.
+	// ScratchDir needs capacity for captured segments and prepared output, independently of media
+	// storage.
 	ScratchDir string `env:"SCRATCH_DIR" envDefault:"./data/.scratch"`
 }
 
-// AppConfig contains behavior settings from config.toml — hot-reloadable.
+// AppConfig contains config.toml settings loaded at startup.
 type AppConfig struct {
 	Server       ServerConfig       `toml:"server"`
 	Download     DownloadConfig     `toml:"download"`
@@ -117,172 +74,87 @@ type AppConfig struct {
 	Development  bool               `toml:"development"`
 }
 
-// HealthConfig gates the unauthenticated /api/v1/health readiness
-// endpoint. The bundled docker-compose uses it for its service
-// healthcheck, so the shipped config.toml enables it; operators who
-// don't want an unauthenticated surface can flip it off at the cost
-// of that healthcheck (and any external uptime monitor pointed at it).
+// HealthConfig enables the unauthenticated readiness endpoint used by container health checks.
 type HealthConfig struct {
 	Enabled bool `toml:"enabled"`
 }
 
+// ServerConfig sets the interval for polling live channels.
 type ServerConfig struct {
 	PollIntervalMinutes int `toml:"poll_interval_minutes"`
 }
 
-// DownloadConfig controls the native Go HLS downloader. Field docs
-// follow the retry-and-resume model documented in
-// .docs/spec/download-pipeline.md. Retry budgets are *per segment*
-// unless otherwise noted; exhausting any one of them without a
-// successful completion escalates the segment to a permanent failure
-// (which then goes through the tolerant/strict mode policy).
+// DownloadConfig controls capture, recovery, and retry budgets.
 type DownloadConfig struct {
-	// MaxConcurrent caps the number of in-flight live recordings service-wide.
-	// Default 2. The shared http.Transport's Twitch host-connection cap is
-	// sized for every job that can run at once, live and archive:
-	// (MaxConcurrent + ArchiveMaxConcurrent) * SegmentConcurrency.
+	// MaxConcurrent limits live recording reservations, including manual restart waits; default two.
 	MaxConcurrent int `toml:"max_concurrent"`
 
-	// ArchiveMaxConcurrent caps VOD archives running at once, separately from
-	// MaxConcurrent: an archive can wait, a live stream cannot, so archives
-	// never take a live slot. Default 1.
+	// ArchiveMaxConcurrent reserves separate archive slots; default one.
 	ArchiveMaxConcurrent int `toml:"archive_max_concurrent"`
 
-	// ArchiveMaxBytesPerSecond caps the segment download rate of each running
-	// archive so a back-catalogue download cannot starve a live recording on a
-	// home connection. Live recordings are never throttled. 0 (the default)
-	// disables the cap; negative values are clamped to 0 on load.
+	// ArchiveMaxBytesPerSecond applies only to archive capture; nonpositive values mean unlimited.
 	ArchiveMaxBytesPerSecond int64 `toml:"archive_max_bytes_per_second"`
 
-	// SegmentConcurrency is the size of the per-job fetcher worker
-	// pool. Default 4. Each worker owns one HTTP request at a time
-	// over the shared transport; the queue feeding them is a
-	// buffered channel of capacity 2*SegmentConcurrency (producer
-	// blocks when full → natural backpressure).
+	// SegmentConcurrency defaults to four workers per recording.
 	SegmentConcurrency int `toml:"segment_concurrency"`
 
-	// NetworkAttempts is the per-segment transport-error retry
-	// budget — timeouts, reset connections, DNS failures, truncated
-	// body reads. Default 5.
+	// NetworkAttempts bounds transport and truncated-body retries per segment; default five.
 	NetworkAttempts int `toml:"network_attempts"`
 
-	// ServerErrorAttempts is the per-segment retry budget for
-	// 429/5xx responses. Honors Retry-After when present. Default 5.
+	// ServerErrorAttempts bounds 429/5xx retries per segment, honoring Retry-After; default five.
 	ServerErrorAttempts int `toml:"server_error_attempts"`
 
-	// CDNLagAttempts is the per-segment retry budget for 404/410 —
-	// "segment not yet on edge, or just rolled off the window."
-	// Tight by design (default 3, at half-targetDuration intervals):
-	// live HLS segments propagate within a few seconds or they
-	// never will.
+	// CDNLagAttempts bounds 404/410 retries at half the target segment duration; default three.
 	CDNLagAttempts int `toml:"cdn_lag_attempts"`
 
-	// AuthRefreshAttempts is the per-segment budget for
-	// token-refresh cycles triggered by non-permanent 401/403
-	// responses. Default 2. Permanent entitlement codes
-	// (unauthorized_entitlements, etc.) fail immediately and do not
-	// consume this budget.
+	// AuthRefreshAttempts bounds playback-token renewals per part; permanent refusals fail
+	// immediately.
 	AuthRefreshAttempts int `toml:"auth_refresh_attempts"`
 
-	// MaxGapRatio is the tolerant-mode ceiling: permanent segment
-	// failures exceeding this fraction of observed segments fail
-	// the whole job. Default 0.01 (1%). Ignored when Strict=true.
+	// MaxGapRatio bounds tolerated content loss; Strict overrides it.
 	MaxGapRatio float64 `toml:"max_gap_ratio"`
 
-	// Strict flips the orchestrator from tolerant mode (record a
-	// gap, keep going) to strict mode (any permanent segment
-	// failure fails the job). Default false. Opt-in for operators
-	// who would rather fail fast than record a partial VOD.
 	Strict bool `toml:"strict"`
 
-	// EnableAV1 opts into AV1 codec support at Stage 3. Default
-	// false. When true, av01.* variants are retained during codec
-	// filtering and the master-playlist `supported_codecs` query
-	// parameter includes av1. Code paths exist even when this is
-	// false — only runtime selection is gated.
 	EnableAV1 bool `toml:"enable_av1"`
 
-	// DisableHEVC is a config escape hatch: drop hvc1/hev1 variants
-	// at Stage 3 even when the master playlist offers them. Default
-	// false. Used when ffmpeg's HEVC build on the operator's system
-	// has a known bug, or the downstream player can't decode HEVC.
 	DisableHEVC bool `toml:"disable_hevc"`
 
-	// MaxRestartGapSeconds bounds the size of any single gap
-	// recorded on restart before the resume path splits the
-	// recording into a new part. Default 120. Prevents a server
-	// outage from embedding a massive hole in one MP4.
+	// MaxRestartGapSeconds defaults to 120 and splits recovery gaps into separate parts.
 	MaxRestartGapSeconds int `toml:"max_restart_gap_seconds"`
 
-	// MaxPartBytes splits the recording into a new part once the
-	// current part's committed segment bytes cross this ceiling. The
-	// cut lands on a segment boundary (never mid-segment); part N+1
-	// resumes at the next media sequence with no dropped or
-	// duplicated segments. 0 (the default) disables size-based
-	// splitting, preserving single-file behavior; negative values are
-	// clamped to 0 on load. Sized for target uploadable chunks (e.g. a
-	// Telegram 2/4 GB per-file ceiling) and faster seeking.
-	//
-	// What it counts is raw committed SOURCE segment bytes, not the remuxed
-	// part file — that file does not exist until the part seals, so a filling
-	// part has no output size to measure. Remuxing replaces container framing
-	// and can change the size in either direction. The source count can also
-	// overshoot by one segment because the ceiling is tested only after a
-	// whole segment commits. Leave margin below a hard external limit; this
-	// setting does not guarantee a maximum output size. A sealed part whose
-	// file outgrew its source bytes is logged as a warning (partOutgrewSource)
-	// to help diagnose unexpected output sizes. Independent of MaxPartSeconds
-	// — whichever ceiling the part hits first triggers the split.
+	// StreamerRestartWaitSeconds is the manual recording grace period; nonpositive values default
+	// to 120.
+	StreamerRestartWaitSeconds int `toml:"streamer_restart_wait_seconds"`
+
+	// MaxPartBytes counts committed source bytes; nonpositive values disable size splitting.
+	// Cuts occur after whole segments, and remux overhead can exceed the source ceiling,
+	// so external output-size limits require extra margin.
 	MaxPartBytes int64 `toml:"max_part_bytes"`
 
-	// MaxPartSeconds splits the recording into a new part once the
-	// current part's accumulated segment duration crosses this many
-	// seconds. Like MaxPartBytes the cut is on a segment boundary and
-	// the next part is contiguous. 0 (the default) disables
-	// duration-based splitting; negative values are clamped to 0 on
-	// load. Independent of MaxPartBytes.
+	// MaxPartSeconds measures segment duration; nonpositive values disable duration splitting.
 	MaxPartSeconds int `toml:"max_part_seconds"`
 
-	// MaxPartCount caps the number of parts produced by intentional
-	// MaxPartBytes / MaxPartSeconds splitting. Default 1024. This is
-	// separate from the downloader's lower internal discontinuity cap:
-	// configured chunking is an operator choice and must allow long
-	// recordings, while variant/window-roll split loops still need
-	// tighter runaway protection.
+	// MaxPartCount defaults to 1024 and applies to size/duration cuts; discontinuities use a
+	// tighter cap.
 	MaxPartCount int32 `toml:"max_part_count"`
 
-	// SignedURLTTLHours is the maximum lifetime for a signed part-download URL
-	// handed to a recording-webhook consumer. The webhook payload embeds one
-	// signed, unauthenticated, expiring URL per recorded part so an external
-	// service can fetch the bytes over plain HTTP without a session. When
-	// recording auto-delete is enabled, recordings with retention cap each URL
-	// at the recording's retention deadline. Default 168 (7 days). 0 disables
-	// signed download URLs entirely (the payload then omits them, leaving only
-	// the storage-relative paths).
+	// SignedURLTTLHours defaults to 168; zero omits signed part-download URLs.
+	// Recording retention deadlines can shorten that lifetime.
 	SignedURLTTLHours int `toml:"signed_url_ttl_hours"`
 }
 
+// StorageConfig selects the local or S3 media backend.
 type StorageConfig struct {
 	Type      string   `toml:"type"`
 	LocalPath string   `toml:"local_path"`
 	S3        S3Config `toml:"s3"`
 }
 
-// S3Config holds S3-compatible storage options. Leave AccessKey and
-// SecretKey empty to delegate to the AWS SDK's default credential
-// chain (env vars AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, shared
-// credentials file, EC2 instance metadata, etc.) — recommended for
-// production IAM-role deployments.
-//
-// Endpoint is optional; empty uses AWS default resolution. Set for
-// self-hosted (MinIO, Ceph) or alternate clouds (R2, DO Spaces,
-// Wasabi).
-//
-// UsePathStyle is a 3-state toggle: nil pointer lets the backend pick
-// (path-style when Endpoint is set — required for MinIO — otherwise
-// virtual-hosted style matching AWS). Set explicitly when a provider
-// disagrees with the heuristic (some DO Spaces / Wasabi setups
-// prefer virtual-hosted even with a custom endpoint).
+// S3Config selects an S3-compatible backend.
+// Empty credentials use the AWS credential chain; an empty Endpoint uses AWS resolution.
+// Nil UsePathStyle defaults to path style with a custom endpoint and virtual-hosted style
+// otherwise.
 type S3Config struct {
 	Endpoint     string `toml:"endpoint"`
 	Bucket       string `toml:"bucket"`
@@ -292,6 +164,7 @@ type S3Config struct {
 	UsePathStyle *bool  `toml:"use_path_style"`
 }
 
+// SchedulerConfig declares tasks and intervals available after startup; edits require a restart.
 type SchedulerConfig struct {
 	Enabled                         bool `toml:"enabled"`
 	ThumbnailIntervalMinutes        int  `toml:"thumbnail_interval_minutes"`
@@ -299,56 +172,37 @@ type SchedulerConfig struct {
 	CategoryArtIntervalMinutes      int  `toml:"category_art_interval_minutes"`
 	CategoryMetadataIntervalMinutes int  `toml:"category_metadata_interval_minutes"`
 	TokenCleanupIntervalMinutes     int  `toml:"token_cleanup_interval_minutes"`
-	// EventsubReconcileIntervalMinutes periodically ensures the
-	// stream.online/stream.offline subs match the local channels
-	// table. Keeps the SSE live-dot feed authoritative — without
-	// this the frontend's live Set drifts whenever a subscription
-	// is lost (manual delete, Twitch revocation, crashed mid-create).
-	// 0 disables (not recommended).
+	// EventsubReconcileIntervalMinutes repairs missing stream subscriptions; zero disables
+	// reconciliation.
 	EventsubReconcileIntervalMinutes int `toml:"eventsub_reconcile_interval_minutes"`
-	// FetchLogsRetentionDays prunes fetch_logs older than this on a
-	// daily interval. 0 disables the task (keep forever).
+	// FetchLogsRetentionDays is zero to retain fetch logs indefinitely.
 	FetchLogsRetentionDays int `toml:"fetch_logs_retention_days"`
-	// WebhookEventPayloadRetentionDays trims the payload column (not
-	// the row) on webhook_events older than this.
+	// WebhookEventPayloadRetentionDays expires payloads while retaining webhook event rows.
 	WebhookEventPayloadRetentionDays int `toml:"webhook_event_payload_retention_days"`
-	// EventLogsRetentionDays prunes debug+info event_logs older than
-	// this. warn+error rows have a longer retention managed below.
+	// EventLogsRetentionDays applies to debug and info logs; warning and error logs have longer
+	// retention.
 	EventLogsRetentionDays int `toml:"event_logs_retention_days"`
-	// RecordingWebhookDeliveryRetentionDays prunes terminal
-	// (delivered/rejected/failed) rows from the recording_webhook_deliveries
-	// outbox older than this. pending/delivering rows are never pruned, so a
-	// queued or in-flight delivery is never lost. Mirrors the other log-table
-	// retention windows; 0 disables the sweep.
+	// RecordingWebhookDeliveryRetentionDays expires terminal outbox rows; zero disables pruning.
+	// Pending and delivering rows are always retained.
 	RecordingWebhookDeliveryRetentionDays int `toml:"recording_webhook_delivery_retention_days"`
-	// SessionCleanupIntervalMinutes sweeps expired sessions.
-	SessionCleanupIntervalMinutes int `toml:"session_cleanup_interval_minutes"`
-	// RecordingsRetentionIntervalMinutes is how often the per-schedule
-	// auto-delete sweep runs. Unlike the *RetentionDays knobs above, this
-	// is a poll cadence, not a window: each schedule carries its own
-	// time_before_delete (hours), and the sweep deletes recordings past
-	// it. Default hourly so an hours-granularity window is honored within
-	// the hour. 0 disables the task (no recording is ever auto-deleted,
-	// regardless of is_delete_rediff).
+	SessionCleanupIntervalMinutes         int `toml:"session_cleanup_interval_minutes"`
+	// RecordingsRetentionIntervalMinutes sets the sweep cadence; schedules supply retention windows.
+	// Zero disables automatic recording deletion.
 	RecordingsRetentionIntervalMinutes int `toml:"recordings_retention_interval_minutes"`
-	// StorageScanIntervalMinutes is how often the storage scan checks that every
-	// finished recording's media is still in storage and tombstones the ones
-	// whose files are gone. 0 disables the scan; playback still tombstones a
-	// recording it finds missing.
+	// StorageScanIntervalMinutes is zero to disable scans; playback still detects missing media.
 	StorageScanIntervalMinutes int `toml:"storage_scan_interval_minutes"`
-	// ArchivePosterIntervalMinutes is how often archives still without a poster
-	// are looked up on Twitch, which renders a VOD thumbnail some minutes after
-	// the stream ends. 0 disables the task; an archive queued in that window
-	// then keeps whatever the pipeline produces.
+	// ArchivePosterIntervalMinutes retries posters that Twitch renders late; zero disables backfill.
 	ArchivePosterIntervalMinutes int `toml:"archive_poster_interval_minutes"`
 }
 
+// LoggingConfig sets filtering and optional file output for server logs.
 type LoggingConfig struct {
 	LogToFile bool   `toml:"log_to_file"`
 	LogDir    string `toml:"log_dir"`
 	LogLevel  string `toml:"log_level"`
 }
 
+// PostgresPoolConfig sets connection limits and millisecond lifetime bounds.
 type PostgresPoolConfig struct {
 	MaxConns            int32 `toml:"max_conns"`
 	MinConns            int32 `toml:"min_conns"`
@@ -357,6 +211,7 @@ type PostgresPoolConfig struct {
 	HealthCheckPeriodMs int   `toml:"health_check_period_ms"`
 }
 
+// Config combines file settings, environment overrides, and the resolved server mode.
 type Config struct {
 	App        AppConfig
 	Env        Environment

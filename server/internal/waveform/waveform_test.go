@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
 
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
@@ -101,8 +104,12 @@ func TestArtifactRoundTripRejectsStaleFingerprint(t *testing.T) {
 	}
 	key := storagekeys.Waveform("rec")
 	resp := Response{DurationSeconds: 2, Peaks: []float32{0.1, 0.5}}
-	if err := SaveArtifact(ctx, store, key, "fingerprint-a", resp); err != nil {
-		t.Fatalf("SaveArtifact: %v", err)
+	body, err := json.Marshal(NewArtifact("fingerprint-a", resp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(ctx, key, bytes.NewReader(body)); err != nil {
+		t.Fatal(err)
 	}
 
 	got, ok, err := LoadArtifact(ctx, store, key, "fingerprint-a")
@@ -156,7 +163,7 @@ func TestInputResolverUsesLocalFileBeforeStorage(t *testing.T) {
 	}
 
 	resolver := InputResolver{
-		Storage: store,
+		Storage: mediatest.New(t, nil, store, nil, nil),
 		LocalFiles: map[string]string{
 			"rec-part01.m4a": localPath,
 		},

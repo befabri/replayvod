@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader/hls"
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
@@ -228,15 +230,18 @@ func TestArchiveFailure_SchedulesRetryThenPumpRequeues(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A due retry waits through an outage without consuming its next attempt.
-	f.svc.SetStorageGate(gateFunc(unattached))
+	setDownloaderGate(t, f.svc, gateFunc(unattached))
 	f.svc.PumpArchiveQueue(ctx)
 	waiting, err := f.repo.GetVideo(ctx, v.ID)
 	if err != nil || waiting.JobID != jobID || waiting.Status != repository.VideoStatusFailed || waiting.NextRetryAt == nil || f.activeJobs() != 0 {
 		t.Fatalf("storage outage changed due retry: %+v, %v", waiting, err)
 	}
-	f.svc.SetStorageGate(gateFunc(func() error { return nil }))
+	setDownloaderGate(t, f.svc, gateFunc(func() error { return nil }))
 	f.svc.PumpArchiveQueue(ctx)
-	waitUntil(t, "retry to start", func() bool { return f.activeJobs() == 1 })
+	waitUntil(t, "retry claim", func() bool {
+		v, e := f.repo.GetVideo(ctx, v.ID)
+		return e == nil && v.Status == repository.VideoStatusRunning
+	})
 	retried, err := f.repo.GetVideo(ctx, v.ID)
 	if err != nil || retried.Status != repository.VideoStatusRunning || retried.JobID == jobID || retried.NextRetryAt != nil || retried.Error != nil {
 		t.Fatalf("retried row = %+v, %v; want RUNNING under a new job with no failure left", retried, err)
@@ -315,7 +320,10 @@ func TestRetryArchive_ManualAndGuards(t *testing.T) {
 	if err := f.svc.RetryArchive(ctx, v.ID); err != nil {
 		t.Fatalf("RetryArchive: %v", err)
 	}
-	waitUntil(t, "manual retry to start", func() bool { return f.activeJobs() == 1 })
+	waitUntil(t, "manual retry claim", func() bool {
+		row, e := f.repo.GetVideo(ctx, v.ID)
+		return e == nil && row.Status == repository.VideoStatusRunning
+	})
 	running, _ := f.repo.GetVideo(ctx, v.ID)
 	job, _ := f.repo.GetJob(ctx, running.JobID)
 	// The next attempt number comes from the stored job, not the in-memory
@@ -377,7 +385,7 @@ func TestEnqueueVOD_OpensNoMetadataSpans(t *testing.T) {
 		App:        config.AppConfig{Download: config.DownloadConfig{MaxConcurrent: 2, ArchiveMaxConcurrent: 1, SegmentConcurrency: 2}},
 		ServerMode: config.ServerModeConfig{Mode: config.ServerModeOff},
 	}
-	svc := NewService(cfg, repo, store, hydrator, nil, nil, log)
+	svc := NewService(cfg, repo, mediatest.NewAt(t, repo, store, nil, nil, cfg.Env.ScratchDir), hydrator, nil, nil, log)
 	edge := newVODEdge(t)
 	svc.twitch = twitch.New(twitch.Config{
 		HTTPClient: &http.Client{Timeout: 10 * time.Second}, ClientID: "test", UserAgent: "test", DeviceID: "test-device",
@@ -551,7 +559,7 @@ func TestArchiveRetryFailureWritesCommitTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := f.video(t, id)
-	if err := f.repo.MarkJobRunning(ctx, id); err != nil {
+	if err := f.repo.SetJobExecution(ctx, id, "", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.repo.UpdateVideoStatus(ctx, v.ID, repository.VideoStatusRunning); err != nil {
@@ -563,6 +571,9 @@ func TestArchiveRetryFailureWritesCommitTogether(t *testing.T) {
 	terminals := bus.RecordingTerminal.Subscribe(ctx)
 	f.svc.repo = &archiveFaultRepo{Repository: f.repo, failJobFailed: true}
 	d := &download{jobID: id, videoID: v.ID, broadcasterID: v.BroadcasterID, vod: true, attempt: 1, resume: NewResumeState()}
+	settleCtx, stopSettlement := context.WithCancel(ctx)
+	stopSettlement()
+	d.runCtx = settleCtx
 	f.svc.failDownload(ctx, d, discardLog(), fakeNetError{})
 	got := f.video(t, id)
 	job, err := f.repo.GetJob(ctx, id)
@@ -600,7 +611,7 @@ func TestArchiveStorageOutageLeavesSameAttemptQueued(t *testing.T) {
 				t.Fatal(err)
 			}
 			calls := 0
-			f.svc.SetStorageGate(gateFunc(func() error {
+			setDownloaderGate(t, f.svc, gateFunc(func() error {
 				calls++
 				if calls >= failAt {
 					return unattached()
@@ -618,8 +629,9 @@ func TestArchiveStorageOutageLeavesSameAttemptQueued(t *testing.T) {
 			}
 			release := f.edge.hold()
 			defer release()
-			f.svc.SetStorageGate(gateFunc(func() error { return nil }))
+			setDownloaderGate(t, f.svc, gateFunc(func() error { return nil }))
 			f.svc.PumpArchiveQueue(t.Context())
+			waitUntil(t, "archive claim", func() bool { return f.status(t, id) == repository.VideoStatusRunning })
 			job, err = f.repo.GetJob(t.Context(), id)
 			if err != nil {
 				t.Fatal(err)
@@ -638,9 +650,9 @@ type blockingRetryRepo struct {
 	calls   atomic.Int32
 }
 
-func (r *blockingRetryRepo) ListArchivesDueForRetry(ctx context.Context, before time.Time, limit int) ([]repository.Video, error) {
+func (r *blockingRetryRepo) ListArchivesDueForRetry(ctx context.Context, before, after time.Time, afterID int64, limit int) ([]repository.Video, error) {
 	if !r.block.Load() {
-		return r.Repository.ListArchivesDueForRetry(ctx, before, limit)
+		return r.Repository.ListArchivesDueForRetry(ctx, before, after, afterID, limit)
 	}
 	r.calls.Add(1)
 	select {
@@ -655,7 +667,7 @@ func TestArchiveRetryLoopRunsOnceAndShutdownWaitsForIt(t *testing.T) {
 	f.svc.retryInterval = time.Millisecond
 	repo := &blockingRetryRepo{Repository: f.repo, entered: make(chan struct{}, 2)}
 	f.svc.repo = repo
-	f.svc.SetStorageGate(gateFunc(func() error { return nil }))
+	setDownloaderGate(t, f.svc, gateFunc(func() error { return nil }))
 	if err := f.svc.Resume(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -680,4 +692,41 @@ func TestArchiveRetryLoopRunsOnceAndShutdownWaitsForIt(t *testing.T) {
 	}
 	f.svc.startArchiveRetryLoop()
 	f.svc.Shutdown()
+}
+
+func TestArchiveRetryWaitsForMediaOwnership(t *testing.T) {
+	for _, scheduled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("scheduled=%v", scheduled), func(t *testing.T) {
+			f := newArchiveFixture(t, 1, 1)
+			jobID, err := f.svc.EnqueueVOD(t.Context(), vodParams("bc-1", "locked-retry"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := failArchiveAttempt(t, f, jobID, 1, fakeNetError{})
+			owned, err := f.svc.storage.Lock(t.Context(), v.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer owned.Close()
+
+			// Retention may already be deleting the previous attempt's parts.
+			// A retry cannot publish PENDING until that ownership is released.
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+			defer cancel()
+			if _, err := f.svc.requeueArchive(ctx, v, scheduled); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("retry bypassed media ownership: %v", err)
+			}
+			current, err := f.repo.GetVideo(t.Context(), v.ID)
+			if err != nil || current.JobID != jobID || current.Status != repository.VideoStatusFailed {
+				t.Fatalf("blocked retry changed the recording: %+v, %v", current, err)
+			}
+			if err := f.repo.FinalizeDelete(t.Context(), v.ID, repository.DeletionKindRetention); err != nil {
+				t.Fatal(err)
+			}
+			owned.Close()
+			if _, err := f.svc.requeueArchive(t.Context(), v, scheduled); !errors.Is(err, repository.ErrNotFound) {
+				t.Fatalf("stale retry revived the deleted recording: %v", err)
+			}
+		})
+	}
 }

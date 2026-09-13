@@ -2,6 +2,7 @@ package contracttest
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -9,10 +10,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// testPlaybackAssetReadyToFailedTransition pins that a ready->failed upsert
-// clears filename/mime/last_accessed_at. The schema CHECK rejects a 'failed'
-// row that still carries those fields, so a bug that forgot to clear them would
-// surface here.
+// The schema requires ready-only fields to clear when an asset becomes failed.
 func testPlaybackAssetReadyToFailedTransition(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -36,8 +34,40 @@ func testPlaybackAssetReadyToFailedTransition(t *testing.T, h Harness) {
 	}
 }
 
-// testPlaybackAssetListReadyLRUOrder pins the ORDER BY last_accessed_at ASC
-// that the eviction logic depends on (oldest-accessed first).
+func testPlaybackAssetPaginationWithTiedTimestamps(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	SeedUserChannel(t, ctx, repo, "page-owner", "page-channel")
+	at := time.Now().UTC().Truncate(time.Second)
+	var want []int64
+	for i := range 5 {
+		name := fmt.Sprintf("lru-page-%d", i)
+		id := seedDonePlaybackVideo(t, ctx, repo, name, name, "page-channel", 2)
+		upsertReadyAsset(t, ctx, repo, id, name+"-playback.mp4", at)
+		want = append(want, id)
+	}
+	var got []int64
+	cursor := repository.PlaybackAssetCursor{}
+	for page := 0; ; page++ {
+		if page > 3 {
+			t.Fatal("LRU cursor did not advance")
+		}
+		rows, err := repo.ListReadyVideoPlaybackAssets(ctx, cursor, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			got = append(got, row.VideoID)
+			cursor = repository.PlaybackAssetCursor{AccessedAt: *row.LastAccessedAt, GeneratedAt: *row.GeneratedAt, VideoID: row.VideoID}
+		}
+		if len(rows) < 2 {
+			break
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("LRU pagination skipped or duplicated tied rows: got=%v want=%v", got, want)
+	}
+}
+
 func testPlaybackAssetListReadyLRUOrder(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -51,7 +81,7 @@ func testPlaybackAssetListReadyLRUOrder(t *testing.T, h Harness) {
 	upsertReadyAsset(t, ctx, repo, v2, "rec-lru-2-playback.mp4", now.Add(-3*time.Hour)) // oldest
 	upsertReadyAsset(t, ctx, repo, v3, "rec-lru-3-playback.mp4", now.Add(-2*time.Hour))
 
-	rows, err := repo.ListReadyVideoPlaybackAssets(ctx)
+	rows, err := repo.ListReadyVideoPlaybackAssets(ctx, repository.PlaybackAssetCursor{}, 100)
 	if err != nil {
 		t.Fatalf("ListReadyVideoPlaybackAssets: %v", err)
 	}
@@ -65,8 +95,6 @@ func testPlaybackAssetListReadyLRUOrder(t *testing.T, h Harness) {
 	}
 }
 
-// testPlaybackAssetTouchMovesToBackOfLRU pins that TouchVideoPlaybackAsset
-// updates last_accessed_at so the touched asset becomes most-recently-used.
 func testPlaybackAssetTouchMovesToBackOfLRU(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -82,7 +110,7 @@ func testPlaybackAssetTouchMovesToBackOfLRU(t *testing.T, h Harness) {
 		t.Fatalf("TouchVideoPlaybackAsset: %v", err)
 	}
 
-	rows, err := repo.ListReadyVideoPlaybackAssets(ctx)
+	rows, err := repo.ListReadyVideoPlaybackAssets(ctx, repository.PlaybackAssetCursor{}, 100)
 	if err != nil {
 		t.Fatalf("ListReadyVideoPlaybackAssets: %v", err)
 	}

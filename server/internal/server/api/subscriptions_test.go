@@ -115,7 +115,7 @@ func TestWebSocketSubscriptionPermissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for id, path := range []string{"storage.statusLive", "video.removalsLive", "task.status"} {
+			for id, path := range []string{"storage.statusLive", "video.changesLive", "video.removalsLive", "task.status"} {
 				if err := wsjson.Write(ctx, conn, map[string]any{"id": id + 1, "method": "subscription", "params": map[string]any{"path": path}}); err != nil {
 					t.Fatal(err)
 				}
@@ -123,12 +123,37 @@ func TestWebSocketSubscriptionPermissions(t *testing.T) {
 				if err := wsjson.Read(ctx, conn, &msg); err != nil {
 					t.Fatal(err)
 				}
+				if path == "video.removalsLive" {
+					if msg["error"].(map[string]any)["data"].(map[string]any)["code"] != "NOT_FOUND" {
+						t.Fatalf("obsolete subscription remains registered: %v", msg)
+					}
+					continue
+				}
 				if path == "task.status" && !tc.owner {
 					if msg["error"].(map[string]any)["data"].(map[string]any)["code"] != "FORBIDDEN" {
 						t.Fatalf("owner feed allowed: %v", msg)
 					}
 				} else if msg["result"].(map[string]any)["type"] != "started" {
 					t.Fatalf("subscription did not start: %v", msg)
+				}
+				if path == "video.changesLive" {
+					h.bus.NotifyVideoChange()
+					if err := wsjson.Read(ctx, conn, &msg); err != nil {
+						t.Fatal(err)
+					}
+					result := msg["result"].(map[string]any)
+					if result["type"] != "data" || len(result["data"].(map[string]any)) != 0 {
+						t.Fatalf("video invalidation leaked data or was not delivered: %v", msg)
+					}
+					if err := wsjson.Write(ctx, conn, map[string]any{"id": id + 1, "method": "subscription.stop"}); err != nil {
+						t.Fatal(err)
+					}
+					if err := wsjson.Read(ctx, conn, &msg); err != nil {
+						t.Fatal(err)
+					}
+					if msg["result"].(map[string]any)["type"] != "stopped" {
+						t.Fatalf("subscription did not stop: %v", msg)
+					}
 				}
 			}
 		})

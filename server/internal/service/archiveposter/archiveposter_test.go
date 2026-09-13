@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -92,10 +94,12 @@ func TestBackfill(t *testing.T) {
 		"2": {ID: "2", ThumbnailURL: "https://vod-secure.twitch.tv/_404/404_processing_%{width}x%{height}.png"},
 		"4": {ID: "4", ThumbnailURL: cdn.URL + "/poster-%{width}x%{height}.jpg"},
 	}}
-	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), cdn.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
+	svc := New(NewStore(repo, mediatest.New(t, repo, store, readyFunc(func(context.Context) error { return nil }), nil), cdn.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
 	svc.pageSize = 2
 	// A frame produced by the pipeline between the listing and the fetch wins.
-	svc.store.repo = frameRacer{Repository: repo, videoID: framed.ID}
+	racer := frameRacer{Repository: repo, videoID: framed.ID}
+	svc.store.repo = racer
+	svc.store.storage = mediatest.New(t, racer, store, readyFunc(func(context.Context) error { return nil }), nil)
 
 	report, err := svc.Backfill(ctx)
 	if err != nil {
@@ -133,8 +137,6 @@ func TestBackfill(t *testing.T) {
 		t.Fatal("the losing poster object was not cleaned up")
 	}
 
-	// The second pass finds nothing new to check for the stored one and stops
-	// looking once the window has passed.
 	svc.now = func() time.Time { return time.Now().Add(Window + time.Hour) }
 	report, err = svc.Backfill(ctx)
 	if err != nil || report.Checked != 0 {
@@ -142,8 +144,6 @@ func TestBackfill(t *testing.T) {
 	}
 }
 
-// frameRacer sets a pipeline frame on one video right before the poster
-// write, standing in for stage 8 landing while the backfill runs.
 type frameRacer struct {
 	repository.Repository
 	videoID int64
@@ -158,7 +158,6 @@ func (r frameRacer) SetVideoThumbnailIfMissing(ctx context.Context, id int64, th
 	return r.Repository.SetVideoThumbnailIfMissing(ctx, id, thumbnail)
 }
 
-// posterServer answers every request with a small JPEG body.
 func posterServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -169,10 +168,8 @@ func posterServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// TestFetch_LosingFetchKeepsTheObjectTheWinnerReferences pins the race between
-// the downloader's poster fetch and the backfill task: both write the same
-// snapshot key, so the one whose thumbnail update loses must not delete the
-// object the winning update now points at.
+// TestFetch_LosingFetchKeepsTheObjectTheWinnerReferences prevents cleanup of a
+// poster retained by an earlier fetch.
 func TestFetch_LosingFetchKeepsTheObjectTheWinnerReferences(t *testing.T) {
 	ctx := context.Background()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -185,7 +182,7 @@ func TestFetch_LosingFetchKeepsTheObjectTheWinnerReferences(t *testing.T) {
 	}
 	srv := posterServer(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	posters := NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), log)
+	posters := NewStore(repo, mediatest.New(t, repo, store, readyFunc(func(context.Context) error { return nil }), nil), srv.Client(), log)
 	v := seedArchive(t, repo, "job-1", "1001")
 	key := storagekeys.Snapshot(v.Filename, 0)
 
@@ -203,8 +200,6 @@ func TestFetch_LosingFetchKeepsTheObjectTheWinnerReferences(t *testing.T) {
 		t.Fatalf("thumbnail = %v, %v; want %s", got.Thumbnail, err, key)
 	}
 
-	// A frame the pipeline produced is a different key: the poster object is
-	// unreferenced garbage and goes.
 	framed := seedArchive(t, repo, "job-2", "1002")
 	if err := repo.SetVideoThumbnail(ctx, framed.ID, storagekeys.Thumbnail(framed.Filename+"-part01")); err != nil {
 		t.Fatal(err)
@@ -225,9 +220,8 @@ func (unreadableVideoRepo) GetVideo(context.Context, int64) (*repository.Video, 
 	return nil, context.DeadlineExceeded
 }
 
-// TestFetch_UnreadableRowKeepsTheObject pins the conservative side: when the
-// row cannot be read after a lost update, the object stays for the purge to
-// collect rather than risking a dangling reference.
+// TestFetch_UnreadableRowKeepsTheObject preserves a potentially referenced poster
+// when the reference cannot be read after publication.
 func TestFetch_UnreadableRowKeepsTheObject(t *testing.T) {
 	ctx := context.Background()
 	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
@@ -244,7 +238,7 @@ func TestFetch_UnreadableRowKeepsTheObject(t *testing.T) {
 	if err := repo.SetVideoThumbnail(ctx, v.ID, storagekeys.Thumbnail(v.Filename+"-part01")); err != nil {
 		t.Fatal(err)
 	}
-	posters := NewStore(unreadableVideoRepo{Repository: repo}, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), log)
+	posters := NewStore(unreadableVideoRepo{Repository: repo}, mediatest.New(t, unreadableVideoRepo{Repository: repo}, store, readyFunc(func(context.Context) error { return nil }), nil), srv.Client(), log)
 	if posters.Fetch(ctx, v.ID, v.Filename, srv.URL+"/a.jpg") {
 		t.Fatal("fetch reported a stored poster")
 	}
@@ -266,10 +260,6 @@ func posterFixture(t *testing.T) (repository.Repository, *storage.LocalStorage) 
 	return repo, store
 }
 
-// TestFetch_OneFetchOwnsTheKeyWhileInFlight pins the shared-store rule: while a
-// fetch for an archive is in flight, a concurrent fetch for the same archive
-// backs off instead of writing the same key, so the download happens once and
-// the row ends up referencing an object that exists.
 func TestFetch_OneFetchOwnsTheKeyWhileInFlight(t *testing.T) {
 	ctx := context.Background()
 	repo, store := posterFixture(t)
@@ -285,7 +275,7 @@ func TestFetch_OneFetchOwnsTheKeyWhileInFlight(t *testing.T) {
 		_, _ = w.Write([]byte("\xff\xd8\xff\xe0jpeg"))
 	}))
 	defer srv.Close()
-	posters := NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), slog.New(slog.DiscardHandler))
+	posters := NewStore(repo, mediatest.New(t, repo, store, readyFunc(func(context.Context) error { return nil }), nil), srv.Client(), slog.New(slog.DiscardHandler))
 	v := seedArchive(t, repo, "job-1", "1001")
 
 	first := make(chan bool, 1)
@@ -309,14 +299,11 @@ func TestFetch_OneFetchOwnsTheKeyWhileInFlight(t *testing.T) {
 	if err != nil || got.Thumbnail == nil || *got.Thumbnail != key {
 		t.Fatalf("thumbnail = %v, %v; want %s", got.Thumbnail, err, key)
 	}
-	// The key is released: a later fetch reads the row and spends no download.
 	if posters.Fetch(ctx, v.ID, v.Filename, srv.URL+"/a.jpg") || atomic.LoadInt32(&hits) != 1 {
 		t.Fatalf("a fetch after the poster was set downloaded again: hits=%d", hits)
 	}
 }
 
-// TestFetch_SkipsRowsThatNeedNoPoster pins the pre-check: a row with a poster
-// or a removed row costs no download and gets no object.
 func TestFetch_SkipsRowsThatNeedNoPoster(t *testing.T) {
 	ctx := context.Background()
 	repo, store := posterFixture(t)
@@ -327,7 +314,7 @@ func TestFetch_SkipsRowsThatNeedNoPoster(t *testing.T) {
 		_, _ = w.Write([]byte("\xff\xd8\xff\xe0jpeg"))
 	}))
 	defer srv.Close()
-	posters := NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), slog.New(slog.DiscardHandler))
+	posters := NewStore(repo, mediatest.New(t, repo, store, readyFunc(func(context.Context) error { return nil }), nil), srv.Client(), slog.New(slog.DiscardHandler))
 
 	framed := seedArchive(t, repo, "job-framed", "1001")
 	if err := repo.SetVideoThumbnail(ctx, framed.ID, "thumbnails/frame.jpg"); err != nil {
@@ -353,8 +340,6 @@ func TestFetch_SkipsRowsThatNeedNoPoster(t *testing.T) {
 	}
 }
 
-// removedDuringFetch tombstones the row between the pre-check and the final
-// write, the way an operator delete lands while the image downloads.
 type removedDuringFetch struct {
 	repository.Repository
 	videoID int64
@@ -382,7 +367,7 @@ func TestFetch_RemovalDuringFetchLeavesNoPoster(t *testing.T) {
 	repo, store := posterFixture(t)
 	srv := posterServer(t)
 	v := seedArchive(t, repo, "job-1", "1001")
-	posters := NewStore(&removedDuringFetch{Repository: repo, videoID: v.ID}, store, readyFunc(func(context.Context) error { return nil }), srv.Client(), slog.New(slog.DiscardHandler))
+	posters := NewStore(&removedDuringFetch{Repository: repo, videoID: v.ID}, mediatest.New(t, &removedDuringFetch{Repository: repo, videoID: v.ID}, store, readyFunc(func(context.Context) error { return nil }), nil), srv.Client(), slog.New(slog.DiscardHandler))
 	if posters.Fetch(ctx, v.ID, v.Filename, srv.URL+"/a.jpg") {
 		t.Fatal("fetch stored a poster on a row removed meanwhile")
 	}
@@ -395,9 +380,6 @@ func TestFetch_RemovalDuringFetchLeavesNoPoster(t *testing.T) {
 	}
 }
 
-// TestBackfill_VisitsEveryArchiveBeyondOnePage pins the paging: with more
-// eligible archives than one Helix lookup holds, and the first ones still on
-// the placeholder, the later ones are looked up and stored in the same run.
 func TestBackfill_VisitsEveryArchiveBeyondOnePage(t *testing.T) {
 	ctx := context.Background()
 	repo, store := posterFixture(t)
@@ -414,7 +396,7 @@ func TestBackfill_VisitsEveryArchiveBeyondOnePage(t *testing.T) {
 		videos[id] = twitch.Video{ID: id, ThumbnailURL: url}
 	}
 	helix := &fakeHelix{videos: videos}
-	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), cdn.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
+	svc := New(NewStore(repo, mediatest.New(t, repo, store, readyFunc(func(context.Context) error { return nil }), nil), cdn.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
 	svc.pageSize = 2
 	report, err := svc.Backfill(ctx)
 	if err != nil {
@@ -432,10 +414,8 @@ func TestBackfill_VisitsEveryArchiveBeyondOnePage(t *testing.T) {
 	}
 }
 
-// TestBackfill_ResumesPastArchivesThatExhaustTheDeadline pins the runaway
-// case: poster hosts that hang eat the run's deadline. Each run must count as
-// progress and start after the archive it was attempting, so the archives
-// behind the slow ones are reached within a few runs instead of never.
+// TestBackfill_ResumesPastArchivesThatExhaustTheDeadline prevents hung poster
+// hosts from starving later archives across repeated runs.
 func TestBackfill_ResumesPastArchivesThatExhaustTheDeadline(t *testing.T) {
 	repo, store := posterFixture(t)
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -455,7 +435,7 @@ func TestBackfill_ResumesPastArchivesThatExhaustTheDeadline(t *testing.T) {
 		videos[id] = twitch.Video{ID: id, ThumbnailURL: slow.URL + "/" + name + "-%{width}x%{height}.jpg"}
 	}
 	helix := &fakeHelix{videos: videos}
-	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), slow.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
+	svc := New(NewStore(repo, mediatest.New(t, repo, store, readyFunc(func(context.Context) error { return nil }), nil), slow.Client(), slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
 	svc.pageSize = 1
 
 	run := func() (Report, error) {
@@ -486,7 +466,6 @@ func TestBackfill_ResumesPastArchivesThatExhaustTheDeadline(t *testing.T) {
 		t.Fatalf("resume point after a complete run = %d, want 0", svc.resumePoint())
 	}
 
-	// A run that gets no chance to attempt anything is a failure, not progress.
 	expired, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := svc.Backfill(expired); !errors.Is(err, context.Canceled) {
@@ -527,11 +506,10 @@ func TestFetchWaitsForWritableStorageAndRechecksAfterDownload(t *testing.T) {
 				_, _ = io.WriteString(w, "jpeg")
 			}))
 			defer cdn.Close()
-			posters := NewStore(repo, store, gate, cdn.Client(), slog.New(slog.DiscardHandler))
+			posters := NewStore(repo, mediatest.New(t, repo, store, gate, nil), cdn.Client(), slog.New(slog.DiscardHandler))
 			if posters.Fetch(ctx, v.ID, v.Filename, cdn.URL) || calls.Load() != 0 {
 				t.Fatal("unavailable storage still fetched a poster")
 			}
-			// Storage disappears while the remote image is being fetched.
 			blocked.Store(false)
 			if posters.Fetch(ctx, v.ID, v.Filename, cdn.URL) || calls.Load() != 1 {
 				t.Fatal("mid-download outage was ignored")
@@ -546,7 +524,6 @@ func TestFetchWaitsForWritableStorageAndRechecksAfterDownload(t *testing.T) {
 			if ok, err := store.Exists(ctx, storagekeys.Snapshot(v.Filename, 0)); err != nil || ok {
 				t.Fatalf("refused poster wrote an object: %v %v", ok, err)
 			}
-			// A normal later attempt succeeds after readiness recovers.
 			detach.Store(false)
 			blocked.Store(false)
 			if !posters.Fetch(ctx, v.ID, v.Filename, cdn.URL) {
@@ -563,7 +540,7 @@ func TestBackfillPausesBeforeHelixWhenStorageIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	helix := &fakeHelix{}
-	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return storage.ErrUnattached }), http.DefaultClient, slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
+	svc := New(NewStore(repo, mediatest.New(t, repo, store, readyFunc(func(context.Context) error { return storage.ErrUnattached }), nil), http.DefaultClient, slog.New(slog.DiscardHandler)), repo, helix, slog.New(slog.DiscardHandler))
 	report, err := svc.Backfill(t.Context())
 	if err != nil || report.Complete || helix.calls != 0 {
 		t.Fatalf("paused backfill: %+v %v calls=%d", report, err, helix.calls)
@@ -582,7 +559,7 @@ func TestBackfillCancellationAfterProgressIsSurfaced(t *testing.T) {
 	defer host.Close()
 	helix := &fakeHelix{videos: map[string]twitch.Video{"123": {ID: "123", ThumbnailURL: host.URL + "/poster.jpg"}}}
 	log := slog.New(slog.DiscardHandler)
-	svc := New(NewStore(repo, store, readyFunc(func(context.Context) error { return nil }), host.Client(), log), repo, helix, log)
+	svc := New(NewStore(repo, mediatest.New(t, repo, store, readyFunc(func(context.Context) error { return nil }), nil), host.Client(), log), repo, helix, log)
 	report, err := svc.Backfill(ctx)
 	if !errors.Is(err, context.Canceled) || report.Complete || report.Checked != 1 {
 		t.Fatalf("cancelled backfill hid interruption: %+v, %v", report, err)
@@ -590,4 +567,8 @@ func TestBackfillCancellationAfterProgressIsSurfaced(t *testing.T) {
 	if svc.resumePoint() != v.ID {
 		t.Fatalf("resume point=%d, want %d", svc.resumePoint(), v.ID)
 	}
+}
+
+func (r frameRacer) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
+	return r.Repository.WithTx(ctx, func(tx repository.Repository) error { return fn(frameRacer{Repository: tx, videoID: r.videoID}) })
 }

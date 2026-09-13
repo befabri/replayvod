@@ -494,10 +494,10 @@ export function useCancelDownload() {
 }
 
 // One subscription in the authenticated layout covers every video surface.
-// Notifications represent committed transitions, so unchanged pending rows
-// never poll. Reconnect invalidates snapshots, including inactive caches that
-// will be reread when their page next mounts.
-export function useLiveVideoRemovals() {
+// Recording, intent, and removal transitions share the feed, so related lists
+// and pending/running videos update without polling. Reconnect invalidates
+// snapshots, including inactive caches reread when their page next mounts.
+export function useLiveVideoChanges() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
 	const resync = () =>
@@ -507,7 +507,7 @@ export function useLiveVideoRemovals() {
 			),
 		);
 	useSubscription({
-		...trpc.video.removalsLive.subscriptionOptions(),
+		...trpc.video.changesLive.subscriptionOptions(),
 		onStarted: resync,
 		onData: resync,
 		onError: withSessionProbe(),

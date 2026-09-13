@@ -1,16 +1,6 @@
-// Package retention enforces schedule-snapshotted auto-delete of recordings.
-//
-// A download_schedule may opt into is_delete_rediff with a time_before_delete
-// window (in hours). When the schedule processor starts a recording, it stores
-// the shortest delete window from the schedules that actually matched on the
-// video row. Once that terminal recording is older than the stored window it
-// should be removed to reclaim disk. Manual recordings and schedule recordings
-// without a matched delete policy keep retention_window_hours NULL and are not
-// retention candidates.
-//
-// The window is measured from completion (videos.downloaded_at), not from
-// when the recording was triggered — "auto-delete after N hours" means N
-// hours after the rediff finished and became watchable.
+// Package retention enforces the delete window captured when a recording starts.
+// The window uses the shortest matching schedule and begins at completion; a
+// NULL window keeps manual recordings and recordings without a delete policy.
 package retention
 
 import (
@@ -18,103 +8,69 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/eventbus"
-	"github.com/befabri/replayvod/server/internal/recordinglock"
+	"github.com/befabri/replayvod/server/internal/mediastore"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 )
 
-// maxSnapshotProbe is a defensive ceiling on purgeSnapshots' probe-until-gap
-// loop. Live snapshots are written contiguously (the writer advances the index
-// only on a successful capture), so the loop normally stops at the first gap;
-// this bound only guards a pathological store that never reports one. It is
-// deliberately NOT the video API's 500-frame ListSnapshots reader cap: the
-// hover-preview only needs a sample, but retention must delete every snapshot or
-// it strands bytes on disk. Snapshots fire ~every 5 min, so 100k is ~347 days of
-// one continuous recording, far past anything real.
+// maxSnapshotProbe bounds legacy snapshot discovery when storage never reports a gap.
+// Journaled snapshots beyond gaps are removed separately by PurgePublications.
 const maxSnapshotProbe = 100_000
 
 const (
-	// ManualDeletionTaskName is the scheduler task that drains
-	// operator-requested recording deletions. The video API wakes this task
-	// after queueing a delete.
+	// ManualDeletionTaskName identifies the worker awakened by manual delete requests.
 	ManualDeletionTaskName = "recording_delete_requested"
-	// ManualDeletionTaskDescription is kept beside the task name so the queueing
-	// path can ensure the durable task row exists before accepting a delete.
+	// ManualDeletionTaskDescription is shared by startup registration and delete admission.
 	ManualDeletionTaskDescription = "Delete recordings queued by an operator, after webhook part metadata is frozen"
-	// ManualDeletionIntervalSeconds is short enough that a failed wake-up still
-	// drains queued deletes promptly on the next scheduler interval.
+	// ManualDeletionIntervalSeconds bounds the delay after a failed worker wakeup.
 	ManualDeletionIntervalSeconds int64 = 60
 
 	manualDeleteBatchSize = 25
 )
 
-// ErrManualDeletionUnavailable means the operator-requested delete queue cannot
-// currently be drained. The API must not accept a delete request in this state:
-// setting delete_requested_at without an enabled worker would strand the row in
-// a pending state.
+// ErrManualDeletionUnavailable means no worker can drain the manual delete queue;
+// callers must reject the request before setting delete_requested_at.
 var ErrManualDeletionUnavailable = errors.New("manual recording deletion worker unavailable")
 
-// Option tweaks retention service behaviour for the process it is wired into.
+// Option configures a Service before use.
 type Option func(*Service)
 
-// WithRecordingLocks shares object publication/deletion ownership with the
-// waveform handler. Configure it before starting either service.
-func WithRecordingLocks(locks *recordinglock.Locks) Option {
-	return func(s *Service) {
-		if locks != nil {
-			s.recordingLocks = locks
-		}
-	}
-}
-
-// StorageGate freshly verifies identity and write readiness. Capacity exhaustion
-// permits deletion; read-only, foreign and unreachable storage do not.
-type StorageGate interface {
-	Verify(context.Context) error
-}
-
-// WithManualDeletionWorkerAvailable tells RequestManualDelete whether this
-// process has a scheduler worker that can drain ManualDeletionTaskName. The
-// scheduler task itself leaves the default true; the API-facing service passes
-// false when the scheduler is disabled by config so video.delete fails before
-// queueing a row that no background task will ever process.
+// WithManualDeletionWorkerAvailable rejects manual deletes when this process
+// cannot drain them; otherwise accepted requests would remain queued indefinitely.
 func WithManualDeletionWorkerAvailable(available bool) Option {
 	return func(s *Service) {
 		s.manualDeletionWorkerAvailable = available
 	}
 }
 
+// WithEventBus publishes committed recording changes to subscribers.
 func WithEventBus(bus *eventbus.Buses) Option {
 	return func(s *Service) { s.bus = bus }
 }
 
-// Service deletes recordings once their stored retention window elapses. It
-// owns no scheduling of its own — the scheduler's recordings_retention task
-// drives Sweep on an interval.
+// Service deletes expired recordings when the scheduler calls Sweep.
 type Service struct {
+	manualMu                      sync.Mutex
+	manualAfter                   int64
 	repo                          repository.Repository
-	store                         storage.Storage
-	storageGate                   StorageGate
+	store                         *mediastore.Store
 	log                           *slog.Logger
 	manualDeletionWorkerAvailable bool
-	recordingLocks                *recordinglock.Locks
 	bus                           *eventbus.Buses
 }
 
-// New builds the retention service. The composition root supplies a storage
-// gate so cleanup can wait for storage to recover after startup or an outage.
-func New(repo repository.Repository, store storage.Storage, gate StorageGate, log *slog.Logger, opts ...Option) *Service {
+// New creates a retention service using the shared media store.
+func New(repo repository.Repository, store *mediastore.Store, log *slog.Logger, opts ...Option) *Service {
 	s := &Service{
 		repo:                          repo,
 		store:                         store,
-		storageGate:                   gate,
 		log:                           log.With("domain", "retention"),
 		manualDeletionWorkerAvailable: true,
-		recordingLocks:                &recordinglock.Locks{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -122,57 +78,50 @@ func New(repo repository.Repository, store storage.Storage, gate StorageGate, lo
 	return s
 }
 
-// Sweep deletes every recording whose completion is older than the retention
-// window stored on the recording. now is injected so the boundary is
-// deterministic in tests; the task passes time.Now(). Returns the count
-// deleted.
-//
-// A bad candidate row or per-recording failure (object store hiccup mid-purge,
-// etc.) is collected and the sweep continues with the rest; the joined error
-// fails the task run so the operator sees it, and the next run retries. Every
-// step is idempotent, so a partial pass converges.
+// Sweep returns the number of recordings deleted after their retention deadline.
+// Individual failures are joined after the remaining candidates are processed.
 func (s *Service) Sweep(ctx context.Context, now time.Time) (int, error) {
-	videos, err := s.repo.ListFinishedVideosForRetention(ctx, now)
-	if err != nil {
-		return 0, fmt.Errorf("list finished videos: %w", err)
-	}
-	var (
-		deleted int
-		errs    []error
-	)
-	expired, err := expiredVideoIDs(videos, now)
-	if err != nil {
-		errs = append(errs, err)
-	}
-	for _, id := range expired {
-		v, err := s.repo.GetVideo(ctx, id)
+	var deleted int
+	var errs []error
+	for after := int64(0); ; {
+		videos, err := s.repo.ListRetentionCandidates(ctx, now, after, 100)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("load recording %d: %w", id, err))
-			continue
+			return deleted, errors.Join(append(errs, err)...)
 		}
-		if err := s.DeleteRecording(ctx, v, repository.DeletionKindRetention); err != nil {
-			errs = append(errs, fmt.Errorf("delete recording %d: %w", id, err))
-			continue
+		for _, candidate := range videos {
+			after = candidate.VideoID
+			v, err := s.repo.GetVideo(ctx, candidate.VideoID)
+			if err == nil {
+				// A retry may have completed since discovery with a new retention deadline.
+				var expired []int64
+				expired, err = expiredVideoIDs([]repository.RetentionVideo{{
+					VideoID: v.ID, BroadcasterID: v.BroadcasterID,
+					DownloadedAt: v.DownloadedAt, RetentionWindowHours: v.RetentionWindowHours,
+				}}, now)
+				if err == nil && len(expired) > 0 {
+					err = s.DeleteRecording(ctx, v, repository.DeletionKindRetention)
+					if err == nil {
+						deleted++
+					}
+				}
+			}
+			if err != nil {
+				s.log.Warn("retention candidate deferred", "video_id", candidate.VideoID, "error", err)
+				if len(errs) < 16 {
+					errs = append(errs, fmt.Errorf("recording %d: %w", candidate.VideoID, err))
+				}
+			}
 		}
-		deleted++
+		if len(videos) < 100 || ctx.Err() != nil {
+			break
+		}
 	}
+
 	return deleted, errors.Join(errs...)
 }
 
-// expiredVideoIDs is the pure eligibility decision. It uses the creation-time
-// retention window stored on each video, then selects the finished recordings
-// whose completion is strictly older than that window. A recording exactly at
-// the window is kept and deleted on the first sweep past it. A video with no
-// retention window is never selected.
-//
-// ListFinishedVideosForRetention applies the same strict due-time comparison in
-// SQL to keep sweeps bounded to due rows; keep the two boundaries in lockstep.
-//
-// It reports impossible shapes while continuing with the remaining rows. A
-// null, <=0, or duration-overflowing retention window, or a null completion on
-// a row the query already filtered to downloaded_at IS NOT NULL, signals
-// corruption. The offending row is skipped and returned in the joined error so
-// one bad row cannot halt unrelated deletion.
+// expiredVideoIDs selects recordings strictly past their stored retention window.
+// Keep this boundary aligned with ListRetentionCandidates; corrupt rows are skipped with errors.
 func expiredVideoIDs(videos []repository.RetentionVideo, now time.Time) ([]int64, error) {
 	var errs []error
 	var out []int64
@@ -207,11 +156,8 @@ func retentionWindow(hours int64) (time.Duration, error) {
 	return time.Duration(hours) * time.Hour, nil
 }
 
-// RequestManualDelete marks a terminal recording for background removal and
-// nudges the scheduler task to run on its next tick. The actual purge is not
-// performed in the API request: object deletion can be slow or transiently fail,
-// and video_parts must not be removed until pending recording-webhook deliveries
-// have frozen their part metadata.
+// RequestManualDelete queues a terminal recording for removal and wakes the worker.
+// Deletion waits until pending webhook deliveries have frozen their part metadata.
 func (s *Service) RequestManualDelete(ctx context.Context, v *repository.Video) error {
 	if v == nil {
 		return fmt.Errorf("queue manual delete: nil video")
@@ -222,11 +168,9 @@ func (s *Service) RequestManualDelete(ctx context.Context, v *repository.Video) 
 	if _, err := s.repo.RequestVideoDelete(ctx, v.ID); err != nil {
 		return fmt.Errorf("queue manual delete: %w", err)
 	}
-	s.notifyRemoval()
+	s.bus.NotifyVideoChange()
 	if err := s.repo.SetTaskNextRun(ctx, ManualDeletionTaskName); err != nil {
-		// Queueing succeeded. A wakeup failure should not make the API caller
-		// retry and potentially duplicate user-visible work; the interval task
-		// will still pick the row up.
+		// The interval worker will drain this committed request even if wakeup fails.
 		s.log.Warn("manual delete queued but task wakeup failed", "video_id", v.ID, "error", err)
 	}
 	return nil
@@ -246,13 +190,12 @@ func (s *Service) ensureManualDeletionWorker(ctx context.Context) error {
 	return nil
 }
 
-// ProcessManualDeletes drains queued operator-requested deletions that are safe
-// to finalize now. The repository query applies the same webhook frozen-parts
-// guard as the retention sweep: rows with pending/delivering deliveries whose
-// frozen_parts is still empty are left queued until the webhook dispatcher
-// captures their part list.
+// ProcessManualDeletes removes a bounded batch of queued recordings whose
+// webhook deliveries have frozen their part metadata.
 func (s *Service) ProcessManualDeletes(ctx context.Context) (int, error) {
-	videos, err := s.repo.ListVideosPendingManualDelete(ctx, manualDeleteBatchSize)
+	s.manualMu.Lock()
+	defer s.manualMu.Unlock()
+	videos, err := s.repo.ListVideosPendingManualDelete(ctx, s.manualAfter, manualDeleteBatchSize)
 	if err != nil {
 		return 0, fmt.Errorf("list manual deletes: %w", err)
 	}
@@ -261,141 +204,116 @@ func (s *Service) ProcessManualDeletes(ctx context.Context) (int, error) {
 		errs    []error
 	)
 	for i := range videos {
+		s.manualAfter = videos[i].ID
 		if err := s.DeleteRecording(ctx, &videos[i], repository.DeletionKindManual); err != nil {
 			errs = append(errs, fmt.Errorf("delete recording %d: %w", videos[i].ID, err))
 			continue
 		}
 		deleted++
 	}
+	if len(videos) < manualDeleteBatchSize {
+		s.manualAfter = 0
+	}
 	return deleted, errors.Join(errs...)
 }
 
-// DeleteRecording removes one recording's bytes, then finalizes the DB cleanup
-// in a transaction. Storage deletes run first and any failure aborts before the
-// DB writes, leaving the recording selectable for the next sweep. Once every
-// object is gone we tombstone the video and drop its part rows atomically so
-// readers never observe a visible recording whose parts disappeared. kind
-// records why the recording was removed (DeletionKindRetention for the sweep,
-// DeletionKindManual for an operator delete); the purge itself is identical.
-// Exported so the video API's manual-delete handler reuses this exact routine
-// rather than reimplementing the object purge and stranding orphans.
-//
-// v is the already-loaded recording row: Sweep loads it per due id and the
-// manual-delete handler passes the row it fetched for its precheck, so the purge
-// never issues a redundant read.
+// DeleteRecording purges media before tombstoning the recording and its parts.
+// Failed purges leave the recording available for retry.
 func (s *Service) DeleteRecording(ctx context.Context, v *repository.Video, kind string) error {
 	if kind == repository.DeletionKindMissing {
 		return fmt.Errorf("missing media must be reconciled without deleting objects")
 	}
-	unlock, err := s.recordingLocks.Lock(ctx, v.ID)
+	unlock, err := s.store.Lock(ctx, v.ID)
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	defer unlock.Close()
 	if err := s.verifyStorage(ctx); err != nil {
 		return err
 	}
+	// Archive retries share this lock; discovery cannot authorize purging a newer attempt.
+	fresh, err := s.repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	if fresh.JobID != v.JobID || (fresh.Status != repository.VideoStatusDone && fresh.Status != repository.VideoStatusFailed) {
+		return repository.ErrStaleExecution
+	}
+	v = fresh
 	parts, err := s.repo.ListVideoParts(ctx, v.ID)
 	if err != nil {
 		return fmt.Errorf("list parts: %w", err)
 	}
-	if err := s.purgeObjects(ctx, v, parts); err != nil {
+	if err := s.purgeObjects(ctx, unlock, v, parts); err != nil {
 		return err
 	}
-	// A purge can span a mount change. Only finalize against the same attached
-	// storage; otherwise retain the rows so the next pass can finish safely.
+	if err := unlock.PurgePublications(ctx); err != nil {
+		return err
+	}
+	// A mount change during purge must leave rows available for retry on trusted storage.
 	if err := s.verifyStorage(ctx); err != nil {
 		return err
 	}
-	// FinalizeDelete soft-deletes the video row, so the
-	// video_playback_assets ON DELETE CASCADE never fires. Drop the row
-	// explicitly or a stale ready row would dangle past every retention pass.
+	// Soft deletion does not trigger the playback asset foreign key cascade.
 	if err := s.repo.DeleteVideoPlaybackAsset(ctx, v.ID); err != nil {
 		return fmt.Errorf("delete playback asset row: %w", err)
+	}
+	if err := s.repo.DeleteVideoWaveformKey(ctx, v.ID); err != nil {
+		return fmt.Errorf("delete waveform reference: %w", err)
 	}
 	if err := s.repo.FinalizeDelete(ctx, v.ID, kind); err != nil {
 		return fmt.Errorf("finalize db delete: %w", err)
 	}
-	s.notifyRemoval()
+	s.bus.NotifyVideoChange()
 	s.log.Info("deleted recording",
 		"video_id", v.ID, "broadcaster_id", v.BroadcasterID, "parts", len(parts), "kind", kind)
 	return nil
 }
 
-func (s *Service) notifyRemoval() {
-	if s.bus != nil && s.bus.VideoRemovals != nil {
-		s.bus.VideoRemovals.Publish(eventbus.VideoRemovalEvent{})
-	}
-}
-
-// purgeObjects deletes every stored object a recording owns: each part's
-// video file plus its thumbnail and sprite strip, the video-level thumbnail,
-// the waveform artifact, and the live-snapshot JPEGs. storage.Delete is
-// idempotent (a missing object is not an error), so a re-run after a partial
-// pass is safe; a real I/O error stops the purge so the caller leaves the DB
-// untouched.
-func (s *Service) purgeObjects(ctx context.Context, v *repository.Video, parts []repository.VideoPart) error {
-	if len(parts) == 0 {
-		// Historical rows predate video_parts and store the media at
-		// videos/<videos.filename>.mp4. Keep this in lockstep with stream.go's
-		// zero-part fallback so read and retention paths agree on the legacy
-		// shape. The legacy thumbnail, if present, is deleted below via the
-		// stored videos.thumbnail key.
-		p := storagekeys.Video(v.Filename + ".mp4")
-		if err := s.deleteObject(ctx, p); err != nil {
-			return fmt.Errorf("delete object %s: %w", p, err)
-		}
-	} else {
-		for i := range parts {
-			// Keys come from storagekeys, the same source the downloader writes
-			// through (see downloader.finalizePart), so the thumbnail/strip names
-			// can't drift out of sync with the writer and strand orphans.
-			base := storagekeys.Base(parts[i].Filename)
-			for _, p := range []string{
-				storagekeys.Video(parts[i].Filename),
-				storagekeys.Thumbnail(base),
-				storagekeys.Strip(base),
-			} {
-				if err := s.deleteObject(ctx, p); err != nil {
-					return fmt.Errorf("delete object %s: %w", p, err)
-				}
+// purgeObjects removes referenced objects before their database rows are deleted.
+func (s *Service) purgeObjects(ctx context.Context, owned *mediastore.Recording, v *repository.Video, parts []repository.VideoPart) error {
+	for i := range parts {
+		// Derive preview keys from the stored part name so purge matches publication.
+		base := storagekeys.Base(parts[i].Filename)
+		for _, p := range []string{
+			storagekeys.Video(parts[i].Filename),
+			storagekeys.Thumbnail(base),
+			storagekeys.Strip(base),
+		} {
+			if err := owned.Delete(ctx, p); err != nil {
+				return fmt.Errorf("delete object %s: %w", p, err)
 			}
 		}
 	}
 	if v.Thumbnail != nil {
-		if err := s.deleteObject(ctx, *v.Thumbnail); err != nil {
+		if err := owned.Delete(ctx, *v.Thumbnail); err != nil {
 			return fmt.Errorf("delete object %s: %w", *v.Thumbnail, err)
 		}
 	}
-	// The playback-cache artifact is derived deterministically from the
-	// recording's first part (storagekeys.PlaybackName is the shared authority),
-	// so deleting it here keeps retention in lockstep with playbackcache without
-	// consulting the asset row (which may be building/failed with a NULL filename
-	// yet a stale file on disk). Only multi-part recordings ever get an artifact
-	// (canCopyConcat requires >= 2 parts), so single-part rows are skipped.
-	if len(parts) > 1 {
-		artifact := storagekeys.PlaybackName(v.Filename, parts[0].Filename)
-		if err := s.deleteObject(ctx, storagekeys.Video(artifact)); err != nil {
-			return fmt.Errorf("delete object %s: %w", artifact, err)
+	asset, err := s.repo.GetVideoPlaybackAsset(ctx, v.ID)
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return err
+	}
+	if err == nil && asset.Filename != nil {
+		if err := owned.Delete(ctx, storagekeys.Video(*asset.Filename)); err != nil {
+			return err
 		}
 	}
-	if err := s.deleteObject(ctx, storagekeys.Waveform(v.Filename)); err != nil {
-		return fmt.Errorf("delete object %s: %w", storagekeys.Waveform(v.Filename), err)
+	waveformKey, err := s.repo.GetVideoWaveformKey(ctx, v.ID)
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return err
 	}
-	return s.purgeSnapshots(ctx, v.Filename)
+	if err == nil {
+		if err := owned.Delete(ctx, waveformKey); err != nil {
+			return fmt.Errorf("delete waveform %s: %w", waveformKey, err)
+		}
+	}
+	return s.purgeSnapshots(ctx, owned, v.Filename)
 }
 
-// purgeSnapshots deletes the live-snapshot JPEGs (<filename>-snapNN.jpg)
-// written during recording. It probes index 0,1,2,... and stops at the first
-// gap (snapshots are contiguous by construction), bounded by maxSnapshotProbe.
-// Unlike the video API's ListSnapshots it does NOT cap at 500: retention must
-// remove every snapshot a recording owns or it strands bytes on disk.
-//
-// Deletion runs highest-index-first so index 0 — the probe's sentinel —
-// goes last. A crash mid-purge then leaves a contiguous 0..k prefix that
-// the next sweep re-discovers, instead of a hole at index 0 that would
-// break the probe and strand the tail forever.
-func (s *Service) purgeSnapshots(ctx context.Context, filename string) error {
+// purgeSnapshots discovers legacy snapshots through the first missing index.
+// Delete in reverse order so interrupted purges leave a discoverable prefix.
+func (s *Service) purgeSnapshots(ctx context.Context, owned *mediastore.Recording, filename string) error {
 	var found []string
 	for i := range maxSnapshotProbe {
 		p := storagekeys.Snapshot(filename, i)
@@ -412,39 +330,20 @@ func (s *Service) purgeSnapshots(ctx context.Context, filename string) error {
 		found = append(found, p)
 	}
 	if len(found) == maxSnapshotProbe {
-		// No gap in 100k probes: almost certainly a pathological store, not a
-		// genuine 347-day recording. Delete what we found, but warn so the purge
-		// is never silently incomplete.
+		// The probe ceiling can leave unjournaled snapshots behind; report incomplete discovery.
 		s.log.Warn("retention: snapshot purge hit probe ceiling; some snapshots may remain",
 			"filename", filename, "ceiling", maxSnapshotProbe)
 	}
 	for i := len(found) - 1; i >= 0; i-- {
-		if err := s.deleteObject(ctx, found[i]); err != nil {
+		if err := owned.Delete(ctx, found[i]); err != nil {
 			return fmt.Errorf("delete snapshot %s: %w", found[i], err)
 		}
 	}
 	return nil
 }
 
-// deleteObject verifies each destructive boundary: a purge can outlive the
-// mounted volume, and its initial verdict cannot authorize later deletions.
-// Verify afterward too so the rows remain available for retry if deletion
-// succeeded against storage that became untrusted during the operation.
-func (s *Service) deleteObject(ctx context.Context, path string) error {
-	if err := s.verifyStorage(ctx); err != nil {
-		return err
-	}
-	if err := s.store.Delete(ctx, path); err != nil {
-		return err
-	}
-	return s.verifyStorage(ctx)
-}
-
 func (s *Service) verifyStorage(ctx context.Context) error {
-	if s.storageGate == nil {
-		return storage.ErrUnattached
-	}
-	if err := s.storageGate.Verify(ctx); !storage.CanDelete(err) {
+	if err := s.store.Verify(ctx); !storage.CanDelete(err) {
 		return fmt.Errorf("storage unavailable for deletion: %w", err)
 	}
 	return nil

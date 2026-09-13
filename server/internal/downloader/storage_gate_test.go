@@ -11,6 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/mediastore"
+
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -28,7 +32,7 @@ func TestStartRefusedWhileStorageUnattached(t *testing.T) {
 		active: map[string]*download{},
 		log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	s.SetStorageGate(gateFunc(unattached))
+	setDownloaderGate(t, s, gateFunc(unattached))
 	_, err := s.Start(context.Background(), Params{BroadcasterID: "b-1"})
 	if !errors.Is(err, ErrStorageUnavailable) || !errors.Is(err, storage.ErrUnattached) {
 		t.Fatalf("Start err = %v, want ErrStorageUnavailable wrapping the gate verdict", err)
@@ -37,7 +41,7 @@ func TestStartRefusedWhileStorageUnattached(t *testing.T) {
 		t.Fatal("a refused start reserved a slot")
 	}
 	// Read-only storage refuses too: a recording is a write.
-	s.SetStorageGate(gateFunc(func() error { return storage.ErrReadOnly }))
+	setDownloaderGate(t, s, gateFunc(func() error { return storage.ErrReadOnly }))
 	if _, err := s.Start(context.Background(), Params{BroadcasterID: "b-1"}); !errors.Is(err, ErrStorageUnavailable) {
 		t.Fatalf("Start on read-only storage err = %v, want ErrStorageUnavailable", err)
 	}
@@ -61,7 +65,7 @@ func (s *downloaderBlockedRoot) ProbeRoot(ctx context.Context) error {
 
 func TestStartAndProgressDoNotBlockBehindStorageProbe(t *testing.T) {
 	s := newTestService(t, t.TempDir())
-	store := &downloaderBlockedRoot{Identity: s.storage.(storage.Identity), entered: make(chan struct{}), release: make(chan struct{})}
+	store := &downloaderBlockedRoot{Identity: mediatest.Raw(s.storage).(storage.Identity), entered: make(chan struct{}), release: make(chan struct{})}
 	mon := storagehealth.New(s.repo, store, nil, s.log, "local", "test", storagehealth.WithProbeTimeout(200*time.Millisecond))
 	if _, err := mon.Attach(t.Context()); err != nil {
 		t.Fatal(err)
@@ -72,7 +76,7 @@ func TestStartAndProgressDoNotBlockBehindStorageProbe(t *testing.T) {
 	if mon.Check(t.Context()).State != storagehealth.StateUnattached {
 		t.Fatal("missing marker did not mark storage unattached")
 	}
-	s.SetStorageGate(mon)
+	setDownloaderGate(t, s, mon)
 	store.block.Store(true)
 	done := make(chan struct{})
 	go func() { mon.Check(t.Context()); close(done) }()
@@ -118,7 +122,7 @@ func TestRestartJobRefusedWhileStorageUnattached(t *testing.T) {
 		active: map[string]*download{},
 		log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	s.SetStorageGate(gateFunc(unattached))
+	setDownloaderGate(t, s, gateFunc(unattached))
 	if err := s.restartJob(context.Background(), &repository.Job{ID: "job-1"}); !errors.Is(err, ErrStorageUnavailable) {
 		t.Fatalf("restartJob err = %v, want ErrStorageUnavailable", err)
 	}
@@ -144,10 +148,10 @@ func TestResumeLeavesJobsRunningWhileStorageUnattached(t *testing.T) {
 	if _, err := s.repo.CreateJob(ctx, &repository.JobInput{ID: "job-1", VideoID: v.ID, BroadcasterID: "b-1", ResumeState: state}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.repo.MarkJobRunning(ctx, "job-1"); err != nil {
+	if err := s.repo.SetJobExecution(ctx, "job-1", "", false); err != nil {
 		t.Fatal(err)
 	}
-	s.SetStorageGate(gateFunc(unattached))
+	setDownloaderGate(t, s, gateFunc(unattached))
 	if err := s.Resume(ctx); err != nil {
 		t.Fatalf("Resume with unattached storage = %v, want nil", err)
 	}
@@ -165,7 +169,7 @@ func TestArchivePumpPausesUntilStorageAttached(t *testing.T) {
 	release := f.edge.hold()
 	defer release()
 	ctx := context.Background()
-	f.svc.SetStorageGate(gateFunc(unattached))
+	setDownloaderGate(t, f.svc, gateFunc(unattached))
 
 	jobID, err := enqueueAndPump(f.svc, ctx, vodParams("bc-1", "1001"))
 	if err != nil {
@@ -175,7 +179,53 @@ func TestArchivePumpPausesUntilStorageAttached(t *testing.T) {
 		t.Fatalf("archive started while storage was unattached: active=%d status=%s", f.activeJobs(), f.status(t, jobID))
 	}
 
-	f.svc.SetStorageGate(gateFunc(func() error { return nil }))
+	setDownloaderGate(t, f.svc, gateFunc(func() error { return nil }))
 	f.svc.PumpArchiveQueue(ctx)
 	waitUntil(t, "job to go active once storage attached", func() bool { return f.activeJobs() == 1 })
+}
+
+func setDownloaderGate(t *testing.T, s *Service, gate mediastore.Gate) {
+	t.Helper()
+	if s.storage == nil {
+		s.storage = mediatest.New(t, s.repo, nil, gate, nil)
+		return
+	}
+	mediatest.SetGate(s.storage, gate)
+}
+
+func TestDeferredLiveRecoveryPollsWithoutStorageEvents(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	defer s.Shutdown()
+	s.retryInterval = 20 * time.Millisecond
+	d := seedWebhookAttempt(t, s, "deferred-without-event")
+	at := time.Now().UTC()
+	d.resume.SetStage(StagePrepareInput)
+	d.resume.CaptureStoppedAt = &at
+	checkpoint, err := d.resume.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.repo.CheckpointAttempt(t.Context(), d.jobID, d.executionID, checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	var writable atomic.Bool
+	setDownloaderGate(t, s, gateFunc(func() error {
+		if !writable.Load() {
+			return storage.ErrUnattached
+		}
+		return nil
+	}))
+	if err := s.Resume(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.work.Used("live"); got != 0 {
+		t.Fatalf("unattached recording started: %d", got)
+	}
+	// No bus is installed and no second Resume is called. The durable recovery
+	// poll must claim the existing live job after the storage fault clears.
+	writable.Store(true)
+	waitUntil(t, "live recovery without attach event", func() bool {
+		job, err := s.repo.GetJob(t.Context(), d.jobID)
+		return err == nil && job.ExecutionID != d.executionID
+	})
 }

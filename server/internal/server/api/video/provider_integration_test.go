@@ -63,7 +63,7 @@ func (f *fakeDownloadRunner) Start(_ context.Context, p downloader.Params) (stri
 	return f.jobID, nil
 }
 
-func (f *fakeDownloadRunner) Cancel(string)                                   {}
+func (f *fakeDownloadRunner) Cancel(string) error                             { return nil }
 func (f *fakeDownloadRunner) Subscribe(string) <-chan downloader.Progress     { return nil }
 func (f *fakeDownloadRunner) ListActiveProgress() []downloader.Progress       { return nil }
 func (f *fakeDownloadRunner) SubscribeActive(context.Context) <-chan struct{} { return nil }

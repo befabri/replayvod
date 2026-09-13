@@ -9,6 +9,7 @@ package downloader
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,15 +26,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/testdb"
+	provider "github.com/befabri/replayvod/server/internal/twitch"
 )
 
 const twitchEdgeSegmentDuration = time.Second
+const harnessBroadcastID = "harness-broadcast"
 
 func twitchEdgeTargetDurationSeconds() int {
 	seconds := int((twitchEdgeSegmentDuration + time.Second - 1) / time.Second)
@@ -482,6 +487,7 @@ func segIndexFromPath(path, prefix, ext string) (int, bool) {
 }
 
 type harnessService struct {
+	db         *sql.DB
 	svc        *Service
 	repo       repository.Repository
 	storage    storage.Storage
@@ -490,10 +496,12 @@ type harnessService struct {
 }
 
 type harnessOpts struct {
+	maxConcurrent        int
 	maxRestartGapSeconds int
 
 	// inherited* fields simulate a process restart over the same
 	// state. resumeOver bundles them so callers can't forget one.
+	inheritedDB         *sql.DB
 	inheritedRepo       repository.Repository
 	inheritedStorage    storage.Storage
 	inheritedStorageDir string
@@ -510,6 +518,7 @@ func newHarnessService(t *testing.T, edgeURL string) *harnessService {
 func resumeOver(t *testing.T, prior *harnessService, edgeURL string, opts ...func(*harnessOpts)) *harnessService {
 	t.Helper()
 	o := harnessOpts{
+		inheritedDB:         prior.db,
 		inheritedRepo:       prior.repo,
 		inheritedStorage:    prior.storage,
 		inheritedStorageDir: prior.storageDir,
@@ -531,10 +540,11 @@ func newHarnessServiceWithOpts(t *testing.T, edgeURL string, opts harnessOpts) *
 	t.Helper()
 
 	var repo repository.Repository
+	db := opts.inheritedDB
 	if opts.inheritedRepo != nil {
 		repo = opts.inheritedRepo
 	} else {
-		db := testdb.NewSQLiteDB(t)
+		db = testdb.NewSQLiteDB(t)
 		repo = sqliteadapter.New(db)
 	}
 
@@ -561,6 +571,10 @@ func newHarnessServiceWithOpts(t *testing.T, edgeURL string, opts harnessOpts) *
 	if maxRestartGap == 0 {
 		maxRestartGap = 120
 	}
+	maxConcurrent := opts.maxConcurrent
+	if maxConcurrent == 0 {
+		maxConcurrent = 2
+	}
 
 	cfg := &config.Config{
 		Env: config.Environment{
@@ -568,7 +582,7 @@ func newHarnessServiceWithOpts(t *testing.T, edgeURL string, opts harnessOpts) *
 		},
 		App: config.AppConfig{
 			Download: config.DownloadConfig{
-				MaxConcurrent:        2,
+				MaxConcurrent:        maxConcurrent,
 				SegmentConcurrency:   2,
 				NetworkAttempts:      2,
 				ServerErrorAttempts:  2,
@@ -586,7 +600,7 @@ func newHarnessServiceWithOpts(t *testing.T, edgeURL string, opts harnessOpts) *
 		logSink = os.Stderr
 	}
 	log := slog.New(slog.NewTextHandler(logSink, nil))
-	svc := NewService(cfg, repo, store, nil, nil, nil, log)
+	svc := NewService(cfg, repo, mediatest.NewAt(t, repo, store, nil, nil, cfg.Env.ScratchDir), nil, nil, nil, log)
 	svc.SetPosterStore(testPosterStore(t, repo, store, log))
 
 	// In-package field access avoids adding a test-only constructor
@@ -601,7 +615,12 @@ func newHarnessServiceWithOpts(t *testing.T, edgeURL string, opts harnessOpts) *
 		UsherBaseURL: edgeURL,
 	}, log)
 
+	svc.observe = func(_ context.Context, broadcasterID string) (*provider.Stream, error) {
+		return &provider.Stream{ID: harnessBroadcastID, UserID: broadcasterID}, nil
+	}
+
 	return &harnessService{
+		db:         db,
 		svc:        svc,
 		repo:       repo,
 		storage:    store,

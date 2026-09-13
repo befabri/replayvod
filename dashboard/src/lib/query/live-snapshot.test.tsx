@@ -13,6 +13,7 @@ import {
 	useLiveSystemEvents,
 } from "@/features/eventlogs/queries";
 import { useLiveTaskStatus, useTasks } from "@/features/tasks/queries";
+import { useLiveVideoChanges, useVideo } from "@/features/videos/queries";
 
 const subscription = vi.hoisted(() => ({
 	onData: undefined as (() => unknown) | undefined,
@@ -27,6 +28,13 @@ vi.mock("@trpc/tanstack-react-query", async (original) => ({
 afterEach(cleanup);
 
 const surfaces = [
+	{
+		name: "recording status",
+		useFeed: useLiveVideoChanges,
+		useSnapshot: () => useVideo(1),
+		stale: { id: 1, status: "RUNNING" },
+		current: { id: 1, status: "DONE" },
+	},
 	{
 		name: "archive queue",
 		useFeed: useLiveArchiveQueue,

@@ -26,6 +26,8 @@ type fakeDownloader struct {
 	startErr   error
 	calls      int
 	lastParams downloader.Params
+	online     []twitch.Stream
+	offline    []string
 }
 
 func (f *fakeDownloader) Start(_ context.Context, p downloader.Params) (string, error) {
@@ -168,6 +170,9 @@ func TestProcess_DecodedPointerEventsDispatch(t *testing.T) {
 		BroadcasterID: "b-pointer-update",
 	}); err != nil {
 		t.Fatalf("seed active update job: %v", err)
+	}
+	if err := repository.ClaimAttempt(ctx, repo, repository.AttemptClaim{JobID: video.JobID, VideoID: video.ID, ExecutionID: "pointer-execution"}, ""); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := p.Process(ctx, &twitch.EventSubNotification{
@@ -1197,5 +1202,39 @@ func TestDispatchStreamOnline_StorageUnavailableWarnsOncePerOutage(t *testing.T)
 	_ = p.DispatchStreamOnline(ctx, event)
 	if n := strings.Count(buf.String(), "auto-download paused"); n != 3 {
 		t.Fatalf("paused warnings after a busy verdict and a third outage = %d, want 3", n)
+	}
+}
+
+func (f *fakeDownloader) ObserveStreamOnline(stream twitch.Stream) {
+	f.online = append(f.online, stream)
+}
+
+func (f *fakeDownloader) ObserveStreamOffline(id string) { f.offline = append(f.offline, id) }
+
+func TestManualObservationsReachDownloaderWithoutMatchingSchedules(t *testing.T) {
+	ctx := t.Context()
+	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	dl := &fakeDownloader{}
+	p := NewEventProcessor(repo, dl, nil, nil, nil, slog.New(slog.DiscardHandler))
+	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "manual", BroadcasterLogin: "manual", BroadcasterName: "Manual"}); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC()
+	event := twitch.StreamOnlineEvent{ID: "event-broadcast", BroadcasterUserID: "manual", BroadcasterUserLogin: "manual", BroadcasterUserName: "Manual", StartedAt: at}
+	if err := p.DispatchStreamOnline(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	stream := twitch.Stream{ID: "polled-broadcast", UserID: "manual", UserLogin: "manual", Title: "Opening title", GameID: "category", GameName: "Category", StartedAt: at.Add(time.Hour)}
+	if err := p.DispatchStreamOnlineFromStream(ctx, stream); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.DispatchStreamOffline(ctx, twitch.StreamOfflineEvent{BroadcasterUserID: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	if dl.calls != 0 || len(dl.online) != 2 || dl.online[0].ID != event.ID || !dl.online[0].StartedAt.Equal(at) || dl.online[1].Title != stream.Title || dl.online[1].GameID != stream.GameID {
+		t.Fatalf("manual observations lost before schedule matching: %+v", dl)
+	}
+	if len(dl.offline) != 1 || dl.offline[0] != "manual" {
+		t.Fatalf("offline observation lost: %+v", dl.offline)
 	}
 }

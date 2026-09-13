@@ -36,13 +36,10 @@ func seedRunningJobWithCorruptResume(t *testing.T, ctx context.Context, repo rep
 			t.Fatalf("finalize part %s: %v", jobID, err)
 		}
 	}
-	if _, err := repo.CreateJob(ctx, &repository.JobInput{ID: jobID, VideoID: v.ID, BroadcasterID: broadcasterID}); err != nil {
+	if _, err := repo.CreateJob(ctx, &repository.JobInput{ID: jobID, VideoID: v.ID, BroadcasterID: broadcasterID, ResumeState: json.RawMessage("not-json")}); err != nil {
 		t.Fatalf("create job %s: %v", jobID, err)
 	}
-	if err := repo.UpdateJobResumeState(ctx, jobID, json.RawMessage("not-json")); err != nil {
-		t.Fatalf("set corrupt resume state %s: %v", jobID, err)
-	}
-	if err := repo.MarkJobRunning(ctx, jobID); err != nil {
+	if err := repo.SetJobExecution(ctx, jobID, "", false); err != nil {
 		t.Fatalf("mark job running %s: %v", jobID, err)
 	}
 	return v.ID

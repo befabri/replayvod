@@ -8,9 +8,8 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// SeedMetadataVideo upserts a channel and a running video for it, returning the
-// video id. Exported because the SQLite adapter reuses it for its remaining
-// backend-specific left-join projection test.
+// SeedMetadataVideo creates a RUNNING recording owned by metadata-execution and
+// returns its ID.
 func SeedMetadataVideo(t *testing.T, ctx context.Context, repo repository.Repository, broadcasterID, jobID string) int64 {
 	t.Helper()
 	if _, err := repo.UpsertChannel(ctx, &repository.Channel{
@@ -33,12 +32,15 @@ func SeedMetadataVideo(t *testing.T, ctx context.Context, repo repository.Reposi
 	if err != nil {
 		t.Fatalf("CreateVideo: %v", err)
 	}
+	if _, err := repo.CreateJob(ctx, &repository.JobInput{ID: jobID, VideoID: video.ID, BroadcasterID: broadcasterID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetJobExecution(ctx, jobID, "metadata-execution", true); err != nil {
+		t.Fatal(err)
+	}
 	return video.ID
 }
 
-// testVideoMetadataChangeRoundTripsMediaOffset pins that a recorded metadata
-// change round-trips its media offset, title, and category through
-// RecordVideoMetadataChange -> ListVideoMetadataChanges.
 func testVideoMetadataChangeRoundTripsMediaOffset(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -47,7 +49,8 @@ func testVideoMetadataChangeRoundTripsMediaOffset(t *testing.T, h Harness) {
 	occurredAt := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
 	if _, err := repo.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{
-		VideoID:            videoID,
+		VideoID: videoID,
+		JobID:   "meta-job-1", ExecutionID: "metadata-execution",
 		OccurredAt:         occurredAt,
 		MediaOffsetSeconds: &offset,
 		Title:              "New title",

@@ -48,18 +48,16 @@ func TestRealArchive_CompletionFailurePreservesRecovery(t *testing.T) {
 		t.Fatal("recording was not active behind the GQL barrier")
 	}
 	release()
-	timeout := time.NewTimer(time.Minute)
-	defer timeout.Stop()
-waitForExit:
-	for {
-		select {
-		case _, ok := <-progress:
-			if !ok {
-				break waitForExit
-			}
-		case <-timeout.C:
-			t.Fatal("recording did not finish its attempt")
+	waitUntil(t, "finalized part awaiting terminal persistence", func() bool {
+		v, err := h.repo.GetVideoByJobID(ctx, jobID)
+		if err != nil {
+			return false
 		}
+		parts, err := h.repo.ListVideoParts(ctx, v.ID)
+		return err == nil && len(parts) == 1 && parts[0].SizeBytes > 0
+	})
+	if h.svc.work.Used("archive") != 1 {
+		t.Fatal("unresolved settlement released its reservation")
 	}
 	h.svc.Shutdown()
 	v, err := h.repo.GetVideoByJobID(ctx, jobID)
@@ -394,6 +392,7 @@ func TestRealArchive_QueueRunsSequentially(t *testing.T) {
 		t.Fatalf("enqueue second: %v", err)
 	}
 	first, _ := h.repo.GetVideoByJobID(ctx, firstJob)
+	first = waitForVideoStatus(t, h.repo, first.ID, repository.VideoStatusRunning, 10*time.Second)
 	second, _ := h.repo.GetVideoByJobID(ctx, secondJob)
 	if first.Status != repository.VideoStatusRunning || second.Status != repository.VideoStatusPending {
 		t.Fatalf("statuses = %s/%s, want RUNNING/PENDING with one archive slot", first.Status, second.Status)

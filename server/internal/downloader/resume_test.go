@@ -580,45 +580,10 @@ func TestResumeState_JSONRoundtrip(t *testing.T) {
 	}
 }
 
-func TestUnmarshalResumeState_PrepareInputSeqZeroInfersPartStarted(t *testing.T) {
-	raw := []byte(`{
-		"stage": "PREPARE_INPUT",
-		"current_part_index": 1,
-		"part_start_media_sequence": 0,
-		"accounted_frontier_media_seq": 0
-	}`)
-
-	r, err := UnmarshalResumeState(raw)
-	if err != nil {
-		t.Fatalf("UnmarshalResumeState: %v", err)
-	}
-
-	// PREPARE_INPUT and later are unambiguously post-fetch, so legacy
-	// seq-0 checkpoints at these stages must infer PartStarted even
-	// without the modern explicit field.
-	if !r.PartStarted {
-		t.Fatal("PartStarted=false for legacy PREPARE_INPUT checkpoint at media seq 0; want inferred true")
-	}
-	if !hasPartContent(nil, r) {
-		t.Fatal("hasPartContent=false for legacy seq-0 checkpoint; want true so resume does not re-bootstrap")
-	}
-}
-
-func TestUnmarshalResumeState_EmptyInput(t *testing.T) {
-	for _, in := range []string{"", "{}"} {
-		r, err := UnmarshalResumeState([]byte(in))
-		if err != nil {
-			t.Errorf("UnmarshalResumeState(%q): %v", in, err)
-			continue
-		}
-		if r == nil {
-			t.Errorf("UnmarshalResumeState(%q) returned nil", in)
-			continue
-		}
-		// Should behave like a freshly-constructed state.
-		r.NoteCommitted(1)
-		if r.AccountedFrontierMediaSeq != 1 {
-			t.Errorf("NoteCommitted after empty-input unmarshal: frontier=%d, want 1", r.AccountedFrontierMediaSeq)
+func TestUnmarshalResumeStateRejectsMissingStructure(t *testing.T) {
+	for _, in := range []string{"", "{}", `{"stage":"SEGMENTS"}`, `{"stage":"unknown","current_part_index":1}`} {
+		if _, err := UnmarshalResumeState([]byte(in)); err == nil {
+			t.Errorf("accepted incomplete checkpoint: %q", in)
 		}
 	}
 }

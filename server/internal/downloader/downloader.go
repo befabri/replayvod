@@ -1,36 +1,10 @@
-// Package downloader runs the native Go HLS → ffmpeg pipeline that
-// turns a live Twitch stream into a stored MP4. Each download has
-// a unique jobID so callers (tRPC handlers, the scheduler, webhook
-// handlers) can subscribe to progress updates and request
-// cancellation without holding a reference to the in-flight work.
-//
-// Pipeline composition (spec stages 1-11):
-//
-//  1. twitch.Client.PlaybackToken            — GQL access token
-//  2. twitch.Client.FetchMasterPlaylist      — usher manifest
-//  3. twitch.SelectVariant                   — quality/codec pick
-//  4. hls.Run                                — segments → scratch
-//  5. remux.PrepareInput                     — segments.txt / media.m3u8
-//  6. remux.Remuxer.Run                      — ffmpeg → mp4/m4a
-//  7. probe.Probe.Run                        — duration + streams
-//  8. thumbnail.Generator.Generate           — jpg at 10% (video only)
-//  9. corruption check → remux.Remuxer.Heal  — if duration drifts >50s
-//  10. storage.Save                          — upload to backend
-//  11. os.RemoveAll(work_dir)                — cleanup
-//
-// Durable state: jobs table (status + resume_state JSONB per attempt)
-// plus video_parts (one row per output part — 1..N rows depending on
-// whether Twitch dropped the variant mid-stream or the resume gap
-// exceeded MaxRestartGapSeconds). Start() creates both; run()
-// transitions them alongside the pipeline; Resume() at server boot
-// reads RUNNING jobs and re-spawns them.
-//
-// Shutdown semantics: SIGINT/SIGTERM cancels in-flight jobs' contexts
-// but LEAVES their rows as RUNNING so the next Resume() picks them
-// back up. A user-initiated Cancel marks the video FAILED explicitly.
+// Package downloader records Twitch broadcasts and archives as recoverable media parts.
+// Each recording has a job ID for progress subscriptions and durable cancellation.
+// Shutdown preserves unfinished attempts and scratch for Resume.
 package downloader
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -51,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/befabri/replayvod/server/internal/background"
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader/hls"
 	"github.com/befabri/replayvod/server/internal/downloader/probe"
@@ -58,6 +33,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader/thumbnail"
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/mediastore"
 	"github.com/befabri/replayvod/server/internal/playbackauth"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -65,11 +41,10 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/streammeta"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
+	provider "github.com/befabri/replayvod/server/internal/twitch"
 	"github.com/befabri/replayvod/server/internal/waveform"
 )
 
-// qualityToHeight maps saved quality choices to a height cap or "best".
-// Existing LOW/MEDIUM/HIGH choices retain their 480/720/1080 limits.
 func qualityToHeight(q string) string {
 	switch q {
 	case repository.Quality1440:
@@ -87,8 +62,6 @@ func qualityToHeight(q string) string {
 	}
 }
 
-// qualityCap is the Stage 3 height limit: the exact height when the caller
-// pinned one from the live rendition list, otherwise the tier's cap.
 func (p Params) qualityCap() string {
 	if p.MaxHeight > 0 {
 		return strconv.Itoa(p.MaxHeight)
@@ -96,30 +69,17 @@ func (p Params) qualityCap() string {
 	return qualityToHeight(p.Quality)
 }
 
-// Params describes a single download request. RecordingType +
-// ForceH264 drive Stage 3 variant selection and land on the video
-// row; zero values are the conservative defaults (video + no
-// codec-override).
+// Params describes a recording request; zero codec settings select video without overrides.
 type Params struct {
+	StreamStartedAt  time.Time
 	BroadcasterID    string
 	BroadcasterLogin string
 	DisplayName      string
-	// Title is the stream title at download-start time. Caller
-	// (video.Trigger or schedule.processor) resolves it from
-	// Helix GetStreams; empty when no live stream is visible.
+	// Title is the opening stream title; empty means no title was observed.
 	Title string
-	// CategoryID is the Twitch game_id the broadcaster had set at
-	// download-start time. When non-empty the downloader links it
-	// to video_categories after CreateVideo so the video shows up
-	// on /dashboard/categories/$id. Empty means Twitch didn't
-	// surface a category (off-topic / "just chatting" with no game
-	// set). Mid-stream changes are captured via channel.update
-	// (webhook mode) or the metadata watcher (poll mode).
+	// CategoryID is the opening Twitch game ID; empty means no category was observed.
 	CategoryID string
-	// CategoryName accompanies CategoryID for the initial upsert —
-	// Hydrator.linkVideoCategory skips the UpsertCategory when
-	// Name is empty to protect an existing good name from being
-	// clobbered.
+	// CategoryName may be empty to preserve an existing category name during enrichment.
 	CategoryName string
 	Quality      string
 	Language     string
@@ -130,27 +90,18 @@ type Params struct {
 	// LiveRenditions. Zero leaves the cap to Quality. Video only.
 	MaxHeight int
 
-	// RecordingType is "video" (default) or "audio". Audio jobs
-	// pick the audio_only rendition at Stage 3 and produce an
-	// .m4a output. Empty defaults to video at the repo layer.
+	// RecordingType is "video" or "audio"; empty defaults to video.
 	RecordingType string
 
-	// ForceH264 drops HEVC/AV1 variants before the Stage 3
-	// quality-fallback chain. Operator-exposed per the spec's
-	// "User codec preference" section.
 	ForceH264 bool
 
-	// Schedule-triggered recordings snapshot their retention policy at
-	// creation time. Manual recordings leave these nil so later schedule
-	// edits cannot retroactively delete them.
+	// TriggerScheduleID and retention fields are nil for manual recordings, which must
+	// not inherit deletion policies from later schedule edits.
 	TriggerScheduleID         *int64
 	RetentionSourceScheduleID *int64
 	RetentionWindowHours      *int64
 
-	// VODID selects the archive path: stages 1 to 3 resolve this Twitch VOD
-	// instead of the live channel, and the live-only pollers (preview
-	// snapshots, title tracking) are skipped. BroadcastAt is the VOD's
-	// original air date and lands on the video row.
+	// VODID selects an archive without live metadata observers; BroadcastAt is its original air date.
 	VODID       string
 	BroadcastAt *time.Time
 	// PosterURL is the VOD's thumbnail on Twitch. It is fetched when the
@@ -160,20 +111,12 @@ type Params struct {
 
 func (p Params) isVOD() bool { return p.VODID != "" }
 
-// Progress is the per-segment cumulative snapshot pushed to the
-// per-job channel. Shape matches the spec's DownloadProgress so
-// the SSE subscriber can render a meaningful progress bar.
-//
-// Cumulative semantics: each event fully supersedes the previous.
-// Intermediate events are safe to drop (buffered channel, non-
-// blocking send); the terminal event goes through when the
-// bridge closes the chan.
+// Progress is a cumulative recording snapshot; a newer snapshot supersedes all earlier ones.
+// Intermediate snapshots may be dropped, and closing the progress channel ends delivery.
 type Progress struct {
 	JobID string `json:"job_id"`
 
-	// PartIndex is 1-based and increments on a part boundary
-	// (variant/codec/container switch, resume gap, or configured
-	// size/duration ceiling). Single-part recordings stay at 1.
+	// PartIndex is 1-based and increments at each output part boundary.
 	PartIndex int `json:"part_index"`
 
 	// Stage labels the active pipeline stage. Values:
@@ -181,67 +124,45 @@ type Progress struct {
 	//   "metadata" | "thumbnail" | "done"
 	Stage string `json:"stage"`
 
-	// BytesWritten is cumulative across parts: the stored size of
-	// the parts already remuxed plus the committed segment bytes of
-	// the part still filling. Remuxing can change size in either
-	// direction, so replacing source bytes with the stored size at
-	// a part boundary may raise or lower this estimate. See
-	// MaxPartBytes for why a filling part has no output size yet.
+	// BytesWritten includes finalized output sizes and current committed source bytes;
+	// remuxing can raise or lower this estimate at a part boundary.
 	BytesWritten int64 `json:"bytes_written"`
 
-	// SegmentsDone + SegmentsGaps + SegmentsAdGaps +
-	// SegmentsTotal track the segment-level counters. Ad-gaps
-	// are reported distinctly from quality-gaps so the UI can
-	// show "Twitch ad content skipped" separately from "fetch
-	// failures tolerated," and so the gap-policy MaxGapRatio
-	// doesn't count ads as errors. Total is -1 for a live
-	// playlist before EXT-X-ENDLIST; set once the window closes.
+	// SegmentsTotal is -1 until a live playlist closes; ad gaps do not count toward gap policy.
 	SegmentsDone   int64 `json:"segments_done"`
 	SegmentsGaps   int64 `json:"segments_gaps"`
 	SegmentsAdGaps int64 `json:"segments_ad_gaps"`
 	SegmentsTotal  int64 `json:"segments_total"`
 
-	// Percent is SegmentsDone / SegmentsTotal when Total is
-	// known, otherwise -1. The UI renders an indeterminate bar
-	// on -1.
+	// Percent is -1 while the total is unknown.
 	Percent float64 `json:"percent"`
 
-	// Speed is a human-readable bytes/second string (e.g.
-	// "2.4 MiB/s"). Empty while the bridge hasn't seen enough
-	// deltas to compute a rate. Computed from a short
-	// rolling-window average so a one-burst read doesn't
-	// spike the display.
+	// Speed is a formatted bytes-per-second rate, or empty until enough samples exist.
 	Speed string `json:"speed"`
 
-	// ETA is a human-readable time-to-completion string when
-	// SegmentsTotal is known and Speed is positive, otherwise
-	// empty.
+	// ETA is a formatted duration, or empty when total or speed is unknown.
 	ETA string `json:"eta"`
 
-	// Quality + Codec describe the current part's variant.
-	// Populated from the twitch.SelectedVariant once Stage 3
-	// completes; empty before.
 	Quality string   `json:"quality"`
 	FPS     *float64 `json:"fps,omitempty"`
 	Codec   string   `json:"codec"`
 
-	// RecordingType mirrors the video row — "video" or "audio".
+	// RecordingType is "video" or "audio".
 	RecordingType string `json:"recording_type"`
 
-	// MediaOffsetSeconds is the best known exact media time of the
-	// running recording. It is set from the downloader resume accounting,
-	// not wall-clock time, so dashboard timelines can place live metadata
-	// and part markers on the same axis.
+	// MediaOffsetSeconds is nil while playback position is provisional.
 	MediaOffsetSeconds *float64 `json:"media_offset_seconds,omitempty"`
 }
 
-// Service orchestrates downloads. Safe for concurrent use. One
-// Service per process; the pipeline components are constructed
-// once in NewService and shared across all jobs.
+// Service manages recording attempts and their recovery.
+// Create one with NewService; its recording methods are safe for concurrent use.
 type Service struct {
+	manual  map[string]*manualRun
+	now     func() time.Time
+	observe func(context.Context, string) (*provider.Stream, error)
 	cfg     *config.Config
 	repo    repository.Repository
-	storage storage.Storage
+	storage *mediastore.Store
 	log     *slog.Logger
 
 	twitch              *twitch.Client
@@ -249,6 +170,7 @@ type Service struct {
 	remuxer             *remux.Remuxer
 	probe               *probe.Probe
 	thumb               *thumbnail.Generator
+	snapshots           *thumbnail.Snapshotter
 	waveforms           waveform.Generator
 	playbackCredentials PlaybackCredentials
 	hydrator            *streammeta.Hydrator
@@ -257,52 +179,45 @@ type Service struct {
 
 	mu     sync.Mutex
 	active map[string]*download
+	work   *background.Runner
 	// pumpMu serializes PumpArchiveQueue and DequeueArchive so a queued
 	// archive is started or removed by exactly one caller.
 	pumpMu          sync.Mutex
 	activeSubs      map[int]chan struct{}
 	nextActiveSubID int
 
-	// wg tracks the per-job run() goroutines so Shutdown can wait
-	// for their defers (resume-state flush, progressCh close,
-	// active-map cleanup) to land before the process exits.
-	wg sync.WaitGroup
+	// discoveryWG joins the polling loop. Recording writers and settlement
+	// belong to work and its scopes.
+	discoveryWG sync.WaitGroup
 
-	// shuttingDown flips atomically on Shutdown(). failDownload
-	// observes it to suppress the mark-FAILED transition — a
-	// job interrupted by shutdown stays RUNNING so Resume() on
-	// the next boot picks it back up per spec line 615.
 	shuttingDown atomic.Bool
 
-	storageGate StorageGate
-
-	// bus, when set via SetEventBus, receives a RecordingTerminal wake-up hint
-	// after each terminal transition (success or non-shutdown failure). The
-	// durable recording-webhook row is written in the same DB transaction as the
-	// terminal video update; this bus only nudges the dispatcher to poll now
-	// instead of waiting for its next interval.
 	bus *eventbus.Buses
 
-	// posters fetches a VOD's Twitch thumbnail when an archive starts.
 	posters *archiveposter.Store
 
 	// retryCancel is set once under mu, and cancelled by Shutdown. The loop
-	// belongs to wg just like recording workers.
+	// belongs to discoveryWG; it never owns recording writers.
 	retryCancel   context.CancelFunc
 	retryInterval time.Duration
 }
 
-// download is the per-job state kept in memory. cancel propagates
-// a user Cancel() to every stage (playlist, fetch, remux, probe,
-// thumbnail) via one shared ctx.
 type download struct {
-	jobID         string
-	videoID       int64
-	broadcasterID string
-	vod           bool
-	// attempt is the job's attempt number, which picks the retry backoff
-	// when an archive fails for a transient reason.
-	attempt int32
+	captureIdentityVerified bool
+	recovered               bool
+	manual                  *manualRun
+	reservation             *background.Reservation
+	workspace               *mediastore.Workspace
+	executionID             string
+	previousExecutionID     string
+	runCtx                  context.Context
+	stopChildren            func()
+	persistenceErr          error
+	jobID                   string
+	videoID                 int64
+	broadcasterID           string
+	vod                     bool
+	attempt                 int32
 	// limiter paces an archive's segment bytes; nil for live recordings.
 	limiter        hls.RateLimiter
 	cancel         context.CancelFunc
@@ -312,45 +227,18 @@ type download struct {
 	progressMu     sync.RWMutex
 	latestProgress Progress
 
-	// resume is the durable per-job checkpoint. Lives in memory
-	// alongside the running pipeline; persisted to
-	// jobs.resume_state on every material state transition so a
-	// crash-restart can pick up without reprocessing completed
-	// work. Zero-valued state (Stage=AUTH) is the "fresh job"
-	// shape and is safe to persist as-is.
 	resume *ResumeState
 
-	// videoPartID is the row ID of the CURRENT part's video_parts
-	// entry — the one runPart is actively populating. Created at
-	// Stage 5 (PrepareInput) and finalized at Stage 10 (Store) of
-	// each part. Reset to zero on a part boundary so the next
-	// runPart pass creates (or finds) its own row.
 	videoPartID int64
 
-	// completedMediaDurationSeconds is the sum of finalized parts before the
-	// current part. mediaOffset* publishes that base plus
-	// resume.PartDurationSeconds to metadata pollers without exposing the
-	// mutable ResumeState across goroutines. The value + exactness flag are
-	// guarded together so an inexact offset can never be observed with a stale
-	// exact=true flag.
-	//
-	// Note the two clocks: finalized parts contribute container-PROBED duration,
-	// but the in-flight current part contributes resume.PartDurationSeconds
-	// (sum of #EXTINF). EXTINF and probed duration differ slightly, so the live
-	// offset can drift from the probe-based concatenated-playback timeline by up
-	// to the current part's EXTINF-vs-probe delta. This is accepted as a
-	// best-known live value; sealed/playback offsets are probe-based and
-	// authoritative.
+	// completedMediaDurationSeconds uses probed durations for finalized parts; the
+	// current part adds EXTINF durations, so live offsets can differ slightly from playback.
+	// The published offset and exactness flag must be read and written under the same lock.
 	completedMediaDurationSeconds float64
 	mediaOffsetMu                 sync.RWMutex
 	mediaOffsetSeconds            float64
 	mediaOffsetExact              bool
 
-	// cleanupScratch gates the deferred RemoveAll in run(). Flipped
-	// true on terminal exits (success, user cancel, non-shutdown
-	// failure) and left false on shutdown interrupts so Resume can
-	// re-find the scratch segments on next boot. Mutated only from
-	// the run() goroutine and failDownload — no locking needed.
 	cleanupScratch bool
 }
 
@@ -376,21 +264,8 @@ func (d *download) setMediaOffset(seconds float64, exact bool) {
 	d.mediaOffsetMu.Unlock()
 }
 
-// refreshMediaOffset republishes the media offset = sum of the durations of
-// segments actually written so far. That is the recording's *playback*
-// position, which is exactly what the dashboard timeline wants: it scrubs the
-// finished recording, whose axis already excludes any dropped content. So a
-// tolerated gap (window roll, fetch failure, malformed, stitched ad) does NOT
-// make the offset wrong — both the recording and the offset skip that content,
-// and the offset stays a more accurate marker than the wall-clock fallback
-// (occurred_at - start), which would overcount by the lost duration.
-//
-// Exactness gates only on pending auth gaps because those are the one gap kind
-// that may be refetched later. A successful refetch folds the segment's
-// duration back into PartDurationSeconds, retroactively shifting every later
-// position — so while one is outstanding the offset is provisional and we let
-// the row fall back to wall-clock ordering instead of stamping a soon-to-move
-// value.
+// refreshMediaOffset excludes lost media from the playback position.
+// Unresolved authentication gaps make the offset provisional because a refetch can move it.
 func (d *download) refreshMediaOffset() {
 	if d.resume == nil {
 		d.setMediaOffset(d.completedMediaDurationSeconds, true)
@@ -402,6 +277,7 @@ func (d *download) refreshMediaOffset() {
 	)
 }
 
+// MediaOffsetSeconds returns the current playback position when no refetch can move it.
 func (d *download) MediaOffsetSeconds() (float64, bool) {
 	d.mediaOffsetMu.RLock()
 	defer d.mediaOffsetMu.RUnlock()
@@ -411,6 +287,7 @@ func (d *download) MediaOffsetSeconds() (float64, bool) {
 	return d.mediaOffsetSeconds, true
 }
 
+// ResolveMediaOffsetSeconds returns an exact current playback position when available.
 func (s *Service) ResolveMediaOffsetSeconds(_ context.Context, broadcasterID string, videoID int64) (float64, bool) {
 	if videoID == 0 {
 		return 0, false
@@ -436,53 +313,24 @@ func (s *Service) notifyActiveChanged() {
 	}
 }
 
-// ChannelUpdateSubscriber abstracts the per-recording EventSub
-// subscribe/unsubscribe pair used by webhook-mode title tracking.
-// The downloader only cares whether the call succeeded; the
-// concrete eventsub.Service returns a *repository.Subscription
-// we don't need here, so main.go passes an adapter that drops
-// the return value.
+// ChannelUpdateSubscriber manages channel.update subscriptions while a recording captures metadata.
 type ChannelUpdateSubscriber interface {
 	SubscribeChannelUpdate(ctx context.Context, broadcasterID string) error
 	UnsubscribeChannelUpdate(ctx context.Context, broadcasterID, reason string) error
 }
 
-// titleWatcher abstracts the poll-mode mid-stream title watcher so the
-// title-tracking decision is unit-testable without a live Helix poller.
-// *streammeta.MetadataWatcher satisfies it.
 type titleWatcher interface {
 	Watch(ctx context.Context, broadcasterID string, videoID int64, initial streammeta.WatchInitial)
 }
 
-// NewService wires up the pipeline components. The twitch client,
-// fetcher, remuxer, probe, and thumbnail generator are all
-// process-lifetime singletons — they hold no per-job state.
-//
-// metaWatcher may be nil — polling disabled in that case, and the
-// downloader relies solely on the at-start snapshot stored on
-// videos.title. channelSubs may also be nil — webhook mode
-// disabled. The recording runs with whichever strategy is wired
-// per `cfg.ServerMode`; main.go constructs only the deps the mode needs.
-//
-// hydrator is used at download-start to link the opening title +
-// category onto video_titles / video_categories (via
-// LinkInitialVideoMetadata). It's the same Hydrator shared with
-// the trigger paths and the MetadataWatcher — one instance, one
-// write path, no drift between the "at-start snapshot" and the
-// "mid-stream change" writes. May be nil in tests; the initial-
-// link step becomes a no-op.
-//
-// metaWatcher polls Helix in poll mode; channelSubs does
-// channel.update EventSub subscribe/unsubscribe in webhook mode.
-// Both optional (mode=off or misconfigured → nil).
-func NewService(cfg *config.Config, repo repository.Repository, store storage.Storage, hydrator *streammeta.Hydrator, metaWatcher *streammeta.MetadataWatcher, channelSubs ChannelUpdateSubscriber, log *slog.Logger) *Service {
+// NewService constructs a recording service.
+// Nil hydrator, metaWatcher, or channelSubs disables the corresponding metadata integration.
+func NewService(cfg *config.Config, repo repository.Repository, store *mediastore.Store, hydrator *streammeta.Hydrator, metaWatcher *streammeta.MetadataWatcher, channelSubs ChannelUpdateSubscriber, log *slog.Logger) *Service {
 	domainLog := log.With("domain", "downloader")
 
 	tw := twitch.New(twitch.Config{}, domainLog)
 
-	// Shared HTTP client for segment fetches. MaxConnsPerHost is the
-	// service-wide cap on concurrent Twitch edge connections, sized for
-	// every live and archive job that can run at once.
+	// The shared host cap must cover every concurrent live and archive recording.
 	aggregateHostCap := segmentHostConnectionCap(cfg.App.Download)
 	segTransport := &http.Transport{
 		MaxConnsPerHost:       aggregateHostCap,
@@ -501,6 +349,7 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 	}, domainLog)
 
 	s := &Service{
+		manual: make(map[string]*manualRun), now: time.Now,
 		cfg:         cfg,
 		repo:        repo,
 		storage:     store,
@@ -510,29 +359,26 @@ func NewService(cfg *config.Config, repo repository.Repository, store storage.St
 		remuxer:     &remux.Remuxer{Log: domainLog},
 		probe:       &probe.Probe{Log: domainLog},
 		thumb:       &thumbnail.Generator{Log: domainLog},
+		snapshots:   thumbnail.NewSnapshotter(thumbnail.SnapshotterConfig{Log: domainLog}),
 		waveforms:   waveform.FFmpegGenerator{},
 		hydrator:    hydrator,
 		channelSubs: channelSubs,
 		active:      make(map[string]*download),
 		activeSubs:  make(map[int]chan struct{}),
 	}
-	// Only assign the watcher when non-nil: storing a typed-nil
-	// *MetadataWatcher into the titleWatcher interface field would make
-	// s.metaWatcher != nil true and panic on Watch in poll mode.
+	s.work = background.New(map[string]int{"live": s.MaxConcurrent(), "archive": s.ArchiveMaxConcurrent()})
+	// A typed nil stored in titleWatcher would pass the nil check and panic on Watch.
 	if metaWatcher != nil {
 		s.metaWatcher = metaWatcher
 	}
-	// Scratch-dir sweep is NOT performed here — PrepareScratch owns that
-	// step so it can preserve the work dirs of RUNNING jobs before
-	// wiping the rest. Callers that don't resume (tests using
-	// t.TempDir, CLI tools that never see a crash) can skip
-	// Resume without leaking: the temp dir gets cleaned up via
-	// the test harness or the OS.
+	if hydrator != nil {
+		s.observe = hydrator.CurrentStream
+	}
+
 	return s
 }
 
-// PlaybackCredentials supplies the current website session to recording jobs
-// without coupling them to how it is stored or validated.
+// PlaybackCredentials supplies the Twitch website session used to acquire playback tokens.
 type PlaybackCredentials interface {
 	Token(context.Context) (string, error)
 	RecheckRejected(context.Context, string) error
@@ -544,47 +390,26 @@ func (s *Service) SetPlaybackCredentials(credentials PlaybackCredentials) {
 	s.playbackCredentials = credentials
 }
 
-// SetEventBus wires in the eventbus so terminal transitions publish a
-// RecordingTerminal event for the outbound webhook dispatcher. Optional, like
-// SetPlaybackCredentials: leave it unset (e.g. in tests) to disable publishing.
+// SetEventBus enables committed video notifications and webhook delivery wake-ups.
+// Call it before accepting or resuming recordings; nil disables publishing.
 func (s *Service) SetEventBus(bus *eventbus.Buses) {
 	s.bus = bus
 }
 
-// SetPosterStore shares the poster store with the backfill task, so a start
-// and a backfill for the same archive settle the key between them.
+// SetPosterStore shares archive poster ownership with background backfill.
+// Call it before accepting or resuming recordings.
 func (s *Service) SetPosterStore(posters *archiveposter.Store) {
 	s.posters = posters
 }
 
-// StorageGate provides cached admission and fresh verification at storage I/O
-// boundaries. A cached verdict cannot authorize publication of recording data.
-type StorageGate interface {
-	Ready() error
-	Verify(context.Context) error
-}
-
-// SetStorageGate makes Start, Resume and the archive pump refuse while storage
-// is not attached. Admitted recordings wait at storage writes and finalization.
-func (s *Service) SetStorageGate(gate StorageGate) {
-	s.storageGate = gate
-}
-
-// storageReady wraps the gate verdict in ErrStorageUnavailable. Read-only
-// storage refuses too: a recording is a write.
 func (s *Service) storageReady() error {
-	if s.storageGate == nil {
-		return nil
-	}
-	if err := s.storageGate.Ready(); err != nil {
+	if err := s.storage.Ready(); err != nil {
 		return fmt.Errorf("%w: %w", ErrStorageUnavailable, err)
 	}
 	return nil
 }
 
-// publishRecordingTerminal fans a terminal-recording wake-up hint out to the
-// bus. Non-blocking and nil-safe by contract (Topic.Publish drops on a full
-// subscriber buffer); durable delivery no longer depends on this event.
+// publishRecordingTerminal sends a lossy wake-up hint; delivery relies on the committed outbox.
 func (s *Service) publishRecordingTerminal(videoID int64, kind eventbus.RecordingTerminalKind) {
 	if s.bus == nil || s.bus.RecordingTerminal == nil {
 		return
@@ -595,31 +420,12 @@ func (s *Service) publishRecordingTerminal(videoID int64, kind eventbus.Recordin
 	})
 }
 
-// recordingWebhookDelivery builds the durable outbox payload enqueued in the
-// same transaction as a terminal video transition. It can't fail: the message
-// id is derived deterministically from (event, video) rather than drawn from the
-// RNG, so a terminal transition always has a non-nil row to enqueue. There is no
-// path where the video commits DONE/FAILED while its webhook is silently
-// dropped.
 func (s *Service) recordingWebhookDelivery(videoID int64, event string) *repository.RecordingWebhookDeliveryInput {
 	return recordingwebhook.NewTerminalDeliveryInput(event, videoID, time.Now().UTC())
 }
 
-// sweepOrphanedTempsExcept removes leftover per-job work
-// directories from a previous crash or hard kill. Directories
-// whose name (the jobID) is in `protected` are left in place so
-// the resume path can reuse their committed segments + init
-// segment. Pass nil to wipe everything unconditionally.
-//
-// Scratch layout: <scratch>/<jobID>/ contains segments/, the
-// remuxed mp4, and the thumbnail. One RemoveAll per job dir
-// gets everything.
-//
-// ScratchDir is assumed to be owned by a single Service
-// instance. Two Services sharing a ScratchDir would delete each
-// other's in-flight job dirs at startup. Operators running more
-// than one downloader process (dev-only corner case) must
-// configure distinct ScratchDir paths.
+// sweepOrphanedTempsExcept removes job directories absent from protected.
+// The scratch directory must belong exclusively to this service.
 func (s *Service) sweepOrphanedTempsExcept(protected map[string]bool) {
 	scratch := s.cfg.Env.ScratchDir
 	entries, err := os.ReadDir(scratch)
@@ -644,19 +450,7 @@ func (s *Service) sweepOrphanedTempsExcept(protected map[string]bool) {
 	}
 }
 
-// Start queues a download and returns the jobID immediately. The
-// actual pipeline runs in a goroutine and publishes progress on
-// the channel returned by Subscribe(jobID).
-//
-// Returns ErrBusy if there's already an active download for this
-// broadcaster — prevents two copies of the same stream running
-// in parallel. The check is enforced at two layers: an in-memory
-// scan of s.active (fast path, covers the common case) and a DB
-// query against jobs.status IN ('PENDING','RUNNING') (survives a
-// process restart that dropped the in-memory map).
-// MaxConcurrent is the service-wide cap on in-flight downloads
-// (download.max_concurrent, default 2). Exposed so the dashboard can show how
-// many of the available slots are in use.
+// MaxConcurrent returns the live recording capacity, defaulting to two.
 func (s *Service) MaxConcurrent() int {
 	if s.cfg.App.Download.MaxConcurrent <= 0 {
 		return 2
@@ -664,6 +458,8 @@ func (s *Service) MaxConcurrent() int {
 	return s.cfg.App.Download.MaxConcurrent
 }
 
+// Start atomically admits a recording and returns its job ID.
+// ErrBusy means the broadcaster already has active or recoverable work.
 func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	if s.shuttingDown.Load() {
 		return "", ErrShuttingDown
@@ -688,11 +484,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		return "", fmt.Errorf("downloader: at max concurrent downloads (%d): %w", maxConcurrent, ErrAtCapacity)
 	}
 
-	// DB-level broadcaster idempotency: catches the case where a
-	// previous process crashed leaving PENDING/RUNNING rows the
-	// in-memory active map no longer knows about. ErrNotFound is
-	// the happy path; any other error is a DB problem worth
-	// surfacing.
+	// Recoverable jobs from an earlier process are absent from the active map.
 	switch existing, err := s.repo.GetActiveLiveJobByBroadcaster(ctx, p.BroadcasterID); {
 	case err == nil && existing != nil:
 		s.mu.Unlock()
@@ -707,6 +499,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 
 	d := &download{
 		jobID:         jobID,
+		executionID:   uuid.NewString(),
 		broadcasterID: p.BroadcasterID,
 		attempt:       1,
 		progressCh:    make(chan Progress, 16),
@@ -714,10 +507,17 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		resume:        NewResumeState(),
 	}
 	d.resume.MaxHeight = p.MaxHeight
-	runCtx, cancel := context.WithCancel(context.Background())
+	reservation, reserveErr := s.work.Reserve("live", jobID)
+	if reserveErr != nil {
+		s.mu.Unlock()
+		return "", ErrAtCapacity
+	}
+	d.reservation = reservation
+	runCtx := reservation.Context()
+	cancel := func() { s.work.Cancel(jobID, context.Canceled) }
 	d.cancel = cancel
+	d.runCtx = runCtx
 	s.active[jobID] = d
-	s.wg.Add(1)
 	s.mu.Unlock()
 
 	cleanupReserved := true
@@ -726,10 +526,17 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 			return
 		}
 		cancel()
-		s.wg.Done()
+		s.mu.Lock()
+		delete(s.active, jobID)
+		s.mu.Unlock()
+		d.reservation.Release()
 	}()
 
-	vid, err := s.repo.CreateVideo(ctx, &repository.VideoInput{
+	checkpoint, err := d.resume.MarshalJSON()
+	if err != nil {
+		return "", err
+	}
+	input := &repository.VideoInput{
 		JobID:                     jobID,
 		Filename:                  filename,
 		DisplayName:               p.DisplayName,
@@ -738,6 +545,7 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		Quality:                   p.Quality,
 		BroadcasterID:             p.BroadcasterID,
 		StreamID:                  p.StreamID,
+		StreamStartedAt:           p.StreamStartedAt,
 		ViewerCount:               p.ViewerCount,
 		Language:                  p.Language,
 		RecordingType:             p.RecordingType,
@@ -745,67 +553,44 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 		TriggerScheduleID:         p.TriggerScheduleID,
 		RetentionSourceScheduleID: p.RetentionSourceScheduleID,
 		RetentionWindowHours:      p.RetentionWindowHours,
-	})
-	if err != nil {
-		s.mu.Lock()
-		delete(s.active, jobID)
-		s.mu.Unlock()
-		return "", fmt.Errorf("create video row: %w", err)
 	}
-	d.videoID = vid.ID
-
-	// Link initial title + category to the video so /dashboard/categories/$id
-	// and TitleHistoryButton surface the opening state immediately,
-	// without waiting for a webhook/poll-tick write. Shared helper with
-	// the channel.update path keeps both writes consistent; best-effort
-	// — a link failure logs but doesn't fail the whole pipeline.
-	if s.hydrator != nil {
-		// No media-offset seed here. The live resolver reports (0, inexact) until
-		// run()'s first refreshMediaOffset, so seeding an exact 0 would disagree
-		// with any channel.update landing in that window (which falls back to
-		// wall-clock → NULL). Leaving it nil keeps the opening row and an early
-		// webhook on the same wall-clock axis; at t≈0 the marker lands at ~0 either
-		// way, and later changes carry exact offsets once tracking is live.
-		if err := s.hydrator.LinkInitialVideoMetadata(ctx, vid.ID, streammeta.ChannelUpdateMeta{
-			Title:        p.Title,
-			CategoryID:   p.CategoryID,
-			CategoryName: p.CategoryName,
-		}); err != nil {
-			s.log.Warn("link initial video metadata",
-				"video_id", vid.ID, "error", err)
+	if p.TriggerScheduleID == nil && s.cfg.App.Download.StreamerRestartWaitSeconds > 0 {
+		input.IntentID = jobID
+		input.RestartWaitSeconds = int64(s.cfg.App.Download.StreamerRestartWaitSeconds)
+		input.IntentParams, err = json.Marshal(p)
+		if err != nil {
+			return "", err
 		}
 	}
 
-	// Job row lives alongside the video row — one per download
-	// attempt. Resume-on-restart reads status IN ('PENDING',
-	// 'RUNNING') jobs at boot and drives recovery off them. The
-	// opening checkpoint goes in with the row so what only the
-	// checkpoint carries (the pinned height) survives a crash
-	// before the first stage boundary.
-	checkpoint, err := d.resume.MarshalJSON()
+	vid, err := repository.CreateAttempt(ctx, s.repo, input, checkpoint)
+	if errors.Is(err, repository.ErrCommitUncertain) {
+		err = s.persist(runCtx, "admission", func(writeCtx context.Context) error {
+			var e error
+			vid, e = repository.CreateAttempt(writeCtx, s.repo, input, checkpoint)
+			return e
+		})
+	}
+
 	if err != nil {
 		s.mu.Lock()
 		delete(s.active, jobID)
 		s.mu.Unlock()
-		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("encode checkpoint: %v", err), repository.CompletionKindComplete, false)
-		return "", fmt.Errorf("encode checkpoint: %w", err)
+		return "", fmt.Errorf("create recording attempt: %w", err)
 	}
-	if _, err := s.repo.CreateJob(ctx, &repository.JobInput{
-		ID:            jobID,
-		VideoID:       vid.ID,
-		BroadcasterID: p.BroadcasterID,
-		ResumeState:   checkpoint,
-		Attempt:       1,
-	}); err != nil {
+	s.bus.NotifyVideoChange()
+
+	s.mu.Lock()
+	d.videoID = vid.ID
+	s.mu.Unlock()
+
+	s.linkInitialMetadata(ctx, vid.ID, p)
+
+	if input.IntentID != "" {
+		manual := s.registerManual(input.IntentID, p, d.reservation)
 		s.mu.Lock()
-		delete(s.active, jobID)
+		d.manual = manual
 		s.mu.Unlock()
-		// Video row is already committed; mark it failed so it doesn't
-		// stay PENDING forever. Pre-run failure (no job row) means nothing
-		// captured: "complete" is the inert default, truncated=false since
-		// there's no recording to truncate against.
-		_ = s.repo.MarkVideoFailed(ctx, vid.ID, fmt.Sprintf("create job row: %v", err), repository.CompletionKindComplete, false)
-		return "", fmt.Errorf("create job row: %w", err)
 	}
 
 	cleanupReserved = false
@@ -814,26 +599,74 @@ func (s *Service) Start(ctx context.Context, p Params) (string, error) {
 	return jobID, nil
 }
 
-// Cancel asks the in-flight pipeline to stop. userCancelled is set
-// first so the run goroutine's failure handler records ErrCancelled
-// rather than "context canceled."
-//
-// No-op if the jobID isn't active.
-func (s *Service) Cancel(jobID string) {
-	s.mu.Lock()
-	d, ok := s.active[jobID]
-	if ok {
-		d.userCancelled = true
-	}
-	s.mu.Unlock()
-	if !ok || d.cancel == nil {
+// linkInitialMetadata links opening observations before execution claims.
+// The repository rejects late hydration that would reopen an active capture.
+func (s *Service) linkInitialMetadata(ctx context.Context, videoID int64, p Params) {
+	if s.hydrator == nil {
 		return
 	}
-	d.cancel()
+	if err := s.hydrator.LinkInitialVideoMetadata(ctx, videoID, streammeta.ChannelUpdateMeta{
+		Title: p.Title, CategoryID: p.CategoryID, CategoryName: p.CategoryName,
+	}); err != nil {
+		s.log.Warn("link initial video metadata", "video_id", videoID, "error", err)
+	}
 }
 
-// Subscribe returns the progress channel for a running job. Nil
-// when the job has completed or was never started.
+// Cancel persists the stop before signaling workers. For a manual continuation,
+// stopping an older or finalized member also stops the durable intent.
+func (s *Service) Cancel(jobID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var intentID string
+	if s.repo != nil {
+		intent, err := s.repo.GetRecordingIntentByJob(ctx, jobID)
+		if err == nil {
+			intentID = intent.ID
+			if err := s.repo.RequestRecordingIntentStop(ctx, intentID); err != nil {
+				return fmt.Errorf("persist manual stop: %w", err)
+			}
+		} else if !errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("find manual recording intent: %w", err)
+		} else if err := repository.RequestAttemptStop(ctx, s.repo, jobID); err != nil {
+			return fmt.Errorf("persist recording stop: %w", err)
+		}
+	}
+	s.mu.Lock()
+	d := s.active[jobID]
+	var cancelAttempt context.CancelFunc
+	if d != nil {
+		cancelAttempt = d.cancel
+		d.userCancelled = true
+		if d.manual != nil {
+			intentID = d.manual.id
+		}
+	}
+	if intentID != "" {
+		for _, child := range s.active {
+			if child.manual != nil && child.manual.id == intentID {
+				child.userCancelled = true
+			}
+		}
+	}
+	s.mu.Unlock()
+	if intentID != "" {
+		s.work.Cancel(intentID, ErrCancelled)
+	} else if cancelAttempt != nil {
+		cancelAttempt()
+	}
+	if intentID == "" && s.repo != nil {
+		job, err := s.repo.GetJob(ctx, jobID)
+		if err == nil && job.StopRequested && (job.Status == repository.JobStatusPending || job.Status == repository.JobStatusRunning) {
+			if err := s.settleUnownedAttempt(ctx, job, ErrCancelled, true); err != nil {
+				// Stop is already durable; bounded discovery retries settlement.
+				s.log.Warn("stopped recording settlement deferred", "job_id", jobID, "error", err)
+			}
+		}
+	}
+	return nil
+}
+
+// Subscribe returns a running job's progress channel, or nil when no job owns it.
 func (s *Service) Subscribe(jobID string) <-chan Progress {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -843,10 +676,8 @@ func (s *Service) Subscribe(jobID string) <-chan Progress {
 	return nil
 }
 
-// SubscribeActive notifies callers whenever the aggregate active-download set
-// or any running job's latest progress snapshot changes. The payload itself is
-// not sent on this channel; callers pair it with ListActiveProgress() to build
-// a fresh snapshot list on every notification.
+// SubscribeActive signals changes to ListActiveProgress snapshots until ctx is cancelled.
+// Notifications are coalesced; callers must read a fresh snapshot after each signal.
 func (s *Service) SubscribeActive(ctx context.Context) <-chan struct{} {
 	ch := make(chan struct{}, 1)
 
@@ -867,10 +698,7 @@ func (s *Service) SubscribeActive(ctx context.Context) <-chan struct{} {
 	return ch
 }
 
-// ListActiveProgress returns the latest in-memory progress snapshot for every
-// currently-running job, oldest first by in-memory start order. Backing data
-// comes from the same emitter that drives video.downloadProgress SSE, so the
-// dashboard can query a coherent snapshot without opening N subscriptions.
+// ListActiveProgress returns current progress snapshots, oldest recording first.
 func (s *Service) ListActiveProgress() []Progress {
 	s.mu.Lock()
 	active := make([]*download, 0, len(s.active))
@@ -902,18 +730,8 @@ func (s *Service) ListActiveProgress() []Progress {
 	return out
 }
 
-// Shutdown cancels all active downloads and waits up to 30s for
-// their run goroutines to flush durable state (final resume-state
-// checkpoint, progress channel close, active-map cleanup) before
-// returning. Past the timeout in-flight goroutines continue running
-// but the caller proceeds with process exit — the dbCtx
-// (context.WithoutCancel) path means late checkpoint writes can
-// still land if the caller doesn't force-kill immediately.
-//
-// Jobs interrupted by shutdown stay RUNNING in the DB — spec
-// line 625 "Shutdown is not a download failure." Resume() on the
-// next process boot picks them back up. A user Cancel() taken
-// concurrently with shutdown wins: ErrCancelled still records.
+// Shutdown cancels owned workers and waits up to 30 seconds for their settlement.
+// Unfinished recordings remain recoverable; a concurrent durable user stop still wins.
 func (s *Service) Shutdown() {
 	s.mu.Lock()
 	s.shuttingDown.Store(true)
@@ -927,14 +745,20 @@ func (s *Service) Shutdown() {
 	}
 	s.mu.Unlock()
 
+	if s.work != nil {
+		s.work.Stop()
+	}
 	done := make(chan struct{})
 	go func() {
-		s.wg.Wait()
+		if s.work != nil {
+			_ = s.work.Wait(context.Background())
+		}
+		s.discoveryWG.Wait()
 		close(done)
 	}()
 	select {
 	case <-done:
-		s.log.Info("downloader shutdown: all jobs flushed")
+		s.log.Info("downloader shutdown: all owned workers stopped")
 	case <-time.After(30 * time.Second):
 		s.log.Warn("downloader shutdown: 30s timeout reached; some jobs still in flight")
 	}
@@ -945,122 +769,101 @@ func (s *Service) Shutdown() {
 // build can start. Runtime recovery must never sweep a live scratch directory:
 // jobs created after the database snapshot are absent from the protected set.
 func (s *Service) PrepareScratch(ctx context.Context) error {
-	jobs, err := s.repo.ListRunningJobs(ctx)
-	if err != nil {
-		return fmt.Errorf("list jobs for startup scratch cleanup: %w", err)
+	protected := make(map[string]bool)
+	for after := ""; ; {
+		jobs, err := s.repo.ListRecoveryJobs(ctx, after, recoveryPageSize)
+		if err != nil {
+			return fmt.Errorf("list jobs for startup scratch cleanup: %w", err)
+		}
+		for _, job := range jobs {
+			protected[job.ID] = true
+			after = job.ID
+		}
+		if len(jobs) < recoveryPageSize {
+			break
+		}
 	}
-	protected := make(map[string]bool, len(jobs))
-	for _, job := range jobs {
-		protected[job.ID] = true
-	}
+
 	s.sweepOrphanedTempsExcept(protected)
 	return nil
 }
 
-// Resume restores in-flight downloads after startup or storage recovery.
-// Configure playback credentials and storage before calling it. Scratch
-// cleanup belongs exclusively to PrepareScratch during bootstrap.
-//
-// For every jobs row with status IN ('PENDING','RUNNING'):
-//
-//   - Loads the video + channel rows to reconstruct Params.
-//   - Unmarshals resume_state into *ResumeState.
-//   - Spawns run(), which seeds hls.Run's StartMediaSeq from
-//     AccountedFrontierMediaSeq+1 so already-committed segments
-//     aren't re-fetched.
-//
-// Job-level failures are recorded on the job row and surfaced to
-// the operator; they don't fail Resume overall. A catastrophic
-// repo failure (can't list) is the only return-error case.
-//
-// Safe to call multiple times: jobs already in s.active are
-// skipped on subsequent calls.
+// Resume discovers unfinished recordings after startup or storage recovery.
+// Configure playback credentials and storage first, and call PrepareScratch once at startup.
+// Repeated calls skip attempts already owned by this service.
 func (s *Service) Resume(ctx context.Context) error {
+	s.startArchiveRetryLoop()
 	if err := s.resumeRunning(ctx); err != nil {
 		return err
 	}
 	s.PumpArchiveQueue(ctx)
-	s.startArchiveRetryLoop()
 	return nil
 }
 
 func (s *Service) resumeRunning(ctx context.Context) error {
-	jobs, err := s.repo.ListRunningJobs(ctx)
-	if err != nil {
-		return fmt.Errorf("list running jobs: %w", err)
+	if s.shuttingDown.Load() {
+		return ErrShuttingDown
 	}
+	var failures []error
+	if err := s.settleStoppedJobs(ctx); err != nil {
+		failures = append(failures, err)
+	}
+	if err := s.resumeManualIntents(ctx); err != nil {
+		failures = append(failures, err)
+	}
+	for after := ""; ; {
+		jobs, err := s.repo.ListRecoveryJobs(ctx, after, recoveryPageSize)
+		if err != nil {
+			return fmt.Errorf("list recovery jobs: %w", err)
+		}
 
-	if len(jobs) == 0 {
-		return nil
-	}
-	s.log.Info("resuming in-flight jobs", "count", len(jobs))
-	for i := range jobs {
-		job := jobs[i]
-		if err := s.restartJob(ctx, &job); err != nil {
-			if errors.Is(err, errObsoleteJob) {
+		for i := range jobs {
+			job := jobs[i]
+			after = job.ID
+			if _, err := s.repo.GetRecordingIntentByJob(ctx, job.ID); err == nil {
+				continue
+			} else if !errors.Is(err, repository.ErrNotFound) {
+				failures = append(failures, err)
 				continue
 			}
-			if errors.Is(err, ErrShuttingDown) || ctx.Err() != nil {
-				return err
+
+			if err := s.restartJob(ctx, &job); err != nil {
+				if errors.Is(err, errObsoleteJob) {
+					continue
+				}
+				if errors.Is(err, ErrShuttingDown) || ctx.Err() != nil {
+					return err
+				}
+				if !errors.Is(err, errInvalidResume) && !errors.Is(err, ErrAtCapacity) && !errors.Is(err, ErrStorageUnavailable) {
+					failures = append(failures, err)
+					continue
+				}
+				if errors.Is(err, ErrAtCapacity) {
+					continue
+				}
+				if errors.Is(err, ErrStorageUnavailable) {
+					// Its media may be on the missing volume; storage recovery will retry it.
+					s.log.Warn("resume deferred until storage is attached", "job_id", job.ID, "error", err)
+					continue
+				}
+				if err := s.settleUnownedAttempt(ctx, &job, err, false); err != nil {
+					failures = append(failures, fmt.Errorf("persist failed resume %s: %w", job.ID, err))
+				}
 			}
-			if errors.Is(err, errArchiveClaim) {
-				// Pending live jobs use the same atomic claim as queued archives.
-				// A database outage must leave their checkpoint recoverable too.
-				return err
-			}
-			if errors.Is(err, ErrStorageUnavailable) {
-				// The job stays RUNNING: its media may sit on the volume that is
-				// missing, and the attach transition runs Resume again.
-				s.log.Warn("resume deferred until storage is attached", "job_id", job.ID, "error", err)
-				continue
-			}
-			s.log.Error("resume job failed",
-				"job_id", job.ID,
-				"video_id", job.VideoID,
-				"broadcaster_id", job.BroadcasterID,
-				"error", err)
-			errMsg := fmt.Sprintf("resume: %v", err)
-			// completion_kind mirrors the run-time failure path: a job that
-			// already finalized parts before this failed restart owns
-			// reclaimable objects, so stamp it "partial" to keep it inside the
-			// retention sweep (which only sees DONE plus FAILED partial/cancelled).
-			// Leaving it "complete" would strand those uploaded parts. A repo
-			// error keeps the safe "complete" default rather than mis-stamping.
-			hasPart, herr := s.repo.HasFinalizedVideoParts(ctx, job.VideoID)
-			partsKnown := herr == nil
-			if herr != nil {
-				s.log.Warn("resume failure: check finalized parts", "video_id", job.VideoID, "error", herr)
-			}
-			failKind := repository.CompletionKindComplete
-			if partsKnown && hasPart {
-				failKind = repository.CompletionKindPartial
-			}
-			// A resume that picks up at REMUX/STORE with the playlist's ENDLIST
-			// already observed is a post-broadcast failure, not a recording cut
-			// short. An unreadable resume_state reads as cut short, so doubt
-			// shows as truncated.
-			cutShort := true
-			if state, perr := UnmarshalResumeState(job.ResumeState); perr == nil {
-				cutShort = state.HadWindowRoll || !state.EndListSeen
-			}
-			truncated := failedRunTruncated(partsKnown, hasPart, cutShort)
-			if err := s.markRecordingFailed(ctx, job.ID, job.VideoID, errMsg, failKind, truncated); err != nil {
-				return fmt.Errorf("persist failed resume %s: %w", job.ID, err)
-			}
-			s.publishRecordingTerminal(job.VideoID, eventbus.RecordingFailed)
+		}
+		if len(jobs) < recoveryPageSize {
+			break
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
-var errObsoleteJob = errors.New("job no longer owns an active recording")
-var errArchiveClaim = errors.New("archive claim could not be persisted")
+// Each page is bounded independently of library size; no checkpoint write is batched.
+const recoveryPageSize = 100
 
-// restartJob rebuilds a single download's in-memory state from
-// its DB rows + resume_state, inserts it into s.active, and
-// spawns run(). Returns an error only for recoverable-looking
-// setup failures; run()'s own error path handles anything that
-// goes wrong during the pipeline itself.
+var errInvalidResume = errors.New("invalid recording checkpoint")
+var errObsoleteJob = errors.New("job no longer owns an active recording")
+
 func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 	s.mu.Lock()
 	if _, exists := s.active[job.ID]; exists {
@@ -1068,64 +871,24 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 		return nil
 	}
 	s.mu.Unlock()
+	if job.StopRequested {
+		return s.settleUnownedAttempt(ctx, job, ErrCancelled, true)
+	}
 	if err := s.storageReady(); err != nil {
 		return err
 	}
 
-	vid, err := s.repo.GetVideo(ctx, job.VideoID)
+	d, p, filename, err := s.reconstructAttempt(ctx, job)
 	if err != nil {
-		return fmt.Errorf("load video: %w", err)
-	}
-	if vid.JobID != job.ID || vid.DeletedAt != nil || (vid.Status != repository.VideoStatusPending && vid.Status != repository.VideoStatusRunning) {
-		return errObsoleteJob
-	}
-	state, err := UnmarshalResumeState(job.ResumeState)
-	if err != nil {
-		return fmt.Errorf("parse resume state: %w", err)
-	}
-	chn, err := s.repo.GetChannel(ctx, job.BroadcasterID)
-	if err != nil {
-		return fmt.Errorf("load channel: %w", err)
-	}
-
-	p := Params{
-		BroadcasterID:    job.BroadcasterID,
-		BroadcasterLogin: chn.BroadcasterLogin,
-		DisplayName:      vid.DisplayName,
-		Title:            vid.Title,
-		Quality:          vid.Quality,
-		Language:         vid.Language,
-		ViewerCount:      vid.ViewerCount,
-		StreamID:         vid.StreamID,
-		RecordingType:    vid.RecordingType,
-		ForceH264:        vid.ForceH264,
-		MaxHeight:        state.MaxHeight,
-		BroadcastAt:      vid.BroadcastAt,
-	}
-	if vid.Source == repository.VideoSourceVOD && vid.TwitchVideoID != nil {
-		p.VODID = *vid.TwitchVideoID
-	}
-
-	d := &download{
-		jobID:         job.ID,
-		videoID:       vid.ID,
-		broadcasterID: job.BroadcasterID,
-		vod:           p.isVOD(),
-		attempt:       job.Attempt,
-		progressCh:    make(chan Progress, 16),
-		startedAt:     time.Now(),
-		resume:        state,
-	}
-	if d.vod {
-		d.limiter = archiveRateLimiter(s.cfg.App.Download)
+		return err
 	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	d.cancel = cancel
+	d.runCtx = runCtx
 
-	// Archives are capped by the queue pump, not here: a RUNNING archive
-	// found at boot always resumes. The wg.Add sits under the lock with the
-	// shutdown check so a pump racing Shutdown can never Add after Wait.
+	// Recoveries reserve the same domain capacity as new work. Registration
+	// and the shutdown check are serialized before any writer can start.
 	s.mu.Lock()
 	if s.shuttingDown.Load() {
 		s.mu.Unlock()
@@ -1141,10 +904,25 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 	if !d.vod && s.activeLiveCountLocked() >= maxConcurrent {
 		s.mu.Unlock()
 		cancel()
-		return fmt.Errorf("at max concurrent downloads (%d); cannot resume", maxConcurrent)
+		return fmt.Errorf("at max concurrent downloads (%d); cannot resume: %w", maxConcurrent, ErrAtCapacity)
 	}
+	kind := "live"
+	if d.vod {
+		kind = "archive"
+	}
+	reservation, err := s.work.Reserve(kind, job.ID)
+	if err != nil {
+		s.mu.Unlock()
+		cancel()
+		return ErrAtCapacity
+	}
+	cancel() // replace the setup context with the registered lifetime
+	d.reservation = reservation
+	runCtx = reservation.Context()
+	cancel = func() { s.work.Cancel(job.ID, context.Canceled) }
+	d.cancel = cancel
+	d.runCtx = runCtx
 	s.active[job.ID] = d
-	s.wg.Add(1)
 	s.mu.Unlock()
 
 	cleanupReserved := true
@@ -1159,48 +937,21 @@ func (s *Service) restartJob(ctx context.Context, job *repository.Job) error {
 			delete(s.active, job.ID)
 		}
 		s.mu.Unlock()
-		s.wg.Done()
+		d.reservation.Release()
 		s.notifyActiveChanged()
 	}()
 
-	// Shutdown closes open metadata spans regardless of stage (see
-	// failDownload's shutdown branch). Reopen on any resume so AUTH,
-	// PLAYLIST, or post-BeginNewPart crashes don't permanently strand
-	// the prior title/category at zero live duration. The SQL is a
-	// no-op when an open span already exists. Archives track no live
-	// metadata, so they never own a span.
-	if !d.vod {
-		if err := s.repo.ResumeVideoMetadataSpans(ctx, vid.ID, time.Now().UTC()); err != nil {
-			return fmt.Errorf("resume video metadata spans: %w", err)
-		}
-	}
-
-	// Complete setup and admission before claiming queued work. A storage
-	// refusal leaves both rows PENDING without a compensating rollback.
 	if err := s.storageReady(); err != nil {
 		return err
-	}
-	if job.Status == repository.JobStatusPending {
-		if err := s.repo.WithTx(ctx, func(tx repository.Repository) error {
-			if err := tx.MarkJobRunning(ctx, job.ID); err != nil {
-				return err
-			}
-			return tx.UpdateVideoStatus(ctx, job.VideoID, repository.VideoStatusRunning)
-		}); err != nil {
-			return fmt.Errorf("%w: %w", errArchiveClaim, err)
-		}
 	}
 
 	if s.shuttingDown.Load() {
 		return ErrShuttingDown
 	}
 
-	// vid.Filename is the deterministic base name chosen at
-	// original Start(); reuse it so the remuxed path is stable
-	// across restart.
 	cleanupReserved = false
 	s.notifyActiveChanged()
-	go s.run(runCtx, d, p, vid.Filename)
+	go s.run(runCtx, d, p, filename)
 	return nil
 }
 
@@ -1222,60 +973,23 @@ var (
 	ErrStorageUnavailable = errors.New("downloader: storage is not attached")
 	ErrCancelled          = errors.New("downloader: cancelled by user")
 
-	// ErrVariantChanged fires when a Stage-3 re-select inside
-	// fetchWithAuthRefresh lands on a different (quality, codec)
-	// pair than the one locked in for the current part. The outer
-	// run() loop catches it alongside hls.ErrPlaylistGone as a
-	// part-split trigger, finalizes the current part, and re-
-	// enters the loop for a new variant. The error itself stays
-	// a sentinel so the inner code paths don't have to know about
-	// the part-split policy.
+	// ErrVariantChanged requires a new part because codec, quality, and frame-rate changes
+	// cannot share a copy-remuxed output.
 	ErrVariantChanged = errors.New("downloader: selected variant changed mid-run")
 
-	// ErrRestartGapExceeded fires when a resume's first poll
-	// observes that the playlist head has rolled past the prior
-	// attempt's accounted frontier by more than
-	// cfg.Download.MaxRestartGapSeconds. Per spec §"Resume on
-	// restart" point 5, sprawling a multi-minute hole inside a
-	// single .mp4 is worse than splitting at the boundary —
-	// a player can seek across part files but won't gracefully
-	// handle a discontinuity that long inside one file.
-	//
-	// Surfaces from fetchWithAuthRefresh after the OnWindowRoll
-	// callback has set d.resume.PendingSplit + cancelled the
-	// scoped run context. Treated as a split signal by the outer
-	// loop alongside ErrPlaylistGone and ErrVariantChanged.
+	// ErrRestartGapExceeded requires a new part when recovery loses too much broadcast time.
 	ErrRestartGapExceeded = errors.New("downloader: resume gap exceeds MaxRestartGapSeconds; forcing part split")
 
-	// ErrPartThresholdExceeded fires when the current part's
-	// accumulated committed bytes or segment duration crosses the
-	// operator's MaxPartBytes / MaxPartSeconds ceiling. Unlike the
-	// other split signals it is NOT a loss or a variant change — the
-	// stream is healthy and continues into the next part at the very
-	// next media sequence. The OnEvent accumulator sets
-	// PendingSplit + PendingThresholdSplit and cancels the scoped run
-	// context (exactly like OnWindowRoll), so the cut lands on a clean
-	// segment boundary. isSplitSignal classifies it and the run()
-	// loop finalizes the part and opens the next via ContinuePart
-	// (seq-continuous), not BeginNewPart (re-anchored).
+	// ErrPartThresholdExceeded splits at a committed segment boundary without losing media.
 	ErrPartThresholdExceeded = errors.New("downloader: part exceeded size/duration ceiling; forcing part split")
 )
 
-// startTitleTracking begins mid-stream title/category tracking for a recording
-// according to the server mode, returning a cleanup func (never nil) the caller
-// must defer.
-//
-// Webhook mode (direct/relay) subscribes to channel.update; the returned cleanup
-// unsubscribes. If the subscribe fails there is no poll fallback — poll-mode
-// title tracking only exists in poll mode, so the recording keeps just its
-// at-start title snapshot. Poll mode launches the Helix-polling watcher and
-// registers its cancel via registerPoller so it is torn down with the other
-// media pollers after the part loop (the returned cleanup is then a no-op). Off
-// mode, or a missing dependency for the active mode, is a no-op.
+// startTitleTracking starts the configured metadata observer and returns subscription cleanup.
+// The caller must join registered pollers before closing metadata spans.
 func (s *Service) startTitleTracking(
 	ctx context.Context,
 	p Params,
-	videoID int64,
+	claim repository.AttemptClaim,
 	log *slog.Logger,
 	registerPoller func(context.CancelFunc),
 	mediaOffset streammeta.MediaOffsetProvider,
@@ -1302,519 +1016,51 @@ func (s *Service) startTitleTracking(
 	}
 
 	if s.cfg.ServerMode.TracksTitlesViaPoll() && s.metaWatcher != nil {
-		// Initial title + category were already linked at CreateVideo; the
-		// watcher gets them as "last seen" so only actual changes record.
 		titleCtx, cancelTitle := context.WithCancel(ctx)
-		registerPoller(cancelTitle)
+		titleScope := background.NewScope(titleCtx)
+		registerPoller(func() {
+			cancelTitle()
+			if err := titleScope.Join(); err != nil {
+				log.Warn("title watcher failed", "error", err)
+			}
+		})
 		initial := streammeta.WatchInitial{
+			Claim:       claim,
 			Title:       p.Title,
 			CategoryID:  p.CategoryID,
 			MediaOffset: mediaOffset,
 		}
-		go func() {
-			s.metaWatcher.Watch(titleCtx, p.BroadcasterID, videoID, initial)
-			log.Debug("title watcher done")
-		}()
+		_ = titleScope.Go("titles", false, func(childCtx context.Context) error {
+			s.metaWatcher.Watch(childCtx, p.BroadcasterID, claim.VideoID, initial)
+			return nil
+		})
 	}
 
 	return noop
 }
 
-// run walks the full pipeline for one job. All DB writes use
-// dbCtx (derived from context.WithoutCancel) instead of the
-// runtime ctx so a user Cancel() still lets the "mark failed"
-// write land.
-func (s *Service) run(ctx context.Context, d *download, p Params, filename string) {
-	log := s.log.With("job_id", d.jobID, "broadcaster_login", p.BroadcasterLogin)
-	if d.vod {
-		log = log.With("vod_id", p.VODID)
-	}
-	dbCtx := context.WithoutCancel(ctx)
-
-	defer func() {
-		close(d.progressCh)
-		s.mu.Lock()
-		delete(s.active, d.jobID)
-		s.mu.Unlock()
-		s.notifyActiveChanged()
-		// Before wg.Done so the counter never reads zero while a pump adds.
-		s.pumpAfterJobEnd()
-		s.wg.Done()
-	}()
-
-	if err := s.repo.UpdateVideoStatus(dbCtx, d.videoID, repository.VideoStatusRunning); err != nil {
-		log.Error("failed to mark video running", "error", err)
-	}
-	if err := s.repo.MarkJobRunning(dbCtx, d.jobID); err != nil {
-		log.Error("failed to mark job running", "error", err)
-	}
-
-	if d.vod && d.resume.PosterURL != "" && s.posters != nil {
-		// This work shares run's cancellation and wait-group lifetime. Never
-		// overwrite a frame already finalized before a restart.
-		if v, err := s.repo.GetVideo(ctx, d.videoID); err == nil && v.Thumbnail == nil {
-			s.posters.Fetch(ctx, d.videoID, filename, d.resume.PosterURL)
-		}
-	}
-
-	// Normalize the recording type early — everything downstream
-	// (variant selector, remux kind mapping, progress emitter)
-	// keys off it and empty-string would propagate surprises.
-	recordingType := p.RecordingType
-	if recordingType == "" {
-		recordingType = twitch.RecordingTypeVideo
-	}
-	emitter := newProgressEmitter(d.jobID, recordingType, d.progressCh, func(snap Progress) {
-		d.setProgress(snap)
-		s.notifyActiveChanged()
-	})
-	emitter.setMediaOffsetSource(d.MediaOffsetSeconds)
-
-	// Scratch layout: <scratch>/<jobID>/part<NN>/segments/ for
-	// fragments + init, <scratch>/<jobID>/<base>-part<NN>.{mp4,jpg}
-	// for remux output and thumbs. Uniform across single- and
-	// multi-part recordings so storage and resume don't branch.
-	//
-	// Scratch only gets removed on terminal NON-resumable exits
-	// (success, user cancel, fail). Shutdown leaves it for the
-	// next process's Resume; orphan sweep cleans up FAILED jobs.
-	jobDir := filepath.Join(s.cfg.Env.ScratchDir, d.jobID)
-	if err := os.MkdirAll(jobDir, 0o755); err != nil {
-		s.failDownload(dbCtx, d, log, fmt.Errorf("create scratch dir: %w", err))
+func (s *Service) run(_ context.Context, d *download, p Params, filename string) {
+	if d.manual != nil {
+		s.runManual(d.manual, d, p, filename)
 		return
 	}
-	defer func() {
-		if !d.cleanupScratch {
-			return
-		}
-		if err := os.RemoveAll(jobDir); err != nil {
-			log.Warn("failed to remove scratch", "path", jobDir, "error", err)
-		}
-	}()
-
-	// Media pollers (snapshot + title) are stream-wide, not
-	// part-wide. Stopped once after the outer part loop; deferred
-	// stop is the safety net for early-exit paths.
-	var mediaPollerCancels []context.CancelFunc
-	stopMediaPollers := func() {
-		for _, c := range mediaPollerCancels {
-			c()
-		}
-		mediaPollerCancels = nil
-	}
-	defer stopMediaPollers()
-
-	// Capture Twitch preview frames during recording. The first
-	// successful snapshot becomes the row thumbnail immediately.
-	// Best-effort; skipped when no storage backend is wired and for
-	// archives, whose channel is not live (the stage 8 part thumbnail
-	// becomes the row thumbnail instead).
-	if s.storage != nil && !d.vod {
-		snapCtx, cancelSnap := context.WithCancel(ctx)
-		mediaPollerCancels = append(mediaPollerCancels, cancelSnap)
-		snapper := thumbnail.NewSnapshotter(thumbnail.SnapshotterConfig{
-			Log: log,
-		})
-		snapWriter := &storageSnapshotWriter{
-			storage:  s.storage,
-			ready:    func() error { return s.verifyStorage(ctx) },
-			filename: filename,
-			ctx:      ctx,
-			onFirstSnapshotSaved: func(path string) {
-				if err := s.repo.SetVideoThumbnail(dbCtx, d.videoID, path); err != nil {
-					log.Warn("failed to promote first live snapshot to video thumbnail",
-						"path", path,
-						"error", err,
-					)
-				}
-			},
-		}
-		go func() {
-			count := snapper.Run(snapCtx, p.BroadcasterLogin, snapWriter)
-			log.Debug("snapshot ticker done", "captures", count)
+	_ = d.reservation.Run(func(ctx context.Context) error { s.runAttempt(ctx, d, p, filename); return nil }, func(err error) {
+		defer func() {
+			close(d.progressCh)
+			s.mu.Lock()
+			delete(s.active, d.jobID)
+			s.mu.Unlock()
+			s.notifyActiveChanged()
 		}()
-	}
-
-	selectOpts := twitch.SelectOptions{
-		RecordingType: recordingType,
-		Quality:       p.qualityCap(),
-		EnableAV1:     s.cfg.App.Download.EnableAV1,
-		DisableHEVC:   s.cfg.App.Download.DisableHEVC,
-		ForceH264:     p.ForceH264,
-	}
-
-	// Pre-load already-finalized parts so MarkVideoDone aggregates
-	// the whole recording, not just the still-running part. Empty
-	// for fresh jobs.
-	var parts []partResult
-	// capturedBytes seeds resumed progress with the stored size of finalized
-	// parts plus the committed source bytes of the part still filling. That
-	// unfinished part has no remuxed size yet, so its contribution is an
-	// estimate that can move up or down when the part seals. Finalized source
-	// counts are not stored on the part rows; use their durable output sizes.
-	var capturedBytes int64
-	if existingParts, err := s.repo.ListVideoParts(dbCtx, d.videoID); err != nil {
-		s.failDownload(dbCtx, d, log, fmt.Errorf("list existing video parts: %w", err))
-		return
-	} else {
-		for _, ep := range existingParts {
-			if ep.PartIndex >= d.resume.CurrentPartIndex {
-				continue
-			}
-			var thumbRel string
-			if ep.Thumbnail != nil {
-				thumbRel = *ep.Thumbnail
-			}
-			parts = append(parts, partResult{
-				filename:        ep.Filename,
-				durationSeconds: ep.DurationSeconds,
-				sizeBytes:       ep.SizeBytes,
-				thumbRel:        thumbRel,
-			})
-			d.completedMediaDurationSeconds += ep.DurationSeconds
-			capturedBytes += ep.SizeBytes
-		}
-	}
-	if d.resume != nil && d.resume.PartBytes > 0 {
-		capturedBytes += d.resume.PartBytes
-	}
-	emitter.seedCompletedBytes(capturedBytes)
-	d.refreshMediaOffset()
-
-	// Title tracking: webhook subscribes to channel.update EventSub
-	// (handler writes on push); poll runs a Helix-polling goroutine; off stores
-	// only the at-start title. The poll watcher's cancel is registered with the
-	// media pollers so it's torn down after the part loop; the webhook
-	// unsubscribe is returned and deferred to run's exit.
-	// An archive keeps the VOD title it was queued with: there is no live
-	// channel to follow.
-	stopTitleTracking := func() {}
-	if !d.vod {
-		stopTitleTracking = s.startTitleTracking(ctx, p, d.videoID, log, func(cancel context.CancelFunc) {
-			mediaPollerCancels = append(mediaPollerCancels, cancel)
-		}, d)
-	}
-	defer stopTitleTracking()
-
-	if d.resume.CurrentPartIndex > 1 {
-		emitter.setPart(int(d.resume.CurrentPartIndex))
-	}
-
-	// Seeded from durable state so a resume mid-part-N preserves
-	// the cross-part window-roll signal for completion_kind.
-	hadWindowRoll := d.resume.HadWindowRoll
-
-	for {
-		segmentsDir := filepath.Join(jobDir, fmt.Sprintf("part%02d", d.resume.CurrentPartIndex), "segments")
-		if err := os.MkdirAll(segmentsDir, 0o755); err != nil {
-			s.failDownload(dbCtx, d, log, fmt.Errorf("create part scratch dir: %w", err))
-			return
-		}
-		if recoverLegacySeqZeroPartStarted(segmentsDir, d.resume) {
-			log.Info("resume: recovered legacy seq-0 part bootstrap from segment file",
-				"part_index", d.resume.CurrentPartIndex,
-				"segment_format", d.resume.SegmentFormat)
-			s.checkpointResume(dbCtx, d, log)
-		}
-
-		// Resume past SEGMENTS skips the fetch entirely: playback
-		// tokens have rolled, the stream may be off the wire,
-		// and the ENDLIST poll would race the fetch. A persisted
-		// PendingSplit while still in SEGMENTS is also a completed
-		// fetch for this part: the split decision and boundary were
-		// already checkpointed before the crash, so re-entering HLS
-		// would append into the part that should be sealed.
-		// Synthesize hlsResult from the checkpoint and jump to
-		// PrepareInput.
-		var hlsResult *hls.JobResult
-		if shouldSkipSegmentFetch(d.resume) {
-			kind := segmentKindForResume(segmentsDir, d.resume)
-			if d.resume.SegmentFormat == "" {
-				d.resume.SegmentFormat = string(kind)
-				s.checkpointResume(dbCtx, d, log)
-			}
-			log.Info("resume: skipping segment fetch, checkpoint past SEGMENTS",
-				"stage", d.resume.Stage,
-				"part_index", d.resume.CurrentPartIndex,
-				"accounted_frontier", d.resume.AccountedFrontierMediaSeq,
-				"segment_format", d.resume.SegmentFormat,
-				"pending_split", d.resume.PendingSplit,
-				"pending_threshold_split", d.resume.PendingThresholdSplit)
-			hlsResult = synthesizeHLSResultFromResume(d.resume, kind)
-		} else {
-			s.setResumeStage(dbCtx, d, StageSegments, log)
-			var err error
-			hlsResult, err = s.fetchWithAuthRefresh(ctx, dbCtx, d, emitter, p, segmentsDir, selectOpts, log)
-			if err != nil {
-				// hasPartContent is the doom-loop guard: a
-				// permanently-broken variant returning split
-				// signals against zero-content parts would
-				// otherwise loop creating empty rows.
-				if isSplitSignal(err) && hasPartContent(hlsResult, d.resume) {
-					// Persisted before runPart so a crash
-					// mid-Stage-6 still drives part N+1 on
-					// resume. Restart-gap splits set this from
-					// OnWindowRoll already; idempotent here.
-					d.resume.PendingSplit = true
-					s.checkpointResume(dbCtx, d, log)
-					var segDone int64
-					if hlsResult != nil {
-						segDone = hlsResult.SegmentsDone
-					}
-					log.Info("split triggered; opening new part",
-						"part_index", d.resume.CurrentPartIndex,
-						"segments_done", segDone,
-						"prior_frontier", d.resume.AccountedFrontierMediaSeq,
-						"reason", err)
-				} else if shouldAcceptEmptySplitSignal(len(parts), hlsResult, err) {
-					d.resume.PendingSplit = true
-					s.checkpointResume(dbCtx, d, log)
-					log.Info("split triggered on empty continuation; opening next part without remux",
-						"part_index", d.resume.CurrentPartIndex,
-						"parts", len(parts),
-						"reason", err)
-				} else if ctx.Err() == nil && isPlaybackResolutionFailure(err) && currentPartHasCommittedMedia(hlsResult, d.resume) {
-					// Seal the current media before marking FAILED/partial. Persist the
-					// intent before remux so a restart never resumes live acquisition or
-					// turns this interrupted recording into a successful completion.
-					d.resume.CaptureError = playbackCaptureFailure(err)
-					d.resume.CaptureRetryable = archiveRetryable(err)
-					d.resume.SetStage(StagePrepareInput)
-					if hlsResult.Kind != "" {
-						d.resume.SegmentFormat = string(hlsResult.Kind)
-					}
-					if hlsResult.Kind == "" {
-						hlsResult = synthesizeHLSResultFromResume(d.resume, segmentKindForResume(segmentsDir, d.resume))
-					}
-					s.checkpointResume(dbCtx, d, log)
-					log.Warn("playback recovery failed; finalizing captured media", "reason", d.resume.CaptureError)
-				} else {
-					s.failDownload(dbCtx, d, log, err)
-					return
-				}
-			}
-			emitter.finalize()
-		}
-
-		// Persist ENDLIST only when it proves the whole recording is
-		// durably owned by finalized/current parts. A threshold split
-		// may observe ENDLIST while concurrent workers have already
-		// fetched post-boundary tail segments that this part will prune
-		// and the continuation must refetch. In that case EndListSeen
-		// stays false until the continuation captures that tail.
-		resumeChanged := false
-		if hlsResult != nil && hlsResult.EndList {
-			if thresholdSplitEndListAtBoundary(d.resume, hlsResult) && !d.resume.PendingSplitEndListAtBoundary {
-				d.resume.PendingSplitEndListAtBoundary = true
-				resumeChanged = true
-			}
-			if shouldPersistEndListSeen(d.resume, hlsResult) && !d.resume.EndListSeen {
-				d.resume.EndListSeen = true
-				resumeChanged = true
-			}
-		}
-
-		if captureHadWindowRoll(d.resume, &hadWindowRoll) {
-			resumeChanged = true
-		}
-
-		// The empty-continuation guards decide whether the current part
-		// holds real media. They key off currentPartHasCommittedMedia,
-		// which consults BOTH this attempt's commits and the durable
-		// resume state — so a resumed part whose media was captured before
-		// the crash (this run sees only ENDLIST/gaps, SegmentsDone==0) is
-		// finalized rather than dropped, and a sealed threshold split (its
-		// folded committed bytes show as durable media) needs no special
-		// case here. Only a genuinely empty interval reaches a guard.
-		sealedThresholdSplit := d.resume.PendingThresholdSplit && d.resume.PendingSplitBoundarySet
-
-		// A continuation part (opened after a split) that captured no
-		// segments means the stream ended exactly at the split boundary —
-		// e.g. a size/duration ceiling that fired on the final committed
-		// segment, or a window roll right as the broadcast closed. The
-		// earlier parts already hold the whole recording, so finalize with
-		// them. Without this guard the empty trailing part reaches remux,
-		// which fails on "no .ts segments" and sinks the entire recording
-		// even though every byte was captured. Guarded on len(parts) > 0 so
-		// a genuinely empty recording (nothing captured at all) still fails
-		// loudly through runPart as before.
-		if shouldFinalizeEmptyContinuation(len(parts), hlsResult, d.resume) {
-			d.resume.SetStage(StagePrepareInput)
-			s.checkpointResume(dbCtx, d, log)
-			log.Info("continuation part captured no segments (stream ended at split boundary); finalizing recording",
-				"part_index", d.resume.CurrentPartIndex,
-				"parts", len(parts))
-			break
-		}
-		if resumeChanged {
-			s.checkpointResume(dbCtx, d, log)
-		}
-		if shouldSkipEmptySplitPart(len(parts), hlsResult, d.resume) {
-			log.Info("split continuation resolved no media; opening next part without remux",
-				"part_index", d.resume.CurrentPartIndex,
-				"parts", len(parts),
-				"pending_threshold_split", d.resume.PendingThresholdSplit)
-			advanced, err := s.reanchorCurrentPartAfterEmptySplit(dbCtx, d, emitter, log)
-			if err != nil {
-				s.failDownload(dbCtx, d, log, err)
-				return
-			}
-			if !advanced {
-				break
-			}
-			continue
-		}
-		if len(parts) > 0 && !currentPartHasCommittedMedia(hlsResult, d.resume) {
-			cause := ctx.Err()
-			if cause == nil {
-				cause = errors.New("continuation part captured no segments before ENDLIST")
-			}
-			s.failDownload(dbCtx, d, log, cause)
-			return
-		}
-
-		if sealedThresholdSplit {
-			if err := pruneSegmentsAfterBoundary(segmentsDir, hlsResult.Kind, d.resume.PendingSplitBoundaryMediaSeq); err != nil {
-				s.failDownload(dbCtx, d, log, fmt.Errorf("prune threshold split tail: %w", err))
-				return
-			}
-		}
-
-		pr, err := s.runPart(ctx, dbCtx, d, p, filename, segmentsDir, hlsResult, emitter, log)
+		defer s.releaseAttemptScratch(d)
 		if err != nil {
-			s.failDownload(dbCtx, d, log, err)
-			return
+			s.failDownload(context.Background(), d, s.log.With("job_id", d.jobID), err)
 		}
-		if d.resume.CaptureError != "" {
-			s.failDownload(dbCtx, d, log, sealedCaptureFailure(d.resume))
-			return
-		}
-		parts = append(parts, *pr)
-		d.completedMediaDurationSeconds += pr.durationSeconds
-		// Use setMediaOffset, NOT refreshMediaOffset: the part just sealed but
-		// resume.PartDurationSeconds isn't reset until continueAfterPendingSplit
-		// below, so refreshMediaOffset would add it on top of the already-folded
-		// completedMediaDurationSeconds and double-count. Any refreshMediaOffset
-		// call inserted between here and that reset would reintroduce the bug.
-		d.setMediaOffset(d.completedMediaDurationSeconds, len(d.resume.AuthGapSeqs()) == 0)
-
-		if pendingSplitEndedAtBoundary(d.resume, hlsResult) {
-			d.resume.ClearPendingSplit()
-			s.checkpointResume(dbCtx, d, log)
-			break
-		}
-
-		advanced, err := s.continueAfterPendingSplit(dbCtx, d, emitter, log)
-		if err != nil {
-			s.failDownload(dbCtx, d, log, err)
-			return
-		}
-		if !advanced {
-			break
-		}
-	}
-
-	// Live-capture metadata spans stop when segment acquisition ends,
-	// not when the later remux/upload tail finishes. Stop the poll
-	// writers first so the close-now timestamp isn't raced by a final
-	// tick that would reopen a span against the just-closed state.
-	// Webhook-delivered channel.update events still run under
-	// WithoutCancel in the event processor and can't be cancelled
-	// here — that residual race is closed by MarkVideoDone's
-	// internal span close on the terminal transition.
-	stopMediaPollers()
-	if !d.vod {
-		if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
-			log.Warn("close video metadata spans", "video_id", d.videoID, "error", err)
-		}
-	}
-
-	// First non-empty thumbRel wins (not just parts[0]) so a
-	// monochrome part 1 doesn't strand the video without a hero.
-	var aggDuration float64
-	var aggSize int64
-	var thumbPtr *string
-	for _, pr := range parts {
-		aggDuration += pr.durationSeconds
-		aggSize += pr.sizeBytes
-		if thumbPtr == nil && pr.thumbRel != "" {
-			t := pr.thumbRel
-			thumbPtr = &t
-		}
-	}
-	if repository.NormalizeRecordingType(recordingType) == repository.RecordingTypeAudio {
-		if err := s.persistAudioWaveform(ctx, d.videoID, filename, recordingType, aggDuration, parts); err != nil {
-			log.Warn("audio waveform artifact generation failed; watch page can rebuild it later",
-				"video_id", d.videoID, "error", err)
-		}
-	}
-
-	// Other gap reasons (stitched-ad, fetch-failure, malformed)
-	// are tolerant losses, not interruptions, so don't classify
-	// as partial. Only restart_window_rolled does.
-	completionKind := repository.CompletionKindComplete
-	if hadWindowRoll {
-		completionKind = repository.CompletionKindPartial
-	}
-	// truncated: did the recording stop before the broadcast did? A
-	// window roll always implies yes — the CDN rolled because the
-	// stream kept going. EndListSeen=false implies yes too — the
-	// playlist never closed, so something below the broadcast level
-	// (ffmpeg cap, manual stop) ended us early. EndListSeen=true with
-	// no window roll is the only "captured the whole broadcast" path.
-	truncated := hadWindowRoll || !d.resume.EndListSeen
-	if err := s.waitForStorage(ctx); err != nil {
-		s.failDownload(dbCtx, d, log, err)
-		return
-	}
-	delivery := s.recordingWebhookDelivery(d.videoID, recordingwebhook.EventCompleted)
-	if err := s.repo.WithTx(dbCtx, func(tx repository.Repository) error {
-		if err := tx.MarkVideoDoneAndEnqueueRecordingWebhook(dbCtx, d.videoID, aggDuration, aggSize, thumbPtr, completionKind, truncated, delivery); err != nil {
-			return err
-		}
-		return tx.MarkJobDone(dbCtx, d.jobID)
-	}); err != nil {
-		log.Error("failed to persist recording completion; preserving attempt for recovery", "error", err)
-		return
-	}
-	// Terminal success: scratch can be removed. Set the flag
-	// before the defer fires on function return.
-	d.cleanupScratch = true
-	emitter.setStage("done")
-	log.Info("download complete",
-		"parts", len(parts),
-		"duration_seconds", aggDuration,
-		"size_bytes", aggSize,
-	)
-	// Terminal success: wake the webhook dispatcher after the durable outbox row
-	// is committed. A dropped publish only delays polling.
-	//
-	// The single-file playback artifact is NOT built here. Concatenating every
-	// finished recording would burn ffmpeg + disk on the many VODs nobody opens;
-	// instead the build is kicked lazily the first time someone plays the
-	// recording (see StreamHandler.streamPart), so only watched videos cost
-	// anything.
-	s.publishRecordingTerminal(d.videoID, eventbus.RecordingCompleted)
-	if d.vod {
-		s.publishArchiveQueue(eventbus.ArchiveCompleted, d.videoID)
-	}
+	})
+	s.pumpAfterJobEnd()
 }
 
-// partResult carries the per-part bookkeeping that runPart hands
-// back to run() so the video-level MarkVideoDone gets aggregate
-// duration/size and a hero thumbnail. Only the fields run() sums
-// or selects from live here — anything internal to a part (probe
-// result, remuxed path, video_parts row ID) stays scoped to
-// runPart.
-type partResult struct {
-	filename        string
-	localPath       string
-	durationSeconds float64
-	sizeBytes       int64
-	thumbRel        string // storage-relative thumbnail path; "" when none
-}
-
-func (s *Service) persistAudioWaveform(ctx context.Context, videoID int64, filename, recordingType string, totalDuration float64, parts []partResult) error {
+func (s *Service) persistAudioWaveform(ctx context.Context, d *download, filename, recordingType string, totalDuration float64, parts []partResult) error {
 	if len(parts) == 0 {
 		return nil
 	}
@@ -1840,7 +1086,7 @@ func (s *Service) persistAudioWaveform(ctx context.Context, videoID int64, filen
 	if totalDuration > 0 {
 		videoDuration = &totalDuration
 	}
-	plan, ok := waveform.BuildPlan(videoID, recordingType, videoDuration, partInputs)
+	plan, ok := waveform.BuildPlan(d.videoID, recordingType, videoDuration, partInputs)
 	if !ok {
 		return nil
 	}
@@ -1855,7 +1101,12 @@ func (s *Service) persistAudioWaveform(ctx context.Context, videoID int64, filen
 		return err
 	}
 	return s.writeToStorage(ctx, func() error {
-		return waveform.SaveArtifact(ctx, s.storage, storagekeys.Waveform(filename), plan.Fingerprint, resp)
+		owned, err := s.storage.ForAttempt(ctx, d.claim())
+		if err != nil {
+			return err
+		}
+		defer owned.Close()
+		return waveform.SaveArtifact(ctx, owned, filename, plan.Fingerprint, resp)
 	})
 }
 
@@ -1871,12 +1122,7 @@ func (s *Service) continueAfterPendingSplit(dbCtx context.Context, d *download, 
 		return false, nil
 	}
 
-	// A size/duration split is a clean cut in one continuous
-	// stream, so the next part continues the same MEDIA-SEQUENCE
-	// space (ContinuePart: frontier carried to endSeq+1, variant
-	// lock kept). Every other split is a genuine discontinuity —
-	// a new variant or a rolled window owning an independent
-	// counter — so it re-anchors from scratch (BeginNewPart).
+	// Threshold splits retain the variant and sequence space; discontinuities must reanchor.
 	if d.resume.PendingThresholdSplit {
 		d.resume.ContinuePart()
 	} else {
@@ -1907,23 +1153,6 @@ func (s *Service) reanchorCurrentPartAfterEmptySplit(dbCtx context.Context, d *d
 	return true, nil
 }
 
-// isSplitSignal reports whether err means "finalize the current
-// part and open a new one." Three surface forms:
-//
-//   - hls.ErrPlaylistGone   — Twitch 404'd the media playlist
-//     URL (variant loss mid-stream, spec §"Variant loss
-//     mid-stream").
-//   - ErrVariantChanged     — a Stage-3 re-select inside
-//     fetchWithAuthRefresh resolved to a different (quality,
-//     codec) than what was locked in for the current part.
-//   - ErrRestartGapExceeded — a resume's first poll observed a
-//     window roll larger than cfg.Download.MaxRestartGapSeconds
-//     and the OnWindowRoll callback forced a part split (spec
-//     §"Resume on restart" point 5).
-//
-// run()'s outer loop combines this with hasPartContent() before
-// treating it as a split — otherwise a permanently-broken
-// variant chain would loop forever creating empty parts.
 func isSplitSignal(err error) bool {
 	return errors.Is(err, hls.ErrPlaylistGone) ||
 		errors.Is(err, ErrVariantChanged) ||
@@ -1931,28 +1160,8 @@ func isSplitSignal(err error) bool {
 		errors.Is(err, ErrPartThresholdExceeded)
 }
 
-// mapForcedSplitErr translates an in-attempt split callback into a
-// split sentinel. OnWindowRoll and threshold OnEvent both set their
-// `fired` flag and cancel the scoped run context; hls.Run then often
-// returns nil or context.Canceled.
-//
-// The parent-ctx guard comes first: a parent-ctx cancel means shutdown
-// or user-cancel won the race, and the split intent was already
-// checkpointed for resume — so the sentinel must NOT be synthesized, or
-// it would mask the real teardown.
-//
-// boundarySealed is the discriminator between the two split kinds, keyed
-// on the actual invariant rather than the sentinel's identity. A
-// size/duration threshold seals an EXACT, fully-resolved frontier
-// boundary: every seq <= boundary is durable, so any residual error is
-// the scoped cancel or above-boundary worker/auth/gap work the
-// continuation refetches — the sentinel wins unconditionally. A
-// restart-gap (window-roll) split has no sealed boundary and only proves
-// the scoped cancel won, so a genuine non-cancel error there is real and
-// must surface. Keying on boundarySealed (not "is this the threshold
-// sentinel") means a future threshold path that ever fires WITHOUT
-// sealing degrades safely to the conservative cancel-only rule instead
-// of silently masking a real failure.
+// mapForcedSplitErr preserves parent cancellation over forced part splits.
+// A sealed boundary owns all earlier media, so errors beyond it belong to the next part.
 func mapForcedSplitErr(ctx context.Context, err error, fired, boundarySealed bool, sentinel error, msg string) error {
 	if !fired || ctx.Err() != nil {
 		return err
@@ -1963,10 +1172,7 @@ func mapForcedSplitErr(ctx context.Context, err error, fired, boundarySealed boo
 	return err
 }
 
-// fpsEqual treats both-nil as equal and compares raw values otherwise.
-// Twitch advertises declared frame rates as whole numbers (30, 60) and
-// rounded decimals (29.970, 59.940); exact equality is fine for our
-// variant-lock semantics — a real FPS change crosses a clean boundary.
+// fpsEqual compares declared frame rates exactly because a changed rate requires a new part.
 func fpsEqual(a, b *float64) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -1981,11 +1187,7 @@ func fpsDisplay(f *float64) any {
 	return *f
 }
 
-// partEndMediaSeq returns the media-sequence boundary that belongs to
-// the finalized part. Threshold splits persist an exact boundary and
-// ignore/prune any above-boundary in-flight results, so that boundary
-// wins over hlsResult.LastMediaSeq. Other paths keep the historical
-// max(last, frontier) behavior.
+// partEndMediaSeq excludes in-flight results beyond a sealed threshold boundary.
 func partEndMediaSeq(hlsResult *hls.JobResult, resume *ResumeState) int64 {
 	if resume.PendingThresholdSplit && resume.PendingSplitBoundarySet {
 		return resume.PendingSplitBoundaryMediaSeq
@@ -2061,32 +1263,6 @@ func hasSegmentExt(dir, ext string) bool {
 	return false
 }
 
-func recoverLegacySeqZeroPartStarted(segmentsDir string, resume *ResumeState) bool {
-	if resume.PartStarted ||
-		resume.Stage != StageSegments ||
-		resume.PartStartMediaSequence != 0 ||
-		resume.AccountedFrontierMediaSeq != 0 ||
-		len(resume.CompletedAboveFrontier) > 0 ||
-		len(resume.Gaps) > 0 {
-		return false
-	}
-	if hasSegmentFile(segmentsDir, "0.ts") {
-		resume.PartStarted = true
-		if resume.SegmentFormat == "" {
-			resume.SegmentFormat = string(hls.SegmentKindTS)
-		}
-		return true
-	}
-	if hasSegmentFile(segmentsDir, "0.m4s") {
-		resume.PartStarted = true
-		if resume.SegmentFormat == "" {
-			resume.SegmentFormat = string(hls.SegmentKindFMP4)
-		}
-		return true
-	}
-	return false
-}
-
 func hasSegmentFile(dir, name string) bool {
 	info, err := os.Stat(filepath.Join(dir, name))
 	return err == nil && info.Mode().IsRegular()
@@ -2095,17 +1271,12 @@ func hasSegmentFile(dir, name string) bool {
 func shouldFinalizeEmptyContinuation(priorParts int, hlsResult *hls.JobResult, resume *ResumeState) bool {
 	return priorParts > 0 &&
 		hlsResult != nil &&
-		hlsResult.EndList &&
+		(hlsResult.EndList || resume.CaptureStoppedAt != nil) &&
 		!currentPartHasCommittedMedia(hlsResult, resume)
 }
 
 func shouldSkipEmptySplitPart(priorParts int, hlsResult *hls.JobResult, resume *ResumeState) bool {
-	// "Empty" means the current part holds no real media — neither this
-	// attempt NOR the durable resume state. A sealed threshold split or a
-	// resumed part with prior on-disk segments reports committed media via
-	// currentPartHasCommittedMedia and finalizes through runPart; only an
-	// ad-only / window-roll-only interval (frontier advanced purely by
-	// gaps) is a true empty split that re-anchors without remux.
+	// Saved segments count as content even when this attempt fetched nothing.
 	return priorParts > 0 &&
 		resume.PendingSplit &&
 		!currentPartHasCommittedMedia(hlsResult, resume)
@@ -2121,13 +1292,8 @@ func hasCommittedMedia(hlsResult *hls.JobResult) bool {
 	return hlsResult != nil && hlsResult.SegmentsDone > 0
 }
 
-// resumePartHasCommittedMedia reports whether the durable resume state
-// already holds at least one committed (non-gap) segment for the current
-// part — media on disk even when THIS hls attempt committed nothing new
-// (SegmentsDone==0 on a resume whose poll saw ENDLIST or only gaps after
-// the crash). An ad-only / window-roll-only interval advances the
-// frontier purely through gaps, so span == gap count and this reports
-// false; the empty-continuation guards then still treat it as empty.
+// resumePartHasCommittedMedia reports whether the checkpoint owns a non-gap segment.
+// An attempt that fetched nothing may still have saved media from before recovery.
 func resumePartHasCommittedMedia(resume *ResumeState) bool {
 	if len(resume.CompletedAboveFrontier) > 0 {
 		return true
@@ -2139,29 +1305,20 @@ func resumePartHasCommittedMedia(resume *ResumeState) bool {
 	return span > gapSeqCount(resume.Gaps)
 }
 
-// currentPartHasCommittedMedia is the resume-aware "this part holds real
-// media" check the empty-continuation guards use: true when either this
-// attempt committed a segment OR the durable state already does. Keying
-// the guards off only hlsResult.SegmentsDone drops a resumed part whose
-// media was captured before the crash (and lets scratch cleanup delete
-// it). It also subsumes the sealed-threshold special case — a sealed
-// threshold split always folded committed bytes, so it reports true.
+// currentPartHasCommittedMedia includes durable media so empty recovery fetches cannot discard it.
 func currentPartHasCommittedMedia(hlsResult *hls.JobResult, resume *ResumeState) bool {
 	return hasCommittedMedia(hlsResult) || resumePartHasCommittedMedia(resume)
 }
 
-func captureHadWindowRoll(resume *ResumeState, hadWindowRoll *bool) bool {
+func captureHadWindowRoll(resume *ResumeState) bool {
 	before := resume.HadWindowRoll
-	if !*hadWindowRoll {
+	if !resume.HadWindowRoll {
 		for _, g := range resume.Gaps {
 			if g.Reason == GapReasonRestartWindowRolled {
-				*hadWindowRoll = true
+				resume.HadWindowRoll = true
 				break
 			}
 		}
-	}
-	if *hadWindowRoll {
-		resume.HadWindowRoll = true
 	}
 	return resume.HadWindowRoll != before
 }
@@ -2234,10 +1391,8 @@ func thresholdPartCap(configured int32) int32 {
 	return configured
 }
 
-// shouldForceSplitOnRestartGap: the lost wall-clock time of a
-// window-roll range exceeds the operator's threshold AND the
-// current part has content to finalize. thresholdSeconds == 0
-// disables (treated as "never split").
+// shouldForceSplitOnRestartGap reports whether a lost window exceeds the configured gap.
+// A nonpositive threshold disables splitting.
 func shouldForceSplitOnRestartGap(from, to int64, targetDuration time.Duration, thresholdSeconds int, resume *ResumeState) bool {
 	if thresholdSeconds <= 0 {
 		return false
@@ -2247,10 +1402,7 @@ func shouldForceSplitOnRestartGap(from, to int64, targetDuration time.Duration, 
 	return lost > threshold && hasPartContent(nil, resume)
 }
 
-// hasPartContent: PartStarted is the doom-loop guard. HLS media
-// sequences can legitimately start at 0, so PartStartMediaSequence
-// cannot double as a presence bit; after BeginNewPart PartStarted is
-// false until OnFirstPoll anchors the new part.
+// hasPartContent distinguishes an unstarted part from a part anchored at media sequence zero.
 func hasPartContent(hlsResult *hls.JobResult, resume *ResumeState) bool {
 	if hlsResult != nil && hlsResult.SegmentsDone > 0 {
 		return true
@@ -2259,24 +1411,14 @@ func hasPartContent(hlsResult *hls.JobResult, resume *ResumeState) bool {
 		resume.AccountedFrontierMediaSeq >= resume.PartStartMediaSequence
 }
 
-// runPart executes Stages 5-10 for one part. Called from run()'s
-// outer part loop; takes the per-part inputs (segmentsDir,
-// hlsResult, the resume-state-tracked variant fields) and returns
-// the bits the video-level aggregation needs.
-//
-// Does NOT call MarkVideoDone / MarkJobDone or flip cleanupScratch —
-// those are video-wide terminal transitions that fire once after
-// the loop completes, regardless of how many parts produced this
-// video.
+// runPart prepares and publishes one part without settling the whole recording.
 func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	filename string, segmentsDir string, hlsResult *hls.JobResult,
 	emitter *progressEmitter, log *slog.Logger) (*partResult, error) {
+	if prepared := d.resume.PreparedPart; prepared != nil {
+		return s.publishPreparedPart(ctx, d, prepared, log)
+	}
 
-	// segmentsDir is <scratch>/<jobID>/partNN/segments — the
-	// remux output and per-part artifacts live two levels up at
-	// <scratch>/<jobID>/. Recovering jobDir from the path keeps
-	// runPart's signature small without re-deriving it from
-	// service config.
 	jobDir := filepath.Dir(filepath.Dir(segmentsDir))
 	partIndex := d.resume.CurrentPartIndex
 	partFilename := fmt.Sprintf("%s-part%02d", filename, partIndex)
@@ -2290,44 +1432,32 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	if hlsResult.Kind == hls.SegmentKindFMP4 {
 		remuxMode = remux.ModeFMP4
 	}
-	// SegmentFormat is now known; mirror it into resume state so
-	// a restart rebuilds the right ffmpeg input shape without
-	// re-polling the playlist just to learn ts vs fmp4.
+	// Save the container format so recovery can prepare input without fetching a playlist.
 	d.resume.SegmentFormat = string(hlsResult.Kind)
 
-	// video_parts row goes in at PREPARE_INPUT so a restart mid-
-	// pipeline finds the part metadata already persisted.
-	// FinalizeVideoPart at Stage 10 fills in duration/size/
-	// thumbnail/end_media_seq — the numbers we only know once
-	// probe runs. On resume the row may already exist from the
-	// prior attempt; look up by (video_id, part_index) first
-	// rather than relying on CreateVideoPart to be idempotent at
-	// the adapter layer (it isn't — DB unique constraint would
-	// fail).
-	if existing, err := s.repo.GetVideoPartByIndex(dbCtx, d.videoID, partIndex); err == nil && existing != nil {
-		d.videoPartID = existing.ID
-	} else if err != nil && !errors.Is(err, repository.ErrNotFound) {
-		return nil, fmt.Errorf("lookup video part: %w", err)
-	} else {
-		part, err := s.repo.CreateVideoPart(dbCtx, &repository.VideoPartInput{
-			VideoID:       d.videoID,
-			PartIndex:     partIndex,
-			Filename:      partFilename + kind.OutputExt(),
-			Quality:       d.resume.SelectedQuality,
-			FPS:           d.resume.SelectedFPS,
-			Codec:         d.resume.SelectedCodec,
-			SegmentFormat: d.resume.SegmentFormat,
-			StartMediaSeq: d.resume.PartStartMediaSequence,
+	// Create the part before preparation so every later stage can recover its database identity.
+	if err := s.persist(ctx, "create video part", func(writeCtx context.Context) error {
+		return repository.WithAttempt(writeCtx, s.repo, d.claim(), func(tx repository.Repository) error {
+			part, err := tx.GetVideoPartByIndex(writeCtx, d.videoID, partIndex)
+			if errors.Is(err, repository.ErrNotFound) {
+				part, err = tx.CreateVideoPart(writeCtx, &repository.VideoPartInput{
+					VideoID: d.videoID, PartIndex: partIndex, Filename: partFilename + kind.OutputExt(),
+					Quality: d.resume.SelectedQuality, FPS: d.resume.SelectedFPS,
+					Codec: d.resume.SelectedCodec, SegmentFormat: d.resume.SegmentFormat,
+					StartMediaSeq: d.resume.PartStartMediaSequence,
+				})
+			}
+			if err != nil {
+				return err
+			}
+			d.videoPartID = part.ID
+			return nil
 		})
-		if err != nil {
-			return nil, fmt.Errorf("create video part: %w", err)
-		}
-		d.videoPartID = part.ID
+	}); err != nil {
+		return nil, fmt.Errorf("persist video part: %w", err)
 	}
 
-	// Stage 5: prepare ffmpeg input. Idempotent; a crash after
-	// this but before REMUX just rebuilds the same segments.txt
-	// / media.m3u8 on restart.
+	// Preparation is repeatable after a crash between input creation and the next checkpoint.
 	s.setResumeStage(dbCtx, d, StagePrepareInput, log)
 	emitter.setStage("remux")
 	inputPath, err := remux.PrepareInput(segmentsDir, remuxMode)
@@ -2335,9 +1465,15 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		return nil, fmt.Errorf("remux prep: %w", err)
 	}
 
-	// Stage 6: remux. Also idempotent — Remuxer writes through a
-	// .part/rename so a crash leaves the previous attempt's
-	// output (or nothing) rather than a half-written file.
+	if d.workspace != nil {
+		// The remux and an optional healed replacement can coexist with captured input.
+		estimate := d.resume.PartBytes*2 + d.resume.PartBytes/64
+		if err := d.workspace.ReserveAdditional(estimate); err != nil {
+			d.persistenceErr = err
+			return nil, err
+		}
+	}
+	// Remux publishes via rename so an interrupted attempt cannot expose partial output.
 	s.setResumeStage(dbCtx, d, StageRemux, log)
 	remuxIn := remux.RunInput{
 		Mode:           remuxMode,
@@ -2351,7 +1487,6 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 	}
 	remuxedPath := remuxIn.OutputPath()
 
-	// Stage 7: probe.
 	s.setResumeStage(dbCtx, d, StageProbe, log)
 	emitter.setStage("metadata")
 	probeResult, err := s.probe.Run(ctx, remuxedPath)
@@ -2359,10 +1494,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		return nil, fmt.Errorf("probe: %w", err)
 	}
 
-	// Stage 9: corruption check + heal. If duration mismatch is
-	// within tolerance we skip entirely. On heal failure we keep
-	// the un-healed file per spec ("partial VOD is better than
-	// none").
+	// Keep the existing output if healing or its validation fails.
 	if isCorrupt(probeResult, kind) {
 		s.setResumeStage(dbCtx, d, StageCorruptionCheck, log)
 		log.Info("duration mismatch — running heal pass",
@@ -2388,11 +1520,6 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		}
 	}
 
-	// Stage 8: thumbnail + sprite strip. Audio jobs skip both —
-	// there's no frame to capture. Per-part thumbnails get the
-	// same -partNN suffix as the video; the dashboard hero uses
-	// part 01's, the rest live under their own part rows for
-	// future per-part UI.
 	var thumbRel string
 	var stripRel string
 	if kind == remux.KindVideo {
@@ -2413,11 +1540,7 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 			log.Warn("thumbnail generation failed; continuing without thumbnail", "error", err)
 		}
 
-		// Sprite strip is best-effort. A failure here (bad
-		// filter arg on a future ffmpeg, disk full, etc.)
-		// shouldn't sink a successful recording — the UI falls
-		// back to the single hero thumbnail when the strip is
-		// absent.
+		// The player falls back to the thumbnail when no sprite strip is available.
 		if probeResult.Duration > 0 {
 			stripPath := filepath.Join(jobDir, partFilename+"-strip.jpg")
 			if err := s.thumb.GenerateStrip(ctx, thumbnail.StripInput{
@@ -2432,144 +1555,40 @@ func (s *Service) runPart(ctx, dbCtx context.Context, d *download, p Params,
 		}
 	}
 
-	// Stage 10: store. Video first, then thumbnails — if the
-	// auxiliary thumbnails fail to upload we still want the
-	// video playable.
-	s.setResumeStage(dbCtx, d, StageStore, log)
-	videoRel := storagekeys.Video(partFilename + kind.OutputExt())
-	if err := s.uploadFromScratch(ctx, remuxedPath, videoRel); err != nil {
-		return nil, fmt.Errorf("upload video: %w", err)
+	// Persist the exact output before starting publication. Recovery reuses
+	// these bytes and probe facts, including after a lost finalization acknowledgement.
+	prepared := &PreparedPart{
+		Filename: partFilename + kind.OutputExt(), Path: remuxedPath,
+		Facts:     repository.VideoPartFinalize{ID: d.videoPartID, DurationSeconds: probeResult.Duration, SizeBytes: probeResult.Size, EndMediaSeq: partEndMediaSeq(hlsResult, d.resume)},
+		Thumbnail: thumbRel, ThumbnailPath: filepath.Join(jobDir, partFilename+".jpg"),
+		Strip: stripRel, StripPath: filepath.Join(jobDir, partFilename+"-strip.jpg"),
 	}
-	var thumbPtr *string
-	if thumbRel != "" {
-		thumbPath := filepath.Join(jobDir, partFilename+".jpg")
-		if err := s.uploadFromScratch(ctx, thumbPath, thumbRel); err != nil {
-			log.Warn("thumbnail upload failed; continuing without thumbnail", "error", err)
-		} else {
-			thumbPtr = &thumbRel
-		}
-	}
-	if stripRel != "" {
-		stripPath := filepath.Join(jobDir, partFilename+"-strip.jpg")
-		if err := s.uploadFromScratch(ctx, stripPath, stripRel); err != nil {
-			log.Warn("strip upload failed; continuing without strip", "error", err)
-		}
-	}
-
-	// Finalize the part row. Video-level marks (MarkVideoDone /
-	// MarkJobDone) live in run() so they fire once after all
-	// parts complete.
-	if err := s.waitForStorage(ctx); err != nil {
+	digest, err := preparedDigest(ctx, remuxedPath)
+	if err != nil {
 		return nil, err
 	}
-	if err := s.repo.FinalizeVideoPart(dbCtx, &repository.VideoPartFinalize{
-		ID:              d.videoPartID,
-		DurationSeconds: probeResult.Duration,
-		SizeBytes:       probeResult.Size,
-		Thumbnail:       thumbPtr,
-		EndMediaSeq:     partEndMediaSeq(hlsResult, d.resume),
-	}); err != nil {
-		log.Error("failed to finalize video part",
-			"part_index", partIndex,
-			"error", err)
-		// Continue: the upload landed, so the file is playable
-		// from the part row even if duration/size weren't
-		// updated. A consistency-repair task can backfill from
-		// the on-disk file later.
+	prepared.Digest = digest
+	d.resume.PreparedPart = prepared
+	s.setResumeStage(dbCtx, d, StageStore, log)
+	if d.persistenceErr != nil {
+		return nil, d.persistenceErr
 	}
-
-	// size_bytes is the remuxed file; source_bytes is what MaxPartBytes actually
-	// counted while the part filled. Logging both together is what makes the
-	// gap between them visible without reading resume_state out of the database
-	// and probing the file by hand.
-	sourceBytes := int64(0)
-	if d.resume != nil {
-		sourceBytes = d.resume.PartBytes
-	}
-	log.Info("part complete",
-		"part_index", partIndex,
-		"duration_seconds", probeResult.Duration,
-		"size_bytes", probeResult.Size,
-		"source_bytes", sourceBytes,
-		"segments", hlsResult.SegmentsDone,
-		"gaps", hlsResult.SegmentsGaps,
-	)
-	if partOutgrewSource(probeResult.Size, sourceBytes, s.cfg.App.Download.MaxPartBytes) {
-		log.Warn("remuxed part is larger than the source segments the size ceiling counted; allow extra margin below an external file size limit",
-			"part_index", partIndex,
-			"size_bytes", probeResult.Size,
-			"source_bytes", sourceBytes,
-			"max_part_bytes", s.cfg.App.Download.MaxPartBytes,
-		)
-	}
-
-	out := &partResult{
-		filename:        partFilename + kind.OutputExt(),
-		localPath:       remuxedPath,
-		durationSeconds: probeResult.Duration,
-		sizeBytes:       probeResult.Size,
-	}
-	if thumbPtr != nil {
-		out.thumbRel = *thumbPtr
-	}
-	return out, nil
+	return s.publishPreparedPart(ctx, d, prepared, log)
 }
 
-// partOutgrewSource reports whether a sealed part's remuxed file came out
-// larger than the source segments MaxPartBytes counted while that part filled.
-//
-// Source bytes are available while recording; output size is known only after
-// remuxing replaces the segment containers with the final container. That
-// replacement can increase or decrease size, and fMP4 initialization bytes are
-// outside the segment counter. The configured source ceiling is therefore not
-// a hard output limit. Report observed growth when size splitting is enabled
-// so operators can account for it when choosing an external upload margin.
+// partOutgrewSource reports growth beyond the captured source size when size splitting is enabled.
+// Container overhead and fMP4 initialization bytes can make output exceed the source ceiling.
 func partOutgrewSource(outputBytes, sourceBytes, maxPartBytes int64) bool {
 	return maxPartBytes > 0 && sourceBytes > 0 && outputBytes > sourceBytes
 }
 
-// fetchWithAuthRefresh runs Stages 1-4 (twitch playback token +
-// master playlist + variant selection + hls.Run) with an auth-
-// refresh loop around the hls fetch. On hls.ErrPlaylistAuth we
-// re-run Stages 1-3 for a fresh signed URL and call hls.Run
-// again with StartMediaSeq set to the previous attempt's cursor,
-// so segments already on disk aren't re-fetched.
-//
-// Bounded by cfg.Download.AuthRefreshAttempts. Permanent auth
-// failures (entitlement codes) from the Twitch classifier bail
-// on the first attempt; retryable auth goes through the budget.
-// Non-auth hls errors (gap policy abort, transport exhausted
-// on the playlist) surface immediately.
-//
-// Returns an accumulated JobResult across all attempts. The
-// Kind + InitURI are taken from the final successful iteration
-// (or the last one attempted on failure).
-//
-// Gap policy is evaluated PER ATTEMPT, not against the aggregate.
-// If attempt 1 commits 99 segments + 1 gap (1%) and auth-refreshes,
-// attempt 2 starts its own first-content guard and MaxGapRatio
-// check from zero. This is deliberate: a new signed URL is a
-// fresh starting point for "has Twitch let us capture anything
-// partThresholdAccountant funnels every frontier-advancing outcome
-// through one place that records the durable per-part accounting AND
-// evaluates the size/duration ceiling in the same call. Routing all
-// advances through it is the structural guard against the missed-split
-// class of bug (both the window-roll fold and a forgotten OnEvent case):
-// a new advance path physically cannot record progress via commit/gap/
-// recordRangeGap without the ceiling check riding along. The lone
-// exception is authGap, which is deliberately ceiling-free.
-//
-// commit and gap seal eagerly (OnEvent has no competing split). The
-// window-roll path uses recordRangeGap + sealIfCrossed split apart,
-// because a restart-gap discontinuity split takes precedence and must be
-// weighed between recording the gap and sealing a threshold cut.
+// partThresholdAccountant checks split thresholds whenever the durable frontier advances.
+// Authentication gaps remain refetchable; restart-gap splits take precedence over size limits.
 type partThresholdAccountant struct {
 	resume     *ResumeState
 	maxBytes   int64
 	maxSeconds int
-	// onSeal fires the forced-split side effects (mark fired, log,
-	// checkpoint, cancel the scoped run ctx) once a boundary is sealed.
-	onSeal func(boundary int64)
+	onSeal     func(boundary int64)
 }
 
 func (a *partThresholdAccountant) commit(seq, bytes int64, dur float64) {
@@ -2580,19 +1599,12 @@ func (a *partThresholdAccountant) gap(seq int64, reason GapReason) {
 	a.sealIfCrossed(a.resume.NoteGapUntilThreshold(seq, reason, a.maxBytes, a.maxSeconds))
 }
 
-// authGap records an auth-errored seq as a plain resume gap WITHOUT the
-// ceiling check. Auth seqs carry no bytes/duration of their own and the
-// next auth-refresh attempt refetches them; a size/duration cut here
-// would seal them below a boundary (permanent hole) instead of letting
-// the refresh fill them. The deliberate exception to the chokepoint.
+// authGap preserves refetchable authentication gaps without sealing a permanent hole.
 func (a *partThresholdAccountant) authGap(seq int64) {
 	a.resume.NoteGap(seq, GapReasonAuth)
 }
 
-// recordRangeGap fills a lost range (window roll), folding any buffered
-// above-frontier commits, and returns the crossing boundary WITHOUT
-// sealing — the caller weighs the restart-gap split first, then calls
-// sealIfCrossed.
+// recordRangeGap returns a threshold crossing without sealing it, so restart-gap splits can win.
 func (a *partThresholdAccountant) recordRangeGap(from, to int64, reason GapReason) (int64, bool) {
 	return a.resume.NoteRangeGapUntilThreshold(from, to, reason, a.maxBytes, a.maxSeconds)
 }
@@ -2608,9 +1620,9 @@ func (a *partThresholdAccountant) sealIfCrossed(boundary int64, crossed bool) bo
 	return true
 }
 
-// real yet" — it doesn't inherit attempt 1's success/gap ratio.
-// Aggregate counters on the returned JobResult are for the
-// caller's reporting, not for policy decisions.
+// fetchWithAuthRefresh renews expired playback URLs within the authentication retry budget.
+// Gap policy uses cumulative per-part counters across attempts, and permanent failures stop
+// immediately.
 func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, emitter *progressEmitter, p Params, segmentsDir string, selectOpts twitch.SelectOptions, log *slog.Logger) (*hls.JobResult, error) {
 	maxAuthAttempts := s.cfg.App.Download.AuthRefreshAttempts
 	if maxAuthAttempts <= 0 {
@@ -2621,64 +1633,44 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 	var authAttempts int
 	unresolvedCanceled := map[int64]bool{}
 
-	// refetchSeqs carries forward the prior attempt's auth-errored
-	// seqs so the next Poller re-emits them under the fresh URL.
-	// Replaced (not appended) per iteration: a successful refetch
-	// drops the seq off the list, a re-failed refetch puts it
-	// back. Seqs that roll off the CDN window are dropped by the
-	// Poller with a warning and stay as GapReasonAuth in resume.
-	//
-	// First-iteration seed comes from resume state: a process
-	// crash between iter 1 (gap recorded) and iter 2 (refetch)
-	// would otherwise lose the intent. A resumed job pre-loads
-	// its pending auth gaps here; fresh jobs start with nil.
+	// Seed authentication retries from the checkpoint so a crash cannot lose pending refetches.
 	refetchSeqs := d.resume.AuthGapSeqs()
 
-	// bootstrapped guards PartStartMediaSequence: first poll's
-	// MediaSequenceBase anchors the frontier. Auth-refresh
-	// iterations reuse the anchor — d.resume is shared across
-	// attempts, so a refresh mid-stream doesn't reset the part.
-	// A resumed job enters already bootstrapped from its prior
-	// attempt's state; fresh jobs bootstrap on the first poll.
+	// Authentication refreshes must retain the part's first playlist anchor.
 	bootstrapped := d.resume.PartStarted
 
-	// Seed startSeq from the resume frontier when we're picking
-	// up a prior attempt — the first hls.Run call then skips
-	// already-committed segments. Fresh jobs start at 0 (emit
-	// everything the playlist publishes).
 	var startSeq int64
 	if bootstrapped {
 		startSeq = d.resume.AccountedFrontierMediaSeq + 1
 	}
 
-	// eventsSinceCheckpoint counts OnEvent firings between resume-
-	// state writes. Checkpoint cadence: every N events keeps DB
-	// traffic bounded during live recording (with 4 workers +
-	// ~2s target duration, ~2 events/sec → 1 checkpoint/5s).
+	// Batch checkpoints to bound database traffic during capture.
 	const checkpointEveryEvents = 10
 	var eventsSinceCheckpoint int
 
 	for {
-		// Stages 1-3: fresh signed URL.
 		emitter.setStage("auth")
 		variant, err := retryPlaybackResolution(ctx, func(attemptCtx context.Context) (twitch.SelectedVariant, error) {
-			return s.resolveVariantURL(attemptCtx, p, selectOpts)
+			if err := s.verifyPlaybackIdentity(attemptCtx, p); err != nil {
+				return twitch.SelectedVariant{}, err
+			}
+			variant, err := s.resolveVariantURL(attemptCtx, p, selectOpts)
+			if err != nil {
+				return variant, err
+			}
+			// Playback resolves by channel, including on authentication retries.
+			// A delayed resolution must not cross a broadcast identity boundary.
+			return variant, s.verifyPlaybackIdentity(attemptCtx, p)
 		})
 		if err != nil {
+			if errors.Is(err, errBroadcastLookup) {
+				d.persistenceErr = err // Preserve capture until identity can be verified.
+			}
 			// Retryable resolution failures have exhausted their independent
 			// budget. The caller can seal already captured media before failing.
 			return agg, err
 		}
-		// Variant lock across auth-refresh iterations: an in-
-		// flight pipeline must not silently change codec,
-		// container, or quality within a part — `ffmpeg -c copy`
-		// across those boundaries produces a broken output. If
-		// Stage 3 returns a different variant than the one
-		// locked in (either from a prior auth-refresh iteration
-		// in THIS run or from a resumed ResumeState), surface
-		// ErrVariantChanged. The outer run() loop reads it as a
-		// part-split signal: finalize this part, BeginNewPart,
-		// re-run Stage 3 from scratch in the new part.
+		// Copy-remuxing requires one quality, codec, and frame rate per part.
 		if d.resume.SelectedQuality != "" && d.resume.SelectedQuality != variant.Quality {
 			return agg, fmt.Errorf("%w: quality %q → %q",
 				ErrVariantChanged, d.resume.SelectedQuality, variant.Quality)
@@ -2693,45 +1685,19 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 		}
 		emitter.setStage("playlist")
 		emitter.setVariant(variant.Quality, variant.FPS, variant.Codec)
-		if err := s.repo.UpdateVideoSelectedVariant(dbCtx, d.videoID, variant.Quality, variant.FPS); err != nil {
+		if err := s.persist(ctx, "selected variant", func(writeCtx context.Context) error {
+			return repository.WithAttempt(writeCtx, s.repo, d.claim(), func(tx repository.Repository) error {
+				return tx.UpdateVideoSelectedVariant(writeCtx, d.videoID, variant.Quality, variant.FPS)
+			})
+		}); err != nil {
 			return agg, fmt.Errorf("persist selected variant: %w", err)
 		}
-		// Mirror the selected variant into resume state so a
-		// crash-restart between PREPARE_INPUT and STORE recovers
-		// the exact (quality, codec) pair without re-walking
-		// Stage 3. SegmentFormat lands after hls.Run returns —
-		// it's a property of the media playlist, not the master.
+		// Save the variant for recovery without another master playlist request.
 		d.resume.SelectedQuality = variant.Quality
 		d.resume.SelectedFPS = variant.FPS
 		d.resume.SelectedCodec = variant.Codec
 
-		// Stage 4: segment fetch. The progress channel is
-		// per-attempt because hls.Run closes it on the way
-		// out; sharing across attempts would send on a closed
-		// channel.
-		//
-		// Buffered higher than the downloader-facing progressCh
-		// (16) because hls emits per-segment, which at ~2s
-		// target duration + N workers can briefly outpace the
-		// bridge's drain. The bridge collapses multiple hls
-		// events into a rate-limited stream on the way out.
-		//
-		// startAttempt snapshots the emitter's cumulative
-		// counters as the baseline for this hls.Run's deltas —
-		// without it, hls's per-run counter reset would regress
-		// the UI back to zero on every auth refresh.
-		emitter.startAttempt()
-		hlsProgress := make(chan hls.Progress, 32)
-		go bridgeHLSProgress(emitter, hlsProgress)
-		emitter.setStage("segments")
-
-		// splitCtx lets OnWindowRoll cancel hls.Run independently
-		// of parent ctx — distinguishes a forced split from a
-		// user shutdown. thresholdSplitFired marks whether THIS
-		// attempt's callback fired the cancel; PendingSplit can't
-		// serve here (could be true at entry from a prior
-		// attempt) and the err can't (orchestrator filters
-		// context.Canceled to nil).
+		// The scoped cancellation flags distinguish a forced split from parent shutdown.
 		splitCtx, cancelSplit := context.WithCancel(ctx)
 		thresholdSeconds := s.cfg.App.Download.MaxRestartGapSeconds
 		maxPartBytes := s.cfg.App.Download.MaxPartBytes
@@ -2757,12 +1723,7 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			},
 		}
 
-		// Shared range-gap path for first-poll and mid-stream window rolls.
-		// Recording the lost range advances the durable frontier; threshold
-		// accounting may then seal if buffered commits become contiguous.
-		//
-		// split is only used for first-poll resume rolls, where a large restart
-		// gap can re-anchor the next part before threshold sealing/checkpointing.
+		// Check restart-gap splitting before sealing a size threshold crossed by buffered commits.
 		recordWindowRollGap := func(from, to int64, logMsg string, split func() bool) {
 			boundary, thresholdReached := acct.recordRangeGap(from, to, GapReasonRestartWindowRolled)
 			d.refreshMediaOffset()
@@ -2780,22 +1741,17 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			s.checkpointResume(dbCtx, d, log)
 		}
 
-		result, err := hls.Run(splitCtx, hls.JobConfig{
+		result, err := runHLSAttempt(splitCtx, emitter, hls.JobConfig{
+			WriteFile:          d.workspace.WriteFile,
 			MediaPlaylistURL:   variant.URL,
 			WorkDir:            segmentsDir,
 			Fetcher:            s.fetcher,
 			SegmentConcurrency: s.cfg.App.Download.SegmentConcurrency,
 			Log:                log,
-			Progress:           hlsProgress,
 			StartMediaSeq:      startSeq,
 			ClassifyAuth:       classifyTwitchAuth,
 			RateLimiter:        d.limiter,
-			// Per-part gap policy: seed the new attempt's
-			// counters with the cumulative totals so the first-
-			// content-segment guard and MaxGapRatio evaluate
-			// against the whole part, not just this attempt.
-			// Auth refresh mid-stream can't erase "real content
-			// already captured" or reset the ratio denominator.
+			// Authentication refreshes must retain the part's gap-policy history.
 			SeedSegmentsDone: agg.SegmentsDone,
 			SeedSegmentsGaps: agg.SegmentsGaps,
 			RefetchSeqs:      refetchSeqs,
@@ -2846,33 +1802,15 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 				}
 				switch ev.Outcome {
 				case hls.OutcomeCommitted:
-					// Size/duration part split: fold this committed
-					// segment's bytes + EXTINF into the durable
-					// per-part totals only when it reaches the
-					// contiguous frontier, then cut at the first
-					// frontier sequence that reaches the ceiling.
-					// Above-boundary in-flight results are ignored/
-					// pruned and refetched by the next part, which
-					// preserves the no gap/no duplicate invariant
-					// under concurrent workers.
+					// Only contiguous committed media may seal a split; the next part refetches its tail.
 					acct.commit(ev.MediaSeq, ev.BytesWritten, ev.DurationSeconds)
 				case hls.OutcomeGapAccepted:
 					acct.gap(ev.MediaSeq, GapReasonFetchFailure)
 				case hls.OutcomeAdSkipped:
 					acct.gap(ev.MediaSeq, GapReasonStitchedAd)
 				case hls.OutcomeMalformedSkip:
-					// Structural manifest defect — distinct from
-					// fetch failures so operator review can see
-					// whether the loss was transport or metadata.
 					acct.gap(ev.MediaSeq, GapReasonMalformed)
 				case hls.OutcomeAuth:
-					// Auth-errored seqs are gapped from the
-					// current attempt's perspective — the next
-					// auth-refresh attempt's StartMediaSeq skips
-					// past via LastMediaSeq+1. Recording as a
-					// resume gap preserves that decision across
-					// a crash-restart within the refresh window.
-					// Ceiling-free on purpose (see authGap).
 					acct.authGap(ev.MediaSeq)
 				}
 				d.refreshMediaOffset()
@@ -2884,46 +1822,18 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			},
 		})
 		cancelSplit()
-		// Translate a scoped-context cancel from either in-attempt
-		// split callback into its sentinel so the outer loop treats it
-		// as a split. Both callbacks checkpointed PendingSplit before
-		// cancelSplit, so a parent-ctx cancel (shutdown) racing ahead
-		// still resumes down the right path — mapForcedSplitErr leaves
-		// err untouched in that case.
-		// A restart-gap split has no sealed boundary; a threshold split
-		// always sealed one (maybeForcePartThreshold seals before setting
-		// partThresholdFired), so PendingSplitBoundarySet is the durable
-		// proof.
 		err = mapForcedSplitErr(ctx, err, thresholdSplitFired, false, ErrRestartGapExceeded, "forced part split at restart gap")
 		err = mapForcedSplitErr(ctx, err, partThresholdFired, d.resume.PendingSplitBoundarySet, ErrPartThresholdExceeded,
 			fmt.Sprintf("part %d reached size/duration ceiling", d.resume.CurrentPartIndex))
-		// Unconditional checkpoint between attempts — captures
-		// any trailing events from the batch counter and the
-		// latest stage info before the next refresh iteration.
+		// Persist trailing events before another authentication attempt starts.
 		s.checkpointResume(dbCtx, d, log)
 		eventsSinceCheckpoint = 0
 
-		// Refetch list is rebuilt below, after the fold updates the
-		// unresolved-canceled set. Replace (don't append): a successful
-		// refetch drops the seq off, a repeat failure shows up again.
 		refetchSeqs = nil
 
-		// Fold this attempt's counters into the running total.
-		// Done/Gaps are SEEDED into each hls.Run (per-part gap
-		// policy), so result already carries the cumulative
-		// totals — overwrite instead of accumulating to avoid
-		// double counting. AdGaps and BytesWritten are NOT
-		// seeded, so `+=` remains correct for them.
-		//
-		// Kind + InitURI come from whichever attempt most
-		// recently had them set — the manifest side shouldn't
-		// flip between attempts for the same variant, but if
-		// it does the final value wins.
+		// Done and gap counters are seeded per part; bytes and ad gaps are per attempt.
 		if result != nil {
 			foldHLSAttemptResult(agg, result, d.resume, unresolvedCanceled)
-			// Auth-errored seqs (fresh token) PLUS any still-unresolved
-			// canceled in-flight fetches — the latter sit below the
-			// advanced startSeq and would otherwise never be re-emitted.
 			refetchSeqs = refetchSeqsForNextAttempt(result.AuthErrorSeqs, unresolvedCanceled)
 			startSeq = agg.LastMediaSeq + 1
 		}
@@ -2932,8 +1842,6 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 			return agg, nil
 		}
 		if !errors.Is(err, hls.ErrPlaylistAuth) {
-			// Gap abort, transport exhaustion on the
-			// playlist, ctx cancel — not fixable by refresh.
 			return agg, fmt.Errorf("hls run: %w", err)
 		}
 		authAttempts++
@@ -2947,15 +1855,8 @@ func (s *Service) fetchWithAuthRefresh(ctx, dbCtx context.Context, d *download, 
 	}
 }
 
-// refetchSeqsForNextAttempt unions the auth-errored seqs (which need a
-// fresh playback token) with the still-unresolved canceled seqs
-// (in-flight fetches the orchestrator dropped when the run was canceled,
-// left below the advanced startSeq). Both must be re-emitted on the next
-// attempt: a canceled seq carries through orchestrator.SegmentsCanceled
-// but is neither an auth seq nor >= startSeq, so without re-listing it as
-// a refetch the poller never re-emits it — a permanent hole below
-// LastMediaSeq that stalls the frontier and pins EndList false. Sorted
-// for a deterministic refetch order.
+// refetchSeqsForNextAttempt retains cancelled segments below the advanced cursor for retry.
+// Without explicit refetches, those holes could prevent the durable frontier from advancing.
 func refetchSeqsForNextAttempt(authErrorSeqs []int64, unresolvedCanceled map[int64]bool) []int64 {
 	out := append([]int64(nil), authErrorSeqs...)
 	for seq := range unresolvedCanceled {
@@ -2993,18 +1894,12 @@ func foldHLSAttemptResult(agg, result *hls.JobResult, resume *ResumeState, unres
 	if result.LastMediaSeq > agg.LastMediaSeq {
 		agg.LastMediaSeq = result.LastMediaSeq
 	}
-	// ENDLIST is sticky across attempts only after every previously
-	// canceled same-sequence retry has been durably resolved. Without
-	// this, an auth-refresh attempt can skip over an ignored canceled
-	// final segment and later mark the aggregate complete.
+	// ENDLIST is valid only after all earlier cancelled segments are durably resolved.
 	if result.EndList && len(unresolvedCanceled) == 0 {
 		agg.EndList = true
 	}
 }
 
-// resolveVariantURL walks Stages 1-3 and returns the freshly-
-// selected variant — URL plus quality + codec metadata the
-// progress emitter surfaces to the UI.
 func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.SelectOptions) (twitch.SelectedVariant, error) {
 	manifest, _, err := s.resolveManifest(ctx, p, opts)
 	if err != nil {
@@ -3017,28 +1912,22 @@ func (s *Service) resolveVariantURL(ctx context.Context, p Params, opts twitch.S
 	return variant, nil
 }
 
-// LiveRenditions is what Twitch offers a recording started right now for a
-// live channel. Anonymous is true when no playback session was used, so a
-// connected session might reveal more. Media URLs stay inside the package.
+// LiveRenditions lists available video variants; Anonymous reports whether playback used no
+// session.
 type LiveRenditions struct {
 	Anonymous  bool
 	Renditions []Rendition
 }
 
-// Rendition is one video rendition of a live stream: its height, declared
-// frame rate (0 when the manifest omits it) and codec.
+// Rendition describes a live video variant; FPS is zero when Twitch omits the frame rate.
 type Rendition struct {
 	Height int
 	FPS    float64
 	Codec  string
 }
 
-// LiveRenditions resolves the channel's master playlist the way a recording
-// would, through the owner's session when one is connected and under the
-// server's codec settings plus the caller's Force H.264, and lists the video
-// renditions tallest first with each height's preferred codec and frame rate
-// ahead of its alternatives. Force H.264 changes what usher is asked for, so
-// it has to be part of the request rather than a filter on the answer.
+// LiveRenditions lists video variants tallest first, then by codec and frame-rate preference.
+// forceH264 changes the playback request because Twitch may return a different manifest.
 func (s *Service) LiveRenditions(ctx context.Context, login string, forceH264 bool) (LiveRenditions, error) {
 	opts := twitch.SelectOptions{
 		RecordingType: twitch.RecordingTypeVideo,
@@ -3064,12 +1953,9 @@ func (s *Service) LiveRenditions(ctx context.Context, login string, forceH264 bo
 	return out, nil
 }
 
-// resolveManifest walks Stages 1-2 and returns the master playlist plus
-// whether it was fetched anonymously.
-//
-// An owner-connected website session is passed only to Twitch's playback-token
-// endpoint. It is never forwarded to the playlist/segment CDN. Rejected sessions
-// fall back to anonymous playback while the owner reconnects.
+// resolveManifest returns a master playlist and reports whether playback was anonymous.
+// Website credentials are sent only to Twitch's token endpoint; rejected sessions retry
+// anonymously.
 func (s *Service) resolveManifest(ctx context.Context, p Params, opts twitch.SelectOptions) (*twitch.Manifest, bool, error) {
 	var accessToken string
 	if s.playbackCredentials != nil {
@@ -3115,9 +2001,6 @@ func (s *Service) resolveManifest(ctx context.Context, p Params, opts twitch.Sel
 	return manifest, accessToken == "", nil
 }
 
-// kindFromRecordingType maps the spec's recording_type enum to
-// remux.Kind. Empty or unknown values fall through to video,
-// matching the repo CHECK constraint's default.
 func kindFromRecordingType(rt string) remux.Kind {
 	if rt == twitch.RecordingTypeAudio {
 		return remux.KindAudio
@@ -3125,10 +2008,7 @@ func kindFromRecordingType(rt string) remux.Kind {
 	return remux.KindVideo
 }
 
-// isCorrupt applies the spec's Stage 9 duration-mismatch rule.
-// Zero durations on either side are treated as "can't measure,
-// don't heal" — probe.parseProbeOutput returns zero on "N/A"
-// values and we'd rather skip healing than trigger it on noise.
+// isCorrupt ignores unmeasurable durations, including ffprobe's N/A values.
 func isCorrupt(r *probe.Result, kind remux.Kind) bool {
 	if r == nil || r.Duration == 0 {
 		return false
@@ -3150,95 +2030,81 @@ func isCorrupt(r *probe.Result, kind remux.Kind) bool {
 	return math.Abs(r.Duration-streamDur) > remux.CorruptionThreshold
 }
 
-// bridgeHLSProgress forwards hls.Progress events into the
-// downloader's progressEmitter until the hls channel is closed
-// (which the hls orchestrator does on every termination path).
-// The emitter handles the cumulative-state + speed-window math;
-// this function just pumps the channel.
-//
-// fetchWithAuthRefresh may spawn a new bridgeHLSProgress per
-// iteration. Two bridges may briefly coexist if a previous
-// iteration's drain hasn't finished before the next hls.Run
-// starts — both write to the same progressEmitter, which uses
-// its own mutex, so concurrent writes are safe. Events stay
-// cumulative so any interleaving still produces coherent state
-// at the subscriber.
-func bridgeHLSProgress(emitter *progressEmitter, in <-chan hls.Progress) {
-	for hp := range in {
-		emitter.bridge(hp)
-	}
+func (s *Service) uploadFromScratch(ctx context.Context, d *download, scratchPath, storagePath string) error {
+	return s.uploadScratch(ctx, d, scratchPath, storagePath, "")
 }
 
-// uploadFromScratch opens a scratch file and streams it to the
-// Storage backend at the given relative path. For local storage
-// this is an atomic move; for S3 it uploads bytes.
-func (s *Service) uploadFromScratch(ctx context.Context, scratchPath, storagePath string) error {
+func (s *Service) uploadScratch(ctx context.Context, d *download, scratchPath, storagePath, digest string) error {
 	return s.writeToStorage(ctx, func() error {
 		f, err := os.Open(scratchPath)
 		if err != nil {
 			return fmt.Errorf("open scratch: %w", err)
 		}
 		defer f.Close()
-		if err := s.storage.Save(ctx, filepath.ToSlash(storagePath), f); err != nil {
+		owned, err := s.storage.ForAttempt(ctx, d.claim())
+		if err != nil {
+			return err
+		}
+		defer owned.Close()
+		if digest == "" {
+			err = owned.Save(ctx, filepath.ToSlash(storagePath), f)
+		} else {
+			err = owned.SavePrepared(ctx, filepath.ToSlash(storagePath), f, digest)
+		}
+		if err != nil {
 			return fmt.Errorf("save to storage: %w", err)
 		}
 		return nil
 	})
 }
 
-// setResumeStage latches the next pipeline stage on the in-memory
-// checkpoint and persists the whole state to jobs.resume_state.
-// Called at every stage boundary in run(); a crash-restart reads
-// the row to decide where to pick up.
-//
-// Uses dbCtx (context.WithoutCancel of the run ctx) so a user
-// Cancel() still lets the final checkpoint write land. Errors
-// are logged and swallowed: a failed checkpoint doesn't derail
-// the pipeline — the worst case is resume kicks in at a coarser
-// stage and re-runs idempotent work.
 func (s *Service) setResumeStage(dbCtx context.Context, d *download, stage Stage, log *slog.Logger) {
 	d.resume.SetStage(stage)
 	s.checkpointResume(dbCtx, d, log)
 }
 
-// checkpointResume persists the current in-memory ResumeState to
-// jobs.resume_state without changing the stage. Used from the
-// OnEvent batch path where segment outcomes have updated the
-// frontier but the stage hasn't transitioned.
+// checkpointResume retains scratch and cancels acquisition when a checkpoint cannot be confirmed.
 func (s *Service) checkpointResume(dbCtx context.Context, d *download, log *slog.Logger) {
 	data, err := json.Marshal(d.resume)
 	if err != nil {
 		log.Error("resume state marshal failed", "error", err, "stage", d.resume.Stage)
 		return
 	}
-	if err := s.repo.UpdateJobResumeState(dbCtx, d.jobID, data); err != nil {
-		log.Error("resume state persist failed", "error", err, "stage", d.resume.Stage)
+	if err := s.persistCheckpoint(dbCtx, d, data); err != nil {
+		d.persistenceErr = err
+		if d.cancel != nil {
+			d.cancel()
+		}
+		log.Error("resume state persist failed; preserving recovery", "error", err, "stage", d.resume.Stage)
 	}
 }
 
-// failDownload records a failure on the video row. If the
-// download was cancelled by a user call to Cancel(), the
-// recorded error is ErrCancelled so the UI can distinguish
-// "admin stopped this" from a real crash.
-//
-// Shutdown case: when s.shuttingDown is set AND the user did NOT
-// cancel, we flush the final resume-state checkpoint but do NOT
-// mark video/job as FAILED — the row stays RUNNING for Resume()
-// to pick up on next boot. Spec line 625 "Shutdown is not a
-// download failure."
+// failDownload settles user cancellation or failure after joining auxiliary workers.
+// Shutdown and unresolved persistence preserve the attempt for recovery.
 func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Logger, cause error) {
+	if d.stopChildren != nil {
+		d.stopChildren()
+	}
 	s.mu.Lock()
 	userCancelled := d.userCancelled
 	s.mu.Unlock()
+	userCancelled = userCancelled || errors.Is(cause, ErrCancelled) || errors.Is(cause, repository.ErrStopRequested) || errors.Is(d.persistenceErr, repository.ErrStopRequested)
+	if !userCancelled && d.runCtx != nil && errors.Is(context.Cause(d.runCtx), storage.ErrFull) {
+		d.persistenceErr = context.Cause(d.runCtx)
+	}
+	if !userCancelled && d.runCtx != nil && errors.Is(context.Cause(d.runCtx), errExecutionDeferred) {
+		s.checkpointResume(dbCtx, d, log)
+		s.closeMetadataSpans(dbCtx, d, log, "deferral")
+		return
+	}
+	if !userCancelled && d.persistenceErr != nil {
+		log.Error("recording persistence unresolved; preserving recovery", "error", d.persistenceErr)
+		return
+	}
 
 	if s.shuttingDown.Load() && !userCancelled {
 		s.closeMetadataSpans(dbCtx, d, log, "shutdown")
-		// Job stays RUNNING for next boot's Resume. Do NOT set
-		// cleanupScratch — segments on disk are what Resume
-		// needs to pick up from PrepareInput without re-
-		// downloading. sweepOrphanedTempsExcept at next boot
-		// preserves this dir via the active-RUNNING protected
-		// set.
+		// Shutdown must retain the saved segments needed for recovery.
 		log.Info("download interrupted by shutdown; leaving RUNNING for resume",
 			"error", cause,
 			"stage", d.resume.Stage,
@@ -3247,6 +2113,10 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 		return
 	}
 
+	settleCtx := dbCtx
+	if d.runCtx != nil {
+		settleCtx = d.runCtx
+	}
 	recorded := cause
 	s.closeMetadataSpans(dbCtx, d, log, "failure")
 	if userCancelled {
@@ -3259,38 +2129,18 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	if d.vod {
 		message = archiveFailureMessage(recorded)
 	}
-	// completion_kind for terminal failures, in priority order:
-	//
-	//   cancelled — operator stopped the run via Cancel(). UI shows
-	//               a grey CANCELLED badge instead of red FAILED.
-	//   partial   — at least one part has been remuxed and persisted
-	//               (size_bytes > 0 in video_parts). The recording
-	//               file exists and is watchable; the run failed
-	//               before the next part finished. Surfacing this
-	//               distinguishes "we have something for you" from
-	//               "this run produced nothing recoverable" in the
-	//               videos page Partial tab.
-	//   complete  — fallthrough for failed runs that never finalized
-	//               a part (auth failure pre-segments, immediate
-	//               playlist 404, fetch retries exhausted before any
-	//               part rolled over). FAILED with no salvage. UI
-	//               reads the error field for details.
-	//
-	// HasFinalizedVideoParts is one cheap EXISTS-on-index query —
-	// the failure path is rare enough that an extra round-trip is
-	// fine. On its own error we keep the existing safe default
-	// (complete) and log; better than mis-stamping a partial label
-	// because of a transient repo glitch.
-	// dbCtx is context.WithoutCancel(parentCtx) at the top of run()
-	// so a canceled parent doesn't bleed into terminal writes —
-	// any error here is a real repo failure, not the run's own
-	// cancellation. Safe-default to complete on error rather than
-	// risk mis-stamping partial.
-	hasPart, err := s.repo.HasFinalizedVideoParts(dbCtx, d.videoID)
-	partsKnown := err == nil
+	// A failed classification read cannot prove no saved media exists or permit scratch removal.
+	var hasPart bool
+	err := s.persist(settleCtx, "classify failure", func(c context.Context) error {
+		var err error
+		hasPart, err = s.repo.HasFinalizedVideoParts(c, d.videoID)
+		return err
+	})
 	if err != nil {
-		log.Warn("classify failure: check finalized parts", "video_id", d.videoID, "error", err)
+		log.Error("failure classification unresolved", "error", err)
+		return
 	}
+	partsKnown := true
 	failCompletionKind := repository.CompletionKindComplete
 	switch {
 	case userCancelled:
@@ -3298,29 +2148,29 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 	case partsKnown && hasPart:
 		failCompletionKind = repository.CompletionKindPartial
 	}
-	// cutShort: a cancel is the operator stopping a live recording, a
-	// window roll means the CDN advanced past us while the broadcast
-	// kept going, and EndListSeen=false means the playlist never closed
-	// and the recorder ended early. A REMUX/STORE failure after
-	// EndListSeen=true is a post-broadcast failure: the artifact wasn't
-	// produced, but the recording wasn't cut short relative to the
-	// broadcast.
+	// Post-capture processing failures do not truncate a broadcast that reached ENDLIST.
 	cutShort := userCancelled || d.resume.HadWindowRoll || !d.resume.EndListSeen
 	truncated := failedRunTruncated(partsKnown, hasPart, cutShort)
 
-	// An archive that failed for a passing reason gets another attempt
-	// later. The failure is not terminal for the recording, so no webhook
-	// fires and the dispatcher is not woken; the retry either completes the
-	// archive or the last attempt fails it for good below.
+	// A scheduled retry is not terminal, so it must not enqueue a completion webhook.
 	if d.vod && !userCancelled {
 		if delay, ok := archiveRetryDelay(d.attempt); ok && archiveRetryable(cause) {
 			retryAt := time.Now().UTC().Add(delay)
-			if err := s.repo.WithTx(dbCtx, func(tx repository.Repository) error {
-				if err := tx.MarkArchiveFailedForRetry(dbCtx, d.videoID, message, failCompletionKind, truncated, retryAt); err != nil {
-					return err
-				}
-				return tx.MarkJobFailed(dbCtx, d.jobID, message)
+			if err := s.persistVideoChange(settleCtx, "archive retry", func(dbCtx context.Context) error {
+				return s.repo.WithTx(dbCtx, func(tx repository.Repository) error {
+					if _, err := repository.GuardAttempt(dbCtx, tx, d.claim()); err != nil {
+						return err
+					}
+					if err := tx.MarkArchiveFailedForRetry(dbCtx, d.videoID, message, failCompletionKind, truncated, retryAt); err != nil {
+						return err
+					}
+					return tx.MarkJobFailed(dbCtx, d.jobID, message)
+				})
 			}); err != nil {
+				if errors.Is(err, repository.ErrStopRequested) {
+					s.failDownload(dbCtx, d, log, err)
+					return
+				}
 				// Keep the old attempt and its checkpoint recoverable. Neither a
 				// retry nor a terminal event exists until both writes commit.
 				log.Error("failed to persist archive retry; preserving attempt for recovery", "error", err)
@@ -3335,100 +2185,79 @@ func (s *Service) failDownload(dbCtx context.Context, d *download, log *slog.Log
 		}
 	}
 
-	if err := s.markRecordingFailed(dbCtx, d.jobID, d.videoID, message, failCompletionKind, truncated); err != nil {
+	if err := s.persist(settleCtx, "failure", func(c context.Context) error {
+		return s.markRecordingFailed(c, d.claim(), message, failCompletionKind, truncated)
+	}); err != nil {
+		if errors.Is(err, repository.ErrStopRequested) {
+			s.failDownload(dbCtx, d, log, err)
+			return
+		}
 		log.Error("failed to persist recording failure; preserving attempt for recovery", "error", err)
 		return
 	}
-	// Terminal-for-this-attempt outcome: the job is now FAILED
-	// (user cancel or real failure). FAILED rows are excluded from
-	// Resume's RUNNING/PENDING query, so keeping scratch would just
-	// leak until next boot's sweep. Wipe now.
+	// Terminal jobs are excluded from recovery, so their scratch can be removed.
 	d.cleanupScratch = true
-	// Wake the webhook dispatcher. Only real failures and cancels reach here —
-	// the shutdown branch returned early above, so an interrupted recording that
-	// stays RUNNING for resume never queues or wakes a webhook.
 	s.publishRecordingTerminal(d.videoID, eventbus.RecordingFailed)
 	if d.vod {
 		s.publishArchiveQueue(eventbus.ArchiveFailed, d.videoID)
 	}
 }
 
-// closeMetadataSpans closes the live title and category spans of a recording
-// that stopped acquiring media. Archives track no live metadata and own no
-// span, so nothing is written for them.
 func (s *Service) closeMetadataSpans(dbCtx context.Context, d *download, log *slog.Logger, reason string) {
 	if d.vod {
 		return
 	}
-	if err := s.repo.CloseOpenVideoMetadataSpans(dbCtx, d.videoID, time.Now().UTC()); err != nil {
+	if err := repository.StopAttemptMetadata(dbCtx, s.repo, d.claim(), time.Now().UTC()); err != nil {
 		log.Warn("close video metadata spans on "+reason, "video_id", d.videoID, "error", err)
 	}
 }
 
-// classifyTwitchAuth wires the twitch-specific entitlement-code
-// classifier into the hls package's generic ClassifyAuth hook.
-// Returns true when the body carries a permanent code
-// (subscriber-only, geoblock, VOD-manifest-restricted) so the
-// caller can fail fast instead of refreshing. False for any other
-// 401/403 — a stale signed URL that a fresh token will fix.
-//
-// hls package is intentionally Twitch-agnostic; binding this on
-// the downloader side keeps the classifier one function call off
-// the hot path without leaking Twitch symbols into hls/.
+// classifyTwitchAuth reports whether Twitch refused playback permanently.
+// Other 401/403 responses may be repaired with a fresh playback token.
 func classifyTwitchAuth(status int, body []byte) bool {
 	return twitch.IsPermanent(twitch.NewAuthError(status, body))
 }
 
-// storageSnapshotWriter adapts storage.Storage to the
-// thumbnail.SnapshotWriter interface. Writes each capture to the
-// deterministic key storagekeys.Snapshot builds:
-//
-//	thumbnails/<filename>-snap00.jpg
-//	thumbnails/<filename>-snap01.jpg
-//	...
-//
-// The UI and retention discover the set by probing those keys (via
-// storagekeys.Snapshot) until the first gap.
-//
-// ctx is the recording's long-lived context (NOT the snapshotter's
-// derived ctx). An upload that starts right before the snapshotter
-// ctx cancels should still be allowed to finish — otherwise a tick
-// firing at the same moment as "recording done" would be lost.
-// The outer run() ctx + user cancel still tear everything down if
-// the whole job is canceled.
 type storageSnapshotWriter struct {
-	storage              storage.Storage
-	ready                func() error
-	filename             string
-	ctx                  context.Context
-	onFirstSnapshotSaved func(path string)
+	storage  *mediastore.Store
+	claim    repository.AttemptClaim
+	filename string
+	cursor   int
 }
 
-func (w *storageSnapshotWriter) WriteSnapshot(_ context.Context, index int, body io.Reader) error {
-	if w.ready != nil {
-		if err := w.ready(); err != nil {
-			return err
-		}
-	}
-	path := storagekeys.Snapshot(w.filename, index)
-	if err := w.storage.Save(w.ctx, path, body); err != nil {
+// WriteSnapshot publishes one frame under a fresh key before promoting it to the video thumbnail.
+func (w *storageSnapshotWriter) WriteSnapshot(ctx context.Context, index int, body io.Reader) error {
+	const maxSnapshotBytes = 8 << 20
+	data, err := io.ReadAll(io.LimitReader(body, maxSnapshotBytes+1))
+	if err != nil {
 		return err
 	}
-	if w.ready != nil {
-		if err := w.ready(); err != nil {
-			return err
-		}
+	if len(data) > maxSnapshotBytes {
+		return fmt.Errorf("snapshot exceeds %d bytes", maxSnapshotBytes)
 	}
-	if index == 0 && w.onFirstSnapshotSaved != nil {
-		w.onFirstSnapshotSaved(path)
+	owned, err := w.storage.ForAttempt(ctx, w.claim)
+	if err != nil {
+		return err
 	}
-	return nil
+	defer owned.Close()
+	w.cursor = max(w.cursor, index)
+	next, err := owned.NextSnapshotIndex(ctx, w.filename, w.cursor)
+	if err != nil {
+		return err
+	}
+	w.cursor = next
+	key := storagekeys.Snapshot(w.filename, w.cursor)
+	if err := owned.Save(ctx, key, bytes.NewReader(data)); err != nil {
+		return err
+	}
+	w.cursor++
+	return owned.Commit(ctx, func(tx repository.Repository) error {
+		_, err := tx.SetVideoThumbnailIfMissing(ctx, w.claim.VideoID, key)
+		return err
+	})
 }
 
-// buildFilename generates a deterministic, filesystem-safe
-// filename tied to the job ID so a retry of the same broadcaster
-// doesn't clobber the original. Format:
-// <UTC timestamp>-<login>-<short jobID>.
+// buildFilename includes a job suffix so recordings of the same broadcaster do not collide.
 func buildFilename(login, jobID string) string {
 	ts := time.Now().UTC().Format("20060102-150405")
 	short := strings.ReplaceAll(jobID, "-", "")

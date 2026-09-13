@@ -7,12 +7,10 @@ import (
 	"time"
 )
 
-// Stage is the durable pipeline stage recorded in ResumeState so a
-// server restart knows where to pick up. Values match the spec's
-// "Resume on restart" section — do not invent new stages without
-// also updating the startup dispatch in Service.Resume.
+// Stage is a persisted pipeline position; new values require matching recovery handling.
 type Stage string
 
+// Persisted pipeline stages.
 const (
 	StageAuth            Stage = "AUTH"
 	StagePlaylist        Stage = "PLAYLIST"
@@ -25,14 +23,7 @@ const (
 	StageStore           Stage = "STORE"
 )
 
-// stageOrder maps each stage to its forward position in the
-// pipeline. Used for ordering comparisons; string comparison on
-// Stage values is alphabetical and doesn't reflect pipeline order
-// ("PREPARE_INPUT" < "SEGMENTS" alphabetically but runs after).
-//
-// Unknown stages (future additions or corrupted JSON) map to 0
-// via the zero-value default, which conservatively re-runs from
-// the start of the pipeline.
+// stageOrder follows pipeline execution because alphabetical stage order differs.
 var stageOrder = map[Stage]int{
 	StageAuth:            0,
 	StagePlaylist:        1,
@@ -45,87 +36,52 @@ var stageOrder = map[Stage]int{
 	StageStore:           8,
 }
 
-// AtOrAfter reports whether s is at or past `target` in the
-// pipeline. Resume paths use this to decide whether a stored
-// checkpoint is already past a given stage boundary (e.g. "can
-// we skip Stages 1-4 because we're already past SEGMENTS?").
+// AtOrAfter reports whether s reaches target in pipeline order.
 func (s Stage) AtOrAfter(target Stage) bool {
 	return stageOrder[s] >= stageOrder[target]
 }
 
-// GapReason is a stable identifier for why a segment entered gaps[].
-// The resume logic never interprets reasons — they're for operator
-// log review and UI surfacing. New reasons are additive; don't
-// rename existing ones (they're on-disk strings in the JSONB column).
+// GapReason is persisted in checkpoints and must remain stable across upgrades.
 type GapReason string
 
 const (
-	// GapReasonStitchedAd: segment was inside a Twitch stitched-ad
-	// pod (EXT-X-DATERANGE CLASS="twitch-stitched-ad"). Not a
-	// fetch failure — the segment was never enqueued.
+	// GapReasonStitchedAd excludes Twitch stitched-ad segments from content loss.
 	GapReasonStitchedAd GapReason = "stitched-ad"
 
-	// GapReasonFetchFailure: the worker exhausted its retry budget
-	// on a transport / CDN error and the gap policy accepted the
-	// loss rather than aborting the job.
+	// GapReasonFetchFailure records a fetch failure accepted by gap policy.
 	GapReasonFetchFailure GapReason = "fetch_failure_after_retries"
 
-	// GapReasonAuth: the worker hit a 401/403 on a segment fetch.
-	// The job is terminating via auth-refresh escalation; the seq
-	// is marked gapped in the current attempt's state so the next
-	// attempt's StartMediaSeq skips past it.
+	// GapReasonAuth remains refetchable after playback-token renewal.
 	GapReasonAuth GapReason = "auth_error"
 
-	// GapReasonRestartWindowRolled: on resume, the playlist head
-	// was already past the saved frontier. Covers a range
-	// [frontier+1, playlistHead-1] in a single gap entry.
+	// GapReasonRestartWindowRolled covers saved sequences that no longer exist on the CDN.
 	GapReasonRestartWindowRolled GapReason = "restart_window_rolled"
 
-	// GapReasonMalformed: poller filtered a segment with
-	// invariant-violating metadata (EXTINF <= 0) before any
-	// fetch attempt. Distinct from GapReasonFetchFailure —
-	// no CDN or transport involvement; the defect is in the
-	// manifest itself. Not refetched.
+	// GapReasonMalformed records invalid manifest segments that cannot be refetched.
 	GapReasonMalformed GapReason = "malformed"
 )
 
-// Gap is one entry in ResumeState.Gaps. Covers either a single
-// MediaSeq (MediaSeq == EndMediaSeq) or an inclusive range
-// (MediaSeq < EndMediaSeq) for restart-window-rolled losses.
-//
-// Wire format deviates from the spec's mixed {media_seq} /
-// {media_seq_range:[a,b]} union: this package always emits both
-// fields so reader code has one shape to parse. Spec example JSON
-// is illustrative; no external consumer reads this blob except the
-// same code that wrote it.
+// Gap describes an inclusive lost-media sequence range; equal endpoints mean one segment.
 type Gap struct {
 	MediaSeq    int64     `json:"media_seq"`
 	EndMediaSeq int64     `json:"end_media_seq"`
 	Reason      GapReason `json:"reason"`
 }
 
-// CompletedSegmentAccounting carries byte/duration metadata for a
-// committed segment that finished above the contiguous frontier. The
-// seq itself is still listed in CompletedAboveFrontier for the
-// historical resume contract; this parallel field lets threshold
-// accounting add bytes/seconds only when that seq becomes contiguous.
+// CompletedSegmentAccounting delays byte and duration totals until a completed segment reaches
+// the frontier.
 type CompletedSegmentAccounting struct {
 	MediaSeq        int64   `json:"media_seq"`
 	Bytes           int64   `json:"bytes"`
 	DurationSeconds float64 `json:"duration_seconds,omitempty"`
 }
 
-// ResumeState is the durable per-job checkpoint stored in
-// jobs.resume_state as JSON. Serialized verbatim; on restart the
-// downloader reads one row, unmarshals into ResumeState, calls
-// Init(), and dispatches on Stage.
-//
-// Mutation contract: only the run goroutine writes. Writes are
-// through repository.UpdateJobResumeState, which is a single
-// UPDATE — no history, no CAS. Writes after material state
-// transitions: stage change, segment outcome, gap accepted.
+// ResumeState is the execution's durable recording checkpoint.
+// Only the attempt goroutine may mutate it; persistence must verify execution ownership.
 type ResumeState struct {
-	Stage Stage `json:"stage"`
+	CaptureStoppedAt *time.Time    `json:"capture_stopped_at,omitempty"`
+	PreparedPart     *PreparedPart `json:"prepared_part,omitempty"`
+	Stage            Stage         `json:"stage"`
 
 	// PosterURL is durable queue metadata. Fetch only once the job owns a
 	// running slot, so queued rows never own objects that dequeue could orphan.
@@ -300,21 +256,9 @@ func NewResumeState() *ResumeState {
 	}
 }
 
-// Init rebuilds the in-memory aux structure after a JSON
-// unmarshal. Callers deserializing from jobs.resume_state MUST
-// call Init before using the Note* or Advance methods.
-//
-// Idempotent: safe to call repeatedly, safe to call on a
-// fresh-constructed state.
+// Init rebuilds accounting after decoding and is safe to call repeatedly.
+// Call it before recording outcomes unless using UnmarshalResumeState.
 func (r *ResumeState) Init() {
-	if !r.PartStarted &&
-		(r.PartStartMediaSequence != 0 ||
-			r.AccountedFrontierMediaSeq != 0 ||
-			len(r.CompletedAboveFrontier) > 0 ||
-			len(r.Gaps) > 0 ||
-			r.Stage.AtOrAfter(StagePrepareInput)) {
-		r.PartStarted = true
-	}
 	if r.resolvedAbove == nil {
 		r.resolvedAbove = map[int64]bool{}
 	} else {
@@ -350,8 +294,7 @@ func (r *ResumeState) Init() {
 	}
 }
 
-// SetStage updates the durable stage + touches CheckpointAt.
-// The caller persists via repository.UpdateJobResumeState.
+// SetStage updates the in-memory checkpoint; the caller must persist it.
 func (r *ResumeState) SetStage(s Stage) {
 	r.Stage = s
 	r.CheckpointAt = time.Now().UTC()
@@ -508,6 +451,7 @@ func (r *ResumeState) ContinuePart() {
 }
 
 func (r *ResumeState) resetPerPartAccounting() {
+	r.PreparedPart = nil
 	r.CompletedAboveFrontier = nil
 	r.CompletedAboveFrontierAccounting = nil
 	r.PartBytes = 0
@@ -875,17 +819,15 @@ func (r *ResumeState) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// UnmarshalResumeState decodes a resume_state JSONB blob and
-// rebuilds the in-memory aux structures. Empty or `{}` input
-// returns a zero-valued state with Init already applied — a
-// fresh job with no checkpoint yet.
+// UnmarshalResumeState reads the current persisted shape. SQL migrations own
+// upgrades; malformed or missing checkpoint structure is a domain failure.
 func UnmarshalResumeState(data []byte) (*ResumeState, error) {
-	if len(data) == 0 || string(data) == "{}" {
-		return NewResumeState(), nil
-	}
 	var r ResumeState
 	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, fmt.Errorf("resume state unmarshal: %w", err)
+	}
+	if _, ok := stageOrder[r.Stage]; !ok || r.CurrentPartIndex < 1 {
+		return nil, fmt.Errorf("invalid recording checkpoint stage or part index")
 	}
 	r.Init()
 	return &r, nil

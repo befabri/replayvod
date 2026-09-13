@@ -16,6 +16,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/invite"
+	"github.com/befabri/replayvod/server/internal/mediastore"
 	"github.com/befabri/replayvod/server/internal/playbackauth"
 	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/recordingwebhook"
@@ -60,28 +61,28 @@ import (
 
 const bundledDashboardDir = "/app/dashboard"
 
-// RecordingServices is shared by HTTP and scheduler workers. Keeping construction
-// at the composition root makes deletion availability and scan progress agree.
+// RecordingServices shares storage identity, recording locks and media ownership
+// between HTTP handlers and background workers.
 type RecordingServices struct {
 	Retention    *retention.Service
 	StorageScan  *storagescan.Service
 	PlaybackAuth *playbackauth.Service
-	// StorageHealth vouches for the storage before anything records into it,
-	// scans it or tombstones from it. Unsupported backends have a monitor that
-	// reports unavailable, keeping the dashboard accessible and storage paused.
-	StorageHealth  *storagehealth.Monitor
-	RecordingLocks *recordinglock.Locks
+	// StorageHealth reports unsupported backends as unavailable, leaving the
+	// dashboard accessible while storage work is paused.
+	StorageHealth *storagehealth.Monitor
+	Media         *mediastore.Store
 }
 
 func NewRecordingServices(cfg *config.Config, repo repository.Repository, store storage.Storage, bus *eventbus.Buses, log *slog.Logger) *RecordingServices {
 	health := storagehealth.New(repo, store, bus, log, storageBackend(cfg), storageLocation(cfg))
 	locks := &recordinglock.Locks{}
+	media := mediastore.New(repo, store, health, locks, cfg.Env.ScratchDir)
 	return &RecordingServices{
-		Retention:      retention.New(repo, store, health, log, retention.WithManualDeletionWorkerAvailable(cfg.App.Scheduler.Enabled), retention.WithEventBus(bus), retention.WithRecordingLocks(locks)),
-		StorageScan:    storagescan.New(repo, store, health, log, storagescan.WithEventBus(bus), storagescan.WithRecordingLocks(locks)),
-		PlaybackAuth:   playbackauth.New(repo, cfg.Env.SessionSecret, playbackauth.NewTwitchValidator()),
-		StorageHealth:  health,
-		RecordingLocks: locks,
+		Retention:     retention.New(repo, media, log, retention.WithManualDeletionWorkerAvailable(cfg.App.Scheduler.Enabled), retention.WithEventBus(bus)),
+		StorageScan:   storagescan.New(repo, media, log, storagescan.WithEventBus(bus)),
+		PlaybackAuth:  playbackauth.New(repo, cfg.Env.SessionSecret, playbackauth.NewTwitchValidator()),
+		StorageHealth: health,
+		Media:         media,
 	}
 }
 
@@ -99,22 +100,17 @@ func storageLocation(cfg *config.Config) string {
 	return cfg.App.Storage.LocalPath
 }
 
-func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger, services ...*RecordingServices) (*chi.Mux, func() error) {
+// SetupRouter requires shared recording services. Its cleanup function closes
+// transports and stops and joins follow imports and waveform generation.
+func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, eventProcessor *schedulesvc.EventProcessor, webhookDispatcher *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger, recordings *RecordingServices) (*chi.Mux, func() error) {
 	r := chi.NewRouter()
 	trustedBrowserOrigins := cfg.TrustedBrowserOrigins()
 
-	// Pprof endpoints, dev-only. Production config.toml leaves
-	// Development=false so this never listens on a hardened deploy.
-	// Mounted directly (not under /api/) to match the default
-	// net/http/pprof paths that `go tool pprof` expects.
+	// Mount the standard /debug paths expected by go tool pprof.
 	if cfg.App.Development {
 		r.Mount("/debug", chimiddleware.Profiler())
 	}
 
-	// Shared domain services — used across multiple transports. Construct
-	// once so the OAuth Chi handler + tRPC handler share an auth Service,
-	// and the schedule webhook processor + tRPC handler share a schedule
-	// Service.
 	authSvc := auth.New(repo, sessionMgr, twitchClient, auth.Config{
 		WhitelistEnabled: cfg.Env.WhitelistEnabled,
 		OwnerTwitchID:    cfg.Env.OwnerTwitchID,
@@ -127,45 +123,25 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	}
 	scheduleSvc := schedulesvc.New(repo, log, scheduleOpts...)
 
-	// Chi routes (non-tRPC: OAuth, webhooks, video streaming, thumbnails).
-	// Video/thumbnail routes reuse the session middleware — auth required
-	// for both, and we want the same context population the tRPC side gets.
 	followSync := followsync.New(repo, twitchClient, log)
 	authHandler := auth.NewHandler(cfg, twitchClient, sessionMgr, authSvc, followSync, log)
-	var recordings *RecordingServices
-	if len(services) > 0 {
-		recordings = services[0]
-	}
-	if recordings == nil {
-		recordings = NewRecordingServices(cfg, repo, store, bus, log)
+	if recordings == nil || recordings.Media == nil {
+		panic("shared recording services required")
 	}
 	storageGate := recordings.StorageHealth
-	// The video stream handler also serves signed, unauthenticated per-part
-	// download URLs (handed to recording-webhook consumers). The verifier shares
-	// the server HMAC secret; the route is registered outside the session
-	// middleware below since the signature, not a cookie, authorizes it.
 	streamOpts := []video.StreamHandlerOption{
-		// Lazily build the single-file playback artifact the first time a part is
-		// streamed (i.e. someone actually watches), instead of eagerly on every
-		// recording's completion.
 		video.WithPlaybackBuilder(playbackCache),
 		video.WithMissingMarker(recordings.StorageScan),
-		video.WithStorageGate(recordings.StorageHealth),
-		video.WithRecordingLocks(recordings.RecordingLocks),
 	}
 	videoStream := video.NewStreamHandler(
 		repo,
-		store,
+		recordings.Media,
 		videodownload.NewVerifier(cfg.Env.HMACSecret),
 		log,
 		streamOpts...,
 	)
-	// The webhook handler needs the raw body for HMAC verification, so it
-	// must live on the Chi side (no tRPC JSON middleware) and outside the
-	// csrfProtection group (Twitch can't provide a CSRF cookie). Only wire the
-	// notification processor when this process is configured to receive
-	// EventSub; stale Twitch deliveries after EventSub is turned off should be
-	// audited, not dispatched into the recording pipeline.
+	// Twitch needs raw-body HMAC verification and cannot provide CSRF cookies.
+	// Disabled EventSub deliveries are audited without starting recordings.
 	var webhookProcessor webhook.EventProcessor
 	if cfg.ServerMode.ProcessesWebhookNotifications() {
 		webhookProcessor = eventProcessor
@@ -179,13 +155,10 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		}
 		authHandler.SetupRoutes(r)
 		videoStream.SetupRoutes(r, sessionMw)
-		// Signed per-part download route: no session middleware — the URL's
-		// HMAC signature and expiry are the authorization.
 		videoStream.SetupSignedRoutes(r)
 		webhookHandler.SetupRoutes(r)
 	})
 
-	// tRPC router with CSRF/origin protection.
 	trpcRouter := setupTRPCRouter(cfg, repo, sessionMgr, tokenProvider, twitchClient, dl, hydrator, store, bus, authSvc, scheduleSvc, webhookDispatcher, recordings, log)
 	csrfProtection := http.NewCrossOriginProtection()
 	for _, origin := range trustedBrowserOrigins {
@@ -200,16 +173,14 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 	r.With(sessionMw).Get("/trpc/ws", wsHandler.ServeHTTP)
 	r.Group(func(r chi.Router) {
 		r.Use(csrfProtection.Handler)
-		// Per method rather than a catch-all so routedMethods sees what tRPC
-		// serves and chi answers anything else with 405.
+		// Register methods explicitly so CORS discovers them and chi rejects others with 405.
 		for _, method := range trpc.Methods() {
 			r.Method(method, "/trpc/*", trpcHandler)
 		}
 	})
 
-	// SPA fallback. Docker images place the built dashboard at
-	// bundledDashboardDir. Manual/source packages can set DASHBOARD_DIR; for an
-	// explicit path, keep setupDashboardRoutes' warning when files are missing.
+	// Warn when an explicit dashboard path is missing; silently skip an absent
+	// bundled dashboard in source deployments.
 	if cfg.Env.DashboardDir != "" {
 		setupDashboardRoutes(r, cfg.Env.DashboardDir, log)
 	} else if dashboardBuildExists(bundledDashboardDir) {
@@ -231,7 +202,7 @@ func SetupRouter(cfg *config.Config, repo repository.Repository, sessionMgr *ses
 		defer cancel()
 		followSync.Stop()
 		_ = wsHandler.Close()
-		return errors.Join(followSync.Wait(ctx), trpcRouter.Close())
+		return errors.Join(videoStream.Close(), followSync.Wait(ctx), trpcRouter.Close())
 	}
 }
 
@@ -263,10 +234,7 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 		trpcgo.WithContextCreator(middleware.WithContextCreator),
 		trpcgo.WithValidator(validate.V.Struct),
 		trpcgo.WithBatching(true),
-		// Default is 10; the dashboard routinely composes 10-15
-		// parallel queries per view (videos grid + session +
-		// settings + SSE bootstraps). 50 gives 3-5× headroom over
-		// any current page without removing the abuse guardrail.
+		// Dashboard views exceed the default batch limit of 10; 50 still bounds request work.
 		trpcgo.WithMaxBatchSize(50),
 		trpcgo.WithMethodOverride(true),
 		trpcgo.WithDev(cfg.App.Development),
@@ -298,9 +266,6 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 
 	tr := trpcgo.NewRouter(opts...)
 
-	// Procedure builders: authed is the base, viewer/admin/owner layer role
-	// middleware on top. Each domain's RegisterRoutes picks the ones it
-	// needs, so we pass only what's relevant per call.
 	authMw := middleware.TRPCAuth(sessionMgr, repo, tokenProvider, log)
 	adminMw := middleware.TRPCRequireRole(middleware.RoleAdmin)
 	ownerMw := middleware.TRPCRequireRole(middleware.RoleOwner)
@@ -310,14 +275,9 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	admin := authed.Use(adminMw)
 	owner := authed.Use(ownerMw)
 
-	// EventSub domain service — the tRPC handler uses the same domain service
-	// type as the scheduler, but main.go builds a separate boot-time instance
-	// for background jobs.
 	eventsubMgr := eventsubsvc.New(repo, twitchClient, cfg.ServerModeCallbackURL(), cfg.Env.HMACSecret, log)
 	eventsubConfigSvc := eventsubconfig.New(repo, cfg, log)
 
-	// Dispatch to each domain. Keeps this function stable when a domain
-	// adds a new procedure — the change lives in that domain's routes.go.
 	auth.RegisterTRPC(tr, authSvc, sessionMgr, log, authed)
 	category.RegisterRoutes(tr, repo, twitchClient, log, viewer)
 	channel.RegisterRoutes(tr, repo, twitchClient, log, viewer, owner)
@@ -336,7 +296,7 @@ func setupTRPCRouter(cfg *config.Config, repo repository.Repository, sessionMgr 
 	system.RegisterRoutes(tr, repo, invite.New(repo, cfg.Env.FrontendURL, log), log, admin, owner)
 	tag.RegisterRoutes(tr, repo, log, viewer)
 	task.RegisterRoutes(tr, repo, log, owner)
-	video.RegisterRoutes(tr, repo, dl, twitchClient, hydrator, recordings.Retention, recordings.StorageScan, store, log, viewer, admin)
+	video.RegisterRoutes(tr, repo, dl, twitchClient, hydrator, recordings.Retention, recordings.StorageScan, recordings.Media, log, viewer, admin)
 
 	return tr
 }
@@ -378,7 +338,6 @@ func setupDashboardRoutes(r *chi.Mux, dashboardDir string, log *slog.Logger) {
 			return
 		}
 
-		// SPA fallback: serve index.html for all other routes
 		http.ServeFile(w, r, indexPath)
 	})
 }

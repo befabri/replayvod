@@ -3,97 +3,16 @@ package playbackcache
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/repository"
-	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
-	"github.com/befabri/replayvod/server/internal/service/retention"
-	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
-	"github.com/befabri/replayvod/server/internal/testdb"
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
 )
-
-type publicationRepo struct {
-	repository.Repository
-	beforeReady    func()
-	afterListReady func()
-}
-
-func (r *publicationRepo) GetServerSettings(context.Context) (*repository.ServerSettings, error) {
-	return &repository.ServerSettings{PlaybackCacheEnabled: true, PlaybackCacheAutoGenerate: true, PlaybackCacheMaxPercent: 100}, nil
-}
-
-func (r *publicationRepo) UpsertVideoPlaybackAsset(ctx context.Context, input *repository.VideoPlaybackAssetInput) (*repository.VideoPlaybackAsset, error) {
-	if input.Status == repository.PlaybackAssetStatusReady && r.beforeReady != nil {
-		r.beforeReady()
-	}
-	return r.Repository.UpsertVideoPlaybackAsset(ctx, input)
-}
-
-func (r *publicationRepo) ListReadyVideoPlaybackAssets(ctx context.Context) ([]repository.VideoPlaybackAsset, error) {
-	entries, err := r.Repository.ListReadyVideoPlaybackAssets(ctx)
-	if err == nil && r.afterListReady != nil {
-		r.afterListReady()
-	}
-	return entries, err
-}
-
-func publicationFixture(t *testing.T) (*Service, *publicationRepo, *storage.LocalStorage, *retention.Service, *repository.Video) {
-	ctx := t.Context()
-	repo := &publicationRepo{Repository: sqliteadapter.New(testdb.NewSQLiteDB(t))}
-	store, err := storage.NewLocal(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "b", BroadcasterLogin: "b", BroadcasterName: "B"}); err != nil {
-		t.Fatal(err)
-	}
-	v, err := repo.CreateVideo(ctx, &repository.VideoInput{JobID: "job", Filename: "vod-42", DisplayName: "B", BroadcasterID: "b", Status: repository.VideoStatusDone, Quality: repository.QualityHigh, RecordingType: repository.RecordingTypeVideo})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, part := range compatibleParts() {
-		row, err := repo.CreateVideoPart(ctx, &repository.VideoPartInput{VideoID: v.ID, PartIndex: part.PartIndex, Filename: part.Filename, Quality: part.Quality, FPS: part.FPS, Codec: part.Codec, SegmentFormat: repository.SegmentFormatFMP4})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := repo.FinalizeVideoPart(ctx, &repository.VideoPartFinalize{ID: row.ID, DurationSeconds: part.DurationSeconds, SizeBytes: part.SizeBytes, EndMediaSeq: 1}); err != nil {
-			t.Fatal(err)
-		}
-		if err := store.Save(ctx, storagekeys.Video(part.Filename), strings.NewReader("part")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	log := slog.New(slog.DiscardHandler)
-	locks := &recordinglock.Locks{}
-	gate := gateFunc(func() error { return nil })
-	deleter := retention.New(repo, store, gate, log, retention.WithRecordingLocks(locks))
-	svc := New(repo, store, gate, t.TempDir(), "", log, WithRecordingLocks(locks))
-	svc.SetRunner(&fakeRunner{body: []byte("playback")})
-	t.Cleanup(svc.Close)
-	return svc, repo, store, deleter, v
-}
-
-func assertPurged(t *testing.T, repo repository.Repository, store storage.Storage, videoID int64) {
-	t.Helper()
-	v, err := repo.GetVideo(t.Context(), videoID)
-	if err != nil || v.DeletedAt == nil {
-		t.Fatalf("recording was not deleted: %+v, %v", v, err)
-	}
-	if asset, err := repo.GetVideoPlaybackAsset(t.Context(), videoID); !errors.Is(err, repository.ErrNotFound) {
-		t.Fatalf("publication recreated asset after retention: %+v, %v", asset, err)
-	}
-	if exists, err := store.Exists(t.Context(), storagekeys.Video("vod-42-playback.mp4")); err != nil || exists {
-		t.Fatalf("publication recreated artifact after retention: exists=%v, %v", exists, err)
-	}
-}
 
 func TestCachePublicationCannotRecreateAssetAfterRetention(t *testing.T) {
 	svc, repo, store, deleter, video := publicationFixture(t)
@@ -113,8 +32,7 @@ func TestCachePublicationCannotRecreateAssetAfterRetention(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("build did not reach publication barrier")
 	}
-	// The barrier is before the actual SQLite upsert, so no database lock
-	// can incidentally serialize this purge. Only recording ownership can.
+	// Publication keeps recording ownership through its guarded transaction.
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	if err := deleter.DeleteRecording(ctx, video, repository.DeletionKindRetention); !errors.Is(err, context.DeadlineExceeded) {
@@ -158,7 +76,7 @@ func TestCacheConcatDoesNotHoldRecordingOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPurged(t, repo, store, video.ID)
-	if entries, err := os.ReadDir(svc.scratch); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(svc.store.Scratch().Root()); err != nil || len(entries) != 0 {
 		t.Fatalf("discarded concat left scratch data: %v, %v", entries, err)
 	}
 }
@@ -170,7 +88,7 @@ func TestCachePublicationWaitHonorsCancellation(t *testing.T) {
 	owned := make(chan struct{})
 	release := make(chan struct{})
 	svc.SetRunner(&fakeRunner{body: []byte("playback"), beforeWrite: func() {
-		unlock, err := svc.recordingLocks.Lock(ctx, video.ID)
+		unlock, err := mediatest.Locks(svc.store).Lock(ctx, video.ID)
 		if err != nil {
 			t.Error(err)
 		} else {
@@ -204,10 +122,8 @@ func TestCachePublicationWaitHonorsCancellation(t *testing.T) {
 	if err != nil || asset.Status != repository.PlaybackAssetStatusBuilding {
 		t.Fatalf("canceled build lost retryable state: %+v, %v", asset, err)
 	}
-	if exists, err := store.Exists(t.Context(), storagekeys.Video("vod-42-playback.mp4")); err != nil || exists {
-		t.Fatalf("canceled build published an artifact: exists=%v, %v", exists, err)
-	}
-	if entries, err := os.ReadDir(svc.scratch); err != nil || len(entries) != 0 {
+	assertPlaybackFiles(t, svc, store)
+	if entries, err := os.ReadDir(svc.store.Scratch().Root()); err != nil || len(entries) != 0 {
 		t.Fatalf("canceled wait retained scratch output: %v, %v", entries, err)
 	}
 }
@@ -240,7 +156,7 @@ func TestPruneCannotDeleteCacheFromStaleSnapshot(t *testing.T) {
 					<-releaseSnapshot
 				}
 			}
-			pruner := New(repo, store, svc.gate, t.TempDir(), "", svc.log, WithRecordingLocks(svc.recordingLocks))
+			pruner := New(repo, cacheMedia(t, repo, store, svc.store, mediatest.Locks(svc.store)), "", svc.log)
 			t.Cleanup(pruner.Close)
 			pruner.capacityOverride = func(int64) (int64, bool) { return 0, true }
 			svc.capacityOverride = func(int64) (int64, bool) { return 1 << 40, true }
@@ -318,7 +234,7 @@ func TestPruneCannotDeleteCacheFromStaleSnapshot(t *testing.T) {
 			if err != nil || asset.Status != repository.PlaybackAssetStatusReady {
 				t.Fatalf("stale prune discarded rebuilt row: %+v, %v", asset, err)
 			}
-			path, err := store.LocalPath(storagekeys.Video(filename))
+			path, err := store.LocalPath(storagekeys.Video(*asset.Filename))
 			if err != nil {
 				t.Fatal(err)
 			}

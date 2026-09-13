@@ -3,8 +3,9 @@ package downloader
 import (
 	"context"
 	"errors"
-	"github.com/befabri/replayvod/server/internal/repository"
 	"testing"
+
+	"github.com/befabri/replayvod/server/internal/repository"
 )
 
 func TestFailedRunTruncated(t *testing.T) {
@@ -75,10 +76,21 @@ func TestFailDownload_PersistsTruncationOnlyForCapturedMedia(t *testing.T) {
 				s.repo = failedPartProbeRepo{s.repo}
 			}
 			d := &download{jobID: "job", videoID: id, userCancelled: tc.cancelled, resume: &ResumeState{EndListSeen: tc.ended, HadWindowRoll: tc.rolled}}
+			if tc.unknown {
+				settleCtx, cancel := context.WithCancel(ctx)
+				cancel()
+				d.runCtx = settleCtx
+			}
 			s.failDownload(ctx, d, discardLog(), errors.New("capture failed"))
 			video, err := s.repo.GetVideo(ctx, id)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.unknown {
+				if video.Status != repository.VideoStatusPending || d.cleanupScratch {
+					t.Fatal("unknown media classification discarded recovery")
+				}
+				return
 			}
 			if video.Status != repository.VideoStatusFailed || video.Truncated != tc.wantTruncated || video.CompletionKind != tc.wantKind {
 				t.Fatalf("failure state = %s/%s truncated=%v, want FAILED/%s truncated=%v", video.Status, video.CompletionKind, video.Truncated, tc.wantKind, tc.wantTruncated)

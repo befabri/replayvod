@@ -66,7 +66,7 @@ test("multiple tabs share their feeds without blocking HTTP and recover after re
 			.toMatchObject({
 				"storage.statusLive": 3,
 				"stream.status": 3,
-				"video.removalsLive": 3,
+				"video.changesLive": 3,
 				"stream.live": 3,
 				"video.activeDownloadsLive": 3,
 			});

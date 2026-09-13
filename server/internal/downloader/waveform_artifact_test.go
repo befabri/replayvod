@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
 	"github.com/befabri/replayvod/server/internal/waveform"
@@ -43,9 +45,12 @@ func TestPersistAudioWaveformWritesArtifactFromScratchFiles(t *testing.T) {
 		t.Fatalf("write scratch: %v", err)
 	}
 	generator := &fakeDownloaderWaveformGenerator{}
-	svc := &Service{storage: store, waveforms: generator}
+	svc := newTestService(t, t.TempDir())
+	d := seedWebhookAttempt(t, svc, "waveform")
+	svc.storage = mediatest.New(t, svc.repo, store, nil, nil)
+	svc.waveforms = generator
 
-	err = svc.persistAudioWaveform(ctx, 42, "rec", "audio", 2, []partResult{
+	err = svc.persistAudioWaveform(ctx, d, "rec", "audio", 2, []partResult{
 		{
 			filename:        "rec-part01.m4a",
 			localPath:       scratch,
@@ -60,13 +65,13 @@ func TestPersistAudioWaveformWritesArtifactFromScratchFiles(t *testing.T) {
 		t.Fatalf("generator bodies = %#v, want scratch file", generator.bodies)
 	}
 
-	plan, ok := waveform.BuildPlan(42, "audio", ptrFloat64(2), []waveform.PartInput{
+	plan, ok := waveform.BuildPlan(d.videoID, "audio", ptrFloat64(2), []waveform.PartInput{
 		{Filename: "rec-part01.m4a", DurationSeconds: 2, SizeBytes: 7},
 	})
 	if !ok {
 		t.Fatal("BuildPlan returned !ok")
 	}
-	resp, hit, err := waveform.LoadArtifact(ctx, store, storagekeys.Waveform("rec"), plan.Fingerprint)
+	resp, hit, err := waveform.LoadRecording(ctx, svc.storage, d.videoID, plan.Fingerprint)
 	if err != nil {
 		t.Fatalf("LoadArtifact: %v", err)
 	}

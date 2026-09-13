@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/storage"
 )
@@ -37,15 +39,16 @@ func TestUploadVerifiesIdentityBeyondCachedReadiness(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			s := newTestService(t, t.TempDir())
+			d := seedWebhookAttempt(t, s, "identity")
 			t.Cleanup(s.Shutdown)
-			local := s.storage.(*storage.LocalStorage)
+			local := mediatest.Raw(s.storage).(*storage.LocalStorage)
 			store := &detachOnSaveStorage{LocalStorage: local}
-			s.storage = store
+			s.storage = mediatest.New(t, s.repo, store, nil, nil)
 			mon := storagehealth.New(s.repo, store, nil, s.log, "local", local.Root)
 			if _, err := mon.Attach(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			s.SetStorageGate(mon)
+			setDownloaderGate(t, s, mon)
 			detached := filepath.Join(t.TempDir(), "detached")
 			detach := func() error { return os.Rename(local.Root, detached) }
 			if duringSave {
@@ -72,7 +75,7 @@ func TestUploadVerifiesIdentityBeyondCachedReadiness(t *testing.T) {
 			finished := make(chan struct{})
 			go func() {
 				defer close(finished)
-				done <- s.uploadFromScratch(ctx, scratch, "videos/recording.mp4")
+				done <- s.uploadFromScratch(ctx, d, scratch, "videos/recording.mp4")
 			}()
 			t.Cleanup(func() { cancel(); <-finished })
 			deadline := time.After(3 * time.Second)

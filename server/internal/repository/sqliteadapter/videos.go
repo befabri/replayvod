@@ -272,11 +272,11 @@ func (a *SQLiteAdapter) RequestVideoDelete(ctx context.Context, id int64) (*repo
 	return sqliteVideoToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, limit int) ([]repository.Video, error) {
+func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, afterID int64, limit int) ([]repository.Video, error) {
 	if limit <= 0 {
 		return []repository.Video{}, nil
 	}
-	rows, err := a.queries.ListVideosPendingManualDelete(ctx, int64(limit))
+	rows, err := a.queries.ListVideosPendingManualDelete(ctx, sqlitegen.ListVideosPendingManualDeleteParams{AfterID: afterID, RowLimit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list videos pending manual delete: %w", err)
 	}
@@ -290,8 +290,8 @@ func (a *SQLiteAdapter) SoftDeleteVideo(ctx context.Context, id int64, kind stri
 	})
 }
 
-func (a *SQLiteAdapter) ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]repository.RetentionVideo, error) {
-	rows, err := a.queries.ListFinishedVideosForRetention(ctx, sqliteTimePtr(&now))
+func (a *SQLiteAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]repository.RetentionVideo, error) {
+	rows, err := a.queries.ListRetentionCandidates(ctx, sqlitegen.ListRetentionCandidatesParams{Now: sqliteTimePtr(&now), AfterID: afterID, BatchLimit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list finished videos for retention: %w", err)
 	}
@@ -546,9 +546,6 @@ func sqliteCursorID(cursor *repository.VideoPageCursor) int64 {
 	return cursor.ID
 }
 
-// Pure page/cursor helpers now live in repository (pagination.go) so both
-// adapters share one copy.
-
 // ListVideosForStorageScan bounds each query even if a caller passes an invalid limit.
 func (a *SQLiteAdapter) ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]repository.StorageScanVideo, error) {
 	if afterID < 0 || limit < 1 || limit > 1000 {
@@ -703,8 +700,8 @@ func (a *SQLiteAdapter) ListRecentArchiveFailures(ctx context.Context, since tim
 	return sqliteVideosToDomain(rows), nil
 }
 
-func (a *SQLiteAdapter) ListArchivesDueForRetry(ctx context.Context, now time.Time, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListArchivesDueForRetry(ctx, sqlitegen.ListArchivesDueForRetryParams{NextRetryAt: sqliteTimePtr(&now), Limit: int64(limit)})
+func (a *SQLiteAdapter) ListArchivesDueForRetry(ctx context.Context, now, after time.Time, afterID int64, limit int) ([]repository.Video, error) {
+	rows, err := a.queries.ListArchivesDueForRetry(ctx, sqlitegen.ListArchivesDueForRetryParams{Now: sqliteTimePtr(&now), AfterTime: sqliteTimePtr(&after), AfterID: afterID, BatchLimit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list archives due for retry: %w", err)
 	}

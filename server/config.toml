@@ -19,6 +19,10 @@ strict = false
 enable_av1 = false
 disable_hevc = false
 max_restart_gap_seconds = 120
+
+# Keep a manual recording slot for a returning streamer after each stop.
+# Each return creates a separate recording linked to the original request.
+streamer_restart_wait_seconds = 120
 # Optional recording part limits.
 # Start a new part when either the size or duration limit is reached.
 # Splits happen between segments, so none are lost or duplicated.
@@ -48,6 +52,8 @@ access_key = ""
 secret_key = ""
 
 [scheduler]
+# These settings apply after restart. Dashboard task pause/resume and run-now
+# controls apply while running; pauses and execution history survive restarts.
 enabled = true
 thumbnail_interval_minutes = 5
 eventsub_interval_minutes = 10

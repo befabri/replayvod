@@ -1,10 +1,5 @@
-// Package sse hosts the SSE subscription procedures that fan out to
-// the trpcgo subscription transport. Every procedure here subscribes
-// to an eventbus Topic and relays events onto the returned channel
-// until ctx is cancelled.
-//
-// These are tRPC subscription procedures, not Chi SSE endpoints —
-// trpcgo handles the wire protocol and reconnection shape.
+// Package sse exposes eventbus subscriptions through the trpcgo transport, which
+// owns the wire protocol and reconnect acknowledgements.
 package sse
 
 import (
@@ -14,11 +9,13 @@ import (
 	"github.com/befabri/replayvod/server/internal/eventbus"
 )
 
+// Handler subscribes requests to process topics until their contexts end.
 type Handler struct {
 	bus *eventbus.Buses
 	log *slog.Logger
 }
 
+// NewHandler accepts a nil bus, which produces closed subscription channels.
 func NewHandler(bus *eventbus.Buses, log *slog.Logger) *Handler {
 	return &Handler{
 		bus: bus,
@@ -26,9 +23,7 @@ func NewHandler(bus *eventbus.Buses, log *slog.Logger) *Handler {
 	}
 }
 
-// SystemEvents streams event_logs rows as they're written. Owner-only
-// per router wiring; these surface app-level activity that's not meant
-// for regular viewers.
+// SystemEvents streams application activity and requires an owner-only route.
 func (h *Handler) SystemEvents(ctx context.Context) (<-chan eventbus.EventLogEvent, error) {
 	if h.bus == nil {
 		ch := make(chan eventbus.EventLogEvent)
@@ -38,10 +33,8 @@ func (h *Handler) SystemEvents(ctx context.Context) (<-chan eventbus.EventLogEve
 	return h.bus.EventLogs.Subscribe(ctx), nil
 }
 
-// StreamLive streams schedule-match notifications (our "Just went
-// live AND we started a recording" feed). Viewer-level; filtering by
-// follow happens client-side. See also StreamStatus for the broader
-// online/offline delta feed.
+// StreamLive streams successful schedule triggers; clients filter by followed
+// channels, and the route permits viewers.
 func (h *Handler) StreamLive(ctx context.Context) (<-chan eventbus.StreamLiveEvent, error) {
 	if h.bus == nil {
 		ch := make(chan eventbus.StreamLiveEvent)
@@ -51,11 +44,8 @@ func (h *Handler) StreamLive(ctx context.Context) (<-chan eventbus.StreamLiveEve
 	return h.bus.StreamLive.Subscribe(ctx), nil
 }
 
-// StreamStatus streams online/offline transitions for every
-// stream.online and stream.offline EventSub webhook, regardless of
-// schedule-match. Subscribers maintain a "currently live" Set by
-// composing this feed with an initial stream.liveIds snapshot. No
-// polling required once the initial load settles.
+// StreamStatus streams online and offline transitions to combine with an initial
+// stream.liveIds snapshot.
 func (h *Handler) StreamStatus(ctx context.Context) (<-chan eventbus.StreamStatusEvent, error) {
 	if h.bus == nil {
 		ch := make(chan eventbus.StreamStatusEvent)
@@ -65,6 +55,7 @@ func (h *Handler) StreamStatus(ctx context.Context) (<-chan eventbus.StreamStatu
 	return h.bus.StreamStatus.Subscribe(ctx), nil
 }
 
+// TaskStatus streams committed task transitions.
 func (h *Handler) TaskStatus(ctx context.Context) (<-chan eventbus.TaskStatusEvent, error) {
 	if h.bus == nil {
 		ch := make(chan eventbus.TaskStatusEvent)
@@ -98,11 +89,13 @@ func (h *Handler) ArchiveQueue(ctx context.Context) (<-chan eventbus.ArchiveQueu
 	return h.bus.ArchiveQueue.Subscribe(ctx), nil
 }
 
-func (h *Handler) VideoRemovals(ctx context.Context) (<-chan eventbus.VideoRemovalEvent, error) {
-	if h.bus == nil || h.bus.VideoRemovals == nil {
-		ch := make(chan eventbus.VideoRemovalEvent)
+// VideoChanges sends viewer-safe invalidations for committed recording, intent,
+// and removal transitions. Subscribe before the transport acknowledges startup.
+func (h *Handler) VideoChanges(ctx context.Context) (<-chan eventbus.VideoChangeEvent, error) {
+	if h.bus == nil || h.bus.VideoChanges == nil {
+		ch := make(chan eventbus.VideoChangeEvent)
 		close(ch)
 		return ch, nil
 	}
-	return h.bus.VideoRemovals.Subscribe(ctx), nil
+	return h.bus.VideoChanges.Subscribe(ctx), nil
 }

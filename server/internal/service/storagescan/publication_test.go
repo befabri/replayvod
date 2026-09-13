@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/recordinglock"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/playbackcache"
@@ -20,6 +22,22 @@ type publishingCacheRepo struct {
 	release    chan struct{}
 	inspected  chan struct{}
 	observed   sync.Once
+}
+
+type publishingCacheTx struct {
+	repository.Repository
+	owner *publishingCacheRepo
+}
+
+func (r *publishingCacheRepo) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
+	return r.Repository.WithTx(ctx, func(tx repository.Repository) error { return fn(publishingCacheTx{tx, r}) })
+}
+func (r publishingCacheTx) UpsertVideoPlaybackAsset(ctx context.Context, in *repository.VideoPlaybackAssetInput) (*repository.VideoPlaybackAsset, error) {
+	if in.Status == repository.PlaybackAssetStatusReady {
+		close(r.owner.publishing)
+		<-r.owner.release
+	}
+	return r.Repository.UpsertVideoPlaybackAsset(ctx, in)
 }
 
 func (r *publishingCacheRepo) UpsertVideoPlaybackAsset(ctx context.Context, in *repository.VideoPlaybackAssetInput) (*repository.VideoPlaybackAsset, error) {
@@ -67,8 +85,8 @@ func joinPublicationWorker(t *testing.T, name string, done <-chan struct{}) {
 	}
 }
 
-// A cache copy is written before its READY transaction. Missing-media discovery
-// must wait for that publication and inspect again while it owns the recording.
+// TestMissingScanPreservesCopyPublishedDuringInspection requires a fresh missing
+// check under recording ownership after pending cache publication completes.
 func TestMissingScanPreservesCopyPublishedDuringInspection(t *testing.T) {
 	for _, automatic := range []bool{false, true} {
 		t.Run(map[bool]string{false: "playback report", true: "bulk scan"}[automatic], func(t *testing.T) {
@@ -88,10 +106,10 @@ func TestMissingScanPreservesCopyPublishedDuringInspection(t *testing.T) {
 			}
 			repo := &publishingCacheRepo{Repository: f.repo, publishing: make(chan struct{}), release: make(chan struct{}), inspected: make(chan struct{})}
 			locks := &recordinglock.Locks{}
-			cache := playbackcache.New(repo, f.store, f.mon, t.TempDir(), "", discardLog(), playbackcache.WithRecordingLocks(locks))
+			cache := playbackcache.New(repo, mediatest.New(t, repo, f.store, f.mon, locks), "", discardLog())
 			cache.SetRunner(preparedCacheRunner{})
 			t.Cleanup(cache.Close)
-			scan := New(repo, f.store, f.mon, discardLog(), WithRecordingLocks(locks))
+			scan := New(repo, mediatest.New(t, repo, f.store, f.mon, locks), discardLog())
 			buildCtx, cancelBuild := context.WithCancel(t.Context())
 			buildDone := make(chan error, 1)
 			buildFinished := make(chan struct{})
@@ -114,8 +132,7 @@ func TestMissingScanPreservesCopyPublishedDuringInspection(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("build never reached publication")
 			}
-			// The concat has completed and its output exists. Simulate original media
-			// disappearing while its replacement's database row is still BUILDING.
+			// Remove source media after concat finishes but before its replacement becomes READY.
 			for _, part := range parts {
 				if err := f.store.Delete(f.ctx, storagekeys.Video(part.Filename)); err != nil {
 					t.Fatal(err)
@@ -135,25 +152,13 @@ func TestMissingScanPreservesCopyPublishedDuringInspection(t *testing.T) {
 					scanDone <- err
 				}
 			}()
-			if automatic {
-				// Bulk inspection deliberately runs outside ownership. Confirm it saw
-				// BUILDING before allowing publication to finish; the old verdict must
-				// be checked again after the recording lock becomes available.
-				select {
-				case <-repo.inspected:
-				case <-time.After(time.Second):
-					t.Fatal("bulk scan did not inspect building copy")
-				}
-			} else {
-				// The targeted path has no bulk phase and should wait before inspecting.
-				select {
-				case err := <-scanDone:
-					unblock()
-					_ = awaitPublicationResult(t, "cache build", buildDone)
-					t.Fatalf("targeted scan passed active publication: %v", err)
-				case <-time.After(30 * time.Millisecond):
-				}
+			// Both scans must wait while the READY transaction retains recording ownership.
+			select {
+			case err := <-scanDone:
+				t.Fatalf("scan passed active publication: %v", err)
+			case <-time.After(30 * time.Millisecond):
 			}
+
 			unblock()
 			if err := awaitPublicationResult(t, "cache build", buildDone); err != nil {
 				t.Fatal(err)
@@ -188,7 +193,7 @@ func TestMissingScanWaitHonorsCancellation(t *testing.T) {
 				t.Fatal(err)
 			}
 			release := sync.OnceFunc(unlock)
-			scan := New(f.repo, f.store, f.mon, discardLog(), WithRecordingLocks(locks))
+			scan := New(f.repo, mediatest.New(t, f.repo, f.store, f.mon, locks), discardLog())
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			stop := time.AfterFunc(50*time.Millisecond, cancel)
@@ -228,7 +233,7 @@ func TestMissingSweepDeadlineKeepsIncompletePageRetryable(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := sync.OnceFunc(unlock)
-	scan := New(f.repo, f.store, f.mon, discardLog(), WithRecordingLocks(locks))
+	scan := New(f.repo, mediatest.New(t, f.repo, f.store, f.mon, locks), discardLog())
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	type outcome struct {

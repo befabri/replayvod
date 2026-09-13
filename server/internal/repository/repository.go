@@ -228,7 +228,7 @@ type Repository interface {
 	ListRecentArchiveFailures(ctx context.Context, since time.Time, limit int) ([]Video, error)
 	// ListArchivesDueForRetry returns failed archives whose scheduled retry is
 	// at or before now, earliest first.
-	ListArchivesDueForRetry(ctx context.Context, now time.Time, limit int) ([]Video, error)
+	ListArchivesDueForRetry(ctx context.Context, now, after time.Time, afterID int64, limit int) ([]Video, error)
 	// MarkArchiveFailedForRetry fails an archive like MarkVideoFailed and
 	// schedules its next attempt in the same statement, so the row never
 	// leaves the one-row-per-VOD rule.
@@ -265,14 +265,14 @@ type Repository interface {
 	RequestVideoDelete(ctx context.Context, id int64) (*Video, error)
 	// ListVideosPendingManualDelete returns queued manual deletes that are safe
 	// to purge now, including the recording-webhook frozen-parts guard.
-	ListVideosPendingManualDelete(ctx context.Context, limit int) ([]Video, error)
+	ListVideosPendingManualDelete(ctx context.Context, afterID int64, limit int) ([]Video, error)
 	// SoftDeleteVideo tombstones a video, recording why via kind
 	// (DeletionKindRetention | DeletionKindManual).
 	SoftDeleteVideo(ctx context.Context, id int64, kind string) error
-	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]RetentionVideo, error)
 	// ListRetentionCandidates returns the terminal, not-yet-tombstoned
 	// recordings that own a snapshotted retention policy, can have reclaimable
 	// objects, and are already due at now.
+	ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]RetentionVideo, error)
 	ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]StorageScanVideo, error)
 	// ListVideosForStorageWitness samples rows that may still own media,
 	// including active attempts and reversible tombstones excluded from scans.
@@ -327,8 +327,8 @@ type Repository interface {
 	UpdateJobResumeState(ctx context.Context, id string, resumeState json.RawMessage) error
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
-
 	ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]Job, error)
+
 	CreateVideoPart(ctx context.Context, input *VideoPartInput) (*VideoPart, error)
 	FinalizeVideoPart(ctx context.Context, input *VideoPartFinalize) error
 	GetVideoPart(ctx context.Context, id int64) (*VideoPart, error)
@@ -345,7 +345,8 @@ type Repository interface {
 	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (*VideoPlaybackAsset, error)
 	UpsertVideoPlaybackAsset(ctx context.Context, input *VideoPlaybackAssetInput) (*VideoPlaybackAsset, error)
 	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
-	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
+	SumReadyPlaybackBytes(ctx context.Context) (int64, error)
+	ListReadyVideoPlaybackAssets(ctx context.Context, after PlaybackAssetCursor, limit int) ([]VideoPlaybackAsset, error)
 	DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error
 
 	UpsertTitle(ctx context.Context, name string) (*Title, error)
@@ -365,9 +366,9 @@ type Repository interface {
 	CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
 	ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
 
-	// RecordVideoMetadataChange atomically writes a metadata observation.
-	// Empty title and category return ErrNoMetadataObserved; the result supports
-	// effects after commit.
+	// RecordVideoMetadataChange atomically writes an owning execution's observation.
+	// Empty title and category return ErrNoMetadataObserved; stopped or replaced
+	// executions return ErrStaleExecution. The result supports effects after commit.
 	RecordVideoMetadataChange(ctx context.Context, input VideoMetadataChangeInput) (*VideoMetadataChangeResult, error)
 	// ListVideoMetadataChanges returns chronological observations with title and
 	// category rows hydrated.

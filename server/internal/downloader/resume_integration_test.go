@@ -7,15 +7,14 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/testdb"
 )
 
-// newTestService spins up a Service backed by a fresh SQLite repo
-// and a tempdir scratch. Skips the service-account refresher wire-
-// up — resume paths that hit the refresher aren't exercised here.
 func newTestService(t *testing.T, scratchDir string) *Service {
 	t.Helper()
 	db := testdb.NewSQLiteDB(t)
@@ -35,13 +34,11 @@ func newTestService(t *testing.T, scratchDir string) *Service {
 			},
 		},
 	}
-	return NewService(cfg, repo, store, nil, nil, nil, discardLog())
+	return NewService(cfg, repo, mediatest.NewAt(t, repo, store, nil, nil, cfg.Env.ScratchDir), nil, nil, nil, discardLog())
 }
 
 func TestPrepareScratch_EmptyDBSweepsOrphans(t *testing.T) {
 	scratch := t.TempDir()
-	// Seed orphan dirs under scratch — no RUNNING jobs reference
-	// them, so startup preparation should wipe all three.
 	for _, name := range []string{"orphan-a", "orphan-b", "orphan-c"} {
 		if err := os.Mkdir(filepath.Join(scratch, name), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", name, err)
@@ -69,7 +66,6 @@ func TestPrepareScratch_EmptyDBSweepsOrphans(t *testing.T) {
 
 func TestSweepOrphanedTempsExcept_PreservesProtected(t *testing.T) {
 	scratch := t.TempDir()
-	// Three job dirs — two "protected" (RUNNING), one orphan.
 	for _, name := range []string{"job-alpha", "job-beta", "job-orphan"} {
 		if err := os.Mkdir(filepath.Join(scratch, name), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", name, err)

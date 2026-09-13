@@ -2,11 +2,12 @@ package downloader
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -59,13 +60,9 @@ type queuedFailurePumpRepo struct {
 	picks int
 }
 
-func (r *queuedFailurePumpRepo) GetNextQueuedArchiveJob(ctx context.Context) (*repository.Job, error) {
+func (r *queuedFailurePumpRepo) ListQueuedArchiveJobs(ctx context.Context, after time.Time, afterID int64, limit int) ([]repository.ArchiveQueueCandidate, error) {
 	r.picks++
-	if r.picks > 1 {
-		// Bound a regressed pump without relying on a timer or flooding logs.
-		return nil, repository.ErrNotFound
-	}
-	return r.Repository.GetNextQueuedArchiveJob(ctx)
+	return r.Repository.ListQueuedArchiveJobs(ctx, after, afterID, limit)
 }
 
 func TestArchivePumpDefersAfterStartFailureCannotBePersisted(t *testing.T) {
@@ -75,7 +72,7 @@ func TestArchivePumpDefersAfterStartFailureCannotBePersisted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.repo.UpdateJobResumeState(ctx, jobID, json.RawMessage("invalid")); err != nil {
+	if _, err := f.db.ExecContext(ctx, "UPDATE jobs SET resume_state = ? WHERE id = ?", "invalid", jobID); err != nil {
 		t.Fatal(err)
 	}
 	repo := &queuedFailurePumpRepo{Repository: &terminalFaultRepo{Repository: f.repo, fail: "job"}}
@@ -116,18 +113,20 @@ func TestResumePendingLiveJobPreservesRecoveryWhenClaimFails(t *testing.T) {
 	if _, err := f.repo.CreateJob(ctx, &repository.JobInput{ID: jobID, VideoID: v.ID, BroadcasterID: "bc-1", ResumeState: checkpoint}); err != nil {
 		t.Fatal(err)
 	}
-	f.svc.repo = &archiveFaultRepo{Repository: f.repo, failVideoRunning: true}
-	if err := f.svc.resumeRunning(ctx); !errors.Is(err, errArchiveClaim) {
-		t.Fatalf("failed claim was treated as a recording failure: %v", err)
+	block := &atomic.Bool{}
+	block.Store(true)
+	attempts := &atomic.Int64{}
+	f.svc.repo = &archiveFaultRepo{Repository: f.repo, claimBlock: block, claimAttempts: attempts}
+	if err := f.svc.resumeRunning(ctx); err != nil {
+		t.Fatal(err)
 	}
+	waitUntil(t, "claim failure", func() bool { return attempts.Load() > 0 })
 	job, err := f.repo.GetJob(ctx, jobID)
 	if err != nil || job.Status != repository.JobStatusPending || f.status(t, jobID) != repository.VideoStatusPending {
 		t.Fatalf("failed claim lost pending recording: %+v %v", job, err)
 	}
-	f.svc.repo = f.repo
-	if err := f.svc.resumeRunning(ctx); err != nil {
-		t.Fatal(err)
-	}
+	block.Store(false)
+	waitUntil(t, "persistence recovery", func() bool { return f.status(t, jobID) == repository.VideoStatusRunning })
 	if f.svc.Subscribe(jobID) == nil || f.status(t, jobID) != repository.VideoStatusRunning {
 		t.Fatal("pending live recording did not resume after persistence recovered")
 	}
@@ -148,7 +147,7 @@ func TestTerminalFailurePreservesRecoveryUntilCommit(t *testing.T) {
 				if path == "queued-start" {
 					status = repository.VideoStatusPending
 				} else {
-					if err := f.repo.MarkJobRunning(ctx, jobID); err != nil {
+					if err := f.repo.SetJobExecution(ctx, jobID, "", false); err != nil {
 						t.Fatal(err)
 					}
 					if err := f.repo.UpdateVideoStatus(ctx, v.ID, status); err != nil {
@@ -156,7 +155,7 @@ func TestTerminalFailurePreservesRecoveryUntilCommit(t *testing.T) {
 					}
 				}
 				if path == "resume" {
-					if err := f.repo.UpdateJobResumeState(ctx, jobID, json.RawMessage("not-json")); err != nil {
+					if _, err := f.db.ExecContext(ctx, "UPDATE jobs SET resume_state = ? WHERE id = ?", "not-json", jobID); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -183,6 +182,9 @@ func TestTerminalFailurePreservesRecoveryUntilCommit(t *testing.T) {
 					t.Fatal(err)
 				}
 				d := &download{jobID: jobID, videoID: v.ID, broadcasterID: v.BroadcasterID, vod: true, attempt: 5, resume: NewResumeState()}
+				settleCtx, stopSettlement := context.WithCancel(ctx)
+				stopSettlement()
+				d.runCtx = settleCtx
 				run := func() {
 					switch path {
 					case "download":
@@ -210,7 +212,7 @@ func TestTerminalFailurePreservesRecoveryUntilCommit(t *testing.T) {
 					if queue, err := f.repo.ListArchiveQueue(ctx); err != nil || len(queue) != 1 || queue[0].JobID != jobID {
 						t.Errorf("attempt no longer queued: %+v, %v", queue, err)
 					}
-				} else if jobs, err := f.repo.ListRunningJobs(ctx); err != nil || len(jobs) != 1 {
+				} else if jobs, err := f.repo.ListRecoveryJobs(ctx, "", 1000); err != nil || len(jobs) != 1 {
 					t.Errorf("attempt no longer recoverable: %+v, %v", jobs, err)
 				}
 				if data, err := os.ReadFile(checkpoint); err != nil || string(data) != "recoverable media" {

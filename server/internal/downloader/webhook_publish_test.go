@@ -12,12 +12,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// These tests pin where the outbound-webhook publish fires relative to the
-// terminal transitions. The success publish lives at the tail of run() (covered
-// end-to-end by the ffmpeg integration harness); the failure publish and the
-// load-bearing "shutdown interrupt must NOT fire" rule live in failDownload and
-// are exercised here directly.
-
 func recvTerminal(t *testing.T, ch <-chan eventbus.RecordingTerminalEvent) eventbus.RecordingTerminalEvent {
 	t.Helper()
 	select {
@@ -48,13 +42,6 @@ func subscribedService(t *testing.T) (*Service, <-chan eventbus.RecordingTermina
 	return s, bus.RecordingTerminal.Subscribe(ctx)
 }
 
-// TestRecordingWebhookDelivery_CompletedEnqueuesDurableRow covers the
-// success-path durable enqueue that previously had no non-ffmpeg test: the
-// completed delivery minted by recordingWebhookDelivery, written transactionally
-// by MarkVideoDoneAndEnqueueRecordingWebhook, lands a recording.completed outbox
-// row. webhook_publish_test already pins the failure side; this pins the
-// completed side so the success enqueue can't silently regress outside the
-// ffmpeg harness.
 func TestRecordingWebhookDelivery_CompletedEnqueuesDurableRow(t *testing.T) {
 	s := newTestService(t, t.TempDir())
 	ctx := context.Background()
@@ -93,7 +80,7 @@ func TestFailDownload_publishesFailedOnRealFailure(t *testing.T) {
 	if err := s.repo.EnsureRecordingWebhookSecret(context.Background(), "secret"); err != nil {
 		t.Fatalf("EnsureRecordingWebhookSecret: %v", err)
 	}
-	d := &download{jobID: "job-1", videoID: 1, resume: &ResumeState{}}
+	d := seedWebhookAttempt(t, s, "job-1")
 
 	s.failDownload(context.Background(), d, discardLog(), errors.New("boom"))
 
@@ -115,7 +102,7 @@ func TestFailDownload_doesNotPublishOnShutdownInterrupt(t *testing.T) {
 	// A shutdown interrupt (not user-cancelled) leaves the job RUNNING for
 	// resume — it is NOT a terminal failure and must not fire the webhook.
 	s.shuttingDown.Store(true)
-	d := &download{jobID: "job-2", videoID: 2, resume: &ResumeState{}}
+	d := seedWebhookAttempt(t, s, "job-2")
 
 	s.failDownload(context.Background(), d, discardLog(), context.Canceled)
 
@@ -127,12 +114,13 @@ func TestFailDownload_userCancelDuringShutdownStillFires(t *testing.T) {
 	// The shutdown suppression applies only when the user did NOT cancel. An
 	// operator cancel is a real terminal FAILED transition even mid-shutdown.
 	s.shuttingDown.Store(true)
-	d := &download{jobID: "job-3", videoID: 3, resume: &ResumeState{}, userCancelled: true}
+	d := seedWebhookAttempt(t, s, "job-3")
+	d.userCancelled = true
 
 	s.failDownload(context.Background(), d, discardLog(), ErrCancelled)
 
 	ev := recvTerminal(t, ch)
-	if ev.Kind != eventbus.RecordingFailed || ev.VideoID != 3 {
+	if ev.Kind != eventbus.RecordingFailed || ev.VideoID != d.videoID {
 		t.Fatalf("got %+v, want failed for video 3", ev)
 	}
 }
@@ -192,7 +180,7 @@ func TestResume_UnresumableRunningJobFailsAndEnqueuesWebhook(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
-	if err := s.repo.MarkJobRunning(ctx, "job-resume"); err != nil {
+	if err := s.repo.SetJobExecution(ctx, "job-resume", "", false); err != nil {
 		t.Fatalf("MarkJobRunning: %v", err)
 	}
 	if _, err := s.repo.UpsertRecordingWebhookConfig(ctx, true, "https://hooks.example/x", "recording.failed"); err != nil {
@@ -224,4 +212,21 @@ func TestResume_UnresumableRunningJobFailsAndEnqueuesWebhook(t *testing.T) {
 	if ev.Kind != eventbus.RecordingFailed || ev.VideoID != vid.ID {
 		t.Fatalf("got %+v, want failed for video %d", ev, vid.ID)
 	}
+}
+
+func seedWebhookAttempt(t *testing.T, s *Service, jobID string) *download {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := s.repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "webhook", BroadcasterLogin: "webhook", BroadcasterName: "Webhook"}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := repository.CreateAttempt(ctx, s.repo, &repository.VideoInput{JobID: jobID, Filename: jobID, BroadcasterID: "webhook", DisplayName: "Webhook", Status: repository.VideoStatusPending, Quality: repository.QualityHigh}, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &download{jobID: jobID, videoID: v.ID, executionID: "webhook-execution", resume: NewResumeState()}
+	if err := repository.ClaimAttempt(ctx, s.repo, d.claim(), ""); err != nil {
+		t.Fatal(err)
+	}
+	return d
 }

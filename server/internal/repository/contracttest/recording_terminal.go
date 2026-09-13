@@ -27,7 +27,7 @@ func testRecordingTerminalOutboxRollback(t *testing.T, h Harness) {
 			if _, err := repo.CreateJob(ctx, &repository.JobInput{ID: jobID, VideoID: v.ID, BroadcasterID: v.BroadcasterID}); err != nil {
 				t.Fatal(err)
 			}
-			if err := repo.MarkJobRunning(ctx, jobID); err != nil {
+			if err := repo.SetJobExecution(ctx, jobID, "", false); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := repo.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{MessageID: jobID, DedupeKey: "existing-" + jobID, Event: "recording.test", NextAttemptAt: time.Now()}); err != nil {
@@ -96,7 +96,7 @@ func testRecordingTerminalTransaction(t *testing.T, h Harness) {
 			if _, err := repo.CreateJob(ctx, &repository.JobInput{ID: jobID, VideoID: v.ID, BroadcasterID: v.BroadcasterID}); err != nil {
 				t.Fatal(err)
 			}
-			if err := repo.MarkJobRunning(ctx, jobID); err != nil {
+			if err := repo.SetJobExecution(ctx, jobID, "", false); err != nil {
 				t.Fatal(err)
 			}
 			delivery := &repository.RecordingWebhookDeliveryInput{MessageID: jobID, DedupeKey: jobID, Event: "recording." + outcome, VideoID: v.ID, NextAttemptAt: time.Now()}

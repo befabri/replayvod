@@ -26,7 +26,7 @@ func TestExistingMediaHonorsStorageReadiness(t *testing.T) {
 		{"unattached", storage.ErrUnattached}, {"unreachable", storage.ErrUnreachable},
 	} {
 		for _, route := range []struct{ name, url string }{
-			{"video", "/api/v1/videos/7/stream"},
+			{"video", "/api/v1/videos/7/parts/1/stream"},
 			{"part", "/api/v1/videos/7/parts/1/stream"},
 			{"signed part", signer.PartURL(7, 1)},
 			{"playback", "/api/v1/videos/7/playback/stream"},
@@ -43,8 +43,7 @@ func TestExistingMediaHonorsStorageReadiness(t *testing.T) {
 					store := &signedStorage{body: []byte("existing media bytes")}
 					marker := newBlockingMarker(true)
 					close(marker.release)
-					h := NewStreamHandler(repo, store, videodownload.NewVerifier(signTestSecret), testClientLogger(),
-						WithStorageGate(gateFunc(func() error { return verdict.err })), WithMissingMarker(marker))
+					h := NewStreamHandler(repo, streamMedia(t, repo, store, gateFunc(func() error { return verdict.err }), nil), videodownload.NewVerifier(signTestSecret), testClientLogger(), WithMissingMarker(marker))
 					router := chi.NewRouter()
 					router.Route("/api/v1", func(r chi.Router) {
 						h.SetupRoutes(r, func(next http.Handler) http.Handler { return next })

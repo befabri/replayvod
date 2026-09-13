@@ -21,16 +21,13 @@ import (
 	"github.com/befabri/trpcgo"
 )
 
-// RecordingDeletionRequester queues a recording for background removal.
-// The retention service owns the actual purge path so manual deletes and
-// automatic retention use the same storage-key cleanup, but video.delete keeps
-// the request fast and leaves retry/webhook-freeze handling to the task.
+// RecordingDeletionRequester queues removal; its worker owns storage retries
+// and must freeze webhook part metadata before purging parts.
 type RecordingDeletionRequester interface {
 	RequestManualDelete(ctx context.Context, video *repository.Video) error
 }
 
-// RecordingRestorer brings a missing-media tombstone back once its media is
-// present again. It is the storagescan service in production.
+// RecordingRestorer restores missing-media tombstones only after media returns.
 type RecordingRestorer interface {
 	Restore(ctx context.Context, id int64) error
 }
@@ -41,11 +38,11 @@ type Handler struct {
 	archive  *ArchiveService
 	deletion RecordingDeletionRequester
 	restorer RecordingRestorer
-	storage  storage.Storage
+	storage  storage.Reader
 	log      *slog.Logger
 }
 
-func NewHandler(video *Service, download *DownloadService, archive *ArchiveService, deletion RecordingDeletionRequester, restorer RecordingRestorer, store storage.Storage, log *slog.Logger) *Handler {
+func NewHandler(video *Service, download *DownloadService, archive *ArchiveService, deletion RecordingDeletionRequester, restorer RecordingRestorer, store storage.Reader, log *slog.Logger) *Handler {
 	return &Handler{
 		video:    video,
 		download: download,
@@ -57,49 +54,28 @@ func NewHandler(video *Service, download *DownloadService, archive *ArchiveServi
 	}
 }
 
-// VideoResponse is the wire shape for a video record. broadcaster_*
-// and profile_image_url come from a JOIN-equivalent channel lookup
-// that the service layer does in bulk once per response — the frontend
-// renders the video card's avatar + channel link without a per-row
-// channel.getById, which would trip trpcgo's batching ceiling on a
-// full grid.
 type VideoResponse struct {
 	ID          int64  `json:"id"`
 	JobID       string `json:"job_id"`
 	Filename    string `json:"filename"`
 	DisplayName string `json:"display_name"`
-	// Title is the stream title at download-start time. Empty when
-	// Twitch didn't surface a title (manual trigger on an offline
-	// channel); the UI falls back to display_name in that case.
-	Title  string      `json:"title"`
-	Status VideoStatus `json:"status"`
-	// CompletionKind distinguishes clean-end from partial/cancelled
-	// recordings. See repository.CompletionKind* constants. The UI
-	// renders a secondary badge (PARTIAL) for DONE+partial and
-	// replaces the FAILED badge with CANCELLED when the operator
-	// explicitly cancelled.
+	// Title is empty when Twitch supplied no title; clients may fall back to DisplayName.
+	Title          string         `json:"title"`
+	Status         VideoStatus    `json:"status"`
 	CompletionKind CompletionKind `json:"completion_kind"`
-	// Truncated is true when the recording stopped before the
-	// broadcast ended — operator cancel, mid-run failure, or a clean
-	// finalize that never observed EXT-X-ENDLIST. Orthogonal to
-	// CompletionKind. The dashboard's videos page uses this to
-	// distinguish "we have the whole stream" from "we only have the
-	// part of the broadcast we recorded for."
+	// Truncated means recording stopped before the broadcast ended, independently
+	// of CompletionKind. A clean finalize without EXT-X-ENDLIST can be truncated.
 	Truncated bool `json:"truncated"`
-	// Quality is the display label for the selected recorded rendition
-	// when Stage 3 has picked one (e.g. 1080p60). Before that it falls
-	// back to the requested quality enum (HIGH/MEDIUM/LOW).
+	// Quality is the selected rendition label (for example, 1080p60), or the
+	// requested quality tier before selection.
 	Quality string   `json:"quality"`
 	FPS     *float64 `json:"fps,omitempty"`
-	// IsAudioOnly is the server-owned playback classification. Clients use this
-	// instead of re-deriving audio-ness from file extensions, MIME types, or
-	// playback artifact metadata that can disagree during migrations/backfills.
+	// IsAudioOnly is authoritative; clients must not infer it from file extensions
+	// or playback artifact metadata.
 	IsAudioOnly   bool   `json:"is_audio_only"`
 	BroadcasterID string `json:"broadcaster_id"`
-	// BroadcasterLogin / BroadcasterName / ProfileImageURL come from
-	// the channels mirror. When the broadcaster isn't locally synced
-	// (rare but possible for historical videos) these are empty and
-	// the frontend falls back to DisplayName + initials avatar.
+	// BroadcasterLogin and adjacent channel fields may be empty when the mirror
+	// has no broadcaster; DisplayName remains available as a fallback.
 	BroadcasterLogin         string     `json:"broadcaster_login,omitempty"`
 	BroadcasterName          string     `json:"broadcaster_name,omitempty"`
 	ProfileImageURL          *string    `json:"profile_image_url,omitempty"`
@@ -115,31 +91,21 @@ type VideoResponse struct {
 	Error                    *string    `json:"error,omitempty"`
 	StartDownloadAt          time.Time  `json:"start_download_at"`
 	DownloadedAt             *time.Time `json:"downloaded_at,omitempty"`
-	// DeletedAt is set on tombstoned (removed) recordings; DeletionKind
-	// records why ("retention" | "manual" | "missing"). Both nil for live
-	// recordings.
-	// Surfaced only on the removed-inclusive history surface (listPage with
-	// scope removed/all); the library default scope never returns these rows.
+	// DeletedAt marks a tombstone; DeletionKind is retention, manual or missing.
 	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
 	DeletionKind *string    `json:"deletion_kind,omitempty"`
 	// DeleteRequestedAt is set while a manual removal is queued but not yet
 	// finalized by the background deletion task.
-	DeleteRequestedAt *time.Time `json:"delete_requested_at,omitempty"`
-	// Source is "live" for a recorded broadcast and "vod" for an archive of a
-	// Twitch VOD. Archives also carry the VOD id and the date the stream
-	// originally aired.
-	Source        VideoSource `json:"source"`
-	TwitchVideoID *string     `json:"twitch_video_id,omitempty"`
-	BroadcastAt   *time.Time  `json:"broadcast_at,omitempty"`
-	// NextRetryAt is set on a failed archive whose next attempt is scheduled.
-	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
-	// Parts is populated only by GetByID — list endpoints skip it
-	// to avoid N+1 queries on grid views.
+	DeleteRequestedAt *time.Time  `json:"delete_requested_at,omitempty"`
+	Source            VideoSource `json:"source"`
+	TwitchVideoID     *string     `json:"twitch_video_id,omitempty"`
+	BroadcastAt       *time.Time  `json:"broadcast_at,omitempty"`
+	NextRetryAt       *time.Time  `json:"next_retry_at,omitempty"`
+	// Parts is populated only by GetByID; list endpoints avoid per-video part queries.
 	Parts    []VideoPartResponse `json:"parts,omitempty"`
 	HasMedia bool                `json:"has_media,omitempty"`
-	// PlaybackArtifact is populated only by GetByID. Ready means the watch page
-	// can use /api/v1/videos/{id}/playback/stream; building/failed/unavailable
-	// keep the client-side part sequencer as the fallback.
+	// PlaybackArtifact is populated only by GetByID. Clients use part streams
+	// unless the artifact is ready.
 	PlaybackArtifact *VideoPlaybackAssetResponse `json:"playback_artifact,omitempty"`
 	// UserState is scoped to the authenticated user.
 	UserState *VideoUserStateResponse `json:"user_state,omitempty"`
@@ -304,12 +270,6 @@ func formatQualityLabel(quality string, fps *float64) string {
 	return label + strconv.Itoa(int(math.Round(*fps)))
 }
 
-// toVideoResponses enriches every row with its broadcaster's display
-// metadata via a single ListChannelsByIDs lookup. Replaces the previous
-// per-row transform — the frontend's video card used to paper over the
-// missing fields with a per-card channel.getById call, which on a
-// 10-row grid took the batch over trpcgo's 10-procedure ceiling and
-// 400'd the whole dashboard.
 func (h *Handler) toVideoResponses(ctx context.Context, userID string, vs []repository.Video) []VideoResponse {
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, vs)
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vs)
@@ -350,10 +310,7 @@ func (h *Handler) List(ctx context.Context, input ListInput) ([]VideoResponse, e
 	if limit <= 0 {
 		limit = 50
 	}
-	// Default to desc when the caller specified a sort column but no
-	// direction. Without this the opts.SortKey() fallback would silently
-	// revert to default ordering, which is a surprising outcome for a
-	// client that thinks it asked for duration/size/channel sorting.
+	// An omitted direction would make SortKey discard the requested column.
 	order := input.Order
 	if input.Sort != "" && order == "" {
 		order = "desc"
@@ -389,29 +346,19 @@ type ListPageInput struct {
 	Quality       string `json:"quality,omitempty"`
 	BroadcasterID string `json:"broadcaster_id,omitempty"`
 	Language      string `json:"language,omitempty"`
-	// Source narrows to live recordings or archives of past broadcasts.
-	Source   string `json:"source,omitempty" validate:"omitempty,oneof=live vod"`
-	Duration string `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
-	Size     string `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
-	Window   string `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
-	// Outcome splits terminal rows the way the download history does:
-	// "completed", "failed", or "cancelled" for a run the operator stopped.
-	// The server owns the status + completion_kind mapping, so a client asking
-	// for failures never has to know a cancellation is stored as FAILED.
+	Source        string `json:"source,omitempty" validate:"omitempty,oneof=live vod"`
+	Duration      string `json:"duration,omitempty" validate:"omitempty,oneof=short medium long marathon"`
+	Size          string `json:"size,omitempty" validate:"omitempty,oneof=small medium large"`
+	Window        string `json:"window,omitempty" validate:"omitempty,oneof=this_week"`
+	// Outcome separates operator cancellations from failures even though both
+	// are stored with FAILED status.
 	Outcome        string `json:"outcome,omitempty" validate:"omitempty,oneof=completed failed cancelled"`
 	IncompleteOnly bool   `json:"incomplete_only,omitempty"`
 	WatchLaterOnly bool   `json:"watch_later_only,omitempty"`
 	UnwatchedOnly  bool   `json:"unwatched_only,omitempty"`
-	// TerminalOnly keeps active in-flight rows out of history-style views while
-	// still allowing those views to include both active terminal rows and
-	// tombstones through Scope="all".
-	TerminalOnly bool `json:"terminal_only,omitempty"`
-	// Scope selects the tombstone state. Empty/"active" keeps the library
-	// default (live recordings only); "removed" and "all" power the
-	// removed-inclusive history surface. Channel/category grids and search
-	// never expose this and stay active-only.
-	// DeletionKind narrows tombstones to why they left; only meaningful with
-	// Scope "removed" or "all".
+	TerminalOnly   bool   `json:"terminal_only,omitempty"`
+	// DeletionKind filters tombstones and applies only with Scope removed or all.
+	// An empty Scope defaults to active recordings.
 	DeletionKind string               `json:"deletion_kind,omitempty" validate:"omitempty,oneof=retention manual missing"`
 	Scope        string               `json:"scope,omitempty" validate:"omitempty,oneof=active removed all"`
 	Cursor       *VideoListPageCursor `json:"cursor,omitempty" validate:"omitempty"`
@@ -473,8 +420,7 @@ func (h *Handler) ListPage(ctx context.Context, input ListPageInput) (VideoListP
 	}, nil
 }
 
-// SearchInput drives video.search for the global navbar search. Query is
-// capped to bound LIKE/ILIKE work across titles, broadcasters, and categories.
+// SearchInput caps Query to bound LIKE/ILIKE work across joined metadata.
 type SearchInput struct {
 	Query string `json:"query" validate:"max=100"`
 	Limit int    `json:"limit,omitempty" validate:"min=0,max=50"`
@@ -582,10 +528,6 @@ func (h *Handler) Snapshots(ctx context.Context, input SnapshotsInput) ([]string
 	return paths, nil
 }
 
-// Titles returns every title recorded for a video, in link order.
-// Empty result when title tracking is disabled or the recording is
-// too short for any ticks to fire — the UI treats empty as "no
-// history available; use display_name + videos.title."
 func (h *Handler) Titles(ctx context.Context, input TitlesInput) ([]TitleItem, error) {
 	rows, err := h.video.Titles(ctx, input.VideoID)
 	if err != nil {
@@ -598,10 +540,6 @@ func (h *Handler) Titles(ctx context.Context, input TitlesInput) ([]TitleItem, e
 	return out, nil
 }
 
-// Categories returns every category recorded for a video, in link
-// order. Empty result for pre-category-tracking recordings or when
-// the stream had no game set — the UI uses empty to hide the
-// category history row / inline badges entirely.
 func (h *Handler) Categories(ctx context.Context, input CategoriesInput) ([]VideoCategory, error) {
 	rows, err := h.video.Categories(ctx, input.VideoID)
 	if err != nil {
@@ -632,9 +570,7 @@ type TimelineCategory struct {
 	BoxArtURL *string `json:"box_art_url,omitempty"`
 }
 
-// TimelineEvent is the wire shape for one merged title+category
-// change row. The schema-level CHECK guarantees at least one of
-// title/category is present.
+// TimelineEvent contains at least one of Title and Category.
 type TimelineEvent struct {
 	OccurredAt         time.Time         `json:"occurred_at"`
 	MediaOffsetSeconds *float64          `json:"media_offset_seconds,omitempty"`
@@ -646,10 +582,6 @@ type TimelineInput struct {
 	VideoID int64 `json:"video_id" validate:"required"`
 }
 
-// Timeline returns the merged chronological list of title and
-// category change events for a video. Backed by
-// video_metadata_changes; recordings predating migration 031 return
-// empty and the dialog falls through to its empty-state copy.
 func (h *Handler) Timeline(ctx context.Context, input TimelineInput) ([]TimelineEvent, error) {
 	rows, err := h.video.Timeline(ctx, input.VideoID)
 	if err != nil {
@@ -681,9 +613,6 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 	if err != nil {
 		return VideoResponse{}, apierr.Map(h.log, err, "get video")
 	}
-	// Single-row enrichment through the same bulk helper so GetByID's
-	// wire shape matches List's — the Watch page's VideoInfo no longer
-	// needs a separate channel.getById to render the header.
 	channels := h.video.ChannelsByBroadcasterIDs(ctx, []repository.Video{*v})
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, []repository.Video{*v})
 	resp := toVideoResponse(v, channels[v.BroadcasterID], primaryCategories[v.ID])
@@ -696,16 +625,14 @@ func (h *Handler) GetByID(ctx context.Context, input GetByIDInput) (VideoRespons
 			resp.UserState = toVideoUserStateResponse(state)
 		}
 	}
-	// Multi-part recordings expose their parts here so the player
-	// can iterate them. A parts lookup failure is logged but doesn't
-	// fail the whole getById — the player's fallback is to stream
-	// part 01 by convention via the stream handler.
-	if parts, err := h.video.Parts(ctx, v.ID); err != nil {
-		h.log.Warn("list video parts", "video_id", v.ID, "error", err)
-	} else {
-		resp.Parts = toVideoPartResponses(parts)
-		resp.IsAudioOnly = isAudioOnlyRecording(v, parts)
+	// Parts are authoritative playback references; a failed read must not be
+	// cached by clients as a successful snapshot with no playable media.
+	parts, err := h.video.Parts(ctx, v.ID)
+	if err != nil {
+		return VideoResponse{}, apierr.Map(h.log, err, "list video parts")
 	}
+	resp.Parts = toVideoPartResponses(parts)
+	resp.IsAudioOnly = isAudioOnlyRecording(v, parts)
 	if asset, err := h.video.PlaybackAsset(ctx, v.ID); err != nil {
 		if !errors.Is(err, repository.ErrNotFound) {
 			h.log.Warn("get video playback artifact", "video_id", v.ID, "error", err)
@@ -832,11 +759,9 @@ type StatisticsResponse struct {
 	ByStatus      []StatsBucket `json:"by_status"`
 	ThisWeek      int64         `json:"this_week"`
 	Incomplete    int64         `json:"incomplete"`
-	// Channels is the count of distinct broadcasters represented in
-	// the videos table — used by the videos page subtitle.
+	// Channels counts distinct broadcasters represented in the videos table.
 	Channels int64 `json:"channels"`
-	// Removed counts tombstoned recordings; drives the History "Removed" tab
-	// count (the only count not derivable from by_status, which is live-only).
+	// Removed counts tombstones, which are excluded from ByStatus.
 	Removed int64 `json:"removed"`
 	// WatchLater and Unwatched are per authenticated user.
 	WatchLater int64 `json:"watch_later"`
@@ -898,19 +823,15 @@ func (h *Handler) Statistics(ctx context.Context) (StatisticsResponse, error) {
 	return out, nil
 }
 
-// HistoryScopeCounts splits one outcome by whether the recording's media is
-// still on disk.
 type HistoryScopeCounts struct {
 	OnDisk  int64 `json:"on_disk"`
 	Removed int64 `json:"removed"`
-	// Unavailable is the part of Removed whose media went missing and can come
-	// back: the tombstones the Unavailable filter lists.
+	// Unavailable counts missing-media tombstones within Removed that can be restored.
 	Unavailable int64 `json:"unavailable"`
 }
 
-// HistoryCountsResponse labels the download-history controls: one entry per
-// outcome tab, each split by media scope so switching scope re-labels the tabs
-// without another round trip. All is the three outcomes together.
+// HistoryCountsResponse splits terminal outcomes by media scope. All is the
+// sum of Completed, Failed and Cancelled.
 type HistoryCountsResponse struct {
 	All       HistoryScopeCounts `json:"all"`
 	Completed HistoryScopeCounts `json:"completed"`
@@ -975,8 +896,7 @@ type ContinueWatchingInput struct {
 	Limit int `json:"limit" validate:"min=0,max=50"`
 }
 
-// ContinueWatching lists the recordings the user is partway through, most
-// recently watched first, for the dashboard's continue-watching strip.
+// ContinueWatching lists the user's unfinished recordings, most recently watched first.
 func (h *Handler) ContinueWatching(ctx context.Context, input ContinueWatchingInput) ([]VideoResponse, error) {
 	user, err := middleware.RequireUser(ctx)
 	if err != nil {
@@ -993,7 +913,6 @@ func (h *Handler) ContinueWatching(ctx context.Context, input ContinueWatchingIn
 	return h.toVideoResponses(ctx, user.ID, vids), nil
 }
 
-// ChannelStatisticsInput scopes a per-channel aggregate query.
 type ChannelStatisticsInput struct {
 	BroadcasterID string `json:"broadcaster_id"`
 }
@@ -1037,18 +956,10 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context, userID string) ([
 		return []ActiveDownloadResponse{}, nil
 	}
 
-	// Resolve video rows by the job IDs the downloader is actively
-	// running. Using in-memory active jobs as the source of truth
-	// avoids missing new downloads hidden behind any stale
-	// RUNNING rows in the database (e.g. orphans from a prior crash).
 	jobIDs := make([]string, len(progress))
 	for i, snap := range progress {
 		jobIDs[i] = snap.JobID
 	}
-	// One batched lookup instead of a GetVideoByJobID per active job — this
-	// snapshot runs on every dashboard poll and every active-downloads SSE
-	// wake. Job IDs with no video row (e.g. a stale RUNNING orphan) are simply
-	// absent from the result.
 	vids, err := h.download.VideosByJobIDs(ctx, jobIDs)
 	if err != nil {
 		return nil, err
@@ -1061,9 +972,6 @@ func (h *Handler) activeDownloadsSnapshot(ctx context.Context, userID string) ([
 	primaryCategories := h.video.PrimaryCategoriesByVideoIDs(ctx, vids)
 	userStates := h.video.UserStatesByVideoID(ctx, userID, vids)
 
-	// Batch the per-video part lookup: this snapshot runs on every dashboard
-	// poll and every active-downloads SSE wake, so one query for the whole set
-	// beats one ListVideoParts per running recording.
 	videoIDs := make([]int64, 0, len(vids))
 	for i := range vids {
 		videoIDs = append(videoIDs, vids[i].ID)
@@ -1225,32 +1133,23 @@ func (h *Handler) ActiveDownloadsLive(ctx context.Context) (<-chan []ActiveDownl
 	return out, nil
 }
 
-// TriggerDownloadInput starts a manual download for a live broadcaster.
-// RecordingType + ForceH264 are accepted at the API boundary so the
-// dashboard can send them; the native HLS downloader (Phase 4+) will
-// consume them at Stage 3 variant selection. Until then they are
-// recorded on the `videos` row via VideoInput but otherwise ignored.
 type TriggerDownloadInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 	RecordingType string `json:"recording_type,omitempty" validate:"omitempty,oneof=video audio"`
 	Quality       string `json:"quality,omitempty" validate:"omitempty,oneof=LOW MEDIUM HIGH 1440 BEST"`
 	ForceH264     bool   `json:"force_h264,omitempty"`
-	// MaxHeight pins the recording to one of the heights video.liveRenditions
-	// listed. It wins over Quality, which is then stored as the tier the
-	// height falls in. Ignored for audio.
+	// MaxHeight overrides Quality with the containing tier and is ignored for audio.
 	MaxHeight int `json:"max_height,omitempty" validate:"omitempty,min=1,max=4320"`
 }
 
-// LiveRenditionsInput names the live channel to inspect. ForceH264 must match
-// the download that follows: it changes which renditions Twitch offers, not
-// just which ones are shown.
+// LiveRenditionsInput must use the intended download's ForceH264 value because
+// it changes the renditions Twitch offers.
 type LiveRenditionsInput struct {
 	BroadcasterID string `json:"broadcaster_id" validate:"required"`
 	ForceH264     bool   `json:"force_h264,omitempty"`
 }
 
-// LiveRendition is one video rendition of the live stream as the recorder
-// sees it. FPS is omitted when the manifest does not declare it.
+// LiveRendition omits FPS when the manifest does not declare it.
 type LiveRendition struct {
 	Height int     `json:"height"`
 	FPS    float64 `json:"fps,omitempty"`
@@ -1268,8 +1167,7 @@ type LiveRenditionsResponse struct {
 func (h *Handler) LiveRenditions(ctx context.Context, input LiveRenditionsInput) (LiveRenditionsResponse, error) {
 	result, err := h.download.LiveRenditions(ctx, input.BroadcasterID, input.ForceH264)
 	if err != nil {
-		// Usher answers 404 for a channel that is not streaming; that is the
-		// dialog's normal offline case, not a fault worth a log line.
+		// Usher returns 404 for offline channels; this is an expected empty result.
 		var authErr *dltwitch.AuthError
 		if errors.As(err, &authErr) && authErr.Status == http.StatusNotFound {
 			return LiveRenditionsResponse{}, trpcgo.NewError(trpcgo.CodeNotFound, "the channel is not live")
@@ -1338,7 +1236,9 @@ type OK struct {
 }
 
 func (h *Handler) Cancel(ctx context.Context, input CancelInput) (OK, error) {
-	h.download.Cancel(ctx, input.JobID)
+	if err := h.download.Cancel(ctx, input.JobID); err != nil {
+		return OK{}, apierr.Map(h.log, err, "stop recording")
+	}
 	return OK{OK: true}, nil
 }
 
@@ -1346,11 +1246,8 @@ type DeleteInput struct {
 	ID int64 `json:"id" validate:"required"`
 }
 
-// Delete queues a finished recording for background removal. Only terminal
-// recordings (DONE/FAILED) are removable — an in-flight or queued recording
-// owns a live job, so purging it would race the writer; those are stopped via
-// video.cancel first. The background task handles storage retries and waits for
-// recording-webhook part metadata to be frozen before deleting video_parts.
+// Delete queues terminal recordings for removal. Active or queued recordings
+// must be cancelled first so deletion cannot race their writers.
 func (h *Handler) Delete(ctx context.Context, input DeleteInput) (OK, error) {
 	if _, err := middleware.RequireUser(ctx); err != nil {
 		return OK{}, err
@@ -1360,8 +1257,7 @@ func (h *Handler) Delete(ctx context.Context, input DeleteInput) (OK, error) {
 		return OK{}, apierr.Map(h.log, err, "delete recording",
 			apierr.On(repository.ErrNotFound, trpcgo.CodeNotFound, "recording not found"))
 	}
-	// A missing-media tombstone is the one kind of removed row that still owns
-	// objects and part rows; removing it permanently purges those.
+	// Missing-media tombstones retain object ownership and parts for a later purge.
 	if v.DeletedAt != nil && !isMissingTombstone(v) {
 		return OK{}, trpcgo.NewError(trpcgo.CodeConflict, "recording is already removed")
 	}
@@ -1387,9 +1283,7 @@ type RestoreInput struct {
 	ID int64 `json:"id" validate:"required"`
 }
 
-// Restore brings a missing-media tombstone back into the library. The scan
-// does the same on its own once the media is back; this is for the operator
-// who just put the files back and is looking at the row.
+// Restore restores a missing-media tombstone after its files return.
 func (h *Handler) Restore(ctx context.Context, input RestoreInput) (OK, error) {
 	if _, err := middleware.RequireUser(ctx); err != nil {
 		return OK{}, err
@@ -1420,12 +1314,8 @@ type DownloadProgressInput struct {
 	JobID string `json:"job_id" validate:"required"`
 }
 
-// ProgressEvent is the wire shape for a download progress update.
-// Matches downloader.Progress but pinned to a JSON-stable schema.
-//
-// Cumulative semantics: each event fully replaces the previous,
-// so subscribers that miss intermediate events (slow render, SSE
-// reconnect) stay consistent once they receive the next one.
+// ProgressEvent is a cumulative snapshot. Each event replaces the previous
+// one, so skipped updates do not lose state.
 type ProgressEvent struct {
 	JobID              string   `json:"job_id"`
 	PartIndex          int      `json:"part_index"`
@@ -1445,16 +1335,9 @@ type ProgressEvent struct {
 	MediaOffsetSeconds *float64 `json:"media_offset_seconds,omitempty"`
 }
 
-// DownloadProgress streams Progress events for a running download
-// via SSE. Returns an empty closed channel if the job is not (or no
-// longer) active — this collapses "already done" and "never existed"
-// into a single tidy closed-stream path the client handles naturally.
-//
-// The trpcgo middleware chain runs before this handler, so an expired
-// session 401s on subscribe rather than hanging an open SSE forever.
-// The SSE transport handles client disconnects by cancelling ctx,
-// which propagates through to us; the downloader publishes with a
-// non-blocking select so a dropped subscriber never wedges its writes.
+// DownloadProgress returns a closed channel for inactive or unknown jobs.
+// Request cancellation ends the subscription; slow readers never block the
+// downloader's writes.
 func (h *Handler) DownloadProgress(ctx context.Context, input DownloadProgressInput) (<-chan ProgressEvent, error) {
 	src := h.download.Subscribe(input.JobID)
 	if src == nil {

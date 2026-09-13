@@ -11,10 +11,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// testListVideosForStorageScan pins the candidate set of the storage scan:
-// live DONE rows, FAILED rows that salvaged parts, nothing queued for manual
-// deletion, nothing tombstoned, and nothing whose pending webhook delivery has
-// not frozen its part list yet. The video_id filter narrows to one row.
 func testListVideosForStorageScan(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -67,8 +63,7 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 	if err := repo.SoftDeleteVideo(ctx, gone.ID, repository.DeletionKindMissing); err != nil {
 		t.Fatalf("SoftDeleteVideo: %v", err)
 	}
-	// A pending webhook delivery does not hold a recording back: the tombstone
-	// keeps its part rows, so the delivery can still freeze them.
+	// Missing-media tombstones retain part rows so pending deliveries can freeze them.
 	delivering := done(mk("scan-delivering", 1))
 	if _, err := repo.CreateRecordingWebhookDelivery(ctx, &repository.RecordingWebhookDeliveryInput{
 		MessageID: "msg-scan-delivering", DedupeKey: "dedupe-scan-delivering", Event: "recording.completed",
@@ -99,8 +94,8 @@ func testListVideosForStorageScan(t *testing.T, h Harness) {
 		}
 	}
 
-	// A failed archive waiting for its retry is not terminal: its part row may
-	// exist before any object does, and the retry, not the scan, owns it.
+	// Retrying archives may have part rows before objects exist, so scanning them
+	// could tombstone recoverable work.
 	retryVOD := "vod-retrying"
 	retrying, err := repo.CreateVideo(ctx, &repository.VideoInput{
 		JobID: "scan-retrying", Filename: "scan-retrying", DisplayName: "b-scan",
@@ -320,12 +315,11 @@ func testMissingTombstoneRestoreAndPermanentRemoval(t *testing.T, h Harness) {
 		}
 	}
 
-	// A manual delete may be requested on a missing tombstone; from then on it
-	// is the worker's, not restorable, and no longer listed for the scan.
+	// A queued manual delete prevents restoration of a missing-media tombstone.
 	if _, err := repo.RequestVideoDelete(ctx, queued.ID); err != nil {
 		t.Fatalf("RequestVideoDelete on a missing tombstone: %v", err)
 	}
-	pending, err := repo.ListVideosPendingManualDelete(ctx, 10)
+	pending, err := repo.ListVideosPendingManualDelete(ctx, 0, 10)
 	if err != nil || len(pending) != 1 || pending[0].ID != queued.ID {
 		t.Fatalf("pending manual deletes = %+v, %v; want the queued tombstone", pending, err)
 	}
@@ -351,7 +345,6 @@ func testMissingTombstoneRestoreAndPermanentRemoval(t *testing.T, h Harness) {
 		t.Fatalf("RequestVideoDelete on a retention tombstone err = %v, want ErrNotFound", err)
 	}
 
-	// Restoring keeps everything the tombstone kept.
 	if err := repo.RestoreMissingVideo(ctx, missing.ID); err != nil {
 		t.Fatalf("RestoreMissingVideo: %v", err)
 	}

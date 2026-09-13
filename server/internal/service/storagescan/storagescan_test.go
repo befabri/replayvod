@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/contracttest"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
@@ -31,8 +33,6 @@ type fixture struct {
 	svc   *Service
 }
 
-// newFixture attaches a fresh local root, so storage carries the identity the
-// database expects and the scan trusts what it says.
 func newFixture(t *testing.T) fixture {
 	t.Helper()
 	ctx := context.Background()
@@ -53,15 +53,12 @@ func newFixture(t *testing.T) fixture {
 		store: store,
 		root:  root,
 		mon:   mon,
-		svc:   New(repo, store, mon, discardLog()),
+		svc:   New(repo, mediatest.New(t, repo, store, mon, nil), discardLog()),
 	}
 }
 
-// seed creates a finished recording named jobID with parts part rows. Media
-// files are written only for the part indexes listed in present, so a caller
-// shapes a fully present, partial, or missing recording. The poster and the
-// first part's strip are always written: a tombstone must keep the poster and
-// preserve the strip.
+// seed writes media only for the indexes in present, while always retaining
+// preview objects so missing-media tombstones can be checked for accidental purge.
 func (f fixture) seed(t *testing.T, jobID string, parts int, present ...int) *repository.Video {
 	t.Helper()
 	v, err := f.repo.CreateVideo(f.ctx, &repository.VideoInput{
@@ -120,8 +117,6 @@ func (f fixture) assertLive(t *testing.T, id int64) {
 	}
 }
 
-// assertPreviewsKept checks that a missing-media tombstone left the
-// poster and the rest of the preview assets referenced by its metadata.
 func (f fixture) assertPreviewsKept(t *testing.T, jobID string) {
 	t.Helper()
 	if !f.exists(t, fmt.Sprintf("thumbnails/%s-part01.jpg", jobID)) {
@@ -217,6 +212,20 @@ func TestSweep_TombstonesRecordingWhoseMediaIsGone(t *testing.T) {
 	}
 }
 
+func TestDoneRecordingWithoutPartsIsMissingAndCannotRestore(t *testing.T) {
+	f := newFixture(t)
+	v := f.seed(t, "no-parts", 0)
+	if _, err := f.svc.Sweep(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	f.assertTombstonedMissing(t, v.ID)
+	f.assertPreviewsKept(t, "no-parts")
+	if err := f.svc.Restore(f.ctx, v.ID); !errors.Is(err, ErrNotRestorable) {
+		t.Fatalf("recording without media references restored: %v", err)
+	}
+	f.assertTombstonedMissing(t, v.ID)
+}
+
 func TestSweep_LeavesPartiallyMissingRecordingInPlace(t *testing.T) {
 	f := newFixture(t)
 	partial := f.seed(t, "partial", 3, 1, 3)
@@ -231,9 +240,8 @@ func TestSweep_LeavesPartiallyMissingRecordingInPlace(t *testing.T) {
 	f.assertLive(t, partial.ID)
 }
 
-// TestSweep_TombstonesEveryMissingRecordingOnAttachedStorage pins that no
-// ratio decides: three of four deleted by hand on attached storage are all
-// reconciled, and the one still present is untouched.
+// TestSweep_TombstonesEveryMissingRecordingOnAttachedStorage trusts attached
+// storage even when most recordings are missing.
 func TestSweep_TombstonesEveryMissingRecordingOnAttachedStorage(t *testing.T) {
 	f := newFixture(t)
 	present := f.seed(t, "present", 1, 1)
@@ -252,9 +260,6 @@ func TestSweep_TombstonesEveryMissingRecordingOnAttachedStorage(t *testing.T) {
 	}
 }
 
-// TestSweep_TombstonesContiguousBlock covers a whole run of consecutive ids
-// deleted by hand, larger than half a page, inside a library bigger than one
-// page.
 func TestSweep_TombstonesContiguousBlock(t *testing.T) {
 	f := newFixture(t)
 	const total, blockStart, blockEnd = scanPageSize + 8, 10, 50
@@ -281,8 +286,7 @@ func TestSweep_TombstonesContiguousBlock(t *testing.T) {
 	}
 }
 
-// TestSweep_SmallLibrary pins that a tiny library is never refused: one of
-// one and two of three are reconciled like any other.
+// TestSweep_SmallLibrary applies missing-media reconciliation without a minimum sample size.
 func TestSweep_SmallLibrary(t *testing.T) {
 	t.Run("one of one", func(t *testing.T) {
 		f := newFixture(t)
@@ -341,9 +345,8 @@ func TestSweep_RefusesWhenStorageRootIsUnreachable(t *testing.T) {
 	}
 }
 
-// TestSweep_RefusesForeignStorageUntilAdopted is the wrong-volume case: a
-// directory with another install's marker holds none of our files, and none
-// of them may be tombstoned until the operator adopts it deliberately.
+// TestSweep_RefusesForeignStorageUntilAdopted prevents a foreign volume from
+// authorizing missing-media tombstones before explicit adoption.
 func TestSweep_RefusesForeignStorageUntilAdopted(t *testing.T) {
 	f := newFixture(t)
 	gone := f.seed(t, "gone", 1)
@@ -374,8 +377,6 @@ func TestSweep_RefusesForeignStorageUntilAdopted(t *testing.T) {
 	f.assertLive(t, present.ID)
 }
 
-// TestSweep_RefusalClearsWhenMarkerReturns pins that a refusal is not sticky:
-// the moment the expected marker is visible again the scan proceeds.
 func TestSweep_RefusalClearsWhenMarkerReturns(t *testing.T) {
 	f := newFixture(t)
 	gone := f.seed(t, "gone", 1)
@@ -403,19 +404,19 @@ func (f readyFunc) Verify(ctx context.Context) error { return f(ctx) }
 func TestSweep_ScansReadOnlyStorage(t *testing.T) {
 	f := newFixture(t)
 	gone := f.seed(t, "gone", 1)
-	svc := New(f.repo, f.store, readyFunc(func(context.Context) error {
+	svc := New(f.repo, mediatest.New(t, f.repo, f.store, readyFunc(func(context.Context) error {
 		return fmt.Errorf("%w: probe", storage.ErrReadOnly)
-	}), discardLog())
+	}), nil), discardLog())
 	if _, err := svc.Sweep(f.ctx); err != nil {
 		t.Fatalf("Sweep on read-only storage: %v", err)
 	}
 	f.assertTombstonedMissing(t, gone.ID)
 }
 
-func TestSweep_WithoutReadinessFailsClosed(t *testing.T) {
+func TestSweep_UnreachableStorageFailsClosed(t *testing.T) {
 	f := newFixture(t)
 	gone := f.seed(t, "gone", 1)
-	svc := New(f.repo, f.store, nil, discardLog())
+	svc := New(f.repo, mediatest.New(t, f.repo, f.store, readyFunc(func(context.Context) error { return storage.ErrUnreachable }), nil), discardLog())
 	if _, err := svc.Sweep(f.ctx); !errors.Is(err, storage.ErrUnreachable) {
 		t.Fatalf("Sweep = %v, want ErrUnreachable", err)
 	}
@@ -425,11 +426,11 @@ func TestSweep_WithoutReadinessFailsClosed(t *testing.T) {
 	f.assertLive(t, gone.ID)
 }
 
-func TestSweep_HandlesLegacySingleFileAndFailedRows(t *testing.T) {
+func TestSweep_HandlesOnePartAndFailedRows(t *testing.T) {
 	f := newFixture(t)
-	legacyPresent := f.seed(t, "legacy-present", 0)
-	f.save(t, "videos/legacy-present.mp4")
-	legacyGone := f.seed(t, "legacy-gone", 0)
+	singlePresent := f.seed(t, "single-present", 1)
+	f.save(t, "videos/single-present-part01.mp4")
+	singleGone := f.seed(t, "single-gone", 1)
 	failed, err := f.repo.CreateVideo(f.ctx, &repository.VideoInput{
 		JobID: "failed", Filename: "failed", DisplayName: "b-scan",
 		Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
@@ -449,12 +450,11 @@ func TestSweep_HandlesLegacySingleFileAndFailedRows(t *testing.T) {
 	if want := (Report{Complete: true, Scanned: 2, Missing: 1, Tombstoned: 1}); report != want {
 		t.Fatalf("report = %+v, want %+v", report, want)
 	}
-	f.assertLive(t, legacyPresent.ID)
-	f.assertTombstonedMissing(t, legacyGone.ID)
+	f.assertLive(t, singlePresent.ID)
+	f.assertTombstonedMissing(t, singleGone.ID)
 	f.assertLive(t, failed.ID)
 }
 
-// statErrStore fails Stat for one path with an error other than not-found.
 type statErrStore struct {
 	storage.Storage
 	failPath string
@@ -471,7 +471,7 @@ func TestSweep_StatErrorNeverCountsAsMissing(t *testing.T) {
 	f := newFixture(t)
 	flaky := f.seed(t, "flaky", 1)
 	gone := f.seed(t, "gone", 1)
-	svc := New(f.repo, statErrStore{Storage: f.store, failPath: "videos/flaky-part01.mp4"}, f.mon, discardLog())
+	svc := New(f.repo, mediatest.New(t, f.repo, statErrStore{Storage: f.store, failPath: "videos/flaky-part01.mp4"}, f.mon, nil), discardLog())
 
 	report, err := svc.Sweep(f.ctx)
 	if err == nil || !strings.Contains(err.Error(), "storage hiccup") {
@@ -512,7 +512,6 @@ func TestMarkMissing(t *testing.T) {
 	}
 	f.assertLive(t, present.ID)
 
-	// Already tombstoned rows and unknown ids are not candidates.
 	tombstoned, err = f.svc.MarkMissing(f.ctx, gone.ID)
 	if err != nil || tombstoned {
 		t.Fatalf("MarkMissing again = (%v, %v), want (false, nil)", tombstoned, err)
@@ -549,9 +548,6 @@ func TestMarkMissing_InvalidIDsNeverSelectAnotherRecording(t *testing.T) {
 	f.assertLive(t, v.ID)
 }
 
-// TestMarkMissing_InspectsOnlyTheTarget pins the playback path's scope: with
-// every neighbour gone too, one request reconciles exactly the recording it
-// asked about and stats nothing else.
 func TestMarkMissing_InspectsOnlyTheTarget(t *testing.T) {
 	f := newFixture(t)
 	var ids []int64
@@ -559,7 +555,7 @@ func TestMarkMissing_InspectsOnlyTheTarget(t *testing.T) {
 		ids = append(ids, f.seed(t, fmt.Sprintf("gone-%d", i), 1).ID)
 	}
 	counting := &statCountingStore{Storage: f.store}
-	svc := New(f.repo, counting, f.mon, discardLog())
+	svc := New(f.repo, mediatest.New(t, f.repo, counting, f.mon, nil), discardLog())
 	changed, err := svc.MarkMissing(f.ctx, ids[0])
 	if !changed || err != nil {
 		t.Fatalf("mark = %v, %v", changed, err)
@@ -601,7 +597,7 @@ func TestMarkMissing_ManualRequestWinsDuringInspection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}}
-	changed, err := New(repo, f.store, f.mon, discardLog()).MarkMissing(f.ctx, v.ID)
+	changed, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog()).MarkMissing(f.ctx, v.ID)
 	if changed || err != nil {
 		t.Fatalf("mark = %v, %v", changed, err)
 	}
@@ -620,7 +616,7 @@ func TestMarkMissing_NeverDeletesMediaThatReturns(t *testing.T) {
 	f := newFixture(t)
 	v := f.seed(t, "restored", 1)
 	repo := beforeTombstoneRepo{Repository: f.repo, before: func(id int64) { f.save(t, "videos/restored-part01.mp4") }}
-	changed, err := New(repo, f.store, f.mon, discardLog()).MarkMissing(f.ctx, v.ID)
+	changed, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog()).MarkMissing(f.ctx, v.ID)
 	if !changed || err != nil {
 		t.Fatalf("mark = %v, %v", changed, err)
 	}
@@ -651,8 +647,6 @@ func TestMarkMissing_PreservesSnapshotPoster(t *testing.T) {
 	}
 }
 
-// pageTrackingRepo records the cursor of every page list and cancels the run
-// on the page numbered cancelOn, standing in for scheduler shutdown.
 type pageTrackingRepo struct {
 	repository.Repository
 	pages    []int64
@@ -676,9 +670,6 @@ func (r *pageTrackingRepo) ListVideoParts(ctx context.Context, id int64) ([]repo
 	return nil, errors.New("unexpected per-video part query")
 }
 
-// TestSweep_BatchesPartsAndResumesAfterCancellation pins that a run cut short by
-// cancellation after one full page retains its progress, that the cursor it reached
-// is persisted, and that a fresh service (a restarted process) resumes there.
 func TestSweep_BatchesPartsAndResumesAfterCancellation(t *testing.T) {
 	f := newFixture(t)
 	var last *repository.Video
@@ -688,7 +679,7 @@ func TestSweep_BatchesPartsAndResumesAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 	repo := &pageTrackingRepo{Repository: f.repo, cancelOn: 2, cancel: cancel}
-	report, err := New(repo, f.store, f.mon, discardLog()).Sweep(ctx)
+	report, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog()).Sweep(ctx)
 	if !errors.Is(err, context.Canceled) || report.Complete || report.Scanned != scanPageSize {
 		t.Fatalf("first page = %+v, %v; want an interrupted run with saved progress", report, err)
 	}
@@ -697,7 +688,7 @@ func TestSweep_BatchesPartsAndResumesAfterCancellation(t *testing.T) {
 	}
 
 	resumed := &pageTrackingRepo{Repository: f.repo}
-	report, err = New(resumed, f.store, f.mon, discardLog()).Sweep(f.ctx)
+	report, err = New(resumed, mediatest.New(t, resumed, f.store, f.mon, nil), discardLog()).Sweep(f.ctx)
 	if err != nil || !report.Complete || report.Scanned != 1 {
 		t.Fatalf("resume = %+v, %v", report, err)
 	}
@@ -715,7 +706,7 @@ func TestSweep_CancellationBeforeAnyPageIsSurfaced(t *testing.T) {
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 	repo := &pageTrackingRepo{Repository: f.repo, cancelOn: 1, cancel: cancel}
-	report, err := New(repo, f.store, f.mon, discardLog()).Sweep(ctx)
+	report, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog()).Sweep(ctx)
 	if !errors.Is(err, context.Canceled) || report.Scanned != 0 {
 		t.Fatalf("no-progress run = %+v, %v; want cancellation surfaced", report, err)
 	}
@@ -757,8 +748,6 @@ func (f fixture) restoredEvents(t *testing.T) int {
 	return n
 }
 
-// tombstoneMissing runs a sweep that reconciles the seeded recording, so the
-// restore tests start from a real missing tombstone.
 func (f fixture) tombstoneMissing(t *testing.T, id int64) {
 	t.Helper()
 	if _, err := f.svc.Sweep(f.ctx); err != nil {
@@ -862,7 +851,6 @@ func TestRestore_NotRestorableRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.save(t, "videos/queued-part01.mp4")
-	// A failed tombstone without part rows owns no media to check.
 	legacy, err := f.repo.CreateVideo(f.ctx, &repository.VideoInput{
 		JobID: "legacy-failed", Filename: "legacy-failed", DisplayName: "b-scan",
 		Status: repository.VideoStatusPending, Quality: repository.QualityHigh,
@@ -885,9 +873,6 @@ func TestRestore_NotRestorableRows(t *testing.T) {
 	f.assertLive(t, live.ID)
 }
 
-// TestSweep_RestoresReturnedMediaAndTombstonesInOnePass pins the scan's two
-// phases: a recording whose files came back rejoins the library while one
-// whose files left is reconciled, and a second pass changes nothing.
 func TestSweep_RestoresReturnedMediaAndTombstonesInOnePass(t *testing.T) {
 	f := newFixture(t)
 	returned := f.seed(t, "returned", 2)
@@ -930,7 +915,7 @@ func TestSweep_CancellationDuringRestorePhaseIsSurfaced(t *testing.T) {
 	ctx, cancel := context.WithCancel(f.ctx)
 	defer cancel()
 	repo := &cancelOnMissingListRepo{Repository: f.repo, cancel: cancel}
-	report, err := New(repo, f.store, f.mon, discardLog()).Sweep(ctx)
+	report, err := New(repo, mediatest.New(t, repo, f.store, f.mon, nil), discardLog()).Sweep(ctx)
 	if !errors.Is(err, context.Canceled) || report.Complete {
 		t.Fatalf("run cut during restore = %+v, %v; want cancellation, incomplete", report, err)
 	}
@@ -947,9 +932,8 @@ func (r *cancelOnMissingListRepo) ListMissingTombstones(ctx context.Context, aft
 	return nil, ctx.Err()
 }
 
-// TestRestore_RefusesWhenTheVODWasArchivedAgain pins the one-open-row rule on
-// the restore path: a tombstoned archive whose VOD was archived anew is
-// refused with a reason, and the sweep passes over it without failing.
+// TestRestore_RefusesWhenTheVODWasArchivedAgain keeps one open recording per VOD
+// and lets automatic restoration continue past that conflict.
 func TestRestore_RefusesWhenTheVODWasArchivedAgain(t *testing.T) {
 	f := newFixture(t)
 	vod := "vod-1"
@@ -1004,17 +988,14 @@ func TestRestore_RefusesWhenTheVODWasArchivedAgain(t *testing.T) {
 	f.assertLive(t, old.ID)
 }
 
-// TestSweep_EmptyRootIsNeverInitializedOverALibrary is the upgrade hole: a
-// database with recordings but no storage id starts against an empty mount
-// point. Nothing may be tombstoned; once the real volume is attached the
-// library is found intact.
+// TestSweep_EmptyRootIsNeverInitializedOverALibrary prevents a missing volume
+// from being mistaken for new storage when a database lacks a recorded identity.
 func TestSweep_EmptyRootIsNeverInitializedOverALibrary(t *testing.T) {
 	f := newFixture(t)
 	var ids []int64
 	for i := range 3 {
 		ids = append(ids, f.seed(t, fmt.Sprintf("rec-%d", i), 1, 1).ID)
 	}
-	// Forget the identity, as an install upgraded to this version has none.
 	if _, err := f.repo.SetStorageID(f.ctx, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1014,7 @@ func TestSweep_EmptyRootIsNeverInitializedOverALibrary(t *testing.T) {
 	if _, err := mon.Attach(f.ctx); !errors.Is(err, storage.ErrUnattached) {
 		t.Fatalf("attach to the empty mount point = %v, want ErrUnattached", err)
 	}
-	if _, err := New(f.repo, emptyStore, mon, discardLog()).Sweep(f.ctx); !errors.Is(err, storage.ErrUnattached) {
+	if _, err := New(f.repo, mediatest.New(t, f.repo, emptyStore, mon, nil), discardLog()).Sweep(f.ctx); !errors.Is(err, storage.ErrUnattached) {
 		t.Fatalf("sweep against the empty mount point = %v, want refused", err)
 	}
 	for _, id := range ids {
@@ -1044,7 +1025,7 @@ func TestSweep_EmptyRootIsNeverInitializedOverALibrary(t *testing.T) {
 	if status, err := realMon.Attach(f.ctx); err != nil || status.State != storagehealth.StateAttached {
 		t.Fatalf("attach to the real volume = %+v, %v", status, err)
 	}
-	report, err := New(f.repo, f.store, realMon, discardLog()).Sweep(f.ctx)
+	report, err := New(f.repo, mediatest.New(t, f.repo, f.store, realMon, nil), discardLog()).Sweep(f.ctx)
 	if err != nil || report.Missing != 0 || report.Tombstoned != 0 || !report.Complete {
 		t.Fatalf("sweep on the real volume = %+v, %v; want everything present", report, err)
 	}

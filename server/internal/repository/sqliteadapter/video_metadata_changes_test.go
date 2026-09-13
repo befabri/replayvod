@@ -20,6 +20,7 @@ func TestListVideoMetadataChanges_AllowsLeftJoinNullTimestampProjections(t *test
 	at := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
 	if _, err := a.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{
+		JobID: "sqlite-meta-left-join-job", ExecutionID: "metadata-execution",
 		VideoID:    videoID,
 		OccurredAt: at,
 		Title:      "Title only",
@@ -27,6 +28,7 @@ func TestListVideoMetadataChanges_AllowsLeftJoinNullTimestampProjections(t *test
 		t.Fatalf("RecordVideoMetadataChange title-only: %v", err)
 	}
 	if _, err := a.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{
+		JobID: "sqlite-meta-left-join-job", ExecutionID: "metadata-execution",
 		VideoID:      videoID,
 		OccurredAt:   at.Add(time.Minute),
 		CategoryID:   "game-left-join",

@@ -23,7 +23,7 @@ vi.mock("@trpc/tanstack-react-query", async (original) => ({
 import {
 	useHistoryCounts,
 	useInfiniteVideoPages,
-	useLiveVideoRemovals,
+	useLiveVideoChanges,
 	useVideo,
 } from "./queries";
 
@@ -95,7 +95,7 @@ function harness() {
 	);
 	const view = renderHook(
 		() => {
-			useLiveVideoRemovals();
+			useLiveVideoChanges();
 			return {
 				list: useInfiniteVideoPages(),
 				video: useVideo(95),

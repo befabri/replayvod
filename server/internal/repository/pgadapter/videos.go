@@ -260,11 +260,11 @@ func (a *PGAdapter) RequestVideoDelete(ctx context.Context, id int64) (*reposito
 	return pgVideoToDomain(row), nil
 }
 
-func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, limit int) ([]repository.Video, error) {
+func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, afterID int64, limit int) ([]repository.Video, error) {
 	if limit <= 0 {
 		return []repository.Video{}, nil
 	}
-	rows, err := a.queries.ListVideosPendingManualDelete(ctx, int32(limit))
+	rows, err := a.queries.ListVideosPendingManualDelete(ctx, pggen.ListVideosPendingManualDeleteParams{AfterID: afterID, RowLimit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list videos pending manual delete: %w", err)
 	}
@@ -275,8 +275,8 @@ func (a *PGAdapter) SoftDeleteVideo(ctx context.Context, id int64, kind string) 
 	return a.queries.SoftDeleteVideo(ctx, pggen.SoftDeleteVideoParams{ID: id, DeletionKind: &kind})
 }
 
-func (a *PGAdapter) ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]repository.RetentionVideo, error) {
-	rows, err := a.queries.ListFinishedVideosForRetention(ctx, now)
+func (a *PGAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]repository.RetentionVideo, error) {
+	rows, err := a.queries.ListRetentionCandidates(ctx, pggen.ListRetentionCandidatesParams{Now: now, AfterID: afterID, BatchLimit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list finished videos for retention: %w", err)
 	}
@@ -479,9 +479,6 @@ func pgCursorID(cursor *repository.VideoPageCursor) int64 {
 	return cursor.ID
 }
 
-// Pure page/cursor helpers now live in repository (pagination.go) so both
-// adapters share one copy.
-
 // ListVideosForStorageScan bounds each query even if a caller passes an invalid limit.
 func (a *PGAdapter) ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]repository.StorageScanVideo, error) {
 	if afterID < 0 || limit < 1 || limit > 1000 {
@@ -628,8 +625,8 @@ func (a *PGAdapter) ListRecentArchiveFailures(ctx context.Context, since time.Ti
 	return pgVideosToDomain(rows), nil
 }
 
-func (a *PGAdapter) ListArchivesDueForRetry(ctx context.Context, now time.Time, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListArchivesDueForRetry(ctx, pggen.ListArchivesDueForRetryParams{NextRetryAt: &now, Limit: int32(limit)})
+func (a *PGAdapter) ListArchivesDueForRetry(ctx context.Context, now, after time.Time, afterID int64, limit int) ([]repository.Video, error) {
+	rows, err := a.queries.ListArchivesDueForRetry(ctx, pggen.ListArchivesDueForRetryParams{Now: now, AfterTime: after, AfterID: afterID, BatchLimit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list archives due for retry: %w", err)
 	}

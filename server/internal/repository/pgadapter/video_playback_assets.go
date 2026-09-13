@@ -33,8 +33,8 @@ func (a *PGAdapter) TouchVideoPlaybackAsset(ctx context.Context, videoID int64) 
 	return nil
 }
 
-func (a *PGAdapter) ListReadyVideoPlaybackAssets(ctx context.Context) ([]repository.VideoPlaybackAsset, error) {
-	rows, err := a.queries.ListReadyVideoPlaybackAssets(ctx)
+func (a *PGAdapter) ListReadyVideoPlaybackAssets(ctx context.Context, after repository.PlaybackAssetCursor, limit int) ([]repository.VideoPlaybackAsset, error) {
+	rows, err := a.queries.ListReadyVideoPlaybackAssets(ctx, pggen.ListReadyVideoPlaybackAssetsParams{AfterAccess: after.AccessedAt, AfterGenerated: after.GeneratedAt, AfterID: after.VideoID, BatchLimit: int32(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("pg list ready video playback assets: %w", err)
 	}
@@ -50,4 +50,8 @@ func (a *PGAdapter) DeleteVideoPlaybackAsset(ctx context.Context, videoID int64)
 		return fmt.Errorf("pg delete video playback asset: %w", err)
 	}
 	return nil
+}
+
+func (a *PGAdapter) SumReadyPlaybackBytes(ctx context.Context) (int64, error) {
+	return a.queries.SumReadyPlaybackBytes(ctx)
 }

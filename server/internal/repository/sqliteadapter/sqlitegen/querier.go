@@ -237,16 +237,6 @@ type Querier interface {
 	ListFailedJobsForRetry(ctx context.Context, arg ListFailedJobsForRetryParams) ([]Job, error)
 	ListFetchLogs(ctx context.Context, arg ListFetchLogsParams) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, arg ListFetchLogsByTypeParams) ([]FetchLog, error)
-	// Terminal, not-yet-tombstoned recordings whose creation-time retention policy
-	// snapshot is due at @now. DONE rows own watchable artifacts; FAILED
-	// partial/cancelled rows may own finalized parts, thumbnails, strips, and
-	// snapshots. FAILED rows without salvage are excluded so retention does not
-	// erase error-only diagnostics. Recordings without retention_window_hours are
-	// explicitly outside retention, even if the same broadcaster currently has a
-	// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
-	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
-	// agree on "exactly at the deadline is still retained".
-	ListFinishedVideosForRetention(ctx context.Context, now *sqlitetype.Time) ([]ListFinishedVideosForRetentionRow, error)
 	ListInvites(ctx context.Context) ([]Invite, error)
 	// SQLite has no DISTINCT ON; use ROW_NUMBER() to pick the most recent
 	// stream per broadcaster, then filter to rn=1. Joined with channels so
@@ -267,7 +257,7 @@ type Querier interface {
 	// started_at values on the returned row's hard-fail path.
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
 	ListQueuedArchiveJobs(ctx context.Context, arg ListQueuedArchiveJobsParams) ([]ListQueuedArchiveJobsRow, error)
-	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
+	ListReadyVideoPlaybackAssets(ctx context.Context, arg ListReadyVideoPlaybackAssetsParams) ([]VideoPlaybackAsset, error)
 	ListRecentArchiveFailures(ctx context.Context, arg ListRecentArchiveFailuresParams) ([]Video, error)
 	ListRecordingIntentJobs(ctx context.Context, arg ListRecordingIntentJobsParams) ([]Job, error)
 	ListRecordingPublications(ctx context.Context, arg ListRecordingPublicationsParams) ([]MediaPublication, error)
@@ -275,6 +265,16 @@ type Querier interface {
 	ListRecoverableRecordingIntents(ctx context.Context, arg ListRecoverableRecordingIntentsParams) ([]RecordingIntent, error)
 	ListRecoveryJobs(ctx context.Context, arg ListRecoveryJobsParams) ([]Job, error)
 	ListRelatedRecordings(ctx context.Context, videoID int64) ([]ListRelatedRecordingsRow, error)
+	// Terminal, not-yet-tombstoned recordings whose creation-time retention policy
+	// snapshot is due at @now. DONE rows own watchable artifacts; FAILED
+	// partial/cancelled rows may own finalized parts, thumbnails, strips, and
+	// snapshots. FAILED rows without salvage are excluded so retention does not
+	// erase error-only diagnostics. Recordings without retention_window_hours are
+	// explicitly outside retention, even if the same broadcaster currently has a
+	// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
+	// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
+	// agree on "exactly at the deadline is still retained".
+	ListRetentionCandidates(ctx context.Context, arg ListRetentionCandidatesParams) ([]ListRetentionCandidatesRow, error)
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
@@ -327,7 +327,7 @@ type Querier interface {
 	// Operator-requested deletions that are safe for the background worker to
 	// finalize. The webhook frozen-parts guard mirrors retention: do not delete
 	// video_parts until any pending/delivering delivery has captured them.
-	ListVideosPendingManualDelete(ctx context.Context, rowLimit int64) ([]Video, error)
+	ListVideosPendingManualDelete(ctx context.Context, arg ListVideosPendingManualDeleteParams) ([]Video, error)
 	ListWebhookEvents(ctx context.Context, arg ListWebhookEventsParams) ([]WebhookEvent, error)
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
 	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
@@ -475,6 +475,7 @@ type Querier interface {
 	StatisticsUnwatched(ctx context.Context, userID string) (int64, error)
 	StatisticsWatchLater(ctx context.Context, userID string) (int64, error)
 	StopJobMetadata(ctx context.Context, arg StopJobMetadataParams) (int64, error)
+	SumReadyPlaybackBytes(ctx context.Context) (int64, error)
 	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
 	// between 0/1 explicitly via CASE for clarity on non-boolean-ish values.
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)

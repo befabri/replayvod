@@ -417,15 +417,13 @@ func TestCaptureHadWindowRollBeforeEmptyContinuationBreak(t *testing.T) {
 	resume := &ResumeState{
 		Gaps: []Gap{{MediaSeq: 50, EndMediaSeq: 55, Reason: GapReasonRestartWindowRolled}},
 	}
-	hadWindowRoll := false
-
-	if !captureHadWindowRoll(resume, &hadWindowRoll) {
+	if !captureHadWindowRoll(resume) {
 		t.Fatal("captureHadWindowRoll returned false, want changed")
 	}
-	if !hadWindowRoll || !resume.HadWindowRoll {
-		t.Fatalf("window roll not captured: local=%v resume=%v", hadWindowRoll, resume.HadWindowRoll)
+	if !resume.HadWindowRoll {
+		t.Fatal("window roll not captured in checkpoint")
 	}
-	if captureHadWindowRoll(resume, &hadWindowRoll) {
+	if captureHadWindowRoll(resume) {
 		t.Fatal("second capture reported changed; want idempotent false")
 	}
 }
@@ -447,48 +445,6 @@ func TestShouldSkipSegmentFetch(t *testing.T) {
 				t.Errorf("shouldSkipSegmentFetch = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestRecoverLegacySeqZeroPartStartedFromDisk(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "0.ts"), []byte("media"), 0o644); err != nil {
-		t.Fatalf("write 0.ts: %v", err)
-	}
-	resume := &ResumeState{
-		Stage:                     StageSegments,
-		CurrentPartIndex:          1,
-		PartStartMediaSequence:    0,
-		AccountedFrontierMediaSeq: 0,
-	}
-
-	if !recoverLegacySeqZeroPartStarted(dir, resume) {
-		t.Fatal("recoverLegacySeqZeroPartStarted=false with durable 0.ts; want true")
-	}
-	if !resume.PartStarted {
-		t.Fatal("PartStarted=false after legacy seq-0 disk recovery")
-	}
-	if resume.SegmentFormat != string(hls.SegmentKindTS) {
-		t.Fatalf("SegmentFormat=%q, want ts", resume.SegmentFormat)
-	}
-	if !hasPartContent(nil, resume) {
-		t.Fatal("hasPartContent=false after legacy seq-0 disk recovery")
-	}
-}
-
-func TestRecoverLegacySeqZeroPartStartedRequiresSegmentFile(t *testing.T) {
-	resume := &ResumeState{
-		Stage:                     StageSegments,
-		CurrentPartIndex:          1,
-		PartStartMediaSequence:    0,
-		AccountedFrontierMediaSeq: 0,
-	}
-
-	if recoverLegacySeqZeroPartStarted(t.TempDir(), resume) {
-		t.Fatal("recoverLegacySeqZeroPartStarted=true without 0.ts/0.m4s; would skip media seq 0 after a pre-poll crash")
-	}
-	if resume.PartStarted {
-		t.Fatal("PartStarted=true without durable seq-0 media file")
 	}
 }
 

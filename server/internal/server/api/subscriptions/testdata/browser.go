@@ -1,4 +1,3 @@
-// Browser-suite fixture: real HTTP/1.1 and subscription transport, synthetic data.
 package main
 
 import (
@@ -38,7 +37,7 @@ func main() {
 		go func() { <-ctx.Done(); mu.Lock(); feeds["storage.statusLive"]--; mu.Unlock() }()
 		return topic.Subscribe(ctx), nil
 	})
-	for _, path := range []string{"stream.live", "stream.status", "video.activeDownloadsLive", "archive.queueLive", "video.removalsLive"} {
+	for _, path := range []string{"stream.live", "stream.status", "video.activeDownloadsLive", "archive.queueLive", "video.changesLive"} {
 		trpcgo.MustVoidSubscribe(router, path, func(ctx context.Context) (<-chan any, error) {
 			mu.Lock()
 			feeds[path]++

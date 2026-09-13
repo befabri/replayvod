@@ -2,15 +2,15 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/befabri/replayvod/server/internal/storage"
 )
 
 func (s *Service) verifyStorage(ctx context.Context) error {
-	if s.storageGate == nil {
-		return ctx.Err()
-	}
-	if err := s.storageGate.Verify(ctx); err != nil {
+	if err := s.storage.Verify(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrStorageUnavailable, err)
 	}
 	return nil
@@ -53,7 +53,14 @@ func (s *Service) writeToStorage(ctx context.Context, write func() error) error 
 			return err
 		}
 		err := write()
-		if s.verifyStorage(ctx) != nil {
+		if s.verifyStorage(ctx) != nil || errors.Is(err, storage.ErrUnattached) || errors.Is(err, storage.ErrUnreachable) || errors.Is(err, storage.ErrReadOnly) || errors.Is(err, storage.ErrFull) {
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
 			continue
 		}
 		return err

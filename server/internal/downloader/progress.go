@@ -9,15 +9,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/downloader/hls"
 )
 
-// progressEmitter owns per-job cumulative state for the SSE
-// progress stream. One instance per run; the orchestrator
-// updates it as stages transition and as hls.Progress events
-// arrive, and every emission flushes the full cumulative shape
-// to the per-job channel.
-//
-// All fields live inside the emitter rather than scattered
-// across run() locals so the bridgeProgress goroutine and the
-// synchronous stage transitions can't see divergent views.
+// progressEmitter shares cumulative counters between acquisition and stage updates under one mutex.
 type progressEmitter struct {
 	jobID         string
 	out           chan<- Progress
@@ -37,41 +29,25 @@ type progressEmitter struct {
 	fps            *float64
 	codec          string
 
-	// Baselines captured at the start of each hls.Run invocation.
-	// hls.Progress counters reset to zero on every new hls.Run
-	// (fresh JobResult), so the auth-refresh loop would regress
-	// the UI every iteration without this layering. bridge()
-	// computes cumulative = baseline + hp.<field>.
+	// HLS progress excludes seeded policy counters; these baselines restore recording-wide totals.
 	baselineBytes  int64
 	baselineDone   int64
 	baselineGaps   int64
 	baselineAdGaps int64
 
-	// Speed smoothing: a short window of (time, bytes) samples
-	// keeps a single burst from dominating the displayed
-	// rate. Each bridged event appends one sample; samples
-	// older than speedWindow are dropped.
 	samples []byteSample
 }
 
-// byteSample pairs an instantaneous byte count with the time it
-// was observed. Stored per-bridge-event.
 type byteSample struct {
 	at    time.Time
 	bytes int64
 }
 
-// speedWindow bounds the rolling-average window used to compute
-// Speed. 10 seconds is long enough that a CDN burst doesn't
-// dominate, short enough that a genuine rate drop shows up
-// promptly in the UI.
+// speedWindow smooths CDN bursts while allowing sustained rate changes to appear promptly.
 const speedWindow = 10 * time.Second
 
-// newProgressEmitter constructs an emitter. out must be a
-// buffered channel owned by the caller; the emitter sends non-
-// blocking so a slow subscriber can't throttle the pipeline,
-// and the caller is responsible for closing out when the job
-// completes.
+// newProgressEmitter sends cumulative snapshots without blocking acquisition.
+// The caller closes out only after all progress callbacks finish.
 func newProgressEmitter(jobID, recordingType string, out chan<- Progress, onSnapshot ...func(Progress)) *progressEmitter {
 	var cb func(Progress)
 	if len(onSnapshot) > 0 {
@@ -87,21 +63,13 @@ func newProgressEmitter(jobID, recordingType string, out chan<- Progress, onSnap
 	}
 }
 
-// setMediaOffsetSource wires an exact media-time supplier into emitted
-// snapshots. The supplier is intentionally called while building each snapshot
-// so per-job subscribers see the same media_offset_seconds as active download
-// polling without duplicating offset accounting in the emitter.
 func (p *progressEmitter) setMediaOffsetSource(fn func() (float64, bool)) {
 	p.mu.Lock()
 	p.mediaOffset = fn
 	p.mu.Unlock()
 }
 
-// seedCompletedBytes initializes the cumulative byte counter from durable
-// resume/video_part state before a resumed HLS attempt starts. hls.Progress
-// only reports bytes written by the current process attempt, so without this
-// seed resumed dashboard progress would temporarily look like it restarted at
-// zero.
+// seedCompletedBytes prevents recovery from temporarily resetting progress to zero.
 func (p *progressEmitter) seedCompletedBytes(bytes int64) {
 	if bytes <= 0 {
 		return
@@ -113,9 +81,6 @@ func (p *progressEmitter) seedCompletedBytes(bytes int64) {
 	p.mu.Unlock()
 }
 
-// setStage updates the stage label and fires one event. Called
-// on every pipeline stage transition (auth → playlist → segments
-// → remux → metadata → thumbnail → done).
 func (p *progressEmitter) setStage(stage string) {
 	p.mu.Lock()
 	p.stage = stage
@@ -124,9 +89,6 @@ func (p *progressEmitter) setStage(stage string) {
 	p.send(snap)
 }
 
-// setVariant records the Stage 3 selection. Called once the
-// master playlist has been fetched and the variant picked. The
-// next event picks up Quality + Codec.
 func (p *progressEmitter) setVariant(quality string, fps *float64, codec string) {
 	p.mu.Lock()
 	p.quality = quality
@@ -137,10 +99,7 @@ func (p *progressEmitter) setVariant(quality string, fps *float64, codec string)
 	p.send(snap)
 }
 
-// setPart resets all per-part fields so the SSE stream reflects a
-// fresh Stage 1-3 run for the new part. segmentsTot back to -1
-// (the "unknown total" sentinel) so percent doesn't stay pinned at
-// 100% from the prior part's finalize().
+// setPart clears the previous total so a new part cannot retain a completed percentage.
 func (p *progressEmitter) setPart(n int) {
 	p.mu.Lock()
 	p.partIndex = n
@@ -154,17 +113,7 @@ func (p *progressEmitter) setPart(n int) {
 	p.send(snap)
 }
 
-// startAttempt captures the current cumulative counters as the
-// baseline for the next hls.Run invocation. Call this
-// immediately before every hls.Run in the auth-refresh loop so
-// bridge() can layer per-attempt hls deltas on top and the
-// cumulative UI view doesn't regress when hls's internal
-// counters reset.
-//
-// Also clears the speed-window samples: the new attempt's
-// hp.BytesWritten starts at 0, so keeping old samples would
-// produce a negative delta on the first bridged event and
-// mis-report the rate as empty.
+// startAttempt retains earlier totals while resetting rate samples for a fresh HLS attempt.
 func (p *progressEmitter) startAttempt() {
 	p.mu.Lock()
 	p.baselineBytes = p.bytesWritten
@@ -175,20 +124,13 @@ func (p *progressEmitter) startAttempt() {
 	p.mu.Unlock()
 }
 
-// bridge consumes an hls.Progress event, updates the cumulative
-// counters (baseline + hls-attempt delta), refreshes the speed-
-// smoothing window, and fires one event. Safe to call from the
-// bridge goroutine while other goroutines call setStage /
-// setVariant; the mutex serializes all writes.
 func (p *progressEmitter) bridge(hp hls.Progress) {
 	p.mu.Lock()
 	p.bytesWritten = p.baselineBytes + hp.BytesWritten
 	p.segmentsDone = p.baselineDone + hp.SegmentsDone
 	p.segmentsGaps = p.baselineGaps + hp.SegmentsGaps
 	p.segmentsAdGaps = p.baselineAdGaps + hp.SegmentsAdGaps
-	// A closed (VOD) playlist reports how many segments this run fetches;
-	// add the segments earlier runs already accounted for. Live playlists
-	// report zero and the total stays unknown until finalize.
+	// A finite playlist's total excludes earlier HLS attempts.
 	if hp.SegmentsTotal > 0 {
 		p.segmentsTot = p.baselineDone + p.baselineGaps + hp.SegmentsTotal
 	}
@@ -198,10 +140,6 @@ func (p *progressEmitter) bridge(hp hls.Progress) {
 	p.send(snap)
 }
 
-// finalize marks the stream as closed — segments total is now
-// SegmentsDone + SegmentsGaps. Fires one event so the terminal
-// Percent is exact (100% when no gaps, less with tolerated
-// gaps). Called from run() once hls.Run returns.
 func (p *progressEmitter) finalize() {
 	p.mu.Lock()
 	p.segmentsTot = p.segmentsDone + p.segmentsGaps
@@ -210,9 +148,6 @@ func (p *progressEmitter) finalize() {
 	p.send(snap)
 }
 
-// snapshotLocked builds a Progress value under the lock. Percent,
-// Speed, and ETA derive from the raw counters so the caller
-// doesn't have to recompute them.
 func (p *progressEmitter) snapshotLocked() Progress {
 	rate, rateOK := currentRate(p.samples)
 	snap := Progress{
@@ -240,11 +175,6 @@ func (p *progressEmitter) snapshotLocked() Progress {
 	return snap
 }
 
-// send performs a non-blocking write to the per-job channel.
-// Progress is informational — dropping a mid-stream event is
-// fine because the next cumulative event supersedes it, and the
-// channel close (done by the caller when run exits) is the
-// authoritative terminal signal.
 func (p *progressEmitter) send(snap Progress) {
 	if p.onSnapshot != nil {
 		p.onSnapshot(snap)
@@ -255,14 +185,9 @@ func (p *progressEmitter) send(snap Progress) {
 	}
 }
 
-// appendSample adds one sample to the rolling window + drops
-// everything older than speedWindow. O(n) in window length; n
-// is bounded by one sample per hls.Progress event (roughly one
-// per segment commit), which is <1000 for any realistic stream.
 func appendSample(samples []byteSample, s byteSample) []byteSample {
 	cutoff := s.at.Add(-speedWindow)
-	// Drop expired samples from the head. Samples are always
-	// appended in time order so a linear drop is correct.
+	// Samples must be appended in time order.
 	trim := 0
 	for ; trim < len(samples); trim++ {
 		if !samples[trim].at.Before(cutoff) {
@@ -275,14 +200,7 @@ func appendSample(samples []byteSample, s byteSample) []byteSample {
 	return append(samples, s)
 }
 
-// currentRate returns the rolling-window rate in bytes/sec and
-// whether the window is meaningful. Consolidates the guards that
-// computeSpeed and computeETA would otherwise duplicate so the
-// two derived values stay consistent: if Speed is empty, ETA is
-// empty; if Speed says 5 MiB/s, ETA uses the same 5 MiB/s.
-//
-// Returns ok=false on <2 samples (no delta), <100ms window (too
-// noisy), or non-positive delta (clock skew / sample reset).
+// currentRate rejects intervals below 100 ms to avoid displaying burst noise.
 func currentRate(samples []byteSample) (float64, bool) {
 	if len(samples) < 2 {
 		return 0, false
@@ -299,8 +217,6 @@ func currentRate(samples []byteSample) (float64, bool) {
 	return float64(db) / dt.Seconds(), true
 }
 
-// formatSpeed renders the numeric rate as a human string. Empty
-// when rate isn't meaningful.
 func formatSpeed(rate float64, ok bool) string {
 	if !ok {
 		return ""
@@ -308,28 +224,16 @@ func formatSpeed(rate float64, ok bool) string {
 	return formatRate(rate)
 }
 
-// computeSpeed is a test-facing convenience that runs currentRate
-// + formatSpeed in one call. Production code uses the two steps
-// directly via snapshotLocked so the same rate drives both Speed
-// and ETA without re-derivation.
 func computeSpeed(samples []byteSample) string {
 	rate, ok := currentRate(samples)
 	return formatSpeed(rate, ok)
 }
 
-// computeETA returns a human-readable duration to completion
-// when SegmentsTotal is known, at least one segment has committed,
-// and the current rate is positive. Empty otherwise —
-// indeterminate live streams, brand-new jobs, and unknown rates
-// all show blank.
 func computeETA(done, total, bytesWritten int64, rate float64, rateOK bool) string {
 	if total <= 0 || done >= total || !rateOK || done == 0 {
 		return ""
 	}
-	// Use segment ratio to estimate remaining bytes — assumes
-	// segments are roughly equal size, which holds for fMP4 and
-	// TS in practice. An early / late bias matters most for
-	// short streams where the ETA isn't load-bearing anyway.
+	// Remaining-byte estimates assume segments are roughly equal in size.
 	remainingSegs := total - done
 	avgBytesPerSeg := float64(bytesWritten) / float64(done)
 	remainingBytes := float64(remainingSegs) * avgBytesPerSeg
@@ -340,8 +244,6 @@ func computeETA(done, total, bytesWritten int64, rate float64, rateOK bool) stri
 	return formatDuration(time.Duration(secs * float64(time.Second)))
 }
 
-// computePercent returns SegmentsDone / SegmentsTotal as a
-// percentage, or -1 when Total is unknown / zero (live stream).
 func computePercent(done, total int64) float64 {
 	if total <= 0 {
 		return -1
@@ -352,8 +254,6 @@ func computePercent(done, total int64) float64 {
 	return 100 * float64(done) / float64(total)
 }
 
-// formatRate prints bytes/sec in binary units with two decimal
-// places — the scale the UI renders.
 func formatRate(bytesPerSec float64) string {
 	const (
 		KiB = 1024.0
@@ -372,9 +272,6 @@ func formatRate(bytesPerSec float64) string {
 	}
 }
 
-// formatDuration prints a duration as HH:MM:SS / MM:SS / SS per
-// magnitude. Keeps output stable so the UI can left-pad if it
-// wants fixed-width.
 func formatDuration(d time.Duration) string {
 	if d < 0 {
 		d = 0

@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -410,9 +409,7 @@ func TestRun_PrerollDoesNotTripFirstContentGuard(t *testing.T) {
 	}
 }
 
-// TestRun_ProgressReportsAdGapsSeparately drains the Progress
-// channel while a run is in flight and confirms the terminal
-// event carries SegmentsAdGaps matching the ad-pod size.
+// Progress and the returned result must agree on omitted ad segments.
 func TestRun_ProgressReportsAdGapsSeparately(t *testing.T) {
 	s := &adPodServer{
 		baseSeq:      0,
@@ -426,7 +423,7 @@ func TestRun_ProgressReportsAdGapsSeparately(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	progress := make(chan Progress, 64)
+	var lastAdGaps int64
 	cfg := JobConfig{
 		MediaPlaylistURL: srv.URL + "/playlist.m3u8",
 		WorkDir:          dir,
@@ -438,17 +435,8 @@ func TestRun_ProgressReportsAdGapsSeparately(t *testing.T) {
 		PlaylistClient:     http.DefaultClient,
 		SegmentConcurrency: 2,
 		Log:                slog.New(slog.DiscardHandler),
-		Progress:           progress,
+		OnProgress:         func(p Progress) { lastAdGaps = p.SegmentsAdGaps },
 	}
-
-	var lastAdGaps atomic.Int64
-	drained := make(chan struct{})
-	go func() {
-		for p := range progress {
-			lastAdGaps.Store(p.SegmentsAdGaps)
-		}
-		close(drained)
-	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -457,12 +445,11 @@ func TestRun_ProgressReportsAdGapsSeparately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	<-drained
 
 	if result.SegmentsAdGaps != 2 {
 		t.Errorf("JobResult.SegmentsAdGaps=%d, want 2", result.SegmentsAdGaps)
 	}
-	if got := lastAdGaps.Load(); got != 2 {
+	if got := lastAdGaps; got != 2 {
 		t.Errorf("last Progress.SegmentsAdGaps=%d, want 2", got)
 	}
 }

@@ -6,280 +6,132 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/background"
+
 	"golang.org/x/sync/errgroup"
 )
 
-// JobConfig is the input to Run. Everything the orchestrator
-// needs to turn a signed media-playlist URL into a directory
-// full of committed segment files.
+// JobConfig supplies acquisition inputs and synchronous observation callbacks for Run.
 type JobConfig struct {
-	// MediaPlaylistURL is the per-variant playlist URL from
-	// Stage 3. Must already carry Twitch's ?sig=&token= params
-	// — the orchestrator does not stamp signatures.
+	// WriteFile may be nil to write directly; managed callers must supply scratch accounting.
+	WriteFile func(context.Context, *os.File, []byte) (int, error)
+
+	// MediaPlaylistURL must already include any required authorization query parameters.
 	MediaPlaylistURL string
 
-	// WorkDir is the job's scratch directory. Already created
-	// and writable. Segment files land at WorkDir/<seq>.<ext>;
-	// the init segment lands at WorkDir/init.mp4 (fmp4 only).
+	// WorkDir must exist and be writable; fMP4 initialization uses init.mp4 within it.
 	WorkDir string
 
-	// Fetcher is shared across the pool's workers. Usually
-	// one per process (or per downloader.Service).
 	Fetcher *Fetcher
 
-	// PlaylistClient fetches media playlists. Separate from
-	// the Fetcher's http.Client so playlist + segment traffic
-	// can have different timeouts without cross-contamination.
-	// Nil uses http.DefaultClient.
+	// PlaylistClient defaults to http.DefaultClient and may use different timeouts than Fetcher.
 	PlaylistClient *http.Client
 
-	// SegmentConcurrency is the worker count.
-	// cfg.Download.SegmentConcurrency at the config level.
-	// Default 4.
+	// SegmentConcurrency defaults to four when nonpositive.
 	SegmentConcurrency int
 
-	// Log is the per-job logger.
 	Log *slog.Logger
 
-	// RateLimiter paces this job's segment bytes; nil is unlimited. Set for
-	// archives so a back-catalogue download cannot starve a live recording.
+	// RateLimiter may be nil for unlimited acquisition.
 	RateLimiter RateLimiter
 
-	// Progress is optional; when non-nil the orchestrator sends
-	// a Progress event after every finished segment (success,
-	// gap, or fatal) and closes the channel before Run returns.
-	// Closing is the terminal signal — SSE subscribers observe
-	// "channel closed" as "job done" and transition out of
-	// in-progress state. Mid-stream events use a non-blocking
-	// send (drop-is-fine because the next cumulative event
-	// supersedes); the close is unconditional so the terminal
-	// state is never lost.
-	//
-	// Caller must NOT write to this channel and must NOT close
-	// it; orchestrator owns the close.
-	Progress chan<- Progress
+	// OnProgress runs synchronously and must finish quickly; no callback survives Run.
+	OnProgress func(Progress)
 
-	// GapPolicy controls what the orchestrator does when a
-	// segment fails. Zero value is tolerant with 1% ratio and
-	// the first-content-segment guard on — the spec's default
-	// for live recording. Override for VOD or operator-opted
-	// strict mode.
 	GapPolicy GapPolicy
 
-	// StartMediaSeq optionally resumes from a prior attempt's
-	// cursor. Passed directly to the Poller; segments below
-	// this threshold are not re-emitted. Zero = fresh start.
-	// Auth-refresh and resume-on-restart callers set this to
-	// JobResult.LastMediaSeq + 1 from the previous attempt.
+	// StartMediaSeq excludes earlier sequences except RefetchSeqs; zero starts from the playlist head.
 	StartMediaSeq int64
 
-	// OnEvent, when non-nil, is invoked synchronously from Run's
-	// drain goroutine for every sequence-level outcome:
-	// committed segments, accepted gaps, stitched-ad skips, and
-	// auth failures. Ordered by drain-processing order (not
-	// mediaSeq — concurrent workers can complete out of order).
-	//
-	// Intended for durable accounting (resume-on-restart,
-	// audit logs). Distinct from Progress which is cumulative +
-	// lossy; OnEvent is per-event + exact.
-	//
-	// The callback must be fast. It blocks the drain loop;
-	// long-running work belongs behind a channel the callback
-	// writes to. Callback is invoked from a single goroutine
-	// so it does not need to be thread-safe internally.
+	// OnEvent reports exact outcomes in processing order, which can differ from media sequence order.
+	// Callbacks run sequentially and must finish quickly.
 	OnEvent func(SegmentEvent)
 
-	// OnFirstPoll, when non-nil, is invoked once with the first
-	// successful playlist fetch metadata — before any segment outcome
-	// flows through OnEvent.
-	// Resume-state callers use it to seed the accounted-frontier
-	// anchor and persist the segment kind so a crash in SEGMENTS can
-	// finalize without polling again. Runs on the Run goroutine, so
-	// callbacks must be fast and not block; write to a channel if you
-	// need async work.
+	// OnFirstPoll runs before any segment outcome, allowing callers to persist the acquisition anchor.
 	OnFirstPoll func(PollResult)
 
-	// OnWindowRoll, when non-nil, is invoked once when the first
-	// poll after a resume (StartMediaSeq > 0) observes that the
-	// playlist head is already past the caller's requested
-	// resume point. The lost range [from, to] is inclusive;
-	// targetDuration is the playlist's EXT-X-TARGETDURATION at
-	// the same poll, so the callback can compute lost wall-clock
-	// time as (to - from + 1) * targetDuration without re-deriving
-	// it from the playlist body.
-	//
-	// Resume-state callers record this as a restart_window_rolled
-	// gap so the accounted frontier advances past the loss —
-	// without that the frontier stays stuck waiting for segments
-	// that will never be fetched. Callers can also use the lost
-	// wall-clock time (to-from+1)*targetDuration to decide whether
-	// the gap is large enough to force a part boundary instead of
-	// swallowing it as a hole inside the current part. Called
-	// before OnFirstPoll + OnEvent so the gap lands (and any
-	// cancellation propagates) before any subsequent commit.
+	// OnWindowRoll runs before OnFirstPoll when recovery loses the inclusive range [from, to].
+	// The playlist target duration estimates lost time; callers must record the loss to advance
+	// recovery.
 	OnWindowRoll func(from, to int64, targetDuration time.Duration)
 
-	// OnMidStreamWindowRoll records accepted mid-stream CDN window rolls.
-	// The lost range [from, to] is inclusive. Unlike OnWindowRoll this is not a
-	// resume boundary, so it carries no target duration or split semantics.
-	// Without a callback the run fails rather than advancing with no durable record.
+	// OnMidStreamWindowRoll records the inclusive lost range [from, to] during capture.
+	// A missing callback makes unrecorded window loss fatal.
 	OnMidStreamWindowRoll func(from, to int64)
 
-	// ClassifyAuth, when non-nil, is forwarded to both the poller
-	// and the segment fetcher. It inspects 401/403 response bodies
-	// and reports whether the failure is permanent (entitlement
-	// restriction, geoblock, etc.). Permanent failures short-
-	// circuit the auth-refresh loop — ErrPlaylistAuthPermanent or
-	// FetchKindAuthPermanent — so callers don't spin on a stream
-	// they'll never be allowed to watch. Leaving it nil preserves
-	// the pre-hook behavior: every 401/403 is treated as a
-	// refreshable token expiry.
+	// ClassifyAuth identifies permanent playlist authorization failures; nil treats 401/403 as
+	// refreshable.
 	ClassifyAuth func(status int, body []byte) (permanent bool)
 
-	// SeedSegmentsDone + SeedSegmentsGaps prime the Run counters
-	// with cumulative state from prior auth-refresh attempts for
-	// the same part. Gap policy (MaxGapRatio, first-content-guard)
-	// must evaluate per part, not per attempt — a token refresh
-	// mid-recording must not erase the fact that real content has
-	// already been captured, nor reset the ratio denominator.
-	//
-	// Leave at 0 for fresh jobs or the first attempt. The auth-
-	// refresh loop in downloader.fetchWithAuthRefresh passes the
-	// rolling aggregate so each attempt starts where the last left
-	// off.
+	// SeedSegmentsDone and SeedSegmentsGaps retain per-part gap policy across authentication
+	// refreshes.
 	SeedSegmentsDone int64
 	SeedSegmentsGaps int64
 
-	// RefetchSeqs carries the previous attempt's AuthErrorSeqs:
-	// MediaSeqs that 401'd and need to be re-pulled with the new
-	// signed URL. Forwarded verbatim to the Poller, which emits
-	// them on the first poll regardless of StartMediaSeq. Seqs
-	// that have rolled off the CDN window get dropped with a log
-	// warning; the upstream resume state keeps them as gaps.
-	//
-	// Nil / empty on first attempts and on auth-refresh-free
-	// runs. Bounded by AuthRefreshAttempts upstream — a seq that
-	// keeps auth-erroring eventually fails the job.
+	// RefetchSeqs retries unresolved sequences below StartMediaSeq under a fresh playback URL.
+	// Sequences already absent from the CDN remain gaps.
 	RefetchSeqs []int64
 }
 
-// GapPolicy decides "accept segment failure as a gap" vs "abort
-// the job." The spec's model: tolerant mode for live (a flaky
-// edge shouldn't drop a 4-hour recording); strict mode for
-// operators who'd rather fail fast than ship a partial VOD.
-//
-// The first-content-segment guard is non-negotiable in tolerant
-// mode — it prevents the "job succeeds having captured only
-// preroll-ad segments" silent failure.
+// GapPolicy bounds tolerated content loss; by default, some real content must precede any gap.
 type GapPolicy struct {
 	// Strict aborts the job on the first segment failure.
 	// Overrides MaxGapRatio when true.
 	Strict bool
 
-	// MaxGapRatio is the tolerant-mode ceiling: gaps / (gaps +
-	// done) above this fraction fails the job. Default 0.01
-	// (1%). Zero is treated as "unset" and takes the default —
-	// for no-tolerance semantics, set Strict=true instead.
-	// (A *float64 sentinel would be the faithful "zero means
-	// zero" shape; the simpler "Strict for no-tolerance" path
-	// is enough in practice and avoids a pointer-valued config
-	// field.)
+	// MaxGapRatio defaults to 0.01 when nonpositive; use Strict for zero tolerance.
 	MaxGapRatio float64
 
-	// SkipFirstContentGuard disables the "at least one real
-	// content segment must succeed before any gap is accepted"
-	// rule. Operator-opt-out only; the default posture is
-	// "never ship a VOD that's all ads."
+	// SkipFirstContentGuard permits gaps before any real content has been saved.
 	SkipFirstContentGuard bool
 }
 
-// normalize fills in zero-value defaults. Mutates in place.
 func (p *GapPolicy) normalize() {
 	if p.MaxGapRatio <= 0 {
 		p.MaxGapRatio = 0.01
 	}
 }
 
-// Progress carries cumulative counters the UI / SSE subscriber
-// consumes to render the real-time progress bar. The cumulative
-// shape makes it safe to drop mid-stream events — any received
-// event fully replaces the previous state.
+// Progress contains cumulative acquisition counters; newer snapshots supersede older ones.
 type Progress struct {
 	SegmentsDone int64
 	SegmentsGaps int64
-	// SegmentsAdGaps counts stitched-ad segments the poller
-	// skipped. Reported separately from SegmentsGaps so the UI
-	// can show "Twitch ad content omitted" distinctly from
-	// "fetch failures tolerated," and so gap-policy math
-	// (MaxGapRatio) doesn't count ads against the ceiling.
+	// SegmentsAdGaps is excluded from gap policy because stitched advertisements are not content loss.
 	SegmentsAdGaps int64
-	// SegmentsTotal is how many segments this run will fetch, known once the
-	// playlist closed (EXT-X-ENDLIST). Zero while unknown, which is always
-	// the case for a live stream.
+	// SegmentsTotal is zero until the playlist closes.
 	SegmentsTotal int64
 	BytesWritten  int64
 	Kind          SegmentKind
 	InitURI       string
 }
 
-// JobResult summarizes a completed Run. SegmentsDone counts
-// commits, SegmentsGaps counts real content-loss gaps the tolerant policy
-// accepted. The orchestrator returns non-nil error for
-// bootstrap failures, gap-policy aborts (strict mode, ratio
-// breach, first-content guard tripped), or auth refresh
-// escalation (ErrPlaylistAuth wrapped); otherwise per-segment
-// failures are tallied in gaps.
-//
-// LastMediaSeq is the highest MediaSeq the result drain
-// observed (success OR accepted gap). Auth-refresh callers set
-// the next attempt's JobConfig.StartMediaSeq to LastMediaSeq+1
-// so already-processed segments aren't re-fetched.
+// JobResult includes saved media counters even when acquisition ends with an error.
 type JobResult struct {
-	SegmentsDone int64
-	SegmentsGaps int64
-	// SegmentsAdGaps counts stitched-ad segments skipped by the
-	// poller. Excluded from MaxGapRatio — Twitch-injected
-	// content isn't a CDN or transport failure.
+	SegmentsDone   int64
+	SegmentsGaps   int64
 	SegmentsAdGaps int64
-	// SegmentsCanceled counts segment fetches canceled before commit
-	// and intentionally left unresolved for a same-sequence retry.
-	// If ENDLIST was seen in the same run, any non-zero value means
-	// the pool did not durably capture every queued final segment.
+	// SegmentsCanceled counts uncommitted fetches that require same-sequence retries.
 	SegmentsCanceled int64
-	// CanceledSeqs lists the unresolved media sequences counted by
-	// SegmentsCanceled. The outer auth-refresh aggregate uses this to
-	// keep EndList=false until a later attempt durably resolves them.
+	// CanceledSeqs must be resolved by later attempts before the aggregate can claim ENDLIST.
 	CanceledSeqs []int64
 	BytesWritten int64
 	Kind         SegmentKind
 	InitURI      string // empty for ts jobs
 	LastMediaSeq int64
 
-	// AuthErrorSeqs lists MediaSeqs that failed with a 401/403
-	// during this run. The auth-refresh caller feeds them back as
-	// the next attempt's JobConfig.RefetchSeqs so the poller re-
-	// enqueues them under a fresh signed URL. Without this, a
-	// mid-stream token expiry leaves a hole in the output at the
-	// seq that tripped the refresh.
+	// AuthErrorSeqs must be passed as RefetchSeqs after renewal to avoid holes below the cursor.
 	AuthErrorSeqs []int64
 
-	// EndList is true when the run terminated because the playlist
-	// returned EXT-X-ENDLIST — the broadcast ended naturally. False when
-	// the run stopped for any other reason (ctx cancel on shutdown/user
-	// stop/forced split, init failure, auth/abort). The downloader folds
-	// this into resume.EndListSeen, which drives the video's truncated
-	// flag: a recording that saw ENDLIST captured the whole broadcast.
+	// EndList requires both ENDLIST and every final queued segment to finish durably.
 	EndList bool
 }
 
-// GapAbortError is the typed error returned when the gap policy
-// aborts the job. Carries the triggering reason so the caller's
-// operator logs / UI can distinguish "first content never
-// succeeded" from "1.5% gap ratio exceeded 1% ceiling."
+// GapAbortError identifies a content loss that exceeded policy.
 type GapAbortError struct {
 	Reason  string
 	Done    int64
@@ -295,23 +147,8 @@ func (e *GapAbortError) Error() string {
 
 func (e *GapAbortError) Unwrap() error { return e.LastErr }
 
-// Run is the top-level entry point for Phase 4c. Blocks until the
-// playlist's ENDLIST is observed, ctx is canceled, or an unrecov-
-// erable bootstrap error occurs. The returned JobResult is valid
-// even on ctx-cancel — callers that need "what got written before
-// shutdown" can inspect it.
-//
-// Lifecycle:
-//
-//  1. Poll the playlist once to learn Kind + Init + TargetDuration.
-//  2. If fmp4, fetch init.mp4 synchronously before any segment.
-//  3. Start the poller and the pool under an errgroup.
-//  4. Drain results, emitting Progress events, until the pool
-//     closes its result chan. Return the final tally.
-//
-// Auth refresh is NOT handled here — Phase 4d wraps Run with an
-// outer retry that re-runs Stages 1-3 on ErrPlaylistAuth / on
-// FetchKindAuth escalation.
+// Run acquires a playlist through ENDLIST, cancellation, or fatal failure.
+// It joins acquisition workers before returning; callers handle playback-token renewal.
 func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	if err := validateJobConfig(&cfg); err != nil {
 		return nil, err
@@ -320,34 +157,14 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 
 	log := cfg.Log.With("domain", "hls.job")
 
-	// Close Progress exactly once on the way out, regardless
-	// of whether Run succeeds, errors, or the ctx cancels.
-	// Subscribers treat "chan closed" as "terminal state
-	// reached" — the close signals that no more updates will
-	// arrive and the cumulative counters are final.
-	if cfg.Progress != nil {
-		defer close(cfg.Progress)
-	}
-
-	// Bounded queue: 2 × worker count per spec.
-	// Producer blocks when full → natural backpressure so the
-	// poller doesn't outrun the fetchers during a CDN burst.
+	// Bounded queues prevent playlist polling from outrunning segment acquisition.
 	jobChanCap := 2 * max(1, cfg.SegmentConcurrency)
 	jobs := make(chan segmentJob, jobChanCap)
 	results := make(chan SegmentResult, jobChanCap)
 	first := make(chan PollResult, 1)
-	// skipEvents carries sequence-level skip events from the poller
-	// (every reason — stitched ads today, other defect classes as
-	// they land). Orchestrator drains them alongside worker results
-	// so SegmentEvent ordering stays a single stream. Buffered same
-	// as jobs so a burst of skips during a poll doesn't block the
-	// poll loop.
+	// Process poller skips and worker results in one goroutine to serialize accounting callbacks.
 	skipEvents := make(chan SkipEvent, jobChanCap)
 
-	// Materialize the RefetchSeqs slice into a map the Poller can
-	// do O(1) membership checks against. Nil slices yield a nil
-	// map, which is valid — the Poller's refetch[seq] read
-	// returns false without panicking.
 	var refetchMap map[int64]bool
 	if len(cfg.RefetchSeqs) > 0 {
 		refetchMap = make(map[int64]bool, len(cfg.RefetchSeqs))
@@ -365,22 +182,19 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		RefetchSeqs:   refetchMap,
 	}
 	pool := &Pool{
-		Fetcher: cfg.Fetcher,
-		WorkDir: cfg.WorkDir,
-		Workers: cfg.SegmentConcurrency,
-		Log:     log,
-		Limiter: cfg.RateLimiter,
+		WriteFile: cfg.WriteFile,
+		Fetcher:   cfg.Fetcher,
+		WorkDir:   cfg.WorkDir,
+		Workers:   cfg.SegmentConcurrency,
+		Log:       log,
+		Limiter:   cfg.RateLimiter,
 	}
 
-	// Explicit cancel so a synchronous bootstrap failure
-	// (init-segment fetch error) can stop the poller + pool
-	// and drain them before Run returns. The errgroup's own
-	// context-cancel fires only when a g.Go function returns
-	// non-nil; fetchInit lives outside g.Go and so needs a
-	// direct cancel handle.
+	// Synchronous bootstrap and callback failures must cancel and join acquisition workers.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	g, gctx := errgroup.WithContext(runCtx)
+	defer func() { cancel(); _ = g.Wait() }()
 
 	var pollerErrMu sync.Mutex
 	var pollerErr error
@@ -397,46 +211,16 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	}
 
 	g.Go(func() error {
-		// Poller closes jobs via its defer; we close skipEvents
-		// here in lock-step so the drain loop's select picks up
-		// both closures together. Deferred so it fires on any
-		// Run return path.
+		// Close skips when the poller exits so outcome draining cannot wait forever.
 		defer close(skipEvents)
-		err := poller.Run(gctx, first, jobs)
+		err := background.Call(gctx, func(c context.Context) error { return poller.Run(c, first, jobs) })
 		recordPollerErr(err)
-		// ENDLIST + ctx.Canceled both arrive as nil/ctx.Err;
-		// the errgroup won't cancel siblings on nil. We do
-		// NOT treat ENDLIST as an error.
 		return err
 	})
 
-	var poolCompletedClean atomic.Bool
-	g.Go(func() error {
-		err := pool.Run(gctx, jobs, results)
-		if err == nil {
-			poolCompletedClean.Store(true)
-		}
-		return err
-	})
-
-	// Bootstrap: wait for the first PollResult before looking
-	// at segment results. Must fetch the init segment (fmp4)
-	// synchronously so workers that pick up the first segment
-	// already see init.mp4 on disk if they care. For TS jobs
-	// this is a one-value channel read.
-	//
-	// If the poller errors before producing a PollResult
-	// (ErrPlaylistAuth on the very first fetch, for instance),
-	// gctx gets canceled by errgroup. Drain g.Wait() and
-	// surface the original error rather than the downstream
-	// "context canceled" — the auth-refresh caller needs the
-	// typed error to know what to do.
+	// Fetch fMP4 initialization before starting segment workers.
 	result := &JobResult{
-		// Seed policy-relevant counters so MaxGapRatio + the
-		// first-content-segment guard evaluate against the
-		// cumulative per-part total across auth-refresh attempts.
-		// Attribute-counters (BytesWritten, SegmentsAdGaps) stay
-		// zero — they're per-attempt for aggregation upstream.
+		// Preserve per-part policy counters; bytes and advertisement gaps remain per attempt.
 		SegmentsDone: cfg.SeedSegmentsDone,
 		SegmentsGaps: cfg.SeedSegmentsGaps,
 	}
@@ -447,12 +231,7 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		return result, g.Wait()
 	}
 	result.Kind = pr.Kind
-	// Window-roll fires first so the resume gap is recorded
-	// before any frontier/segment callback can observe state.
-	// In practice a window-roll only appears for resumed jobs
-	// (StartMediaSeq > 0), and OnFirstPoll's StartPart is a
-	// no-op on already-bootstrapped resume state — so the
-	// ordering is conservative rather than load-bearing.
+	// Record the lost range before any callback advances the durable frontier.
 	if cfg.OnWindowRoll != nil && pr.WindowRollFrom > 0 && pr.WindowRollTo >= pr.WindowRollFrom {
 		cfg.OnWindowRoll(pr.WindowRollFrom, pr.WindowRollTo, pr.TargetDuration)
 	}
@@ -461,18 +240,23 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 	}
 	if pr.Init != nil {
 		result.InitURI = pr.Init.URI
-		if err := fetchInit(gctx, cfg.Fetcher, cfg.WorkDir, pr.Init.URI); err != nil {
-			// Init fetch is the one hard failure: without it,
-			// fmp4 fragments can't be muxed. Cancel poller +
-			// pool and drain — otherwise they keep polling the
-			// playlist + committing segments to WorkDir after
-			// the caller has already been told the job failed.
+		if err := fetchInit(gctx, cfg.Fetcher, cfg.WorkDir, pr.Init.URI, cfg.WriteFile); err != nil {
+			// Without initialization, fMP4 segments cannot be decoded.
 			log.Error("init segment fetch failed; aborting job", "error", err)
 			cancel()
 			_ = g.Wait()
 			return result, fmt.Errorf("hls init segment: %w", err)
 		}
 	}
+
+	var poolCompletedClean atomic.Bool
+	g.Go(func() error {
+		err := pool.Run(gctx, jobs, results)
+		if err == nil {
+			poolCompletedClean.Store(true)
+		}
+		return err
+	})
 
 	abortErr, authErr := drainOutcomes(&cfg, result, results, skipEvents, cancel, shouldIgnoreCanceledSegment, poller.totalSegments.Load, log)
 
@@ -485,28 +269,17 @@ func Run(ctx context.Context, cfg JobConfig) (*JobResult, error) {
 		return result, abortErr
 	}
 
-	// Filter both ctx-err kinds — the JobResult is always
-	// valid on shutdown (partial tally), so the caller only
-	// wants the error when something actually broke. Returning
-	// ctx-err on normal shutdown would make every caller
-	// special-case both Canceled and DeadlineExceeded.
+	// Cancellation still returns captured counters for checkpointing.
 	if err := g.Wait(); err != nil &&
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded) {
 		return result, err
 	}
-	// The poll goroutine has joined via g.Wait, so reading its
-	// endListSeen is race-free. ENDLIST only represents a fully
-	// captured broadcast when the worker pool also drained cleanly;
-	// a parent cancel after the poller saw ENDLIST but before queued
-	// final segments committed must stay EndList=false.
+	// ENDLIST alone cannot prove completion if cancellation interrupted the final worker queue.
 	result.EndList = poller.endListSeen && poolCompletedClean.Load() && result.SegmentsCanceled == 0
 	return result, nil
 }
 
-// emitEvent invokes onEvent with the given event if onEvent is
-// non-nil. Nil-safe so call sites don't need to guard; keeps the
-// drain loop readable.
 func emitEvent(onEvent func(SegmentEvent), ev SegmentEvent) {
 	if onEvent != nil {
 		onEvent(ev)
@@ -671,7 +444,7 @@ func drainOutcomes(
 					DurationSeconds: res.DurationSeconds,
 				})
 			}
-			emitProgress(cfg.Progress, result, segmentsTotal())
+			emitProgress(cfg.OnProgress, result, segmentsTotal())
 
 		case ev, ok := <-skipEventsCh:
 			if !ok {
@@ -811,21 +584,17 @@ func drainOutcomes(
 					"seq", ev.MediaSeq,
 					"reason", ev.Reason)
 			}
-			emitProgress(cfg.Progress, result, segmentsTotal())
+			emitProgress(cfg.OnProgress, result, segmentsTotal())
 		}
 	}
 	return abortErr, authErr
 }
 
-// emitProgress does a non-blocking snapshot send onto the Progress
-// channel when non-nil. Nil-safe; drop-on-contention is the spec's
-// Progress contract (cumulative, informational).
-func emitProgress(ch chan<- Progress, r *JobResult, total int64) {
-	if ch == nil {
+func emitProgress(observe func(Progress), r *JobResult, total int64) {
+	if observe == nil {
 		return
 	}
-	select {
-	case ch <- Progress{
+	observe(Progress{
 		SegmentsDone:   r.SegmentsDone,
 		SegmentsGaps:   r.SegmentsGaps,
 		SegmentsAdGaps: r.SegmentsAdGaps,
@@ -833,28 +602,13 @@ func emitProgress(ch chan<- Progress, r *JobResult, total int64) {
 		BytesWritten:   r.BytesWritten,
 		Kind:           r.Kind,
 		InitURI:        r.InitURI,
-	}:
-	default:
-	}
+	})
 }
 
 func isCanceledSegmentResult(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-// evaluateGap applies the gap policy to a failed segment result.
-// Returns non-nil when the job should abort; nil when the caller
-// should treat the failure as an accepted gap and keep going.
-//
-// Order of checks:
-//  1. Strict mode: any failure aborts.
-//  2. First-content guard: failure before any success aborts.
-//  3. Ratio check: if accepting this gap would push gaps / total
-//     above MaxGapRatio, abort.
-//
-// "Total" here is (gaps_after + done) — the denominator grows as
-// the job progresses so a single early failure in a long stream
-// doesn't immediately trip the ratio.
 func evaluateGap(p *GapPolicy, r *JobResult, res SegmentResult) *GapAbortError {
 	if p.Strict {
 		return &GapAbortError{
@@ -888,17 +642,6 @@ func evaluateGap(p *GapPolicy, r *JobResult, res SegmentResult) *GapAbortError {
 	return nil
 }
 
-// evaluateMalformedGap applies the gap policy to a Poller-filtered
-// malformed segment. Same shape as evaluateGap but without a
-// SegmentResult to source LastErr from — the loss happened before
-// any fetch attempt, so the "cause" is structural (bad EXTINF),
-// not a transport/auth failure. Returns non-nil when the policy
-// aborts; nil when the caller should count it as an accepted gap.
-//
-// Kept separate from evaluateGap rather than synthesizing a fake
-// SegmentResult: the two paths have different provenance and
-// lumping them would obscure log output when operators debug a
-// malformed-manifest incident.
 func evaluateMalformedGap(p *GapPolicy, r *JobResult, seq int64) *GapAbortError {
 	reason := fmt.Errorf("malformed segment: EXTINF <= 0")
 	if p.Strict {
@@ -933,10 +676,7 @@ func evaluateMalformedGap(p *GapPolicy, r *JobResult, seq int64) *GapAbortError 
 	return nil
 }
 
-// evaluateWindowRollGap applies the aggregate gap policy to a contiguous
-// mid-stream CDN window roll. The roll can span many segments at once, so the
-// ratio check accounts for the whole range rather than treating the event as a
-// single missing segment.
+// evaluateWindowRollGap counts the entire lost range when evaluating the gap ratio.
 func evaluateWindowRollGap(p *GapPolicy, r *JobResult, from, to int64) *GapAbortError {
 	lostSegments := to - from + 1
 	if lostSegments < 1 {
@@ -975,30 +715,20 @@ func evaluateWindowRollGap(p *GapPolicy, r *JobResult, from, to int64) *GapAbort
 	return nil
 }
 
-// fetchInit synchronously downloads the fmp4 initialization
-// segment to WorkDir/init.mp4. Any failure aborts the job — the
-// segments after it can't be played without their init.
-//
-// Runs through the same Fetcher as media segments so retry
-// budgets + backoff apply. The orchestrator doesn't care about
-// the byte count (small file, ~4-8 KB).
-func fetchInit(ctx context.Context, f *Fetcher, workDir, url string) error {
+// fetchInit must succeed before fMP4 media can be decoded.
+func fetchInit(ctx context.Context, f *Fetcher, workDir, url string, writeFile func(context.Context, *os.File, []byte) (int, error)) error {
 	w, err := NewPartWriter(workDir, "init.mp4")
 	if err != nil {
 		return err
 	}
+	w.ctx, w.writeFile = ctx, writeFile
 	defer w.Abort()
-	// Init segment is a one-shot: no CDN-lag cadence to tune, so
-	// we pass 0 and let the Fetcher fall back to its default.
 	if _, err := f.Fetch(ctx, url, w, 0); err != nil {
 		return err
 	}
 	return w.Commit()
 }
 
-// validateJobConfig sanity-checks the input and fills in zero-
-// value defaults that are safe at runtime. Keeps Run from
-// growing a mile-long if-chain at its start.
 func validateJobConfig(cfg *JobConfig) error {
 	if cfg.MediaPlaylistURL == "" {
 		return errors.New("hls job: empty MediaPlaylistURL")

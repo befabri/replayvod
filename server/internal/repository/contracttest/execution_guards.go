@@ -111,6 +111,58 @@ func testAttemptStopSurvivesCheckpointsAndFencesWriters(t *testing.T, h Harness)
 	}
 }
 
+func testStoppedAdmissionRejectsInitialMetadata(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	SeedUserChannel(t, ctx, repo, "owner", "execution-channel")
+	v, err := repository.CreateAttempt(ctx, repo, executionInput("stopped-admission"), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.RequestAttemptStop(ctx, repo, v.JobID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = repo.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{
+		VideoID: v.ID, JobID: v.JobID, Initial: true, Title: "Late snapshot", OccurredAt: time.Now().UTC(),
+	})
+	if !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("stopped admission accepted initial metadata: %v", err)
+	}
+	if events, err := repo.ListVideoMetadataChanges(ctx, v.ID); err != nil || len(events) != 0 {
+		t.Fatalf("stopped admission changed timeline: %+v, %v", events, err)
+	}
+	if spans, err := repo.ListTitlesForVideo(ctx, v.ID); err != nil || len(spans) != 0 {
+		t.Fatalf("stopped admission opened title spans: %+v, %v", spans, err)
+	}
+}
+
+func testExecutionRejectsStaleTransitions(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	SeedUserChannel(t, ctx, repo, "owner", "execution-channel")
+	v, err := repository.CreateAttempt(ctx, repo, executionInput("guarded"), json.RawMessage(`{"stage":"AUTH","current_part_index":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := repository.AttemptClaim{JobID: v.JobID, VideoID: v.ID, ExecutionID: "first"}
+	if err := repository.ClaimAttempt(ctx, repo, first, ""); err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.ExecutionID = "second"
+	if err := repository.ClaimAttempt(ctx, repo, second, "wrong-previous"); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("stale discoverer replaced owner: %v", err)
+	}
+	job, err := repo.GetJob(ctx, v.JobID)
+	if err != nil || job.ExecutionID != first.ExecutionID {
+		t.Fatalf("rejected claim mutated owner: %+v, %v", job, err)
+	}
+	if err := repository.ClaimAttempt(ctx, repo, second, first.ExecutionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ClaimAttempt(ctx, repo, first, ""); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("old execution reclaimed current owner: %v", err)
+	}
+}
+
 func testRecordingIntentConstraints(t *testing.T, h Harness) {
 	ctx, repo := t.Context(), h.Repo()
 	SeedUserChannel(t, ctx, repo, "owner", "execution-channel")

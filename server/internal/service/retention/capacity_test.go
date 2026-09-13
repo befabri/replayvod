@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/service/storagehealth"
 	"github.com/befabri/replayvod/server/internal/storage"
@@ -34,7 +36,7 @@ func TestFullDiskAllowsRetentionAndManualDeletion(t *testing.T) {
 				if st, err := mon.Attach(ctx); st.State != storagehealth.StateFull || !errors.Is(err, storage.ErrFull) {
 					t.Fatalf("full disk fixture: %+v %v", st, err)
 				}
-				svc := New(repo, store, mon, discardLog())
+				svc := New(repo, mediatest.New(t, repo, store, mon, nil), discardLog())
 				if kind == repository.DeletionKindRetention {
 					if n, err := svc.Sweep(ctx, time.Now().Add(2*time.Hour)); err != nil || n != 1 {
 						t.Fatalf("retention on full storage: deleted=%d err=%v", n, err)

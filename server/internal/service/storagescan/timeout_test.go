@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/storage"
 )
 
@@ -32,9 +34,8 @@ func TestMissingChecksBoundStalledFilesystemProbes(t *testing.T) {
 	var release sync.Once
 	unblock := func() { release.Do(func() { close(store.release) }) }
 	t.Cleanup(unblock)
-	svc := New(f.repo, store, f.mon, discardLog())
-	// Repeated timed-out requests must return without creating unbounded I/O
-	// workers. Once every global probe slot is stuck, new callers just wait.
+	svc := New(f.repo, mediatest.New(t, f.repo, store, f.mon, nil), discardLog())
+	// Timed-out probes retain their slots until I/O settles, bounding blocked workers.
 	for range scanWorkers + 2 {
 		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
 		done := make(chan error, 1)

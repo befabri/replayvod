@@ -34,9 +34,7 @@ const (
 	archiveRetryBatch        = 50
 )
 
-// ArchiveMaxConcurrent is the cap on VOD archives running at once. Archives
-// have their own slots so a long back-catalogue download never keeps a live
-// stream from being recorded.
+// ArchiveMaxConcurrent returns the archive capacity, independent of live recording slots.
 func (s *Service) ArchiveMaxConcurrent() int {
 	if s.cfg == nil || s.cfg.App.Download.ArchiveMaxConcurrent <= 0 {
 		return 1
@@ -45,13 +43,17 @@ func (s *Service) ArchiveMaxConcurrent() int {
 }
 
 func (s *Service) activeLiveCountLocked() int {
-	n := 0
+	owners := map[string]bool{}
 	for _, d := range s.active {
 		if !d.vod {
-			n++
+			key := d.jobID
+			if d.manual != nil {
+				key = d.manual.id
+			}
+			owners[key] = true
 		}
 	}
-	return n
+	return len(owners)
 }
 
 func (s *Service) activeArchiveCountLocked() int {
@@ -64,16 +66,12 @@ func (s *Service) activeArchiveCountLocked() int {
 	return n
 }
 
-// segmentHostConnectionCap sizes the shared segment transport for every job
-// that can run at once: live recordings and archives hold separate slots, and
-// each drives SegmentConcurrency connections to the edge.
 func segmentHostConnectionCap(cfg config.DownloadConfig) int {
 	return (max(1, cfg.MaxConcurrent) + max(1, cfg.ArchiveMaxConcurrent)) * max(1, cfg.SegmentConcurrency)
 }
 
-// archiveRateLimiter is the per-job limiter for an archive, or nil when
-// archives are not throttled. The bucket holds one second of the cap, so a
-// segment read never asks for more than the limiter can grant.
+// archiveRateLimiter limits archive bandwidth; nil means unlimited.
+// Its burst permits up to one second of bytes, capped at 1 GiB.
 func archiveRateLimiter(cfg config.DownloadConfig) hls.RateLimiter {
 	bps := cfg.ArchiveMaxBytesPerSecond
 	if bps <= 0 {
@@ -82,8 +80,6 @@ func archiveRateLimiter(cfg config.DownloadConfig) hls.RateLimiter {
 	return rate.NewLimiter(rate.Limit(bps), int(min(bps, 1<<30)))
 }
 
-// archiveRetryDelay is the wait before the retry that follows a failed
-// attempt, or false once the attempts are used up.
 func archiveRetryDelay(attempt int32) (time.Duration, bool) {
 	if attempt < 1 || int(attempt) > len(archiveRetryBackoff) {
 		return 0, false
@@ -91,11 +87,7 @@ func archiveRetryDelay(attempt int32) (time.Duration, bool) {
 	return archiveRetryBackoff[attempt-1], true
 }
 
-// archiveRetryable reports whether an archive failure deserves another
-// attempt on its own: network trouble, an overloaded or erroring edge, or a
-// playback resolution that could not be renewed in its budget. Refusals that
-// will not change (a deleted or restricted VOD, an empty playback token),
-// local pipeline errors, and cancellations are not retried.
+// archiveRetryable reports whether an archive failed for a transient provider or network reason.
 func archiveRetryable(err error) bool {
 	if err == nil || errors.Is(err, ErrCancelled) || errors.Is(err, context.Canceled) {
 		return false
@@ -135,15 +127,8 @@ func archiveRetryable(err error) bool {
 	return errors.As(err, &network)
 }
 
-// EnqueueVOD records a VOD archive request as a PENDING video + job pair and
-// waits in the queue until PumpArchiveQueue picks it up. Callers pump once
-// after enqueueing their batch. The returned job id is the row's key either
-// way. ErrDuplicate surfaces when an open archive of the same VOD already
-// exists (the partial unique index on twitch_video_id).
-//
-// No title or category span is opened: an archive keeps the VOD title it was
-// queued with and tracks no live metadata, so the watch page reads the row
-// title and shows no history.
+// EnqueueVOD atomically queues a video and its first job, returning the job ID.
+// Call PumpArchiveQueue after enqueueing a batch; ErrDuplicate means the VOD is already queued.
 func (s *Service) EnqueueVOD(ctx context.Context, p Params) (string, error) {
 	if p.VODID == "" {
 		return "", ErrNotVOD
@@ -160,137 +145,169 @@ func (s *Service) EnqueueVOD(ctx context.Context, p Params) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("encode archive checkpoint: %w", err)
 	}
-	var videoID int64
-	err = s.repo.WithTx(ctx, func(tx repository.Repository) error {
-		vid, err := tx.CreateVideo(ctx, &repository.VideoInput{
-			JobID:         jobID,
-			Filename:      filename,
-			DisplayName:   p.DisplayName,
-			Title:         p.Title,
-			Status:        repository.VideoStatusPending,
-			Quality:       p.Quality,
-			BroadcasterID: p.BroadcasterID,
-			StreamID:      p.StreamID,
-			Language:      p.Language,
-			RecordingType: p.RecordingType,
-			ForceH264:     p.ForceH264,
-			Source:        repository.VideoSourceVOD,
-			TwitchVideoID: &vodID,
-			BroadcastAt:   p.BroadcastAt,
-		})
-		if err != nil {
-			return fmt.Errorf("create video row: %w", err)
-		}
-		videoID = vid.ID
-		_, err = tx.CreateJob(ctx, &repository.JobInput{
-			ID: jobID, VideoID: vid.ID, BroadcasterID: p.BroadcasterID, ResumeState: checkpoint, Attempt: 1,
-		})
+	input := &repository.VideoInput{
+		JobID:         jobID,
+		Filename:      filename,
+		DisplayName:   p.DisplayName,
+		Title:         p.Title,
+		Status:        repository.VideoStatusPending,
+		Quality:       p.Quality,
+		BroadcasterID: p.BroadcasterID,
+		StreamID:      p.StreamID,
+		Language:      p.Language,
+		RecordingType: p.RecordingType,
+		ForceH264:     p.ForceH264,
+		Source:        repository.VideoSourceVOD,
+		TwitchVideoID: &vodID,
+		BroadcastAt:   p.BroadcastAt,
+	}
+	admission, err := s.work.Reserve("admission", jobID)
+	if err != nil {
+		return "", ErrShuttingDown
+	}
+	defer admission.Release()
+	var vid *repository.Video
+	write := func(writeCtx context.Context) error {
+		var err error
+		vid, err = repository.CreateAttempt(writeCtx, s.repo, input, checkpoint)
 		return err
-	})
+	}
+	err = write(ctx)
+	if errors.Is(err, repository.ErrCommitUncertain) {
+		err = s.persist(admission.Context(), "archive admission", write)
+	}
 	if err != nil {
 		return "", fmt.Errorf("enqueue archive: %w", err)
 	}
+	s.bus.NotifyVideoChange()
+	videoID := vid.ID
+
 	s.publishArchiveQueue(eventbus.ArchiveQueued, videoID)
 	return jobID, nil
 }
 
-// PumpArchiveQueue requeues archives whose retry is due, then starts queued
-// archives, oldest first, until the archive slots are full or the queue is
-// empty. It runs on enqueue, whenever a job ends, at boot after Resume, and
-// on the retry ticker. Pumps are serialized so two callers can never start
-// the same job, and a job is marked RUNNING before its goroutine spawns so
-// the next pick never sees it as still queued.
+// PumpArchiveQueue starts queued archives and due retries within archive capacity.
+// Concurrent pumps are serialized; worker reservations prevent duplicate acquisition.
 func (s *Service) PumpArchiveQueue(ctx context.Context) {
 	s.pumpMu.Lock()
 	defer s.pumpMu.Unlock()
+	if s.shuttingDown.Load() || ctx.Err() != nil {
+		return
+	}
+	if err := s.settleStoppedJobs(ctx); err != nil {
+		s.log.Warn("stopped recording discovery deferred", "error", err)
+	}
 	// Waiting for storage must not even create the next retry attempt.
 	if s.shuttingDown.Load() || ctx.Err() != nil || s.storageReady() != nil {
 		return
 	}
 	s.requeueDueRetries(ctx)
+	after := time.Time{}
+	afterID := int64(0)
 	for {
-		if s.shuttingDown.Load() {
-			return
-		}
-		if err := s.storageReady(); err != nil {
-			s.log.Debug("archive queue: paused", "error", err)
-			return
-		}
-		s.mu.Lock()
-		free := s.activeArchiveCountLocked() < s.ArchiveMaxConcurrent()
-		s.mu.Unlock()
-		if !free {
-			return
-		}
-		job, err := s.repo.GetNextQueuedArchiveJob(ctx)
+		jobs, err := s.repo.ListQueuedArchiveJobs(ctx, after, afterID, archiveRetryBatch)
 		if err != nil {
-			if !errors.Is(err, repository.ErrNotFound) {
-				s.log.Error("archive queue: pick next job", "error", err)
-			}
+			s.log.Warn("archive discovery failed", "error", err)
 			return
 		}
-		if err := s.restartJob(ctx, job); err != nil {
-			if errors.Is(err, ErrShuttingDown) || errors.Is(err, ErrStorageUnavailable) || ctx.Err() != nil {
-				return // No claim was committed; the pair remains queued.
-			}
-			if errors.Is(err, errObsoleteJob) || errors.Is(err, errArchiveClaim) {
-				s.log.Error("archive queue: start deferred", "job_id", job.ID, "error", err)
+		for _, candidate := range jobs {
+			after = candidate.QueuedAt
+			afterID = candidate.VideoID
+			if s.shuttingDown.Load() || ctx.Err() != nil || s.storageReady() != nil {
 				return
 			}
-			if err := s.failQueuedArchive(ctx, job, err); err != nil {
-				// The attempt remains queued on persistence failure. Retrying it
-				// immediately would spin on the same row; let the next pump retry.
+			s.mu.Lock()
+			free := s.activeArchiveCountLocked() < s.ArchiveMaxConcurrent()
+			s.mu.Unlock()
+			if !free {
 				return
 			}
-			continue
+			job, err := s.repo.GetJob(ctx, candidate.JobID)
+			if err != nil {
+				s.log.Warn("archive lookup deferred", "job_id", candidate.JobID, "error", err)
+				continue
+			}
+			if err := s.restartJob(ctx, job); err != nil {
+				if errors.Is(err, ErrAtCapacity) {
+					return
+				}
+				if errors.Is(err, errInvalidResume) {
+					if writeErr := s.failQueuedArchive(ctx, job, err); writeErr != nil {
+						s.log.Warn("archive failure settlement deferred", "error", writeErr)
+					}
+					continue
+				}
+				// A row-specific discovery failure must not pin all younger requests.
+				s.log.Warn("archive start deferred", "job_id", job.ID, "error", err)
+			}
 		}
-		s.publishArchiveQueue(eventbus.ArchiveStarted, job.VideoID)
+		if len(jobs) < archiveRetryBatch {
+			return
+		}
 	}
 }
 
-// requeueDueRetries turns every archive whose scheduled retry has come into a
-// queued attempt. Runs under pumpMu so the pick that follows sees the rows.
+// requeueDueRetries requires pumpMu so admission and queue discovery cannot race.
 func (s *Service) requeueDueRetries(ctx context.Context) {
 	if s.shuttingDown.Load() {
 		return
 	}
-	due, err := s.repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), archiveRetryBatch)
-	if err != nil {
-		s.log.Error("archive retry: list due archives", "error", err)
-		return
-	}
-	for i := range due {
-		if s.shuttingDown.Load() || ctx.Err() != nil {
+	now := time.Now().UTC()
+	for after, afterID := (time.Time{}), int64(0); ; {
+		due, err := s.repo.ListArchivesDueForRetry(ctx, now, after, afterID, archiveRetryBatch)
+		if err != nil {
+			s.log.Error("archive retry: list due archives", "error", err)
 			return
 		}
-		v := &due[i]
-		log := s.log.With("video_id", v.ID)
-		jobID, err := s.requeueArchive(ctx, v, true)
-		switch {
-		case err == nil:
-			log.Info("archive retry queued", "job_id", jobID)
-		case errors.Is(err, repository.ErrNotFound):
-			// Cancelled or removed since the listing.
-		case errors.Is(err, repository.ErrDuplicate):
-			// The VOD was queued by hand in the meantime, so this row's retry
-			// has nothing left to do.
-			log.Warn("archive retry dropped: the VOD is queued elsewhere")
-			if err := s.repo.ClearArchiveRetry(ctx, v.ID); err != nil && !errors.Is(err, repository.ErrNotFound) {
-				log.Error("archive retry: clear superseded retry", "error", err)
+		for i := range due {
+			if s.shuttingDown.Load() || ctx.Err() != nil {
+				return
 			}
-		default:
-			log.Error("archive retry: requeue", "error", err)
+			v := &due[i]
+			after, afterID = *v.NextRetryAt, v.ID
+			log := s.log.With("video_id", v.ID)
+			jobID, err := s.requeueArchive(ctx, v, true)
+			switch {
+			case err == nil:
+				log.Info("archive retry queued", "job_id", jobID)
+			case errors.Is(err, repository.ErrNotFound):
+				// Cancelled or removed since the listing.
+			case errors.Is(err, repository.ErrDuplicate):
+				// The VOD was queued by hand in the meantime, so this row's retry
+				// has nothing left to do.
+				log.Warn("archive retry dropped: the VOD is queued elsewhere")
+				if err := s.repo.ClearArchiveRetry(ctx, v.ID); err != nil && !errors.Is(err, repository.ErrNotFound) {
+					log.Error("archive retry: clear superseded retry", "error", err)
+				}
+			default:
+				log.Error("archive retry: requeue", "error", err)
+			}
+		}
+		if len(due) < archiveRetryBatch || ctx.Err() != nil {
+			return
 		}
 	}
 }
 
-// requeueArchive creates the next attempt of a failed archive: a fresh job
-// whose resume state continues after the parts earlier attempts finalized,
-// and the video back in PENDING. Both rows change in one transaction, so a
-// job never exists for a row that stayed FAILED.
+// requeueArchive atomically creates a new job and returns its ID.
+// It preserves finalized parts under the same media lock used by retention.
 func (s *Service) requeueArchive(ctx context.Context, v *repository.Video, scheduledOnly bool) (string, error) {
-	// The row's job_id is the attempt that failed; jobs accumulate per attempt
-	// and created_at ordering cannot tell two of them apart within a second.
+	// Retention holds the same lock while removing saved parts, so admission
+	// must finish before those parts can become eligible for deletion again.
+	owned, err := s.storage.Lock(ctx, v.ID)
+	if err != nil {
+		return "", err
+	}
+	defer owned.Close()
+	current, err := s.repo.GetVideo(ctx, v.ID)
+	if err != nil {
+		return "", err
+	}
+	if current.JobID != v.JobID || current.Source != repository.VideoSourceVOD || current.Status != repository.VideoStatusFailed || current.DeletedAt != nil || current.DeleteRequestedAt != nil {
+		return "", repository.ErrNotFound
+	}
+	v = current
+	// Use the video's current job; timestamp ordering cannot distinguish attempts created together.
 	prev, err := s.repo.GetJob(ctx, v.JobID)
 	if err != nil {
 		return "", fmt.Errorf("load previous attempt: %w", err)
@@ -321,19 +338,13 @@ func (s *Service) requeueArchive(ctx context.Context, v *repository.Video, sched
 	if err != nil {
 		return "", err
 	}
+	s.bus.NotifyVideoChange()
 	s.publishArchiveQueue(eventbus.ArchiveQueued, v.ID)
 	return jobID, nil
 }
 
-// continuationResumeState seeds a retry so it appends to the parts earlier
-// attempts finalized instead of downloading them again. It is ContinuePart
-// for a fresh attempt: the next part starts at the media sequence after the
-// last finalized one, under that part's variant lock, so the resolved URL
-// must land on the same rendition (media sequences are not shared across
-// renditions) and a genuine change surfaces as ErrVariantChanged instead of
-// a silent mix. The lock comes from the part row, not the failed attempt's
-// checkpoint, which may never have resolved a rendition. With no finalized
-// part the attempt starts fresh; only the poster URL carries over.
+// continuationResumeState resumes after the last finalized part under that part's variant lock.
+// An attempt without finalized parts starts fresh and retains only the archive poster URL.
 func continuationResumeState(prev *ResumeState, parts []repository.VideoPart) *ResumeState {
 	state := NewResumeState()
 	if prev != nil {
@@ -363,10 +374,8 @@ func continuationResumeState(prev *ResumeState, parts []repository.VideoPart) *R
 	return state
 }
 
-// RetryArchive requeues a failed archive right away, whether or not a retry
-// was scheduled. ErrBusy when the archive is still winding down, and from the
-// repository ErrNotFound when no failed archive has that id or ErrDuplicate
-// when another open row already holds the VOD.
+// RetryArchive immediately queues another attempt of a failed archive.
+// ErrBusy means its worker is still exiting; ErrNotFound means it is no longer retryable.
 func (s *Service) RetryArchive(ctx context.Context, videoID int64) error {
 	if err := s.retryArchiveLocked(ctx, videoID); err != nil {
 		return err
@@ -397,9 +406,6 @@ func (s *Service) retryArchiveLocked(ctx context.Context, videoID int64) error {
 	return err
 }
 
-// startArchiveRetryLoop pumps the queue periodically so a scheduled retry
-// starts on time even when no job ends and nothing is enqueued. Runs once
-// per service; Shutdown stops it.
 func (s *Service) startArchiveRetryLoop() {
 	// Admission shares the lock used by Shutdown and job reservations. Once
 	// shutdown starts no new worker can Add after its Wait observes zero.
@@ -410,10 +416,10 @@ func (s *Service) startArchiveRetryLoop() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.retryCancel = cancel
-	s.wg.Add(1)
+	s.discoveryWG.Add(1)
 	s.mu.Unlock()
 	go func() {
-		defer s.wg.Done()
+		defer s.discoveryWG.Done()
 		interval := s.retryInterval
 		if interval <= 0 {
 			interval = archiveRetryPumpInterval
@@ -425,20 +431,25 @@ func (s *Service) startArchiveRetryLoop() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				recoveryCtx, cancelRecovery := context.WithTimeout(ctx, 30*time.Second)
+				if err := s.resumeRunning(recoveryCtx); err != nil && ctx.Err() == nil {
+					s.log.Warn("recording recovery deferred", "error", err)
+				}
+				if err := s.storage.Reconcile(recoveryCtx); err != nil && ctx.Err() == nil {
+					s.log.Warn("media cleanup deferred", "error", err)
+				}
+				cancelRecovery()
 				s.pumpWithTimeout(ctx)
 			}
 		}
 	}()
 }
 
-// failQueuedArchive records a start failure on a queued archive. Nothing was
-// captured, so the row fails "complete" and not truncated, like a live job
-// that never got past setup.
 func (s *Service) failQueuedArchive(ctx context.Context, job *repository.Job, cause error) error {
 	s.log.Error("archive queue: start job failed",
 		"job_id", job.ID, "video_id", job.VideoID, "error", cause)
 	msg := fmt.Sprintf("start archive: %v", cause)
-	if err := s.markRecordingFailed(ctx, job.ID, job.VideoID, msg, repository.CompletionKindComplete, false); err != nil {
+	if err := s.markRecordingFailed(ctx, repository.AttemptClaim{JobID: job.ID, VideoID: job.VideoID, ExecutionID: job.ExecutionID}, msg, repository.CompletionKindComplete, false); err != nil {
 		s.log.Error("archive queue: persist start failure", "video_id", job.VideoID, "error", err)
 		return err
 	}
@@ -447,10 +458,8 @@ func (s *Service) failQueuedArchive(ctx context.Context, job *repository.Job, ca
 	return nil
 }
 
-// DequeueArchive removes an archive that has not started. A running archive
-// is refused with ErrBusy (stop it with Cancel instead); a missing or live row
-// is repository.ErrNotFound. The pump lock keeps the queue from starting the
-// row between the check and the delete.
+// DequeueArchive removes an archive before acquisition starts.
+// It returns ErrBusy for a running archive and ErrNotFound for a missing or live recording.
 func (s *Service) DequeueArchive(ctx context.Context, videoID int64) error {
 	s.pumpMu.Lock()
 	defer s.pumpMu.Unlock()
@@ -469,10 +478,6 @@ func (s *Service) DequeueArchive(ctx context.Context, videoID int64) error {
 	return nil
 }
 
-// pumpAfterJobEnd is run()'s exit hook and the retry ticker's body: a
-// finished job of either kind may have freed an archive slot (a live job
-// never holds one, but the check is cheap and keeps the rule in one place),
-// and a scheduled retry may have come due.
 func (s *Service) pumpAfterJobEnd() {
 	s.pumpWithTimeout(context.Background())
 }
@@ -493,6 +498,7 @@ func (s *Service) CancelArchiveRetry(ctx context.Context, videoID int64) error {
 	if err := s.repo.ClearArchiveRetry(ctx, videoID); err != nil {
 		return err
 	}
+	s.bus.NotifyVideoChange()
 	s.publishArchiveQueue(eventbus.ArchiveRetryCancelled, videoID)
 	return nil
 }

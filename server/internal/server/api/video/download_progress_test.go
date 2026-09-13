@@ -15,7 +15,7 @@ func (r progressSubscribeRunner) Start(context.Context, downloader.Params) (stri
 	return "", nil
 }
 
-func (r progressSubscribeRunner) Cancel(string) {}
+func (r progressSubscribeRunner) Cancel(string) error { return nil }
 
 func (r progressSubscribeRunner) Subscribe(string) <-chan downloader.Progress {
 	return r.ch

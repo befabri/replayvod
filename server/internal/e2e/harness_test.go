@@ -1,18 +1,8 @@
 //go:build integration
 
-// Package e2e exercises the tRPC HTTP surface against both database
-// drivers. The harness wires the real router, repository, session
-// manager, storage (local, tmpdir), and Twitch client (stubbed
-// credentials — smoke cases don't hit Twitch) into an httptest.Server
-// and seeds a signed-in user so cookie-authenticated procedures are
-// callable without going through the Twitch OAuth dance.
-//
-// Run with:
-//
-//	go test -tags integration ./internal/e2e/
-//
-// PostgreSQL tests require Docker and use the version shipped in Compose.
-// SQLite tests use local files.
+// Package e2e_test exercises authenticated tRPC routes against SQLite and
+// PostgreSQL. Run with go test -tags integration ./internal/e2e/.
+// The shared PostgreSQL fixture requires Docker for the whole package.
 package e2e_test
 
 import (
@@ -42,13 +32,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// PG container boots once for every test in this package; SQLite
-	// tests still run even if Docker isn't present, they just pay the
-	// spin-up cost as a no-op.
 	os.Exit(testdb.SetupPG(m))
 }
 
-// driver names what DB backend the matrix subtest is exercising.
 type driver string
 
 const (
@@ -56,22 +42,14 @@ const (
 	driverPG     driver = "postgres"
 )
 
-// testServer is everything a test needs to talk to a running
-// single-user copy of the stack: the base URL of the httptest server,
-// the raw session ID to set as the cookie, and the seeded user's ID
-// for assertions.
 type testServer struct {
-	baseURL   string
-	sessionID string
-	userID    string
-	repo      repository.Repository
-	// Lets tests mint a second identity through the real manager.
+	baseURL    string
+	sessionID  string
+	userID     string
+	repo       repository.Repository
 	sessionMgr *session.Manager
 }
 
-// newTestServer spins up the full tRPC stack against the requested
-// driver and signs in a fresh "owner"-role user by writing a session
-// row directly — no Twitch OAuth involvement.
 func newTestServer(t *testing.T, d driver) *testServer {
 	t.Helper()
 
@@ -79,8 +57,6 @@ func newTestServer(t *testing.T, d driver) *testServer {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	// Fixed secret: deterministic key derivation makes failing tests
-	// easier to reproduce manually by copying the session cookie.
 	const sessionSecret = "00000000000000000000000000000000"
 	sessionMgr, err := session.NewManager(repo, sessionSecret, false, log)
 	if err != nil {
@@ -94,20 +70,14 @@ func newTestServer(t *testing.T, d driver) *testServer {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	dl := downloader.NewService(cfg, repo, store, nil, nil, nil, log)
+	recordings := api.NewRecordingServices(cfg, repo, store, nil, log)
+	if _, err := recordings.StorageHealth.Attach(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	dl := downloader.NewService(cfg, repo, recordings.Media, nil, nil, nil, log)
 
-	// bus=nil is fine: subscription procedures return pre-closed
-	// channels when the bus is absent, which is the same contract the
-	// production server exposes when started without SSE. hydrator=nil
-	// disables Helix enrichment — e2e tests don't exercise the
-	// stream-metadata path.
 	hydrator := streammeta.NewHydrator(repo, twitchClient, streammeta.Config{}, log)
-	// eventProcessor=nil: the e2e suite drives tRPC procedures directly and
-	// doesn't exercise the webhook notification path (which is gated off unless
-	// ServerMode processes webhooks anyway).
-	// webhookDispatcher=nil/playbackCache=nil: the e2e suite doesn't exercise
-	// outbound webhooks or playback-cache procedures.
-	router, closeTRPC := api.SetupRouter(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, nil, nil, nil, nil, log)
+	router, closeTRPC := api.SetupRouter(cfg, repo, sessionMgr, twitchClient, store, dl, hydrator, nil, nil, nil, nil, log, recordings)
 	srv := httptest.NewServer(router)
 	t.Cleanup(func() {
 		srv.Close()
@@ -128,10 +98,7 @@ func newTestServer(t *testing.T, d driver) *testServer {
 	}
 }
 
-// rawRequest issues a tRPC request with an explicit session cookie and returns
-// the HTTP status and body without failing the test on non-200 — for the
-// authorization and validation cases (403 viewer rejection, 400 self-demotion)
-// where a non-200 is the assertion, not a failure.
+// rawRequest preserves non-200 responses for authorization and validation assertions.
 func rawRequest(t *testing.T, ts *testServer, method, procedure string, input any, cookie string) (int, []byte) {
 	t.Helper()
 	endpoint := ts.baseURL + "/trpc/" + procedure
@@ -182,10 +149,6 @@ func newRepo(t *testing.T, d driver) repository.Repository {
 	return nil
 }
 
-// newTestConfig builds a Config with just enough populated for the
-// smoke flow: a unique session secret, the default app config, and
-// a dashboard-dir-less env so the SPA fallback doesn't fight the
-// tRPC handler on non-matching paths.
 func newTestConfig(t *testing.T) *config.Config {
 	t.Helper()
 	app := defaultAppForTest()
@@ -206,8 +169,6 @@ func newTestConfig(t *testing.T) *config.Config {
 	}
 }
 
-// defaultAppForTest mirrors the validated-default AppConfig produced
-// by config.LoadConfig for a missing/empty TOML.
 func defaultAppForTest() config.AppConfig {
 	return config.AppConfig{
 		Server: config.ServerConfig{},
@@ -231,9 +192,6 @@ func defaultAppForTest() config.AppConfig {
 	}
 }
 
-// seedOwner writes a test user with owner role directly into the
-// repository. OAuth isn't exercised by the smoke flow — it's the DB
-// write behind the callback that matters for auth.session et al.
 func seedOwner(t *testing.T, repo repository.Repository) *repository.User {
 	t.Helper()
 	u := &repository.User{
@@ -249,10 +207,8 @@ func seedOwner(t *testing.T, repo repository.Repository) *repository.User {
 	return saved
 }
 
-// seedSession creates a session via the real manager so encryption,
-// hashing, and cookie derivation stay in sync with production —
-// writing straight to the sessions table would silently skip those
-// code paths.
+// seedSession uses the real manager so encryption, hashing and cookie
+// derivation are exercised by HTTP tests.
 func seedSession(t *testing.T, repo repository.Repository, mgr *session.Manager, userID string) string {
 	t.Helper()
 
@@ -276,9 +232,8 @@ func seedSession(t *testing.T, repo repository.Repository, mgr *session.Manager,
 	return ""
 }
 
-// trpcQuery performs a tRPC query (GET) and unmarshals the `result.data`
-// envelope into dst. Status codes other than 200 fail the test —
-// callers that expect errors should use trpcRequest directly.
+// trpcQuery decodes the result.data envelope and fails on non-200 status.
+// Use rawRequest when asserting errors.
 func trpcQuery(t *testing.T, ts *testServer, procedure string, input any, dst any) {
 	t.Helper()
 	endpoint := ts.baseURL + "/trpc/" + procedure
@@ -293,8 +248,6 @@ func trpcQuery(t *testing.T, ts *testServer, procedure string, input any, dst an
 	decodeEnvelope(t, procedure, body, dst)
 }
 
-// trpcMutation is the POST counterpart to trpcQuery — same envelope,
-// body carries the input instead of the querystring.
 func trpcMutation(t *testing.T, ts *testServer, procedure string, input any, dst any) {
 	t.Helper()
 	endpoint := ts.baseURL + "/trpc/" + procedure
@@ -339,8 +292,7 @@ func doRequest(t *testing.T, ts *testServer, method, endpoint string, body io.Re
 	return raw
 }
 
-// decodeEnvelope unwraps {"result":{"data":...}} and decodes into dst
-// if dst is non-nil. Errors in the envelope fail the test.
+// decodeEnvelope unwraps result.data into dst, if non-nil, and fails on API errors.
 func decodeEnvelope(t *testing.T, procedure string, raw []byte, dst any) {
 	t.Helper()
 	var env struct {

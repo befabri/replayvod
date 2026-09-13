@@ -1,7 +1,4 @@
-// Package waveform builds and persists audio waveform artifacts for audio-only
-// recordings. The downloader writes the artifact when a recording finishes; the
-// stream API serves it and can rebuild it if a historical recording predates the
-// artifact.
+// Package waveform generates audio previews from recording part references.
 package waveform
 
 import (
@@ -16,16 +13,20 @@ import (
 	"math"
 	"os"
 	"os/exec"
-	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/befabri/replayvod/server/internal/downloader/remux"
+	"github.com/befabri/replayvod/server/internal/mediastore"
+	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/storagekeys"
+	"github.com/google/uuid"
 )
 
+// Waveform sampling uses 8 kHz PCM and a bounded number of display points.
 const (
 	SampleRate      = 8000
 	PointsPerSecond = 8
@@ -35,9 +36,7 @@ const (
 	artifactVersion = 1
 )
 
-// Generator decodes one seekable audio file into normalized peak buckets. MP4
-// and M4A containers often need seeks while demuxing, so non-local objects are
-// materialized to a temp file before generation.
+// Generator decodes a seekable audio file into normalized peak buckets.
 type Generator interface {
 	Generate(ctx context.Context, inputPath string, durationSeconds float64, points int) ([]float32, error)
 }
@@ -48,8 +47,7 @@ type Response struct {
 	Peaks           []float32 `json:"peaks"`
 }
 
-// Artifact is the storage JSON shape. The fingerprint lets readers reject a
-// stale artifact after a recording is repaired or its parts are backfilled.
+// Artifact stores versioned peaks and an input fingerprint for rejecting stale media.
 type Artifact struct {
 	Version         int       `json:"version"`
 	Fingerprint     string    `json:"fingerprint"`
@@ -57,6 +55,7 @@ type Artifact struct {
 	Peaks           []float32 `json:"peaks"`
 }
 
+// NewArtifact binds a response to its input fingerprint and the current storage format.
 func NewArtifact(fingerprint string, resp Response) Artifact {
 	return Artifact{
 		Version:         artifactVersion,
@@ -66,22 +65,24 @@ func NewArtifact(fingerprint string, resp Response) Artifact {
 	}
 }
 
+// Matches reports whether the artifact uses the current format and input fingerprint.
 func (a Artifact) Matches(fingerprint string) bool {
 	return a.Version == artifactVersion && a.Fingerprint == fingerprint
 }
 
+// Response returns the public waveform without storage versioning metadata.
 func (a Artifact) Response() Response {
 	return Response{DurationSeconds: a.DurationSeconds, Peaks: a.Peaks}
 }
 
-// PartInput is the repository-neutral subset of a finalized video_part needed
-// to plan a waveform.
+// PartInput contains the finalized media references and metadata needed for a waveform.
 type PartInput struct {
 	Filename        string
 	DurationSeconds float64
 	SizeBytes       int64
 }
 
+// Part assigns a waveform point budget to one finalized media reference.
 type Part struct {
 	Filename        string
 	DurationSeconds float64
@@ -89,12 +90,15 @@ type Part struct {
 	Points          int
 }
 
+// Plan records the ordered inputs, durations, and point allocation for a waveform.
 type Plan struct {
 	Fingerprint     string
 	DurationSeconds float64
 	Parts           []Part
 }
 
+// BuildPlan resolves missing part durations and distributes waveform points.
+// It reports false when there are no parts or no usable duration.
 func BuildPlan(videoID int64, recordingType string, videoDurationSeconds *float64, parts []PartInput) (Plan, bool) {
 	if len(parts) == 0 {
 		return Plan{}, false
@@ -217,6 +221,7 @@ func allocatePoints(durations []float64, targetPoints int) []int {
 	return points
 }
 
+// PointCount bounds display points while retaining at least one for every part.
 func PointCount(durationSeconds float64, partCount int) int {
 	points := int(math.Ceil(durationSeconds * PointsPerSecond))
 	if points < MinPoints {
@@ -240,14 +245,14 @@ func fingerprint(videoID int64, recordingType string, parts []Part) string {
 	return b.String()
 }
 
-// InputResolver turns a stored part filename into a local path suitable for
-// ffmpeg. Current downloader parts can be passed in LocalFiles so remote storage
-// does not need to download bytes that still exist in scratch.
+// InputResolver uses a retained scratch file or stages the stored part locally.
+// MP4 and M4A demuxing require seekable input.
 type InputResolver struct {
-	Storage    storage.Storage
+	Storage    *mediastore.Store
 	LocalFiles map[string]string
 }
 
+// Path returns a seekable input and cleanup function; call cleanup after decoding.
 func (r InputResolver) Path(ctx context.Context, filename string) (string, func() error, error) {
 	if localPath := r.LocalFiles[filename]; localPath != "" {
 		if _, err := os.Stat(localPath); err == nil {
@@ -260,74 +265,46 @@ func (r InputResolver) Path(ctx context.Context, filename string) (string, func(
 		return "", nil, fmt.Errorf("waveform input %s: storage unavailable", filename)
 	}
 
-	relPath := storagekeys.Video(filename)
-	if local, ok := r.Storage.(*storage.LocalStorage); ok {
-		p, err := local.LocalPath(relPath)
-		if err != nil {
-			return "", nil, err
-		}
-		if _, err := os.Stat(p); err != nil {
-			return "", nil, err
-		}
-		return p, func() error { return nil }, nil
-	}
-
-	f, err := r.Storage.Open(ctx, relPath)
+	workspace, err := r.Storage.Scratch().New("waveform", 0)
 	if err != nil {
 		return "", nil, err
 	}
-	defer f.Close()
-
-	ext := strings.ToLower(path.Ext(filename))
-	if ext == "" {
-		ext = ".m4a"
-	}
-	tmp, err := os.CreateTemp("", "replayvod-waveform-*"+ext)
+	p, err := workspace.Copy(ctx, r.Storage, storagekeys.Video(filename), filepath.Base(filename))
 	if err != nil {
-		return "", nil, fmt.Errorf("create waveform temp file: %w", err)
+		_ = workspace.Close(true)
+		return "", nil, err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.Remove(tmp.Name())
-		}
-	}()
-
-	if _, err := io.Copy(tmp, f); err != nil {
-		tmp.Close()
-		return "", nil, fmt.Errorf("copy waveform input: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return "", nil, fmt.Errorf("close waveform temp file: %w", err)
-	}
-	committed = true
-	return tmp.Name(), func() error { return os.Remove(tmp.Name()) }, nil
+	return p, func() error { return workspace.Close(true) }, nil
 }
 
+// Generate decodes the ordered parts in plan and releases each staged input after use.
 func Generate(ctx context.Context, generator Generator, resolver InputResolver, plan Plan) (Response, error) {
 	if generator == nil {
 		return Response{}, fmt.Errorf("waveform generator unavailable")
 	}
 	peaks := make([]float32, 0, PointCount(plan.DurationSeconds, len(plan.Parts)))
 	for _, part := range plan.Parts {
-		inputPath, cleanup, err := resolver.Path(ctx, part.Filename)
+		partPeaks, err := generatePart(ctx, generator, resolver, part)
 		if err != nil {
 			return Response{}, err
-		}
-		partPeaks, genErr := generator.Generate(ctx, inputPath, part.DurationSeconds, part.Points)
-		cleanupErr := cleanup()
-		if genErr != nil {
-			return Response{}, genErr
-		}
-		if cleanupErr != nil {
-			return Response{}, cleanupErr
 		}
 		peaks = append(peaks, NormalizePeaks(partPeaks, part.Points)...)
 	}
 	return Response{DurationSeconds: plan.DurationSeconds, Peaks: peaks}, nil
 }
 
-func LoadArtifact(ctx context.Context, store storage.Storage, key, fingerprint string) (Response, bool, error) {
+func generatePart(ctx context.Context, generator Generator, resolver InputResolver, part Part) (peaks []float32, err error) {
+	inputPath, cleanup, err := resolver.Path(ctx, part.Filename)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, cleanup()) }()
+	return generator.Generate(ctx, inputPath, part.DurationSeconds, part.Points)
+}
+
+// LoadArtifact returns a waveform and a hit flag; missing, malformed, or stale
+// artifacts are cache misses.
+func LoadArtifact(ctx context.Context, store storage.Reader, key, fingerprint string) (Response, bool, error) {
 	if store == nil {
 		return Response{}, false, fmt.Errorf("waveform artifact storage unavailable")
 	}
@@ -350,22 +327,43 @@ func LoadArtifact(ctx context.Context, store storage.Storage, key, fingerprint s
 	return artifact.Response(), true, nil
 }
 
-func SaveArtifact(ctx context.Context, store storage.Storage, key, fingerprint string, resp Response) error {
-	if store == nil {
-		return fmt.Errorf("waveform artifact storage unavailable")
+// LoadRecording reads the committed waveform generation and rejects a stale fingerprint.
+func LoadRecording(ctx context.Context, store *mediastore.Store, videoID int64, fingerprint string) (Response, bool, error) {
+	key, err := store.WaveformKey(ctx, videoID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return Response{}, false, nil
 	}
+	if err != nil {
+		return Response{}, false, err
+	}
+	return LoadArtifact(ctx, store, key, fingerprint)
+}
+
+// SaveArtifact commits a fresh waveform key under recording ownership.
+// Separate keys prevent delayed uploads from replacing later generations.
+func SaveArtifact(ctx context.Context, owned *mediastore.Recording, filename, fingerprint string, resp Response) error {
 	var body bytes.Buffer
 	if err := json.NewEncoder(&body).Encode(NewArtifact(fingerprint, resp)); err != nil {
 		return fmt.Errorf("encode waveform artifact: %w", err)
 	}
-	if err := store.Save(ctx, key, &body); err != nil {
+	key := storagekeys.Waveform(filename + "-" + uuid.NewString())
+	if err := owned.Save(ctx, key, bytes.NewReader(body.Bytes())); err != nil {
 		return fmt.Errorf("save waveform artifact %s: %w", key, err)
 	}
+	if err := owned.Commit(ctx, func(tx repository.Repository) error {
+		return tx.SetVideoWaveformKey(ctx, owned.VideoID, key)
+	}); err != nil {
+		return fmt.Errorf("commit waveform reference: %w", err)
+	}
+	// Prune only after confirming the new reference; uncertain commits retain
+	// earlier publications for later cleanup.
+	_ = owned.PrunePublications(ctx, func(p repository.MediaPublication) bool {
+		return p.Key != key && strings.HasPrefix(p.Key, "thumbnails/"+filename+"-") && strings.HasSuffix(p.Key, "-waveform.json")
+	})
 	return nil
 }
 
-// FFmpegGenerator decodes audio with ffmpeg into an 8 kHz mono PCM stream and
-// buckets the peak amplitude.
+// FFmpegGenerator decodes audio into peak buckets from 8 kHz mono PCM.
 type FFmpegGenerator struct {
 	FFmpegPath string
 }
@@ -410,6 +408,8 @@ func (g FFmpegGenerator) Generate(ctx context.Context, inputPath string, duratio
 	return peaks, nil
 }
 
+// ReadPCM16Peaks buckets little-endian PCM samples into peaks in [0, 1].
+// The point count must be nonnegative.
 func ReadPCM16Peaks(r io.Reader, durationSeconds float64, points int) ([]float32, error) {
 	peaks := make([]float32, points)
 	if points <= 0 {
@@ -477,6 +477,7 @@ func processPCM16Sample(sampleBytes []byte, peaks []float32, bucket, inBucket *i
 	}
 }
 
+// NormalizePeaks pads or truncates peaks to a nonnegative point count.
 func NormalizePeaks(peaks []float32, points int) []float32 {
 	out := make([]float32, points)
 	copy(out, peaks[:min(len(peaks), points)])

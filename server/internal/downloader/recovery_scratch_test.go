@@ -14,8 +14,8 @@ type recoverySnapshotRepo struct {
 	afterSnapshot func()
 }
 
-func (r recoverySnapshotRepo) ListRunningJobs(ctx context.Context) ([]repository.Job, error) {
-	jobs, err := r.Repository.ListRunningJobs(ctx)
+func (r recoverySnapshotRepo) ListRecoveryJobs(ctx context.Context, afterID string, limit int) ([]repository.Job, error) {
+	jobs, err := r.Repository.ListRecoveryJobs(ctx, afterID, limit)
 	if err == nil {
 		r.afterSnapshot()
 	}

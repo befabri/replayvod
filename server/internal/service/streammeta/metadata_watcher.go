@@ -2,46 +2,28 @@ package streammeta
 
 import (
 	"context"
+	"github.com/befabri/replayvod/server/internal/repository"
 	"log/slog"
 	"time"
 )
 
-// DefaultMetadataWatchInterval is the cadence MetadataWatcher falls
-// back to when the caller passes 0. 60s is tight enough to catch
-// the common "starting soon" → real-title transition that often
-// happens in the first 2 minutes of a broadcast, and quick category
-// flips during multi-game sessions. At 60 polls/hour per active
-// recording the Helix-quota cost is negligible (default Helix is
-// 800 req/min/app).
+// DefaultMetadataWatchInterval is the polling interval when configuration is nonpositive.
 const DefaultMetadataWatchInterval = time.Minute
 
-// MetadataWatcher runs alongside a recording, polling Helix on a
-// ticker and persisting every distinct title AND category the
-// broadcaster sets during the broadcast. Populates the
-// titles+video_titles and categories+video_categories M2M pairs.
-// In webhook mode the channel.update event handler writes the same
-// rows via Hydrator.RecordChannelUpdate — poll and webhook share
-// one write path so history shape is identical across modes.
-//
-// Intended lifecycle: one Watch call per recording, started when
-// Stage 4 begins, canceled via ctx when the job ends. Safe to share
-// across recordings — MetadataWatcher holds no per-run state.
+// MetadataWatcher records live title and category changes for one execution per Watch call.
+// It can be shared across recordings.
 type MetadataWatcher struct {
 	hydrator *Hydrator
 	log      *slog.Logger
 	interval time.Duration
 }
 
-// MetadataWatchConfig carries the tunables. Zero-value-safe default
-// (60s interval) so callers can ignore it when they don't need to
-// override.
+// MetadataWatchConfig controls polling; a nonpositive interval uses DefaultMetadataWatchInterval.
 type MetadataWatchConfig struct {
 	Interval time.Duration
 }
 
-// NewMetadataWatcher constructs the watcher. All persistence goes
-// through `hydrator.RecordChannelUpdate` — the watcher itself holds
-// no direct repo reference.
+// NewMetadataWatcher creates a poller that persists changes through hydrator.
 func NewMetadataWatcher(hydrator *Hydrator, cfg MetadataWatchConfig, log *slog.Logger) *MetadataWatcher {
 	interval := cfg.Interval
 	if interval <= 0 {
@@ -54,13 +36,9 @@ func NewMetadataWatcher(hydrator *Hydrator, cfg MetadataWatchConfig, log *slog.L
 	}
 }
 
-// WatchInitial carries the at-download-start metadata the watcher
-// pre-links before the first tick so a recording shorter than one
-// interval still carries correct history. Title and CategoryID come
-// from the trigger path's Hydrate snapshot. MediaOffset, when set,
-// lets poll-mode change rows store exact playback time instead of
-// deriving labels from wall-clock timestamps later.
+// WatchInitial contains already-linked opening metadata and the execution that may update it.
 type WatchInitial struct {
+	Claim       repository.AttemptClaim
 	Title       string
 	CategoryID  string
 	MediaOffset MediaOffsetProvider
@@ -77,35 +55,9 @@ func (initial WatchInitial) currentMediaOffset() *float64 {
 	return cleanMediaOffset(&seconds)
 }
 
-// Watch polls for title AND category changes and links each new one
-// to videoID. Blocks until ctx cancels — typically called in a
-// goroutine by the downloader's run() alongside the snapshot ticker.
-//
-// initial values come from the download-start snapshot (the same
-// values stored on videos.title + video_categories via the trigger
-// path). When non-empty they're observed as the "last seen" so the
-// first tick only records actual changes, not duplicate writes of
-// what's already linked.
-//
-// Polling diffs against last-seen per field; a title or category
-// that reverts to an earlier value relinks to the same dedup row,
-// and ON CONFLICT DO NOTHING keeps only the first link — history
-// sorts by first-appearance not exact timeline. Same semantic as
-// the webhook path.
-//
-// ctx is used for:
-//   - the ticker + early-exit check (so a canceled recording stops
-//     polling promptly)
-//   - the Helix fetch (inherits the cancel so a mid-shutdown tick
-//     aborts the HTTP call instead of dangling)
-//
-// It is NOT used for the DB writes: RecordChannelUpdate wraps its
-// own persist context so a tick landing right as the recording ends
-// still commits.
+// Watch records changed metadata until ctx is cancelled.
+// Initial values suppress duplicate observations; execution ownership rejects late writes.
 func (w *MetadataWatcher) Watch(ctx context.Context, broadcasterID string, videoID int64, initial WatchInitial) {
-	// Seed last-seen with the already-linked values so the first
-	// tick only fires a RecordChannelUpdate call if something
-	// actually changed on the broadcaster's side.
 	lastTitle := initial.Title
 	lastCategory := initial.CategoryID
 
@@ -118,15 +70,9 @@ func (w *MetadataWatcher) Watch(ctx context.Context, broadcasterID string, video
 		case <-ticker.C:
 			snap := w.hydrator.Hydrate(ctx, broadcasterID)
 			if snap == nil {
-				// Helix failed or broadcaster went offline.
-				// Offline is common for a recording nearing its
-				// end (stream.offline + ENDLIST race); don't
-				// spam warnings for it.
+				// Offline responses are expected while HLS drains the broadcast's final segments.
 				continue
 			}
-			// Build a ChannelUpdateMeta with only the fields that
-			// changed — RecordChannelUpdate is a no-op on empty
-			// fields, so unchanged metadata doesn't re-link.
 			var meta ChannelUpdateMeta
 			if snap.Title != "" && snap.Title != lastTitle {
 				meta.Title = snap.Title
@@ -139,7 +85,7 @@ func (w *MetadataWatcher) Watch(ctx context.Context, broadcasterID string, video
 				continue
 			}
 			meta.MediaOffsetSeconds = initial.currentMediaOffset()
-			if err := w.hydrator.RecordChannelUpdate(ctx, broadcasterID, meta); err != nil {
+			if err := w.hydrator.recordVideoMetadata(ctx, initial.Claim, false, meta, w.hydrator.now().UTC()); err != nil {
 				w.log.Warn("record channel update",
 					"video_id", videoID, "broadcaster_id", broadcasterID, "error", err)
 				continue

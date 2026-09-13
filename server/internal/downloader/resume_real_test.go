@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/ptr"
+
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/repository"
 )
@@ -44,6 +46,7 @@ func TestResume_CrashMidStream_ResumesCleanly(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_resume",
 		DisplayName:      "Harness Resume",
@@ -186,6 +189,7 @@ func TestResume_GapExceedsThreshold_ForcesSplit(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_threshold",
 		DisplayName:      "Harness Threshold",
@@ -233,7 +237,7 @@ func TestResume_GapExceedsThreshold_ForcesSplit(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal rollback: %v", err)
 		}
-		if err := h.repo.UpdateJobResumeState(context.Background(), jobID, data); err != nil {
+		if _, err := h.db.ExecContext(context.Background(), "UPDATE jobs SET resume_state = ? WHERE id = ?", string(data), jobID); err != nil {
 			t.Fatalf("rollback resume state: %v", err)
 		}
 	}
@@ -361,6 +365,7 @@ func TestResume_PendingSplitTrue_OpensPartNPlusOne(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_pending",
 		DisplayName:      "Harness Pending",
@@ -398,7 +403,7 @@ func TestResume_PendingSplitTrue_OpensPartNPlusOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal mutate: %v", err)
 	}
-	if err := h.repo.UpdateJobResumeState(context.Background(), jobID, data); err != nil {
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE jobs SET resume_state = ? WHERE id = ?", string(data), jobID); err != nil {
 		t.Fatalf("write mutated resume state: %v", err)
 	}
 
@@ -469,6 +474,7 @@ func TestResume_HadWindowRollTrue_ClassifiesPartial(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_hadwindow",
 		DisplayName:      "Harness HadWindow",
@@ -508,7 +514,7 @@ func TestResume_HadWindowRollTrue_ClassifiesPartial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal mutate: %v", err)
 	}
-	if err := h.repo.UpdateJobResumeState(context.Background(), jobID, data); err != nil {
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE jobs SET resume_state = ? WHERE id = ?", string(data), jobID); err != nil {
 		t.Fatalf("write mutated resume state: %v", err)
 	}
 

@@ -227,7 +227,7 @@ SET deleted_at = datetime('now'),
     delete_requested_at = NULL
 WHERE id = ?1 AND (deleted_at IS NULL OR deletion_kind = 'missing');
 
--- name: ListFinishedVideosForRetention :many
+-- name: ListRetentionCandidates :many
 -- Terminal, not-yet-tombstoned recordings whose creation-time retention policy
 -- snapshot is due at @now. DONE rows own watchable artifacts; FAILED
 -- partial/cancelled rows may own finalized parts, thumbnails, strips, and
@@ -238,7 +238,7 @@ WHERE id = ?1 AND (deleted_at IS NULL OR deletion_kind = 'missing');
 -- keep both comparisons in lockstep so the SQL prefilter and Go invariant check
 -- agree on "exactly at the deadline is still retained".
 SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
-WHERE deleted_at IS NULL
+WHERE videos.id > sqlc.arg(after_id) AND deleted_at IS NULL
   AND delete_requested_at IS NULL
   AND downloaded_at IS NOT NULL
   AND retention_window_hours IS NOT NULL
@@ -254,14 +254,14 @@ WHERE deleted_at IS NULL
       AND rwd.test = 0
       AND rwd.status IN ('pending', 'delivering')
       AND rwd.frozen_parts = ''
-  );
+  ) ORDER BY videos.id LIMIT sqlc.arg(batch_limit);
 
 -- name: ListVideosPendingManualDelete :many
 -- Operator-requested deletions that are safe for the background worker to
 -- finalize. The webhook frozen-parts guard mirrors retention: do not delete
 -- video_parts until any pending/delivering delivery has captured them.
 SELECT * FROM videos
-WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
+WHERE id > CAST(sqlc.arg(after_id) AS BIGINT) AND (deleted_at IS NULL OR deletion_kind = 'missing')
   AND delete_requested_at IS NOT NULL
   AND status IN ('DONE', 'FAILED')
   AND NOT EXISTS (
@@ -272,7 +272,7 @@ WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
       AND rwd.status IN ('pending', 'delivering')
       AND rwd.frozen_parts = ''
   )
-ORDER BY delete_requested_at ASC, id ASC
+ORDER BY id ASC
 LIMIT @row_limit;
 
 -- name: CountVideosByStatus :one
@@ -434,11 +434,10 @@ WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED' AND downloaded
 ORDER BY downloaded_at DESC, id DESC LIMIT ?;
 
 -- name: ListArchivesDueForRetry :many
-SELECT * FROM videos
-WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED'
-  AND delete_requested_at IS NULL
-  AND next_retry_at IS NOT NULL AND next_retry_at <= ?
-ORDER BY next_retry_at ASC, id ASC LIMIT ?;
+SELECT * FROM videos WHERE source='vod' AND deleted_at IS NULL AND status='FAILED'
+ AND delete_requested_at IS NULL AND next_retry_at <= sqlc.arg(now)
+ AND (next_retry_at,id) > (sqlc.arg(after_time),CAST(sqlc.arg(after_id) AS BIGINT))
+ORDER BY next_retry_at,id LIMIT sqlc.arg(batch_limit);
 
 -- name: MarkArchiveFailedForRetry :exec
 -- A transient archive failure: the row fails like any other, and the retry

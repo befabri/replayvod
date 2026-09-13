@@ -6,9 +6,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
-// TestWireEnumParity pins each wire-enum const to its repository source. The
-// consts are defined as aliases, so a value can't silently drift; this fails
-// loudly if a repository value is ever changed out from under the wire member.
 func TestWireEnumParity(t *testing.T) {
 	status := map[VideoStatus]string{
 		VideoStatusPending: repository.VideoStatusPending,
@@ -19,6 +16,18 @@ func TestWireEnumParity(t *testing.T) {
 	for got, want := range status {
 		if string(got) != want {
 			t.Errorf("VideoStatus %q != repository %q", got, want)
+		}
+	}
+
+	intent := map[RecordingIntentStatus]string{
+		RecordingIntentStatusActive:  repository.RecordingIntentStatusActive,
+		RecordingIntentStatusWaiting: repository.RecordingIntentStatusWaiting,
+		RecordingIntentStatusStopped: repository.RecordingIntentStatusStopped,
+		RecordingIntentStatusExpired: repository.RecordingIntentStatusExpired,
+	}
+	for got, want := range intent {
+		if string(got) != want {
+			t.Errorf("RecordingIntentStatus %q != repository %q", got, want)
 		}
 	}
 

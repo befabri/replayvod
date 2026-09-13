@@ -1,9 +1,10 @@
 package downloader
 
 import (
+	"testing"
+
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/repository"
-	"testing"
 )
 
 func TestSavedQualitySelectsBoundedRendition(t *testing.T) {

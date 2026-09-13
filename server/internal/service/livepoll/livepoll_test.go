@@ -908,3 +908,7 @@ func TestReplacementRetryDoesNotEndCurrentLiveStream(t *testing.T) {
 		t.Fatalf("eventual offline did not close current stream: %+v, %v", current, err)
 	}
 }
+
+func (*retryDownloader) ObserveStreamOnline(twitch.Stream) {}
+
+func (*retryDownloader) ObserveStreamOffline(string) {}

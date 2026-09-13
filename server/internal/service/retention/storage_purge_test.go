@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
 )
@@ -33,12 +35,12 @@ func TestDeleteRecordingStopsBeforeDeletingReplacementStorage(t *testing.T) {
 	seedRecordingWithObjects(t, ctx, newTestRepo(t), foreign)
 	unavailable := false
 	store := &replacingStorage{Storage: trusted, replacement: foreign, afterDelete: func() { unavailable = true }}
-	svc := New(repo, store, storageGateFunc(func(context.Context) error {
+	svc := New(repo, mediatest.New(t, repo, store, storageGateFunc(func(context.Context) error {
 		if unavailable {
 			return storage.ErrUnattached
 		}
 		return nil
-	}), discardLog())
+	}), nil), discardLog())
 	if err := svc.DeleteRecording(ctx, v, repository.DeletionKindRetention); !errors.Is(err, storage.ErrUnattached) {
 		t.Fatalf("storage loss during purge: %v", err)
 	}
@@ -50,9 +52,8 @@ func TestDeleteRecordingStopsBeforeDeletingReplacementStorage(t *testing.T) {
 	if err != nil || row.DeletedAt != nil {
 		t.Fatalf("partial purge discarded its retry record: %+v %v", row, err)
 	}
-	// Reattachment retries the original deterministic keys, including the
-	// already-deleted first part, and converges without touching the foreign disk.
-	svc.store = trusted
+	// Retry must finish the original volume without touching its replacement.
+	svc.store = mediatest.New(t, repo, trusted, readyStorage{}, nil)
 	unavailable = false
 	if err := svc.DeleteRecording(ctx, v, repository.DeletionKindRetention); err != nil {
 		t.Fatal(err)

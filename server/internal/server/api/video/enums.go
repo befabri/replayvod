@@ -2,15 +2,8 @@ package video
 
 import "github.com/befabri/replayvod/server/internal/repository"
 
-// Wire enums: named string types whose typed const groups make trpcgo emit
-// narrowed TypeScript unions (VideoStatus = "PENDING" | "RUNNING" | ...) on the
-// response DTOs instead of a bare `string`. The values alias the repository
-// constants, so the DB CHECK constraints stay the single source of truth for
-// the value set; these declarations exist only so the code generator can see
-// it. TestWireEnumParity guards against the alias drifting.
-//
-// The domain layer (repository.Video.Status etc.) keeps plain `string` — the
-// named type only appears on the JSON boundary, converted in the mappers below.
+// VideoStatus and the other wire enums use typed const groups so trpcgo emits
+// TypeScript unions. Keep the wire values tied to repository constants.
 
 type VideoStatus string
 
@@ -43,4 +36,14 @@ type VideoSource string
 const (
 	VideoSourceLive VideoSource = repository.VideoSourceLive
 	VideoSourceVOD  VideoSource = repository.VideoSourceVOD
+)
+
+// RecordingIntentStatus is omitted when a recording has no continuation intent.
+type RecordingIntentStatus string
+
+const (
+	RecordingIntentStatusActive  RecordingIntentStatus = repository.RecordingIntentStatusActive
+	RecordingIntentStatusWaiting RecordingIntentStatus = repository.RecordingIntentStatusWaiting
+	RecordingIntentStatusStopped RecordingIntentStatus = repository.RecordingIntentStatusStopped
+	RecordingIntentStatusExpired RecordingIntentStatus = repository.RecordingIntentStatusExpired
 )

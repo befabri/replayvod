@@ -10,6 +10,7 @@ import (
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
+	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 )
 
@@ -145,10 +146,14 @@ func TestLiveRenditionsAsksUsherForH264OnlyUnderForceH264(t *testing.T) {
 func TestStartPersistsThePinnedHeightWithTheJobRow(t *testing.T) {
 	f := newArchiveFixture(t, 1, 1)
 	ctx := t.Context()
+	bus := eventbus.New()
+	f.svc.SetEventBus(bus)
+	changes := bus.VideoChanges.Subscribe(ctx)
 	jobID, err := f.svc.Start(ctx, Params{BroadcasterID: "bc-1", BroadcasterLogin: "bc-1", DisplayName: "bc-1", Quality: repository.QualityHigh, MaxHeight: 936})
 	if err != nil {
 		t.Fatal(err)
 	}
+	recvVideoChange(t, changes)
 	job, err := f.repo.GetJob(ctx, jobID)
 	if err != nil {
 		t.Fatal(err)

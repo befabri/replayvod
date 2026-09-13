@@ -10,17 +10,9 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-// RecordVideoMetadataChange runs the title + category + event-row
-// writes for a single observed channel.update inside one transaction.
-// Either the whole event lands or none of it does — no half-formed
-// timeline rows. Empty title and category short-circuit before
-// opening the tx.
-//
-// Art enrich is intentionally NOT wrapped in this tx — it's a
-// best-effort Helix call that can be slow or fail; running it inside
-// a tx would hold a row lock across a network round trip. The caller
-// receives the upserted Category in the result and drives enrich
-// itself after commit.
+// RecordVideoMetadataChange implements repository.Repository's atomic observation
+// write; callers must fetch category artwork after commit to avoid network waits
+// while holding the recording lock.
 func (a *PGAdapter) RecordVideoMetadataChange(
 	ctx context.Context,
 	input repository.VideoMetadataChangeInput,
@@ -33,6 +25,18 @@ func (a *PGAdapter) RecordVideoMetadataChange(
 	at := input.OccurredAt.UTC()
 
 	err := a.inTx(ctx, func(q *pggen.Queries, _ pgx.Tx) error {
+		v, err := q.GetVideoForUpdate(ctx, input.VideoID)
+		if err != nil {
+			return mapErr(err)
+		}
+		j, err := q.GetJob(ctx, input.JobID)
+		if err != nil {
+			return mapErr(err)
+		}
+		if !repository.MetadataEligible(pgVideoToDomain(v), pgJobToDomain(j), input) {
+			return repository.ErrStaleExecution
+		}
+
 		var titleID *int64
 		if input.Title != "" {
 			t, err := q.UpsertTitle(ctx, input.Title)
@@ -83,16 +87,13 @@ func (a *PGAdapter) RecordVideoMetadataChange(
 			}
 			id := input.CategoryID
 			categoryID = &id
-			// When CategoryName was empty we didn't UpsertCategory,
-			// so result.Category is still nil. Hydrate from the
-			// existing row so the caller can decide on enrich.
+			// An omitted category name must preserve the stored name for artwork lookup.
 			if result.Category == nil {
 				cat, err := q.GetCategory(ctx, input.CategoryID)
 				if err == nil {
 					result.Category = pgCategoryToDomain(cat)
 				}
-				// A miss here is benign: enrich won't fire, the
-				// link still landed, and the row exists by FK.
+				// Category lookup failure only skips optional artwork enrichment.
 			}
 		}
 
@@ -129,11 +130,7 @@ func (a *PGAdapter) ListVideoMetadataChanges(
 			OccurredAt:         r.OccurredAt,
 			MediaOffsetSeconds: r.MediaOffsetSeconds,
 		}
-		// LEFT JOIN: every non-id column on the joined side is
-		// nullable. We hydrate Title/Category only when both the
-		// id and name landed — id alone with no name means the FK
-		// row was deleted (ON DELETE RESTRICT prevents this in
-		// practice, but defensive).
+		// LEFT JOIN columns are nullable even when their source columns are NOT NULL.
 		if r.TitleID != nil && r.TitleName != nil {
 			t := repository.Title{
 				ID:   *r.TitleID,

@@ -1,72 +1,38 @@
 package hls
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
 
-// PartWriter writes a single segment to disk using the .part →
-// fsync → atomic rename pattern. A crash or SIGKILL during the
-// write leaves a .part file behind, which the startup sweep
-// deletes. Files without the .part suffix are always complete and
-// safe to read.
-//
-// The zero value is not usable; construct with NewPartWriter.
-//
-// Usage:
-//
-//	w, err := NewPartWriter(dir, "42.ts")
-//	if err != nil { ... }
-//	defer w.Abort() // idempotent; no-op after Commit
-//	if _, err := io.Copy(w, body); err != nil { return err }
-//	if err := w.Commit(); err != nil { return err }
+// PartWriter publishes complete segments by syncing and renaming temporary files.
+// Its zero value is unusable; create one with NewPartWriter and defer Abort.
 type PartWriter struct {
-	// dir is the destination directory. Must exist and be
-	// writable by the time NewPartWriter is called; we don't
-	// mkdir here because the work-dir lifecycle is owned by the
-	// orchestrator.
+	writeFile func(context.Context, *os.File, []byte) (int, error)
+	ctx       context.Context
+
 	dir string
 
-	// finalName is the bare filename (no directory, no .part
-	// suffix) that Commit renames to.
+	// finalName excludes the directory and temporary .part suffix.
 	finalName string
 
-	// file is the open os.File pointed at dir/finalName.part.
-	// Nil after Commit or Abort so the double-close check is
-	// cheap.
 	file *os.File
 
-	// bytesWritten counts bytes the caller successfully wrote
-	// through this writer. Available after Commit via
-	// BytesWritten — lets the fetcher cross-check against
-	// Content-Length without re-stat'ing the file.
 	bytesWritten int64
 
-	// committed tracks whether Commit has run successfully.
-	// Abort becomes a no-op after commit; double-commit panics
-	// (it'd always be a caller bug).
 	committed bool
 }
 
-// NewPartWriter creates a new part writer. The .part file is
-// created immediately with O_CREATE|O_EXCL to detect stale
-// leftovers from a prior crash — a caller that hits os.IsExist
-// can delete the stale .part and retry.
-//
-// Matching the spec's per-segment naming: callers pass the final
-// filename (e.g. "42.ts", "init.mp4", "103.m4s") and NewPartWriter
-// appends ".part" internally. Keeps the suffix convention in one
-// place.
+// NewPartWriter creates a temporary file in an existing writable directory.
+// It returns an os.ErrExist-wrapped error for a leftover temporary file; callers own cleanup.
 func NewPartWriter(dir, finalName string) (*PartWriter, error) {
 	if finalName == "" {
 		return nil, fmt.Errorf("hls writer: empty finalName")
 	}
 	partPath := filepath.Join(dir, finalName+".part")
-	// O_EXCL so we fail loudly if a stale .part from a prior
-	// job is still on disk. The caller's retry policy can
-	// handle cleanup; PartWriter itself refuses to clobber.
 	f, err := os.OpenFile(partPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("hls writer open %s: %w", partPath, err)
@@ -74,49 +40,34 @@ func NewPartWriter(dir, finalName string) (*PartWriter, error) {
 	return &PartWriter{dir: dir, finalName: finalName, file: f}, nil
 }
 
-// Write implements io.Writer. Returns ErrWriterClosed after
-// Commit or Abort — protects against late writes from a
-// goroutine that didn't notice the writer was already sealed.
+// Write returns ErrWriterClosed after Commit or Abort.
 func (w *PartWriter) Write(p []byte) (int, error) {
 	if w.file == nil {
 		return 0, ErrWriterClosed
 	}
-	n, err := w.file.Write(p)
+	var n int
+	var err error
+	if w.writeFile != nil {
+		n, err = w.writeFile(w.ctx, w.file, p)
+	} else {
+		n, err = w.file.Write(p)
+	}
 	w.bytesWritten += int64(n)
 	return n, err
 }
 
-// BytesWritten returns the running byte count. Valid any time,
-// useful both during streaming (progress) and after Commit
-// (final size).
+// BytesWritten returns bytes written since creation or the last Reset, including after Commit.
 func (w *PartWriter) BytesWritten() int64 { return w.bytesWritten }
 
-// FinalPath is the absolute (or dir-relative) path to the final
-// file Commit will produce. Useful for logging before Commit
-// lands.
+// FinalPath returns the destination path, relative to the directory supplied to NewPartWriter.
 func (w *PartWriter) FinalPath() string {
 	return filepath.Join(w.dir, w.finalName)
 }
 
-// Commit closes the underlying file, fsyncs it, atomically
-// renames .part → final, and fsyncs the parent directory so the
-// rename itself is durable across a crash. After a successful
-// Commit, Abort is a no-op.
-//
-// The file fsync matters: without it a crash between close and
-// rename can leave the filesystem with a zero-length file that
-// looks complete to the startup sweep. The directory fsync
-// matters for the same reason at the directory-entry level — on
-// ext4/XFS the rename isn't durable until the parent dir is
-// synced, so a crash between rename and next-dir-sync can leave
-// neither the .part nor the final on disk even though Commit
-// returned success. Paying both sync costs per-segment is
-// acceptable — segments are ~100 KB–2 MB and the segment count
-// is bounded by the stream's live window.
+// Commit durably publishes the segment and makes Abort a no-op.
+// It syncs both file contents and the parent directory; a second successful Commit panics.
 func (w *PartWriter) Commit() error {
 	if w.committed {
-		// Caller bug — double-commit. Log-and-return would mask
-		// a concurrent-caller race; panic so the bug surfaces.
 		panic("hls writer: double Commit")
 	}
 	if w.file == nil {
@@ -138,21 +89,14 @@ func (w *PartWriter) Commit() error {
 		return fmt.Errorf("hls writer rename %s → %s: %w", partPath, finalPath, err)
 	}
 	if err := fsyncDir(w.dir); err != nil {
-		// Rename succeeded but directory-entry durability wasn't
-		// confirmed. Don't undo the rename — the file exists;
-		// we just can't promise it survives a power loss in the
-		// next few ms. Surface the error so operators see it.
+		// The renamed file may already be visible; a sync failure cannot confirm its durability.
 		return fmt.Errorf("hls writer fsync dir %s: %w", w.dir, err)
 	}
 	w.committed = true
 	return nil
 }
 
-// fsyncDir opens dir and fsyncs it so the most recent rename
-// inside it becomes durable. On Linux/macOS os.File.Sync on a
-// directory is defined; on Windows the syscall is a no-op and
-// the call typically errors — callers can decide whether to
-// treat that as fatal or benign.
+// fsyncDir confirms rename durability; some filesystems do not support syncing directories.
 func fsyncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
@@ -165,10 +109,7 @@ func fsyncDir(dir string) error {
 	return d.Close()
 }
 
-// Abort closes the underlying file and removes the .part file.
-// Safe to call multiple times and safe to call after Commit
-// (becomes a no-op). Designed to be defer'd at the call site so
-// error paths don't need bespoke cleanup.
+// Abort removes unfinished output; repeated calls and calls after Commit are harmless.
 func (w *PartWriter) Abort() {
 	if w.committed {
 		return
@@ -184,16 +125,8 @@ func (w *PartWriter) Abort() {
 // has been sealed via Commit or Abort.
 var ErrWriterClosed = fmt.Errorf("hls writer: closed")
 
-// Reset truncates the .part file back to zero length and rewinds
-// the write offset. Called by the fetch retry loop between
-// attempts so that a partial body from a failed 2xx doesn't
-// concatenate with the replacement body on the next try.
-//
-// Returns ErrWriterClosed if called after Commit or Abort.
-//
-// Reset is not the same as Abort: the file handle stays open and
-// the .part file is preserved, so the caller can write fresh
-// content without re-racing O_EXCL on a new NewPartWriter.
+// Reset discards partial bytes without releasing the temporary file.
+// It returns ErrWriterClosed after Commit or Abort.
 func (w *PartWriter) Reset() error {
 	if w.file == nil {
 		return ErrWriterClosed
@@ -208,23 +141,11 @@ func (w *PartWriter) Reset() error {
 	return nil
 }
 
-// ReadFrom streams from r into the underlying file. Implements
-// io.ReaderFrom so callers doing io.Copy(writer, source) pay the
-// direct-copy path rather than the generic buffered loop.
-//
-// Note: this does NOT trigger sendfile/splice for HTTP body →
-// file transfers. os.File.ReadFrom only zero-copies when the
-// source is itself backed by a poll-able FD (pipe, socket
-// exposed via syscall.Conn). HTTP response bodies wrap the
-// socket in layers that hide the FD, so io.Copy inside ReadFrom
-// falls back to the default 32 KB buffer. The Fetcher drives
-// its own pooled-buffer path for segment copies to avoid that
-// allocation.
+// ReadFrom routes io.Copy through Write so chunk accounting and the shared
+// scratch budget cannot be bypassed by io.ReaderFrom's optimization.
 func (w *PartWriter) ReadFrom(r io.Reader) (int64, error) {
 	if w.file == nil {
 		return 0, ErrWriterClosed
 	}
-	n, err := io.Copy(w.file, r)
-	w.bytesWritten += n
-	return n, err
+	return io.Copy(struct{ io.Writer }{w}, r)
 }

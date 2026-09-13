@@ -280,8 +280,9 @@ func TestAudioWaveformPersistsArtifactByPartFingerprint(t *testing.T) {
 	if len(generator.calls) != 1 {
 		t.Fatalf("generator calls = %d, want single generated artifact", len(generator.calls))
 	}
-	if _, ok := store.bodies[storagekeys.Waveform("vod-42")]; !ok {
-		t.Fatalf("stored bodies missing waveform artifact %s", storagekeys.Waveform("vod-42"))
+	key, err := repo.GetVideoWaveformKey(t.Context(), video.ID)
+	if err != nil || len(store.bodies[key]) == 0 {
+		t.Fatalf("committed waveform artifact missing: %q %v", key, err)
 	}
 }
 
@@ -304,6 +305,9 @@ func TestAudioWaveformRebuildsWhenS3ArtifactIsMissing(t *testing.T) {
 	}
 	generator := &fakeWaveformGenerator{}
 	srv := streamRouteTestServer(t, repo, store, testClientLogger(), WithWaveformGenerator(generator))
+	if err := repo.SetVideoWaveformKey(t.Context(), video.ID, storagekeys.Waveform("vod-42")); err != nil {
+		t.Fatal(err)
+	}
 
 	resp := getWaveform(t, srv.URL, 42)
 	defer resp.Body.Close()
@@ -313,8 +317,9 @@ func TestAudioWaveformRebuildsWhenS3ArtifactIsMissing(t *testing.T) {
 	if len(generator.calls) != 1 {
 		t.Fatalf("generator calls = %d, want rebuild after missing artifact", len(generator.calls))
 	}
-	if _, ok := store.bodies[storagekeys.Waveform("vod-42")]; !ok {
-		t.Fatalf("stored bodies missing rebuilt waveform artifact %s", storagekeys.Waveform("vod-42"))
+	key, err := repo.GetVideoWaveformKey(t.Context(), video.ID)
+	if err != nil || key == storagekeys.Waveform("vod-42") || len(store.bodies[key]) == 0 {
+		t.Fatalf("rebuilt waveform did not commit a new generation: %q %v", key, err)
 	}
 }
 
@@ -374,6 +379,9 @@ func TestAudioWaveformStorageErrorReturnsServerError(t *testing.T) {
 	}
 	generator := &fakeWaveformGenerator{}
 	srv := streamRouteTestServer(t, repo, store, testClientLogger(), WithWaveformGenerator(generator))
+	if err := repo.SetVideoWaveformKey(t.Context(), video.ID, storagekeys.Waveform("vod-42")); err != nil {
+		t.Fatal(err)
+	}
 
 	resp := getWaveform(t, srv.URL, 42)
 	defer resp.Body.Close()

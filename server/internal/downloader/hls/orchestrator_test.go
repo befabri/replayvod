@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/befabri/replayvod/server/internal/background"
 )
 
 // liveServer simulates a Twitch-ish HLS edge. Polls return a
@@ -539,11 +541,7 @@ func TestRun_InitFetchFailureStopsGoroutines(t *testing.T) {
 	}
 }
 
-// TestRun_ProgressChannelClosedOnTermination pins M2: the
-// orchestrator closes Progress exactly once on the way out so
-// subscribers see the final cumulative state without relying on
-// a best-effort non-blocking send.
-func TestRun_ProgressChannelClosedOnTermination(t *testing.T) {
+func TestRunProgressCompletesBeforeReturn(t *testing.T) {
 	s := &liveServer{
 		t:            t,
 		kind:         SegmentKindTS,
@@ -557,8 +555,8 @@ func TestRun_ProgressChannelClosedOnTermination(t *testing.T) {
 
 	dir := t.TempDir()
 	cfg := newJob(t, srv, dir)
-	progress := make(chan Progress, 16)
-	cfg.Progress = progress
+	var last Progress
+	cfg.OnProgress = func(p Progress) { last = p }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -567,27 +565,56 @@ func TestRun_ProgressChannelClosedOnTermination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	// Drain the channel. After Run returns, the chan must be
-	// closed — a blocking range loop will terminate rather than
-	// hang.
-	var last Progress
-	drained := make(chan struct{})
-	go func() {
-		for p := range progress {
-			last = p
-		}
-		close(drained)
-	}()
-	select {
-	case <-drained:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Progress channel not closed after Run returned")
-	}
 	if last.SegmentsDone != 3 {
 		t.Errorf("last Progress SegmentsDone=%d, want 3", last.SegmentsDone)
 	}
 	// A closed (VOD) playlist reports a real total instead of leaving it unknown.
 	if last.SegmentsTotal != 3 {
 		t.Errorf("last Progress SegmentsTotal=%d, want 3", last.SegmentsTotal)
+	}
+}
+
+func TestRunWritePanicIsJoinedAndReported(t *testing.T) {
+	s := &liveServer{t: t, kind: SegmentKindTS, maxSegments: 3, windowSize: 3, baseSeq: 1, tickInterval: 1}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+	cfg := newJob(t, srv, t.TempDir())
+	var writers atomic.Int64
+	cfg.WriteFile = func(context.Context, *os.File, []byte) (int, error) {
+		writers.Add(1)
+		defer writers.Add(-1)
+		panic("write boundary failure")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, err := Run(ctx, cfg)
+	if err == nil || !strings.Contains(err.Error(), "worker panic: write boundary failure") {
+		t.Fatalf("worker panic escaped: %v", err)
+	}
+	if writers.Load() != 0 {
+		t.Fatal("failed pipeline returned before writer exit")
+	}
+}
+
+func TestRunObserverPanicJoinsWriters(t *testing.T) {
+	s := &liveServer{t: t, kind: SegmentKindTS, maxSegments: 3, windowSize: 3, baseSeq: 1, tickInterval: 1}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+	cfg := newJob(t, srv, t.TempDir())
+	var writers atomic.Int64
+	cfg.WriteFile = func(_ context.Context, f *os.File, p []byte) (int, error) {
+		writers.Add(1)
+		defer writers.Add(-1)
+		return f.Write(p)
+	}
+	cfg.OnEvent = func(SegmentEvent) { panic("observer failure") }
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	err := background.Call(ctx, func(c context.Context) error { _, err := Run(c, cfg); return err })
+	if err == nil || !strings.Contains(err.Error(), "worker panic: observer failure") {
+		t.Fatalf("observer panic escaped: %v", err)
+	}
+	if writers.Load() != 0 {
+		t.Fatal("observer failure returned before writer exit")
 	}
 }

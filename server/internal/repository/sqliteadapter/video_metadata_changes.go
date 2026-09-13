@@ -9,14 +9,9 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-// RecordVideoMetadataChange runs the title + category + event-row
-// writes for a single observed channel.update inside one transaction.
-// Either the whole event lands or none of it does. Empty title and
-// category short-circuit before opening the tx.
-//
-// Art enrich is intentionally NOT wrapped — see the pgadapter copy
-// for rationale. The caller drives enrich after commit using the
-// returned Category.
+// RecordVideoMetadataChange implements repository.Repository's atomic observation
+// write; callers must fetch category artwork after commit to avoid network waits
+// while holding the recording lock.
 func (a *SQLiteAdapter) RecordVideoMetadataChange(
 	ctx context.Context,
 	input repository.VideoMetadataChangeInput,
@@ -30,6 +25,18 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 	ts := sqliteTime(at)
 
 	err := a.inTx(ctx, func(q *sqlitegen.Queries, _ *sql.Tx) error {
+		v, err := q.GetVideoForUpdate(ctx, input.VideoID)
+		if err != nil {
+			return mapErr(err)
+		}
+		j, err := q.GetJob(ctx, input.JobID)
+		if err != nil {
+			return mapErr(err)
+		}
+		if !repository.MetadataEligible(sqliteVideoToDomain(v), sqliteJobToDomain(j), input) {
+			return repository.ErrStaleExecution
+		}
+
 		var titleID sql.NullInt64
 		if input.Title != "" {
 			t, err := q.UpsertTitle(ctx, input.Title)
@@ -42,10 +49,8 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 			}); err != nil {
 				return fmt.Errorf("sqlite link video title: %w", err)
 			}
-			// Span pair: close any previously-open span on a
-			// different title, then insert the new one. Mirrors
-			// UpsertVideoTitleSpan in titles.go which uses its own
-			// inTx — here we share the outer tx instead.
+			// Close and insert spans in the observation transaction so readers cannot see
+			// a partially applied title change.
 			if err := q.CloseOtherOpenVideoTitleSpans(ctx, sqlitegen.CloseOtherOpenVideoTitleSpansParams{
 				AtTime:  &ts,
 				VideoID: input.VideoID,
@@ -97,9 +102,7 @@ func (a *SQLiteAdapter) RecordVideoMetadataChange(
 				return fmt.Errorf("sqlite insert video category span: %w", err)
 			}
 			categoryID = sql.NullString{String: input.CategoryID, Valid: true}
-			// Hydrate the existing category for the caller's
-			// enrich check when CategoryName was empty (a
-			// webhook/poll path that didn't carry a fresh name).
+			// An omitted category name must preserve the stored name for artwork lookup.
 			if result.Category == nil {
 				cat, err := q.GetCategory(ctx, input.CategoryID)
 				if err == nil {

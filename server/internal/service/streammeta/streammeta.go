@@ -1,34 +1,4 @@
-// Package streammeta is the shared "hydrate live-stream metadata" surface.
-// Both the schedule processor (stream.online webhook path) and the manual
-// download trigger (tRPC path) need the same thing: take a broadcaster
-// ID, call Helix GetStreams, persist the streams / categories / tags /
-// titles rows, and hand back a snapshot the caller can reason about.
-//
-// Before this extraction the schedule processor owned the full enrichment
-// flow and manual triggers did nothing. That meant manual downloads had
-// empty categories and no title on the library page, even though the
-// schema + Helix data carried them. Consolidating here keeps both paths
-// consistent and gives the title poller a single hook to reuse during
-// recording.
-//
-// Design notes:
-//
-//   - Best-effort throughout: Helix failure returns nil without error.
-//     The caller decides whether "no snapshot" means "degrade gracefully"
-//     (scheduler: still fire unfiltered schedules) or "proceed with empty
-//     title" (manual trigger: still start the recording). Neither wants
-//     a Helix hiccup to fail the primary flow.
-//
-//   - Child-row failures (category/tag/title upsert or link) log and
-//     continue. The stream row is the critical one — without it FK-linked
-//     children can't land. If stream upsert itself fails we still return a
-//     partial Snapshot so the caller gets viewer_count / language / title
-//     from the live Helix data.
-//
-//   - Retries live here. Spec calls for 3 attempts with 1s gaps because
-//     stream.online races ahead of Helix reflecting the live state by a
-//     few hundred ms. Manual triggers rarely hit the race but the retry
-//     is harmless there.
+// Package streammeta enriches live broadcasts and records opening and changing metadata.
 package streammeta
 
 import (
@@ -45,21 +15,12 @@ import (
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
-// DefaultRetries + DefaultRetryDelay are the values the schedule processor
-// used to carry inline; exposed as defaults so tests can override without
-// waiting out full seconds on the retry loop.
+// DefaultRetries and DefaultRetryDelay bound retries while Helix catches up with stream.online.
 const (
 	DefaultRetries    = 3
 	DefaultRetryDelay = time.Second
 
-	// defaultEnrichTimeout caps the eager category-art fetch.
-	// Hydrate runs inside the stream.online webhook handler, which
-	// has a ~10s Twitch budget. /streams retries already consume up
-	// to 3s (DefaultRetries × DefaultRetryDelay + RTT); capping the
-	// /games follow-up at 2s keeps ample headroom. Callers who want
-	// a different value construct a context.WithTimeout of their
-	// own before calling Hydrate — this constant governs the inner
-	// Enrich call only.
+	// defaultEnrichTimeout leaves room for stream retries within Twitch's webhook response deadline.
 	defaultEnrichTimeout = 2 * time.Second
 
 	// categoryGameMetadataRetryInterval mirrors categoryart's retry window for
@@ -67,51 +28,34 @@ const (
 	categoryGameMetadataRetryInterval = 7 * 24 * time.Hour
 )
 
-// Snapshot is the hydrated view a caller gets back. Zero values for each
-// field mean "Twitch didn't return it" — never construe them as "was set
-// to zero." A nil *Snapshot means "we didn't hydrate at all" (Helix
-// unreachable, channel offline, client not configured).
+// Snapshot contains observed broadcast metadata even when optional enrichment fails.
+// Zero field values mean no value was observed; a nil snapshot means no stream was found.
 type Snapshot struct {
-	// StreamID is the Twitch stream ID once the streams row is
-	// upserted. Empty when the stream row couldn't be persisted;
-	// callers relying on FK-safe use should check this before
-	// passing StreamID to videos.CreateVideo.
+	// StreamID is the observed broadcast identity. Admission establishes its
+	// minimal database linkage atomically even when optional enrichment fails.
 	StreamID string
 
-	// Title is the stream title at the moment of hydration. Empty
-	// means Twitch had no title set or the live response came back
-	// without one.
 	Title string
 
-	// Language + ViewerCount + GameID/GameName come straight from
-	// the Helix live response.
 	Language    string
 	ViewerCount int64
 	GameID      string
 	GameName    string
 
-	// CategoryIDs + TagIDs are what the schedule matcher reads. A
-	// category is always GameID when non-empty; tags are whichever
-	// tag names Helix returned, upserted through the titles table
-	// and resolved to their numeric IDs.
+	// TagIDs contains only successfully persisted tags; category identity survives enrichment
+	// failures.
 	CategoryIDs []string
 	TagIDs      []int64
 
-	// StartedAt is the stream's start timestamp from Helix.
 	StartedAt time.Time
 }
 
-// CategoryArtEnricher is the subset of categoryart.Service the
-// Hydrator needs. Kept as an interface so tests can fake it and so
-// Config's zero-value (nil enricher) is still a valid Hydrator.
+// CategoryArtEnricher fetches missing category artwork and game metadata.
 type CategoryArtEnricher interface {
 	Enrich(ctx context.Context, categoryID string) error
 }
 
-// RecordingMediaOffsetResolver lets push/webhook metadata writes ask
-// the in-memory downloader for the current media-time offset of the
-// active recording. It lives in this package to keep streammeta
-// independent of downloader's concrete Service type.
+// RecordingMediaOffsetResolver provides an active recording's playback position when exact.
 type RecordingMediaOffsetResolver interface {
 	ResolveMediaOffsetSeconds(ctx context.Context, broadcasterID string, videoID int64) (float64, bool)
 }
@@ -120,8 +64,7 @@ type streamFetcher interface {
 	GetStreams(ctx context.Context, params *twitch.GetStreamsParams) ([]twitch.Stream, twitch.Pagination, error)
 }
 
-// Hydrator fetches + persists live-stream metadata. Shared across
-// recording jobs; holds no per-call state.
+// Hydrator enriches live-stream metadata and can be shared across recordings.
 type Hydrator struct {
 	repo    repository.Repository
 	twitch  streamFetcher
@@ -130,24 +73,18 @@ type Hydrator struct {
 	log     *slog.Logger
 	retries int
 	delay   time.Duration
-	// now supplies occurred_at; tests override it to avoid sleeps.
-	now func() time.Time
+	now     func() time.Time
 }
 
-// Config carries the tunables. All fields have zero-value-safe defaults;
-// tests override HTTPClient-side via the twitch client.
+// Config sets enrichment retry limits and optional observers; zero values use defaults.
 type Config struct {
-	// Retries is how many GetStreams attempts before giving up.
-	// Default 3.
+	// Retries defaults to three when nonpositive.
 	Retries int
 
-	// RetryDelay is the spacing between attempts. Default 1s.
+	// RetryDelay defaults to one second when nonpositive.
 	RetryDelay time.Duration
 
-	// CategoryArt, when set, is called after a category row is observed with
-	// missing Twitch /games metadata. Intended for *categoryart.Service; nil
-	// disables eager enrichment and leaves the scheduled backfill task as the
-	// only filler.
+	// CategoryArt may be nil to defer missing artwork and metadata to scheduled backfill.
 	CategoryArt CategoryArtEnricher
 
 	// MediaOffsets, when set, provides exact media-time offsets for
@@ -155,8 +92,7 @@ type Config struct {
 	MediaOffsets RecordingMediaOffsetResolver
 }
 
-// NewHydrator builds the shared hydrator. `tc` may be nil for tests —
-// Hydrate returns nil cleanly in that case.
+// NewHydrator creates a metadata hydrator; a nil Twitch client disables live lookups.
 func NewHydrator(repo repository.Repository, tc *twitch.Client, cfg Config, log *slog.Logger) *Hydrator {
 	retries := cfg.Retries
 	if retries <= 0 {
@@ -182,18 +118,13 @@ func NewHydrator(repo repository.Repository, tc *twitch.Client, cfg Config, log 
 	}
 }
 
-// SetMediaOffsetResolver wires a resolver after construction. main uses
-// this because the downloader service implements the resolver but is
-// itself constructed with the Hydrator.
+// SetMediaOffsetResolver connects playback positions to metadata observations.
+// Call it before starting metadata observers.
 func (h *Hydrator) SetMediaOffsetResolver(resolver RecordingMediaOffsetResolver) {
 	h.offsets = nilSafeInterface(resolver)
 }
 
-// nilSafeInterface normalizes a typed-nil concrete value behind an interface
-// (e.g. a conditionally-constructed *categoryart.Service that came back nil) to
-// a plain interface-nil. Without it, `h.art != nil` evaluates to true for an
-// interface wrapping a nil pointer and then panics on method call. Every
-// optional interface dep this hydrator takes runs through it.
+// nilSafeInterface prevents optional typed-nil dependencies from passing nil guards.
 func nilSafeInterface[T any](v T) T {
 	rv := reflect.ValueOf(v)
 	switch rv.Kind() {
@@ -206,27 +137,8 @@ func nilSafeInterface[T any](v T) T {
 	return v
 }
 
-// Hydrate runs the full enrichment for one broadcaster. Returns nil
-// when Helix can't be reached or the channel isn't live. Never returns
-// an error — every failure path is best-effort logged and folded into
-// a nil or partial Snapshot.
-//
-// Side effects on success:
-//
-//   - streams row upserted (or updated if it already exists from an
-//     earlier stream.online for the same stream ID)
-//   - category row upserted + stream_categories link created
-//   - tag rows upserted (1 per name) + stream_tags links created
-//   - title row upserted + stream_titles link created
-//
-// The title write fills the M2M gap the schema carries but no caller
-// previously populated. That unblocks a later multi-title history
-// feature without touching this function again.
-//
-// ctx should be a caller context that can survive client disconnect —
-// the schedule processor hands us its persistCtx = context.WithoutCancel;
-// manual triggers pass the download ctx directly since it already
-// outlives the HTTP request.
+// Hydrate enriches a broadcaster's live metadata, returning nil when no stream can be fetched.
+// Database enrichment failures return a partial snapshot.
 func (h *Hydrator) Hydrate(ctx context.Context, broadcasterID string) *Snapshot {
 	if h.twitch == nil || broadcasterID == "" {
 		return nil
@@ -240,13 +152,9 @@ func (h *Hydrator) Hydrate(ctx context.Context, broadcasterID string) *Snapshot 
 	return h.persist(ctx, broadcasterID, stream)
 }
 
-// HydrateFromStream runs the same enrichment as Hydrate but against an
-// already-fetched stream, skipping the Helix GetStreams call entirely. The live
-// poller polls the full stream itself, so it uses this to avoid a second
-// GetStreams on every online transition (and to avoid the failure mode where a
-// redundant re-fetch comes back empty and category/tag-filtered schedules then
-// silently can't match). Returns nil for a nil stream or one missing its
-// broadcaster ID.
+// HydrateFromStream enriches an existing observation without fetching a potentially newer
+// broadcast.
+// It returns nil for a nil stream or an empty broadcaster ID.
 func (h *Hydrator) HydrateFromStream(ctx context.Context, stream *twitch.Stream) *Snapshot {
 	if stream == nil || stream.UserID == "" {
 		return nil
@@ -254,11 +162,9 @@ func (h *Hydrator) HydrateFromStream(ctx context.Context, stream *twitch.Stream)
 	return h.persist(ctx, stream.UserID, stream)
 }
 
-// persist upserts the stream row and every linked child row, returning
-// the Snapshot. Split from Hydrate so tests can feed a synthetic
-// *twitch.Stream without stubbing the Helix client.
 func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *twitch.Stream) *Snapshot {
 	snap := &Snapshot{
+		StreamID:    stream.ID,
 		Title:       stream.Title,
 		Language:    stream.Language,
 		ViewerCount: int64(stream.ViewerCount),
@@ -281,9 +187,8 @@ func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *tw
 	})
 	if err != nil {
 		h.log.Warn("upsert stream", "stream_id", stream.ID, "error", err)
-	} else if streamPtr != nil {
-		snap.StreamID = streamPtr.ID
 	}
+	streamSaved := err == nil && streamPtr != nil
 
 	// Category: one per stream, upsert then link. Without the stream
 	// row we can't link; we still report the ID so the matcher can
@@ -304,7 +209,7 @@ func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *tw
 		if err != nil {
 			h.log.Warn("upsert category", "game_id", stream.GameID, "error", err)
 		} else {
-			if snap.StreamID != "" {
+			if streamSaved {
 				if err := h.repo.LinkStreamCategory(ctx, snap.StreamID, stream.GameID); err != nil {
 					h.log.Warn("link stream category",
 						"stream_id", snap.StreamID, "game_id", stream.GameID, "error", err)
@@ -337,7 +242,7 @@ func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *tw
 			continue
 		}
 		snap.TagIDs = append(snap.TagIDs, tag.ID)
-		if snap.StreamID != "" {
+		if streamSaved {
 			if err := h.repo.LinkStreamTag(ctx, snap.StreamID, tag.ID); err != nil {
 				h.log.Warn("link stream tag",
 					"stream_id", snap.StreamID, "tag_id", tag.ID, "error", err)
@@ -353,7 +258,7 @@ func (h *Hydrator) persist(ctx context.Context, broadcasterID string, stream *tw
 		title, err := h.repo.UpsertTitle(ctx, stream.Title)
 		if err != nil {
 			h.log.Warn("upsert title", "name", stream.Title, "error", err)
-		} else if snap.StreamID != "" {
+		} else if streamSaved {
 			if err := h.repo.LinkStreamTitle(ctx, snap.StreamID, title.ID); err != nil {
 				h.log.Warn("link stream title",
 					"stream_id", snap.StreamID, "title_id", title.ID, "error", err)
@@ -375,10 +280,8 @@ func categoryNeedsGameMetadata(cat *repository.Category) bool {
 	return cat.GameMetadataCheckedAt == nil || cat.GameMetadataCheckedAt.Before(time.Now().Add(-categoryGameMetadataRetryInterval))
 }
 
-// fetchWithRetry is the 3-attempt loop with 1s pacing. Treats "streams
-// array empty" as a retryable miss (the broadcaster legitimately could
-// have just gone offline, but stream.online specifically races against
-// this — spec § stream.online).
+// fetchWithRetry retries empty responses because stream.online can arrive before Helix shows
+// the stream.
 func (h *Hydrator) fetchWithRetry(ctx context.Context, broadcasterID string) (*twitch.Stream, error) {
 	var lastErr error
 	for attempt := 0; attempt < h.retries; attempt++ {
@@ -410,10 +313,8 @@ func (h *Hydrator) fetchWithRetry(ctx context.Context, broadcasterID string) (*t
 	return nil, lastErr
 }
 
-// ChannelUpdateMeta is the payload shape RecordChannelUpdate accepts.
-// Mirrors the interesting fields of twitch.ChannelUpdateEvent without
-// importing the generated type (this package is upstream of the
-// webhook layer). Empty fields are no-ops for their respective links.
+// ChannelUpdateMeta contains observed title and category changes; empty fields leave links
+// unchanged.
 type ChannelUpdateMeta struct {
 	Title              string
 	CategoryID         string
@@ -421,10 +322,7 @@ type ChannelUpdateMeta struct {
 	MediaOffsetSeconds *float64
 }
 
-// MediaOffsetProvider returns the best known playback offset for a
-// live recording at the instant a metadata change is observed.
-// The bool is false when the caller cannot provide an exact media
-// time and the row should fall back to wall-clock ordering only.
+// MediaOffsetProvider returns a playback position and reports whether it is exact.
 type MediaOffsetProvider interface {
 	MediaOffsetSeconds() (float64, bool)
 }
@@ -437,19 +335,12 @@ func cleanMediaOffset(seconds *float64) *float64 {
 	return &value
 }
 
-// recordVideoMetadata runs the title + category + event-row writes
-// atomically via the repository's RecordVideoMetadataChange. The
-// repo handles the inTx bracket; this helper is the service-layer
-// seam for the eager box-art enrich, which intentionally lives
-// outside the tx (Helix call, slow, best-effort).
-//
-// Kept log-free: callers know whether this is "a new change" vs a
-// retry/dedup case and log accordingly. Emitting "metadata change
-// recorded" from here would spam on webhook retries where the DB
-// state didn't actually move.
-func (h *Hydrator) recordVideoMetadata(ctx context.Context, videoID int64, meta ChannelUpdateMeta, at time.Time) error {
+func (h *Hydrator) recordVideoMetadata(ctx context.Context, claim repository.AttemptClaim, initial bool, meta ChannelUpdateMeta, at time.Time) error {
 	result, err := h.repo.RecordVideoMetadataChange(ctx, repository.VideoMetadataChangeInput{
-		VideoID:            videoID,
+		VideoID:            claim.VideoID,
+		JobID:              claim.JobID,
+		ExecutionID:        claim.ExecutionID,
+		Initial:            initial,
 		OccurredAt:         at,
 		MediaOffsetSeconds: cleanMediaOffset(meta.MediaOffsetSeconds),
 		Title:              meta.Title,
@@ -457,20 +348,13 @@ func (h *Hydrator) recordVideoMetadata(ctx context.Context, videoID int64, meta 
 		CategoryName:       meta.CategoryName,
 	})
 	if err != nil {
-		// ErrNoMetadataObserved means the caller passed an empty
-		// payload. The outer guards in RecordChannelUpdate /
-		// LinkInitialVideoMetadata already prevent this, but
-		// returning a clean nil if it slips through is friendlier
-		// than surfacing a sentinel as an error.
-		if errors.Is(err, repository.ErrNoMetadataObserved) {
+		// Late observer writes are harmless after their execution loses capture ownership.
+		if errors.Is(err, repository.ErrNoMetadataObserved) || (!initial && errors.Is(err, repository.ErrStaleExecution)) {
 			return nil
 		}
 		return fmt.Errorf("record video metadata change: %w", err)
 	}
-	// Eagerly enrich game metadata for newly-observed categories. The enrich
-	// call is best-effort and lives outside the tx because it hits
-	// Helix — a slow/failed Helix call must not roll back the event
-	// write.
+	// Enrichment runs after the transaction so a slow Helix request cannot roll back the observation.
 	if h.art != nil && result != nil && result.Category != nil && categoryNeedsGameMetadata(result.Category) {
 		if err := h.art.Enrich(ctx, result.Category.ID); err != nil {
 			h.log.Warn("enrich category game metadata",
@@ -480,24 +364,13 @@ func (h *Hydrator) recordVideoMetadata(ctx context.Context, videoID int64, meta 
 	return nil
 }
 
-// RecordChannelUpdate links title and/or category changes to whichever
-// video is currently being recorded for the given broadcaster. Called
-// from the channel.update webhook dispatch (webhook mode) and from
-// the metadata watcher (poll mode). Best-effort: a change delivered
-// when no recording is active is a no-op; DB errors return so the
-// webhook handler can decide whether to NACK for Twitch retry.
-//
-// Only video_* links are touched here — the stream-level M2M
-// (stream_categories, stream_titles) is intentionally a snapshot
-// written once by Hydrate at stream.online. Mid-stream changes
-// belong on the per-recording timeline, not the stream row.
+// RecordChannelUpdate records changes for the broadcaster's current live execution.
+// No active capture is a no-op; database errors are returned for webhook retry.
 func (h *Hydrator) RecordChannelUpdate(ctx context.Context, broadcasterID string, meta ChannelUpdateMeta) error {
 	if broadcasterID == "" || (meta.Title == "" && meta.CategoryID == "") {
 		return nil
 	}
-	// Only live recordings receive channel updates. No live job is normal
-	// when this broadcaster has archives only; otherwise an ending recording
-	// may have raced unsubscribe or reconciliation may still owe cleanup.
+	// A late channel.update can arrive after capture ends or before unsubscribe finishes.
 	job, err := h.repo.GetActiveLiveJobByBroadcaster(ctx, broadcasterID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -510,21 +383,35 @@ func (h *Hydrator) RecordChannelUpdate(ctx context.Context, broadcasterID string
 			meta.MediaOffsetSeconds = &seconds
 		}
 	}
-	return h.recordVideoMetadata(ctx, job.VideoID, meta, h.now().UTC())
+	return h.recordVideoMetadata(ctx, repository.AttemptClaim{VideoID: job.VideoID, JobID: job.ID, ExecutionID: job.ExecutionID}, false, meta, h.now().UTC())
 }
 
-// LinkInitialVideoMetadata is the download-trigger companion to
-// RecordChannelUpdate. The downloader just created the video row
-// and knows its ID, so we skip the active-job lookup and call the
-// repo directly. Same atomic write; callers can retry safely.
-//
-// The title and category fields are the at-download-start snapshot
-// from Hydrator.Hydrate; passing them in here is what makes the
-// /dashboard/categories page populate on first hover without
-// waiting for a webhook / poll tick.
+// LinkInitialVideoMetadata records opening title and category observations before capture starts.
+// Repeated calls are safe; a late call cannot reopen running metadata spans.
 func (h *Hydrator) LinkInitialVideoMetadata(ctx context.Context, videoID int64, meta ChannelUpdateMeta) error {
 	if videoID == 0 || (meta.Title == "" && meta.CategoryID == "") {
 		return nil
 	}
-	return h.recordVideoMetadata(ctx, videoID, meta, h.now().UTC())
+	v, err := h.repo.GetVideo(ctx, videoID)
+	if err != nil {
+		return err
+	}
+	return h.recordVideoMetadata(ctx, repository.AttemptClaim{VideoID: videoID, JobID: v.JobID}, true, meta, h.now().UTC())
+}
+
+// CurrentStream returns the current broadcast, or nil without error when the broadcaster is
+// offline.
+// Lookup failures remain errors so recovery cannot mistake an outage for a broadcast ending.
+func (h *Hydrator) CurrentStream(ctx context.Context, broadcasterID string) (*twitch.Stream, error) {
+	if h.twitch == nil || broadcasterID == "" {
+		return nil, errors.New("stream identity lookup unavailable")
+	}
+	streams, _, err := h.twitch.GetStreams(ctx, &twitch.GetStreamsParams{UserID: []string{broadcasterID}, First: 1})
+	if err != nil {
+		return nil, err
+	}
+	if len(streams) == 0 {
+		return nil, nil
+	}
+	return &streams[0], nil
 }

@@ -190,7 +190,7 @@ for (const surface of ["history", "watch"] as const) {
 	test(`${surface} follows queued permanent deletion and never offers restore while it runs`, async ({
 		page,
 	}) => {
-		const publishRemoval = await mockSubscription(page, "video.removalsLive");
+		const publishRemoval = await mockSubscription(page, "video.changesLive");
 		let phase: "missing" | "pending" | "removed" = "missing";
 		let removals = 0;
 		let restores = 0;

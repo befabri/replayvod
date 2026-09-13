@@ -27,10 +27,13 @@ WHERE video_id = ?
   AND status = 'ready';
 
 -- name: ListReadyVideoPlaybackAssets :many
-SELECT *
-FROM video_playback_assets
-WHERE status = 'ready'
-ORDER BY last_accessed_at ASC, generated_at ASC, video_id ASC;
+SELECT * FROM video_playback_assets WHERE status='ready'
+ AND (last_accessed_at,generated_at,video_id)
+ > (sqlc.arg(after_access),sqlc.arg(after_generated),CAST(sqlc.arg(after_id) AS BIGINT))
+ORDER BY last_accessed_at,generated_at,video_id LIMIT sqlc.arg(batch_limit);
+
+-- name: SumReadyPlaybackBytes :one
+SELECT CAST(coalesce(sum(size_bytes),0) AS BIGINT) FROM video_playback_assets WHERE status='ready';
 
 -- name: DeleteVideoPlaybackAsset :exec
 DELETE FROM video_playback_assets WHERE video_id = ?;

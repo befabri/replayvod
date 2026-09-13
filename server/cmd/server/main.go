@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -260,14 +259,13 @@ func main() {
 	if cfg.ServerMode.TracksTitlesViaWebhook() {
 		channelSubs = &channelSubsAdapter{es: eventsubSvc}
 	}
-	dl := downloader.NewService(cfg, repo, store, hydrator, metaWatcher, channelSubs, log)
-	hydrator.SetMediaOffsetResolver(dl)
 	bus := eventbus.New()
-	dl.SetEventBus(bus)
 	recordings := api.NewRecordingServices(cfg, repo, store, bus, log)
-	playbackCache := playbackcache.New(repo, store, recordings.StorageHealth, filepath.Join(cfg.Env.ScratchDir, "playback-cache"), "", log,
-		playbackcache.WithRecordingLocks(recordings.RecordingLocks))
-	posters := archiveposter.NewStore(repo, store, recordings.StorageHealth, &http.Client{Timeout: 15 * time.Second}, log)
+	dl := downloader.NewService(cfg, repo, recordings.Media, hydrator, metaWatcher, channelSubs, log)
+	hydrator.SetMediaOffsetResolver(dl)
+	dl.SetEventBus(bus)
+	playbackCache := playbackcache.New(repo, recordings.Media, "", log)
+	posters := archiveposter.NewStore(repo, recordings.Media, &http.Client{Timeout: 15 * time.Second}, log)
 	dl.SetPosterStore(posters)
 	dl.SetPlaybackCredentials(recordings.PlaybackAuth)
 	if err := dl.PrepareScratch(ctx); err != nil {
@@ -286,12 +284,10 @@ func main() {
 		log.Warn("signed recording-webhook download URLs derive from a loopback origin; set PUBLIC_BASE_URL to a publicly reachable host or external consumers will receive unreachable links",
 			"origin", publicAPIBaseURL)
 	}
-	webhookDispatcher := recordingwebhook.NewDispatcher(repo, webhookSigner, log)
-	webhookDispatcher.SetRetentionDownloadURLCapEnabled(cfg.App.Scheduler.RecordingsRetentionIntervalMinutes > 0)
+	webhookDispatcher := newRecordingWebhookDispatcher(cfg, repo, webhookSigner, log)
 
 	if err := dl.Resume(ctx); err != nil {
-		log.Error("Failed to resume in-flight downloads", "error", err)
-		os.Exit(1)
+		log.Error("Initial download recovery deferred; background discovery will retry", "error", err)
 	}
 
 	eventProcessor := schedulesvc.NewEventProcessor(repo, dl, twitchClient, hydrator, bus, log)
@@ -446,6 +442,12 @@ func awaitLivePollShutdown(done <-chan struct{}, grace time.Duration, log *slog.
 	}
 }
 
+func newRecordingWebhookDispatcher(cfg *config.Config, repo repository.Repository, signer *videodownload.Signer, log *slog.Logger) *recordingwebhook.Dispatcher {
+	dispatcher := recordingwebhook.NewDispatcher(repo, signer, log)
+	dispatcher.SetRetentionDownloadURLCapEnabled(cfg.App.Scheduler.Enabled && cfg.App.Scheduler.RecordingsRetentionIntervalMinutes > 0)
+	return dispatcher
+}
+
 func resolveOrDegrade(resolved config.ServerModeConfig, err error) (final config.ServerModeConfig, fatal bool) {
 	if err == nil {
 		return resolved, false
@@ -470,22 +472,18 @@ func (a *channelSubsAdapter) UnsubscribeChannelUpdate(ctx context.Context, broad
 }
 
 type storageMonitor interface {
-	downloader.StorageGate
 	Attach(context.Context) (storagehealth.Status, error)
 	Run(context.Context)
 }
 
 type storageDownloads interface {
-	SetStorageGate(downloader.StorageGate)
 	Resume(context.Context) error
 }
 
-// attachStorage establishes the storage identity and keeps it under watch. An
-// unattached volume is not fatal: recording, scanning and playback stay paused
-// and the dashboard says why until the operator fixes or adopts it. Jobs left
-// RUNNING while storage was away resume as soon as it is attached again.
+// attachStorage watches storage identity and resumes downloads when it becomes
+// writable. Unavailable storage leaves the dashboard running for recovery.
 func attachStorage(ctx context.Context, mon storageMonitor, bus *eventbus.Buses, dl storageDownloads, log *slog.Logger) {
-	dl.SetStorageGate(mon)
+	events := bus.StorageStatus.Subscribe(ctx)
 	status, err := mon.Attach(ctx)
 	if status.Readable() && err != nil {
 		log.Warn("Storage cannot accept writes; playback and scanning remain available, recording is paused",
@@ -496,7 +494,6 @@ func attachStorage(ctx context.Context, mon storageMonitor, bus *eventbus.Buses,
 	} else {
 		log.Info("Storage attached", "backend", status.Backend, "location", status.Location)
 	}
-	events := bus.StorageStatus.Subscribe(ctx)
 	go mon.Run(ctx)
 	go func() {
 		for ev := range events {

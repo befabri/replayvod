@@ -24,6 +24,7 @@ import (
 	"github.com/befabri/replayvod/server/internal/service/storagescan"
 	"github.com/befabri/replayvod/server/internal/storage"
 	"github.com/befabri/replayvod/server/internal/testdb"
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
 	"github.com/befabri/replayvod/server/internal/twitch"
 )
 
@@ -90,7 +91,7 @@ func retentionService(t *testing.T) *retention.Service {
 	if err != nil {
 		t.Fatalf("local storage: %v", err)
 	}
-	return retention.New(repo, store, readyStorage{}, log)
+	return retention.New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), log)
 }
 
 func archivePosterService(t *testing.T) *archiveposter.Service {
@@ -101,7 +102,7 @@ func archivePosterService(t *testing.T) *archiveposter.Service {
 	if err != nil {
 		t.Fatalf("local storage: %v", err)
 	}
-	return archiveposter.New(archiveposter.NewStore(repo, store, nil, &http.Client{Timeout: time.Second}, log), repo, nil, log)
+	return archiveposter.New(archiveposter.NewStore(repo, mediatest.New(t, repo, store, nil, nil), &http.Client{Timeout: time.Second}, log), repo, nil, log)
 }
 
 func storageScanService(t *testing.T) *storagescan.Service {
@@ -112,7 +113,7 @@ func storageScanService(t *testing.T) *storagescan.Service {
 	if err != nil {
 		t.Fatalf("local storage: %v", err)
 	}
-	return storagescan.New(repo, store, nil, log)
+	return storagescan.New(repo, mediatest.New(t, repo, store, nil, nil), log)
 }
 
 // TestRetentionCutoff pins the day-subtraction every daily retention task
@@ -921,7 +922,7 @@ func TestRegisterStandardTasks_RecordingsRetentionTaskDeletesExpired(t *testing.
 
 	s := NewService(repo, log, 20*time.Millisecond, nil)
 	cfg := &config.Config{App: config.AppConfig{Scheduler: config.SchedulerConfig{RecordingsRetentionIntervalMinutes: 30}}}
-	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, store, readyStorage{}, log)}, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), log)}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 
@@ -1006,7 +1007,7 @@ func TestRegisterStandardTasks_RecordingsRetentionTaskPropagatesError(t *testing
 	store := deleteFailStore{Storage: local, err: boom}
 	s := NewService(repo, log, 20*time.Millisecond, nil)
 	cfg := &config.Config{App: config.AppConfig{Scheduler: config.SchedulerConfig{RecordingsRetentionIntervalMinutes: 30}}}
-	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, store, readyStorage{}, log)}, log); err != nil {
+	if err := RegisterStandardTasks(s, cfg, repo, StandardTaskDeps{Retention: retention.New(repo, mediatest.New(t, repo, store, readyStorage{}, nil), log)}, log); err != nil {
 		t.Fatalf("RegisterStandardTasks: %v", err)
 	}
 

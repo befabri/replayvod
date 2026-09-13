@@ -121,6 +121,29 @@ func newFetchRetryHydrator(fetcher streamFetcher, retries int, delay time.Durati
 	}
 }
 
+func TestCurrentStreamDistinguishesOfflineFromProviderFailure(t *testing.T) {
+	failure := errors.New("provider unreachable")
+	fetcher := &fakeStreamFetcher{pages: [][]twitch.Stream{nil, nil, {{ID: "returned", UserID: "channel", Title: "New title"}}}, errs: []error{nil, failure, nil}}
+	h := newFetchRetryHydrator(fetcher, 3, time.Millisecond)
+	stream, err := h.CurrentStream(t.Context(), "channel")
+	if stream != nil || err != nil || fetcher.calls != 1 {
+		t.Fatalf("authoritative offline = %+v, %v, calls=%d", stream, err, fetcher.calls)
+	}
+	stream, err = h.CurrentStream(t.Context(), "channel")
+	if stream != nil || !errors.Is(err, failure) || fetcher.calls != 2 {
+		t.Fatalf("provider failure = %+v, %v", stream, err)
+	}
+	stream, err = h.CurrentStream(t.Context(), "channel")
+	if err != nil || stream == nil || stream.ID != "returned" || fetcher.calls != 3 {
+		t.Fatalf("returned broadcast = %+v, %v", stream, err)
+	}
+	for _, params := range fetcher.seen {
+		if len(params.UserID) != 1 || params.UserID[0] != "channel" || params.First != 1 {
+			t.Fatalf("identity query = %+v", params)
+		}
+	}
+}
+
 func TestNewFetchRetryHydratorSetsClock(t *testing.T) {
 	h := newFetchRetryHydrator(nil, 1, time.Millisecond)
 	if h.now == nil {
@@ -128,6 +151,15 @@ func TestNewFetchRetryHydratorSetsClock(t *testing.T) {
 	}
 	if got := h.now(); got.IsZero() {
 		t.Fatal("newFetchRetryHydrator now returned zero time")
+	}
+}
+
+func TestCurrentStreamMissingProviderIsAnErrorNotAnOfflineObservation(t *testing.T) {
+	h := NewHydrator(nil, nil, Config{}, slog.New(slog.DiscardHandler))
+	for _, id := range []string{"channel", ""} {
+		if stream, err := h.CurrentStream(t.Context(), id); err == nil || stream != nil {
+			t.Fatalf("unavailable identity lookup = %+v, %v", stream, err)
+		}
 	}
 }
 
@@ -688,8 +720,8 @@ func TestHydrator_Persist_StreamUpsertFailureStillReportsLiveSignals(t *testing.
 	if snap == nil {
 		t.Fatal("persist must return a partial snapshot, got nil")
 	}
-	if snap.StreamID != "" {
-		t.Errorf("StreamID = %q, want empty (stream row not persisted)", snap.StreamID)
+	if snap.StreamID != "s-orphan" {
+		t.Errorf("StreamID = %q, want observed broadcast identity despite enrichment failure", snap.StreamID)
 	}
 	// Live signals survive the upsert failure.
 	if snap.Title != "still live" || snap.Language != "de" || snap.ViewerCount != 12 {
@@ -891,12 +923,9 @@ func TestMetadataWatcher_WatchRecordsChangedMetadataOnTick(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := NewHydrator(repo, nil, Config{Retries: 1, RetryDelay: time.Millisecond}, log)
 	videoID := seedRecording(t, ctx, repo)
-	if _, err := repo.CreateJob(ctx, &repository.JobInput{
-		ID:            "job-1",
-		VideoID:       videoID,
-		BroadcasterID: "b-1",
-	}); err != nil {
-		t.Fatalf("seed active job: %v", err)
+	claim := repository.AttemptClaim{JobID: "job-1", VideoID: videoID, ExecutionID: "metadata-execution"}
+	if err := repository.ClaimAttempt(ctx, repo, claim, ""); err != nil {
+		t.Fatal(err)
 	}
 	live := synthStream("s-watch", "b-1", "game-new", "Game New")
 	live.Title = "New Title"
@@ -907,6 +936,7 @@ func TestMetadataWatcher_WatchRecordsChangedMetadataOnTick(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		w.Watch(watchCtx, "b-1", videoID, WatchInitial{
+			Claim:       claim,
 			Title:       "Old Title",
 			CategoryID:  "game-old",
 			MediaOffset: staticMediaOffset{seconds: 42.25, ok: true},
@@ -960,7 +990,7 @@ func seedRecording(t *testing.T, ctx context.Context, repo repository.Repository
 		JobID:         "job-1",
 		Filename:      "rec-1.mp4",
 		DisplayName:   "B",
-		Status:        repository.VideoStatusRunning,
+		Status:        repository.VideoStatusPending,
 		Quality:       repository.QualityHigh,
 		BroadcasterID: "b-1",
 		Language:      "en",
@@ -968,6 +998,9 @@ func seedRecording(t *testing.T, ctx context.Context, repo repository.Repository
 	})
 	if err != nil {
 		t.Fatalf("create video: %v", err)
+	}
+	if _, err := repo.CreateJob(ctx, &repository.JobInput{ID: "job-1", VideoID: video.ID, BroadcasterID: "b-1"}); err != nil {
+		t.Fatal(err)
 	}
 	return video.ID
 }
@@ -1037,6 +1070,22 @@ func TestHydrator_LinkInitialVideoMetadata_BothDimensionsShareTimestamp(t *testi
 	}
 }
 
+func TestInitialMetadataAfterClaimReportsRejectedWrite(t *testing.T) {
+	h, repo := newTestHydrator(t, nil)
+	ctx := t.Context()
+	id := seedRecording(t, ctx, repo)
+	claim := repository.AttemptClaim{JobID: "job-1", VideoID: id, ExecutionID: "claimed"}
+	if err := repository.ClaimAttempt(ctx, repo, claim, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.LinkInitialVideoMetadata(ctx, id, ChannelUpdateMeta{Title: "Too late"}); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("rejected initial metadata reported success: %v", err)
+	}
+	if rows, err := repo.ListVideoMetadataChanges(ctx, id); err != nil || len(rows) != 0 {
+		t.Fatalf("rejected initial metadata wrote rows: %+v %v", rows, err)
+	}
+}
+
 func TestHydrator_LinkInitialVideoMetadata_StoresMediaOffset(t *testing.T) {
 	ctx := context.Background()
 	h, repo := newTestHydrator(t, nil)
@@ -1066,12 +1115,9 @@ func TestHydrator_RecordChannelUpdate_StoresResolvedMediaOffset(t *testing.T) {
 	ctx := context.Background()
 	h, repo := newTestHydrator(t, nil)
 	videoID := seedRecording(t, ctx, repo)
-	if _, err := repo.CreateJob(ctx, &repository.JobInput{
-		ID:            "job-1",
-		VideoID:       videoID,
-		BroadcasterID: "b-1",
-	}); err != nil {
-		t.Fatalf("seed active job: %v", err)
+	claim := repository.AttemptClaim{JobID: "job-1", VideoID: videoID, ExecutionID: "metadata-execution"}
+	if err := repository.ClaimAttempt(ctx, repo, claim, ""); err != nil {
+		t.Fatal(err)
 	}
 	resolver := &recordingMediaOffsetResolver{seconds: 66.5, ok: true}
 	h.SetMediaOffsetResolver(resolver)
@@ -1102,12 +1148,9 @@ func TestHydrator_RecordChannelUpdate_LeavesMediaOffsetNullWhenResolverUnavailab
 	ctx := context.Background()
 	h, repo := newTestHydrator(t, nil)
 	videoID := seedRecording(t, ctx, repo)
-	if _, err := repo.CreateJob(ctx, &repository.JobInput{
-		ID:            "job-1",
-		VideoID:       videoID,
-		BroadcasterID: "b-1",
-	}); err != nil {
-		t.Fatalf("seed active job: %v", err)
+	claim := repository.AttemptClaim{JobID: "job-1", VideoID: videoID, ExecutionID: "metadata-execution"}
+	if err := repository.ClaimAttempt(ctx, repo, claim, ""); err != nil {
+		t.Fatal(err)
 	}
 	h.SetMediaOffsetResolver(&recordingMediaOffsetResolver{ok: false})
 

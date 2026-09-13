@@ -46,7 +46,7 @@ func newPermissionHarness(t *testing.T, trustedOrigins ...string) *permissionHar
 	}
 	bus := eventbus.New()
 	eventProcessor := schedulesvc.NewEventProcessor(repo, nil, nil, nil, bus, log)
-	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log)
+	router, closeTRPC := SetupRouter(cfg, repo, sessionMgr, nil, nil, nil, nil, bus, eventProcessor, nil, nil, log, testRecordingServices(t, cfg, repo, bus, log))
 	if closeTRPC != nil {
 		t.Cleanup(func() {
 			if err := closeTRPC(); err != nil {
@@ -192,8 +192,6 @@ func TestUpdateUserRoleOwnerCarveOutOverHTTP(t *testing.T) {
 	}
 }
 
-// TestRemoveWhitelistOwnerCarveOutOverHTTP checks that admins cannot revoke
-// owner access.
 func TestRemoveWhitelistOwnerCarveOutOverHTTP(t *testing.T) {
 	h := newPermissionHarness(t)
 	ctx := context.Background()
@@ -333,8 +331,6 @@ func TestScheduleRequestLifecycleOverHTTP(t *testing.T) {
 
 func TestStorageProceduresRoleMatrix(t *testing.T) {
 	h := newPermissionHarness(t)
-	// The harness's backend cannot carry an identity. Routes must remain present
-	// for dashboard diagnosis, while adoption itself fails closed.
 	for _, tc := range []struct {
 		path, method string
 		ownerOnly    bool
@@ -342,7 +338,7 @@ func TestStorageProceduresRoleMatrix(t *testing.T) {
 	}{
 		{"storage.status", http.MethodGet, false, http.StatusOK},
 		{"storage.details", http.MethodGet, true, http.StatusOK},
-		{"storage.adopt", http.MethodPost, true, http.StatusServiceUnavailable},
+		{"storage.adopt", http.MethodPost, true, http.StatusOK},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			for _, role := range []struct {

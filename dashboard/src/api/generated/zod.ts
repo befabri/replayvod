@@ -315,7 +315,7 @@ export const TriggerDownloadInputSchema = z.object({
   recording_type: z.enum(["video", "audio"]).or(z.literal("")).optional(),
   quality: z.enum(["LOW", "MEDIUM", "HIGH", "1440", "BEST"]).or(z.literal("")).optional(),
   force_h264: z.boolean().optional(),
-  max_height: z.int().gte(1).lte(4320).or(z.literal(0)).optional().describe("MaxHeight pins the recording to one of the heights video.liveRenditions\nlisted. It wins over Quality, which is then stored as the tier the\nheight falls in. Ignored for audio."),
+  max_height: z.int().gte(1).lte(4320).or(z.literal(0)).optional().describe("MaxHeight overrides Quality with the containing tier and is ignored for audio."),
 }).meta({ id: "TriggerDownloadInput" });
 
 export const TwitchPlaybackConnectInputSchema = z.object({
@@ -392,16 +392,16 @@ export const VideoListPageInputSchema = z.object({
   quality: z.string().optional(),
   broadcaster_id: z.string().optional(),
   language: z.string().optional(),
-  source: z.enum(["live", "vod"]).or(z.literal("")).optional().describe("Source narrows to live recordings or archives of past broadcasts."),
+  source: z.enum(["live", "vod"]).or(z.literal("")).optional(),
   duration: z.enum(["short", "medium", "long", "marathon"]).or(z.literal("")).optional(),
   size: z.enum(["small", "medium", "large"]).or(z.literal("")).optional(),
   window: z.enum(["this_week"]).or(z.literal("")).optional(),
-  outcome: z.enum(["completed", "failed", "cancelled"]).or(z.literal("")).optional().describe("Outcome splits terminal rows the way the download history does:\n\"completed\", \"failed\", or \"cancelled\" for a run the operator stopped.\nThe server owns the status + completion_kind mapping, so a client asking\nfor failures never has to know a cancellation is stored as FAILED."),
+  outcome: z.enum(["completed", "failed", "cancelled"]).or(z.literal("")).optional().describe("Outcome separates operator cancellations from failures even though both\nare stored with FAILED status."),
   incomplete_only: z.boolean().optional(),
   watch_later_only: z.boolean().optional(),
   unwatched_only: z.boolean().optional(),
-  terminal_only: z.boolean().optional().describe("TerminalOnly keeps active in-flight rows out of history-style views while\nstill allowing those views to include both active terminal rows and\ntombstones through Scope=\"all\"."),
-  deletion_kind: z.enum(["retention", "manual", "missing"]).or(z.literal("")).optional().describe("Scope selects the tombstone state. Empty/\"active\" keeps the library\ndefault (live recordings only); \"removed\" and \"all\" power the\nremoved-inclusive history surface. Channel/category grids and search\nnever expose this and stay active-only.\nDeletionKind narrows tombstones to why they left; only meaningful with\nScope \"removed\" or \"all\"."),
+  terminal_only: z.boolean().optional(),
+  deletion_kind: z.enum(["retention", "manual", "missing"]).or(z.literal("")).optional().describe("DeletionKind filters tombstones and applies only with Scope removed or all.\nAn empty Scope defaults to active recordings."),
   scope: z.enum(["active", "removed", "all"]).or(z.literal("")).optional(),
   cursor: VideoListPageCursorSchema.optional(),
 }).meta({ id: "VideoListPageInput" });

@@ -43,14 +43,26 @@ func (q *Queries) GetVideoPlaybackAsset(ctx context.Context, videoID int64) (Vid
 }
 
 const listReadyVideoPlaybackAssets = `-- name: ListReadyVideoPlaybackAssets :many
-SELECT video_id, status, filename, mime_type, duration_seconds, size_bytes, error, generated_at, last_accessed_at, created_at, updated_at
-FROM video_playback_assets
-WHERE status = 'ready'
-ORDER BY last_accessed_at ASC, generated_at ASC, video_id ASC
+SELECT video_id, status, filename, mime_type, duration_seconds, size_bytes, error, generated_at, last_accessed_at, created_at, updated_at FROM video_playback_assets WHERE status='ready'
+ AND (last_accessed_at,generated_at,video_id)
+ > ($1::timestamptz,$2::timestamptz,CAST($3 AS BIGINT))
+ORDER BY last_accessed_at,generated_at,video_id LIMIT $4
 `
 
-func (q *Queries) ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error) {
-	rows, err := q.db.Query(ctx, listReadyVideoPlaybackAssets)
+type ListReadyVideoPlaybackAssetsParams struct {
+	AfterAccess    time.Time `json:"after_access"`
+	AfterGenerated time.Time `json:"after_generated"`
+	AfterID        int64     `json:"after_id"`
+	BatchLimit     int32     `json:"batch_limit"`
+}
+
+func (q *Queries) ListReadyVideoPlaybackAssets(ctx context.Context, arg ListReadyVideoPlaybackAssetsParams) ([]VideoPlaybackAsset, error) {
+	rows, err := q.db.Query(ctx, listReadyVideoPlaybackAssets,
+		arg.AfterAccess,
+		arg.AfterGenerated,
+		arg.AfterID,
+		arg.BatchLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +91,17 @@ func (q *Queries) ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlay
 		return nil, err
 	}
 	return items, nil
+}
+
+const sumReadyPlaybackBytes = `-- name: SumReadyPlaybackBytes :one
+SELECT CAST(coalesce(sum(size_bytes),0) AS BIGINT) FROM video_playback_assets WHERE status='ready'
+`
+
+func (q *Queries) SumReadyPlaybackBytes(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, sumReadyPlaybackBytes)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const touchVideoPlaybackAsset = `-- name: TouchVideoPlaybackAsset :exec

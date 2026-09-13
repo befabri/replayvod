@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/ptr"
+
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
 	"github.com/befabri/replayvod/server/internal/repository"
 )
@@ -56,6 +58,7 @@ func TestMultipart_DurationThresholdSplitsContiguously(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_partsplit",
 		DisplayName:      "Harness PartSplit",
@@ -144,6 +147,7 @@ func TestMultipart_ByteThresholdSplitsContiguously(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_bytesplit",
 		DisplayName:      "Harness ByteSplit",
@@ -225,6 +229,7 @@ func TestMultipart_ThresholdDisabledStaysSinglePart(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_nosplit",
 		DisplayName:      "Harness NoSplit",
@@ -301,6 +306,7 @@ func TestResume_PendingThresholdSplit_ContinuesContiguously(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_threshsplit",
 		DisplayName:      "Harness ThreshSplit",
@@ -350,7 +356,7 @@ func TestResume_PendingThresholdSplit_ContinuesContiguously(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal mutate: %v", err)
 	}
-	if err := h.repo.UpdateJobResumeState(context.Background(), jobID, data); err != nil {
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE jobs SET resume_state = ? WHERE id = ?", string(data), jobID); err != nil {
 		t.Fatalf("write mutated resume state: %v", err)
 	}
 
@@ -490,6 +496,7 @@ func TestResume_WindowRollFoldSealsThresholdMidPart(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_wrfold",
 		DisplayName:      "Harness WindowRollFold",
@@ -561,7 +568,7 @@ func TestResume_WindowRollFoldSealsThresholdMidPart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal mutate: %v", err)
 	}
-	if err := h.repo.UpdateJobResumeState(context.Background(), jobID, data); err != nil {
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE jobs SET resume_state = ? WHERE id = ?", string(data), jobID); err != nil {
 		t.Fatalf("write mutated resume state: %v", err)
 	}
 
@@ -680,6 +687,7 @@ func TestResume_WindowRollFoldSealsThresholdContinuationPart(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_wrfold2",
 		DisplayName:      "Harness WindowRollFold2",
@@ -772,7 +780,7 @@ func TestResume_WindowRollFoldSealsThresholdContinuationPart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal mutate: %v", err)
 	}
-	if err := h.repo.UpdateJobResumeState(context.Background(), jobID, data); err != nil {
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE jobs SET resume_state = ? WHERE id = ?", string(data), jobID); err != nil {
 		t.Fatalf("write mutated resume state: %v", err)
 	}
 
@@ -863,6 +871,7 @@ func TestResume_ContinuationWithPriorMediaSurvivesEndlist(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_priormedia",
 		DisplayName:      "Harness PriorMedia",
@@ -951,7 +960,7 @@ func TestResume_ContinuationWithPriorMediaSurvivesEndlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal mutate: %v", err)
 	}
-	if err := h.repo.UpdateJobResumeState(context.Background(), jobID, data); err != nil {
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE jobs SET resume_state = ? WHERE id = ?", string(data), jobID); err != nil {
 		t.Fatalf("write mutated resume state: %v", err)
 	}
 
@@ -1030,6 +1039,7 @@ func TestMultipart_FMP4ByteThresholdSplitsContiguously(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_fmp4split",
 		DisplayName:      "Harness FMP4Split",
@@ -1122,6 +1132,7 @@ func TestMultipart_ThresholdCountCapFailsCleanly(t *testing.T) {
 	}
 
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: "harness_capfail",
 		DisplayName:      "Harness CapFail",
@@ -1239,6 +1250,7 @@ func recordForSourceComparison(t *testing.T, h *harnessService, login string, qu
 		t.Fatalf("upsert channel: %v", err)
 	}
 	jobID, err := h.svc.Start(context.Background(), Params{
+		StreamID:         ptr.StringOrNil(harnessBroadcastID),
 		BroadcasterID:    "test-bid",
 		BroadcasterLogin: login,
 		DisplayName:      login,

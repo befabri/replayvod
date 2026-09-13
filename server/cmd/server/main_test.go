@@ -3,25 +3,29 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/befabri/replayvod/server/internal/downloader"
-	"github.com/befabri/replayvod/server/internal/eventbus"
-	"github.com/befabri/replayvod/server/internal/service/storagehealth"
-	"github.com/befabri/replayvod/server/internal/storage"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/recordingwebhook"
+	"github.com/befabri/replayvod/server/internal/repository"
+	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
+	"github.com/befabri/replayvod/server/internal/service/storagehealth"
+	"github.com/befabri/replayvod/server/internal/storage"
+	"github.com/befabri/replayvod/server/internal/testdb"
+	"github.com/befabri/replayvod/server/internal/videodownload"
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/service/eventsubconfig"
 )
 
-// TestAwaitLivePollShutdown pins the shutdown grace: a nil channel returns at
-// once (poller never started), a closed channel returns immediately (poller
-// stopped cleanly), and an open channel returns after the grace with a warning
-// (poller stuck) rather than blocking forever.
 func TestAwaitLivePollShutdown(t *testing.T) {
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 
@@ -40,10 +44,74 @@ func TestAwaitLivePollShutdown(t *testing.T) {
 	}
 }
 
-// TestResolveOrDegrade pins the boot policy for eventsubconfig.Resolve's
-// outcomes: a clean resolve is used as-is; an invalid app-managed config degrades
-// to setup-required (so the owner can re-onboard rather than the process refusing
-// to boot); an invalid env-managed config or any non-ErrInvalid error is fatal.
+func TestRecordingWebhookDownloadURLsMatchRetentionAvailability(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		enabled  bool
+		interval int
+		wantURL  bool
+	}{
+		{"retention available", true, 60, false},
+		{"scheduler disabled", false, 60, true},
+		{"retention disabled", true, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			db := testdb.NewSQLiteDB(t)
+			repo := sqliteadapter.New(db)
+			if _, err := repo.UpsertChannel(ctx, &repository.Channel{BroadcasterID: "recording", BroadcasterLogin: "recording", BroadcasterName: "Recording"}); err != nil {
+				t.Fatal(err)
+			}
+			hours := int64(1)
+			v, err := repo.CreateVideo(ctx, &repository.VideoInput{JobID: "recording", Filename: "recording", BroadcasterID: "recording", Status: repository.VideoStatusDone, RetentionWindowHours: &hours})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repo.CreateVideoPart(ctx, &repository.VideoPartInput{VideoID: v.ID, PartIndex: 1, Filename: "recording.mp4", Codec: repository.CodecH264, SegmentFormat: repository.SegmentFormatFMP4}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(ctx, "UPDATE videos SET downloaded_at = datetime('now', '-2 hours') WHERE id = ?", v.ID); err != nil {
+				t.Fatal(err)
+			}
+			received := make(chan recordingwebhook.Payload, 1)
+			receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var payload recordingwebhook.Payload
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				received <- payload
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer receiver.Close()
+			if _, err := repo.UpsertRecordingWebhookConfig(ctx, true, receiver.URL, recordingwebhook.EventCompleted); err != nil {
+				t.Fatal(err)
+			}
+			if err := repo.SetRecordingWebhookSecret(ctx, "secret"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repo.CreateRecordingWebhookDelivery(ctx, recordingwebhook.NewTerminalDeliveryInput(recordingwebhook.EventCompleted, v.ID, time.Now())); err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{App: config.AppConfig{Scheduler: config.SchedulerConfig{Enabled: tc.enabled, RecordingsRetentionIntervalMinutes: tc.interval}}}
+			signer := videodownload.NewSigner("secret", "https://app.example", time.Hour)
+			dispatcher := newRecordingWebhookDispatcher(cfg, repo, signer, slog.New(slog.DiscardHandler))
+			deliveryCtx, cancel := context.WithCancel(ctx)
+			dispatcher.Start(deliveryCtx, nil)
+			defer func() { cancel(); dispatcher.Wait() }()
+			select {
+			case payload := <-received:
+				if len(payload.Parts) != 1 || (payload.Parts[0].DownloadURL != "") != tc.wantURL {
+					t.Fatalf("download URL does not match retention availability: %+v", payload.Parts)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("recording webhook was not delivered")
+			}
+		})
+	}
+}
+
 func TestResolveOrDegrade(t *testing.T) {
 	envInvalid := config.ServerModeConfig{Source: config.ServerModeConfigSourceEnv, Mode: config.ServerModeDirect}
 	appInvalid := config.ServerModeConfig{Source: config.ServerModeConfigSourceApp, Mode: config.ServerModeDirect}
@@ -138,9 +206,6 @@ func TestValidateRelayURLs_RejectsPlaintextSubscribeURL(t *testing.T) {
 	}
 }
 
-// TestValidateRelayURLs_AcceptsAlignedConfig pins the relay URL invariant:
-// when the subscribe and ingest URLs are usable HTTPS/WSS endpoints with the
-// same relay token, validation must succeed.
 func TestValidateRelayURLs_AcceptsAlignedConfig(t *testing.T) {
 	err := config.ValidateRelayURLs(
 		"https://relay.replayvod.com/u/AAAAAAAAAAAAAAAA",
@@ -151,9 +216,6 @@ func TestValidateRelayURLs_AcceptsAlignedConfig(t *testing.T) {
 	}
 }
 
-// TestValidateRelayURLs_RejectsPlaintextIngest pins the behavior that a
-// non-HTTPS ingest URL fails when a subscribe URL is set. Relay mode always
-// requires public HTTPS/WSS.
 func TestValidateRelayURLs_RejectsPlaintextIngest(t *testing.T) {
 	err := config.ValidateRelayURLs(
 		"http://relay.replayvod.com/u/AAAAAAAAAAAAAAAA",
@@ -164,8 +226,6 @@ func TestValidateRelayURLs_RejectsPlaintextIngest(t *testing.T) {
 	}
 }
 
-// TestValidateRelayURLs_RelayDisabled pins the behavior that an empty
-// subscribe URL disables the pair check entirely.
 func TestValidateRelayURLs_RelayDisabled(t *testing.T) {
 	err := config.ValidateRelayURLs("", "")
 	if err != nil {
@@ -227,9 +287,17 @@ func TestValidateServerMode_AcceptsPoll(t *testing.T) {
 	}
 }
 
-type bootStorageMonitor struct{ stopped chan struct{} }
+type bootStorageMonitor struct {
+	stopped     chan struct{}
+	attachCalls int
+	onAttach    func()
+}
 
 func (m *bootStorageMonitor) Attach(context.Context) (storagehealth.Status, error) {
+	m.attachCalls++
+	if m.onAttach != nil {
+		m.onAttach()
+	}
 	return storagehealth.Status{State: storagehealth.StateUnattached, Reason: "marker missing"}, storage.ErrUnattached
 }
 func (m *bootStorageMonitor) Verify(context.Context) error { return storage.ErrUnattached }
@@ -237,24 +305,22 @@ func (m *bootStorageMonitor) Ready() error                 { return storage.ErrU
 func (m *bootStorageMonitor) Run(ctx context.Context)      { <-ctx.Done(); close(m.stopped) }
 
 type bootStorageDownloads struct {
-	gate    downloader.StorageGate
 	resumed chan struct{}
 }
 
-func (d *bootStorageDownloads) SetStorageGate(g downloader.StorageGate) { d.gate = g }
 func (d *bootStorageDownloads) Resume(context.Context) error {
 	d.resumed <- struct{}{}
 	return errors.New("injected resume failure")
 }
-func TestAttachStorageWiresGateAndResumesOnlyOnWritableRecovery(t *testing.T) {
+func TestAttachStorageResumesOnlyOnWritableRecovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	mon := &bootStorageMonitor{stopped: make(chan struct{})}
 	dl := &bootStorageDownloads{resumed: make(chan struct{}, 4)}
 	bus := eventbus.New()
 	attachStorage(ctx, mon, bus, dl, slog.New(slog.DiscardHandler))
-	if dl.gate != mon || !errors.Is(dl.gate.Ready(), storage.ErrUnattached) {
-		t.Fatal("downloader did not receive the storage gate")
+	if mon.attachCalls != 1 {
+		t.Fatalf("boot did not attach storage exactly once: %d", mon.attachCalls)
 	}
 	for _, state := range []string{"unattached", "read_only", "full", "unreachable", "attached", "attached"} {
 		bus.StorageStatus.Publish(eventbus.StorageStatusEvent{State: state})
@@ -287,4 +353,25 @@ func TestAttachStorageWiresGateAndResumesOnlyOnWritableRecovery(t *testing.T) {
 		t.Fatal("non-writable storage resumed downloads")
 	default:
 	}
+}
+
+func TestAttachStorageSubscribesBeforeInitialAttachmentEvent(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	bus := eventbus.New()
+	mon := &bootStorageMonitor{stopped: make(chan struct{}), onAttach: func() {
+		bus.StorageStatus.Publish(eventbus.StorageStatusEvent{State: "attached"})
+	}}
+	dl := &bootStorageDownloads{resumed: make(chan struct{}, 1)}
+	attachStorage(ctx, mon, bus, dl, slog.New(slog.DiscardHandler))
+	if mon.attachCalls != 1 {
+		t.Fatal("initial attachment was skipped")
+	}
+	select {
+	case <-dl.resumed:
+	case <-time.After(time.Second):
+		t.Fatal("attachment event emitted during Attach was lost")
+	}
+	cancel()
+	<-mon.stopped
 }

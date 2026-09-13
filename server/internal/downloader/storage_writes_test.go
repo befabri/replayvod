@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,23 +12,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
+
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/storage"
-	"github.com/befabri/replayvod/server/internal/storagekeys"
 )
 
 func TestSnapshotRefusesUnavailableStorage(t *testing.T) {
 	for _, refusal := range []error{storage.ErrUnattached, storage.ErrUnreachable, storage.ErrReadOnly, storage.ErrFull} {
 		t.Run(refusal.Error(), func(t *testing.T) {
 			store := newFakeStorage()
-			promoted := false
-			writer := &storageSnapshotWriter{storage: store, filename: "recording", ctx: t.Context(), ready: func() error { return refusal }, onFirstSnapshotSaved: func(string) { promoted = true }}
+			writer, _ := snapshotWriterFixture(t, store, "recording")
+			mediatest.SetGate(writer.storage, gateFunc(func() error { return refusal }))
 			if err := writer.WriteSnapshot(t.Context(), 0, strings.NewReader("frame")); !errors.Is(err, refusal) {
-				t.Fatalf("snapshot error=%v, want %v", err, refusal)
+				t.Fatal(err)
 			}
-			if len(store.saves) != 0 || promoted {
-				t.Fatalf("refused snapshot was saved or promoted: saves=%v promoted=%v", store.saves, promoted)
+			if len(store.saves) != 0 {
+				t.Fatal("refused snapshot published")
 			}
+
 		})
 	}
 }
@@ -64,13 +65,15 @@ func TestUploadRepeatsAfterStorageChangesDuringSave(t *testing.T) {
 	refused := make(chan struct{})
 	var once sync.Once
 	store := &changingUploadStorage{Storage: trusted, first: lost, afterFirst: func() { unavailable.Store(true) }}
-	s := &Service{storage: store, log: slog.New(slog.DiscardHandler), storageGate: gateFunc(func() error {
+	s := newTestService(t, t.TempDir())
+	d := seedWebhookAttempt(t, s, "media")
+	s.storage = mediatest.New(t, s.repo, store, gateFunc(func() error {
 		if unavailable.Load() {
 			once.Do(func() { close(refused) })
 			return storage.ErrUnattached
 		}
 		return nil
-	})}
+	}), nil)
 	scratch := filepath.Join(t.TempDir(), "media.mp4")
 	const body = "complete recording bytes"
 	if err := os.WriteFile(scratch, []byte(body), 0o600); err != nil {
@@ -79,7 +82,7 @@ func TestUploadRepeatsAfterStorageChangesDuringSave(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	var uploadErr error
-	go func() { defer close(done); uploadErr = s.uploadFromScratch(ctx, scratch, "videos/media.mp4") }()
+	go func() { defer close(done); uploadErr = s.uploadFromScratch(ctx, d, scratch, "videos/media.mp4") }()
 	t.Cleanup(func() { cancel(); <-done })
 	select {
 	case <-refused:
@@ -121,13 +124,16 @@ func TestRecordingWaveformWaitsForWritableStorage(t *testing.T) {
 	var unavailable atomic.Bool
 	refused := make(chan struct{})
 	var once sync.Once
-	s := &Service{storage: store, log: slog.New(slog.DiscardHandler), storageGate: gateFunc(func() error {
+	s := newTestService(t, t.TempDir())
+	d := seedWebhookAttempt(t, s, "media")
+	s.storage = mediatest.New(t, s.repo, store, gateFunc(func() error {
 		if unavailable.Load() {
 			once.Do(func() { close(refused) })
 			return storage.ErrReadOnly
 		}
 		return nil
-	}), waveforms: storageChangeGenerator{after: func() { unavailable.Store(true) }}}
+	}), nil)
+	s.waveforms = storageChangeGenerator{after: func() { unavailable.Store(true) }}
 	local := filepath.Join(t.TempDir(), "audio.m4a")
 	if err := os.WriteFile(local, []byte("audio"), 0o600); err != nil {
 		t.Fatal(err)
@@ -137,7 +143,7 @@ func TestRecordingWaveformWaitsForWritableStorage(t *testing.T) {
 	var buildErr error
 	go func() {
 		defer close(done)
-		buildErr = s.persistAudioWaveform(ctx, 1, "recording", repository.RecordingTypeAudio, 2, []partResult{{filename: "audio.m4a", localPath: local, durationSeconds: 2, sizeBytes: 5}})
+		buildErr = s.persistAudioWaveform(ctx, d, "recording", repository.RecordingTypeAudio, 2, []partResult{{filename: "audio.m4a", localPath: local, durationSeconds: 2, sizeBytes: 5}})
 	}()
 	t.Cleanup(func() { cancel(); <-done })
 	select {
@@ -162,7 +168,8 @@ func TestRecordingWaveformWaitsForWritableStorage(t *testing.T) {
 	if buildErr != nil {
 		t.Fatal(buildErr)
 	}
-	if len(store.saves[storagekeys.Waveform("recording")]) == 0 {
+	key, err := s.repo.GetVideoWaveformKey(t.Context(), d.videoID)
+	if err != nil || len(store.saves[key]) == 0 {
 		t.Fatal("waveform was lost after storage recovery")
 	}
 }

@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,8 +10,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/befabri/replayvod/server/internal/testutil/mediatest"
 
 	"github.com/befabri/replayvod/server/internal/config"
 	"github.com/befabri/replayvod/server/internal/downloader/twitch"
@@ -33,7 +37,7 @@ func testPosterStore(t *testing.T, repo repository.Repository, store storage.Sto
 	if _, err := monitor.Attach(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	return archiveposter.NewStore(repo, store, monitor, &http.Client{Timeout: time.Second}, log)
+	return archiveposter.NewStore(repo, mediatest.New(t, repo, store, monitor, nil), &http.Client{Timeout: time.Second}, log)
 }
 
 type vodEdge struct {
@@ -113,6 +117,7 @@ func (e *vodEdge) lastGQL() map[string]any {
 }
 
 type archiveFixture struct {
+	db   *sql.DB
 	svc  *Service
 	repo repository.Repository
 	edge *vodEdge
@@ -120,7 +125,8 @@ type archiveFixture struct {
 
 func newArchiveFixture(t *testing.T, liveCap, archiveCap int) *archiveFixture {
 	t.Helper()
-	repo := sqliteadapter.New(testdb.NewSQLiteDB(t))
+	db := testdb.NewSQLiteDB(t)
+	repo := sqliteadapter.New(db)
 	store, err := storage.NewLocal(t.TempDir())
 	if err != nil {
 		t.Fatalf("storage: %v", err)
@@ -136,8 +142,8 @@ func newArchiveFixture(t *testing.T, liveCap, archiveCap int) *archiveFixture {
 		ServerMode: config.ServerModeConfig{Mode: config.ServerModeOff},
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	svc := NewService(cfg, repo, store, nil, nil, nil, log)
-	svc.SetPosterStore(testPosterStore(t, repo, store, log))
+	svc := NewService(cfg, repo, mediatest.NewAt(t, repo, store, nil, nil, cfg.Env.ScratchDir), nil, nil, nil, log)
+	svc.SetPosterStore(archiveposter.NewStore(repo, svc.storage, &http.Client{Timeout: time.Second}, log))
 	edge := newVODEdge(t)
 	svc.twitch = twitch.New(twitch.Config{
 		HTTPClient:   &http.Client{Timeout: 10 * time.Second},
@@ -156,7 +162,7 @@ func newArchiveFixture(t *testing.T, liveCap, archiveCap int) *archiveFixture {
 			t.Fatalf("seed channel %s: %v", id, err)
 		}
 	}
-	return &archiveFixture{svc: svc, repo: repo, edge: edge}
+	return &archiveFixture{svc: svc, repo: repo, edge: edge, db: db}
 }
 
 func vodParams(broadcaster, vodID string) Params {
@@ -213,7 +219,7 @@ func TestEnqueueVOD_RowShapeAndImmediateStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnqueueVOD: %v", err)
 	}
-	waitUntil(t, "job to go active", func() bool { return f.activeJobs() == 1 })
+	waitUntil(t, "job claim to commit", func() bool { return f.status(t, jobID) == repository.VideoStatusRunning })
 
 	v := f.video(t, jobID)
 	if v.Source != repository.VideoSourceVOD || v.TwitchVideoID == nil || *v.TwitchVideoID != "1001" {
@@ -436,7 +442,7 @@ func TestResume_StartsQueuedArchivesAtBoot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed video %s: %v", id, err)
 		}
-		if _, err := f.repo.CreateJob(ctx, &repository.JobInput{ID: "job-" + id, VideoID: v.ID, BroadcasterID: "bc-1"}); err != nil {
+		if _, err := f.repo.CreateJob(ctx, &repository.JobInput{ID: "job-" + id, VideoID: v.ID, BroadcasterID: "bc-1", ResumeState: json.RawMessage(`{"stage":"AUTH","current_part_index":1}`)}); err != nil {
 			t.Fatalf("seed job %s: %v", id, err)
 		}
 	}
@@ -539,13 +545,15 @@ type archiveFaultRepo struct {
 	repository.Repository
 	failCreateJob    bool
 	failVideoRunning bool
+	claimBlock       *atomic.Bool
+	claimAttempts    *atomic.Int64
 	failJobFailed    bool
 	afterClaim       func()
 }
 
 func (r *archiveFaultRepo) WithTx(ctx context.Context, fn func(repository.Repository) error) error {
 	err := r.Repository.WithTx(ctx, func(tx repository.Repository) error {
-		return fn(&archiveFaultRepo{Repository: tx, failCreateJob: r.failCreateJob, failVideoRunning: r.failVideoRunning, failJobFailed: r.failJobFailed})
+		return fn(&archiveFaultRepo{Repository: tx, failCreateJob: r.failCreateJob, failVideoRunning: r.failVideoRunning, failJobFailed: r.failJobFailed, claimBlock: r.claimBlock, claimAttempts: r.claimAttempts})
 	})
 	if err == nil && r.afterClaim != nil {
 		r.afterClaim()
@@ -559,7 +567,12 @@ func (r *archiveFaultRepo) CreateJob(ctx context.Context, input *repository.JobI
 	return r.Repository.CreateJob(ctx, input)
 }
 func (r *archiveFaultRepo) UpdateVideoStatus(ctx context.Context, id int64, status string) error {
-	if r.failVideoRunning && status == repository.VideoStatusRunning {
+	if status == repository.VideoStatusRunning {
+		if r.claimAttempts != nil {
+			r.claimAttempts.Add(1)
+		}
+	}
+	if (r.failVideoRunning || (r.claimBlock != nil && r.claimBlock.Load())) && status == repository.VideoStatusRunning {
 		return errors.New("injected video status failure")
 	}
 	return r.Repository.UpdateVideoStatus(ctx, id, status)
@@ -590,14 +603,16 @@ func TestArchiveClaimRollsBackBothRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.svc.repo = &archiveFaultRepo{Repository: f.repo, failVideoRunning: true}
+	attempts := &atomic.Int64{}
+	f.svc.repo = &archiveFaultRepo{Repository: f.repo, failVideoRunning: true, claimAttempts: attempts}
 	f.svc.PumpArchiveQueue(t.Context())
+	waitUntil(t, "failed claim", func() bool { return attempts.Load() > 0 })
 	job, err := f.repo.GetJob(t.Context(), id)
 	if err != nil || job.Status != "PENDING" || f.status(t, id) != "PENDING" {
 		t.Fatalf("claim did not roll back: %+v, %v", job, err)
 	}
-	if len(f.svc.active) != 0 {
-		t.Fatal("started a job whose claim failed")
+	if f.activeJobs() != 1 {
+		t.Fatal("unresolved claim released its reservation")
 	}
 }
 
@@ -609,6 +624,7 @@ func TestArchiveShutdownBetweenClaimAndStartPreservesResume(t *testing.T) {
 	}
 	f.svc.repo = &archiveFaultRepo{Repository: f.repo, afterClaim: func() { f.svc.shuttingDown.Store(true) }}
 	f.svc.PumpArchiveQueue(t.Context())
+	waitUntil(t, "claim before shutdown", func() bool { return f.svc.shuttingDown.Load() })
 	job, err := f.repo.GetJob(t.Context(), id)
 	if err != nil || job.Status != "RUNNING" || f.status(t, id) != "RUNNING" {
 		t.Fatalf("shutdown failed a resumable archive: %+v, %v", job, err)

@@ -348,20 +348,26 @@ func (q *Queries) ListArchiveQueue(ctx context.Context) ([]Video, error) {
 }
 
 const listArchivesDueForRetry = `-- name: ListArchivesDueForRetry :many
-SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
-WHERE source = 'vod' AND deleted_at IS NULL AND status = 'FAILED'
-  AND delete_requested_at IS NULL
-  AND next_retry_at IS NOT NULL AND next_retry_at <= ?
-ORDER BY next_retry_at ASC, id ASC LIMIT ?
+SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos WHERE source='vod' AND deleted_at IS NULL AND status='FAILED'
+ AND delete_requested_at IS NULL AND next_retry_at <= ?1
+ AND (next_retry_at,id) > (?2,CAST(?3 AS BIGINT))
+ORDER BY next_retry_at,id LIMIT ?4
 `
 
 type ListArchivesDueForRetryParams struct {
-	NextRetryAt *sqlitetype.Time `json:"next_retry_at"`
-	Limit       int64            `json:"limit"`
+	Now        *sqlitetype.Time `json:"now"`
+	AfterTime  *sqlitetype.Time `json:"after_time"`
+	AfterID    int64            `json:"after_id"`
+	BatchLimit int64            `json:"batch_limit"`
 }
 
 func (q *Queries) ListArchivesDueForRetry(ctx context.Context, arg ListArchivesDueForRetryParams) ([]Video, error) {
-	rows, err := q.db.QueryContext(ctx, listArchivesDueForRetry, arg.NextRetryAt, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listArchivesDueForRetry,
+		arg.Now,
+		arg.AfterTime,
+		arg.AfterID,
+		arg.BatchLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -479,71 +485,6 @@ func (q *Queries) ListArchivesMissingPoster(ctx context.Context, arg ListArchive
 			&i.TwitchVideoID,
 			&i.BroadcastAt,
 			&i.NextRetryAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listFinishedVideosForRetention = `-- name: ListFinishedVideosForRetention :many
-SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
-WHERE deleted_at IS NULL
-  AND delete_requested_at IS NULL
-  AND downloaded_at IS NOT NULL
-  AND retention_window_hours IS NOT NULL
-  AND datetime(downloaded_at, '+' || retention_window_hours || ' hours') < ?1
-  AND (
-    status = 'DONE'
-    OR (status = 'FAILED' AND completion_kind IN ('partial', 'cancelled'))
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM recording_webhook_deliveries rwd
-    WHERE rwd.video_id = videos.id
-      AND rwd.test = 0
-      AND rwd.status IN ('pending', 'delivering')
-      AND rwd.frozen_parts = ''
-  )
-`
-
-type ListFinishedVideosForRetentionRow struct {
-	ID                   int64            `json:"id"`
-	BroadcasterID        string           `json:"broadcaster_id"`
-	DownloadedAt         *sqlitetype.Time `json:"downloaded_at"`
-	RetentionWindowHours sql.NullInt64    `json:"retention_window_hours"`
-}
-
-// Terminal, not-yet-tombstoned recordings whose creation-time retention policy
-// snapshot is due at @now. DONE rows own watchable artifacts; FAILED
-// partial/cancelled rows may own finalized parts, thumbnails, strips, and
-// snapshots. FAILED rows without salvage are excluded so retention does not
-// erase error-only diagnostics. Recordings without retention_window_hours are
-// explicitly outside retention, even if the same broadcaster currently has a
-// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
-// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
-// agree on "exactly at the deadline is still retained".
-func (q *Queries) ListFinishedVideosForRetention(ctx context.Context, now *sqlitetype.Time) ([]ListFinishedVideosForRetentionRow, error) {
-	rows, err := q.db.QueryContext(ctx, listFinishedVideosForRetention, now)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListFinishedVideosForRetentionRow{}
-	for rows.Next() {
-		var i ListFinishedVideosForRetentionRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.BroadcasterID,
-			&i.DownloadedAt,
-			&i.RetentionWindowHours,
 		); err != nil {
 			return nil, err
 		}
@@ -804,6 +745,77 @@ func (q *Queries) ListRecentArchiveFailures(ctx context.Context, arg ListRecentA
 			&i.TwitchVideoID,
 			&i.BroadcastAt,
 			&i.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRetentionCandidates = `-- name: ListRetentionCandidates :many
+SELECT id, broadcaster_id, downloaded_at, retention_window_hours FROM videos
+WHERE videos.id > ?1 AND deleted_at IS NULL
+  AND delete_requested_at IS NULL
+  AND downloaded_at IS NOT NULL
+  AND retention_window_hours IS NOT NULL
+  AND datetime(downloaded_at, '+' || retention_window_hours || ' hours') < ?2
+  AND (
+    status = 'DONE'
+    OR (status = 'FAILED' AND completion_kind IN ('partial', 'cancelled'))
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM recording_webhook_deliveries rwd
+    WHERE rwd.video_id = videos.id
+      AND rwd.test = 0
+      AND rwd.status IN ('pending', 'delivering')
+      AND rwd.frozen_parts = ''
+  ) ORDER BY videos.id LIMIT ?3
+`
+
+type ListRetentionCandidatesParams struct {
+	AfterID    int64            `json:"after_id"`
+	Now        *sqlitetype.Time `json:"now"`
+	BatchLimit int64            `json:"batch_limit"`
+}
+
+type ListRetentionCandidatesRow struct {
+	ID                   int64            `json:"id"`
+	BroadcasterID        string           `json:"broadcaster_id"`
+	DownloadedAt         *sqlitetype.Time `json:"downloaded_at"`
+	RetentionWindowHours sql.NullInt64    `json:"retention_window_hours"`
+}
+
+// Terminal, not-yet-tombstoned recordings whose creation-time retention policy
+// snapshot is due at @now. DONE rows own watchable artifacts; FAILED
+// partial/cancelled rows may own finalized parts, thumbnails, strips, and
+// snapshots. FAILED rows without salvage are excluded so retention does not
+// erase error-only diagnostics. Recordings without retention_window_hours are
+// explicitly outside retention, even if the same broadcaster currently has a
+// delete schedule. The strict due boundary mirrors retention.expiredVideoIDs;
+// keep both comparisons in lockstep so the SQL prefilter and Go invariant check
+// agree on "exactly at the deadline is still retained".
+func (q *Queries) ListRetentionCandidates(ctx context.Context, arg ListRetentionCandidatesParams) ([]ListRetentionCandidatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRetentionCandidates, arg.AfterID, arg.Now, arg.BatchLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRetentionCandidatesRow{}
+	for rows.Next() {
+		var i ListRetentionCandidatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BroadcasterID,
+			&i.DownloadedAt,
+			&i.RetentionWindowHours,
 		); err != nil {
 			return nil, err
 		}
@@ -1316,7 +1328,7 @@ func (q *Queries) ListVideosMissingThumbnail(ctx context.Context) ([]Video, erro
 
 const listVideosPendingManualDelete = `-- name: ListVideosPendingManualDelete :many
 SELECT id, job_id, filename, display_name, status, broadcaster_id, stream_id, viewer_count, language, duration_seconds, size_bytes, thumbnail, error, start_download_at, downloaded_at, deleted_at, recording_type, force_h264, title, completion_kind, selected_quality, selected_fps, truncated, trigger_schedule_id, retention_source_schedule_id, retention_window_hours, delete_requested_at, deletion_kind, quality, source, twitch_video_id, broadcast_at, next_retry_at FROM videos
-WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
+WHERE id > CAST(?1 AS BIGINT) AND (deleted_at IS NULL OR deletion_kind = 'missing')
   AND delete_requested_at IS NOT NULL
   AND status IN ('DONE', 'FAILED')
   AND NOT EXISTS (
@@ -1327,15 +1339,20 @@ WHERE (deleted_at IS NULL OR deletion_kind = 'missing')
       AND rwd.status IN ('pending', 'delivering')
       AND rwd.frozen_parts = ''
   )
-ORDER BY delete_requested_at ASC, id ASC
-LIMIT ?1
+ORDER BY id ASC
+LIMIT ?2
 `
+
+type ListVideosPendingManualDeleteParams struct {
+	AfterID  int64 `json:"after_id"`
+	RowLimit int64 `json:"row_limit"`
+}
 
 // Operator-requested deletions that are safe for the background worker to
 // finalize. The webhook frozen-parts guard mirrors retention: do not delete
 // video_parts until any pending/delivering delivery has captured them.
-func (q *Queries) ListVideosPendingManualDelete(ctx context.Context, rowLimit int64) ([]Video, error) {
-	rows, err := q.db.QueryContext(ctx, listVideosPendingManualDelete, rowLimit)
+func (q *Queries) ListVideosPendingManualDelete(ctx context.Context, arg ListVideosPendingManualDeleteParams) ([]Video, error) {
+	rows, err := q.db.QueryContext(ctx, listVideosPendingManualDelete, arg.AfterID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

@@ -60,7 +60,7 @@ func waveformDeletionFixture(t *testing.T, locks *recordinglock.Locks, wrap func
 	if wrap != nil {
 		objects = wrap(store)
 	}
-	return repo, objects, v, retention.New(repo, objects, monitor, testClientLogger(), retention.WithRecordingLocks(locks))
+	return repo, objects, v, retention.New(repo, streamMedia(t, repo, objects, monitor, locks), testClientLogger())
 }
 
 func TestAudioWaveformDoesNotRecreateDeletedRecording(t *testing.T) {
@@ -73,7 +73,7 @@ func TestAudioWaveformDoesNotRecreateDeletedRecording(t *testing.T) {
 					t.Errorf("delete during generation: %v", err)
 				}
 			}}
-			h := NewStreamHandler(repo, store, nil, testClientLogger(), WithWaveformGenerator(generator), WithRecordingLocks(locks))
+			h := NewStreamHandler(repo, streamMedia(t, repo, store, nil, locks), nil, testClientLogger(), WithWaveformGenerator(generator))
 			_, status, err := h.audioWaveform(t.Context(), v.ID)
 			if err != nil || status != http.StatusGone {
 				t.Errorf("waveform after deletion: status=%d err=%v, want 410", status, err)
@@ -82,9 +82,7 @@ func TestAudioWaveformDoesNotRecreateDeletedRecording(t *testing.T) {
 			if err != nil || fresh.DeletedAt == nil {
 				t.Fatalf("recording deletion did not finish: %+v err=%v", fresh, err)
 			}
-			if exists, err := store.Exists(t.Context(), storagekeys.Waveform(v.Filename)); err != nil || exists {
-				t.Errorf("waveform recreated after purge: exists=%v err=%v", exists, err)
-			}
+			assertNoWaveformPublished(t, repo, v.ID)
 		})
 	}
 }
@@ -112,7 +110,7 @@ func TestAudioWaveformPublicationSerializesWithPurge(t *testing.T) {
 		barrier = &waveformSaveBarrier{Storage: s, entered: make(chan struct{}), release: make(chan struct{})}
 		return barrier
 	})
-	h := NewStreamHandler(repo, store, nil, testClientLogger(), WithWaveformGenerator(&fakeWaveformGenerator{}), WithRecordingLocks(locks))
+	h := NewStreamHandler(repo, streamMedia(t, repo, store, nil, locks), nil, testClientLogger(), WithWaveformGenerator(&fakeWaveformGenerator{}))
 	done := make(chan struct{})
 	var status int
 	var buildErr error
@@ -144,10 +142,31 @@ func TestAudioWaveformPublicationSerializesWithPurge(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("waveform publication did not finish")
 	}
+	key, err := repo.GetVideoWaveformKey(t.Context(), v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := deletions.DeleteRecording(t.Context(), v, repository.DeletionKindManual); err != nil {
 		t.Fatal(err)
 	}
-	if exists, err := store.Exists(t.Context(), storagekeys.Waveform(v.Filename)); err != nil || exists {
+	if exists, err := store.Exists(t.Context(), key); err != nil || exists {
 		t.Fatalf("purge left a waveform: exists=%v err=%v", exists, err)
+	}
+	assertNoWaveformPublished(t, repo, v.ID)
+}
+
+func assertNoWaveformPublished(t *testing.T, repo repository.Repository, videoID int64) {
+	t.Helper()
+	if key, err := repo.GetVideoWaveformKey(t.Context(), videoID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("unexpected waveform reference: %q %v", key, err)
+	}
+	rows, err := repo.ListRecordingPublications(t.Context(), videoID, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if strings.HasSuffix(row.Key, "-waveform.json") {
+			t.Fatalf("unexpected waveform publication: %+v", row)
+		}
 	}
 }

@@ -57,12 +57,11 @@ func testArchiveRetryLifecycle(t *testing.T, h Harness) {
 		t.Fatalf("live row changed by the archive failure path: %+v", row)
 	}
 
-	// Due and recent listings.
-	due, err := repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), 10)
+	due, err := repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), time.Time{}, 0, 10)
 	if err != nil || len(due) != 1 || due[0].ID != v.ID {
 		t.Fatalf("due retries = %v, %v; want the failed archive", due, err)
 	}
-	if early, err := repo.ListArchivesDueForRetry(ctx, retryAt.Add(-time.Hour), 10); err != nil || len(early) != 0 {
+	if early, err := repo.ListArchivesDueForRetry(ctx, retryAt.Add(-time.Hour), time.Time{}, 0, 10); err != nil || len(early) != 0 {
 		t.Fatalf("retries due before their time = %v, %v; want none", early, err)
 	}
 	if err := repo.MarkVideoFailed(ctx, live.ID, "live boom", repository.CompletionKindComplete, false); err != nil {
@@ -76,7 +75,6 @@ func testArchiveRetryLifecycle(t *testing.T, h Harness) {
 		t.Fatalf("failures newer than the future = %v, %v; want none", stale, err)
 	}
 
-	// The scheduled retry becomes a fresh attempt under a new job.
 	if err := repo.WithTx(ctx, func(tx repository.Repository) error {
 		if _, err := tx.CreateJob(ctx, &repository.JobInput{ID: "job-2", VideoID: v.ID, BroadcasterID: "bc-1", Attempt: 2}); err != nil {
 			return err
@@ -95,7 +93,7 @@ func testArchiveRetryLifecycle(t *testing.T, h Harness) {
 	if job, err := repo.GetJob(ctx, "job-2"); err != nil || job.Attempt != 2 {
 		t.Fatalf("second job attempt = %v, %v; want 2", job, err)
 	}
-	if next, err := repo.GetNextQueuedArchiveJob(ctx); err != nil || next.ID != "job-2" {
+	if next, err := nextArchiveFixture(ctx, repo); err != nil || next.ID != "job-2" {
 		t.Fatalf("next queued = %v, %v; want job-2", next, err)
 	}
 	if err := repo.RequeueArchiveVideo(ctx, v.ID, "job-2", false); !errors.Is(err, repository.ErrNotFound) {
@@ -118,7 +116,7 @@ func testArchiveRetryLifecycle(t *testing.T, h Harness) {
 	if _, err := repo.GetOpenVideoByTwitchVideoID(ctx, "700"); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("cancelled retry still holds the VOD: %v", err)
 	}
-	if due, _ := repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), 10); len(due) != 0 {
+	if due, _ := repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), time.Time{}, 0, 10); len(due) != 0 {
 		t.Fatalf("cancelled retry still listed as due: %v", due)
 	}
 
@@ -150,7 +148,7 @@ func testArchiveRetryLifecycle(t *testing.T, h Harness) {
 	if err := repo.SoftDeleteVideo(ctx, v.ID, repository.DeletionKindManual); err != nil {
 		t.Fatal(err)
 	}
-	if due, _ := repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), 10); len(due) != 0 {
+	if due, _ := repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), time.Time{}, 0, 10); len(due) != 0 {
 		t.Fatalf("removed archive listed as due: %v", due)
 	}
 	if recent, _ := repo.ListRecentArchiveFailures(ctx, time.Now().UTC().Add(-time.Hour), 10); len(recent) != 0 {
@@ -370,10 +368,6 @@ func testArchiveSourceFilterAndBroadcastSort(t *testing.T, h Harness) {
 	}
 }
 
-// testArchiveRetryYieldsToQueuedDelete pins that an operator's delete wins
-// over a scheduled retry: the request clears the retry, the pump neither
-// lists nor requeues the row, the delete worker sees it, and the VOD is free
-// to be archived anew.
 func testArchiveRetryYieldsToQueuedDelete(t *testing.T, h Harness) {
 	ctx := context.Background()
 	repo := h.Repo()
@@ -389,7 +383,7 @@ func testArchiveRetryYieldsToQueuedDelete(t *testing.T, h Harness) {
 	if err != nil || got.NextRetryAt != nil || got.DeleteRequestedAt == nil {
 		t.Fatalf("after the delete request = retry %v, requested %v, %v; want the retry cleared", got.NextRetryAt, got.DeleteRequestedAt, err)
 	}
-	if due, err := repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), 10); err != nil || len(due) != 0 {
+	if due, err := repo.ListArchivesDueForRetry(ctx, time.Now().UTC(), time.Time{}, 0, 10); err != nil || len(due) != 0 {
 		t.Fatalf("due retries with a delete queued = %v, %v; want none", due, err)
 	}
 	err = repo.WithTx(ctx, func(tx repository.Repository) error {
@@ -401,7 +395,7 @@ func testArchiveRetryYieldsToQueuedDelete(t *testing.T, h Harness) {
 	if !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("requeue with a delete queued err = %v, want ErrNotFound", err)
 	}
-	pending, err := repo.ListVideosPendingManualDelete(ctx, 10)
+	pending, err := repo.ListVideosPendingManualDelete(ctx, 0, 10)
 	if err != nil || len(pending) != 1 || pending[0].ID != v.ID {
 		t.Fatalf("pending manual deletes = %+v, %v; want the archive", pending, err)
 	}
@@ -418,7 +412,7 @@ func testRunningJobsOnlyResumeCurrentActiveAttempt(t *testing.T, h Harness) {
 	archive := seedArchive(t, ctx, repo, "old", "resume", "bc-1")
 	live := seedLiveJob(t, ctx, repo, "live", "bc-1")
 	for _, id := range []string{"old", "live"} {
-		if err := repo.MarkJobRunning(ctx, id); err != nil {
+		if err := repo.SetJobExecution(ctx, id, "", false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -431,10 +425,10 @@ func testRunningJobsOnlyResumeCurrentActiveAttempt(t *testing.T, h Harness) {
 	if err := repo.RequeueArchiveVideo(ctx, archive.ID, "current", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.MarkJobRunning(ctx, "current"); err != nil {
+	if err := repo.SetJobExecution(ctx, "current", "", false); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := repo.ListRunningJobs(ctx)
+	rows, err := repo.ListRecoveryJobs(ctx, "", 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,18 +449,17 @@ func testRunningJobsOnlyResumeCurrentActiveAttempt(t *testing.T, h Harness) {
 	if err := repo.UpdateVideoStatus(ctx, archive.ID, repository.VideoStatusDone); err != nil {
 		t.Fatal(err)
 	}
-	if rows, err = repo.ListRunningJobs(ctx); err != nil || len(rows) != 0 {
+	if rows, err = repo.ListRecoveryJobs(ctx, "", 1000); err != nil || len(rows) != 0 {
 		t.Fatalf("terminal recording resumed: %+v %v", rows, err)
 	}
 	if broadcasters, err = repo.ListRunningLiveBroadcasters(ctx); err != nil || len(broadcasters) != 0 {
 		t.Fatalf("terminal live recording subscribed: %+v %v", broadcasters, err)
 	}
-	// Start persists a pending live attempt before launching its worker. A
-	// crash in that gap still needs recovery; pending archives belong to the
-	// archive queue and must not bypass its admission controls.
+	// Pending live jobs must recover after a crash between admission and launch;
+	// pending archives must wait for archive queue admission.
 	pending := seedLiveJob(t, ctx, repo, "pending-live", "bc-1")
 	seedArchive(t, ctx, repo, "pending-archive", "not-started", "bc-1")
-	rows, err = repo.ListRunningJobs(ctx)
+	rows, err = repo.ListRecoveryJobs(ctx, "", 1000)
 	if err != nil || len(rows) != 1 || rows[0].VideoID != pending.ID {
 		t.Fatalf("pending live recovery = %+v, %v", rows, err)
 	}

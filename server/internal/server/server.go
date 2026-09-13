@@ -35,25 +35,20 @@ type Server struct {
 	playbackCache *playbackcache.Service
 	log           *slog.Logger
 	httpServer    *http.Server
-	closeTRPC     func() error
+	closeRouter   func() error
 	recordings    *api.RecordingServices
 }
 
-// NewServer creates a new server. bus may be nil to disable SSE
-// feeds — the subscription procedures then return pre-closed channels.
-// hydrator is shared with the downloader's MetadataWatcher so routes and
-// internal polling agree on the Helix-derived view.
-func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, processor *schedulesvc.EventProcessor, webhook *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger, recordings ...*api.RecordingServices) *Server {
-	var shared *api.RecordingServices
-	if len(recordings) > 0 {
-		shared = recordings[0]
-	}
-	if shared == nil {
-		shared = api.NewRecordingServices(cfg, repo, store, bus, log)
+// NewServer requires the shared recording services used by background workers.
+// A nil bus closes subscription feeds immediately. Share hydrator with the
+// downloader so HTTP and recording workers use the same metadata cache.
+func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *session.Manager, twitchClient *twitch.Client, store storage.Storage, dl *downloader.Service, hydrator *streammeta.Hydrator, bus *eventbus.Buses, processor *schedulesvc.EventProcessor, webhook *recordingwebhook.Dispatcher, playbackCache *playbackcache.Service, log *slog.Logger, recordings *api.RecordingServices) *Server {
+	if recordings == nil || recordings.Media == nil {
+		panic("shared recording services required")
 	}
 	return &Server{
 		cfg:           cfg,
-		recordings:    shared,
+		recordings:    recordings,
 		repo:          repo,
 		sessionMgr:    sessionMgr,
 		twitchClient:  twitchClient,
@@ -68,11 +63,11 @@ func NewServer(cfg *config.Config, repo repository.Repository, sessionMgr *sessi
 	}
 }
 
-// Start begins serving HTTP requests. If ready is non-nil, it receives nil
-// after the TCP listener is bound or an error if the server cannot listen.
+// Start binds the listener and reports its result to ready without blocking.
+// Use a buffered channel to receive readiness before starting shutdown.
 func (s *Server) Start(ready chan<- error) {
-	router, closeTRPC := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.hydrator, s.bus, s.processor, s.webhook, s.playbackCache, s.log, s.recordings)
-	s.closeTRPC = closeTRPC
+	router, closeRouter := api.SetupRouter(s.cfg, s.repo, s.sessionMgr, s.twitchClient, s.storage, s.downloader, s.hydrator, s.bus, s.processor, s.webhook, s.playbackCache, s.log, s.recordings)
+	s.closeRouter = closeRouter
 	addr := s.cfg.GetAddress()
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -81,12 +76,8 @@ func (s *Server) Start(ready chan<- error) {
 		return
 	}
 
-	// No WriteTimeout on purpose: it is an absolute cap on the whole response
-	// write, which would truncate the long-lived ActiveDownloadsLive SSE stream
-	// and large recorded-video downloads. ReadTimeout + IdleTimeout cover the
-	// read/idle side, and this is a single-user homelab behind auth. If write
-	// hardening is wanted later, set per-route deadlines via http.ResponseController
-	// on the non-streaming handlers rather than restoring a blanket WriteTimeout.
+	// A global WriteTimeout would truncate SSE streams and large downloads.
+	// Use per-route deadlines for bounded responses.
 	s.httpServer = &http.Server{
 		Addr:        addr,
 		Handler:     router,
@@ -126,10 +117,10 @@ func (s *Server) Stop() {
 			s.log.Info("Server gracefully stopped")
 		}
 	}
-	if s.closeTRPC != nil {
-		if err := s.closeTRPC(); err != nil {
-			s.log.Error("tRPC router shutdown error", "error", err)
+	if s.closeRouter != nil {
+		if err := s.closeRouter(); err != nil {
+			s.log.Error("Router shutdown error", "error", err)
 		}
-		s.closeTRPC = nil
+		s.closeRouter = nil
 	}
 }

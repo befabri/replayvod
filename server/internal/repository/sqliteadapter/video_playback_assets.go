@@ -38,8 +38,8 @@ func (a *SQLiteAdapter) TouchVideoPlaybackAsset(ctx context.Context, videoID int
 	return nil
 }
 
-func (a *SQLiteAdapter) ListReadyVideoPlaybackAssets(ctx context.Context) ([]repository.VideoPlaybackAsset, error) {
-	rows, err := a.queries.ListReadyVideoPlaybackAssets(ctx)
+func (a *SQLiteAdapter) ListReadyVideoPlaybackAssets(ctx context.Context, after repository.PlaybackAssetCursor, limit int) ([]repository.VideoPlaybackAsset, error) {
+	rows, err := a.queries.ListReadyVideoPlaybackAssets(ctx, sqlitegen.ListReadyVideoPlaybackAssetsParams{AfterAccess: sqliteTimePtr(&after.AccessedAt), AfterGenerated: sqliteTimePtr(&after.GeneratedAt), AfterID: after.VideoID, BatchLimit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite list ready video playback assets: %w", err)
 	}
@@ -55,4 +55,8 @@ func (a *SQLiteAdapter) DeleteVideoPlaybackAsset(ctx context.Context, videoID in
 		return fmt.Errorf("sqlite delete video playback asset: %w", err)
 	}
 	return nil
+}
+
+func (a *SQLiteAdapter) SumReadyPlaybackBytes(ctx context.Context) (int64, error) {
+	return a.queries.SumReadyPlaybackBytes(ctx)
 }

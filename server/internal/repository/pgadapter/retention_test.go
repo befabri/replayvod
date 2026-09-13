@@ -89,15 +89,8 @@ func seedRetentionDoneVideoNoPolicy(t *testing.T, ctx context.Context, a *PGAdap
 	return v
 }
 
-// TestRetentionQueries_FilterContracts is the Postgres mirror for the
-// retention query contract. It exercises the generated PG SQL and adapter
-// conversions directly so SQLite-only coverage cannot hide dialect drift.
-//
-// ListFinishedVideosForRetention must return due visible terminal rows that can
-// own reclaimable artifacts only when the recording has a snapshotted retention
-// policy: DONE plus FAILED partial/cancelled, never active, soft-deleted,
-// no-salvage FAILED, no-policy recordings, terminal rows missing downloaded_at,
-// or rows still inside their retention window.
+// TestRetentionQueries_FilterContracts checks PostgreSQL retention eligibility
+// against each terminal status, deletion state, and snapshotted policy.
 func TestRetentionQueries_FilterContracts(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -175,9 +168,9 @@ func TestRetentionQueries_FilterContracts(t *testing.T) {
 		t.Fatalf("CreateRecordingWebhookDelivery: %v", err)
 	}
 
-	videos, err := a.ListFinishedVideosForRetention(ctx, time.Now().Add(2*time.Hour))
+	videos, err := a.ListRetentionCandidates(ctx, time.Now().Add(2*time.Hour), 0, 100)
 	if err != nil {
-		t.Fatalf("ListFinishedVideosForRetention: %v", err)
+		t.Fatalf("ListRetentionCandidates: %v", err)
 	}
 	gotVids := make(map[int64]bool, len(videos))
 	for _, v := range videos {
@@ -203,9 +196,9 @@ func TestRetentionQueries_FilterContracts(t *testing.T) {
 	if err := a.SetRecordingWebhookDeliveryFrozenParts(ctx, unfrozenDelivery.ID, "[]"); err != nil {
 		t.Fatalf("SetRecordingWebhookDeliveryFrozenParts: %v", err)
 	}
-	videos, err = a.ListFinishedVideosForRetention(ctx, time.Now().Add(2*time.Hour))
+	videos, err = a.ListRetentionCandidates(ctx, time.Now().Add(2*time.Hour), 0, 100)
 	if err != nil {
-		t.Fatalf("ListFinishedVideosForRetention after freeze: %v", err)
+		t.Fatalf("ListRetentionCandidates after freeze: %v", err)
 	}
 	gotVids = make(map[int64]bool, len(videos))
 	for _, v := range videos {
@@ -275,13 +268,9 @@ func TestFinalizeRetentionDelete_RollsBackWhenPartDeleteFails(t *testing.T) {
 	}
 }
 
-// TestVideoRetentionRefs_RoundTripAndFKSetNull pins two things the per-video
-// retention model depends on. (1) The provenance columns round-trip through
-// CreateVideo -> GetVideo (a column-order typo in the INSERT/scan would surface
-// here). (2) The FK is ON DELETE SET NULL, not CASCADE/RESTRICT: deleting the
-// source schedule nulls the refs but must neither delete the recording nor
-// change its snapshotted window, so the recording stays a retention candidate
-// governed by its own captured policy rather than the live schedule.
+// TestVideoRetentionRefs_RoundTripAndFKSetNull verifies that deleting a source
+// schedule clears its references without deleting recordings or their retention
+// windows.
 func TestVideoRetentionRefs_RoundTripAndFKSetNull(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAdapter(t)
@@ -337,9 +326,9 @@ func TestVideoRetentionRefs_RoundTripAndFKSetNull(t *testing.T) {
 	if err := a.MarkVideoDone(ctx, v.ID, 60, 1024, nil, repository.CompletionKindComplete, false); err != nil {
 		t.Fatalf("MarkVideoDone: %v", err)
 	}
-	vids, err := a.ListFinishedVideosForRetention(ctx, time.Now().Add(48*time.Hour))
+	vids, err := a.ListRetentionCandidates(ctx, time.Now().Add(48*time.Hour), 0, 100)
 	if err != nil {
-		t.Fatalf("ListFinishedVideosForRetention: %v", err)
+		t.Fatalf("ListRetentionCandidates: %v", err)
 	}
 	found := false
 	for _, rv := range vids {
