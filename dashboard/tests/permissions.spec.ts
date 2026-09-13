@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { USER_SETTINGS } from "../src/test/playback-settings";
 import { mockTrpc, SESSION, trpcOk } from "./support/trpc";
 
 // Role-based access specs: nav visibility, route guard redirects, and
@@ -54,6 +55,10 @@ function dataFor(role: Role, proc: string): unknown {
 	switch (proc) {
 		case "auth.session":
 			return { ...SESSION, user_id: "u-self", role };
+		case "settings.get":
+			return { ...USER_SETTINGS, user_id: "u-self" };
+		case "video.listPage":
+			return { items: [] };
 		case "system.listUsers":
 			return USERS.map((u) => (u.id === "u-self" ? { ...u, role } : u));
 		case "system.listInvites":

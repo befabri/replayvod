@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { LiveRenditionsResponse } from "../src/api/generated/trpc";
+import { USER_SETTINGS } from "../src/test/playback-settings";
 import { procsOf, SESSION, trpcOk } from "./support/trpc";
 import { videoRecording } from "./support/watch";
 
@@ -21,6 +22,7 @@ async function downloadServer(page: Page, followed = false) {
 	};
 	const answers: Record<string, unknown> = {
 		"auth.session": SESSION,
+		"settings.get": USER_SETTINGS,
 		"channel.getById": {
 			broadcaster_id: "chan1",
 			broadcaster_name: "ThornityCo",

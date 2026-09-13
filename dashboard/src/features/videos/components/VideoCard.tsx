@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/avatar";
 import { API_URL } from "@/env";
+import { usePlaybackSettings } from "@/features/settings/playback";
 import {
 	channelLabel,
 	useVideoSnapshots,
@@ -16,7 +17,7 @@ import {
 	formatPlaybackTime,
 } from "@/features/videos/format";
 import { videoStatusLabel } from "@/features/videos/labels";
-import { resumeOffsetSeconds } from "@/features/videos/resume";
+import { resumeOffsetSeconds } from "@/features/videos/resume-policy";
 import { clamp, cn } from "@/lib/utils";
 import { RemoveVideoButton } from "./RemoveVideoButton";
 import { StreamHistoryButton } from "./StreamHistoryButton";
@@ -165,6 +166,7 @@ export function VideoCard({
 	canManage: boolean;
 }) {
 	const { t } = useTranslation();
+	const policy = usePlaybackSettings();
 	const mediaRef = useRef<HTMLDivElement | null>(null);
 	const [mediaVisible, setMediaVisible] = useState(false);
 	const thumbnail = video.thumbnail ? localThumbnailURL(video.thumbnail) : null;
@@ -269,7 +271,11 @@ export function VideoCard({
 	// recording shows none, matching what the player would do.
 	const resumeSeconds =
 		video.status === "DONE"
-			? resumeOffsetSeconds(video.user_state, video.duration_seconds ?? 0)
+			? resumeOffsetSeconds(
+					video.user_state,
+					video.duration_seconds ?? 0,
+					policy,
+				)
 			: undefined;
 	const resumePercent =
 		resumeSeconds != null && video.duration_seconds

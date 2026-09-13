@@ -304,7 +304,7 @@ describe("useWatchProgressWriter", () => {
 		expect(readLocalWatchProgress("u1", 7)).toBeNull();
 	});
 
-	it("mirrors the write, sends it on a keepalive request, patches the recording and refreshes only the lists", async () => {
+	it("mirrors the write, sends it on a keepalive request, patches the recording and refreshes lists and library counts", async () => {
 		const contexts: Record<string, unknown>[] = [];
 		const bodies: unknown[] = [];
 		const { wrapper, queryClient } = harness(async (url, options) => {
@@ -325,6 +325,8 @@ describe("useWatchProgressWriter", () => {
 		}, contexts);
 		queryClient.setQueryData(listPageKey, { pages: [], pageParams: [] });
 		queryClient.setQueryData(statsKey, { total: 1 });
+		const libraryStatsKey = [["video", "statistics"], { type: "query" }];
+		queryClient.setQueryData(libraryStatsKey, { continue_watching: 0 });
 
 		const { result } = renderHook(
 			() => ({ video: useVideo(7), write: useWatchProgressWriter(7) }),
@@ -358,6 +360,9 @@ describe("useWatchProgressWriter", () => {
 		expect(readLocalWatchProgress("u1", 7)).toBeNull();
 		expect(queryClient.getQueryState(listPageKey)?.isInvalidated).toBe(true);
 		expect(queryClient.getQueryState(statsKey)?.isInvalidated).toBe(false);
+		expect(queryClient.getQueryState(libraryStatsKey)?.isInvalidated).toBe(
+			true,
+		);
 	});
 
 	it("keeps the mirror when the server never confirms the write", async () => {

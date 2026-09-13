@@ -12,6 +12,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { API_URL } from "@/env";
+import { usePlaybackSettings } from "@/features/settings/playback";
 import {
 	useAudioWaveform,
 	useInvalidateVideo,
@@ -83,6 +84,7 @@ function WatchPage() {
 }
 
 function WatchContent({ id }: { id: number }) {
+	const policy = usePlaybackSettings();
 	const { t: translate } = useTranslation();
 	const { t: initialOffsetSeconds } = Route.useSearch();
 	const navigate = Route.useNavigate();
@@ -124,6 +126,7 @@ function WatchContent({ id }: { id: number }) {
 	const resume = useResume(
 		playable ? video : null,
 		playlist?.totalDurationSeconds ?? 0,
+		policy,
 	);
 	// A write the server never confirmed goes out again on the next visit.
 	useEffect(() => {

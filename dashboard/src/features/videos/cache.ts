@@ -4,6 +4,7 @@ import type {
 } from "@/api/generated/trpc";
 import type { useTRPC } from "@/api/trpc";
 import { defineCaches, type EntityPatch, keyHasInput } from "@/lib/query";
+import { isContinueWatchingVideo, type ResumePolicy } from "./resume-policy";
 
 // Every cache a video row lives in, plus derived summaries and aggregates
 // (scalar: invalidated, never patched as full video rows).
@@ -38,17 +39,15 @@ export const VIDEO_LIST_CACHES = [
 	"statisticsByBroadcaster",
 ] as const;
 
-// The caches a watch-progress write can reorder or filter (history sorts,
-// the unwatched filter, the continue-watching strip). The statistics
-// aggregates count recordings and bytes, which progress never changes, so
-// they stay out: the watch page keeps one mounted and would refetch it on
-// every save.
+// Progress changes the library lists and its per-user tab counts. Channel
+// statistics only count recordings and bytes, so they stay out of this set.
 export const VIDEO_USER_STATE_CACHES = [
 	"listPage",
 	"byBroadcaster",
 	"byCategory",
 	"search",
 	"continueWatching",
+	"statistics",
 ] as const;
 
 // Merge the new user_state wherever the row appears, and drop it from filter-only
@@ -56,15 +55,32 @@ export const VIDEO_USER_STATE_CACHES = [
 export function videoUserStatePatch(
 	videoId: number,
 	state: VideoUserStateResponse,
+	policy?: ResumePolicy,
 ): EntityPatch<VideoResponse> {
 	return {
 		match: (video) => video.id === videoId,
 		update: (video) => applyVideoUserState(video, state),
-		removeFrom: (queryKey, shape) =>
-			shape === "infinite" &&
-			((!state.watch_later &&
-				keyHasInput(queryKey, "watch_later_only", true)) ||
-				(!!state.watched_at && keyHasInput(queryKey, "unwatched_only", true))),
+		removeFrom: (queryKey, shape, video) => {
+			if (shape === "infinite") {
+				return (
+					(!video.user_state?.watch_later &&
+						keyHasInput(queryKey, "watch_later_only", true)) ||
+					(!!video.user_state?.watched_at &&
+						keyHasInput(queryKey, "unwatched_only", true)) ||
+					(keyHasInput(queryKey, "continue_watching_only", true) &&
+						policy != null &&
+						!isContinueWatchingVideo(video, policy))
+				);
+			}
+			// This array is the dashboard preview; search arrays keep the row.
+			return (
+				shape === "array" &&
+				Array.isArray(queryKey[0]) &&
+				queryKey[0].join(".") === "video.continueWatching" &&
+				policy != null &&
+				!isContinueWatchingVideo(video, policy)
+			);
+		},
 	};
 }
 
@@ -72,5 +88,16 @@ function applyVideoUserState(
 	video: VideoResponse,
 	state: VideoUserStateResponse,
 ): VideoResponse {
+	const current = video.user_state;
+	// Bookmark responses include a progress snapshot that can precede a newer save.
+	if (
+		current &&
+		(current.progress_revision ?? 0) > (state.progress_revision ?? 0)
+	) {
+		return {
+			...video,
+			user_state: { ...current, watch_later: state.watch_later },
+		};
+	}
 	return { ...video, user_state: { ...video.user_state, ...state } };
 }

@@ -139,6 +139,12 @@ returning to a recording form shows the current session's available qualities.
 
 ## Configuration
 
+Users can adjust resume and completion thresholds in **Settings → Playback**.
+Preferences are stored per account and returned by `settings.get`. The dashboard
+loads them before mounting playback consumers, so playback, Continue Watching,
+and its counts use the same settings. `settings.updatePlayback` updates playback
+preferences independently of locale settings.
+
 Environment variables are validated by `src/env.ts` (Zod). Normal Docker and
 production builds leave the dashboard same-origin with the Go server. For local
 development, Vite already proxies `/api/*` and `/trpc/*` to

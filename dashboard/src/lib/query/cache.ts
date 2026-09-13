@@ -87,11 +87,11 @@ export function invalidateCaches<T extends CacheGroup>(
 }
 
 // match finds the affected row(s); update returns the patched row; removeFrom
-// optionally drops a matched row from a filtered cache (e.g. favorites-only).
+// receives the updated row and optionally drops it from a filtered cache.
 export type EntityPatch<Row> = {
 	match: (row: Row) => boolean;
 	update: (row: Row) => Row;
-	removeFrom?: (queryKey: QueryKey, shape: CacheShape) => boolean;
+	removeFrom?: (queryKey: QueryKey, shape: CacheShape, row: Row) => boolean;
 };
 
 // Patch every row-bearing cache via getQueriesData(pathKey) (matches normal and
@@ -106,7 +106,8 @@ export function patchEntity<Row>(
 		for (const [queryKey, data] of qc.getQueriesData({
 			queryKey: spec.pathKey,
 		})) {
-			const remove = patch.removeFrom?.(queryKey, spec.shape) ?? false;
+			const remove = (row: Row) =>
+				patch.removeFrom?.(queryKey, spec.shape, row) ?? false;
 			const next = applyShapePatch(spec.shape, data, patch, remove);
 			if (next !== data) qc.setQueryData(queryKey, next);
 		}
@@ -117,7 +118,7 @@ function applyShapePatch<Row>(
 	shape: CacheShape,
 	data: unknown,
 	patch: EntityPatch<Row>,
-	remove: boolean,
+	remove: (row: Row) => boolean,
 ): unknown {
 	if (data == null) return data;
 	switch (shape) {
@@ -153,7 +154,7 @@ function applyShapePatch<Row>(
 function patchRows<Row>(
 	rows: Row[],
 	patch: EntityPatch<Row>,
-	remove: boolean,
+	remove: (row: Row) => boolean,
 ): Row[] {
 	let changed = false;
 	const next: Row[] = [];
@@ -163,8 +164,9 @@ function patchRows<Row>(
 			continue;
 		}
 		changed = true;
-		if (remove) continue;
-		next.push(patch.update(row));
+		const updated = patch.update(row);
+		if (remove(updated)) continue;
+		next.push(updated);
 	}
 	return changed ? next : rows;
 }

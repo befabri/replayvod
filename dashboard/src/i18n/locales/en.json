@@ -125,6 +125,7 @@
 		"subtitle": "Sign in with Twitch to join this ReplayVOD server."
 	},
 	"common": {
+		"retry": "Retry",
 		"loading": "Loading…",
 		"saving": "Saving…",
 		"cancel": "Cancel",
@@ -701,6 +702,14 @@
 		"col_error": "Error"
 	},
 	"settings": {
+		"playback_title": "Playback",
+		"playback_description": "Choose when recordings resume and appear in Continue watching. These preferences follow your account across devices.",
+		"resume_min_seconds": "Resume after (seconds)",
+		"resume_min_seconds_hint": "Start from the beginning if your saved position is earlier than this.",
+		"resume_end_margin_seconds": "Finish within (seconds)",
+		"resume_end_margin_seconds_hint": "Treat a recording as finished when this much time remains.",
+		"resume_end_margin_percent": "Short recording cap (%)",
+		"resume_end_margin_percent_hint": "For short recordings, limit the finish window to this percentage of their length.",
 		"title": "Settings",
 		"description": "Display preferences applied across the dashboard.",
 		"failed_to_load": "Failed to load settings",

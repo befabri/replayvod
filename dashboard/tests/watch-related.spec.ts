@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { USER_SETTINGS } from "../src/test/playback-settings";
 import { fulfillRangeFixture, videoFixture } from "./support/audio";
 import { mockSubscription, mockTrpc, procsOf, SESSION, trpcOk } from "./support/trpc";
 import { mockWatchPage, recordedAt, userState, videoRecording } from "./support/watch";
@@ -186,6 +187,7 @@ test("retries a failed related-recording lookup", async ({ page }) => {
 	await mockTrpc(page, (procs) => ({
 		status: 200,
 		body: procs.map((proc) => {
+			if (proc === "settings.get") return { result: { data: USER_SETTINGS } };
 			if (proc === "video.relatedRecordings" && failing) return { error: { message: "Unavailable", code: -32603, data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500 } } };
 			const data = proc === "auth.session" ? SESSION : proc === "video.getById" ? videoRecording(78, 30, { status: "RUNNING" }) : proc === "video.relatedRecordings" ? {
 				intent_id: "manual", status: "active", items: [78,79].map((id) => ({ id, job_id: `job-${id}`, position: id-77, title: `Broadcast ${id}`, status: "RUNNING", completion_kind: "complete", started_at: recordedAt })),

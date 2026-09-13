@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { USER_SETTINGS } from "../src/test/playback-settings";
 import { procsOf, SESSION, trpcOk } from "./support/trpc";
 
 // The archive page against a stateful mock of the archive.* procedures: paste
@@ -66,6 +67,8 @@ async function archiveServer(page: Page) {
 			switch (proc) {
 				case "auth.session":
 					return SESSION;
+				case "settings.get":
+					return USER_SETTINGS;
 				case "video.downloadCapacity":
 					return { max_concurrent: 2, archive_max_concurrent: 1 };
 				case "archive.queue":

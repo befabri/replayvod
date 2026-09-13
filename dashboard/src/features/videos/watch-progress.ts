@@ -171,7 +171,15 @@ export function useWatchProgressWriter(videoId: number) {
 					baseProgressRevision: state.progress_revision ?? 0,
 				});
 			}
-			patchEntity(queryClient, caches, videoUserStatePatch(videoId, state));
+			patchEntity(
+				queryClient,
+				caches,
+				videoUserStatePatch(
+					videoId,
+					state,
+					queryClient.getQueryData(trpc.settings.get.queryKey())?.playback,
+				),
+			);
 			invalidateCaches(queryClient, caches, VIDEO_USER_STATE_CACHES);
 		},
 	});

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
 	mockTrpc,
+	procsOf,
 	trpcUnauthorized,
 	validSession,
 } from "./support/trpc";
@@ -56,20 +57,25 @@ test.describe("auth", () => {
 	test("a 401 mid-session (expired cookie) redirects to /login", async ({
 		page,
 	}) => {
-		// Load authenticated, then let the cookie expire server-side: every later
-		// request 401s, auth.session included. The route guard still passes on
-		// the cached session (ensureSession does not refetch once loaded), so the
-		// redirect is driven by the cache interceptor (or the SSE probe) when the
-		// next client-side navigation fetches data, with no manual sign-out.
+		// The route guard reuses the session, so an uncached task request must
+		// detect expiration; settings are already cached by the dashboard shell.
 		let expired = false;
 		await mockTrpc(page, (procs) => {
 			if (expired) return { status: 401, body: trpcUnauthorized(procs) };
 			return procs.includes("auth.session") ? validSession(procs, "") : null;
 		});
 		await page.goto("/dashboard");
-		await page.getByRole("button", { name: "Open user menu" }).click();
+		await page.getByRole("button", { name: "System", exact: true }).click();
+		const tasks = page.getByRole("link", { name: "Tasks", exact: true });
+		await expect(tasks).toBeVisible();
+		const rejectedRequest = page.waitForResponse(
+			(response) =>
+				response.status() === 401 &&
+				procsOf(response.url()).includes("task.list"),
+		);
 		expired = true;
-		await page.getByRole("menuitem", { name: "Settings" }).click();
+		await tasks.click();
+		await rejectedRequest;
 		await expect(page).toHaveURL(/\/login$/);
 	});
 });

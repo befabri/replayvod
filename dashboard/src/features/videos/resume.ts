@@ -2,42 +2,14 @@ import { useSelector } from "@tanstack/react-store";
 import { useEffect, useState } from "react";
 import type { VideoUserStateResponse } from "@/api/generated/trpc";
 import { authStore } from "@/stores/auth";
+import { type ResumePolicy, resumeOffsetSeconds } from "./resume-policy";
 import {
 	clearLocalWatchProgress,
 	type LocalWatchProgress,
 	readLocalWatchProgress,
 } from "./watch-progress";
 
-// A saved position resumes only when it is worth it: at least this far in,
-// and not so close to the end that the viewer clearly finished. The end margin
-// scales down for short clips so a minute-long clip still resumes near its end.
-export const RESUME_MIN_SECONDS = 5;
-export const RESUME_END_MARGIN_SECONDS = 30;
-export const RESUME_END_MARGIN_FRACTION = 0.05;
-
-// resumeOffsetSeconds picks the offset the player opens at for a saved watch
-// position, or undefined to start from the beginning. Only the position
-// counts: completed_at records that the recording was once watched through,
-// and a rewatch that stopped halfway still resumes.
-export function resumeOffsetSeconds(
-	state:
-		| Pick<VideoUserStateResponse, "last_position_seconds">
-		| null
-		| undefined,
-	totalDurationSeconds: number,
-): number | undefined {
-	const position = state?.last_position_seconds;
-	if (position == null || !Number.isFinite(position)) return undefined;
-	if (position < RESUME_MIN_SECONDS) return undefined;
-	if (Number.isFinite(totalDurationSeconds) && totalDurationSeconds > 0) {
-		const margin = Math.min(
-			RESUME_END_MARGIN_SECONDS,
-			totalDurationSeconds * RESUME_END_MARGIN_FRACTION,
-		);
-		if (position >= totalDurationSeconds - margin) return undefined;
-	}
-	return position;
-}
+export { resumeOffsetSeconds } from "./resume-policy";
 
 export type ResumeSeed = {
 	// Where the player opens; undefined starts from the beginning.
@@ -54,10 +26,12 @@ export function resolveResume({
 	server,
 	local,
 	totalDurationSeconds,
+	policy,
 }: {
 	server: VideoUserStateResponse | null | undefined;
 	local: LocalWatchProgress | null;
 	totalDurationSeconds: number;
+	policy: ResumePolicy;
 }): ResumeSeed {
 	// The mirror records the server revision it was based on. Browser wall
 	// clocks are irrelevant: any later server write supersedes that baseline.
@@ -72,12 +46,13 @@ export function resolveResume({
 			offsetSeconds: resumeOffsetSeconds(
 				{ last_position_seconds: local.positionSeconds },
 				totalDurationSeconds,
+				policy,
 			),
 			replay: local,
 		};
 	}
 	return {
-		offsetSeconds: resumeOffsetSeconds(server, totalDurationSeconds),
+		offsetSeconds: resumeOffsetSeconds(server, totalDurationSeconds, policy),
 		replay: null,
 	};
 }
@@ -100,6 +75,7 @@ export function useResume(
 		| null
 		| undefined,
 	totalDurationSeconds: number,
+	policy: ResumePolicy,
 ): ResumeSeed {
 	const userId = useSelector(authStore, (state) => state.user?.id ?? null);
 	const [latched, setLatched] = useState<LatchedSeed | null>(null);
@@ -122,6 +98,7 @@ export function useResume(
 		server: video.user_state,
 		local,
 		totalDurationSeconds,
+		policy,
 	});
 	setLatched({
 		videoId: video.id,

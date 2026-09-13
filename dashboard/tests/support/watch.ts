@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
-import { mockTrpc, type TrpcResolver, trpcOk, validSession } from "./trpc";
+import { USER_SETTINGS } from "../../src/test/playback-settings";
+import { mockTrpc, type TrpcResolver, SESSION, trpcOk } from "./trpc";
 
 export const recordedAt = "2026-06-05T12:00:00Z";
 
@@ -70,11 +71,13 @@ export async function mockWatchPage(
 	await mockTrpc(page, (procs, url) => {
 		const custom = resolve?.(procs, url);
 		if (custom) return custom;
-		const session = validSession(procs, "");
-		if (session) return session;
 		const current = video();
 		const duration = Number(current.duration_seconds ?? 0);
+		// A session refresh may share the recording's batch after a reload.
+		// Answer each procedure so authentication never discards the video rows.
 		const answers: Record<string, () => unknown> = {
+			"auth.session": () => SESSION,
+			"settings.get": () => USER_SETTINGS,
 			"video.getById": () => current,
 			"video.relatedRecordings": () => ({ items: [] }),
 			"video.timeline": () => [

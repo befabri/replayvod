@@ -1,4 +1,5 @@
 import { useForm } from "@tanstack/react-form";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { z } from "zod";
 import { SettingsUpdateInputSchema } from "@/api/generated/zod";
@@ -20,6 +21,7 @@ type SettingsLanguage = SettingsFormValues["language"];
 
 const DATE_TIME_FORMATS: readonly DateTimeFormat[] = ["ISO", "EU", "US"];
 const SETTINGS_LANGUAGES: readonly SettingsLanguage[] = ["en", "fr"];
+const FIELDS = ["timezone", "datetime_format", "language"] as const;
 
 function isDateTimeFormat(value: unknown): value is DateTimeFormat {
 	return DATE_TIME_FORMATS.some((format) => format === value);
@@ -43,19 +45,30 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 	const { t } = useTranslation();
 	const update = useUpdateSettings();
 
-	// Defaults are computed from the loaded settings at first render — the parent
-	// only mounts this form once `data` is present — so there's no prop-to-state
-	// sync effect. Successful saves re-baseline from the mutation response below.
 	const form = useForm({
 		defaultValues: settingsFormValues(data),
 		validators: {
 			onSubmit: SettingsUpdateInputSchema,
 		},
 		onSubmit: async ({ value, formApi }) => {
-			const saved = await update.mutateAsync(value);
-			formApi.reset(settingsFormValues(saved));
+			const submitted = { ...value };
+			try {
+				const saved = await update.mutateAsync(value);
+				// A completed save must not discard edits made while it was pending.
+				if (
+					FIELDS.every((name) => formApi.state.values[name] === submitted[name])
+				) {
+					formApi.reset(settingsFormValues(saved));
+				}
+			} catch {
+				/* The mutation error is displayed below; keep the user's edits. */
+			}
 		},
 	});
+	useEffect(() => {
+		// Saving playback preferences must not discard unsaved locale edits.
+		if (!form.state.isDirty) form.reset(settingsFormValues(data));
+	}, [data, form]);
 
 	return (
 		<form
@@ -140,11 +153,19 @@ export function SettingsForm({ data }: { data: SettingsResponse }) {
 				</div>
 			)}
 
-			{update.isSuccess && (
-				<div className="rounded-md bg-primary/10 border border-primary/20 p-3 text-sm">
-					{t("settings.saved")}
-				</div>
-			)}
+			<form.Subscribe selector={(state) => state.isDirty}>
+				{(dirty) =>
+					update.isSuccess &&
+					!dirty && (
+						<div
+							role="status"
+							className="rounded-md bg-primary/10 border border-primary/20 p-3 text-sm"
+						>
+							{t("settings.saved")}
+						</div>
+					)
+				}
+			</form.Subscribe>
 
 			<form.Subscribe selector={(s) => [s.canSubmit, s.isSubmitting] as const}>
 				{([canSubmit, isSubmitting]) => (

@@ -552,7 +552,15 @@ export function useSetWatchLater() {
 									last_position_seconds: 0,
 									updated_at: new Date().toISOString(),
 								};
-						patchEntity(qc, caches, videoUserStatePatch(video_id, state));
+						patchEntity(
+							qc,
+							caches,
+							videoUserStatePatch(
+								video_id,
+								state,
+								qc.getQueryData(trpc.settings.get.queryKey())?.playback,
+							),
+						);
 						// Stats is scalar (not row-patched); apply the count delta directly.
 						qc.setQueriesData<StatisticsResponse>(
 							{ queryKey: caches.statistics.pathKey },
@@ -560,7 +568,15 @@ export function useSetWatchLater() {
 						);
 					},
 					applyServer: (qc, state, { video_id }) =>
-						patchEntity(qc, caches, videoUserStatePatch(video_id, state)),
+						patchEntity(
+							qc,
+							caches,
+							videoUserStatePatch(
+								video_id,
+								state,
+								qc.getQueryData(trpc.settings.get.queryKey())?.playback,
+							),
+						),
 				},
 			),
 		),
@@ -568,8 +584,8 @@ export function useSetWatchLater() {
 }
 
 // useContinueWatching lists the recordings the user is partway through, most
-// recently watched first. The strip applies the resume policy on top, so ask
-// for more than it shows.
+// recently watched first. The server applies the same resume policy as the
+// library tab, so callers can request exactly the number they display.
 export function useContinueWatching(limit = 12) {
 	const trpc = useTRPC();
 	return useQuery(trpc.video.continueWatching.queryOptions({ limit }));

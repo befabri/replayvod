@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { USER_SETTINGS } from "../../src/test/playback-settings";
 
 // A valid session payload shaped like the server's auth.session output.
 export const SESSION = {
@@ -38,7 +39,7 @@ export type TrpcResolver = (
 
 // mockTrpc intercepts the batched tRPC endpoint. `resolve` returns a
 // { status, body } to fulfill, or null to fall through to a default success
-// (null data for every batched proc, enough to let the shell render). SSE
+// (empty video pages, default settings, and null for other procedures). SSE
 // subscription requests (Accept: text/event-stream) are aborted so EventSource
 // retries against the mock instead of reaching a real server.
 export async function mockTrpc(page: Page, resolve: TrpcResolver) {
@@ -52,12 +53,24 @@ export async function mockTrpc(page: Page, resolve: TrpcResolver) {
 		const custom = resolve(procs, req.url());
 		const { status, body } = custom ?? {
 			status: 200,
-			body: trpcOk(procs.map(() => null)),
+			body: trpcOk(
+				procs.map((proc) => (proc === "video.listPage" ? { items: [] } : null)),
+			),
 		};
 		await route.fulfill({
 			status,
 			contentType: "application/json",
-			body: JSON.stringify(body),
+			body: JSON.stringify(
+				Array.isArray(body)
+					? body.map((result, index) =>
+							procs[index] === "settings.get" &&
+							result?.result?.data == null &&
+							result?.result
+								? { result: { data: USER_SETTINGS } }
+								: result,
+						)
+					: body,
+			),
 		});
 	});
 }

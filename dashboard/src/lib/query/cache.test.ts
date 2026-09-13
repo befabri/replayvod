@@ -148,6 +148,38 @@ describe("patchEntity", () => {
 
 		expect(qc.getQueryData(caches.list.pathKey)).toBe(list);
 	});
+
+	it("evaluates removal per updated row while retaining single records and page cursors", () => {
+		const qc = new QueryClient();
+		const caches = widgetCaches();
+		const rows = [
+			{ id: 1, name: "a" },
+			{ id: 2, name: "b" },
+		];
+		qc.setQueryData(caches.one.pathKey, rows[0]);
+		qc.setQueryData(caches.list.pathKey, rows);
+		qc.setQueryData(caches.wrapped.pathKey, { data: rows });
+		qc.setQueryData(caches.pages.pathKey, {
+			pages: [{ items: rows, next_cursor: "cursor" }],
+			pageParams: [null],
+		});
+		patchEntity<Row>(qc, caches, {
+			match: () => true,
+			update: (row) => ({ ...row, name: row.name.toUpperCase() }),
+			removeFrom: (_key, _shape, row) => row.name === "A",
+		});
+		expect(qc.getQueryData(caches.one.pathKey)).toEqual({ id: 1, name: "A" });
+		expect(qc.getQueryData(caches.list.pathKey)).toEqual([
+			{ id: 2, name: "B" },
+		]);
+		expect(qc.getQueryData(caches.wrapped.pathKey)).toEqual({
+			data: [{ id: 2, name: "B" }],
+		});
+		expect(qc.getQueryData(caches.pages.pathKey)).toEqual({
+			pages: [{ items: [{ id: 2, name: "B" }], next_cursor: "cursor" }],
+			pageParams: [null],
+		});
+	});
 });
 
 describe("snapshot / restore", () => {

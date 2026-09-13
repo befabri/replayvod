@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { mockTrpc, trpcOk, validSession } from "./support/trpc";
+import { USER_SETTINGS } from "../src/test/playback-settings";
+import { mockTrpc, SESSION, trpcOk } from "./support/trpc";
 
 // Storage readiness end to end: the banner every user sees while the volume
 // is away, and the owner's adopt flow that clears it. The status feed is an
@@ -21,33 +22,29 @@ test.describe("storage readiness", () => {
 	}) => {
 		let state = "unattached";
 		let adopts = 0;
-		await mockTrpc(page, (procs, url) => {
-			const session = validSession(procs, url);
-			if (session) return session;
-			if (procs.includes("storage.adopt")) {
-				adopts++;
-				state = "attached";
-				return {
-					status: 200,
-					body: trpcOk(procs.map(() => ({ ...details(state), scan_status: "scheduled" }))),
-				};
-			}
-			if (procs.some((p) => p === "storage.status" || p === "storage.details")) {
-				return {
-					status: 200,
-					body: trpcOk(
-						procs.map((proc) =>
-							proc === "storage.status"
-								? { state, checked_at: details(state).checked_at }
-								: proc === "storage.details"
-									? details(state)
-									: null,
-						),
-					),
-				};
-			}
-			return null;
-		});
+		await mockTrpc(page, (procs) => ({
+			status: 200,
+			body: trpcOk(procs.map((proc) => {
+				switch (proc) {
+					case "auth.session":
+						return SESSION;
+					case "settings.get":
+						return USER_SETTINGS;
+					case "video.listPage":
+						return { items: [] };
+					case "storage.adopt":
+						adopts++;
+						state = "attached";
+						return { ...details(state), scan_status: "scheduled" };
+					case "storage.status":
+						return { state, checked_at: details(state).checked_at };
+					case "storage.details":
+						return details(state);
+					default:
+						return null;
+				}
+			})),
+		}));
 
 		await page.goto("/dashboard");
 		const banner = page.getByTestId("storage-banner");
@@ -72,27 +69,23 @@ test.describe("storage readiness", () => {
 	});
 
 	test("viewers see the warning without the owner details", async ({ page }) => {
-		await mockTrpc(page, (procs) => {
-			if (procs.includes("auth.session")) {
-				return {
-					status: 200,
-					body: trpcOk(
-						procs.map((p) =>
-							p === "auth.session"
-								? { user_id: "u2", login: "bob", display_name: "Bob", email: "", profile_image_url: "", role: "viewer" }
-								: null,
-						),
-					),
-				};
-			}
-			if (procs.includes("storage.status")) {
-				return {
-					status: 200,
-					body: trpcOk(procs.map((p) => (p === "storage.status" ? { state: "unreachable", checked_at: "2026-09-08T12:00:00Z" } : null))),
-				};
-			}
-			return null;
-		});
+		await mockTrpc(page, (procs) => ({
+			status: 200,
+			body: trpcOk(procs.map((proc) => {
+				switch (proc) {
+					case "auth.session":
+						return { user_id: "u2", login: "bob", display_name: "Bob", email: "", profile_image_url: "", role: "viewer" };
+					case "settings.get":
+						return { ...USER_SETTINGS, user_id: "u2" };
+					case "video.listPage":
+						return { items: [] };
+					case "storage.status":
+						return { state: "unreachable", checked_at: "2026-09-08T12:00:00Z" };
+					default:
+						return null;
+				}
+			})),
+		}));
 		await page.goto("/dashboard");
 		const banner = page.getByTestId("storage-banner");
 		await expect(banner).toBeVisible({ timeout: 30_000 });

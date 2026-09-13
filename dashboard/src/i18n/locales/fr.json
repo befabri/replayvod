@@ -125,6 +125,7 @@
 		"subtitle": "Connectez-vous avec Twitch pour rejoindre ce serveur ReplayVOD."
 	},
 	"common": {
+		"retry": "Réessayer",
 		"loading": "Chargement…",
 		"saving": "Enregistrement…",
 		"cancel": "Annuler",
@@ -701,6 +702,14 @@
 		"col_error": "Erreur"
 	},
 	"settings": {
+		"playback_title": "Lecture",
+		"playback_description": "Choisissez quand reprendre un enregistrement et l’afficher dans Reprendre la lecture. Ces préférences suivent votre compte sur tous vos appareils.",
+		"resume_min_seconds": "Reprendre après (secondes)",
+		"resume_min_seconds_hint": "Recommencer au début si votre position enregistrée précède ce seuil.",
+		"resume_end_margin_seconds": "Terminer à moins de (secondes)",
+		"resume_end_margin_seconds_hint": "Considérer un enregistrement comme terminé lorsqu’il reste ce temps.",
+		"resume_end_margin_percent": "Limite pour les vidéos courtes (%)",
+		"resume_end_margin_percent_hint": "Pour les enregistrements courts, limiter la fenêtre de fin à ce pourcentage de leur durée.",
 		"title": "Paramètres",
 		"description": "Préférences d'affichage appliquées dans tout le tableau de bord.",
 		"failed_to_load": "Impossible de charger les paramètres",

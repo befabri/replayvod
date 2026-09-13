@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/befabri/replayvod/server/internal/eventbus"
+	"github.com/befabri/replayvod/server/internal/resumepolicy"
+	"github.com/befabri/replayvod/server/internal/server/api/settings"
 	"github.com/befabri/replayvod/server/internal/server/api/subscriptions"
 	"github.com/befabri/trpcgo"
 )
@@ -113,6 +115,17 @@ func main() {
 				// global connection failure probe can discover the expired session.
 				sessionExpired = expireAfterCheck
 				data = map[string]any{"user_id": "u1", "login": "alice", "display_name": "Alice", "role": "viewer"}
+			case "settings.get":
+				data = settings.SettingsResponse{
+					UserID: "u1", Timezone: "UTC", DatetimeFormat: "ISO", Language: "en",
+					Playback: settings.UpdatePlaybackInput{
+						ResumeMinSeconds:       resumepolicy.MinSeconds,
+						ResumeEndMarginSeconds: resumepolicy.EndMarginSeconds,
+						ResumeEndMarginPercent: resumepolicy.EndMarginPercent,
+					},
+					CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+					UpdatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+				}
 			case "storage.status":
 				data = map[string]any{"state": state, "checked_at": "2026-09-12T12:00:00Z"}
 			case "stream.liveIds":

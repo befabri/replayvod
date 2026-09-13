@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
 	act,
 	cleanup,
@@ -12,7 +14,25 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { VideoUserStateResponse } from "@/api/generated/trpc";
 import { type AuthUser, authStore } from "@/stores/auth";
 import { installMemoryStorage } from "@/test/memory-storage";
-import { resolveResume, resumeOffsetSeconds, useResume } from "./resume";
+import { PLAYBACK_SETTINGS } from "@/test/playback-settings";
+import {
+	resolveResume as resolveResumeWithPolicy,
+	resumeOffsetSeconds as resumeOffsetWithPolicy,
+	useResume as useResumeWithPolicy,
+} from "./resume";
+
+const resumeOffsetSeconds = (
+	state: Parameters<typeof resumeOffsetWithPolicy>[0],
+	duration: number,
+) => resumeOffsetWithPolicy(state, duration, PLAYBACK_SETTINGS);
+const resolveResume = (
+	input: Omit<Parameters<typeof resolveResumeWithPolicy>[0], "policy">,
+) => resolveResumeWithPolicy({ ...input, policy: PLAYBACK_SETTINGS });
+const useResume = (
+	video: Parameters<typeof useResumeWithPolicy>[0],
+	duration: number,
+) => useResumeWithPolicy(video, duration, PLAYBACK_SETTINGS);
+
 import {
 	type LocalWatchProgress,
 	localWatchProgressKey,
@@ -50,7 +70,32 @@ function local(
 	};
 }
 
+const sharedPolicyCases = JSON.parse(
+	readFileSync(
+		resolve(
+			import.meta.dirname,
+			"../../../../server/internal/repository/contracttest/testdata/resume-policy.json",
+		),
+		"utf8",
+	),
+) as Array<{
+	name: string;
+	duration: number | null;
+	position: number;
+	resume: boolean;
+}>;
+
 describe("resumeOffsetSeconds", () => {
+	it.each(sharedPolicyCases)("agrees with server list and counter: $name", ({
+		duration,
+		position,
+		resume,
+	}) => {
+		expect(resumeOffsetSeconds(state(position), duration ?? 0)).toBe(
+			resume ? position : undefined,
+		);
+	});
+
 	it.each<
 		[string, VideoUserStateResponse | undefined, number, number | undefined]
 	>([

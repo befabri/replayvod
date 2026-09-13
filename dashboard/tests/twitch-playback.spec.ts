@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { USER_SETTINGS } from "../src/test/playback-settings";
 import { procsOf, SESSION, trpcOk } from "./support/trpc";
 
 // Stop outstanding alternate-origin streams before Playwright closes the page.
@@ -37,6 +38,7 @@ async function playbackServer(page: Page, initial = disconnected) {
 		const procs = procsOf(req.url());
 		const values = procs.map((proc) => {
 			if (proc === "auth.session") return SESSION;
+			if (proc === "settings.get") return USER_SETTINGS;
 			if (proc === "twitchPlayback.connect") {
 				state.connectCalls++;
 				expect(req.method()).toBe("POST");

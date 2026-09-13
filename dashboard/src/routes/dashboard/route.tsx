@@ -9,6 +9,7 @@ import {
 	SIDEBAR_MARGIN_EXPANDED,
 	Sidebar,
 } from "@/components/layout/sidebar";
+import { PlaybackSettingsProvider } from "@/features/settings/playback";
 import { StorageBanner } from "@/features/storage/components/StorageBanner";
 import { useLiveStreamStatus } from "@/features/streams-live/queries";
 import { useLiveVideoChanges } from "@/features/videos/queries";
@@ -65,7 +66,9 @@ function DashboardLayout() {
 				)}
 			>
 				<StorageBanner />
-				<Outlet />
+				<PlaybackSettingsProvider>
+					<Outlet />
+				</PlaybackSettingsProvider>
 			</main>
 		</div>
 	);

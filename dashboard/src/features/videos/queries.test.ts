@@ -17,6 +17,7 @@ import type {
 } from "@/api/generated/trpc";
 import { type AppRouter, TRPCProvider, useTRPC } from "@/api/trpc";
 import { patchEntity } from "@/lib/query";
+import { USER_SETTINGS } from "@/test/playback-settings";
 import { videoCaches, videoUserStatePatch } from "./cache";
 import {
 	useCancelDownload,
@@ -24,6 +25,7 @@ import {
 	useLiveVideoChanges,
 	useRelatedRecordings,
 	useRestoreVideo,
+	useSetWatchLater,
 	useVideo,
 } from "./queries";
 
@@ -237,6 +239,68 @@ async function advance(ms = 1) {
 		await vi.advanceTimersByTimeAsync(ms);
 	});
 }
+
+describe("watch-later response ordering", () => {
+	it("keeps newer resumable progress when a bookmark response arrives late", async () => {
+		let reply!: (state: VideoUserStateResponse) => void;
+		const pending = new Promise<VideoUserStateResponse>((resolve) => {
+			reply = resolve;
+		});
+		const { wrapper, calls, queryClient } = hookHarness(() => pending);
+		const { result } = renderHook(
+			() => ({ mutation: useSetWatchLater(), trpc: useTRPC() }),
+			{ wrapper },
+		);
+		const trpc = result.current.trpc;
+		const detailKey = trpc.video.getById.queryKey({ id: 1 });
+		const continueKey = listPageKey({ continue_watching_only: true });
+		const previewKey = trpc.video.continueWatching.queryKey({ limit: 5 });
+		queryClient.setQueryData(trpc.settings.get.queryKey(), USER_SETTINGS);
+		const oldState: VideoUserStateResponse = {
+			watch_later: false,
+			last_position_seconds: 4,
+			progress_revision: 2,
+			watched_at: "2026-01-01T00:00:00Z",
+			updated_at: "2026-01-01T00:00:00Z",
+		};
+		queryClient.setQueryData(detailKey, video({ user_state: oldState }));
+		let mutation!: Promise<VideoUserStateResponse>;
+		act(() => {
+			mutation = result.current.mutation.mutateAsync({
+				video_id: 1,
+				watch_later: true,
+			});
+		});
+		await advance();
+		expect(calls).toEqual(["video.setWatchLater"]);
+		const freshState: VideoUserStateResponse = {
+			...oldState,
+			watch_later: true,
+			last_position_seconds: 900,
+			progress_revision: 3,
+			completed_at: "2026-01-01T00:00:01Z",
+			updated_at: "2026-01-01T00:00:02Z",
+		};
+		const freshVideo = video({
+			duration_seconds: 3600,
+			user_state: freshState,
+		});
+		queryClient.setQueryData(detailKey, freshVideo);
+		queryClient.setQueryData(continueKey, pages([freshVideo]));
+		queryClient.setQueryData(previewKey, [freshVideo]);
+		await act(async () => {
+			reply({ ...oldState, watch_later: true });
+			await mutation;
+		});
+		expect(
+			queryClient.getQueryData<VideoResponse>(detailKey)?.user_state,
+		).toEqual(freshState);
+		expect(queryClient.getQueryData(continueKey)).toEqual(pages([freshVideo]));
+		expect(queryClient.getQueryData(previewKey)).toEqual([freshVideo]);
+		expect(queryClient.getQueryState(continueKey)?.isInvalidated).toBe(true);
+		expect(calls).toEqual(["video.setWatchLater"]);
+	});
+});
 
 function related(
 	status: RelatedRecordingsResponse["status"] = "expired",

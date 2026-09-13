@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { TitledLayout } from "@/components/layout/titled-layout";
 import { useSettings } from "@/features/settings";
+import { PlaybackSettingsForm } from "@/features/settings/components/PlaybackSettingsForm";
 import { SettingsForm } from "@/features/settings/components/SettingsForm";
 
 export const Route = createFileRoute("/dashboard/settings")({
@@ -27,10 +28,12 @@ function SettingsPage() {
 				</div>
 			)}
 
-			{/* Key on updated_at so a server-side settings change (e.g. another
-			    tab, or the post-save refetch) remounts the form to re-baseline
-			    its defaults — no prop-to-state sync effect needed. */}
-			{data && <SettingsForm key={data.updated_at} data={data} />}
+			{data && (
+				<div className="space-y-6">
+					<SettingsForm key={data.user_id} data={data} />
+					<PlaybackSettingsForm key={data.user_id} data={data} />
+				</div>
+			)}
 		</TitledLayout>
 	);
 }
