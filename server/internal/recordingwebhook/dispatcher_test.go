@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/background"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter"
@@ -34,7 +35,7 @@ func newTestDispatcher(store *fakeRepo) *Dispatcher {
 		log:                        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		signURL:                    videodownload.NewSigner("test-hmac-secret", "https://app.example", time.Hour).PartURLUntil,
 		capDownloadURLsAtRetention: true,
-		sem:                        make(chan struct{}, defaultConcurrency),
+		work:                       background.New(map[string]int{"webhook": defaultConcurrency}),
 		attempts:                   3,
 		timeout:                    200 * time.Millisecond,
 		backoff:                    time.Millisecond,
@@ -113,9 +114,21 @@ func TestNewDispatcher_setsProductionDefaultsAndOptionalSigner(t *testing.T) {
 	if d.signURL != nil {
 		t.Fatal("nil signer should leave signed part URLs disabled")
 	}
-	if cap(d.sem) != defaultConcurrency {
-		t.Fatalf("semaphore cap = %d, want %d", cap(d.sem), defaultConcurrency)
+	var reservations []*background.Reservation
+	for i := range defaultConcurrency {
+		r, err := d.work.Reserve("webhook", fmt.Sprint(i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reservations = append(reservations, r)
 	}
+	if _, err := d.work.Reserve("webhook", "overflow"); !errors.Is(err, background.ErrCapacity) {
+		t.Fatalf("capacity: %v", err)
+	}
+	for _, reservation := range reservations {
+		reservation.Release()
+	}
+
 	if d.attempts != defaultAttempts ||
 		d.timeout != defaultTimeout ||
 		d.backoff != defaultBackoff ||
@@ -256,13 +269,8 @@ func TestDeliverClaimed_retriesWithDurableBackoffThenSucceeds(t *testing.T) {
 	}
 }
 
-// TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry pins the
-// whole retention-race design: the part metadata is frozen on the first attempt
-// while the parts exist, so a retry after retention deleted those parts still
-// carries the real part (frozen metadata survives), AND the signed download URL
-// is re-minted per attempt rather than frozen, so a late retry never ships a
-// stale URL. The signer here stamps a monotonically advancing token so a frozen
-// URL is observably distinct from a regenerated one.
+// TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry covers retention between attempts.
+// Advancing URL tokens expose accidental reuse of an expired signature.
 func TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry(t *testing.T) {
 	var calls atomic.Int32
 	var mu sync.Mutex
@@ -275,7 +283,7 @@ func TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry(t *tes
 		bodies = append(bodies, p)
 		mu.Unlock()
 		if calls.Add(1) == 1 {
-			w.WriteHeader(http.StatusInternalServerError) // fail first so it retries
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -296,13 +304,12 @@ func TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry(t *tes
 	}
 	row := enqueueTerminal(t, store, EventCompleted, 42, time.Now().UTC())
 
-	// First attempt fails, but freezes the part metadata while the part exists.
 	d.deliverClaimed(context.Background(), claimOne(t, store))
 	if deliverySnapshot(t, store, row.ID).FrozenParts == "" {
 		t.Fatal("first attempt did not freeze the part metadata onto the delivery row")
 	}
 
-	// Retention deletes the recording's parts before the receiver recovers.
+	// Retention deletes parts before the receiver recovers.
 	store.mu.Lock()
 	store.parts = nil
 	store.mu.Unlock()
@@ -318,7 +325,6 @@ func TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry(t *tes
 	if len(bodies) != 2 {
 		t.Fatalf("captured %d bodies, want 2", len(bodies))
 	}
-	// Both attempts carry the real part (frozen metadata survives retention)...
 	for i, b := range bodies {
 		if len(b.Parts) != 1 {
 			t.Fatalf("attempt %d parts = %d, want 1 (a live rebuild after retention would send 0)", i+1, len(b.Parts))
@@ -330,21 +336,15 @@ func TestDeliverClaimed_freezesPartsAndRegeneratesURLAcrossRetentionRetry(t *tes
 			t.Fatalf("attempt %d part has no download_url; URL must be regenerated from the frozen part", i+1)
 		}
 	}
-	// ...but the URL is regenerated per attempt, not frozen (distinct token).
 	if bodies[0].Parts[0].DownloadURL == bodies[1].Parts[0].DownloadURL {
 		t.Fatalf("download_url frozen across attempts (%q); want re-minted per attempt", bodies[0].Parts[0].DownloadURL)
 	}
 }
 
-// TestDeliverClaimed_freezesPayloadBeforeConfigGate pins that the snapshot runs
-// before the disabled/incomplete-config gate. A delivery whose webhook is
-// disabled at its first attempt is still failed, but its body must already be
-// frozen so a later manual retry (after the operator fixes the config) resends
-// the real parts instead of rebuilding from parts retention may have deleted.
 func TestDeliverClaimed_freezesPayloadBeforeConfigGate(t *testing.T) {
 	store := completedStore()
 	store.settings = &repository.ServerSettings{
-		RecordingWebhookEnabled: false, // disabled at this first attempt
+		RecordingWebhookEnabled: false,
 		RecordingWebhookURL:     "https://receiver.example",
 		RecordingWebhookSecret:  "s",
 	}
@@ -511,18 +511,21 @@ func TestStart_pollsPendingDeliveryWithoutBus(t *testing.T) {
 func TestWait_cancelsInflightDeliveriesAfterDrainTimeout(t *testing.T) {
 	d := newTestDispatcher(completedStore())
 	d.drainTimeout = 5 * time.Millisecond
-	d.deliverCtx, d.deliverCancel = context.WithCancel(context.Background())
-	defer d.deliverCancel()
 
 	stopped := make(chan struct{})
 	close(stopped)
 	d.stopped = stopped
 
 	started := make(chan struct{})
-	d.wg.Go(func() {
+	cancelled := make(chan struct{})
+	if err := d.work.Start("webhook", "blocked", func(ctx context.Context) error {
 		close(started)
-		<-d.deliverCtx.Done()
-	})
+		<-ctx.Done()
+		close(cancelled)
+		return nil
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
 	<-started
 
 	done := make(chan struct{})
@@ -535,11 +538,13 @@ func TestWait_cancelsInflightDeliveriesAfterDrainTimeout(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(500 * time.Millisecond):
-		d.deliverCancel()
+		d.work.Stop()
 		t.Fatal("Wait did not cancel an in-flight delivery after the drain timeout")
 	}
-	if d.deliverCtx.Err() == nil {
-		t.Fatal("Wait returned without cancelling the delivery context")
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("Wait returned without joining the delivery")
 	}
 	if elapsed := time.Since(start); elapsed < d.drainTimeout {
 		t.Fatalf("Wait returned before the drain timeout elapsed: %v < %v", elapsed, d.drainTimeout)
@@ -625,11 +630,6 @@ func TestSendTest_postsSignedTestPayloadAndPersistsHistory(t *testing.T) {
 	}
 }
 
-// TestSendTest_preClaimedRowIsNotClaimedByPoller is the regression guard for the
-// SendTest double-delivery race: SendTest creates its row already claimed
-// ('delivering') and POSTs it synchronously, so the poller must never also claim
-// and re-POST it. Here we simulate that row mid-send (created, not yet marked
-// terminal) and prove a poll drain delivers nothing.
 func TestSendTest_preClaimedRowIsNotClaimedByPoller(t *testing.T) {
 	var posts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -646,7 +646,6 @@ func TestSendTest_preClaimedRowIsNotClaimedByPoller(t *testing.T) {
 		RecordingWebhookSecret:  "s",
 	}
 	d := newTestDispatcher(store)
-	d.deliverCtx = context.Background() // drainDue spawns deliveries on deliverCtx
 
 	input, err := newTestDeliveryInput(time.Now().UTC())
 	if err != nil {
@@ -656,11 +655,9 @@ func TestSendTest_preClaimedRowIsNotClaimedByPoller(t *testing.T) {
 		t.Fatalf("CreateClaimedRecordingWebhookDelivery: %v", err)
 	}
 
-	// The poller drains: the pre-claimed ('delivering') row must not be claimed,
-	// so no POST happens. A regression (creating the row 'pending') would let the
-	// poller claim and double-send it.
+	// The preclaimed row represents SendTest before its synchronous POST completes.
 	d.drainDue(context.Background())
-	d.wg.Wait()
+	_ = d.work.WaitIdle(context.Background())
 
 	if got := posts.Load(); got != 0 {
 		t.Fatalf("poller delivered a pre-claimed row; double-send not prevented (posts=%d)", got)

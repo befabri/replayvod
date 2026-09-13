@@ -13,9 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/befabri/replayvod/server/internal/background"
 	"github.com/befabri/replayvod/server/internal/eventbus"
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/videodownload"
+	"github.com/google/uuid"
 )
 
 const (
@@ -30,8 +32,7 @@ const (
 	userAgent           = "ReplayVOD-Webhook/1"
 )
 
-// DeliveryResult is the synchronous outcome of a SendTest, returned to the
-// dashboard so the owner sees immediately whether their receiver answered.
+// DeliveryResult reports the synchronous outcome of SendTest.
 type DeliveryResult struct {
 	OK     bool
 	Status int
@@ -51,11 +52,8 @@ type deliveryStore interface {
 	ListRecordingWebhookDeliveries(ctx context.Context, limit int) ([]repository.RecordingWebhookDelivery, error)
 }
 
-// Dispatcher drains the durable recording_webhook_deliveries outbox and POSTs
-// signed payloads to the owner-configured receiver. Terminal recording paths
-// insert rows transactionally with the video's terminal state; the event bus is
-// now only a wake-up hint so dropped in-process events delay delivery instead of
-// losing it.
+// Dispatcher delivers signed payloads from the durable recording webhook outbox.
+// Event bus notifications only wake the poller; dropped events cannot lose deliveries.
 type Dispatcher struct {
 	svc     *Service
 	store   deliveryStore
@@ -65,13 +63,10 @@ type Dispatcher struct {
 
 	capDownloadURLsAtRetention bool
 
-	sem    chan struct{}
-	wg     sync.WaitGroup
+	work   *background.Runner
 	wakeCh chan struct{}
 
-	stopped       chan struct{}
-	deliverCtx    context.Context
-	deliverCancel context.CancelFunc
+	stopped chan struct{}
 
 	attempts     int
 	timeout      time.Duration
@@ -82,8 +77,7 @@ type Dispatcher struct {
 	drainTimeout time.Duration
 }
 
-// NewDispatcher builds a dispatcher with production defaults. signer mints the
-// signed per-part download URLs embedded in each payload; pass nil to omit them.
+// NewDispatcher creates a dispatcher; a nil signer omits payload download URLs.
 func NewDispatcher(repo repository.Repository, signer *videodownload.Signer, log *slog.Logger) *Dispatcher {
 	if log == nil {
 		log = slog.Default()
@@ -98,7 +92,7 @@ func NewDispatcher(repo repository.Repository, signer *videodownload.Signer, log
 		client:  newDeliveryClient(),
 		log:     log.With("domain", "recording-webhook"),
 		signURL: signURL,
-		sem:     make(chan struct{}, defaultConcurrency),
+		work:    background.New(map[string]int{"webhook": defaultConcurrency}),
 
 		capDownloadURLsAtRetention: true,
 
@@ -112,16 +106,13 @@ func NewDispatcher(repo repository.Repository, signer *videodownload.Signer, log
 	}
 }
 
-// SetRetentionDownloadURLCapEnabled controls whether completed recording
-// payloads cap signed URL expiry to the recording's retention deadline. Main
-// disables this when the retention sweep task itself is disabled, because the
-// bytes will not be auto-deleted at that schedule deadline.
+// SetRetentionDownloadURLCapEnabled caps download URLs at the retention deadline.
+// Disable the cap when the retention sweep is disabled.
 func (d *Dispatcher) SetRetentionDownloadURLCapEnabled(enabled bool) {
 	d.capDownloadURLsAtRetention = enabled
 }
 
-// newDeliveryClient builds the HTTP client used for every delivery. It refuses
-// redirects so an accepted URL cannot bounce a POST to a different host.
+// newDeliveryClient rejects redirects to prevent forwarding signed payloads to another host.
 func newDeliveryClient() *http.Client {
 	return &http.Client{
 		Timeout: defaultTimeout,
@@ -131,8 +122,7 @@ func newDeliveryClient() *http.Client {
 	}
 }
 
-// RecentDeliveries returns durable delivery history newest-first for the owner
-// dashboard.
+// RecentDeliveries returns delivery history, newest first.
 func (d *Dispatcher) RecentDeliveries(ctx context.Context) ([]DeliveryRecord, error) {
 	rows, err := d.store.ListRecordingWebhookDeliveries(ctx, 50)
 	if err != nil {
@@ -145,10 +135,8 @@ func (d *Dispatcher) RecentDeliveries(ctx context.Context) ([]DeliveryRecord, er
 	return out, nil
 }
 
-// RetryDelivery re-queues a failed/rejected delivery (due now) and wakes the
-// poller. A delivery that is missing or not in a retryable state yields
-// ErrDeliveryNotRetryable, so a caller can't reset a delivered or in-flight row
-// into a duplicate send.
+// RetryDelivery requeues a failed or rejected delivery for immediate retry.
+// It returns ErrDeliveryNotRetryable for missing rows and other delivery states.
 func (d *Dispatcher) RetryDelivery(ctx context.Context, id int64) (DeliveryRecord, error) {
 	row, err := d.store.RetryRecordingWebhookDelivery(ctx, id, time.Now().UTC())
 	if errors.Is(err, repository.ErrNotFound) {
@@ -161,12 +149,10 @@ func (d *Dispatcher) RetryDelivery(ctx context.Context, id int64) (DeliveryRecor
 	return deliveryRecordFromRow(*row), nil
 }
 
-// Start launches the poller and, when available, subscribes to terminal
-// recording events as wake-up hints. The subscription still happens
-// synchronously before Start returns, preserving the boot ordering guarantee.
+// Start launches the poller and subscribes synchronously to terminal recording events.
+// Call it once, then cancel ctx and call Wait to drain deliveries.
 func (d *Dispatcher) Start(ctx context.Context, bus *eventbus.Buses) {
 	d.stopped = make(chan struct{})
-	d.deliverCtx, d.deliverCancel = context.WithCancel(context.Background())
 	d.wakeCh = make(chan struct{}, 1)
 
 	var loops sync.WaitGroup
@@ -238,61 +224,52 @@ func (d *Dispatcher) drainDue(ctx context.Context) {
 		d.log.Warn("reset stale recording webhook deliveries", "error", err)
 	}
 	for {
-		select {
-		case d.sem <- struct{}{}:
-		default:
+		reservation, err := d.work.Reserve("webhook", uuid.NewString())
+		if err != nil {
 			return
 		}
 
 		rows, err := d.store.ClaimDueRecordingWebhookDeliveries(ctx, time.Now().UTC(), 1)
 		if err != nil {
-			<-d.sem
+			reservation.Release()
 			if ctx.Err() == nil {
 				d.log.Warn("claim recording webhook delivery", "error", err)
 			}
 			return
 		}
 		if len(rows) == 0 {
-			<-d.sem
+			reservation.Release()
 			return
 		}
 		row := rows[0]
-		d.wg.Go(func() {
-			defer func() { <-d.sem }()
-			d.deliverClaimed(d.deliverCtx, row)
+		go reservation.Run(func(deliverCtx context.Context) error {
+			d.deliverClaimed(deliverCtx, row)
+			return nil
+		}, func(err error) {
+			if err != nil {
+				d.retryOrFail(context.Background(), row, 0, err)
+			}
 		})
 	}
 }
 
-// Wait blocks until accept loops stop and in-flight deliveries finish or the
-// drain timeout elapses, at which point stragglers are cancelled.
+// Wait joins the poller and deliveries, cancelling deliveries after the drain timeout.
 func (d *Dispatcher) Wait() {
 	if d.stopped == nil {
 		return
 	}
 	<-d.stopped
-	defer d.deliverCancel()
-	done := make(chan struct{})
-	go func() {
-		d.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(d.drainTimeout):
-		d.log.Warn("recording webhook: in-flight deliveries did not drain; cancelling", "timeout", d.drainTimeout)
-		d.deliverCancel()
-		<-done
+	ctx, cancel := context.WithTimeout(context.Background(), d.drainTimeout)
+	defer cancel()
+	if err := d.work.WaitIdle(ctx); err != nil {
+		d.log.Warn("recording webhook: cancelling undrained deliveries", "error", err)
 	}
+	d.work.Stop()
+	_ = d.work.Wait(context.Background())
 }
 
 func (d *Dispatcher) deliverClaimed(ctx context.Context, row repository.RecordingWebhookDelivery) {
-	// Build (and freeze) the body BEFORE the config gate. A delivery whose
-	// webhook config is disabled or incomplete at this first attempt is marked
-	// failed below, but the snapshot still captures its parts, so a later manual
-	// retry (after the operator fixes the config) resends the real part list even
-	// if retention has since deleted the parts. bodyForDelivery needs the store
-	// and signer, not the config, so it is safe to run first.
+	// Freeze parts before the config gate so a manual retry retains them after retention deletes them.
 	body, eventID, err := d.bodyForDelivery(ctx, row)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -323,11 +300,7 @@ func (d *Dispatcher) bodyForDelivery(ctx context.Context, row repository.Recordi
 		body, err := json.Marshal(Payload{Version: PayloadVersion, Event: EventTest, Test: true, Parts: []PayloadPart{}})
 		return body, EventTest, err
 	}
-	// Part metadata is frozen on the first build, while the video's parts still
-	// exist. Later attempts rebuild from the frozen list, so a receiver that
-	// recovers after retention deleted the parts still gets the real part list;
-	// the signed download URLs are re-minted fresh each attempt, so a late retry
-	// never ships a URL that expired at enqueue time.
+	// Retries retain frozen part metadata after retention, but regenerate URLs to avoid expiry.
 	var frozen []PayloadPart
 	if row.FrozenParts != "" {
 		if err := json.Unmarshal([]byte(row.FrozenParts), &frozen); err != nil {
@@ -339,10 +312,7 @@ func (d *Dispatcher) bodyForDelivery(ctx context.Context, row repository.Recordi
 		return nil, row.Event, err
 	}
 	if row.FrozenParts == "" {
-		// First build: snapshot the part metadata (URLs stripped) for retries before
-		// any POST can escape. If the snapshot cannot be saved, fail this attempt so
-		// a later retry can freeze parts while they still exist instead of widening
-		// the retention race.
+		// Persist the snapshot before sending; otherwise a retry could lose parts to retention.
 		raw, merr := json.Marshal(stripPartURLs(payload.Parts))
 		if merr != nil {
 			return nil, row.Event, fmt.Errorf("marshal frozen parts for delivery %d: %w", row.ID, merr)
@@ -356,6 +326,9 @@ func (d *Dispatcher) bodyForDelivery(ctx context.Context, row repository.Recordi
 }
 
 func (d *Dispatcher) finishAttempt(ctx context.Context, row repository.RecordingWebhookDelivery, status int, err error, target string) {
+	// Shutdown cancels delivery I/O, but its outcome must still leave the claimed state.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.timeout)
+	defer cancel()
 	now := time.Now().UTC()
 	switch {
 	case err == nil && status >= 200 && status < 300:
@@ -387,6 +360,8 @@ func (d *Dispatcher) retryOrFail(ctx context.Context, row repository.RecordingWe
 }
 
 func (d *Dispatcher) markFinal(ctx context.Context, row repository.RecordingWebhookDelivery, status string, httpStatus int, errMsg string, nextAttemptAt time.Time) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.timeout)
+	defer cancel()
 	err := d.store.MarkRecordingWebhookDeliveryFinal(ctx, row.ID, status, httpStatus, errMsg, nextAttemptAt, time.Now().UTC())
 	if err != nil {
 		d.log.Warn("mark recording webhook delivery", "delivery_id", row.ID, "status", status, "error", err)
@@ -428,9 +403,7 @@ func (d *Dispatcher) SendTest(ctx context.Context) DeliveryResult {
 	if err != nil {
 		return DeliveryResult{Error: "failed to mint message id"}
 	}
-	// Create the row already claimed ('delivering'): SendTest delivers it
-	// synchronously below, so it must not also be visible to the poller's
-	// claim, or a concurrent drain could double-send the test.
+	// Claim before sending so the poller cannot deliver this test concurrently.
 	row, err := d.store.CreateClaimedRecordingWebhookDelivery(ctx, input)
 	if err != nil {
 		d.log.Warn("record test webhook delivery", "error", err)
@@ -489,7 +462,6 @@ func (d *Dispatcher) post(ctx context.Context, target, eventID, id, timestamp, s
 	return resp.StatusCode, nil
 }
 
-// classifyOutcome maps a final (status, err) to a DeliveryOutcome.
 func classifyOutcome(status int, err error) DeliveryOutcome {
 	switch {
 	case err != nil:
@@ -517,9 +489,7 @@ func describeDeliveryFailure(status, attempts int, err error) string {
 	return "delivery failed"
 }
 
-// describeErr renders a delivery error without leaking the target URL's
-// credentials. A *url.Error embeds the full request URL (including any userinfo)
-// in its own Error(); the wrapped Err does not, so surface that instead.
+// describeErr omits the request URL because url.Error includes its credentials.
 func describeErr(err error) string {
 	if err == nil {
 		return ""
@@ -531,8 +501,7 @@ func describeErr(err error) string {
 	return err.Error()
 }
 
-// safeURL returns just the scheme://host/path of target, dropping userinfo,
-// query, and fragment before logging.
+// safeURL strips credentials, query, and fragment before logging.
 func safeURL(target string) string {
 	u, err := url.Parse(target)
 	if err != nil {
