@@ -7,26 +7,21 @@ import (
 	"time"
 )
 
-// ErrNotFound is returned when a requested entity does not exist.
-// Both PG and SQLite adapters translate their driver-specific "no rows"
-// errors to this sentinel so services can branch on it portably.
+// ErrNotFound means the requested row does not exist, independent of the backend.
 var ErrNotFound = errors.New("repository: not found")
 
 // ErrDuplicate indicates a uniqueness constraint violation.
 var ErrDuplicate = errors.New("repository: duplicate")
 
-// ErrNoMetadataObserved is returned by RecordVideoMetadataChange when
-// neither a title nor a category was provided. Callers can branch on
-// it (vs. a real DB error) when an upstream poll/webhook delivers an
-// empty payload.
+// ErrNoMetadataObserved means an observation supplied neither title nor category.
 var ErrNoMetadataObserved = errors.New("repository: no metadata observed")
 
-// Repository is the common interface for database access.
-// Both PG and SQLite adapters implement this.
+// ErrStaleExecution means a recording or task writer does not own the execution.
+var ErrStaleExecution = errors.New("repository: stale recording execution")
+
+// Repository provides the database operations shared by both adapters.
 type Repository interface {
-	// Ping verifies the underlying database connection is live. Used by
-	// the optional /api/v1/healthz readiness probe — a successful ping
-	// means the server can serve requests that touch the DB.
+	// Ping checks whether the database can answer a query.
 	Ping(ctx context.Context) error
 
 	// WithTx commits the callback's writes together or rolls back on error,
@@ -35,7 +30,41 @@ type Repository interface {
 	// join that transaction; calling WithTx again inside it is unsupported.
 	WithTx(ctx context.Context, fn func(Repository) error) error
 
-	// Users
+	GetVideoForUpdate(ctx context.Context, id int64) (*Video, error)
+	SetJobExecution(ctx context.Context, jobID, executionID string, acceptsMetadata bool) error
+	StopJobMetadata(ctx context.Context, jobID, executionID string) error
+	RequestJobStop(ctx context.Context, id string) error
+	CheckpointAttempt(ctx context.Context, jobID, executionID string, state json.RawMessage) error
+	ListRecoveryJobs(ctx context.Context, afterID string, limit int) ([]Job, error)
+	ListStoppedJobs(ctx context.Context, afterID string, limit int) ([]Job, error)
+	ListQueuedArchiveJobs(ctx context.Context, after time.Time, afterID int64, limit int) ([]ArchiveQueueCandidate, error)
+	ClaimTask(ctx context.Context, name, executionID string) error
+	SettleTask(ctx context.Context, name, executionID, status string, durationMs int64, message string) error
+	ResetTaskAvailability(ctx context.Context) error
+	RecoverInterruptedTasks(ctx context.Context) error
+	CreateRecordingIntent(ctx context.Context, intent RecordingIntent) error
+	GetRecordingIntent(ctx context.Context, id string) (*RecordingIntent, error)
+	LockRecordingIntent(ctx context.Context, id string) (*RecordingIntent, error)
+	GetRecordingIntentByJob(ctx context.Context, jobID string) (*RecordingIntent, error)
+	ListRecoverableRecordingIntents(ctx context.Context, after string, limit int) ([]RecordingIntent, error)
+	SetRecordingIntentWaiting(ctx context.Context, id, jobID string, until time.Time) error
+	ActivateRecordingIntent(ctx context.Context, id, previousJobID, nextJobID, streamID string, observedAt time.Time) error
+	CloseRecordingIntent(ctx context.Context, id, status string) error
+	RequestRecordingIntentStop(ctx context.Context, id string) error
+	LinkRecordingIntentVideo(ctx context.Context, intentID string, videoID int64, streamID *string) error
+	ListRecordingIntentJobs(ctx context.Context, intentID, after string, limit int) ([]Job, error)
+	ListRelatedRecordings(ctx context.Context, videoID int64) ([]RelatedRecording, error)
+	GetMediaPublication(ctx context.Context, key string) (*MediaPublication, error)
+	BeginMediaPublication(ctx context.Context, input MediaPublication) (*MediaPublication, error)
+	ConfirmMediaPublication(ctx context.Context, key, digest string) error
+	RequestMediaPublicationDelete(ctx context.Context, key string) error
+	DeleteMediaPublication(ctx context.Context, key string) error
+	ListMediaPublications(ctx context.Context, after string, limit int) ([]MediaPublication, error)
+	ListRecordingPublications(ctx context.Context, videoID int64, after string, limit int) ([]MediaPublication, error)
+	GetVideoWaveformKey(ctx context.Context, videoID int64) (string, error)
+	SetVideoWaveformKey(ctx context.Context, videoID int64, key string) error
+	DeleteVideoWaveformKey(ctx context.Context, videoID int64) error
+
 	GetUser(ctx context.Context, id string) (*User, error)
 	// GetUserForUpdate locks the user or its absence until WithTx finishes.
 	// It returns ErrNotFound for a missing user while retaining the lock.
@@ -49,7 +78,6 @@ type Repository interface {
 	ListUserDisplayNames(ctx context.Context, ids []string) (map[string]string, error)
 	UpdateUserRole(ctx context.Context, id string, role string) error
 
-	// Sessions
 	CreateSession(ctx context.Context, s *Session) error
 	GetSession(ctx context.Context, hashedID string) (*Session, error)
 	UpdateSessionTokens(ctx context.Context, hashedID string, encryptedTokens []byte) error
@@ -59,20 +87,19 @@ type Repository interface {
 	DeleteExpiredSessions(ctx context.Context) error
 	ListUserSessions(ctx context.Context, userID string) ([]SessionInfo, error)
 
-	// Twitch website session for the shared recorder (separate from app login).
+	// GetTwitchPlaybackSession returns the shared recorder credential, separate from
+	// application login sessions.
 	GetTwitchPlaybackSession(ctx context.Context) (*TwitchPlaybackSession, error)
 	SaveTwitchPlaybackSession(ctx context.Context, session *TwitchPlaybackSession) error
-	// Compare the encrypted token so stale validation cannot invalidate a
-	// replacement. Once rejected, only Save can restore the connection.
+	// UpdateTwitchPlaybackSessionValidation compares the encrypted token so stale
+	// validation cannot invalidate a replacement; only Save can restore it.
 	UpdateTwitchPlaybackSessionValidation(ctx context.Context, session *TwitchPlaybackSession) error
 	DeleteTwitchPlaybackSession(ctx context.Context) error
 
-	// App Access Tokens
 	GetLatestAppToken(ctx context.Context) (*AppAccessToken, error)
 	CreateAppToken(ctx context.Context, token string, expiresAt time.Time) (*AppAccessToken, error)
 	DeleteExpiredAppTokens(ctx context.Context) error
 
-	// Whitelist
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
@@ -91,43 +118,33 @@ type Repository interface {
 	// invitation or returns ErrNotFound.
 	RotateInviteToken(ctx context.Context, id int64, tokenHash string) (*Invite, error)
 
-	// Channels
 	GetChannel(ctx context.Context, broadcasterID string) (*Channel, error)
 	GetChannelByLogin(ctx context.Context, login string) (*Channel, error)
 	UpsertChannel(ctx context.Context, c *Channel) (*Channel, error)
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *ChannelPageCursor) (*ChannelPage, error)
-	// ListChannelsByIDs returns the subset of channels whose
-	// broadcaster_id is in ids. Empty ids returns no rows (not an
-	// error). Callers use this to de-reference a batch of Helix-
-	// reported broadcasters against our local mirror in one query.
+	// ListChannelsByIDs returns existing channels for the supplied IDs; empty input
+	// returns no rows.
 	ListChannelsByIDs(ctx context.Context, ids []string) ([]Channel, error)
-	// SearchChannels returns channels matching query (ILIKE/LIKE on
-	// login + name), ranked by match quality (exact → prefix →
-	// substring → alphabetical). Empty query returns everything up to
-	// limit — the same endpoint backs both the combobox "show all" and
-	// the "filter" states without a second query.
+	// SearchChannels matches login and name, ranking exact, prefix, then substring
+	// matches; empty query returns up to limit channels alphabetically.
 	SearchChannels(ctx context.Context, query string, limit int) ([]Channel, error)
 	GetChannelUserState(ctx context.Context, userID string, broadcasterID string) (*ChannelUserState, error)
 	ListChannelUserStatesForChannels(ctx context.Context, userID string, broadcasterIDs []string) ([]ChannelUserState, error)
 	SetChannelFavorite(ctx context.Context, userID string, broadcasterID string, favorite bool) (*ChannelUserState, error)
 	DeleteChannel(ctx context.Context, broadcasterID string) error
 
-	// User follows
 	UpsertUserFollow(ctx context.Context, f *UserFollow) error
 	ListUserFollows(ctx context.Context, userID string) ([]Channel, error)
 	UnfollowChannel(ctx context.Context, userID, broadcasterID string) error
 
-	// Categories
 	GetCategory(ctx context.Context, id string) (*Category, error)
 	GetCategoryDetail(ctx context.Context, id string) (*CategoryDetail, error)
 	GetCategoryByName(ctx context.Context, name string) (*Category, error)
 	UpsertCategory(ctx context.Context, c *Category) (*Category, error)
 	UpsertCategories(ctx context.Context, categories []Category) ([]Category, error)
 	ListCategories(ctx context.Context) ([]Category, error)
-	// ListCategoriesWithVideos returns categories that are linked to at
-	// least one non-deleted video. This is the browse/library view, distinct
-	// from ListCategories which exposes the whole mirrored Twitch catalog.
+	// ListCategoriesWithVideos returns categories linked to non-deleted recordings.
 	ListCategoriesWithVideos(ctx context.Context) ([]Category, error)
 	// ListCategoriesWithVideosPage returns the browse/library categories with
 	// cursor pagination and a small sort allowlist.
@@ -135,13 +152,8 @@ type Repository interface {
 	// ListCategoriesByIDs returns found categories in ids order. Missing IDs are
 	// skipped and duplicate IDs are collapsed at their first occurrence.
 	ListCategoriesByIDs(ctx context.Context, ids []string) ([]Category, error)
-	// SearchCategories returns categories matching a case-insensitive substring
-	// query on name, ranked by match quality (exact → prefix → substring →
-	// alphabetical). Empty query returns everything up to limit —
-	// the same endpoint backs both the combobox "show all" and the
-	// "filter" states. Mirrors SearchChannels semantics for UI
-	// consistency between the schedule form's channel picker and
-	// category picker.
+	// SearchCategories ranks case-insensitive name matches by exact, prefix, then
+	// substring match; empty query returns up to limit categories alphabetically.
 	SearchCategories(ctx context.Context, query string, limit int) ([]Category, error)
 	// SearchCategoriesWithVideos is the library-only category search. It uses
 	// the same ranking as SearchCategories, but restricts results to categories
@@ -163,13 +175,11 @@ type Repository interface {
 	DeleteExpiredCategorySearchCache(ctx context.Context, before time.Time) error
 	PruneCategorySearchCache(ctx context.Context, maxRows int) error
 
-	// Tags
 	GetTag(ctx context.Context, id int64) (*Tag, error)
 	GetTagByName(ctx context.Context, name string) (*Tag, error)
 	UpsertTag(ctx context.Context, name string) (*Tag, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 
-	// Fetch logs
 	CreateFetchLog(ctx context.Context, input *FetchLogInput) error
 	ListFetchLogs(ctx context.Context, limit, offset int) ([]FetchLog, error)
 	ListFetchLogsByType(ctx context.Context, fetchType string, limit, offset int) ([]FetchLog, error)
@@ -177,7 +187,6 @@ type Repository interface {
 	CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error)
 	DeleteOldFetchLogs(ctx context.Context, before time.Time) error
 
-	// Streams
 	GetStream(ctx context.Context, id string) (*Stream, error)
 	UpsertStream(ctx context.Context, s *StreamInput) (*Stream, error)
 	EndStream(ctx context.Context, id string, endedAt time.Time) error
@@ -185,18 +194,14 @@ type Repository interface {
 	ListActiveStreams(ctx context.Context) ([]Stream, error)
 	ListStreamsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]Stream, error)
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (*Stream, error)
-	// ListLatestLivePerChannel returns the most recent stream per
-	// broadcaster, joined with channel display metadata, newest first.
-	// Backs the dashboard's "recently live" card: one round-trip
-	// instead of N stream.lastLive calls.
+	// ListLatestLivePerChannel returns the latest broadcast per channel with display
+	// metadata, newest first.
 	ListLatestLivePerChannel(ctx context.Context, limit int) ([]LatestLiveStream, error)
 
-	// Videos
 	GetVideo(ctx context.Context, id int64) (*Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (*Video, error)
-	// ListVideosByJobIDs batches GetVideoByJobID across a set of job IDs
-	// (rows for unknown IDs are simply absent) so callers iterating active
-	// downloads don't fan out one query per running recording.
+	// ListVideosByJobIDs returns existing recordings for the supplied job IDs;
+	// unknown IDs are omitted.
 	ListVideosByJobIDs(ctx context.Context, jobIDs []string) ([]Video, error)
 	CreateVideo(ctx context.Context, v *VideoInput) (*Video, error)
 	UpdateVideoStatus(ctx context.Context, id int64, status string) error
@@ -209,9 +214,8 @@ type Repository interface {
 	// SetVideoThumbnailIfMissing sets the thumbnail only when the row has none
 	// and reports whether it did.
 	SetVideoThumbnailIfMissing(ctx context.Context, id int64, thumbnail string) (bool, error)
-	// Archives: an "open" archive row is not removed and is either not failed
-	// or failed with a retry scheduled, which is the one-row-per-VOD rule
-	// idx_videos_open_twitch_video_id enforces.
+	// GetOpenArchiveByTwitchVideoID includes failed rows only while a retry is
+	// scheduled, matching the unique open-VOD constraint.
 	GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID string) (*Video, error)
 	ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]Video, error)
 	// ListOpenVideosByStreamIDs returns live recordings of the given
@@ -237,18 +241,14 @@ type Repository interface {
 	// ClearArchiveRetry cancels a scheduled retry; ErrNotFound when none is
 	// scheduled.
 	ClearArchiveRetry(ctx context.Context, id int64) error
-	// ListArchivesMissingPoster returns archives without a poster that were
-	// queued at or after since, oldest first, capped at limit rows.
-	// Pages by id so a run can visit every eligible archive, not just the
-	// oldest batch.
+	// ListArchivesMissingPoster returns at most limit archives queued since since
+	// without posters, in ID order after afterID.
 	ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]Video, error)
 	// DeleteQueuedArchiveVideo hard-deletes a PENDING archive and its job;
 	// ErrNotFound when the row is missing, already started, or not an archive.
 	DeleteQueuedArchiveVideo(ctx context.Context, id int64) error
-	// ListVideos returns a page of videos filtered by opts.Status and
-	// sorted per opts.Sort/Order. Empty Sort/Order default to
-	// created-desc at the SQL layer. Replaces the earlier ListVideos
-	// and ListVideosByStatus pair.
+	// ListVideos returns filtered recordings; empty Sort and Order default to
+	// created_at descending.
 	ListVideos(ctx context.Context, opts ListVideosOpts) ([]Video, error)
 	ListVideosPage(ctx context.Context, opts ListVideosOpts, cursor *VideoListPageCursor) (*VideoListPage, error)
 	// SearchVideos returns videos matching query across the recording title,
@@ -269,11 +269,10 @@ type Repository interface {
 	// SoftDeleteVideo tombstones a video, recording why via kind
 	// (DeletionKindRetention | DeletionKindManual).
 	SoftDeleteVideo(ctx context.Context, id int64, kind string) error
-	// ListFinishedVideosForRetention returns the terminal, not-yet-tombstoned
+	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]RetentionVideo, error)
+	// ListRetentionCandidates returns the terminal, not-yet-tombstoned
 	// recordings that own a snapshotted retention policy, can have reclaimable
 	// objects, and are already due at now.
-	ListFinishedVideosForRetention(ctx context.Context, now time.Time) ([]RetentionVideo, error)
-	// Storage scans use bounded keyset pages and exact-ID eligibility checks.
 	ListVideosForStorageScan(ctx context.Context, afterID int64, limit int) ([]StorageScanVideo, error)
 	// ListVideosForStorageWitness samples rows that may still own media,
 	// including active attempts and reversible tombstones excluded from scans.
@@ -301,9 +300,7 @@ type Repository interface {
 	// history needs to count its outcome tabs under either media scope.
 	VideoStatsHistory(ctx context.Context) ([]VideoStatsHistoryBucket, error)
 	VideoStatsTotals(ctx context.Context, userID string) (*VideoStatsTotals, error)
-	// VideoStatsTotalsByBroadcaster returns the same totals shape as
-	// VideoStatsTotals but scoped to one broadcaster. Used by the
-	// watch page to surface a "N recordings · X GB" line per channel.
+	// VideoStatsTotalsByBroadcaster scopes the statistics totals to one broadcaster.
 	VideoStatsTotalsByBroadcaster(ctx context.Context, broadcasterID string) (*VideoStatsTotals, error)
 	GetVideoUserState(ctx context.Context, userID string, videoID int64) (*VideoUserState, error)
 	ListVideoUserStatesForVideos(ctx context.Context, userID string, videoIDs []int64) ([]VideoUserState, error)
@@ -317,18 +314,12 @@ type Repository interface {
 	// and has not played to the end, most recently watched first.
 	ListContinueWatchingVideos(ctx context.Context, userID string, limit int) ([]Video, error)
 
-	// Jobs — durable record of a download execution. Broadcaster-level
-	// idempotency + resume-on-restart live here. See models.go Job for
-	// schema and .docs/spec/download-pipeline.md for the resume-state
-	// JSON shape.
 	CreateJob(ctx context.Context, input *JobInput) (*Job, error)
 	GetJob(ctx context.Context, id string) (*Job, error)
 	GetJobByVideoID(ctx context.Context, videoID int64) (*Job, error)
 	// GetActiveLiveJobByBroadcaster is the live-recording idempotency check;
 	// queued or running archives for the channel are ignored.
 	GetActiveLiveJobByBroadcaster(ctx context.Context, broadcasterID string) (*Job, error)
-	// GetNextQueuedArchiveJob returns the oldest PENDING archive job, or
-	// ErrNotFound when the archive queue is empty.
 	GetNextQueuedArchiveJob(ctx context.Context) (*Job, error)
 	MarkJobRunning(ctx context.Context, id string) error
 	MarkJobDone(ctx context.Context, id string) error
@@ -336,40 +327,27 @@ type Repository interface {
 	UpdateJobResumeState(ctx context.Context, id string, resumeState json.RawMessage) error
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
-	ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]Job, error)
 
-	// Video parts — one row per output segment. A single-part VOD has
-	// one row; a VOD that split on variant change, codec change, or
-	// restart-gap threshold has 2..N rows ordered by part_index.
+	ListFailedJobsForRetry(ctx context.Context, before time.Time, limit int) ([]Job, error)
 	CreateVideoPart(ctx context.Context, input *VideoPartInput) (*VideoPart, error)
 	FinalizeVideoPart(ctx context.Context, input *VideoPartFinalize) error
 	GetVideoPart(ctx context.Context, id int64) (*VideoPart, error)
 	GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*VideoPart, error)
 	ListVideoParts(ctx context.Context, videoID int64) ([]VideoPart, error)
-	// ListVideoPartsForVideos batches part lookups across a set of video IDs
-	// (rows ordered by video_id then part_index) so callers iterating active
-	// downloads don't fan out one ListVideoParts query per video.
+	// ListVideoPartsForVideos returns parts ordered by video ID, then part index.
 	ListVideoPartsForVideos(ctx context.Context, videoIDs []int64) ([]VideoPart, error)
 	CountVideoParts(ctx context.Context, videoID int64) (int64, error)
-	// HasFinalizedVideoParts reports whether any part for the video
-	// has been remuxed to storage (size_bytes > 0). The downloader
-	// uses this on the failure path to decide between completion
-	// kinds: a failed run with at least one finalized part is
-	// "partial" (some watchable output exists), with none it's just a
-	// failed run with no recoverable artifact.
+	// HasFinalizedVideoParts reports whether any part has stored output bytes,
+	// which permits classifying a failed recording as partial.
 	HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error)
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 
-	// Video playback assets — optional playback-optimized artifacts generated
-	// after the durable video_parts have been stored. A ready asset is a single
-	// source the watch page can use without client-side part switching.
 	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (*VideoPlaybackAsset, error)
 	UpsertVideoPlaybackAsset(ctx context.Context, input *VideoPlaybackAssetInput) (*VideoPlaybackAsset, error)
 	TouchVideoPlaybackAsset(ctx context.Context, videoID int64) error
 	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
 	DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error
 
-	// Titles
 	UpsertTitle(ctx context.Context, name string) (*Title, error)
 	LinkStreamTitle(ctx context.Context, streamID string, titleID int64) error
 	LinkVideoTitle(ctx context.Context, videoID int64, titleID int64) error
@@ -377,7 +355,6 @@ type Repository interface {
 	ListTitlesForStream(ctx context.Context, streamID string) ([]Title, error)
 	ListTitlesForVideo(ctx context.Context, videoID int64) ([]TitleSpan, error)
 
-	// Junctions (categories, tags, requests)
 	LinkStreamCategory(ctx context.Context, streamID, categoryID string) error
 	LinkVideoCategory(ctx context.Context, videoID int64, categoryID string) error
 	UpsertVideoCategorySpan(ctx context.Context, videoID int64, categoryID string, at time.Time) error
@@ -388,17 +365,12 @@ type Repository interface {
 	CloseOpenVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
 	ResumeVideoMetadataSpans(ctx context.Context, videoID int64, at time.Time) error
 
-	// RecordVideoMetadataChange runs the title + category + event
-	// writes for one channel.update observation in a single
-	// transaction so the dashboard timeline never sees a partial
-	// event. Empty Title and CategoryID return ErrNoMetadataObserved
-	// without opening a tx. The returned result lets the caller
-	// drive post-tx side effects (currently the category-art enrich)
-	// without re-querying.
+	// RecordVideoMetadataChange atomically writes a metadata observation.
+	// Empty title and category return ErrNoMetadataObserved; the result supports
+	// effects after commit.
 	RecordVideoMetadataChange(ctx context.Context, input VideoMetadataChangeInput) (*VideoMetadataChangeResult, error)
-	// ListVideoMetadataChanges returns the merged chronological
-	// timeline for one recording, with title and category rows
-	// hydrated. Used by the video.timeline tRPC endpoint.
+	// ListVideoMetadataChanges returns chronological observations with title and
+	// category rows hydrated.
 	ListVideoMetadataChanges(ctx context.Context, videoID int64) ([]VideoMetadataChange, error)
 	ListTagsForVideo(ctx context.Context, videoID int64) ([]Tag, error)
 
@@ -417,7 +389,6 @@ type Repository interface {
 	// creating a schedule if the request is no longer pending.
 	ApproveScheduleRequest(ctx context.Context, requestID int64, decidedBy string, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, bool, error)
 
-	// Download schedules — auto-record rules matched on stream.online.
 	CreateSchedule(ctx context.Context, input *ScheduleInput) (*DownloadSchedule, error)
 	CreateScheduleWithFilters(ctx context.Context, input *ScheduleInput, filters ScheduleFilterInput) (*DownloadSchedule, error)
 	GetSchedule(ctx context.Context, id int64) (*DownloadSchedule, error)
@@ -428,8 +399,8 @@ type Repository interface {
 	DeleteSchedule(ctx context.Context, id int64) error
 	ListSchedules(ctx context.Context, limit, offset int) ([]DownloadSchedule, error)
 	ListSchedulesForUser(ctx context.Context, userID string, limit, offset int) ([]DownloadSchedule, error)
-	// ListActiveSchedulesForBroadcaster is the hot path: called on every
-	// stream.online webhook. Must be fast (partial index on is_disabled).
+	// ListActiveSchedulesForBroadcaster runs on every stream.online event and must
+	// retain its indexed lookup of enabled schedules.
 	ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]DownloadSchedule, error)
 	RecordScheduleTrigger(ctx context.Context, id int64) error
 	LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error
@@ -443,12 +414,11 @@ type Repository interface {
 	ClearScheduleTags(ctx context.Context, scheduleID int64) error
 	ListScheduleTags(ctx context.Context, scheduleID int64) ([]Tag, error)
 
-	// EventSub subscriptions (soft-delete via MarkSubscriptionRevoked).
+	// CreateSubscription inserts a mirrored EventSub subscription; revocation is a
+	// soft deletion via MarkSubscriptionRevoked.
 	CreateSubscription(ctx context.Context, input *SubscriptionInput) (*Subscription, error)
-	// UpsertSubscription mirrors a Twitch-reported sub into the local
-	// table. Used by the snapshot self-heal path when Twitch returns
-	// a sub we didn't create (or whose create-mirror failed) — lets
-	// the snapshot junction link to a real subscriptions row.
+	// UpsertSubscription mirrors Twitch-reported subscriptions even when the
+	// original create was not recorded locally.
 	UpsertSubscription(ctx context.Context, input *SubscriptionInput) (*Subscription, error)
 	GetSubscription(ctx context.Context, id string) (*Subscription, error)
 	GetActiveSubscriptionForBroadcasterType(ctx context.Context, broadcasterID, subType string) (*Subscription, error)
@@ -460,15 +430,12 @@ type Repository interface {
 	DeleteSubscription(ctx context.Context, id string) error
 	CountActiveSubscriptions(ctx context.Context) (int64, error)
 
-	// EventSub snapshots + junction for historical state reconstruction.
 	CreateEventSubSnapshot(ctx context.Context, total, totalCost, maxTotalCost int64) (*EventSubSnapshot, error)
 	GetLatestEventSubSnapshot(ctx context.Context) (*EventSubSnapshot, error)
 	ListEventSubSnapshots(ctx context.Context, limit, offset int) ([]EventSubSnapshot, error)
 	DeleteOldEventSubSnapshots(ctx context.Context, before time.Time) error
 	LinkSnapshotSubscription(ctx context.Context, snapshotID int64, subscriptionID string, costAtSnapshot int64, statusAtSnapshot string) error
 
-	// Scheduled tasks — registered on startup, runtime state mutated
-	// by the scheduler. See queries/*/tasks.sql for the state-machine.
 	UpsertTask(ctx context.Context, name, description string, intervalSeconds int64) (*Task, error)
 	GetTask(ctx context.Context, name string) (*Task, error)
 	ListTasks(ctx context.Context) ([]Task, error)
@@ -481,7 +448,6 @@ type Repository interface {
 	SetTaskEnabled(ctx context.Context, name string, enabled bool) (*Task, error)
 	SetTaskNextRun(ctx context.Context, name string) error
 
-	// Event logs — append-only app-side audit trail.
 	CreateEventLog(ctx context.Context, input *EventLogInput) (*EventLog, error)
 	ListEventLogs(ctx context.Context, limit, offset int) ([]EventLog, error)
 	ListEventLogsByDomain(ctx context.Context, domain string, limit, offset int) ([]EventLog, error)
@@ -490,11 +456,9 @@ type Repository interface {
 	CountEventLogsByDomain(ctx context.Context, domain string) (int64, error)
 	DeleteOldEventLogs(ctx context.Context, before time.Time) error
 
-	// Settings — per-user preferences.
 	GetSettings(ctx context.Context, userID string) (*Settings, error)
 	UpsertSettings(ctx context.Context, s *Settings) (*Settings, error)
 
-	// Server settings — process-wide settings configured by the owner UI.
 	GetServerSettings(ctx context.Context) (*ServerSettings, error)
 	UpsertServerSettings(ctx context.Context, s *ServerSettings) (*ServerSettings, error)
 	UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*ServerSettings, error)
@@ -554,7 +518,6 @@ type Repository interface {
 	GetServerHMACSecret(ctx context.Context) (string, error)
 	EnsureServerHMACSecret(ctx context.Context, secret string) error
 
-	// Webhook events — audit log with state machine + retention.
 	CreateWebhookEvent(ctx context.Context, input *WebhookEventInput) (*WebhookEvent, error)
 	GetWebhookEvent(ctx context.Context, id int64) (*WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (*WebhookEvent, error)

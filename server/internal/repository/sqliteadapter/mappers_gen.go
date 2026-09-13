@@ -87,18 +87,63 @@ func sqliteEventLogsToDomain(rows []sqlitegen.EventLog) []repository.EventLog {
 
 func sqliteJobToDomain(src sqlitegen.Job) *repository.Job {
 	return &repository.Job{
-		Attempt:       int32(src.Attempt),
+		AcceptsMetadata: src.AcceptsMetadata != 0,
+		Attempt:         int32(src.Attempt),
+		BroadcasterID:   src.BroadcasterID,
+		CreatedAt:       src.CreatedAt.Time,
+		Error:           fromNullString(src.Error),
+		ExecutionID:     src.ExecutionID,
+		FinishedAt:      timePtrFromSQLite(src.FinishedAt),
+		ID:              src.ID,
+		ResumeState:     json.RawMessage(src.ResumeState),
+		StartedAt:       timePtrFromSQLite(src.StartedAt),
+		Status:          src.Status,
+		StopRequested:   src.StopRequested != 0,
+		UpdatedAt:       src.UpdatedAt.Time,
+		VideoID:         src.VideoID,
+	}
+}
+
+func sqliteMediaPublicationToDomain(src sqlitegen.MediaPublication) *repository.MediaPublication {
+	return &repository.MediaPublication{
+		DeleteRequested: src.DeleteRequested != 0,
+		Digest:          src.Digest,
+		Key:             src.Key,
+		SizeBytes:       src.SizeBytes,
+		Unresolved:      src.Unresolved != 0,
+		VideoID:         src.VideoID,
+	}
+}
+
+func sqliteMediaPublicationsToDomain(rows []sqlitegen.MediaPublication) []repository.MediaPublication {
+	out := make([]repository.MediaPublication, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteMediaPublicationToDomain(r)
+	}
+	return out
+}
+
+func sqliteRecordingIntentToDomain(src sqlitegen.RecordingIntent) *repository.RecordingIntent {
+	return &repository.RecordingIntent{
 		BroadcasterID: src.BroadcasterID,
 		CreatedAt:     src.CreatedAt.Time,
-		Error:         fromNullString(src.Error),
-		FinishedAt:    timePtrFromSQLite(src.FinishedAt),
+		CurrentJobID:  src.CurrentJobID,
 		ID:            src.ID,
-		ResumeState:   json.RawMessage(src.ResumeState),
-		StartedAt:     timePtrFromSQLite(src.StartedAt),
+		LastStreamID:  src.LastStreamID,
+		Params:        json.RawMessage(src.Params),
 		Status:        src.Status,
-		UpdatedAt:     src.UpdatedAt.Time,
-		VideoID:       src.VideoID,
+		StopRequested: src.StopRequested != 0,
+		WaitSeconds:   src.WaitSeconds,
+		WaitUntil:     timePtrFromSQLite(src.WaitUntil),
 	}
+}
+
+func sqliteRecordingIntentsToDomain(rows []sqlitegen.RecordingIntent) []repository.RecordingIntent {
+	out := make([]repository.RecordingIntent, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteRecordingIntentToDomain(r)
+	}
+	return out
 }
 
 func sqliteRecordingWebhookDeliveryToDomain(src sqlitegen.RecordingWebhookDelivery) *repository.RecordingWebhookDelivery {
@@ -175,7 +220,9 @@ func sqliteTaskToDomain(src sqlitegen.Task) *repository.Task {
 	return &repository.Task{
 		CreatedAt:       src.CreatedAt.Time,
 		Description:     src.Description,
+		ExecutionID:     src.ExecutionID,
 		IntervalSeconds: int32(src.IntervalSeconds),
+		IsAvailable:     src.IsAvailable != 0,
 		IsEnabled:       src.IsEnabled != 0,
 		LastDurationMs:  int32(src.LastDurationMs),
 		LastError:       fromNullString(src.LastError),

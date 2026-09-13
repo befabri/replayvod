@@ -73,6 +73,13 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Recording_TerminalOutboxRollback", testRecordingTerminalOutboxRollback)
 	run("Transaction_NestedRejected", testNestedTransactionRejected)
 
+	run("CreateAttemptAtomic", testCreateAttemptAtomic)
+	run("RecordingIntentAtomicity", testRecordingIntentAtomicity)
+	run("RecordingIntentConstraints", testRecordingIntentConstraints)
+	run("AttemptStopSurvivesCheckpointsAndFencesWriters", testAttemptStopSurvivesCheckpointsAndFencesWriters)
+	run("StoppedAttemptDiscovery", testStoppedAttemptDiscovery)
+	run("AttemptCommitConfirmationLost", testAttemptCommitConfirmationLost)
+
 	// schedules
 	run("Schedule_UpsertPreservesTriggerCount", testScheduleUpsertPreservesTriggerCount)
 	run("Schedule_FilterLinkFailureRollsBack", testScheduleFilterLinkFailureRollsBack)

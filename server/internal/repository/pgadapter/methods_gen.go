@@ -27,6 +27,14 @@ func (a *PGAdapter) ClearWebhookEventPayload(ctx context.Context, before time.Ti
 	return a.queries.ClearWebhookEventPayload(ctx, before)
 }
 
+func (a *PGAdapter) CloseRecordingIntent(ctx context.Context, id, status string) error {
+	return a.queries.CloseRecordingIntent(ctx, pggen.CloseRecordingIntentParams{ID: id, Status: status})
+}
+
+func (a *PGAdapter) ConfirmMediaPublication(ctx context.Context, key, digest string) error {
+	return a.queries.ConfirmMediaPublication(ctx, pggen.ConfirmMediaPublicationParams{Key: key, Digest: digest})
+}
+
 func (a *PGAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
 	return a.queries.DeleteChannel(ctx, broadcasterID)
 }
@@ -37,6 +45,10 @@ func (a *PGAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
 
 func (a *PGAdapter) DeleteExpiredSessions(ctx context.Context) error {
 	return a.queries.DeleteExpiredSessions(ctx)
+}
+
+func (a *PGAdapter) DeleteMediaPublication(ctx context.Context, key string) error {
+	return a.queries.DeleteMediaPublication(ctx, key)
 }
 
 func (a *PGAdapter) DeleteOldEventLogs(ctx context.Context, before time.Time) error {
@@ -139,12 +151,28 @@ func (a *PGAdapter) GetLastLiveStream(ctx context.Context, broadcasterID string)
 	return pgStreamToDomain(row), nil
 }
 
+func (a *PGAdapter) GetMediaPublication(ctx context.Context, key string) (*repository.MediaPublication, error) {
+	row, err := a.queries.GetMediaPublication(ctx, key)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgMediaPublicationToDomain(row), nil
+}
+
 func (a *PGAdapter) GetNextQueuedArchiveJob(ctx context.Context) (*repository.Job, error) {
 	row, err := a.queries.GetNextQueuedArchiveJob(ctx)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return pgJobToDomain(row), nil
+}
+
+func (a *PGAdapter) GetRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
+	row, err := a.queries.GetRecordingIntent(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgRecordingIntentToDomain(row), nil
 }
 
 func (a *PGAdapter) GetScheduleRequest(ctx context.Context, id int64) (*repository.ScheduleRequest, error) {
@@ -237,6 +265,14 @@ func (a *PGAdapter) GetVideo(ctx context.Context, id int64) (*repository.Video, 
 
 func (a *PGAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*repository.Video, error) {
 	row, err := a.queries.GetVideoByJobID(ctx, jobID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgVideoToDomain(row), nil
+}
+
+func (a *PGAdapter) GetVideoForUpdate(ctx context.Context, id int64) (*repository.Video, error) {
+	row, err := a.queries.GetVideoForUpdate(ctx, id)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -367,8 +403,28 @@ func (a *PGAdapter) RecordScheduleTrigger(ctx context.Context, id int64) error {
 	return a.queries.RecordScheduleTrigger(ctx, id)
 }
 
+func (a *PGAdapter) RecoverInterruptedTasks(ctx context.Context) error {
+	return a.queries.RecoverInterruptedTasks(ctx)
+}
+
 func (a *PGAdapter) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
 	return a.queries.RemoveFromWhitelist(ctx, twitchUserID)
+}
+
+func (a *PGAdapter) RequestJobStop(ctx context.Context, id string) error {
+	return a.queries.RequestJobStop(ctx, id)
+}
+
+func (a *PGAdapter) RequestMediaPublicationDelete(ctx context.Context, key string) error {
+	return a.queries.RequestMediaPublicationDelete(ctx, key)
+}
+
+func (a *PGAdapter) RequestRecordingIntentStop(ctx context.Context, id string) error {
+	return a.queries.RequestRecordingIntentStop(ctx, id)
+}
+
+func (a *PGAdapter) ResetTaskAvailability(ctx context.Context) error {
+	return a.queries.ResetTaskAvailability(ctx)
 }
 
 func (a *PGAdapter) SetSchedulesPaused(ctx context.Context, paused bool) (*repository.ServerSettings, error) {

@@ -12,8 +12,12 @@ import (
 )
 
 type Querier interface {
+	ActivateRecordingIntent(ctx context.Context, arg ActivateRecordingIntentParams) (int64, error)
 	AddToWhitelist(ctx context.Context, twitchUserID string) error
+	BeginMediaPublication(ctx context.Context, arg BeginMediaPublicationParams) (MediaPublication, error)
+	CheckpointAttempt(ctx context.Context, arg CheckpointAttemptParams) (int64, error)
 	ClaimDueRecordingWebhookDelivery(ctx context.Context, now *sqlitetype.Time) (RecordingWebhookDelivery, error)
+	ClaimTask(ctx context.Context, arg ClaimTaskParams) (int64, error)
 	ClearArchiveRetry(ctx context.Context, id int64) (int64, error)
 	ClearScheduleCategories(ctx context.Context, scheduleID int64) error
 	ClearScheduleTags(ctx context.Context, scheduleID int64) error
@@ -32,6 +36,8 @@ type Querier interface {
 	// julianday() accepts. Some native time.Time bindings format to RFC3339,
 	// which julianday() can treat as NULL and corrupt duration sums.
 	CloseOtherOpenVideoTitleSpans(ctx context.Context, arg CloseOtherOpenVideoTitleSpansParams) error
+	CloseRecordingIntent(ctx context.Context, arg CloseRecordingIntentParams) error
+	ConfirmMediaPublication(ctx context.Context, arg ConfirmMediaPublicationParams) error
 	CountActiveSubscriptions(ctx context.Context) (int64, error)
 	CountEventLogs(ctx context.Context) (int64, error)
 	CountEventLogsByDomain(ctx context.Context, domain string) (int64, error)
@@ -51,6 +57,7 @@ type Querier interface {
 	CreateFetchLog(ctx context.Context, arg CreateFetchLogParams) error
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
+	CreateRecordingIntent(ctx context.Context, arg CreateRecordingIntentParams) error
 	CreateRecordingWebhookDelivery(ctx context.Context, arg CreateRecordingWebhookDeliveryParams) (RecordingWebhookDelivery, error)
 	CreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, arg CreateRecordingWebhookDeliveryIfEnabledParams) (RecordingWebhookDelivery, error)
 	CreateSchedule(ctx context.Context, arg CreateScheduleParams) (DownloadSchedule, error)
@@ -67,6 +74,7 @@ type Querier interface {
 	DeleteExpiredCategorySearchCache(ctx context.Context, expiresAt sqlitetype.Time) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteInvite(ctx context.Context, id int64) (int64, error)
+	DeleteMediaPublication(ctx context.Context, key string) error
 	DeleteOldEventLogs(ctx context.Context, createdAt sqlitetype.Time) error
 	DeleteOldFetchLogs(ctx context.Context, fetchedAt sqlitetype.Time) error
 	// Retention sweep: prune TERMINAL deliveries (delivered/rejected/failed) whose
@@ -87,6 +95,7 @@ type Querier interface {
 	DeleteUserSessions(ctx context.Context, userID string) error
 	DeleteVideoParts(ctx context.Context, videoID int64) error
 	DeleteVideoPlaybackAsset(ctx context.Context, videoID int64) error
+	DeleteVideoWaveformKey(ctx context.Context, videoID int64) error
 	EndStream(ctx context.Context, arg EndStreamParams) error
 	// EnsureRecordingWebhookSecret seeds the signing secret only when none is stored
 	// yet (compare-and-swap on the empty string), exactly like EnsureServerHMACSecret.
@@ -116,6 +125,7 @@ type Querier interface {
 	GetLastLiveStream(ctx context.Context, broadcasterID string) (Stream, error)
 	GetLatestAppToken(ctx context.Context) (AppAccessToken, error)
 	GetLatestSnapshot(ctx context.Context) (EventsubSnapshot, error)
+	GetMediaPublication(ctx context.Context, key string) (MediaPublication, error)
 	// Only the job a queued video currently points at qualifies, so a job left
 	// behind by an earlier attempt can never be started.
 	GetNextQueuedArchiveJob(ctx context.Context) (Job, error)
@@ -123,6 +133,8 @@ type Querier interface {
 	// rule: not removed, and either not failed or failed with a retry scheduled.
 	// Mirrors idx_videos_open_twitch_video_id.
 	GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID sql.NullString) (Video, error)
+	GetRecordingIntent(ctx context.Context, id string) (RecordingIntent, error)
+	GetRecordingIntentByJob(ctx context.Context, jobID string) (RecordingIntent, error)
 	GetSchedule(ctx context.Context, id int64) (DownloadSchedule, error)
 	GetScheduleForUserChannel(ctx context.Context, arg GetScheduleForUserChannelParams) (DownloadSchedule, error)
 	GetScheduleRequest(ctx context.Context, id int64) (ScheduleRequest, error)
@@ -143,10 +155,13 @@ type Querier interface {
 	GetUserForUpdate(ctx context.Context, id string) (User, error)
 	GetVideo(ctx context.Context, id int64) (Video, error)
 	GetVideoByJobID(ctx context.Context, jobID string) (Video, error)
+	// The first transaction statement reserves SQLite's writer before reading.
+	GetVideoForUpdate(ctx context.Context, id int64) (Video, error)
 	GetVideoPart(ctx context.Context, id int64) (VideoPart, error)
 	GetVideoPartByIndex(ctx context.Context, arg GetVideoPartByIndexParams) (VideoPart, error)
 	GetVideoPlaybackAsset(ctx context.Context, videoID int64) (VideoPlaybackAsset, error)
 	GetVideoUserState(ctx context.Context, arg GetVideoUserStateParams) (VideoUserState, error)
+	GetVideoWaveformKey(ctx context.Context, videoID int64) (string, error)
 	GetWebhookEvent(ctx context.Context, id int64) (WebhookEvent, error)
 	GetWebhookEventByEventID(ctx context.Context, eventID string) (WebhookEvent, error)
 	// True when at least one part for this video has been remuxed and
@@ -167,6 +182,7 @@ type Querier interface {
 	// re-enter case a no-op.
 	InsertVideoTitleSpan(ctx context.Context, arg InsertVideoTitleSpanParams) error
 	IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error)
+	LinkRecordingIntentVideo(ctx context.Context, arg LinkRecordingIntentVideoParams) error
 	LinkScheduleCategory(ctx context.Context, arg LinkScheduleCategoryParams) error
 	LinkScheduleTag(ctx context.Context, arg LinkScheduleTagParams) error
 	LinkSnapshotSubscription(ctx context.Context, arg LinkSnapshotSubscriptionParams) error
@@ -236,6 +252,7 @@ type Querier interface {
 	// stream per broadcaster, then filter to rn=1. Joined with channels so
 	// the caller gets display metadata in one round-trip.
 	ListLatestLivePerChannel(ctx context.Context, limit int64) ([]ListLatestLivePerChannelRow, error)
+	ListMediaPublications(ctx context.Context, arg ListMediaPublicationsParams) ([]MediaPublication, error)
 	// See postgres/videos.sql ListMissingTombstones.
 	ListMissingTombstones(ctx context.Context, arg ListMissingTombstonesParams) ([]ListMissingTombstonesRow, error)
 	// Live recordings of the given broadcasts that still hold their media, so
@@ -249,9 +266,15 @@ type Querier interface {
 	// SQLite lacks DISTINCT ON. Scanning first_seen_at keeps malformed
 	// started_at values on the returned row's hard-fail path.
 	ListPrimaryCategoriesForVideos(ctx context.Context, videoIds []int64) ([]ListPrimaryCategoriesForVideosRow, error)
+	ListQueuedArchiveJobs(ctx context.Context, arg ListQueuedArchiveJobsParams) ([]ListQueuedArchiveJobsRow, error)
 	ListReadyVideoPlaybackAssets(ctx context.Context) ([]VideoPlaybackAsset, error)
 	ListRecentArchiveFailures(ctx context.Context, arg ListRecentArchiveFailuresParams) ([]Video, error)
+	ListRecordingIntentJobs(ctx context.Context, arg ListRecordingIntentJobsParams) ([]Job, error)
+	ListRecordingPublications(ctx context.Context, arg ListRecordingPublicationsParams) ([]MediaPublication, error)
 	ListRecordingWebhookDeliveries(ctx context.Context, rowLimit int64) ([]RecordingWebhookDelivery, error)
+	ListRecoverableRecordingIntents(ctx context.Context, arg ListRecoverableRecordingIntentsParams) ([]RecordingIntent, error)
+	ListRecoveryJobs(ctx context.Context, arg ListRecoveryJobsParams) ([]Job, error)
+	ListRelatedRecordings(ctx context.Context, videoID int64) ([]ListRelatedRecordingsRow, error)
 	ListRunningJobs(ctx context.Context) ([]Job, error)
 	ListRunningLiveBroadcasters(ctx context.Context) ([]string, error)
 	ListScheduleCategories(ctx context.Context, scheduleID int64) ([]Category, error)
@@ -263,6 +286,7 @@ type Querier interface {
 	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]DownloadSchedule, error)
 	ListSchedulesForUser(ctx context.Context, arg ListSchedulesForUserParams) ([]DownloadSchedule, error)
 	ListSnapshots(ctx context.Context, arg ListSnapshotsParams) ([]EventsubSnapshot, error)
+	ListStoppedJobs(ctx context.Context, arg ListStoppedJobsParams) ([]Job, error)
 	ListStreamsByBroadcaster(ctx context.Context, arg ListStreamsByBroadcasterParams) ([]Stream, error)
 	ListStuckWebhookEvents(ctx context.Context, arg ListStuckWebhookEventsParams) ([]WebhookEvent, error)
 	ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID sql.NullString) ([]Subscription, error)
@@ -308,6 +332,7 @@ type Querier interface {
 	ListWebhookEventsByBroadcaster(ctx context.Context, arg ListWebhookEventsByBroadcasterParams) ([]WebhookEvent, error)
 	ListWebhookEventsByType(ctx context.Context, arg ListWebhookEventsByTypeParams) ([]WebhookEvent, error)
 	ListWhitelist(ctx context.Context) ([]Whitelist, error)
+	LockRecordingIntent(ctx context.Context, id string) (RecordingIntent, error)
 	// A transient archive failure: the row fails like any other, and the retry
 	// time set in the same statement keeps it open under the one-row-per-VOD
 	// rule so nobody can queue the same VOD twice while it waits.
@@ -334,8 +359,13 @@ type Querier interface {
 	MarkWebhookEventProcessed(ctx context.Context, id int64) error
 	PruneCategorySearchCache(ctx context.Context, offset int64) error
 	RecordScheduleTrigger(ctx context.Context, id int64) error
+	// Startup owns abandoned executions, including paused or unavailable one-shots.
+	RecoverInterruptedTasks(ctx context.Context) error
 	RedeemInvite(ctx context.Context, arg RedeemInviteParams) (int64, error)
 	RemoveFromWhitelist(ctx context.Context, twitchUserID string) error
+	RequestJobStop(ctx context.Context, id string) error
+	RequestMediaPublicationDelete(ctx context.Context, key string) error
+	RequestRecordingIntentStop(ctx context.Context, id string) error
 	// Queue an operator-requested deletion. Idempotent for already-queued live
 	// terminal rows; active recordings must be cancelled first.
 	// A missing-media tombstone may be removed permanently too.
@@ -345,6 +375,7 @@ type Querier interface {
 	// never revives a retry the operator cancelled a moment earlier.
 	RequeueArchiveVideo(ctx context.Context, arg RequeueArchiveVideoParams) (int64, error)
 	ResetStaleRecordingWebhookDeliveries(ctx context.Context, arg ResetStaleRecordingWebhookDeliveriesParams) error
+	ResetTaskAvailability(ctx context.Context) error
 	// See postgres/videos.sql RestoreMissingVideo.
 	RestoreMissingVideo(ctx context.Context, id int64) (int64, error)
 	// See queries/sqlite/titles.sql ResumeVideoTitleSpan for why this
@@ -381,6 +412,8 @@ type Querier interface {
 	SearchChannels(ctx context.Context, arg SearchChannelsParams) ([]Channel, error)
 	SearchVideos(ctx context.Context, arg SearchVideosParams) ([]Video, error)
 	SetChannelFavorite(ctx context.Context, arg SetChannelFavoriteParams) (ChannelUserState, error)
+	SetJobExecution(ctx context.Context, arg SetJobExecutionParams) (int64, error)
+	SetRecordingIntentWaiting(ctx context.Context, arg SetRecordingIntentWaitingParams) (int64, error)
 	// Freeze the part metadata on the first delivery build, while the video's parts
 	// still exist, so a later retry rebuilds the real part list even after retention
 	// has deleted those parts. Signed download URLs are re-minted per attempt and
@@ -412,6 +445,8 @@ type Querier interface {
 	// removed while the poster was in flight stays without one.
 	SetVideoThumbnailIfMissing(ctx context.Context, arg SetVideoThumbnailIfMissingParams) (int64, error)
 	SetVideoWatchLater(ctx context.Context, arg SetVideoWatchLaterParams) (VideoUserState, error)
+	SetVideoWaveformKey(ctx context.Context, arg SetVideoWaveformKeyParams) error
+	SettleTask(ctx context.Context, arg SettleTaskParams) (int64, error)
 	// See postgres/videos.sql SoftDeleteVideo.
 	SoftDeleteVideo(ctx context.Context, arg SoftDeleteVideoParams) error
 	StatisticsByStatus(ctx context.Context) ([]StatisticsByStatusRow, error)
@@ -439,6 +474,7 @@ type Querier interface {
 	StatisticsTotalsDoneOnly(ctx context.Context) (StatisticsTotalsDoneOnlyRow, error)
 	StatisticsUnwatched(ctx context.Context, userID string) (int64, error)
 	StatisticsWatchLater(ctx context.Context, userID string) (int64, error)
+	StopJobMetadata(ctx context.Context, arg StopJobMetadataParams) (int64, error)
 	// SQLite stores booleans as INTEGER; "NOT is_disabled" works but flips
 	// between 0/1 explicitly via CASE for clarity on non-boolean-ish values.
 	ToggleSchedule(ctx context.Context, id int64) (DownloadSchedule, error)

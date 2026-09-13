@@ -1,17 +1,10 @@
-// Command repo-adapter-gen generates the mechanical parts of the Postgres and
-// SQLite repository adapters: row->domain mappers and boilerplate method bodies.
-//
-// Mappers (mappers_gen.go) match model and sqlc-row fields by name and convert
-// via convRules; an unmapped conversion is a hard error, so non-1:1 tables stay
-// hand-written. Methods (methods_gen.go) are auto-discovered by shape
-// (exec/one-row/slice), and a hand-written method is harvested only when its
-// generated body is byte-identical. The contract test
-// (internal/repository/contracttest) is the acceptance gate for both backends.
+// repo-adapter-gen generates repository row mappers and adapter methods.
+// It harvests handwritten methods only when their generated bodies match.
 //
 // Usage:
 //
-//	go run ./tools/repo-adapter-gen            # write generated files + harvest
-//	go run ./tools/repo-adapter-gen -check     # fail if generated files are stale
+//	go run ./tools/repo-adapter-gen
+//	go run ./tools/repo-adapter-gen -check
 package main
 
 import (
@@ -70,6 +63,8 @@ var genTypes = []genSpec{
 	{name: "ChannelUserState"},
 	{name: "EventLog", slice: true},
 	{name: "Job"},
+	{name: "MediaPublication", slice: true},
+	{name: "RecordingIntent", slice: true},
 	{name: "RecordingWebhookDelivery"},
 	{name: "Stream", slice: true},
 	{name: "Subscription", slice: true},
@@ -177,8 +172,7 @@ func main() {
 	}
 
 	for _, d := range dialects {
-		// Parse the whole gen package: row structs live in models.go, query
-		// param structs (<Query>Params) in the per-query .sql.go files.
+		// sqlc places model and query parameter structs in separate files.
 		gen, err := structFieldsDir(filepath.Join(*root, d.dir, d.genPkg))
 		if err != nil {
 			fail(err)
@@ -212,10 +206,7 @@ func main() {
 			}
 			fmt.Printf("wrote %s (%s)\n", o.path, o.note)
 		}
-		// In write mode, harvest: delete the now-generated methods from the
-		// hand-written adapter files. -check never mutates; it relies on the
-		// methods_gen.go diff above (plus the compiler catching any duplicate
-		// definition) to flag a pending harvest.
+		// Check mode must leave handwritten files untouched, including pending harvests.
 		if !*check {
 			if err := applyHarvest(harvest); err != nil {
 				fail(fmt.Errorf("%s harvest: %w", d.name, err))
@@ -241,14 +232,11 @@ func generate(d dialect, domain, rows map[string]map[string]string) ([]byte, err
 		}
 		fmt.Fprintf(&body, "\nfunc %s%sToDomain(src %s.%s) *repository.%s {\n\treturn &repository.%s{\n",
 			d.name, spec.name, d.genPkg, spec.rowType(), spec.domainType(), spec.domainType())
-		// Row fields keyed by lowercased name so we can match across the
-		// initialism-casing differences between sqlc (BoxArtUrl, IgdbID) and the
-		// domain structs (BoxArtURL, IGDBID).
+		// sqlc and domain structs differ in initialism casing, such as BoxArtUrl/BoxArtURL.
 		rowByNorm := make(map[string]string, len(rowFields))
 		for rf := range rowFields {
 			rowByNorm[strings.ToLower(rf)] = rf
 		}
-		// Deterministic field order.
 		names := make([]string, 0, len(domFields))
 		for f := range domFields {
 			names = append(names, f)
@@ -490,7 +478,6 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 				return nil, nil, fmt.Errorf("method %q is in denyMethods but still present in methods_gen.go; remove it there and hand-write it", name)
 			}
 		case existing[name]:
-			// Already harvested on a prior run: regenerate it.
 			if !ok {
 				return nil, nil, fmt.Errorf("method %q is in methods_gen.go but no longer fits a generatable shape; hand-write it and delete it from methods_gen.go", name)
 			}
@@ -500,8 +487,7 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 			body.WriteString("\n")
 			body.WriteString(src)
 		case ok && hasHand:
-			// New harvest candidate: take it over only if the generated body is
-			// byte-identical to what the human wrote (zero behavior change).
+			// Only identical normalized bodies may replace handwritten implementations.
 			nc, err := normalizeFuncSrc(src)
 			if err != nil {
 				return nil, nil, fmt.Errorf("normalize candidate %q: %w", name, err)
@@ -511,16 +497,13 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 				body.WriteString(src)
 				harvest = append(harvest, harvestTarget{file: hm.file, start: hm.start, end: hm.end})
 			}
-			// Otherwise the hand-written version carries extra logic: leave it.
 		default:
-			// Either unsupported shape, or a brand-new method with no
-			// implementation: never guess. Skip.
+			// Unsupported or unimplemented methods must remain handwritten.
 		}
 	}
 
-	// Let goimports resolve the import set: generated signatures can reference
-	// arbitrary types (time, encoding/json, ...) beyond context/fmt/repository,
-	// so deriving imports from a fixed list is fragile.
+	// Generated signatures may reference arbitrary imports, so a fixed allowlist
+	// would miss valid repository types.
 	var b strings.Builder
 	fmt.Fprintf(&b, "// Code generated by repo-adapter-gen. DO NOT EDIT.\n\npackage %s\n\n%s", pkgName, body.String())
 	formatted, err := imports.Process(filepath.Join(dir, "methods_gen.go"), []byte(b.String()), &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
@@ -549,12 +532,8 @@ func classifyMethod(d dialect, name string, sig methodSig, gen map[string]map[st
 	decls := groupedDecls(sig.params, names)
 	ctxName := names[0]
 
-	// Build the query call args. A <Method>Params struct in the gen package
-	// means sqlc takes a single struct arg: fill its fields by case-insensitive
-	// name match, casting when the param type differs from the interface arg
-	// type (e.g. PG int32 / SQLite int64 limit/offset). Otherwise pass args
-	// positionally. A field/arg count or name mismatch means it is not a 1:1
-	// method (e.g. a struct input destructured by hand) -> not generatable.
+	// sqlc accepts a Params struct for multiargument queries; field names and count
+	// must match the repository signature before a method can be generated.
 	call := ctxName
 	if pf, ok := gen[name+"Params"]; ok {
 		if len(names)-1 != len(pf) {
@@ -587,14 +566,11 @@ func classifyMethod(d dialect, name string, sig methodSig, gen map[string]map[st
 		fmt.Fprintf(&b, "func (a *%s) %s(%s) error {\n\treturn a.queries.%s(%s)\n}\n",
 			d.adapterType, name, decls, name, call)
 	case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "*") && !strings.Contains(sig.results[0], "."):
-		// Interface is in package repository, so the result is the bare
-		// "*Title"; qualify it as *repository.Title in the adapter package.
+		// Unqualified interface result names belong to repository.
 		dom := strings.TrimPrefix(sig.results[0], "*")
 		fmt.Fprintf(&b, "func (a *%s) %s(%s) (*repository.%s, error) {\n", d.adapterType, name, decls, dom)
 		fmt.Fprintf(&b, "\trow, err := a.queries.%s(%s)\n", name, call)
-		// Get* may miss a row; mapErr translates the driver's no-rows error to
-		// repository.ErrNotFound. Other reads always return a row, so they wrap
-		// with context instead.
+		// Get methods translate missing rows to the shared ErrNotFound sentinel.
 		if strings.HasPrefix(name, "Get") {
 			b.WriteString("\tif err != nil {\n\t\treturn nil, mapErr(err)\n\t}\n")
 		} else {

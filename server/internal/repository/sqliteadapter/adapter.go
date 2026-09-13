@@ -31,10 +31,7 @@ func mapErr(err error) error {
 	return err
 }
 
-// SQLiteAdapter implements repository.Repository using SQLite via sqlc-generated code.
-//
-// db is kept alongside queries for ping, transactions, batch upserts, and the
-// dynamic ListVideosPage keyset query. Fixed-shape SQL goes through sqlc.
+// SQLiteAdapter implements repository.Repository with SQLite.
 type SQLiteAdapter struct {
 	queries *sqlitegen.Queries
 	db      sqlitegen.DBTX
@@ -42,9 +39,7 @@ type SQLiteAdapter struct {
 
 var _ repository.Repository = (*SQLiteAdapter)(nil)
 
-// New creates a new SQLiteAdapter. db is typically an *sql.DB but any
-// sqlitegen.DBTX works; the adapter retains it for the few raw database
-// operations that intentionally live outside sqlc.
+// New returns an adapter backed by db; transactions require a pool or transaction.
 func New(db sqlitegen.DBTX) *SQLiteAdapter {
 	return &SQLiteAdapter{queries: sqlitegen.New(db), db: db}
 }
@@ -62,9 +57,8 @@ type sqliteBeginner interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
-// inTx joins the caller's transaction when present. Otherwise it opens one,
-// committing on success and rolling back on error or panic. Only the owner of
-// the transaction commits it; compound repository methods can compose in WithTx.
+// inTx joins an existing transaction; otherwise it owns commit and rollback,
+// including rollback on panic.
 func (a *SQLiteAdapter) inTx(ctx context.Context, fn func(q *sqlitegen.Queries, tx *sql.Tx) error) error {
 	if tx, ok := a.db.(*sql.Tx); ok {
 		return fn(a.queries, tx)
@@ -84,7 +78,7 @@ func (a *SQLiteAdapter) inTx(ctx context.Context, fn func(q *sqlitegen.Queries, 
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("sqlite commit tx: %w", err)
+		return fmt.Errorf("%w: %w", repository.ErrCommitUncertain, err)
 	}
 	return nil
 }
@@ -125,8 +119,6 @@ func (a *SQLiteAdapter) UpdateUserRole(ctx context.Context, id string, role stri
 	}
 	return nil
 }
-
-// Conversion helpers
 
 func fromNullString(s sql.NullString) *string {
 	if !s.Valid {
@@ -176,11 +168,8 @@ func timePtrFromSQLite(t *sqlitetype.Time) *time.Time {
 	return &out
 }
 
-// anyToFloat64 normalises the `interface{}` that sqlc-sqlite emits
-// for expressions whose type it can't infer (CASE branches, SUM over
-// mixed-shape CASE). modernc.org/sqlite surfaces REAL columns as
-// float64 and INTEGER columns as int64; everything else falls back
-// to the string form. Zero for unknown shapes.
+// anyToFloat64 accepts SQLite REAL and INTEGER aggregates; NULL and unknown
+// representations yield zero.
 func anyToFloat64(v any) float64 {
 	switch x := v.(type) {
 	case float64:
@@ -193,8 +182,6 @@ func anyToFloat64(v any) float64 {
 		return 0
 	}
 }
-
-// Sessions
 
 func (a *SQLiteAdapter) CreateSession(ctx context.Context, s *repository.Session) error {
 	if err := a.queries.CreateSession(ctx, sqlitegen.CreateSessionParams{
@@ -253,8 +240,6 @@ func (a *SQLiteAdapter) ListUserSessions(ctx context.Context, userID string) ([]
 	}
 	return sessions, nil
 }
-
-// App Access Tokens
 
 func (a *SQLiteAdapter) GetLatestAppToken(ctx context.Context) (*repository.AppAccessToken, error) {
 	row, err := a.queries.GetLatestAppToken(ctx)

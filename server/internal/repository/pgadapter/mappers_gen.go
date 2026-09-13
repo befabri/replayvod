@@ -86,18 +86,63 @@ func pgEventLogsToDomain(rows []pggen.EventLog) []repository.EventLog {
 
 func pgJobToDomain(src pggen.Job) *repository.Job {
 	return &repository.Job{
-		Attempt:       src.Attempt,
+		AcceptsMetadata: src.AcceptsMetadata,
+		Attempt:         src.Attempt,
+		BroadcasterID:   src.BroadcasterID,
+		CreatedAt:       src.CreatedAt,
+		Error:           src.Error,
+		ExecutionID:     src.ExecutionID,
+		FinishedAt:      src.FinishedAt,
+		ID:              src.ID,
+		ResumeState:     src.ResumeState,
+		StartedAt:       src.StartedAt,
+		Status:          src.Status,
+		StopRequested:   src.StopRequested,
+		UpdatedAt:       src.UpdatedAt,
+		VideoID:         src.VideoID,
+	}
+}
+
+func pgMediaPublicationToDomain(src pggen.MediaPublication) *repository.MediaPublication {
+	return &repository.MediaPublication{
+		DeleteRequested: src.DeleteRequested,
+		Digest:          src.Digest,
+		Key:             src.Key,
+		SizeBytes:       src.SizeBytes,
+		Unresolved:      src.Unresolved,
+		VideoID:         src.VideoID,
+	}
+}
+
+func pgMediaPublicationsToDomain(rows []pggen.MediaPublication) []repository.MediaPublication {
+	out := make([]repository.MediaPublication, len(rows))
+	for i, r := range rows {
+		out[i] = *pgMediaPublicationToDomain(r)
+	}
+	return out
+}
+
+func pgRecordingIntentToDomain(src pggen.RecordingIntent) *repository.RecordingIntent {
+	return &repository.RecordingIntent{
 		BroadcasterID: src.BroadcasterID,
 		CreatedAt:     src.CreatedAt,
-		Error:         src.Error,
-		FinishedAt:    src.FinishedAt,
+		CurrentJobID:  src.CurrentJobID,
 		ID:            src.ID,
-		ResumeState:   src.ResumeState,
-		StartedAt:     src.StartedAt,
+		LastStreamID:  src.LastStreamID,
+		Params:        src.Params,
 		Status:        src.Status,
-		UpdatedAt:     src.UpdatedAt,
-		VideoID:       src.VideoID,
+		StopRequested: src.StopRequested,
+		WaitSeconds:   src.WaitSeconds,
+		WaitUntil:     src.WaitUntil,
 	}
+}
+
+func pgRecordingIntentsToDomain(rows []pggen.RecordingIntent) []repository.RecordingIntent {
+	out := make([]repository.RecordingIntent, len(rows))
+	for i, r := range rows {
+		out[i] = *pgRecordingIntentToDomain(r)
+	}
+	return out
 }
 
 func pgRecordingWebhookDeliveryToDomain(src pggen.RecordingWebhookDelivery) *repository.RecordingWebhookDelivery {
@@ -174,7 +219,9 @@ func pgTaskToDomain(src pggen.Task) *repository.Task {
 	return &repository.Task{
 		CreatedAt:       src.CreatedAt,
 		Description:     src.Description,
+		ExecutionID:     src.ExecutionID,
 		IntervalSeconds: src.IntervalSeconds,
+		IsAvailable:     src.IsAvailable,
 		IsEnabled:       src.IsEnabled,
 		LastDurationMs:  src.LastDurationMs,
 		LastError:       src.LastError,

@@ -177,8 +177,7 @@ type Category struct {
 	UpdatedAt             time.Time
 }
 
-// CategoryDetail is the category detail page payload: mirrored Twitch metadata
-// plus local aggregate facts about visible recordings linked to the category.
+// CategoryDetail combines Twitch category metadata with visible recording totals.
 type CategoryDetail struct {
 	Category   Category
 	VideoCount int64
@@ -195,9 +194,7 @@ type CategoryPageCursor struct {
 	VideoCount    int64
 }
 
-// CategoryPageItem carries the category row plus the aggregate values needed to
-// build a cursor for non-name sorts. The API maps Items back to plain Category
-// responses so the cursor details stay internal to pagination.
+// CategoryPageItem supplies the aggregate sort values needed to build a cursor.
 type CategoryPageItem struct {
 	Category      Category
 	LatestVideoAt time.Time
@@ -209,10 +206,8 @@ type CategoryPage struct {
 	NextCursor *CategoryPageCursor
 }
 
-// UniqueCategoriesByID collapses duplicate category IDs while preserving the
-// first occurrence. Batch upserts use it before constructing one INSERT so a
-// duplicate remote result cannot make PostgreSQL's ON CONFLICT path touch the
-// same row twice.
+// UniqueCategoriesByID keeps the first row for each ID so a batch upsert cannot
+// violate PostgreSQL's restriction on touching the same row twice.
 func UniqueCategoriesByID(categories []Category) []Category {
 	if len(categories) == 0 {
 		return []Category{}
@@ -255,14 +250,8 @@ func OrderCategoriesByIDs(rows []Category, ids []string) []Category {
 	return out
 }
 
-// CategorySearchCache stores a Twitch search result for a normalized category
-// query. CategoryIDs holds the raw Twitch result order as stable storage, and
-// callers de-reference IDs through ListCategoriesByIDs so the cache never
-// duplicates category metadata. That repository method preserves the first
-// occurrence order of CategoryIDs and skips missing rows. Note this stored order
-// is not the order the search endpoint serves: the service re-ranks the merged
-// local + cached + remote rows by local query relevance before returning, so
-// best-match-first wins over Twitch's own ordering.
+// CategorySearchCache stores Twitch's result order without duplicating category
+// metadata; the search service reorders resolved rows by local relevance.
 type CategorySearchCache struct {
 	NormalizedQuery string
 	CategoryIDs     []string
@@ -320,10 +309,7 @@ const (
 	QualityBest   = "BEST"
 )
 
-// QualityTierForHeight maps a rendition height to the quality choice that
-// contains it. A recording pinned to an exact height stores this tier, so the
-// row satisfies the quality CHECK and the library filter reads it like any
-// other recording.
+// QualityTierForHeight maps rendition height to the stored quality tier.
 func QualityTierForHeight(height int) string {
 	switch {
 	case height <= 480:
@@ -352,10 +338,7 @@ type Stream struct {
 	CreatedAt     time.Time
 }
 
-// LatestLiveStream is the most recent stream for a broadcaster, flattened
-// with the channel display metadata (login, name, avatar). Returned by
-// ListLatestLivePerChannel so the dashboard can render a "recently live"
-// feed without N+1 channel lookups. Ordered newest-first by StartedAt.
+// LatestLiveStream includes channel display metadata for the latest broadcast.
 type LatestLiveStream struct {
 	Stream
 	BroadcasterLogin string
@@ -374,27 +357,18 @@ type StreamInput struct {
 	StartedAt     time.Time
 }
 
-// Video is a downloaded VOD or an in-flight download. Status drives UI state
-// (PENDING queued → RUNNING downloading → DONE/FAILED terminal).
-//
-// ForceH264 is a per-job codec preference: when true the downloader's
-// Stage 3 variant picker drops HEVC and AV1 variants before running
-// the quality fallback chain. Ignored when RecordingType='audio'.
+// Video is a recording and its lifecycle state. ForceH264 excludes HEVC and AV1
+// video renditions; audio recordings ignore it.
 type Video struct {
 	ID          int64
 	JobID       string
 	Filename    string
 	DisplayName string
-	// Title is the stream title at download-start time — the thing
-	// the streamer typed as the broadcast label (e.g. "Playing ER
-	// DLC"), not the channel's display name. Empty string when
-	// Twitch didn't surface a title (rare; manual trigger against
-	// a channel that just went offline).
+	// Title is the broadcast title observed at admission, or empty when unknown.
 	Title  string
 	Status string
-	// Quality is the requested operator intent at trigger time
-	// (LOW/MEDIUM/HIGH). The selected rendition that Stage 3 actually
-	// recorded lives on SelectedQuality/SelectedFPS.
+	// Quality is the requested tier; SelectedQuality and SelectedFPS identify the
+	// recorded rendition.
 	Quality         string
 	SelectedQuality *string
 	SelectedFPS     *float64
@@ -427,21 +401,11 @@ type Video struct {
 	TriggerScheduleID         *int64
 	RetentionSourceScheduleID *int64
 	RetentionWindowHours      *int64
-	// CompletionKind distinguishes content-completeness from
-	// pipeline success. Values: "complete" (clean end), "partial"
-	// (ended but missed data — typically a shutdown-resume gap),
-	// "cancelled" (operator called Cancel). Defaults to "complete"
-	// on insert; final value is set at terminal transitions in the
-	// downloader.
+	// CompletionKind records content completeness independently of pipeline success:
+	// complete, partial, or cancelled by the operator.
 	CompletionKind string
-	// Truncated is the orthogonal stop-boundary axis: true when the
-	// recording stopped before the broadcast did (operator cancel,
-	// failed mid-run, or finalized without ever observing
-	// EXT-X-ENDLIST). False for clean DONE recordings that captured
-	// up to the playlist's natural end. Independent of
-	// CompletionKind: a recording can be both partial AND truncated
-	// (CDN rolled past us, then we stopped while live), or complete
-	// AND truncated (file is whole but the broadcast went on).
+	// Truncated reports that capture stopped before the broadcast ended, regardless
+	// of whether the captured portion is complete or partial.
 	Truncated bool
 	// Source is "live" for a recording captured from a broadcast and "vod"
 	// for an archive of a Twitch VOD downloaded after the fact. TwitchVideoID
@@ -471,19 +435,15 @@ func VideoSourceOrLive(source string) string {
 	return source
 }
 
-// VideoCompletionKind enumerates the values of videos.completion_kind.
-// Pinned to constants so the downloader and handler don't drift on
-// literals.
+// Recording completion kinds are independent of pipeline success.
 const (
 	CompletionKindComplete  = "complete"
 	CompletionKindPartial   = "partial"
 	CompletionKindCancelled = "cancelled"
 )
 
-// VideoOutcome enumerates how a terminal recording ended, which is the split
-// the download history presents. It is not a stored column: status says whether
-// the pipeline succeeded and completion_kind says whether the operator stopped
-// it, and only together do they separate a failure from a cancellation.
+// Recording outcomes combine terminal status with operator cancellation; they
+// are not stored separately.
 const (
 	VideoOutcomeCompleted = "completed"
 	VideoOutcomeFailed    = "failed"
@@ -503,9 +463,7 @@ func ClassifyVideoOutcome(status, completionKind string) string {
 	return VideoOutcomeFailed
 }
 
-// DeletionKind enumerates the values of videos.deletion_kind, set when a
-// recording is tombstoned. Pinned to constants so the retention sweep and the
-// manual-delete handler don't drift on literals.
+// Recording deletion kinds identify why a row was tombstoned.
 const (
 	DeletionKindRetention = "retention"
 	DeletionKindManual    = "manual"
@@ -518,28 +476,28 @@ const (
 // converted to a time.Duration without overflowing nanoseconds.
 const MaxRetentionWindowHours int64 = int64(1<<63-1) / int64(time.Hour)
 
-// VideoInput is the creation payload for a new download row.
-// RecordingType is required ("video" or "audio"); empty defaults to "video"
-// at the adapter layer. ForceH264 defaults to false.
+// VideoInput admits a recording; an empty RecordingType defaults to video.
 type VideoInput struct {
-	JobID       string
-	Filename    string
-	DisplayName string
-	// Title is the stream title at download-start time; pass ""
-	// when Helix didn't surface one so the row still satisfies the
-	// NOT NULL constraint.
-	Title         string
-	Status        string
-	Quality       string
-	BroadcasterID string
-	StreamID      *string
-	ViewerCount   int64
-	Language      string
-	RecordingType string
-	ForceH264     bool
-	// Retention fields are set only by schedule-triggered recordings
-	// whose matched schedules include an enabled delete policy. Manual
-	// recordings leave them nil and are outside automatic retention.
+	StreamStartedAt     time.Time // observed broadcast start; zero when unknown
+	IntentID            string
+	IntentPreviousJobID string
+	IntentParams        json.RawMessage
+	RestartWaitSeconds  int64
+	IntentObservedAt    time.Time
+	JobID               string
+	Filename            string
+	DisplayName         string
+	Title               string
+	Status              string
+	Quality             string
+	BroadcasterID       string
+	StreamID            *string
+	ViewerCount         int64
+	Language            string
+	RecordingType       string
+	ForceH264           bool
+	// TriggerScheduleID and retention fields are nil for manual recordings, which
+	// are exempt from automatic retention.
 	TriggerScheduleID         *int64
 	RetentionSourceScheduleID *int64
 	RetentionWindowHours      *int64
@@ -557,10 +515,7 @@ const (
 	RecordingTypeAudio = "audio"
 )
 
-// NormalizeRecordingType coerces an arbitrary recording_type string to a known
-// value, defaulting to video. Single source of truth for the audio-vs-video
-// decision shared by the schedule service, the webhook processor, and both DB
-// adapters.
+// NormalizeRecordingType returns audio for an audio request and video otherwise.
 func NormalizeRecordingType(value string) string {
 	if value == RecordingTypeAudio {
 		return RecordingTypeAudio
@@ -568,10 +523,8 @@ func NormalizeRecordingType(value string) string {
 	return RecordingTypeVideo
 }
 
-// ScheduleForceH264 reports the effective force_h264 flag for a recording. The
-// H.264 override only applies to video, so audio always reports false. This is
-// the single source of truth for the "audio clears force_h264" rule across the
-// write path (adapters), the read path (processor), and the service.
+// ScheduleForceH264 reports whether H.264 is requested for a video recording;
+// audio always returns false.
 func ScheduleForceH264(recordingType string, forceH264 bool) bool {
 	return NormalizeRecordingType(recordingType) == RecordingTypeVideo && forceH264
 }
@@ -592,9 +545,8 @@ type RecordingSettingsInput struct {
 	ForceH264     bool
 }
 
-// NormalizeRecordingSettings is the shared chokepoint for recording mode
-// defaults. Empty/unknown recording_type becomes video, empty quality becomes
-// HIGH, and audio always clears force_h264.
+// NormalizeRecordingSettings defaults unknown recording types to video and empty
+// quality to HIGH, and clears ForceH264 for audio.
 func NormalizeRecordingSettings(input RecordingSettingsInput) RecordingSettings {
 	recordingType := NormalizeRecordingType(input.RecordingType)
 	quality := input.Quality
@@ -633,16 +585,16 @@ const (
 	JobStatusFailed  = "FAILED"
 )
 
-// Job is the durable record of a download execution. One row per attempt
-// at turning a live stream into a stored VOD; the `videos` row is the
-// logical output, jobs accumulate over retries. ResumeState is a JSON blob
-// whose schema is documented in .docs/spec/download-pipeline.md under
-// "Resume on restart".
+// Job records a recording attempt and its recovery checkpoint; archive retries
+// create additional jobs for the same video.
 type Job struct {
-	ID            string
-	VideoID       int64
-	BroadcasterID string
-	Status        string
+	StopRequested   bool
+	ExecutionID     string
+	AcceptsMetadata bool
+	ID              string
+	VideoID         int64
+	BroadcasterID   string
+	Status          string
 	// Attempt numbers this job among the attempts of its video, starting at 1.
 	// Archive retries create a new job per attempt.
 	Attempt     int32
@@ -654,9 +606,54 @@ type Job struct {
 	UpdatedAt   time.Time
 }
 
-// JobInput is the creation payload for a new job row. Status defaults to
-// PENDING at the SQL layer. ResumeState empty means "no checkpoint yet"
-// — the adapter sends `{}` so the NOT NULL column stays unmarshal-safe.
+// Recording intent states retain the manual request while active or waiting.
+const (
+	RecordingIntentStatusActive  = "active"
+	RecordingIntentStatusWaiting = "waiting"
+	RecordingIntentStatusStopped = "stopped"
+	RecordingIntentStatusExpired = "expired"
+)
+
+// RecordingIntent holds one manual request across successive broadcasts until
+// its restart window expires or the operator stops it.
+type RecordingIntent struct {
+	ID            string
+	BroadcasterID string
+	Params        json.RawMessage
+	WaitSeconds   int64
+	Status        string
+	CurrentJobID  string
+	LastStreamID  string
+	WaitUntil     *time.Time
+	StopRequested bool
+	CreatedAt     time.Time
+}
+
+// RelatedRecording locates a video within a manual request's ordered history,
+// including removed recordings.
+type RelatedRecording struct {
+	ID              int64
+	JobID           string
+	Title           string
+	Status          string
+	CompletionKind  string
+	DeletedAt       *time.Time
+	StartDownloadAt time.Time
+	Position        int64
+}
+
+// MediaPublication tracks an object independently of application rows so cleanup
+// can reconcile an upload that finishes after its recording was deleted.
+type MediaPublication struct {
+	Key             string
+	VideoID         int64
+	Digest          string
+	SizeBytes       int64
+	Unresolved      bool
+	DeleteRequested bool
+}
+
+// JobInput creates a PENDING job; an empty ResumeState is stored as {}.
 type JobInput struct {
 	ID            string
 	VideoID       int64
@@ -666,15 +663,8 @@ type JobInput struct {
 	Attempt int32
 }
 
-// VideoPart is one output segment of a video. A job with no
-// variant/codec/container switch produces exactly one part. A job that
-// splits on variant loss, codec change, container change, or restart-gap
-// threshold produces 2..N parts, ordered by part_index.
-//
-// EndMediaSeq is nullable: the value is only known at FinalizeVideoPart.
-// A NULL EndMediaSeq means "part created, not yet finalized" — distinct
-// from a zero-length finalized part (which would have
-// EndMediaSeq == &StartMediaSeq).
+// VideoPart records one output file, ordered by PartIndex. A nil EndMediaSeq
+// means finalization has not committed; zero is a valid finalized sequence.
 type VideoPart struct {
 	ID              int64
 	VideoID         int64
@@ -693,9 +683,8 @@ type VideoPart struct {
 	UpdatedAt       time.Time
 }
 
-// VideoPartInput is the creation payload for a new part row. Duration,
-// size, thumbnail, and end_media_seq are filled in at finalization via
-// FinalizeVideoPart — they aren't known until Stage 5+ of the pipeline.
+// VideoPartInput creates a part before its duration, size, and final sequence
+// are known.
 type VideoPartInput struct {
 	VideoID       int64
 	PartIndex     int32
@@ -707,10 +696,8 @@ type VideoPartInput struct {
 	StartMediaSeq int64
 }
 
-// VideoPartFinalize is the update payload for FinalizeVideoPart — the
-// fields that are only known after Stage 5-8 of the pipeline complete.
-// Callers must always supply EndMediaSeq here; leaving it unset on a
-// finalize call is a caller bug.
+// VideoPartFinalize commits the measured output and requires EndMediaSeq,
+// including zero when that is the actual final sequence.
 type VideoPartFinalize struct {
 	ID              int64
 	DurationSeconds float64
@@ -722,18 +709,14 @@ type VideoPartFinalize struct {
 const (
 	PlaybackAssetStatusBuilding = "building"
 	PlaybackAssetStatusReady    = "ready"
-	// PlaybackAssetStatusFailed is a transient build error worth retrying;
-	// PlaybackAssetStatusUnavailable is a permanent "can't build this"
-	// (not copy-concatenable, or larger than the cache cap). The lifecycle
-	// reconciler retries only the former.
+	// PlaybackAssetStatusFailed permits retries; PlaybackAssetStatusUnavailable
+	// requires different source media or a larger capacity limit.
 	PlaybackAssetStatusFailed      = "failed"
 	PlaybackAssetStatusUnavailable = "unavailable"
 )
 
-// VideoPlaybackAsset is the optional playback-optimized artifact for a video.
-// The original video_parts remain the durable archive/download outputs; this
-// row tells the watch page whether a single fullscreen-safe playback source is
-// ready, impossible without transcoding, or failed during generation.
+// VideoPlaybackAsset describes a derived playback file; original video parts
+// remain the durable recording outputs.
 type VideoPlaybackAsset struct {
 	VideoID         int64
 	Status          string
@@ -787,15 +770,8 @@ type CategorySpan struct {
 	DurationSeconds float64
 }
 
-// VideoMetadataChange is one observed channel.update event tied to a
-// recording: at OccurredAt, the stream had Title and/or Category set
-// to these values. Each event captures every dimension observed in
-// that update — usually both, sometimes only one.
-//
-// Title and Category are nil when that dimension wasn't part of the
-// triggering event (not "the stream had no title", just "this event
-// didn't carry one"). The CHECK constraint on the table forbids
-// rows where both are nil.
+// VideoMetadataChange records observed title and category values at OccurredAt;
+// a nil dimension was absent from the observation, and both cannot be nil.
 type VideoMetadataChange struct {
 	ID                 int64
 	VideoID            int64
@@ -805,14 +781,13 @@ type VideoMetadataChange struct {
 	Category           *Category
 }
 
-// VideoMetadataChangeInput carries one channel.update observation
-// (or LinkInitialVideoMetadata download-trigger snapshot). Title and
-// CategoryID empty mean "not observed in this event"; the adapter
-// short-circuits and returns ErrNoMetadataObserved without writing.
-// CategoryName is the optional companion to CategoryID — empty means
-// "don't refresh categories.name" so an existing good name isn't
-// clobbered by a partial Helix payload.
+// VideoMetadataChangeInput carries an observation for the owning execution;
+// empty Title and CategoryID mean unobserved dimensions, and empty CategoryName
+// preserves the stored category name.
 type VideoMetadataChangeInput struct {
+	JobID              string
+	ExecutionID        string
+	Initial            bool
 	VideoID            int64
 	OccurredAt         time.Time
 	MediaOffsetSeconds *float64
@@ -821,10 +796,8 @@ type VideoMetadataChangeInput struct {
 	CategoryName       string
 }
 
-// VideoMetadataChangeResult exposes the upserted title row and the
-// category row (when written) so the caller can drive post-tx side
-// effects — currently just the box-art enrich on first observation
-// of a category — without re-querying.
+// VideoMetadataChangeResult returns the stored metadata for effects performed
+// after the observation commits.
 type VideoMetadataChangeResult struct {
 	Title    *Title
 	Category *Category
@@ -852,10 +825,8 @@ type VideoStatsByStatus struct {
 	Count  int64
 }
 
-// VideoStatsHistoryBucket is one group of the download-history counts: terminal
-// recordings by status, completion kind and tombstone state. Callers fold these
-// into an outcome vocabulary; the query deliberately does not, so the rule that
-// a cancelled run is a FAILED row lives in Go rather than in two dialects.
+// VideoStatsHistoryBucket counts terminal recordings by status, completeness,
+// and deletion state; callers derive outcomes with ClassifyVideoOutcome.
 type VideoStatsHistoryBucket struct {
 	Status         string
 	CompletionKind string
@@ -877,9 +848,7 @@ type RetentionVideo struct {
 	RetentionWindowHours *int64
 }
 
-// StorageScanVideo is a live terminal recording the storage scan checks for
-// media. Status tells the scan whether a zero-part row is a legacy single file
-// (DONE) or a failure that never wrote media (FAILED).
+// StorageScanVideo identifies a terminal recording eligible for a media check.
 type StorageScanVideo struct {
 	VideoID  int64
 	Filename string
@@ -907,34 +876,23 @@ type ListVideosOpts struct {
 	DurationMaxSeconds *float64
 	SizeMinBytes       *int64
 	SizeMaxBytes       *int64
-	// Window is a coarse recency filter resolved to a server-side
-	// `start_download_at >= now() - <interval>` predicate. "" means
-	// "no recency filter". The dashboard tab system uses "this_week".
+	// Window applies a recency filter to StartDownloadAt; empty disables it.
 	Window string // "" | "this_week"
 	// IncompleteOnly narrows to recordings that did not capture the full
 	// broadcast: completion_kind='partial' OR truncated.
 	IncompleteOnly bool
-	// WatchLaterOnly narrows to videos the current user saved for later.
 	WatchLaterOnly bool
 	// UnwatchedOnly narrows to playable recordings the current user has not
 	// started watching yet. A watch-later-only row with no watched_at timestamp
 	// still counts as unwatched.
 	UnwatchedOnly bool
-	// Outcome narrows terminal rows to one download outcome: "completed" is a
-	// DONE recording, "failed" a run that broke, "cancelled" a run the operator
-	// stopped (a FAILED row carrying completion_kind 'cancelled'). Empty means
-	// every outcome. Keeping the mapping here is what lets a caller ask for
-	// failures without knowing how a cancellation is stored.
+	// Outcome filters terminal status and completion kind using ClassifyVideoOutcome;
+	// empty includes every outcome.
 	Outcome string // "" | "completed" | "failed" | "cancelled"
-	// TerminalOnly narrows the result to terminal lifecycle rows (DONE/FAILED).
-	// History uses this with Scope="all" so active PENDING/RUNNING recordings
-	// stay on the Downloads surface instead of leaking into the audit log.
+	// TerminalOnly includes DONE and FAILED recordings.
 	TerminalOnly bool
-	// Scope selects which tombstone state to return. "" and "active"
-	// keep the historical behaviour (deleted_at IS NULL); "removed"
-	// returns only tombstoned recordings; "all" returns both. Only the
-	// keyset page query (BuildListVideosPageQuery) honours this; the
-	// channel/category grids and search always stay active-only.
+	// Scope selects active, removed, or all rows in ListVideosPage only; empty
+	// means active, and other listing methods always exclude tombstones.
 	Scope string // "" | "active" | "removed" | "all"
 	// DeletionKind narrows tombstones to why they left ("retention", "manual",
 	// "missing"); "" keeps every kind.
@@ -1000,12 +958,8 @@ type VideoListPage struct {
 	NextCursor *VideoListPageCursor
 }
 
-// SortKey renders the sort as the "<column>-<order>" token the offset-based
-// ListVideos query switches on. It runs Sort/Order through the same
-// NormalizeVideoListSort allowlist the keyset ListVideosPage path uses, so both
-// sort surfaces validate against one source of truth: an unrecognized column or
-// order collapses to "created_at-desc", which the ListVideos ORDER BY treats
-// identically to the empty default.
+// SortKey returns the SQL sort token; invalid columns or orders become
+// created_at-desc, matching the keyset pagination default.
 func (o ListVideosOpts) SortKey() string {
 	sort, order := NormalizeVideoListSort(o)
 	return sort + "-" + order
@@ -1070,9 +1024,8 @@ type ScheduleInput struct {
 	IsDisabled       bool
 }
 
-// ScheduleFilterInput captures the set-valued schedule filters stored in
-// junction tables. Repository adapters use it for atomic schedule row + filter
-// writes, while ListScheduleCategories/ListScheduleTags remain the read path.
+// ScheduleFilterInput carries the categories and tags written atomically with a
+// schedule.
 type ScheduleFilterInput struct {
 	CategoryIDs []string
 	TagIDs      []int64
@@ -1128,10 +1081,8 @@ type SnapshotSubscription struct {
 	StatusAtSnapshot string
 }
 
-// WebhookEvent is one received EventSub webhook in the audit log.
-// Payload is the raw Twitch body; nulled out by the retention task after
-// webhook_event_payload_retention_days. See migration comments for the
-// message_type / status state machine.
+// WebhookEvent stores a received EventSub event; retention clears its raw Payload
+// after webhook_event_payload_retention_days.
 type WebhookEvent struct {
 	ID               int64
 	EventID          string
@@ -1168,11 +1119,8 @@ const (
 	RecordingWebhookDeliveryFailed     = "failed"
 )
 
-// RecordingWebhookDelivery is the durable outbox row for the owner-configured
-// outbound recording webhook. A terminal recording transition inserts a pending
-// row; the dispatcher claims due rows, POSTs the signed payload, and records the
-// final or retry state here. Delivery is at-least-once: a crash after the POST
-// but before marking delivered can resend the same message_id.
+// RecordingWebhookDelivery stores an outbound recording event until settlement;
+// a crash after sending can resend the same MessageID.
 type RecordingWebhookDelivery struct {
 	ID            int64
 	MessageID     string
@@ -1220,16 +1168,15 @@ const (
 	TaskStatusInterrupted = "interrupted"
 )
 
-// Task is a registered scheduled background job. Runtime state
-// (last_run_at, last_status, next_run_at) is mutated by the scheduler
-// on each invocation; descriptive columns (name, description,
-// interval_seconds) are registered on startup and respected across
-// restarts. See queries/*/tasks.sql for the state-transition SQL.
+// Task stores operator enablement and run history across process restarts;
+// IsAvailable reflects the current process's registered capabilities.
 type Task struct {
+	ExecutionID     string
 	Name            string
 	Description     string
 	IntervalSeconds int32
 	IsEnabled       bool
+	IsAvailable     bool
 	LastRunAt       *time.Time
 	LastDurationMs  int32
 	LastStatus      string
@@ -1289,11 +1236,8 @@ type ServerSettings struct {
 	EventSubRelayIngestURL        string
 	EventSubRelaySubscribeURL     string
 	EventSubRelayLocalCallbackURL string
-	// RecordingWebhook* configure the generic outbound webhook fired when a
-	// recording reaches a terminal state. Enabled gates dispatch; URL is the
-	// receiver; Secret signs each delivery (empty until the owner UI generates
-	// one, exactly like the EventSub HMAC secret); Events is a comma-separated
-	// subset of {recording.completed, recording.failed} where empty means all.
+	// RecordingWebhookEnabled gates dispatch; an empty secret needs initialization,
+	// and empty RecordingWebhookEvents selects all terminal recording events.
 	RecordingWebhookEnabled   bool
 	RecordingWebhookURL       string
 	RecordingWebhookSecret    string
@@ -1315,4 +1259,30 @@ type ServerSettings struct {
 	StorageRestoreCursor *int64
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+}
+
+// PlaybackAssetCursor preserves the complete LRU order across bounded pages.
+type PlaybackAssetCursor struct {
+	AccessedAt  time.Time
+	GeneratedAt time.Time
+	VideoID     int64
+}
+
+// PlaybackCursor returns the position after v in playback cache eviction order.
+func PlaybackCursor(v VideoPlaybackAsset) PlaybackAssetCursor {
+	c := PlaybackAssetCursor{VideoID: v.VideoID}
+	if v.LastAccessedAt != nil {
+		c.AccessedAt = *v.LastAccessedAt
+	}
+	if v.GeneratedAt != nil {
+		c.GeneratedAt = *v.GeneratedAt
+	}
+	return c
+}
+
+// ArchiveQueueCandidate orders a pending archive by its original request time.
+type ArchiveQueueCandidate struct {
+	JobID    string
+	VideoID  int64
+	QueuedAt time.Time
 }

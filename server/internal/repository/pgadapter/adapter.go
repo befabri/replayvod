@@ -26,11 +26,7 @@ func mapErr(err error) error {
 	return err
 }
 
-// PGAdapter implements repository.Repository using PostgreSQL via sqlc-generated code.
-// sqlc.yaml maps nullable columns to *T so this adapter doesn't need pgtype shuffling.
-//
-// db is kept alongside queries for ping, transactions, batch upserts, and the
-// dynamic ListVideosPage keyset query. Fixed-shape SQL goes through sqlc.
+// PGAdapter implements repository.Repository with PostgreSQL.
 type PGAdapter struct {
 	queries *pggen.Queries
 	db      pggen.DBTX
@@ -38,9 +34,7 @@ type PGAdapter struct {
 
 var _ repository.Repository = (*PGAdapter)(nil)
 
-// New creates a new PGAdapter. db is the pgx pool or transaction
-// backing the generated queries; it's retained for the few raw database
-// operations that intentionally live outside sqlc.
+// New returns an adapter backed by db; transactions require a pool or transaction.
 func New(db pggen.DBTX) *PGAdapter {
 	return &PGAdapter{queries: pggen.New(db), db: db}
 }
@@ -57,9 +51,8 @@ type pgBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// inTx joins the caller's transaction when present. Otherwise it opens one,
-// committing on success and rolling back on error or panic. Only the owner of
-// the transaction commits it; compound repository methods can compose in WithTx.
+// inTx joins an existing transaction; otherwise it owns commit and rollback,
+// including rollback on panic.
 func (a *PGAdapter) inTx(ctx context.Context, fn func(q *pggen.Queries, tx pgx.Tx) error) error {
 	if tx, ok := a.db.(pgx.Tx); ok {
 		return fn(a.queries, tx)
@@ -79,12 +72,10 @@ func (a *PGAdapter) inTx(ctx context.Context, fn func(q *pggen.Queries, tx pgx.T
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("pg commit tx: %w", err)
+		return fmt.Errorf("%w: %w", repository.ErrCommitUncertain, err)
 	}
 	return nil
 }
-
-// Users
 
 func (a *PGAdapter) UpsertUser(ctx context.Context, u *repository.User) (*repository.User, error) {
 	row, err := a.queries.UpsertUser(ctx, pggen.UpsertUserParams{
@@ -119,8 +110,6 @@ func (a *PGAdapter) UpdateUserRole(ctx context.Context, id string, role string) 
 	}
 	return nil
 }
-
-// Sessions
 
 func (a *PGAdapter) CreateSession(ctx context.Context, s *repository.Session) error {
 	if err := a.queries.CreateSession(ctx, pggen.CreateSessionParams{
@@ -180,8 +169,6 @@ func (a *PGAdapter) ListUserSessions(ctx context.Context, userID string) ([]repo
 	return sessions, nil
 }
 
-// App Access Tokens
-
 func (a *PGAdapter) GetLatestAppToken(ctx context.Context) (*repository.AppAccessToken, error) {
 	row, err := a.queries.GetLatestAppToken(ctx)
 	if err != nil {
@@ -210,8 +197,6 @@ func (a *PGAdapter) CreateAppToken(ctx context.Context, token string, expiresAt 
 		CreatedAt: row.CreatedAt,
 	}, nil
 }
-
-// Whitelist
 
 func (a *PGAdapter) IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error) {
 	return a.queries.IsWhitelisted(ctx, twitchUserID)

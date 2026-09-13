@@ -22,6 +22,14 @@ func (a *SQLiteAdapter) ClearScheduleTags(ctx context.Context, scheduleID int64)
 	return a.queries.ClearScheduleTags(ctx, scheduleID)
 }
 
+func (a *SQLiteAdapter) CloseRecordingIntent(ctx context.Context, id, status string) error {
+	return a.queries.CloseRecordingIntent(ctx, sqlitegen.CloseRecordingIntentParams{ID: id, Status: status})
+}
+
+func (a *SQLiteAdapter) ConfirmMediaPublication(ctx context.Context, key, digest string) error {
+	return a.queries.ConfirmMediaPublication(ctx, sqlitegen.ConfirmMediaPublicationParams{Key: key, Digest: digest})
+}
+
 func (a *SQLiteAdapter) DeleteChannel(ctx context.Context, broadcasterID string) error {
 	return a.queries.DeleteChannel(ctx, broadcasterID)
 }
@@ -32,6 +40,10 @@ func (a *SQLiteAdapter) DeleteExpiredAppTokens(ctx context.Context) error {
 
 func (a *SQLiteAdapter) DeleteExpiredSessions(ctx context.Context) error {
 	return a.queries.DeleteExpiredSessions(ctx)
+}
+
+func (a *SQLiteAdapter) DeleteMediaPublication(ctx context.Context, key string) error {
+	return a.queries.DeleteMediaPublication(ctx, key)
 }
 
 func (a *SQLiteAdapter) DeleteSchedule(ctx context.Context, id int64) error {
@@ -126,12 +138,28 @@ func (a *SQLiteAdapter) GetLastLiveStream(ctx context.Context, broadcasterID str
 	return sqliteStreamToDomain(row), nil
 }
 
+func (a *SQLiteAdapter) GetMediaPublication(ctx context.Context, key string) (*repository.MediaPublication, error) {
+	row, err := a.queries.GetMediaPublication(ctx, key)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteMediaPublicationToDomain(row), nil
+}
+
 func (a *SQLiteAdapter) GetNextQueuedArchiveJob(ctx context.Context) (*repository.Job, error) {
 	row, err := a.queries.GetNextQueuedArchiveJob(ctx)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return sqliteJobToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
+	row, err := a.queries.GetRecordingIntent(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteRecordingIntentToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) GetScheduleRequest(ctx context.Context, id int64) (*repository.ScheduleRequest, error) {
@@ -224,6 +252,14 @@ func (a *SQLiteAdapter) GetVideo(ctx context.Context, id int64) (*repository.Vid
 
 func (a *SQLiteAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*repository.Video, error) {
 	row, err := a.queries.GetVideoByJobID(ctx, jobID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteVideoToDomain(row), nil
+}
+
+func (a *SQLiteAdapter) GetVideoForUpdate(ctx context.Context, id int64) (*repository.Video, error) {
+	row, err := a.queries.GetVideoForUpdate(ctx, id)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -354,8 +390,28 @@ func (a *SQLiteAdapter) RecordScheduleTrigger(ctx context.Context, id int64) err
 	return a.queries.RecordScheduleTrigger(ctx, id)
 }
 
+func (a *SQLiteAdapter) RecoverInterruptedTasks(ctx context.Context) error {
+	return a.queries.RecoverInterruptedTasks(ctx)
+}
+
 func (a *SQLiteAdapter) RemoveFromWhitelist(ctx context.Context, twitchUserID string) error {
 	return a.queries.RemoveFromWhitelist(ctx, twitchUserID)
+}
+
+func (a *SQLiteAdapter) RequestJobStop(ctx context.Context, id string) error {
+	return a.queries.RequestJobStop(ctx, id)
+}
+
+func (a *SQLiteAdapter) RequestMediaPublicationDelete(ctx context.Context, key string) error {
+	return a.queries.RequestMediaPublicationDelete(ctx, key)
+}
+
+func (a *SQLiteAdapter) RequestRecordingIntentStop(ctx context.Context, id string) error {
+	return a.queries.RequestRecordingIntentStop(ctx, id)
+}
+
+func (a *SQLiteAdapter) ResetTaskAvailability(ctx context.Context) error {
+	return a.queries.ResetTaskAvailability(ctx)
 }
 
 func (a *SQLiteAdapter) UpdateSessionActivity(ctx context.Context, hashedID string) error {
