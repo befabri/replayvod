@@ -69,6 +69,10 @@ var transformations = map[string]map[string]tableRule{
 	"057_execution_ownership": {
 		"videos": {up: failOrphanAdmissions},
 	},
+	"060_recording_workflow_upgrade": {
+		"video_parts": grows(),
+		"jobs":        {up: upgradeRecordingCheckpoints, compare: compareCheckpointRows},
+	},
 }
 
 func restoreLegacyQuality(rows []map[string]any, _ snapshot) {
