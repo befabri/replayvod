@@ -25,14 +25,15 @@ func failOrphanAdmissions(rows []map[string]any, historical snapshot) {
 		row["status"] = "FAILED"
 		row["error"] = "Admission interrupted before an attempt was created"
 		row["completion_kind"] = "complete"
-		if saved[row["id"]] {
+		size, _ := row["size_bytes"].(float64)
+		if saved[row["id"]] || size > 0 {
 			row["completion_kind"] = "partial"
 		}
 	}
 }
 
-// The probe encodes PostgreSQL JSONB bytes as hex and SQLite TEXT as a string.
-// Compare their JSON values exactly; formatting and key order are not data loss.
+// checkpointValue normalizes the probe's PostgreSQL hex and SQLite text JSON
+// encodings so formatting differences do not count as data loss.
 func checkpointValue(raw any) any {
 	text, ok := raw.(string)
 	if !ok {
@@ -115,6 +116,8 @@ func TestWorkflowUpgradeRulesPreserveUnrelatedValues(t *testing.T) {
 			{"id": float64(1), "job_id": "orphan", "status": "PENDING", "error": nil, "completion_kind": "complete", "title": "untouched"},
 			{"id": float64(2), "job_id": "partial", "status": "RUNNING", "error": nil, "completion_kind": "complete"},
 			{"id": float64(3), "job_id": "owned", "status": "RUNNING", "error": nil, "completion_kind": "complete"},
+			{"id": float64(4), "job_id": "single-pending", "status": "PENDING", "size_bytes": float64(100), "error": nil, "completion_kind": "complete"},
+			{"id": float64(5), "job_id": "single-running", "status": "RUNNING", "size_bytes": float64(100), "error": nil, "completion_kind": "complete"},
 		},
 		"jobs":                   {{"id": "owned", "status": "RUNNING", "resume_state": `{"stage":"SEGMENTS","part_bytes":12,"custom":"kept"}`}},
 		"video_parts":            {{"id": float64(10), "video_id": float64(2), "size_bytes": float64(12)}},
@@ -126,6 +129,9 @@ func TestWorkflowUpgradeRulesPreserveUnrelatedValues(t *testing.T) {
 	after := cloneSnapshot(before)
 	after["videos"][0]["status"], after["videos"][0]["error"] = "FAILED", "Admission interrupted before an attempt was created"
 	after["videos"][1]["status"], after["videos"][1]["error"], after["videos"][1]["completion_kind"] = "FAILED", "Admission interrupted before an attempt was created", "partial"
+	for _, index := range []int{3, 4} {
+		after["videos"][index]["status"], after["videos"][index]["error"], after["videos"][index]["completion_kind"] = "FAILED", "Admission interrupted before an attempt was created", "partial"
+	}
 	after["jobs"][0]["resume_state"] = hex.EncodeToString([]byte(`{"part_started":true,"stage":"SEGMENTS","part_bytes":12,"current_part_index":1,"custom":"kept"}`))
 	after["video_parts"] = append(after["video_parts"], map[string]any{"id": float64(11), "video_id": float64(4), "size_bytes": float64(100)})
 	after["video_metadata_changes"] = []map[string]any{{"id": float64(1), "video_id": float64(2)}}
@@ -133,8 +139,10 @@ func TestWorkflowUpgradeRulesPreserveUnrelatedValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(snapshot){
-		"title rewritten":        func(s snapshot) { s["videos"][0]["title"] = "lost" },
-		"owned admission failed": func(s snapshot) { s["videos"][2]["status"] = "FAILED" },
+		"title rewritten":                         func(s snapshot) { s["videos"][0]["title"] = "lost" },
+		"pending single-file media misclassified": func(s snapshot) { s["videos"][3]["completion_kind"] = "complete" },
+		"running single-file media misclassified": func(s snapshot) { s["videos"][4]["completion_kind"] = "complete" },
+		"owned admission failed":                  func(s snapshot) { s["videos"][2]["status"] = "FAILED" },
 		"checkpoint field lost": func(s snapshot) {
 			s["jobs"][0]["resume_state"] = `{"part_started":true,"stage":"SEGMENTS","part_bytes":12,"current_part_index":1}`
 		},

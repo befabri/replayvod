@@ -191,12 +191,14 @@
         "postgres": [
           "core-postgres.sql",
           "user-states.sql",
-          "migration-cleanups.sql"
+          "migration-cleanups.sql",
+          "legacy-single-file.sql"
         ],
         "sqlite": [
           "core-sqlite.sql",
           "user-states.sql",
-          "migration-cleanups.sql"
+          "migration-cleanups.sql",
+          "legacy-single-file.sql"
         ]
       },
       "recovery_files": {
@@ -391,11 +393,13 @@
       "seed_files": {
         "postgres": [
           "core-postgres.sql",
-          "migration-cleanups.sql"
+          "migration-cleanups.sql",
+          "legacy-single-file.sql"
         ],
         "sqlite": [
           "core-sqlite.sql",
-          "migration-cleanups.sql"
+          "migration-cleanups.sql",
+          "legacy-single-file.sql"
         ]
       },
       "recovery_files": {
@@ -603,12 +607,14 @@
         "postgres": [
           "core-postgres.sql",
           "user-states.sql",
-          "migration-cleanups.sql"
+          "migration-cleanups.sql",
+          "legacy-single-file.sql"
         ],
         "sqlite": [
           "core-sqlite.sql",
           "user-states.sql",
-          "migration-cleanups.sql"
+          "migration-cleanups.sql",
+          "legacy-single-file.sql"
         ]
       },
       "recovery_files": {
@@ -626,6 +632,7 @@
     "core-postgres.sql": "181007dc89d8a26ebb689f8096f22eab7bdec1e78800358f50ac7628ad100d94",
     "core-sqlite.sql": "88d497aa23dfb756d394d5edb985a00193e9e24ea30f2727506b69008a3a879e",
     "large.sql": "f14db29bbdb1b423e11ef6bfb97f87d6d6a9e914062fe9456d2c67d8b015b6bd",
+    "legacy-single-file.sql": "60e4dcacbe94cc7c20547902cec1f47b1f1001c5b2fae7d0633247f52df378a6",
     "migration-cleanups.sql": "99a2ee6713e22f6af498f035b0412210e4bafe957435c79881803f422801c8ad",
     "recording.mp4": "b2cb25296f20ac52b4149705bac2caf0b149f0519396bd692e4afc30c60b3e56",
     "recording.ts": "073af2713ef344d5849d1589e0533d71e0ce59997c422cd98c741986477079b5",
