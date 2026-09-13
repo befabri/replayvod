@@ -174,6 +174,7 @@ func TestMigrationValueTransformations(t *testing.T) {
 					{"id": float64(4), "status": "FAILED", "deleted_at": nil, "thumbnail": nil, "truncated": yes, "quality": "HIGH"},
 					{"id": float64(5), "status": "FAILED", "deleted_at": nil, "thumbnail": nil, "truncated": yes, "quality": "HIGH"},
 					{"id": float64(6), "status": "FAILED", "deleted_at": "old", "thumbnail": nil, "truncated": yes, "quality": "HIGH"},
+					{"id": float64(7), "status": "FAILED", "deleted_at": nil, "thumbnail": nil, "truncated": yes, "quality": "HIGH", "size_bytes": float64(2048)},
 				},
 				"video_parts":        {{"video_id": float64(4), "size_bytes": float64(0)}, {"video_id": float64(5), "size_bytes": float64(42)}},
 				"download_schedules": {{"id": float64(1), "quality": "LOW"}, {"id": float64(2), "quality": "MEDIUM"}},
@@ -196,16 +197,17 @@ func TestMigrationValueTransformations(t *testing.T) {
 				t.Fatalf("comparison mutated historical evidence: %v", err)
 			}
 			for name, corrupt := range map[string]func(snapshot){
-				"missing thumbnail cleanup":    func(s snapshot) { s["videos"][0]["thumbnail"] = "purged" },
-				"live thumbnail erased":        func(s snapshot) { s["videos"][1]["thumbnail"] = nil },
-				"empty failure unchanged":      func(s snapshot) { s["videos"][2]["truncated"] = yes },
-				"stub failure unchanged":       func(s snapshot) { s["videos"][3]["truncated"] = yes },
-				"saved media reclassified":     func(s snapshot) { s["videos"][4]["truncated"] = no },
-				"deleted failure reclassified": func(s snapshot) { s["videos"][5]["truncated"] = no },
-				"unrelated video column":       func(s snapshot) { s["videos"][0]["title"] = "lost" },
-				"missing video":                func(s snapshot) { s["videos"] = s["videos"][1:] },
-				"duplicate video":              func(s snapshot) { s["videos"] = append(s["videos"], s["videos"][0]) },
-				"changed dependent row":        func(s snapshot) { s["video_parts"][1]["size_bytes"] = float64(0) },
+				"missing thumbnail cleanup":      func(s snapshot) { s["videos"][0]["thumbnail"] = "purged" },
+				"live thumbnail erased":          func(s snapshot) { s["videos"][1]["thumbnail"] = nil },
+				"empty failure unchanged":        func(s snapshot) { s["videos"][2]["truncated"] = yes },
+				"stub failure unchanged":         func(s snapshot) { s["videos"][3]["truncated"] = yes },
+				"saved media reclassified":       func(s snapshot) { s["videos"][4]["truncated"] = no },
+				"single-file media reclassified": func(s snapshot) { s["videos"][6]["truncated"] = no },
+				"deleted failure reclassified":   func(s snapshot) { s["videos"][5]["truncated"] = no },
+				"unrelated video column":         func(s snapshot) { s["videos"][0]["title"] = "lost" },
+				"missing video":                  func(s snapshot) { s["videos"] = s["videos"][1:] },
+				"duplicate video":                func(s snapshot) { s["videos"] = append(s["videos"], s["videos"][0]) },
+				"changed dependent row":          func(s snapshot) { s["video_parts"][1]["size_bytes"] = float64(0) },
 			} {
 				t.Run(name, func(t *testing.T) {
 					broken := cloneSnapshot(after)
@@ -216,8 +218,7 @@ func TestMigrationValueTransformations(t *testing.T) {
 				})
 			}
 
-			// Newly written missing tombstones may keep a poster. Down must not
-			// rerun the old up backfill; it only maps unsupported enum values.
+			// Downgrade must preserve retained posters and only convert unsupported enum values.
 			written := cloneSnapshot(after)
 			written["videos"][0]["deletion_kind"] = "missing"
 			written["videos"][0]["thumbnail"] = "new-retained-poster"
@@ -239,8 +240,7 @@ func TestMigrationValueTransformations(t *testing.T) {
 				t.Fatal("rollback accepted unconverted new quality and deletion values")
 			}
 
-			// A release containing 047 must not get its allowance merely because
-			// 049 also changes videos. Select each value rule independently.
+			// An applied backfill cannot reuse its allowance when another migration changes videos.
 			partial, err := projectionFor(transformations, files, backend, released("047_videos_deletion_kind_missing"))
 			if err != nil {
 				t.Fatal(err)

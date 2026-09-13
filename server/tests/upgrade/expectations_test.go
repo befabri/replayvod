@@ -10,7 +10,6 @@ import (
 	"github.com/befabri/replayvod/server/migrations"
 )
 
-// declarationSite points failures at the rule file.
 const declarationSite = "server/tests/upgrade/expectations_test.go"
 
 // transformations declares how the migrations a candidate adds may change
@@ -51,7 +50,8 @@ var transformations = map[string]map[string]tableRule{
 				}
 			}
 			for _, row := range rows {
-				if row["status"] == "FAILED" && row["deleted_at"] == nil && !saved[row["id"]] {
+				size, _ := row["size_bytes"].(float64)
+				if size <= 0 && row["status"] == "FAILED" && row["deleted_at"] == nil && !saved[row["id"]] {
 					// The JSON probe exposes PG booleans and SQLite integers.
 					if _, ok := row["truncated"].(bool); ok {
 						row["truncated"] = false
@@ -86,15 +86,13 @@ func restoreLegacyQuality(rows []map[string]any, _ snapshot) {
 	}
 }
 
-// tableRule describes one intentional change to a table.
 type tableRule struct {
 	dropped   bool
 	renamedTo string
 	columns   map[string]string                          // historical column name to its new name
 	compare   func(before, after []map[string]any) error // replaces the exact row comparison
-	// Value transformations edit a copy of the expected rows, never actual
-	// database rows. All other values and row counts remain exact assertions.
-	// The snapshot supplies historical values from related tables when needed.
+	// up and down mutate expected rows using related historical data;
+	// undeclared values and row counts must remain unchanged.
 	up, down func(rows []map[string]any, historical snapshot)
 }
 
@@ -124,8 +122,7 @@ func retainsRows(before, after []map[string]any) error {
 	return nil
 }
 
-// schema lists the column names of each historical table, captured from the
-// catalog so empty tables keep their names.
+// schema retains catalog columns even for empty historical tables.
 type schema map[string][]string
 
 // A projection reads the candidate through the historical schema of one upgrade case.
@@ -213,7 +210,6 @@ func (p projection) queries(previous snapshot) map[string]string {
 	return queries
 }
 
-// compare checks the candidate rows against the historical rows under the rules.
 func (p projection) compare(before, after snapshot) error {
 	return p.compareDirection(before, after, false)
 }
@@ -274,7 +270,6 @@ func (p projection) compareExpected(before, after snapshot) error {
 	return nil
 }
 
-// explain turns an undeclared difference into an instruction.
 func (p projection) explain(err error) error {
 	if len(p.added) == 0 {
 		return fmt.Errorf("%w; the candidate adds no migration, so it changed historical data at startup", err)
