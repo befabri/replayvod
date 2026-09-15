@@ -501,11 +501,14 @@ export function WatchPlayer({
 	}, [seekToGlobal]);
 	const resumeNotice =
 		showResumeNotice && resumedFromSeconds != null ? (
-			<ResumeNotice
-				offsetSeconds={resumedFromSeconds}
-				onStartOver={startOver}
-				onDismiss={() => setResumeNoticeDismissed(true)}
-			/>
+			<div className="pointer-events-none absolute inset-x-0 top-full z-10 mt-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-2 motion-safe:duration-300">
+				<ResumeNotice
+					offsetSeconds={resumedFromSeconds}
+					onStartOver={startOver}
+					onDismiss={() => setResumeNoticeDismissed(true)}
+					className="shadow-lg"
+				/>
+			</div>
 		) : null;
 
 	const handleEnded = useCallback(() => {
@@ -833,7 +836,7 @@ export function WatchPlayer({
 		return (
 			<section
 				aria-label={`Audio Player - ${playlist.title}`}
-				className="rv-watch-player-audio @container z-20 flex aspect-auto h-auto min-h-0 w-full flex-col items-stretch overflow-visible rounded-xl border border-border bg-card text-card-foreground shadow-sm"
+				className="rv-watch-player-audio @container relative z-20 flex aspect-auto h-auto min-h-0 w-full flex-col items-stretch overflow-visible rounded-xl border border-border bg-card text-card-foreground shadow-sm"
 			>
 				{/* biome-ignore lint/a11y/useMediaCaption: Archived audio-only recordings do not have caption tracks. */}
 				<audio
@@ -910,7 +913,7 @@ export function WatchPlayer({
 	}
 
 	return (
-		<div className="flex flex-col gap-2">
+		<div className="relative flex flex-col gap-2">
 			<MediaPlayer
 				key={reloadNonce}
 				ref={playerRef}

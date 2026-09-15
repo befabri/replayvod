@@ -2,24 +2,28 @@ import { XIcon } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { formatPlaybackTime } from "@/features/videos/format";
+import { cn } from "@/lib/utils";
 
-// ResumeNotice tells the viewer the player opened at a saved position and
-// offers the beginning instead.
 export function ResumeNotice({
 	offsetSeconds,
 	onStartOver,
 	onDismiss,
+	className,
 }: {
 	offsetSeconds: number;
 	onStartOver: () => void;
 	onDismiss: () => void;
+	className?: string;
 }) {
 	const { t } = useTranslation();
 	return (
 		<div
 			role="status"
 			data-testid="resume-notice"
-			className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
+			className={cn(
+				"pointer-events-auto flex min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground",
+				className,
+			)}
 		>
 			<span className="min-w-0 flex-1 truncate">
 				{t("watch.resumed_from", { time: formatPlaybackTime(offsetSeconds) })}
