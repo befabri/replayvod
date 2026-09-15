@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryBoxArt } from "@/features/categories/components/CategoryBoxArt";
 import type {
@@ -12,16 +11,12 @@ import {
 	formatAverageBitrate,
 	formatBytes,
 	formatDuration,
+	formatPlaybackTime,
 } from "@/features/videos/format";
 import { useVideoCategories, useVideoTitles } from "@/features/videos/queries";
 import { dedupConsecutive } from "@/features/videos/timeline";
 import { cn } from "@/lib/utils";
 
-// VideoMetaGrid is the v1-reference meta block: a hairline-gutter grid
-// of label/value cells. The "hairline" is the project's `border` token
-// showing through 1px gaps between bg-card cells, so it remains
-// visible regardless of light/dark theme — relying on the page bg
-// being darker than the card surface only worked in dark mode.
 export function VideoMetaGrid({ video }: { video: VideoResponse }) {
 	const { t } = useTranslation();
 
@@ -39,10 +34,6 @@ export function VideoMetaGrid({ video }: { video: VideoResponse }) {
 		});
 	if (video.language)
 		rows.push({ label: t("videos.language"), value: video.language });
-	// HLS segment count: parts each cover a [start_media_seq,
-	// end_media_seq] range. Total segments is the sum of those range
-	// widths. parts is only populated by GetByID, which is what the
-	// watch page calls — so it's available here.
 	const segments = countSegments(video);
 	if (segments != null)
 		rows.push({
@@ -77,19 +68,6 @@ export function VideoMetaGrid({ video }: { video: VideoResponse }) {
 	);
 }
 
-// CategoryTimelineCard renders the category history as a v1-style
-// timeline panel: dot + connecting line on the left, time-offset and
-// content on the right. Uses video.start_download_at as the anchor so
-// the offset of the first event is "Start" (or 00:00:00) and later
-// events read as elapsed time relative to the recording, not relative
-// to the first category change.
-//
-// Hidden when there's a single category — that's already in the
-// VideoInfo chip strip (top-by-duration), so showing a one-row
-// timeline would just duplicate it. The list dialog
-// (StreamHistoryButton on VideoCard) takes the same "show only on
-// change" stance: a single entry isn't history, it's just the
-// current value.
 export function CategoryTimelineCard({
 	video,
 	className,
@@ -100,11 +78,6 @@ export function CategoryTimelineCard({
 	const { t } = useTranslation();
 	const { data: categories } = useVideoCategories(video.id);
 
-	// Run-length dedup: collapse consecutive spans for the same
-	// category. The server returns one row per span so a stream that
-	// flipped Delta Force → Delta Force (an event re-fire that didn't
-	// actually change anything) shows up as two rows here. Without
-	// dedup the timeline reads as a list of identical entries.
 	const events = dedupConsecutive(categories ?? [], (c) => c.id);
 	if (events.length === 0) return null;
 
@@ -114,17 +87,15 @@ export function CategoryTimelineCard({
 				heading={t("videos.category_history.heading")}
 				count={events.length}
 			/>
-			<CardContent className="p-4">
-				<ol className="flex flex-col">
-					{events.map((category, idx) => (
+			<CardContent className="p-0">
+				<ol className="flex flex-col divide-y divide-foreground/10">
+					{events.map((category) => (
 						<TimelineRow
 							key={`${category.id}-${category.started_at}`}
 							offsetSec={offsetSeconds(
 								category.started_at,
 								video.start_download_at,
 							)}
-							isLast={idx === events.length - 1}
-							dotClassName="bg-primary"
 						>
 							<CategoryEvent category={category} />
 						</TimelineRow>
@@ -135,10 +106,6 @@ export function CategoryTimelineCard({
 	);
 }
 
-// TitleTimelineCard mirrors CategoryTimelineCard for the title
-// history. Same run-length dedup + "only show on real change" gate
-// so a recording that never had a title change doesn't render a
-// single-row timeline that just repeats VideoInfo's heading.
 export function TitleTimelineCard({
 	video,
 	className,
@@ -158,17 +125,16 @@ export function TitleTimelineCard({
 				heading={t("videos.title_history.heading")}
 				count={events.length}
 			/>
-			<CardContent className="p-4">
-				<ol className="flex flex-col">
-					{events.map((title, idx) => (
+			<CardContent className="p-0">
+				<ol className="flex flex-col divide-y divide-foreground/10">
+					{events.map((title) => (
 						<TimelineRow
 							key={`${title.id}-${title.started_at}`}
 							offsetSec={offsetSeconds(
 								title.started_at,
 								video.start_download_at,
 							)}
-							isLast={idx === events.length - 1}
-							dotClassName="bg-link"
+							align="start"
 						>
 							<TitleEvent title={title} />
 						</TimelineRow>
@@ -188,43 +154,37 @@ function TimelineCardHeader({
 }) {
 	const { t } = useTranslation();
 	return (
-		<CardHeader className="flex-row items-center justify-between p-4 pb-3 border-b border-foreground/10">
-			<CardTitle className="text-sm uppercase tracking-wider text-muted-foreground font-medium">
+		<CardHeader className="flex-row items-center justify-between gap-3 p-5 pb-4 border-b border-foreground/10">
+			<CardTitle className="text-sm font-medium uppercase tracking-wider">
 				{heading}
 			</CardTitle>
-			<Badge variant="outline" className="tabular-nums">
+			<span className="shrink-0 text-xs tabular-nums text-foreground/60">
 				{t("watch.events_count", { count })}
-			</Badge>
+			</span>
 		</CardHeader>
 	);
 }
 
 function TimelineRow({
 	offsetSec,
-	isLast,
-	dotClassName,
+	align = "center",
 	children,
 }: {
 	offsetSec: number;
-	isLast: boolean;
-	dotClassName: string;
+	align?: "center" | "start";
 	children: React.ReactNode;
 }) {
-	const { t } = useTranslation();
-	const offsetLabel =
-		offsetSec <= 0 ? t("videos.history.start") : formatDuration(offsetSec);
 	return (
-		<li className="flex gap-3">
-			<div className="w-14 shrink-0 pt-1 text-right text-xs tabular-nums text-muted-foreground">
-				{offsetLabel}
-			</div>
-			<div className="relative flex shrink-0 flex-col items-center">
-				<span className={cn("mt-1.5 size-2 rounded-full", dotClassName)} />
-				{!isLast && <span className="w-px flex-1 bg-foreground/10" />}
-			</div>
-			<div className="flex min-w-0 flex-1 flex-col gap-1 pb-4 last:pb-0">
-				{children}
-			</div>
+		<li
+			className={cn(
+				"flex gap-3 px-5 py-3",
+				align === "center" ? "items-center" : "items-start",
+			)}
+		>
+			<span className="min-w-17 shrink-0 rounded-md bg-secondary px-2 py-1 text-center text-xs tabular-nums text-foreground/75">
+				{formatPlaybackTime(offsetSec)}
+			</span>
+			{children}
 		</li>
 	);
 }
@@ -234,14 +194,14 @@ function CategoryEvent({ category }: { category: VideoCategory }) {
 		<Link
 			to="/dashboard/categories/$categoryId"
 			params={{ categoryId: category.id }}
-			className="flex items-center gap-2.5 rounded-md hover:bg-accent/50 -mx-1 px-1 py-0.5 transition-colors"
+			className="flex min-w-0 flex-1 items-center gap-3 rounded-md -mx-1 px-1 py-0.5 transition-colors hover:bg-accent/50"
 		>
 			<CategoryBoxArt
 				url={category.box_art_url}
 				name={category.name}
-				width={28}
-				height={36}
-				className="w-7 rounded-sm shrink-0"
+				width={40}
+				height={54}
+				className="w-10 rounded-md shrink-0"
 			/>
 			<span className="truncate text-sm font-medium">{category.name}</span>
 		</Link>
@@ -249,7 +209,9 @@ function CategoryEvent({ category }: { category: VideoCategory }) {
 }
 
 function TitleEvent({ title }: { title: VideoTitle }) {
-	return <div className="text-sm leading-snug">{title.name}</div>;
+	return (
+		<div className="min-w-0 flex-1 text-sm leading-snug">{title.name}</div>
+	);
 }
 
 function offsetSeconds(at: string, anchor: string): number {
