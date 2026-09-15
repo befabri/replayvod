@@ -187,8 +187,6 @@ export function GlobalSearch({
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
 				event.preventDefault();
 				focusInput();
-				// ⌘K focuses programmatically, bypassing openOnInputClick, so reopen
-				// the panel ourselves when there's already a query to resurface.
 				if (inputRef.current?.value.trim()) setOpen(true);
 			}
 		};
@@ -244,8 +242,6 @@ export function GlobalSearch({
 			openOnInputClick={queryReady}
 			onOpenChange={(nextOpen) => setOpen(nextOpen)}
 			onInputValueChange={(value, details) => {
-				// Selecting a result makes Base UI refill the input with that item's
-				// label; ignore it so finishNavigation's clear wins on click.
 				if (details.reason === "item-press") return;
 				setQuery(value);
 				setOpen(value.trim().length > 0);
@@ -407,7 +403,10 @@ export function GlobalSearchDialog({ className }: { className?: string }) {
 				)}
 			/>
 			{open && (
-				<DialogContent className="top-4 max-w-[calc(100vw-1rem)] translate-y-0 p-3 sm:hidden">
+				<DialogContent
+					showCloseButton={false}
+					className="top-4 max-w-[calc(100vw-1rem)] translate-y-0 p-3 sm:hidden"
+				>
 					<DialogTitle className="sr-only">{t("search.title")}</DialogTitle>
 					<GlobalSearch
 						autoFocus
@@ -591,12 +590,6 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
 	);
 }
 
-// ⌘K on Apple platforms, Ctrl K elsewhere. The app is prerendered (TanStack
-// Start), where `navigator` doesn't exist, so the platform is read after mount
-// via state rather than during render: reading it while rendering would crash
-// the prerender or, on the client, hydrate a different label than the server
-// emitted. Until resolved (and whenever the hint is disabled) it stays null and
-// nothing renders.
 function useShortcutLabel(enabled: boolean | undefined): string | null {
 	const [label, setLabel] = useState<string | null>(null);
 	useEffect(() => {

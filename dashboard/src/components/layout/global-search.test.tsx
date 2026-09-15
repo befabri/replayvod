@@ -100,8 +100,6 @@ describe("GlobalSearch", () => {
 		expect(screen.getByText("search.group.videos")).toBeTruthy();
 		expect(screen.getByText("search.group.channels")).toBeTruthy();
 		expect(screen.getByText("search.group.categories")).toBeTruthy();
-		// The matched substring is wrapped in <mark> for highlighting, so the
-		// title is split across nodes; match on the leaf element's text content.
 		expect(screen.getByText(byTextContent("Neon Run"))).toBeTruthy();
 		expect(screen.getByText("videos.status.DONE")).toBeTruthy();
 
@@ -165,8 +163,6 @@ describe("GlobalSearch", () => {
 			to: "/dashboard/channels/$channelId",
 			params: { channelId: "bc-2" },
 		});
-		// Selecting a result clears the search field instead of leaving the
-		// chosen item's label behind.
 		expect(input.value).toBe("");
 	});
 
@@ -180,10 +176,19 @@ describe("GlobalSearch", () => {
 			screen.getByRole("combobox", { name: "search.input_label" }),
 		).toBeTruthy();
 	});
+
+	it("leaves the mobile dialog close to the backdrop and Escape", () => {
+		render(createElement(GlobalSearchDialog));
+		fireEvent.click(screen.getByRole("button", { name: "search.open" }));
+
+		expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+		expect(screen.queryByRole("dialog")).toBeNull();
+	});
 });
 
-// Matches the deepest element whose full text content equals `text`, so an
-// assertion survives the title being split by <mark> highlight spans.
 function byTextContent(text: string) {
 	return (_content: string, element: Element | null) =>
 		element?.textContent === text &&

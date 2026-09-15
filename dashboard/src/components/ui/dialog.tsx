@@ -20,14 +20,6 @@ function DialogClose(
 	return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
-// stopPortalBubble prevents click/pointer events fired inside the
-// portaled Dialog from bubbling through React's synthetic event tree
-// back to the Dialog's React-parent. Without this, a Dialog rendered
-// inside a clickable parent (e.g. a <Link> card wrapping a trigger
-// button) would pass backdrop-click and content-click events up to
-// that parent and trigger unwanted navigation. The DOM tree is
-// already disjoint thanks to the portal — this closes the one gap
-// React's synthetic events keep open.
 const stopPortalBubble = {
 	onClick: (e: React.MouseEvent) => e.stopPropagation(),
 	onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
@@ -36,8 +28,11 @@ const stopPortalBubble = {
 function DialogContent({
 	className,
 	children,
+	showCloseButton = true,
 	...props
-}: React.ComponentProps<typeof DialogPrimitive.Popup>) {
+}: React.ComponentProps<typeof DialogPrimitive.Popup> & {
+	showCloseButton?: boolean;
+}) {
 	return (
 		<DialogPrimitive.Portal>
 			<DialogPrimitive.Backdrop
@@ -56,12 +51,14 @@ function DialogContent({
 				{...props}
 			>
 				{children}
-				<DialogPrimitive.Close
-					className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none"
-					aria-label="Close"
-				>
-					<XIcon className="size-4" />
-				</DialogPrimitive.Close>
+				{showCloseButton && (
+					<DialogPrimitive.Close
+						className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none"
+						aria-label="Close"
+					>
+						<XIcon className="size-4" />
+					</DialogPrimitive.Close>
+				)}
 			</DialogPrimitive.Popup>
 		</DialogPrimitive.Portal>
 	);
