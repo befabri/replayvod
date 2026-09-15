@@ -1,0 +1,6 @@
+# Hand-written Repository methods per adapter package.
+# repo-adapter-gen lowers a count when it harvests a method and -check fails
+# when a count rises. Raising a count by hand is a deliberate, reviewable
+# decision that a new method cannot be generated.
+pgadapter 145
+sqliteadapter 145

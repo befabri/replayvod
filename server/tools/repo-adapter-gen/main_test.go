@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -303,6 +305,42 @@ func TestRowLockGuardAndAlias(t *testing.T) {
 	c := harvested(t, r, "ListEventSubSnapshots", ctxSig([]string{"[]EventSubSnapshot", "error"}), aliased)
 	if c == nil || !strings.Contains(c.emit, "pgSnapshotsToDomain(rows)") {
 		t.Errorf("aliased query was not harvested onto the generated mapper: %+v", c)
+	}
+}
+
+func TestRatchet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), baselineFile)
+	if err := ratchet(path, map[string]int{"pgadapter": 10, "sqliteadapter": 12}, true); err == nil {
+		t.Error("check mode accepted a missing baseline")
+	}
+	if err := ratchet(path, map[string]int{"pgadapter": 10, "sqliteadapter": 12}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := ratchet(path, map[string]int{"pgadapter": 10, "sqliteadapter": 12}, true); err != nil {
+		t.Errorf("check mode rejected an exact baseline: %v", err)
+	}
+	if err := ratchet(path, map[string]int{"pgadapter": 11, "sqliteadapter": 12}, true); err == nil {
+		t.Error("check mode accepted a rising count")
+	}
+	if err := ratchet(path, map[string]int{"pgadapter": 11, "sqliteadapter": 12}, false); err == nil {
+		t.Error("generating mode accepted a rising count")
+	}
+	if err := ratchet(path, map[string]int{"pgadapter": 9, "sqliteadapter": 12}, true); err == nil {
+		t.Error("check mode accepted a stale baseline")
+	}
+	if err := ratchet(path, map[string]int{"pgadapter": 9, "sqliteadapter": 12}, false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readBaseline(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["pgadapter"] != 9 || got["sqliteadapter"] != 12 {
+		t.Errorf("baseline after lowering = %v", got)
+	}
+	raw, _ := os.ReadFile(path)
+	if !strings.HasPrefix(string(raw), "# ") {
+		t.Errorf("baseline lost its header:\n%s", raw)
 	}
 }
 

@@ -5,6 +5,10 @@
 //
 //	go run ./tools/repo-adapter-gen
 //	go run ./tools/repo-adapter-gen -check
+//
+// handwritten_baseline.txt records how many Repository methods each adapter
+// still implements by hand; a run lowers the numbers and -check fails when
+// they rise.
 package main
 
 import (
@@ -254,6 +258,7 @@ func main() {
 			genAlias: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen", rowLocks: rowLocks},
 	}
 
+	handCounts := map[string]int{}
 	for _, d := range dialects {
 		// sqlc places model and query parameter structs in separate files.
 		genDir := filepath.Join(*root, d.dir, d.genPkg)
@@ -269,10 +274,11 @@ func main() {
 		if err != nil {
 			fail(fmt.Errorf("%s mappers: %w", d.name, err))
 		}
-		methodSrc, harvest, _, err := generateMethods(d, methods, gen, queries, *root)
+		methodSrc, harvest, handCount, err := generateMethods(d, methods, gen, queries, *root)
 		if err != nil {
 			fail(fmt.Errorf("%s methods: %w", d.name, err))
 		}
+		handCounts[filepath.Base(d.dir)] = handCount
 		outputs := []struct {
 			path string
 			src  []byte
@@ -300,6 +306,9 @@ func main() {
 				fail(fmt.Errorf("%s harvest: %w", d.name, err))
 			}
 		}
+	}
+	if err := ratchet(filepath.Join(*root, "tools/repo-adapter-gen", baselineFile), handCounts, *check); err != nil {
+		fail(err)
 	}
 }
 
