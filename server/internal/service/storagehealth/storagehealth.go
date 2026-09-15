@@ -309,17 +309,17 @@ func (m *Monitor) probe(ctx context.Context, action func(context.Context) error)
 	probeCtx, cancel := context.WithTimeout(ctx, m.probeTimeout)
 	defer cancel()
 	if err := probeCtx.Err(); err != nil {
-		return m.Status(), probeError(err)
+		return m.Status(), probeError(ctx, err)
 	}
 	select {
 	case m.probeGate <- struct{}{}:
 	case <-probeCtx.Done():
-		return m.Status(), probeError(probeCtx.Err())
+		return m.Status(), probeError(ctx, probeCtx.Err())
 	}
 	// An already-cancelled caller can win select; an abandoned adoption must not write a marker.
 	if err := probeCtx.Err(); err != nil {
 		<-m.probeGate
-		return m.Status(), probeError(err)
+		return m.Status(), probeError(ctx, err)
 	}
 	type result struct {
 		id  string
@@ -350,10 +350,10 @@ func (m *Monitor) probe(ctx context.Context, action func(context.Context) error)
 	}
 	// Caller cancellation leaves shared readiness unchanged but must still fail Verify.
 	if err := ctx.Err(); err != nil {
-		return m.Status(), probeError(err)
+		return m.Status(), probeError(ctx, err)
 	}
 	if err := probeCtx.Err(); err != nil {
-		res = result{id: m.Status().StorageID, err: probeError(err)}
+		res = result{id: m.Status().StorageID, err: probeError(ctx, err)}
 	}
 	if stateOf(res.err) == StateUnreachable && !errors.Is(res.err, storage.ErrUnreachable) {
 		res.err = fmt.Errorf("%w: %w", storage.ErrUnreachable, res.err)
@@ -361,7 +361,13 @@ func (m *Monitor) probe(ctx context.Context, action func(context.Context) error)
 	return m.record(ctx, res.id, res.err), res.err
 }
 
-func probeError(err error) error {
+// probeError wraps err as an unreachable verdict, marking it ErrCallerGone when
+// the caller's context is the one that ended. err alone cannot say whose clock
+// expired, and a caller that went away is not evidence about storage.
+func probeError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("%w: %w: %w", storage.ErrUnreachable, storage.ErrCallerGone, err)
+	}
 	return fmt.Errorf("%w: storage probe did not finish: %w", storage.ErrUnreachable, err)
 }
 

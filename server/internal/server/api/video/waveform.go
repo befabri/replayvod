@@ -28,7 +28,6 @@ type WaveformGenerator = waveform.Generator
 
 type AudioWaveformResponse = waveform.Response
 
-// waveformFlights shares active rebuilds only; completed artifacts live in storage.
 type waveformFlights struct {
 	runner *background.Runner
 	mu     sync.Mutex
@@ -107,7 +106,7 @@ func (h *StreamHandler) streamAudioWaveform(w http.ResponseWriter, r *http.Reque
 
 	resp, status, err := h.audioWaveform(r.Context(), id)
 	if err != nil {
-		if clientGone(err) {
+		if clientGone(r.Context(), err) {
 			http.Error(w, "client closed request", statusClientClosed)
 			return
 		}
@@ -183,8 +182,6 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 			}
 			return AudioWaveformResponse{}, waveformErrorStatus(err), err
 		}
-		// Generation can outlive deletion. Hold publication ownership through the
-		// freshness check and Save so retention cannot purge between them.
 		unlock, err := h.storage.Lock(buildCtx, id)
 		if err != nil {
 			return AudioWaveformResponse{}, http.StatusInternalServerError, err
@@ -201,8 +198,6 @@ func (h *StreamHandler) audioWaveform(ctx context.Context, id int64) (AudioWavef
 		case fresh.Status != repository.VideoStatusDone:
 			return AudioWaveformResponse{}, http.StatusNotFound, nil
 		}
-		// Generation may outlast the cached readiness lease or a volume swap.
-		// Probe the identity again before publishing to the configured path.
 		if err := h.verifyStorage(buildCtx); err != nil {
 			return AudioWaveformResponse{}, http.StatusServiceUnavailable, err
 		}

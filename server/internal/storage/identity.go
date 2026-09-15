@@ -27,6 +27,10 @@ var (
 	// ErrFull means identity is verified but capacity or quota is exhausted.
 	// Reads and deletions remain available so cleanup can reclaim space.
 	ErrFull = errors.New("storage full")
+	// ErrCallerGone means a readiness probe reached no verdict because the
+	// caller's context ended first, which is not evidence about storage. It
+	// wraps alongside ErrUnreachable so reads still fail closed.
+	ErrCallerGone = errors.New("storage probe abandoned by caller")
 )
 
 // CanRead reports whether a readiness verdict authenticates the storage for
@@ -40,6 +44,8 @@ func CanRead(err error) bool {
 func CanDelete(err error) bool {
 	return err == nil || errors.Is(err, ErrFull)
 }
+
+func CallerGone(err error) bool { return errors.Is(err, ErrCallerGone) }
 
 // Identity is what the readiness checks need from a backend: object access for
 // the marker plus a reachability probe of the root location.

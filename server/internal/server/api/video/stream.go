@@ -25,8 +25,11 @@ import (
 // on seeks; metadata reads cancelled by those aborts should not report server errors.
 const statusClientClosed = 499
 
-func clientGone(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+// clientGone reports whether the request itself ended. The error cannot say:
+// a context error under a live request came from an internal timer or a probe
+// deadline, and answering 499 there stops the player retrying an outage.
+func clientGone(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || storage.CallerGone(err)
 }
 
 // PlaybackBuilder admits work independently of the HTTP request and must
@@ -63,13 +66,12 @@ type missingCheck struct {
 }
 
 type StreamHandler struct {
-	repo     repository.Repository
-	storage  *mediastore.Store
-	verifier *videodownload.Verifier
-	builder  PlaybackBuilder
-	missing  MissingMarker
-	log      *slog.Logger
-	// missingMu protects both active checks and the bounded success cache.
+	repo                repository.Repository
+	storage             *mediastore.Store
+	verifier            *videodownload.Verifier
+	builder             PlaybackBuilder
+	missing             MissingMarker
+	log                 *slog.Logger
 	missingMu           sync.Mutex
 	missingChecks       map[int64]*missingCheck
 	activeMissingChecks int
@@ -131,7 +133,6 @@ func (h *StreamHandler) SetupSignedRoutes(r chi.Router) {
 	r.Get("/videos/{id}/parts/{part}/download", h.streamSignedPart)
 	r.Head("/videos/{id}/parts/{part}/download", h.streamSignedPart)
 }
-
 func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
@@ -146,7 +147,7 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		if clientGone(err) {
+		if clientGone(ctx, err) {
 			http.Error(w, "client closed request", statusClientClosed)
 			return
 		}
@@ -169,7 +170,7 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		if clientGone(err) {
+		if clientGone(ctx, err) {
 			http.Error(w, "client closed request", statusClientClosed)
 			return
 		}
@@ -182,17 +183,14 @@ func (h *StreamHandler) streamPlayback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	relPath := storagekeys.Video(*asset.Filename)
-	// Storage that is not attached says nothing about the artifact: answer as an
-	// outage and keep the ready row.
 	if err := h.storageUnavailable(); err != nil {
 		h.log.Warn("playback artifact requested while storage is not attached", "video_id", id, "error", err)
 		http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	// Only a definitive missing file can demote a ready artifact to part playback.
 	info, statErr := h.storage.Stat(ctx, relPath)
 	switch {
-	case clientGone(statErr) || ctx.Err() != nil:
+	case clientGone(ctx, statErr):
 		http.Error(w, "client closed request", statusClientClosed)
 		return
 	case errors.Is(statErr, fs.ErrNotExist):
@@ -240,7 +238,7 @@ func (h *StreamHandler) recheckMissingPlayback(ctx context.Context, id int64) (*
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, storage.FileInfo{}, http.StatusNotFound
 		}
-		if clientGone(err) {
+		if clientGone(ctx, err) {
 			return nil, storage.FileInfo{}, statusClientClosed
 		}
 		h.log.Error("playback stream: recheck asset failed", "error", err, "id", id)
@@ -253,17 +251,15 @@ func (h *StreamHandler) recheckMissingPlayback(ctx context.Context, id int64) (*
 	if err == nil {
 		return asset, info, http.StatusOK
 	}
-	if clientGone(err) {
+	if clientGone(ctx, err) {
 		return nil, storage.FileInfo{}, statusClientClosed
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		h.log.Warn("playback stream: recheck file failed", "error", err, "id", id)
 		return nil, storage.FileInfo{}, http.StatusServiceUnavailable
 	}
-	// A cached attached verdict can outlive a mount change. Confirm identity
-	// before letting even the current absent artifact discard its ready row.
 	if err := h.verifyStorage(ctx); !storage.CanRead(err) {
-		if clientGone(err) {
+		if clientGone(ctx, err) {
 			return nil, storage.FileInfo{}, statusClientClosed
 		}
 		return nil, storage.FileInfo{}, http.StatusServiceUnavailable
@@ -347,9 +343,13 @@ func (h *StreamHandler) serveStorageFileInfo(w http.ResponseWriter, r *http.Requ
 // marker to tombstone the recording; any other error is an outage and answers
 // 503 so the player retries.
 func (h *StreamHandler) failStorageRead(w http.ResponseWriter, r *http.Request, videoID int64, relPath, op string, err error) {
+	// A cancelled read must not reach markMissing and tombstone a recording
+	// that is still on disk.
+	if clientGone(r.Context(), err) {
+		http.Error(w, "client closed request", statusClientClosed)
+		return
+	}
 	if errors.Is(err, fs.ErrNotExist) {
-		// An absent file on unattached storage says nothing about the recording:
-		// answer as an outage and never ask for a tombstone.
 		if err := h.storageUnavailable(); err != nil {
 			h.log.Warn("video file missing while storage is not attached", "video_id", videoID, "path", relPath, "error", err)
 			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
@@ -421,8 +421,6 @@ func (h *StreamHandler) markMissing(parent context.Context, videoID int64) error
 	check.err = err
 	check.checkedAt = time.Now()
 	h.activeMissingChecks--
-	// Failures are retryable immediately; caching a timeout would make the next
-	// HEAD return 404 without ever having completed reconciliation.
 	if err != nil {
 		delete(h.missingChecks, videoID)
 	}
@@ -488,7 +486,7 @@ func (h *StreamHandler) resolveStreamablePart(ctx context.Context, id int64, par
 		if errors.Is(err, repository.ErrNotFound) {
 			return "", "", http.StatusNotFound, false
 		}
-		if clientGone(err) {
+		if clientGone(ctx, err) {
 			return "", "", statusClientClosed, false
 		}
 		h.log.Error(logPrefix+": get video failed", "error", err, "id", id)
@@ -503,7 +501,7 @@ func (h *StreamHandler) resolveStreamablePart(ctx context.Context, id int64, par
 
 	parts, err := h.repo.ListVideoParts(ctx, id)
 	if err != nil {
-		if clientGone(err) {
+		if clientGone(ctx, err) {
 			return "", "", statusClientClosed, false
 		}
 		h.log.Error(logPrefix+": list parts failed", "error", err, "id", id)
@@ -560,7 +558,6 @@ func (h *StreamHandler) serveThumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "image/jpeg")
-	// The job UUID separates thumbnail names across recordings.
 	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
 	http.ServeContent(w, r, path, info.ModTime, f)
 }

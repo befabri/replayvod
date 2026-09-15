@@ -45,9 +45,12 @@ const signTestSecret = "stream-signing-secret"
 // signedRepo panics on unexpected calls through its embedded interface.
 type signedRepo struct {
 	repository.Repository
-	video        *repository.Video
-	videos       map[int64]*repository.Video
-	videoErr     error
+	video    *repository.Video
+	videos   map[int64]*repository.Video
+	videoErr error
+	// videoEntered, when set, receives once GetVideo is reached; the read then
+	// waits for the caller to leave and returns its context error.
+	videoEntered chan struct{}
 	parts        []repository.VideoPart
 	partsByVideo map[int64][]repository.VideoPart
 	asset        *repository.VideoPlaybackAsset
@@ -56,7 +59,15 @@ type signedRepo struct {
 	deletes      int
 }
 
-func (r *signedRepo) GetVideo(_ context.Context, id int64) (*repository.Video, error) {
+func (r *signedRepo) GetVideo(ctx context.Context, id int64) (*repository.Video, error) {
+	if r.videoEntered != nil {
+		select {
+		case r.videoEntered <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if r.videoErr != nil {
 		return nil, r.videoErr
 	}
@@ -434,21 +445,48 @@ func TestStreamSignedPart_doesNotKickBuild(t *testing.T) {
 	}
 }
 
-// TestStreamPart_clientCanceledIsNotServerError treats aborted Range requests
-// as client cancellation, without a server-error status or log.
+// TestStreamPart_clientCanceledIsNotServerError treats a Range request the
+// browser aborted while the repository was still reading as client
+// cancellation, without a server-error status or log.
 func TestStreamPart_clientCanceledIsNotServerError(t *testing.T) {
 	logs := &capturingHandler{}
 	repo := &signedRepo{
-		videoErr: context.Canceled,
-		parts:    []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.mp4"}},
+		videoEntered: make(chan struct{}, 1),
+		parts:        []repository.VideoPart{{PartIndex: 1, Filename: "vod-42-01.mp4"}},
 	}
-	srv := streamRouteTestServer(t, repo, &signedStorage{body: []byte("video-bytes")}, slog.New(logs))
+	h := NewStreamHandler(repo, streamMedia(t, repo, &signedStorage{body: []byte("video-bytes")}, nil, nil), videodownload.NewVerifier(signTestSecret), slog.New(logs))
+	t.Cleanup(func() {
+		if err := h.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	router := chi.NewRouter()
+	h.SetupRoutes(router, func(next http.Handler) http.Handler { return next })
 
-	resp := getSessionPart(t, srv, 42, 1)
-	defer resp.Body.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/videos/42/parts/1/stream", nil).WithContext(ctx)
+	response := httptest.NewRecorder()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		router.ServeHTTP(response, req)
+	}()
 
-	if resp.StatusCode != statusClientClosed {
-		t.Fatalf("status = %d, want %d (client closed request)", resp.StatusCode, statusClientClosed)
+	select {
+	case <-repo.videoEntered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("request never reached the repository")
+	}
+	cancel() // The viewer seeks away while the read is in flight.
+	select {
+	case <-finished:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancelled handler did not exit")
+	}
+
+	if response.Code != statusClientClosed {
+		t.Fatalf("status = %d, want %d (client closed request)", response.Code, statusClientClosed)
 	}
 	if n := logs.countAtLeast(slog.LevelWarn); n != 0 {
 		t.Fatalf("emitted %d WARN+ log records for a client cancellation, want 0", n)
