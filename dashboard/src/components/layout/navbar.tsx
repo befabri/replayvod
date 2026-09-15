@@ -44,12 +44,13 @@ export function Navbar() {
 					<Link
 						to="/dashboard"
 						aria-label={t("app.name")}
-						className="hidden min-w-0 items-baseline gap-2 self-center whitespace-nowrap text-[1.1875rem] tracking-[-0.04em] text-navbar-foreground no-underline min-[380px]:inline-flex"
+						className="inline-flex min-w-0 items-baseline gap-2 self-center whitespace-nowrap text-[1.1875rem] tracking-[-0.04em] text-navbar-foreground no-underline"
 					>
 						<span className="inline-flex items-baseline">
-							<span className="font-semibold">Replay</span>
+							<span className="hidden font-semibold min-[340px]:inline">
+								Replay
+							</span>
 							<span className="font-bold text-primary">VOD</span>
-							<span className="font-bold text-primary">.</span>
 						</span>
 					</Link>
 				</div>
@@ -119,10 +120,6 @@ export function Navbar() {
 								</DropdownMenuItem>
 								<DropdownMenuItem
 									onClick={async () => {
-										// logout() clears the auth store, but the route guards only
-										// re-run on navigation (beforeLoad), so the redirect has to be
-										// driven explicitly here. Without it the cleared store just
-										// hides the menu while the dashboard stays mounted.
 										await logout();
 										await navigate({
 											to: "/login",
