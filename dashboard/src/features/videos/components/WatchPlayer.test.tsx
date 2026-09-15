@@ -1254,6 +1254,44 @@ describe("WatchPlayer watch progress persistence", () => {
 		expect(vidstackMock.player.currentTime).toBe(70);
 	});
 
+	it("retires the resume notice once playback starts", () => {
+		vidstackMock.player.paused = true;
+		render(
+			<WatchPlayer
+				playlist={continuousPlaylist()}
+				initialOffsetSeconds={70}
+				resumedFromSeconds={70}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
+		expect(vidstackMock.player.currentTime).toBe(70);
+		expect(screen.getByTestId("resume-notice")).toBeTruthy();
+
+		fireEvent.click(screen.getByRole("button", { name: "play" }));
+
+		expect(screen.queryByTestId("resume-notice")).toBeNull();
+		expect(vidstackMock.player.currentTime).toBe(70);
+	});
+
+	it("retires the resume notice once audio playback starts", () => {
+		render(
+			<WatchPlayer
+				playlist={audioPlaylist()}
+				initialOffsetSeconds={30}
+				resumedFromSeconds={30}
+			/>,
+		);
+		const audio = getAudioElement();
+		fireEvent.loadedMetadata(audio);
+		expect(audio.currentTime).toBe(30);
+		expect(screen.getByTestId("resume-notice")).toBeTruthy();
+
+		fireEvent.play(audio);
+
+		expect(screen.queryByTestId("resume-notice")).toBeNull();
+		expect(audio.currentTime).toBe(30);
+	});
+
 	it("shows no notice for a deep link", () => {
 		render(
 			<WatchPlayer playlist={continuousPlaylist()} initialOffsetSeconds={70} />,

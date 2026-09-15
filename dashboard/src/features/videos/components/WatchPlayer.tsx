@@ -599,6 +599,12 @@ export function WatchPlayer({
 		wasPlayingRef.current = !paused;
 	}, []);
 
+	const handlePlay = useCallback(() => {
+		wasPlayingRef.current = true;
+		viewerEngagedRef.current = true;
+		setResumeNoticeDismissed(true);
+	}, []);
+
 	const handleAudioTogglePlayback = useCallback(
 		(event: MouseEvent<HTMLButtonElement>) => {
 			const audio = audioRef.current;
@@ -864,8 +870,7 @@ export function WatchPlayer({
 						flushWatchProgressRef.current();
 					}}
 					onPlay={() => {
-						wasPlayingRef.current = true;
-						viewerEngagedRef.current = true;
+						handlePlay();
 						setAudioPaused(false);
 					}}
 					onRateChange={(event) => {
@@ -931,10 +936,7 @@ export function WatchPlayer({
 					wasPlayingRef.current = false;
 					flushWatchProgressRef.current();
 				}}
-				onPlay={() => {
-					wasPlayingRef.current = true;
-					viewerEngagedRef.current = true;
-				}}
+				onPlay={handlePlay}
 				onTimeUpdate={handleEventTimeUpdate}
 				className="rounded-lg overflow-hidden bg-black shadow-sm"
 			>
