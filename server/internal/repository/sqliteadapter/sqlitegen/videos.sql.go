@@ -1612,17 +1612,17 @@ func (q *Queries) RestoreMissingVideo(ctx context.Context, id int64) (int64, err
 const searchVideos = `-- name: SearchVideos :many
 WITH q AS (
     SELECT
-        lower(CAST(?1 AS text)) AS term,
-        lower(CAST(?1 AS text)) || '%' AS prefix,
-        '%' || lower(CAST(?1 AS text)) || '%' AS contains,
+        unicode_lower(CAST(?1 AS text)) AS term,
+        unicode_lower(CAST(?1 AS text)) || '%' AS prefix,
+        '%' || unicode_lower(CAST(?1 AS text)) || '%' AS contains,
         CAST(?2 AS integer) AS row_limit
 ),
 title_matches AS (
     SELECT
         vt.video_id,
-        MAX(lower(t.name) = q.term) AS title_exact,
-        MAX(lower(t.name) LIKE q.prefix) AS title_prefix,
-        MAX(lower(t.name) LIKE q.contains) AS title_contains
+        MAX(unicode_lower(t.name) = q.term) AS title_exact,
+        MAX(unicode_lower(t.name) LIKE q.prefix) AS title_prefix,
+        MAX(unicode_lower(t.name) LIKE q.contains) AS title_contains
     FROM video_titles vt
     INNER JOIN titles t ON t.id = vt.title_id
     CROSS JOIN q
@@ -1631,9 +1631,9 @@ title_matches AS (
 category_matches AS (
     SELECT
         vc.video_id,
-        MAX(lower(c.name) = q.term) AS category_exact,
-        MAX(lower(c.name) LIKE q.prefix) AS category_prefix,
-        MAX(lower(c.name) LIKE q.contains) AS category_contains
+        MAX(unicode_lower(c.name) = q.term) AS category_exact,
+        MAX(unicode_lower(c.name) LIKE q.prefix) AS category_prefix,
+        MAX(unicode_lower(c.name) LIKE q.contains) AS category_contains
     FROM video_categories vc
     INNER JOIN categories c ON c.id = vc.category_id
     CROSS JOIN q
@@ -1643,18 +1643,18 @@ matched AS (
     SELECT
         v.id,
         q.term = '' AS empty_query,
-        lower(coalesce(v.title, '')) = q.term OR coalesce(tm.title_exact, 0) AS title_exact,
-        lower(coalesce(v.title, '')) LIKE q.prefix OR coalesce(tm.title_prefix, 0) AS title_prefix,
-        lower(coalesce(v.title, '')) LIKE q.contains OR coalesce(tm.title_contains, 0) AS title_contains,
-        lower(coalesce(v.display_name, '')) = q.term
-            OR lower(coalesce(ch.broadcaster_login, '')) = q.term
-            OR lower(coalesce(ch.broadcaster_name, '')) = q.term AS channel_exact,
-        lower(coalesce(v.display_name, '')) LIKE q.prefix
-            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.prefix
-            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.prefix AS channel_prefix,
-        lower(coalesce(v.display_name, '')) LIKE q.contains
-            OR lower(coalesce(ch.broadcaster_login, '')) LIKE q.contains
-            OR lower(coalesce(ch.broadcaster_name, '')) LIKE q.contains AS channel_contains,
+        unicode_lower(coalesce(v.title, '')) = q.term OR coalesce(tm.title_exact, 0) AS title_exact,
+        unicode_lower(coalesce(v.title, '')) LIKE q.prefix OR coalesce(tm.title_prefix, 0) AS title_prefix,
+        unicode_lower(coalesce(v.title, '')) LIKE q.contains OR coalesce(tm.title_contains, 0) AS title_contains,
+        unicode_lower(coalesce(v.display_name, '')) = q.term
+            OR unicode_lower(coalesce(ch.broadcaster_login, '')) = q.term
+            OR unicode_lower(coalesce(ch.broadcaster_name, '')) = q.term AS channel_exact,
+        unicode_lower(coalesce(v.display_name, '')) LIKE q.prefix
+            OR unicode_lower(coalesce(ch.broadcaster_login, '')) LIKE q.prefix
+            OR unicode_lower(coalesce(ch.broadcaster_name, '')) LIKE q.prefix AS channel_prefix,
+        unicode_lower(coalesce(v.display_name, '')) LIKE q.contains
+            OR unicode_lower(coalesce(ch.broadcaster_login, '')) LIKE q.contains
+            OR unicode_lower(coalesce(ch.broadcaster_name, '')) LIKE q.contains AS channel_contains,
         coalesce(cm.category_exact, 0) AS category_exact,
         coalesce(cm.category_prefix, 0) AS category_prefix,
         coalesce(cm.category_contains, 0) AS category_contains

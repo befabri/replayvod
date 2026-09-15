@@ -67,10 +67,10 @@ WHERE (
 )
   AND (
     params.cursor_name IS NULL
-    OR lower(c.broadcaster_name) > lower(params.cursor_name)
-    OR (lower(c.broadcaster_name) = lower(params.cursor_name) AND c.broadcaster_id > params.cursor_id)
+    OR unicode_lower(c.broadcaster_name) > unicode_lower(params.cursor_name)
+    OR (unicode_lower(c.broadcaster_name) = unicode_lower(params.cursor_name) AND c.broadcaster_id > params.cursor_id)
   )
-ORDER BY lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
+ORDER BY unicode_lower(c.broadcaster_name) ASC, c.broadcaster_id ASC
 LIMIT (SELECT row_limit FROM params);
 
 -- name: ListChannelsPageDesc :many
@@ -112,10 +112,10 @@ WHERE (
 )
   AND (
     params.cursor_name IS NULL
-    OR lower(c.broadcaster_name) < lower(params.cursor_name)
-    OR (lower(c.broadcaster_name) = lower(params.cursor_name) AND c.broadcaster_id < params.cursor_id)
+    OR unicode_lower(c.broadcaster_name) < unicode_lower(params.cursor_name)
+    OR (unicode_lower(c.broadcaster_name) = unicode_lower(params.cursor_name) AND c.broadcaster_id < params.cursor_id)
   )
-ORDER BY lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
+ORDER BY unicode_lower(c.broadcaster_name) DESC, c.broadcaster_id DESC
 LIMIT (SELECT row_limit FROM params);
 
 -- name: SearchChannels :many
@@ -130,14 +130,14 @@ WITH params AS (
 SELECT c.* FROM channels c
 CROSS JOIN params
 WHERE params.search_query = ''
-   OR lower(c.broadcaster_login) LIKE '%' || lower(params.search_query) || '%'
-   OR lower(c.broadcaster_name)  LIKE '%' || lower(params.search_query) || '%'
+   OR unicode_lower(c.broadcaster_login) LIKE '%' || unicode_lower(params.search_query) || '%'
+   OR unicode_lower(c.broadcaster_name)  LIKE '%' || unicode_lower(params.search_query) || '%'
 ORDER BY
     CASE
         WHEN params.search_query = '' THEN 3
-        WHEN lower(c.broadcaster_login) = lower(params.search_query) THEN 0
-        WHEN lower(c.broadcaster_login) LIKE lower(params.search_query) || '%' THEN 1
-        WHEN lower(c.broadcaster_name)  LIKE lower(params.search_query) || '%' THEN 1
+        WHEN unicode_lower(c.broadcaster_login) = unicode_lower(params.search_query) THEN 0
+        WHEN unicode_lower(c.broadcaster_login) LIKE unicode_lower(params.search_query) || '%' THEN 1
+        WHEN unicode_lower(c.broadcaster_name)  LIKE unicode_lower(params.search_query) || '%' THEN 1
         ELSE 2
     END,
     c.broadcaster_login

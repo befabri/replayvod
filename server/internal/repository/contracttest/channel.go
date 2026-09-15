@@ -235,3 +235,22 @@ func collectChannelPageLogins(t *testing.T, ctx context.Context, repo repository
 		cursor = page.NextCursor
 	}
 }
+
+func testListChannelsPageFoldsAccentedNames(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	for _, c := range []repository.Channel{
+		{BroadcasterID: "a", BroadcasterLogin: "eclair-plain", BroadcasterName: "eclair"},
+		{BroadcasterID: "b", BroadcasterLogin: "eclair-lower", BroadcasterName: "éclair"},
+		{BroadcasterID: "c", BroadcasterLogin: "eclair-upper", BroadcasterName: "Éclair"},
+		{BroadcasterID: "d", BroadcasterLogin: "delta", BroadcasterName: "Delta"},
+	} {
+		ch := c
+		if _, err := repo.UpsertChannel(ctx, &ch); err != nil {
+			t.Fatalf("seed channel %s: %v", c.BroadcasterLogin, err)
+		}
+	}
+	asc := collectChannelPageLogins(t, ctx, repo, 3, "name_asc", repository.ChannelFilterAll, "")
+	assertStringSlice(t, asc, []string{"delta", "eclair-plain", "eclair-lower", "eclair-upper"})
+	desc := collectChannelPageLogins(t, ctx, repo, 3, "name_desc", repository.ChannelFilterAll, "")
+	assertStringSlice(t, desc, []string{"eclair-upper", "eclair-lower", "eclair-plain", "delta"})
+}

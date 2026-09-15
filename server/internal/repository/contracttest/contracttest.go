@@ -137,6 +137,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Channel_ListPageCursorPagination", testListChannelsPageCursorPagination)
 	run("Channel_ListLatestLivePerChannel", testListLatestLivePerChannelOnePerBroadcaster)
 	run("Channel_ListByIDs", testListChannelsByIDs)
+	run("Channel_ListPageFoldsAccentedNames", testListChannelsPageFoldsAccentedNames)
 
 	// videos
 	run("Video_CreateNormalizesRecordingSettings", testCreateVideoNormalizesRecordingSettings)
