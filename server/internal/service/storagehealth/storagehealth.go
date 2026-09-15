@@ -21,9 +21,9 @@ import (
 const (
 	DefaultInterval     = 30 * time.Second
 	DefaultProbeTimeout = 10 * time.Second
+	gateWaitShare       = 10
 	announcementTimeout = 5 * time.Second
-	// witnessSample bounds known recordings checked before initializing markerless storage.
-	witnessSample = 64
+	witnessSample       = 64
 
 	EventDomain     = "storage"
 	EventAttached   = "attached"
@@ -306,6 +306,7 @@ func (m *Monitor) expire(ctx context.Context) Status {
 // probe serializes identity changes and publishes results from the waiting caller;
 // a worker that finishes after its deadline cannot publish late success.
 func (m *Monitor) probe(ctx context.Context, action func(context.Context) error) (Status, error) {
+	start := time.Now()
 	probeCtx, cancel := context.WithTimeout(ctx, m.probeTimeout)
 	defer cancel()
 	if err := probeCtx.Err(); err != nil {
@@ -316,7 +317,7 @@ func (m *Monitor) probe(ctx context.Context, action func(context.Context) error)
 	case <-probeCtx.Done():
 		return m.Status(), probeError(ctx, probeCtx.Err())
 	}
-	// An already-cancelled caller can win select; an abandoned adoption must not write a marker.
+	queued := time.Since(start)
 	if err := probeCtx.Err(); err != nil {
 		<-m.probeGate
 		return m.Status(), probeError(ctx, err)
@@ -343,17 +344,29 @@ func (m *Monitor) probe(ctx context.Context, action func(context.Context) error)
 		}
 		results <- result{id: m.expected, err: err}
 	}()
-	var res result
+	var (
+		res result
+		got bool
+	)
 	select {
 	case res = <-results:
+		got = true
 	case <-probeCtx.Done():
+		select {
+		case res = <-results:
+			got = true
+		default:
+		}
 	}
 	// Caller cancellation leaves shared readiness unchanged but must still fail Verify.
 	if err := ctx.Err(); err != nil {
 		return m.Status(), probeError(ctx, err)
 	}
-	if err := probeCtx.Err(); err != nil {
-		res = result{id: m.Status().StorageID, err: probeError(ctx, err)}
+	if !got {
+		if queued > m.probeTimeout/gateWaitShare {
+			return m.Status(), probeError(ctx, probeCtx.Err())
+		}
+		res = result{id: m.Status().StorageID, err: probeError(ctx, probeCtx.Err())}
 	}
 	if stateOf(res.err) == StateUnreachable && !errors.Is(res.err, storage.ErrUnreachable) {
 		res.err = fmt.Errorf("%w: %w", storage.ErrUnreachable, res.err)
@@ -439,7 +452,6 @@ func (m *Monitor) record(ctx context.Context, id string, err error) Status {
 }
 
 func (m *Monitor) announceBounded(ctx context.Context, status Status, first bool) {
-	// An internal probe deadline must still announce the outage with a bounded audit context.
 	announceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), announcementTimeout)
 	defer cancel()
 	m.announce(announceCtx, status, first)
@@ -449,7 +461,6 @@ func (m *Monitor) announce(ctx context.Context, s Status, first bool) {
 	data := map[string]any{"backend": m.backend, "location": m.location, "state": string(s.State)}
 	switch s.State {
 	case StateAttached:
-		// A healthy boot is not an event; a recovery is.
 		if first {
 			m.log.Info("storage attached", "backend", m.backend, "location", m.location)
 		} else {
