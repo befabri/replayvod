@@ -23,14 +23,6 @@ import {
 import { useRelativeTime } from "@/lib/format-relative";
 import { TriggerDownloadDialog } from "./TriggerDownloadDialog";
 
-// VideoInfo renders the title block, a chip strip of headline facts,
-// and a hairline-bordered channel row. The chip strip mirrors the v1
-// reference: quality is the only colored chip, the rest are flat muted
-// chips so the eye groups them as one homogeneous block of metadata.
-//
-// headerAction is an optional slot rendered next to the title — used
-// by the watch page to dock the layout toggle alongside the heading
-// instead of in a separate toolbar.
 export function VideoInfo({
 	video,
 	headerAction,
@@ -43,8 +35,6 @@ export function VideoInfo({
 	const { data: categories } = useVideoCategories(video.id);
 	const { data: stats } = useChannelStatistics(video.broadcaster_id);
 	const { data: lastLive } = useLastLive(video.broadcaster_id);
-	// SSE-backed set of currently-live broadcasters — drives the live ring on
-	// the channel avatar so the watch page reflects on/offline in real time.
 	const isLive = useLiveSet().has(video.broadcaster_id);
 	const canDownload = useCanManageVideos();
 
@@ -61,16 +51,8 @@ export function VideoInfo({
 		t("videos.mixed_quality"),
 	);
 
-	// "Last stream" anchors on ended_at (broadcast finished) and falls
-	// back to started_at (still mid-broadcast in the local mirror).
-	// useRelativeTime ticks once a minute so the label updates without
-	// the user having to refresh — formatRelative alone would freeze.
 	const lastLiveAt = lastLive?.ended_at || lastLive?.started_at;
 	const lastLiveLabel = useRelativeTime(lastLiveAt);
-	// Top category by tracked duration. The video may have switched
-	// categories mid-stream; the chip surfaces the dominant one rather
-	// than VideoResponse.primary_category, which is just whichever was
-	// active at download-start.
 	const topCategory = categories?.length
 		? categories.reduce((a, b) =>
 				b.duration_seconds > a.duration_seconds ? b : a,
@@ -94,7 +76,7 @@ export function VideoInfo({
 
 	return (
 		<div className="flex flex-col">
-			<div className="flex items-start justify-between gap-3">
+			<div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 				<h1 className="text-lg md:text-xl font-heading font-semibold tracking-tight leading-snug min-w-0">
 					{titleLabel}
 				</h1>
