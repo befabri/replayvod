@@ -33,7 +33,3 @@ func (a *SQLiteAdapter) MarkJobFailed(ctx context.Context, id string, errMsg str
 		Error: sql.NullString{String: errMsg, Valid: true},
 	})
 }
-
-func (a *SQLiteAdapter) ListRunningLiveBroadcasters(ctx context.Context) ([]string, error) {
-	return a.queries.ListRunningLiveBroadcasters(ctx)
-}

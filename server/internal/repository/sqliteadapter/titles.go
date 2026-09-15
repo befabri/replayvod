@@ -35,18 +35,6 @@ func (a *SQLiteAdapter) UpsertVideoTitleSpan(ctx context.Context, videoID int64,
 	})
 }
 
-func (a *SQLiteAdapter) ListTitlesForStream(ctx context.Context, streamID string) ([]repository.Title, error) {
-	rows, err := a.queries.ListTitlesForStream(ctx, streamID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list titles for stream: %w", err)
-	}
-	out := make([]repository.Title, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteTitleToDomain(r)
-	}
-	return out, nil
-}
-
 func (a *SQLiteAdapter) ListTitlesForVideo(ctx context.Context, videoID int64) ([]repository.TitleSpan, error) {
 	rows, err := a.queries.ListTitleSpansForVideo(ctx, videoID)
 	if err != nil {

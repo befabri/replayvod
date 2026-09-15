@@ -29,18 +29,6 @@ func (a *SQLiteAdapter) UpsertChannel(ctx context.Context, c *repository.Channel
 	return sqliteChannelToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) ListChannels(ctx context.Context) ([]repository.Channel, error) {
-	rows, err := a.queries.ListChannels(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list channels: %w", err)
-	}
-	channels := make([]repository.Channel, len(rows))
-	for i, row := range rows {
-		channels[i] = *sqliteChannelToDomain(row)
-	}
-	return channels, nil
-}
-
 func (a *SQLiteAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
 	params := sqlitegen.ListChannelsPageAscParams{
 		LiveOnly:       boolToInt64(filter == repository.ChannelFilterLive),
@@ -110,25 +98,6 @@ func (a *SQLiteAdapter) UpsertUserFollow(ctx context.Context, f *repository.User
 		BroadcasterID: f.BroadcasterID,
 		FollowedAt:    sqliteTime(f.FollowedAt),
 		Followed:      followed,
-	})
-}
-
-func (a *SQLiteAdapter) ListUserFollows(ctx context.Context, userID string) ([]repository.Channel, error) {
-	rows, err := a.queries.ListUserFollows(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list user follows: %w", err)
-	}
-	channels := make([]repository.Channel, len(rows))
-	for i, row := range rows {
-		channels[i] = *sqliteChannelToDomain(row)
-	}
-	return channels, nil
-}
-
-func (a *SQLiteAdapter) UnfollowChannel(ctx context.Context, userID, broadcasterID string) error {
-	return a.queries.UnfollowChannel(ctx, sqlitegen.UnfollowChannelParams{
-		UserID:        userID,
-		BroadcasterID: broadcasterID,
 	})
 }
 

@@ -9,17 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
 )
 
-func (a *PGAdapter) GetVideoUserState(ctx context.Context, userID string, videoID int64) (*repository.VideoUserState, error) {
-	row, err := a.queries.GetVideoUserState(ctx, pggen.GetVideoUserStateParams{
-		UserID:  userID,
-		VideoID: videoID,
-	})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgVideoUserStateToDomain(row), nil
-}
-
 func (a *PGAdapter) ListVideoUserStatesForVideos(ctx context.Context, userID string, videoIDs []int64) ([]repository.VideoUserState, error) {
 	if userID == "" || len(videoIDs) == 0 {
 		return []repository.VideoUserState{}, nil
@@ -36,18 +25,6 @@ func (a *PGAdapter) ListVideoUserStatesForVideos(ctx context.Context, userID str
 		out[i] = *pgVideoUserStateToDomain(row)
 	}
 	return out, nil
-}
-
-func (a *PGAdapter) SetVideoWatchLater(ctx context.Context, userID string, videoID int64, watchLater bool) (*repository.VideoUserState, error) {
-	row, err := a.queries.SetVideoWatchLater(ctx, pggen.SetVideoWatchLaterParams{
-		UserID:     userID,
-		VideoID:    videoID,
-		WatchLater: watchLater,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg set video watch later: %w", err)
-	}
-	return pgVideoUserStateToDomain(row), nil
 }
 
 func (a *PGAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, at time.Time) (*repository.VideoUserState, error) {

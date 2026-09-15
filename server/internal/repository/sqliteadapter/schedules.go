@@ -123,58 +123,6 @@ func (a *SQLiteAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, b
 	return sqliteSchedulesToDomain(rows), nil
 }
 
-func (a *SQLiteAdapter) LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
-	return a.queries.LinkScheduleCategory(ctx, sqlitegen.LinkScheduleCategoryParams{
-		ScheduleID: scheduleID,
-		CategoryID: categoryID,
-	})
-}
-
-func (a *SQLiteAdapter) UnlinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
-	return a.queries.UnlinkScheduleCategory(ctx, sqlitegen.UnlinkScheduleCategoryParams{
-		ScheduleID: scheduleID,
-		CategoryID: categoryID,
-	})
-}
-
-func (a *SQLiteAdapter) ListScheduleCategories(ctx context.Context, scheduleID int64) ([]repository.Category, error) {
-	rows, err := a.queries.ListScheduleCategories(ctx, scheduleID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list schedule categories: %w", err)
-	}
-	out := make([]repository.Category, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteCategoryToDomain(r)
-	}
-	return out, nil
-}
-
-func (a *SQLiteAdapter) LinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error {
-	return a.queries.LinkScheduleTag(ctx, sqlitegen.LinkScheduleTagParams{
-		ScheduleID: scheduleID,
-		TagID:      tagID,
-	})
-}
-
-func (a *SQLiteAdapter) UnlinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error {
-	return a.queries.UnlinkScheduleTag(ctx, sqlitegen.UnlinkScheduleTagParams{
-		ScheduleID: scheduleID,
-		TagID:      tagID,
-	})
-}
-
-func (a *SQLiteAdapter) ListScheduleTags(ctx context.Context, scheduleID int64) ([]repository.Tag, error) {
-	rows, err := a.queries.ListScheduleTags(ctx, scheduleID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list schedule tags: %w", err)
-	}
-	out := make([]repository.Tag, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteTagToDomain(r)
-	}
-	return out, nil
-}
-
 func sqliteCreateScheduleParams(input *repository.ScheduleInput) sqlitegen.CreateScheduleParams {
 	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
 		RecordingType: input.RecordingType,

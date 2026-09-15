@@ -34,6 +34,3 @@ func (a *SQLiteAdapter) UpdateTwitchPlaybackSessionValidation(ctx context.Contex
 		NeedsReconnect: reconnect,
 	}))
 }
-func (a *SQLiteAdapter) DeleteTwitchPlaybackSession(ctx context.Context) error {
-	return mapErr(a.queries.DeleteTwitchPlaybackSession(ctx))
-}

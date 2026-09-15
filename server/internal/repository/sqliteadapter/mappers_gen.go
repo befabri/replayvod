@@ -24,6 +24,14 @@ func sqliteTagToDomain(src sqlitegen.Tag) *repository.Tag {
 	}
 }
 
+func sqliteTagsToDomain(rows []sqlitegen.Tag) []repository.Tag {
+	out := make([]repository.Tag, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteTagToDomain(r)
+	}
+	return out
+}
+
 func sqliteCategoryToDomain(src sqlitegen.Category) *repository.Category {
 	return &repository.Category{
 		BoxArtURL:             fromNullString(src.BoxArtUrl),
@@ -36,6 +44,14 @@ func sqliteCategoryToDomain(src sqlitegen.Category) *repository.Category {
 		Name:                  src.Name,
 		UpdatedAt:             src.UpdatedAt.Time,
 	}
+}
+
+func sqliteCategoriesToDomain(rows []sqlitegen.Category) []repository.Category {
+	out := make([]repository.Category, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteCategoryToDomain(r)
+	}
+	return out
 }
 
 func sqliteChannelToDomain(src sqlitegen.Channel) *repository.Channel {
@@ -52,6 +68,14 @@ func sqliteChannelToDomain(src sqlitegen.Channel) *repository.Channel {
 		UpdatedAt:           src.UpdatedAt.Time,
 		ViewCount:           src.ViewCount,
 	}
+}
+
+func sqliteChannelsToDomain(rows []sqlitegen.Channel) []repository.Channel {
+	out := make([]repository.Channel, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteChannelToDomain(r)
+	}
+	return out
 }
 
 func sqliteChannelUserStateToDomain(src sqlitegen.ChannelUserState) *repository.ChannelUserState {
@@ -255,6 +279,14 @@ func sqliteUserToDomain(src sqlitegen.User) *repository.User {
 	}
 }
 
+func sqliteUsersToDomain(rows []sqlitegen.User) []repository.User {
+	out := make([]repository.User, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteUserToDomain(r)
+	}
+	return out
+}
+
 func sqliteVideoPartToDomain(src sqlitegen.VideoPart) *repository.VideoPart {
 	return &repository.VideoPart{
 		Codec:           src.Codec,
@@ -273,6 +305,14 @@ func sqliteVideoPartToDomain(src sqlitegen.VideoPart) *repository.VideoPart {
 		UpdatedAt:       src.UpdatedAt.Time,
 		VideoID:         src.VideoID,
 	}
+}
+
+func sqliteVideoPartsToDomain(rows []sqlitegen.VideoPart) []repository.VideoPart {
+	out := make([]repository.VideoPart, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteVideoPartToDomain(r)
+	}
+	return out
 }
 
 func sqliteVideoPlaybackAssetToDomain(src sqlitegen.VideoPlaybackAsset) *repository.VideoPlaybackAsset {
@@ -376,4 +416,12 @@ func sqliteSnapshotToDomain(src sqlitegen.EventsubSnapshot) *repository.EventSub
 		Total:        src.Total,
 		TotalCost:    src.TotalCost,
 	}
+}
+
+func sqliteSnapshotsToDomain(rows []sqlitegen.EventsubSnapshot) []repository.EventSubSnapshot {
+	out := make([]repository.EventSubSnapshot, len(rows))
+	for i, r := range rows {
+		out[i] = *sqliteSnapshotToDomain(r)
+	}
+	return out
 }

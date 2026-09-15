@@ -98,28 +98,6 @@ func (a *SQLiteAdapter) UpsertUser(ctx context.Context, u *repository.User) (*re
 	return sqliteUserToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) ListUsers(ctx context.Context) ([]repository.User, error) {
-	rows, err := a.queries.ListUsers(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list users: %w", err)
-	}
-	users := make([]repository.User, len(rows))
-	for i, row := range rows {
-		users[i] = *sqliteUserToDomain(row)
-	}
-	return users, nil
-}
-
-func (a *SQLiteAdapter) UpdateUserRole(ctx context.Context, id string, role string) error {
-	if err := a.queries.UpdateUserRole(ctx, sqlitegen.UpdateUserRoleParams{
-		ID:   id,
-		Role: role,
-	}); err != nil {
-		return fmt.Errorf("sqlite update user role %s: %w", id, err)
-	}
-	return nil
-}
-
 func fromNullString(s sql.NullString) *string {
 	if !s.Valid {
 		return nil
@@ -214,13 +192,6 @@ func (a *SQLiteAdapter) GetSession(ctx context.Context, hashedID string) (*repos
 	}, nil
 }
 
-func (a *SQLiteAdapter) UpdateSessionTokens(ctx context.Context, hashedID string, encryptedTokens []byte) error {
-	return a.queries.UpdateSessionTokens(ctx, sqlitegen.UpdateSessionTokensParams{
-		HashedID:        hashedID,
-		EncryptedTokens: encryptedTokens,
-	})
-}
-
 func (a *SQLiteAdapter) ListUserSessions(ctx context.Context, userID string) ([]repository.SessionInfo, error) {
 	rows, err := a.queries.ListUserSessions(ctx, userID)
 	if err != nil {
@@ -271,10 +242,6 @@ func (a *SQLiteAdapter) CreateAppToken(ctx context.Context, token string, expire
 }
 
 // Whitelist
-
-func (a *SQLiteAdapter) IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error) {
-	return a.queries.IsWhitelisted(ctx, twitchUserID)
-}
 
 func (a *SQLiteAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {
 	rows, err := a.queries.ListWhitelist(ctx)

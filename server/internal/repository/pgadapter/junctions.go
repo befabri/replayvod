@@ -65,15 +65,3 @@ func (a *PGAdapter) ListPrimaryCategoriesForVideos(ctx context.Context, videoIDs
 	}
 	return out, nil
 }
-
-func (a *PGAdapter) ListTagsForVideo(ctx context.Context, videoID int64) ([]repository.Tag, error) {
-	rows, err := a.queries.ListTagsForVideo(ctx, videoID)
-	if err != nil {
-		return nil, fmt.Errorf("pg list tags for video: %w", err)
-	}
-	out := make([]repository.Tag, len(rows))
-	for i, r := range rows {
-		out[i] = *pgTagToDomain(r)
-	}
-	return out, nil
-}

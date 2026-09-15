@@ -24,18 +24,6 @@ func sqliteScheduleRequestToDomain(row sqlitegen.ScheduleRequest) *repository.Sc
 	}
 }
 
-func (a *SQLiteAdapter) CreateScheduleRequest(ctx context.Context, broadcasterID, requestedBy string, note *string) (*repository.ScheduleRequest, error) {
-	row, err := a.queries.CreateScheduleRequest(ctx, sqlitegen.CreateScheduleRequestParams{
-		BroadcasterID: broadcasterID,
-		RequestedBy:   requestedBy,
-		Note:          toNullString(note),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite create schedule request: %w", mapErr(err))
-	}
-	return sqliteScheduleRequestToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) ListScheduleRequests(ctx context.Context, limit int, cursor *repository.ScheduleRequestCursor) ([]repository.ScheduleRequestView, error) {
 	limit, before := repository.ScheduleRequestQueryBounds(limit, cursor)
 	rows, err := a.queries.ListScheduleRequests(ctx, sqlitegen.ListScheduleRequestsParams{BeforeCreatedAt: sqliteTime(before.CreatedAt), BeforeID: before.ID, PageLimit: int64(limit)})
@@ -81,19 +69,6 @@ func sqliteScheduleRequestViewToDomain(r sqlitegen.ListScheduleRequestsRow) repo
 		RequestedByLogin: r.RequestedByLogin,
 		RequestedByName:  r.RequestedByName,
 	}
-}
-
-func (a *SQLiteAdapter) DecideScheduleRequest(ctx context.Context, id int64, status, decidedBy string, scheduleID *int64) (bool, error) {
-	affected, err := a.queries.DecideScheduleRequest(ctx, sqlitegen.DecideScheduleRequestParams{
-		ID:         id,
-		Status:     status,
-		DecidedBy:  toNullString(&decidedBy),
-		ScheduleID: toNullInt64(scheduleID),
-	})
-	if err != nil {
-		return false, fmt.Errorf("sqlite decide schedule request %d: %w", id, err)
-	}
-	return affected > 0, nil
 }
 
 // errRequestNotPending forces rollback before approval returns ok=false.
@@ -143,15 +118,4 @@ func (a *SQLiteAdapter) ApproveScheduleRequest(ctx context.Context, requestID in
 		return nil, false, err
 	}
 	return out, true, nil
-}
-
-func (a *SQLiteAdapter) DeleteScheduleRequest(ctx context.Context, id int64, requestedBy string) (bool, error) {
-	affected, err := a.queries.DeleteScheduleRequest(ctx, sqlitegen.DeleteScheduleRequestParams{
-		ID:          id,
-		RequestedBy: requestedBy,
-	})
-	if err != nil {
-		return false, fmt.Errorf("sqlite delete schedule request %d: %w", id, err)
-	}
-	return affected > 0, nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
@@ -25,32 +24,6 @@ func (a *SQLiteAdapter) UpsertStream(ctx context.Context, s *repository.StreamIn
 		return nil, fmt.Errorf("sqlite upsert stream %s: %w", s.ID, err)
 	}
 	return sqliteStreamToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) EndStream(ctx context.Context, id string, endedAt time.Time) error {
-	return a.queries.EndStream(ctx, sqlitegen.EndStreamParams{
-		ID:      id,
-		EndedAt: sqliteTimePtr(&endedAt),
-	})
-}
-
-func (a *SQLiteAdapter) UpdateStreamViewers(ctx context.Context, id string, viewerCount int64) error {
-	return a.queries.UpdateStreamViewers(ctx, sqlitegen.UpdateStreamViewersParams{
-		ID:          id,
-		ViewerCount: viewerCount,
-	})
-}
-
-func (a *SQLiteAdapter) ListStreamsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.Stream, error) {
-	rows, err := a.queries.ListStreamsByBroadcaster(ctx, sqlitegen.ListStreamsByBroadcasterParams{
-		BroadcasterID: broadcasterID,
-		Limit:         int64(limit),
-		Offset:        int64(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list streams by broadcaster: %w", err)
-	}
-	return sqliteStreamsToDomain(rows), nil
 }
 
 func (a *SQLiteAdapter) ListLatestLivePerChannel(ctx context.Context, limit int) ([]repository.LatestLiveStream, error) {

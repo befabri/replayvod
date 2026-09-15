@@ -49,20 +49,6 @@ func (a *PGAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool,
 	return pgServerSettingsToDomain(row), nil
 }
 
-func (a *PGAdapter) EnsureRecordingWebhookSecret(ctx context.Context, secret string) error {
-	if err := a.queries.EnsureRecordingWebhookSecret(ctx, secret); err != nil {
-		return fmt.Errorf("pg ensure recording webhook secret: %w", err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) SetRecordingWebhookSecret(ctx context.Context, secret string) error {
-	if err := a.queries.SetRecordingWebhookSecret(ctx, secret); err != nil {
-		return fmt.Errorf("pg set recording webhook secret: %w", err)
-	}
-	return nil
-}
-
 func (a *PGAdapter) GetServerHMACSecret(ctx context.Context) (string, error) {
 	secret, err := a.queries.GetServerHMACSecret(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -72,33 +58,4 @@ func (a *PGAdapter) GetServerHMACSecret(ctx context.Context) (string, error) {
 		return "", mapErr(err)
 	}
 	return secret, nil
-}
-
-func (a *PGAdapter) EnsureServerHMACSecret(ctx context.Context, secret string) error {
-	if err := a.queries.EnsureServerHMACSecret(ctx, secret); err != nil {
-		return fmt.Errorf("pg ensure server hmac secret: %w", err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) SetStorageID(ctx context.Context, id string) (*repository.ServerSettings, error) {
-	row, err := a.queries.SetStorageID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("pg set storage id: %w", err)
-	}
-	return pgServerSettingsToDomain(row), nil
-}
-
-func (a *PGAdapter) SetStorageScanCursor(ctx context.Context, cursor int64) error {
-	if err := a.queries.SetStorageScanCursor(ctx, cursor); err != nil {
-		return fmt.Errorf("pg set storage scan cursor: %w", err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) SetStorageRestoreCursor(ctx context.Context, cursor *int64) error {
-	if err := a.queries.SetStorageRestoreCursor(ctx, cursor); err != nil {
-		return fmt.Errorf("pg set storage restore cursor: %w", err)
-	}
-	return nil
 }

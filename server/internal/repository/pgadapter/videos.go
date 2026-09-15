@@ -175,13 +175,6 @@ func (a *PGAdapter) MarkVideoFailedAndEnqueueRecordingWebhook(ctx context.Contex
 	})
 }
 
-func (a *PGAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error {
-	return a.queries.SetVideoThumbnail(ctx, pggen.SetVideoThumbnailParams{
-		ID:        id,
-		Thumbnail: &thumbnail,
-	})
-}
-
 func (a *PGAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
 	rows, err := a.queries.ListVideos(ctx, pggen.ListVideosParams{
 		StatusFilter: opts.Status,
@@ -250,14 +243,6 @@ func (a *PGAdapter) ListVideosByCategory(ctx context.Context, categoryID string,
 	return repository.ToVideoPage(items, limit), nil
 }
 
-func (a *PGAdapter) RequestVideoDelete(ctx context.Context, id int64) (*repository.Video, error) {
-	row, err := a.queries.RequestVideoDelete(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgVideoToDomain(row), nil
-}
-
 func (a *PGAdapter) ListVideosPendingManualDelete(ctx context.Context, afterID int64, limit int) ([]repository.Video, error) {
 	if limit <= 0 {
 		return []repository.Video{}, nil
@@ -300,10 +285,6 @@ func (a *PGAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind stri
 		}
 		return nil
 	})
-}
-
-func (a *PGAdapter) CountVideosByStatus(ctx context.Context, status string) (int64, error) {
-	return a.queries.CountVideosByStatus(ctx, status)
 }
 
 func (a *PGAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoStatsByStatus, error) {
@@ -492,14 +473,6 @@ func (a *PGAdapter) ListVideosForStorageScan(ctx context.Context, afterID int64,
 	return out, nil
 }
 
-func (a *PGAdapter) GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID string) (*repository.Video, error) {
-	row, err := a.queries.GetOpenVideoByTwitchVideoID(ctx, &twitchVideoID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgVideoToDomain(row), nil
-}
-
 func (a *PGAdapter) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]repository.Video, error) {
 	if len(twitchVideoIDs) == 0 {
 		return []repository.Video{}, nil
@@ -509,17 +482,6 @@ func (a *PGAdapter) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVi
 		return nil, fmt.Errorf("pg list open videos by twitch video ids: %w", err)
 	}
 	return pgVideosToDomain(rows), nil
-}
-
-func (a *PGAdapter) DeleteQueuedArchiveVideo(ctx context.Context, id int64) error {
-	n, err := a.queries.DeleteQueuedArchiveVideo(ctx, id)
-	if err != nil {
-		return fmt.Errorf("pg delete queued archive video: %w", err)
-	}
-	if n == 0 {
-		return repository.ErrNotFound
-	}
-	return nil
 }
 
 // GetVideoForStorageScan reuses the eligibility query, without treating zero as a wildcard.
@@ -640,28 +602,6 @@ func (a *PGAdapter) MarkArchiveFailedForRetry(ctx context.Context, id int64, err
 	})
 }
 
-func (a *PGAdapter) RequeueArchiveVideo(ctx context.Context, id int64, jobID string, scheduledOnly bool) error {
-	n, err := a.queries.RequeueArchiveVideo(ctx, pggen.RequeueArchiveVideoParams{JobID: jobID, ID: id, ScheduledOnly: scheduledOnly})
-	if err != nil {
-		return fmt.Errorf("pg requeue archive video: %w", mapErr(err))
-	}
-	if n == 0 {
-		return repository.ErrNotFound
-	}
-	return nil
-}
-
-func (a *PGAdapter) ClearArchiveRetry(ctx context.Context, id int64) error {
-	n, err := a.queries.ClearArchiveRetry(ctx, id)
-	if err != nil {
-		return fmt.Errorf("pg clear archive retry: %w", err)
-	}
-	if n == 0 {
-		return repository.ErrNotFound
-	}
-	return nil
-}
-
 func (a *PGAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]repository.Video, error) {
 	if afterID < 0 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid poster page")
@@ -671,12 +611,4 @@ func (a *PGAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Ti
 		return nil, fmt.Errorf("pg list archives missing poster: %w", err)
 	}
 	return pgVideosToDomain(rows), nil
-}
-
-func (a *PGAdapter) SetVideoThumbnailIfMissing(ctx context.Context, id int64, thumbnail string) (bool, error) {
-	n, err := a.queries.SetVideoThumbnailIfMissing(ctx, pggen.SetVideoThumbnailIfMissingParams{ID: id, Thumbnail: &thumbnail})
-	if err != nil {
-		return false, fmt.Errorf("pg set video thumbnail if missing: %w", err)
-	}
-	return n > 0, nil
 }

@@ -34,7 +34,3 @@ func (a *PGAdapter) MarkJobFailed(ctx context.Context, id string, errMsg string)
 		Error: &errMsg,
 	})
 }
-
-func (a *PGAdapter) ListRunningLiveBroadcasters(ctx context.Context) ([]string, error) {
-	return a.queries.ListRunningLiveBroadcasters(ctx)
-}

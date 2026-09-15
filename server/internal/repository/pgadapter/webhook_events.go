@@ -35,30 +35,6 @@ func (a *PGAdapter) MarkWebhookEventFailed(ctx context.Context, id int64, errMsg
 	})
 }
 
-func (a *PGAdapter) ListWebhookEvents(ctx context.Context, limit, offset int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListWebhookEvents(ctx, pggen.ListWebhookEventsParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list webhook events: %w", err)
-	}
-	return pgWebhookEventsToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListWebhookEventsByBroadcaster(ctx context.Context, broadcasterID string, limit, offset int) ([]repository.WebhookEvent, error) {
-	bid := broadcasterID
-	rows, err := a.queries.ListWebhookEventsByBroadcaster(ctx, pggen.ListWebhookEventsByBroadcasterParams{
-		BroadcasterID: &bid,
-		Limit:         int32(limit),
-		Offset:        int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list webhook events by broadcaster: %w", err)
-	}
-	return pgWebhookEventsToDomain(rows), nil
-}
-
 func (a *PGAdapter) ListWebhookEventsByType(ctx context.Context, eventType string, limit, offset int) ([]repository.WebhookEvent, error) {
 	et := eventType
 	rows, err := a.queries.ListWebhookEventsByType(ctx, pggen.ListWebhookEventsByTypeParams{
@@ -81,13 +57,4 @@ func (a *PGAdapter) ListStuckWebhookEvents(ctx context.Context, before time.Time
 		return nil, fmt.Errorf("pg list stuck webhook events: %w", err)
 	}
 	return pgWebhookEventsToDomain(rows), nil
-}
-
-func (a *PGAdapter) CountWebhookEvents(ctx context.Context) (int64, error) {
-	return a.queries.CountWebhookEvents(ctx)
-}
-
-func (a *PGAdapter) CountWebhookEventsByType(ctx context.Context, eventType string) (int64, error) {
-	et := eventType
-	return a.queries.CountWebhookEventsByType(ctx, &et)
 }

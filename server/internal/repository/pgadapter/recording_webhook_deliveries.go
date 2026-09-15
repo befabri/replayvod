@@ -36,13 +36,6 @@ func (a *PGAdapter) CreateClaimedRecordingWebhookDelivery(ctx context.Context, i
 	return pgRecordingWebhookDeliveryToDomain(row), nil
 }
 
-func (a *PGAdapter) DeleteOldRecordingWebhookDeliveries(ctx context.Context, before time.Time) error {
-	if err := a.queries.DeleteOldRecordingWebhookDeliveries(ctx, before); err != nil {
-		return fmt.Errorf("pg delete old recording webhook deliveries: %w", err)
-	}
-	return nil
-}
-
 func (a *PGAdapter) ClaimDueRecordingWebhookDeliveries(ctx context.Context, now time.Time, limit int) ([]repository.RecordingWebhookDelivery, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -84,27 +77,6 @@ func (a *PGAdapter) MarkRecordingWebhookDeliveryFinal(ctx context.Context, id in
 		return fmt.Errorf("pg mark recording webhook delivery final: %w", err)
 	}
 	return nil
-}
-
-func (a *PGAdapter) ResetStaleRecordingWebhookDeliveries(ctx context.Context, before time.Time, now time.Time) error {
-	if err := a.queries.ResetStaleRecordingWebhookDeliveries(ctx, pggen.ResetStaleRecordingWebhookDeliveriesParams{
-		Now:    now,
-		Before: before,
-	}); err != nil {
-		return fmt.Errorf("pg reset stale recording webhook deliveries: %w", err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) RetryRecordingWebhookDelivery(ctx context.Context, id int64, now time.Time) (*repository.RecordingWebhookDelivery, error) {
-	row, err := a.queries.RetryRecordingWebhookDelivery(ctx, pggen.RetryRecordingWebhookDeliveryParams{
-		ID:  id,
-		Now: now,
-	})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgRecordingWebhookDeliveryToDomain(row), nil
 }
 
 func (a *PGAdapter) ListRecordingWebhookDeliveries(ctx context.Context, limit int) ([]repository.RecordingWebhookDelivery, error) {
@@ -157,16 +129,6 @@ func pgCreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, q *pggen.Que
 	}
 	if err != nil {
 		return fmt.Errorf("pg create recording webhook delivery if enabled: %w", err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error {
-	if err := a.queries.SetRecordingWebhookDeliveryFrozenParts(ctx, pggen.SetRecordingWebhookDeliveryFrozenPartsParams{
-		ID:          id,
-		FrozenParts: frozenParts,
-	}); err != nil {
-		return fmt.Errorf("pg set recording webhook delivery frozen parts: %w", err)
 	}
 	return nil
 }

@@ -9,17 +9,6 @@ import (
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
 )
 
-func (a *SQLiteAdapter) GetVideoUserState(ctx context.Context, userID string, videoID int64) (*repository.VideoUserState, error) {
-	row, err := a.queries.GetVideoUserState(ctx, sqlitegen.GetVideoUserStateParams{
-		UserID:  userID,
-		VideoID: videoID,
-	})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoUserStateToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) ListVideoUserStatesForVideos(ctx context.Context, userID string, videoIDs []int64) ([]repository.VideoUserState, error) {
 	if userID == "" || len(videoIDs) == 0 {
 		return []repository.VideoUserState{}, nil
@@ -36,18 +25,6 @@ func (a *SQLiteAdapter) ListVideoUserStatesForVideos(ctx context.Context, userID
 		out[i] = *sqliteVideoUserStateToDomain(row)
 	}
 	return out, nil
-}
-
-func (a *SQLiteAdapter) SetVideoWatchLater(ctx context.Context, userID string, videoID int64, watchLater bool) (*repository.VideoUserState, error) {
-	row, err := a.queries.SetVideoWatchLater(ctx, sqlitegen.SetVideoWatchLaterParams{
-		UserID:     userID,
-		VideoID:    videoID,
-		WatchLater: boolToInt64(watchLater),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite set video watch later: %w", err)
-	}
-	return sqliteVideoUserStateToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, at time.Time) (*repository.VideoUserState, error) {

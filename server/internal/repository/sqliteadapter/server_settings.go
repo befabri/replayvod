@@ -59,32 +59,6 @@ func (a *SQLiteAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled b
 	return sqliteServerSettingsToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) SetSchedulesPaused(ctx context.Context, paused bool) (*repository.ServerSettings, error) {
-	var pausedInt int64
-	if paused {
-		pausedInt = 1
-	}
-	row, err := a.queries.SetSchedulesPaused(ctx, pausedInt)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite set schedules paused: %w", err)
-	}
-	return sqliteServerSettingsToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) EnsureRecordingWebhookSecret(ctx context.Context, secret string) error {
-	if err := a.queries.EnsureRecordingWebhookSecret(ctx, secret); err != nil {
-		return fmt.Errorf("sqlite ensure recording webhook secret: %w", err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) SetRecordingWebhookSecret(ctx context.Context, secret string) error {
-	if err := a.queries.SetRecordingWebhookSecret(ctx, secret); err != nil {
-		return fmt.Errorf("sqlite set recording webhook secret: %w", err)
-	}
-	return nil
-}
-
 func (a *SQLiteAdapter) GetServerHMACSecret(ctx context.Context) (string, error) {
 	secret, err := a.queries.GetServerHMACSecret(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -94,28 +68,6 @@ func (a *SQLiteAdapter) GetServerHMACSecret(ctx context.Context) (string, error)
 		return "", mapErr(err)
 	}
 	return secret, nil
-}
-
-func (a *SQLiteAdapter) EnsureServerHMACSecret(ctx context.Context, secret string) error {
-	if err := a.queries.EnsureServerHMACSecret(ctx, secret); err != nil {
-		return fmt.Errorf("sqlite ensure server hmac secret: %w", err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) SetStorageID(ctx context.Context, id string) (*repository.ServerSettings, error) {
-	row, err := a.queries.SetStorageID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite set storage id: %w", err)
-	}
-	return sqliteServerSettingsToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) SetStorageScanCursor(ctx context.Context, cursor int64) error {
-	if err := a.queries.SetStorageScanCursor(ctx, cursor); err != nil {
-		return fmt.Errorf("sqlite set storage scan cursor: %w", err)
-	}
-	return nil
 }
 
 func (a *SQLiteAdapter) SetStorageRestoreCursor(ctx context.Context, cursor *int64) error {

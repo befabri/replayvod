@@ -26,18 +26,6 @@ func (a *PGAdapter) UpsertChannel(ctx context.Context, c *repository.Channel) (*
 	return pgChannelToDomain(row), nil
 }
 
-func (a *PGAdapter) ListChannels(ctx context.Context) ([]repository.Channel, error) {
-	rows, err := a.queries.ListChannels(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list channels: %w", err)
-	}
-	channels := make([]repository.Channel, len(rows))
-	for i, row := range rows {
-		channels[i] = *pgChannelToDomain(row)
-	}
-	return channels, nil
-}
-
 func (a *PGAdapter) ListChannelsPage(ctx context.Context, limit int, sort string, filter string, userID string, cursor *repository.ChannelPageCursor) (*repository.ChannelPage, error) {
 	params := pggen.ListChannelsPageAscParams{
 		LiveOnly:       filter == repository.ChannelFilterLive,
@@ -101,25 +89,6 @@ func (a *PGAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFoll
 		BroadcasterID: f.BroadcasterID,
 		FollowedAt:    f.FollowedAt,
 		Followed:      f.Followed,
-	})
-}
-
-func (a *PGAdapter) ListUserFollows(ctx context.Context, userID string) ([]repository.Channel, error) {
-	rows, err := a.queries.ListUserFollows(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("pg list user follows: %w", err)
-	}
-	channels := make([]repository.Channel, len(rows))
-	for i, row := range rows {
-		channels[i] = *pgChannelToDomain(row)
-	}
-	return channels, nil
-}
-
-func (a *PGAdapter) UnfollowChannel(ctx context.Context, userID, broadcasterID string) error {
-	return a.queries.UnfollowChannel(ctx, pggen.UnfollowChannelParams{
-		UserID:        userID,
-		BroadcasterID: broadcasterID,
 	})
 }
 

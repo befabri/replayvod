@@ -22,8 +22,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-
-	"golang.org/x/tools/imports"
 )
 
 // genSpec names one generated mapper. name is the function suffix
@@ -34,10 +32,12 @@ type genSpec struct {
 	name   string
 	domain string
 	row    string
-	// slice also emits pg<name>sToDomain([]row) []domain, which calls the
-	// single-row mapper. Only set it when the plural is name+"s" and the row
-	// type is the plain singular row (true for the simple list-of-rows mappers).
-	slice bool
+	// slice also emits pg<plural>ToDomain([]row) []domain, which calls the
+	// single-row mapper. plural defaults to name+"s"; it only makes sense when
+	// the row type is the plain singular row, which holds for every allowlisted
+	// type because the list queries select whole table rows.
+	slice  bool
+	plural string
 }
 
 func (s genSpec) domainType() string {
@@ -54,14 +54,21 @@ func (s genSpec) rowType() string {
 	return s.name
 }
 
+func (s genSpec) pluralName() string {
+	if s.plural != "" {
+		return s.plural
+	}
+	return s.name + "s"
+}
+
 // genTypes is the allowlist of types whose mappers are generated. A type belongs
 // here only if every one of its domain fields maps to a row field with a known
 // conversion (see convRules). Complex/non-1:1 types stay hand-written.
 var genTypes = []genSpec{
 	{name: "Title"},
-	{name: "Tag"},
-	{name: "Category"},
-	{name: "Channel"},
+	{name: "Tag", slice: true},
+	{name: "Category", slice: true, plural: "Categories"},
+	{name: "Channel", slice: true},
 	{name: "ChannelUserState"},
 	{name: "EventLog", slice: true},
 	{name: "Job"},
@@ -71,14 +78,24 @@ var genTypes = []genSpec{
 	{name: "Stream", slice: true},
 	{name: "Subscription", slice: true},
 	{name: "Task", slice: true},
-	{name: "User"},
-	{name: "VideoPart"},
+	{name: "User", slice: true},
+	{name: "VideoPart", slice: true},
 	{name: "VideoPlaybackAsset"},
 	{name: "VideoUserState"},
 	{name: "WebhookEvent", slice: true},
 	{name: "ServerSettings", row: "ServerSetting"},
 	{name: "Settings", row: "Setting"},
-	{name: "Snapshot", domain: "EventSubSnapshot", row: "EventsubSnapshot"},
+	{name: "Snapshot", domain: "EventSubSnapshot", row: "EventsubSnapshot", slice: true},
+}
+
+// mapperSpec returns the genTypes entry whose domain type is domain, if any.
+func mapperSpec(domain string) (genSpec, bool) {
+	for _, s := range genTypes {
+		if s.domainType() == domain {
+			return s, true
+		}
+	}
+	return genSpec{}, false
 }
 
 // convRules maps {sqlcRowFieldType, domainFieldType} to a Go expression template
@@ -120,6 +137,58 @@ var convRules = map[[2]string]string{
 	{"string", "json.RawMessage"}:         "json.RawMessage(%s)",
 }
 
+// argRules is the argument-side mirror of convRules: it maps
+// {repositoryParamType, sqlcParamType} to the expression that passes a
+// repository argument to a sqlc query, with %s standing for the argument.
+// Identical types need no entry. Every SQLite helper named here is defined in
+// the sqliteadapter package.
+var argRules = map[[2]string]string{
+	// numeric width (repository int -> PG int32 / SQLite int64)
+	{"int", "int32"}:   "int32(%s)",
+	{"int", "int64"}:   "int64(%s)",
+	{"int64", "int32"}: "int32(%s)",
+	{"int32", "int64"}: "int64(%s)",
+	// PG nullable columns take pointers to the caller's value
+	{"string", "*string"}:       "&%s",
+	{"time.Time", "*time.Time"}: "&%s",
+	// SQLite glue
+	{"bool", "int64"}:                  "boolToInt64(%s)",
+	{"json.RawMessage", "string"}:      "string(%s)",
+	{"time.Time", "sqlitetype.Time"}:   "sqliteTime(%s)",
+	{"time.Time", "*sqlitetype.Time"}:  "sqliteTimePtr(&%s)",
+	{"*time.Time", "*sqlitetype.Time"}: "sqliteTimePtr(%s)",
+	{"string", "sql.NullString"}:       "sql.NullString{String: %s, Valid: true}",
+	{"*string", "sql.NullString"}:      "toNullString(%s)",
+	{"int64", "sql.NullInt64"}:         "sql.NullInt64{Int64: %s, Valid: true}",
+	{"*int64", "sql.NullInt64"}:        "toNullInt64(%s)",
+	{"float64", "sql.NullFloat64"}:     "sql.NullFloat64{Float64: %s, Valid: true}",
+	{"*float64", "sql.NullFloat64"}:    "nullFloat64(%s)",
+}
+
+// convertArg renders a repository argument of type from as the sqlc parameter
+// type to, or reports that no rule exists.
+func convertArg(from, to, expr string) (string, bool) {
+	if from == to {
+		return expr, true
+	}
+	tmpl, ok := argRules[[2]string{from, to}]
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf(tmpl, expr), true
+}
+
+// queryAliases maps repository methods to the sqlc query they call when the
+// two names differ. The list is deliberately short: a broad rename manifest
+// would let a method be generated against a query whose parameters happen to
+// share types with its own, which the name-equality guard otherwise prevents.
+var queryAliases = map[string]string{
+	"CreateEventSubSnapshot":     "CreateSnapshot",
+	"GetLatestEventSubSnapshot":  "GetLatestSnapshot",
+	"ListEventSubSnapshots":      "ListSnapshots",
+	"DeleteOldEventSubSnapshots": "DeleteOldSnapshots",
+}
+
 type dialect struct {
 	name        string // "pg" / "sqlite"
 	dir         string // adapter package dir
@@ -134,18 +203,21 @@ type dialect struct {
 }
 
 // Method generation is auto-discovered: there is no allowlist. Every
-// repository.Repository method is tried and classified into a supported shape
-// (exec / one-row / slice, args positional or via a <Method>Params struct).
+// repository.Repository method is tried against the sqlc query of the same
+// name (or its queryAliases entry) and rendered in every supported shape: exec,
+// rows-affected exec, one row, slice, direct scalar and rows-affected bool,
+// each with the error-handling styles the adapters use (see shapes.go).
 // A method is emitted into methods_gen.go only when one of:
 //
-//   - it is already present in methods_gen.go (harvested on a prior run), or
-//   - it is still hand-written AND its generated body is byte-identical (after
-//     gofmt + comment-stripping normalization) to the hand-written one — in
-//     which case the hand-written copy is also deleted (the "harvest").
+//   - it is already present in methods_gen.go (harvested on a prior run), in
+//     which case the shape it was harvested in is re-emitted, or
+//   - it is still hand-written AND one rendered shape is structurally
+//     identical to the hand-written body (see normalizeFuncSrc) — in which
+//     case the hand-written copy is also deleted (the "harvest").
 //
-// The byte-identical guard makes harvesting behavior-preserving by
-// construction: any method carrying extra logic, a different error message, a
-// renamed param, or an inline loop simply differs and is left hand-written. A
+// Structural identity makes harvesting behavior-preserving by construction:
+// any method carrying extra logic, a different error message, a swapped
+// argument or an unknown conversion simply differs and is left hand-written. A
 // brand-new method that fits a shape but has no implementation yet is NOT
 // guessed; write it by hand first and the next run harvests it if it matches.
 //
@@ -184,7 +256,12 @@ func main() {
 
 	for _, d := range dialects {
 		// sqlc places model and query parameter structs in separate files.
-		gen, err := structFieldsDir(filepath.Join(*root, d.dir, d.genPkg))
+		genDir := filepath.Join(*root, d.dir, d.genPkg)
+		gen, err := structFieldsDir(genDir)
+		if err != nil {
+			fail(err)
+		}
+		queries, err := queryMethods(genDir)
 		if err != nil {
 			fail(err)
 		}
@@ -192,7 +269,7 @@ func main() {
 		if err != nil {
 			fail(fmt.Errorf("%s mappers: %w", d.name, err))
 		}
-		methodSrc, harvest, err := generateMethods(d, methods, gen, *root)
+		methodSrc, harvest, _, err := generateMethods(d, methods, gen, queries, *root)
 		if err != nil {
 			fail(fmt.Errorf("%s methods: %w", d.name, err))
 		}
@@ -270,11 +347,7 @@ func generate(d dialect, domain, rows map[string]map[string]string) ([]byte, err
 		body.WriteString("\t}\n}\n")
 
 		if spec.slice {
-			fmt.Fprintf(&body, "\nfunc %s%ssToDomain(rows []%s.%s) []repository.%s {\n",
-				d.name, spec.name, d.genPkg, spec.rowType(), spec.domainType())
-			fmt.Fprintf(&body, "\tout := make([]repository.%s, len(rows))\n", spec.domainType())
-			fmt.Fprintf(&body, "\tfor i, r := range rows {\n\t\tout[i] = *%s%sToDomain(r)\n\t}\n\treturn out\n}\n",
-				d.name, spec.name)
+			body.WriteString(sliceMapperSrc(d, spec))
 		}
 	}
 
@@ -294,6 +367,19 @@ func generate(d dialect, domain, rows map[string]map[string]string) ([]byte, err
 		return nil, fmt.Errorf("format generated source: %w\n%s", err, b.String())
 	}
 	return formatted, nil
+}
+
+// sliceMapperSrc renders the generated slice mapper for spec. Its body is the
+// make-and-loop form, so an adapter method that spells the loop inline is
+// structurally the same as one that calls the mapper (see inlineLoopSrc).
+func sliceMapperSrc(d dialect, spec genSpec) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\nfunc %s%sToDomain(rows []%s.%s) []repository.%s {\n",
+		d.name, spec.pluralName(), d.genPkg, spec.rowType(), spec.domainType())
+	fmt.Fprintf(&b, "\tout := make([]repository.%s, len(rows))\n", spec.domainType())
+	fmt.Fprintf(&b, "\tfor i, r := range rows {\n\t\tout[i] = *%s%sToDomain(r)\n\t}\n\treturn out\n}\n",
+		d.name, spec.name)
+	return b.String()
 }
 
 // structFieldsDir parses every .go file in dir and merges their struct
@@ -419,7 +505,7 @@ func structFields(path string) (map[string]map[string]string, error) {
 }
 
 // renderType renders the type expressions the model files actually use:
-// identifiers, pointers, selectors (pkg.Type), and []byte.
+// identifiers, pointers, selectors (pkg.Type), and slices.
 func renderType(e ast.Expr) string {
 	switch t := e.(type) {
 	case *ast.Ident:
@@ -446,6 +532,37 @@ type param struct{ name, typ string }
 type methodSig struct {
 	params  []param
 	results []string
+}
+
+// funcSig renders a function type's parameters and results, one entry per
+// name so grouped declarations ("limit, offset int") expand.
+func funcSig(ft *ast.FuncType) methodSig {
+	var sig methodSig
+	if ft.Params != nil {
+		for _, p := range ft.Params.List {
+			typ := renderType(p.Type)
+			if len(p.Names) == 0 {
+				sig.params = append(sig.params, param{typ: typ})
+				continue
+			}
+			for _, n := range p.Names {
+				sig.params = append(sig.params, param{name: n.Name, typ: typ})
+			}
+		}
+	}
+	if ft.Results != nil {
+		for _, r := range ft.Results.List {
+			typ := renderType(r.Type)
+			n := len(r.Names)
+			if n == 0 {
+				n = 1
+			}
+			for i := 0; i < n; i++ {
+				sig.results = append(sig.results, typ)
+			}
+		}
+	}
+	return sig
 }
 
 // interfaceMethods parses the named interface and returns each method's
@@ -479,276 +596,8 @@ func interfaceMethods(path, ifaceName string) (map[string]methodSig, error) {
 				if !ok {
 					continue
 				}
-				var sig methodSig
-				if ft.Params != nil {
-					for _, p := range ft.Params.List {
-						typ := renderType(p.Type)
-						if len(p.Names) == 0 {
-							sig.params = append(sig.params, param{typ: typ})
-							continue
-						}
-						for _, n := range p.Names {
-							sig.params = append(sig.params, param{name: n.Name, typ: typ})
-						}
-					}
-				}
-				if ft.Results != nil {
-					for _, r := range ft.Results.List {
-						typ := renderType(r.Type)
-						n := len(r.Names)
-						if n == 0 {
-							n = 1
-						}
-						for i := 0; i < n; i++ {
-							sig.results = append(sig.results, typ)
-						}
-					}
-				}
-				out[m.Names[0].Name] = sig
+				out[m.Names[0].Name] = funcSig(ft)
 			}
-		}
-	}
-	return out, nil
-}
-
-// harvestTarget marks a hand-written method to delete after it has been
-// generated: a byte range (doc comment through closing brace) in a source file.
-type harvestTarget struct {
-	file       string
-	start, end int
-}
-
-// generateMethods renders methods_gen.go for one dialect by auto-discovery and
-// returns the hand-written methods to harvest. See denyMethods for the policy.
-func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map[string]string, root string) ([]byte, []harvestTarget, error) {
-	pkgName := filepath.Base(d.dir)
-	dir := filepath.Join(root, d.dir)
-	existing, err := genFileMethodNames(filepath.Join(dir, "methods_gen.go"), d.adapterType)
-	if err != nil {
-		return nil, nil, err
-	}
-	hand, err := handWrittenMethods(dir, d.adapterType)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	names := make([]string, 0, len(methods))
-	for name := range methods {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	var body strings.Builder
-	var harvest []harvestTarget
-	for _, name := range names {
-		src, ok := classifyMethod(d, name, methods[name], gen)
-		hm, hasHand := hand[name]
-		switch {
-		case denyMethods[name]:
-			if existing[name] {
-				return nil, nil, fmt.Errorf("method %q is in denyMethods but still present in methods_gen.go; remove it there and hand-write it", name)
-			}
-		case existing[name]:
-			if !ok {
-				return nil, nil, fmt.Errorf("method %q is in methods_gen.go but no longer fits a generatable shape; hand-write it and delete it from methods_gen.go", name)
-			}
-			if hasHand {
-				return nil, nil, fmt.Errorf("method %q is both generated and hand-written (%s); delete the hand-written copy", name, hm.file)
-			}
-			body.WriteString("\n")
-			body.WriteString(src)
-		case ok && hasHand:
-			// Only identical normalized bodies may replace handwritten implementations.
-			nc, err := normalizeFuncSrc(src)
-			if err != nil {
-				return nil, nil, fmt.Errorf("normalize candidate %q: %w", name, err)
-			}
-			if nc == hm.norm {
-				body.WriteString("\n")
-				body.WriteString(src)
-				harvest = append(harvest, harvestTarget{file: hm.file, start: hm.start, end: hm.end})
-			}
-		default:
-			// Unsupported or unimplemented methods must remain handwritten.
-		}
-	}
-
-	// Generated signatures may reference arbitrary imports, so a fixed allowlist
-	// would miss valid repository types.
-	var b strings.Builder
-	fmt.Fprintf(&b, "// Code generated by repo-adapter-gen. DO NOT EDIT.\n\npackage %s\n\n%s", pkgName, body.String())
-	formatted, err := imports.Process(filepath.Join(dir, "methods_gen.go"), []byte(b.String()), &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
-	if err != nil {
-		return nil, nil, fmt.Errorf("format methods source: %w\n%s", err, b.String())
-	}
-	return formatted, harvest, nil
-}
-
-// classifyMethod renders the adapter body for one method if it fits a supported
-// shape, returning ok=false when it does not (so auto-discovery skips it rather
-// than failing the whole run). Shapes: exec (-> error), one-row (-> *T, error),
-// slice (-> []T, error); args pass positionally or via a <Method>Params struct.
-func classifyMethod(d dialect, name string, sig methodSig, gen map[string]map[string]string) (string, bool) {
-	if len(sig.params) == 0 {
-		return "", false
-	}
-	names := make([]string, len(sig.params))
-	for i, p := range sig.params {
-		pn := p.name
-		if pn == "" {
-			pn = fmt.Sprintf("a%d", i)
-		}
-		names[i] = pn
-	}
-	decls := groupedDecls(sig.params, names)
-	ctxName := names[0]
-
-	// sqlc accepts a Params struct for multiargument queries; field names and count
-	// must match the repository signature before a method can be generated.
-	call := ctxName
-	if pf, ok := gen[name+"Params"]; ok {
-		if len(names)-1 != len(pf) {
-			return "", false
-		}
-		fieldByNorm := make(map[string]string, len(pf))
-		for fn := range pf {
-			fieldByNorm[strings.ToLower(fn)] = fn
-		}
-		var assigns []string
-		for j := 1; j < len(names); j++ {
-			field, ok := fieldByNorm[strings.ToLower(names[j])]
-			if !ok {
-				return "", false
-			}
-			val := names[j]
-			if pf[field] != sig.params[j].typ {
-				val = pf[field] + "(" + names[j] + ")"
-			}
-			assigns = append(assigns, field+": "+val)
-		}
-		call = fmt.Sprintf("%s, %s.%sParams{%s}", ctxName, d.genPkg, name, strings.Join(assigns, ", "))
-	} else if len(names) > 1 {
-		call = ctxName + ", " + strings.Join(names[1:], ", ")
-	}
-
-	var b strings.Builder
-	switch {
-	case len(sig.results) == 1 && sig.results[0] == "error":
-		fmt.Fprintf(&b, "func (a *%s) %s(%s) error {\n\treturn a.queries.%s(%s)\n}\n",
-			d.adapterType, name, decls, name, call)
-	case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "*") && !strings.Contains(sig.results[0], "."):
-		// Unqualified interface result names belong to repository.
-		dom := strings.TrimPrefix(sig.results[0], "*")
-		fmt.Fprintf(&b, "func (a *%s) %s(%s) (*repository.%s, error) {\n", d.adapterType, name, decls, dom)
-		if d.rowLocks[name] {
-			b.WriteString("\tif !a.inTransaction() {\n\t\treturn nil, repository.ErrNoTransaction\n\t}\n")
-		}
-		fmt.Fprintf(&b, "\trow, err := a.queries.%s(%s)\n", name, call)
-		// Get and Lock methods translate missing rows to the shared ErrNotFound sentinel.
-		if strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "Lock") {
-			b.WriteString("\tif err != nil {\n\t\treturn nil, mapErr(err)\n\t}\n")
-		} else {
-			fmt.Fprintf(&b, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
-		}
-		fmt.Fprintf(&b, "\treturn %s%sToDomain(row), nil\n}\n", d.name, dom)
-	case len(sig.results) == 2 && sig.results[1] == "error" && strings.HasPrefix(sig.results[0], "[]") && !strings.Contains(sig.results[0], "."):
-		elem := strings.TrimPrefix(sig.results[0], "[]")
-		fmt.Fprintf(&b, "func (a *%s) %s(%s) ([]repository.%s, error) {\n", d.adapterType, name, decls, elem)
-		fmt.Fprintf(&b, "\trows, err := a.queries.%s(%s)\n", name, call)
-		fmt.Fprintf(&b, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")
-		fmt.Fprintf(&b, "\treturn %s%ssToDomain(rows), nil\n}\n", d.name, elem)
-	default:
-		return "", false
-	}
-	return b.String(), true
-}
-
-// groupedDecls renders parameter declarations, grouping consecutive params that
-// share a type ("limit, offset int") to match idiomatic hand-written
-// signatures, so the byte-identical guard is not defeated by param spelling.
-func groupedDecls(params []param, names []string) string {
-	var groups []string
-	for i := 0; i < len(params); {
-		j := i
-		for j+1 < len(params) && params[j+1].typ == params[i].typ {
-			j++
-		}
-		groups = append(groups, strings.Join(names[i:j+1], ", ")+" "+params[i].typ)
-		i = j + 1
-	}
-	return strings.Join(groups, ", ")
-}
-
-// handMethod is a hand-written adapter method: its normalized source (for the
-// byte-identical compare) and the byte range to delete when harvested.
-type handMethod struct {
-	file       string
-	norm       string
-	start, end int
-}
-
-// handWrittenMethods returns every method with the given adapter receiver
-// across the package's hand-written files (excluding _test.go and *_gen.go).
-func handWrittenMethods(dir, adapterType string) (map[string]handMethod, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]handMethod{}
-	for _, e := range entries {
-		n := e.Name()
-		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") || strings.HasSuffix(n, "_gen.go") {
-			continue
-		}
-		path := filepath.Join(dir, n)
-		src, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, path, src, parser.ParseComments)
-		if err != nil {
-			return nil, err
-		}
-		for _, decl := range f.Decls {
-			fd, ok := decl.(*ast.FuncDecl)
-			if !ok || recvTypeName(fd.Recv) != adapterType {
-				continue
-			}
-			pos := fset.Position(fd.Pos()).Offset
-			end := fset.Position(fd.End()).Offset
-			start := pos
-			if fd.Doc != nil {
-				start = fset.Position(fd.Doc.Pos()).Offset
-			}
-			norm, err := normalizeFuncSrc(string(src[pos:end]))
-			if err != nil {
-				return nil, fmt.Errorf("normalize %s.%s: %w", path, fd.Name.Name, err)
-			}
-			out[fd.Name.Name] = handMethod{file: path, norm: norm, start: start, end: end}
-		}
-	}
-	return out, nil
-}
-
-// genFileMethodNames returns the set of adapter methods already present in
-// methods_gen.go (empty if the file does not exist yet).
-func genFileMethodNames(path, adapterType string) (map[string]bool, error) {
-	src, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return map[string]bool{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	f, err := parser.ParseFile(token.NewFileSet(), path, src, 0)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]bool{}
-	for _, decl := range f.Decls {
-		if fd, ok := decl.(*ast.FuncDecl); ok && recvTypeName(fd.Recv) == adapterType {
-			out[fd.Name.Name] = true
 		}
 	}
 	return out, nil
@@ -771,74 +620,57 @@ func recvTypeName(recv *ast.FieldList) string {
 	return ""
 }
 
-// normalizeFuncSrc parses a single func declaration and re-renders it with
-// gofmt and without comments, so two semantically identical bodies compare
-// equal regardless of comments or whitespace.
-func normalizeFuncSrc(src string) (string, error) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "x.go", "package x\n"+src, 0)
-	if err != nil {
-		return "", err
-	}
-	for _, decl := range f.Decls {
-		if fd, ok := decl.(*ast.FuncDecl); ok {
-			var buf bytes.Buffer
-			if err := format.Node(&buf, fset, fd); err != nil {
-				return "", err
+// camelWords splits a Go identifier into its words. An uppercase run is one
+// initialism ("HMAC", "ID"), including a plural spelled with a trailing "s"
+// ("IDs"); otherwise the run's last letter begins the next word ("HMACSecret"
+// is "HMAC", "Secret").
+func camelWords(name string) []string {
+	rs := []rune(name)
+	var words []string
+	start := 0
+	for i := 1; i < len(rs); i++ {
+		prevUpper := unicode.IsUpper(rs[i-1])
+		curUpper := unicode.IsUpper(rs[i])
+		switch {
+		case curUpper && !prevUpper:
+			words = append(words, string(rs[start:i]))
+			start = i
+		case !curUpper && prevUpper && i-start >= 2:
+			pluralInitialism := rs[i] == 's' && (i+1 == len(rs) || unicode.IsUpper(rs[i+1]))
+			if !pluralInitialism {
+				words = append(words, string(rs[start:i-1]))
+				start = i - 1
 			}
-			return buf.String(), nil
 		}
 	}
-	return "", fmt.Errorf("no func declaration in %q", src)
+	return append(words, string(rs[start:]))
 }
 
-// applyHarvest deletes harvested methods from their hand-written files, then
-// re-formats and prunes now-unused imports. Ranges within a file are removed
-// back-to-front so earlier offsets stay valid.
-func applyHarvest(targets []harvestTarget) error {
-	byFile := map[string][]harvestTarget{}
-	for _, t := range targets {
-		byFile[t.file] = append(byFile[t.file], t)
-	}
-	files := make([]string, 0, len(byFile))
-	for f := range byFile {
-		files = append(files, f)
-	}
-	sort.Strings(files)
-	for _, file := range files {
-		src, err := os.ReadFile(file)
-		if err != nil {
-			return err
-		}
-		ts := byFile[file]
-		sort.Slice(ts, func(i, j int) bool { return ts[i].start > ts[j].start })
-		for _, t := range ts {
-			if t.start < 0 || t.end > len(src) || t.start > t.end {
-				return fmt.Errorf("%s: bad harvest range [%d,%d)", file, t.start, t.end)
-			}
-			src = append(src[:t.start], src[t.end:]...)
-		}
-		out, err := imports.Process(file, src, &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
-		if err != nil {
-			return fmt.Errorf("format %s after harvest: %w", file, err)
-		}
-		if err := os.WriteFile(file, out, 0o644); err != nil {
-			return err
-		}
-		fmt.Printf("harvested %d method(s) from %s\n", len(ts), file)
-	}
-	return nil
+// isInitialism reports whether a word from camelWords is an initialism, with
+// or without its plural "s".
+func isInitialism(word string) bool {
+	w := strings.TrimSuffix(word, "s")
+	return len(w) >= 2 && strings.ToUpper(w) == w
 }
 
-// actionPhrase turns a method name into a lowercase space-separated phrase for
-// error messages, e.g. UpsertTitle -> "upsert title".
-func actionPhrase(name string) string {
-	var b strings.Builder
-	for i, r := range name {
-		if i > 0 && unicode.IsUpper(r) {
-			b.WriteByte(' ')
+// actionPhrases turns a method name into the space-separated phrases the
+// adapters use in error messages, e.g. UpsertTitle -> "upsert title". A name
+// with initialisms yields two spellings: all lowercase ("set storage id") and
+// with the initialisms kept ("set storage ID").
+func actionPhrases(name string) []string {
+	words := camelWords(name)
+	lower := make([]string, len(words))
+	kept := make([]string, len(words))
+	for i, w := range words {
+		lower[i] = strings.ToLower(w)
+		kept[i] = lower[i]
+		if isInitialism(w) {
+			kept[i] = w
 		}
-		b.WriteRune(unicode.ToLower(r))
 	}
-	return b.String()
+	out := []string{strings.Join(lower, " ")}
+	if k := strings.Join(kept, " "); k != out[0] {
+		out = append(out, k)
+	}
+	return out
 }

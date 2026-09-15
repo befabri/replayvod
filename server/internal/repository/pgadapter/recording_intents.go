@@ -12,17 +12,6 @@ func (a *PGAdapter) CreateRecordingIntent(ctx context.Context, input repository.
 	return mapErr(a.queries.CreateRecordingIntent(ctx, pggen.CreateRecordingIntentParams{ID: input.ID, BroadcasterID: input.BroadcasterID, Params: input.Params, WaitSeconds: input.WaitSeconds, CurrentJobID: input.CurrentJobID, LastStreamID: input.LastStreamID}))
 }
 
-func (a *PGAdapter) LinkRecordingIntentVideo(ctx context.Context, intentID string, videoID int64, streamID *string) error {
-	return mapErr(a.queries.LinkRecordingIntentVideo(ctx, pggen.LinkRecordingIntentVideoParams{IntentID: intentID, VideoID: videoID, StreamID: streamID}))
-}
-
-func (a *PGAdapter) GetRecordingIntentByJob(ctx context.Context, id string) (*repository.RecordingIntent, error) {
-	row, err := a.queries.GetRecordingIntentByJob(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgRecordingIntentToDomain(row), nil
-}
 func (a *PGAdapter) ListRecoverableRecordingIntents(ctx context.Context, after string, limit int) ([]repository.RecordingIntent, error) {
 	rows, err := a.queries.ListRecoverableRecordingIntents(ctx, pggen.ListRecoverableRecordingIntentsParams{AfterID: after, BatchLimit: int32(limit)})
 	if err != nil {

@@ -2,7 +2,6 @@ package pgadapter
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
@@ -17,37 +16,6 @@ func (a *PGAdapter) CreateFetchLog(ctx context.Context, input *repository.FetchL
 		Error:         input.Error,
 		DurationMs:    int32(input.DurationMs),
 	})
-}
-
-func (a *PGAdapter) ListFetchLogs(ctx context.Context, limit, offset int) ([]repository.FetchLog, error) {
-	rows, err := a.queries.ListFetchLogs(ctx, pggen.ListFetchLogsParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list fetch logs: %w", err)
-	}
-	return pgFetchLogsToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListFetchLogsByType(ctx context.Context, fetchType string, limit, offset int) ([]repository.FetchLog, error) {
-	rows, err := a.queries.ListFetchLogsByType(ctx, pggen.ListFetchLogsByTypeParams{
-		FetchType: fetchType,
-		Limit:     int32(limit),
-		Offset:    int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list fetch logs by type: %w", err)
-	}
-	return pgFetchLogsToDomain(rows), nil
-}
-
-func (a *PGAdapter) CountFetchLogs(ctx context.Context) (int64, error) {
-	return a.queries.CountFetchLogs(ctx)
-}
-
-func (a *PGAdapter) CountFetchLogsByType(ctx context.Context, fetchType string) (int64, error) {
-	return a.queries.CountFetchLogsByType(ctx, fetchType)
 }
 
 func pgFetchLogsToDomain(rows []pggen.FetchLog) []repository.FetchLog {

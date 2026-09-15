@@ -23,6 +23,14 @@ func pgTagToDomain(src pggen.Tag) *repository.Tag {
 	}
 }
 
+func pgTagsToDomain(rows []pggen.Tag) []repository.Tag {
+	out := make([]repository.Tag, len(rows))
+	for i, r := range rows {
+		out[i] = *pgTagToDomain(r)
+	}
+	return out
+}
+
 func pgCategoryToDomain(src pggen.Category) *repository.Category {
 	return &repository.Category{
 		BoxArtURL:             src.BoxArtUrl,
@@ -35,6 +43,14 @@ func pgCategoryToDomain(src pggen.Category) *repository.Category {
 		Name:                  src.Name,
 		UpdatedAt:             src.UpdatedAt,
 	}
+}
+
+func pgCategoriesToDomain(rows []pggen.Category) []repository.Category {
+	out := make([]repository.Category, len(rows))
+	for i, r := range rows {
+		out[i] = *pgCategoryToDomain(r)
+	}
+	return out
 }
 
 func pgChannelToDomain(src pggen.Channel) *repository.Channel {
@@ -51,6 +67,14 @@ func pgChannelToDomain(src pggen.Channel) *repository.Channel {
 		UpdatedAt:           src.UpdatedAt,
 		ViewCount:           src.ViewCount,
 	}
+}
+
+func pgChannelsToDomain(rows []pggen.Channel) []repository.Channel {
+	out := make([]repository.Channel, len(rows))
+	for i, r := range rows {
+		out[i] = *pgChannelToDomain(r)
+	}
+	return out
 }
 
 func pgChannelUserStateToDomain(src pggen.ChannelUserState) *repository.ChannelUserState {
@@ -254,6 +278,14 @@ func pgUserToDomain(src pggen.User) *repository.User {
 	}
 }
 
+func pgUsersToDomain(rows []pggen.User) []repository.User {
+	out := make([]repository.User, len(rows))
+	for i, r := range rows {
+		out[i] = *pgUserToDomain(r)
+	}
+	return out
+}
+
 func pgVideoPartToDomain(src pggen.VideoPart) *repository.VideoPart {
 	return &repository.VideoPart{
 		Codec:           src.Codec,
@@ -272,6 +304,14 @@ func pgVideoPartToDomain(src pggen.VideoPart) *repository.VideoPart {
 		UpdatedAt:       src.UpdatedAt,
 		VideoID:         src.VideoID,
 	}
+}
+
+func pgVideoPartsToDomain(rows []pggen.VideoPart) []repository.VideoPart {
+	out := make([]repository.VideoPart, len(rows))
+	for i, r := range rows {
+		out[i] = *pgVideoPartToDomain(r)
+	}
+	return out
 }
 
 func pgVideoPlaybackAssetToDomain(src pggen.VideoPlaybackAsset) *repository.VideoPlaybackAsset {
@@ -375,4 +415,12 @@ func pgSnapshotToDomain(src pggen.EventsubSnapshot) *repository.EventSubSnapshot
 		Total:        int64(src.Total),
 		TotalCost:    int64(src.TotalCost),
 	}
+}
+
+func pgSnapshotsToDomain(rows []pggen.EventsubSnapshot) []repository.EventSubSnapshot {
+	out := make([]repository.EventSubSnapshot, len(rows))
+	for i, r := range rows {
+		out[i] = *pgSnapshotToDomain(r)
+	}
+	return out
 }

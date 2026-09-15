@@ -121,30 +121,6 @@ func (a *PGAdapter) UpsertCategories(ctx context.Context, categories []repositor
 	return repository.OrderCategoriesByIDs(out, ids), nil
 }
 
-func (a *PGAdapter) ListCategories(ctx context.Context) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategories(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list categories: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *pgCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
-func (a *PGAdapter) ListCategoriesWithVideos(ctx context.Context) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategoriesWithVideos(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list categories with videos: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *pgCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
 func (a *PGAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit int, sort string, cursor *repository.CategoryPageCursor) (*repository.CategoryPage, error) {
 	sort = repository.NormalizeCategoryPageSort(sort)
 	rowLimit := int32(limit + 1)
@@ -250,18 +226,6 @@ func (a *PGAdapter) SearchCategoriesWithVideos(ctx context.Context, query string
 	return cats, nil
 }
 
-func (a *PGAdapter) ListCategoriesMissingGameMetadata(ctx context.Context, checkedBefore time.Time) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategoriesMissingGameMetadata(ctx, &checkedBefore)
-	if err != nil {
-		return nil, fmt.Errorf("pg list categories missing game metadata: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *pgCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
 func (a *PGAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error {
 	if err := a.queries.UpdateCategoryGameMetadata(ctx, pggen.UpdateCategoryGameMetadataParams{
 		ID:      id,
@@ -269,42 +233,6 @@ func (a *PGAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtUR
 		Column3: igdbID,
 	}); err != nil {
 		return fmt.Errorf("pg update category game metadata %s: %w", id, err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) MarkCategoryGameMetadataChecked(ctx context.Context, id string) error {
-	if err := a.queries.MarkCategoryGameMetadataChecked(ctx, id); err != nil {
-		return fmt.Errorf("pg mark category game metadata checked %s: %w", id, err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) ListCategoriesMissingDescription(ctx context.Context, checkedBefore time.Time) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategoriesMissingDescription(ctx, &checkedBefore)
-	if err != nil {
-		return nil, fmt.Errorf("pg list categories missing description: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *pgCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
-func (a *PGAdapter) UpdateCategoryDescription(ctx context.Context, id, description string) error {
-	if err := a.queries.UpdateCategoryDescription(ctx, pggen.UpdateCategoryDescriptionParams{
-		ID:          id,
-		Description: &description,
-	}); err != nil {
-		return fmt.Errorf("pg update category description %s: %w", id, err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) MarkCategoryDescriptionChecked(ctx context.Context, id string) error {
-	if err := a.queries.MarkCategoryDescriptionChecked(ctx, id); err != nil {
-		return fmt.Errorf("pg mark category description checked %s: %w", id, err)
 	}
 	return nil
 }
@@ -340,13 +268,6 @@ func (a *PGAdapter) TouchCategorySearchCache(ctx context.Context, normalizedQuer
 		LastAccessedAt:  at,
 	}); err != nil {
 		return fmt.Errorf("pg touch category search cache %q: %w", normalizedQuery, err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) DeleteExpiredCategorySearchCache(ctx context.Context, before time.Time) error {
-	if err := a.queries.DeleteExpiredCategorySearchCache(ctx, before); err != nil {
-		return fmt.Errorf("pg delete expired category search cache: %w", err)
 	}
 	return nil
 }
@@ -452,18 +373,6 @@ func pgCategoryPageTime(v any) (time.Time, error) {
 }
 
 // Tags
-
-func (a *PGAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) {
-	rows, err := a.queries.ListTags(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list tags: %w", err)
-	}
-	tags := make([]repository.Tag, len(rows))
-	for i, row := range rows {
-		tags[i] = *pgTagToDomain(row)
-	}
-	return tags, nil
-}
 
 func pgCategorySearchCacheToDomain(c pggen.CategorySearchCache) (*repository.CategorySearchCache, error) {
 	var categoryIDs []string

@@ -25,18 +25,6 @@ func pgScheduleRequestToDomain(row pggen.ScheduleRequest) *repository.ScheduleRe
 	}
 }
 
-func (a *PGAdapter) CreateScheduleRequest(ctx context.Context, broadcasterID, requestedBy string, note *string) (*repository.ScheduleRequest, error) {
-	row, err := a.queries.CreateScheduleRequest(ctx, pggen.CreateScheduleRequestParams{
-		BroadcasterID: broadcasterID,
-		RequestedBy:   requestedBy,
-		Note:          note,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg create schedule request: %w", mapErr(err))
-	}
-	return pgScheduleRequestToDomain(row), nil
-}
-
 func (a *PGAdapter) ListScheduleRequests(ctx context.Context, limit int, cursor *repository.ScheduleRequestCursor) ([]repository.ScheduleRequestView, error) {
 	limit, before := repository.ScheduleRequestQueryBounds(limit, cursor)
 	rows, err := a.queries.ListScheduleRequests(ctx, pggen.ListScheduleRequestsParams{BeforeCreatedAt: before.CreatedAt, BeforeID: before.ID, PageLimit: int32(limit)})
@@ -61,19 +49,6 @@ func (a *PGAdapter) ListScheduleRequestsForUser(ctx context.Context, userID stri
 		out[i] = pgScheduleRequestViewToDomain(pggen.ListScheduleRequestsRow(r))
 	}
 	return out, nil
-}
-
-func (a *PGAdapter) DecideScheduleRequest(ctx context.Context, id int64, status, decidedBy string, scheduleID *int64) (bool, error) {
-	affected, err := a.queries.DecideScheduleRequest(ctx, pggen.DecideScheduleRequestParams{
-		ID:         id,
-		Status:     status,
-		DecidedBy:  &decidedBy,
-		ScheduleID: scheduleID,
-	})
-	if err != nil {
-		return false, fmt.Errorf("pg decide schedule request %d: %w", id, err)
-	}
-	return affected > 0, nil
 }
 
 // errRequestNotPending forces rollback before approval returns ok=false.
@@ -124,17 +99,6 @@ func (a *PGAdapter) ApproveScheduleRequest(ctx context.Context, requestID int64,
 		return nil, false, err
 	}
 	return out, true, nil
-}
-
-func (a *PGAdapter) DeleteScheduleRequest(ctx context.Context, id int64, requestedBy string) (bool, error) {
-	affected, err := a.queries.DeleteScheduleRequest(ctx, pggen.DeleteScheduleRequestParams{
-		ID:          id,
-		RequestedBy: requestedBy,
-	})
-	if err != nil {
-		return false, fmt.Errorf("pg delete schedule request %d: %w", id, err)
-	}
-	return affected > 0, nil
 }
 
 func pgScheduleRequestViewToDomain(r pggen.ListScheduleRequestsRow) repository.ScheduleRequestView {

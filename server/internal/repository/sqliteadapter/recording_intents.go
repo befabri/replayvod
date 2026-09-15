@@ -12,13 +12,6 @@ func (a *SQLiteAdapter) CreateRecordingIntent(ctx context.Context, input reposit
 	return mapErr(a.queries.CreateRecordingIntent(ctx, sqlitegen.CreateRecordingIntentParams{ID: input.ID, BroadcasterID: input.BroadcasterID, Params: string(input.Params), WaitSeconds: input.WaitSeconds, CurrentJobID: input.CurrentJobID, LastStreamID: input.LastStreamID}))
 }
 
-func (a *SQLiteAdapter) GetRecordingIntentByJob(ctx context.Context, id string) (*repository.RecordingIntent, error) {
-	row, err := a.queries.GetRecordingIntentByJob(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteRecordingIntentToDomain(row), nil
-}
 func (a *SQLiteAdapter) ListRecoverableRecordingIntents(ctx context.Context, after string, limit int) ([]repository.RecordingIntent, error) {
 	rows, err := a.queries.ListRecoverableRecordingIntents(ctx, sqlitegen.ListRecoverableRecordingIntentsParams{AfterID: after, BatchLimit: int64(limit)})
 	if err != nil {
@@ -47,9 +40,6 @@ func (a *SQLiteAdapter) ActivateRecordingIntent(ctx context.Context, id, previou
 	return executionAffected(a.queries.ActivateRecordingIntent(ctx, sqlitegen.ActivateRecordingIntentParams{ID: id, PreviousJobID: previousJobID, NextJobID: nextJobID, LastStreamID: streamID, ObservedAtValue: observedAt.UTC().Format("2006-01-02 15:04:05.000000000")}))
 }
 
-func (a *SQLiteAdapter) LinkRecordingIntentVideo(ctx context.Context, intentID string, videoID int64, streamID *string) error {
-	return mapErr(a.queries.LinkRecordingIntentVideo(ctx, sqlitegen.LinkRecordingIntentVideoParams{IntentID: intentID, VideoID: videoID, StreamID: toNullString(streamID)}))
-}
 func (a *SQLiteAdapter) ListRecordingIntentJobs(ctx context.Context, intentID, after string, limit int) ([]repository.Job, error) {
 	rows, err := a.queries.ListRecordingIntentJobs(ctx, sqlitegen.ListRecordingIntentJobsParams{IntentID: intentID, AfterID: after, BatchLimit: int64(limit)})
 	if err != nil {

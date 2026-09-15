@@ -40,29 +40,6 @@ func (a *SQLiteAdapter) FinalizeVideoPart(ctx context.Context, input *repository
 	})
 }
 
-func (a *SQLiteAdapter) GetVideoPartByIndex(ctx context.Context, videoID int64, partIndex int32) (*repository.VideoPart, error) {
-	row, err := a.queries.GetVideoPartByIndex(ctx, sqlitegen.GetVideoPartByIndexParams{
-		VideoID:   videoID,
-		PartIndex: int64(partIndex),
-	})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoPartToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) ListVideoParts(ctx context.Context, videoID int64) ([]repository.VideoPart, error) {
-	rows, err := a.queries.ListVideoParts(ctx, videoID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list video parts: %w", err)
-	}
-	out := make([]repository.VideoPart, len(rows))
-	for i, r := range rows {
-		out[i] = *sqliteVideoPartToDomain(r)
-	}
-	return out, nil
-}
-
 func (a *SQLiteAdapter) ListVideoPartsForVideos(ctx context.Context, videoIDs []int64) ([]repository.VideoPart, error) {
 	if len(videoIDs) == 0 {
 		return nil, nil
@@ -76,17 +53,4 @@ func (a *SQLiteAdapter) ListVideoPartsForVideos(ctx context.Context, videoIDs []
 		out[i] = *sqliteVideoPartToDomain(r)
 	}
 	return out, nil
-}
-
-func (a *SQLiteAdapter) CountVideoParts(ctx context.Context, videoID int64) (int64, error) {
-	return a.queries.CountVideoParts(ctx, videoID)
-}
-
-func (a *SQLiteAdapter) HasFinalizedVideoParts(ctx context.Context, videoID int64) (bool, error) {
-	// SQLite reports EXISTS as 0/1; flatten to bool at the boundary.
-	v, err := a.queries.HasFinalizedVideoParts(ctx, videoID)
-	if err != nil {
-		return false, err
-	}
-	return v != 0, nil
 }

@@ -31,6 +31,3 @@ func (a *PGAdapter) UpdateTwitchPlaybackSessionValidation(ctx context.Context, s
 		NeedsReconnect: s.NeedsReconnect,
 	}))
 }
-func (a *PGAdapter) DeleteTwitchPlaybackSession(ctx context.Context) error {
-	return mapErr(a.queries.DeleteTwitchPlaybackSession(ctx))
-}

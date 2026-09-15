@@ -58,38 +58,11 @@ func (a *SQLiteAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Cont
 	return sqliteSubscriptionToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID string) ([]repository.Subscription, error) {
-	rows, err := a.queries.ListSubscriptionsByBroadcaster(ctx, sql.NullString{String: broadcasterID, Valid: true})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list subs by broadcaster: %w", err)
-	}
-	return sqliteSubscriptionsToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListSubscriptionsByType(ctx context.Context, subType string) ([]repository.Subscription, error) {
-	rows, err := a.queries.ListSubscriptionsByType(ctx, subType)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list subs by type: %w", err)
-	}
-	return sqliteSubscriptionsToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) UpdateSubscriptionStatus(ctx context.Context, id, status string) error {
-	return a.queries.UpdateSubscriptionStatus(ctx, sqlitegen.UpdateSubscriptionStatusParams{
-		ID:     id,
-		Status: status,
-	})
-}
-
 func (a *SQLiteAdapter) MarkSubscriptionRevoked(ctx context.Context, id, reason string) error {
 	return a.queries.MarkSubscriptionRevoked(ctx, sqlitegen.MarkSubscriptionRevokedParams{
 		ID:            id,
 		RevokedReason: sql.NullString{String: reason, Valid: true},
 	})
-}
-
-func (a *SQLiteAdapter) CountActiveSubscriptions(ctx context.Context) (int64, error) {
-	return a.queries.CountActiveSubscriptions(ctx)
 }
 
 func stringPtrToNullString(p *string) sql.NullString {

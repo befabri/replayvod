@@ -124,58 +124,6 @@ func (a *PGAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, broad
 	return pgSchedulesToDomain(rows), nil
 }
 
-func (a *PGAdapter) LinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
-	return a.queries.LinkScheduleCategory(ctx, pggen.LinkScheduleCategoryParams{
-		ScheduleID: scheduleID,
-		CategoryID: categoryID,
-	})
-}
-
-func (a *PGAdapter) UnlinkScheduleCategory(ctx context.Context, scheduleID int64, categoryID string) error {
-	return a.queries.UnlinkScheduleCategory(ctx, pggen.UnlinkScheduleCategoryParams{
-		ScheduleID: scheduleID,
-		CategoryID: categoryID,
-	})
-}
-
-func (a *PGAdapter) ListScheduleCategories(ctx context.Context, scheduleID int64) ([]repository.Category, error) {
-	rows, err := a.queries.ListScheduleCategories(ctx, scheduleID)
-	if err != nil {
-		return nil, fmt.Errorf("pg list schedule categories: %w", err)
-	}
-	out := make([]repository.Category, len(rows))
-	for i, r := range rows {
-		out[i] = *pgCategoryToDomain(r)
-	}
-	return out, nil
-}
-
-func (a *PGAdapter) LinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error {
-	return a.queries.LinkScheduleTag(ctx, pggen.LinkScheduleTagParams{
-		ScheduleID: scheduleID,
-		TagID:      tagID,
-	})
-}
-
-func (a *PGAdapter) UnlinkScheduleTag(ctx context.Context, scheduleID, tagID int64) error {
-	return a.queries.UnlinkScheduleTag(ctx, pggen.UnlinkScheduleTagParams{
-		ScheduleID: scheduleID,
-		TagID:      tagID,
-	})
-}
-
-func (a *PGAdapter) ListScheduleTags(ctx context.Context, scheduleID int64) ([]repository.Tag, error) {
-	rows, err := a.queries.ListScheduleTags(ctx, scheduleID)
-	if err != nil {
-		return nil, fmt.Errorf("pg list schedule tags: %w", err)
-	}
-	out := make([]repository.Tag, len(rows))
-	for i, r := range rows {
-		out[i] = *pgTagToDomain(r)
-	}
-	return out, nil
-}
-
 func pgCreateScheduleParams(input *repository.ScheduleInput) pggen.CreateScheduleParams {
 	settings := repository.NormalizeRecordingSettings(repository.RecordingSettingsInput{
 		RecordingType: input.RecordingType,

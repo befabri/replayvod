@@ -59,37 +59,9 @@ func (a *PGAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Context,
 	return pgSubscriptionToDomain(row), nil
 }
 
-func (a *PGAdapter) ListSubscriptionsByBroadcaster(ctx context.Context, broadcasterID string) ([]repository.Subscription, error) {
-	bid := broadcasterID
-	rows, err := a.queries.ListSubscriptionsByBroadcaster(ctx, &bid)
-	if err != nil {
-		return nil, fmt.Errorf("pg list subs by broadcaster: %w", err)
-	}
-	return pgSubscriptionsToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListSubscriptionsByType(ctx context.Context, subType string) ([]repository.Subscription, error) {
-	rows, err := a.queries.ListSubscriptionsByType(ctx, subType)
-	if err != nil {
-		return nil, fmt.Errorf("pg list subs by type: %w", err)
-	}
-	return pgSubscriptionsToDomain(rows), nil
-}
-
-func (a *PGAdapter) UpdateSubscriptionStatus(ctx context.Context, id, status string) error {
-	return a.queries.UpdateSubscriptionStatus(ctx, pggen.UpdateSubscriptionStatusParams{
-		ID:     id,
-		Status: status,
-	})
-}
-
 func (a *PGAdapter) MarkSubscriptionRevoked(ctx context.Context, id, reason string) error {
 	return a.queries.MarkSubscriptionRevoked(ctx, pggen.MarkSubscriptionRevokedParams{
 		ID:            id,
 		RevokedReason: &reason,
 	})
-}
-
-func (a *PGAdapter) CountActiveSubscriptions(ctx context.Context) (int64, error) {
-	return a.queries.CountActiveSubscriptions(ctx)
 }

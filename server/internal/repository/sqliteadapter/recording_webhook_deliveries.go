@@ -35,13 +35,6 @@ func (a *SQLiteAdapter) CreateClaimedRecordingWebhookDelivery(ctx context.Contex
 	return sqliteRecordingWebhookDeliveryToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) DeleteOldRecordingWebhookDeliveries(ctx context.Context, before time.Time) error {
-	if err := a.queries.DeleteOldRecordingWebhookDeliveries(ctx, sqliteTime(before)); err != nil {
-		return fmt.Errorf("sqlite delete old recording webhook deliveries: %w", err)
-	}
-	return nil
-}
-
 func (a *SQLiteAdapter) ClaimDueRecordingWebhookDeliveries(ctx context.Context, now time.Time, limit int) ([]repository.RecordingWebhookDelivery, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -83,27 +76,6 @@ func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryFinal(ctx context.Context, i
 		return fmt.Errorf("sqlite mark recording webhook delivery final: %w", err)
 	}
 	return nil
-}
-
-func (a *SQLiteAdapter) ResetStaleRecordingWebhookDeliveries(ctx context.Context, before time.Time, now time.Time) error {
-	if err := a.queries.ResetStaleRecordingWebhookDeliveries(ctx, sqlitegen.ResetStaleRecordingWebhookDeliveriesParams{
-		Now:    sqliteTime(now),
-		Before: sqliteTime(before),
-	}); err != nil {
-		return fmt.Errorf("sqlite reset stale recording webhook deliveries: %w", err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) RetryRecordingWebhookDelivery(ctx context.Context, id int64, now time.Time) (*repository.RecordingWebhookDelivery, error) {
-	row, err := a.queries.RetryRecordingWebhookDelivery(ctx, sqlitegen.RetryRecordingWebhookDeliveryParams{
-		ID:  id,
-		Now: sqliteTime(now),
-	})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteRecordingWebhookDeliveryToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) ListRecordingWebhookDeliveries(ctx context.Context, limit int) ([]repository.RecordingWebhookDelivery, error) {
@@ -160,16 +132,6 @@ func sqliteCreateRecordingWebhookDeliveryIfEnabled(ctx context.Context, q *sqlit
 	}
 	if err != nil {
 		return fmt.Errorf("sqlite create recording webhook delivery if enabled: %w", err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) SetRecordingWebhookDeliveryFrozenParts(ctx context.Context, id int64, frozenParts string) error {
-	if err := a.queries.SetRecordingWebhookDeliveryFrozenParts(ctx, sqlitegen.SetRecordingWebhookDeliveryFrozenPartsParams{
-		ID:          id,
-		FrozenParts: frozenParts,
-	}); err != nil {
-		return fmt.Errorf("sqlite set recording webhook delivery frozen parts: %w", err)
 	}
 	return nil
 }

@@ -92,25 +92,6 @@ func (a *PGAdapter) UpsertUser(ctx context.Context, u *repository.User) (*reposi
 	return pgUserToDomain(row), nil
 }
 
-func (a *PGAdapter) ListUsers(ctx context.Context) ([]repository.User, error) {
-	rows, err := a.queries.ListUsers(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pg list users: %w", err)
-	}
-	users := make([]repository.User, len(rows))
-	for i, row := range rows {
-		users[i] = *pgUserToDomain(row)
-	}
-	return users, nil
-}
-
-func (a *PGAdapter) UpdateUserRole(ctx context.Context, id string, role string) error {
-	if err := a.queries.UpdateUserRole(ctx, pggen.UpdateUserRoleParams{ID: id, Role: role}); err != nil {
-		return fmt.Errorf("pg update user role %s: %w", id, err)
-	}
-	return nil
-}
-
 func (a *PGAdapter) CreateSession(ctx context.Context, s *repository.Session) error {
 	if err := a.queries.CreateSession(ctx, pggen.CreateSessionParams{
 		HashedID:        s.HashedID,
@@ -140,13 +121,6 @@ func (a *PGAdapter) GetSession(ctx context.Context, hashedID string) (*repositor
 		IPAddress:       row.IpAddress,
 		CreatedAt:       row.CreatedAt,
 	}, nil
-}
-
-func (a *PGAdapter) UpdateSessionTokens(ctx context.Context, hashedID string, encryptedTokens []byte) error {
-	return a.queries.UpdateSessionTokens(ctx, pggen.UpdateSessionTokensParams{
-		HashedID:        hashedID,
-		EncryptedTokens: encryptedTokens,
-	})
 }
 
 func (a *PGAdapter) ListUserSessions(ctx context.Context, userID string) ([]repository.SessionInfo, error) {
@@ -196,10 +170,6 @@ func (a *PGAdapter) CreateAppToken(ctx context.Context, token string, expiresAt 
 		ExpiresAt: row.ExpiresAt,
 		CreatedAt: row.CreatedAt,
 	}, nil
-}
-
-func (a *PGAdapter) IsWhitelisted(ctx context.Context, twitchUserID string) (bool, error) {
-	return a.queries.IsWhitelisted(ctx, twitchUserID)
 }
 
 func (a *PGAdapter) ListWhitelist(ctx context.Context) ([]repository.WhitelistEntry, error) {

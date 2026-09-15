@@ -185,13 +185,6 @@ func sqliteBool(v bool) int64 {
 	return 0
 }
 
-func (a *SQLiteAdapter) SetVideoThumbnail(ctx context.Context, id int64, thumbnail string) error {
-	return a.queries.SetVideoThumbnail(ctx, sqlitegen.SetVideoThumbnailParams{
-		ID:        id,
-		Thumbnail: sql.NullString{String: thumbnail, Valid: true},
-	})
-}
-
 func (a *SQLiteAdapter) ListVideos(ctx context.Context, opts repository.ListVideosOpts) ([]repository.Video, error) {
 	rows, err := a.queries.ListVideos(ctx, sqlitegen.ListVideosParams{
 		StatusFilter: opts.Status,
@@ -260,14 +253,6 @@ func (a *SQLiteAdapter) ListVideosByCategory(ctx context.Context, categoryID str
 	return repository.ToVideoPage(items, limit), nil
 }
 
-func (a *SQLiteAdapter) RequestVideoDelete(ctx context.Context, id int64) (*repository.Video, error) {
-	row, err := a.queries.RequestVideoDelete(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, afterID int64, limit int) ([]repository.Video, error) {
 	if limit <= 0 {
 		return []repository.Video{}, nil
@@ -316,10 +301,6 @@ func (a *SQLiteAdapter) FinalizeDelete(ctx context.Context, videoID int64, kind 
 		}
 		return nil
 	})
-}
-
-func (a *SQLiteAdapter) CountVideosByStatus(ctx context.Context, status string) (int64, error) {
-	return a.queries.CountVideosByStatus(ctx, status)
 }
 
 func (a *SQLiteAdapter) VideoStatsByStatus(ctx context.Context) ([]repository.VideoStatsByStatus, error) {
@@ -528,14 +509,6 @@ func (a *SQLiteAdapter) ListVideosForStorageScan(ctx context.Context, afterID in
 	return out, nil
 }
 
-func (a *SQLiteAdapter) GetOpenVideoByTwitchVideoID(ctx context.Context, twitchVideoID string) (*repository.Video, error) {
-	row, err := a.queries.GetOpenVideoByTwitchVideoID(ctx, sql.NullString{String: twitchVideoID, Valid: true})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteVideoToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twitchVideoIDs []string) ([]repository.Video, error) {
 	if len(twitchVideoIDs) == 0 {
 		return []repository.Video{}, nil
@@ -549,17 +522,6 @@ func (a *SQLiteAdapter) ListOpenVideosByTwitchVideoIDs(ctx context.Context, twit
 		return nil, fmt.Errorf("sqlite list open videos by twitch video ids: %w", err)
 	}
 	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) DeleteQueuedArchiveVideo(ctx context.Context, id int64) error {
-	n, err := a.queries.DeleteQueuedArchiveVideo(ctx, id)
-	if err != nil {
-		return fmt.Errorf("sqlite delete queued archive video: %w", err)
-	}
-	if n == 0 {
-		return repository.ErrNotFound
-	}
-	return nil
 }
 
 // GetVideoForStorageScan reuses the eligibility query, without treating zero as a wildcard.
@@ -684,28 +646,6 @@ func (a *SQLiteAdapter) MarkArchiveFailedForRetry(ctx context.Context, id int64,
 	})
 }
 
-func (a *SQLiteAdapter) RequeueArchiveVideo(ctx context.Context, id int64, jobID string, scheduledOnly bool) error {
-	n, err := a.queries.RequeueArchiveVideo(ctx, sqlitegen.RequeueArchiveVideoParams{JobID: jobID, ID: id, ScheduledOnly: boolToInt64(scheduledOnly)})
-	if err != nil {
-		return fmt.Errorf("sqlite requeue archive video: %w", mapErr(err))
-	}
-	if n == 0 {
-		return repository.ErrNotFound
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) ClearArchiveRetry(ctx context.Context, id int64) error {
-	n, err := a.queries.ClearArchiveRetry(ctx, id)
-	if err != nil {
-		return fmt.Errorf("sqlite clear archive retry: %w", err)
-	}
-	if n == 0 {
-		return repository.ErrNotFound
-	}
-	return nil
-}
-
 func (a *SQLiteAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]repository.Video, error) {
 	if afterID < 0 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid poster page")
@@ -715,12 +655,4 @@ func (a *SQLiteAdapter) ListArchivesMissingPoster(ctx context.Context, since tim
 		return nil, fmt.Errorf("sqlite list archives missing poster: %w", err)
 	}
 	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) SetVideoThumbnailIfMissing(ctx context.Context, id int64, thumbnail string) (bool, error) {
-	n, err := a.queries.SetVideoThumbnailIfMissing(ctx, sqlitegen.SetVideoThumbnailIfMissingParams{ID: id, Thumbnail: sql.NullString{String: thumbnail, Valid: true}})
-	if err != nil {
-		return false, fmt.Errorf("sqlite set video thumbnail if missing: %w", err)
-	}
-	return n > 0, nil
 }

@@ -128,30 +128,6 @@ func (a *SQLiteAdapter) UpsertCategories(ctx context.Context, categories []repos
 	return repository.OrderCategoriesByIDs(out, ids), nil
 }
 
-func (a *SQLiteAdapter) ListCategories(ctx context.Context) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategories(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list categories: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *sqliteCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
-func (a *SQLiteAdapter) ListCategoriesWithVideos(ctx context.Context) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategoriesWithVideos(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list categories with videos: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *sqliteCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
 func (a *SQLiteAdapter) ListCategoriesWithVideosPage(ctx context.Context, limit int, sort string, cursor *repository.CategoryPageCursor) (*repository.CategoryPage, error) {
 	sort = repository.NormalizeCategoryPageSort(sort)
 	rowLimit := int64(limit + 1)
@@ -257,18 +233,6 @@ func (a *SQLiteAdapter) SearchCategoriesWithVideos(ctx context.Context, query st
 	return out, nil
 }
 
-func (a *SQLiteAdapter) ListCategoriesMissingGameMetadata(ctx context.Context, checkedBefore time.Time) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategoriesMissingGameMetadata(ctx, sqliteTimePtr(&checkedBefore))
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list categories missing game metadata: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *sqliteCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
 func (a *SQLiteAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error {
 	if err := a.queries.UpdateCategoryGameMetadata(ctx, sqlitegen.UpdateCategoryGameMetadataParams{
 		ID:       id,
@@ -276,42 +240,6 @@ func (a *SQLiteAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxA
 		NULLIF_2: igdbID,
 	}); err != nil {
 		return fmt.Errorf("sqlite update category game metadata %s: %w", id, err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) MarkCategoryGameMetadataChecked(ctx context.Context, id string) error {
-	if err := a.queries.MarkCategoryGameMetadataChecked(ctx, id); err != nil {
-		return fmt.Errorf("sqlite mark category game metadata checked %s: %w", id, err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) ListCategoriesMissingDescription(ctx context.Context, checkedBefore time.Time) ([]repository.Category, error) {
-	rows, err := a.queries.ListCategoriesMissingDescription(ctx, sqliteTimePtr(&checkedBefore))
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list categories missing description: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *sqliteCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
-func (a *SQLiteAdapter) UpdateCategoryDescription(ctx context.Context, id, description string) error {
-	if err := a.queries.UpdateCategoryDescription(ctx, sqlitegen.UpdateCategoryDescriptionParams{
-		ID:          id,
-		Description: toNullString(&description),
-	}); err != nil {
-		return fmt.Errorf("sqlite update category description %s: %w", id, err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) MarkCategoryDescriptionChecked(ctx context.Context, id string) error {
-	if err := a.queries.MarkCategoryDescriptionChecked(ctx, id); err != nil {
-		return fmt.Errorf("sqlite mark category description checked %s: %w", id, err)
 	}
 	return nil
 }
@@ -347,13 +275,6 @@ func (a *SQLiteAdapter) TouchCategorySearchCache(ctx context.Context, normalized
 		NormalizedQuery: normalizedQuery,
 	}); err != nil {
 		return fmt.Errorf("sqlite touch category search cache %q: %w", normalizedQuery, err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) DeleteExpiredCategorySearchCache(ctx context.Context, before time.Time) error {
-	if err := a.queries.DeleteExpiredCategorySearchCache(ctx, sqliteTime(before)); err != nil {
-		return fmt.Errorf("sqlite delete expired category search cache: %w", err)
 	}
 	return nil
 }
@@ -454,18 +375,6 @@ func sqliteCategoryPageTime(v any) (time.Time, error) {
 }
 
 // Tags
-
-func (a *SQLiteAdapter) ListTags(ctx context.Context) ([]repository.Tag, error) {
-	rows, err := a.queries.ListTags(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list tags: %w", err)
-	}
-	tags := make([]repository.Tag, len(rows))
-	for i, row := range rows {
-		tags[i] = *sqliteTagToDomain(row)
-	}
-	return tags, nil
-}
 
 func sqliteCategorySearchCacheToDomain(c sqlitegen.CategorySearchCache) (*repository.CategorySearchCache, error) {
 	var categoryIDs []string

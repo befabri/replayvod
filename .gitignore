@@ -12,6 +12,8 @@ server/server
 server/replayvod
 server/twitch-api-gen
 server/tools/twitch-api-gen/twitch-api-gen
+server/repo-adapter-gen
+server/tools/repo-adapter-gen/repo-adapter-gen
 server/bin/
 
 # goqual analysis output (CRAP reports, mutation results)
