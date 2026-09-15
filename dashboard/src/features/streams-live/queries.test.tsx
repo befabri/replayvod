@@ -35,12 +35,20 @@ import {
 	useLiveStreamStatus,
 } from "./queries";
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.restoreAllMocks();
+});
 
-function harness() {
+function Coordinator() {
+	useLiveStreamStatus();
+	return null;
+}
+
+function harness(coordinate = true) {
 	const pending: ((ids: string[]) => void)[] = [];
 	const queryClient = new QueryClient({
-		defaultOptions: { queries: { retry: false, gcTime: 0 } },
+		defaultOptions: { queries: { retry: false, gcTime: Infinity } },
 	});
 	const trpcClient = createTRPCClient<AppRouter>({
 		links: [
@@ -62,21 +70,35 @@ function harness() {
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<QueryClientProvider client={queryClient}>
 			<TRPCProvider trpcClient={trpcClient} queryClient={queryClient}>
+				{coordinate && <Coordinator />}
 				{children}
 			</TRPCProvider>
 		</QueryClientProvider>
 	);
-	const view = renderHook(
-		() => {
-			useLiveStreamStatus();
-			return [useLiveSet(), useLiveSet()];
-		},
-		{ wrapper },
-	);
-	return { ...view, pending };
+	const view = renderHook(() => [useLiveSet(), useLiveSet()], { wrapper });
+	const trpc = createTRPCOptionsProxy<AppRouter>({
+		client: trpcClient,
+		queryClient,
+	});
+	return { ...view, pending, queryClient, key: trpc.stream.liveIds.queryKey() };
 }
 
+it("observes cache updates without fetching or warning when no coordinator is mounted", async () => {
+	const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+	const { result, pending, queryClient, key } = harness(false);
+	expect([...result.current[0]]).toEqual([]);
+	act(() => queryClient.setQueryData(key, ["live"]));
+	await waitFor(() => expect([...result.current[0]]).toEqual(["live"]));
+	expect([...result.current[1]]).toEqual(["live"]);
+	await act(() => queryClient.invalidateQueries({ queryKey: key }));
+	expect(pending).toHaveLength(0);
+	act(() => queryClient.clear());
+	await waitFor(() => expect([...result.current[0]]).toEqual([]));
+	expect(errors).not.toHaveBeenCalled();
+});
+
 it("preserves events arriving during reconnect and shares the result with every consumer", async () => {
+	const errors = vi.spyOn(console, "error").mockImplementation(() => {});
 	const { result, pending } = harness();
 	await waitFor(() => expect(pending).toHaveLength(1));
 	act(() => pending[0](["old"]));
@@ -99,6 +121,7 @@ it("preserves events arriving during reconnect and shares the result with every 
 	);
 	expect([...result.current[1]]).toEqual(["snapshot-only", "new"]);
 	expect(pending).toHaveLength(2);
+	expect(errors).not.toHaveBeenCalled();
 });
 
 it("drops pre-reconnect deltas that the new snapshot supersedes", async () => {

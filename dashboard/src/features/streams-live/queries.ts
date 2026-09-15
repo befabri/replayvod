@@ -1,14 +1,17 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useRef, useState } from "react";
+import {
+	useCallback,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import type { StreamLiveEvent } from "@/api/generated/trpc";
 import { useTRPC, useTRPCClient } from "@/api/trpc";
 import { resyncQuery } from "@/lib/query";
 import { withSessionProbe } from "@/stores/auth";
 
-// useFollowedStreams fetches currently-live followed channels with
-// the full Helix stream shape (title, game, viewer count, thumbnail,
-// profile_image_url). Backs the dashboard's "Just went live" card.
 export function useFollowedStreams() {
 	const trpc = useTRPC();
 	return useQuery(
@@ -16,11 +19,6 @@ export function useFollowedStreams() {
 	);
 }
 
-// useLastLive returns the most recent stream record for a broadcaster:
-// the started_at / ended_at pair from the locally-mirrored streams
-// table. Reads from the DB, not Twitch — no Helix quota cost — so it's
-// safe to fan out per video card. Empty when the broadcaster has no
-// recorded streams yet (channel was added but never seen go live).
 export function useLastLive(broadcasterId: string) {
 	const trpc = useTRPC();
 	return useQuery(
@@ -31,9 +29,6 @@ export function useLastLive(broadcasterId: string) {
 	);
 }
 
-// Download dialogs verify the selected broadcaster, independently of the
-// caller's follows. Poll only while mounted as unscheduled channels may have
-// no EventSub subscription; opening or focusing the dialog also rechecks.
 export function broadcasterLiveOptions(
 	trpc: ReturnType<typeof useTRPC>,
 	broadcasterId: string,
@@ -50,9 +45,6 @@ export function broadcasterLiveOptions(
 	);
 }
 
-// Revisions describe local receipt order, independently of clock changes or
-// HTTP response timing. Only events received after a snapshot request began
-// override that snapshot. One coordinator owns the shared query cache.
 export class LiveStatusReconciler {
 	private revision = 0;
 	private deltas = new Map<string, { online: boolean; revision: number }>();
@@ -76,9 +68,6 @@ export class LiveStatusReconciler {
 	}
 }
 
-// Mounted once in the authenticated layout. Snapshot fetches and subscription
-// events write the same Query cache, so consumers do not mirror server state
-// into component state or open additional subscriptions.
 export function useLiveStreamStatus() {
 	const trpc = useTRPC();
 	const client = useTRPCClient();
@@ -117,33 +106,33 @@ export function useLiveStreamStatus() {
 			});
 			const input = { broadcaster_id: event.broadcaster_id };
 			void resyncQuery(qc, trpc.stream.isLive.queryKey(input));
-			// Omitting force_h264 matches both codec variants for this broadcaster.
 			void resyncQuery(qc, trpc.video.liveRenditions.queryKey(input));
 		},
 		onError: withSessionProbe(),
 	});
 }
 
-const asLiveSet = (ids: string[]) => new Set(ids);
 const emptyLiveSet = new Set<string>();
 
 export function useLiveSet(): Set<string> {
 	const trpc = useTRPC();
-	// A read-only observer must not replace the coordinator's query function
-	// with tRPC's raw snapshot fetcher when Query invalidates this shared key.
-	const { data } = useQuery({
-		queryKey: trpc.stream.liveIds.queryKey(),
-		enabled: false,
-		select: asLiveSet,
-	});
-	return data ?? emptyLiveSet;
+	const cache = useQueryClient().getQueryCache();
+	const queryHash = hashKey(trpc.stream.liveIds.queryKey());
+	const subscribe = useCallback(
+		(onChange: () => void) =>
+			cache.subscribe((event) => {
+				if (event.query.queryHash === queryHash) onChange();
+			}),
+		[cache, queryHash],
+	);
+	const getSnapshot = useCallback(
+		() => cache.get<string[]>(queryHash)?.state.data,
+		[cache, queryHash],
+	);
+	const ids = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+	return useMemo(() => (ids ? new Set(ids) : emptyLiveSet), [ids]);
 }
 
-// useLiveStreams keeps a rolling buffer of the most recent
-// stream.live events in React state. These are "we started recording X"
-// notifications — distinct from the generic online/offline deltas on
-// stream.status. Subscribers render the "Just went live" card from
-// this.
 export function useLiveStreams(max = 5) {
 	const trpc = useTRPC();
 	const [events, setEvents] = useState<StreamLiveEvent[]>([]);
