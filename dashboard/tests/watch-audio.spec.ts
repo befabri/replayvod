@@ -4,7 +4,6 @@ import { audioDurationSeconds, fulfillAudioFixture } from "./support/audio";
 import { mockTrpc, trpcOk, validSession } from "./support/trpc";
 
 const recordedAt = "2026-06-05T12:00:00Z";
-// A 16x9 PNG standing in for the stored poster.
 const thumbnailFixture = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAABAAAAAJCAIAAAC0SDtlAAABCElEQVR42g3LIQEFIRBAwY1AAAQRkMiLgCAAETYCARAX4SSSCAjEk0TYCET4f/yICE4IQhQeIQtVUKEJr/AJU1jCEUy4gojHeYIneh5P9lSPeprn9Xye6Vme4zHP9f+QcImQiIknkRM1oYmWeBNfYiZW4iQscdM/FFwhFGLhKeRCLWihFd7CV5iFVTgFK9zyD4pTghKVR8lKVVRpyqt8ylSWchRTrv5Dx3VCJ3aeTu7UjnZa5+18ndlZndOxzu3/MHCDMIiDZ5AHdaCDNngH32AO1uAMbHDHP2zcJmzi5tnkTd3opm3ezbeZm7U5G9vc/Q+GM4IRjcfIRjXUaMZrfMY0lnEMM67xA9Zf8wGO3X2RAAAAAElFTkSuQmCC",
 	"base64",
@@ -31,9 +30,6 @@ test.describe("audio watch player", () => {
 					page
 						.locator("audio")
 						.evaluate((audio: HTMLMediaElement) => audio.ended),
-				// The fixture plays for audioDurationSeconds in real time, so the
-				// default 5s poll leaves about a second of headroom and loses it
-				// under load. Wait long enough for playback itself.
 				{ timeout: 30_000 },
 			)
 			.toBe(true);
@@ -130,18 +126,14 @@ test.describe("audio watch player", () => {
 			.boundingBox();
 		expect(railBox).not.toBeNull();
 
-		// The poster opens the card, both rows starting past it.
 		for (const box of [controlsBox, railBox]) {
 			expect(thumbnailBox!.x + thumbnailBox!.width).toBeLessThanOrEqual(box!.x);
 		}
-		// This fixture matches the poster box's fixed aspect ratio.
 		expect(thumbnailBox!.width / thumbnailBox!.height).toBeCloseTo(
 			naturalRatio,
 			1,
 		);
-		// It rides the middle of the controls and the waveform it stands beside,
-		// and never grows past them.
-		const stackBox = await page.locator(".rv-audio-stack").boundingBox();
+		const stackBox = await page.getByTestId("audio-stack").boundingBox();
 		expect(stackBox).not.toBeNull();
 		expect(thumbnailBox!.y + thumbnailBox!.height / 2).toBeCloseTo(
 			stackBox!.y + stackBox!.height / 2,
@@ -180,8 +172,6 @@ test.describe("audio watch player", () => {
 				expect(popoverBox!.y + popoverBox!.height - 4).toBeGreaterThan(
 					followingBox!.y,
 				);
-				// Hover details ignore pointer input. Enable hit testing briefly to
-				// verify that the following content does not paint over the card.
 				expect(
 					await popover.evaluate((element) => {
 						const old = element.style.pointerEvents;
@@ -217,9 +207,6 @@ test.describe("audio watch player", () => {
 					page
 						.locator("audio")
 						.evaluate((audio: HTMLMediaElement) => audio.ended),
-				// The fixture plays for audioDurationSeconds in real time, so the
-				// default 5s poll leaves about a second of headroom and loses it
-				// under load. Wait long enough for playback itself.
 				{ timeout: 30_000 },
 			)
 			.toBe(true);

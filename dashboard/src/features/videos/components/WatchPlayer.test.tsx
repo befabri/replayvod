@@ -504,9 +504,9 @@ describe("WatchPlayer multipart boundaries", () => {
 		expect(getAudioElement().getAttribute("src")).toBe("/part-1.m4a");
 		expect(screen.getByTestId("audio-controls")).toBeTruthy();
 		expect(
-			document
-				.querySelector(".rv-audio-time-readout")
-				?.textContent?.replace(/\s+/g, " ")
+			screen
+				.getByTestId("audio-time-readout")
+				.textContent?.replace(/\s+/g, " ")
 				.trim(),
 		).toBe("0:00 / 1:00");
 		expect(screen.queryByTestId("video-layout")).toBeNull();
@@ -730,8 +730,6 @@ describe("WatchPlayer multipart boundaries", () => {
 		});
 		expect(audio.currentTime).toBe(15);
 
-		// The audio branch keeps the app's committed recording seek as the source
-		// of truth, so Play reapplies it even if the native element has drifted.
 		audio.currentTime = 0;
 		fireEvent.click(screen.getByRole("button", { name: "Play" }));
 
@@ -859,7 +857,6 @@ describe("WatchPlayer multipart boundaries", () => {
 		vidstackMock.player.paused = true;
 
 		render(<WatchPlayer playlist={playlist} />);
-		// Media has loaded (canplay) before the user clicks a marker.
 		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
 		fireEvent.click(screen.getByRole("button", { name: /Second title/ }));
 
@@ -891,7 +888,6 @@ describe("WatchPlayer multipart boundaries", () => {
 			continuousSource: {
 				src: "/api/v1/videos/65/playback/stream",
 				mimeType: "video/mp4",
-				// Muxed file probes to half the 120s recording timeline.
 				durationSeconds: 60,
 			},
 		};
@@ -900,13 +896,9 @@ describe("WatchPlayer multipart boundaries", () => {
 		render(<WatchPlayer playlist={playlist} />);
 		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
 
-		// Seeking the recording-offset-70 marker maps onto the 60s muxed clock:
-		// 70 * (60 / 120) = 35.
 		fireEvent.click(screen.getByRole("button", { name: /Second title/ }));
 		expect(vidstackMock.player.currentTime).toBe(35);
 
-		// A player timeupdate at 30 maps back to recording offset 60 (30 * 120/60),
-		// which lands on part 2.
 		vidstackMock.player.currentTime = 30;
 		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
 		expect(screen.getByText(/watch\.part_status:current=2/)).toBeTruthy();
@@ -918,14 +910,11 @@ describe("WatchPlayer multipart boundaries", () => {
 
 		render(<WatchPlayer playlist={playlist} initialOffsetSeconds={70} />);
 
-		// Cold load: the media hasn't fired canplay, so the seek must be deferred,
-		// NOT assigned into the void (the bug this guards).
 		expect(vidstackMock.player.currentTime).toBe(0);
 
 		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
 
 		expect(vidstackMock.player.currentTime).toBe(70);
-		// Deep-link seek must not auto-resume a paused player.
 		expect(vidstackMock.player.play).not.toHaveBeenCalled();
 	});
 
@@ -952,28 +941,21 @@ describe("WatchPlayer multipart boundaries", () => {
 	it("upgrades to the single-file source mid-watch when the artifact becomes ready, resuming in place", () => {
 		const { rerender } = render(<WatchPlayer playlist={multipartPlaylist()} />);
 
-		// Starts in the part sequencer: the artifact is built lazily and isn't
-		// ready yet.
 		expect(screen.getByTestId("media-player").getAttribute("data-src")).toBe(
 			"/part-1.mp4",
 		);
 
-		// 30s into part 1, playing.
 		vidstackMock.player.currentTime = 30;
 		vidstackMock.player.paused = false;
 		fireEvent.click(screen.getByRole("button", { name: "play" }));
 		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
 
-		// The lazily-built artifact lands (the getById poll refreshes the playlist).
 		rerender(<WatchPlayer playlist={continuousPlaylist()} />);
 
-		// The player swaps to the single continuous file...
 		expect(screen.getByTestId("media-player").getAttribute("data-src")).toBe(
 			"/api/v1/videos/65/playback/stream",
 		);
 
-		// ...and resumes at the carried-over position once it can play, instead of
-		// restarting from 0 (the freshly-loaded source reports time 0).
 		vidstackMock.player.currentTime = 0;
 		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
 		expect(vidstackMock.player.currentTime).toBe(30);
@@ -1004,8 +986,6 @@ describe("WatchPlayer timeline popovers", () => {
 		expect(segment.style.top).toBe("");
 	});
 
-	// The audio card sits right under the fixed navbar, so upward popovers were
-	// painted behind it. Below the waveform they have the page to spill into.
 	it("drops the popovers below the waveform on the audio card", () => {
 		render(
 			<WatchPlayer
@@ -1017,8 +997,6 @@ describe("WatchPlayer timeline popovers", () => {
 		const marker = popoverOf(
 			screen.getByRole("button", { name: /watch\.seek_marker/ }),
 		);
-		// Measured from the lane's top edge, where the marker pip sits: the
-		// waveform lane is 6rem tall, plus the 0.5rem gap.
 		expect(marker.style.top).toBe("6.5rem");
 		expect(marker.style.bottom).toBe("");
 
@@ -1053,7 +1031,6 @@ describe("WatchPlayer watch progress persistence", () => {
 		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
 		expect(onProgress).toHaveBeenCalledTimes(1);
 
-		// Inside the throttle window: the periodic save holds back.
 		vidstackMock.player.currentTime = 20;
 		fireEvent.click(screen.getByRole("button", { name: "timeupdate" }));
 		expect(onProgress).toHaveBeenCalledTimes(1);
@@ -1062,11 +1039,9 @@ describe("WatchPlayer watch progress persistence", () => {
 		expect(onProgress).toHaveBeenCalledTimes(2);
 		expect(onProgress).toHaveBeenLastCalledWith(20, false);
 
-		// Hidden again without moving: nothing new to save.
 		hide(true);
 		expect(onProgress).toHaveBeenCalledTimes(2);
 
-		// Coming back is not a save point.
 		hide(false);
 		expect(onProgress).toHaveBeenCalledTimes(2);
 
@@ -1168,7 +1143,6 @@ describe("WatchPlayer watch progress persistence", () => {
 		fireEvent.click(screen.getByRole("button", { name: "pause" }));
 		expect(onProgress).toHaveBeenCalledTimes(1);
 
-		// Seeking while paused moves the place to save; hiding saves it once.
 		fireEvent.keyDown(screen.getByTestId("media-player"), { key: "PageUp" });
 		hide(true);
 		expect(onProgress).toHaveBeenCalledTimes(2);
@@ -1276,7 +1250,6 @@ describe("WatchPlayer watch progress persistence", () => {
 			screen.getByRole("button", { name: "watch.dismiss_resume" }),
 		);
 		expect(screen.queryByTestId("resume-notice")).toBeNull();
-		// Dismissing is not a seek: the saved place stays.
 		fireEvent.click(screen.getByRole("button", { name: "canplay" }));
 		expect(vidstackMock.player.currentTime).toBe(70);
 	});
@@ -1315,7 +1288,6 @@ describe("WatchPlayer watch progress persistence", () => {
 		expect(audio.currentTime).toBe(30);
 		expect(audio.paused).toBe(true);
 
-		// canplay after metadata must not seek again or start playback.
 		audio.currentTime = 31;
 		fireEvent.canPlay(audio);
 		expect(audio.currentTime).toBe(31);
@@ -1560,8 +1532,6 @@ describe("WatchPlayer unavailable media", () => {
 
 		await vi.advanceTimersByTimeAsync(2_000);
 		expect(probe).toHaveBeenCalledTimes(1);
-		// The probe resolves on the microtask queue and React flushes the state
-		// change on the faked scheduler, so drain both before reading the DOM.
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(50);
 		});
@@ -1713,8 +1683,6 @@ describe("WatchPlayer stale probe results", () => {
 		fireEvent.click(screen.getByRole("button", { name: "error" }));
 		expect(probe).toHaveBeenCalledTimes(1);
 
-		// A different recording with a different source URL takes over before
-		// the probe for the first one comes back.
 		rerender(
 			<WatchPlayer
 				playlist={{ ...continuousPlaylist(), videoId: 66 }}
@@ -1836,7 +1804,6 @@ describe("missing-media recovery", () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(15_000);
 		});
-		// An unstable route callback must not postpone the source's load deadline.
 		rerender(
 			<WatchPlayer playlist={audioPlaylist()} onMediaUnavailable={() => {}} />,
 		);
@@ -1905,8 +1872,6 @@ describe("fullscreen orientation lock", () => {
 			.getAttribute("data-fullscreen-orientation");
 	}
 
-	// jsdom has neither matchMedia nor screen.orientation.lock, which is the
-	// same shape as a browser that cannot honour the lock.
 	it("leaves the screen alone where the browser cannot lock it", () => {
 		render(<WatchPlayer playlist={continuousPlaylist()} />);
 		expect(lockType()).toBe("none");

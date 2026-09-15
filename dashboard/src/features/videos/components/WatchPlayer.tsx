@@ -68,8 +68,6 @@ type RecordingSeekOptions = {
 	resume?: boolean;
 	trigger?: Event;
 	mode?: RecordingSeekMode;
-	// initial marks the resume or deep-link seek applied on load, which is
-	// not something the viewer did.
 	initial?: boolean;
 };
 
@@ -83,23 +81,8 @@ const WATCH_PROGRESS_SAVE_INTERVAL_MS = 15_000;
 const WATCH_PROGRESS_SAVE_DELTA_SECONDS = 15;
 const SEEK_READBACK_TOLERANCE_SECONDS = 0.5;
 const RESUME_NOTICE_MS = 8_000;
-// After this long with neither playback nor an error, the source is probed; a
-// definitive 404/410 opens the unavailable panel, anything else keeps waiting.
 const MEDIA_LOAD_WATCHDOG_MS = 20_000;
 
-// WatchPlayer wraps Vidstack's MediaPlayer with the app's defaults so
-// the route can pass one recording-level playlist. Multipart recordings
-// sequence parts in this wrapper with a recording-level time slider that knows
-// about part boundaries and metadata markers. A ready continuous source can be
-// used when the API exposes one, and media errors fall back to part sequencing.
-//
-// `crossOrigin` is only set when the API runs on a different origin
-// (VITE_API_URL non-empty). Setting `use-credentials` on a same-
-// origin URL forces CORS mode and the request fails unless the
-// server returns Access-Control-Allow-Credentials, which it
-// doesn't bother to do for same-origin in dev. When VITE_API_URL is
-// configured we're cross-origin and the streaming middleware does
-// emit the credential-allowing CORS headers.
 export function WatchPlayer({
 	audioWaveform,
 	audioWaveformLoading,
@@ -113,27 +96,16 @@ export function WatchPlayer({
 }: {
 	audioWaveform?: { peaks: number[] } | null;
 	audioWaveformLoading?: boolean;
-	// thumbnailUrl is the recording's stored poster. The audio layout stands it
-	// beside the waveform, where there is no video picture to look at.
 	thumbnailUrl?: string | null;
 	playlist: RecordingPlaylist;
 	initialOffsetSeconds?: number;
-	// resumedFromSeconds is the saved position the initial offset came from;
-	// it shows the "resumed from" notice with its start-over action.
 	resumedFromSeconds?: number;
 	onProgress?: (positionSeconds: number, completed: boolean) => void;
-	// onMediaUnavailable fires once the server confirms the source is gone or
-	// the recording removed, so the page can refetch the video.
 	onMediaUnavailable?: (kind: "gone" | "removed") => void;
-	// unavailableActions fills the panel's action slot with the route's remove
-	// button and history link.
 	unavailableActions?: ReactNode;
 }) {
 	const isCrossOrigin = !!API_URL;
 	const [isFullscreen, setIsFullscreen] = useState(false);
-	// Vidstack would lock the screen to landscape on every fullscreen entry;
-	// the hook keeps that to devices whose browser can honour it and holds the
-	// value while fullscreen so each lock is paired with its unlock.
 	const fullscreenOrientation = useFullscreenOrientation(isFullscreen);
 	const playerRef = useRef<MediaPlayerInstance>(null);
 	const audioRef = useRef<HTMLAudioElement>(null);
@@ -156,21 +128,10 @@ export function WatchPlayer({
 
 	const committedSeekRef = useRef<CommittedRecordingSeek | null>(null);
 	const wasPlayingRef = useRef(false);
-	// viewerEngagedRef flips once the viewer plays or seeks. Until then the
-	// position is the cold-load seed (saved place or deep link), and leaving
-	// the page must not write it back as progress.
 	const viewerEngagedRef = useRef(false);
 	const globalTimeRef = useRef(0);
 	const mediaRemote = useMediaRemote(playerRef);
-	// Tracks the previous continuous-vs-parts mode so the effect below can detect
-	// a parts → single-file upgrade (the lazily-built artifact appearing
-	// mid-session) and resume playback at the current spot rather than restart.
 	const prevUsesContinuousRef = useRef(playlist.continuousSource != null);
-	// readySourceKeyRef holds the source identity that has fired canplay and is
-	// therefore safe for an immediate currentTime assignment. Until the loaded
-	// source matches it (cold load / deep link / source swap) seekToGlobal defers
-	// to pendingSeekRef and handleCanPlay applies it. Keying readiness on identity
-	// flips it the instant the source changes — no reset effect needed.
 	const readySourceKeyRef = useRef<string | undefined>(undefined);
 	const [partPosition, setPartPosition] = useState(0);
 	const [globalTime, setGlobalTime] = useState(0);
@@ -178,7 +139,6 @@ export function WatchPlayer({
 	const [mediaFailure, setMediaFailure] = useState<MediaFailureKind | null>(
 		null,
 	);
-	// Bumped by Retry so the media element remounts and reloads its source.
 	const [reloadNonce, setReloadNonce] = useState(0);
 	const [audioMuted, setAudioMuted] = useState(false);
 	const [audioPaused, setAudioPaused] = useState(true);
@@ -186,11 +146,6 @@ export function WatchPlayer({
 	const [audioVolume, setAudioVolume] = useState(1);
 	const [resumeNoticeDismissed, setResumeNoticeDismissed] = useState(false);
 
-	// Use the continuous single-file source whenever the API exposes one. It's
-	// built lazily (the first play kicks the concat), so it can appear partway
-	// through a session; the effect below swaps to it without losing the user's
-	// place. The only reason to ignore an available continuous source is a media
-	// error that forced the part sequencer for this recording.
 	const usesContinuousSource =
 		playlist.continuousSource != null && !forcePartSequencer;
 	const currentPart = usesContinuousSource
@@ -245,15 +200,11 @@ export function WatchPlayer({
 			usesContinuousSource,
 		],
 	);
-	// Stable string identity of the loaded source (PlayerSrc is an opaque vidstack
-	// union). Drives readiness tracking and source-swap detection.
 	const currentSourceKey =
 		usesContinuousSource && playlist.continuousSource
 			? playlist.continuousSource.src
 			: currentPart?.src;
 	const isAudioSource = playlist.isAudioOnly;
-	// The continuous (muxed) file plays on its own clock; this is its probed
-	// duration when known, used to map player time onto the recording timeline.
 	const continuousDurationSeconds = usesContinuousSource
 		? (playlist.continuousSource?.durationSeconds ?? null)
 		: null;
@@ -292,9 +243,6 @@ export function WatchPlayer({
 			}
 			setGlobalTime(target.globalSeconds);
 			if (usesContinuousSource) {
-				// In continuous mode the player runs on the muxed file's clock, which
-				// can drift from the recording timeline — map the canonical offset onto
-				// that clock before assigning currentTime.
 				const playerSeconds = canonicalToPlayerTime(
 					target.globalSeconds,
 					playlist.totalDurationSeconds,
@@ -323,7 +271,6 @@ export function WatchPlayer({
 						}
 					}
 				} else {
-					// Media not ready (cold load / deep link); defer the player offset.
 					if (mode === "commit") {
 						pendingSeekRef.current = {
 							localSeconds: playerSeconds,
@@ -400,9 +347,6 @@ export function WatchPlayer({
 		setAudioPlaybackRate(1);
 		setAudioVolume(1);
 		pendingSeekRef.current = null;
-		// The initial seek re-applies after a reset: under StrictMode's double
-		// effect pass this reset runs again after it, and would otherwise strand
-		// the deferred seek.
 		appliedInitialSeekRef.current = null;
 		pendingUserSeekRef.current = null;
 		committedSeekRef.current = null;
@@ -410,16 +354,9 @@ export function WatchPlayer({
 		wasPlayingRef.current = false;
 		viewerEngagedRef.current = false;
 		setResumeNoticeDismissed(false);
-		// Sync the mode tracker to the new recording so switching videos isn't
-		// mistaken for a mid-session upgrade by the swap effect below.
 		prevUsesContinuousRef.current = playlist.continuousSource != null;
 	}, [playlist.videoId]);
 
-	// Parts → single-file upgrade: when the lazily-built continuous source appears
-	// mid-session, vidstack reloads with the new src; carry the current position
-	// over (mapped onto the muxed clock) so playback resumes where it was instead
-	// of jumping to the start. The reverse (continuous → parts on a media error)
-	// is handled in handleError.
 	useEffect(() => {
 		const wasContinuous = prevUsesContinuousRef.current;
 		prevUsesContinuousRef.current = usesContinuousSource;
@@ -453,16 +390,11 @@ export function WatchPlayer({
 
 	const handleCanPlay = useCallback(() => {
 		if (!currentSourceKey) return;
-		// The source is now seekable; record its identity so seeks apply immediately.
 		readySourceKeyRef.current = currentSourceKey;
 		const pending = pendingSeekRef.current;
 		const player = isAudioSource ? audioRef.current : playerRef.current;
 		if (!pending || !player) return;
 		player.currentTime = pending.localSeconds;
-		// A media element reports the new position synchronously. When it ignored
-		// the assignment (iOS Safari before it has enough data), keep the seek for
-		// the next readiness event instead of dropping it. Vidstack updates its
-		// clock asynchronously, so only the raw element is checked.
 		if (
 			isAudioSource &&
 			Math.abs(player.currentTime - pending.localSeconds) >
@@ -475,10 +407,6 @@ export function WatchPlayer({
 		if (pending.resume) void playPlaybackController(player).catch(() => {});
 	}, [currentSourceKey, isAudioSource]);
 
-	// Saves are throttled while playing; `force` is for the moments that must
-	// land exactly (pause, tab hidden, page unload, unmount). A forced save
-	// skips a position already saved, and a position under a second is only
-	// worth saving when forced: the viewer deliberately went back to the start.
 	const emitWatchProgress = useCallback(
 		(positionSeconds: number, completed = false, force = false) => {
 			if (!onProgress) return;
@@ -512,9 +440,6 @@ export function WatchPlayer({
 		globalTimeRef.current = globalTime;
 	}, [globalTime]);
 
-	// readLiveGlobalTime asks the media element where it is right now. The
-	// globalTime state trails it by up to one timeupdate (a quarter second),
-	// which is too coarse for the exact saves on pause and unload.
 	const readLiveGlobalTime = useCallback(() => {
 		const player = isAudioSource ? audioRef.current : playerRef.current;
 		if (
@@ -547,10 +472,6 @@ export function WatchPlayer({
 			emitWatchProgress(readLiveGlobalTime(), false, true);
 	}, [emitWatchProgress, readLiveGlobalTime]);
 
-	// Throttled saves leave up to 15s unsaved, so the exact position is flushed
-	// when the tab hides, the page unloads, or the player unmounts (navigating
-	// away, switching recordings). The write rides a keepalive request and
-	// survives the unload.
 	useEffect(() => {
 		const flush = () => flushWatchProgressRef.current();
 		const handleVisibilityChange = () => {
@@ -743,8 +664,6 @@ export function WatchPlayer({
 		setAudioPlaybackRate(audio.playbackRate);
 	}, []);
 
-	// Each source load owns a cancellable probe. Retry and source changes create
-	// a new generation, so an old HEAD can never replace a newer player.
 	const probeRef = useRef<AbortController | null>(null);
 	const probeGeneration = useRef(0);
 	const unavailableCallback = useRef(onMediaUnavailable);
@@ -792,8 +711,6 @@ export function WatchPlayer({
 		probeGeneration.current++;
 		probeRef.current?.abort();
 		probeRef.current = null;
-		// Reload the same source and land back where the viewer was; the
-		// remounted element applies the pending seek once it can play.
 		pendingSeekRef.current = {
 			localSeconds: usesContinuousSource
 				? canonicalToPlayerTime(
@@ -807,7 +724,6 @@ export function WatchPlayer({
 		};
 		readySourceKeyRef.current = undefined;
 		setMediaFailure(null);
-		// The remount drops the fullscreen player without a change event.
 		setIsFullscreen(false);
 		setReloadNonce((nonce) => nonce + 1);
 	}, [
@@ -835,8 +751,6 @@ export function WatchPlayer({
 			return;
 		}
 		const player = isAudioSource ? audioRef.current : playerRef.current;
-		// player.currentTime is on the muxed clock; bring it back to the recording
-		// timeline before locating the part to resume from.
 		const canonicalSeconds =
 			player?.currentTime != null
 				? playerTimeToCanonical(
@@ -919,7 +833,7 @@ export function WatchPlayer({
 		return (
 			<section
 				aria-label={`Audio Player - ${playlist.title}`}
-				className="rv-watch-player-audio rounded-xl shadow-sm"
+				className="rv-watch-player-audio @container z-20 flex aspect-auto h-auto min-h-0 w-full flex-col items-stretch overflow-visible rounded-xl border border-border bg-card text-card-foreground shadow-sm"
 			>
 				{/* biome-ignore lint/a11y/useMediaCaption: Archived audio-only recordings do not have caption tracks. */}
 				<audio
@@ -937,9 +851,6 @@ export function WatchPlayer({
 						setAudioPaused(event.currentTarget.paused);
 						setAudioPlaybackRate(event.currentTarget.playbackRate);
 						setAudioVolume(event.currentTarget.volume);
-						// Metadata is enough to seek. With preload="metadata" some
-						// browsers hold canplay back until play, which would leave a
-						// resumed recording sitting at 0 until then.
 						handleCanPlay();
 					}}
 					onLoadedData={handleCanPlay}
@@ -967,9 +878,12 @@ export function WatchPlayer({
 						setAudioVolume(event.currentTarget.volume);
 					}}
 				/>
-				<div className="rv-audio-body">
+				<div className="flex w-full min-w-0 items-stretch gap-4 px-4 pt-3 pb-[1.1rem] @max-[40rem]:px-3 @max-[40rem]:pt-[0.9rem]">
 					{thumbnailUrl ? <AudioThumbnail src={thumbnailUrl} /> : null}
-					<div className="rv-audio-stack">
+					<div
+						className="flex min-w-0 flex-auto flex-col"
+						data-testid="audio-stack"
+					>
 						<AudioControls
 							paused={audioPaused}
 							muted={audioMuted}
@@ -985,7 +899,7 @@ export function WatchPlayer({
 							onSeekBackward={() => seekToGlobal(globalTime - 10)}
 							onSeekForward={() => seekToGlobal(globalTime + 10)}
 						/>
-						<div className="rv-audio-recording-timeline">
+						<div className="mt-auto w-full min-w-0 pt-2">
 							{recordingTimeline}
 						</div>
 					</div>
@@ -1055,18 +969,30 @@ function pausePlaybackController(player: PlaybackController, trigger?: Event) {
 	void pause.call(player, trigger);
 }
 
-// A poster whose object is gone leaves the audio layout without a thumbnail
-// rather than with a broken image, the same way the library rows treat one.
 function AudioThumbnail({ src }: { src: string }) {
 	const [failedSrc, setFailedSrc] = useState<string | null>(null);
 	if (src === failedSrc) return null;
 
 	return (
-		<div className="rv-audio-thumbnail" data-testid="audio-thumbnail">
-			<img src={src} alt="" onError={() => setFailedSrc(src)} />
+		<div
+			className="rv-audio-thumbnail relative hidden aspect-video flex-none self-center overflow-hidden rounded-[0.75rem] bg-[rgb(255_255_255/0.06)] @min-[50rem]:block"
+			data-testid="audio-thumbnail"
+		>
+			<img
+				src={src}
+				alt=""
+				className="absolute inset-0 h-full w-full object-cover"
+				onError={() => setFailedSrc(src)}
+			/>
 		</div>
 	);
 }
+
+const AUDIO_BUTTON_BASE =
+	"inline-flex h-10 flex-none items-center justify-center border-0 outline-none transition-[background-color,color,opacity] duration-150 ease-[ease] focus-visible:shadow-[0_0_0_2px_rgb(0_0_0/0.9),0_0_0_4px_var(--primary)]";
+const AUDIO_ICON_BUTTON = `${AUDIO_BUTTON_BASE} w-10 rounded-[0.5rem] bg-transparent text-inherit hover:bg-[rgb(255_255_255/0.12)]`;
+const AUDIO_PLAY_BUTTON = `${AUDIO_BUTTON_BASE} w-10 rounded-full bg-primary text-primary-foreground hover:opacity-90`;
+const AUDIO_RATE_BUTTON = `${AUDIO_BUTTON_BASE} min-w-[3.25rem] rounded-[0.5rem] bg-transparent px-[0.65rem] text-[0.78rem] font-bold text-inherit tabular-nums hover:bg-[rgb(255_255_255/0.12)] @max-[40rem]:min-w-[2.85rem] @max-[40rem]:px-[0.45rem]`;
 
 function AudioControls({
 	canSetVolume,
@@ -1111,11 +1037,14 @@ function AudioControls({
 	}
 
 	return (
-		<div className="rv-audio-controls" data-testid="audio-controls">
-			<div className="rv-audio-transport">
+		<div
+			className="flex w-full min-w-0 items-center justify-between gap-4 pb-[0.4rem] @max-[40rem]:grid @max-[40rem]:grid-cols-[minmax(0,1fr)] @max-[40rem]:justify-items-center @max-[40rem]:gap-[0.65rem] @max-[40rem]:pb-[0.35rem]"
+			data-testid="audio-controls"
+		>
+			<div className="flex min-w-0 items-center gap-[0.55rem] @max-[40rem]:flex-wrap @max-[40rem]:justify-center @max-[40rem]:gap-3">
 				<button
 					type="button"
-					className="rv-audio-icon-button"
+					className={AUDIO_ICON_BUTTON}
 					aria-label="Seek backward 10 seconds"
 					title="Seek backward 10 seconds"
 					onClick={onSeekBackward}
@@ -1124,7 +1053,7 @@ function AudioControls({
 				</button>
 				<button
 					type="button"
-					className="rv-audio-play-button"
+					className={AUDIO_PLAY_BUTTON}
 					aria-label={paused ? "Play" : "Pause"}
 					title={paused ? "Play" : "Pause"}
 					onClick={onTogglePlayback}
@@ -1137,24 +1066,28 @@ function AudioControls({
 				</button>
 				<button
 					type="button"
-					className="rv-audio-icon-button"
+					className={AUDIO_ICON_BUTTON}
 					aria-label="Seek forward 10 seconds"
 					title="Seek forward 10 seconds"
 					onClick={onSeekForward}
 				>
 					<FastForwardIcon className="size-6" weight="bold" />
 				</button>
-				<span className="rv-audio-time-readout" aria-live="off">
+				<span
+					className="ms-[0.8rem] min-w-48 flex-none ps-1 text-[clamp(1.15rem,2.875cqw,1.45rem)] leading-none font-medium whitespace-nowrap text-card-foreground tabular-nums @max-[40rem]:ms-0 @max-[40rem]:min-w-full @max-[40rem]:ps-0 @max-[40rem]:text-center @max-[40rem]:text-[1.1rem]"
+					aria-live="off"
+					data-testid="audio-time-readout"
+				>
 					{formatPlaybackTime(currentSeconds)}
 					<span aria-hidden="true"> / </span>
 					{formatPlaybackTime(totalSeconds)}
 				</span>
 			</div>
-			<div className="rv-audio-settings">
-				<div className="rv-audio-volume">
+			<div className="flex min-w-0 items-center justify-end gap-[0.55rem] @max-[40rem]:w-full @max-[40rem]:justify-center">
+				<div className="flex min-w-0 items-center gap-[0.35rem] @max-[40rem]:max-w-48 @max-[40rem]:flex-1 @max-[40rem]:justify-center">
 					<button
 						type="button"
-						className="rv-audio-icon-button"
+						className={AUDIO_ICON_BUTTON}
 						aria-label={muted ? "Unmute" : "Mute"}
 						title={muted ? "Unmute" : "Mute"}
 						onClick={onToggleMuted}
@@ -1167,7 +1100,7 @@ function AudioControls({
 					</button>
 					<input
 						type="range"
-						className="rv-audio-volume-slider"
+						className="rv-audio-volume-slider h-4 w-[clamp(5.5rem,14cqw,8rem)] cursor-pointer appearance-none border-0 bg-transparent outline-none focus-visible:shadow-[0_0_0_2px_rgb(0_0_0/0.9),0_0_0_4px_var(--primary)] disabled:cursor-not-allowed disabled:opacity-45 @max-[40rem]:w-auto @max-[40rem]:max-w-[8.5rem] @max-[40rem]:min-w-18 @max-[40rem]:flex-auto"
 						aria-label="Volume"
 						min={0}
 						max={1}
@@ -1184,7 +1117,7 @@ function AudioControls({
 				</div>
 				<button
 					type="button"
-					className="rv-audio-rate-button"
+					className={AUDIO_RATE_BUTTON}
 					aria-label="Change playback speed"
 					title="Change playback speed"
 					onClick={cyclePlaybackRate}
@@ -1233,15 +1166,8 @@ function MediaStateBridge({
 	return null;
 }
 
-// Which way the hover popovers open. The video layout floats them over the
-// frame above the scrubber; the audio card has the navbar just above it, so its
-// popovers drop below the waveform instead.
 type TimelinePopoverSide = "top" | "bottom";
 
-// The waveform lane is the audio scrubber's hero element, so it's tall. Without
-// a waveform (no peaks yet) it collapses to a thin progress bar. Popovers that
-// open downward have to clear the whole lane, and the marker pips sit at its top
-// edge, so belowLane is the lane's own height plus the gap they leave.
 const TIMELINE_LANE = {
 	waveform: { heightClass: "h-24", belowLane: "6.5rem" },
 	compact: { heightClass: "h-5", belowLane: "1.75rem" },
@@ -1285,7 +1211,7 @@ function RecordingTimeline({
 	});
 
 	return (
-		<div className="vds-recording-time-slider">
+		<div className="vds-recording-time-slider w-full min-w-0 px-[2px]">
 			{showTimeLabels && (
 				<div className="mb-1 grid grid-cols-[auto_1fr_auto] items-center gap-2 text-[11px] tabular-nums text-white/75">
 					<span className="min-w-10">{formatPlaybackTime(currentSeconds)}</span>
@@ -1413,15 +1339,11 @@ function TimelineWaveform({
 	const path = useMemo(() => waveformPath(peaks), [peaks]);
 	const width = waveformViewBoxWidth(peaks);
 	const viewBox = `0 0 ${width} 100`;
-	// Both layers render the identical full-width waveform; only the
-	// foreground is cropped to the played fraction. Clipping (rather than
-	// resizing the progress box) keeps every peak aligned with the grey
-	// track behind it.
 	const clipRight = 100 - clamp(progress, 0, 100);
 
 	return (
 		<div
-			className="rv-recording-waveform"
+			className="rv-recording-waveform pointer-events-none absolute inset-0 overflow-hidden rounded-[0.375rem]"
 			data-testid="audio-waveform"
 			aria-hidden="true"
 		>
@@ -1429,7 +1351,7 @@ function TimelineWaveform({
 				<path d={path} />
 			</svg>
 			<div
-				className="rv-recording-waveform-progress"
+				className="rv-recording-waveform-progress absolute inset-0 overflow-hidden"
 				style={{ clipPath: `inset(0 ${clipRight}% 0 0)` }}
 			>
 				<svg viewBox={viewBox} preserveAspectRatio="none" aria-hidden="true">
@@ -1455,7 +1377,7 @@ function TimelineWaveformLoading() {
 
 	return (
 		<div
-			className="rv-recording-waveform rv-recording-waveform-loading"
+			className="rv-recording-waveform rv-recording-waveform-loading pointer-events-none absolute inset-0 overflow-hidden rounded-[0.375rem] opacity-55"
 			aria-hidden="true"
 		>
 			<svg
@@ -1496,10 +1418,6 @@ function PartSegmentButton({
 		getTrackElement,
 	});
 
-	// Track the pointer's horizontal offset within the segment as a CSS var so the
-	// hover popover follows the cursor along the part (set imperatively to avoid a
-	// re-render per move). Before the first move the var is unset and the popover
-	// falls back to centered.
 	const handlePointerMove = (e: PointerEvent<HTMLButtonElement>) => {
 		const el = e.currentTarget;
 		const rect = el.getBoundingClientRect();
@@ -1812,11 +1730,6 @@ function selfElement<T extends HTMLElement>(element: T): HTMLElement {
 	return element;
 }
 
-// The continuous (muxed) file can probe to a slightly different duration than the
-// recording timeline (summed part EXTINF). These map between the canonical
-// recording seconds the UI renders and the player's own clock, isolating that
-// drift to the player I/O boundary. A null or non-positive probed duration means
-// "no drift" — pass the value through unchanged.
 function canonicalToPlayerTime(
 	canonicalSeconds: number,
 	totalSeconds: number,
