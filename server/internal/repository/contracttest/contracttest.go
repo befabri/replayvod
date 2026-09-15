@@ -51,6 +51,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run := func(name string, fn func(*testing.T, Harness)) {
 		t.Run(name, func(t *testing.T) { fn(t, newHarness(t)) })
 	}
+	run("RowLocks_RequireTransaction", testRowLocksRequireTransaction)
 	run("Recording_TerminalTransaction", testRecordingTerminalTransaction)
 	run("Recording_TerminalOutboxRollback", testRecordingTerminalOutboxRollback)
 	run("Transaction_NestedRejected", testNestedTransactionRejected)
@@ -117,6 +118,8 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Invite_ConcurrentRotateAndRedeem", testInviteConcurrentRotateAndRedeem)
 	run("Transaction_CommitAndRollback", testTransactionCommitAndRollback)
 	run("UserLock_SerializesRoleChanges", testUserLockSerializesRoleChanges)
+	run("VideoLock_SerializesStopAndClaim", testVideoLockSerializesStopAndClaim)
+	run("RecordingIntentLock_SerializesStopAndWait", testRecordingIntentLockSerializesStopAndWait)
 
 	// settings + event logs
 	run("Settings_UpsertInsertThenUpdate", testSettingsUpsertInsertThenUpdate)

@@ -264,6 +264,9 @@ func (a *PGAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*reposit
 }
 
 func (a *PGAdapter) GetVideoForUpdate(ctx context.Context, id int64) (*repository.Video, error) {
+	if !a.inTransaction() {
+		return nil, repository.ErrNoTransaction
+	}
 	row, err := a.queries.GetVideoForUpdate(ctx, id)
 	if err != nil {
 		return nil, mapErr(err)
@@ -373,6 +376,17 @@ func (a *PGAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repositor
 		return nil, fmt.Errorf("pg list videos missing thumbnail: %w", err)
 	}
 	return pgVideosToDomain(rows), nil
+}
+
+func (a *PGAdapter) LockRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
+	if !a.inTransaction() {
+		return nil, repository.ErrNoTransaction
+	}
+	row, err := a.queries.LockRecordingIntent(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgRecordingIntentToDomain(row), nil
 }
 
 func (a *PGAdapter) MarkJobDone(ctx context.Context, id string) error {

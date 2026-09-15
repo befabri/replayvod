@@ -12,13 +12,6 @@ func (a *SQLiteAdapter) CreateRecordingIntent(ctx context.Context, input reposit
 	return mapErr(a.queries.CreateRecordingIntent(ctx, sqlitegen.CreateRecordingIntentParams{ID: input.ID, BroadcasterID: input.BroadcasterID, Params: string(input.Params), WaitSeconds: input.WaitSeconds, CurrentJobID: input.CurrentJobID, LastStreamID: input.LastStreamID}))
 }
 
-func (a *SQLiteAdapter) LockRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
-	row, err := a.queries.LockRecordingIntent(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteRecordingIntentToDomain(row), nil
-}
 func (a *SQLiteAdapter) GetRecordingIntentByJob(ctx context.Context, id string) (*repository.RecordingIntent, error) {
 	row, err := a.queries.GetRecordingIntentByJob(ctx, id)
 	if err != nil {

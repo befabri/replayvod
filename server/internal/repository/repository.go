@@ -19,6 +19,10 @@ var ErrNoMetadataObserved = errors.New("repository: no metadata observed")
 // ErrStaleExecution means a recording or task writer does not own the execution.
 var ErrStaleExecution = errors.New("repository: stale recording execution")
 
+// ErrNoTransaction means a row-locking method was called outside WithTx,
+// where the lock would be released before the caller could rely on it.
+var ErrNoTransaction = errors.New("repository: requires a transaction")
+
 // Repository provides the database operations shared by both adapters.
 type Repository interface {
 	// Ping checks whether the database can answer a query.
@@ -30,6 +34,8 @@ type Repository interface {
 	// join that transaction; calling WithTx again inside it is unsupported.
 	WithTx(ctx context.Context, fn func(Repository) error) error
 
+	// GetVideoForUpdate locks the video until WithTx finishes and returns
+	// ErrNoTransaction when called outside one.
 	GetVideoForUpdate(ctx context.Context, id int64) (*Video, error)
 	SetJobExecution(ctx context.Context, jobID, executionID string, acceptsMetadata bool) error
 	StopJobMetadata(ctx context.Context, jobID, executionID string) error
@@ -44,6 +50,8 @@ type Repository interface {
 	RecoverInterruptedTasks(ctx context.Context) error
 	CreateRecordingIntent(ctx context.Context, intent RecordingIntent) error
 	GetRecordingIntent(ctx context.Context, id string) (*RecordingIntent, error)
+	// LockRecordingIntent locks the intent until WithTx finishes and returns
+	// ErrNoTransaction when called outside one.
 	LockRecordingIntent(ctx context.Context, id string) (*RecordingIntent, error)
 	GetRecordingIntentByJob(ctx context.Context, jobID string) (*RecordingIntent, error)
 	ListRecoverableRecordingIntents(ctx context.Context, after string, limit int) ([]RecordingIntent, error)

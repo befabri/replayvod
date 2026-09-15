@@ -16,13 +16,6 @@ func (a *PGAdapter) LinkRecordingIntentVideo(ctx context.Context, intentID strin
 	return mapErr(a.queries.LinkRecordingIntentVideo(ctx, pggen.LinkRecordingIntentVideoParams{IntentID: intentID, VideoID: videoID, StreamID: streamID}))
 }
 
-func (a *PGAdapter) LockRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
-	row, err := a.queries.LockRecordingIntent(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgRecordingIntentToDomain(row), nil
-}
 func (a *PGAdapter) GetRecordingIntentByJob(ctx context.Context, id string) (*repository.RecordingIntent, error) {
 	row, err := a.queries.GetRecordingIntentByJob(ctx, id)
 	if err != nil {

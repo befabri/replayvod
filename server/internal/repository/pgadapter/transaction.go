@@ -19,10 +19,16 @@ func (a *PGAdapter) WithTx(ctx context.Context, fn func(repository.Repository) e
 	})
 }
 
+// inTransaction reports whether the adapter runs on a WithTx transaction.
+func (a *PGAdapter) inTransaction() bool {
+	_, ok := a.db.(pgx.Tx)
+	return ok
+}
+
 func (a *PGAdapter) GetUserForUpdate(ctx context.Context, id string) (*repository.User, error) {
 	tx, ok := a.db.(pgx.Tx)
 	if !ok {
-		return nil, fmt.Errorf("pg get user for update: requires a transaction")
+		return nil, repository.ErrNoTransaction
 	}
 	row, err := a.queries.GetUserForUpdate(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {

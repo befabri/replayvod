@@ -251,6 +251,9 @@ func (a *SQLiteAdapter) GetVideoByJobID(ctx context.Context, jobID string) (*rep
 }
 
 func (a *SQLiteAdapter) GetVideoForUpdate(ctx context.Context, id int64) (*repository.Video, error) {
+	if !a.inTransaction() {
+		return nil, repository.ErrNoTransaction
+	}
 	row, err := a.queries.GetVideoForUpdate(ctx, id)
 	if err != nil {
 		return nil, mapErr(err)
@@ -360,6 +363,17 @@ func (a *SQLiteAdapter) ListVideosMissingThumbnail(ctx context.Context) ([]repos
 		return nil, fmt.Errorf("sqlite list videos missing thumbnail: %w", err)
 	}
 	return sqliteVideosToDomain(rows), nil
+}
+
+func (a *SQLiteAdapter) LockRecordingIntent(ctx context.Context, id string) (*repository.RecordingIntent, error) {
+	if !a.inTransaction() {
+		return nil, repository.ErrNoTransaction
+	}
+	row, err := a.queries.LockRecordingIntent(ctx, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return sqliteRecordingIntentToDomain(row), nil
 }
 
 func (a *SQLiteAdapter) MarkJobDone(ctx context.Context, id string) error {

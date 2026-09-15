@@ -17,7 +17,9 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -124,6 +126,11 @@ type dialect struct {
 	genPkg      string // "pggen" / "sqlitegen"
 	genAlias    string // import path of the gen package
 	adapterType string // "PGAdapter" / "SQLiteAdapter"
+	// rowLocks names the queries whose Postgres text carries a row-locking
+	// clause. Their generated methods refuse to run outside WithTx on every
+	// dialect, because a lock taken on an autocommit connection is released
+	// before it is used.
+	rowLocks map[string]bool
 }
 
 // Method generation is auto-discovered: there is no allowlist. Every
@@ -164,11 +171,15 @@ func main() {
 		fail(err)
 	}
 
+	rowLocks, err := rowLockQueries(filepath.Join(*root, "internal/repository/pgadapter/pggen"))
+	if err != nil {
+		fail(err)
+	}
 	dialects := []dialect{
 		{name: "pg", dir: "internal/repository/pgadapter", genPkg: "pggen", adapterType: "PGAdapter",
-			genAlias: "github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"},
+			genAlias: "github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen", rowLocks: rowLocks},
 		{name: "sqlite", dir: "internal/repository/sqliteadapter", genPkg: "sqlitegen", adapterType: "SQLiteAdapter",
-			genAlias: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"},
+			genAlias: "github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen", rowLocks: rowLocks},
 	}
 
 	for _, d := range dialects {
@@ -304,6 +315,66 @@ func structFieldsDir(dir string) (map[string]map[string]string, error) {
 		}
 		for k, v := range m {
 			out[k] = v
+		}
+	}
+	return out, nil
+}
+
+// lockClause matches Postgres row-locking clauses, including NOWAIT and OF
+// variants. Claiming queries add SKIP LOCKED after the match and are excluded
+// by rowLockQueries because they take their own transaction.
+var lockClause = regexp.MustCompile(`\bFOR (NO KEY )?UPDATE\b|\bFOR (KEY )?SHARE\b`)
+
+// rowLockQueries returns the sqlc query names in dir whose SQL locks rows for
+// the caller's transaction. The Postgres text is the source of truth for
+// locking intent; SQLite emulates the same queries with a no-op
+// UPDATE ... RETURNING, so the set applies to both dialects.
+func rowLockQueries(dir string) (map[string]bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql.go") {
+			continue
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok || len(vs.Values) != 1 {
+					continue
+				}
+				lit, ok := vs.Values[0].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				sql, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", e.Name(), err)
+				}
+				header, _, _ := strings.Cut(sql, "\n")
+				name, ok := strings.CutPrefix(header, "-- name: ")
+				if !ok {
+					continue
+				}
+				name, _, _ = strings.Cut(name, " ")
+				if locs := lockClause.FindAllStringIndex(sql, -1); len(locs) > 0 {
+					tail := sql[locs[len(locs)-1][1]:]
+					if !strings.Contains(tail, "SKIP LOCKED") {
+						out[name] = true
+					}
+				}
+			}
 		}
 	}
 	return out, nil
@@ -569,9 +640,12 @@ func classifyMethod(d dialect, name string, sig methodSig, gen map[string]map[st
 		// Unqualified interface result names belong to repository.
 		dom := strings.TrimPrefix(sig.results[0], "*")
 		fmt.Fprintf(&b, "func (a *%s) %s(%s) (*repository.%s, error) {\n", d.adapterType, name, decls, dom)
+		if d.rowLocks[name] {
+			b.WriteString("\tif !a.inTransaction() {\n\t\treturn nil, repository.ErrNoTransaction\n\t}\n")
+		}
 		fmt.Fprintf(&b, "\trow, err := a.queries.%s(%s)\n", name, call)
-		// Get methods translate missing rows to the shared ErrNotFound sentinel.
-		if strings.HasPrefix(name, "Get") {
+		// Get and Lock methods translate missing rows to the shared ErrNotFound sentinel.
+		if strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "Lock") {
 			b.WriteString("\tif err != nil {\n\t\treturn nil, mapErr(err)\n\t}\n")
 		} else {
 			fmt.Fprintf(&b, "\tif err != nil {\n\t\treturn nil, fmt.Errorf(%q, err)\n\t}\n", d.name+" "+actionPhrase(name)+": %w")

@@ -18,9 +18,15 @@ func (a *SQLiteAdapter) WithTx(ctx context.Context, fn func(repository.Repositor
 	})
 }
 
+// inTransaction reports whether the adapter runs on a WithTx transaction.
+func (a *SQLiteAdapter) inTransaction() bool {
+	_, ok := a.db.(*sql.Tx)
+	return ok
+}
+
 func (a *SQLiteAdapter) GetUserForUpdate(ctx context.Context, id string) (*repository.User, error) {
-	if _, ok := a.db.(*sql.Tx); !ok {
-		return nil, fmt.Errorf("sqlite get user for update: requires a transaction")
+	if !a.inTransaction() {
+		return nil, repository.ErrNoTransaction
 	}
 	row, err := a.queries.GetUserForUpdate(ctx, id)
 	if err != nil {
