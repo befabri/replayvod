@@ -113,3 +113,17 @@ func (h *contractHarness) BackdateRecordingWebhookDelivery(t *testing.T, id int6
 		t.Fatalf("backdate recording webhook delivery: %v", err)
 	}
 }
+
+func (h *contractHarness) BackdateFetchLogsByType(t *testing.T, fetchType string, at time.Time) {
+	t.Helper()
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE fetch_logs SET fetched_at = ? WHERE fetch_type = ?", sqlitetype.Format(at), fetchType); err != nil {
+		t.Fatalf("backdate fetch_logs fetched_at: %v", err)
+	}
+}
+
+func (h *contractHarness) BackdateWebhookEventReceived(t *testing.T, id int64, at time.Time) {
+	t.Helper()
+	if _, err := h.db.ExecContext(context.Background(), "UPDATE webhook_events SET received_at = ? WHERE id = ?", sqlitetype.Format(at), id); err != nil {
+		t.Fatalf("backdate webhook_events received_at: %v", err)
+	}
+}

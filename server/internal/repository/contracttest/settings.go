@@ -65,6 +65,12 @@ func testEventLogDeleteOldSkipsWarnAndError(t *testing.T, h Harness) {
 		}
 	}
 
+	if err := repo.DeleteOldEventLogs(ctx, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("delete old with a past cutoff: %v", err)
+	}
+	if count, err := repo.CountEventLogs(ctx); err != nil || count != 4 {
+		t.Fatalf("rows after a past cutoff = %d, %v, want 4", count, err)
+	}
 	if err := repo.DeleteOldEventLogs(ctx, time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("delete old: %v", err)
 	}

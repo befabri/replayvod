@@ -32,6 +32,12 @@ type Harness interface {
 
 	// BackdateRecordingWebhookDelivery leaves timestamps unchanged for nil arguments.
 	BackdateRecordingWebhookDelivery(t *testing.T, id int64, createdAt, updatedAt, deliveredAt *time.Time)
+
+	// BackdateFetchLogsByType moves fetched_at for every fetch log of fetchType.
+	BackdateFetchLogsByType(t *testing.T, fetchType string, at time.Time)
+
+	// BackdateWebhookEventReceived moves received_at for one webhook event.
+	BackdateWebhookEventReceived(t *testing.T, id int64, at time.Time)
 }
 
 // Factory builds a fresh Harness backed by a fresh, migrated, empty database
@@ -56,6 +62,15 @@ func Run(t *testing.T, newHarness Factory) {
 	run("AttemptStopSurvivesCheckpointsAndFencesWriters", testAttemptStopSurvivesCheckpointsAndFencesWriters)
 	run("StoppedAttemptDiscovery", testStoppedAttemptDiscovery)
 	run("StoppedAdmissionRejectsInitialMetadata", testStoppedAdmissionRejectsInitialMetadata)
+	run("RecordingIntent_ActivationWindow", testRecordingIntentActivationWindow)
+	run("RecordingIntent_CloseReleasesChannel", testCloseRecordingIntentReleasesChannel)
+	run("RecordingIntent_GetByJob", testGetRecordingIntentByJob)
+	run("RecordingIntent_LinkVideoPositionsAndUniqueness", testLinkRecordingIntentVideoPositionsAndUniqueness)
+	run("RecordingIntent_ListJobs", testListRecordingIntentJobs)
+	run("RecordingIntent_ListRecoverable", testListRecoverableRecordingIntents)
+	run("MediaPublication_Lifecycle", testMediaPublicationLifecycle)
+	run("MediaPublication_Listing", testMediaPublicationListing)
+	run("Video_WaveformKeyRoundTrip", testVideoWaveformKeyRoundTrip)
 	run("PlaybackAsset_PaginationWithTiedTimestamps", testPlaybackAssetPaginationWithTiedTimestamps)
 	run("AttemptCommitConfirmationLost", testAttemptCommitConfirmationLost)
 	run("MetadataEligibilityIsTransactional", testMetadataEligibilityIsTransactional)
@@ -91,6 +106,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Task_MarkSuccessRearmsNextRun", testTaskMarkSuccessRearmsNextRun)
 	run("Task_QueuedRunSurvivesMarkSuccess", testTaskQueuedRunSurvivesMarkSuccess)
 	run("Task_SetNextRunMissingReturnsNotFound", testTaskSetNextRunMissingReturnsNotFound)
+	run("Task_RecoverInterrupted", testRecoverInterruptedTasks)
 
 	run("Invite_RedeemSingleUse", testInviteRedeemSingleUse)
 	run("Invite_RedeemExpiredFailsClosed", testInviteRedeemExpiredFailsClosed)
@@ -107,6 +123,8 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Task_AvailabilityGuards", testTaskAvailabilityGuards)
 	run("TwitchPlaybackSession", testTwitchPlaybackSession)
 	run("EventLog_DeleteOldSkipsWarnAndError", testEventLogDeleteOldSkipsWarnAndError)
+	run("FetchLog_DeleteOldPrunesByFetchedAt", testDeleteOldFetchLogsPrunesByFetchedAt)
+	run("WebhookEvent_ClearPayloadKeepsAuditRows", testClearWebhookEventPayloadKeepsAuditRows)
 
 	run("VideoMetadataChange_RoundTripsMediaOffset", testVideoMetadataChangeRoundTripsMediaOffset)
 
@@ -138,6 +156,9 @@ func Run(t *testing.T, newHarness Factory) {
 	run("Channel_ListLatestLivePerChannel", testListLatestLivePerChannelOnePerBroadcaster)
 	run("Channel_ListByIDs", testListChannelsByIDs)
 	run("Channel_ListPageFoldsAccentedNames", testListChannelsPageFoldsAccentedNames)
+	run("Channel_Search", testSearchChannels)
+	run("Category_Search", testSearchCategories)
+	run("Video_Search", testSearchVideos)
 
 	// videos
 	run("Video_CreateNormalizesRecordingSettings", testCreateVideoNormalizesRecordingSettings)

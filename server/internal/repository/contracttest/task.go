@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -226,5 +228,92 @@ func testTaskExplicitRunWithoutInterval(t *testing.T, h Harness) {
 	due, err = repo.ListDueTasks(ctx)
 	if err != nil || len(due) != 0 {
 		t.Fatalf("one-shot task rearmed: %+v %v", due, err)
+	}
+}
+
+func testRecoverInterruptedTasks(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	tasks := []struct {
+		name     string
+		interval int64
+	}{{"recover-interval", 60}, {"recover-oneshot", 0}, {"recover-idle", 60}, {"recover-paused", 60}}
+	register := func() {
+		t.Helper()
+		for _, task := range tasks {
+			if _, err := repo.UpsertTask(ctx, task.name, "recovery", task.interval); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	register()
+	if err := repo.ClaimTask(ctx, "recover-interval", "run-interval"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetTaskNextRun(ctx, "recover-oneshot"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "recover-oneshot", "run-oneshot"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "recover-idle", "run-idle"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SettleTask(ctx, "recover-idle", "run-idle", repository.TaskStatusSuccess, 5, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ClaimTask(ctx, "recover-paused", "run-paused"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.SetTaskEnabled(ctx, "recover-paused", false); err != nil {
+		t.Fatal(err)
+	}
+	idleBefore, err := repo.GetTask(ctx, "recover-idle")
+	if err != nil || idleBefore.NextRunAt == nil {
+		t.Fatalf("settled task = %+v, %v", idleBefore, err)
+	}
+	if err := repo.ResetTaskAvailability(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RecoverInterruptedTasks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"recover-interval", "recover-oneshot", "recover-paused"} {
+		row, err := repo.GetTask(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if row.LastStatus != repository.TaskStatusInterrupted || row.NextRunAt == nil || time.Until(*row.NextRunAt) > time.Second || row.ExecutionID != "run-"+strings.TrimPrefix(name, "recover-") || row.LastError != nil || row.IsAvailable {
+			t.Fatalf("recovered %s = %+v", name, row)
+		}
+	}
+	idle, err := repo.GetTask(ctx, "recover-idle")
+	if err != nil || idle.LastStatus != repository.TaskStatusSuccess || idle.NextRunAt == nil || !idle.NextRunAt.Equal(*idleBefore.NextRunAt) {
+		t.Fatalf("recovery touched a settled task: %+v, %v", idle, err)
+	}
+	recovered, err := repo.GetTask(ctx, "recover-interval")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RecoverInterruptedTasks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := repo.GetTask(ctx, "recover-interval"); err != nil || again.LastStatus != repository.TaskStatusInterrupted || !again.NextRunAt.Equal(*recovered.NextRunAt) {
+		t.Fatalf("repeated recovery moved the retry: %+v, %v", again, err)
+	}
+	register()
+	due, err := repo.ListDueTasks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, len(due))
+	for i, task := range due {
+		names[i] = task.Name
+	}
+	slices.Sort(names)
+	if want := []string{"recover-interval", "recover-oneshot"}; !slices.Equal(names, want) {
+		t.Fatalf("due after recovery = %v, want %v", names, want)
+	}
+	if err := repo.ClaimTask(ctx, "recover-oneshot", "run-oneshot-2"); err != nil {
+		t.Fatalf("interrupted one-shot not claimable: %v", err)
 	}
 }
