@@ -62,6 +62,7 @@ func Run(t *testing.T, newHarness Factory) {
 	run("AttemptStopSurvivesCheckpointsAndFencesWriters", testAttemptStopSurvivesCheckpointsAndFencesWriters)
 	run("StoppedAttemptDiscovery", testStoppedAttemptDiscovery)
 	run("StoppedAdmissionRejectsInitialMetadata", testStoppedAdmissionRejectsInitialMetadata)
+	run("JobStopAndMetadataGuards", testJobStopAndMetadataGuards)
 	run("RecordingIntent_ActivationWindow", testRecordingIntentActivationWindow)
 	run("RecordingIntent_CloseReleasesChannel", testCloseRecordingIntentReleasesChannel)
 	run("RecordingIntent_GetByJob", testGetRecordingIntentByJob)

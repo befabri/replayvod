@@ -284,3 +284,84 @@ func testRecordingIntentConstraints(t *testing.T, h Harness) {
 		t.Fatalf("failed admissions changed relationship: %+v, %v", rows, err)
 	}
 }
+
+func testJobStopAndMetadataGuards(t *testing.T, h Harness) {
+	ctx, repo := t.Context(), h.Repo()
+	SeedUserChannel(t, ctx, repo, "owner", "execution-channel")
+	if err := repo.RequestJobStop(ctx, "missing"); err != nil {
+		t.Fatalf("stopping a missing job: %v", err)
+	}
+	if err := repo.StopJobMetadata(ctx, "missing", "any"); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("metadata stop on a missing job: %v", err)
+	}
+	pending, err := repository.CreateAttempt(ctx, repo, executionInput("stop-pending"), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RequestJobStop(ctx, pending.JobID); err != nil {
+		t.Fatal(err)
+	}
+	job, err := repo.GetJob(ctx, pending.JobID)
+	if err != nil || !job.StopRequested || job.AcceptsMetadata || job.Status != repository.JobStatusPending {
+		t.Fatalf("stopped pending job = %+v, %v", job, err)
+	}
+	running, err := repository.CreateAttempt(ctx, repo, executionInput("stop-running"), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ClaimAttempt(ctx, repo, repository.AttemptClaim{JobID: running.JobID, VideoID: running.ID, ExecutionID: "first"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if job, err = repo.GetJob(ctx, running.JobID); err != nil || !job.AcceptsMetadata {
+		t.Fatalf("claimed live job = %+v, %v", job, err)
+	}
+	if err := repo.StopJobMetadata(ctx, running.JobID, "second"); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("foreign execution stopped metadata: %v", err)
+	}
+	if job, err = repo.GetJob(ctx, running.JobID); err != nil || !job.AcceptsMetadata {
+		t.Fatalf("rejected metadata stop applied: %+v, %v", job, err)
+	}
+	for range 2 {
+		if err := repo.StopJobMetadata(ctx, running.JobID, "first"); err != nil {
+			t.Fatalf("owner metadata stop: %v", err)
+		}
+	}
+	job, err = repo.GetJob(ctx, running.JobID)
+	if err != nil || job.AcceptsMetadata || job.StopRequested || job.Status != repository.JobStatusRunning || job.ExecutionID != "first" {
+		t.Fatalf("metadata stop changed more than admission: %+v, %v", job, err)
+	}
+	for range 2 {
+		if err := repo.RequestJobStop(ctx, running.JobID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	job, err = repo.GetJob(ctx, running.JobID)
+	if err != nil || !job.StopRequested || job.Status != repository.JobStatusRunning || job.ExecutionID != "first" {
+		t.Fatalf("stopped running job = %+v, %v", job, err)
+	}
+	terminal, err := repository.CreateAttempt(ctx, repo, executionInput("stop-terminal"), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failAttempt(t, ctx, repo, terminal)
+	if err := repo.RequestJobStop(ctx, terminal.JobID); err != nil {
+		t.Fatalf("stopping a terminal job: %v", err)
+	}
+	if job, err = repo.GetJob(ctx, terminal.JobID); err != nil || job.StopRequested || job.Status != repository.JobStatusFailed {
+		t.Fatalf("terminal job changed by stop: %+v, %v", job, err)
+	}
+	if err := repo.StopJobMetadata(ctx, terminal.JobID, job.ExecutionID); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("metadata stop on an unclaimed terminal job: %v", err)
+	}
+	claimedTerminal, err := repository.CreateAttempt(ctx, repo, executionInput("stop-claimed-terminal"), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ClaimAttempt(ctx, repo, repository.AttemptClaim{JobID: claimedTerminal.JobID, VideoID: claimedTerminal.ID, ExecutionID: "owner"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	failAttempt(t, ctx, repo, claimedTerminal)
+	if err := repo.StopJobMetadata(ctx, claimedTerminal.JobID, "owner"); !errors.Is(err, repository.ErrStaleExecution) {
+		t.Fatalf("metadata stop by the former owner of a terminal job: %v", err)
+	}
+}

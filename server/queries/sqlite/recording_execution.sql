@@ -8,7 +8,7 @@ UPDATE jobs SET execution_id = ?2, accepts_metadata = ?3,
 WHERE id = ?1 AND status IN ('PENDING', 'RUNNING');
 
 -- name: StopJobMetadata :execrows
-UPDATE jobs SET accepts_metadata = 0 WHERE id = ?1 AND execution_id = ?2;
+UPDATE jobs SET accepts_metadata = 0 WHERE id = ?1 AND execution_id = ?2 AND status = 'RUNNING';
 
 -- name: RequestJobStop :exec
 UPDATE jobs SET stop_requested = 1, accepts_metadata = 0, updated_at = datetime('now')

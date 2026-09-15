@@ -8,7 +8,7 @@ WHERE id = $1 AND status IN ('PENDING', 'RUNNING');
 
 -- name: StopJobMetadata :execrows
 UPDATE jobs SET accepts_metadata = FALSE
-WHERE id = $1 AND execution_id = $2;
+WHERE id = $1 AND execution_id = $2 AND status = 'RUNNING';
 
 -- name: RequestJobStop :exec
 UPDATE jobs SET stop_requested = TRUE, accepts_metadata = FALSE, updated_at = NOW()

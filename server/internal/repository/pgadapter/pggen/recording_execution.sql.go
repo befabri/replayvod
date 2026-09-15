@@ -242,7 +242,7 @@ func (q *Queries) SetJobExecution(ctx context.Context, arg SetJobExecutionParams
 
 const stopJobMetadata = `-- name: StopJobMetadata :execrows
 UPDATE jobs SET accepts_metadata = FALSE
-WHERE id = $1 AND execution_id = $2
+WHERE id = $1 AND execution_id = $2 AND status = 'RUNNING'
 `
 
 type StopJobMetadataParams struct {
