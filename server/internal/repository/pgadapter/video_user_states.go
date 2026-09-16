@@ -30,7 +30,7 @@ func (a *PGAdapter) ListVideoUserStatesForVideos(ctx context.Context, userID str
 func (a *PGAdapter) UpdateVideoWatchProgress(ctx context.Context, userID string, videoID int64, positionSeconds float64, completed bool, at time.Time) (*repository.VideoUserState, error) {
 	row, err := a.queries.UpdateVideoWatchProgress(ctx, pggen.UpdateVideoWatchProgressParams{
 		UserID:          userID,
-		ID:              videoID,
+		VideoID:         videoID,
 		PositionSeconds: positionSeconds,
 		ProgressAtMs:    at.UnixMilli(),
 		Completed:       completed,

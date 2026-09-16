@@ -130,7 +130,7 @@ INSERT INTO video_user_states (
     user_id, video_id, last_position_seconds, last_progress_at_ms, progress_revision, watched_at, completed_at, updated_at
 )
 SELECT
-    ?, v.id, MAX(0, p.position_seconds),
+    ?1, v.id, MAX(0, p.position_seconds),
     p.progress_at_ms, 1,
     CASE
         WHEN p.completed != 0
@@ -146,13 +146,13 @@ SELECT
 FROM videos v
 CROSS JOIN (
     SELECT
-        CAST(? AS REAL) AS position_seconds,
-        CAST(? AS INTEGER) AS progress_at_ms,
-        CAST(? AS INTEGER) AS completed,
-        CAST(? AS REAL) AS started_seconds,
-        CAST(? AS REAL) AS started_fraction
+        CAST(?2 AS REAL) AS position_seconds,
+        CAST(?3 AS INTEGER) AS progress_at_ms,
+        CAST(?4 AS INTEGER) AS completed,
+        CAST(?5 AS REAL) AS started_seconds,
+        CAST(?6 AS REAL) AS started_fraction
 ) AS p
-WHERE v.id = ?
+WHERE v.id = ?7
   AND v.deleted_at IS NULL
   AND v.status = 'DONE'
 ON CONFLICT(user_id, video_id) DO UPDATE SET
@@ -172,7 +172,7 @@ type UpdateVideoWatchProgressParams struct {
 	Completed       int64   `json:"completed"`
 	StartedSeconds  float64 `json:"started_seconds"`
 	StartedFraction float64 `json:"started_fraction"`
-	ID              int64   `json:"id"`
+	VideoID         int64   `json:"video_id"`
 }
 
 // Progress writes are ordered by the server clock (@progress_at_ms), so
@@ -189,7 +189,7 @@ func (q *Queries) UpdateVideoWatchProgress(ctx context.Context, arg UpdateVideoW
 		arg.Completed,
 		arg.StartedSeconds,
 		arg.StartedFraction,
-		arg.ID,
+		arg.VideoID,
 	)
 	var i VideoUserState
 	err := row.Scan(

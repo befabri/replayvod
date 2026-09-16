@@ -35,7 +35,7 @@ func (a *SQLiteAdapter) UpdateVideoWatchProgress(ctx context.Context, userID str
 		Completed:       boolToInt64(completed),
 		StartedSeconds:  repository.WatchStartedSeconds,
 		StartedFraction: repository.WatchStartedFraction,
-		ID:              videoID,
+		VideoID:         videoID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite update video watch progress: %w", mapErr(err))

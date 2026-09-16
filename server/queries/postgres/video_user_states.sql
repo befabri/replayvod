@@ -23,7 +23,7 @@ INSERT INTO video_user_states (
     user_id, video_id, last_position_seconds, last_progress_at_ms, progress_revision, watched_at, completed_at, updated_at
 )
 SELECT
-    $1, v.id, GREATEST(0::DOUBLE PRECISION, @position_seconds::DOUBLE PRECISION),
+    @user_id, v.id, GREATEST(0::DOUBLE PRECISION, @position_seconds::DOUBLE PRECISION),
     @progress_at_ms::BIGINT, 1,
     CASE
         WHEN @completed::BOOLEAN
@@ -37,7 +37,7 @@ SELECT
     CASE WHEN @completed::BOOLEAN THEN NOW() ELSE NULL END,
     NOW()
 FROM videos v
-WHERE v.id = $2
+WHERE v.id = @video_id
   AND v.deleted_at IS NULL
   AND v.status = 'DONE'
 ON CONFLICT(user_id, video_id) DO UPDATE SET

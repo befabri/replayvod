@@ -24,7 +24,7 @@ INSERT INTO video_user_states (
     user_id, video_id, last_position_seconds, last_progress_at_ms, progress_revision, watched_at, completed_at, updated_at
 )
 SELECT
-    ?, v.id, MAX(0, p.position_seconds),
+    @user_id, v.id, MAX(0, p.position_seconds),
     p.progress_at_ms, 1,
     CASE
         WHEN p.completed != 0
@@ -46,7 +46,7 @@ CROSS JOIN (
         CAST(@started_seconds AS REAL) AS started_seconds,
         CAST(@started_fraction AS REAL) AS started_fraction
 ) AS p
-WHERE v.id = ?
+WHERE v.id = @video_id
   AND v.deleted_at IS NULL
   AND v.status = 'DONE'
 ON CONFLICT(user_id, video_id) DO UPDATE SET

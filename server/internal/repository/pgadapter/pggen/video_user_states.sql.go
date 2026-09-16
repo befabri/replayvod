@@ -115,21 +115,21 @@ INSERT INTO video_user_states (
     user_id, video_id, last_position_seconds, last_progress_at_ms, progress_revision, watched_at, completed_at, updated_at
 )
 SELECT
-    $1, v.id, GREATEST(0::DOUBLE PRECISION, $3::DOUBLE PRECISION),
-    $4::BIGINT, 1,
+    $1, v.id, GREATEST(0::DOUBLE PRECISION, $2::DOUBLE PRECISION),
+    $3::BIGINT, 1,
     CASE
-        WHEN $5::BOOLEAN
-          OR $3::DOUBLE PRECISION >= CASE
+        WHEN $4::BOOLEAN
+          OR $2::DOUBLE PRECISION >= CASE
               WHEN v.duration_seconds > 0
-              THEN LEAST($6::DOUBLE PRECISION, v.duration_seconds * $7::DOUBLE PRECISION)
-              ELSE $6::DOUBLE PRECISION
+              THEN LEAST($5::DOUBLE PRECISION, v.duration_seconds * $6::DOUBLE PRECISION)
+              ELSE $5::DOUBLE PRECISION
           END
         THEN NOW() ELSE NULL
     END,
-    CASE WHEN $5::BOOLEAN THEN NOW() ELSE NULL END,
+    CASE WHEN $4::BOOLEAN THEN NOW() ELSE NULL END,
     NOW()
 FROM videos v
-WHERE v.id = $2
+WHERE v.id = $7
   AND v.deleted_at IS NULL
   AND v.status = 'DONE'
 ON CONFLICT(user_id, video_id) DO UPDATE SET
@@ -144,12 +144,12 @@ RETURNING user_id, video_id, watch_later, last_position_seconds, last_progress_a
 
 type UpdateVideoWatchProgressParams struct {
 	UserID          string  `json:"user_id"`
-	ID              int64   `json:"id"`
 	PositionSeconds float64 `json:"position_seconds"`
 	ProgressAtMs    int64   `json:"progress_at_ms"`
 	Completed       bool    `json:"completed"`
 	StartedSeconds  float64 `json:"started_seconds"`
 	StartedFraction float64 `json:"started_fraction"`
+	VideoID         int64   `json:"video_id"`
 }
 
 // Progress writes are ordered by the server clock (@progress_at_ms), so
@@ -160,12 +160,12 @@ type UpdateVideoWatchProgressParams struct {
 func (q *Queries) UpdateVideoWatchProgress(ctx context.Context, arg UpdateVideoWatchProgressParams) (VideoUserState, error) {
 	row := q.db.QueryRow(ctx, updateVideoWatchProgress,
 		arg.UserID,
-		arg.ID,
 		arg.PositionSeconds,
 		arg.ProgressAtMs,
 		arg.Completed,
 		arg.StartedSeconds,
 		arg.StartedFraction,
+		arg.VideoID,
 	)
 	var i VideoUserState
 	err := row.Scan(

@@ -23,7 +23,9 @@ type harvestTarget struct {
 // generateMethods renders methods_gen.go for one dialect by auto-discovery and
 // returns the hand-written methods to harvest and the number of Repository
 // methods that stay hand-written after the harvest. See denyMethods for the
-// policy.
+// policy. It fails when a query's parameters are not named after the
+// repository signature (see misnamedParams), in every mode, so a renamed
+// field cannot quietly leave a method hand-written.
 func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map[string]string, queries map[string]querySig, root string) ([]byte, []harvestTarget, int, error) {
 	pkgName := filepath.Base(d.dir)
 	dir := filepath.Join(root, d.dir)
@@ -42,6 +44,18 @@ func generateMethods(d dialect, methods map[string]methodSig, gen map[string]map
 		names = append(names, name)
 	}
 	sort.Strings(names)
+
+	// Names are checked before shapes so a drifted field is reported as the
+	// cause rather than as the generated method that stopped fitting.
+	var misnamed []string
+	for _, name := range names {
+		if !denyMethods[name] {
+			misnamed = append(misnamed, r.misnamedParams(name, methods[name])...)
+		}
+	}
+	if len(misnamed) > 0 {
+		return nil, nil, 0, fmt.Errorf("query parameters are not named after the repository signature; name them with sqlc.arg(name) or @name:\n\t%s", strings.Join(misnamed, "\n\t"))
+	}
 
 	var body strings.Builder
 	var harvest []harvestTarget
