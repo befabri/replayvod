@@ -2,7 +2,6 @@ package sqliteadapter
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/befabri/replayvod/server/internal/repository"
@@ -25,11 +24,4 @@ func (a *SQLiteAdapter) CreateJob(ctx context.Context, input *repository.JobInpu
 		return nil, fmt.Errorf("sqlite create job: %w", err)
 	}
 	return sqliteJobToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) MarkJobFailed(ctx context.Context, id string, errMsg string) error {
-	return a.queries.MarkJobFailed(ctx, sqlitegen.MarkJobFailedParams{
-		ID:     id,
-		ErrMsg: sql.NullString{String: errMsg, Valid: true},
-	})
 }

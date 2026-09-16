@@ -206,17 +206,6 @@ func (a *SQLiteAdapter) ListVideosPage(ctx context.Context, opts repository.List
 	return repository.ToVideoListPage(items, opts), nil
 }
 
-func (a *SQLiteAdapter) SearchVideos(ctx context.Context, query string, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.SearchVideos(ctx, sqlitegen.SearchVideosParams{
-		Query: query,
-		Limit: int64(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite search videos: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
-}
-
 func (a *SQLiteAdapter) ListVideosByBroadcaster(ctx context.Context, broadcasterID string, limit int, cursor *repository.VideoPageCursor) (*repository.VideoPage, error) {
 	rows, err := a.queries.ListVideosByBroadcasterPage(ctx, sqlitegen.ListVideosByBroadcasterPageParams{
 		BroadcasterID:         broadcasterID,
@@ -254,13 +243,6 @@ func (a *SQLiteAdapter) ListVideosPendingManualDelete(ctx context.Context, after
 		return nil, fmt.Errorf("sqlite list videos pending manual delete: %w", err)
 	}
 	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) SoftDeleteVideo(ctx context.Context, id int64, kind string) error {
-	return a.queries.SoftDeleteVideo(ctx, sqlitegen.SoftDeleteVideoParams{
-		ID:   id,
-		Kind: sql.NullString{String: kind, Valid: true},
-	})
 }
 
 func (a *SQLiteAdapter) ListRetentionCandidates(ctx context.Context, now time.Time, afterID int64, limit int) ([]repository.RetentionVideo, error) {
@@ -610,32 +592,6 @@ func (a *SQLiteAdapter) ListOpenVideosByStreamIDs(ctx context.Context, streamIDs
 		return nil, fmt.Errorf("sqlite list open videos by stream ids: %w", err)
 	}
 	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListRecentArchiveFailures(ctx context.Context, since time.Time, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListRecentArchiveFailures(ctx, sqlitegen.ListRecentArchiveFailuresParams{Since: sqliteTimePtr(&since), Limit: int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list recent archive failures: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListArchivesDueForRetry(ctx context.Context, now, after time.Time, afterID int64, limit int) ([]repository.Video, error) {
-	rows, err := a.queries.ListArchivesDueForRetry(ctx, sqlitegen.ListArchivesDueForRetryParams{Now: sqliteTimePtr(&now), After: sqliteTimePtr(&after), AfterID: afterID, Limit: int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list archives due for retry: %w", err)
-	}
-	return sqliteVideosToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) MarkArchiveFailedForRetry(ctx context.Context, id int64, errMsg string, completionKind string, truncated bool, nextRetryAt time.Time) error {
-	return a.queries.MarkArchiveFailedForRetry(ctx, sqlitegen.MarkArchiveFailedForRetryParams{
-		ErrMsg:         sql.NullString{String: errMsg, Valid: true},
-		CompletionKind: completionKind,
-		Truncated:      boolToInt64(truncated),
-		NextRetryAt:    sqliteTimePtr(&nextRetryAt),
-		ID:             id,
-	})
 }
 
 func (a *SQLiteAdapter) ListArchivesMissingPoster(ctx context.Context, since time.Time, afterID int64, limit int) ([]repository.Video, error) {

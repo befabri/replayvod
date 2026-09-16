@@ -3,8 +3,6 @@ package sqliteadapter
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/sqliteadapter/sqlitegen"
@@ -31,22 +29,4 @@ func (a *SQLiteAdapter) CreateWebhookEvent(ctx context.Context, input *repositor
 		return nil, mapErr(err)
 	}
 	return sqliteWebhookEventToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) MarkWebhookEventFailed(ctx context.Context, id int64, errMsg string) error {
-	return a.queries.MarkWebhookEventFailed(ctx, sqlitegen.MarkWebhookEventFailedParams{
-		ID:     id,
-		ErrMsg: sql.NullString{String: errMsg, Valid: true},
-	})
-}
-
-func (a *SQLiteAdapter) ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListStuckWebhookEvents(ctx, sqlitegen.ListStuckWebhookEventsParams{
-		Before: sqliteTime(before),
-		Limit:  int64(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list stuck webhook events: %w", err)
-	}
-	return sqliteWebhookEventsToDomain(rows), nil
 }

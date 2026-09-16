@@ -38,25 +38,6 @@ func (a *PGAdapter) CreateScheduleWithFilters(ctx context.Context, input *reposi
 	return out, nil
 }
 
-func (a *PGAdapter) GetSchedule(ctx context.Context, id int64) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.GetSchedule(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgDownloadScheduleToDomain(row), nil
-}
-
-func (a *PGAdapter) GetScheduleForUserChannel(ctx context.Context, broadcasterID, userID string) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.GetScheduleForUserChannel(ctx, pggen.GetScheduleForUserChannelParams{
-		BroadcasterID: broadcasterID,
-		UserID:        userID,
-	})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgDownloadScheduleToDomain(row), nil
-}
-
 func (a *PGAdapter) UpdateSchedule(ctx context.Context, id int64, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
 	row, err := a.queries.UpdateSchedule(ctx, pgUpdateScheduleParams(id, input))
 	if err != nil {
@@ -83,45 +64,6 @@ func (a *PGAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64, inp
 		return nil, err
 	}
 	return out, nil
-}
-
-func (a *PGAdapter) ToggleSchedule(ctx context.Context, id int64) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.ToggleSchedule(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return pgDownloadScheduleToDomain(row), nil
-}
-
-func (a *PGAdapter) ListSchedules(ctx context.Context, limit, offset int) ([]repository.DownloadSchedule, error) {
-	rows, err := a.queries.ListSchedules(ctx, pggen.ListSchedulesParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list schedules: %w", err)
-	}
-	return pgDownloadSchedulesToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListSchedulesForUser(ctx context.Context, userID string, limit, offset int) ([]repository.DownloadSchedule, error) {
-	rows, err := a.queries.ListSchedulesForUser(ctx, pggen.ListSchedulesForUserParams{
-		UserID: userID,
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list schedules for user: %w", err)
-	}
-	return pgDownloadSchedulesToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]repository.DownloadSchedule, error) {
-	rows, err := a.queries.ListActiveSchedulesForBroadcaster(ctx, broadcasterID)
-	if err != nil {
-		return nil, fmt.Errorf("pg list active schedules for broadcaster: %w", err)
-	}
-	return pgDownloadSchedulesToDomain(rows), nil
 }
 
 func pgCreateScheduleParams(input *repository.ScheduleInput) pggen.CreateScheduleParams {

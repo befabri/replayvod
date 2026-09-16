@@ -71,21 +71,6 @@ func (a *SQLiteAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]
 	return channels, nil
 }
 
-func (a *SQLiteAdapter) SearchChannels(ctx context.Context, query string, limit int) ([]repository.Channel, error) {
-	rows, err := a.queries.SearchChannels(ctx, sqlitegen.SearchChannelsParams{
-		Query: query,
-		Limit: int64(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite search channels: %w", err)
-	}
-	out := make([]repository.Channel, len(rows))
-	for i, row := range rows {
-		out[i] = *sqliteChannelToDomain(row)
-	}
-	return out, nil
-}
-
 // User follows
 
 func (a *SQLiteAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFollow) error {

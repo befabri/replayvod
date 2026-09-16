@@ -54,31 +54,6 @@ func (a *PGAdapter) ClaimDueRecordingWebhookDeliveries(ctx context.Context, now 
 	return out, nil
 }
 
-func (a *PGAdapter) MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, httpStatus int, now time.Time) error {
-	if err := a.queries.MarkRecordingWebhookDeliveryDelivered(ctx, pggen.MarkRecordingWebhookDeliveryDeliveredParams{
-		ID:         id,
-		HttpStatus: int32(httpStatus),
-		Now:        now,
-	}); err != nil {
-		return fmt.Errorf("pg mark recording webhook delivery delivered: %w", err)
-	}
-	return nil
-}
-
-func (a *PGAdapter) MarkRecordingWebhookDeliveryFinal(ctx context.Context, id int64, status string, httpStatus int, errMsg string, nextAttemptAt time.Time, now time.Time) error {
-	if err := a.queries.MarkRecordingWebhookDeliveryFinal(ctx, pggen.MarkRecordingWebhookDeliveryFinalParams{
-		ID:            id,
-		Status:        status,
-		HttpStatus:    int32(httpStatus),
-		ErrMsg:        errMsg,
-		NextAttemptAt: nextAttemptAt,
-		Now:           now,
-	}); err != nil {
-		return fmt.Errorf("pg mark recording webhook delivery final: %w", err)
-	}
-	return nil
-}
-
 func (a *PGAdapter) ListRecordingWebhookDeliveries(ctx context.Context, limit int) ([]repository.RecordingWebhookDelivery, error) {
 	if limit <= 0 {
 		limit = 50

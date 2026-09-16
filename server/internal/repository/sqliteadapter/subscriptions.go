@@ -47,24 +47,6 @@ func (a *SQLiteAdapter) UpsertSubscription(ctx context.Context, input *repositor
 	return sqliteSubscriptionToDomain(row), nil
 }
 
-func (a *SQLiteAdapter) GetActiveSubscriptionForBroadcasterType(ctx context.Context, broadcasterID, subType string) (*repository.Subscription, error) {
-	row, err := a.queries.GetActiveSubscriptionForBroadcasterType(ctx, sqlitegen.GetActiveSubscriptionForBroadcasterTypeParams{
-		BroadcasterID: sql.NullString{String: broadcasterID, Valid: true},
-		SubType:       subType,
-	})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteSubscriptionToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) MarkSubscriptionRevoked(ctx context.Context, id, reason string) error {
-	return a.queries.MarkSubscriptionRevoked(ctx, sqlitegen.MarkSubscriptionRevokedParams{
-		ID:     id,
-		Reason: sql.NullString{String: reason, Valid: true},
-	})
-}
-
 func stringPtrToNullString(p *string) sql.NullString {
 	if p == nil {
 		return sql.NullString{}

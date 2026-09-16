@@ -27,10 +27,3 @@ func (a *PGAdapter) CreateJob(ctx context.Context, input *repository.JobInput) (
 	}
 	return pgJobToDomain(row), nil
 }
-
-func (a *PGAdapter) MarkJobFailed(ctx context.Context, id string, errMsg string) error {
-	return a.queries.MarkJobFailed(ctx, pggen.MarkJobFailedParams{
-		ID:     id,
-		ErrMsg: &errMsg,
-	})
-}

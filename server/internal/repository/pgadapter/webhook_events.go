@@ -3,7 +3,6 @@ package pgadapter
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/befabri/replayvod/server/internal/repository"
 	"github.com/befabri/replayvod/server/internal/repository/pgadapter/pggen"
@@ -28,13 +27,6 @@ func (a *PGAdapter) CreateWebhookEvent(ctx context.Context, input *repository.We
 	return pgWebhookEventToDomain(row), nil
 }
 
-func (a *PGAdapter) MarkWebhookEventFailed(ctx context.Context, id int64, errMsg string) error {
-	return a.queries.MarkWebhookEventFailed(ctx, pggen.MarkWebhookEventFailedParams{
-		ID:     id,
-		ErrMsg: &errMsg,
-	})
-}
-
 func (a *PGAdapter) ListWebhookEventsByType(ctx context.Context, eventType string, limit, offset int) ([]repository.WebhookEvent, error) {
 	et := eventType
 	rows, err := a.queries.ListWebhookEventsByType(ctx, pggen.ListWebhookEventsByTypeParams{
@@ -44,17 +36,6 @@ func (a *PGAdapter) ListWebhookEventsByType(ctx context.Context, eventType strin
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pg list webhook events by type: %w", err)
-	}
-	return pgWebhookEventsToDomain(rows), nil
-}
-
-func (a *PGAdapter) ListStuckWebhookEvents(ctx context.Context, before time.Time, limit int) ([]repository.WebhookEvent, error) {
-	rows, err := a.queries.ListStuckWebhookEvents(ctx, pggen.ListStuckWebhookEventsParams{
-		Before: before,
-		Limit:  int32(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg list stuck webhook events: %w", err)
 	}
 	return pgWebhookEventsToDomain(rows), nil
 }

@@ -196,47 +196,6 @@ func (a *PGAdapter) ListCategoriesByIDs(ctx context.Context, ids []string) ([]re
 	return repository.OrderCategoriesByIDs(cats, ids), nil
 }
 
-func (a *PGAdapter) SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error) {
-	rows, err := a.queries.SearchCategories(ctx, pggen.SearchCategoriesParams{
-		Query: query,
-		Limit: int32(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg search categories: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *pgCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
-func (a *PGAdapter) SearchCategoriesWithVideos(ctx context.Context, query string, limit int) ([]repository.Category, error) {
-	rows, err := a.queries.SearchCategoriesWithVideos(ctx, pggen.SearchCategoriesWithVideosParams{
-		Query: query,
-		Limit: int32(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg search categories with videos: %w", err)
-	}
-	cats := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		cats[i] = *pgCategoryToDomain(row)
-	}
-	return cats, nil
-}
-
-func (a *PGAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error {
-	if err := a.queries.UpdateCategoryGameMetadata(ctx, pggen.UpdateCategoryGameMetadataParams{
-		ID:        id,
-		BoxArtUrl: boxArtURL,
-		IgdbID:    igdbID,
-	}); err != nil {
-		return fmt.Errorf("pg update category game metadata %s: %w", id, err)
-	}
-	return nil
-}
-
 func (a *PGAdapter) GetCategorySearchCache(ctx context.Context, normalizedQuery string) (*repository.CategorySearchCache, error) {
 	row, err := a.queries.GetCategorySearchCache(ctx, normalizedQuery)
 	if err != nil {
@@ -260,16 +219,6 @@ func (a *PGAdapter) UpsertCategorySearchCache(ctx context.Context, input reposit
 		return nil, fmt.Errorf("pg upsert category search cache %q: %w", input.NormalizedQuery, err)
 	}
 	return pgCategorySearchCacheToDomain(row)
-}
-
-func (a *PGAdapter) TouchCategorySearchCache(ctx context.Context, normalizedQuery string, at time.Time) error {
-	if err := a.queries.TouchCategorySearchCache(ctx, pggen.TouchCategorySearchCacheParams{
-		NormalizedQuery: normalizedQuery,
-		At:              at,
-	}); err != nil {
-		return fmt.Errorf("pg touch category search cache %q: %w", normalizedQuery, err)
-	}
-	return nil
 }
 
 func (a *PGAdapter) PruneCategorySearchCache(ctx context.Context, maxRows int) error {

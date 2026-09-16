@@ -203,47 +203,6 @@ func (a *SQLiteAdapter) ListCategoriesByIDs(ctx context.Context, ids []string) (
 	return repository.OrderCategoriesByIDs(cats, ids), nil
 }
 
-func (a *SQLiteAdapter) SearchCategories(ctx context.Context, query string, limit int) ([]repository.Category, error) {
-	rows, err := a.queries.SearchCategories(ctx, sqlitegen.SearchCategoriesParams{
-		Query: query,
-		Limit: int64(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite search categories: %w", err)
-	}
-	out := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		out[i] = *sqliteCategoryToDomain(row)
-	}
-	return out, nil
-}
-
-func (a *SQLiteAdapter) SearchCategoriesWithVideos(ctx context.Context, query string, limit int) ([]repository.Category, error) {
-	rows, err := a.queries.SearchCategoriesWithVideos(ctx, sqlitegen.SearchCategoriesWithVideosParams{
-		Query: query,
-		Limit: int64(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite search categories with videos: %w", err)
-	}
-	out := make([]repository.Category, len(rows))
-	for i, row := range rows {
-		out[i] = *sqliteCategoryToDomain(row)
-	}
-	return out, nil
-}
-
-func (a *SQLiteAdapter) UpdateCategoryGameMetadata(ctx context.Context, id, boxArtURL, igdbID string) error {
-	if err := a.queries.UpdateCategoryGameMetadata(ctx, sqlitegen.UpdateCategoryGameMetadataParams{
-		ID:        id,
-		BoxArtUrl: boxArtURL,
-		IgdbID:    igdbID,
-	}); err != nil {
-		return fmt.Errorf("sqlite update category game metadata %s: %w", id, err)
-	}
-	return nil
-}
-
 func (a *SQLiteAdapter) GetCategorySearchCache(ctx context.Context, normalizedQuery string) (*repository.CategorySearchCache, error) {
 	row, err := a.queries.GetCategorySearchCache(ctx, normalizedQuery)
 	if err != nil {
@@ -267,16 +226,6 @@ func (a *SQLiteAdapter) UpsertCategorySearchCache(ctx context.Context, input rep
 		return nil, fmt.Errorf("sqlite upsert category search cache %q: %w", input.NormalizedQuery, err)
 	}
 	return sqliteCategorySearchCacheToDomain(row)
-}
-
-func (a *SQLiteAdapter) TouchCategorySearchCache(ctx context.Context, normalizedQuery string, at time.Time) error {
-	if err := a.queries.TouchCategorySearchCache(ctx, sqlitegen.TouchCategorySearchCacheParams{
-		At:              sqliteTime(at),
-		NormalizedQuery: normalizedQuery,
-	}); err != nil {
-		return fmt.Errorf("sqlite touch category search cache %q: %w", normalizedQuery, err)
-	}
-	return nil
 }
 
 func (a *SQLiteAdapter) PruneCategorySearchCache(ctx context.Context, maxRows int) error {

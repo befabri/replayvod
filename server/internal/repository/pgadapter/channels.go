@@ -68,21 +68,6 @@ func (a *PGAdapter) ListChannelsByIDs(ctx context.Context, ids []string) ([]repo
 	return channels, nil
 }
 
-func (a *PGAdapter) SearchChannels(ctx context.Context, query string, limit int) ([]repository.Channel, error) {
-	rows, err := a.queries.SearchChannels(ctx, pggen.SearchChannelsParams{
-		Query: query,
-		Limit: int32(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg search channels: %w", err)
-	}
-	channels := make([]repository.Channel, len(rows))
-	for i, row := range rows {
-		channels[i] = *pgChannelToDomain(row)
-	}
-	return channels, nil
-}
-
 func (a *PGAdapter) UpsertUserFollow(ctx context.Context, f *repository.UserFollow) error {
 	return a.queries.UpsertUserFollow(ctx, pggen.UpsertUserFollowParams{
 		UserID:        f.UserID,

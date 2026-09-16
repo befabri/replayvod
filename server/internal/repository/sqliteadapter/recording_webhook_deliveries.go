@@ -53,31 +53,6 @@ func (a *SQLiteAdapter) ClaimDueRecordingWebhookDeliveries(ctx context.Context, 
 	return out, nil
 }
 
-func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryDelivered(ctx context.Context, id int64, httpStatus int, now time.Time) error {
-	if err := a.queries.MarkRecordingWebhookDeliveryDelivered(ctx, sqlitegen.MarkRecordingWebhookDeliveryDeliveredParams{
-		ID:         id,
-		HttpStatus: int64(httpStatus),
-		Now:        sqliteTimePtr(&now),
-	}); err != nil {
-		return fmt.Errorf("sqlite mark recording webhook delivery delivered: %w", err)
-	}
-	return nil
-}
-
-func (a *SQLiteAdapter) MarkRecordingWebhookDeliveryFinal(ctx context.Context, id int64, status string, httpStatus int, errMsg string, nextAttemptAt time.Time, now time.Time) error {
-	if err := a.queries.MarkRecordingWebhookDeliveryFinal(ctx, sqlitegen.MarkRecordingWebhookDeliveryFinalParams{
-		ID:            id,
-		Status:        status,
-		HttpStatus:    int64(httpStatus),
-		ErrMsg:        errMsg,
-		NextAttemptAt: sqliteTime(nextAttemptAt),
-		Now:           sqliteTime(now),
-	}); err != nil {
-		return fmt.Errorf("sqlite mark recording webhook delivery final: %w", err)
-	}
-	return nil
-}
-
 func (a *SQLiteAdapter) ListRecordingWebhookDeliveries(ctx context.Context, limit int) ([]repository.RecordingWebhookDelivery, error) {
 	if limit <= 0 {
 		limit = 50

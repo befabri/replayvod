@@ -12,13 +12,6 @@ func (a *PGAdapter) CreateRecordingIntent(ctx context.Context, input repository.
 	return mapErr(a.queries.CreateRecordingIntent(ctx, pggen.CreateRecordingIntentParams{ID: input.ID, BroadcasterID: input.BroadcasterID, Params: input.Params, WaitSeconds: input.WaitSeconds, CurrentJobID: input.CurrentJobID, LastStreamID: input.LastStreamID}))
 }
 
-func (a *PGAdapter) ListRecoverableRecordingIntents(ctx context.Context, afterID string, limit int) ([]repository.RecordingIntent, error) {
-	rows, err := a.queries.ListRecoverableRecordingIntents(ctx, pggen.ListRecoverableRecordingIntentsParams{AfterID: afterID, Limit: int32(limit)})
-	if err != nil {
-		return nil, err
-	}
-	return pgRecordingIntentsToDomain(rows), nil
-}
 func (a *PGAdapter) SetRecordingIntentWaiting(ctx context.Context, id, jobID string, until time.Time) error {
 	n, err := a.queries.SetRecordingIntentWaiting(ctx, pggen.SetRecordingIntentWaitingParams{ID: id, JobID: jobID, Until: &until})
 	if err != nil {
@@ -36,21 +29,7 @@ func (a *PGAdapter) SetRecordingIntentWaiting(ctx context.Context, id, jobID str
 	}
 	return repository.ErrStaleExecution
 }
-func (a *PGAdapter) ActivateRecordingIntent(ctx context.Context, id, previousJobID, nextJobID, streamID string, observedAt time.Time) error {
-	return executionAffected(a.queries.ActivateRecordingIntent(ctx, pggen.ActivateRecordingIntentParams{ID: id, PreviousJobID: previousJobID, NextJobID: nextJobID, StreamID: streamID, ObservedAt: &observedAt}))
-}
 
-func (a *PGAdapter) ListRecordingIntentJobs(ctx context.Context, intentID, afterID string, limit int) ([]repository.Job, error) {
-	rows, err := a.queries.ListRecordingIntentJobs(ctx, pggen.ListRecordingIntentJobsParams{IntentID: intentID, AfterID: afterID, Limit: int32(limit)})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]repository.Job, len(rows))
-	for i, row := range rows {
-		out[i] = *pgJobToDomain(row)
-	}
-	return out, nil
-}
 func (a *PGAdapter) ListRelatedRecordings(ctx context.Context, videoID int64) ([]repository.RelatedRecording, error) {
 	rows, err := a.queries.ListRelatedRecordings(ctx, videoID)
 	if err != nil {

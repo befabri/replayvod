@@ -25,30 +25,6 @@ func (a *PGAdapter) UpsertServerSettings(ctx context.Context, s *repository.Serv
 	return pgServerSettingsToDomain(row), nil
 }
 
-func (a *PGAdapter) UpsertRecordingWebhookConfig(ctx context.Context, enabled bool, url, events string) (*repository.ServerSettings, error) {
-	row, err := a.queries.UpsertRecordingWebhookConfig(ctx, pggen.UpsertRecordingWebhookConfigParams{
-		Enabled: enabled,
-		Url:     url,
-		Events:  events,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg upsert recording webhook config: %w", err)
-	}
-	return pgServerSettingsToDomain(row), nil
-}
-
-func (a *PGAdapter) UpsertPlaybackCacheConfig(ctx context.Context, enabled bool, maxPercent int, autoGenerate bool) (*repository.ServerSettings, error) {
-	row, err := a.queries.UpsertPlaybackCacheConfig(ctx, pggen.UpsertPlaybackCacheConfigParams{
-		Enabled:      enabled,
-		MaxPercent:   int32(maxPercent),
-		AutoGenerate: autoGenerate,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pg upsert playback cache config: %w", err)
-	}
-	return pgServerSettingsToDomain(row), nil
-}
-
 func (a *PGAdapter) GetServerHMACSecret(ctx context.Context) (string, error) {
 	secret, err := a.queries.GetServerHMACSecret(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {

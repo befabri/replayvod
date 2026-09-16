@@ -37,25 +37,6 @@ func (a *SQLiteAdapter) CreateScheduleWithFilters(ctx context.Context, input *re
 	return out, nil
 }
 
-func (a *SQLiteAdapter) GetSchedule(ctx context.Context, id int64) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.GetSchedule(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteDownloadScheduleToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) GetScheduleForUserChannel(ctx context.Context, broadcasterID, userID string) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.GetScheduleForUserChannel(ctx, sqlitegen.GetScheduleForUserChannelParams{
-		BroadcasterID: broadcasterID,
-		UserID:        userID,
-	})
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteDownloadScheduleToDomain(row), nil
-}
-
 func (a *SQLiteAdapter) UpdateSchedule(ctx context.Context, id int64, input *repository.ScheduleInput) (*repository.DownloadSchedule, error) {
 	row, err := a.queries.UpdateSchedule(ctx, sqliteUpdateScheduleParams(id, input))
 	if err != nil {
@@ -82,45 +63,6 @@ func (a *SQLiteAdapter) UpdateScheduleWithFilters(ctx context.Context, id int64,
 		return nil, err
 	}
 	return out, nil
-}
-
-func (a *SQLiteAdapter) ToggleSchedule(ctx context.Context, id int64) (*repository.DownloadSchedule, error) {
-	row, err := a.queries.ToggleSchedule(ctx, id)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return sqliteDownloadScheduleToDomain(row), nil
-}
-
-func (a *SQLiteAdapter) ListSchedules(ctx context.Context, limit, offset int) ([]repository.DownloadSchedule, error) {
-	rows, err := a.queries.ListSchedules(ctx, sqlitegen.ListSchedulesParams{
-		Limit:  int64(limit),
-		Offset: int64(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list schedules: %w", err)
-	}
-	return sqliteDownloadSchedulesToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListSchedulesForUser(ctx context.Context, userID string, limit, offset int) ([]repository.DownloadSchedule, error) {
-	rows, err := a.queries.ListSchedulesForUser(ctx, sqlitegen.ListSchedulesForUserParams{
-		UserID: userID,
-		Limit:  int64(limit),
-		Offset: int64(offset),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list schedules for user: %w", err)
-	}
-	return sqliteDownloadSchedulesToDomain(rows), nil
-}
-
-func (a *SQLiteAdapter) ListActiveSchedulesForBroadcaster(ctx context.Context, broadcasterID string) ([]repository.DownloadSchedule, error) {
-	rows, err := a.queries.ListActiveSchedulesForBroadcaster(ctx, broadcasterID)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite list active schedules for broadcaster: %w", err)
-	}
-	return sqliteDownloadSchedulesToDomain(rows), nil
 }
 
 func sqliteCreateScheduleParams(input *repository.ScheduleInput) sqlitegen.CreateScheduleParams {
